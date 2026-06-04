@@ -22,3 +22,5 @@ yarn-error.log*
 *.tmp
 *.temp
 *.bak
+# Personal QR codes (removed from history)
+images/
