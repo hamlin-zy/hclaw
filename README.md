@@ -5,6 +5,8 @@
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/-TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/-Electron-47848F?logo=electron&logoColor=white)](https://electronjs.org/)
+[![GitHub Stars](https://img.shields.io/github/stars/hamlin-zy/hclaw?style=flat&logo=github&color=181717)](https://github.com/hamlin-zy/hclaw)
+[![Downloads](https://img.shields.io/github/downloads/hamlin-zy/hclaw/total?style=flat&logo=github&color=181717)](https://github.com/hamlin-zy/hclaw/releases)
 
 
 
