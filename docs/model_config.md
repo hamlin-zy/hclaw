@@ -15,6 +15,7 @@ HClaw 支持市面上所有提供 Anthropic、OpenAI、Google、Ollama 接口的
 ![model_btn.png](../images/model_btn.png)
 
 点击`添加`按钮
+
 ![add_model_btn.png](../images/add_model_btn.png)
 
 以DeepSeek为例，打开DeepSeek官方文档：https://api-docs.deepseek.com/zh-cn/
