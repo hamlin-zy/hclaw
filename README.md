@@ -37,7 +37,7 @@
 
 ### 1. 安装 HClaw
 
-从 [Releases](https://github.com/yourname/hclaw/releases) 下载适用于你系统的安装包。
+从 [Releases](https://github.com/hamlin-zy/hclaw/releases) 下载适用于你系统的安装包。
 
 > 💡 **无需配置任何环境变量**，也无需安装 Node.js、Python 等运行环境，下载后双击即可运行。
 > 
@@ -189,7 +189,7 @@
 
 | 渠道                        | 用途                           |
 |---------------------------|------------------------------|
-| [GitHub Issues](https://github.com/yourname/hclaw/issues) | 反馈 Bug、提交需求、讨论功能             |
+| [GitHub Issues](https://github.com/hamlin-zy/hclaw/issues) | 反馈 Bug、提交需求、讨论功能             |
 | 作者抖音                      | 即将开放，敬请期待  |
 | QQ 群                      | 即将开放，敬请期待                    |
 | 微信群                       | 即将开放，敬请期待                    |
@@ -200,4 +200,4 @@
 
 ---
 
-**HClaw** — 本地 AI Agent 桌面客户端 | [GitHub](https://github.com/yourname/hclaw) | [Releases](https://github.com/yourname/hclaw/releases)
+**HClaw** — 本地 AI Agent 桌面客户端 | [GitHub](https://github.com/hamlin-zy/hclaw) | [Releases](https://github.com/hamlin-zy/hclaw/releases)
