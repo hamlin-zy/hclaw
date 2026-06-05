@@ -1,0 +1,28 @@
+# 变更日志
+
+所有重要变更均记录在此文件中。
+
+格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
+版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+---
+
+## [v0.2.32] - 2026-06-05
+
+### 新增功能
+- **名称复制按钮** — 在 Agents、Skills、Commands 管理页面、MCP 服务器卡片（插件/用户）、Plugin 列表、Tools 列表和 CommandList 中，为每条记录的名称添加始终可见的复制按钮。点击后图标切换为绿色对勾反馈（2 秒恢复），方便用户快速复制名称到剪贴板
+
+### 杂项
+- 新增 `.gitignore` 中 `temp_*` 模式，避免临时文件被误提交
+- 清理意外提交的临时文件
+
+---
+
+## [v0.2.31] - 2026-06-05
+
+### UI 改进
+- **空状态 Logo 替换** — 将空聊天页面的 SVG 图标替换为 HClaw 应用 Logo，视觉更统一
+- **欢迎页 Logo 放大** — 欢迎页 Logo 尺寸从 `w-32` 放大至 `w-56`，首屏视觉更突出
+- **新增素材** — 新增透明版 Logo 和 Logo 素材，为后续界面优化做准备
+
+
