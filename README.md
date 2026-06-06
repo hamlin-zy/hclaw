@@ -65,7 +65,7 @@
 
 ### 1. 安装 HClaw
 
-从 [Releases](https://github.com/hamlin-zy/hclaw/releases) 下载适用于你系统的安装包。
+从 [Releases](https://github.com/hamlin-zy/hclaw/releases) 或 [百度网盘](https://pan.baidu.com/s/1YtiMuGAiDMcAtjr7sB-OrA?pwd=dr4v) 下载适用于你系统的安装包。
 
 > 💡 **无需配置任何环境变量**，也无需安装 Node.js、Python 等运行环境，下载后双击即可运行。
 > 
