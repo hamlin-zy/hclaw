@@ -6,6 +6,10 @@ HClaw 支持市面上所有提供 Anthropic、OpenAI、Google、Ollama 接口的
 
 ## 演示视频
 
+> 抖音介绍视频搜索：hamlin_zy
+>
+> [B站介绍视频](https://www.bilibili.com/video/BV1nSE46bEGY/?share_source=copy_web&vd_source=7926fed9fc131c8b68d4dceee610fdbb)
+
 ## 开始配置
 
 #### 添加模型

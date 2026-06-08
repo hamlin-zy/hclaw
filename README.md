@@ -14,7 +14,7 @@
 
 ![home_sample.png](images/home_sample.png)
 
-> [抖音介绍视频](https://v.douyin.com/BBGiozWD36o/)
+> 抖音介绍视频搜索：hamlin_zy
 > 
 > [B站介绍视频](https://www.bilibili.com/video/BV1nSE46bEGY/?share_source=copy_web&vd_source=7926fed9fc131c8b68d4dceee610fdbb)
 
@@ -242,7 +242,7 @@
 | 渠道                                                         | 用途 | 状态                                                            |
 |------------------------------------------------------------|------|---------------------------------------------------------------|
 | [GitHub Issues](https://github.com/hamlin-zy/hclaw/issues) | 反馈 Bug、提交需求、讨论功能 | ✅ 已开放                                                         |
-| 作者抖音                                                       | 安装教程、项目动态 | [抖音作品找到作者](https://v.douyin.com/BBGiozWD36o/)                 |
+| 作者抖音                                                       | 安装教程、项目动态 | 抖音介绍视频搜索：hamlin_zy                 |
 | 作者B站                                                       | 用户交流、答疑 | [hamlin-zy B站首页](https://space.bilibili.com/3707005250308201) |
 | QQ 群                                                       | 用户交流、答疑 | 📹 即将开放                                                     |
 | 微信群                                                        | 深度用户交流 | 📹 即将开放                                                       |
