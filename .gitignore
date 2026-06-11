@@ -1,26 +1,53 @@
-# Node.js
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# macOS
+.vite/
+dist/
+release/
 .DS_Store
-
-# 环境配置
+*.log
 .env
 .env.local
-.env.*.local
+*.tsbuildinfo
+.npmrc
+CLAUDE.md
+# AGENTS.md
+GEMINI.md
+/.claude
+/.codex
+/.gemini
+/.cc-switch
+/.idea
+/.vscode
+vitest-report.json
+nul
 
-# 临时文件
+# 临时文件和备份文件
+*.backup
+temp_*
+*.bak
+*.old
 *.tmp
 *.temp
-*.bak
-# Personal QR codes (removed from history)
-images/
+errors*.txt
+tsc*.txt
+typecheck*.txt
+
+# 编译输出
+out/
+
+# 测试覆盖率报告
+coverage/
+
+# 测试和调试文件
+test_*.js
+test_*.ts
+
+# Flatpak build artifacts
+flatpak/cc-switch.deb
+flatpak-build/
+flatpak-repo/
+.worktrees/
+.spec-workflow/
+copilot-api
+.history
+CODEBUDDY.md
+.codegraph

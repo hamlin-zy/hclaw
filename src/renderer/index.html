@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <meta http-equiv="Content-Security-Policy"
+            content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https: http: file: hclaw-media:; media-src 'self' blob: file: hclaw-media:; connect-src 'self' data: blob: ws://localhost:* http://localhost:* https:;">
+      <title>HClaw</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+      <script>
+          // 在浏览器首次绘制前同步读取主题，防止日/夜间主题闪烁
+          // 优先级：preload 注入的 initialTheme（SQLite）> localStorage 缓存
+          (function () {
+              try {
+                  var theme = window.electronAPI?.initialTheme || localStorage.getItem('hclaw-theme');
+                  var rootStyle = document.documentElement.style;
+
+                  // 各主题的 CSS 变量定义（与 globals.css 对应选择器保持同步）
+                  var THEMES = {
+                      'dark': {
+                          class: 'dark',
+                          vars: {
+                              '--surface': '#1e1e1e', '--surface-muted': '#252526', '--surface-elevated': '#2d2d2d', '--surface-overlay': '#333333',
+                              '--text-primary': '#d4d4d4', '--text-secondary': '#969696', '--text-muted': '#808080', '--text-inverse': '#1e1e1e',
+                              '--border': 'rgba(255,255,255,0.06)', '--border-muted': 'rgba(255,255,255,0.03)', '--border-emphasis': 'rgba(255,255,255,0.10)',
+                              '--brand-primary': '#34d399', '--brand-hover': '#2dd4a8', '--brand-muted': 'rgba(52,211,153,0.18)',
+                              '--success': '#10b981', '--warning': '#d4a021', '--error': '#c45c5c', '--info': '#5b8dd9'
+                          }
+                      },
+                      'yuanshandai': {
+                          class: 'yuanshandai',
+                          vars: {
+                              '--surface': '#31475d', '--surface-muted': '#3a546f', '--surface-elevated': '#426078', '--surface-overlay': '#273c52',
+                              '--text-primary': '#e8edf2', '--text-secondary': '#b8c4d0', '--text-muted': '#8a9aad', '--text-inverse': '#1e1e1e',
+                              '--border': 'rgba(255,255,255,0.08)', '--border-muted': 'rgba(255,255,255,0.04)', '--border-emphasis': 'rgba(255,255,255,0.14)',
+                              '--brand-primary': '#2dd4a8', '--brand-hover': '#1ac094', '--brand-muted': 'rgba(26,192,148,0.18)',
+                              '--success': '#10b981', '--warning': '#d4a021', '--error': '#c45c5c', '--info': '#5b8dd9'
+                          }
+                      },
+                      'shiyangjin': {
+                          class: 'shiyangjin',
+                          vars: {
+                              '--surface': '#FFF8F7', '--surface-muted': '#FFF2F0', '--surface-elevated': '#FFFFFF', '--surface-overlay': '#FFEDEA',
+                              '--text-primary': '#3C2E2D', '--text-secondary': '#8A7B79', '--text-muted': '#B6A7A5', '--text-inverse': '#FFFFFF',
+                              '--border': '#F0DDDA', '--border-muted': '#F5E8E5', '--border-emphasis': '#C2A29D',
+                              '--brand-primary': '#D6756B', '--brand-hover': '#C9655A', '--brand-muted': 'rgba(255,175,168,0.15)',
+                              '--success': '#10b981', '--warning': '#f59e0b', '--error': '#ef4444', '--info': '#3b82f6'
+                          }
+                      }
+                  };
+                  // 亮色主题只需关键背景色防白屏，其他由 CSS 默认值接管
+                  var LIGHT_VARS = {
+                      '--surface': '#ffffff', '--surface-muted': '#f9fafb', '--surface-elevated': '#ffffff', '--surface-overlay': '#f3f4f6'
+                  };
+
+                  if (theme && THEMES[theme]) {
+                      document.documentElement.classList.add(THEMES[theme].class);
+                      for (var key in THEMES[theme].vars) {
+                          rootStyle.setProperty(key, THEMES[theme].vars[key]);
+                      }
+                  } else {
+                      for (var key in LIGHT_VARS) {
+                          rootStyle.setProperty(key, LIGHT_VARS[key]);
+                      }
+                  }
+
+                  if (window.electronAPI?.isWin11) document.documentElement.classList.add('win11');
+                  if (window.electronAPI?.isDarwin) document.documentElement.classList.add('darwin');
+              } catch (e) {}
+          })();
+      </script>
+  </head>
+  <body style="margin:0;overflow:hidden;background:var(--surface,#ffffff);">
+    <div id="root">
+        <!--
+            内联加载 UI：在 React 挂载前立即显示，确保零白屏。
+            createRoot().render() 会替换整个 #root 内容，加载 UI 自动消失。
+            使用 CSS var() + fallback 确保任何主题下颜色正确。
+        -->
+        <div class="app-loading"
+             style="display:flex;align-items:center;justify-content:center;height:100vh;width:100vw;
+                    background:var(--surface,#ffffff);color:var(--text-muted,#808080);">
+            <div style="text-align:center;">
+                <div class="app-loading-spinner"
+                     style="width:32px;height:32px;margin:0 auto;border-radius:50%;
+                            border:2px solid var(--border,rgba(0,0,0,0.1));
+                            border-top-color:var(--brand-primary,#34d399);"></div>
+                <p style="margin-top:16px;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">启动中...</p>
+            </div>
+        </div>
+        <style>
+            .app-loading-spinner { animation: app-spin 1s linear infinite; }
+            @keyframes app-spin { to { transform: rotate(360deg); } }
+        </style>
+    </div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

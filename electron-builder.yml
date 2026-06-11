@@ -1,0 +1,112 @@
+appId: com.hclaw.desktop
+productName: HClaw
+copyright: Copyright © 2025 HClaw Team
+executableName: HClaw
+
+directories:
+  output: dist
+  buildResources: build
+
+# 打包入口
+files:
+  - ".vite/**/*"
+  - "public/**/*"
+  - "package.json"
+
+asar: true
+asarUnpack:
+  - "**/*.node"
+  - ".vite/node_modules/**"
+
+# 额外资源（复制到 resources/ 目录，运行时通过 process.resourcesPath 访问）
+extraResources:
+  - from: public/icon.png
+    to: icon.png
+  - from: public/icon.ico
+    to: icon.ico
+
+# macOS 配置
+mac:
+  icon: public/icon.png
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  category: public.app-category.utilities
+  target:
+    - target: dmg
+      arch:
+        - x64
+  identity: null
+
+dmg:
+  # license: LICENSE  # electron-builder 26+ 不再支持 dmg.license
+
+# Win32 配置
+win:
+  icon: public/icon.ico
+  artifactName: ${productName}-${version}-windows-Setup.${ext}
+  signAndEditExecutable: false
+  # 注意：signAndEditExecutable: false 会禁用 electron-builder 内建的 rcedit
+  # 图标嵌入步骤（因为 app-builder 下载 winCodeSign 时在 Windows 上会因符号
+  # 链接权限而失败）。作为替代方案，在 build/afterPack.js 中手动调用 rcedit
+  # 完成图标嵌入，以绕过该管道问题。
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+# Linux 配置
+linux:
+  icon: public/icon.png
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+  category: Utility
+  maintainer: HClaw Team <hclaw@example.com>
+  target:
+    - target: deb
+      arch:
+        - x64
+    - target: AppImage
+      arch:
+        - x64
+
+# NSIS 安装程序配置（微信级别体验）
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+
+  # 快捷方式
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: HClaw
+
+  # 图标
+  installerIcon: public/icon.ico
+  uninstallerIcon: public/icon.ico
+  uninstallDisplayName: HClaw
+  installerHeaderIcon: public/icon.ico
+
+  # 多语言
+  multiLanguageInstaller: true
+  installerLanguages:
+    - zh_CN
+    - en_US
+
+  # 安装向导文案
+  license: LICENSE
+
+  # 安装完成后运行
+  runAfterFinish: true
+
+  # 删除时询问
+  deleteAppDataOnUninstall: false
+
+# N-API 原生模块（@photostructure/sqlite），无需 node-gyp 重建
+npmRebuild: false
+
+# 发布配置（如需自动更新）
+publish:
+  - provider: generic
+    url: https://releases.hclaw.dev/
+    channel: latest
+
+afterPack: build/afterPack.js
