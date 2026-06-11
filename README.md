@@ -2,7 +2,7 @@
 
 本地 Agent 客户端 
 
-[![License](https://img.shields.io/badge/license-Pre--release-FF8C00.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/-TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/-Electron-47848F?logo=electron&logoColor=white)](https://electronjs.org/)
 [![GitHub Stars](https://img.shields.io/github/stars/hamlin-zy/hclaw?style=flat&logo=github&color=181717)](https://github.com/hamlin-zy/hclaw)
@@ -195,46 +195,27 @@
 
 ---
 
-## 🔓 开源规划
+## 🔓 开源协议
 
-> **HClaw 有计划在未来开源，目前正处在筹备阶段。**
+HClaw 已正式开源，采用 **MIT 许可证**。
 
-目前 **暂未开放源码**，原因很简单——我希望在开源之前，先把以下事情准备好：
+你可以在 [LICENSE](LICENSE) 文件中查看完整的许可条款。简而言之：
+- ✅ 允许商业使用
+- ✅ 允许修改和分发
+- ✅ 允许私人使用
+- ⚠️ 不提供任何担保
 
-- 📹 **完整的安装教学视频** → 让零基础用户也能轻松上手
-- 📖 **完善的开发者文档** → 让想参与贡献的人能快速理解架构
-- 🌱 **良好的社区基础** → 开源不是丢代码就完事，需要有人维护、有人回应
-
-> **当前你可以看到这里：**
-> 所有文档、配置说明、系统提示词模板、MCP 配置、Agent/Skill 管理方式 — **这些全部是透明的，没有任何隐藏。**
->
-> 你看不到的部分只有核心引擎代码，而这也是未来的开放方向。
-
-> ⚠️ **以下规划为当前设想，可能会根据实际情况调整。** 开源不是目标，把产品做好才是。
-
-如果你对这个项目感兴趣，现在就可以：
-1. **下载试用** — 像安装微信一样简单，没有学习成本
-2. **提 Issue / 建议** — 你的反馈直接影响打磨方向
-3. **点亮 Star** ⭐ — 让更多人看到
+欢迎通过 [GitHub Issues](https://github.com/hamlin-zy/hclaw/issues) 反馈问题，或提交 PR 参与贡献。
 
 ---
 
-## 🗺️ 开放路线图
-
-```
-当前 ─── 教程筹备 ─── 教学视频上线 ─── 源码开源 ─── 社区共建
-   │          │              │              │            │
-   │    ⚡ 现在这里     📹 录制中        🔓 即将到来     🌱
-   │
-   └─ 试用产品、提反馈、点亮 Star，加速进度
-```
+## 🗺️ 路线图
 
 | 阶段 | 状态 | 说明 |
 |------|------|------|
 | 产品可用 | ✅ 已完成 | 核心功能完善，可直接下载使用 |
 | 安装教程视频 | 📹 筹备中 | 抖音/B站同步发布 |
-| 开发者文档 | 📝 编写中 | 架构说明、二次开发指南 |
-| 开源发布 | 🔓 下一个里程碑 | 源码公开，切换开源协议 |
+| 开源发布 | ✅ 已完成 | MIT 许可证，源码公开 |
 | 社区共建 | 🌱 持续 | 接收 PR、完善生态 |
 
 ## 💬 加入社区
@@ -249,7 +230,7 @@
 
 ## ⭐ 支持项目
 
-如果你喜欢 HClaw，欢迎在 GitHub 上点亮 Star ⭐，**Star 越多，开源那天来得越快**。
+如果你喜欢 HClaw，欢迎在 GitHub 上点亮 Star ⭐，也欢迎提交 PR 参与贡献。
 
 ---
 
