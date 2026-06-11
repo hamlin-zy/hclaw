@@ -1,20 +1,21 @@
-版权所有 © 2026 Hamlin
+MIT License
 
-保留所有权利。
+Copyright (c) 2026 Hamlin (hamlin_zy)
 
-本软件免费提供给个人使用。作者不对因使用本软件而产生的任何问题承担责任，
-使用风险由用户自行承担。
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-## 开源规划
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-作者计划在未来将本软件切换为开源许可证，具体时间点和协议类型届时公布。
-
-当前为过渡期的**预发布（Pre-release）** 状态，保留所有权利。
-作者保留在未来以适当方式（包括但不限于开源许可协议）重新发布本软件的权利。
-届时将以公告形式通知。
-
-过渡期内你可以：
-- ✅ 免费下载和使用
-- ✅ 提交 Issue 反馈问题
-- ✅ 参与功能讨论
-- ❌ 不开放源码修改和再分发
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
