@@ -1,0 +1,2239 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========================================
+   Base Layer — Transparent & Rounded Window
+   ======================================== */
+@layer base {
+    /**
+     * html/body 使用主题背景色
+     *
+     * transparent: false 后使用 var(--surface) 替代透明背景，
+     * 避免 Chromium 强制软件合成（节省 200-500MB 内存）
+     */
+    html, body {
+        height: 100%;
+        overflow: hidden;
+        background: var(--surface);
+    }
+
+    /**
+     * #root 容器
+     *
+     * 使用 window-container 类来应用圆角
+     */
+    #root {
+        height: 100%;
+        overflow: hidden;
+    }
+
+    /**
+     * window-container - 主窗口容器
+     * 包含标题栏、菜单栏和主内容区域
+     * 使用 flex column 布局
+     *
+     * ⚠️ 不再使用 clip-path 圆角：
+     * - Win11 → DWM 原生 `roundedCorners: true` 处理圆角
+     * - Win10 → 方角，与操作系统风格一致
+     * - 两者均无需透明背景，消除软件合成内存开销
+     */
+    .window-container {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background-color: var(--surface);
+
+        /*
+         * 窗口边框（DWM 原生边框 + 自定义内边框）
+         */
+        border: 1px solid var(--border);
+
+        /*
+         * 窗口阴影
+         * DWM 已提供原生阴影，此处作为额外视觉层次
+         */
+        box-shadow:
+        0 4px 6px -1px rgba(0, 0, 0, 0.1),
+        0 10px 20px -2px rgba(0, 0, 0, 0.15),
+        0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    }
+
+    /* 暗色主题阴影（DWM 阴影太淡，补充深度） */
+    .dark .window-container {
+        box-shadow:
+        0 4px 6px -1px rgba(0, 0, 0, 0.4),
+        0 10px 20px -2px rgba(0, 0, 0, 0.5),
+        0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+}
+
+/* ========================================
+   Design Tokens — MiniMax Light Theme
+   ======================================== */
+:root {
+    /* Surface colors — clean, minimal */
+    --surface: #ffffff;
+    --surface-muted: #f9fafb;
+    --surface-elevated: #ffffff;
+    --surface-overlay: #f3f4f6;
+
+    /* Text colors — soft contrast, easy on eyes */
+    --text-primary: #333333;
+    --text-secondary: #888888;
+    --text-muted: #aaaaaa;
+    --text-inverse: #ffffff;
+
+    /* Border colors — subtle, minimal */
+    --border: #e5e7eb;
+    --border-muted: #f3f4f6;
+    --border-emphasis: #d1d5db;
+
+    /* Brand colors — teal (based on #01795d) */
+    --brand-primary: #1ac094;
+    --brand-hover: #0da47a;
+    --brand-muted: rgba(26, 192, 148, 0.10);
+    --brand-border: rgba(26, 192, 148, 0.32);
+
+    /* Status colors */
+    --success: #10b981;
+    --warning: #f59e0b;
+    --error: #ef4444;
+    --info: #3b82f6;
+
+    /* Semantic tag colors */
+    --tag-dev-bg: #fef3c7;
+    --tag-dev-text: #92400e;
+    --tag-dev-border: #fcd34d;
+    --tag-builtin-bg: #d1fae5;
+    --tag-builtin-text: #065f46;
+    --tag-builtin-border: #6ee7b7;
+    --tag-readonly-bg: #f1f5f9;
+    --tag-readonly-text: #475569;
+    --tag-readonly-border: #cbd5e1;
+    --tag-plugin-bg: #ede9fe;
+    --tag-plugin-text: #5b21b6;
+    --tag-plugin-border: #c4b5fd;
+
+    /* Spacing scale */
+    --space-tight: 2px;
+    --space-snug: 8px;
+    --space-normal: 12px;
+    --space-relaxed: 16px;
+    --space-loose: 24px;
+    --space-spacious: 32px;
+
+    /* Layout dimensions */
+    --sidebar-width: 256px;
+    --panel-width: 256px;
+    --titlebar-height: 33px;
+    --menubar-height: 36px;
+
+    /* Window Corner Radius */
+    --win11-corner-radius: 12px;
+
+    /* Z-index layers */
+    --z-base: 0;
+    --z-dropdown: 1000;
+    --z-sticky: 1020;
+    --z-fixed: 1030;
+    --z-modal-backdrop: 1040;
+    --z-modal: 1050;
+    --z-popover: 1060;
+    --z-tooltip: 1070;
+    --z-overlay: 1080;
+    --z-elevated: 1090;
+
+    /* Shadows — flat/minimal for VS Code aesthetic */
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-elevated: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-overlay: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* Flat card overrides for VS Code aesthetic */
+.shadow-sm {
+    box-shadow: none !important;
+}
+
+.rounded-xl {
+    border-radius: 6px;
+}
+
+/* VS Code style scrollbar */
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a0a0a0;
+}
+
+* {
+    scrollbar-color: #c1c1c1 transparent;
+}
+
+/* ========================================
+   Dark Theme — VS Code / Cursor-Style Pure Gray
+   ======================================== */
+.dark {
+    /* Surface colors */
+    --surface: #1e1e1e;
+    --surface-muted: #252526;
+    --surface-elevated: #2d2d2d;
+    --surface-overlay: #333333;
+
+    /* Text colors */
+    --text-primary: #d4d4d4;
+    --text-secondary: #969696;
+    --text-muted: #808080;
+    --text-inverse: #1e1e1e;
+
+    /* Border colors */
+    --border: rgba(255, 255, 255, 0.06);
+    --border-muted: rgba(255, 255, 255, 0.03);
+    --border-emphasis: rgba(255, 255, 255, 0.10);
+
+    /* Brand colors — teal for dark mode */
+    --brand-primary: #2dd4a8;
+    --brand-hover: #1ac094;
+    --brand-muted: rgba(26, 192, 148, 0.18);
+    --brand-border: rgba(45, 212, 168, 0.35);
+
+    /* Status colors */
+    --success: #10b981;
+    --success-muted: rgba(16, 185, 129, 0.12);
+    --warning: #d4a021;
+    --warning-muted: rgba(212, 160, 33, 0.12);
+    --error: #c45c5c;
+    --error-muted: rgba(196, 92, 92, 0.12);
+    --info: #5b8dd9;
+    --info-muted: rgba(91, 141, 217, 0.12);
+
+    /* Semantic tag colors — bumped opacity for dark mode visibility */
+    --tag-dev-bg: rgba(245, 158, 11, 0.22);
+    --tag-dev-text: #fbbf24;
+    --tag-dev-border: rgba(245, 158, 11, 0.4);
+    --tag-builtin-bg: rgba(16, 185, 129, 0.22);
+    --tag-builtin-text: #34d399;
+    --tag-builtin-border: rgba(16, 185, 129, 0.4);
+    --tag-readonly-bg: rgba(100, 116, 139, 0.25);
+    --tag-readonly-text: #a3aec2;
+    --tag-readonly-border: rgba(100, 116, 139, 0.4);
+    --tag-plugin-bg: rgba(139, 92, 246, 0.22);
+    --tag-plugin-text: #a78bfa;
+    --tag-plugin-border: rgba(139, 92, 246, 0.4);
+
+    /* Glow effects */
+    --glow-subtle: 0 0 0 1px rgba(54, 210, 170, 0.25),
+    0 0 12px rgba(54, 210, 170, 0.1);
+    --glow-active: 0 0 0 1px rgba(54, 210, 170, 0.4),
+    0 0 20px rgba(54, 210, 170, 0.15);
+    --glow-success: 0 0 8px rgba(16, 185, 129, 0.2);
+    --glow-error: 0 0 8px rgba(196, 92, 92, 0.2);
+
+    /* Card shadows */
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.2),
+    0 0 1px rgba(255, 255, 255, 0.03) inset;
+    --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.3),
+    0 0 1px rgba(255, 255, 255, 0.04) inset;
+    --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.4),
+    0 0 1px rgba(255, 255, 255, 0.05) inset;
+}
+
+/* ========================================
+   Theme Override: Hardcoded Tailwind Classes
+   — All themes share the same overrides, deduplicated via :is()
+   ======================================== */
+
+/* Background surfaces */
+:is(.dark, .yuanshandai, .shiyangjin) :is(.bg-white, .bg-gray-50),
+:is(.dark, .yuanshandai, .shiyangjin) :is(input, textarea).bg-white {
+    background-color: var(--surface) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .bg-gray-100 {
+    background-color: var(--surface-muted) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) :is(.dark\:bg-gray-800),
+:is(.dark, .yuanshandai, .shiyangjin).bg-gray-900 {
+    background-color: var(--surface) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) :is(.dark\:bg-gray-900),
+:is(.dark, .yuanshandai, .shiyangjin).bg-gray-900 {
+    background-color: var(--surface-muted) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) :is(.bg-gray-50\/50, .bg-gray-50\/30) {
+    background-color: var(--surface-muted) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .bg-gray-200 {
+    background-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .bg-gray-300 {
+    background-color: var(--text-muted) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) :is(.bg-brand-50) {
+    background-color: var(--brand-muted) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .bg-brand-500 {
+    background-color: var(--brand-primary) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) :is(.bg-amber-50) {
+    background-color: rgba(251, 191, 36, 0.1) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .bg-green-100 {
+    background-color: var(--success-muted) !important;
+}
+
+/* Toggle switch thumb — keep white in dark mode */
+:is(.dark, .yuanshandai, .shiyangjin) :is(.bg-gray-200, .bg-brand-500) .rounded-full.bg-white {
+    background-color: #ffffff !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .bg-gray-200 .rounded-full.bg-white {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Border colors */
+:is(.dark, .yuanshandai, .shiyangjin) .border-gray-100 {
+    border-color: var(--border-muted) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .border-gray-200 {
+    border-color: var(--border) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .border-gray-300 {
+    border-color: var(--border-emphasis) !important;
+}
+
+/* Text colors */
+:is(.dark, .yuanshandai, .shiyangjin) .text-gray-300 {
+    color: var(--text-secondary) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) :is(.text-gray-400, .text-gray-500) {
+    color: var(--text-muted) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .text-gray-600 {
+    color: var(--text-secondary) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) :is(.text-gray-700, .text-gray-800, .text-gray-900) {
+    color: var(--text-primary) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) :is(.text-brand-500, .text-brand-400, .text-brand-600) {
+    color: var(--brand-primary) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .text-amber-600 {
+    color: var(--warning) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .text-green-600 {
+    color: var(--success) !important;
+}
+
+/* Hover states */
+:is(.dark, .yuanshandai, .shiyangjin) :is(.hover\:bg-gray-50, .hover\:bg-gray-100):hover {
+    background-color: var(--surface-muted) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .hover\:border-gray-200:hover {
+    border-color: var(--border) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .hover\:border-gray-300:hover {
+    border-color: var(--border-emphasis) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .hover\:text-gray-600:hover {
+    color: var(--text-secondary) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .hover\:text-gray-700:hover {
+    color: var(--text-primary) !important;
+}
+
+/* Focus states */
+:is(.dark, .yuanshandai, .shiyangjin) .ring-gray-200 {
+    --tw-ring-color: var(--border) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .focus\:border-gray-200:focus {
+    border-color: var(--border) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .focus\:border-gray-300:focus {
+    border-color: var(--border-emphasis) !important;
+}
+
+/* Placeholders */
+:is(.dark, .yuanshandai, .shiyangjin) :is(.placeholder-gray-400, .placeholder-gray-500)::placeholder {
+    color: var(--text-muted) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .placeholder-gray-300::placeholder {
+    color: var(--text-muted) !important;
+}
+
+/* Dividers */
+:is(.dark, .yuanshandai, .shiyangjin) .divide-gray-100 > * + * {
+    border-color: var(--border-muted) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .divide-gray-200 > * + * {
+    border-color: var(--border) !important;
+}
+
+/* Shadows */
+:is(.dark, .yuanshandai, .shiyangjin) .shadow-sm {
+    --tw-shadow-color: rgba(0, 0, 0, 0.3) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .shadow-xl {
+    --tw-shadow-color: rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Overlays */
+:is(.dark, .yuanshandai, .shiyangjin) .bg-black\/30 {
+    background-color: rgba(0, 0, 0, 0.6) !important;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) .bg-black\/10 {
+    background-color: rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Range slider */
+:is(.dark, .yuanshandai, .shiyangjin) input[type="range"] {
+    accent-color: var(--brand-primary) !important;
+}
+
+/* Input/select/text field base overrides */
+:is(.dark, .yuanshandai, .shiyangjin) :is(input, select, textarea) {
+    background-color: var(--surface);
+    color: var(--text-primary);
+    border-color: var(--border);
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) :is(input, textarea)::placeholder {
+    color: var(--text-muted);
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) select option {
+    background-color: var(--surface-elevated);
+    color: var(--text-primary);
+}
+
+/* Checkbox — custom styling */
+:is(.dark, .yuanshandai, .shiyangjin) input[type="checkbox"]:not(.sr-only) {
+    -webkit-appearance: none;
+    appearance: none;
+    border: 1.5px solid rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    background-color: transparent;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) input[type="checkbox"]:not(.sr-only):hover {
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) input[type="checkbox"]:not(.sr-only):checked {
+    background-color: var(--brand-primary);
+    border-color: var(--brand-primary);
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 6.5L5.5 9L9.5 3' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) input[type="checkbox"]:not(.sr-only):focus-visible {
+    outline: 2px solid var(--brand-primary);
+    outline-offset: 2px;
+}
+
+:is(.dark, .yuanshandai, .shiyangjin) input[type="checkbox"]:not(.sr-only):disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ========================================
+   Glass Effects — Unified frosted glass layer
+   ======================================== */
+
+/* Glass panel utility — subtle blur for main workspace surfaces */
+.glass-panel {
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.dark .glass-panel,
+.yuanshandai .glass-panel,
+.shiyangjin .glass-panel {
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+/* Sidebar edge shadow — depth separation between sidebar and content */
+.sidebar-shadow {
+    box-shadow: 1px 0 0 0 var(--border),
+                inset -1px 0 12px -8px rgba(0, 0, 0, 0.15);
+}
+
+/* ========================================
+   Base Styles
+   ======================================== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--surface);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ========================================
+   Scrollbar — Refined & Minimal
+   ======================================== */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-emphasis);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Dark mode scrollbar - cursor-dark style */
+.dark ::-webkit-scrollbar-thumb {
+    background: #424242;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+    background: #555555;
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-emphasis) transparent;
+}
+
+.dark * {
+    scrollbar-color: #424242 transparent;
+}
+
+/* ========================================
+   Selection — teal brand
+   ======================================== */
+::selection {
+    background: rgba(26, 192, 148, 0.30);
+  color: var(--text-primary);
+}
+
+.dark ::selection {
+    background: rgba(45, 212, 168, 0.30);
+}
+
+/* ========================================
+   远山黛主题 — Teal Brand + Blue-Gray Surface
+   ======================================== */
+.yuanshandai {
+    /* Surface colors — blue-gray */
+    --surface: #31475d;
+    --surface-muted: #3a546f;
+    --surface-elevated: #426078;
+    --surface-overlay: #273c52;
+
+    /* Text colors */
+    --text-primary: #e8edf2;
+    --text-secondary: #b8c4d0;
+    --text-muted: #8a9aad;
+    --text-inverse: #1e1e1e;
+
+    /* Border colors */
+    --border: rgba(255, 255, 255, 0.08);
+    --border-muted: rgba(255, 255, 255, 0.04);
+    --border-emphasis: rgba(255, 255, 255, 0.14);
+
+    /* Brand colors — muted teal-blue (远山黛: distant mountain indigo) */
+    --brand-primary: #5ba8a8;
+    --brand-hover: #4a9a9a;
+    --brand-muted: rgba(75, 160, 160, 0.18);
+
+    /* Status colors — adjusted for blue-gray harmony */
+    --success: #45a88c;
+    --success-muted: rgba(69, 168, 140, 0.15);
+    --warning: #c9953a;
+    --warning-muted: rgba(201, 149, 58, 0.15);
+    --error: #c45c5c;
+    --error-muted: rgba(196, 92, 92, 0.12);
+    --info: #6a9fd8;
+    --info-muted: rgba(106, 159, 216, 0.12);
+
+    /* Semantic tag colors */
+    --tag-dev-bg: rgba(245, 158, 11, 0.22);
+    --tag-dev-text: #fbbf24;
+    --tag-dev-border: rgba(245, 158, 11, 0.4);
+    --tag-builtin-bg: rgba(16, 185, 129, 0.22);
+    --tag-builtin-text: #34d399;
+    --tag-builtin-border: rgba(16, 185, 129, 0.4);
+    --tag-readonly-bg: rgba(100, 116, 139, 0.25);
+    --tag-readonly-text: #a3aec2;
+    --tag-readonly-border: rgba(100, 116, 139, 0.4);
+    --tag-plugin-bg: rgba(139, 92, 246, 0.22);
+    --tag-plugin-text: #a78bfa;
+    --tag-plugin-border: rgba(139, 92, 246, 0.4);
+
+    /* Glow effects — using brand primary */
+    --glow-subtle: 0 0 0 1px rgba(91, 168, 168, 0.25),
+    0 0 12px rgba(91, 168, 168, 0.1);
+    --glow-active: 0 0 0 1px rgba(91, 168, 168, 0.4),
+    0 0 20px rgba(91, 168, 168, 0.15);
+    --glow-success: 0 0 8px rgba(69, 168, 140, 0.2);
+    --glow-error: 0 0 8px rgba(196, 92, 92, 0.2);
+
+    /* Shadows */
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.25);
+    --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.35);
+    --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* 远山黛主题滚动条 */
+.yuanshandai ::-webkit-scrollbar-thumb {
+    background: #4a6278;
+}
+
+.yuanshandai ::-webkit-scrollbar-thumb:hover {
+    background: #5d7a91;
+}
+
+.yuanshandai * {
+    scrollbar-color: #4a6278 transparent;
+}
+
+/* 远山黛主题窗口阴影 */
+.yuanshandai .window-container {
+    box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.4),
+    0 10px 20px -2px rgba(0, 0, 0, 0.5),
+    0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+/* 远山黛主题选择色 */
+.yuanshandai ::selection {
+    background: rgba(45, 212, 168, 0.30);
+}
+
+/* ========================================
+   十样锦主题 — Coral Pink + Warm Light Surface
+   ======================================== */
+.shiyangjin {
+    /* Surface colors — warm pinkish white */
+    --surface: #FFF8F7;
+    --surface-muted: #FFF2F0;
+    --surface-elevated: #FFFFFF;
+    --surface-overlay: #FFEDEA;
+
+    /* Text colors — warm dark */
+    --text-primary: #3C2E2D;
+    --text-secondary: #8A7B79;
+    --text-muted: #B6A7A5;
+    --text-inverse: #FFFFFF;
+
+    /* Border colors — warm & subtle */
+    --border: #F0DDDA;
+    --border-muted: #F5E8E5;
+    --border-emphasis: #C2A29D;
+
+    /* Brand colors — coral (deepened for readability: #FFAFA8 → #D6756B, +4.6:1 contrast on warm white) */
+    --brand-primary: #D6756B;
+    --brand-hover: #C9655A;
+    --brand-muted: rgba(214, 117, 107, 0.15);
+
+    /* Status colors — same as light */
+    --success: #10b981;
+    --success-muted: rgba(16, 185, 129, 0.10);
+    --warning: #f59e0b;
+    --warning-muted: rgba(245, 158, 11, 0.10);
+    --error: #ef4444;
+    --error-muted: rgba(239, 68, 68, 0.10);
+    --info: #3b82f6;
+    --info-muted: rgba(59, 130, 246, 0.10);
+
+    /* Semantic tag colors — warm light */
+    --tag-dev-bg: #fef3c7;
+    --tag-dev-text: #92400e;
+    --tag-dev-border: #fcd34d;
+    --tag-builtin-bg: #d1fae5;
+    --tag-builtin-text: #065f46;
+    --tag-builtin-border: #6ee7b7;
+    --tag-readonly-bg: #f1f5f9;
+    --tag-readonly-text: #475569;
+    --tag-readonly-border: #cbd5e1;
+    --tag-plugin-bg: #ede9fe;
+    --tag-plugin-text: #5b21b6;
+    --tag-plugin-border: #c4b5fd;
+
+    /* Glow effects — coral */
+    --glow-subtle: 0 0 0 1px rgba(214, 117, 107, 0.25),
+    0 0 12px rgba(214, 117, 107, 0.1);
+    --glow-active: 0 0 0 1px rgba(214, 117, 107, 0.4),
+    0 0 20px rgba(214, 117, 107, 0.15);
+    --glow-success: 0 0 8px rgba(16, 185, 129, 0.2);
+    --glow-error: 0 0 8px rgba(196, 92, 92, 0.2);
+
+    /* Shadows — same as light */
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-elevated: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-overlay: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* 十样锦主题滚动条 */
+.shiyangjin ::-webkit-scrollbar-thumb {
+    background: #D4C5C2;
+}
+
+.shiyangjin ::-webkit-scrollbar-thumb:hover {
+    background: #C4B5B2;
+}
+
+.shiyangjin * {
+    scrollbar-color: #D4C5C2 transparent;
+}
+
+/* 十样锦主题选择色 */
+.shiyangjin ::selection {
+    background: rgba(214, 117, 107, 0.30);
+}
+
+/* ========================================
+   Yuanshandai: Override Tailwind dark: classes that don't apply
+   (dark: only works when .dark class exists, not .yuanshandai)
+   — ConversationSidebar workspace icon area
+   ======================================== */
+
+/* 会话输入框边框（ConversationSidebar.tsx:767） */
+.yuanshandai .border-green-200\/60 {
+    border-color: rgba(80, 160, 160, 0.30) !important;
+}
+
+.yuanshandai .border-green-500\/20 {
+    border-color: rgba(80, 160, 160, 0.20) !important;
+}
+
+.yuanshandai .bg-green-50 {
+    background-color: rgba(80, 160, 160, 0.08) !important;
+}
+
+.yuanshandai .bg-green-500\/10 {
+    background-color: rgba(80, 160, 160, 0.08) !important;
+}
+
+/* 工作目录区域：图标容器边框（line 218: border-gray-200/80 → border-white/10） */
+.yuanshandai .border-gray-200\/80 {
+    border-color: rgba(255, 255, 255, 0.10) !important;
+}
+
+/* 工作目录区域：图标 hover 时边框变亮（line 218: group-hover:border-gray-300） */
+.yuanshandai .group:hover .border-gray-300 {
+    border-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+/* 新建对话按钮（line 394）：hover 时文字变亮 */
+.yuanshandai .dark\:hover\:bg-white\/10:hover,
+.yuanshandai .hover\:bg-white\/10:hover {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.yuanshandai .dark\:hover\:text-gray-100:hover,
+.yuanshandai .hover\:text-gray-100:hover {
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* 新建对话按钮聚焦态（line 394） */
+.yuanshandai .dark\:focus\:bg-white\/10:focus,
+.yuanshandai .focus\:bg-white\/10:focus {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 新建对话按钮聚焦 ring（line 423） */
+.yuanshandai .dark\:focus\:ring-white\/10:focus,
+.yuanshandai .focus\:ring-white\/10:focus {
+    --tw-ring-color: rgba(45, 212, 168, 0.12) !important;
+}
+
+/* 搜索框背景（line 423: dark:bg-white/5 → 聚焦 bg） */
+.yuanshandai .dark\:focus\:bg-\[\#1A1A1A\]:focus,
+.yuanshandai .focus\:bg-\[\#1A1A1A\]:focus {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* 底部用户输入框容器聚焦边框（ConversationPage.tsx:53） */
+.yuanshandai .focus-within\:border-\[var\(--brand-primary\)\] {
+    border-color: rgba(80, 160, 160, 0.30) !important;
+}
+
+/* 会话列表 hover 态 */
+.yuanshandai .dark\:hover\:bg-white\/5:hover,
+.yuanshandai .hover\:bg-white\/5:hover {
+    background-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* ========================================
+   Focus States — Accessibility (参考 HClaw-py)
+   ======================================== */
+:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+    outline-color: var(--brand-primary);
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+    outline-color: var(--brand-primary);
+}
+
+/* ========================================
+   Title Bar — Windows 11 Style
+   ======================================== */
+
+/**
+ * TitleBar 容器
+ * 
+ * 关键配置：
+ * - 使用 CSS 变量 --titlebar-height 控制高度
+ * - drag-region 使用 -webkit-app-region: drag 使整个标题栏可拖动
+ * - no-drag 元素使用 -webkit-app-region: no-drag 使内部按钮可点击
+ * 
+ * ⚠️ 重要：标题栏不需要单独设置圆角，因为 window-container 已经有了
+ */
+.titlebar {
+    height: var(--titlebar-height);
+    display: flex;
+    align-items: stretch;
+    user-select: none;
+    -webkit-user-select: none;
+    background-color: var(--surface);
+    border-bottom: 1px solid var(--border);
+}
+
+/**
+ * 标题栏内容布局
+ * 使用 Flexbox 实现左-中-右三栏布局
+ */
+.titlebar-content {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+}
+
+/* ========================================
+   TitleBar — 左侧区域
+   ======================================== */
+.titlebar-left {
+    display: flex;
+    align-items: center;
+    padding-left: var(--space-relaxed);
+    height: 100%;
+    flex-shrink: 0; /* 防止被压缩 */
+}
+
+/**
+ * macOS 上 titleBarStyle: 'hiddenInset' 保留了原生交通灯按钮，
+ * 需要在 TitleBar 左侧预留足够空间避免 Logo 与交通灯重叠。
+ * 交通灯按钮区域约 70px，将 Logo 推到交通灯右侧即可。
+ */
+.darwin .titlebar-left {
+    padding-left: 88px;
+}
+
+.logo-container {
+    display: flex;
+    align-items: center;
+    gap: var(--space-snug);
+}
+
+.logo-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    background-color: var(--brand-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+}
+
+/* 应用图标图片（替换旧 SVG 占位图） */
+.logo-icon-img {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
+.logo-text {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* ========================================
+   TitleBar — 中间区域（拖拽区域）
+   ======================================== */
+.titlebar-center {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-width: 0; /* 允许内容收缩 */
+}
+
+.task-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 300px;
+}
+
+.task-text {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ========================================
+   TitleBar — 右侧区域
+   ======================================== */
+
+/**
+ * 右侧预留空间
+ */
+.titlebar-right {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    flex-shrink: 0;
+}
+
+/**
+ * 自定义窗口控制按钮
+ */
+.window-controls {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    gap: 2px;
+}
+
+/**
+ * macOS 上隐藏自定义窗口控制按钮
+ *
+ * macOS 使用 titleBarStyle: 'hiddenInset' 保留了原生交通灯按钮
+ * （红/黄/绿），自定义的最小化/最大化/关闭按钮会导致界面混乱：
+ * - 左侧：原生交通灯（由系统管理）
+ * - 右侧：不应显示自定义窗口控件
+ */
+.darwin .window-controls {
+    display: none;
+}
+
+/* macOS 原生窗口适配
+ *
+ * macOS 使用 titleBarStyle: 'hiddenInset'，保留了原生窗口框架，
+ * 自带圆角、边框和阴影。覆盖掉 CSS 中与之冲突的样式：
+ * - border-radius: 让背景和边框跟随 macOS 原生圆角
+ * - border-color: transparent → 原生窗口已有边框
+ * - box-shadow: none → 原生窗口已有阴影
+ */
+.darwin .window-container {
+    border-radius: 6px;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+/* ========================================
+   Window Control Buttons
+   ======================================== */
+
+.window-control-btn {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.window-control-btn:hover {
+    background-color: var(--surface-muted);
+    color: var(--text-primary);
+}
+
+/* 关闭按钮悬停效果 */
+.window-control-btn--close:hover {
+    background-color: var(--error);
+    color: white;
+}
+
+/* ========================================
+   Drag Region 关键配置
+   ======================================== */
+
+/**
+ * drag-region: 使元素及其子元素可拖动
+ */
+.drag-region {
+    -webkit-app-region: drag;
+}
+
+/**
+ * no-drag: 排除在拖动区域之外
+ */
+.no-drag {
+    -webkit-app-region: no-drag;
+}
+
+/** no-drag 的嵌套元素：恢复拖动功能 */
+.no-drag .force-drag {
+    -webkit-app-region: drag;
+}
+
+/* ========================================
+   Prose — Markdown Content Styling (参考 HClaw-py)
+   ======================================== */
+.prose {
+    color: var(--text-secondary);
+    line-height: 1.625;
+}
+
+.prose h1, .prose h2, .prose h3 {
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.prose p {
+    margin-bottom: 0.75rem;
+}
+
+.prose code {
+    padding: 0.125rem 0.375rem;
+    background: var(--surface-muted);
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    color: var(--brand-primary);
+}
+
+.dark .prose code,
+.yuanshandai .prose code {
+    color: var(--brand-primary);
+}
+
+.prose pre {
+    padding: 1rem;
+    background: #0f172a;
+    border-radius: 0.75rem;
+    overflow-x: auto;
+    margin: 1rem 0;
+}
+
+.dark .prose pre,
+.yuanshandai .prose pre {
+    background: #0f172a;
+}
+
+.prose pre code {
+    background: transparent;
+    padding: 0;
+    color: #f1f5f9;
+}
+
+.prose ul, .prose ol {
+    margin-left: 1.5rem;
+    margin-bottom: 0.75rem;
+    list-style: disc;
+}
+
+.prose li {
+    list-style-type: disc;
+}
+
+.prose blockquote {
+    border-left: 4px solid var(--brand-primary);
+    padding-left: 1rem;
+    font-style: italic;
+    color: var(--text-muted);
+    margin: 1rem 0;
+}
+
+.prose a {
+    color: var(--brand-primary);
+    text-decoration: none;
+}
+
+.prose a:hover {
+    text-decoration: underline;
+}
+
+.prose img {
+    border-radius: 0.75rem;
+    margin: 1rem 0;
+}
+
+.prose hr {
+    margin: 1.5rem 0;
+    border-color: var(--border);
+}
+
+/* ========================================
+   macOS Tooltip — Portal 组件渲染
+   ========================================
+
+   macOS hiddenInset 模式下，原生 title tooltip 在标题栏区域不生效，
+   且 CSS ::after 伪元素会被 overflow: hidden 容器裁剪。
+
+   统一改用 TooltipPortal 组件（createPortal → document.body），
+   突破所有 overflow 容器限制，无 CSS 依赖。
+*/
+
+/* ========================================
+   Button Base (参考 HClaw-py)
+   ======================================== */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.75rem;
+    font-weight: 500;
+    font-size: 0.875rem;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-primary {
+    background: var(--brand-primary);
+    color: white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+.btn-primary:hover {
+    background: var(--brand-hover);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.btn-primary:active {
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+    transform: translateY(0.5px);
+}
+
+.dark .btn-primary,
+.yuanshandai .btn-primary {
+    background: var(--brand-primary);
+}
+
+.dark .btn-primary:hover,
+.yuanshandai .btn-primary:hover {
+    background: var(--brand-hover);
+}
+
+.btn-secondary {
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+}
+
+.btn-secondary:hover {
+    background: var(--border);
+}
+
+/* Light themes: secondary buttons need visible bg + border to look clickable */
+:root:not(.dark):not(.yuanshandai) .btn-secondary {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text-primary);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+:root:not(.dark):not(.yuanshandai) .btn-secondary:hover {
+    background: var(--surface-muted);
+    border-color: var(--border-emphasis);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.dark .btn-secondary,
+.yuanshandai .btn-secondary {
+    background: var(--surface-muted);
+    border-color: var(--border);
+    color: var(--text-secondary);
+}
+
+.dark .btn-secondary:hover,
+.yuanshandai .btn-secondary:hover {
+    background: var(--surface-elevated);
+    border-color: var(--border-emphasis);
+    color: var(--text-primary);
+}
+
+/* ── Button Disabled States ────────────────────────────────── */
+
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+    filter: saturate(0.3);
+    pointer-events: none;
+}
+
+/* 浅色主题（不含十样锦）：禁用按钮文字对比度进一步提升 */
+:root:not(.dark):not(.yuanshandai):not(.shiyangjin) button:disabled {
+    color: #ccc !important;
+}
+
+/* 十样锦主题：禁用按钮使用主题的 muted 色而非硬编码 #ccc */
+.shiyangjin button:disabled {
+    color: var(--text-muted) !important;
+}
+
+/* 深色主题：禁用按钮进一步压暗，弥补低透明度区分度不足 */
+.dark button:disabled,
+.yuanshandai button:disabled {
+    filter: saturate(0.2) brightness(0.7);
+}
+
+/* ========================================
+   Input Base (参考 HClaw-py)
+   ======================================== */
+.input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.input::placeholder {
+    color: var(--text-muted);
+}
+
+.input:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 3px rgba(54, 210, 170, 0.2);
+}
+
+.dark .input,
+.yuanshandai .input {
+    background: var(--surface-muted);
+    border-color: var(--border);
+    color: var(--text-primary);
+}
+
+.dark .input::placeholder,
+.yuanshandai .input::placeholder {
+    color: var(--text-muted);
+}
+
+/* ========================================
+   Utility Classes
+   ======================================== */
+.text-balance {
+  text-wrap: balance;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── 会话侧边栏动画 ──────────────────────────── */
+
+/* 后台运行中：图标边框缓慢呼吸 */
+@keyframes slowPulse {
+    0%, 100% {
+        opacity: 0.3;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.9;
+        transform: scale(1.08);
+    }
+}
+
+.animate-running-pulse {
+    animation: slowPulse 2.5s ease-in-out infinite;
+}
+
+/* 待确认徽章呼吸阴影 */
+@keyframes badgePulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.1);
+    }
+}
+
+@keyframes badgePulseWarning {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.1);
+    }
+}
+
+.animate-badge-pulse {
+    animation: badgePulse 2s ease-in-out infinite;
+}
+
+.animate-badge-pulse-warning {
+    animation: badgePulseWarning 2s ease-in-out infinite;
+}
+
+/* ── 链接 Context Menu 入场动画 ──────────────────── */
+
+.animate-context-menu-enter {
+    animation: contextMenuEnter 0.12s ease-out;
+}
+
+@keyframes contextMenuEnter {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+/* Theme-aware transitions — scoped to semantic selectors */
+html, body {
+  transition: background-color 0.2s ease, color 0.1s ease;
+}
+
+/* ========================================
+   Message Bubble — Shadow-Based Distinction
+   ======================================== */
+.message-bubble {
+    border-radius: 14px;
+    margin-bottom: 24px;
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+
+/* 用户消息：品牌绿柔色背景 */
+.message-bubble.user {
+    background: var(--brand-muted);
+    border: 1px solid color-mix(in srgb, var(--brand-primary) 15%, transparent);
+    border-radius: 14px;
+    padding: 12px 16px;
+}
+
+/* 助手消息：毛玻璃风格 */
+.message-bubble.assistant {
+    border: 1px solid var(--border-muted);
+    border-radius: 14px;
+    padding: 16px 20px;
+    position: relative;
+}
+
+.message-bubble.assistant:last-of-type {
+    margin-bottom: 0;
+}
+
+:root:not(.dark) .message-bubble.assistant {
+    background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+/* 主文本 */
+.message-bubble .message-text {
+    color: var(--text-primary);
+    font-size: 14.5px;
+    line-height: 1.65;
+    margin-bottom: 14px;
+}
+
+/* 虚线分割 */
+.message-bubble .divider {
+    border: none;
+    border-top: 1px dashed var(--border);
+    margin: 10px 0;
+}
+
+.message-bubble.user .divider {
+    border-top-color: color-mix(in srgb, var(--brand-primary) 15%, transparent);
+}
+
+/* 时间戳 */
+.message-bubble .timestamp {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.2px;
+}
+
+/* ========================================
+   Dark/Yuanshandai: Message Bubble
+   ======================================== */
+.dark .message-bubble.user,
+.yuanshandai .message-bubble.user {
+    background: var(--brand-muted);
+    border-color: color-mix(in srgb, var(--brand-primary) 12%, transparent);
+}
+
+.dark .message-bubble.assistant,
+.yuanshandai .message-bubble.assistant {
+    background: color-mix(in srgb, var(--surface-elevated) 85%, transparent);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-color: var(--border);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2),
+                0 0 40px -16px rgba(52, 211, 153, 0.04);
+}
+
+/* 虚线分割 - 暗色 */
+.dark .message-bubble .divider,
+.yuanshandai .message-bubble .divider {
+    border-top-color: var(--border-emphasis);
+}
+
+/* ========================================
+   Dark/Yuanshandai: Interactive States — Subtle Glow
+   ======================================== */
+
+/* Active/Selected items — subtle glow effect (teal brand, muted for yuanshandai) */
+.dark .nav-item.active,
+.dark .menu-item.active,
+.dark .list-item.selected {
+    background: linear-gradient(
+            90deg,
+            rgba(45, 212, 168, 0.12) 0%,
+            rgba(45, 212, 168, 0.06) 100%
+    );
+    border-left: 2px solid var(--brand-primary);
+    box-shadow: inset 0 0 20px rgba(45, 212, 168, 0.04),
+    0 0 12px rgba(45, 212, 168, 0.08);
+}
+
+.yuanshandai .nav-item.active,
+.yuanshandai .menu-item.active,
+.yuanshandai .list-item.selected {
+    background: linear-gradient(
+            90deg,
+            rgba(80, 160, 160, 0.08) 0%,
+            rgba(80, 160, 160, 0.02) 100%
+    );
+    border-left: 2px solid rgba(80, 160, 160, 0.55);
+    box-shadow: inset 0 0 16px rgba(80, 160, 160, 0.02);
+}
+
+.dark .nav-item:hover:not(.active),
+.dark .menu-item:hover:not(.active),
+.yuanshandai .nav-item:hover:not(.active),
+.yuanshandai .menu-item:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+/* Button hover glow (teal brand) */
+.dark .btn:hover,
+.yuanshandai .btn:hover {
+    box-shadow: 0 0 16px rgba(45, 212, 168, 0.15);
+}
+
+/* Primary button refined (teal brand gradient) */
+.dark .btn-primary,
+.yuanshandai .btn-primary {
+    background: linear-gradient(
+            145deg,
+            rgba(45, 212, 168, 0.9) 0%,
+            rgba(26, 192, 148, 0.85) 100%
+    );
+    border: 1px solid rgba(45, 212, 168, 0.3);
+    box-shadow: 0 2px 8px rgba(45, 212, 168, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.dark .btn-primary:hover,
+.yuanshandai .btn-primary:hover {
+    background: linear-gradient(
+            145deg,
+            rgba(45, 212, 168, 0.95) 0%,
+            rgba(26, 192, 148, 0.9) 100%
+    );
+    box-shadow: 0 4px 16px rgba(45, 212, 168, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Input fields refined */
+.dark .input,
+.yuanshandai .input {
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.dark .input:hover,
+.yuanshandai .input:hover {
+    border-color: var(--border-emphasis);
+}
+
+.dark .input:focus,
+.yuanshandai .input:focus {
+    border-color: rgba(80, 160, 160, 0.60);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15),
+    0 0 0 3px rgba(80, 160, 160, 0.08);
+}
+
+/* ========================================
+   Dark/Yuanshandai: Tool Call Cards — Borderless Design
+   ======================================== */
+.dark .tool-call-card,
+.yuanshandai .tool-call-card {
+    background: color-mix(in srgb, var(--surface-elevated) 70%, transparent);
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+    transition: all 0.2s ease;
+}
+
+.dark .tool-call-card:hover,
+.yuanshandai .tool-call-card:hover {
+    background: color-mix(in srgb, var(--surface-elevated) 85%, transparent);
+    border-color: var(--border-emphasis);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.dark .tool-call-card.running,
+.yuanshandai .tool-call-card.running {
+    border-color: rgba(91, 141, 217, 0.3);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25),
+    0 0 12px rgba(91, 141, 217, 0.1);
+}
+
+.dark .tool-call-card.success,
+.yuanshandai .tool-call-card.success {
+    border-color: rgba(16, 185, 129, 0.2);
+}
+
+.dark .tool-call-card.error,
+.yuanshandai .tool-call-card.error {
+    border-color: rgba(196, 92, 92, 0.2);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25),
+    0 0 8px rgba(196, 92, 92, 0.08);
+}
+
+/* Tool card header hover */
+.dark .tool-call-card-header:hover,
+.yuanshandai .tool-call-card-header:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* Code blocks inside tool cards */
+.dark .tool-code-block,
+.yuanshandai .tool-code-block {
+    background: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.dark .tool-success-block,
+.yuanshandai .tool-success-block {
+    background: rgba(16, 185, 129, 0.06);
+    border: 1px solid rgba(16, 185, 129, 0.1);
+}
+
+.dark .tool-error-block,
+.yuanshandai .tool-error-block {
+    background: rgba(196, 92, 92, 0.06);
+    border: 1px solid rgba(196, 92, 92, 0.1);
+}
+
+/* Progress bar refinement */
+.dark .progress-bar-track,
+.yuanshandai .progress-bar-track {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.dark .progress-bar-fill,
+.yuanshandai .progress-bar-fill {
+    background: linear-gradient(
+            90deg,
+            rgba(45, 212, 168, 0.8) 0%,
+            rgba(45, 212, 168, 0.9) 100%
+    );
+    box-shadow: 0 0 8px rgba(45, 212, 168, 0.3);
+}
+
+/* ========================================
+   ParamInputModal — 参数输入弹窗
+   ======================================== */
+
+/* 模态框背景遮罩 */
+.param-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal-backdrop);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.6);
+}
+
+/* 模态框内容区域 */
+.param-modal-content {
+    width: 100%;
+    max-width: 42rem;
+    margin: 0 1rem;
+    max-height: calc(100vh - 2rem);
+    display: flex;
+    flex-direction: column;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--win11-corner-radius);
+    box-shadow: var(--shadow-overlay);
+}
+
+/* 头部区域 */
+.param-modal-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.param-header-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.param-header-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+/* 描述文本 */
+.param-desc-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+    min-width: 0;
+}
+
+.param-desc-wrapper.expanded {
+    align-items: flex-start;
+}
+
+.param-desc {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+}
+
+.param-desc.expanded {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow: visible;
+}
+
+/* 图标按钮 */
+.param-icon-btn {
+    flex-shrink: 0;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+    color: var(--text-muted);
+}
+
+.param-icon-btn:hover {
+    background-color: var(--surface-muted);
+    color: var(--text-primary);
+}
+
+/* 展开/收起按钮 */
+.param-toggle-btn {
+    flex-shrink: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    font-size: 0.75rem;
+    color: var(--brand-primary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.param-toggle-btn:hover {
+    text-decoration: underline;
+}
+
+/* 主体区域 */
+.param-modal-body {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 预览区域 */
+.param-preview-section {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    background-color: var(--surface-muted);
+}
+
+.param-section-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+.param-preview-box {
+    max-height: 9rem; /* 约5行 */
+    overflow-y: auto;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 0.875rem;
+    line-height: 1.625;
+    word-break: break-word;
+}
+
+/* 参数高亮 */
+.param-highlight {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    margin: 0 0.25rem;
+    background-color: var(--brand-muted);
+    color: var(--brand-primary);
+    border-radius: 0.5rem;
+    font-weight: 600;
+    border: 1px solid rgba(79, 70, 229, 0.2);
+    min-width: 3.75rem;
+    text-align: center;
+}
+
+/* 底部区域 */
+.param-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border);
+}
+
+/* 按钮样式 */
+.param-btn {
+    padding: 0.625rem 1.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 0.75rem;
+    transition: background-color 0.15s;
+    cursor: pointer;
+    border: none;
+}
+
+.param-btn-primary {
+    background-color: var(--brand-primary);
+    color: white;
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--brand-primary) 25%, transparent);
+}
+
+.param-btn-primary:hover {
+    background-color: var(--brand-hover);
+}
+
+/* Light themes (default + shiyangjin): fix secondary button visibility */
+:root:not(.dark):not(.yuanshandai) .param-btn-secondary {
+    color: var(--text-primary);
+    border-color: var(--border-emphasis);
+}
+
+:root:not(.dark):not(.yuanshandai) .param-btn-secondary:hover {
+    background-color: var(--surface-muted);
+}
+
+.param-btn-secondary {
+    color: var(--text-secondary);
+    background-color: transparent;
+    border: 1px solid var(--border);
+}
+
+.param-btn-secondary:hover {
+    background-color: var(--surface-muted);
+}
+
+.shiyangjin .btn-primary:active,
+.shiyangjin .param-btn-primary:active {
+    background: #C0605A;
+}
+
+/* 输入区域 */
+.param-input-section {
+    padding: 1rem 1.5rem;
+}
+
+.param-input-section label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.param-input-section textarea {
+    width: 100%;
+    min-height: 72px; /* 默认3行 */
+    max-height: 50vh; /* 最多占窗口一半高度，超出则内部滚动 */
+    padding: 0.75rem 1rem;
+    background-color: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    font-family: inherit;
+    line-height: 1.5;
+    resize: none;
+    transition: box-shadow 0.15s;
+}
+
+.param-input-section textarea::placeholder {
+    color: var(--text-muted);
+}
+
+.param-input-section textarea:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--brand-primary);
+}
+
+/* ========================================
+   ParamInputModal — 深色/Yuanshandai 主题适配
+   ======================================== */
+.dark .param-modal-overlay,
+.yuanshandai .param-modal-overlay {
+    background-color: rgba(0, 0, 0, 0.75);
+}
+
+.dark .param-modal-content,
+.yuanshandai .param-modal-content {
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.dark .param-preview-section,
+.yuanshandai .param-preview-section {
+    background-color: rgba(255, 255, 255, 0.02);
+}
+
+.dark .param-preview-box,
+.yuanshandai .param-preview-box {
+    background-color: var(--surface-muted);
+    border-color: var(--border);
+}
+
+.dark .param-highlight,
+.yuanshandai .param-highlight {
+    background-color: rgba(45, 212, 168, 0.15);
+    color: var(--brand-primary);
+    border-color: rgba(45, 212, 168, 0.2);
+}
+
+.dark .param-btn-secondary:hover,
+.yuanshandai .param-btn-secondary:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.dark .param-input-section textarea,
+.yuanshandai .param-input-section textarea {
+    background-color: var(--surface-muted);
+    border-color: var(--border);
+}
+
+.dark .param-input-section textarea:focus,
+.yuanshandai .param-input-section textarea:focus {
+    box-shadow: 0 0 0 2px var(--brand-primary);
+}
+
+/* ========================================
+   Dark/Yuanshandai: MCP Dialog — 深色主题适配
+   ======================================== */
+
+/* --- Tab badge (bg-brand-100) --- */
+.dark .bg-brand-100,
+.yuanshandai .bg-brand-100 {
+    background-color: var(--brand-muted) !important;
+}
+
+/* --- Connecting/Reconnecting status dot --- */
+.dark .bg-yellow-300,
+.yuanshandai .bg-yellow-300 {
+    background-color: var(--warning) !important;
+}
+
+/* ========================================
+   Dark/Yuanshandai: MCP Dialog — Transport Tags
+   All variants: bg-*-50 text-*-* border-*-100
+   ======================================== */
+.dark .bg-blue-50,
+.yuanshandai .bg-blue-50 {
+    background-color: var(--info-muted) !important;
+}
+
+.dark .border-blue-100,
+.yuanshandai .border-blue-100 {
+    border-color: rgba(91, 141, 217, 0.25) !important;
+}
+
+.dark .text-blue-400,
+.dark .text-blue-600,
+.dark .text-blue-700,
+.yuanshandai .text-blue-400,
+.yuanshandai .text-blue-600,
+.yuanshandai .text-blue-700 {
+    color: var(--info) !important;
+}
+
+.dark .bg-green-50,
+.yuanshandai .bg-green-50 {
+    background-color: var(--success-muted) !important;
+}
+
+.dark .border-green-100,
+.yuanshandai .border-green-100 {
+    border-color: rgba(16, 185, 129, 0.25) !important;
+}
+
+.dark .text-green-500,
+.dark .text-green-600,
+.dark .text-green-700,
+.yuanshandai .text-green-500,
+.yuanshandai .text-green-600,
+.yuanshandai .text-green-700 {
+    color: var(--success) !important;
+}
+
+.dark .bg-yellow-50,
+.yuanshandai .bg-yellow-50 {
+    background-color: var(--warning-muted) !important;
+}
+
+.dark .border-yellow-100,
+.yuanshandai .border-yellow-100 {
+    border-color: rgba(212, 160, 33, 0.25) !important;
+}
+
+.dark .text-yellow-500,
+.yuanshandai .text-yellow-500 {
+    color: var(--warning) !important;
+}
+
+.dark .bg-purple-50,
+.yuanshandai .bg-purple-50 {
+    background-color: rgba(139, 92, 246, 0.12) !important;
+}
+
+.dark .border-purple-100,
+.yuanshandai .border-purple-100 {
+    border-color: rgba(139, 92, 246, 0.25) !important;
+}
+
+.dark .text-purple-500,
+.dark .text-purple-600,
+.yuanshandai .text-purple-500,
+.yuanshandai .text-purple-600 {
+    color: #a78bfa !important;
+}
+
+.dark .hover\:bg-purple-50:hover,
+.yuanshandai .hover\:bg-purple-50:hover {
+    background-color: rgba(139, 92, 246, 0.12) !important;
+}
+
+.dark .hover\:border-purple-300:hover,
+.yuanshandai .hover\:border-purple-300:hover {
+    border-color: rgba(139, 92, 246, 0.4) !important;
+}
+
+.dark .bg-indigo-50,
+.yuanshandai .bg-indigo-50 {
+    background-color: rgba(45, 212, 168, 0.10) !important;
+}
+
+.dark .border-indigo-100,
+.yuanshandai .border-indigo-100 {
+    border-color: rgba(45, 212, 168, 0.25) !important;
+}
+
+.dark .text-indigo-500,
+.yuanshandai .text-indigo-500 {
+    color: var(--brand-primary) !important;
+}
+
+/* Transport tag default (bg-gray-50 text-gray-400) - already handled by existing overrides */
+
+/* Disabled plugin badge (bg-gray-100 text-gray-500) */
+.dark .bg-gray-100.text-gray-500,
+.dark .bg-gray-100.text-gray-400,
+.yuanshandai .bg-gray-100.text-gray-500,
+.yuanshandai .bg-gray-100.text-gray-400 {
+    background-color: var(--surface-overlay) !important;
+    color: var(--text-muted) !important;
+}
+
+/* ========================================
+   Dark/Yuanshandai: MCP Dialog — Import Section
+   ======================================== */
+.dark .bg-purple-50\/50,
+.yuanshandai .bg-purple-50\/50 {
+    background-color: rgba(139, 92, 246, 0.06) !important;
+}
+
+/* Import result success/error */
+.dark .bg-red-50,
+.yuanshandai .bg-red-50 {
+    background-color: var(--error-muted) !important;
+}
+
+.dark .border-red-100,
+.yuanshandai .border-red-100 {
+    border-color: rgba(196, 92, 92, 0.25) !important;
+}
+
+.dark .text-red-600,
+.dark .text-red-700,
+.yuanshandai .text-red-600,
+.yuanshandai .text-red-700 {
+    color: var(--error) !important;
+}
+
+/* ========================================
+   Dark/Yuanshandai: MCP Dialog — Edit/Delete Buttons
+   ======================================== */
+.dark .hover\:bg-red-50:hover,
+.yuanshandai .hover\:bg-red-50:hover {
+    background-color: var(--error-muted) !important;
+}
+
+.dark .hover\:text-red-400:hover,
+.yuanshandai .hover\:text-red-400:hover {
+    color: var(--error) !important;
+}
+
+/* ========================================
+   Dark/Yuanshandai: MCP Dialog — Plugin Section Blue
+   ======================================== */
+.dark .bg-blue-50\/50,
+.yuanshandai .bg-blue-50\/50 {
+    background-color: rgba(91, 141, 217, 0.06) !important;
+}
+
+/* Brand-50 opacity variant (used in import section) */
+.dark .bg-brand-50\/50,
+.yuanshandai .bg-brand-50\/50 {
+    background-color: rgba(45, 212, 168, 0.06) !important;
+}
+
+/* Brand border variants */
+.dark .border-brand-100,
+.yuanshandai .border-brand-100 {
+    border-color: rgba(45, 212, 168, 0.2) !important;
+}
+
+.dark .border-brand-300,
+.yuanshandai .border-brand-300 {
+    border-color: rgba(45, 212, 168, 0.4) !important;
+}
+
+/* ========================================
+   Dark/Yuanshandai: MCP Dialog — Edit Card (MCPEditCard)
+   ======================================== */
+
+/* Edit card border */
+.dark .border-brand-200,
+.yuanshandai .border-brand-200 {
+    border-color: rgba(45, 212, 168, 0.3) !important;
+}
+
+/* Edit card tab bar bg - override bg-gray-50 mapping from --surface to --surface-muted for tabs */
+.dark .bg-gray-50.rounded-lg.border,
+.yuanshandai .bg-gray-50.rounded-lg.border {
+    background-color: var(--surface-muted) !important;
+}
+
+/* JSON parse button (bg-gray-800) */
+.dark .bg-gray-800,
+.yuanshandai .bg-gray-800 {
+    background-color: var(--surface-elevated) !important;
+}
+
+.dark .hover\:bg-black:hover,
+.yuanshandai .hover\:bg-black:hover {
+    background-color: var(--surface) !important;
+}
+
+/* border-gray-100/80 (advanced config border) */
+.dark .border-gray-100\/80,
+.yuanshandai .border-gray-100\/80 {
+    border-color: var(--border-muted) !important;
+}
+
+/* Brand button hover */
+.dark .hover\:bg-brand-600:hover,
+.yuanshandai .hover\:bg-brand-600:hover {
+    background-color: rgba(45, 212, 168, 0.2) !important;
+}
+
+/* Brand button shadow */
+.dark .shadow-brand-500\/20,
+.yuanshandai .shadow-brand-500\/20 {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* ========================================
+   Dark/Yuanshandai: MCP Dialog — Tool Cards Inside Expanded
+   ======================================== */
+.dark .border-gray-50,
+.yuanshandai .border-gray-50 {
+    border-color: var(--border-muted) !important;
+}
+
+/* ========================================
+   Dark/Yuanshandai: MCP Dialog — Card States
+   ======================================== */
+
+/* Disabled card opacity */
+.dark .opacity-60,
+.yuanshandai .opacity-60 {
+    opacity: 0.5;
+}
+
+/* Hover card border states */
+.dark .hover\:border-gray-200:hover,
+.yuanshandai .hover\:border-gray-200:hover {
+    border-color: var(--border) !important;
+}
+
+/* Expanded card ring highlights (teal brand) */
+.dark .ring-brand-50,
+.yuanshandai .ring-brand-50 {
+    --tw-ring-color: rgba(45, 212, 168, 0.15) !important;
+}
+
+.dark .ring-blue-50,
+.yuanshandai .ring-blue-50 {
+    --tw-ring-color: rgba(91, 141, 217, 0.15) !important;
+}
+
+/* ========================================
+   Dark/Yuanshandai: MCP Dialog — Misc
+   ======================================== */
+
+/* Status dot green glow for dark mode */
+.dark .shadow-\[0_0_8px_rgba\(34\2c 197\2c 94\2c 0\.3\)\] {
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.3) !important;
+}
+
+.yuanshandai .shadow-\[0_0_8px_rgba\(34\2c 197\2c 94\2c 0\.3\)\] {
+    box-shadow: 0 0 8px rgba(45, 212, 168, 0.3) !important;
+}
+
+/* Red status dot for error state */
+.dark .bg-red-500,
+.yuanshandai .bg-red-500 {
+    background-color: var(--error) !important;
+}
+
+/* Enhanced edit/delete icon visibility */
+.dark .group:hover .text-gray-300,
+.yuanshandai .group:hover .text-gray-300 {
+    color: var(--text-secondary) !important;
+}
+
+/* Tab hover states */
+.dark .hover\:text-gray-600:hover,
+.yuanshandai .hover\:text-gray-600:hover {
+    color: var(--text-secondary) !important;
+}
