@@ -8,7 +8,6 @@
 [![GitHub Stars](https://img.shields.io/github/stars/hamlin-zy/hclaw?style=flat&logo=github&color=181717)](https://github.com/hamlin-zy/hclaw)
 [![Downloads](https://img.shields.io/github/downloads/hamlin-zy/hclaw/total?style=flat&logo=github&color=181717)](https://github.com/hamlin-zy/hclaw/releases)
 
-> 🧑‍💻 本项目由个人独立开发维护，水平有限，欢迎提 Issue / PR 一起改进。
 
 > HClaw 是一款面向未来的本地 AI Agent **桌面客户端**。极致的交互体验，让能力的调用如行云流水般自然——无论是快捷指令的即时响应，还是复杂任务的无缝调度，一切尽在指尖。
 
