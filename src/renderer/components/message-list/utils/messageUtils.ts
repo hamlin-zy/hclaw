@@ -4,6 +4,7 @@
 
 import type {ToolCall} from '@shared/types'
 import {truncate} from '../../../lib/format'
+import {isMcpToolName} from '@shared/utils/mcpShortId'
 
 /**
  * 将值转换为字符串，失败返回 null
@@ -44,7 +45,7 @@ export function getToolSummary(tc: ToolCall): string | null {
         const cmdStr = toStringOrNull(args.command)
         return cmdStr ? truncate(cmdStr, 60) : null
     }
-    if (tc.name.startsWith('mcp_')) {
+    if (isMcpToolName(tc.name)) {
         for (const field of ['thought', 'query', 'command', 'url', 'filePath', 'pattern', 'text']) {
             const v = args[field]
             if (v && typeof v === 'string') return truncate(v, 60)
@@ -65,7 +66,7 @@ export function getToolArgSummary(tc: ToolCall): string | null {
         return truncate(toStringOrNull(args.filePath) || toStringOrNull(args.path) || toStringOrNull(args.pattern) || '', 50)
     }
     if (tc.name === 'bash') return truncate(toStringOrNull(args.command) || '', 50)
-    if (tc.name.startsWith('mcp_')) {
+    if (isMcpToolName(tc.name)) {
         for (const field of ['thought', 'query', 'command', 'url', 'filePath', 'pattern', 'text']) {
             const v = args[field]
             if (v && typeof v === 'string') return truncate(v, 50)
@@ -85,7 +86,7 @@ export function getToolDetail(tc: ToolCall): string | null {
         return toStringOrNull(args.filePath) || toStringOrNull(args.path) || toStringOrNull(args.pattern)
     }
     if (tc.name === 'analyze_image') return toStringOrNull(args.imagePath) || toStringOrNull(args.prompt)
-    if (tc.name.startsWith('mcp_')) {
+    if (isMcpToolName(tc.name)) {
         const cleaned: Record<string, unknown> = {}
         for (const [k, v] of Object.entries(args)) if (k !== 'reason') cleaned[k] = v
         return Object.keys(cleaned).length > 0 ? JSON.stringify(cleaned, null, 2) : null
@@ -117,7 +118,7 @@ export function getToolDescription(tc: ToolCall): string | null {
         const cmd = toStringOrNull(args.command)
         return cmd ? `执行命令: ${truncate(cmd, 50)}` : null
     }
-    if (tc.name.startsWith('mcp_')) {
+    if (isMcpToolName(tc.name)) {
         const keyFields = ['thought', 'query', 'command', 'url', 'filePath', 'pattern', 'text']
         for (const field of keyFields) {
             if (args[field]) return truncate(String(args[field]), 60)

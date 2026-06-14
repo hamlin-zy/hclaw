@@ -7,6 +7,17 @@
 
 ---
 
+## [v0.2.69] - 2026-06-13
+
+### 重构
+- **MCP 工具命名重构** — 将 MCP 工具名从不可读的 `mcp_<hash>_<tool>` 统一改为可读的 `m_<serverName>_<tool>` / `mp_<serverName>_<tool>` 格式，LLM 看到的 function name 直接用可读服务名，消除去前缀行为
+  - 新增 `src/shared/utils/mcpShortId.ts` 共享工具函数（~150 行），包含 isMcpToolName/parseMcpToolName/resolveMcpDisplayName 等全套解析函数
+  - 服务端：discovery.ts/worker.ts/bootstrap.ts/mcpWorker.ts/systemPrompt.ts 全面使用新命名逻辑
+  - 前端：ToolCallHeader/ToolCallBody/ToolCallRenderer/PopupToolCard/messageUtils 支持可读显示名 + 颜色分层的 MCP 工具展示（前缀用品牌色/70，服务名用品牌色，工具名用主色）
+  - 兼容旧 mcp_ 格式，历史消息仍可正确识别和渲染
+
+---
+
 ## [v0.2.64] - 2026-06-08
 
 ### Bug 修复

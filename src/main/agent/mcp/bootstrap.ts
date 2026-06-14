@@ -275,7 +275,7 @@ async function tryStartServer(config: MCPServerConfig): Promise<boolean> {
         ])
 
         // 注册工具
-        const _registered = registerMCPTools(config.id)
+        const _registered = registerMCPTools(config.id, undefined, undefined, config.name)
         return true
     } catch (err: any) {
         return false

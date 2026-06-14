@@ -423,6 +423,7 @@ class McpWorkerService {
 
         const toolsPayload = {
             id: server.config.id,
+            name: server.config.name,
             tools: server.tools.map(toToolPayload),
             userDescription: server.config.userDescription,
             status: server.status,

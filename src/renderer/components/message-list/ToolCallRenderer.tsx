@@ -22,6 +22,8 @@ import {useToolCallsStore} from '../../stores/toolCallsStore'
 import {useModelSchemeStore} from '../../stores/modelSchemeStore'
 import {useLLMStore} from '../../stores/llmStore'
 import {useAgentStore} from '../../stores/agentStore'
+import {useMcpStore} from '../../stores/mcpStore'
+import {resolveMcpDisplayName, extractMcpToolName, isMcpToolName} from '@shared/utils/mcpShortId'
 import SubAgentViewer from './SubAgentViewer'
 import ToolCallHeader from './ToolCallHeader'
 import ToolCallBody from './ToolCallBody'
@@ -111,6 +113,22 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
         return model?.name || role.modelId
     })
 
+    // MCP 工具显示名（注册名即显示名：m_/mp_<serverName>_<toolName>）
+    const mcpServers = useMcpStore(s => s.mcpServers)
+    const mcpDisplayName = useMemo(() => {
+        if (!isMcpToolName(toolCall.name)) return null
+
+        // 优先用 resolveMcpDisplayName 精确匹配（支持新旧两种格式）
+        const resolved = resolveMcpDisplayName(toolCall.name, mcpServers)
+        if (resolved) return resolved
+
+        // 兜底：至少去掉 hash 部分，显示 m_..._<工具名>
+        const toolOnly = extractMcpToolName(toolCall.name)
+        if (toolOnly) return `m_..._${toolOnly}`
+
+        return null
+    }, [toolCall.name, mcpServers])
+
     // 获取工具摘要（FilePath 或 Command）
     const summary = useMemo(() => {
         if (toolCall.name === 'analyze_image') {
@@ -161,6 +179,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                     agentDisplayName={null}
                     agentTypeLabel={null}
                     skillDisplayName={null}
+                    mcpDisplayName={mcpDisplayName}
                     summary={summary}
                     terminalDisplay={terminalDisplay}
                     isSubAgent={isSubAgent}
@@ -186,6 +205,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                         agentDisplayName={agentDisplayName}
                         agentTypeLabel={agentTypeLabel}
                         skillDisplayName={skillDisplayName}
+                        mcpDisplayName={mcpDisplayName}
                         summary={summary}
                         terminalDisplay={terminalDisplay}
                         isSubAgent={isSubAgent}
