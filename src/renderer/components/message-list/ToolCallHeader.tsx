@@ -34,6 +34,7 @@ interface ToolCallHeaderProps {
     agentDisplayName: string | null
     agentTypeLabel: string | null
     skillDisplayName: string | null
+    mcpDisplayName: string | null
     summary: string | null
     terminalDisplay: string | null
 
@@ -64,6 +65,7 @@ export default function ToolCallHeader({
     agentDisplayName,
     agentTypeLabel,
     skillDisplayName,
+    mcpDisplayName,
     summary,
     terminalDisplay,
     isSubAgent,
@@ -151,6 +153,39 @@ export default function ToolCallHeader({
         </span>
     ) : toolCall.name === 'skill' ? (
         <span className="font-mono font-semibold text-[var(--brand-primary)]">skill</span>
+    ) : mcpDisplayName ? (
+        /* MCP 工具：显示可读的服务名_工具名（如 m_GitHub_navigate_page） */
+        <span className="font-semibold text-[var(--text-primary)] font-mono text-xs">
+            {(() => {
+                const parts = mcpDisplayName.split('_')
+                return parts.map((part, i) => {
+                    // 前缀（m_ 或 mp_）用品牌色，服务名用品牌色+下划线，工具名用主色
+                    if (i === 0) {
+                        const isPlugin = part.endsWith('p')
+                        return (
+                            <span key={i} className="text-[var(--brand-primary)]/70">
+                                {part}
+                                {i < parts.length - 1 ? '_' : ''}
+                            </span>
+                        )
+                    } else if (i === 1) {
+                        return (
+                            <span key={i} className="text-[var(--brand-primary)]">
+                                {part}
+                                {'_'}
+                            </span>
+                        )
+                    } else {
+                        return (
+                            <span key={i} className="text-[var(--text-primary)]">
+                                {part}
+                                {i < parts.length - 1 ? '_' : ''}
+                            </span>
+                        )
+                    }
+                })
+            })()}
+        </span>
     ) : (
         <span className="font-mono font-semibold text-[var(--text-primary)]">{toolCall.name}</span>
     )
@@ -187,7 +222,13 @@ export default function ToolCallHeader({
         return (
             <div className="w-full flex items-center gap-2 px-3 py-2 text-left">
                 {statusIndicator}
-                <span className="font-mono font-semibold text-[var(--text-primary)]">{toolCall.name}</span>
+                {mcpDisplayName ? (
+                    <span className="font-semibold text-[var(--text-primary)] font-mono text-xs">
+                        {mcpDisplayName}
+                    </span>
+                ) : (
+                    <span className="font-mono font-semibold text-[var(--text-primary)]">{toolCall.name}</span>
+                )}
                 {viewBtn}
                 {metaSection}
             </div>

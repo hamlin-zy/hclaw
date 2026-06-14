@@ -12,6 +12,7 @@
 import type {AgentTemplate, HClawAgentType} from '@shared/types'
 import type {ToolDefinitionForLLM} from './tools/types'
 import {getShellInfo, getTerminalDisplayName} from './tools/builtin/bashTool'
+import {isMcpToolName} from '@shared/utils/mcpShortId'
 import {promptResolver, type PromptResolver} from './prompts/resolver'
 import {getAgentTemplate} from './prompts/agentTemplates'
 import {agentRegistry} from './agentRegistry'
@@ -218,7 +219,7 @@ ${rows.join('\n')}
 
 function buildImageHandlingSection(ctx: SystemPromptContext, r: PromptResolver): string {
   const hasMcpOcr = ctx.tools?.some(t =>
-    t.name.startsWith('mcp_') &&
+    isMcpToolName(t.name) &&
     (t.name.includes('ocr') || t.name.includes('image') || t.name.includes('vision') || t.name.includes('screenshot'))
   ) || false
 

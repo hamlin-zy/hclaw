@@ -96,9 +96,46 @@ function sanitizeToolName(name: string): string {
 
 // ─── 为每个 MCP 工具创建代理 ──────────────────────────────────
 
+/**
+ * 已使用的工具名集合，用于检测新格式下的命名冲突
+ */
+const usedToolNames = new Set<string>()
+
+/**
+ * 生成 MCP 工具注册名
+ *
+ * 格式统一为 UI 展示同名：
+ * - 普通 MCP: m_<服务器名>_<工具名>（如 m_codegraph_codegraph_explore）
+ * - 插件 MCP: mp_<服务器名>_<工具名>（如 mp_github_create_or_update_file）
+ * - 服务器名不可用时 fallback 到 m_/mp_<shortId>_<工具名>
+ *
+ * 此命名与 LLM 看到的 function name 完全一致，消除 LLM "去前缀" 行为。
+ */
+function buildMcpToolName(serverId: string, serverName: string | undefined, toolName: string): string {
+    const isPlugin = serverId.startsWith('plugin:')
+    const prefix = isPlugin ? 'mp_' : 'm_'
+    const safeName = serverName ? sanitizeToolName(serverName) : ''
+
+    // 尝试用 serverName 作为前缀（可读）
+    if (safeName) {
+        const candidate = `${prefix}${safeName}_${toolName}`
+        if (!usedToolNames.has(candidate)) {
+            usedToolNames.add(candidate)
+            return candidate
+        }
+    }
+
+    // fallback: 用 shortId（唯一但不可读）
+    const shortId = shortenServerId(serverId)
+    const fallback = `${prefix}${shortId}_${toolName}`
+    usedToolNames.add(fallback)
+    return fallback
+}
+
 function createMCPToolProxy(
   serverId: string,
   toolDef: MCPToolDefinition,
+  serverName?: string,
 ): Tool {
     const isWorker = !!parentPort
 
@@ -111,8 +148,7 @@ function createMCPToolProxy(
     }
 
   const inputSchema = mcpSchemaToZod(toolDef.inputSchema)
-  const shortId = shortenServerId(serverId)
-  const rawName = `mcp_${shortId}_${toolDef.name}`
+  const rawName = buildMcpToolName(serverId, serverName, toolDef.name)
     const baseDesc = `[MCP:${serverId}] ${userDesc ? `场景说明: ${userDesc}\n` : ''}`
 
   return {
@@ -132,7 +168,7 @@ function createMCPToolProxy(
           // 获取 MCP 服务器的超时配置（默认 60 秒）
           const serverConfig = !isWorker ? mainProcessMcpClient.getServer(serverId)?.config : null
           const timeoutMs = serverConfig?.timeout != null ? serverConfig.timeout : 60_000
-          const toolFullName = `mcp_${shortenServerId(serverId)}_${toolDef.name}`
+          const toolFullName = rawName
 
           try {
               // Worker 线程：通过 MessagePort 调 MCP Worker
@@ -243,9 +279,15 @@ function filterDeniedTools(serverId: string, tools: MCPToolDefinition[]): MCPToo
 }
 
 /** 注册 MCP Server 的所有工具到 ToolRegistry */
-export function registerMCPTools(serverId: string, tools?: MCPToolDefinition[], userDescription?: string): number {
+export function registerMCPTools(
+    serverId: string,
+    tools?: MCPToolDefinition[],
+    userDescription?: string,
+    serverName?: string,
+): number {
     let serverTools = tools
     let finalUserDesc = userDescription
+    let finalServerName = serverName
 
     if (!serverTools) {
         const mcp = getCurrentClient()
@@ -253,6 +295,7 @@ export function registerMCPTools(serverId: string, tools?: MCPToolDefinition[], 
         if (!server) return 0
         serverTools = server.tools
         finalUserDesc = server.config.userDescription
+        finalServerName = finalServerName || server.name
     }
 
     if (!serverTools?.length) return 0
@@ -261,7 +304,7 @@ export function registerMCPTools(serverId: string, tools?: MCPToolDefinition[], 
 
   let registered = 0
     for (const toolDef of serverTools) {
-    const proxy = createMCPToolProxy(serverId, toolDef)
+    const proxy = createMCPToolProxy(serverId, toolDef, finalServerName)
         if (finalUserDesc) {
             proxy.description = `[MCP:${serverId}] 场景说明: ${finalUserDesc}\n${toolDef.description || toolDef.name}`
         }
@@ -272,13 +315,15 @@ export function registerMCPTools(serverId: string, tools?: MCPToolDefinition[], 
 }
 
 /** 注销 MCP Server 的所有工具 */
-export function unregisterMCPTools(serverId: string, tools?: MCPToolDefinition[]): number {
+export function unregisterMCPTools(serverId: string, tools?: MCPToolDefinition[], serverName?: string): number {
     let serverTools = tools
+    let finalServerName = serverName
     if (!serverTools) {
         const mcp = getCurrentClient()
         const server = mcp.getServer?.(serverId)
         if (!server) return 0
         serverTools = server.tools
+        finalServerName = finalServerName || server.name
     }
 
     if (!serverTools?.length) return 0
@@ -286,7 +331,7 @@ export function unregisterMCPTools(serverId: string, tools?: MCPToolDefinition[]
 
   let unregistered = 0
     for (const toolDef of serverTools) {
-        const rawName = `mcp_${shortenServerId(serverId)}_${toolDef.name}`
+        const rawName = buildMcpToolName(serverId, finalServerName, toolDef.name)
     toolRegistry.unregister(sanitizeToolName(rawName))
     unregistered++
   }

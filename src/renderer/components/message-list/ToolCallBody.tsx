@@ -6,6 +6,7 @@
 
 import type {ToolCall} from '@shared/types'
 import type {ExtendedToolResult, ProgressEntry, SubAgentStreamEntry} from '../../stores/toolCallsStore'
+import {isMcpToolName} from '@shared/utils/mcpShortId'
 import {formatToolArgs} from './utils/messageUtils'
 import {truncate} from '../../lib/format'
 import ToolCallError from './ToolCallError'
@@ -94,7 +95,7 @@ export default function ToolCallBody({
             )}
 
             {/* ── MCP Tools: show full arguments ── */}
-            {toolCall.name.startsWith('mcp_') && Object.keys(toolCall.arguments).length > 0 && (
+            {isMcpToolName(toolCall.name) && Object.keys(toolCall.arguments).length > 0 && (
                 <div>
                     <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">请求参数</span>
                     <pre
@@ -105,7 +106,7 @@ export default function ToolCallBody({
             )}
 
             {/* ── Generic arguments fallback (non-bash, non-file_edit, non-mcp) ── */}
-            {!toolCall.name.startsWith('mcp_') &&
+            {!isMcpToolName(toolCall.name) &&
                 toolCall.name !== 'bash' &&
                 toolCall.name !== 'file_edit' &&
                 toolCall.name !== 'file_write' &&

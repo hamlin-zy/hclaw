@@ -1,9 +1,11 @@
 /**
  * 单个工具卡片（Popup 内使用）
  */
-import {memo} from 'react'
+import {memo, useMemo} from 'react'
 import type {ToolCall} from '@shared/types'
 import {useToolCallsStore} from '../../../stores/toolCallsStore'
+import {useMcpStore} from '../../../stores/mcpStore'
+import {parseMcpToolName, buildMcpShortIdMap, resolveMcpDisplayName, extractMcpToolName, isMcpToolName} from '@shared/utils/mcpShortId'
 import {getToolArgSummary, getToolDetail} from '../utils/messageUtils'
 import {getCompactStatusConfig} from '../config/toolStatusConfig'
 import {truncate} from '../../../lib/format'
@@ -55,8 +57,35 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
     const hasOutput = effectiveResult?.output && effectiveStatus !== 'running'
     const errorLine = effectiveResult?.error
 
-    // Skill 工具显示的名称
-    const displayName = isSkillTool ? (toolCall.skillName || 'skill') : toolCall.name
+    // MCP 工具显示名：解析为可读格式
+    const mcpServers = useMcpStore(s => s.mcpServers)
+    const mcpDisplayName = useMemo(() => {
+        if (!isMcpToolName(toolCall.name)) return null
+        const parsed = parseMcpToolName(toolCall.name)
+        if (!parsed) return null
+
+        // 旧格式：通过 shortId 反查
+        if (parsed.shortId) {
+            const shortIdMap = buildMcpShortIdMap(mcpServers)
+            const info = shortIdMap.get(parsed.shortId)
+            if (info) {
+                const prefix = info.isPlugin ? 'mp_' : 'm_'
+                return `${prefix}${info.name}_${parsed.toolName}`
+            }
+        }
+
+        // 新格式或兜底：通过 mcpServers 匹配
+        const resolved = resolveMcpDisplayName(toolCall.name, mcpServers)
+        if (resolved) return resolved
+
+        const toolOnly = extractMcpToolName(toolCall.name)
+        return toolOnly ? `m_..._${toolOnly}` : null
+    }, [toolCall.name, mcpServers])
+
+    // 工具显示的名称
+    const displayName = isSkillTool
+        ? (toolCall.skillName || 'skill')
+        : (mcpDisplayName ?? toolCall.name)
 
     return (
         <div className={`rounded-lg overflow-hidden mb-1.5 border transition-colors ${

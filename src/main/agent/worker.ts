@@ -10,6 +10,7 @@ import {agentLoop} from './loop'
 import {registerBuiltinTools} from './tools/index'
 import {permissionEngine} from './tools/permission'
 import {registerMCPTools, setMcpMessagePort, unregisterMCPTools} from './mcp/discovery'
+import {isMcpToolName} from '@shared/utils/mcpShortId'
 import {promptResolver} from './prompts/resolver'
 import {WORKER_MESSAGE_TYPES} from './constants'
 import {applySerializedCapabilitiesInWorker} from './capabilityManager'
@@ -201,7 +202,7 @@ async function main(): Promise<void> {
             // 仅注册已连接的 MCP 工具
             for (const server of servers) {
                 if (server.tools && server.tools.length > 0) {
-                    registerMCPTools(server.id, server.tools as any, server.userDescription)
+                    registerMCPTools(server.id, server.tools as any, server.userDescription, server.name)
                 }
             }
 
@@ -209,9 +210,9 @@ async function main(): Promise<void> {
             mcpPort.on('message', (msg: any) => {
                 if (msg.type === 'server_tools_update') {
                     // 工具状态变化时重注册
-                    unregisterMCPTools(msg.server.id)
+                    unregisterMCPTools(msg.server.id, undefined, msg.server.name)
                     if (msg.server.status === 'connected' && msg.server.tools.length > 0) {
-                        registerMCPTools(msg.server.id, msg.server.tools, msg.server.userDescription)
+                        registerMCPTools(msg.server.id, msg.server.tools, msg.server.userDescription, msg.server.name)
                     }
                 }
             })
@@ -255,7 +256,7 @@ async function main(): Promise<void> {
             // 取消注册所有 MCP 工具
             const {toolRegistry: tr} = await import('./tools/registry')
             for (const tool of tr.getAll()) {
-                if (tool.name.startsWith('mcp_')) {
+                if (isMcpToolName(tool.name)) {
                     tr.unregister(tool.name)
                 }
             }
@@ -474,14 +475,14 @@ async function main(): Promise<void> {
                         // 清除所有现有 MCP 工具
                         const {toolRegistry: tr} = await import('./tools/registry')
                         for (const tool of tr.getAll()) {
-                            if (tool.name.startsWith('mcp_')) {
+                            if (isMcpToolName(tool.name)) {
                                 tr.unregister(tool.name)
                             }
                         }
                         // 重新注册
                         for (const server of servers) {
                             if (server.tools && server.tools.length > 0) {
-                                registerMCPTools(server.id, server.tools as any, server.userDescription)
+                                registerMCPTools(server.id, server.tools as any, server.userDescription, server.name)
                             }
                         }
                     }
