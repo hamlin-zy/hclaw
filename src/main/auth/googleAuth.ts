@@ -1,24 +1,48 @@
+import {randomBytes, createHash} from 'crypto';
 import {ipcMain, shell} from 'electron';
 import axios from 'axios';
 import http from 'http';
 import {getMainWindow} from '../window';
 
 // Google OAuth2 凭据配置
-// 重要：请务必替换为你在 Google Cloud Console 中创建的“桌面应用”凭据
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+// GOOGLE_CLIENT_ID 是公开标识，可放心硬编码或通过环境变量覆盖
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID
+    || '150971104661-h4p7h7p42vp3vp2muqnjt3itqfes90ie.apps.googleusercontent.com';
+
+/** 生成 PKCE code_verifier（随机字符串，43-128 字符） */
+function generateCodeVerifier(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+    const array = randomBytes(64);
+    return Array.from(array).map(b => chars[b % chars.length]).join('');
+}
+
+/** 根据 code_verifier 生成 code_challenge（S256 方法） */
+function generateCodeChallenge(verifier: string): string {
+    return createHash('sha256')
+        .update(verifier)
+        .digest('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+}
 
 export class GoogleAuthService {
     private static _server: http.Server | null = null;
+    /** 暂存本次 PKCE 流程的 code_verifier，授权回调时使用 */
+    private static _pendingCodeVerifier: string | null = null;
 
-    /** 获取 Google 授权 URL */
+    /** 获取 Google 授权 URL（PKCE 流程，不需要 client_secret） */
     static getAuthUrl(port: number) {
         if (GOOGLE_CLIENT_ID.includes('替换为你的')) {
             throw new Error('请先在 src/main/auth/googleAuth.ts 中配置您的 GOOGLE_CLIENT_ID');
         }
 
+        // 生成 PKCE 参数
+        const codeVerifier = generateCodeVerifier();
+        GoogleAuthService._pendingCodeVerifier = codeVerifier;
+        const codeChallenge = generateCodeChallenge(codeVerifier);
+
         const redirectUri = `http://127.0.0.1:${port}`;
-        // 使用您在控制台中确认为有效的范围
         const scopes = [
             'https://www.googleapis.com/auth/userinfo.email',
             'https://www.googleapis.com/auth/userinfo.profile',
@@ -31,19 +55,24 @@ export class GoogleAuthService {
             response_type: 'code',
             scope: scopes.join(' '),
             access_type: 'offline',
-            prompt: 'consent'
+            prompt: 'consent',
+            code_challenge_method: 'S256',
+            code_challenge: codeChallenge,
         });
 
         return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
     }
 
-    /** 使用授权码交换 Token */
+    /** 使用授权码交换 Token（PKCE 流程，用 code_verifier 代替 client_secret） */
     static async exchangeCodeForToken(code: string, port: number) {
+        const codeVerifier = GoogleAuthService._pendingCodeVerifier;
+        GoogleAuthService._pendingCodeVerifier = null; // 一次性使用
+
         const redirectUri = `http://127.0.0.1:${port}`;
         const response = await axios.post('https://oauth2.googleapis.com/token', {
             code,
             client_id: GOOGLE_CLIENT_ID,
-            client_secret: GOOGLE_CLIENT_SECRET,
+            code_verifier: codeVerifier,
             redirect_uri: redirectUri,
             grant_type: 'authorization_code',
         });
@@ -57,12 +86,11 @@ export class GoogleAuthService {
         };
     }
 
-    /** 刷新 Access Token */
+    /** 刷新 Access Token（桌面应用可省略 client_secret） */
     static async refreshAccessToken(refreshToken: string) {
         const response = await axios.post('https://oauth2.googleapis.com/token', {
             refresh_token: refreshToken,
             client_id: GOOGLE_CLIENT_ID,
-            client_secret: GOOGLE_CLIENT_SECRET,
             grant_type: 'refresh_token',
         });
 
