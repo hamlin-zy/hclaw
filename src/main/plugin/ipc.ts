@@ -837,6 +837,9 @@ async function handleToggleCommand(
     ).run(commandName, enabled ? 1 : 0, Date.now())
     saveDatabase()
 
+    // 刷新 CapabilityHub，使管理界面能立即反映状态变化
+    await powerManager.refresh()
+
     return {success: true}
   } catch (err) {
     return {success: false, error: asError(err)}

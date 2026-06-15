@@ -145,9 +145,10 @@ export class CommandDispatcher {
   /**
    * Get all commands merged from plugin system and file-based user commands,
    * including plugin command override info from user_commands.
-   * Disabled plugin commands are filtered out from groups.
+   *
+   * @param includeDisabled 设为 true 时，同时返回被禁用的命令（用于管理界面展示）
    */
-  getAllCommands(): {
+  getAllCommands(includeDisabled = false): {
     pluginGroups: Map<string, CommandDef[]>;
     userCommands: CommandDefinition[];
     pluginCommandOverrides: Record<string, { enabled: boolean; edited?: boolean }>;
@@ -161,10 +162,10 @@ export class CommandDispatcher {
       pluginGroups.set(key, [...commands]);
     }
 
-    // Get user commands from file system cache (only enabled ones for UI)
+    // Get user commands from file system cache
     const userCommands: CommandDefinition[] = []
     for (const cmd of this.userCommands.values()) {
-      if (cmd.enabled) {
+      if (includeDisabled || cmd.enabled) {
         userCommands.push(cmd)
       }
     }
@@ -186,11 +187,13 @@ export class CommandDispatcher {
       }
     }
 
-    // Filter out disabled commands from groups
-    for (const [pluginName, commands] of pluginGroups) {
-      const filtered = commands.filter(cmd => !disabledCommandIds.has(cmd.id));
-      if (filtered.length !== commands.length) {
-        pluginGroups.set(pluginName, filtered);
+    // Optionally filter out disabled commands from groups
+    if (!includeDisabled) {
+      for (const [pluginName, commands] of pluginGroups) {
+        const filtered = commands.filter(cmd => !disabledCommandIds.has(cmd.id));
+        if (filtered.length !== commands.length) {
+          pluginGroups.set(pluginName, filtered);
+        }
       }
     }
 

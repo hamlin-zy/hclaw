@@ -169,7 +169,14 @@ export default function CommandsDialog() {
     }, [])
 
     const handleToggle = useCallback(async (id: string, enabled: boolean) => {
-        await toggleCommand(id, enabled)
+        const result = await toggleCommand(id, enabled)
+        if (result?.success) {
+            // 主进程已刷新 CapabilityHub，这里重新拉取最新数据
+            const caps = await window.electronAPI?.capability?.getByType?.('command')
+            if (Array.isArray(caps)) {
+                setCapabilities(caps as CapabilityEntry[])
+            }
+        }
     }, [toggleCommand])
 
     const handleDelete = useCallback(async (cmd: typeof userCommands[0]) => {
@@ -229,26 +236,35 @@ export default function CommandsDialog() {
     const handlePluginToggle = useCallback(async (cmd: PluginCapability, enabled: boolean) => {
         try {
             await setPluginOverride(cmd, enabled)
-            loadData()
+            // 直接更新本地状态，避免 loadData 触发 loading → 卸载 → 重建导致折叠状态丢失
+            setPluginCommandOverrides(prev => ({
+                ...prev,
+                [cmd.id]: { enabled, edited: prev[cmd.id]?.edited },
+            }))
         } catch {
             // silent
         }
-    }, [setPluginOverride, loadData])
+    }, [setPluginOverride])
 
     const handlePluginBatchToggle = useCallback(async (group: PluginGroupData, targetEnabled: boolean) => {
+        const updates: Record<string, { enabled: boolean; edited?: boolean }> = {}
         for (const cmd of group.commands) {
             const overrideState = pluginCommandOverrides[cmd.id]
             const isEnabled = overrideState ? overrideState.enabled !== false : true
             if (isEnabled !== targetEnabled) {
                 try {
                     await setPluginOverride(cmd, targetEnabled)
+                    updates[cmd.id] = { enabled: targetEnabled, edited: pluginCommandOverrides[cmd.id]?.edited }
                 } catch {
                     // silent
                 }
             }
         }
-        loadData()
-    }, [pluginCommandOverrides, setPluginOverride, loadData])
+        // 直接更新本地状态，避免 loadData 触发 loading → 卸载 → 重建
+        if (Object.keys(updates).length > 0) {
+            setPluginCommandOverrides(prev => ({ ...prev, ...updates }))
+        }
+    }, [pluginCommandOverrides, setPluginOverride])
 
     // ─── 预览 ────────────────────────────────────────
 
