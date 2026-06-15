@@ -512,6 +512,8 @@ export class AgentManager {
   /** Worker 错误处理 */
   private onWorkerError(conversationId: string, err: Error): void {
     this.forwardToRenderer(conversationId, {type: 'error', error: err.message})
+    // 通知外部流监听器，让使用方的 Promise 能 resolve/reject
+    this.notifyStreamListeners(conversationId, {type: 'done', reason: 'error'} as unknown as AgentStreamEvent)
     this.cleanup(conversationId)
   }
 
@@ -831,6 +833,7 @@ export class AgentManager {
     this.workers.delete(conversationId)
     this.pendingAssistantMsg.delete(conversationId)
     this.pendingNeedsTurnReset.delete(conversationId)
+    this.streamListeners.delete(conversationId)
   }
 }
 
