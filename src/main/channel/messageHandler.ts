@@ -636,7 +636,11 @@ async function runAgent(options: RunAgentOptions): Promise<string> {
                 case 'done':
                     removeListener()
                     if (progressTimer) clearInterval(progressTimer)
-                    resolve(accumulatedText || '(空回复)')
+                    if (event.reason === 'error' || event.reason === 'aborted') {
+                        reject(new Error(`Agent 结束，原因: ${event.reason}`))
+                    } else {
+                        resolve(accumulatedText || '(空回复)')
+                    }
                     break
                 case 'error':
                     removeListener()
