@@ -629,13 +629,15 @@ class PowerManagerImpl {
         const entries: CapabilityEntry[] = []
         try {
             const dispatcher = CommandDispatcher.getInstance()
-            const { pluginGroups, userCommands } = dispatcher.getAllCommands()
+            // 传入 true 以包含被禁用的命令，让管理界面可显示并重新启用
+            const { pluginGroups, userCommands, pluginCommandOverrides } = dispatcher.getAllCommands(true)
             const registry = PluginRegistry.getInstance()
 
             // 插件命令
             for (const [pluginName, cmds] of pluginGroups) {
                 const plugin = registry.get(pluginName)
                 for (const cmd of cmds) {
+                    const enabled = pluginCommandOverrides[cmd.id]?.enabled ?? true
                     entries.push({
                         id: `cmd:${cmd.id}`,
                         name: cmd.name || cmd.id.split(':').pop() || cmd.id,
@@ -644,7 +646,7 @@ class PowerManagerImpl {
                         source: 'plugin',
                         pluginName,
                         pluginEnabled: plugin?.enabled ?? false,
-                        enabled: true,
+                        enabled,
                         content: cmd.content,
                         hasArgs: (cmd.args?.length ?? 0) > 0 || /\$ARGUMENTS/gi.test(cmd.content || ''),
                         searchText: '',
@@ -652,7 +654,7 @@ class PowerManagerImpl {
                 }
             }
 
-            // 用户命令
+            // 用户命令（包含被禁用的）
             for (const cmd of userCommands) {
                 entries.push({
                     id: `cmd:${cmd.id}`,
@@ -660,7 +662,7 @@ class PowerManagerImpl {
                     description: cmd.description || '',
                     type: 'command',
                     source: 'user',
-                    enabled: true,
+                    enabled: cmd.enabled,
                     content: cmd.content,
                     hasArgs: (cmd.args?.length ?? 0) > 0 || /\$ARGUMENTS/gi.test(cmd.content || ''),
                     searchText: '',
