@@ -7,6 +7,15 @@
 
 ---
 
+## [v0.2.71] - 2026-06-16
+
+### 重构
+- **PowerShell 命令执行方式重构** — 将 PowerShell 命令通过 `-Command` 参数传递（`CreateProcessW` UTF-16LE），替代原先 stdin 写入方式，彻底解决 GB2312/936 默认编码导致的中文乱码问题
+  - 同时注入 `InputEncoding=UTF8`，补齐原先仅设置 `OutputEncoding` 的缺口
+  - `bashTool.ts`：spawn 分支逻辑改为 Windows PowerShell 走 `-NoProfile -Command <init>\n<command>\nexit`，其他 shell 保持 stdin 方式不变（约 30 行重构，净减少 1 行）
+
+---
+
 ## [v0.2.70] - 2026-06-15
 
 ### 杂项
