@@ -199,10 +199,10 @@ function buildExecEnv(): NodeJS.ProcessEnv {
 
 /**
  * PowerShell UTF-8 初始化命令
- * 以独立语句形式注入，不影响用户命令
+ * 拼接在用户命令之前，确保 PowerShell 会话以 UTF-8 编码运行
  */
 function getPowerShellUtf8Init(): string {
-  return '$PSDefaultParameterValues["Out-File:Encoding"]="utf8"; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8;'
+  return '$PSDefaultParameterValues["Out-File:Encoding"]="utf8"; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::InputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8;'
 }
 
 // ─── 输出截断 ──────────────────────────────────
@@ -399,16 +399,16 @@ ${
           }
 
       // 启动子进程
-      const proc = spawn(
-          shellInfo.shell,
-          shellInfo.shellArgs,
-        {
-          cwd: context.workingDir,
-          env,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          windowsHide: true,
-        },
-      )
+      // Windows PowerShell: -Command 参数传脚本（CreateProcessW UTF-16LE），
+      // 绕过 stdin 默认编码 (GB2312/936) 导致的中文乱码。
+      // 注：不能用 stdin 方式 — init 和 command 在同一缓冲区，InputEncoding 来不及生效。
+      const spawnOpts = { cwd: context.workingDir, env, stdio: ['pipe', 'pipe', 'pipe'] as const, windowsHide: true }
+      let proc: ReturnType<typeof spawn>
+      if (shellInfo.os === 'windows' && shellInfo.name === 'powershell') {
+        proc = spawn(shellInfo.shell, ['-NoProfile', '-Command', `${getPowerShellUtf8Init()}\n${command}\nexit`], spawnOpts)
+      } else {
+        proc = spawn(shellInfo.shell, shellInfo.shellArgs, spawnOpts)
+      }
 
       let stdoutBuf = Buffer.alloc(0) as Buffer
       let stderrBuf = Buffer.alloc(0) as Buffer
@@ -504,28 +504,27 @@ ${
         })
       })
 
-      // 写入命令到 stdin
-      let commandToWrite = command
-
-      // PowerShell UTF-8 初始化
+      // 写入命令到 stdin（仅限非 Windows PowerShell 的 shell）
+      // PowerShell on Windows 已通过 -Command 参数传参，无需 stdin
       if (shellInfo.os === 'windows' && shellInfo.name === 'powershell') {
-        const utf8Init = getPowerShellUtf8Init()
-        commandToWrite = `${utf8Init}\n${command}`
-      }
+        proc.stdin.end()
+      } else {
+        let commandToWrite = command
 
-      // 确保命令以换行结尾
-      if (!commandToWrite.endsWith('\n')) {
-        commandToWrite += '\n'
-      }
+        // 确保命令以换行结尾
+        if (!commandToWrite.endsWith('\n')) {
+          commandToWrite += '\n'
+        }
 
-      // 写入命令并关闭 stdin
-      // 添加 stdin 错误处理（防止 Linux/macOS 上的 EPIPE 异常）
-      proc.stdin.on('error', (err) => {
-        // EPIPE 是正常现象：进程已退出导致管道断裂，无需上报为错误
-        // 后续 close 事件会处理结果
-      })
-      proc.stdin.write(commandToWrite)
-      proc.stdin.end()
+        // 写入命令并关闭 stdin
+        // 添加 stdin 错误处理（防止 Linux/macOS 上的 EPIPE 异常）
+        proc.stdin.on('error', (err) => {
+          // EPIPE 是正常现象：进程已退出导致管道断裂，无需上报为错误
+          // 后续 close 事件会处理结果
+        })
+        proc.stdin.write(commandToWrite)
+        proc.stdin.end()
+      }
 
       // 超时控制
       timer = setTimeout(() => {
