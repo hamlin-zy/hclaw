@@ -7,6 +7,13 @@
 
 ---
 
+## [v0.2.72] - 2026-06-16
+
+### Bug 修复
+- **MCP JSON 解析传输协议未从 URL 推断** — 在 MCP 管理页面粘贴 HTTP 类型 JSON 配置（只有 `url` 无显式 `transport`）时，解析按钮未从 URL 推断传输协议，导致表单保持默认 `'stdio'`。添加三段式推断逻辑：`transport → type → url`，与后端 `mcpConfig.ts` 行为一致（`MCPEditCard.tsx:137-139`）
+
+---
+
 ## [v0.2.71] - 2026-06-16
 
 ### 重构

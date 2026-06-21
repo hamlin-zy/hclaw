@@ -134,7 +134,9 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
             }
 
             if (mcpConfigKey) setName(mcpConfigKey)
-            if (mcpConfig.transport) setTransport(mcpConfig.transport)
+            // 推断传输协议：优先显式 transport，其次 type 字段，然后从 url 推断
+            const inferredTransport = mcpConfig.transport || mcpConfig.type || (mcpConfig.url ? 'streamable-http' : 'stdio')
+            setTransport(inferredTransport)
             if (mcpConfig.command) setCommand(mcpConfig.command)
             if (mcpConfig.args) setArgsStr(Array.isArray(mcpConfig.args) ? mcpConfig.args.join('\n') : mcpConfig.args)
             if (mcpConfig.env) setEnvPairs(objectToPairs(mcpConfig.env))
