@@ -212,31 +212,7 @@ export class MCPClient {
         let sdkClient: Client | undefined
         try {
             const transportOptions = this.getTransportOptions(config)
-
-            // ★ 根据 transport 类型创建 SDK Transport
-            let sdkTransport: StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport | WebSocketClientTransport
-
-            switch (config.transport) {
-                case 'stdio':
-                    sdkTransport = createStdioTransport({
-                        command: config.command!,
-                        args: config.args,
-                        env: config.env,
-                        cwd: config.cwd,
-                    })
-                    break
-                case 'sse':
-                    sdkTransport = new SSEClientTransport(new URL(config.url!))
-                    break
-                case 'streamable-http':
-                    sdkTransport = new StreamableHTTPClientTransport(new URL(config.url!))
-                    break
-                case 'websocket':
-                    sdkTransport = new WebSocketClientTransport(new URL(config.url!))
-                    break
-                default:
-                    return { success: false, error: `不支持的传输方式: ${config.transport}` }
-            }
+            const sdkTransport = this.createTransport(config)
 
             sdkClient = new Client(
                 { name: 'HClaw', version: HCLAW_VERSION },
@@ -335,49 +311,7 @@ export class MCPClient {
             }
 
             try {
-                // ★ 根据 transport 类型创建对应 SDK Transport
-                let sdkTransport: StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport | WebSocketClientTransport
-
-                switch (state.config.transport) {
-                    case 'stdio':
-                        sdkTransport = createStdioTransport({
-                            command: state.config.command!,
-                            args: state.config.args,
-                            env: state.config.env,
-                            cwd: state.config.cwd,
-                            stderr: 'pipe',
-                        })
-                        break
-
-                    case 'sse':
-                        sdkTransport = new SSEClientTransport(
-                            new URL(state.config.url!),
-                            {
-                                requestInit: state.config.headers ? { headers: state.config.headers } : undefined,
-                            },
-                        )
-                        break
-
-                    case 'streamable-http':
-                        sdkTransport = new StreamableHTTPClientTransport(
-                            new URL(state.config.url!),
-                            {
-                                requestInit: state.config.headers ? { headers: state.config.headers } : undefined,
-                            },
-                        )
-                        break
-
-                    case 'websocket':
-                        sdkTransport = new WebSocketClientTransport(
-                            new URL(state.config.url!),
-                        )
-                        break
-
-                    default:
-                        throw new Error(`不支持的传输方式: ${state.config.transport}`)
-                }
-
-                state.sdkTransport = sdkTransport
+                state.sdkTransport = this.createTransport(state.config)
 
                 // ★ 创建 SDK Client
                 const sdkClient = new Client(
@@ -387,11 +321,11 @@ export class MCPClient {
                 state.sdkClient = sdkClient
 
                 // ★ SDK 一键握手（initialize + initialized）
-                await sdkClient.connect(sdkTransport)
+                await sdkClient.connect(state.sdkTransport!)
 
                 // ★ PID 捕获（仅 stdio 有子进程）
-                if (sdkTransport instanceof StdioClientTransport) {
-                    const pid = sdkTransport.pid
+                if (state.sdkTransport instanceof StdioClientTransport) {
+                    const pid = state.sdkTransport.pid
                     if (pid) state.lastPid = pid
                 }
 
@@ -695,8 +629,34 @@ export class MCPClient {
   // ─── 内部 ──────────────────────────────────────────
 
   /**
+   * 根据配置创建 SDK Transport 实例
+   * 被 testConnection() 和 doConnect() 共用，消除两份 switch 的重复
+   */
+  private createTransport(config: MCPServerConfig): StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport | WebSocketClientTransport {
+    const requestInit = config.headers ? { headers: config.headers } : undefined
+    switch (config.transport) {
+      case 'stdio':
+        return createStdioTransport({
+          command: config.command!,
+          args: config.args,
+          env: config.env,
+          cwd: config.cwd,
+          stderr: 'pipe',
+        })
+      case 'sse':
+        return new SSEClientTransport(new URL(config.url!), { requestInit })
+      case 'http':
+      case 'streamable-http':
+        return new StreamableHTTPClientTransport(new URL(config.url!), { requestInit })
+      case 'websocket':
+        return new WebSocketClientTransport(new URL(config.url!))
+      default:
+        throw new Error(`不支持的传输方式: ${config.transport}`)
+    }
+  }
+
+  /**
    * 获取 Transport 配置选项
-   * 从 runtimeConfigManager 读取超时配置
    */
   private getTransportOptions(config?: MCPServerConfig): MCPTransportOptions {
       // 优先使用服务器级别的 timeout，否则使用 60 秒默认值

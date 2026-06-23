@@ -7,6 +7,13 @@
 
 ---
 
+## [v0.2.73] - 2026-06-23
+
+### 重构
+- **提取 MCP Client `createTransport()` 方法** — 将 `testConnection()` 和 `doConnect()` 中两份重复的 transport 创建 switch 合并为私有方法 `createTransport()`，新增 `http` 作为 `streamable-http` 的传输别名。净减少 ~40 行重复代码（`client.ts:628-662`）
+
+---
+
 ## [v0.2.72] - 2026-06-16
 
 ### Bug 修复
