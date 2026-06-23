@@ -1,0 +1,26 @@
+{
+  "//": "=== 代码签名配置样板 ===",
+  "//": "复制此文件为 sign.json 并根据实际情况修改",
+
+  "//": "签名方式: 'cert' (PFX证书) 或 'azure' (Azure Trusted Signing)",
+  "method": "cert",
+
+  "//": "=== 方式1: PFX/P12 证书 ===",
+  "certFile": "C:/certs/hclaw-code-signing.pfx",
+  "certPassword": "your-certificate-password",
+
+  "//": "时间戳服务器（可选，默认 DigiCert）",
+  "timestampUrl": "http://timestamp.digicert.com",
+
+  "//": "双重签名（兼容 Windows 7/8 + SHA256 验证，可选）",
+  "dualSign": false,
+
+  "//": "=== 方式2: Azure Trusted Signing ===",
+  "azure": {
+    "tenantId": "00000000-0000-0000-0000-000000000000",
+    "clientId": "00000000-0000-0000-0000-000000000000",
+    "clientSecret": "",
+    "accountName": "HClawSign",
+    "certProfile": "HClawProfile"
+  }
+}
