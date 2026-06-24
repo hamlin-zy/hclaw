@@ -436,7 +436,7 @@ export default function AgentsDialog() {
             {/* 加载错误警告 */}
             <div className="mx-6 mt-3">
                 <LoadErrorBanner
-                    errors={loadErrors.map(e => ({name: e.agentName || e.filePath.split(/[/\\]/).pop() || '', error: e.error}))}
+                    errors={loadErrors.map(e => ({name: e.agentName || (e.filePath ? e.filePath.split(/[/\\]/).pop() : '') || '', error: e.error}))}
                     title={`${loadErrors.length} 个 Agent 加载失败`}
                     tip="请检查对应文件的 YAML frontmatter 格式，修改后点击同步按钮重试"
                 />

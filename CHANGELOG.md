@@ -7,6 +7,17 @@
 
 ---
 
+## [v0.2.74] - 2026-06-23
+
+### Bug 修复
+- **修复并行子 Agent 重复 subagent_start 导致前端重复注册 toolCall** — 移除 `agentTool.ts` 中并行模式下手动发送的 `subagent_start` 事件（`executeSingleTask` 内部的 `subAgentScheduler.executeTask()` 已通过 for-await 事件循环自动发送），在 `streamSubAgents.ts` 的 `handleSubagentStart` 中添加防御性去重检查 (`agentTool.ts:479-489`, `streamSubAgents.ts:110-135`)
+- **修复 Agent/Skill 加载错误提示中可选属性 `.split()` 崩溃** — `AgentsDialog.tsx` 和 `SkillsDialog.tsx` 中 `LoadErrorBanner` 的 `name` 提取逻辑增加空值守卫，防止 `e.agentName` / `e.filePath` / `e.skillDir` 为 `undefined` 时掉用 `.split()` 导致页面白屏 (`AgentsDialog.tsx:439`, `SkillsDialog.tsx:159`)
+
+### 重构
+- **子 Agent 并发上限从硬编码改为动态读取** — `agentTool.ts` 中所有硬编码的 `3` 个并发上限替换为 `subAgentScheduler.maxConcurrency` 动态值，提取 Zod schema 硬上限常量 `SCHEMA_MAX_PARALLEL_TASKS = 10` 和缓存 TTL 常量 `AGENT_CACHE_TTL_MS`，错误提示同步改为动态显示当前上限 (`agentTool.ts:116-121, 161-162, 455-463, 558`)
+
+---
+
 ## [v0.2.73] - 2026-06-23
 
 ### 重构
