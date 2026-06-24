@@ -156,7 +156,7 @@ export default function SkillsDialog() {
 
           {/* Load errors warning */}
           <LoadErrorBanner
-              errors={loadErrors.map(e => ({name: e.skillDir.split(/[/\\]/).pop() || '', error: e.error}))}
+              errors={loadErrors.map(e => ({name: (e.skillDir ? e.skillDir.split(/[/\\]/).pop() : '') || '', error: e.error}))}
               title={`${loadErrors.length} 个技能加载失败`}
               tip="请检查对应 SKILL.md 文件的 YAML frontmatter 格式，修改后点击刷新按钮重试"
           />

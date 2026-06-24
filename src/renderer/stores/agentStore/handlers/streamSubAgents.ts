@@ -107,27 +107,32 @@ export function handleSubagentStart(ctx: StreamCtx) {
     const agentTool = findAgentCall(msg?.toolCalls, (event as any).toolCallId)
     if (agentTool) {
         const subToolCallId = `sub-${event.taskId}`
-        useToolCallsStore.getState().registerToolCall(subToolCallId, {
-            status: 'running',
-            progress: '子 Agent 启动中...',
-        })
-        useToolCallsStore.getState().appendProgressLog(subToolCallId, '启动中...')
-        if (agentTool.id !== subToolCallId) {
-            useToolCallsStore.getState().appendProgressLog(agentTool.id, `启动子 Agent: ${event.description.slice(0, 60)}`)
-        }
-        const existing = msg?.toolCalls || []
-        useConversationStore.getState().updateMessageForConv(convId, convState.streamingMessageId, {
-            toolCalls: [...existing, {
-                id: subToolCallId,
-                name: 'agent',
-                arguments: {task: event.description},
+
+        // 防御性检查：避免重复 subagent_start 导致 toolCalls 中创建重复条目
+        const alreadyExists = msg?.toolCalls?.some(tc => tc.id === subToolCallId)
+        if (!alreadyExists) {
+            useToolCallsStore.getState().registerToolCall(subToolCallId, {
                 status: 'running',
-                taskId: event.taskId,
-                taskDescription: event.description.length > 60
-                    ? event.description.slice(0, 60) + '...'
-                    : event.description,
-            }],
-        })
+                progress: '子 Agent 启动中...',
+            })
+            useToolCallsStore.getState().appendProgressLog(subToolCallId, '启动中...')
+            if (agentTool.id !== subToolCallId) {
+                useToolCallsStore.getState().appendProgressLog(agentTool.id, `启动子 Agent: ${event.description.slice(0, 60)}`)
+            }
+            const existing = msg?.toolCalls || []
+            useConversationStore.getState().updateMessageForConv(convId, convState.streamingMessageId, {
+                toolCalls: [...existing, {
+                    id: subToolCallId,
+                    name: 'agent',
+                    arguments: {task: event.description},
+                    status: 'running',
+                    taskId: event.taskId,
+                    taskDescription: event.description.length > 60
+                        ? event.description.slice(0, 60) + '...'
+                        : event.description,
+                }],
+            })
+        }
     }
 }
 

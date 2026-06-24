@@ -113,13 +113,17 @@ function formatSubAgentProgress(event: SubAgentEvent | AgentStreamEvent, streamE
     }
 }
 
+// ─── 常量 ──────────────────────────────────────────────────
+
+/** Zod schema 硬上限（防御性编程，实际限制由系统设置控制） */
+const SCHEMA_MAX_PARALLEL_TASKS = 10
+
+/** Agent 加载缓存 TTL（5 分钟） */
+const AGENT_CACHE_TTL_MS = 5 * 60 * 1000
+
 // ─── 配置状态 ──────────────────────────────────────────────
 
 // 配置现在直接从 RuntimeConfigManager 读取，不再需要模块级缓存
-
-// ─── Agent 加载缓存（TTL 5 分钟） ──────────────────────────
-
-const AGENT_CACHE_TTL_MS = 5 * 60 * 1000 // 5 分钟
 
 let _loadedAgents: AgentLoadResult | null = null
 let _loadedAgentsTimestamp = 0
@@ -154,8 +158,8 @@ const multiTaskSchema = z.object({
     tasks: z
         .array(z.object(baseTaskFields))
         .min(1)
-        .max(3)
-        .describe('并行执行的子任务列表（最多 3 个）'),
+        .max(SCHEMA_MAX_PARALLEL_TASKS)
+        .describe('并行执行的子任务列表（最大并发数由系统设置中的子 Agent 配置控制）'),
     parallel: z.literal(true).describe('必须为 true 以启用并行模式'),
 })
 
@@ -425,7 +429,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
   name: 'agent',
   description:
       '派生专门的专家代理处理子任务，由主 Agent 作为调度中心。子 Agent 拥有独立的推理循环和工具访问权限。' +
-      '支持单任务或并行（最多 3 个）委派。可根据任务复杂度自动选择最优模型。',
+      '支持单任务或并行委派（最大并发数由系统设置控制，默认 3 个）。可根据任务复杂度自动选择最优模型。',
   inputSchema,
   isDestructive: false,
 
@@ -448,13 +452,13 @@ export const agentTool: Tool<AgentToolInput, string> = {
       const multiArgs = args as MultiTaskInput
       const tasks = multiArgs.tasks
 
-      
-      // 检查并发容量
-      if (tasks.length > 3) {
+      // 检查并发容量（使用调度器统一的上限，避免重复读取 systemSettingsRepo）
+      const maxConcurrency = subAgentScheduler.maxConcurrency
+      if (tasks.length > maxConcurrency) {
         return {
           success: false,
           output: '',
-          error: '最多支持 3 个并行子任务',
+          error: `最多支持 ${maxConcurrency} 个并行子任务（当前系统设置上限）`,
         }
       }
 
@@ -472,17 +476,11 @@ export const agentTool: Tool<AgentToolInput, string> = {
 
       try {
           // 并行执行所有子任务
+          // 注意：不再在此处发送 subagent_start —— executeSingleTask 内部
+          // 通过 subAgentScheduler.executeTask() 的 for-await 事件循环自动发送，
+          // 避免双重发送导致前端 handleSubagentStart 重复注册 toolCall。
           const taskPromises = subTasks.map(async (task, i) => {
               try {
-                  // 在并行模式下，为每个 task 发送 subagent_start 事件
-                  // 让渲染进程能够为每个 task 创建独立的 toolCall
-                  context.sendMessage({
-                      type: 'subagent_start',
-                      taskId: task.id,
-                      description: tasks[i].task,
-                      toolCallId: context.toolCallId,
-                  })
-                  
                   return await executeSingleTask(
                     task,
                     tasks[i].task,
@@ -557,7 +555,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
         return {
           success: false,
           output: '',
-          error: `并发上限已满 (最多 3 个子 Agent)，请等待其他子任务完成`,
+          error: `并发上限已满 (最多 ${subAgentScheduler.maxConcurrency} 个子 Agent)，请等待其他子任务完成`,
         }
       }
 
