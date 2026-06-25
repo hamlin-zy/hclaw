@@ -115,8 +115,8 @@ function formatSubAgentProgress(event: SubAgentEvent | AgentStreamEvent, streamE
 
 // ─── 常量 ──────────────────────────────────────────────────
 
-/** Zod schema 硬上限（防御性编程，实际限制由系统设置控制） */
-const SCHEMA_MAX_PARALLEL_TASKS = 10
+/** Zod schema 硬上限（取系统设置的 maxConcurrency 与实际能够运行的最大并行数较大者） */
+const SCHEMA_MAX_PARALLEL_TASKS = Math.max(10, subAgentScheduler.maxConcurrency)
 
 /** Agent 加载缓存 TTL（5 分钟） */
 const AGENT_CACHE_TTL_MS = 5 * 60 * 1000
