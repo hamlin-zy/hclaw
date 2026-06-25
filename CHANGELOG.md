@@ -7,6 +7,14 @@
 
 ---
 
+## [v0.2.76] - 2026-06-25
+
+### 重构
+- **MCP Transport 子进程环境变量从完整 `process.env` 继承** — 将 `enrichEnvPath()` 重命名为 `buildChildEnv()`，策略改为从完整 `process.env` 构建子进程环境变量（而非仅继承 SDK 的 12 个白名单变量），确保 `UV_CACHE_DIR`、`HTTP_PROXY`、`NODE_EXTRA_CA_CERTS` 等用户全局环境变量正常传递到 MCP 子进程。macOS/Linux 额外注入 nvm/Homebrew 等版本管理器路径，`mcp.json` 显式配置的 `env` 拥有最高优先级覆盖 (`stdio.ts:60-195`)
+- **`getAllCandidateDirs()` 简化去重逻辑** — 三组 PATH 目录已知不重叠，移除 `Set` 去重，直接展平合并 (`stdio.ts:65-68`)
+
+---
+
 ## [v0.2.75] - 2026-06-27
 
 ### 重构
