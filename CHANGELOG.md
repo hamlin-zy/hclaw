@@ -7,6 +7,13 @@
 
 ---
 
+## [v0.2.75] - 2026-06-27
+
+### 重构
+- **Zod schema 并发硬上限 `SCHEMA_MAX_PARALLEL_TASKS` 改为动态读取** — 从硬编码 `10` 改为 `Math.max(10, subAgentScheduler.maxConcurrency)`，使 schema 校验上限与实际系统配置保持一致，避免配置了更大并发时被 schema 层误拦截 (`agentTool.ts:118`)
+
+---
+
 ## [v0.2.74] - 2026-06-23
 
 ### Bug 修复
