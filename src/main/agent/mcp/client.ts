@@ -383,8 +383,17 @@ export class MCPClient {
                 // 通知状态变化（单次失败）
                 this.emitStatusChange(state.config.id, this.getServer(state.config.id)!)
 
-                // 清理失败的 transport
-                try { await state.sdkTransport?.close() } catch {}
+                // ★ 捕获 PID → 关闭 transport → taskkill 兜底清理进程树
+                try {
+                    if (state.sdkTransport instanceof StdioClientTransport) {
+                        state.lastPid = state.sdkTransport.pid
+                    }
+                    await state.sdkTransport?.close()
+                    if (state.lastPid) {
+                        killProcessTree(state.lastPid)
+                        await waitForProcessExit(state.lastPid)
+                    }
+                } catch {}
                 state.sdkTransport = undefined
                 state.sdkClient = undefined
             }

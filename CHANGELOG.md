@@ -7,6 +7,13 @@
 
 ---
 
+## [v0.2.77] - 2026-07-01
+
+### Bug 修复
+- **MCP 断开时通过 `killProcessTree` 兜底清理僵尸子进程** — MCP Server 连接失败时，先捕获 `StdioClientTransport.pid`，关闭 transport 后再调用 `killProcessTree(pid)` + `waitForProcessExit(pid)` 强制清理子进程树，防止 stdio 子进程残留占用资源（`client.ts:386-399`）
+
+---
+
 ## [v0.2.76] - 2026-06-25
 
 ### 重构
