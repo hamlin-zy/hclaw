@@ -11,7 +11,7 @@
  */
 
 import {z} from 'zod'
-import {execSync, spawn} from 'child_process'
+import {execSync, spawn, type SpawnOptions} from 'child_process'
 import iconv from 'iconv-lite'
 import type {Tool, ToolContext, ToolResult} from '../types'
 import {isDangerousCommandPattern, isSafeCommandPrefix} from '../../permissions/dangerousPatterns'
@@ -402,7 +402,7 @@ ${
       // Windows PowerShell: -Command 参数传脚本（CreateProcessW UTF-16LE），
       // 绕过 stdin 默认编码 (GB2312/936) 导致的中文乱码。
       // 注：不能用 stdin 方式 — init 和 command 在同一缓冲区，InputEncoding 来不及生效。
-      const spawnOpts = { cwd: context.workingDir, env, stdio: ['pipe', 'pipe', 'pipe'] as const, windowsHide: true }
+      const spawnOpts: SpawnOptions = { cwd: context.workingDir, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
       let proc: ReturnType<typeof spawn>
       if (shellInfo.os === 'windows' && shellInfo.name === 'powershell') {
         proc = spawn(shellInfo.shell, ['-NoProfile', '-Command', `${getPowerShellUtf8Init()}\n${command}\nexit`], spawnOpts)
@@ -415,11 +415,11 @@ ${
       const stdoutTruncated = {value: false}
       const stderrTruncated = {value: false}
 
-      proc.stdout.on('data', (chunk: Buffer) => {
+      proc.stdout!.on('data', (chunk: Buffer) => {
         stdoutBuf = safeAppend(stdoutBuf, chunk as Buffer, stdoutTruncated) as Buffer
       })
 
-      proc.stderr.on('data', (chunk: Buffer) => {
+      proc.stderr!.on('data', (chunk: Buffer) => {
         stderrBuf = safeAppend(stderrBuf, chunk as Buffer, stderrTruncated) as Buffer
       })
 
@@ -507,7 +507,7 @@ ${
       // 写入命令到 stdin（仅限非 Windows PowerShell 的 shell）
       // PowerShell on Windows 已通过 -Command 参数传参，无需 stdin
       if (shellInfo.os === 'windows' && shellInfo.name === 'powershell') {
-        proc.stdin.end()
+        proc.stdin!.end()
       } else {
         let commandToWrite = command
 
@@ -518,12 +518,12 @@ ${
 
         // 写入命令并关闭 stdin
         // 添加 stdin 错误处理（防止 Linux/macOS 上的 EPIPE 异常）
-        proc.stdin.on('error', (err) => {
+        proc.stdin!.on('error', (_err: Error) => {
           // EPIPE 是正常现象：进程已退出导致管道断裂，无需上报为错误
           // 后续 close 事件会处理结果
         })
-        proc.stdin.write(commandToWrite)
-        proc.stdin.end()
+        proc.stdin!.write(commandToWrite)
+        proc.stdin!.end()
       }
 
       // 超时控制

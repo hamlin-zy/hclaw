@@ -7,6 +7,16 @@
 
 ---
 
+## [v0.2.78] - 2026-06-27
+
+### 重构
+- **agent 工具简化为单任务架构，移除内置并行编排** — 移除 tasks 数组、parallel 模式、complexity 字段、agentType 自动匹配、worktree 隔离等 ~230 行代码。并行交由 LLM 原生 parallel function call 实现，槽位满时直接拒绝并告知上限、由父 Agent 自行决定重试策略。新增 `capabilities` 参数支持从 skillRegistry/agentRegistry 查找指定能力，注入子 Agent 上下文 (`agentTool.ts`)
+- **提取 `gracefulRestart()` 统一重启入口** — 新增 `src/main/utils/restart.ts`，封装 relaunch 标记 → MCP Worker 关闭 → app.exit 的标准化优雅重启流程，替换 `manager.impl.ts`、`config.ts`、`tray.ts` 三处重复的 `app.relaunch()`/`app.exit()` 调用，确保重启前 MCP 连接正确关闭
+
+### Bug 修复
+- **bashTool TypeScript 严格空值检查** — `proc.stdout`/`proc.stderr`/`proc.stdin` 添加非空断言 `!`，使用显式 `SpawnOptions` 类型替代 `as const` 断言，消除 strict 模式下的类型错误 (`bashTool.ts`)
+- **MCP Client pid 空值安全** — `state.sdkTransport.pid` 添加 `?? undefined` 空值合并，防止 pid 为 null 时类型校验失败 (`client.ts`)
+
 ## [v0.2.77] - 2026-07-01
 
 ### Bug 修复

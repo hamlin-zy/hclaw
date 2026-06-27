@@ -2,7 +2,7 @@
  * Sub-Agent 类型定义
  *
  * 主 Agent 通过调用 `agent` 工具派生子 Agent 执行子任务。
- * 最多 3 个子 Agent 并发运行。
+ * 并发数由系统设置控制。
  */
 
 import type {AgentStreamEvent} from '../stream'
