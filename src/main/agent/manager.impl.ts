@@ -3,7 +3,7 @@
  */
 
 import {Worker} from 'worker_threads'
-import {app, BrowserWindow} from 'electron'
+import {BrowserWindow} from 'electron'
 import * as path from 'path'
 import {WORKER_MESSAGE_TYPES} from './constants'
 import type {AgentStreamEvent} from './stream'
@@ -11,6 +11,7 @@ import type {AgentTemplate, LlmCallLog, SystemSettings} from '@shared/types'
 import type {ChatMessage, ModelConfig} from './model/types'
 import {permissionEngine} from './tools/permission'
 import {addLlmCallLog} from '../utils/llmCallLogStore'
+import {gracefulRestart} from '../utils/restart'
 import {HookExecutor} from '../plugin/hooks'
 import {capabilityManager} from './capabilityManager'
 import type {SerializableCapabilities} from '../common/capabilitySerializer'
@@ -309,8 +310,7 @@ export class AgentManager {
 
     // app-restart 事件
     if (event.type === 'app-restart') {
-      app.relaunch()
-      app.exit(0)
+      await gracefulRestart()
       return
     }
 

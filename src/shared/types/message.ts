@@ -34,7 +34,7 @@ export interface ToolCall {
     outputTokens: number
     totalTokens: number
   }
-  /** 子 Agent 任务 ID（agent 工具并行模式时，用于区分不同的子任务） */
+  /** 子 Agent 任务 ID（agent 工具派生子 Agent 时，用于区分不同的子任务） */
   taskId?: string
   /** 子 Agent 任务描述（agent 工具显示用） */
   taskDescription?: string

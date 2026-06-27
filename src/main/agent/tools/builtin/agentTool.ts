@@ -2,12 +2,13 @@
  * agent 内置工具 — 派生子 Agent 执行子任务
  *
  * 主 Agent 通过调用此工具派生子 Agent，支持：
- * - 任务描述 + 附加上下文
+ * - 任务描述（prompt）
  * - 可选的工具白名单限制
- * - 超时控制
+ * - 可选的 capabilities 参数（指定子 Agent 可用的 skill/agent 能力）
  * - 流式进度回调
- * - 并行执行多个子任务（tasks 数组）
- * - 支持模型方案，根据任务复杂度选择模型
+ *
+ * 并发控制：槽位满时直接拒绝并告知上限，由父 Agent（LLM）自行决定重试策略。
+ * 并行：由 LLM 原生 parallel function call 实现，不在工具内做并行编排。
  */
 
 import {z} from 'zod'
@@ -15,20 +16,13 @@ import {randomUUID} from 'crypto'
 import type {Tool, ToolContext, ToolResult} from '../types'
 import {subAgentScheduler} from '../../subagent/scheduler'
 import type {SubAgentEvent, SubAgentResult, SubAgentTask} from '../../subagent/types'
-import type {HClawAgentType, TaskComplexity} from '@shared/types'
-import {quickComplexityCheck} from '../../model/intentAnalyzer'
 import {logger} from '../../logger'
 import type {AgentStreamEvent} from '../../stream'
-import type {AgentLoadResult, UserAgentDefinition} from '@shared/agent'
-import type {AgentType} from '@shared/agent'
-import type {AgentTemplate} from '@shared/types'
-import {loadAgents} from '../../loader'
 import {agentRegistry} from '../../agentRegistry'
-import {worktreeManager} from '../../isolation/worktree'
-import {type RoleProviderInfo, runtimeConfigManager} from '../../runtimeConfigManager'
+import {skillRegistry} from '../../skills'
+import {runtimeConfigManager} from '../../runtimeConfigManager'
 import {systemSettingsRepo} from '../../../repositories/sqlite/systemSettingsRepository'
 import {permissionEngine} from '../permission'
-import {findAgentByType} from '../../utils/agentMatching'
 import type {ModelConfig} from '../../model/types'
 
 // ─── 子 Agent 进度格式化 ──────────────────────────────────
@@ -113,140 +107,78 @@ function formatSubAgentProgress(event: SubAgentEvent | AgentStreamEvent, streamE
     }
 }
 
-// ─── 常量 ──────────────────────────────────────────────────
+// ─── 能力解析 ────────────────────────────────────────────
 
-/** Zod schema 硬上限（取系统设置的 maxConcurrency 与实际能够运行的最大并行数较大者） */
-const SCHEMA_MAX_PARALLEL_TASKS = Math.max(10, subAgentScheduler.maxConcurrency)
+/** 能力查找结果 */
+interface CapabilityInfo {
+    name: string
+    type: 'skill' | 'agent'
+    markdown: string
+}
 
-/** Agent 加载缓存 TTL（5 分钟） */
-const AGENT_CACHE_TTL_MS = 5 * 60 * 1000
+/**
+ * 从全局能力注册表中查找指定名称的 skill/agent
+ *
+ * 查找顺序：agentRegistry（模糊匹配）→ skillRegistry（精确匹配 id 或 name）
+ */
+function resolveCapabilities(names: string[]): CapabilityInfo[] {
+    const results: CapabilityInfo[] = []
 
-// ─── 配置状态 ──────────────────────────────────────────────
+    for (const name of names) {
+        // 1. 在 agentRegistry 中查找（支持模糊匹配）
+        const agent = agentRegistry.find(name)
+        if (agent) {
+            results.push({
+                name: agent.name,
+                type: 'agent',
+                markdown: agent.systemPrompt || agent.description || '',
+            })
+            continue
+        }
 
-// 配置现在直接从 RuntimeConfigManager 读取，不再需要模块级缓存
+        // 2. 在 skillRegistry 中查找（精确匹配 id 或 name）
+        const skills = skillRegistry.getAll()
+        const skill = skills.find(s => s.id === name || s.name === name)
+        if (skill) {
+            results.push({
+                name: skill.name,
+                type: 'skill',
+                markdown: skill.description || '',
+            })
+            continue
+        }
 
-let _loadedAgents: AgentLoadResult | null = null
-let _loadedAgentsTimestamp = 0
+        logger.warn(`[AgentTool] capability "${name}" not found in agentRegistry or skillRegistry`)
+    }
 
-/** 获取加载的 Agent 定义（带 TTL 自动过期） */
-async function getLoadedAgents(): Promise<AgentLoadResult> {
-  const now = Date.now()
-  if (!_loadedAgents || (now - _loadedAgentsTimestamp) > AGENT_CACHE_TTL_MS) {
-    _loadedAgents = await loadAgents()
-    _loadedAgentsTimestamp = now
-  }
-  return _loadedAgents
+    return results
 }
 
 // ─── 输入 Schema ──────────────────────────────────────────
 
-const baseTaskFields = {
-    task: z.string().describe('子任务的详细描述'),
-    context: z.string().optional().describe('附加上下文信息（可选）'),
-    tools: z.array(z.string()).optional().describe('允许使用的工具白名单'),
-    complexity: z.enum(['simple', 'moderate', 'complex']).optional().describe('任务复杂度（可选）'),
-    agentType: z.string().optional().describe('Agent 类型（可选）'),
-    isolation: z.enum(['worktree', 'none']).optional().describe('隔离模式（可选）'),
-    priority: z.number().int().min(0).max(10).optional().describe('任务优先级（0-10，可选）'),
-}
-
-const singleTaskSchema = z.object({
-    ...baseTaskFields,
+const inputSchema = z.object({
+    task: z.string().describe('子任务的完整描述（包含目标 + 参考材料）'),
+    tools: z.array(z.string()).optional().describe('允许使用的工具白名单（不传则使用所有可用工具）'),
+    capabilities: z.array(z.string()).optional()
+        .describe('要加载到子 Agent 系统提示词中的 skill/agent 名称列表'),
 })
 
-const multiTaskSchema = z.object({
-    tasks: z
-        .array(z.object(baseTaskFields))
-        .min(1)
-        .max(SCHEMA_MAX_PARALLEL_TASKS)
-        .describe('并行执行的子任务列表（最大并发数由系统设置中的子 Agent 配置控制）'),
-    parallel: z.literal(true).describe('必须为 true 以启用并行模式'),
-})
-
-const inputSchema = z.union([singleTaskSchema, multiTaskSchema])
-
-type SingleTaskInput = z.infer<typeof singleTaskSchema>
-type MultiTaskInput = z.infer<typeof multiTaskSchema>
 type AgentToolInput = z.infer<typeof inputSchema>
 
-// ─── 模型选择辅助函数 ───────────────────────────────────────
+// ─── 子任务执行 ──────────────────────────────────────────
 
 /**
- * 根据角色 Provider 信息和任务复杂度解析模型配置（纯函数，便于测试）
+ * 构建子 Agent 的模型配置（使用主 Provider）
  */
-function resolveModelConfig(
-    primary: RoleProviderInfo,
-    lightweight: RoleProviderInfo,
-    reasoning: RoleProviderInfo,
-    taskDescription: string,
-    complexity?: TaskComplexity,
-): ModelConfig | null {
-    if (!primary.isValid || !primary.provider) {
-        return primary.modelId ? {
-            provider: primary.provider?.type || 'openai',
-            model: primary.modelName || '',
-            apiKey: '',
-            baseUrl: primary.provider?.baseUrl || '',
-        } : null
-    }
-
-    const taskComplexity = complexity || quickComplexityCheck(taskDescription).complexity
-
-    const targetProvider: RoleProviderInfo =
-        taskComplexity === 'simple' && lightweight.isValid ? lightweight
-            : taskComplexity === 'complex' && reasoning.isValid ? reasoning
-                : primary
-
-    if (!targetProvider.isValid || !targetProvider.provider) {
-        return primary.modelId ? {
-            provider: primary.provider?.type || 'openai',
-            model: primary.modelName || '',
-            apiKey: '',
-            baseUrl: primary.provider?.baseUrl || '',
-        } : null
-    }
-
-    return {
-        provider: targetProvider.provider.type,
-        model: targetProvider.modelName || '',
-        apiKey: '',
-        baseUrl: targetProvider.provider.baseUrl || '',
-    }
-}
-
-/**
- * 根据任务复杂度选择模型配置（从 RuntimeConfigManager 读取角色配置）
- */
-function selectModelForSubAgent(
-    taskDescription: string,
-    complexity?: TaskComplexity,
-): ModelConfig | null {
+function buildModelConfig(): ModelConfig | null {
     const primary = runtimeConfigManager.getPrimaryProvider()
-    const lightweight = runtimeConfigManager.getLightweightProvider()
-    const reasoning = runtimeConfigManager.getReasoningProvider()
-    return resolveModelConfig(primary, lightweight, reasoning, taskDescription, complexity)
-}
+    if (!primary.isValid || !primary.provider) return null
 
-// ─── 辅助函数 ──────────────────────────────────────────────
-
-/**
- * 将 AgentTemplate（registry 格式）转换为 UserAgentDefinition（agent 工具所需格式）
- * 用于 registry 降级查找时的类型桥接
- */
-function templateToUserAgentDef(template: AgentTemplate): UserAgentDefinition {
     return {
-        agentType: template.name as AgentType,
-        whenToUse: template.whenToUse || '',
-        description: template.description || template.name,
-        systemPromptTemplate: template.systemPrompt,
-        tags: template.tags,
-        model: template.model,
-        permissionMode: template.permissionMode,
-        maxTurns: template.maxTurns,
-        isolation: template.isolation,
-        requiredMcpServers: template.requiredMcpServers,
-        source: 'user',
-        renderedSystemPrompt: template.systemPrompt,
+        provider: primary.provider.type,
+        model: primary.modelName || '',
+        apiKey: '',
+        baseUrl: primary.provider.baseUrl || '',
     }
 }
 
@@ -254,61 +186,27 @@ function templateToUserAgentDef(template: AgentTemplate): UserAgentDefinition {
  * 执行单个子任务
  */
 async function executeSingleTask(
-  task: SubAgentTask,
-  taskDescription: string,
-  context: ToolContext,
-  complexity?: TaskComplexity,
-  agentType?: HClawAgentType,
-  isolation?: 'worktree' | 'none',
+    task: SubAgentTask,
+    context: ToolContext,
+    capabilities?: CapabilityInfo[],
 ): Promise<SubAgentResult> {
-    // 加载 Agent 定义
-    const {activeAgents} = await getLoadedAgents()
-
-    // AgentType 降级逻辑：当 agentType 为空/未设置时，默认使用 'General'
-    const resolvedAgentType: HClawAgentType = (agentType && agentType.trim() !== '')
-        ? agentType
-        : (task.agentType && task.agentType.trim() !== '')
-            ? task.agentType
-            : 'General'
-
-    // 使用统一的 Agent 匹配函数（找不到匹配时静默降级为 General）
-    let {agent: agentDefinition} = findAgentByType(activeAgents, {
-        requestedType: resolvedAgentType,
-        logWarning: true,
-    })
-
-    // ★ 磁盘 Agent 未命中时，降级到 agentRegistry（包含命令注册的 Agent）
-    if (!agentDefinition) {
-        const template = agentRegistry.find(resolvedAgentType)
-        if (template) {
-            agentDefinition = templateToUserAgentDef(template)
-        }
+    // 注入 capabilities 到任务描述
+    let finalDescription = task.description
+    if (capabilities && capabilities.length > 0) {
+        const capsSection = capabilities
+            .map(c => `### ${c.type === 'agent' ? 'Agent' : 'Skill'}: ${c.name}\n\n${c.markdown}`)
+            .join('\n\n---\n\n')
+        finalDescription = `${task.description}\n\n---\n## 可用能力\n${capsSection}`
     }
 
-    // 如果未匹配到特定 Agent 定义，降级使用 'General'
-    const effectiveAgentType: HClawAgentType = agentDefinition?.agentType as HClawAgentType || 'General'
-
-    // 直接从 systemSettingsRepo 获取系统设置（runtimeConfigManager 在主线程中 settings 为 null）
-    const settings = systemSettingsRepo.getJson<import('@shared/types').SystemSettings>('settings')
-
-    // 处理隔离模式
-    let workingDir = runtimeConfigManager.getConfig().workingDir || ''
-
-    if (agentDefinition?.isolation === 'worktree' || isolation === 'worktree') {
-        try {
-            workingDir = await worktreeManager.createWorktree(workingDir, task.id)
-        } catch (error) {
-            return {
-                taskId: task.id,
-                success: false,
-                output: '',
-                error: `创建 worktree 失败: ${error}`,
-            }
-        }
+    // 更新 task 的描述（注入能力后）
+    const enrichedTask: SubAgentTask = {
+        ...task,
+        description: finalDescription,
     }
 
-    // 选择合适的模型
-    const modelConfig = selectModelForSubAgent(taskDescription, complexity)
+    // 模型配置
+    const modelConfig = buildModelConfig()
     if (!modelConfig) {
         return {
             taskId: task.id,
@@ -318,6 +216,10 @@ async function executeSingleTask(
         }
     }
 
+    // 系统设置
+    const settings = systemSettingsRepo.getJson<import('@shared/types').SystemSettings>('settings')
+    const workingDir = runtimeConfigManager.getConfig().workingDir || ''
+
     let output = ''
     let hasError = false
     let errorMsg = ''
@@ -325,13 +227,12 @@ async function executeSingleTask(
 
     try {
         for await (const event of subAgentScheduler.executeTask({
-            task,
+            task: enrichedTask,
             modelConfig,
             workingDir,
             abortSignal: context.abortSignal,
-            agentType: effectiveAgentType,
-            agentDefinition,
-            settings: settings || undefined, // 传递系统设置
+            agentType: 'General',
+            settings: settings || undefined,
         })) {
             // 提取子 Agent 流式事件（用于详细输出查看）
             let streamEvent: AgentStreamEvent | undefined
@@ -339,10 +240,10 @@ async function executeSingleTask(
                 streamEvent = event.event as AgentStreamEvent
             }
 
-            // 将子 Agent 事件转换为人类可读的进度文本（合并原 enrichProgressWithContent 逻辑）
+            // 将子 Agent 事件转换为人类可读的进度文本
             const richProgress = formatSubAgentProgress(event, streamEvent)
 
-            // 按原始事件类型分发，让 controller/renderer 能正确识别 subagent_start/subagent_done
+            // 按原始事件类型分发
             if (event.type === 'subagent_start') {
                 context.sendMessage({
                     type: 'subagent_start',
@@ -350,7 +251,6 @@ async function executeSingleTask(
                     description: event.description,
                     toolCallId: context.toolCallId,
                 })
-                // start 也发送一条 progress，让父卡片第一时间有进度提示
                 context.sendMessage({
                     type: 'subagent_progress',
                     taskId: task.id,
@@ -368,7 +268,6 @@ async function executeSingleTask(
                     error: event.result?.error,
                     toolCallId: context.toolCallId,
                 })
-                // done 也发送一条 progress，让父卡片看到完成状态
                 context.sendMessage({
                     type: 'subagent_progress',
                     taskId: task.id,
@@ -408,213 +307,84 @@ async function executeSingleTask(
     )
 }
 
-// ─── 优先级辅助 ──────────────────────────────────────────
-
-const PRIORITY_MAP: Record<TaskComplexity, number> = {
-    simple: 1,
-    moderate: 5,
-    complex: 10,
-}
-
-function resolvePriority(
-    explicitPriority: number | undefined,
-    complexity: TaskComplexity | undefined,
-): number {
-    return explicitPriority ?? (complexity ? PRIORITY_MAP[complexity] : 0)
-}
-
 // ─── 工具定义 ──────────────────────────────────────────────
 
 export const agentTool: Tool<AgentToolInput, string> = {
-  name: 'agent',
-  description:
-      '派生专门的专家代理处理子任务，由主 Agent 作为调度中心。子 Agent 拥有独立的推理循环和工具访问权限。' +
-      '支持单任务或并行委派（最大并发数由系统设置控制，默认 3 个）。可根据任务复杂度自动选择最优模型。',
-  inputSchema,
-  isDestructive: false,
+    name: 'agent',
+    description:
+        '派生专门子 Agent 执行子任务。子 Agent 拥有独立的推理循环和工具访问权限。' +
+        '需要并行时，由主 Agent 在同一轮对话中同时调用多个 agent 工具实现。' +
+        '通过 capabilities 参数可指定子 Agent 可用的 skill/agent 能力。',
+    inputSchema,
+    isDestructive: false,
 
-  async execute(args, context): Promise<ToolResult<string>> {
-      // 从 RuntimeConfigManager 检查配置
-      const primary = runtimeConfigManager.getPrimaryProvider()
-      if (!primary.isValid) {
-      return {
-        success: false,
-        output: '',
-        error: '模型配置未初始化',
-      }
-    }
-
-    // 检测是单任务还是多任务模式
-    const isParallelMode = 'parallel' in args && args.parallel === true
-
-    if (isParallelMode) {
-      // ── 并行模式 ──────────────────────────────
-      const multiArgs = args as MultiTaskInput
-      const tasks = multiArgs.tasks
-
-      // 检查并发容量（使用调度器统一的上限，避免重复读取 systemSettingsRepo）
-      const maxConcurrency = subAgentScheduler.maxConcurrency
-      if (tasks.length > maxConcurrency) {
-        return {
-          success: false,
-          output: '',
-          error: `最多支持 ${maxConcurrency} 个并行子任务（当前系统设置上限）`,
-        }
-      }
-
-      // 创建子任务（无超时限制，子 Agent 永久等待完成）
-      const subTasks: SubAgentTask[] = tasks.map((t, i) => ({
-        id: `sub-${randomUUID().slice(0, 8)}-${i}`,
-        description: t.task,
-        allowedTools: t.tools,
-        context: t.context,
-        agentType: t.agentType as HClawAgentType | undefined,
-          priority: resolvePriority(t.priority, t.complexity),
-      }))
-
-        logger.info('[AgentTool]', {action: 'startingParallelSubAgents', count: subTasks.length})
-
-      try {
-          // 并行执行所有子任务
-          // 注意：不再在此处发送 subagent_start —— executeSingleTask 内部
-          // 通过 subAgentScheduler.executeTask() 的 for-await 事件循环自动发送，
-          // 避免双重发送导致前端 handleSubagentStart 重复注册 toolCall。
-          const taskPromises = subTasks.map(async (task, i) => {
-              try {
-                  return await executeSingleTask(
-                    task,
-                    tasks[i].task,
-                      context,
-                    tasks[i].complexity,
-                    tasks[i].agentType as HClawAgentType | undefined,
-                    tasks[i].isolation,
-                  )
-              } catch (err: any) {
-                  // 发送失败事件
-                  context.sendMessage({
-                      type: 'subagent_done',
-                      taskId: task.id,
-                      success: false,
-                      output: '',
-                      error: err.message,
-                      toolCallId: context.toolCallId,
-                  })
-                  return {
-                      taskId: task.id,
-                      success: false,
-                      output: '',
-                      error: err.message,
-                  } as SubAgentResult
-              }
-          })
-
-          // 等待所有任务完成
-          const settledResults = await Promise.all(taskPromises)
-
-        // 聚合结果
-          const successful = settledResults.filter((r) => r.success)
-          const failed = settledResults.filter((r) => !r.success)
-
-        let output = ''
-        if (successful.length > 0) {
-          output += `成功完成 ${successful.length} 个子任务:\n`
-          successful.forEach((r, i) => {
-            output += `\n### 任务 ${i + 1}\n${r.output}\n`
-          })
-        }
-        if (failed.length > 0) {
-          output += `\n失败 ${failed.length} 个子任务:\n`
-          failed.forEach((r, i) => {
-            output += `\n### 失败任务 ${i + 1}\n错误: ${r.error}\n`
-          })
+    async execute(args, context): Promise<ToolResult<string>> {
+        // 检查模型配置
+        const primary = runtimeConfigManager.getPrimaryProvider()
+        if (!primary.isValid) {
+            return {
+                success: false,
+                output: '',
+                error: '模型配置未初始化',
+            }
         }
 
-          logger.info('[AgentTool]', {
-              action: 'parallelSubAgentsCompleted',
-              succeeded: successful.length,
-              failed: failed.length
-          })
-
-        return {
-          success: failed.length === 0,
-          output,
-          error: failed.length > 0 ? `${failed.length} tasks failed` : undefined,
+        // 并发容量检查
+        if (!subAgentScheduler.hasCapacity) {
+            return {
+                success: false,
+                output: '',
+                error: `并发上限已满 (最多 ${subAgentScheduler.maxConcurrency} 个子 Agent)，请稍后重试`,
+            }
         }
-      } catch (err: any) {
-                return {
-          success: false,
-          output: '',
-          error: `并行执行失败: ${err.message}`,
+
+        // 解析 capabilities
+        const resolvedCapabilities = args.capabilities
+            ? resolveCapabilities(args.capabilities)
+            : undefined
+
+        // 构建 SubAgentTask
+        const task: SubAgentTask = {
+            id: `sub-${randomUUID().slice(0, 8)}`,
+            description: args.task,
+            allowedTools: args.tools,
         }
-      }
-    } else {
-      // ── 单任务模式 ──────────────────────────────
-      const singleArgs = args as SingleTaskInput
 
-      if (!subAgentScheduler.hasCapacity) {
-        return {
-          success: false,
-          output: '',
-          error: `并发上限已满 (最多 ${subAgentScheduler.maxConcurrency} 个子 Agent)，请等待其他子任务完成`,
+        logger.info('[AgentTool]', {action: 'startingSubAgent', taskId: task.id, task: args.task.slice(0, 80)})
+
+        try {
+            const result = await executeSingleTask(task, context, resolvedCapabilities)
+
+            const status = !result.success ? 'FAILED' : 'COMPLETED'
+            logger.info('[AgentTool]', {
+                action: 'subAgentCompleted',
+                status,
+                taskId: task.id,
+                task: args.task.slice(0, 80),
+            })
+
+            return {
+                success: result.success,
+                output: result.output || (result.success ? '子 Agent 完成（无输出）' : `子 Agent 执行失败: ${result.error}`),
+                error: result.error,
+            }
+        } catch (err: any) {
+            logger.error('[AgentTool]', {action: 'subAgentError', taskId: task.id, error: err.message})
+            return {
+                success: false,
+                output: `子 Agent 执行失败: ${err.message}`,
+                error: err.message,
+            }
         }
-      }
-
-      const task: SubAgentTask = {
-        id: `sub-${randomUUID().slice(0, 8)}`,
-        description: singleArgs.task,
-        allowedTools: singleArgs.tools,
-        context: singleArgs.context,
-          agentType: singleArgs.agentType as HClawAgentType | undefined,
-          priority: resolvePriority(singleArgs.priority, singleArgs.complexity),
-      }
-
-      
-        logger.info('[AgentTool]', {action: 'startingSubAgent', taskId: task.id, task: singleArgs.task.slice(0, 80)})
-
-      try {
-          const result = await executeSingleTask(
-              task,
-              singleArgs.task,
-              context,
-              singleArgs.complexity,
-              singleArgs.agentType as HClawAgentType | undefined,
-              singleArgs.isolation,
-          )
-
-          const status = !result.success ? 'FAILED' : 'COMPLETED'
-          logger.info('[AgentTool]', {
-              action: 'subAgentCompleted',
-              status,
-              taskId: task.id,
-              task: singleArgs.task.slice(0, 80)
-          })
-
-          return {
-              success: result.success,
-              output: result.output || (result.success ? '子 Agent 完成（无输出）' : `子 Agent 执行失败: ${result.error}`),
-              error: result.error,
-          }
-      } catch (err: any) {
-          logger.error('[AgentTool]', {action: 'subAgentError', taskId: task.id, error: err.message})
-          return {
-              success: false,
-              output: `子 Agent 执行失败: ${err.message}`,
-              error: err.message,
-          }
-      }
-    }
-  },
+    },
 }
 
-/** 设置当前 Agent 的模型方案配置（无参版本 - 从 RuntimeConfigManager 读取） */
+/** 设置当前 Agent 的模型方案配置 */
 export function setAgentToolConfig(): void {
     const config = runtimeConfigManager.getConfig()
-    const _primary = runtimeConfigManager.getPrimaryProvider()
 
     // 设置权限引擎的工作目录
     if (config.workingDir) {
         permissionEngine.setWorkingDir(config.workingDir)
     }
-
-
 }

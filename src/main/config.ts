@@ -5,6 +5,7 @@ import {createConfigRepository} from './repositories';
 import {systemSettingsRepo} from './repositories/sqlite/systemSettingsRepository';
 import {workspaceRepo} from './repositories/sqlite/workspaceRepository';
 import {getPresetCommandMarkdownFiles, OBSOLETE_PRESET_COMMANDS} from './command/presetCommands';
+import {gracefulRestart} from './utils/restart';
 
 // --- 共享常量 ---
 
@@ -343,9 +344,8 @@ export function initConfigIPC(): void {
         return dir
     })
 
-    ipcMain.handle('app-restart', () => {
-        app.relaunch()
-        app.exit()
+    ipcMain.handle('app-restart', async () => {
+        await gracefulRestart()
     })
 
     // Config file read/write (.json / SQLite)

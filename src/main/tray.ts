@@ -2,6 +2,7 @@ import {app, Menu, nativeImage, Tray} from 'electron';
 import path from 'path';
 import {createWindow, getMainWindow} from './window';
 import {getAppIconPath} from './utils/icon';
+import {gracefulRestart} from './utils/restart';
 
 let tray: Tray | null = null;
 let trayIconLoaded = false;
@@ -97,10 +98,7 @@ export const createTray = (): void => {
 
   menuItems.push({
     label: '重启',
-    click: () => {
-      app.relaunch();
-      app.exit(0);
-    }
+    click: () => gracefulRestart()
   });
 
   menuItems.push({

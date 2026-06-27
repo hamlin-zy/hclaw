@@ -386,7 +386,7 @@ export class MCPClient {
                 // ★ 捕获 PID → 关闭 transport → taskkill 兜底清理进程树
                 try {
                     if (state.sdkTransport instanceof StdioClientTransport) {
-                        state.lastPid = state.sdkTransport.pid
+                        state.lastPid = state.sdkTransport.pid ?? undefined
                     }
                     await state.sdkTransport?.close()
                     if (state.lastPid) {
