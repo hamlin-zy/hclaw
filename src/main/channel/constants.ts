@@ -50,9 +50,12 @@ export const TIMEOUTS = {
 } as const
 
 // ─── iLink Protocol Constants ───────────────────────────────
-
+// NOTE: CHANNEL_VERSION must stay aligned with devDependency weixin-agent-sdk.
+// When you `npm update weixin-agent-sdk`, update this to match its version.
+// Example: weixin-agent-sdk@0.5.0 → CHANNEL_VERSION: '0.5.0'
+// See: https://www.npmjs.com/package/weixin-agent-sdk
 export const ILINK = {
-    CHANNEL_VERSION: '2.4.3',
+    CHANNEL_VERSION: '0.5.0',
     BOT_TYPE: 3,
     CLIENT_VERSION: '132099',
 
