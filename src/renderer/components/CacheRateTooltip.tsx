@@ -18,10 +18,12 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
         let totalInputTokens = 0
         let totalOutputTokens = 0
         let totalCacheReadTokens = 0
+        let totalCacheWriteTokens = 0
         let toolCallCount = 0
         let currentInputTokens = 0
         let currentOutputTokens = 0
         let currentCacheReadTokens = 0
+        let currentCacheWriteTokens = 0
 
         for (const msg of loadedMessages) {
             if (msg.role !== 'assistant') continue
@@ -31,10 +33,12 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                 totalInputTokens += s.inputTokens || 0
                 totalOutputTokens += s.outputTokens || 0
                 totalCacheReadTokens += s.cacheReadTokens || 0
+                totalCacheWriteTokens += s.cacheWriteTokens || 0
                 // 遍历过程中不断覆盖，最后一条即为最后一次请求
                 currentInputTokens = s.inputTokens || 0
                 currentOutputTokens = s.outputTokens || 0
                 currentCacheReadTokens = s.cacheReadTokens || 0
+                currentCacheWriteTokens = s.cacheWriteTokens || 0
             }
             if (msg.toolCalls?.length) {
                 toolCallCount += msg.toolCalls.length
@@ -46,16 +50,19 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
             totalInputTokens,
             totalOutputTokens,
             totalCacheReadTokens,
+            totalCacheWriteTokens,
             toolCallCount,
             currentInputTokens,
             currentOutputTokens,
             currentCacheReadTokens,
+            currentCacheWriteTokens,
         }
     }, [loadedMessages])
 
-    const total = stats.totalCacheReadTokens
-    const denominator = Math.max(stats.totalInputTokens + total, 1)
-    const rate = stats.requestCount > 0 ? (total / denominator * 100).toFixed(0) : null
+    const cacheRead = stats.totalCacheReadTokens
+    const cacheWrite = stats.totalCacheWriteTokens
+    const cacheDenominator = cacheRead + cacheWrite
+    const rate = cacheDenominator > 0 ? (cacheRead / cacheDenominator * 100).toFixed(0) : null
     const currentTotalTokens = stats.currentInputTokens + stats.currentCacheReadTokens
 
     if (stats.requestCount === 0) return null
@@ -95,11 +102,18 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                         <span className="text-right tabular-nums">{formatTokenCount(stats.currentInputTokens)}</span>
                     </div>
 
-                    {/* 缓存行 */}
+                    {/* 缓存读取（命中）行 */}
                     <div className="grid grid-cols-[3rem_1fr_1fr] gap-x-3 gap-y-1">
-                        <span className="text-[var(--text-muted)]">缓存</span>
+                        <span className="text-[var(--text-muted)]">读取</span>
                         <span className="text-right tabular-nums">{formatTokenCount(stats.totalCacheReadTokens)}</span>
                         <span className="text-right tabular-nums">{formatTokenCount(stats.currentCacheReadTokens)}</span>
+                    </div>
+
+                    {/* 缓存写入（未命中）行 */}
+                    <div className="grid grid-cols-[3rem_1fr_1fr] gap-x-3 gap-y-1">
+                        <span className="text-[var(--text-muted)]">写入</span>
+                        <span className="text-right tabular-nums">{formatTokenCount(stats.totalCacheWriteTokens)}</span>
+                        <span className="text-right tabular-nums">{formatTokenCount(stats.currentCacheWriteTokens)}</span>
                     </div>
 
                     {/* 输出行 */}

@@ -53,17 +53,21 @@ export class ChannelManager {
     }
 
     private spawnWorker(): void {
-        const workerPath = path.join(__dirname, 'channelWorker.js')
-        this.worker = new Worker(workerPath, {type: 'module' as const} as any)
+        const workerPath = path.join(__dirname, 'channelWorker.cjs')
+        // .cjs 扩展名确保 Node.js 始终以 CommonJS 模式加载（不受 package.json type:module 影响）
+        this.worker = new Worker(workerPath)
 
         this.worker.on('message', (msg: WorkerEvent) => this.handleWorkerMessage(msg))
 
-        this.worker.on('error', (_err: Error) => {
-            // Worker errors are handled via 'exit' event
+        // 提前缓存 logger，避免在两个事件回调中各 require 一次
+        const {logger} = require('../agent/logger')
+        this.worker.on('error', (err: Error) => {
+            logger.error('ChannelManager.worker.error', {error: err.message, stack: err.stack?.slice(0, 500)})
         })
 
         this.worker.on('exit', (code) => {
             if (code !== 0) {
+                logger.warn('ChannelManager.worker.exit', {code, message: '将在 5s 后重启'})
                 setTimeout(() => this.spawnWorker(), 5000)
             }
         })

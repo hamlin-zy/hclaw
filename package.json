@@ -1,6 +1,6 @@
 {
   "name": "hclaw",
-  "version": "0.2.78",
+  "version": "0.2.79",
   "description": "HClaw",
   "main": ".vite/main/index.js",
   "type": "commonjs",
@@ -29,7 +29,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.100.1",
+    "@anthropic-ai/sdk": "^0.107.0",
     "@google/generative-ai": "^0.24.1",
     "@larksuiteoapi/node-sdk": "^1.65.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -45,7 +45,7 @@
     "js-yaml": "^4.1.1",
     "jschardet": "^3.1.4",
     "lucide-react": "^1.8.0",
-    "openai": "^6.37.0",
+    "openai": "^6.45.0",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -87,7 +87,8 @@
     "tailwindcss": "^3.4.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.11",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.5",
+    "weixin-agent-sdk": "^0.5.0"
   },
   "config": {}
 }

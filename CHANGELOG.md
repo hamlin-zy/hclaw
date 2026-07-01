@@ -7,6 +7,22 @@
 
 ---
 
+## [v0.2.79] - 2026-07-01
+
+### 重构
+- **Channel Worker 从 ESM 切换为 CJS（`channelWorker.cjs`）** — 使用 `.cjs` 扩展名确保 Node.js 始终以 CommonJS 模式加载 Worker，解决 Node.js 24 ESM 模式下动态 `require` 不兼容的问题。移除 `type: 'module'` 配置，`format` 改为 `cjs`，external 列表从飞书 SDK 依赖简化为 electron/native addon 等 Worker 不需要的模块 (`ChannelManager.ts`, `vite.main.config.mjs`)
+- **Worker 错误/退出事件接入 logger** — `on('error')` 和 `on('exit')` 回调通过 logger 记录日志，替代之前的静默吞错，便于排查 Worker 崩溃原因 (`ChannelManager.ts`)
+
+### 新增
+- **缓存写入（cacheWriteTokens）统计展示** — CacheRateTooltip 新增「写入」行，展示累计写入和当前写入的 token 数量，与缓存读取并列显示 (`CacheRateTooltip.tsx`)
+- **缓存命中率算法优化** — 分母从 `inputTokens + cacheReadTokens` 改为 `cacheReadTokens + cacheWriteTokens`，命中率 = 读取/(读取+写入)，更准确反映缓存效果 (`CacheRateTooltip.tsx`)
+
+### 变更
+- **依赖更新** — `@anthropic-ai/sdk` ^0.100.1 → ^0.107.0，`openai` ^6.37.0 → ^6.45.0，新增 devDependency `weixin-agent-sdk@^0.5.0` (`package.json`)
+
+### 修复
+- **`CHANNEL_VERSION` 与 weixin-agent-sdk 版本对齐** — 版本号从 `2.4.3` 改为 `0.5.0`，与 devDependency `weixin-agent-sdk` 保持一致，新增注释说明版本对齐规则 (`constants.ts`)
+
 ## [v0.2.78] - 2026-06-27
 
 ### 重构

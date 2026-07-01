@@ -129,13 +129,13 @@ export default defineConfig({
                 const esbuild = await import('esbuild');
                 esbuild.buildSync({
                     entryPoints: ['src/main/channel/worker.ts'],
-                    outfile: '.vite/main/channelWorker.js',
+                    outfile: '.vite/main/channelWorker.cjs',
                     bundle: true,
                     platform: 'node',
-                    format: 'esm',
+                    format: 'cjs',
                     target: 'es2020',
-                    // 飞书 SDK 及其依赖（axios/form-data/combined-stream）使用 CommonJS 动态 require，
-                    // 必须 external，否则 Node.js 24 ESM 模式会报 "Dynamic require of X is not supported"
+                    // electron、native addon 等必须 external，Worker 线程不需要这些模块
+                    // format:cjs 下 esbuild 会生成 require()，CJS 互操作无问题
                     external: [
                         'electron',
                         '@photostructure/sqlite',
@@ -148,7 +148,7 @@ export default defineConfig({
                         '@shared': path.resolve(__dirname, 'src/shared'),
                     },
                 });
-                console.log('[channel-worker] Bundled channelWorker.js');
+                console.log('[channel-worker] Bundled channelWorker.cjs (CJS format)');
             }
         },
         {
