@@ -7,6 +7,15 @@
 
 ---
 
+## [v0.2.80] - 2026-07-07
+
+### 重构
+- **提取 `compileGlobPattern()` 私有方法** — 将 `addRule` 和 `setRules` 中重复的 glob pattern 编译逻辑提取为私有方法，减少代码重复 (`src/main/agent/tools/permission.ts`)
+- **清理未使用常量** — 删除 `_RULES_FILE`、`_CONFIG_FILE` 两个已不再使用的常量 (`src/main/agent/tools/permission.ts`)
+
+### 新增
+- **Auto 模式命令放行逻辑** — `checkPlannedCommands()` 新增 Auto 模式处理：非危险命令自动放行，危险命令仍被安全拦截返回提示信息 (`src/main/agent/tools/permission.ts`)
+
 ## [v0.2.79] - 2026-07-01
 
 ### 重构
