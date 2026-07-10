@@ -26,9 +26,6 @@ import type {PermissionResult, PermissionRule, PlannedCommandsCheckResult, RunMo
 import type {DangerousPermissionInfo} from '@shared/types'
 import {permissionRulesManager} from '../permissions/permissionRule'
 
-const _RULES_FILE = '.hclaw/permission-rules.json'
-const _CONFIG_FILE = '.hclaw/permission-config.json'
-
 /** 安全命令白名单（bash 工具中这些命令自动放行） */
 const SAFE_COMMAND_PATTERNS = [
     /^cd\s/,
@@ -269,31 +266,27 @@ export class PermissionEngine {
         return Array.from(seen.values())
     }
 
+    /** 编译规则的 glob pattern（如有 * 号），用于快速匹配 */
+    private compileGlobPattern(rule: PermissionRule): void {
+        if (rule.tool.includes('*')) {
+            const escaped = escapeRegex(rule.tool).replace(/\\\*/g, '.*')
+            ;(rule as any)._compiledRegex = new RegExp('^' + escaped + '$')
+        }
+    }
+
   async addRule(rule: PermissionRule): Promise<void> {
     await this.ensureInit()
-      // 委托给 PermissionRulesManager
       const newContext = await permissionRulesManager.applyUpdate({type: 'addRule', rule})
     this.rules = newContext.rules
-
-    // 编译 glob pattern（用于快速匹配）
-    if (rule.tool.includes('*')) {
-      const escaped = escapeRegex(rule.tool).replace(/\\\*/g, '.*')
-      ;(rule as any)._compiledRegex = new RegExp('^' + escaped + '$')
-    }
+    this.compileGlobPattern(rule)
   }
 
   async setRules(rules: PermissionRule[]): Promise<void> {
     await this.ensureInit()
-      // 委托给 PermissionRulesManager
       const newContext = await permissionRulesManager.applyUpdate({type: 'setRules', rules})
     this.rules = newContext.rules
-
-    // 编译 glob patterns
     for (const rule of this.rules) {
-      if (rule.tool.includes('*')) {
-        const escaped = escapeRegex(rule.tool).replace(/\\\*/g, '.*')
-        ;(rule as any)._compiledRegex = new RegExp('^' + escaped + '$')
-      }
+      this.compileGlobPattern(rule)
     }
   }
 
@@ -512,6 +505,28 @@ export class PermissionEngine {
      * @returns 检查结果
      */
     checkPlannedCommands(plannedCommands: string[]): PlannedCommandsCheckResult {
+        // Auto 模式：所有非危险命令自动放行
+        if (this.mode === 'auto') {
+            // 但仍需检查危险命令
+            const deniedCommands: string[] = []
+            for (const cmd of plannedCommands) {
+                for (const pattern of DANGEROUS_COMMAND_PATTERNS) {
+                    if (pattern.test(cmd)) {
+                        deniedCommands.push(cmd)
+                        break
+                    }
+                }
+            }
+            return {
+                needsConfirmation: deniedCommands.length > 0,
+                commandsToConfirm: [],
+                allowedCommands: plannedCommands.filter(c => !deniedCommands.includes(c)),
+                confirmationMessage: deniedCommands.length > 0
+                    ? `❌ 以下命令被安全拦截：\n${deniedCommands.map(c => `  - ${c}`).join('\n')}`
+                    : undefined,
+            }
+        }
+
         const commandsToConfirm: string[] = []
         const allowedCommands: string[] = []
         const deniedCommands: string[] = []
