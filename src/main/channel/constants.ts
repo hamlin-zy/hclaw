@@ -125,8 +125,8 @@ export const FILE_EXTENSIONS = new Set([
 // ─── CDN Constants ────────────────────────────────────────
 
 export const CDN = {
-    /** Default CDN base URL for media download */
-    DEFAULT_BASE_URL: 'https://ilinkai.weixin.qq.com',
+    /** Default CDN base URL for media upload/download */
+    DEFAULT_BASE_URL: 'https://novac2c.cdn.weixin.qq.com/c2c',
     /** Maximum file size for media (100MB) */
     MAX_FILE_SIZE: 100 * 1024 * 1024,
     /** Maximum retry attempts for CDN upload */
