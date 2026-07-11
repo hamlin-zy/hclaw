@@ -7,6 +7,14 @@
 
 ---
 
+## [v0.2.81] - 2026-07-11
+
+### 修复
+- **CDN 地址不再随 API baseUrl 覆盖** — 移除 `this.cdnBase = this.apiBase` 赋值，确保 CDN 地址独立于 API 地址 (`src/main/channel/adapters/wechatAdapter.ts`)
+
+### 变更
+- **CDN 默认地址更新** — `DEFAULT_BASE_URL` 从 `https://ilinkai.weixin.qq.com` 更新为 `https://novac2c.cdn.weixin.qq.com/c2c` (`src/main/channel/constants.ts`)
+
 ## [v0.2.80] - 2026-07-07
 
 ### 重构

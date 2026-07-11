@@ -81,7 +81,7 @@ export class WeChatAdapter implements ChannelAdapter {
         this.config = config as unknown as WeChatConfig
         if (this.config.baseUrl) {
             this.apiBase = this.config.baseUrl.replace(/\/+$/, '')
-            this.cdnBase = this.apiBase
+            // CDN base 使用独立于 API base 的地址，不随 baseUrl 改变
         }
         log(`connect botToken=${this.config.botToken?.length ?? 0}chars`)
         this.connected = true
