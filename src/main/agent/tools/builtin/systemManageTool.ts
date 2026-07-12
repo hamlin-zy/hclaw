@@ -27,7 +27,6 @@ const inputSchema = z.object({
             initialRetryDelay: z.number().optional().describe('首次重试延迟（毫秒）'),
             maxRetryDelay: z.number().optional().describe('最大重试延迟（毫秒）'),
             llmTimeout: z.number().optional().describe('LLM 请求超时（毫秒）'),
-            compactThreshold: z.number().optional().describe('自动压缩阈值（token 数）'),
         }).optional(),
         model: z.object({
             defaultMaxTokens: z.number().optional().describe('默认最大输出 token 数'),
@@ -78,7 +77,6 @@ export const systemManageTool: Tool<SystemManageInput, string> = {
                         lines.push(`  首次重试延迟: ${parsed.agent?.initialRetryDelay ?? '-'}ms`)
                         lines.push(`  最大重试延迟: ${parsed.agent?.maxRetryDelay ?? '-'}ms`)
                         lines.push(`  LLM 超时: ${parsed.agent?.llmTimeout ?? '-'}ms`)
-                        lines.push(`  压缩阈值: ${parsed.agent?.compactThreshold ?? '-'} tokens`)
                         lines.push('')
                         lines.push('=== 模型配置 ===')
                         lines.push(`  默认 MaxTokens: ${parsed.model?.defaultMaxTokens ?? '-'}`)

@@ -89,7 +89,6 @@ async function main(): Promise<void> {
             initialRetryDelay: 5000,
             maxRetryDelay: 120000,
             llmTimeout: 600000,
-            compactThreshold: 700000
         },
         model: {defaultMaxTokens: 8000, defaultTemperature: 0},
         mcp: {mcpTestTimeout: 15000},

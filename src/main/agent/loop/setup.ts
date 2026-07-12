@@ -91,6 +91,8 @@ export async function* initializeRunEnvironment(
  * - 检查最后一条用户消息是否以 / 开头
  * - 截取 / 到第一个空格之间的内容作为命令名
  * - 匹配现有的 agent/skill/command
+ *
+ * 注：/compact 命令已移除（决策：完全移除所有压缩功能），isCompactCommand 始终为 false。
  */
 export async function detectCommandContext(params: RunParams): Promise<{
     commandContext: CommandExecutionContext | null
@@ -169,7 +171,7 @@ export async function detectCommandContext(params: RunParams): Promise<{
         const result = dispatcher.prepareMessageByName(commandName, commandArgs)
 
         if (result && result.template && result.commandId) {
-            return emitCommandStart(result.commandId, result.template, '', commandName === 'compact')
+            return emitCommandStart(result.commandId, result.template, '', false)
         }
 
         // ★ 兜底：skill / agent 注册表（复用 entityCommandResolver，与 ipc.ts 一致）

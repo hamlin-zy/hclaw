@@ -29,6 +29,7 @@ import {LLM_TIMEOUT_MS, sleep, TimeoutError, withTimeout} from '../../utils/retr
 import {hookExecutor, type HookResult} from '../../plugin/hooks'
 import {attachMediaBlocksToMessage, extractMediaBlocksFromToolResults} from '../mediaExtractor'
 import {isVisionModel, sanitizeMessagesForModel} from './helpers'
+import {truncateForLlmCall} from './truncateBeforeLlm'
 import {container, DI_TOKENS} from '../common/container'
 import type {ToolRegistry} from '../tools/registry'
 import {checkAdapterNeedsRecreate, recreateAdapter} from './setup'
@@ -38,6 +39,16 @@ const toolRegistry: ToolRegistry = container.get<ToolRegistry>(DI_TOKENS.ToolReg
 // ═══════════════════════════════════════════════════════════
 //  LLM 调用（含重试）
 // ═══════════════════════════════════════════════════════════
+
+/** 安全读取 adapter 的 maxContextTokens（adapter 未初始化或接口未暴露时返回 undefined） */
+function safeGetAdapterMaxCtx(adapter: any): number | undefined {
+    try {
+        const info = adapter?.getModelInfo?.()
+        return typeof info?.maxContextTokens === 'number' ? info.maxContextTokens : undefined
+    } catch {
+        return undefined
+    }
+}
 
 export interface ExecuteLlmCallParams {
     llmCaller: LLMCaller
@@ -53,8 +64,6 @@ export interface ExecuteLlmCallParams {
     params: RunParams
     isCompactCommand: boolean
     turns: number
-    /** 可变引用：compactLevel（上下文溢出时 +1，调用方据此判断） */
-    compactLevelRef: {value: number}
 }
 
 /**
@@ -73,7 +82,7 @@ export async function* executeLlmCallWithRetry(
     ctx: ExecuteLlmCallParams,
 ): AsyncGenerator<AgentStreamEvent, LlmStreamResult | null> {
     const {llmCaller, state, systemPrompt, commandTemplate, availableToolDefinitions, modelConfig,
-        workModeRole, schemeName, getSettings, params, isCompactCommand, compactLevelRef, turns} = ctx
+        workModeRole, schemeName, getSettings, params, isCompactCommand, turns} = ctx
     const {abortSignal, requestConfirmation, sessionId} = params
 
     const retryCount = getSettings()?.agent.retryCount ?? 10
@@ -125,6 +134,24 @@ export async function* executeLlmCallWithRetry(
                     messagesToSend = retrievalMessages
                 }
             }
+
+            // ── 结构感知截断（每次调用前，保证不超模型 context window） ──
+            // 顺序：必须在 ContextRetrieval 之后（否则截断会丢掉新增的 retrieval 消息）；
+            //        可在 image 过滤之前（让图片占位 token 也算入 budget 估算）
+            const truncateResult = truncateForLlmCall({
+                messages: messagesToSend,
+                systemPrompt,
+                modelConfig: {provider: modelConfig.provider, model: modelConfig.model, maxContextTokens: safeGetAdapterMaxCtx(adapter)},
+                settings: getSettings(),
+                modelScheme: params.schemeConfig?.scheme as {maxContextTokens?: number} | undefined,
+            })
+            if (truncateResult.action === 'structured_truncate') {
+                logger.info(
+                    `[AgentLoop] 结构感知截断触发：${messagesToSend.length} → ${truncateResult.messages.length} 条消息，` +
+                    `估算 tokens=${truncateResult.tokenEstimate.messagesTokens} budget=${truncateResult.tokenEstimate.budget}`,
+                )
+            }
+            messagesToSend = truncateResult.messages
 
             // ── 触发 ThinkStart Hook ──
             hookExecutor.execute('ThinkStart', {sessionId}).catch(() => {})
@@ -277,7 +304,9 @@ export async function* executeLlmCallWithRetry(
                 logger.error(`[AgentLoop] attempt ${attempt} failed: ${error.message} non-retryable`)
             }
 
-            if (hasContextLengthErr) compactLevelRef.value++
+            if (hasContextLengthErr) {
+                logger.warn(`[AgentLoop] context length error on turn ${turns} attempt ${attempt} — will retry with truncation already applied`)
+            }
             if (!isRetryable || attempt >= retryCount) break
 
             yield* retryBackoff(attempt, retryCount, error, currentDelay, abortSignal)

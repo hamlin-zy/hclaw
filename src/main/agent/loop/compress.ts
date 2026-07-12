@@ -1,148 +1,23 @@
 /**
- * Agent 循环 — 压缩与事件
+ * Agent 循环 — 事件与小工具方法
  *
  * 包含：
- * - 压缩命令执行（手动 /compact）
- * - 自动触发压缩（token 阈值）
  * - LLM 调用完成事件
  * - 无工具调用处理
+ * - 获取最后一条用户消息
+ *
+ * 历史：此文件原名为 compress.ts，包含自动压缩和 /compact 命令执行。
+ *      已移除压缩功能（决策：完全移除所有压缩 — 2026-01）。
+ *      保留 LLM 调用事件相关函数作为公共 helper。
  */
 
 import type {AgentStreamEvent} from '../stream'
 import type {ChatMessage} from '../model/types'
 import type {LoopState as AgentLoopState} from '../state'
-import type {RunParams} from './types'
 
 import {logger} from '../logger'
 import {extractTextContent} from '../utils/contentUtils'
-import {compressConversation, estimateMessagesTokens, estimateTotalContextTokens} from '../context'
-import {taskStore} from '../tasks/taskStore'
-import {hookExecutor} from '../../plugin/hooks'
-import {formatTokenCount, endTurnCleanup} from './helpers'
-
-// ═══════════════════════════════════════════════════════════
-//  压缩命令执行
-// ═══════════════════════════════════════════════════════════
-
-/**
- * 执行压缩命令：直接调用 compressConversation 处理（内部 LLM 摘要 + 组装），
- * 不走主循环 LLM 流式调用，避免流式 text 事件传到渲染层造成重复/空消息
- */
-export async function* executeCompactCommand(
-    state: AgentLoopState,
-    systemPrompt: string,
-    params: RunParams,
-    turns: number,
-): AsyncGenerator<AgentStreamEvent, void> {
-    const {customInstructions, abortSignal} = params
-
-    try {
-        const compacted = await compressConversation(
-            [...(state.messages || [])] as ChatMessage[],
-            systemPrompt,
-            {
-                mode: 'manual',
-                customInstructions,
-                abortSignal,
-                pendingTasks: taskStore.getAllTasks(),
-            },
-        )
-        yield* emitCompactPersist(
-            compacted.messages,
-            compacted.beforeTokens,
-            compacted.afterTokens,
-            compacted.savedTokens,
-            compacted.compactedCount,
-            `📦 压缩完成：节省 ${compacted.savedTokens} tokens，压缩了 ${compacted.compactedCount} 条消息`,
-        )
-        hookExecutor.execute('PostCompact', {sessionId: params.sessionId}).catch(() => {})
-        logger.info(`[AgentLoop] loop done turns:${turns} reason:compact_completed`)
-        yield {type: 'done', reason: 'completed'}
-    } catch (err) {
-        logger.warn('[AgentLoop] compressConversation failed:', {error: err as unknown})
-        yield {type: 'error', error: `压缩失败: ${(err as Error).message}`}
-    }
-}
-
-// ═══════════════════════════════════════════════════════════
-//  自动触发压缩
-// ═══════════════════════════════════════════════════════════
-
-export interface AutoCompressContext {
-    state: AgentLoopState
-    systemPrompt: string
-    isCompactCommand: boolean
-    params: RunParams
-    /** 上一次 LLM 调用的实际 inputTokens */
-    lastActualInputTokens: number
-    /** 记录 inputTokens 时的消息数量 */
-    messagesAtLLMCall: number
-    /** 可变引用：compactLevel */
-    compactLevelRef: {value: number}
-}
-
-/**
- * 路径 B：自动触发压缩（LLM 摘要，与 /compact 命令共用逻辑）
- *
- * 优先以 API 返回的实际 inputTokens + 新增消息增量估算，
- * 远比纯 chars/4 估算准确
- */
-export async function* autoCompressIfNeeded(
-    ctx: AutoCompressContext,
-): AsyncGenerator<AgentStreamEvent, AgentLoopState> {
-    const {state, systemPrompt, isCompactCommand, params, lastActualInputTokens, messagesAtLLMCall, compactLevelRef} = ctx
-    const {abortSignal} = params
-
-    const currentTotalTokens =
-        lastActualInputTokens > 0
-            ? lastActualInputTokens +
-              estimateMessagesTokens((state.messages || []).slice(messagesAtLLMCall) as ChatMessage[])
-            : estimateTotalContextTokens(state.messages || [], systemPrompt)
-
-    const threshold = params.settings?.agent?.compactThreshold ?? 700_000
-    if (isCompactCommand || currentTotalTokens <= threshold) return state
-
-    logger.info(
-        `[AgentLoop] auto-trigger compact: currentTotalTokens ${currentTotalTokens} (actual:${lastActualInputTokens}+delta) > threshold ${threshold}`,
-    )
-    yield {type: 'compact_status', compactStatus: 'compacting'}
-
-    try {
-        const compacted = await compressConversation(
-            [...(state.messages || [])] as ChatMessage[],
-            systemPrompt,
-            {mode: 'auto', abortSignal, pendingTasks: taskStore.getAllTasks()},
-        )
-
-        if (compacted.wasCompacted) {
-            logger.info(`[AgentLoop] auto-compact success: saved ${compacted.savedTokens} tokens`)
-            compactLevelRef.value = 0
-
-            yield* emitCompactPersist(
-                compacted.messages,
-                compacted.beforeTokens,
-                compacted.afterTokens,
-                compacted.savedTokens,
-                compacted.compactedCount,
-                `📦 自动压缩完成：节省 ${formatTokenCount(compacted.savedTokens)}，保留了 ${compacted.messages.length} 条消息`,
-            )
-
-            hookExecutor.execute('PostCompact', {sessionId: params.sessionId} as any).catch(() => {})
-
-            endTurnCleanup()
-
-            yield {type: 'compact_status', compactStatus: 'completed'}
-            const msgs = [...compacted.messages] as ChatMessage[]
-            return {...state, messages: msgs}
-        }
-    } catch (err) {
-        logger.warn('[AgentLoop] auto-compact failed:', {error: err as unknown})
-        yield {type: 'warning', message: `自动压缩失败: ${(err as Error).message}`}
-    }
-
-    yield {type: 'compact_status', compactStatus: 'completed'}
-    return state
-}
+import {endTurnCleanup} from './helpers'
 
 // ═══════════════════════════════════════════════════════════
 //  发射 LLM 调用完成事件
@@ -212,11 +87,11 @@ export function* emitLlmCallDone(
 
     const recentMessages = state.messages.slice(lastLoggedMsgCount).map(msg => {
         const result: {
-            role: string;
-            content: string;
-            toolCalls?: Array<{id: string; name: string; arguments: Record<string, unknown>}>;
-            toolCallId?: string;
-            toolResult?: string;
+            role: string
+            content: string
+            toolCalls?: Array<{id: string; name: string; arguments: Record<string, unknown>}>
+            toolCallId?: string
+            toolResult?: string
         } = {
             role: msg.role,
             content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
@@ -286,24 +161,4 @@ export function getLastUserMessage(state: AgentLoopState): ChatMessage | null {
     return state.messages && state.messages.length > 0
         ? [...state.messages].reverse().find(m => m.role === 'user') ?? null
         : null
-}
-
-/** 发射 compact_persist 事件 */
-export function* emitCompactPersist(
-    messages: ChatMessage[],
-    beforeTokens: number,
-    afterTokens: number,
-    savedTokens: number,
-    compactedMessages: number,
-    text: string,
-): Generator<AgentStreamEvent, void> {
-    yield {
-        type: 'compact_persist',
-        messages,
-        beforeTokens,
-        afterTokens,
-        savedTokens,
-        compactedMessages,
-        message: text,
-    }
 }

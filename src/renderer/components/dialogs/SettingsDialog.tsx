@@ -118,15 +118,6 @@ export default function SettingsDialog() {
                 fallback={600}
                 decimals={1}
             />
-            <NumberField
-                label="上下文压缩阈值 (k tokens)"
-                description="输入 Token 超过此值时触发自动压缩"
-                value={current.agent.compactThreshold / 1000}
-                onChange={(v) => updatePending('agent', {compactThreshold: clampPositive(v, 700) * 1000})}
-                min={1}
-                fallback={700}
-                decimals={0}
-            />
         </div>
     )
 

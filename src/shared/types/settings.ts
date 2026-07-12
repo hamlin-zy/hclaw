@@ -94,7 +94,6 @@ export interface SystemSettings {
     initialRetryDelay: number
     maxRetryDelay: number
     llmTimeout: number
-    compactThreshold: number
   }
   model: {
     defaultMaxTokens: number
