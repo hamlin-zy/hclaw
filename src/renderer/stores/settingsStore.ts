@@ -24,7 +24,6 @@ const DEFAULT_SETTINGS: SystemSettings = {
         initialRetryDelay: 5000,
         maxRetryDelay: 120000,
         llmTimeout: 600000,
-        compactThreshold: 700000,
     },
     model: {
         defaultMaxTokens: 8000,

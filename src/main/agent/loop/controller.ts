@@ -18,7 +18,7 @@ import type {AgentStreamEvent} from '../stream'
 import type {LoopState as AgentLoopState} from '../state'
 import type {CommandExecutionContext} from '@shared/types'
 
-import {isContextLengthError as checkContextLengthError, LLMCaller} from './llmCaller'
+import {LLMCaller} from './llmCaller'
 import {ToolExecutor} from './toolExecutor'
 import {addMessage, createAssistantMessage} from '../state'
 import {logger} from '../logger'
@@ -31,7 +31,7 @@ import type {RunParams, MainLoopExitReason, ControllerState} from './types'
 import {createDefaultResult, endTurnCleanup} from './helpers'
 import {initializeRunEnvironment, detectCommandContext, selectModelForTurn, filterTools, buildSystemPrompt} from './setup'
 import {executeLlmCallWithRetry, executeToolCalls, extractMediaFromToolResults} from './execute'
-import {executeCompactCommand, autoCompressIfNeeded, emitLlmCallDone, handleNoToolCalls, getLastUserMessage} from './compress'
+import {emitLlmCallDone, handleNoToolCalls, getLastUserMessage} from './compress'
 
 // ─── 缓存载荷类型 ────────────────────────────────────────
 
@@ -61,11 +61,6 @@ export type {RunParams} from './types'
 export class AgentLoopController {
     private ctrlState: ControllerState = 'idle'
     private turns = 0
-    private compactLevel = 0
-    /** 上一次 LLM 调用的实际 inputTokens（API 返回），用于精确压缩阈值判定 */
-    private lastActualInputTokens = 0
-    /** 记录 inputTokens 时的消息数量，用于计算增量 */
-    private messagesAtLLMCall = 0
 
     constructor(
         private llmCaller: LLMCaller,
@@ -248,14 +243,7 @@ export class AgentLoopController {
                 cachedSystemPrompt = newCachePayload
             }
 
-            // ── 处理压缩命令（提前 return） ──
-            if (isCompactCommand) {
-                yield* executeCompactCommand(currentState, systemPrompt, params, this.turns)
-                return 'early_exit'
-            }
-
             // ── LLM 调用（含重试） ──
-            const compactLevelRef = {value: this.compactLevel}
             const llmResult = yield* executeLlmCallWithRetry({
                 llmCaller: this.llmCaller,
                 state: currentState,
@@ -269,9 +257,7 @@ export class AgentLoopController {
                 params,
                 isCompactCommand,
                 turns: turnCount,
-                compactLevelRef,
             })
-            this.compactLevel = compactLevelRef.value
 
             if (abortSignal?.aborted) return 'early_exit'
             if (llmResult === null) return 'early_exit'
@@ -283,12 +269,6 @@ export class AgentLoopController {
                 reasoningTokens, llmDuration,
                 currentProvider, currentModel, currentSchemeName,
             } = llmResult
-
-            // ── 记录 API 返回的实际 inputTokens ──
-            if (inputTokens > 0) {
-                this.lastActualInputTokens = inputTokens
-                this.messagesAtLLMCall = currentState.messages.length
-            }
 
             // ── 发送 LLM 调用完成事件 ──
             yield* emitLlmCallDone(
@@ -359,18 +339,6 @@ export class AgentLoopController {
             // ── 从 tool result 提取媒体文件 ──
             currentState = extractMediaFromToolResults(currentState)
 
-            // ── 自动触发压缩 ──
-            currentState = yield* autoCompressIfNeeded({
-                state: currentState,
-                systemPrompt,
-                isCompactCommand,
-                params,
-                lastActualInputTokens: this.lastActualInputTokens,
-                messagesAtLLMCall: this.messagesAtLLMCall,
-                compactLevelRef,
-            })
-            this.compactLevel = compactLevelRef.value
-
             // Turn 结束
             logger.debug(`[AgentLoop] end turn ${this.turns} reason:tool_calls_executed`)
             endTurnCleanup()
@@ -380,9 +348,4 @@ export class AgentLoopController {
         logger.info(`[AgentLoop] agent loop ended, turns:${this.turns}`)
         return 'max_turns'
     }
-}
-
-// Re-export for backward compatibility
-export function isContextLengthError(error: any): boolean {
-    return checkContextLengthError(error)
 }

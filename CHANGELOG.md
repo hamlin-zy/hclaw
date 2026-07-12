@@ -7,6 +7,21 @@
 
 ---
 
+## [v0.2.82] - 2026-07-12
+
+### 重构
+- **彻底移除压缩系统，全面采用结构感知截断** — 删除 `/compact` 命令和 LLM 摘要自动压缩（`executeCompactCommand`、`autoCompressIfNeeded`、`compressConversation` 等），新增 `structuredTruncation.ts`（保留首条 user + 最近 N 轮 + 中间按 turn 配对剥离失败 toolCall）与 `truncateBeforeLlm.ts`（每次 LLM 调用前的截断编排）。`Controller` 中 `compactLevel`、`lastActualInputTokens`、`messagesAtLLMCall` 状态字段全部移除，`isContextLengthError` 兼容导出清理 (`src/main/agent/compact/*`, `src/main/agent/loop/compress.ts`, `src/main/agent/loop/controller.ts`, `src/main/agent/loop/execute.ts`)
+- **压缩相关默认值与导出清理** — `context.ts` 中仅保留 `estimateMessagesTokens`/`estimateTokens` 等纯 token 估算函数；`compress.ts` 退化为只含 `emitLlmCallDone`、`handleNoToolCalls`、`getLastUserMessage` 等公共 helper；`detectCommandContext` 中 `commandName === 'compact'` 判断恒为 `false` (`src/main/agent/context.ts`, `src/main/agent/loop/compress.ts`, `src/main/agent/loop/setup.ts`)
+
+### 新增
+- **`resolveMaxContextTokens()` 集中解析模型上下文窗口** — ModelScheme > adapter > 默认 128000 三级 fallback，新增 provider 只需改这一个文件 (`src/main/agent/loop/modelMaxContext.ts`)
+- **`truncateForLlmCall()` 接入主循环** — 在 `executeLlmCallWithRetry` 中、ContextRetrieval 之后、image 过滤之前调用，超出预算时自动触发结构截断并记录日志 (`src/main/agent/loop/execute.ts`)
+- **结构截断单测覆盖** — `structuredTruncation.test.ts` 覆盖「纯文本轮丢弃 / 混合轮配对剥离 / 全失败 turn 当文本处理 / 保留首条 user + 最近 10 轮」；`truncateBeforeLlm.test.ts` 覆盖「budget 内 passthrough / 超 budget 触发截断」 (`src/main/agent/loop/structuredTruncation.test.ts`, `src/main/agent/loop/truncateBeforeLlm.test.ts`)
+- **本地 vitest 配置** — `vitest.config.local.ts` 声明 `@` 路径别名与测试文件 include 范围 (`vitest.config.local.ts`)
+
+### 变更
+- **`compactThreshold` 配置项彻底移除** — 不再出现在 `AgentSettings`/`SystemSettings` 默认值、设置对话框、`systemManageTool` schema、`manager.impl.ts` 与 `worker.ts` 初始化逻辑中 (`src/shared/types/settings.ts`, `src/renderer/stores/settingsStore.ts`, `src/renderer/components/dialogs/SettingsDialog.tsx`, `src/main/agent/tools/builtin/systemManageTool.ts`, `src/main/agent/manager.impl.ts`, `src/main/agent/worker.ts`)
+
 ## [v0.2.81] - 2026-07-11
 
 ### 修复

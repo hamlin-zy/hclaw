@@ -120,7 +120,7 @@ export class AgentManager {
 
     // 加载配置
     const defaultSettings: SystemSettings = {
-      agent: {maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000, llmTimeout: 600000, compactThreshold: 700000},
+      agent: {maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000, llmTimeout: 600000},
       model: {defaultMaxTokens: 8000, defaultTemperature: 0},
       mcp: {mcpTestTimeout: 15000},
       ui: {language: 'zh-CN', theme: 'system'},
