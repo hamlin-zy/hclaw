@@ -7,6 +7,20 @@
 
 ---
 
+## [v0.2.83] - 2026-07-12
+
+### 修复
+- **缓存命中率计算公式修正** — 从 `read/(read+write)` 改为 `read/(input+read)`，此前分母使用了错误的 write 字段导致比率失真 (`src/renderer/components/CacheRateTooltip.tsx`)
+
+### 重构
+- **tooltip 从 CSS hover 改为 Portal 渲染到 body** — 使用 `createPortal` 将 tooltip 挂载到 `document.body`，突破祖先容器 `overflow:hidden` 裁剪，同时增加 hover 进入/离开延迟防抖 (`src/renderer/components/CacheRateTooltip.tsx`)
+
+### 新增
+- **tooltip 底部公式展示** — 增加命中率公式与上下文窗口计算明细 (`src/renderer/components/CacheRateTooltip.tsx`)
+
+### 变更
+- **移除 cacheWriteTokens 统计** — 命中率公式不再依赖 write 值，表格移除"写入"行，"读取"标签改为"缓存命中"，"输出"行移入表格 (`src/renderer/components/CacheRateTooltip.tsx`)
+
 ## [v0.2.82] - 2026-07-12
 
 ### 重构
