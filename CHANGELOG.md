@@ -7,6 +7,15 @@
 
 ---
 
+## [v0.2.84] - 2026-07-16
+
+### 新增
+- **第三方 API 检测函数** — 新增 `isThirdPartyAnthropicAPI()` 判断当前模型是否指向非官方端点（DeepSeek/MiMo 等兼容 API），自动适配 thinking 块格式 (`src/main/agent/model/utils.ts`)
+- **第三方 API thinking 块兼容** — 处理跨供应商环境下 thinking/signature 格式差异，自动注入空 thinking 块以满足 DeepSeek/MiMo 的格式校验 (`src/main/agent/model/anthropicAdapter.ts`)
+
+### 修复
+- **第三方 API signature 检查跳过** — DeepSeek 等兼容 API 不要求 signature，跳过不必要的 thinking 块完整性检查，避免因缺失 signature 导致的降级 (`src/main/agent/loop/execute.ts`)
+
 ## [v0.2.83] - 2026-07-12
 
 ### 修复
