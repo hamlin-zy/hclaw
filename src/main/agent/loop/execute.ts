@@ -24,6 +24,7 @@ import {runtimeConfigManager} from '../runtimeConfigManager'
 import {getCurrentSchemeInfo} from '../model/index'
 import {resolveModelConfig, selectModelForTaskWithRole} from '../model/modelSelector'
 import {getSchemeVersion} from '../model/modelSchemeManager'
+import {isThirdPartyAnthropicAPI} from '../model/utils'
 import {classifyErrorEnhanced} from '../common/errorClassifier'
 import {LLM_TIMEOUT_MS, sleep, TimeoutError, withTimeout} from '../../utils/retry'
 import {hookExecutor, type HookResult} from '../../plugin/hooks'
@@ -194,8 +195,11 @@ export async function* executeLlmCallWithRetry(
             // Anthropic API 要求在 thinking mode 中，所有之前产生的 assistant thinking 块
             // 都必须完整回传（含 signature）。如果存在不完整的 thinking 块（有内容但无签名，
             // 常见于跨供应商消息或中断恢复），需要降级为非推理模式，避免 API 400 错误。
+            //
+            // DeepSeek/MiMo 等第三方 Anthropic 兼容 API 不要求 signature，跳过此检查。
+            const isThirdPartyAPI = isThirdPartyAnthropicAPI(currentModel, modelConfig.baseUrl || '')
             let effectiveThinkingEffort = thinkingEffort
-            if (thinkingEffort) {
+            if (thinkingEffort && !isThirdPartyAPI) {
                 const hasIncompleteThinking = messagesToSend.some(msg =>
                     msg.role === 'assistant' && !!msg.thinking && !msg.thinkingSignature
                 )

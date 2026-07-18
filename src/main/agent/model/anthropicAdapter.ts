@@ -22,7 +22,7 @@ import type {
     StreamChunk,
     ToolDefinition,
 } from './types'
-import {injectAdditionalContext} from './utils'
+import {injectAdditionalContext, isThirdPartyAnthropicAPI} from './utils'
 
 export class AnthropicAdapter implements ModelAdapter {
   private client: Anthropic
@@ -46,7 +46,9 @@ export class AnthropicAdapter implements ModelAdapter {
   async *chat(params: ChatParams): AsyncGenerator<StreamChunk> {
     const { messages, systemPrompt, tools, maxTokens, thinkingEffort, abortSignal, additionalContext, commandTemplate } = params
 
-    let apiMessages = this.convertMessages(messages)
+    const thinkingModeActive = !!thinkingEffort
+    const needsCompatNormalization = this.isThirdPartyAPI()
+    let apiMessages = this.convertMessages(messages, thinkingModeActive, needsCompatNormalization)
 
     const useContentBlocks = this.features?.systemContentBlocks
 
@@ -221,7 +223,36 @@ export class AnthropicAdapter implements ModelAdapter {
 
   // ─── 内部方法 ──────────────────────────────────────
 
-  private convertMessages(messages: readonly ChatMessage[]): Anthropic.MessageParam[] {
+  // ─── 第三方 API 检测 ────────────────────────────────────────
+  /**
+   * 判断当前适配器是否指向第三方 Anthropic 兼容 API。
+   * 第三方 API 在 thinking mode 下要求更严格：
+   * - 所有带 tool_use 的 assistant 消息必须有 thinking 块
+   * - 不接受 Anthropic 的 signature 字段（签名是 Anthropic 特有的）
+   * - 不接受空的 thinking 内容
+   */
+  private isThirdPartyAPI(): boolean {
+    return isThirdPartyAnthropicAPI(this.model, ((this.client as any).baseURL || ''))
+  }
+
+  /**
+   * 第三方 API thinking 块规范化。
+   * 第三方 API 不支持 Anthropic 的 signature 字段，且要求 thinking 内容非空。
+   * 参考 cc-switch PR #3203 的 fix(proxy): normalize DeepSeek Anthropic tool thinking history
+   */
+  private normalizeForThirdPartyAPI(contentBlocks: Anthropic.ContentBlockParam[]): void {
+    for (const block of contentBlocks) {
+      if (block.type !== 'thinking') continue
+      // 1. 移除 signature（第三方 API 会拒绝带 signature 的 thinking 块）
+      delete (block as any).signature
+      // 2. 确保 thinking 内容非空
+      if (!block.thinking || !block.thinking.trim()) {
+        (block as any).thinking = '继续'
+      }
+    }
+  }
+
+  private convertMessages(messages: readonly ChatMessage[], thinkingModeActive?: boolean, needsCompatNormalization?: boolean): Anthropic.MessageParam[] {
     const result: Anthropic.MessageParam[] = []
 
       const validToolUseIds = new Set<string>()
@@ -252,22 +283,57 @@ export class AnthropicAdapter implements ModelAdapter {
         // 兼容：当 reasoningContent 存在而 thinking 不存在时（跨供应商消息），将其作为 thinking 内容
         const thinkingText = msg.thinking || (msg as any).reasoningContent
         if (thinkingText) {
-            // signature 是 Anthropic API 的必需字段，缺失会导致 400 错误
-            // 若确实无 signature（如跨供应商消息），降级为纯文本，跳过 thinking 块
-            if (!msg.thinkingSignature) {
-                logger.warn('[AnthropicAdapter] assistant 消息有 thinking 内容但无 signature，降级为纯文本', {
-                    thinkingLength: String(thinkingText).length,
-                })
-            } else {
+            if (needsCompatNormalization) {
+                // DeepSeek 不接受 signature 字段，且不要求 signature
+                contentBlocks.push({
+                    type: 'thinking' as const,
+                    thinking: thinkingText,
+                } as any)
+            } else if (msg.thinkingSignature) {
                 contentBlocks.push({
                     type: 'thinking' as const,
                     thinking: thinkingText,
                     signature: msg.thinkingSignature,
                 })
+            } else {
+                // signature 是 Anthropic API 的必需字段，缺失会导致 400 错误
+                // 若确实无 signature（如跨供应商消息），降级为纯文本，跳过 thinking 块
+                logger.warn('[AnthropicAdapter] assistant 消息有 thinking 内容但无 signature，降级为纯文本', {
+                    thinkingLength: String(thinkingText).length,
+                })
             }
         }
 
         const assistantContent = typeof msg.content === 'string' ? msg.content : ''
+
+        // ── 跨供应商 thinking 块兼容 ──
+        // DeepSeek Anthropic 兼容 API 在 thinking mode 下要求所有带 tool_use 的
+        // assistant 消息必须包含 {type:'thinking'} 块。旧供应商消息可能无 thinking 块，
+        // 注入空 thinking 块以满足格式校验。
+        // DeepSeek/MiMo: 即使当前请求未启用 thinking mode，所有带 tool_use 的
+        // assistant 消息也必须包含 thinking 块（否则 400）。
+        const hasThinkingBlock = contentBlocks.some(b => b.type === 'thinking')
+        if (msg.toolCalls?.length && !hasThinkingBlock && (needsCompatNormalization || thinkingModeActive)) {
+            if (needsCompatNormalization) {
+                // DeepSeek 不接受 signature 字段，只传 thinking 内容
+                contentBlocks.push({
+                    type: 'thinking' as const,
+                    thinking: '继续',
+                } as any)
+            } else {
+                contentBlocks.push({
+                    type: 'thinking' as const,
+                    thinking: '无',
+                    signature: '',
+                })
+            }
+        }
+
+        // ── DeepSeek thinking 块规范化 ──
+        // 在推送前对 contentBlocks 做后处理：移除 signature、填充空 thinking
+        if (needsCompatNormalization && contentBlocks.length > 0) {
+            this.normalizeForThirdPartyAPI(contentBlocks)
+        }
 
         if (msg.toolCalls?.length) {
           // 有 tool_calls：包含 text + thinking + tool_use
