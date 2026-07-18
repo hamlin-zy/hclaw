@@ -1,7 +1,6 @@
 import {useEffect, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useAgentStore, type HookResultItem} from '../stores/agentStore'
-import {useConversationStore} from '../stores/conversationStore'
 
 const HOOK_RESULT_TTL = 3_000 // 3 秒后自动销毁
 
@@ -54,17 +53,25 @@ function HookNotification({item, onComplete}: { item: HookResultItem; onComplete
  */
 export default function HookResultsBar() {
   const allHookResults = useAgentStore((s) => s.hookResults)
-  const activeConversationId = useConversationStore((s) => s.activeConversationId)
   const [visible, setVisible] = useState<HookResultItem[]>([])
 
-  // 只保留当前会话、最近 5 秒内的结果
+  // 显示全部 hook 结果（不按会话过滤），只过滤最近 TTL 内的
   useEffect(() => {
-    const now = Date.now()
-    const recent = allHookResults.filter(
-      (r) => r.conversationId === activeConversationId && now - r.timestamp < HOOK_RESULT_TTL
-    )
-    setVisible(recent)
-  }, [allHookResults, activeConversationId])
+    const updateVisible = () => {
+      const now = Date.now()
+      const recent = allHookResults.filter(
+        (r) => now - r.timestamp < HOOK_RESULT_TTL
+      )
+      setVisible(recent)
+    }
+
+    // 立即刷新一次
+    updateVisible()
+
+    // 每秒刷新一次（清理过期项）
+    const interval = setInterval(updateVisible, 1000)
+    return () => clearInterval(interval)
+  }, [allHookResults])
 
   const handleRemove = (id: string) => {
     setVisible((prev) => prev.filter((r) => r.id !== id))
@@ -73,7 +80,7 @@ export default function HookResultsBar() {
   if (visible.length === 0) return null
 
   return (
-    <div className="absolute top-0 right-1 z-[60] flex flex-col gap-2 pointer-events-none">
+    <div className="fixed top-16 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
       <AnimatePresence mode="popLayout">
         {visible.map((item) => (
           <HookNotification key={item.id} item={item} onComplete={handleRemove}/>

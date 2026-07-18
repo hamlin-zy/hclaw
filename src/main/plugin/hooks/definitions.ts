@@ -172,7 +172,7 @@ export const HOOK_EVENT_DEFINITIONS: HookEventDefinition[] = [
   {
     event: 'TeammateIdle',
     name: '队友空闲',
-    description: 'Agent team 队友空闲时触发',
+    description: 'Agent team 队友空闲时触发 [未实现]',
     category: 'agent',
     supportedTypes: ['command', 'http'],
     supportsMatcher: false,
@@ -201,7 +201,7 @@ export const HOOK_EVENT_DEFINITIONS: HookEventDefinition[] = [
   {
     event: 'Elicitation',
     name: 'MCP 请求输入',
-    description: 'MCP 服务请求用户输入时触发',
+    description: 'MCP 服务请求用户输入时触发 [未实现]',
     category: 'mcp',
     supportedTypes: ['command', 'prompt'],
     supportsMatcher: false,
@@ -210,7 +210,7 @@ export const HOOK_EVENT_DEFINITIONS: HookEventDefinition[] = [
   {
     event: 'ElicitationResult',
     name: 'MCP 输入结果',
-    description: '用户响应 MCP 请求后触发',
+    description: '用户响应 MCP 请求后触发 [未实现]',
     category: 'mcp',
     supportedTypes: ['command', 'http'],
     supportsMatcher: false,
@@ -232,7 +232,7 @@ export const HOOK_EVENT_DEFINITIONS: HookEventDefinition[] = [
   {
     event: 'WorktreeCreate',
     name: '创建 Worktree',
-    description: '创建 git worktree 时触发',
+    description: '创建 git worktree 时触发 [未实现]',
     category: 'session',
     supportedTypes: ['command'],
     supportsMatcher: false,
@@ -241,7 +241,7 @@ export const HOOK_EVENT_DEFINITIONS: HookEventDefinition[] = [
   {
     event: 'WorktreeRemove',
     name: '移除 Worktree',
-    description: '移除 git worktree 时触发',
+    description: '移除 git worktree 时触发 [未实现]',
     category: 'session',
     supportedTypes: ['command'],
     supportsMatcher: false,
@@ -292,7 +292,7 @@ export const HOOK_EVENT_DEFINITIONS: HookEventDefinition[] = [
   {
     event: 'Notification',
     name: '通知',
-    description: '发送通知时触发',
+    description: '发送通知时触发 [未实现]',
     category: 'session',
     supportedTypes: ['command', 'http'],
     supportsMatcher: true,

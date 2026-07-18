@@ -24,6 +24,10 @@ export function matchesTool(matcher: string, toolName: string): boolean {
   // 精确匹配
   if (matcher === toolName) return true
 
+  // 大小写不敏感 fallback：Claude Code 用 PascalCase（Bash/Write/Edit），
+  // HClaw 用小写（bash/write/edit），确保跨生态兼容
+  if (matcher.toLowerCase() === toolName.toLowerCase()) return true
+
   // 尝试正则匹配
   try {
     if (new RegExp(matcher).test(toolName)) return true
@@ -59,6 +63,9 @@ export function matchesEvent(matcher: string, event: HookEvent): boolean {
 
   // 精确匹配
   if (matcher === event) return true
+
+  // 大小写不敏感 fallback（与 matchesTool 保持一致）
+  if (matcher.toLowerCase() === event.toLowerCase()) return true
 
   // 尝试正则匹配
   try {

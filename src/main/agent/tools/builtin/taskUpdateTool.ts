@@ -62,6 +62,17 @@ export const taskUpdateTool: Tool<TaskUpdateInput, { updated: number; cleared: n
                 for (const t of targets) {
                     const result = taskStore.updateTaskStatus(t.id, args.status)
                     if (result) updated++
+
+                    // 触发 TaskCompleted Hook
+                    if (args.status === 'completed') {
+                        import('../../../plugin/hooks').then(({hookExecutor}) => {
+                            hookExecutor.execute('TaskCompleted', {
+                                sessionId: '',
+                                taskId: t.id,
+                                taskName: t.title,
+                            }).catch(() => {})
+                        }).catch(() => {})
+                    }
                 }
                 return {
                     success: true,

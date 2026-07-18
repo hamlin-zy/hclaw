@@ -169,7 +169,10 @@ export interface HookContext {
  * - permissionDecision: 权限决策（PreToolUse 等）
  */
 export interface HookResult {
-  allowed: boolean
+  /** @deprecated 请使用 decision。向后兼容：allowed === (decision !== 'block') */
+  allowed?: boolean
+  /** 主语义：'allow' | 'block' | 'continue' */
+  decision: 'allow' | 'block' | 'continue'
   modified?: {
     prompt?: string
     context?: Record<string, unknown>
@@ -181,8 +184,6 @@ export interface HookResult {
   /** 命令 hook 的 stdout 输出（captureOutput=true 时捕获） */
   output?: string
   
-  /** Claude Code 规范: 阻止/允许决策 */
-  decision?: 'block' | 'allow' | 'continue'
   /** Claude Code 规范: 阻止原因说明 */
   reason?: string
   

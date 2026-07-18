@@ -13,8 +13,11 @@ import {promisify} from 'util'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import {isMainThread, parentPort} from 'worker_threads'
 import type {HookContext, HookEvent, HookHandler, HookResult} from './types'
+import {matchesTool, matchesEvent, matchesFile} from './matcher'
 import {PluginRegistry} from '../registry'
+import {getHclawDir} from '../../config'
 import {readHookConfig} from '../../config/hookConfig'
 import {createLogger} from '../../agent/logger'
 import {registerBuiltinHandlers as registerBuiltins} from './builtin'
@@ -57,11 +60,14 @@ export class HookExecutor {
   private builtinHandlers: Map<string, HookHandler> = new Map()
   // 兼容层事件处理器（旧系统用户脚本迁移用）
   private eventHandlers: Map<HookEvent, Array<{ handler: HookHandler; name: string }>> = new Map()
-  // 执行结果监听器（用于转发到 UI）
+  // 执行结果监听器（用于转发到 UI，仅主线程有效）
   private resultListeners: Array<(event: HookEvent, hookName: string, result: HookResult) => void> = []
   private pendingHooks: Map<string, { event: HookEvent; name: string }> = new Map()
   // 每会话 Hook 执行槽位（排队 + 超时 + 可取消）
   private conversationSlots = new Map<string, ConversationSlot>()
+  // Agent hook 防递归深度
+  private hookDepth = 0
+  private readonly MAX_HOOK_DEPTH = 3
 
   private constructor() {
     this.registry = PluginRegistry.getInstance()
@@ -162,24 +168,25 @@ export class HookExecutor {
     const hooks = this.getHooksForEvent(event, context)
 
     if (hooks.length === 0) {
-      return { allowed: true }
+      return { decision: 'allow', allowed: true }
     }
 
-    let combinedResult: HookResult = { allowed: true }
+    let combinedResult: HookResult = { decision: 'allow', allowed: true }
 
     for (const hook of hooks) {
       if (signal.aborted) {
-        return { allowed: true, error: 'Hook execution cancelled' }
+        return { decision: 'allow', allowed: true, error: 'Hook execution cancelled' }
       }
 
       this.markHookPending(event, hook)
       const result = await this.executeHook(hook, event, context, signal)
       this.notifyResult(event, hook, result)
 
-      // 如果 Hook 阻止操作
-      if (!result.allowed) {
+      // 如果 Hook 阻止操作 — 统一走 decision 语义，allowed 作为兼容
+      const decision = result.decision ?? (result.allowed === false ? 'block' : 'allow')
+      if (decision === 'block') {
         logger.info(`[Hook] Blocked by hook: ${hook.name || 'unnamed'}`, { event, error: result.error })
-        return result
+        return { ...result, decision: 'block', allowed: false }
       }
 
       // 合并修改
@@ -242,10 +249,33 @@ export class HookExecutor {
 
   /**
    * 通知所有监听器 hook 执行结果
+   *
+   * 支持两种运行环境：
+   * - 主线程：直接通知注册的 resultListeners（由 setMainWindow 注册）
+   * - Worker 线程：通过 parentPort.postMessage 回传给主进程，由 manager.impl.ts
+   *   的 createMessageHandler 收到后转发给渲染进程
    */
   private notifyResult(event: HookEvent, hook: any, result: HookResult): void {
     if (!hook.name) return
     this.pendingHooks.delete(`${event}:${hook.name}`)
+
+    if (!isMainThread) {
+      // Worker 线程：通过 IPC 回传主进程
+      try {
+        parentPort?.postMessage({
+          type: 'hook_result',
+          hookEvent: event,
+          hookName: hook.name,
+          success: (result.allowed ?? result.decision !== 'block') && !result.error,
+          error: result.error || undefined,
+        })
+      } catch {
+        // parentPort 不可用（如测试环境），静默丢弃
+      }
+      return
+    }
+
+    // 主线程：直接通知注册的监听器
     for (const listener of this.resultListeners) {
       listener(event, hook.name, result)
     }
@@ -298,7 +328,7 @@ export class HookExecutor {
       case 'agent':
         return this.executeAgent(hook, context)
       default:
-        return { allowed: true }
+        return { decision: 'allow', allowed: true }
     }
   }
 
@@ -312,7 +342,54 @@ export class HookExecutor {
    */
   private async executeCommand(hook: any, context: HookContext, signal?: AbortSignal): Promise<HookResult> {
     if (!hook.command) {
-      return { allowed: true, error: 'Command hook missing command' }
+      return { decision: 'allow', allowed: true, error: 'Command hook missing command' }
+    }
+
+    // 构建 Hook 子进程环境变量（Claude Code 兼容）
+    // 基础变量对所有 hook 设置（用户 + 插件）
+    const hookEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      CLAUDE_SESSION_ID: context.sessionId ?? '',
+      CLAUDE_PROJECT_DIR: context.cwd || getHclawDir(),
+      CLAUDE_CONFIG_DIR: getHclawDir(),
+    }
+
+    // 插件特有变量：CLAUDE_PLUGIN_ROOT / HCLAW_PLUGIN_ROOT
+    const pluginName = hook.pluginName as string | undefined
+    if (pluginName) {
+      let pluginRoot = PluginRegistry.getInstance().getPluginPath(pluginName)
+      // Fallback：扫描插件目录通过 manifest.name 匹配（PluginRegistry 可能在启动时未就绪）
+      if (!pluginRoot) {
+        try {
+          const pluginsDir = path.join(getHclawDir(), 'plugins')
+          const entries = fs.readdirSync(pluginsDir, { withFileTypes: true })
+          for (const entry of entries) {
+            if (!entry.isDirectory()) continue
+            const dirPath = path.join(pluginsDir, entry.name)
+            for (const mf of ['plugin.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json']) {
+              const mfPath = path.join(dirPath, mf)
+              if (fs.existsSync(mfPath)) {
+                try {
+                  const mfData = JSON.parse(fs.readFileSync(mfPath, 'utf-8'))
+                  if (mfData.name === pluginName) {
+                    pluginRoot = dirPath
+                    break
+                  }
+                } catch { /* skip unparseable manifests */ }
+              }
+            }
+            if (pluginRoot) break
+          }
+        } catch { /* plugins dir may not exist */ }
+      }
+      if (pluginRoot) {
+        context.pluginRoot = pluginRoot
+        hookEnv.CLAUDE_PLUGIN_ROOT = pluginRoot
+        hookEnv.HCLAW_PLUGIN_ROOT = pluginRoot
+        logger.debug(`[Hook] plugin root for "${pluginName}": ${pluginRoot}`)
+      } else {
+        logger.warn(`[Hook] plugin "${pluginName}" not found, hook may fail`)
+      }
     }
 
     try {
@@ -376,9 +453,11 @@ export class HookExecutor {
 
       if (stdinData) {
         // 使用 spawn 支持 stdin
-        stdout = await this.execWithStdin(command, stdinData, timeout, shell, signal)
+        stdout = await this.execWithStdin(command, stdinData, timeout, shell, signal, hookEnv)
       } else {
-        const result = await execAsync(command, { timeout, shell, signal })
+        const result = await execAsync(command, {
+          timeout, shell, signal, env: hookEnv,
+        })
         stdout = result.stdout
         stderr = result.stderr
         exitCode = (result as any).code ?? 0
@@ -389,6 +468,7 @@ export class HookExecutor {
       // Exit code 语义处理
       if (exitCode === EXIT_CODE_BLOCK) {
         return { 
+          decision: 'block',
           allowed: false, 
           error: stderr || 'Blocked by hook' 
         }
@@ -396,6 +476,7 @@ export class HookExecutor {
 
       if (exitCode === EXIT_CODE_WARN) {
         return { 
+          decision: 'allow',
           allowed: true, 
           warning: stdout || stderr,
           error: stderr 
@@ -404,7 +485,7 @@ export class HookExecutor {
 
       // captureOutput 模式：将 stdout 作为 output 返回（不尝试解析 JSON）
       if (hook.captureOutput) {
-          return { allowed: true, output: stdout || undefined }
+          return { decision: 'allow', allowed: true, output: stdout || undefined }
       }
 
       // 尝试解析 stdout 中的 JSON 输出
@@ -419,7 +500,7 @@ export class HookExecutor {
           
           // 解析顶级 decision 结构
           if (jsonOutput.decision) {
-            const result: HookResult = { allowed: jsonOutput.decision !== 'block' }
+            const result: HookResult = { decision: jsonOutput.decision, allowed: jsonOutput.decision !== 'block' }
             if (jsonOutput.reason) result.reason = jsonOutput.reason
             if (jsonOutput.additionalContext) result.additionalContext = jsonOutput.additionalContext
             if (jsonOutput.sessionTitle) result.sessionTitle = jsonOutput.sessionTitle
@@ -427,7 +508,7 @@ export class HookExecutor {
           }
           
           // 兼容旧版 modified 格式
-          return { allowed: true, modified: jsonOutput }
+          return { decision: 'allow', allowed: true, modified: jsonOutput }
         } catch {
           // 不是 JSON，正常返回
         }
@@ -447,10 +528,10 @@ export class HookExecutor {
         const parts: string[] = [`exit code: ${exitCode}`]
         if (stderr?.trim()) parts.push(`stderr:\n${stderr.trim().slice(0, 2000)}`)
         if (stdout?.trim() && !stderr?.trim()) parts.push(`stdout:\n${stdout.trim().slice(0, 2000)}`)
-        return { allowed: true, error: parts.join('\n') }
+        return { decision: 'allow', allowed: true, error: parts.join('\n') }
       }
 
-      return { allowed: true, error: stderr || undefined }
+      return { decision: 'allow', allowed: true }
     } catch (error: any) {
       const exitCode = error.code ?? 1
       const errorMessage = error.message || String(error)
@@ -465,10 +546,10 @@ export class HookExecutor {
       logger.error(`[Hook] ${hook.name || 'unnamed'} threw:`, { exitCode, stderr: errorStderr.slice(0, 1000), stdout: errorStdout.slice(0, 500), message: errorMessage.slice(0, 200) })
 
       if (exitCode === EXIT_CODE_BLOCK) {
-        return { allowed: false, error: richError }
+        return { decision: 'block', allowed: false, error: richError }
       }
 
-      return { allowed: true, error: richError }
+      return { decision: 'allow', allowed: true, error: richError }
     } finally {
       this.removeTempFile((hook as any).__tmpFile)
       this.removeTempFile((hook as any).__tmpJsonFile)
@@ -478,9 +559,9 @@ export class HookExecutor {
   /**
    * 使用 stdin 执行命令（支持 AbortSignal 中止）
    */
-  private execWithStdin(command: string, stdin: string, timeout: number, shell: string, signal?: AbortSignal): Promise<string> {
+  private execWithStdin(command: string, stdin: string, timeout: number, shell: string, signal?: AbortSignal, env?: NodeJS.ProcessEnv): Promise<string> {
     return new Promise((resolve, reject) => {
-      const child = exec(command, { timeout, shell, signal }, (error, stdout, _stderr) => {
+      const child = exec(command, { timeout, shell, signal, ...(env ? { env } : {}) }, (error, stdout, _stderr) => {
         if (error && (error as any).code !== EXIT_CODE_BLOCK) {
           // 检查是否是阻止错误
           if ((error as any).code === EXIT_CODE_BLOCK) {
@@ -514,7 +595,7 @@ export class HookExecutor {
         ])
         return result
       } catch (error: any) {
-        return { allowed: true, error: error.message }
+        return { decision: 'allow', allowed: true, error: error.message }
       }
     }
 
@@ -524,11 +605,11 @@ export class HookExecutor {
       try {
         return await this.builtinHandlers.get(builtinId)!(context)
       } catch (error: any) {
-        return { allowed: true, error: error.message }
+        return { decision: 'allow', allowed: true, error: error.message }
       }
     }
 
-    return { allowed: true }
+    return { decision: 'allow', allowed: true }
   }
 
   /**
@@ -536,10 +617,11 @@ export class HookExecutor {
    */
   private async executePrompt(hook: any, context: HookContext): Promise<HookResult> {
     if (!hook.prompt) {
-      return { allowed: true }
+      return { decision: 'allow', allowed: true }
     }
 
     return {
+      decision: 'allow',
       allowed: true,
       modified: {
         prompt: hook.prompt,
@@ -553,7 +635,7 @@ export class HookExecutor {
    */
   private async executeHttp(hook: any, context: HookContext): Promise<HookResult> {
     if (!hook.url) {
-      return { allowed: true, error: 'HTTP hook missing url' }
+      return { decision: 'allow', allowed: true, error: 'HTTP hook missing url' }
     }
 
     try {
@@ -570,13 +652,13 @@ export class HookExecutor {
       })
 
       if (!response.ok) {
-        return { allowed: true, error: `HTTP ${response.status}: ${response.statusText}` }
+        return { decision: 'allow', allowed: true, error: `HTTP ${response.status}: ${response.statusText}` }
       }
 
-      return { allowed: true }
+      return { decision: 'allow', allowed: true }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      return { allowed: true, error: errorMessage }
+      return { decision: 'allow', allowed: true, error: errorMessage }
     }
   }
 
@@ -589,10 +671,16 @@ export class HookExecutor {
    */
   private async executeAgent(hook: any, context: HookContext): Promise<HookResult> {
     if (!hook.agentPrompt) {
-      return { allowed: true }
+      return { decision: 'allow', allowed: true }
     }
 
+    this.hookDepth++
     try {
+      if (this.hookDepth > this.MAX_HOOK_DEPTH) {
+        logger.warn(`[Hook] Agent hook recursion limit (depth=${this.hookDepth})`)
+        return { decision: 'allow', allowed: true, warning: 'Agent hook recursion limit reached' }
+      }
+
       const { subAgentScheduler } = await import('../../agent/subagent')
       const { RuntimeConfigManager } = await import('../../agent/runtimeConfigManager')
 
@@ -659,13 +747,15 @@ export class HookExecutor {
         } catch {
           // 不是 JSON，作为 additionalContext 返回
         }
-        return { allowed: true, additionalContext: output.trim() }
+        return { decision: 'allow', allowed: true, additionalContext: output.trim() }
       }
 
-      return { allowed: true }
+      return { decision: 'allow', allowed: true }
     } catch (error: any) {
       logger.error('[Hook] Agent hook failed', { error: error.message })
-      return { allowed: true, error: error.message }
+      return { decision: 'allow', allowed: true, error: error.message }
+    } finally {
+      this.hookDepth--
     }
   }
 
@@ -700,6 +790,7 @@ export class HookExecutor {
         eventHooks.push({
           ...hook.config,
           name: hook.name,
+          pluginName: hook.pluginName,
         })
       }
     } catch (err) {
@@ -722,76 +813,21 @@ export class HookExecutor {
     return eventHooks
   }
 
-  /**
-   * 检查是否匹配 matcher
-   * 
-   * 支持的 matcher 格式：
-   * - '*' - 匹配所有
-   * - 'Bash' - 精确匹配工具名
-   * - 'Edit|Write|MultiEdit' - 正则或操作符匹配
-   * - '^file_' - 正则匹配
-   */
-  matchesMatcher(matcher: string, event: HookEvent, context: HookContext): boolean {
-    // 全局匹配
-    if (matcher === '*') return true
-
-    // 精确匹配事件名
-    if (matcher === event) return true
-
-    // 工具名匹配
-    if (context.toolName) {
-      if (this.toolMatches(matcher, context.toolName)) {
-        return true
-      }
+    /**
+     * 检查是否匹配 matcher - 委托到 matcher.ts
+     *
+     * 支持的 matcher 格式：
+     * - '*' - 匹配所有
+     * - 'Bash' - 精确匹配工具名
+     * - 'Edit|Write|MultiEdit' - 正则或操作符匹配
+     * - '^file_' - 正则匹配
+     */
+    matchesMatcher(matcher: string, event: HookEvent, context: HookContext): boolean {
+        if (matchesEvent(matcher, event)) return true
+        if (context.toolName && matchesTool(matcher, context.toolName)) return true
+        if (context.filePath && matchesFile(matcher, context.filePath)) return true
+        return false
     }
-
-    // 文件路径匹配
-    if (context.filePath) {
-      if (this.toolMatches(matcher, context.filePath)) {
-        return true
-      }
-    }
-
-    // 尝试作为正则表达式匹配事件名
-    try {
-      if (new RegExp(matcher).test(event)) {
-        return true
-      }
-    } catch {
-      // 无效正则，忽略
-    }
-
-    return false
-  }
-
-  /**
-   * 工具名匹配
-   */
-  private toolMatches(matcher: string, toolName: string): boolean {
-    // 精确匹配
-    if (matcher === toolName) return true
-
-    // 尝试正则匹配
-    try {
-      if (new RegExp(matcher).test(toolName)) return true
-    } catch {
-      // 不是有效正则，尝试操作符分割
-    }
-
-    // 尝试 '|' 分割的多个匹配
-    const parts = matcher.split('|').map(p => p.trim())
-    if (parts.length > 1) {
-      return parts.some(part => {
-        try {
-          return new RegExp(part).test(toolName)
-        } catch {
-          return part === toolName
-        }
-      })
-    }
-
-    return false
-  }
 
     /**
      * 将 HookContext 中的 lastMessages 写入临时文件，返回文件路径
@@ -838,7 +874,7 @@ export class HookExecutor {
    * - terminalSequence: 终端通知序列
    */
   private parseHookSpecificOutput(output: any): HookResult {
-    const result: HookResult = { allowed: true }
+    const result: HookResult = { decision: 'allow', allowed: true }
     
     // 决策处理
     if (output.decision === 'block') {
@@ -925,6 +961,7 @@ export class HookExecutor {
     // HCLAW 变量
     result = result.replace(/\$\{HCLAW_SESSION_ID\}/g, context.sessionId ?? '')
     result = result.replace(/\$\{HCLAW_PLUGIN_ROOT\}/g, context.pluginRoot ?? '')
+    result = result.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, context.pluginRoot ?? '')
 
     // 工具相关
     result = result.replace(/\$\{HCLAW_TOOL_NAME\}/g, context.toolName ?? '')

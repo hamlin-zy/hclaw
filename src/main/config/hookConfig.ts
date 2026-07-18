@@ -123,6 +123,16 @@ export function writeHookConfig(hooks: HookDefinition[]): boolean {
         const jsonPath = getHookConfigPath()
         const data = serializeHooks(hooks)
         fs.writeFileSync(jsonPath, JSON.stringify(data, null, 2), 'utf-8')
+
+        // 触发 ConfigChange Hook
+        import('../plugin/hooks').then(({hookExecutor}) => {
+            hookExecutor.execute('ConfigChange', {
+                sessionId: 'system',
+                configKey: 'hooks',
+                configValue: {count: hooks.length},
+            }).catch(() => {})
+        }).catch(() => {})
+
         return true
     } catch (err) {
         console.error('[hookConfig] write failed:', err)

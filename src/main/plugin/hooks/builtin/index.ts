@@ -65,7 +65,7 @@ export const auditLogHandler: HookHandler = async (context: HookContext): Promis
     toolName: context.toolName,
   })
 
-  return { allowed: true }
+  return { decision: 'allow', allowed: true }
 }
 
 /**
@@ -76,12 +76,12 @@ export const fileGuardHandler: HookHandler = async (context: HookContext): Promi
   // 只检查写操作
   const writeTools = ['Write', 'Edit', 'MultiEdit', 'Bash']
   if (!context.toolName || !writeTools.includes(context.toolName)) {
-    return { allowed: true }
+    return { decision: 'allow', allowed: true }
   }
 
   const filePath = (context.args as any)?.filePath
   if (!filePath) {
-    return { allowed: true }
+    return { decision: 'allow', allowed: true }
   }
 
   // 敏感文件模式
@@ -101,13 +101,14 @@ export const fileGuardHandler: HookHandler = async (context: HookContext): Promi
     if (pattern.test(filePath)) {
       logger.warn(`[FileGuard] Blocked write to sensitive file: ${filePath}`)
       return {
+        decision: 'block',
         allowed: false,
         error: `文件保护：不允许修改敏感文件 "${filePath}"`,
       }
     }
   }
 
-  return { allowed: true }
+  return { decision: 'allow', allowed: true }
 }
 
 /**
@@ -117,12 +118,12 @@ export const fileGuardHandler: HookHandler = async (context: HookContext): Promi
 export const commandGuardHandler: HookHandler = async (context: HookContext): Promise<HookResult> => {
   // 只检查 Bash 工具
   if (context.toolName !== 'Bash') {
-    return { allowed: true }
+    return { decision: 'allow', allowed: true }
   }
 
   const command = (context.args as any)?.command
   if (!command) {
-    return { allowed: true }
+    return { decision: 'allow', allowed: true }
   }
 
   // 危险命令模式
@@ -142,13 +143,14 @@ export const commandGuardHandler: HookHandler = async (context: HookContext): Pr
     if (pattern.test(command)) {
       logger.warn(`[CommandGuard] Blocked dangerous command: ${command.substring(0, 50)}...`)
       return {
+        decision: 'block',
         allowed: false,
         error: `命令保护：不允许执行危险命令 "${command.substring(0, 50)}..."`,
       }
     }
   }
 
-  return { allowed: true }
+  return { decision: 'allow', allowed: true }
 }
 
 /**
@@ -158,12 +160,12 @@ export const commandGuardHandler: HookHandler = async (context: HookContext): Pr
 export const autoFormatHandler: HookHandler = async (context: HookContext): Promise<HookResult> => {
   const formatTools = ['Write', 'Edit', 'MultiEdit']
   if (!context.toolName || !formatTools.includes(context.toolName)) {
-    return { allowed: true }
+    return { decision: 'allow', allowed: true }
   }
 
   const filePath = (context.args as any)?.filePath
   if (!filePath) {
-    return { allowed: true }
+    return { decision: 'allow', allowed: true }
   }
 
   // 需要格式化的文件类型
@@ -175,7 +177,7 @@ export const autoFormatHandler: HookHandler = async (context: HookContext): Prom
     logger.debug(`[AutoFormat] File may need formatting: ${filePath}`)
   }
 
-  return { allowed: true }
+  return { decision: 'allow', allowed: true }
 }
 
 /**
@@ -186,7 +188,7 @@ export const preCompactHandler: HookHandler = async (_context: HookContext): Pro
   logger.info('[PreCompact] Saving state before compaction')
   // 保存当前状态到临时文件
   // 这个 handler 主要用于记录和准备
-  return { allowed: true }
+  return { decision: 'allow', allowed: true }
 }
 
 /**
@@ -196,7 +198,7 @@ export const preCompactHandler: HookHandler = async (_context: HookContext): Pro
 export const postCompactHandler: HookHandler = async (_context: HookContext): Promise<HookResult> => {
   logger.info('[PostCompact] Restoring state after compaction')
   // 读取保存的状态并恢复
-  return { allowed: true }
+  return { decision: 'allow', allowed: true }
 }
 
 /**
@@ -206,7 +208,7 @@ export const postCompactHandler: HookHandler = async (_context: HookContext): Pr
 export const sessionStartHandler: HookHandler = async (context: HookContext): Promise<HookResult> => {
   logger.info(`[SessionStart] New session: ${context.sessionId}`)
   // 可以在这里初始化会话相关的状态
-  return { allowed: true }
+  return { decision: 'allow', allowed: true }
 }
 
 /**
@@ -216,7 +218,7 @@ export const sessionStartHandler: HookHandler = async (context: HookContext): Pr
 export const sessionEndHandler: HookHandler = async (context: HookContext): Promise<HookResult> => {
   logger.info(`[SessionEnd] Session ended: ${context.sessionId}`)
   // 可以在这里清理会话相关的状态
-  return { allowed: true }
+  return { decision: 'allow', allowed: true }
 }
 
 /**

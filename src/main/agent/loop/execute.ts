@@ -28,7 +28,7 @@ import {classifyErrorEnhanced} from '../common/errorClassifier'
 import {LLM_TIMEOUT_MS, sleep, TimeoutError, withTimeout} from '../../utils/retry'
 import {hookExecutor, type HookResult} from '../../plugin/hooks'
 import {attachMediaBlocksToMessage, extractMediaBlocksFromToolResults} from '../mediaExtractor'
-import {isVisionModel, sanitizeMessagesForModel} from './helpers'
+import {isVisionModel, sanitizeMessagesForModel, sanitizeThinkingForModel} from './helpers'
 import {truncateForLlmCall} from './truncateBeforeLlm'
 import {container, DI_TOKENS} from '../common/container'
 import type {ToolRegistry} from '../tools/registry'
@@ -129,11 +129,22 @@ export async function* executeLlmCallWithRetry(
 
             // ── ContextRetrieval ──
             if (!isCompactCommand) {
+                // 触发 UserPromptSubmit Hook
+                const lastMsg = messagesToSend.length > 0 ? messagesToSend[messagesToSend.length - 1] : null
+                if (lastMsg?.role === 'user') {
+                    hookExecutor.execute('UserPromptSubmit', {
+                        sessionId, prompt: String(lastMsg.content ?? ''),
+                    }).catch(() => {})
+                }
+
                 const retrievalMessages = yield* executeContextRetrieval(messagesToSend, sessionId)
                 if (retrievalMessages) {
                     messagesToSend = retrievalMessages
                 }
             }
+
+            // ── PreCompact Hook ──
+            hookExecutor.execute('PreCompact', {sessionId}).catch(() => {})
 
             // ── 结构感知截断（每次调用前，保证不超模型 context window） ──
             // 顺序：必须在 ContextRetrieval 之后（否则截断会丢掉新增的 retrieval 消息）；
@@ -152,6 +163,9 @@ export async function* executeLlmCallWithRetry(
                 )
             }
             messagesToSend = truncateResult.messages
+
+            // ── PostCompact Hook ──
+            hookExecutor.execute('PostCompact', {sessionId}).catch(() => {})
 
             // ── 触发 ThinkStart Hook ──
             hookExecutor.execute('ThinkStart', {sessionId}).catch(() => {})
@@ -176,6 +190,46 @@ export async function* executeLlmCallWithRetry(
                 }
             }
 
+            // ── 推理模式启用前：检查历史消息中 thinking 块的完整性 ──
+            // Anthropic API 要求在 thinking mode 中，所有之前产生的 assistant thinking 块
+            // 都必须完整回传（含 signature）。如果存在不完整的 thinking 块（有内容但无签名，
+            // 常见于跨供应商消息或中断恢复），需要降级为非推理模式，避免 API 400 错误。
+            let effectiveThinkingEffort = thinkingEffort
+            if (thinkingEffort) {
+                const hasIncompleteThinking = messagesToSend.some(msg =>
+                    msg.role === 'assistant' && !!msg.thinking && !msg.thinkingSignature
+                )
+                if (hasIncompleteThinking) {
+                    // 列出不完整消息的 ID，便于排查
+                    const incompleteIds = messagesToSend
+                        .filter(msg => msg.role === 'assistant' && !!msg.thinking && !msg.thinkingSignature)
+                        .map(msg => msg.id?.slice(0, 8) || '(no-id)')
+                        .join(', ')
+                    logger.info(
+                        `[AgentLoop] 推理模式启用，但检测到 ${incompleteIds} 消息的 thinking 块缺失 signature，` +
+                        `降级为非推理模式并清理 thinking 残留`,
+                        { incompleteMsgIds: incompleteIds },
+                    )
+                    effectiveThinkingEffort = undefined
+                }
+            }
+
+            // ── 非推理模式 / 降级后的消息清理 ──
+            // 清理所有 assistant 消息中的 thinking/thinkingSignature 残留，
+            // 确保发送给 API 的消息与当前 thinking 模式状态一致。
+            if (!effectiveThinkingEffort) {
+                const hasThinkingContent = messagesToSend.some(msg =>
+                    msg.role === 'assistant' && (msg.thinking || msg.thinkingSignature)
+                )
+                if (hasThinkingContent) {
+                    const reason = effectiveThinkingEffort === undefined && thinkingEffort
+                        ? '（推理模式降级）'
+                        : ''
+                    logger.info(`[AgentLoop] 当前模型不启用推理模式${reason}，过滤历史消息中的 thinking 内容`)
+                    messagesToSend = sanitizeThinkingForModel(messagesToSend)
+                }
+            }
+
             // ── 非 Anthropic 模型：将 commandTemplate 拼接回 systemPrompt ──
             const isAnthropic = modelConfig.provider === 'anthropic'
             const effectiveSystemPrompt = (!isAnthropic && commandTemplate)
@@ -189,7 +243,7 @@ export async function* executeLlmCallWithRetry(
                 tools: compactTools,
                 maxTokens: getSettings()?.model.defaultMaxTokens ?? 8000,
                 temperature: getSettings()?.model.defaultTemperature ?? 0,
-                ...(thinkingEffort ? {thinkingEffort} : {}),
+                ...(effectiveThinkingEffort ? {thinkingEffort: effectiveThinkingEffort} : {}),
                 ...(params.hookAdditionalContext && {additionalContext: params.hookAdditionalContext}),
             })
 
@@ -337,7 +391,7 @@ export async function* executeContextRetrieval(
 
     const retrievalResult = await hookExecutor
         .execute('ContextRetrieval', {sessionId, prompt: String(lastMsg.content ?? '')})
-        .catch((): HookResult => ({allowed: true}))
+        .catch((): HookResult => ({decision: 'allow', allowed: true}))
 
     if (retrievalResult?.output) {
         return [

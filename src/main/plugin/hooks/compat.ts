@@ -73,11 +73,12 @@ function convertOldResult(
   oldResult: Record<string, unknown> | undefined | null,
 ): NewHookResult {
   if (!oldResult || oldResult.action === 'continue') {
-    return { allowed: true }
+    return { decision: 'allow', allowed: true }
   }
 
   if (oldResult.action === 'block') {
     return {
+      decision: 'block',
       allowed: false,
       error: (oldResult.reason as string) || 'Blocked by hook script',
     }
@@ -85,6 +86,7 @@ function convertOldResult(
 
   // action === 'modify' or unknown — accept unknown as pass-through
   return {
+    decision: 'allow',
     allowed: true,
     modified: oldResult.action === 'modify' && oldResult.modifications
       ? { context: oldResult.modifications as Record<string, unknown> }
@@ -102,7 +104,7 @@ function wrapOldHandler(oldHandler: (ctx: any) => Promise<any> | any): HookHandl
       return convertOldResult(oldResult)
     } catch (err: any) {
       logger.warn(`[Compat] Script handler failed: ${err.message}`, { event: eventName })
-      return { allowed: true, error: err.message }
+      return { decision: 'allow', allowed: true, error: err.message }
     }
   }
 }

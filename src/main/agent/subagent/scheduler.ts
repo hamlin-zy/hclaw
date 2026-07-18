@@ -337,6 +337,15 @@ export class SubAgentScheduler {
 
         yield {type: 'subagent_start', taskId: task.id, description: task.description}
 
+        // 触发 SubagentStart Hook
+        import('../../plugin/hooks').then(({hookExecutor}) => {
+            hookExecutor.execute('SubagentStart', {
+                sessionId: '',
+                taskId: task.id,
+                taskName: task.description?.slice(0, 80),
+            }).catch(() => {})
+        }).catch(() => {})
+
         // 构建子 Agent 消息
         const messages: ChatMessage[] = [
             {
@@ -415,6 +424,15 @@ export class SubAgentScheduler {
             output: output.trim(),
             error: hasError ? errorMsg : undefined,
         }
+
+        // 触发 SubagentStop Hook
+        import('../../plugin/hooks').then(({hookExecutor}) => {
+            hookExecutor.execute('SubagentStop', {
+                sessionId: '',
+                taskId: task.id,
+                result: output.trim(),
+            }).catch(() => {})
+        }).catch(() => {})
 
         yield {type: 'subagent_done', taskId: task.id, result}
     }

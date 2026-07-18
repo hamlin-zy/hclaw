@@ -248,18 +248,23 @@ export class AnthropicAdapter implements ModelAdapter {
         const contentBlocks: Anthropic.ContentBlockParam[] = []
 
         // 如果有 thinking 内容，必须放在 text 之前（Anthropic API 要求）
-        // 同时需要回传 signature（如果存在）
+        // 同时需要回传 signature（必须，API 要求 thinking 块携带 signature）
         // 兼容：当 reasoningContent 存在而 thinking 不存在时（跨供应商消息），将其作为 thinking 内容
         const thinkingText = msg.thinking || (msg as any).reasoningContent
         if (thinkingText) {
-            const thinkingBlock: any = {
-                type: 'thinking',
-                thinking: thinkingText,
+            // signature 是 Anthropic API 的必需字段，缺失会导致 400 错误
+            // 若确实无 signature（如跨供应商消息），降级为纯文本，跳过 thinking 块
+            if (!msg.thinkingSignature) {
+                logger.warn('[AnthropicAdapter] assistant 消息有 thinking 内容但无 signature，降级为纯文本', {
+                    thinkingLength: String(thinkingText).length,
+                })
+            } else {
+                contentBlocks.push({
+                    type: 'thinking' as const,
+                    thinking: thinkingText,
+                    signature: msg.thinkingSignature,
+                })
             }
-            if (msg.thinkingSignature) {
-                thinkingBlock.signature = msg.thinkingSignature
-            }
-            contentBlocks.push(thinkingBlock as Anthropic.ContentBlockParam)
         }
 
         const assistantContent = typeof msg.content === 'string' ? msg.content : ''
