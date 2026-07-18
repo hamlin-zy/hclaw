@@ -47,6 +47,26 @@ export function sanitizeMessagesForModel(messages: ChatMessage[]): ChatMessage[]
     })
 }
 
+/**
+ * 过滤消息中的 thinking 内容（非推理模型调用前使用）
+ *
+ * 当从推理模型（thinking mode）切换到非推理模型时，历史消息中的
+ * assistant 消息可能残留 thinking/thinkingSignature 字段。
+ * Anthropic API 要求在未启用 thinking mode 时，消息中不得出现 thinking 块。
+ * 此函数清理这些字段，避免 API 报错。
+ */
+export function sanitizeThinkingForModel(messages: ChatMessage[]): ChatMessage[] {
+    return messages.map(msg => {
+        if (msg.role !== 'assistant') return msg
+        if (!msg.thinking && !msg.thinkingSignature) return msg
+        return {
+            ...msg,
+            thinking: undefined,
+            thinkingSignature: undefined,
+        }
+    })
+}
+
 // ─── 角色显示名 ────────────────────────────────────────────
 
 /**

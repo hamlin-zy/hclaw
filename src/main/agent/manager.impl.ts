@@ -12,7 +12,7 @@ import type {ChatMessage, ModelConfig} from './model/types'
 import {permissionEngine} from './tools/permission'
 import {addLlmCallLog} from '../utils/llmCallLogStore'
 import {gracefulRestart} from '../utils/restart'
-import {HookExecutor} from '../plugin/hooks'
+import {HookExecutor, type HookResult} from '../plugin/hooks'
 import {capabilityManager} from './capabilityManager'
 import type {SerializableCapabilities} from '../common/capabilitySerializer'
 import {logger} from './logger'
@@ -67,12 +67,12 @@ export class AgentManager {
 
     if (win) {
       const hookExecutor = HookExecutor.getInstance()
-      hookExecutor.onResult((event: string, hookName: string, result: {allowed: boolean; error?: string}) => {
+      hookExecutor.onResult((event: string, hookName: string, result: HookResult) => {
         this.forwardToRenderer('__hooks__', {
           type: 'hook_result',
           event,
           hookName,
-          success: result.allowed && !result.error,
+          success: (result.allowed ?? result.decision !== 'block') && !result.error,
           error: result.error || undefined,
         })
       })
@@ -169,6 +169,11 @@ export class AgentManager {
     worker.on('exit', (code) => this.onWorkerExit(params.conversationId, worker, code))
 
     this.workers.set(params.conversationId, entry)
+
+    // 触发 SessionStart Hook
+    HookExecutor.getInstance().execute('SessionStart', {
+      sessionId: params.conversationId,
+    }).catch(() => {})
   }
 
   /** 创建 Worker 消息处理器 */
@@ -239,6 +244,19 @@ export class AgentManager {
         if (msg.type === WORKER_MESSAGE_TYPES.PENDING_MESSAGES_AFTER_EXIT) {
           const exitMsg = (msg as unknown) as { conversationId: string; messages: Array<{ content: string; id: string }> }
           await this.handlePendingMessagesAfterExit(exitMsg.conversationId, exitMsg.messages || [])
+          return
+        }
+
+        // Worker 线程的 hook 执行结果：转发到渲染进程
+        if (msg.type === 'hook_result') {
+          const hr = msg as unknown as { hookEvent: string; hookName: string; success: boolean; error?: string }
+          this.forwardToRenderer('__hooks__', {
+            type: 'hook_result',
+            event: hr.hookEvent,
+            hookName: hr.hookName,
+            success: hr.success,
+            error: hr.error,
+          })
           return
         }
 
@@ -830,6 +848,12 @@ export class AgentManager {
 
   /** 清理会话资源 */
   private cleanup(conversationId: string): void {
+    // 触发 SessionEnd Hook
+    HookExecutor.getInstance().execute('SessionEnd', {
+      sessionId: conversationId,
+      reason: 'cleanup',
+    }).catch(() => {})
+
     this.workers.delete(conversationId)
     this.pendingAssistantMsg.delete(conversationId)
     this.pendingNeedsTurnReset.delete(conversationId)

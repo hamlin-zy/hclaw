@@ -43,10 +43,11 @@ const ConversationPage = memo(function ConversationPage({conversationId}: Conver
                         />
                     )}
                     <MessageList conversationId={conversationId}/>
-                    {/* Hook 执行结果悬浮通知 — 绝对定位于消息列表右上角 */}
-                    <HookResultsBar/>
                 </div>
             )}
+
+            {/* Hook 执行结果悬浮通知 — 全局 fixed 定位，独立于消息列表容器 */}
+            <HookResultsBar/>
 
             {/* 输入框卡片 — 始终挂载，保持输入状态 */}
             <div
