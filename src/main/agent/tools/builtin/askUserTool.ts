@@ -38,6 +38,21 @@ export const askUserTool: Tool<AskUserInput, string> = {
           }
       }
 
+      // ── 选项校验：检查 options 是否包含空白字符串 ──
+      if (args.options && args.options.length > 0) {
+          const emptyOptions = args.options.filter(opt => !opt || opt.trim().length === 0)
+          if (emptyOptions.length === args.options.length) {
+              return {
+                  success: false,
+                  output: '',
+                  error: '所有选项都是空字符串，用户无法看到选项内容。请检查你传入的 options 参数，确保每个选项都是包含有意义文字的非空字符串。',
+              }
+          }
+          if (emptyOptions.length > 0) {
+              console.warn('[askUserTool] 部分选项为空字符串，可能会影响用户体验:', JSON.stringify(args.options))
+          }
+      }
+
       try {
           // 调用 askUserQuestion，会阻塞直到用户回答
           const answer = await context.askUserQuestion(args.question, args.options, args.multiSelect)
