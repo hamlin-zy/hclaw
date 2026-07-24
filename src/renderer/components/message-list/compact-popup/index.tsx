@@ -105,6 +105,12 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                                     </span>
                                                 )}
                                                 <span className="font-semibold text-[var(--text-primary)] truncate flex-1">{agentDisplayName || '子 Agent'}</span>
+                                                {/* 动态刷新文本（运行时进度文本，与 ToolCallHeader 的 progressText 一致） */}
+                                                {state?.progress && ['running', 'pending'].includes(status) && (
+                                                    <span className="text-[11px] text-[var(--brand-primary)] px-1.5 py-0 border-l border-[rgba(74,158,255,0.15)] truncate animate-pulse">
+                                                        {state.progress.replace(/^子 Agent /, '')}
+                                                    </span>
+                                                )}
                                                 <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
                                                     status === 'success' ? 'bg-[var(--success-muted)]/30 text-[var(--success)]'
                                                         : status === 'error' ? 'bg-[var(--error-muted)]/30 text-[var(--error)]'

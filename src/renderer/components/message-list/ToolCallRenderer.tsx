@@ -167,12 +167,12 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                     onOpenViewer={() => setViewerOpen(true)}
                     cfg={cfg}
                     isRunning={isRunning}
-                    hasProgress={false}
-                    progressPercent={0}
+                    hasProgress={hasProgress}
+                    progressPercent={progressPercent}
                     effectiveStatus={effectiveStatus}
-                    effectiveProgress={undefined}
-                    effectiveAgentProgress={undefined}
-                    effectiveEta={undefined}
+                    effectiveProgress={effectiveProgress}
+                    effectiveAgentProgress={effectiveAgentProgress}
+                    effectiveEta={effectiveEta}
                     agentDisplayName={agentDisplayName}
                     agentTypeLabel={agentTypeLabel}
                     skillDisplayName={null}

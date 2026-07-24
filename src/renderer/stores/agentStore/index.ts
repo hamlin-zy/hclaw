@@ -318,19 +318,29 @@ export const useAgentStore = create<AgentStore>()(
                         const lastAssistantMsg = [...msgs].reverse().find((m) => m.role === 'assistant')
                         if (!lastAssistantMsg) continue
 
-                        for (const tc of lastAssistantMsg.toolCalls || []) {
-                            if (tc.status === 'running' || tc.status === 'pending') {
-                                toolCallsState.registerToolCall(tc.id, {
-                                    status: tc.status,
-                                    progress: tc.progress,
+                        // 崩溃恢复：agent 已死亡，将其标记为 cancelled 而非保留旧状态
+                        const isStale = (tc: {status: string}) => tc.status === 'running' || tc.status === 'pending'
+                        const staleCalls = (lastAssistantMsg.toolCalls || []).filter(isStale)
+                        for (const tc of staleCalls) {
+                            toolCallsState.registerToolCall(tc.id, {
+                                status: 'cancelled',
+                                progress: tc.progress || '会话中断, 工具已取消',
+                            })
+                            if (tc.name === 'agent' && tc.taskId) {
+                                toolCallsState.registerToolCall(`sub-${tc.taskId}`, {
+                                    status: 'cancelled',
+                                    progress: '会话中断, 子 Agent 已取消',
                                 })
-                                if (tc.name === 'agent' && tc.taskId) {
-                                    toolCallsState.registerToolCall(`sub-${tc.taskId}`, {
-                                        status: 'running',
-                                        progress: '子 Agent 恢复中...',
-                                    })
-                                }
                             }
+                        }
+
+                        // 同步更新消息级别状态，避免 toolCallsStore 清空后回退到持久化的 running
+                        if (staleCalls.length > 0) {
+                            convStore.updateMessageForConv(convId, lastAssistantMsg.id, {
+                                toolCalls: (lastAssistantMsg.toolCalls || []).map(tc =>
+                                    isStale(tc) ? {...tc, status: 'cancelled' as const} : tc
+                                ),
+                            })
                         }
 
                         get().updateConvData(convId, {

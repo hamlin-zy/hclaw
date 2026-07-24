@@ -6,6 +6,7 @@ import {createDefaultConvData} from '../defaultState'
 import {useConversationStore} from '../../conversationStore'
 import {useToolCallsStore} from '../../toolCallsStore'
 import {toStreamEntry} from '../helpers/misc'
+import {updateMessageContentBlocks} from '../contentBlocks'
 
 /** 按 toolCallId 精确查找 agent 工具调用，无 ID 时按条件回退 */
 function findAgentCall(
@@ -132,6 +133,8 @@ export function handleSubagentStart(ctx: StreamCtx) {
                         : event.description,
                 }],
             })
+            // 新增子 Agent toolCall 后必须同步 contentBlocks，否则模式切换后子 Agent 不显示
+            updateMessageContentBlocks(convId)
         }
     }
 }

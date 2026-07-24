@@ -120,7 +120,7 @@ function flushBatch(store: { set: (fn: (state: ToolCallsStore) => Partial<ToolCa
     store.set((state) => {
         const newStates = {...state.states}
         for (const {toolCallId, updates: partial} of updates) {
-            const existing = newStates[toolCallId] || {status: 'pending' as const}
+            const existing = newStates[toolCallId] || {status: 'running' as const}
             newStates[toolCallId] = {...existing, ...partial}
         }
         return {states: newStates}
@@ -148,7 +148,7 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
             states: {
                 ...state.states,
                 [toolCallId]: {
-                    status: 'pending',
+                    status: 'running' as const,
                     ...initial,
                 },
             },
@@ -168,7 +168,7 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
             states: {
                 ...state.states,
                 [toolCallId]: {
-                    ...(state.states[toolCallId] || {status: 'pending'}),
+                    ...(state.states[toolCallId] || {status: 'running'}),
                     ...updates,
                 },
             },
@@ -241,7 +241,7 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
     appendProgressLog: (toolCallId, text) => {
         const entry = {timestamp: Date.now(), text}
         set((state) => {
-            const existing = state.states[toolCallId] || {status: 'pending' as const}
+            const existing = state.states[toolCallId] || {status: 'running' as const}
             const currentLog = existing.progressLog || []
             const lastEntry = currentLog.length > 0 ? currentLog[currentLog.length - 1] : null
             // 去重：如果最后一条文本相同，不追加
@@ -261,7 +261,7 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
 
     appendSubAgentStream: (toolCallId, entry) => {
         set((state) => {
-            const existing = state.states[toolCallId] || {status: 'pending' as const}
+            const existing = state.states[toolCallId] || {status: 'running' as const}
             const currentStream = existing.subAgentStream || []
             // 合并连续 text 条目：LLM token 级流式输出逐 token 到达，
             // 若上一个 entry 也是 text 类型，追加内容而非创建新 entry，避免单个词/字独占一行
