@@ -18,6 +18,7 @@ import SettingsDialog from './dialogs/SettingsDialog'
 import ToolListDialog from './dialogs/ToolListDialog'
 import SystemPromptDialog from './dialogs/SystemPromptDialog'
 import AboutDialog from './dialogs/AboutDialog'
+import UpdateNoticeDialog from './dialogs/UpdateNoticeDialog'
 
 interface DialogConfig {
     title: string
@@ -49,6 +50,7 @@ const DIALOG_CONFIG: Record<string, DialogConfig> = {
     'tool-list': {title: '工具列表预览', Component: ToolListDialog, initialWidth: 580},
     'system-prompt': {title: '系统提示词预览', Component: SystemPromptDialog, initialWidth: 680},
     'about': {title: '关于 HClaw', Component: AboutDialog, initialWidth: 400, minWidth: 360, initialHeight: 430},
+  'update-notice': {title: '更新通知', Component: UpdateNoticeDialog, initialWidth: 380, minWidth: 340, initialHeight: 360},
 }
 
 /** 根据当前视图宽度和配置，计算居中 Modal 的实际最大宽度 */

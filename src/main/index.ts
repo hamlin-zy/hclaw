@@ -40,6 +40,7 @@ import {runtimeConfigManager} from './agent/runtimeConfigManager';
 import {setConfigBridge} from './agent/common/configBridge';
 import {permissionEngine} from './agent/tools/permission';
 import {createConversationRepository} from './repositories';
+import {init as initUpdater} from './updater/updateChecker';
 
 const logger = createLogger('app')
 
@@ -368,6 +369,18 @@ app.on('ready', async () => {
 
   // Startup complete
   logger.info('[App] HClaw ready');
+
+  // 启动时静默检查更新（fire-and-forget，不阻塞主窗口显示）
+  initUpdater()
+    .then((result) => {
+      const win = getMainWindow();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('updater:status-changed', result);
+      }
+    })
+    .catch((err) => {
+      logger.warn('updater-init-failed', {error: String(err)});
+    });
 });
 
 app.on('window-all-closed', () => {

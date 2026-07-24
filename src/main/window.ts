@@ -6,6 +6,7 @@ import {getTray, getTrayIconLoaded} from './tray';
 import {getAppIcon} from './utils/icon';
 import {createLogger} from './agent/logger';
 import {systemSettingsRepo} from './repositories/sqlite/systemSettingsRepository';
+import * as updateChecker from './updater/updateChecker';
 
 const logger = createLogger('window');
 
@@ -439,6 +440,15 @@ export function initWindowIPC(): void {
     // ---- 系统信息 ----
     ipcMain.handle('get-app-version', () => {
         return app.getVersion();
+    });
+
+    // ---- 更新检查 ----
+    ipcMain.handle('updater:get-status', async () => {
+        return updateChecker.getStatus();
+    });
+
+    ipcMain.handle('updater:check-for-update', async () => {
+        return updateChecker.checkForUpdate();
     });
 
     ipcMain.handle('get-platform', () => {

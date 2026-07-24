@@ -7,6 +7,21 @@
 
 ---
 
+## [v0.2.88] - 2026-07-24
+
+### 新增
+- **自动更新检查模块** — 版本对比引擎、后台静默检查、IPC 桥接、更新通知弹窗、preload API 暴露、单元测试 (`src/main/updater/updateChecker.ts`, `src/main/updater/compareVersions.ts`, `src/main/updater/constants.ts`, `src/renderer/stores/updaterStore.ts`, `src/renderer/components/dialogs/UpdateNoticeDialog.tsx`, `src/shared/types/updater.ts`, `tests/main/updater/compareVersions.test.ts`, `tests/main/updater/updateChecker.test.ts`)
+
+### 重构
+- **AboutDialog 增加更新交互** — 检查更新按钮 + 5 种状态文案 + GitHub/网盘下载按钮 (`src/renderer/components/dialogs/AboutDialog.tsx`)
+
+### 变更
+- **启动流程集成静默更新** — 启动时 fire-and-forget 检查更新并推送状态到渲染进程 (`src/main/index.ts`)
+- **IPC 注册更新接口** — 注册 updater:get-status 和 updater:check-for-update (`src/main/window.ts`)
+- **MenuBar 更新提示** — 关于菜单按钮有新版本时显示红色小圆点 (`src/renderer/components/MenuBar.tsx`)
+
+---
+
 ## [v0.2.87] - 2026-07-25
 
 ### 修复

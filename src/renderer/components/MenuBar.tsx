@@ -4,6 +4,7 @@ import {motion} from 'framer-motion'
 import {useMenuBarStore} from '../stores/menuBarStore'
 import {useThemeStore} from '../stores/themeStore'
 import {useSidebarStore} from '../stores/sidebarStore'
+import {useUpdaterStore} from '../stores/updaterStore'
 import SchemeSelector from './SchemeSelector'
 import PermissionModeSelector from './PermissionModeSelector'
 import WorkModeSelector from './WorkModeSelector'
@@ -194,6 +195,7 @@ export default function MenuBar() {
     const {openDialog} = useMenuBarStore()
     const {theme, toggleTheme} = useThemeStore()
     const {toggleLeft, toggleRight, leftCollapsed, rightCollapsed} = useSidebarStore()
+    const hasUpdate = useUpdaterStore((s) => s.result?.status === 'update-available')
     const [collapsedItems, setCollapsedItems] = useState<string[]>([])
     const [showMoreMenu, setShowMoreMenu] = useState(false)
     const moreMenuRef = useRef<HTMLDivElement>(null)
@@ -357,6 +359,7 @@ export default function MenuBar() {
                   }
                   // 按钮项被折叠时隐藏
                   if (collapsedItems.includes(item.type!)) return null
+                  const showUpdateDot = item.type === 'about' && hasUpdate
                   return (
                       <motion.button
                           key={item.type}
@@ -365,11 +368,17 @@ export default function MenuBar() {
                           data-tooltip={item.label}
                           aria-label={item.label}
                           whileTap={{ scale: 0.92 }}
-                          className="flex items-center justify-center px-[12px] py-1 rounded text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors shrink-0"
+                          className="relative flex items-center justify-center px-[12px] py-1 rounded text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors shrink-0"
                       >
                           <svg className="w-3.5 h-3.5" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                               {item.icon.props.children}
                           </svg>
+                          {showUpdateDot && (
+                              <span
+                                  className="absolute top-0.5 right-1 w-1.5 h-1.5 rounded-full bg-red-500"
+                                  aria-label="有新版本"
+                              />
+                          )}
                       </motion.button>
                   )
               })}
@@ -412,7 +421,7 @@ export default function MenuBar() {
                               <button
                                   key={item.type}
                                   onClick={() => handleItemClick(item.type!)}
-                                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
+                                  className="relative w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
                               >
                                   <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center">
                                       <svg className="w-3.5 h-3.5" {...item.icon.props}>
@@ -420,6 +429,12 @@ export default function MenuBar() {
                                       </svg>
                                   </span>
                                   <span>{item.label}</span>
+                                  {item.type === 'about' && hasUpdate && (
+                                      <span
+                                          className="ml-auto w-1.5 h-1.5 rounded-full bg-red-500"
+                                          aria-label="有新版本"
+                                      />
+                                  )}
                               </button>
                           ))}
                   </div>
