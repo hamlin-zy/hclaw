@@ -22,6 +22,7 @@ import {useToolCallsStore} from '../../stores/toolCallsStore'
 import {useModelSchemeStore} from '../../stores/modelSchemeStore'
 import {useLLMStore} from '../../stores/llmStore'
 import {useAgentStore} from '../../stores/agentStore'
+import {useConversationStore} from '../../stores/conversationStore'
 import {useMcpStore} from '../../stores/mcpStore'
 import {resolveMcpDisplayName, extractMcpToolName, isMcpToolName} from '@shared/utils/mcpShortId'
 import SubAgentViewer from './SubAgentViewer'
@@ -420,6 +421,7 @@ interface UltraCompactCombinedGroupProps {
     items: CombinedItem[]
     thinkCount: number
     toolCalls: ToolCall[]
+    messageId?: string
 }
 
 /**
@@ -433,8 +435,10 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
     items,
     thinkCount,
     toolCalls,
+    messageId,
 }: UltraCompactCombinedGroupProps) {
     const openCombinedPopup = useAgentStore((s) => s.openCombinedPopup)
+    const convId = useConversationStore((s) => s.activeConversationId) || ''
 
     const stats = computeGroupStats(toolCalls)
 
@@ -463,7 +467,7 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
             : 'bg-[var(--success)]'
 
     const handleClick = () => {
-        openCombinedPopup({ items: items as any[], thinkCount, toolCalls: toolCalls as any[] })
+        openCombinedPopup({ items: items as any[], thinkCount, toolCalls: toolCalls as any[], convId, messageId })
     }
 
     return (

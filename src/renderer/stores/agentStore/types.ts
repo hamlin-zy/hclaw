@@ -165,6 +165,8 @@ export interface AgentStore {
         items: Array<{type: 'think' | 'tools'; thinkBlock?: any; blockId?: string; toolCalls?: any[]}>
         thinkCount: number
         toolCalls: any[]
+        convId?: string
+        messageId?: string
     } | null
     openCombinedPopup: (data: NonNullable<AgentStore['combinedPopupData']>) => void
     closeCombinedPopup: () => void

@@ -15,6 +15,7 @@ import {AnimatePresence, motion} from 'framer-motion'
 import type {ToolCall, ThinkBlock as ThinkBlockType} from '@shared/types'
 import {useToolCallsStore} from '../../../stores/toolCallsStore'
 import {useAgentStore} from '../../../stores/agentStore'
+import {useConversationStore} from '../../../stores/conversationStore'
 import {useDraggableDialog} from '../../../hooks/useDraggableDialog'
 import MarkdownRenderer from '../MarkdownRenderer'
 import type {CombinedItem} from '../ToolCallRenderer'
@@ -28,6 +29,29 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
     const combinedPopupData = useAgentStore((s) => s.combinedPopupData)
     const closeCombinedPopup = useAgentStore((s) => s.closeCombinedPopup)
     const openToolPopup = useAgentStore((s) => s.openToolPopup)
+
+    // ★ 订阅直播消息数据，用于实时获取思考块的最新内容
+    const convMsgs = useConversationStore((s) =>
+        combinedPopupData?.convId ? s.messagesMap[combinedPopupData.convId] : undefined,
+    )
+
+    // 从会话存储中查找当前消息（实时更新，非快照）
+    const liveMessage = useMemo(() => {
+        if (!combinedPopupData?.messageId || !convMsgs) return null
+        return convMsgs.find(m => m.id === combinedPopupData.messageId) || null
+    }, [combinedPopupData?.messageId, convMsgs])
+
+    // ★ 预计算 thinkBlock 查找表，避免渲染循环中每帧 O(n×m) 的 find 调用
+    const liveThinkBlockMap = useMemo(() => {
+        if (!liveMessage?.contentBlocks) return null
+        const map = new Map<string, ThinkBlockType>()
+        for (const cb of liveMessage.contentBlocks) {
+            if (cb.type === 'think' && cb.thinkBlock && cb.id) {
+                map.set(cb.id, cb.thinkBlock)
+            }
+        }
+        return map
+    }, [liveMessage?.contentBlocks])
 
     // ★ 所有 hooks 无条件声明
     const {dialogRef, position, isDragging, handleDragStart} = useDraggableDialog({visible: !!combinedPopupData})
@@ -134,10 +158,12 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
                         <div className="flex-1 overflow-y-auto px-3 py-3">
                             {items.map((item: CombinedItem, idx: number) => {
                                 if (item.type === 'think' && item.thinkBlock) {
+                                    // ★ 从直播消息的 contentBlocks 查找表中获取最新 thinkBlock，回退到弹窗打开时的快照
+                                    const liveThinkBlock = liveThinkBlockMap?.get(item.blockId ?? '') ?? item.thinkBlock
                                     return (
                                         <ThinkBlockInPopup
                                             key={item.blockId || `think-${idx}`}
-                                            thinkBlock={item.thinkBlock}
+                                            thinkBlock={liveThinkBlock}
                                         />
                                     )
                                 }

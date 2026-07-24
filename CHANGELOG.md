@@ -7,6 +7,14 @@
 
 ---
 
+## [v0.2.87] - 2026-07-25
+
+### 修复
+- **CombinedCardPopup 思考块内容实时更新** — 弹窗打开后从实时消息流（messagesMap）订阅最新 thinkBlock，替代打开时的快照；预构建 Map 查找表避免渲染循环中 O(n×m) 查找 (`src/renderer/components/message-list/compact-popup/CombinedCardPopup.tsx`)
+
+### 变更
+- **弹窗数据类型扩展** — `combinedPopupData` 新增 `convId`、`messageId` 字段，ToolCallRenderer 获取并透传 convId，InterleavedContent 透传 messageId (`src/renderer/stores/agentStore/types.ts`, `src/renderer/components/message-list/ToolCallRenderer.tsx`, `src/renderer/components/message-list/InterleavedContent.tsx`)
+
 ## [v0.2.86] - 2026-07-25
 
 ### 重构
