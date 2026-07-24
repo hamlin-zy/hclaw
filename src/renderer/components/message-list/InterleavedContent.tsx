@@ -25,7 +25,7 @@ import {isUltraCompactMode} from '../../lib/displayMode'
 import ThinkBlock from '../ThinkBlock'
 import MarkdownRenderer from './MarkdownRenderer'
 import ToolCallRenderer, {UltraCompactToolGroup, UltraCompactCombinedGroup} from './ToolCallRenderer'
-import {getToolDescription} from './utils/messageUtils'
+import {getToolDescription, resolveAgentDisplayName} from './utils/messageUtils'
 import MediaPlayer from './MediaPlayer'
 
 interface InterleavedContentProps {
@@ -286,7 +286,7 @@ export default function InterleavedContent({message, isUser}: InterleavedContent
                         key={`tg-${i}`}
                         toolCalls={seg.toolCalls}
                         isAgent={isAgent}
-                        agentDisplayName={agentTc?.taskDescription || (agentTc?.arguments as any)?.task || null}
+                        agentDisplayName={agentTc ? resolveAgentDisplayName(agentTc) : null}
                         agentTypeLabel={agentTc ? ((agentTc.arguments as any)?.agentType ?? null) : null}
                     />
                 )

@@ -3,8 +3,8 @@
  *
  * 主 Agent 通过调用此工具派生子 Agent，支持：
  * - 任务描述（prompt）
- * - 可选的工具白名单限制
- * - 可选的 capabilities 参数（指定子 Agent 可用的 skill/agent 能力）
+ * - 可选的 agent 参数（指定子 Agent 名称，匹配后以该 Agent 身份启动）
+ * - 可选的 tools 参数（指定工具白名单，可覆盖 Agent 定义）
  * - 流式进度回调
  *
  * 并发控制：槽位满时直接拒绝并告知上限，由父 Agent（LLM）自行决定重试策略。
@@ -19,7 +19,8 @@ import type {SubAgentEvent, SubAgentResult, SubAgentTask} from '../../subagent/t
 import {logger} from '../../logger'
 import type {AgentStreamEvent} from '../../stream'
 import {agentRegistry} from '../../agentRegistry'
-import {skillRegistry} from '../../skills'
+import type {AgentTemplate} from '@shared/types'
+import type {AgentDefinition} from '@shared/agent'
 import {runtimeConfigManager} from '../../runtimeConfigManager'
 import {systemSettingsRepo} from '../../../repositories/sqlite/systemSettingsRepository'
 import {permissionEngine} from '../permission'
@@ -107,60 +108,42 @@ function formatSubAgentProgress(event: SubAgentEvent | AgentStreamEvent, streamE
     }
 }
 
-// ─── 能力解析 ────────────────────────────────────────────
-
-/** 能力查找结果 */
-interface CapabilityInfo {
-    name: string
-    type: 'skill' | 'agent'
-    markdown: string
-}
+// ─── Agent 模板转换 ───────────────────────────────────────
 
 /**
- * 从全局能力注册表中查找指定名称的 skill/agent
+ * 将 AgentTemplate 转换为 AgentDefinition
  *
- * 查找顺序：agentRegistry（模糊匹配）→ skillRegistry（精确匹配 id 或 name）
+ * source 使用 'user' 以确保 agent 工具不被 built-in 规则禁止。
+ * AgentTemplate 没有 source 字段；built-in source 会额外禁止 agent 工具（防递归），
+ * 本地 Agent 和插件 Agent 都不应该禁止 agent 工具，'user' 对所有场景安全。
  */
-function resolveCapabilities(names: string[]): CapabilityInfo[] {
-    const results: CapabilityInfo[] = []
-
-    for (const name of names) {
-        // 1. 在 agentRegistry 中查找（支持模糊匹配）
-        const agent = agentRegistry.find(name)
-        if (agent) {
-            results.push({
-                name: agent.name,
-                type: 'agent',
-                markdown: agent.systemPrompt || agent.description || '',
-            })
-            continue
-        }
-
-        // 2. 在 skillRegistry 中查找（精确匹配 id 或 name）
-        const skills = skillRegistry.getAll()
-        const skill = skills.find(s => s.id === name || s.name === name)
-        if (skill) {
-            results.push({
-                name: skill.name,
-                type: 'skill',
-                markdown: skill.description || '',
-            })
-            continue
-        }
-
-        logger.warn(`[AgentTool] capability "${name}" not found in agentRegistry or skillRegistry`)
+function agentTemplateToDefinition(template: AgentTemplate): AgentDefinition {
+    return {
+        source: 'user',
+        agentType: template.name,
+        whenToUse: template.whenToUse || template.description || '',
+        description: template.description || '',
+        systemPromptTemplate: template.systemPrompt,
+        renderedSystemPrompt: '',
+        tools: template.allowedTools,
+        disallowedTools: template.disallowedTools,
+        tags: template.tags,
+        model: template.model,
+        permissionMode: template.permissionMode,
+        maxTurns: template.maxTurns,
+        isolation: template.isolation,
+        requiredMcpServers: template.requiredMcpServers,
     }
-
-    return results
 }
 
 // ─── 输入 Schema ──────────────────────────────────────────
 
 const inputSchema = z.object({
     task: z.string().describe('子任务的完整描述（包含目标 + 参考材料）'),
-    tools: z.array(z.string()).optional().describe('允许使用的工具白名单（不传则使用所有可用工具）'),
-    capabilities: z.array(z.string()).optional()
-        .describe('要加载到子 Agent 系统提示词中的 skill/agent 名称列表'),
+    agent: z.string().optional()
+        .describe('要作为子 Agent 运行的 Agent 名称（从 agentRegistry 中查找）'),
+    tools: z.array(z.string()).optional()
+        .describe('允许使用的工具白名单（指定 agent 时覆盖 Agent 定义的白名单）'),
 })
 
 type AgentToolInput = z.infer<typeof inputSchema>
@@ -184,27 +167,16 @@ function buildModelConfig(): ModelConfig | null {
 
 /**
  * 执行单个子任务
+ *
+ * 将任务通过 Scheduler 派发给子 Agent。
+ * agentDefinition 非空时，子 Agent 以该 Agent 的身份启动（专属提示词/工具/权限等）；
+ * 为空时以 General 身份启动。
  */
 async function executeSingleTask(
     task: SubAgentTask,
     context: ToolContext,
-    capabilities?: CapabilityInfo[],
+    agentDefinition?: AgentDefinition,
 ): Promise<SubAgentResult> {
-    // 注入 capabilities 到任务描述
-    let finalDescription = task.description
-    if (capabilities && capabilities.length > 0) {
-        const capsSection = capabilities
-            .map(c => `### ${c.type === 'agent' ? 'Agent' : 'Skill'}: ${c.name}\n\n${c.markdown}`)
-            .join('\n\n---\n\n')
-        finalDescription = `${task.description}\n\n---\n## 可用能力\n${capsSection}`
-    }
-
-    // 更新 task 的描述（注入能力后）
-    const enrichedTask: SubAgentTask = {
-        ...task,
-        description: finalDescription,
-    }
-
     // 模型配置
     const modelConfig = buildModelConfig()
     if (!modelConfig) {
@@ -227,11 +199,12 @@ async function executeSingleTask(
 
     try {
         for await (const event of subAgentScheduler.executeTask({
-            task: enrichedTask,
+            task: task,
             modelConfig,
             workingDir,
             abortSignal: context.abortSignal,
-            agentType: 'General',
+            agentType: agentDefinition?.agentType || 'General',
+            agentDefinition,
             settings: settings || undefined,
         })) {
             // 提取子 Agent 流式事件（用于详细输出查看）
@@ -314,7 +287,8 @@ export const agentTool: Tool<AgentToolInput, string> = {
     description:
         '派生专门子 Agent 执行子任务。子 Agent 拥有独立的推理循环和工具访问权限。' +
         '需要并行时，由主 Agent 在同一轮对话中同时调用多个 agent 工具实现。' +
-        '通过 capabilities 参数可指定子 Agent 可用的 skill/agent 能力。',
+        '通过 agent 参数指定子 Agent 名称（从 agentRegistry 中查找），' +
+        'tools 参数可覆盖 Agent 定义的工具白名单。',
     inputSchema,
     isDestructive: false,
 
@@ -338,22 +312,39 @@ export const agentTool: Tool<AgentToolInput, string> = {
             }
         }
 
-        // 解析 capabilities
-        const resolvedCapabilities = args.capabilities
-            ? resolveCapabilities(args.capabilities)
-            : undefined
+        // 1. 解析 agent → 转换为 AgentDefinition
+        let agentDefinition: AgentDefinition | undefined
+        if (args.agent) {
+            const template = agentRegistry.find(args.agent)
+            if (template) {
+                agentDefinition = agentTemplateToDefinition(template)
+            } else {
+                logger.warn(`[AgentTool] agent "${args.agent}" not found, falling back to General`)
+            }
+        }
 
-        // 构建 SubAgentTask
+        // 2. tools 覆盖：同时指定 agent 和 tools 时，tools 覆盖 Agent 定义的白名单
+        if (agentDefinition && args.tools) {
+            agentDefinition = { ...agentDefinition, tools: args.tools }
+        }
+
+        // 3. 构建 SubAgentTask
         const task: SubAgentTask = {
             id: `sub-${randomUUID().slice(0, 8)}`,
             description: args.task,
-            allowedTools: args.tools,
+            allowedTools: agentDefinition?.tools ?? args.tools,
         }
 
-        logger.info('[AgentTool]', {action: 'startingSubAgent', taskId: task.id, task: args.task.slice(0, 80)})
+        logger.info('[AgentTool]', {
+            action: 'startingSubAgent',
+            taskId: task.id,
+            agentType: agentDefinition?.agentType || 'General',
+            tools: task.allowedTools?.length ? task.allowedTools : '(all)',
+            task: args.task.slice(0, 80),
+        })
 
         try {
-            const result = await executeSingleTask(task, context, resolvedCapabilities)
+            const result = await executeSingleTask(task, context, agentDefinition)
 
             const status = !result.success ? 'FAILED' : 'COMPLETED'
             logger.info('[AgentTool]', {

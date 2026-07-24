@@ -95,6 +95,30 @@ export function getToolDetail(tc: ToolCall): string | null {
 }
 
 /**
+ * 从工具调用中解析 Agent 显示名称
+ *
+ * 优先级：arguments.agent (用户指定的 Agent 名称) > taskDescription > arguments.task
+ */
+export function resolveAgentDisplayName(tc: ToolCall): string | null {
+    if (tc.name !== 'agent') return null
+    const args = tc.arguments as Record<string, unknown> | null
+    if (typeof args?.agent === 'string') return args.agent
+    return tc.taskDescription ?? (typeof args?.task === 'string' ? args.task : null)
+}
+
+/**
+ * 判断给定的显示名是否对应一个 agent 工具调用
+ */
+export function isAgentDisplayName(displayName: string, toolCalls: ToolCall[]): boolean {
+    return toolCalls.some(tc => {
+        if (tc.name !== 'agent') return false
+        const resolved = resolveAgentDisplayName(tc)
+        // displayName === 'agent' 是 fallback 名称，当 resolveAgentDisplayName 返回 null 时使用
+        return resolved === displayName || (!resolved && displayName === 'agent')
+    })
+}
+
+/**
  * 获取工具调用的简短描述（用于交错渲染中的原因展示）
  */
 export function getToolDescription(tc: ToolCall): string | null {
