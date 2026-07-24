@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useUpdaterStore } from '../../stores/updaterStore'
 import LinkContextMenu from '../common/LinkContextMenu'
+import type { UpdateResult } from '../../../shared/types/updater'
 
 interface LinkItem {
   label: string
@@ -62,16 +64,46 @@ const LINKS: LinkItem[] = [
   { label: '抖音', url: 'https://v.douyin.com/BBGiozWD36o/', icon: <DouyinSvg /> },
 ]
 
+/** 检查更新按钮的 5 种状态文案 */
+function renderUpdateLabel(result: UpdateResult | null, checking: boolean): React.ReactNode {
+  if (checking) return '检查中...'
+  if (!result) return '检查更新'
+  switch (result.status) {
+    case 'update-available':
+      return `有新版本 v${result.latestVersion}`
+    case 'up-to-date':
+      return `已是最新 v${result.currentVersion}`
+    case 'error':
+      return `检查失败：${result.error?.message ?? '未知错误'}`
+  }
+}
+
 export default function AboutDialog() {
   const [appVersion, setAppVersion] = useState('')
   const {settings} = useSettingsStore()
+  const updateResult = useUpdaterStore((s) => s.result)
   const linkMode = settings.linkOpening?.mode ?? 'ask'
   const [linkMenu, setLinkMenu] = useState<{visible: boolean; x: number; y: number; url: string}>({
     visible: false, x: 0, y: 0, url: ''
   })
+  const [checking, setChecking] = useState(false)
 
   useEffect(() => {
     window.electronAPI?.getAppVersion?.().then(setAppVersion).catch(() => setAppVersion(''))
+  }, [])
+
+  const handleCheckUpdate = useCallback(async () => {
+    setChecking(true)
+    try {
+      const fn = window.electronAPI?.updaterCheckForUpdate
+      if (!fn) return
+      const result = await fn()
+      if (result) useUpdaterStore.getState().setResult(result)
+    } catch {
+      // 静默失败 — 按钮已展示错误状态
+    } finally {
+      setChecking(false)
+    }
   }, [])
 
   const handleLinkClick = useCallback((url: string, e: React.MouseEvent<HTMLButtonElement>) => {
@@ -103,6 +135,46 @@ export default function AboutDialog() {
 
       {/* Divider */}
       <div className="w-full h-px mb-4" style={{ backgroundColor: 'var(--border)' }} />
+
+      {/* 检查更新区块 */}
+      <div className="w-full max-w-[300px] mb-3 space-y-2">
+        <button
+          onClick={handleCheckUpdate}
+          disabled={checking}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs
+            text-[var(--text-secondary)] bg-[var(--surface)] border border-[var(--border)]
+            hover:border-[var(--brand-primary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]
+            active:scale-[0.97] active:bg-[var(--surface-muted)]
+            disabled:opacity-60 disabled:cursor-wait transition-all duration-150"
+        >
+          {checking && (
+            <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M21 12a9 9 0 11-6.219-8.56" />
+            </svg>
+          )}
+          {renderUpdateLabel(updateResult, checking)}
+        </button>
+
+        {updateResult?.status === 'update-available' && (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => window.electronAPI?.openSystem?.(updateResult.downloads.github)}
+              className="flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs
+                bg-[var(--brand-primary)] text-white hover:opacity-90 transition-opacity"
+            >
+              GitHub 下载
+            </button>
+            <button
+              onClick={() => window.electronAPI?.openSystem?.(updateResult.downloads.baiduPan)}
+              className="flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs
+                bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)]
+                hover:border-[var(--brand-primary)] transition-colors"
+            >
+              网盘下载
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Links Grid — 2x2 */}
       <div className="grid grid-cols-2 gap-2.5 w-full max-w-[300px]">

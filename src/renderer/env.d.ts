@@ -12,6 +12,11 @@ declare global {
 
       // Window control
       getAppVersion: () => Promise<string>
+
+      // Updater
+      updaterGetStatus: () => Promise<import('../shared/types/updater').UpdateResult | null>
+      updaterCheckForUpdate: () => Promise<import('../shared/types/updater').UpdateResult>
+      onUpdaterStatusChanged: (callback: (result: import('../shared/types/updater').UpdateResult) => void) => () => void
       minimizeWindow: () => Promise<void>
       maximizeWindow: () => Promise<void>
       closeWindow: () => Promise<void>

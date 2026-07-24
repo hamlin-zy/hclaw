@@ -1,4 +1,5 @@
 import {contextBridge, ipcRenderer, webUtils} from 'electron'
+import type {UpdateResult} from '../shared/types/updater'
 
 // 从 additionalArguments 读取初始主题（窗口创建前由主进程从 SQLite 读取原始主题名）
 // 主进程已传递原始名称（'dark'/'light'/'yuanshandai'/'shiyangjin'），不再映射
@@ -25,6 +26,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
   closeWindow: () => ipcRenderer.invoke('close-window'),
   isMaximized: () => ipcRenderer.invoke('is-maximized'),
+
+  // Updater
+  updaterGetStatus: () => ipcRenderer.invoke('updater:get-status'),
+  updaterCheckForUpdate: () => ipcRenderer.invoke('updater:check-for-update'),
+  onUpdaterStatusChanged: (callback: (result: UpdateResult) => void) => {
+    const handler = (_: unknown, result: unknown) => callback(result as UpdateResult)
+    ipcRenderer.on('updater:status-changed', handler)
+    return () => ipcRenderer.removeListener('updater:status-changed', handler)
+  },
 
     // 监听最大化状态变化（用于更新 UI）
     onWindowMaximizedChange: (callback: (isMaximized: boolean) => void) => {

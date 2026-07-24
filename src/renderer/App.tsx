@@ -21,6 +21,8 @@ import {useHookStore} from './stores/hookStore'
 import {useThemeStore, resolveAndApplyTheme} from './stores/themeStore'
 import {useSettingsStore} from './stores/settingsStore'
 import {useSidebarStore} from './stores/sidebarStore'
+import {useUpdaterStore} from './stores/updaterStore'
+import {useMenuBarStore} from './stores/menuBarStore'
 import {useGlobalHotkeys} from './hooks/useGlobalHotkeys'
 import TooltipPortal from './components/common/TooltipPortal'
 import type {ModelType} from '@shared/types'
@@ -350,6 +352,35 @@ export default function App() {
     // 不阻塞渲染：init 在后台执行，组件自行管理 loading 状态
     init()
   }, [])
+
+  // ── 订阅更新检查推送（启动时静默检查完成后主进程会推送一次） ──
+  useEffect(() => {
+    // 先拉一次缓存（主进程可能已经完成静默检查并写入缓存）
+    window.electronAPI?.updaterGetStatus?.().then((result) => {
+      if (result) useUpdaterStore.getState().setResult(result)
+    })
+    // 订阅后续推送
+    const unsubscribe = window.electronAPI?.onUpdaterStatusChanged?.((result) => {
+      useUpdaterStore.getState().setResult(result)
+    })
+    return () => unsubscribe?.()
+  }, [])
+
+  // ── 自动弹出更新通知：发现新版本 → 弹窗（受 ignored / alreadyNoticed 保护） ──
+  const updateResult = useUpdaterStore((s) => s.result)
+  const updateIgnored = useUpdaterStore((s) => s.ignored)
+  const updateAlreadyNoticed = useUpdaterStore((s) => s.alreadyNoticed)
+
+  useEffect(() => {
+    if (
+      updateResult?.status === 'update-available' &&
+      !updateIgnored &&
+      !updateAlreadyNoticed
+    ) {
+      useUpdaterStore.getState().markShownOnce()
+      useMenuBarStore.getState().openDialog('update-notice')
+    }
+  }, [updateResult, updateIgnored, updateAlreadyNoticed])
 
   // ── 监听 system_manage 等外部来源的配置变更（如 Agent 通过工具修改设置） ──
   useEffect(() => {
