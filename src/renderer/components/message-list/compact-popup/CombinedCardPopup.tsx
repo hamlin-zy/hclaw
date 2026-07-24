@@ -266,6 +266,19 @@ const ToolSubCard = memo(function ToolSubCard({
         return {chips, dotClass}
     }, [toolCalls])
 
+    // 运行中工具的动态刷新文本（从 toolCallsStore 实时读取，不能放入 useMemo）
+    const toolStates = useToolCallsStore((s) => s.states)
+    const runningProgress = useMemo(() => {
+        for (const tc of toolCalls) {
+            const state = toolStates[tc.id]
+            const status = state?.status ?? tc.status
+            if ((status === 'running' || status === 'pending') && state?.progress) {
+                return state.progress.replace(/^子 Agent /, '')
+            }
+        }
+        return null
+    }, [toolCalls, toolStates])
+
     return (
         <button
             onClick={() => onOpenToolPopup(toolCalls)}
@@ -288,6 +301,12 @@ const ToolSubCard = memo(function ToolSubCard({
                         </span>
                     </span>
                 ))}
+                {/* 动态刷新文本（运行时进度，仅运行中/pending 的 Agent 工具） */}
+                {runningProgress && (
+                    <span className="text-[11px] text-[var(--brand-primary)] border-l border-[rgba(74,158,255,0.15)] pl-1.5 truncate animate-pulse shrink-1 min-w-0">
+                        {runningProgress}
+                    </span>
+                )}
             </span>
 
             <span className="text-[10px] text-[var(--text-muted)] shrink-0 flex items-center gap-0.5">

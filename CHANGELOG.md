@@ -7,6 +7,23 @@
 
 ---
 
+## [v0.2.86] - 2026-07-25
+
+### 重构
+- **工具名别名系统** — 将 Claude Code / Codex 的工具名（Read/Write/Edit）映射到 HClaw 实际工具名，兼容 everything-claude-code 等插件的 Agent 定义 (`src/main/agent/tools/filter.ts`)
+- **toolCallsStore 默认状态 pending→running** — 消除首次渲染延迟，提交 commit 时直接以 running 状态注册 (`src/renderer/stores/toolCallsStore.ts`)
+- **ToolCallRenderer 透传真实进度 props** — 将硬编码假值改为透传有效进度/状态/ETA 到 Header (`src/renderer/components/message-list/ToolCallRenderer.tsx`)
+
+### 修复
+- **agent 崩溃恢复标记 cancelled** — 死亡 agent 的 toolCalls 标记为 `cancelled` 并同步消息级别状态，替代此前错误的"恢复中"文案 (`src/renderer/stores/agentStore/index.ts`)
+- **streamTools 事件处理增强** — 工具开始事件丢失时自动注册 running 状态，进度事件缺失时同步注册，详情事件补充 status:running (`src/renderer/stores/agentStore/handlers/streamTools.ts`)
+
+### 新增
+- **子 Agent contentBlocks 同步** — 模式切换后子 Agent toolCall 能正确显示 (`src/renderer/stores/agentStore/handlers/streamSubAgents.ts`)
+- **紧凑弹窗动态刷新文本** — 运行中 Agent 和子 Agent 的工具显示实时进度文本 (`src/renderer/components/message-list/compact-popup/CombinedCardPopup.tsx`, `index.tsx`)
+- **ToolCallHeader 进度透传** — 非折叠状态的 progressBar/progressText 显示 (`src/renderer/components/message-list/ToolCallHeader.tsx`)
+- **cancelled 状态类型** — ToolCall 类型新增 `cancelled` 状态常量 (`src/shared/types/message.ts`)
+
 ## [v0.2.85] - 2026-07-22
 
 ### 新增

@@ -134,6 +134,8 @@ export function handleToolStart(ctx: StreamCtx) {
     const msg = convStore.messagesMap[convId]?.find(m => m.id === msgId)
     const existing = msg?.toolCalls || []
     if (existing.some(e => e.id === tc.id)) {
+        // 工具已在 handleToolUse 中添加，确保 toolCallsStore 注册运行中状态
+        useToolCallsStore.getState().registerToolCall(tc.id, {status: 'running'})
         get().updateConvData(convId, {
             agentState: {...convState.agentState, status: 'running', phase: 'executing_tools'},
             executingToolsMessage: null,
@@ -161,7 +163,13 @@ export function handleToolProgress(ctx: StreamCtx) {
     if (!event.toolCallId) return
     const convState = get().convAgentStates[convId] || createDefaultConvData()
     if (!convState.streamingMessageId && convState.agentState.status === 'idle') return
-    useToolCallsStore.getState().updateToolCall(event.toolCallId, {progress: event.progress})
+    // 状态缺失时同步注册（确保 UI 立即可见），已存在时走批量队列（防抖高频更新）
+    const existingState = useToolCallsStore.getState().states[event.toolCallId]
+    if (!existingState || existingState.status === 'pending') {
+        useToolCallsStore.getState().registerToolCall(event.toolCallId, {status: 'running', progress: event.progress})
+    } else {
+        useToolCallsStore.getState().updateToolCall(event.toolCallId, {progress: event.progress})
+    }
 }
 
 export function handleToolDetail(ctx: StreamCtx) {
@@ -171,6 +179,7 @@ export function handleToolDetail(ctx: StreamCtx) {
     const state = get()
     if (!state.streamingMessageId && state.agentState.status === 'idle') return
     useToolCallsStore.getState().updateToolCall(event.toolCallId, {
+        status: 'running',
         detailStatus: event.status,
         progressPercent: typeof event.progress === 'number' ? event.progress : undefined,
         eta: event.eta,

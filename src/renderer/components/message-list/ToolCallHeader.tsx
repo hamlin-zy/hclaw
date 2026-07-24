@@ -222,9 +222,9 @@ export default function ToolCallHeader({
         return (
             <div className="w-full flex items-center gap-2 px-3 py-2 text-left">
                 {statusIndicator}
-                {toolDisplayName || (
-                    <span className="font-mono font-semibold text-[var(--text-primary)]">{toolCall.name}</span>
-                )}
+                {toolDisplayName}
+                {progressBar}
+                {progressText}
                 {viewBtn}
                 {metaSection}
             </div>
