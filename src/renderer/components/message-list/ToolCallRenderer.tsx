@@ -16,7 +16,7 @@
 
 import {memo, useMemo, useState} from 'react'
 import type {ToolCall, ThinkBlock as ThinkBlockType} from '@shared/types'
-import {getToolSummary} from './utils/messageUtils'
+import {getToolSummary, resolveAgentDisplayName} from './utils/messageUtils'
 import {getFullStatusConfig} from './config/toolStatusConfig'
 import {useToolCallsStore} from '../../stores/toolCallsStore'
 import {useModelSchemeStore} from '../../stores/modelSchemeStore'
@@ -54,11 +54,8 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
     const effectiveProgressLog = runtimeState?.progressLog
     const effectiveSubAgentStream = runtimeState?.subAgentStream
 
-    // Agent 工具显示名：优先 taskDescription，其次 arguments.task
-    const agentDisplayName = toolCall.name === 'agent'
-        ? (toolCall.taskDescription ||
-           (typeof (toolCall.arguments as any)?.task === 'string' ? (toolCall.arguments as any).task : null))
-        : null
+    // Agent 工具显示名
+    const agentDisplayName = resolveAgentDisplayName(toolCall)
 
     // Agent 类型标签（如 Plan / Explore / General），来自 arguments.agentType
     const rawAgentType = toolCall.name === 'agent' ? (toolCall.arguments as any)?.agentType : null
@@ -176,8 +173,8 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                     effectiveProgress={undefined}
                     effectiveAgentProgress={undefined}
                     effectiveEta={undefined}
-                    agentDisplayName={null}
-                    agentTypeLabel={null}
+                    agentDisplayName={agentDisplayName}
+                    agentTypeLabel={agentTypeLabel}
                     skillDisplayName={null}
                     mcpDisplayName={mcpDisplayName}
                     summary={summary}
@@ -234,7 +231,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
             {/* 子 Agent 输出查看弹窗（在两种模式下均可用） */}
             {viewerOpen && toolCall.name === 'agent' && (
                 <SubAgentViewer
-                    title={agentDisplayName || '子 Agent'}
+                    title={'agent ' + (agentDisplayName || '子 Agent')}
                     agentType={agentTypeLabel}
                     progressLog={effectiveProgressLog}
                     subAgentStream={effectiveSubAgentStream}
@@ -365,11 +362,14 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
                 {/* Agent 名称 + 描述 */}
                 {isAgent ? (
                     <span className="flex items-center gap-1.5 text-[11px] min-w-0 flex-1">
-                        <span className="font-semibold text-[var(--text-primary)]">
-                            {agentTypeLabel || 'Agent'}
-                        </span>
-                        <span className="text-[var(--text-muted)] truncate">
-                            {agentDisplayName || '子 Agent 任务'}
+                        <span className="text-[var(--text-muted)] font-normal">agent</span>
+                        {agentTypeLabel && (
+                            <span className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)]/30 px-1.5 py-0.5 rounded shrink-0">
+                                {agentTypeLabel}
+                            </span>
+                        )}
+                        <span className="font-semibold text-[var(--text-primary)] truncate">
+                            {agentDisplayName || '子 Agent'}
                         </span>
                     </span>
                 ) : (
@@ -437,7 +437,23 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
     const openCombinedPopup = useAgentStore((s) => s.openCombinedPopup)
 
     const stats = computeGroupStats(toolCalls)
-    const typeCounts = computeTypeCounts(toolCalls)
+
+    // 生成工具芯片列表（解析 agent 名称，含 ⚡ 标识）
+    const chips = useMemo(() => {
+        const map = new Map<string, { total: number; error: number; isAgent: boolean }>()
+        for (const tc of toolCalls) {
+            const displayName = tc.name === 'agent'
+                ? (resolveAgentDisplayName(tc) || 'agent')
+                : tc.name
+            if (!map.has(displayName)) map.set(displayName, { total: 0, error: 0, isAgent: tc.name === 'agent' })
+            const entry = map.get(displayName)!
+            entry.total++
+            const state = useToolCallsStore.getState().states[tc.id]
+            const status = state?.status ?? tc.status
+            if (status === 'error') entry.error++
+        }
+        return Array.from(map.entries()).map(([name, v]) => ({ name, ...v }))
+    }, [toolCalls])
 
     // 圆点颜色（基于工具状态）
     const dotClass = stats.isRunning
@@ -445,10 +461,6 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
         : stats.hasError
             ? 'bg-[var(--error)]'
             : 'bg-[var(--success)]'
-
-    // 生成工具芯片列表
-    const chips: { name: string; total: number; error: number }[] = []
-    typeCounts.forEach((v, k) => chips.push({ name: k, total: v.total, error: v.error }))
 
     const handleClick = () => {
         openCombinedPopup({ items: items as any[], thinkCount, toolCalls: toolCalls as any[] })
@@ -477,6 +489,7 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
                         className="flex items-center gap-1 px-1.5 py-0.5 rounded
                             bg-[rgba(255,255,255,0.05)] text-[var(--text-secondary)] shrink-0"
                     >
+                        {chip.isAgent && <span className="text-[var(--brand-primary)]">⚡</span>}
                         <span className="font-mono font-semibold">{chip.name}</span>
                         <span className={chip.error > 0 ? 'text-[var(--error)]' : 'text-[var(--success)]'}>
                             {chip.total - chip.error}/{chip.total}

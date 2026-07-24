@@ -222,11 +222,7 @@ export default function ToolCallHeader({
         return (
             <div className="w-full flex items-center gap-2 px-3 py-2 text-left">
                 {statusIndicator}
-                {mcpDisplayName ? (
-                    <span className="font-semibold text-[var(--text-primary)] font-mono text-xs">
-                        {mcpDisplayName}
-                    </span>
-                ) : (
+                {toolDisplayName || (
                     <span className="font-mono font-semibold text-[var(--text-primary)]">{toolCall.name}</span>
                 )}
                 {viewBtn}

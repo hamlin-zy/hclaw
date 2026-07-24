@@ -98,8 +98,13 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                         <div key={tc.id} className="rounded-lg border border-[rgba(74,158,255,0.15)] bg-[rgba(74,158,255,0.04)] p-3">
                                             <div className="flex items-center gap-2 mb-2 text-[11px]">
                                                 <span className="text-[var(--brand-primary)]">⚡</span>
-                                                <span className="font-semibold text-[var(--text-primary)]">{agentTypeLabel || 'Agent'}</span>
-                                                <span className="text-[var(--text-muted)] truncate flex-1">{agentDisplayName || tc.taskDescription || '子 Agent'}</span>
+                                                <span className="text-[var(--text-muted)] font-normal">agent</span>
+                                                {agentTypeLabel && (
+                                                    <span className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)]/30 px-1.5 py-0.5 rounded shrink-0">
+                                                        {agentTypeLabel}
+                                                    </span>
+                                                )}
+                                                <span className="font-semibold text-[var(--text-primary)] truncate flex-1">{agentDisplayName || '子 Agent'}</span>
                                                 <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
                                                     status === 'success' ? 'bg-[var(--success-muted)]/30 text-[var(--success)]'
                                                         : status === 'error' ? 'bg-[var(--error-muted)]/30 text-[var(--error)]'
