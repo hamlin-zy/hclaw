@@ -298,6 +298,7 @@ export default function InterleavedContent({message, isUser}: InterleavedContent
                         items={seg.items}
                         thinkCount={seg.thinkCount}
                         toolCalls={seg.toolCalls}
+                        messageId={message.id}
                     />
                 )
             }
