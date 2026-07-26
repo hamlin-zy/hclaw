@@ -107,15 +107,36 @@ export function resolveAgentDisplayName(tc: ToolCall): string | null {
 }
 
 /**
- * 判断给定的显示名是否对应一个 agent 工具调用
+ * 从工具调用中解析 Skill 显示名称
+ *
+ * 优先级：skillName > arguments.name > arguments.skill
  */
-export function isAgentDisplayName(displayName: string, toolCalls: ToolCall[]): boolean {
-    return toolCalls.some(tc => {
-        if (tc.name !== 'agent') return false
-        const resolved = resolveAgentDisplayName(tc)
-        // displayName === 'agent' 是 fallback 名称，当 resolveAgentDisplayName 返回 null 时使用
-        return resolved === displayName || (!resolved && displayName === 'agent')
-    })
+export function resolveSkillDisplayName(tc: ToolCall): string | null {
+    if (tc.name !== 'skill') return null
+    const args = tc.arguments as Record<string, unknown> | null
+    return tc.skillName
+        ?? (typeof args?.name === 'string' ? args.name : null)
+        ?? (typeof args?.skill === 'string' ? args.skill : null)
+}
+
+/**
+ * 获取工具调用的显示名称，按类型解析可读名称
+ *
+ * - agent: 使用 arguments.agent / taskDescription / fallback 'Agent'
+ * - skill: 使用 skillName / arguments.name / arguments.skill / fallback 'Skill'
+ * - 其他: 直接返回 tc.name
+ */
+export function resolveToolDisplayName(tc: ToolCall): string {
+    if (tc.name === 'agent') return resolveAgentDisplayName(tc) || 'Agent'
+    if (tc.name === 'skill') return resolveSkillDisplayName(tc) || 'Skill'
+    return tc.name
+}
+
+/**
+ * 判断工具调用是否为 Skill 工具
+ */
+export function isSkillToolCall(tc: ToolCall): boolean {
+    return tc.name === 'skill'
 }
 
 /**

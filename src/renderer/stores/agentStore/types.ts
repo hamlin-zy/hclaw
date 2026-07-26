@@ -66,6 +66,8 @@ export interface ConvAgentData {
         isAgent?: boolean
         agentDisplayName?: string | null
         agentTypeLabel?: string | null
+        isSkill?: boolean
+        skillDisplayName?: string | null
         /** 当前展开的卡片 ID 列表（跨会话恢复） */
         expandedCardIds?: string[]
     } | null
@@ -127,6 +129,8 @@ export interface AgentStore {
         isAgent?: boolean
         agentDisplayName?: string | null
         agentTypeLabel?: string | null
+        isSkill?: boolean
+        skillDisplayName?: string | null
         expandedCardIds?: string[]
     } | null
     /** Agent 需要用户确认权限的内容（核心权限系统触发） */
