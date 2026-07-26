@@ -131,7 +131,7 @@ export default function ToolCallHeader({
     // ── 工具名称区域（根据类型显示不同内容） ──
     const toolDisplayName = toolCall.name === 'agent' && agentDisplayName ? (
         <span className="font-semibold text-[var(--text-primary)] flex items-center gap-1 min-w-0">
-            <span className="text-[var(--text-muted)] shrink-0">agent</span>
+            <span className="text-[var(--text-muted)] shrink-0">Agent</span>
             {agentTypeLabel && (
                 <span
                     className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)]/30 px-1.5 py-0.5 rounded shrink-0">
@@ -145,14 +145,14 @@ export default function ToolCallHeader({
             </span>
         </span>
     ) : toolCall.name === 'agent' ? (
-        <span className="font-mono font-semibold text-[var(--text-primary)]">agent</span>
+        <span className="font-mono font-semibold text-[var(--text-primary)]">Agent</span>
     ) : toolCall.name === 'skill' && skillDisplayName ? (
         <span className="font-semibold text-[var(--brand-primary)] flex items-center gap-1">
-            <span className="text-[var(--brand-primary)]/60 font-normal">skill 加载</span>
+            <span className="text-[var(--brand-primary)]/60 font-normal">🛠️ Skill</span>
             <span>{skillDisplayName}</span>
         </span>
     ) : toolCall.name === 'skill' ? (
-        <span className="font-mono font-semibold text-[var(--brand-primary)]">skill</span>
+        <span className="font-mono font-semibold text-[var(--brand-primary)]">🛠️ Skill</span>
     ) : mcpDisplayName ? (
         /* MCP 工具：显示可读的服务名_工具名（如 m_GitHub_navigate_page） */
         <span className="font-semibold text-[var(--text-primary)] font-mono text-xs">

@@ -25,7 +25,7 @@ import {isUltraCompactMode} from '../../lib/displayMode'
 import ThinkBlock from '../ThinkBlock'
 import MarkdownRenderer from './MarkdownRenderer'
 import ToolCallRenderer, {UltraCompactToolGroup, UltraCompactCombinedGroup} from './ToolCallRenderer'
-import {getToolDescription, resolveAgentDisplayName} from './utils/messageUtils'
+import {getToolDescription, resolveAgentDisplayName, resolveSkillDisplayName, isSkillToolCall} from './utils/messageUtils'
 import MediaPlayer from './MediaPlayer'
 
 interface InterleavedContentProps {
@@ -281,6 +281,9 @@ export default function InterleavedContent({message, isUser}: InterleavedContent
             case 'tool-group': {
                 const isAgent = seg.toolCalls.length === 1 && seg.toolCalls[0].name === 'agent'
                 const agentTc = isAgent ? seg.toolCalls[0] : null
+                const isSkill = seg.toolCalls.length === 1 && isSkillToolCall(seg.toolCalls[0])
+                const skillTc = isSkill ? seg.toolCalls[0] : null
+                const skillDisplayName = skillTc ? resolveSkillDisplayName(skillTc) : null
                 return (
                     <UltraCompactToolGroup
                         key={`tg-${i}`}
@@ -288,6 +291,8 @@ export default function InterleavedContent({message, isUser}: InterleavedContent
                         isAgent={isAgent}
                         agentDisplayName={agentTc ? resolveAgentDisplayName(agentTc) : null}
                         agentTypeLabel={agentTc ? ((agentTc.arguments as any)?.agentType ?? null) : null}
+                        isSkill={isSkill}
+                        skillDisplayName={skillDisplayName}
                     />
                 )
             }
