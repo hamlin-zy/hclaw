@@ -16,7 +16,7 @@
 
 import {memo, useMemo, useState} from 'react'
 import type {ToolCall, ThinkBlock as ThinkBlockType} from '@shared/types'
-import {getToolSummary, resolveAgentDisplayName} from './utils/messageUtils'
+import {getToolSummary, resolveAgentDisplayName, resolveSkillDisplayName, resolveToolDisplayName, isSkillToolCall} from './utils/messageUtils'
 import {getFullStatusConfig} from './config/toolStatusConfig'
 import {useToolCallsStore} from '../../stores/toolCallsStore'
 import {useModelSchemeStore} from '../../stores/modelSchemeStore'
@@ -64,12 +64,8 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
         ? rawAgentType.charAt(0).toUpperCase() + rawAgentType.slice(1)
         : null
 
-    // Skill 工具显示名：优先 skillName，其次 arguments.name / arguments.skill
-    const skillDisplayName = toolCall.name === 'skill'
-        ? (toolCall.skillName ||
-           (typeof (toolCall.arguments as any)?.name === 'string' ? (toolCall.arguments as any).name : null) ||
-           (typeof (toolCall.arguments as any)?.skill === 'string' ? (toolCall.arguments as any).skill : null))
-        : null
+    // Skill 工具显示名
+    const skillDisplayName = toolCall.name === 'skill' ? resolveSkillDisplayName(toolCall) : null
 
     const cfg = getFullStatusConfig(effectiveStatus)
     const isRunning = effectiveStatus === 'running'
@@ -176,7 +172,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                     effectiveEta={effectiveEta}
                     agentDisplayName={agentDisplayName}
                     agentTypeLabel={agentTypeLabel}
-                    skillDisplayName={null}
+                    skillDisplayName={skillDisplayName}
                     mcpDisplayName={mcpDisplayName}
                     summary={summary}
                     terminalDisplay={terminalDisplay}
@@ -232,7 +228,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
             {/* 子 Agent 输出查看弹窗（在两种模式下均可用） */}
             {viewerOpen && toolCall.name === 'agent' && (
                 <SubAgentViewer
-                    title={'agent ' + (agentDisplayName || '子 Agent')}
+                    title={'Agent ' + (agentDisplayName || '子 Agent')}
                     agentType={agentTypeLabel}
                     progressLog={effectiveProgressLog}
                     subAgentStream={effectiveSubAgentStream}
@@ -267,6 +263,10 @@ interface UltraCompactToolGroupProps {
     agentDisplayName?: string | null
     /** Agent 类型标签 */
     agentTypeLabel?: string | null
+    /** 是否作为 Skill 工具展示 */
+    isSkill?: boolean
+    /** Skill 显示名 */
+    skillDisplayName?: string | null
 }
 
 /**
@@ -316,6 +316,8 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
     isAgent,
     agentDisplayName,
     agentTypeLabel,
+    isSkill,
+    skillDisplayName,
 }: UltraCompactToolGroupProps) {
     const openToolPopup = useAgentStore((s) => s.openToolPopup)
 
@@ -340,6 +342,8 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
             isAgent,
             agentDisplayName,
             agentTypeLabel,
+            isSkill,
+            skillDisplayName,
         })
     }
 
@@ -352,18 +356,21 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
                     border border-[var(--border)] bg-[var(--surface-muted)]
                     hover:bg-[var(--surface-elevated)] hover:border-[var(--border-emphasis)]"
             >
-                {/* Agent 特殊图标 */}
+                {/* Agent / Skill 特殊图标 */}
                 {isAgent && (
-                    <span className="text-[var(--brand-primary)] text-xs shrink-0">⚡</span>
+                    <span className="text-[var(--brand-primary)] text-xs shrink-0">🤖</span>
+                )}
+                {isSkill && (
+                    <span className="text-[var(--brand-primary)] text-xs shrink-0">🛠️</span>
                 )}
 
                 {/* 状态圆点 */}
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`}/>
 
-                {/* Agent 名称 + 描述 */}
+                {/* Agent / Skill 名称 + 描述 */}
                 {isAgent ? (
                     <span className="flex items-center gap-1.5 text-[11px] min-w-0 flex-1">
-                        <span className="text-[var(--text-muted)] font-normal">agent</span>
+                        <span className="text-[var(--text-muted)] font-normal">Agent</span>
                         {agentTypeLabel && (
                             <span className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)]/30 px-1.5 py-0.5 rounded shrink-0">
                                 {agentTypeLabel}
@@ -371,6 +378,13 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
                         )}
                         <span className="font-semibold text-[var(--text-primary)] truncate">
                             {agentDisplayName || '子 Agent'}
+                        </span>
+                    </span>
+                ) : isSkill ? (
+                    <span className="flex items-center gap-1.5 text-[11px] min-w-0 flex-1">
+                        <span className="text-[var(--text-muted)] font-normal">Skill</span>
+                        <span className="font-semibold text-[var(--text-primary)] truncate">
+                            {skillDisplayName || '技能'}
                         </span>
                     </span>
                 ) : (
@@ -442,14 +456,12 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
 
     const stats = computeGroupStats(toolCalls)
 
-    // 生成工具芯片列表（解析 agent 名称，含 ⚡ 标识）
+    // 生成工具芯片列表（解析 agent 名称，含 🤖 标识；解析 skill 名称，含 🛠️ 标识）
     const chips = useMemo(() => {
-        const map = new Map<string, { total: number; error: number; isAgent: boolean }>()
+        const map = new Map<string, { total: number; error: number; isAgent: boolean; isSkill: boolean }>()
         for (const tc of toolCalls) {
-            const displayName = tc.name === 'agent'
-                ? (resolveAgentDisplayName(tc) || 'agent')
-                : tc.name
-            if (!map.has(displayName)) map.set(displayName, { total: 0, error: 0, isAgent: tc.name === 'agent' })
+            const displayName = resolveToolDisplayName(tc)
+            if (!map.has(displayName)) map.set(displayName, { total: 0, error: 0, isAgent: tc.name === 'agent', isSkill: isSkillToolCall(tc) })
             const entry = map.get(displayName)!
             entry.total++
             const state = useToolCallsStore.getState().states[tc.id]
@@ -493,7 +505,8 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
                         className="flex items-center gap-1 px-1.5 py-0.5 rounded
                             bg-[rgba(255,255,255,0.05)] text-[var(--text-secondary)] shrink-0"
                     >
-                        {chip.isAgent && <span className="text-[var(--brand-primary)]">⚡</span>}
+                        {chip.isAgent && <span className="text-[var(--brand-primary)]">🤖</span>}
+                        {chip.isSkill && <span className="text-[var(--brand-primary)]">🛠️</span>}
                         <span className="font-mono font-semibold">{chip.name}</span>
                         <span className={chip.error > 0 ? 'text-[var(--error)]' : 'text-[var(--success)]'}>
                             {chip.total - chip.error}/{chip.total}

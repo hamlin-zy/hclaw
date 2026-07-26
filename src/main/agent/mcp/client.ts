@@ -187,20 +187,20 @@ export class MCPClient {
         state.tools = []
         state.resources = []
 
-        // SDK close → stdin.end() → 2s SIGTERM → 2s SIGKILL
+        // ★ 先 taskkill 整棵进程树（必须在 SDK close 之前）
+        await this.killServerProcess(state)
+
+        // SDK close → stdin.end() → 清理 transport 资源
         if (state.sdkClient) {
             try { await state.sdkClient.close() } catch {}
-        }
-
-        // ★ taskkill 兜底（Windows 进程树杀，清理 npx 的孙进程）
-        if (state.lastPid) {
-            killProcessTree(state.lastPid)
-            await waitForProcessExit(state.lastPid)
         }
 
         state.sdkClient = undefined
         state.sdkTransport = undefined
         state.stoppedTime = Date.now()
+
+        // ★ 通知状态变化（确保主进程能感知 stop → start 转换）
+        this.emitStatusChange(serverId, this.getServer(serverId)!)
     }
 
     /** 测试连接（沙盒化流程） — 使用 SDK Client */
@@ -383,16 +383,14 @@ export class MCPClient {
                 // 通知状态变化（单次失败）
                 this.emitStatusChange(state.config.id, this.getServer(state.config.id)!)
 
-                // ★ 捕获 PID → 关闭 transport → taskkill 兜底清理进程树
+                // ★ 捕获 PID → taskkill 整棵进程树 → 关闭 transport 收尾
                 try {
                     if (state.sdkTransport instanceof StdioClientTransport) {
                         state.lastPid = state.sdkTransport.pid ?? undefined
                     }
+                    // ★ 先 taskkill（根进程存活时才能遍历树），再 close 清理资源
+                    await this.killServerProcess(state)
                     await state.sdkTransport?.close()
-                    if (state.lastPid) {
-                        killProcessTree(state.lastPid)
-                        await waitForProcessExit(state.lastPid)
-                    }
                 } catch {}
                 state.sdkTransport = undefined
                 state.sdkClient = undefined
@@ -408,6 +406,14 @@ export class MCPClient {
         throw lastError || new Error('MCP server connection failed')
     }
 
+    /** 强制杀死子进程树并等待退出（必须在 SDK close 之前调用，否则 Windows 上根进程被杀后 taskkill /T 无法遍历树） */
+    private async killServerProcess(state: InternalServerState): Promise<void> {
+        if (!state.lastPid) return
+        killProcessTree(state.lastPid)
+        await waitForProcessExit(state.lastPid)
+        state.lastPid = undefined
+    }
+
     /** 工具方法：sleep */
     private sleep(ms: number): Promise<void> {
         return new Promise((resolve) => setTimeout(resolve, ms))
@@ -418,15 +424,12 @@ export class MCPClient {
     const state = this.servers.get(serverId)
     if (!state) return
 
-    // 断开 SDK 连接
+    // ★ 先 taskkill 整棵进程树（必须在 SDK close 之前，否则 Windows 上根进程被杀后 taskkill /T 无法遍历树）
+    await this.killServerProcess(state)
+
+    // 断开 SDK 连接（清理 transport 资源）
     if (state.sdkClient) {
         try { await state.sdkClient.close() } catch {}
-    }
-
-    // 确保进程已终止——如果 SDK close 未能清理，强制杀死
-    if (state.lastPid && isProcessRunning(state.lastPid)) {
-        killProcessTree(state.lastPid)
-        await waitForProcessExit(state.lastPid)
     }
 
     // 设置为 stopped 状态后再通知

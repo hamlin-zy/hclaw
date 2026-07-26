@@ -84,7 +84,7 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
 
     // 工具显示的名称
     const displayName = isSkillTool
-        ? (toolCall.skillName || 'skill')
+        ? (toolCall.skillName || 'Skill')
         : (mcpDisplayName ?? toolCall.name)
 
     return (
@@ -98,7 +98,7 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
                 <span className="text-[10px] text-[var(--text-muted)] w-5 shrink-0 text-right font-mono">#{index + 1}</span>
                 <span className={`text-xs w-4 text-center shrink-0 ${cfg.color}`}>{cfg.icon}</span>
                 <span className="font-semibold text-[var(--text-primary)] text-[11px] shrink-0">
-                    {isSkillTool ? 'skill' : ''}<span className={isSkillTool ? 'font-mono' : 'font-mono font-semibold'}>{isSkillTool && displayName ? ` ${displayName}` : displayName}</span>
+                    {isSkillTool ? 'Skill' : ''}<span className={isSkillTool ? 'font-mono' : 'font-mono font-semibold'}>{isSkillTool && displayName ? ` ${displayName}` : displayName}</span>
                 </span>
                 {argSummary && <span className="text-[10px] text-[var(--text-muted)] truncate flex-1 min-w-0 ml-1">{argSummary}</span>}
                 <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 font-medium ${cfg.badgeClass}`}>{cfg.label}</span>
