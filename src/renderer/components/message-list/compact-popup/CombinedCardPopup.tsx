@@ -19,7 +19,7 @@ import {useConversationStore} from '../../../stores/conversationStore'
 import {useDraggableDialog} from '../../../hooks/useDraggableDialog'
 import MarkdownRenderer from '../MarkdownRenderer'
 import type {CombinedItem} from '../ToolCallRenderer'
-import {resolveAgentDisplayName, isAgentDisplayName} from '../utils/messageUtils'
+import {resolveAgentDisplayName, isSkillToolCall, resolveToolDisplayName} from '../utils/messageUtils'
 
 /**
  * 聚合卡片弹窗 — 全局单例
@@ -96,20 +96,19 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
         const {toolCalls, thinkCount} = combinedPopupData
         const parts: string[] = []
         if (thinkCount > 0) parts.push(`思考 ${thinkCount}`)
-        const map = new Map<string, {total: number; success: number}>()
+        const map = new Map<string, {total: number; success: number; isAgent: boolean; isSkill: boolean}>()
         for (const tc of toolCalls || []) {
             const state = useToolCallsStore.getState().states[tc.id]
             const status = state?.status ?? tc.status
-            // Agent 工具使用 arguments.agent 作为显示名称
-            const displayName = tc.name === 'agent' ? (resolveAgentDisplayName(tc) || 'agent') : tc.name
-            if (!map.has(displayName)) map.set(displayName, {total: 0, success: 0})
+            const displayName = resolveToolDisplayName(tc)
+            if (!map.has(displayName)) map.set(displayName, {total: 0, success: 0, isAgent: tc.name === 'agent', isSkill: isSkillToolCall(tc)})
             const entry = map.get(displayName)!
             entry.total++
             if (status === 'success') entry.success++
         }
         map.forEach((v, k) => {
-            const isAgent = isAgentDisplayName(k, toolCalls || [])
-            parts.push(`${isAgent ? '⚡' : ''}${k} ${v.success}/${v.total}`)
+            parts.push(`${v.isAgent ? '🤖' : v.isSkill ? '🛠️' : ''}${k} ${v.success}/${v.total}`
+            )
         })
         return parts.join(' · ')
     }, [combinedPopupData])
@@ -266,7 +265,7 @@ const ToolSubCard = memo(function ToolSubCard({
     // 统计 & 按名称分组（合并遍历，一轮搞定）
     const {chips, dotClass} = useMemo(() => {
         let success = 0, error = 0, running = 0
-        const typeMap = new Map<string, {total: number; error: number; isAgent: boolean}>()
+        const typeMap = new Map<string, {total: number; error: number; isAgent: boolean; isSkill: boolean}>()
         for (const tc of toolCalls) {
             const state = useToolCallsStore.getState().states[tc.id]
             const status = state?.status ?? tc.status
@@ -274,9 +273,8 @@ const ToolSubCard = memo(function ToolSubCard({
             if (status === 'success') success++
             else if (status === 'error') error++
             else if (status === 'running') running++
-            // 按名称分组（Agent 工具解析 arguments.agent 作为显示名称）
-            const displayName = tc.name === 'agent' ? (resolveAgentDisplayName(tc) || 'agent') : tc.name
-            if (!typeMap.has(displayName)) typeMap.set(displayName, {total: 0, error: 0, isAgent: tc.name === 'agent'})
+            const displayName = resolveToolDisplayName(tc)
+            if (!typeMap.has(displayName)) typeMap.set(displayName, {total: 0, error: 0, isAgent: tc.name === 'agent', isSkill: isSkillToolCall(tc)})
             const entry = typeMap.get(displayName)!
             entry.total++
             if (status === 'error') entry.error++
@@ -320,7 +318,8 @@ const ToolSubCard = memo(function ToolSubCard({
                         className="flex items-center gap-1 px-1.5 py-0.5 rounded
                             bg-[rgba(255,255,255,0.05)] text-[var(--text-secondary)] shrink-0"
                     >
-                        {chip.isAgent && <span className="text-[var(--brand-primary)] mr-0.5">⚡</span>}
+                        {chip.isAgent && <span className="text-[var(--brand-primary)] mr-0.5">🤖</span>}
+                        {chip.isSkill && <span className="text-[var(--brand-primary)] mr-0.5">🛠️</span>}
                         <span className="font-mono font-semibold">{chip.name}</span>
                         <span className={chip.error > 0 ? 'text-[var(--error)]' : 'text-[var(--success)]'}>
                             {chip.total - chip.error}/{chip.total}

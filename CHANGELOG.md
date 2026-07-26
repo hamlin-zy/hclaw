@@ -7,6 +7,24 @@
 
 ---
 
+## [v0.2.89] - 2026-07-26
+
+### 新增
+- **Skill 工具调用 UI 展示** — 新增 `isSkill`/`skillDisplayName` props、🛠️ 图标标识、`resolveToolDisplayName` 统一工具显示名解析函数；Compact 模式下 Skill 展示名称和状态 (`InterleavedContent.tsx`, `ToolCallRenderer.tsx`, `ToolCallHeader.tsx`, `messageUtils.ts`)
+- **Agent 图标更新** — Compact 模式下 Agent 从 ⚡ 改为 🤖 图标 (`ToolCallRenderer.tsx`)
+- **agentStore types 扩展** — Conversation 和 AgentStore 类型新增 `isSkill`/`skillDisplayName` 字段 (`types.ts`)
+
+### 变更
+- **Skill 状态图标更新** — SkillBubble 和 ToolCallHeader 中 icon 从 ⚡ 改为 🛠️ (`SkillBubble.tsx`, `ToolCallHeader.tsx`)
+
+### 重构
+- **MCP 进程清理提取 killServerProcess** — 将 Windows 进程树销毁逻辑提取为独立方法，调整 kill 顺序为先 taskkill 再 SDK close，确保子树能被完整遍历 (`src/main/agent/mcp/client.ts`)
+
+### 删除
+- **清理废弃 isAgentDisplayName 函数** — 删除 messageUtils 中不再使用的工具函数 (`messageUtils.ts`)
+
+---
+
 ## [v0.2.88] - 2026-07-24
 
 ### 新增

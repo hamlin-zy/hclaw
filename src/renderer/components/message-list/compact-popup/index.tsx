@@ -42,7 +42,7 @@ const CompactToolPopup = memo(function CompactToolPopup() {
 
     if (!toolPopupData) return null
 
-    const {toolCalls, title, isAgent, agentDisplayName, agentTypeLabel} = toolPopupData
+    const {toolCalls, title, isAgent, agentDisplayName, agentTypeLabel, isSkill, skillDisplayName} = toolPopupData
 
     const handleCardToggle = (id: string) => {
         const next = expandedSet.has(id)
@@ -77,9 +77,10 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                     <div onMouseDown={handleDragStart} onTouchStart={handleDragStart}
                         className={`flex items-center justify-between px-4 py-3 border-b border-[var(--border)] shrink-0 select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}>
                         <h4 className="text-[13px] font-medium text-[var(--text-primary)] flex items-center gap-2 min-w-0 flex-1">
-                            {isAgent && <span className="text-[var(--brand-primary)] shrink-0">⚡</span>}
+                            {isAgent && <span className="text-[var(--brand-primary)] shrink-0">🤖</span>}
+                            {isSkill && <span className="text-[var(--brand-primary)] shrink-0">🛠️</span>}
                             <span className="truncate">{displayTitle}</span>
-                            {!isAgent && <span className="text-[10px] text-[var(--text-muted)] font-normal shrink-0">{toolCalls.length} 个调用</span>}
+                            {!isAgent && !isSkill && <span className="text-[10px] text-[var(--text-muted)] font-normal shrink-0">{toolCalls.length} 个调用</span>}
                         </h4>
                         <button onClick={closeToolPopup}
                             className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-primary)] transition-colors cursor-pointer">✕</button>
@@ -97,8 +98,8 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                     return (
                                         <div key={tc.id} className="rounded-lg border border-[rgba(74,158,255,0.15)] bg-[rgba(74,158,255,0.04)] p-3">
                                             <div className="flex items-center gap-2 mb-2 text-[11px]">
-                                                <span className="text-[var(--brand-primary)]">⚡</span>
-                                                <span className="text-[var(--text-muted)] font-normal">agent</span>
+                                                <span className="text-[var(--brand-primary)]">🤖</span>
+                                                <span className="text-[var(--text-muted)] font-normal">Agent</span>
                                                 {agentTypeLabel && (
                                                     <span className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)]/30 px-1.5 py-0.5 rounded shrink-0">
                                                         {agentTypeLabel}
@@ -142,6 +143,30 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                                 </div>
                                             )
                                         })()}
+                                            {result?.output && <div className="mt-2 text-[10px] text-[var(--text-primary)] leading-relaxed p-2 bg-[var(--surface-overlay)] rounded max-h-48 overflow-x-hidden overflow-y-auto break-all select-text"><MarkdownRenderer>{truncate(String(result.output), 3000)}</MarkdownRenderer></div>}
+                                            {result?.error && <pre className="mt-2 text-[10px] text-[var(--error)] font-mono whitespace-pre-wrap break-all leading-relaxed p-2 bg-[var(--error-muted)]/15 rounded max-h-48 overflow-x-hidden overflow-y-auto select-text">{String(result.error)}</pre>}
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        ) : isSkill ? (
+                            <div className="space-y-1">
+                                {toolCalls.map((tc: any) => {
+                                    const state = toolStates[tc.id]
+                                    const result = state?.result ?? tc.result
+                                    const status = state?.status ?? tc.status
+                                    return (
+                                        <div key={tc.id} className="rounded-lg border border-[rgba(59,130,246,0.15)] bg-[rgba(59,130,246,0.04)] p-3">
+                                            <div className="flex items-center gap-2 mb-2 text-[11px]">
+                                                <span className="text-[var(--brand-primary)]">🛠️</span>
+                                                <span className="text-[var(--text-muted)] font-normal">Skill</span>
+                                                <span className="font-semibold text-[var(--text-primary)] truncate flex-1">{skillDisplayName || '技能'}</span>
+                                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                                                    status === 'success' ? 'bg-[var(--success-muted)]/30 text-[var(--success)]'
+                                                        : status === 'error' ? 'bg-[var(--error-muted)]/30 text-[var(--error)]'
+                                                            : 'bg-[var(--info-muted)]/30 text-[var(--info)]'
+                                                }`}>{status === 'success' ? '已完成' : status === 'error' ? '失败' : '进行中'}</span>
+                                            </div>
                                             {result?.output && <div className="mt-2 text-[10px] text-[var(--text-primary)] leading-relaxed p-2 bg-[var(--surface-overlay)] rounded max-h-48 overflow-x-hidden overflow-y-auto break-all select-text"><MarkdownRenderer>{truncate(String(result.output), 3000)}</MarkdownRenderer></div>}
                                             {result?.error && <pre className="mt-2 text-[10px] text-[var(--error)] font-mono whitespace-pre-wrap break-all leading-relaxed p-2 bg-[var(--error-muted)]/15 rounded max-h-48 overflow-x-hidden overflow-y-auto select-text">{String(result.error)}</pre>}
                                         </div>

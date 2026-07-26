@@ -553,7 +553,7 @@ function CollapsedSummary({
   } else if (status === 'error' && error) {
     text = `❌ ${error.message}`
   } else if (progress) {
-    text = `⚡ ${progress.label || '执行中'}: ${progress.current}/${progress.total}`
+    text = `🛠️ ${progress.label || '执行中'}: ${progress.current}/${progress.total}`
   } else {
     text = `⏳ ${status}`
   }
@@ -592,7 +592,7 @@ function Spinner() {
 const STATUS_CONFIGS: Record<string, {icon: string; label: string; bgColor: string}> = {
   matched:   {icon: '🎯', label: '已匹配',   bgColor: '#6366f1'},
   loading:   {icon: '⏳', label: '加载中',   bgColor: '#f59e0b'},
-  executing: {icon: '⚡', label: '执行中',   bgColor: '#3b82f6'},
+  executing: {icon: '🛠️', label: '执行中',   bgColor: '#3b82f6'},
   done:      {icon: '✅', label: '完成',      bgColor: '#10b981'},
   error:     {icon: '❌', label: '错误',      bgColor: '#ef4444'},
 }
