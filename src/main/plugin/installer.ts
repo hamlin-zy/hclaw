@@ -17,13 +17,15 @@ export interface UpdateResult {
 }
 
 /**
- * PluginInstaller - Handles plugin installation, uninstallation, and updates
+ * PluginInstaller - Handles plugin installation, uninstallation, updates, and version management
  *
  * Design Rationale:
  * - Uses simple-git for Git operations (clone, pull)
  * - Validates plugin structure before completing installation
  * - Distinguishes between install (fresh clone) and update (git pull)
  * - Target path format: ${pluginsDir}/${pluginName}@github
+ * - Version methods (listTags, listBranches, checkoutRef, getCurrentRef) are
+ *   used by PluginVersionManager for version switching and update detection.
  */
 export class PluginInstaller {
   private pluginsDir: string;
@@ -458,5 +460,85 @@ export class PluginInstaller {
       return { source: 'gitlab', repo: `${owner}/${repo.replace(/\.git$/, '')}`, ref };
     }
     return null;
+  }
+
+  // ── 版本管理方法（供 PluginVersionManager 使用） ─────────────
+
+  /**
+   * List git tags for a plugin directory, sorted by creation date (newest first).
+   * Uses `git tag --sort=-creatordate` for reliable ordering regardless of
+   * naming convention — avoids brittle semver parsing on non-standard tag formats.
+   *
+   * Returns raw tag names as returned by git.
+   */
+  async listTags(pluginPath: string): Promise<string[]> {
+    const git = simpleGit(pluginPath)
+    const output = await git.raw(['tag', '--sort=-creatordate', '--list'])
+    return output.trim().split('\n').filter(Boolean)
+  }
+
+  /**
+   * List remote branches for a plugin directory.
+   * Returns branch names with 'origin/' prefix stripped.
+   * Filters out 'origin/HEAD'.
+   */
+  async listBranches(pluginPath: string): Promise<string[]> {
+    const git = simpleGit(pluginPath)
+    const branchSummary = await git.branch(['-r'])
+    return branchSummary.all
+      .filter(b => b !== 'origin/HEAD')
+      .map(b => b.replace(/^origin\//, ''))
+  }
+
+  /**
+   * Checkout a specific ref (tag or branch) in the plugin directory.
+   * Uses `git checkout <ref>` with `--quiet` to suppress noisy output.
+   */
+  async checkoutRef(pluginPath: string, ref: string): Promise<{success: boolean; error?: string}> {
+    try {
+      const git = simpleGit(pluginPath)
+      await git.fetch(['--tags', '--quiet'])
+      await git.checkout(ref, ['--quiet'])
+      return {success: true}
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return {success: false, error: message}
+    }
+  }
+
+  /**
+   * Get the current ref (tag or branch name) of the plugin directory.
+   *
+   * Strategy:
+   *   1. Try `git describe --tags --exact-match` — if HEAD points to a tag, use it
+   *   2. Fallback to `git rev-parse --abbrev-ref HEAD` — current branch name
+   *
+   * Returns the ref string, or 'HEAD' (detached) if neither works.
+   */
+  async getCurrentRef(pluginPath: string): Promise<string> {
+    const git = simpleGit(pluginPath)
+    try {
+      // Try exact tag match first
+      const tag = await git.raw(['describe', '--tags', '--exact-match', '--quiet'])
+      if (tag?.trim()) return tag.trim()
+    } catch {
+      // Not on a tag — fall through
+    }
+    try {
+      const branch = await git.revparse(['--abbrev-ref', 'HEAD'])
+      if (branch && branch !== 'HEAD') return branch
+    } catch {
+      // Detached HEAD — fall through
+    }
+    return 'HEAD'
+  }
+
+  /**
+   * Fetch latest tags from remote (git fetch --tags).
+   * Used by PluginVersionManager to refresh the version cache.
+   */
+  async fetchTags(pluginPath: string): Promise<void> {
+    const git = simpleGit(pluginPath)
+    await git.fetch(['--tags', '--quiet'])
   }
 }

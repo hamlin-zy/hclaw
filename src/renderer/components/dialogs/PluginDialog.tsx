@@ -16,6 +16,7 @@ import {CopyButton} from '../common/CopyButton'
 import {useMenuBarStore} from '../../stores/menuBarStore'
 import {useSkillStore} from '../../stores/skillStore'
 import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
+import {usePluginUpdateStore} from '../../stores/pluginUpdateStore'
 import {confirm} from '../ConfirmDialog'
 
 // 可折叠类别子组件
@@ -159,6 +160,35 @@ export default function PluginDialog() {
     }>>({})
     const CATEGORY_PREVIEW_LIMIT = 3
 
+    // ── 版本管理状态 ──
+    const [versionData, setVersionData] = useState<Record<string, {
+        tags: string[]
+        branches: string[]
+        current: string
+        latest: string
+        loading: boolean
+    }>>({})
+    const [syncingVersion, setSyncingVersion] = useState<string | null>(null)
+    const [switchingVersion, setSwitchingVersion] = useState<string | null>(null)
+    const pluginUpdateMap = usePluginUpdateStore(s => s.updateMap)
+    const updateStore = usePluginUpdateStore
+
+  /** Fetch version info for a plugin, populating the version dropdown */
+  const loadVersionInfo = useCallback(async (name: string) => {
+    try {
+      const api = window.electronAPI as any
+      const versions = await api?.plugin?.getVersions?.(name)
+      if (versions) {
+        setVersionData(prev => ({
+          ...prev,
+          [name]: {...versions, loading: false},
+        }))
+      }
+    } catch {
+      // Silently ignore — version dropdown just won't show
+    }
+  }, [])
+
   const loadPlugins = useCallback(async () => {
     try {
       setLoading(true)
@@ -178,6 +208,17 @@ export default function PluginDialog() {
   useEffect(() => {
     loadPlugins()
   }, [loadPlugins])
+
+  // 页面加载完成后，并行预加载所有 git 源插件的版本数据
+  // 使下拉框默认值始终使用当前 tag 名称而非 manifest.version
+  useEffect(() => {
+    if (loading) return
+    const gitSources: string[] = ['github', 'gitee', 'gitlab']
+    const gitPlugins = plugins.filter(p => gitSources.includes(p.source))
+    for (const p of gitPlugins) {
+      loadVersionInfo(p.name)
+    }
+  }, [loading, plugins, loadVersionInfo])
 
   const handleInstall = async () => {
     if (!installUrl.trim()) return
@@ -397,6 +438,78 @@ export default function PluginDialog() {
     }
   }
 
+  /** 「同步版本」按钮 — 只 fetch tags，不切换版本 */
+  const handleSyncVersions = async (name: string) => {
+    setSyncingVersion(name)
+    try {
+      const api = window.electronAPI as any
+      const result = await api?.plugin?.syncVersions?.(name)
+      if (result?.versionInfo) {
+        setVersionData(prev => ({
+          ...prev,
+          [name]: {...result.versionInfo, loading: false},
+        }))
+        // 更新红点状态
+        if (result.versionInfo.hasUpdate) {
+          usePluginUpdateStore.getState().setPluginUpdates({
+            ...pluginUpdateMap,
+            [name]: true,
+          })
+        }
+        showUpdateMessage(name, '版本列表已同步', false)
+      } else {
+        showUpdateMessage(name, '同步失败', true)
+      }
+    } catch (err) {
+      showUpdateMessage(name, `同步异常: ${err instanceof Error ? err.message : String(err)}`, true)
+    } finally {
+      setSyncingVersion(null)
+    }
+  }
+
+  /** 版本切换 — 弹窗确认 → git checkout → powerManager.refresh */
+  const handleVersionSwitch = async (name: string, targetRef: string) => {
+    const currentRef = versionData[name]?.current || ''
+    const confirmed = await confirm({
+      title: '确认切换版本',
+      message: `确定将插件 "${name}" 的版本从 "${currentRef}" 切换为 "${targetRef}"？\n\n该操作会重新加载插件的所有能力。`,
+      confirmText: '确定切换',
+      cancelText: '取消',
+      confirmVariant: 'warning',
+    })
+    if (!confirmed) return
+
+    setSwitchingVersion(name)
+    try {
+      const api = window.electronAPI as any
+      const result = await api?.plugin?.switchVersion?.(name, targetRef)
+      if (result?.success) {
+        showUpdateMessage(name, `版本已切换至 ${targetRef}`, false)
+        // 更新下拉状态
+        if (result.versionInfo) {
+          setVersionData(prev => ({
+            ...prev,
+            [name]: {...result.versionInfo, loading: false},
+          }))
+          // 更新红点
+          usePluginUpdateStore.getState().setPluginUpdates({
+            ...pluginUpdateMap,
+            [name]: result.versionInfo.hasUpdate,
+          })
+        }
+        // 刷新插件列表和 agent 列表
+        await loadPlugins()
+        useAgentTemplateStore.getState().syncFromDisk()
+      } else {
+        showUpdateMessage(name, `切换失败: ${result?.error || '未知错误'}`, true)
+      }
+    } catch (err) {
+      showUpdateMessage(name, `切换异常: ${err instanceof Error ? err.message : String(err)}`, true)
+    } finally {
+      setSwitchingVersion(null)
+    }
+  }
+
     const toggleCategory = (pluginName: string, category: string) => {
         const key = `${pluginName}:${category}`
         setCategoryCollapsed(prev => ({...prev, [key]: !prev[key]}))
@@ -492,10 +605,47 @@ export default function PluginDialog() {
                                           </h4>
                                           <CopyButton name={plugin.manifest.name || plugin.name} size="sm" />
                                           {plugin.manifest.version && (
-                                              <span
-                                                  className="text-xs text-[var(--text-muted)] px-1.5 py-0.5 bg-[var(--surface)] rounded">
-                            v{plugin.manifest.version}
-                          </span>
+                                              <div className="relative inline-flex items-center">
+                                                <select
+                                                  value={versionData[plugin.name]?.current || plugin.manifest.version || ''}
+                                                  onChange={(e) => handleVersionSwitch(plugin.name, e.target.value)}
+                                                  disabled={switchingVersion === plugin.name}
+                                                  className="text-xs px-1.5 py-0.5 bg-[var(--surface)] rounded
+                                                    text-[var(--text-muted)] border border-[var(--border-muted)]
+                                                    focus:outline-none focus:border-[var(--brand-primary)]/50
+                                                    disabled:opacity-50 disabled:cursor-not-allowed max-w-[120px]"
+                                                  onClick={() => {
+                                                    // Lazy-load version data on first click
+                                                    if (!versionData[plugin.name]) {
+                                                      setVersionData(prev => ({...prev, [plugin.name]: {tags: [], branches: [], current: plugin.manifest.version || '', latest: '', loading: true}}))
+                                                      loadVersionInfo(plugin.name)
+                                                    }
+                                                  }}
+                                                >
+                                                  {(() => {
+                                                    const vd = versionData[plugin.name]
+                                                    const sel = vd?.current || plugin.manifest.version || ''
+                                                    const allOpts = [...(vd?.tags || []), ...(vd?.branches || [])]
+                                                    const selInList = allOpts.includes(sel)
+                                                    return <>
+                                                      {/* 当前版本不在 tag/branch 列表中时，兜底显示 */}
+                                                      {!selInList && (
+                                                        <option value={sel}>{sel || ''}</option>
+                                                      )}
+                                                      {vd?.tags?.map(t => (
+                                                        <option key={`tag-${t}`} value={t}>{t}</option>
+                                                      ))}
+                                                      {vd?.branches?.map(b => (
+                                                        <option key={`branch-${b}`} value={b}>{b}</option>
+                                                      ))}
+                                                    </>
+                                                  })()}
+                                                </select>
+                                                {/* 更新红点 */}
+                                                {pluginUpdateMap[plugin.name] && (
+                                                  <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-red-500" />
+                                                )}
+                                              </div>
                                           )}
                                           {!plugin.enabled && (
                                               <span
@@ -513,13 +663,13 @@ export default function PluginDialog() {
                                           />
                                           {['github', 'gitee', 'gitlab'].includes(plugin.source) && (
                                               <button
-                                                  onClick={() => handleUpdate(plugin.name)}
-                                                  disabled={updatingPlugin !== null}
+                                                  onClick={() => handleSyncVersions(plugin.name)}
+                                                  disabled={syncingVersion !== null}
                                                   className="px-1.5 py-1.5 text-xs font-medium rounded-md
                                                      bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20
                                                      transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                               >
-                                                  {updatingPlugin === plugin.name ? '更新中...' : '更新'}
+                                                  {syncingVersion === plugin.name ? '同步中...' : '同步版本'}
                                               </button>
                                           )}
                                           {['github', 'gitee', 'gitlab'].includes(plugin.source) && (
@@ -568,10 +718,10 @@ export default function PluginDialog() {
                             {realCounts[plugin.name]?.skills ?? plugin.skills?.length ?? 0} 技能
                           </span>
                                       )}
-                                      {(realCounts[plugin.name]?.agents ?? plugin.agents?.length ?? 0) > 0 && (
+                                      {(realCounts[plugin.name]?.agents ?? 0) > 0 && (
                                           <span
                                               className="text-xs px-2 py-0.5 bg-[var(--info)]/10 text-[var(--info)] rounded">
-                            {realCounts[plugin.name]?.agents ?? plugin.agents?.length ?? 0} Agent
+                            {realCounts[plugin.name]?.agents ?? 0} Agent
                           </span>
                                       )}
                                       {(realCounts[plugin.name]?.mcps ?? plugin.mcpServers?.length ?? 0) > 0 && (
