@@ -22,6 +22,7 @@ import {useThemeStore, resolveAndApplyTheme} from './stores/themeStore'
 import {useSettingsStore} from './stores/settingsStore'
 import {useSidebarStore} from './stores/sidebarStore'
 import {useUpdaterStore} from './stores/updaterStore'
+import {usePluginUpdateStore} from './stores/pluginUpdateStore'
 import {useMenuBarStore} from './stores/menuBarStore'
 import {useGlobalHotkeys} from './hooks/useGlobalHotkeys'
 import TooltipPortal from './components/common/TooltipPortal'
@@ -363,6 +364,20 @@ export default function App() {
     const unsubscribe = window.electronAPI?.onUpdaterStatusChanged?.((result) => {
       useUpdaterStore.getState().setResult(result)
     })
+    return () => unsubscribe?.()
+  }, [])
+
+  // ── 订阅插件版本状态推送（启动时后台版本检测完成后主进程会推送一次） ──
+  // ALSO actively pull from main process cache as fallback (push may fire before ipcRenderer listener is registered)
+  useEffect(() => {
+    // Passive listener (push)
+    const unsubscribe = window.electronAPI?.plugin?.onPluginStatusUpdate?.((data: any) => {
+      if (data && typeof data === 'object') {
+        usePluginUpdateStore.getState().setVersionMeta(data)
+      }
+    })
+    // Active pull (fallback — pulls from main process cache, no git fetch)
+    usePluginUpdateStore.getState().refreshFromCache()
     return () => unsubscribe?.()
   }, [])
 
