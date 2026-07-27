@@ -9,6 +9,7 @@ import {useConversationStore} from '../../stores/conversationStore'
 import {useAgentStore} from '../../stores/agentStore'
 import MessageBubble from './MessageBubble'
 import {ThinkingIndicator} from './StatusIndicators'
+import {KbdCombo} from '../common/Kbd'
 
 // ─── 复制提示 Toast ────────────────────────────────────
 
@@ -36,6 +37,13 @@ const CopyToast = memo(function CopyToast({visible}: { visible: boolean }) {
 // ─── Welcome Message ─────────────────────────────────────
 
 function WelcomeMessage() {
+    const shortcuts = [
+        {label: '新建会话', keys: ['Ctrl', 'N']},
+        {label: '快速搜索', keys: ['Ctrl', 'K']},
+        {label: '切换会话', keys: ['Alt', ['↑', '↓']]},
+        {label: '输入历史', keys: ['Ctrl', ['↑', '↓']]},
+    ]
+
     return (
         <div className="text-center space-y-4 p-8">
             <div className="flex justify-center mb-4">
@@ -48,8 +56,24 @@ function WelcomeMessage() {
             </div>
             <h1 className="text-2xl font-semibold text-[var(--text-primary)]">欢迎使用 HClaw</h1>
             <p className="text-[var(--text-muted)] max-w-md mx-auto">
-                智能对话助手，帮助您完成各种任务。开始新的对话吧！
+                智能对话助手，帮助您完成各种任务
             </p>
+            <p className="text-xs text-[var(--text-muted)] pt-2">
+                试试这些快捷键，快速上手操作
+            </p>
+            <div className="grid grid-cols-2 gap-2.5 max-w-[360px] mx-auto">
+                {shortcuts.map(({label, keys}) => (
+                    <div
+                        key={label}
+                        className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg
+                                   bg-[var(--surface-muted)]/40 border border-[var(--border-muted)]
+                                   hover:bg-[var(--surface-muted)]/60 transition-colors"
+                    >
+                        <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">{label}</span>
+                        <KbdCombo keys={keys}/>
+                    </div>
+                ))}
+            </div>
         </div>
     )
 }
