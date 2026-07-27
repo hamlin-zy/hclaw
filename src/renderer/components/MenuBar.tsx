@@ -5,6 +5,7 @@ import {useMenuBarStore} from '../stores/menuBarStore'
 import {useThemeStore} from '../stores/themeStore'
 import {useSidebarStore} from '../stores/sidebarStore'
 import {useUpdaterStore} from '../stores/updaterStore'
+import {usePluginUpdateStore} from '../stores/pluginUpdateStore'
 import SchemeSelector from './SchemeSelector'
 import PermissionModeSelector from './PermissionModeSelector'
 import WorkModeSelector from './WorkModeSelector'
@@ -196,6 +197,7 @@ export default function MenuBar() {
     const {theme, toggleTheme} = useThemeStore()
     const {toggleLeft, toggleRight, leftCollapsed, rightCollapsed} = useSidebarStore()
     const hasUpdate = useUpdaterStore((s) => s.result?.status === 'update-available')
+    const pluginHasUpdate = usePluginUpdateStore((s) => s.hasUpdate)
     const [collapsedItems, setCollapsedItems] = useState<string[]>([])
     const [showMoreMenu, setShowMoreMenu] = useState(false)
     const moreMenuRef = useRef<HTMLDivElement>(null)
@@ -359,7 +361,9 @@ export default function MenuBar() {
                   }
                   // 按钮项被折叠时隐藏
                   if (collapsedItems.includes(item.type!)) return null
-                  const showUpdateDot = item.type === 'about' && hasUpdate
+                  const showUpdateDot =
+                    (item.type === 'about' && hasUpdate) ||
+                    (item.type === 'plugins' && pluginHasUpdate)
                   return (
                       <motion.button
                           key={item.type}
@@ -429,12 +433,12 @@ export default function MenuBar() {
                                       </svg>
                                   </span>
                                   <span>{item.label}</span>
-                                  {item.type === 'about' && hasUpdate && (
+                                  {(item.type === 'about' && hasUpdate) || (item.type === 'plugins' && pluginHasUpdate) ? (
                                       <span
                                           className="ml-auto w-1.5 h-1.5 rounded-full bg-red-500"
                                           aria-label="有新版本"
                                       />
-                                  )}
+                                  ) : null}
                               </button>
                           ))}
                   </div>

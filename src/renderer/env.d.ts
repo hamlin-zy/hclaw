@@ -361,6 +361,21 @@ declare global {
                 error?: PluginError
             }>
             reset: (name: string) => Promise<{ success: boolean; error?: PluginError }>
+            syncVersions: (name: string) => Promise<{
+                success: boolean
+                versionInfo?: { tags: string[]; branches: string[]; latest: string; current: string; hasUpdate: boolean }
+                error?: string
+            }>
+            getVersions: (name: string) => Promise<{
+                tags: string[]
+                branches: string[]
+                latest: string
+                current: string
+                hasUpdate: boolean
+            } | null>
+            switchVersion: (name: string, ref: string) => Promise<{ success: boolean; error?: string }>
+            getAllVersionMeta: () => Promise<Record<string, { current: string; latest: string; hasUpdate: boolean }>>
+            onPluginStatusUpdate: (callback: (data: any) => void) => () => void
         }
 
         // Plugin command override management

@@ -493,6 +493,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
         reset: (name: string) => ipcRenderer.invoke('plugin:reset', name),
         getRealCounts: () => ipcRenderer.invoke('plugin:get-real-counts'),
         getCapabilityDetails: (pluginName: string) => ipcRenderer.invoke('plugin:get-capability-details', pluginName),
+        syncVersions: (name: string) => ipcRenderer.invoke('plugin:sync-versions', name),
+        getVersions: (name: string) => ipcRenderer.invoke('plugin:get-versions', name),
+        switchVersion: (name: string, ref: string) => ipcRenderer.invoke('plugin:switch-version', name, ref),
+        getAllVersionMeta: () => ipcRenderer.invoke('plugin:get-all-version-meta'),
+        onPluginStatusUpdate: (callback: (data: any) => void) => {
+            const handler = (_: unknown, data: any) => callback(data)
+            ipcRenderer.on('plugin:status-update', handler)
+            return () => ipcRenderer.removeListener('plugin:status-update', handler)
+        },
     },
 
     // Plugin command overrides
