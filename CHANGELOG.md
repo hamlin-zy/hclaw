@@ -7,6 +7,23 @@
 
 ---
 
+## [v0.2.90] - 2026-07-27
+
+### 重构
+- **截断模块 v4 简化** — 移除 token 预算门（maxContext/budget 依赖），低价值工具判断从 `lowValueNames` 改为 `highValueNames`，简化 `truncateForLlmCall` 调用接口 (`structuredTruncation.ts`, `truncateBeforeLlm.ts`)
+- **execute.ts 清理** — 移除废弃的 `safeGetAdapterMaxCtx` 函数，简化截断调用 (`src/main/agent/loop/execute.ts`)
+
+### 修复
+- **logger import 路径修复** — `../../config` 修正为 `../config` (`src/main/agent/logger.ts`)
+
+### 新增
+- **CacheRateTooltip 裁剪提示** — 添加低价值上下文自动裁剪说明 (`CacheRateTooltip.tsx`)
+
+### 删除
+- **清理废弃设计文档** — 删除 Agent skill icon refresh 设计文档 (`docs/superpowers/specs/2026-07-agent-skill-icon-refresh-design.md`)
+
+---
+
 ## [v0.2.89] - 2026-07-26
 
 ### 新增
