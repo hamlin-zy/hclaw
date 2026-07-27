@@ -110,7 +110,7 @@ process.on('exit', () => logBuffer.flushSync())
 function getLogFilePath(): string | null {
     if (_logFilePath) return _logFilePath
     try {
-        const {getHclawDir} = require('../../config')
+        const {getHclawDir} = require('../config')
         const hclawDir = getHclawDir()
         const logsDir = path.join(hclawDir, 'logs')
         if (!fs.existsSync(logsDir)) {

@@ -159,6 +159,9 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                     <div>
                         上下文 = {formatTokenCount(stats.currentInputTokens)} + {formatTokenCount(stats.currentCacheReadTokens)} = {formatTokenCount(currentTotalTokens)}
                     </div>
+                    <div className="mt-1.5 pt-1.5 border-t border-[var(--border-dashed)] text-[var(--text-tertiary)]">
+                        低价值上下文自动裁剪，上下文数值仅代表末次请求
+                    </div>
                 </div>
             </div>
         </div>
