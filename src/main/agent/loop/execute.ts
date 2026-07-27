@@ -41,16 +41,6 @@ const toolRegistry: ToolRegistry = container.get<ToolRegistry>(DI_TOKENS.ToolReg
 //  LLM 调用（含重试）
 // ═══════════════════════════════════════════════════════════
 
-/** 安全读取 adapter 的 maxContextTokens（adapter 未初始化或接口未暴露时返回 undefined） */
-function safeGetAdapterMaxCtx(adapter: any): number | undefined {
-    try {
-        const info = adapter?.getModelInfo?.()
-        return typeof info?.maxContextTokens === 'number' ? info.maxContextTokens : undefined
-    } catch {
-        return undefined
-    }
-}
-
 export interface ExecuteLlmCallParams {
     llmCaller: LLMCaller
     state: AgentLoopState
@@ -152,15 +142,10 @@ export async function* executeLlmCallWithRetry(
             //        可在 image 过滤之前（让图片占位 token 也算入 budget 估算）
             const truncateResult = truncateForLlmCall({
                 messages: messagesToSend,
-                systemPrompt,
-                modelConfig: {provider: modelConfig.provider, model: modelConfig.model, maxContextTokens: safeGetAdapterMaxCtx(adapter)},
-                settings: getSettings(),
-                modelScheme: params.schemeConfig?.scheme as {maxContextTokens?: number} | undefined,
             })
             if (truncateResult.action === 'structured_truncate') {
-                logger.info(
-                    `[AgentLoop] 结构感知截断触发：${messagesToSend.length} → ${truncateResult.messages.length} 条消息，` +
-                    `估算 tokens=${truncateResult.tokenEstimate.messagesTokens} budget=${truncateResult.tokenEstimate.budget}`,
+                console.log(
+                    `[AgentLoop] Structured truncation triggered: ${messagesToSend.length} → ${truncateResult.messages.length} messages`,
                 )
             }
             messagesToSend = truncateResult.messages
