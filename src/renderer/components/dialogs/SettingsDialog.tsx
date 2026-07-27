@@ -1,4 +1,5 @@
-import React, {useCallback, useEffect, useState} from 'react'
+import {useCallback, useEffect, useState} from 'react'
+import {Kbd, KbdCombo} from '../common/Kbd'
 import {Switch} from '../common/Switch'
 import {useSettingsStore} from '../../stores/settingsStore'
 import {SystemSettings} from '@shared/types'
@@ -515,33 +516,6 @@ export default function SettingsDialog() {
 }
 
 /** 快捷键展示用的小组件 */
-function Kbd({children}: { children: React.ReactNode }) {
-    return (
-        <kbd className="inline-flex items-center justify-center px-1.5 py-0.5 text-[11px] font-mono font-semibold
-                        bg-[var(--surface-overlay)] text-[var(--text-secondary)]
-                        border border-[var(--border-emphasis)] rounded-md
-                        shadow-[0_1px_1px_rgba(0,0,0,0.08)]
-                        min-w-[22px] h-[18px] leading-none
-                        select-none">
-            {children}
-        </kbd>
-    )
-}
-
-/** 组合键：Ctrl + Shift + X */
-function KbdCombo({keys}: { keys: string[] }) {
-    return (
-        <div className="flex items-center gap-0.5">
-            {keys.map((key, i) => (
-                <React.Fragment key={key}>
-                    {i > 0 && <span className="text-[10px] text-[var(--text-muted)] mx-0.5">+</span>}
-                    <Kbd>{key}</Kbd>
-                </React.Fragment>
-            ))}
-        </div>
-    )
-}
-
 /** 带校验的数字输入框：空值/0 时显示 fallback 值，触发视觉警告 */
 function NumberField({
                          label,

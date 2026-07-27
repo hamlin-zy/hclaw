@@ -7,6 +7,20 @@
 
 ---
 
+## [v0.2.91] - 2026-07-28
+
+### 新增
+- **插件版本管理** — 支持 Git 插件版本查看（tags/branches）、切换版本、同步远程版本；启动时后台检测更新，菜单栏 Plugins 按钮红点提示 (`src/main/plugin/installer.ts`, `src/main/plugin/versionManager.ts`, `src/main/plugin/ipc.ts`, `src/main/index.ts`, `src/preload/index.ts`, `src/renderer/App.tsx`, `src/renderer/components/MenuBar.tsx`, `src/renderer/components/dialogs/PluginDialog.tsx`, `src/renderer/stores/pluginUpdateStore.ts`, `src/renderer/env.d.ts`)
+
+### 重构
+- **logger 简化** — 移除文件日志系统（LogBuffer、轮转、文件 I/O），改为 console-only 输出，消除 IPC 开销 (`src/main/agent/logger.ts`)
+- **versionManager 实例复用** — PluginVersionManagerImpl 复用 PluginInstaller 实例，消除每次操作创建新对象 (`src/main/plugin/versionManager.ts`)
+
+### 修复
+- **Agent 前缀匹配修复** — 修复 `getRealCounts` 和 `getCapabilityDetails` 中 Agent 前缀匹配逻辑，支持 `pluginName/dirName` + `local-` 前缀 + `@github/@gitee/@gitlab` 后缀变体 (`src/main/plugin/ipc.ts`)
+
+---
+
 ## [v0.2.90] - 2026-07-27
 
 ### 重构

@@ -40,7 +40,7 @@ const DIALOG_CONFIG: Record<string, DialogConfig> = {
   'agents': { title: 'Agents', Component: AgentsDialog, initialWidth: 450 },
   'skills': { title: 'Skills', Component: SkillsDialog, initialWidth: 580 },
   'hooks': { title: 'Hooks', Component: HooksDialog, initialWidth: 520 },
-    'plugins': {title: '插件管理', Component: PluginDialog, initialWidth: 480},
+    'plugins': {title: '插件管理', Component: PluginDialog, initialWidth: 640},
     'commands': {title: '命令管理', Component: CommandsDialog, initialWidth: 580},
     'schedules': {title: '定时任务', Component: ScheduleDialog, initialWidth: 680},
     'channels': {title: '渠道管理', Component: ChannelsDialog, initialWidth: 480},

@@ -209,6 +209,7 @@ async function scanAgentDirectory(
 
                 // 生成 ID：使用相对路径（不含扩展名）
                 const id = `${idPrefix}${relativePath.replace(/\.(md|json|yaml|yml)$/, '')}`
+
                 const defaultName = path.basename(filePath, ext)
 
                 const template = buildAgentTemplateFromRaw(

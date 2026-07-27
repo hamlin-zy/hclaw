@@ -36,6 +36,8 @@ import {getPresetCommand, getPresetCommandMarkdownFiles, commandToMarkdown} from
 import {loadCommands, getCommandsDir} from '../agent/commandLoader';
 import type {CommandDefinition} from '@shared/types';
 import {readHookConfig, writeHookConfig} from '../config/hookConfig';
+import {versionManager} from './versionManager';
+import type {VersionInfo, SwitchResult} from './versionManager';
 
 const logger = createLogger('plugin')
 
@@ -161,6 +163,10 @@ export function registerPluginIPC(): void {
   ipcMain.handle('plugin:reload', handleReload);
   ipcMain.handle('plugin:update', handleUpdate);
   ipcMain.handle('plugin:reset', handleReset);
+  ipcMain.handle('plugin:sync-versions', handleSyncVersions);
+  ipcMain.handle('plugin:get-versions', handleGetVersions);
+  ipcMain.handle('plugin:switch-version', handleSwitchVersion);
+  ipcMain.handle('plugin:get-all-version-meta', handleGetAllVersionMeta);
   ipcMain.handle('command:prepare-message', handlePrepareMessage);
 
   // ── 用户命令管理 IPC handlers ──
@@ -363,6 +369,21 @@ async function handleList(
   return registry.getAll();
 }
 
+/** Build prefix candidates for matching agent IDs to a plugin */
+function buildAgentPrefixCandidates(pluginName: string, dirName: string): Set<string> {
+    const candidates = new Set<string>()
+    for (const name of [pluginName, dirName]) {
+        if (!name) continue
+        candidates.add(`${name}:`)
+        candidates.add(`local-${name}:`)
+        for (const suffix of ['@github:', '@gitee:', '@gitlab:']) {
+            candidates.add(`${name}${suffix}`)
+            candidates.add(`local-${name}${suffix}`)
+        }
+    }
+    return candidates
+}
+
 /**
  * Get real capability counts from authoritative registries (not PluginLoader's simplified scan).
  *
@@ -377,37 +398,50 @@ async function handleGetRealCounts(
 ): Promise<Record<string, { skills: number; agents: number; mcps: number; hooks: number }>> {
     const result: Record<string, { skills: number; agents: number; mcps: number; hooks: number }> = {}
 
-    const registry = PluginRegistry.getInstance()
-    const allPlugins = registry.getAll()
+    try {
+        const registry = PluginRegistry.getInstance()
+        const allPlugins = registry.getAll()
+            logger.info('[getRealCounts] start', {pluginCount: allPlugins.length})
 
-    // 从 skillRegistry 按 pluginName 聚合
-    const allSkills = skillRegistry.getAll()
+        // 从 skillRegistry 按 pluginName 聚合
+        const allSkills = skillRegistry.getAll()
 
-    // 从 agentRegistry 按 id 前缀聚合
-    const allAgents = agentRegistry.getAll()
+        // 从 agentRegistry 按 id 前缀聚合
+        const allAgents = agentRegistry.getAll()
 
-    // 从 mcpService 按 id 前缀聚合
-    const allMcps = mcpService.list()
+        // 从 mcpService 按 id 前缀聚合
+        const allMcps = mcpService.list()
 
-    // 从 PluginRegistry 获取所有插件的 hooks（keyed by pluginName）
-    const allPluginHooks = registry.getHooks()
+        // 从 PluginRegistry 获取所有插件的 hooks（keyed by pluginName）
+        const allPluginHooks = registry.getHooks()
 
-    for (const plugin of allPlugins) {
-        const pluginName = plugin.name
+        for (const plugin of allPlugins) {
+            const pluginName = plugin.name
 
-        // Skills: 直接匹配 pluginName 字段
-        const skills = allSkills.filter(s => s.pluginName === pluginName).length
+            // Skills: 直接匹配 pluginName 字段
+            const skills = allSkills.filter(s => s.pluginName === pluginName).length
 
-        // Agents: id 以 pluginName 开头（格式: pluginName:agentName）
-        const agents = allAgents.filter(a => a.id.startsWith(`${pluginName}:`)).length
+            // Agents: 前缀匹配需同时考虑 pluginName/dirName + local- 前缀 + @suffix 变体
+            const dirName = plugin.path ? path.basename(plugin.path) : ''
+            const agentPrefixCandidates = buildAgentPrefixCandidates(pluginName, dirName)
+            const agents = allAgents.filter(a => {
+                for (const prefix of agentPrefixCandidates) {
+                    if (a.id.startsWith(prefix)) return true
+                }
+                return false
+            }).length
 
-        // MCPs: id 以 plugin:pluginName: 开头（由 tagPluginServer 生成）
-        const mcps = allMcps.filter(m => (m.id as string)?.startsWith(`plugin:${pluginName}:`)).length
+            // MCPs: id 以 plugin:pluginName: 开头（由 tagPluginServer 生成）
+            const mcps = allMcps.filter(m => (m.id as string)?.startsWith(`plugin:${pluginName}:`)).length
 
-        // Hooks: 从 PluginRegistry 按 pluginName 直接获取
-        const hooks = allPluginHooks.get(pluginName)?.length ?? 0
+            // Hooks: 从 PluginRegistry 按 pluginName 直接获取
+            const hooks = allPluginHooks.get(pluginName)?.length ?? 0
 
-        result[pluginName] = { skills, agents, mcps, hooks }
+            result[pluginName] = { skills, agents, mcps, hooks }
+        }
+
+        logger.debug('[getRealCounts] done', {result})
+    } catch {
     }
 
     return result
@@ -427,33 +461,54 @@ async function handleGetCapabilityDetails(
     agents: Record<string, unknown>[];
     mcps: Record<string, unknown>[];
 }> {
-    const skills = skillRegistry.getAll()
-        .filter(s => s.pluginName === pluginName)
-        .map(s => ({
-            name: s.name,
-            description: s.description,
-            userInvocable: true,
-            allowedTools: s.allowedTools,
-        }))
+    try {
 
-    const agents = agentRegistry.getAll()
-        .filter(a => a.id.startsWith(`${pluginName}:`))
-        .map(a => ({
-            name: a.name,
-            description: a.description,
-            type: a.model,
-        }))
+        const skills = skillRegistry.getAll()
+            .filter(s => s.pluginName === pluginName)
+            .map(s => ({
+                name: s.name,
+                description: s.description,
+                userInvocable: true,
+                allowedTools: s.allowedTools,
+            }))
 
-    const mcps = mcpService.list()
-        .filter(m => (m.id as string)?.startsWith(`plugin:${pluginName}:`))
-        .map(m => ({
-            command: m.command,
-            args: m.args,
-            env: m.env,
-            transport: m.transport,
-        }))
+        // Agents: 前缀匹配需同时考虑 pluginName/dirName + local- 前缀 + @suffix 变体
+        const plugin = PluginRegistry.getInstance().getAll().find(p => p.name === pluginName)
+        const dirName = plugin?.path ? path.basename(plugin.path) : ''
+        const agentPrefixCandidates = buildAgentPrefixCandidates(pluginName, dirName)
+        const agents = agentRegistry.getAll()
+            .filter(a => {
+                for (const prefix of agentPrefixCandidates) {
+                    if (a.id.startsWith(prefix)) return true
+                }
+                return false
+            })
+            .map(a => ({
+                name: a.name,
+                description: a.description,
+                type: a.model,
+            }))
 
-    return { skills, agents, mcps }
+        const mcps = mcpService.list()
+            .filter(m => (m.id as string)?.startsWith(`plugin:${pluginName}:`))
+            .map(m => ({
+                command: m.command,
+                args: m.args,
+                env: m.env,
+                transport: m.transport,
+            }))
+
+        logger.debug('[getCapabilityDetails] done', {
+            pluginName,
+            skills: skills.length,
+            agents: agents.length,
+            mcps: mcps.length,
+        })
+
+        return { skills, agents, mcps }
+    } catch {
+        return { skills: [], agents: [], mcps: [] }
+    }
 }
 
 /**
@@ -556,6 +611,65 @@ async function handleUpdate(
       error: { type: 'git-clone-failed', message: asError(err) }
     };
   }
+}
+
+/**
+ * 同步插件版本列表 — 只 git fetch --tags，不切换版本。
+ * 由 PluginDialog 的「同步版本」按钮调用。
+ */
+async function handleSyncVersions(
+  _event: IpcMainInvokeEvent,
+  name: string,
+): Promise<{success: boolean; versionInfo?: VersionInfo; error?: string}> {
+  try {
+    const info = await versionManager.syncVersions(name)
+    if (!info) {
+      return {success: false, error: 'Plugin not found or not a git source'}
+    }
+    return {success: true, versionInfo: info}
+  } catch (err) {
+    return {success: false, error: asError(err)}
+  }
+}
+
+/**
+ * 获取插件版本列表（从缓存读取，不触发远程请求）。
+ * 缓存未命中时尝试本地收集。
+ */
+async function handleGetVersions(
+  _event: IpcMainInvokeEvent,
+  name: string,
+): Promise<VersionInfo | null> {
+  let info = versionManager.getVersions(name)
+  if (!info) {
+    // 缓存未命中，尝试本地预热
+    const plugin = registry.get(name)
+    if (plugin) {
+      info = await versionManager.warmCache(name, plugin.path, plugin.manifest.version)
+    }
+  }
+  return info ?? null
+}
+
+/**
+ * 切换插件版本 — git checkout + powerManager.refresh。
+ */
+async function handleSwitchVersion(
+  _event: IpcMainInvokeEvent,
+  name: string,
+  ref: string,
+): Promise<SwitchResult> {
+  return versionManager.switchVersion(name, ref)
+}
+
+/**
+ * 获取所有插件的版本元数据（不含 tags/branches 列表，仅红点相关字段）。
+ * 用于渲染进程页面打开后即时同步红点状态，无需重新 fetch。
+ */
+async function handleGetAllVersionMeta(
+  _event: IpcMainInvokeEvent,
+): Promise<Record<string, { current: string; latest: string; hasUpdate: boolean }>> {
+  return versionManager.getAllVersionMeta()
 }
 
 /**

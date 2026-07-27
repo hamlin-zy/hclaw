@@ -41,6 +41,7 @@ import {setConfigBridge} from './agent/common/configBridge';
 import {permissionEngine} from './agent/tools/permission';
 import {createConversationRepository} from './repositories';
 import {init as initUpdater} from './updater/updateChecker';
+import {versionManager} from './plugin/versionManager';
 
 const logger = createLogger('app')
 
@@ -315,6 +316,20 @@ app.on('ready', async () => {
 
   // Step 2: Plugin system - discover plugins only (not internal agents/skills/mcps/hooks/commands)
   await initializePlugins();
+
+  // Plugin version check (fire-and-forget) - fetches latest tags for all git plugins
+  // Results are pushed to renderer via plugin:status-update event
+  versionManager.startupCheck().then((versionMap) => {
+    const win = getMainWindow();
+    const hasUpdates = Object.entries(versionMap).some(([, v]) => v.hasUpdate)
+    const updatedPlugins = Object.keys(versionMap).filter(k => versionMap[k].hasUpdate)
+    logger.info('plugin-version-startup-done', {hasUpdates, plugins: updatedPlugins})
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('plugin:status-update', versionMap);
+    }
+  }).catch((err: any) => {
+    logger.warn('plugin-version-check-failed', {error: String(err)});
+  });
 
   // Hook system: initialize builtin handlers + load legacy user scripts (via compat layer)
   registerBuiltinHandlers(hookExecutor);
