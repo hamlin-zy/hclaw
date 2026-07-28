@@ -11,12 +11,15 @@
  */
 
 import React, {useCallback, useEffect, useState} from 'react'
+import {createPortal} from 'react-dom'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
+import LinkContextMenu from '../common/LinkContextMenu'
 import {useMenuBarStore} from '../../stores/menuBarStore'
 import {useSkillStore} from '../../stores/skillStore'
 import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
 import {usePluginUpdateStore} from '../../stores/pluginUpdateStore'
+import {useSettingsStore} from '../../stores/settingsStore'
 import {confirm} from '../ConfirmDialog'
 
 // 可折叠类别子组件
@@ -69,6 +72,8 @@ interface PluginManifest {
   version?: string
   description?: string
   author?: { name: string; email?: string }
+  repository?: string
+  homepage?: string
     userConfig?: Record<string, {
         type: 'string' | 'number' | 'boolean'
         title?: string
@@ -172,6 +177,25 @@ export default function PluginDialog() {
     const [switchingVersion, setSwitchingVersion] = useState<string | null>(null)
     const pluginUpdateMap = usePluginUpdateStore(s => s.updateMap)
     const updateStore = usePluginUpdateStore
+    const {settings} = useSettingsStore()
+    const linkMode = settings.linkOpening?.mode ?? 'ask'
+    const [linkMenu, setLinkMenu] = useState<{visible: boolean; x: number; y: number; url: string}>({
+        visible: false, x: 0, y: 0, url: ''
+    })
+
+    /** 点击插件名 — 根据链接打开模式决定行为 */
+    const handlePluginNameClick = (url: string | undefined, e: React.MouseEvent) => {
+        if (!url) return
+        if (linkMode === 'builtin') {
+            window.electronAPI?.openBuiltin?.(url)
+        } else if (linkMode === 'system') {
+            window.electronAPI?.openSystem?.(url)
+        } else {
+            // ask 模式：弹出内置/系统浏览器选择菜单
+            const rect = e.currentTarget.getBoundingClientRect()
+            setLinkMenu({visible: true, x: rect.left + rect.width / 2, y: rect.bottom, url})
+        }
+    }
 
   /** Fetch version info for a plugin, populating the version dropdown */
   const loadVersionInfo = useCallback(async (name: string) => {
@@ -237,14 +261,7 @@ export default function PluginDialog() {
           // 刷新 agents 列表，让新插件的 agents 立即可用
           useAgentTemplateStore.getState().syncFromDisk()
       } else if (result?.error) {
-          // Extract error message from PluginError object
-          const errorMsg = result.error.message ||
-              (result.error.type === 'manifest-not-found' ? `Manifest not found: ${result.error.path}` :
-                  result.error.type === 'manifest-invalid' ? `Invalid manifest: ${result.error.errors?.join(', ')}` :
-                      result.error.type === 'plugin-not-found' ? `Plugin not found: ${result.error.name}` :
-                          result.error.type === 'dependency-unsatisfied' ? `Missing dependencies: ${result.error.deps?.join(', ')}` :
-                              String(result.error))
-          setInstallError(errorMsg)
+          setInstallError(getErrorMessage(result.error))
       } else {
           setInstallError('安装失败')
       }
@@ -253,6 +270,19 @@ export default function PluginDialog() {
     } finally {
       setInstalling(false)
     }
+  }
+
+  /**
+   * Extract a human-readable error message from a PluginError object.
+   */
+  const getErrorMessage = (error: any): string => {
+    if (!error || typeof error === 'string') return String(error ?? '未知错误')
+    return error.message ||
+        (error.type === 'manifest-not-found' ? `Manifest not found: ${error.path}` :
+            error.type === 'manifest-invalid' ? `Invalid manifest: ${error.errors?.join(', ')}` :
+                error.type === 'plugin-not-found' ? `Plugin not found: ${error.name}` :
+                    error.type === 'dependency-unsatisfied' ? `Missing dependencies: ${error.deps?.join(', ')}` :
+                        String(error))
   }
 
   const handleUninstall = async (name: string) => {
@@ -276,7 +306,7 @@ export default function PluginDialog() {
         } else {
             await confirm({
                 title: '卸载失败',
-                message: result?.error || '未知错误',
+                message: getErrorMessage(result?.error),
                 confirmText: '确定',
                 confirmVariant: 'danger',
                 onConfirm: async () => {},
@@ -285,7 +315,7 @@ export default function PluginDialog() {
     } catch (err) {
         await confirm({
             title: '卸载异常',
-            message: err instanceof Error ? err.message : String(err),
+            message: getErrorMessage(err),
             confirmText: '确定',
             confirmVariant: 'danger',
             onConfirm: async () => {},
@@ -600,9 +630,21 @@ export default function PluginDialog() {
                                   {/* Title Row: name + version + disabled badge | three buttons */}
                                   <div className="flex items-center justify-between gap-4">
                                       <div className="flex items-center gap-1 min-w-0">
-                                          <h4 className="font-medium text-[var(--text-primary)] truncate">
-                                              {plugin.manifest.name || plugin.name}
-                                          </h4>
+                                            {(() => {
+                                                const repoUrl = plugin.manifest.repository || plugin.manifest.homepage
+                                                const nameClass = repoUrl
+                                                    ? 'text-[var(--brand-primary)] hover:underline cursor-pointer'
+                                                    : 'text-[var(--text-primary)]'
+                                                return (
+                                                    <h4
+                                                        className={`font-medium truncate ${nameClass}`}
+                                                        onClick={(e) => handlePluginNameClick(repoUrl, e)}
+                                                        title={repoUrl || undefined}
+                                                    >
+                                                        {plugin.manifest.name || plugin.name}
+                                                    </h4>
+                                                )
+                                            })()}
                                           <CopyButton name={plugin.manifest.name || plugin.name} size="sm" />
                                           {plugin.manifest.version && (
                                               <div className="relative inline-flex items-center">
@@ -1080,6 +1122,17 @@ export default function PluginDialog() {
                   )}
               </div>
           </div>
+          {/* LinkContextMenu for 'ask' mode — 点击插件名跳转仓库 */}
+          {createPortal(
+              <LinkContextMenu
+                  visible={linkMenu.visible}
+                  x={linkMenu.x}
+                  y={linkMenu.y}
+                  url={linkMenu.url}
+                  onClose={() => setLinkMenu(prev => ({...prev, visible: false}))}
+              />,
+              document.body
+          )}
       </div>
   )
 }
