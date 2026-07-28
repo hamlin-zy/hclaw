@@ -24,7 +24,7 @@ export default function UpdateNoticeDialog() {
   const closeDialog = useMenuBarStore((s) => s.closeDialog)
 
   const close = useCallback(() => {
-    closeDialog('update-notice')
+    closeDialog()
   }, [closeDialog])
 
   const handleGithub = useCallback(() => {

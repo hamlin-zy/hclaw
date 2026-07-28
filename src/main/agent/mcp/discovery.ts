@@ -17,6 +17,7 @@ import type {Tool, ToolContext, ToolResult} from '../tools/types'
 import type {MCPToolDefinition} from './types'
 import {mcpClient as mainProcessMcpClient} from './client'
 import {createTimeoutResult, ToolTimeoutError, withToolTimeout} from '../tools/toolTimeout'
+import {formatMcpResult} from './formatResult'
 
 // ─── MessagePort 注入（Phase 2）────────────────────────────────
 //
@@ -34,18 +35,7 @@ function getCurrentClient(): any {
     return mcpPort || mainProcessMcpClient
 }
 
-/** 从 MCP 响应中提取纯文本内容 */
-function formatMcpResult(result: any): Pick<ToolResult, 'success' | 'output' | 'error'> {
-    const textParts = (result.content || [])
-        .filter((c: any) => c.type === 'text')
-        .map((c: any) => c.text)
-        .join('\n')
-    return {
-        success: !result.isError,
-        output: textParts || '(无输出)',
-        error: result.isError ? textParts : undefined,
-    }
-}
+// formatMcpResult 已抽取到 ./formatResult.ts，此处通过 import 共用
 
 // ─── 服务器 ID 缩短 ────────────────────────────────────────────
 
