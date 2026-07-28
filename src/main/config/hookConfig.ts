@@ -174,7 +174,7 @@ export function syncPluginHooks(
             description: hook.description || '',
             events: hook.events || [],
             config: hook.config,
-            enabled: true,
+            enabled: false,
             source: 'plugin',
             pluginName,
             createdAt: now,

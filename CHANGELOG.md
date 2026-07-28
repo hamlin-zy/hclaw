@@ -7,6 +7,20 @@
 
 ---
 
+## [v0.2.92] - 2026-07-28
+
+### 新增
+- **插件名点击跳转仓库链接** — PluginDialog 插件名支持点击跳转 repository/homepage，根据 linkOpening 三种模式（builtin/system/ask）分别执行内置浏览器打开、系统浏览器打开或弹出选择菜单；提取公共 `getErrorMessage()` 错误解析函数 (`src/renderer/components/dialogs/PluginDialog.tsx`)
+
+### 修复
+- **插件 Hook 默认状态修正** — 新安装插件提供的 Hook 默认 `enabled: false`，防止未经用户确认自动激活 (`src/main/config/hookConfig.ts`)
+- **Windows 插件卸载失败兜底** — 新增 `clearReadOnly` 递归清理 Git 目录只读属性 + `rmdir /s /q` 兜底，解决 Git 克隆目录因只读文件导致的删除失败 (`src/main/plugin/installer.ts`)
+
+### 重构
+- **弹窗宽度调整** — Agents 弹窗宽度从 450 调整为 600，Hooks 弹窗宽度从 520 调整为 693 (`src/renderer/components/MenuDialogRenderer.tsx`)
+
+---
+
 ## [v0.2.91] - 2026-07-28
 
 ### 新增
