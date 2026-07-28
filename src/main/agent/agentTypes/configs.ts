@@ -61,6 +61,31 @@ const BUILTIN_CONFIGS: AgentTypeConfig[] = [
         optimizations: {},
     },
     {
+        type: 'Implementer',
+        whenToUse: '代码实现、TDD开发、独立任务执行、bug修复',
+        allowedTools: ['*'],
+        defaultModelRole: 'primary',
+        optimizations: {
+            omitClaudeMd: true,
+            omitGitStatus: false,
+        },
+    },
+    {
+        type: 'CodeReviewer',
+        whenToUse: '代码审查、规范合规检查、代码质量评估、diff审查',
+        disallowedTools: [
+            'Write',
+            'Edit',
+            'NotebookEdit',
+            'Agent',
+        ],
+        defaultModelRole: 'reasoning',
+        optimizations: {
+            omitClaudeMd: true,
+            omitGitStatus: true,
+        },
+    },
+    {
         type: 'General',
         whenToUse: '通用任务执行、工具调用、代码修改',
         allowedTools: ['*'],
@@ -161,6 +186,18 @@ export function getAgentTypeDisplayInfo(type: string): AgentTypeDisplayInfo {
                 name: 'Verification',
                 description: '验证实现 · 打破代码 · 测试检查',
                 icon: '✅',
+            }
+        case 'Implementer':
+            return {
+                name: 'Implementer',
+                description: '代码实现 · TDD开发 · 任务执行',
+                icon: '🔨',
+            }
+        case 'CodeReviewer':
+            return {
+                name: 'Code Reviewer',
+                description: '代码审查 · 规范检查 · 质量评估',
+                icon: '👁️',
             }
         case 'General':
         default:
