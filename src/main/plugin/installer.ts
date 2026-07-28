@@ -2,6 +2,7 @@ import {simpleGit, SimpleGit} from 'simple-git';
 import {PluginError, PluginManifest, PluginSource} from './types';
 import * as fs from 'fs';
 import * as path from 'path';
+import {execSync} from 'child_process';
 
 export interface UpdateOptions {
   force?: boolean
@@ -202,7 +203,12 @@ export class PluginInstaller {
   }
 
   /**
-   * Uninstall a plugin by name — removes the plugin directory
+   * Uninstall a plugin by name — removes the plugin directory.
+   *
+   * Windows-specific handling:
+   * - Git-cloned directories often have ReadOnly files (inside .git/objects)
+   * - Some files may be transiently locked (Defender, Electron file handles)
+   * - Retries + fallback to `cmd /c rmdir` for stubborn cases
    */
   async uninstall(name: string): Promise<{ success: boolean; error?: PluginError }> {
     const resolved = this.resolvePluginDir(name);
@@ -210,11 +216,45 @@ export class PluginInstaller {
       return { success: false, error: { type: 'plugin-not-found', name } };
     }
 
+    /** Recursively clear ReadOnly attribute (Windows-specific git repo issue) */
+    const clearReadOnly = (dir: string): void => {
+      try {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            clearReadOnly(fullPath);
+          }
+          try {
+            fs.chmodSync(fullPath, 0o666);
+          } catch {
+            // best-effort
+          }
+        }
+      } catch {
+        // best-effort
+      }
+    };
+
     try {
-      fs.rmSync(resolved.path, { recursive: true, force: true });
+      clearReadOnly(resolved.path);
+      fs.rmSync(resolved.path, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+
+      // Fallback: use Windows rmdir as last resort
+      if (process.platform === 'win32') {
+        try {
+          execSync(`rmdir /s /q "${resolved.path}"`, { timeout: 10_000, stdio: 'ignore' });
+          // Verify it's gone
+          if (!fs.existsSync(resolved.path)) {
+            return { success: true };
+          }
+        } catch {
+          // fallback failed too — report original error
+        }
+      }
+
       return { success: false, error: { type: 'git-clone-failed', message: `Failed to remove plugin: ${message}` } };
     }
   }
