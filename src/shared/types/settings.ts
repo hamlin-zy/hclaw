@@ -75,6 +75,7 @@ export type MenuDialogType =
   | 'settings'
   | 'tool-list'
   | 'system-prompt'
+  | 'update-notice'
   | 'about'
   | null
 
