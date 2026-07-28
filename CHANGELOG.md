@@ -7,6 +7,25 @@
 
 ---
 
+## [v0.2.93] - 2026-07-28
+
+### 新增
+- **MCP 工具结果格式化共享函数** — 从 discovery.ts 和 mcpWorker.ts 中抽取重复的 `formatMcpResult` 逻辑，独立为 `formatResult.ts`；失败时错误信息分离到 `error` 字段，避免 LLM 混淆 (`src/main/agent/mcp/formatResult.ts`, `discovery.ts`, `mcpWorker.ts`)
+
+### 重构
+- **seedAgentFiles 改进** — 重命名 `DEFAULT_AGENTS` → `MD_FILES`，补充注释说明维护约定；优化 Implementer 和 Code Reviewer Agent 定义文案 (`src/main/agent/defaults/seedAgentFiles.ts`)
+
+### 修复
+- **工具结果 output 丢失修复** — `success=false` 时不再丢弃 output 内容，确保 LLM 能读取工具部分输出（`manager.accumulator.ts`, `toolResultBatch.ts`）
+- **closeDialog 调用修正** — 匹配函数签名，移除多余参数 (`src/renderer/components/dialogs/UpdateNoticeDialog.tsx`)
+- **测试类型标注修正** — `ReturnType<typeof vi.fn>` → `Mock` 类型 (`tests/hooks/renderer-handlers.test.ts`)
+
+### 变更
+- **MenuDialogType 扩展** — 添加 `'update-notice'` 类型 (`src/shared/types/settings.ts`)
+- **.gitignore 更新** — 添加 `.superpowers` 和 `docs/superpowers` 目录 (`/.gitignore`)
+
+---
+
 ## [v0.2.92] - 2026-07-28
 
 ### 新增

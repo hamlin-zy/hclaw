@@ -159,7 +159,8 @@ export function normalizeToolResult(result: unknown): {
 } {
   if (!result) return {output: ''}
   const r = result as Record<string, unknown>
-  let output = r.success ? String(r.output ?? '') : ''
+  // 总是保留 output 内容，不因 success=false 丢弃（工具可能既有输出又有报错）
+  let output = String(r.output ?? '')
   if (output.length > PENDING_MSG_MAX_BYTES) {
     logger.warn('[AgentManager] tool result 超过容量上限，已截断', {
       maxBytes: PENDING_MSG_MAX_BYTES,

@@ -42,7 +42,7 @@ export function flushToolResultBatch(convId: string) {
                 ...tc,
                 status: (pending.result?.success ? 'success' : 'error') as 'success' | 'error',
                 result: {
-                    output: pending.result?.success ? String(pending.result.output ?? '') : '',
+                    output: String(pending.result.output ?? ''),
                     error: pending.result.error,
                     artifacts: pending.result.artifacts,
                     diff: pending.result.diff,
