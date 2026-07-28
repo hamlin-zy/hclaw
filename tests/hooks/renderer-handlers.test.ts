@@ -6,7 +6,8 @@
  * - HookResultsBar 过滤逻辑 — TTL 过期过滤
  */
 
-import {describe, expect, it, vi, beforeEach} from 'vitest'
+import {describe, expect, it, vi, beforeEach, afterEach} from 'vitest'
+import type {Mock} from 'vitest'
 
 // ============================================================
 // handleHookResult — 纯逻辑测试
@@ -21,9 +22,10 @@ import {describe, expect, it, vi, beforeEach} from 'vitest'
  *   输入: StreamCtx（含 event, isAgentAborted）+ 外部依赖
  *   输出: addHookResult 是否被调用 + 参数
  */
+
 interface MockHandlers {
-    addHookResult: ReturnType<typeof vi.fn>
-    getActiveConversationId: ReturnType<typeof vi.fn>
+    addHookResult: Mock
+    getActiveConversationId: Mock
 }
 
 function createHandleHookResult(mocks: MockHandlers) {

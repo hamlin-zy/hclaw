@@ -22,6 +22,7 @@
 import {MessagePort, parentPort, workerData} from 'worker_threads'
 import {MCPClient} from './mcp/client'
 import type {MCPServerConfig} from './mcp/types'
+import {formatMcpResult} from './mcp/formatResult'
 
 // ─── 类型定义 ──────────────────────────────────────────
 
@@ -312,18 +313,11 @@ class McpWorkerService {
     private async handleCallTool(port: MessagePort, req: CallToolRequest): Promise<void> {
         const result = await this.mcpClient.callTool(req.serverId, req.toolName, req.args)
 
-        const textParts = (result.content || [])
-            .filter((c: any) => c.type === 'text')
-            .map((c: any) => c.text)
-            .join('\n')
-
         port.postMessage({
             type: 'tool_result',
             callId: req.callId,
             result: {
-                success: !result.isError,
-                output: textParts || '(无输出)',
-                error: result.isError ? textParts : undefined,
+                ...formatMcpResult(result),
             } as McpToolResult,
         })
     }
