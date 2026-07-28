@@ -119,6 +119,10 @@ export async function loadSkillsFromDirectory(skillsDir?: string): Promise<numbe
     loaded += count
   }
 
+  // 加载内置技能（随应用分发，不可删除）
+  const builtinCount = await loadBuiltinSkills()
+  loaded += builtinCount
+
   return loaded
 }
 
@@ -398,6 +402,37 @@ async function loadSkillsFromPath(
   }
 
   return loaded
+}
+
+/**
+ * 加载内置技能（随应用分发，位于 defaults/skills/）
+ *
+ * 内置技能不可通过 UI 删除，source 标记为 'builtin'。
+ * 兼容开发和生产两种环境：
+ * - 开发: __dirname/../defaults/skills/ (编译后)
+ * - 生产: process.resourcesPath/defaults/skills/ (打包后)
+ */
+async function loadBuiltinSkills(): Promise<number> {
+    const candidates = [
+        path.join(__dirname, '..', 'defaults', 'skills'),
+    ]
+
+    // 生产环境下额外检查 resourcesPath
+    if (process.resourcesPath) {
+        candidates.push(path.join(process.resourcesPath, 'defaults', 'skills'))
+    }
+
+    for (const dir of candidates) {
+        try {
+            await fsPromises.access(dir)
+            const count = await loadSkillsFromPath(dir, 'builtin')
+            if (count > 0) return count
+        } catch {
+            // 目录不存在，尝试下一候选
+        }
+    }
+
+    return 0
 }
 
 // ─── 序列化 ──────────────────────────────────────────

@@ -31,6 +31,7 @@ import type {CapabilityEntry} from '../capability/types'
 import type {AgentTemplate} from '@shared/types'
 import type {SkillDefinition} from './skills/types'
 import {logger} from './logger'
+import {seedDefaultAgentFiles} from './defaults/seedAgentFiles'
 
 export interface EnabledPower {
     agents: AgentTemplate[]
@@ -349,6 +350,9 @@ class PowerManagerImpl {
     private async loadAgents(): Promise<void> {
         // 清空注册表
         agentRegistry.clear()
+
+        // 首次启动时将内置 Agent .md 写入用户配置目录
+        seedDefaultAgentFiles()
 
         // 扫描所有 Agents（本地 + 插件）
         const agentTemplates = await scanAllAgents()
