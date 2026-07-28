@@ -212,11 +212,34 @@ class PluginVersionManagerImpl {
   }
 
   /**
+   * 从 manifest 版本号推断 tag 前缀。
+   *
+   * 场景：impeccable 单仓同时发版 skill/cli/extension 三组件，tag 为
+   *   skill-v4.0.3 / ext-v1.3.0 / cli-v3.4.0。
+   * 如果不按前缀过滤，插件管理器下拉框会混入其他组件的 tag。
+   *
+   * 推断规则：找到 tags 中第一个以 manifestVersion 结尾的 tag，
+   * 提取其前缀（"skill-v"、"ext-v"等），然后只保留该前缀的 tag。
+   */
+  private inferTagPrefix(tags: string[], manifestVersion?: string): string {
+    if (!manifestVersion || tags.length === 0) return ''
+    const matched = tags.find(t => t.endsWith(manifestVersion))
+    if (!matched) return ''
+    return matched.slice(0, matched.length - manifestVersion.length)
+  }
+
+  /**
    * 收集版本信息（本地 git 命令，不 fetch）。
    * manifestVersion 用于判断 current（当 getCurrentRef 返回 'HEAD' 时兜底）。
    */
   private async collectVersionInfo(pluginPath: string, manifestVersion?: string): Promise<VersionInfo> {
-    const tags = await this.installer.listTags(pluginPath)
+    const allTags = await this.installer.listTags(pluginPath)
+
+    // ── 按 tag 前缀过滤 ──────────────────────────────
+    // 单仓多组件场景（如 impeccable: skill-v / ext-v / cli-v），
+    // 只保留属于当前插件的 tag。
+    const prefix = this.inferTagPrefix(allTags, manifestVersion)
+    const tags = prefix ? allTags.filter(t => t.startsWith(prefix)) : allTags
 
     // Tags 列表不为空时，不获取 branch（版本切换以 tag 为主）
     let branches: string[] = []
@@ -238,13 +261,10 @@ class PluginVersionManagerImpl {
       : (manifestVersion || 'HEAD')
 
     // 如果 current 不在 tags 列表中（如 manifest version "4.0.2" 但 tag 是 "skill-v4.0.2"），
-    // 用 manifestVersion 模糊匹配回退
+    // 直接用已推断的前缀拼出完整 tag 名，避免重复遍历查找。
     if (tags.length > 0 && !tags.includes(current) && manifestVersion) {
-      const matchedTag = tags.find(t =>
-        t.replace(/^v/i, '') === manifestVersion ||
-        t.endsWith(manifestVersion)
-      )
-      if (matchedTag) current = matchedTag
+      const expectedTag = prefix + manifestVersion
+      if (tags.includes(expectedTag)) current = expectedTag
     }
 
     const latest = tags.length > 0 ? tags[0] : ''
