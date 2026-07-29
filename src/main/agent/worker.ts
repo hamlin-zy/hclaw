@@ -92,7 +92,8 @@ async function main(): Promise<void> {
         },
         model: {defaultMaxTokens: 8000, defaultTemperature: 0},
         mcp: {mcpTestTimeout: 15000},
-        ui: {language: 'zh-CN', theme: 'system'}
+        ui: {language: 'zh-CN', theme: 'system'},
+        subagent: {maxConcurrency: 3, defaultTimeout: 15 * 60 * 1000, retryAttempts: 0, priorityEnabled: false, maxDepth: 3},
     }
 
 // 创建运行时配置对象（用于实时更新）
@@ -552,6 +553,8 @@ async function main(): Promise<void> {
             messageMetadata: params.messageMetadata,
             // 传递 Hook 收集的 additionalContext（SessionStart/UserPromptSubmit hook 返回）
             hookAdditionalContext: params.hookAdditionalContext,
+            // 传递 agentDefinition（子 Agent 独立会话使用）
+            agentDefinition: params.agentDefinition,
             // 传递运行中注入的用户消息队列引用
             pendingInjectedMessages,
             onEvent: (e) => {

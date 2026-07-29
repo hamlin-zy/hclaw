@@ -413,6 +413,39 @@ export default function App() {
     }
   }, [])
 
+  // ── 监听 agent 工具创建的子会话事件（实时刷新侧栏） ──
+  useEffect(() => {
+    const cleanup = window.electronAPI?.receive?.('child_conv_created', (data: any) => {
+      if (!data?.id) return
+      const {workspaces, currentWorkspacePath} = useConversationStore.getState()
+      if (!currentWorkspacePath) return
+      const ws = workspaces[currentWorkspacePath]
+      if (ws) {
+        // 去重：避免会话已存在时重复添加
+        if (ws.conversations.some(c => c.id === data.id)) return
+        useConversationStore.setState({
+          workspaces: {
+            [currentWorkspacePath]: {
+              ...ws,
+              conversations: [{
+                id: data.id,
+                title: data.title || '子 Agent',
+                preview: '',
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                parentConvId: data.parentConvId || undefined,
+              }, ...ws.conversations],
+            },
+          },
+        })
+      }
+    })
+
+    return () => {
+      cleanup?.()
+    }
+  }, [])
+
     // ── 监听服务商配置变更，同步到主进程全局管理器 ──
     useEffect(() => {
       const buildSignature = (providers: ReturnType<typeof useLLMStore.getState>['providers']) =>

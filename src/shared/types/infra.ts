@@ -192,6 +192,8 @@ export interface ConversationSummary {
   channel?: string
   /** 会话运行状态：active（空闲）/ running（运行中）/ archived（已结束） */
   status?: 'active' | 'running' | 'archived'
+  /** 父会话 ID（用于侧边栏缩进分组） */
+  parentConvId?: string
 }
 
 export interface ConversationMeta {
@@ -208,6 +210,14 @@ export interface ConversationMeta {
   scheduleId?: string
   /** 渠道标识：system / wechat / feishu / scheduler */
   channel?: string
+  /** 父会话 ID（子会话单向记录） */
+  parentConvId?: string
+  /** 创建时的任务描述 */
+  sourceTask?: string
+  /** 创建时指定的能力 */
+  sourceCapability?: { type: 'agent'; name: string }
+  /** 标记为 agent tool 创建的子会话 */
+  isChildSession?: boolean
 }
 
 /** 会话管理页面使用的统计信息 */
