@@ -5,108 +5,35 @@
  * - 任务描述（prompt）
  * - 可选的 agent 参数（指定子 Agent 名称，匹配后以该 Agent 身份启动）
  * - 可选的 tools 参数（指定工具白名单，可覆盖 Agent 定义）
- * - 流式进度回调
+ * - 独立会话（子 Agent 拥有独立的 conversation，与父会话单向关联，侧栏可见）
  *
- * 并发控制：槽位满时直接拒绝并告知上限，由父 Agent（LLM）自行决定重试策略。
- * 并行：由 LLM 原生 parallel function call 实现，不在工具内做并行编排。
+ * 执行策略：
+ * - 子会话创建于 SQLite（持久化，侧栏可见）
+ * - agentLoop 在当前进程/线程中运行（不使用独立 Worker）
+ * - 通过 context.sendMessage() 转发子 Agent 事件（流式进度卡片）
+ * - 子会话的完整对话历史写入 SQLite（用户可在侧栏回溯查看）
+ *
+ * 递归深度：通过 parentConvId 链追踪，达到 maxDepth 上限时拒绝。
+ * 并发：由 LLM 原生 parallel function call 限制 + 本地计数器兜底。
  */
 
 import {z} from 'zod'
 import {randomUUID} from 'crypto'
 import type {Tool, ToolContext, ToolResult} from '../types'
-import {subAgentScheduler} from '../../subagent/scheduler'
-import type {SubAgentEvent, SubAgentResult, SubAgentTask} from '../../subagent/types'
-import {logger} from '../../logger'
+import {agentLoop} from '../../loop'
 import type {AgentStreamEvent} from '../../stream'
+import {logger} from '../../logger'
 import {agentRegistry} from '../../agentRegistry'
 import type {AgentTemplate} from '@shared/types'
 import type {AgentDefinition} from '@shared/agent'
 import {runtimeConfigManager} from '../../runtimeConfigManager'
 import {systemSettingsRepo} from '../../../repositories/sqlite/systemSettingsRepository'
 import {permissionEngine} from '../permission'
-import type {ModelConfig} from '../../model/types'
+import {createConversationRepository} from '../../../repositories'
 
-// ─── 子 Agent 进度格式化 ──────────────────────────────────
+// ─── 并发控制 ──────────────────────────────────────────────
 
-/**
- * 将子 Agent 事件转换为人类可读的进度文本
- *
- * 接受可选的 streamEvent 参数以补充实时细节（合并了原 enrichProgressWithContent 逻辑）。
- */
-function formatSubAgentProgress(event: SubAgentEvent | AgentStreamEvent, streamEvent?: AgentStreamEvent): string {
-    // 如果有流式事件详情，优先展示其实时内容
-    if (streamEvent) {
-        switch (streamEvent.type) {
-            case 'text': {
-                return '子 Agent 输出中...'
-            }
-            case 'thinking':
-                return '子 Agent 思考中...'
-            case 'tool_start': {
-                const name = streamEvent.toolCall?.name
-                const args = streamEvent.toolCall?.arguments
-                if (name && args) {
-                    const keys = typeof args === 'object' ? Object.keys(args as object).slice(0, 3).join(', ') : ''
-                    return `🔧 ${name}${keys ? `(${keys})` : ''}`
-                }
-                return `🔧 ${name || '工具'} 调用中...`
-            }
-            case 'tool_progress':
-                return `子 Agent: ${streamEvent.progress || '执行中...'}`
-            case 'tool_result': {
-                const out = streamEvent.result?.output
-                if (out && typeof out === 'string') {
-                    const trimmed = out.trim()
-                    return trimmed.length > 60 ? trimmed.slice(0, 60) + '...' : trimmed
-                }
-                return `✓ ${streamEvent.toolName || '工具'} 完成`
-            }
-            case 'error':
-                return `❌ ${streamEvent.error || '未知错误'}`
-            case 'done':
-                return '子 Agent 完成'
-            case 'ask_user':
-                return '子 Agent 等待用户确认...'
-            default:
-                break // 回退到 event.type 基础处理
-        }
-    }
-
-    // 处理 SubAgentEvent 包装类型
-    if (event.type === 'subagent_progress' && 'event' in event) {
-        return formatSubAgentProgress(event.event)
-    }
-    if (event.type === 'subagent_start') {
-        return '子 Agent 启动中...'
-    }
-    if (event.type === 'subagent_done') {
-        return '子 Agent 完成'
-    }
-
-    // 处理裸 AgentStreamEvent 类型
-    const ae = event as AgentStreamEvent
-    switch (ae.type) {
-        case 'thinking':
-            return '子 Agent 思考中...'
-        case 'text': {
-            return '子 Agent 输出中...'
-        }
-        case 'tool_start':
-            return `🔧 ${ae.toolCall?.name || '工具'} 调用中...`
-        case 'tool_progress':
-            return `子 Agent: ${ae.progress || '执行中...'}`
-        case 'tool_result':
-            return `✓ ${ae.toolName || '工具'} 完成`
-        case 'error':
-            return `❌ ${ae.error || '未知错误'}`
-        case 'ask_user':
-            return '子 Agent 等待用户确认...'
-        case 'done':
-            return '子 Agent 完成'
-        default:
-            return `子 Agent 执行中: ${ae.type}`
-    }
-}
+const activeChildSessions = new Set<string>()
 
 // ─── Agent 模板转换 ───────────────────────────────────────
 
@@ -136,6 +63,33 @@ function agentTemplateToDefinition(template: AgentTemplate): AgentDefinition {
     }
 }
 
+// ─── 递归深度追踪 ────────────────────────────────────────
+
+/**
+ * 沿 parentConvId 链向上追溯，计算当前会话的递归深度
+ *
+ * 用于防止子 Agent 无限嵌套（如 A → B → A → B...）。
+ * visited 集合防止循环引用导致死循环。
+ */
+function getRecursionDepth(convId: string): number {
+    let depth = 0
+    let current = convId
+    const visited = new Set<string>()
+    const repo = createConversationRepository()
+
+    while (true) {
+        if (visited.has(current)) break
+        visited.add(current)
+
+        const meta = repo.readMeta(current)
+        if (!meta?.parentConvId) break
+        current = meta.parentConvId
+        depth++
+    }
+
+    return depth
+}
+
 // ─── 输入 Schema ──────────────────────────────────────────
 
 const inputSchema = z.object({
@@ -147,138 +101,6 @@ const inputSchema = z.object({
 })
 
 type AgentToolInput = z.infer<typeof inputSchema>
-
-// ─── 子任务执行 ──────────────────────────────────────────
-
-/**
- * 构建子 Agent 的模型配置（使用主 Provider）
- */
-function buildModelConfig(): ModelConfig | null {
-    const primary = runtimeConfigManager.getPrimaryProvider()
-    if (!primary.isValid || !primary.provider) return null
-
-    return {
-        provider: primary.provider.type,
-        model: primary.modelName || '',
-        apiKey: '',
-        baseUrl: primary.provider.baseUrl || '',
-    }
-}
-
-/**
- * 执行单个子任务
- *
- * 将任务通过 Scheduler 派发给子 Agent。
- * agentDefinition 非空时，子 Agent 以该 Agent 的身份启动（专属提示词/工具/权限等）；
- * 为空时以 General 身份启动。
- */
-async function executeSingleTask(
-    task: SubAgentTask,
-    context: ToolContext,
-    agentDefinition?: AgentDefinition,
-): Promise<SubAgentResult> {
-    // 模型配置
-    const modelConfig = buildModelConfig()
-    if (!modelConfig) {
-        return {
-            taskId: task.id,
-            success: false,
-            output: '',
-            error: '无法获取模型配置',
-        }
-    }
-
-    // 系统设置
-    const settings = systemSettingsRepo.getJson<import('@shared/types').SystemSettings>('settings')
-    const workingDir = runtimeConfigManager.getConfig().workingDir || ''
-
-    let output = ''
-    let hasError = false
-    let errorMsg = ''
-    let lastResult: SubAgentResult | undefined
-
-    try {
-        for await (const event of subAgentScheduler.executeTask({
-            task: task,
-            modelConfig,
-            workingDir,
-            abortSignal: context.abortSignal,
-            agentType: agentDefinition?.agentType || 'General',
-            agentDefinition,
-            settings: settings || undefined,
-        })) {
-            // 提取子 Agent 流式事件（用于详细输出查看）
-            let streamEvent: AgentStreamEvent | undefined
-            if (event.type === 'subagent_progress' && 'event' in event) {
-                streamEvent = event.event as AgentStreamEvent
-            }
-
-            // 将子 Agent 事件转换为人类可读的进度文本
-            const richProgress = formatSubAgentProgress(event, streamEvent)
-
-            // 按原始事件类型分发
-            if (event.type === 'subagent_start') {
-                context.sendMessage({
-                    type: 'subagent_start',
-                    taskId: task.id,
-                    description: event.description,
-                    toolCallId: context.toolCallId,
-                })
-                context.sendMessage({
-                    type: 'subagent_progress',
-                    taskId: task.id,
-                    subAgentEvent: 'subagent_start',
-                    progress: richProgress,
-                    subAgentStreamEvent: undefined,
-                    toolCallId: context.toolCallId,
-                })
-            } else if (event.type === 'subagent_done') {
-                context.sendMessage({
-                    type: 'subagent_done',
-                    taskId: task.id,
-                    success: event.result?.success ?? true,
-                    output: event.result?.output ?? '',
-                    error: event.result?.error,
-                    toolCallId: context.toolCallId,
-                })
-                context.sendMessage({
-                    type: 'subagent_progress',
-                    taskId: task.id,
-                    subAgentEvent: 'subagent_done',
-                    progress: richProgress,
-                    subAgentStreamEvent: undefined,
-                    toolCallId: context.toolCallId,
-                })
-                lastResult = event.result
-                output = event.result.output
-                hasError = !event.result.success
-                errorMsg = event.result.error || ''
-            } else {
-                // subagent_progress 正常转发
-                context.sendMessage({
-                    type: 'subagent_progress',
-                    taskId: task.id,
-                    subAgentEvent: event.type,
-                    progress: richProgress,
-                    subAgentStreamEvent: streamEvent,
-                    toolCallId: context.toolCallId,
-                })
-            }
-        }
-    } catch (err: any) {
-        hasError = true
-        errorMsg = err.message
-    }
-
-    return (
-        lastResult || {
-            taskId: task.id,
-            success: !hasError,
-            output: output.trim(),
-            error: hasError ? errorMsg : undefined,
-        }
-    )
-}
 
 // ─── 工具定义 ──────────────────────────────────────────────
 
@@ -293,7 +115,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
     isDestructive: false,
 
     async execute(args, context): Promise<ToolResult<string>> {
-        // 检查模型配置
+        // ① 检查模型配置
         const primary = runtimeConfigManager.getPrimaryProvider()
         if (!primary.isValid) {
             return {
@@ -303,17 +125,9 @@ export const agentTool: Tool<AgentToolInput, string> = {
             }
         }
 
-        // 并发容量检查
-        if (!subAgentScheduler.hasCapacity) {
-            return {
-                success: false,
-                output: '',
-                error: `并发上限已满 (最多 ${subAgentScheduler.maxConcurrency} 个子 Agent)，请稍后重试`,
-            }
-        }
-
-        // 1. 解析 agent → 转换为 AgentDefinition
+        // ② 解析 agent → 转换为 AgentDefinition
         let agentDefinition: AgentDefinition | undefined
+        const agentName = args.agent || 'General'
         if (args.agent) {
             const template = agentRegistry.find(args.agent)
             if (template) {
@@ -323,58 +137,281 @@ export const agentTool: Tool<AgentToolInput, string> = {
             }
         }
 
-        // 2. tools 覆盖：同时指定 agent 和 tools 时，tools 覆盖 Agent 定义的白名单
+        // ③ tools 覆盖：同时指定 agent 和 tools 时，tools 覆盖 Agent 定义的白名单
         if (agentDefinition && args.tools) {
-            agentDefinition = { ...agentDefinition, tools: args.tools }
+            agentDefinition = {...agentDefinition, tools: args.tools}
         }
 
-        // 3. 构建 SubAgentTask
-        const task: SubAgentTask = {
-            id: `sub-${randomUUID().slice(0, 8)}`,
-            description: args.task,
-            allowedTools: agentDefinition?.tools ?? args.tools,
+        // ④ 递归深度检查
+        const settings = systemSettingsRepo.getJson<import('@shared/types').SystemSettings>('settings')
+        const maxDepth = settings?.subagent?.maxDepth ?? 3
+        const parentConvId = context.conversationId
+        if (parentConvId) {
+            const currentDepth = getRecursionDepth(parentConvId)
+            if (currentDepth >= maxDepth) {
+                return {
+                    success: false,
+                    output: '',
+                    error: `已达到最大子 Agent 嵌套深度 (${maxDepth})，无法继续派生`,
+                }
+            }
         }
+
+        // ⑤ 并发检查（本地计数器 + 设置中的 maxConcurrency）
+        const maxConcurrency = settings?.subagent?.maxConcurrency ?? 3
+        if (activeChildSessions.size >= maxConcurrency) {
+            return {
+                success: false,
+                output: '',
+                error: `并发上限已满 (最多 ${maxConcurrency} 个子 Agent)，请稍后重试`,
+            }
+        }
+
+        // ⑥ 创建子会话
+        const childConvId = `conv-${randomUUID()}`
+        const conversationRepo = createConversationRepository()
+
+        let workspacePath = ''
+        if (parentConvId) {
+            const parentMeta = conversationRepo.readMeta(parentConvId)
+            workspacePath = parentMeta?.workspacePath || ''
+        }
+
+        const now = Date.now()
+        conversationRepo.create(childConvId, {
+            id: childConvId,
+            title: `${agentName}: ${args.task.slice(0, 20)}...`,
+            workspacePath,
+            createdAt: now,
+            updatedAt: now,
+            preview: '',
+            status: 'active',
+            parentConvId: parentConvId || undefined,
+            sourceTask: args.task,
+            sourceCapability: {type: 'agent', name: agentName},
+            isChildSession: true,
+        })
 
         logger.info('[AgentTool]', {
-            action: 'startingSubAgent',
-            taskId: task.id,
-            agentType: agentDefinition?.agentType || 'General',
-            tools: task.allowedTools?.length ? task.allowedTools : '(all)',
+            action: 'creatingChildConv',
+            childConvId,
+            parentConvId: parentConvId || '(none)',
+            agentType: agentName,
+            depth: parentConvId ? getRecursionDepth(parentConvId) + 1 : 1,
             task: args.task.slice(0, 80),
         })
 
+        // 写入初始用户消息（子会话的独立历史）
+        const userMsgId = `msg-${now}-${Math.random().toString(36).slice(2, 8)}`
+        conversationRepo.writeMessages(childConvId, [{
+            id: userMsgId,
+            role: 'user',
+            content: args.task,
+            timestamp: now,
+        }])
+
+        // 通知渲染进程侧栏刷新（子会话已创建于 SQLite）
+        notifyMainProcessChildConvCreated(childConvId, agentName, args.task, parentConvId)
+
+        // ⑦ 强制权限模式为 auto（子会话不弹确认框）
+        const effectiveAgentDef: AgentDefinition = {
+            source: 'user' as const,
+            agentType: agentName,
+            whenToUse: agentDefinition?.whenToUse || '',
+            description: agentDefinition?.description || '',
+            systemPromptTemplate: agentDefinition?.systemPromptTemplate || '',
+            renderedSystemPrompt: '',
+            tools: agentDefinition?.tools || args.tools,
+            permissionMode: 'auto',
+        }
+
+        // ⑧ 构建 agentLoop 参数（当前进程/线程中运行）
+        const modelConfig = {
+            provider: primary.provider!.type,
+            model: primary.modelName || '',
+            apiKey: '',
+            baseUrl: primary.provider!.baseUrl || '',
+        }
+        const workingDir = runtimeConfigManager.getConfig().workingDir || ''
+        const maxTurnsLimit = settings?.agent?.maxTurns ?? 500
+
+        // ⑨ 在当前进程/线程中运行子 Agent（不创建独立 Worker）
+        let output = ''
+        let hasError = false
+        let errorMsg = ''
+
+        activeChildSessions.add(childConvId)
+
+        // ★ 向渲染进程发送子会话 begin 事件，使侧边栏显示运行状态动画
+        sendChildAgentEvent(childConvId, {type: 'begin'})
+
         try {
-            const result = await executeSingleTask(task, context, agentDefinition)
+            for await (const event of agentLoop({
+                sessionId: childConvId,
+                messages: [
+                    {role: 'user', content: args.task},
+                ],
+                modelConfig,
+                workingDir,
+                settings: settings || undefined,
+                maxTurns: maxTurnsLimit,
+                agentType: agentName,
+                agentDefinition: effectiveAgentDef,
+                conversationTitle: `子 Agent: ${args.task.slice(0, 50)}`,
+                abortSignal: context.abortSignal,
+            })) {
+                // ── 跳过内部事件 ──
+                if (event.type === 'intent_analyzed' || event.type === 'mode_change') continue
 
-            const status = !result.success ? 'FAILED' : 'COMPLETED'
-            logger.info('[AgentTool]', {
-                action: 'subAgentCompleted',
-                status,
-                taskId: task.id,
-                task: args.task.slice(0, 80),
-            })
+                // ── 累积文本输出 ──
+                if (event.type === 'text') {
+                    const content = (event as any).content || ''
+                    output += content
+                }
 
-            return {
-                success: result.success,
-                output: result.output || (result.success ? '子 Agent 完成（无输出）' : `子 Agent 执行失败: ${result.error}`),
-                error: result.error,
+                // ── 事件分类转发给父上下文 ──
+                if (event.type === 'thinking' || event.type === 'tool_start' || event.type === 'tool_progress' || event.type === 'tool_result') {
+                    context.sendMessage({
+                        type: 'subagent_progress',
+                        taskId: childConvId,
+                        progress: formatProgress(event),
+                        subAgentStreamEvent: event,
+                    })
+                } else if (event.type === 'done') {
+                    context.sendMessage({type: 'subagent_done', taskId: childConvId, success: true, output})
+                    sendChildAgentEvent(childConvId, {type: 'done', reason: 'completed'})
+                    break
+                } else if (event.type === 'error') {
+                    hasError = true
+                    errorMsg = (event as any).error || '未知错误'
+                    context.sendMessage({type: 'subagent_done', taskId: childConvId, success: false, error: errorMsg})
+                    sendChildAgentEvent(childConvId, {type: 'done', reason: 'error'})
+                    break
+                }
+
+                // ★ 转发所有流事件到子会话渲染进程（text/thinking/tool_*/agent_start 等）
+                //   用户切换到子会话时可以看到实时流式输出
+                sendChildAgentEvent(childConvId, event)
             }
         } catch (err: any) {
-            logger.error('[AgentTool]', {action: 'subAgentError', taskId: task.id, error: err.message})
+            hasError = true
+            errorMsg = err.message || String(err)
+            logger.error('[AgentTool]', {action: 'childConvException', childConvId, error: errorMsg})
+            // ★ 异常也通知渲染进程结束运行状态
+            sendChildAgentEvent(childConvId, {type: 'done', reason: 'error'})
+        } finally {
+            activeChildSessions.delete(childConvId)
+        }
+
+        // ⑩ 写入子会话的辅助消息历史
+        const finalOutput = (hasError ? '' : output.trim()) || '(无输出)'
+        const assistantMsgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        conversationRepo.writeMessages(childConvId, [{
+            id: assistantMsgId,
+            role: 'assistant',
+            content: finalOutput,
+            timestamp: Date.now(),
+        }])
+
+        // 通知 UI 刷新（子会话在侧栏中出现）
+        // ★ 注意：agentLoop 内已通过 notifyMainProcessChildConvCreated 首屏通知，
+        //   此处再次通知确保 assistant 消息写入后侧栏预览更新
+        // 主进程路径已由 notifyMainProcessChildConvCreated 覆盖，Worker 线程路径也由
+        // createMessageHandler 中 child_conv_created 分发覆盖，此处仅作兜底
+        notifyMainProcessChildConvCreated(childConvId, agentName, args.task, parentConvId)
+
+        if (hasError) {
             return {
                 success: false,
-                output: `子 Agent 执行失败: ${err.message}`,
-                error: err.message,
+                output: `执行失败: ${errorMsg}`,
+                error: errorMsg,
             }
         }
+
+        // ⑪ 返回结果
+        logger.info('[AgentTool]', {
+            action: 'childConvCompleted',
+            childConvId,
+            success: true,
+            outputLen: finalOutput.length,
+        })
+
+        return {
+            success: true,
+            output: finalOutput,
+            _meta: {childConvId},
+        }
     },
+}
+
+/** 格式化子 Agent 事件为人类可读文本 */
+function formatProgress(event: AgentStreamEvent): string {
+    switch (event.type) {
+        case 'thinking': return '子 Agent 思考中...'
+        case 'tool_start': {
+            const tc = (event as any).toolCall
+            return tc?.name ? `🔧 ${tc.name}` : '🔧 工具调用中...'
+        }
+        case 'tool_progress': return `子 Agent: ${(event as any).progress || '执行中...'}`
+        case 'tool_result': {
+            const out = (event as any).result?.output
+            if (out && typeof out === 'string') {
+                const trimmed = out.trim()
+                return trimmed.length > 60 ? trimmed.slice(0, 60) + '...' : trimmed
+            }
+            return '✓ 工具完成'
+        }
+        default: return '子 Agent 执行中...'
+    }
+}
+
+/** 通用双路径发送：Worker 线程走 parentPort → 主进程转发，主进程直接 IPC 通知渲染进程 */
+function sendToRenderer(workerType: string, workerPayload: Record<string, unknown>, mainChannel: string, mainPayload: Record<string, unknown>): void {
+    try {
+        const {parentPort} = require('worker_threads')
+        if (parentPort && typeof parentPort.postMessage === 'function') {
+            parentPort.postMessage({type: workerType, ...workerPayload})
+            return
+        }
+    } catch {
+        // not in Worker
+    }
+    try {
+        const {getMainWindow} = require('../../../window')
+        const win = getMainWindow()
+        if (win && !win.isDestroyed()) {
+            win.webContents.send(mainChannel, mainPayload)
+        }
+    } catch {
+        // window not available
+    }
+}
+
+/** 通知主进程 / 渲染进程刷新侧栏会话列表 */
+function notifyMainProcessChildConvCreated(childConvId: string, agentName: string, task: string, parentConvId?: string): void {
+    const title = `${agentName}: ${task.slice(0, 20)}...`
+    sendToRenderer(
+        'child_conv_created',
+        {childConvId, title, parentConvId: parentConvId || ''},
+        'child_conv_created',
+        {id: childConvId, title, parentConvId: parentConvId || undefined},
+    )
+}
+
+/** 向渲染进程发送子会话的 agent 生命周期事件（begin / done / error）
+ *  使得侧边栏能展示子会话的运行状态动画（与父会话一致） */
+function sendChildAgentEvent(childConvId: string, event: AgentStreamEvent): void {
+    sendToRenderer(
+        'child_agent_event',
+        {conversationId: childConvId, event},
+        'agent-stream',
+        {conversationId: childConvId, event},
+    )
 }
 
 /** 设置当前 Agent 的模型方案配置 */
 export function setAgentToolConfig(): void {
     const config = runtimeConfigManager.getConfig()
-
-    // 设置权限引擎的工作目录
     if (config.workingDir) {
         permissionEngine.setWorkingDir(config.workingDir)
     }

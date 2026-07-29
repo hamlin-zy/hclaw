@@ -41,6 +41,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
         defaultTimeout: 15 * 60 * 1000,
         retryAttempts: 0,
         priorityEnabled: false,
+        maxDepth: 3,
     },
     channels: {
         sendGreeting: true,

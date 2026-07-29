@@ -149,11 +149,26 @@ async function switchActiveConversation(id: string | null) {
     if (id) {
         store.markConversationRendered(id)
         const targetMsgs = store.messagesMap[id]
-        if (targetMsgs) {
+        // ★ 如果 messagesMap 已有消息但缺少用户消息（流式子会话场景），
+        //   先从 SQLite 加载持久化消息，再合并流式消息，确保用户消息不丢失
+        if (targetMsgs && targetMsgs.some(m => m.role === 'user')) {
             useConversationStore.setState({ activeConversationId: id, loadedMessages: targetMsgs })
         } else {
             useConversationStore.setState({ activeConversationId: id })
             await store.loadMessagesInitial(id)
+            // 合并流式消息（如果存在）：SQLite 消息 + 尚未持久化的 streaming 消息
+            if (targetMsgs) {
+                const sqliteMsgs = useConversationStore.getState().messagesMap[id]
+                const existingIds = new Set(sqliteMsgs.map(m => m.id))
+                const streamingOnly = targetMsgs.filter(m => !existingIds.has(m.id))
+                if (streamingOnly.length > 0) {
+                    const merged = [...sqliteMsgs, ...streamingOnly]
+                    useConversationStore.setState({
+                        messagesMap: { ...useConversationStore.getState().messagesMap, [id]: merged },
+                        loadedMessages: merged,
+                    })
+                }
+            }
         }
         // 同步该会话的 agent 状态（确保输入框和按钮状态正确）
         const agentStore = useAgentStore.getState()
@@ -573,7 +588,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   createdAt: meta.createdAt,
                   updatedAt: meta.updatedAt,
                   pinned: meta.pinned,
-                  channel: meta.channel
+                  channel: meta.channel,
+                  status: meta.status,
+                  parentConvId: meta.parentConvId,
               }
               if (!workspaces[wsPath].conversations.find(c => c.id === summary.id)) {
                   workspaces[wsPath].conversations.push(summary)
@@ -691,6 +708,8 @@ if (typeof window !== 'undefined') {
             updatedAt: conv.updatedAt,
             pinned: conv.pinned,
             channel: conv.channel,
+            status: conv.status,
+            parentConvId: conv.parentConvId || undefined,
         }
 
         const wsInfo = workspaces[wsPath] || {lastOpenedAt: Date.now(), conversations: []}

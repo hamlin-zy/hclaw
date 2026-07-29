@@ -23,6 +23,7 @@ import {eventBus, MCPThemeEvents} from '../common/eventBus'
 // 导入拆分模块
 import type {
   AgentStartParams,
+  AgentStreamGenerator,
   PendingAssistantMsg,
   WorkerEntry,
 } from './manager.types'
@@ -124,7 +125,7 @@ export class AgentManager {
       model: {defaultMaxTokens: 8000, defaultTemperature: 0},
       mcp: {mcpTestTimeout: 15000},
       ui: {language: 'zh-CN', theme: 'system'},
-      subagent: {maxConcurrency: 3, defaultTimeout: 15 * 60 * 1000, retryAttempts: 0, priorityEnabled: false},
+      subagent: {maxConcurrency: 3, defaultTimeout: 15 * 60 * 1000, retryAttempts: 0, priorityEnabled: false, maxDepth: 3},
     }
     let initialSettings: SystemSettings | null = null
     try {
@@ -174,6 +175,75 @@ export class AgentManager {
     HookExecutor.getInstance().execute('SessionStart', {
       sessionId: params.conversationId,
     }).catch(() => {})
+  }
+
+  /**
+   * 以 AsyncGenerator 形式启动 Agent
+   *
+   * 将现有的回调式流监听器模式桥接为 AsyncGenerator，
+   * 使调用方可通过 for await...of 消费流事件。
+   *
+   * 关键约束：在调用 this.start() 之前注册流监听器，避免事件丢失。
+   */
+  async *startAsGenerator(params: AgentStartParams): AgentStreamGenerator {
+    const convId = params.conversationId
+    let resolveNext: ((value: IteratorResult<AgentStreamEvent>) => void) | null = null
+    let finished = false
+    let startupTimer: NodeJS.Timeout | null = null
+    const eventQueue: AgentStreamEvent[] = []
+
+    const listener = (event: AgentStreamEvent) => {
+      if (finished) return
+      if (startupTimer) { clearTimeout(startupTimer); startupTimer = null; }
+      if (resolveNext) {
+        resolveNext({value: event, done: false})
+        resolveNext = null
+      } else {
+        eventQueue.push(event)
+      }
+    }
+
+    // 在 start() 之前注册，避免竞态
+    const removeListener = this.addStreamListener(convId, listener)
+
+    try {
+      await this.start(params)
+
+      // 防止 worker 启动后静默崩溃导致 resolveNext 永久阻塞
+      startupTimer = setTimeout(() => {
+        if (resolveNext) {
+          resolveNext({value: {type: 'error', error: '子 Agent 启动超时'}, done: false})
+          resolveNext = null
+        }
+      }, 30_000)
+
+      while (true) {
+        let event: AgentStreamEvent
+        if (eventQueue.length > 0) {
+          event = eventQueue.shift()!
+        } else {
+          const result = await new Promise<IteratorResult<AgentStreamEvent>>(resolve => {
+            resolveNext = resolve
+          })
+          if (result.done) break
+          event = result.value
+        }
+
+        yield event
+
+        if (event.type === 'done' || event.type === 'error') {
+          finished = true
+          break
+        }
+      }
+    } finally {
+      if (startupTimer) { clearTimeout(startupTimer); startupTimer = null; }
+      removeListener()
+      if (!finished) {
+        // 安全清理：若 Agent 仍在运行则中止
+        try { await this.abort(convId, false) } catch { /* ignore */ }
+      }
+    }
   }
 
   /** 创建 Worker 消息处理器 */
@@ -263,6 +333,20 @@ export class AgentManager {
         // 流事件处理
         if (msg.type === 'stream' && msg.event) {
           await this.handleStreamEvent(conversationId, worker, msg.event)
+        } else if (msg.type === 'child_conv_created') {
+          // 子 Agent 独立会话创建事件 → 直接通知渲染进程刷新侧栏
+          // （不走 agent-stream，因为流事件处理器不认识这个类型）
+          const childMsg = msg as unknown as { childConvId: string; title?: string; parentConvId?: string }
+          this.sendToMainWindow('child_conv_created', {
+            id: childMsg.childConvId,
+            title: childMsg.title || '子 Agent',
+            parentConvId: childMsg.parentConvId || undefined,
+          })
+        } else if (msg.type === 'child_agent_event') {
+          // ★ 子会话 agent 生命周期事件（begin / done）→ 转发到渲染进程
+          //   使得侧边栏能展示子会话的运行状态动画（与父会话一致）
+          const childEvent = msg as unknown as { conversationId: string; event: AgentStreamEvent }
+          this.forwardToRenderer(childEvent.conversationId, childEvent.event)
         } else if (msg.type === 'error') {
           this.forwardToRenderer(msg.conversationId, {
             type: 'error',
@@ -542,6 +626,12 @@ export class AgentManager {
       return
     }
 
+    // ★ forwardToRenderer 确保渲染进程收到 done 事件，
+    //   将 convAgentStates 状态从 'running' 切回 'idle'。
+    //   正常路径下 handleDoneEvent 已转发过 done，此处为安全网：
+    //   当 Worker 异常退出（agentLoop 返回 early_exit 而非 done event）
+    //   或崩溃时，只有 onWorkerExit 能兜底通知渲染进程。
+    this.forwardToRenderer(conversationId, {type: 'done', reason: 'aborted'} as AgentStreamEvent)
     this.notifyStreamListeners(conversationId, {type: 'done', reason: 'aborted'} as unknown as AgentStreamEvent)
     this.streamListeners.delete(conversationId)
     this.cleanup(conversationId)

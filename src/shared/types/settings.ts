@@ -86,6 +86,8 @@ export interface SubagentConfig {
   defaultTimeout: number
   retryAttempts: number
   priorityEnabled: boolean
+  /** 子 Agent 嵌套最大递归深度，默认值 3 */
+  maxDepth: number
 }
 
 export interface SystemSettings {
