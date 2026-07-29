@@ -84,6 +84,23 @@ class SchedulerWorkerPool {
                 this.onAgentDone?.(msg.scheduleId, msg.convId, msg.success)
                 return
             }
+            if (msg.type === 'child_conv_created') {
+                // 子 Agent 独立会话创建事件 → 通知渲染进程刷新侧栏
+                try {
+                    const {getMainWindow} = require('../../window')
+                    const win = getMainWindow()
+                    if (win && !win.isDestroyed()) {
+                        win.webContents.send('child_conv_created', {
+                            id: msg.childConvId,
+                            title: msg.title,
+                            parentConvId: msg.parentConvId || undefined,
+                        })
+                    }
+                } catch {
+                    // window not available
+                }
+                return
+            }
             if (msg.type === 'task:result') {
                 logger.debug('worker.taskResult', {scheduleId: msg.scheduleId, success: String(msg.success), error: msg.error?.slice(0, 200) || '(none)', outputLen: String((msg.output || '').length)})
                 this.workerTasks.delete(worker)
@@ -184,6 +201,10 @@ class SchedulerManager {
    * 初始化调度管理器，启动 Worker 线程 + Agent Worker 池
    */
   init(): void {
+      // ★ 应用启动时将残留 running 的调度会话重置为 active
+      // 避免开发环境强制退出后侧边栏一直闪烁
+      this.resetStaleRunningStatus()
+
       this.spawnCronWorker()
       // 设置 Agent Worker 池的回调
       this.agentWorkerPool.onAgentStart = (scheduleId, convId) => {
@@ -203,6 +224,36 @@ class SchedulerManager {
           this.convRepo.updateMeta(convId, {status})
       } catch (err) {
           console.error('[SchedulerManager] updateConversationStatus failed:', err)
+      }
+  }
+
+  /**
+   * 应用启动时将残留 'running' 状态的调度会话重置为 'active'
+   *
+   * 开发环境下 CTRL+C 强制退出可能导致会话状态卡在 running，
+   * 下次启动时侧边栏 isSchedulerRunning 检查到 status=running 会一直闪烁。
+   * 应用启动时不可能有正在运行的任务，状态重置是幂等且无损的。
+   */
+  resetStaleRunningStatus(): void {
+      try {
+          const schedules = this.scheduleRepo.listEnabled()
+          const scheduleIds = new Set(schedules.map(s => s.id))
+          // 仅重置 code/shell 类型（跟随当前分派策略）
+          // 这些任务的执行模式与 agent/skill/command 一致
+          const allConvs = this.convRepo.list()
+          let resetCount = 0
+          for (const conv of allConvs) {
+              // channel=schedule 标记 + status=running 的会话上下文可能已丢失
+              if (conv.channel === 'schedule' && conv.status === 'running') {
+                  this.convRepo.updateMeta(conv.id, {status: 'active'})
+                  resetCount++
+              }
+          }
+          if (resetCount > 0) {
+              logger.info(`resetStaleRunningStatus: ${resetCount} scheduler conversations reset from running to active`)
+          }
+      } catch (err) {
+          logger.error('resetStaleRunningStatus failed:', {error: err instanceof Error ? err.message : String(err)})
       }
   }
 

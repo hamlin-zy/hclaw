@@ -149,11 +149,32 @@ async function switchActiveConversation(id: string | null) {
     if (id) {
         store.markConversationRendered(id)
         const targetMsgs = store.messagesMap[id]
-        if (targetMsgs) {
+        // ★ 如果 messagesMap 已有消息但缺少用户消息（流式子会话场景），
+        //   先从 SQLite 加载持久化消息，再合并流式消息，确保用户消息不丢失
+        if (targetMsgs && targetMsgs.some(m => m.role === 'user')) {
             useConversationStore.setState({ activeConversationId: id, loadedMessages: targetMsgs })
         } else {
             useConversationStore.setState({ activeConversationId: id })
             await store.loadMessagesInitial(id)
+            // ★ 仅在会话仍在流式运行时合并 streaming 消息（实时观看场景）
+            //   已完成（idle）的会话以 SQLite 持久化消息为准，避免与流式中间态重复
+            if (targetMsgs) {
+                const {useAgentStore} = await import('./agentStore')
+                const agentState = useAgentStore.getState().convAgentStates[id]?.agentState
+                const isRunning = agentState?.status === 'running' || agentState?.status === 'thinking'
+                if (isRunning) {
+                    const sqliteMsgs = useConversationStore.getState().messagesMap[id]
+                    const existingIds = new Set(sqliteMsgs.map(m => m.id))
+                    const streamingOnly = targetMsgs.filter(m => !existingIds.has(m.id))
+                    if (streamingOnly.length > 0) {
+                        const merged = [...sqliteMsgs, ...streamingOnly]
+                        useConversationStore.setState({
+                            messagesMap: { ...useConversationStore.getState().messagesMap, [id]: merged },
+                            loadedMessages: merged,
+                        })
+                    }
+                }
+            }
         }
         // 同步该会话的 agent 状态（确保输入框和按钮状态正确）
         const agentStore = useAgentStore.getState()
@@ -573,7 +594,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   createdAt: meta.createdAt,
                   updatedAt: meta.updatedAt,
                   pinned: meta.pinned,
-                  channel: meta.channel
+                  channel: meta.channel,
+                  status: meta.status,
+                  parentConvId: meta.parentConvId,
               }
               if (!workspaces[wsPath].conversations.find(c => c.id === summary.id)) {
                   workspaces[wsPath].conversations.push(summary)
@@ -691,6 +714,8 @@ if (typeof window !== 'undefined') {
             updatedAt: conv.updatedAt,
             pinned: conv.pinned,
             channel: conv.channel,
+            status: conv.status,
+            parentConvId: conv.parentConvId || undefined,
         }
 
         const wsInfo = workspaces[wsPath] || {lastOpenedAt: Date.now(), conversations: []}

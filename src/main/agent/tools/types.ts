@@ -41,6 +41,8 @@ export interface Tool<Input = any, Output = any> {
 export interface ToolContext {
   /** 当前工具调用的 ID（用于并行模式下子 Agent 事件路由到正确卡片） */
   toolCallId?: string
+  /** 当前会话 ID（用于子 Agent 创建等场景） */
+  conversationId?: string
   /** 当前工作目录 */
   workingDir: string
   /** 中止信号 */
@@ -75,6 +77,8 @@ export interface ToolResult<T = any> {
     }
     /** 任务列表更新（用于 TaskCreateTool/TaskUpdateTool 等任务管理工具） */
     tasks?: import('@shared/types').Task[]
+    /** 元数据（如 childConvId 等），不展示给用户 */
+    _meta?: Record<string, unknown>
 }
 
 export interface Artifact {

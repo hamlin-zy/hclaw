@@ -3,11 +3,14 @@
  */
 
 import type {AgentStreamEvent} from './stream'
-import type {AgentTemplate, LlmCallLog, Message, SystemSettings, ToolCall} from '@shared/types'
+import type {ToolCall} from '@shared/types'
 import type {ChatMessage, ModelConfig} from './model/types'
 import type {SerializableCapabilities} from '../common/capabilitySerializer'
 
 // ─── 公开类型 ──────────────────────────────────────────
+
+/** AsyncGenerator 类型，用于将回调式流事件转为异步迭代器 */
+export type AgentStreamGenerator = AsyncGenerator<AgentStreamEvent>
 
 export interface AgentStartParams {
   conversationId: string
@@ -43,6 +46,8 @@ export interface AgentStartParams {
    * 会在 LLM 调用时注入到消息中（历史消息之后，用户消息之前）
    */
   hookAdditionalContext?: string
+  /** Agent 定义（子 Agent 独立会话使用） */
+  agentDefinition?: import('@shared/agent').AgentDefinition
 }
 
 // ─── 内部类型 ─────────────────────────────────────────

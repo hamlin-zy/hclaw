@@ -332,6 +332,7 @@ export class AgentLoopController {
                 askUserQuestion,
                 channelSend,
                 onEvent,
+                sessionId,
             })
             currentState = toolResult.state
             for (const event of toolResult.events) yield event

@@ -16,13 +16,10 @@ import type {RunParams, LlmStreamResult, ToolExecutionResult} from './types'
 
 import {LLMCaller, isContextLengthError as checkContextLengthError, parsePlannedCommands} from './llmCaller'
 import {ToolExecutor} from './toolExecutor'
-import {addMessage, createAssistantMessage, normalizeToolCallMessages} from '../state'
+import {addMessage, normalizeToolCallMessages} from '../state'
 import {logger} from '../logger'
-import {extractTextContent} from '../utils/contentUtils'
 import {permissionEngine} from '../tools/permission'
 import {runtimeConfigManager} from '../runtimeConfigManager'
-import {getCurrentSchemeInfo} from '../model/index'
-import {resolveModelConfig, selectModelForTaskWithRole} from '../model/modelSelector'
 import {getSchemeVersion} from '../model/modelSchemeManager'
 import {isThirdPartyAnthropicAPI} from '../model/utils'
 import {classifyErrorEnhanced} from '../common/errorClassifier'
@@ -144,7 +141,7 @@ export async function* executeLlmCallWithRetry(
                 messages: messagesToSend,
             })
             if (truncateResult.action === 'structured_truncate') {
-                console.log(
+                logger.info(
                     `[AgentLoop] Structured truncation triggered: ${messagesToSend.length} → ${truncateResult.messages.length} messages`,
                 )
             }
@@ -461,6 +458,8 @@ export interface ExecuteToolCallsParams {
     askUserQuestion: ((question: string, options?: string[], multiSelect?: boolean) => Promise<string>) | undefined
     channelSend: ((channelId: string, toUser: string, text: string, contextToken?: string, fileType?: string) => Promise<{ success: boolean; error?: string }>) | undefined
     onEvent: ((event: any) => void) | undefined
+    /** 当前会话 ID（用于子 Agent 创建等场景） */
+    sessionId?: string
 }
 
 /**
@@ -473,7 +472,7 @@ export async function* executeToolCalls(
     ctx: ExecuteToolCallsParams,
 ): AsyncGenerator<AgentStreamEvent, ToolExecutionResult> {
     const {toolExecutor, collectedToolCalls, state, workingDir, abortSignal,
-        requestConfirmation, askUserQuestion, channelSend, onEvent} = ctx
+        requestConfirmation, askUserQuestion, channelSend, onEvent, sessionId} = ctx
 
     // 通知 UI 工具执行即将开始（停止 thinking 动画 + 显示执行状态）
     yield {type: 'tools_start', toolCount: collectedToolCalls.length}
@@ -485,37 +484,10 @@ export async function* executeToolCalls(
         askUserQuestion,
         channelSend,
         onEvent,
+        conversationId: sessionId,
         sendMessage: (msg: any) => {
             if (!onEvent) return
             switch (msg.type) {
-                case 'subagent_progress':
-                    onEvent({
-                        type: 'subagent_progress',
-                        taskId: msg.taskId,
-                        toolCallId: msg.toolCallId,
-                        subAgentEvent: msg.subAgentEvent,
-                        progress: msg.progress,
-                        subAgentStreamEvent: msg.subAgentStreamEvent,
-                    })
-                    break
-                case 'subagent_start':
-                    onEvent({
-                        type: 'subagent_start',
-                        taskId: msg.taskId,
-                        description: msg.description || '',
-                        toolCallId: msg.toolCallId,
-                    })
-                    break
-                case 'subagent_done':
-                    onEvent({
-                        type: 'subagent_done',
-                        taskId: msg.taskId,
-                        success: msg.success ?? true,
-                        output: msg.output || '',
-                        error: msg.error,
-                        toolCallId: msg.toolCallId,
-                    })
-                    break
                 case 'skill_start':
                     onEvent({type: 'skill_start', skillName: msg.skillName})
                     break

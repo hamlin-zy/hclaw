@@ -149,6 +149,16 @@ export default function SettingsDialog() {
                 min={0}
                 fallback={0}
             />
+            <NumberField
+                label="深入了解度 (maxDepth)"
+                description="子 Agent 嵌套的最大层级深度，防止无限递归。默认 3"
+                value={current.subagent?.maxDepth ?? 3}
+                onChange={(v) => updatePending('subagent', {maxDepth: clampPositive(v, 3)})}
+                min={1}
+                max={10}
+                fallback={3}
+                decimals={0}
+            />
             <div className="flex items-center justify-between py-2">
                 <div>
                     <label className="text-xs text-[var(--text-muted)]">启用优先级调度 (priorityEnabled)</label>
@@ -523,6 +533,7 @@ function NumberField({
                          value,
                          onChange,
                          min = 1,
+                         max,
                          fallback,
                          decimals = 0,
                      }: {
@@ -531,6 +542,7 @@ function NumberField({
     value: number
     onChange: (v: number) => void
     min?: number
+    max?: number
     fallback: number
     decimals?: number
 }) {
@@ -543,6 +555,7 @@ function NumberField({
                 type="number"
                 step={decimals > 0 ? `0.${'0'.repeat(decimals - 1)}1` : 1}
                 min={min}
+                max={max}
                 className={`w-full bg-[var(--surface-muted)] border rounded px-3 py-1.5 text-sm outline-none transition-colors ${
                     isDangerous
                         ? 'border-red-500 focus:border-red-500'
