@@ -488,14 +488,17 @@ function ConversationList() {
     const getFilteredConversations = useConversationStore((s) => s.getFilteredConversations)
     const workspaces = useConversationStore((s) => s.workspaces)
     const searchQuery = useConversationStore((s) => s.searchQuery)
+    const activeConversationId = useConversationStore((s) => s.activeConversationId)
     const [contextMenu, setContextMenu] = useState<{
         x: number;
         y: number;
         id: string;
         title: string;
-        pinned?: boolean
+        pinned?: boolean;
+        parentConvId?: string;
     } | null>(null)
     const [renamingId, setRenamingId] = useState<string | null>(null)
+    const [expandedParentId, setExpandedParentId] = useState<string | null>(null)
     const listRef = useRef<HTMLDivElement>(null)
 
     // 监听全局点击以关闭菜单
@@ -515,6 +518,85 @@ function ConversationList() {
     const filtered = useMemo(() => {
         return getFilteredConversations()
     }, [getFilteredConversations, workspaces, currentWorkspacePath, searchQuery])
+
+    // ★ 所有 useMemo/useEffect 必须在早期 return 之前定义，
+    //   否则 React Hooks 规则会报 "Rendered more hooks than during the previous render"
+    //   当 currentWorkspacePath 为 null 时首次渲染提前 return，hook 序列中断。
+    const childrenMap = useMemo(() => {
+        const map = new Map<string, typeof filtered[number][]>()
+        for (const conv of filtered) {
+            if (conv.parentConvId) {
+                const siblings = map.get(conv.parentConvId) || []
+                siblings.push(conv)
+                map.set(conv.parentConvId, siblings)
+            }
+        }
+        return map
+    }, [filtered])
+
+    // ★ 预计算 parentId → childIds 映射，避免 render 中重复 .map()
+    const childIdsMap = useMemo(() => {
+        const map = new Map<string, string[]>()
+        for (const [parentId, children] of childrenMap) {
+            map.set(parentId, children.map(c => c.id))
+        }
+        return map
+    }, [childrenMap])
+
+    // ★ 新子会话自动展开父级：检测 childrenMap 变化，新出现的子会话 → 展开其父会话
+    const prevChildrenRef = useRef<Map<string, Set<string>>>(new Map())
+    useEffect(() => {
+        const current = new Map<string, Set<string>>()
+        for (const [parentId, children] of childrenMap) {
+            current.set(parentId, new Set(children.map(c => c.id)))
+        }
+        const prev = prevChildrenRef.current
+        // 查找新增的子会话
+        for (const [parentId, childIds] of current) {
+            const prevIds = prev.get(parentId) || new Set<string>()
+            for (const cid of childIds) {
+                if (!prevIds.has(cid)) {
+                    // 新子会话出现 → 展开父会话
+                    setExpandedParentId(parentId)
+                    break
+                }
+            }
+        }
+        prevChildrenRef.current = current
+    }, [childrenMap])
+
+    // ★ handleParentClick 必须在早期 return 之前声明（React Hooks 规则）
+    // expandedParentId: 当前展开的父会话 ID（null = 所有父会话子会话折叠）。
+    // 切换到其他父会话时自动替换（失焦父会话自动折叠），点击当前父会话切换展开/折叠。
+    const handleParentClick = useCallback((convId: string, isCurrentlyActive: boolean, activeChildOfThisParent: boolean) => {
+        setExpandedParentId(prev => {
+            // 当前选中该父会话 OR 当前激活的是其子会话 → 不折叠，保持展开
+            if ((isCurrentlyActive || activeChildOfThisParent) && prev === convId) return prev
+            return prev === convId ? null : convId
+        })
+    }, [])
+
+    // ★ 当 activeConversationId 变化时自动管理 expandedParentId
+    //    handleParentClick 仅处理父会话点击的展开/折叠切换；
+    //    此 effect 负责子会话和独立会话场景的展开/折叠。
+    useEffect(() => {
+        if (!activeConversationId) return
+        const activeConv = filtered.find(c => c.id === activeConversationId)
+        if (!activeConv) return
+
+        setExpandedParentId(prev => {
+            if (activeConv.parentConvId) {
+                // 切换到子会话 → 展开其父会话（同族内导航）
+                return activeConv.parentConvId
+            }
+            if (childrenMap.has(activeConv.id)) {
+                // 切换到父会话 → 保持当前状态（handleParentClick 负责切换）
+                return prev
+            }
+            // 切换到独立会话（无子、无父） → 折叠所有已展开的父会话
+            return null
+        })
+    }, [activeConversationId, filtered, childrenMap])
 
   if (!currentWorkspacePath) {
     return (
@@ -539,12 +621,45 @@ function ConversationList() {
     )
   }
 
+  // 按父子关系分组：子会话紧跟在父会话之后，带缩进层级
+  function groupByParent(conversations: Array<typeof filtered[number]>): Array<(typeof filtered[number]) & { indentLevel: number; childCount: number }> {
+      const result: Array<(typeof filtered[number]) & { indentLevel: number; childCount: number }> = []
+      const placed = new Set<string>()
+
+      function addWithChildren(conv: typeof filtered[number], indentLevel: number) {
+          if (placed.has(conv.id)) return
+          placed.add(conv.id)
+          const directChildren = childrenMap.get(conv.id)
+          result.push({ ...conv, indentLevel, childCount: directChildren?.length || 0 })
+
+          // 非展开的父会话跳过子会话（只有 expandedParentId === conv.id 时显示）
+          if (expandedParentId === conv.id) {
+              if (directChildren) {
+                  directChildren.sort((a, b) => b.updatedAt - a.updatedAt)
+                  for (const child of directChildren) {
+                      addWithChildren(child, indentLevel + 1)
+                  }
+              }
+          }
+      }
+
+      // 仅从根会话开始处理（无父级的独立会话 + 父级已删除的子会话）
+      const parentIdSet = new Set(conversations.map(c => c.id))
+      for (const conv of conversations) {
+          if (!conv.parentConvId || !parentIdSet.has(conv.parentConvId)) {
+              addWithChildren(conv, 0)
+          }
+      }
+
+      return result
+  }
+
   return (
       <div
           ref={listRef}
           className="flex-1 overflow-y-auto px-[var(--space-relaxed)] space-y-[1px] py-[var(--space-tight)] scrollbar-thin relative"
       >
-          {filtered.map((conv) => (
+          {groupByParent(filtered).map(conv => (
               <ConversationItem
                   key={conv.id}
                   id={conv.id}
@@ -554,9 +669,13 @@ function ConversationList() {
                   pinned={conv.pinned}
                   channel={conv.channel}
                   status={conv.status}
+                  indentLevel={conv.indentLevel}
+                  childCount={conv.childCount}
+                  childIds={childIdsMap.get(conv.id)}
+                  onParentClick={conv.childCount > 0 ? handleParentClick : undefined}
                   isRenaming={renamingId === conv.id}
                   onStopRename={() => setRenamingId(null)}
-                  onOpenMenu={(x, y) => setContextMenu({x, y, id: conv.id, title: conv.title, pinned: conv.pinned})}
+                  onOpenMenu={(x, y) => setContextMenu({x, y, id: conv.id, title: conv.title, pinned: conv.pinned, parentConvId: conv.parentConvId})}
               />
           ))}
 
@@ -577,8 +696,8 @@ function ConversationList() {
   )
 }
 
-function GlobalContextMenu({x, y, id, title, pinned, onClose, onStartRename}: {
-    x: number; y: number; id: string; title: string; pinned?: boolean;
+function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onStartRename}: {
+    x: number; y: number; id: string; title: string; pinned?: boolean; parentConvId?: string;
     onClose: () => void; onStartRename: (id: string) => void
 }) {
     const deleteConversation = useConversationStore((s) => s.deleteConversation)
@@ -623,6 +742,7 @@ function GlobalContextMenu({x, y, id, title, pinned, onClose, onStartRename}: {
             onContextMenu={(e) => e.preventDefault()}
             onClick={(e) => e.stopPropagation()}
         >
+            {!parentConvId && (
             <button
                 onClick={(e) => {
                     e.preventDefault()
@@ -637,6 +757,7 @@ function GlobalContextMenu({x, y, id, title, pinned, onClose, onStartRename}: {
                 </svg>
                 {pinned ? '取消置顶' : '置顶会话'}
             </button>
+            )}
 
             <button
                 onClick={(e) => {
@@ -742,13 +863,17 @@ function SessionIcon({channel, pinned, isActive}: { channel?: string; pinned?: b
     }
 }
 
-function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpenMenu, pinned, channel, status}: {
+function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpenMenu, pinned, channel, status, indentLevel, childCount, childIds, onParentClick}: {
     id: string; title: string; preview: string; timestamp: number;
     isRenaming: boolean; onStopRename: () => void;
     onOpenMenu: (x: number, y: number) => void;
     pinned?: boolean;
-    channel?: string
-    status?: 'active' | 'running' | 'archived'
+    channel?: string;
+    status?: 'active' | 'running' | 'archived';
+    indentLevel?: number;
+    childCount?: number;
+    childIds?: string[];
+    onParentClick?: (convId: string, isActive: boolean, activeChildOfThisParent: boolean) => void;
 }) {
     const activeConversationId = useConversationStore((s) => s.activeConversationId)
     const setActiveConversation = useConversationStore((s) => s.setActiveConversation)
@@ -760,7 +885,15 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
 
     // 读取该会话的 agent 运行时状态（后台运行/待确认标记）
     const agentStatus = convData?.agentState?.status
-    const isRunning = !isActive && (agentStatus === 'running' || agentStatus === 'thinking')
+    // ★ 检测子会话是否在运行中（用于父会话显示运行脉冲）
+    const childRunningStates = useAgentStore((s) => {
+        if (!childIds?.length) return false
+        return childIds.some(cid => {
+            const st = s.convAgentStates[cid]?.agentState?.status
+            return st === 'running' || st === 'thinking'
+        })
+    })
+    const isRunning = !isActive && (agentStatus === 'running' || agentStatus === 'thinking' || childRunningStates)
     const hasPendingQuestion = !!convData?.pendingQuestion
     const hasPermissionConfirm = !!convData?.pendingPermissionConfirm
     const hasPending = hasPendingQuestion || hasPermissionConfirm
@@ -794,6 +927,18 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
         clearTimeout(preloadTimerRef.current)
     }, [])
 
+    const hasChildren = (childCount || 0) > 0
+    // ★ 当前激活的会话是否为此父会话的子会话（用于 handleParentClick 判断）
+    const activeChildOfThisParent = hasChildren && !!childIds?.includes(activeConversationId || '')
+
+    const handleClick = useCallback(() => {
+        if (isRenaming) return
+        if (hasChildren && onParentClick) {
+            onParentClick(id, isActive, activeChildOfThisParent)
+        }
+        setActiveConversation(id)
+    }, [isRenaming, hasChildren, onParentClick, id, isActive, activeChildOfThisParent, setActiveConversation])
+
     const containerClass = [
         'group relative flex items-center justify-between gap-3 px-4 py-2 rounded-[18px] transition-all cursor-pointer',
         isActive
@@ -814,9 +959,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
 
     return (
         <div
-            onClick={() => {
-                if (!isRenaming) setActiveConversation(id)
-            }}
+            onClick={handleClick}
             onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -825,11 +968,19 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
             className={containerClass}
+            style={indentLevel ? { paddingLeft: 16 + indentLevel * 16 } : undefined}
         >
             <div className={iconContainerClass}>
                 {showRunningPulse && (
                     <div
                         className="absolute inset-[-3px] rounded-[10px] border-2 border-[var(--info)] animate-running-pulse pointer-events-none"/>
+                )}
+                {childCount !== undefined && childCount > 0 && (
+                    <span
+                        className="absolute -left-1.5 -top-1.5 min-w-[16px] h-[16px] flex items-center justify-center rounded-full bg-[var(--brand-primary)] text-white text-[9px] font-bold leading-none px-[3px] shadow-sm ring-1 ring-white dark:ring-gray-900 z-20 pointer-events-none"
+                    >
+                        {childCount}
+                    </span>
                 )}
                 <SessionIcon
                     channel={channel}
