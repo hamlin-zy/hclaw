@@ -7,6 +7,13 @@
 
 ---
 
+## [v0.2.94] - 2026-07-28
+
+### 修复
+- **流式消息合并条件收紧** — 切换会话时仅在 Agent 仍在流式运行（`running`/`thinking`）时合并 streaming 消息，避免已完成（idle）的会话出现重复消息 (`src/renderer/stores/conversationStore.ts`)
+
+---
+
 ## [v0.2.93] - 2026-07-28
 
 ### 新增

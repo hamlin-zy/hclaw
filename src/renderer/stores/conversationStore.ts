@@ -156,17 +156,23 @@ async function switchActiveConversation(id: string | null) {
         } else {
             useConversationStore.setState({ activeConversationId: id })
             await store.loadMessagesInitial(id)
-            // 合并流式消息（如果存在）：SQLite 消息 + 尚未持久化的 streaming 消息
+            // ★ 仅在会话仍在流式运行时合并 streaming 消息（实时观看场景）
+            //   已完成（idle）的会话以 SQLite 持久化消息为准，避免与流式中间态重复
             if (targetMsgs) {
-                const sqliteMsgs = useConversationStore.getState().messagesMap[id]
-                const existingIds = new Set(sqliteMsgs.map(m => m.id))
-                const streamingOnly = targetMsgs.filter(m => !existingIds.has(m.id))
-                if (streamingOnly.length > 0) {
-                    const merged = [...sqliteMsgs, ...streamingOnly]
-                    useConversationStore.setState({
-                        messagesMap: { ...useConversationStore.getState().messagesMap, [id]: merged },
-                        loadedMessages: merged,
-                    })
+                const {useAgentStore} = await import('./agentStore')
+                const agentState = useAgentStore.getState().convAgentStates[id]?.agentState
+                const isRunning = agentState?.status === 'running' || agentState?.status === 'thinking'
+                if (isRunning) {
+                    const sqliteMsgs = useConversationStore.getState().messagesMap[id]
+                    const existingIds = new Set(sqliteMsgs.map(m => m.id))
+                    const streamingOnly = targetMsgs.filter(m => !existingIds.has(m.id))
+                    if (streamingOnly.length > 0) {
+                        const merged = [...sqliteMsgs, ...streamingOnly]
+                        useConversationStore.setState({
+                            messagesMap: { ...useConversationStore.getState().messagesMap, [id]: merged },
+                            loadedMessages: merged,
+                        })
+                    }
                 }
             }
         }
