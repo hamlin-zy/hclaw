@@ -764,6 +764,7 @@ if (typeof window !== 'undefined') {
         id: string;
         preview?: string;
         title?: string;
+        status?: 'active' | 'running' | 'archived';
         updatedAt?: number;
         reloadMessages?: boolean  // 渠道消息专用：强制从 DB 重新加载消息列表
     }) => {
@@ -793,6 +794,7 @@ if (typeof window !== 'undefined') {
             ...updatedConversations[convIndex],
             ...(data.preview !== undefined && {preview: data.preview}),
             ...(data.title !== undefined && {title: data.title}),
+            ...(data.status !== undefined && {status: data.status}),
             updatedAt: data.updatedAt || Date.now(),
         }
 

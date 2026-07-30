@@ -43,6 +43,9 @@ export class AgentManager {
   private workers: Map<string, WorkerEntry> = new Map()
   private mainWindow: BrowserWindow | null = null
 
+  /** 父会话 → 子会话 ID 集合，父会话终止时级联清理子会话运行状态 */
+  private parentToChildren: Map<string, Set<string>> = new Map()
+
   /** 外部模块注册的流事件监听器 */
   private streamListeners: Map<string, Set<(event: AgentStreamEvent) => void>> = new Map()
 
@@ -342,6 +345,15 @@ export class AgentManager {
             title: childMsg.title || '子 Agent',
             parentConvId: childMsg.parentConvId || undefined,
           })
+          // 注册父→子关系，父会话终止时级联清理子会话运行状态
+          if (childMsg.parentConvId) {
+            let children = this.parentToChildren.get(childMsg.parentConvId)
+            if (!children) {
+              children = new Set()
+              this.parentToChildren.set(childMsg.parentConvId, children)
+            }
+            children.add(childMsg.childConvId)
+          }
         } else if (msg.type === 'child_agent_event') {
           // ★ 子会话 agent 生命周期事件（begin / done）→ 转发到渲染进程
           //   使得侧边栏能展示子会话的运行状态动画（与父会话一致）
@@ -938,6 +950,17 @@ export class AgentManager {
 
   /** 清理会话资源 */
   private cleanup(conversationId: string): void {
+    // ★ 级联清理子会话：父会话终止时，确保所有子会话的 running 状态也被清除
+    //    即使 Worker 侧的 catch 块已寄送 done 事件，Worker termination 可能导致消息丢失，
+    //    此处从主进程侧兜底发送 done 事件到渲染进程
+    const children = this.parentToChildren.get(conversationId)
+    if (children) {
+      for (const childConvId of children) {
+        this.forwardToRenderer(childConvId, {type: 'done', reason: 'aborted'} as AgentStreamEvent)
+      }
+      this.parentToChildren.delete(conversationId)
+    }
+
     // 触发 SessionEnd Hook
     HookExecutor.getInstance().execute('SessionEnd', {
       sessionId: conversationId,
