@@ -7,6 +7,18 @@
 
 ---
 
+## [v0.2.95] - 2026-07-28
+
+### 新增
+- **父子会话级联清理** — 父会话终止时自动清理所有子会话的运行状态，即使 Worker 侧消息丢失也从主进程兜底发送 done 事件到渲染进程 (`src/main/agent/manager.impl.ts`)
+- **定时任务状态实时推送** — 定时任务完成后通过 IPC 推送 `conversation-updated` 事件到渲染进程，侧边栏实时刷新状态 pulse 动画 (`src/main/scheduler/index.ts`)
+
+### 变更
+- **conversation-updated 事件类型扩展** — `onConversationUpdated` 回调新增 `status` 字段支持 (`src/renderer/env.d.ts`)
+- **会话 Store 状态同步** — `conversationStore` 支持通过 `conversation-updated` 事件更新 status (`src/renderer/stores/conversationStore.ts`)
+
+---
+
 ## [v0.2.94] - 2026-07-28
 
 ### 修复

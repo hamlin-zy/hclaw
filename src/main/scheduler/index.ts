@@ -224,6 +224,21 @@ class SchedulerManager {
           this.convRepo.updateMeta(convId, {status})
       } catch (err) {
           console.error('[SchedulerManager] updateConversationStatus failed:', err)
+          return
+      }
+      // 推送状态变化到渲染进程，使侧边栏实时刷新（best-effort）
+      try {
+          const {getMainWindow} = require('../window')
+          const win = getMainWindow()
+          if (win && !win.isDestroyed()) {
+              win.webContents.send('conversation-updated', {
+                  id: convId,
+                  status,
+                  updatedAt: Date.now(),
+              })
+          }
+      } catch {
+          // window not ready
       }
   }
 
@@ -394,6 +409,10 @@ class SchedulerManager {
       const status = succeeded ? 'success' : 'failure'
       this.scheduleRepo.updateRunStatus(msg.scheduleId, status)
       this.activeRuns.delete(msg.scheduleId)
+      // 更新会话状态，使侧边栏 pulse 动画停止
+      if (convId) {
+        this.updateConversationStatus(convId, 'active')
+      }
       logger.info('execute.end', {source: msg.source, scheduleId: msg.scheduleId, status})
     }
 

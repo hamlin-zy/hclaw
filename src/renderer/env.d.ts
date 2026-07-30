@@ -200,11 +200,12 @@ declare global {
             channel?: string
         }) => void) => () => void
 
-        // 监听主进程推送的会话更新（渠道消息更新 preview 等）
+        // 监听主进程推送的会话更新（渠道消息更新 preview、定时任务状态更新等）
         onConversationUpdated?: (callback: (data: {
             id: string
             preview?: string
             title?: string
+            status?: 'active' | 'running' | 'archived'
             updatedAt?: number
         }) => void) => () => void
 
