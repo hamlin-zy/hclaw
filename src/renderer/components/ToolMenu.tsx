@@ -44,7 +44,7 @@ export default function ToolMenu({onUploadFile, onOpenDialog, onOpenCommandPalet
     }
 
     return (
-        <div className="relative" ref={toolBtnRef}>
+        <div data-name="input-toolbar-tools" className="relative" ref={toolBtnRef}>
             <button
                 type="button"
                 onClick={() => {
