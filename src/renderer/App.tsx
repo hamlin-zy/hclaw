@@ -263,6 +263,7 @@ export default function App() {
   const registerStreamListener = useAgentStore((s) => s.registerStreamListener)
   const theme = useThemeStore((s) => s.theme)
   const {leftCollapsed, rightCollapsed} = useSidebarStore()
+  const background = useSettingsStore((s) => s.settings.ui.background)
 
   // 注册系统内快捷键（非全局快捷键）
   useGlobalHotkeys()
@@ -296,6 +297,34 @@ export default function App() {
 
     window.electronAPI?.setWindowTheme?.(theme)
   }, [theme])
+
+  // ── 本地图片背景：控制 bg-enabled class + 背景层/遮罩层变量 ──
+  useEffect(() => {
+    const enabled = background?.enabled && !!background.imagePath
+    document.documentElement.classList.toggle('bg-enabled', !!enabled)
+    if (enabled) {
+      // 遮罩/模糊通过 CSS 变量传递给样式层
+      document.documentElement.style.setProperty('--bg-overlay', String((background.overlay ?? 40) / 100))
+      document.documentElement.style.setProperty('--bg-blur', `${background.blur ?? 16}px`)
+      // 气泡后层/卡片毛玻璃的 surface 透明度：跟随 overlay 滑杆，且按主题区分区间。
+      // 深色主题（surface 近黑）40-90%；浅色主题（surface 纯白）25-70%——
+      // 浅色下若保持同样区间，白色毛玻璃层叠会变成不透明白雾盖住背景图。
+      const isDark = theme === 'dark' || theme === 'yuanshandai'
+      const overlayRatio = (background.overlay ?? 40) / 100
+      const alphaPct = isDark
+          ? Math.round((0.40 + overlayRatio * 0.50) * 100)
+          : Math.round((0.25 + overlayRatio * 0.45) * 100)
+      document.documentElement.style.setProperty('--bg-surface-alpha', `${alphaPct}%`)
+      // 内部列表项（右侧栏规则项/待办项）遮挡强度 = 主层 × 0.7
+      document.documentElement.style.setProperty('--bg-surface-alpha-inner', `${Math.round(alphaPct * 0.7)}%`)
+    }
+    return () => {
+      document.documentElement.style.removeProperty('--bg-overlay')
+      document.documentElement.style.removeProperty('--bg-blur')
+      document.documentElement.style.removeProperty('--bg-surface-alpha')
+      document.documentElement.style.removeProperty('--bg-surface-alpha-inner')
+    }
+  }, [background?.enabled, background?.imagePath, background?.overlay, background?.blur, theme])
 
   useEffect(() => {
     const init = async () => {
@@ -525,7 +554,23 @@ export default function App() {
     <ErrorBoundary>
       {/* macOS Tooltip Portal（突破 overflow: hidden 祖先容器裁剪） */}
       {typeof document !== 'undefined' && document.documentElement.classList.contains('darwin') && <TooltipPortal />}
-      <div className="window-container">
+      <div className="window-container relative z-10">
+        {/* 本地图片背景层 + 遮罩层：必须在 window-container 内部！
+            backdrop-filter 只能采样同一 stacking context 中绘制在其后的内容，
+            若背景层在 window-container 外（不同 context），滚动容器/卡片 blur 会失效。 */}
+        {background?.enabled && background.imagePath && (
+          <>
+            <div
+              className="absolute inset-0 z-0 pointer-events-none"
+              data-name="background-layer"
+              style={{backgroundImage: `url(${background.imagePath})`, backgroundSize: 'cover', backgroundPosition: 'center'}}
+            />
+            <div
+              className="absolute inset-0 z-0 pointer-events-none"
+              style={{backgroundColor: `rgba(0, 0, 0, ${(background.overlay ?? 40) / 100})`}}
+            />
+          </>
+        )}
         <TitleBar />
         <MenuBar />
         <main className="flex-1 flex overflow-hidden px-2 py-2 gap-2"
@@ -533,19 +578,20 @@ export default function App() {
           {/* 左侧边栏卡片 - 折叠时隐藏 */}
           {!leftCollapsed && (
             <div
-              className="bg-[var(--surface)] rounded-lg shadow-card border border-[var(--border)] overflow-hidden flex flex-col transition-all"
+              className="app-surface-card bg-[var(--surface)] rounded-lg shadow-card border border-[var(--border)] overflow-hidden flex flex-col transition-all"
               style={{width: 'var(--sidebar-width)'}}>
               <ConversationSidebar/>
             </div>
           )}
           {/* 中间主内容卡片 */}
           <div
-            className="flex-1 flex flex-col min-w-0 transition-all overflow-hidden">
+            className="app-surface-card flex-1 flex flex-col min-w-0 transition-all overflow-hidden"
+            data-name="main-column">
             <MainWorkspace/>
           </div>
           {/* 右侧面板卡片 - 折叠时隐藏 */}
           {!rightCollapsed && (
-            <div className="w-sidebar flex-shrink-0 min-h-0 flex flex-col transition-all h-full">
+            <div data-name="side-panels" className="app-surface-card w-sidebar flex-shrink-0 min-h-0 flex flex-col transition-all h-full">
               <SidePanels/>
             </div>
           )}

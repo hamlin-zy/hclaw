@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
+import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {switchActiveScheme, useModelSchemeStore} from '../stores/modelSchemeStore'
 import {useMenuBarStore} from '../stores/menuBarStore'
@@ -70,7 +71,10 @@ function FixedDropdown({
 
     if (!open) return null
 
-    return (
+    // createPortal 挂到 body：脱离菜单栏 stacking context
+    //（bg-enabled 下 .menubar 有 backdrop-filter，会困住内部 fixed 元素的 z-index，
+    //  面板会被消息列表卡片盖住）
+    return createPortal(
         <motion.div
             ref={dropdownRef}
             initial={{opacity: 0, y: -8, scale: 0.96}}
@@ -153,7 +157,8 @@ function FixedDropdown({
                     </button>
                 </div>
             </div>
-        </motion.div>
+        </motion.div>,
+        document.body,
     )
 }
 
@@ -210,6 +215,8 @@ export default function SchemeSelector() {
 
     const isActive = activeScheme?.enabled
 
+    // 注意：按钮必须留在菜单栏内（普通 JSX）；只有 FixedDropdown 内部用
+    // createPortal 挂到 body（脱离 .menubar 的 backdrop-filter stacking context）
     return (
         <>
             {/* Toast 提示 */}
@@ -240,7 +247,7 @@ export default function SchemeSelector() {
                     onClick={() => setIsOpen(!isOpen)}
                     disabled={isSwitching}
                     className={`
-                        relative flex items-center gap-2 px-3 py-1.5 rounded-md
+                        menubar-selector-btn relative flex items-center gap-2 px-3 py-1.5 rounded-md
                         border border-transparent hover:border-[var(--border)]
                         transition-all duration-200
                         disabled:opacity-50 disabled:cursor-not-allowed

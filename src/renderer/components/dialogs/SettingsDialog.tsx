@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useState} from 'react'
 import {Kbd, KbdCombo} from '../common/Kbd'
 import {Switch} from '../common/Switch'
+import ImagePreviewModal from '../common/ImagePreviewModal'
 import {useSettingsStore} from '../../stores/settingsStore'
 import {SystemSettings} from '@shared/types'
 import {confirm} from '../ConfirmDialog'
@@ -11,6 +12,11 @@ type Category = keyof SystemSettings | 'shortcuts'
 function clampPositive(value: number | undefined, fallback: number): number {
     if (value === undefined || isNaN(value) || value < 0) return fallback
     return value
+}
+
+/** 深色系主题（dark/远山黛）遮罩默认更暗，保证可读性 */
+function isDarkTheme(theme: string): boolean {
+    return theme === 'dark' || theme === 'yuanshandai'
 }
 
 export default function SettingsDialog() {
@@ -27,6 +33,10 @@ export default function SettingsDialog() {
     const [saving, setSaving] = useState(false)
     const [hclawDir, setHclawDir] = useState('')
     const [origHclawDir, setOrigHclawDir] = useState('')
+
+    // ── 历史背景图 ──
+    const [historyImages, setHistoryImages] = useState<Array<{path: string; name: string; size: number; mtime: number}>>([])
+    const [previewSrc, setPreviewSrc] = useState<string | null>(null)
 
     // 加载当前系统配置目录
     useEffect(() => {
@@ -57,16 +67,80 @@ export default function SettingsDialog() {
     // 当前生效的值：优先 pending（未保存），否则用已保存值
     const current = pendingSettings || settings
 
+    // 背景启用时加载历史图片列表（数据目录 data/backgrounds/ 下的图片）
+    // ⚠️ 必须放在 current 定义之后（useEffect 闭包引用 current）
+    useEffect(() => {
+        if (!current.ui.background?.enabled) {
+            setHistoryImages([])
+            return
+        }
+        window.electronAPI?.backgroundList?.().then(list => {
+            if (list) setHistoryImages(list)
+        })
+    }, [current.ui.background?.enabled])
+
+    // ── 删除历史背景图 ──
+    // 删除文件后刷新列表；若删除的是当前背景，则自动切换：
+    // 优先切到列表中的"下一个"（被删项在原列表的后一位），
+    // 没有下一个则切到第一个；无候选图则清空背景设置。
+    const handleDeleteHistoryImage = useCallback(async (img: {path: string; name: string}) => {
+        const confirmed = await confirm({
+            title: '删除背景图',
+            message: `确定删除这张背景图吗？\n${img.name}`,
+            confirmText: '删除',
+            cancelText: '取消',
+            confirmVariant: 'danger',
+        })
+        if (!confirmed) return
+
+        const deletedCurrent = current.ui.background?.imagePath === img.path
+        const oldIdx = historyImages.findIndex(h => h.path === img.path)
+
+        await window.electronAPI?.backgroundRemove(img.path)
+        const list = (await window.electronAPI?.backgroundList?.()) ?? []
+        setHistoryImages(list)
+
+        if (deletedCurrent) {
+            const bg = current.ui.background!
+            if (list.length > 0) {
+                // 被删项在原列表的"后一位"（删除后整体前移）优先；越界则第一个
+                const next = list[Math.min(oldIdx, list.length - 1)] ?? list[0]
+                updatePending('ui', {
+                    background: {...bg, imagePath: next.path, enabled: true},
+                })
+            } else {
+                // 无候选图 → 清空背景设置
+                updatePending('ui', {
+                    background: {...bg, enabled: false, imagePath: ''},
+                })
+            }
+        }
+    }, [current.ui.background, historyImages, updatePending])
+
     const handleSave = useCallback(async () => {
         setSaving(true)
         try {
+            // 图片背景启用时强制使用深色系主题：
+            // 浅色模式/十样锦 的白色毛玻璃叠在背景图上会变白雾，观感差。
+            // 背景从禁用→启用 且当前是浅色系 → 保存前自动切为深色模式。
+            const base = pendingSettings ?? settings
+            const bg = base.ui.background
+            const theme = base.ui.theme
+            if (bg?.enabled && (theme === 'light' || theme === 'shiyangjin')) {
+                // 直接更新 pending 并走 saveSettings（内部会 resolveAndApplyTheme）
+                // 注意：pendingSettings 可能为 null（未修改直接保存），需以 settings 为基座
+                useSettingsStore.setState({
+                    pendingSettings: {...base, ui: {...base.ui, theme: 'dark'}},
+                    isDirty: true,
+                })
+            }
             await saveSettings()
         } catch (err) {
             console.error('[SettingsDialog] 保存失败:', err)
         } finally {
             setSaving(false)
         }
-    }, [saveSettings])
+    }, [saveSettings, pendingSettings, settings])
 
     const handleDiscard = useCallback(() => {
         discardChanges()
@@ -410,11 +484,191 @@ export default function SettingsDialog() {
                     onChange={(e) => updatePending('ui', {theme: e.target.value as 'light' | 'dark' | 'yuanshandai' | 'shiyangjin' | 'system'})}
                 >
                     <option value="system">跟随系统</option>
-                    <option value="light">浅色模式</option>
+                    <option value="light" disabled={!!current.ui.background?.enabled}>
+                        浅色模式{current.ui.background?.enabled ? '（背景开启时不可用）' : ''}
+                    </option>
                     <option value="dark">深色模式</option>
                     <option value="yuanshandai">远山黛</option>
-                    <option value="shiyangjin">十样锦</option>
+                    <option value="shiyangjin" disabled={!!current.ui.background?.enabled}>
+                        十样锦{current.ui.background?.enabled ? '（背景开启时不可用）' : ''}
+                    </option>
                 </select>
+                {current.ui.background?.enabled && (current.ui.theme === 'light' || current.ui.theme === 'shiyangjin') && (
+                    <p className="text-[10px] text-[var(--warning)]">图片背景开启时使用浅色系主题，保存后将自动切换为深色模式</p>
+                )}
+            </div>
+            <div className="space-y-3 border-t border-[var(--border-muted)] pt-3">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <label className="text-xs text-[var(--text-muted)]">本地图片背景</label>
+                        <p className="text-[10px] text-[var(--text-muted)]">将本地图片作为整个窗口背景，内容层毛玻璃显示</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <Switch
+                            checked={current.ui.background?.enabled ?? false}
+                            onChange={(checked) => updatePending('ui', {
+                                background: {
+                                    enabled: checked,
+                                    imagePath: current.ui.background?.imagePath ?? '',
+                                    overlay: current.ui.background?.overlay ?? (isDarkTheme(current.ui.theme) ? 50 : 30),
+                                    blur: current.ui.background?.blur ?? 16,
+                                }
+                            })}
+                        />
+                        <span className={`ml-2 text-xs font-medium ${current.ui.background?.enabled ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)]'}`}>
+                            {current.ui.background?.enabled ? '已启用' : '已禁用'}
+                        </span>
+                    </div>
+                </div>
+
+                {current.ui.background?.enabled && (
+                    <div className="space-y-3">
+                        {/* 选图 + 预览 */}
+                        <div className="flex items-center gap-3">
+                            {current.ui.background.imagePath ? (
+                                <div
+                                    className="w-24 h-14 rounded border border-[var(--border)] bg-cover bg-center shrink-0 cursor-zoom-in"
+                                    style={{backgroundImage: `url(${current.ui.background.imagePath})`}}
+                                    onClick={() => setPreviewSrc(current.ui.background!.imagePath)}
+                                    title="点击放大查看"
+                                />
+                            ) : (
+                                <div className="w-24 h-14 rounded border border-dashed border-[var(--border)] flex items-center justify-center text-[10px] text-[var(--text-muted)] shrink-0">
+                                    未选择图片
+                                </div>
+                            )}
+                            <div className="flex flex-col gap-1.5">
+                                <button
+                                    className="px-2.5 py-1.5 text-xs bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded text-[var(--text-primary)] hover:border-[var(--brand-primary)] transition-colors"
+                                    onClick={async () => {
+                                        const result = await window.electronAPI?.backgroundPick()
+                                        if (result?.path) {
+                                            updatePending('ui', {
+                                                background: {
+                                                    ...current.ui.background!,
+                                                    imagePath: result.path,
+                                                }
+                                            })
+                                            // 刷新历史列表（新图已拷入 backgrounds 目录）
+                                            const list = await window.electronAPI?.backgroundList?.()
+                                            if (list) setHistoryImages(list)
+                                        }
+                                    }}
+                                >
+                                    选择图片
+                                </button>
+                                {current.ui.background.imagePath && (
+                                    <button
+                                        className="px-2.5 py-1.5 text-xs text-[var(--error)] hover:bg-[var(--surface-muted)] rounded transition-colors"
+                                        onClick={async () => {
+                                            const bg = current.ui.background!
+                                            await window.electronAPI?.backgroundRemove(bg.imagePath)
+                                            updatePending('ui', {
+                                                background: {
+                                                    ...bg,
+                                                    enabled: false,
+                                                    imagePath: '',
+                                                }
+                                            })
+                                            const list = await window.electronAPI?.backgroundList?.()
+                                            if (list) setHistoryImages(list)
+                                        }}
+                                    >
+                                        清除背景
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* 历史图片缩略图条 */}
+                        {historyImages.length > 0 && (
+                            <div className="space-y-1.5">
+                                <label className="text-[11px] text-[var(--text-muted)]">历史图片</label>
+                                <div className="flex gap-2 overflow-x-auto pb-1">
+                                    {historyImages.map(img => {
+                                        const isActive = current.ui.background?.imagePath === img.path
+                                        return (
+                                            <div key={img.path} className="relative group shrink-0">
+                                                <div
+                                                    className={`w-16 h-10 rounded border bg-cover bg-center cursor-pointer transition-all ${
+                                                        isActive
+                                                            ? 'border-[var(--brand-primary)] ring-2 ring-[var(--brand-primary)]/30'
+                                                            : 'border-[var(--border)] hover:border-[var(--brand-primary)]'
+                                                    }`}
+                                                    style={{backgroundImage: `url(${img.path})`}}
+                                                    onClick={() => updatePending('ui', {
+                                                        background: {...current.ui.background!, imagePath: img.path}
+                                                    })}
+                                                    title={img.name}
+                                                />
+                                                {/* 放大查看按钮（hover 显示） */}
+                                                <button
+                                                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow text-[var(--text-muted)] hover:text-[var(--brand-primary)] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        setPreviewSrc(img.path)
+                                                    }}
+                                                    title="放大查看"
+                                                >
+                                                    <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                                        <circle cx="11" cy="11" r="8"/>
+                                                        <path d="m21 21-4.3-4.3"/>
+                                                    </svg>
+                                                </button>
+                                                {/* 删除按钮（hover 显示，位于放大镜下方） */}
+                                                <button
+                                                    className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow text-[var(--text-muted)] hover:text-[var(--error)] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        handleDeleteHistoryImage(img)
+                                                    }}
+                                                    title="删除"
+                                                >
+                                                    <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                                        <polyline points="3 6 5 6 21 6"/>
+                                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                                        <line x1="10" y1="11" x2="10" y2="17"/>
+                                                        <line x1="14" y1="11" x2="14" y2="17"/>
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 遮罩强度 */}
+                        <div className="space-y-1">
+                            <div className="flex justify-between">
+                                <label className="text-[11px] text-[var(--text-muted)]">遮罩强度</label>
+                                <span className="text-[11px] text-[var(--text-muted)]">{current.ui.background.overlay}%</span>
+                            </div>
+                            <input
+                                type="range" min={0} max={100} value={current.ui.background.overlay}
+                                onChange={(e) => updatePending('ui', {
+                                    background: {...current.ui.background!, overlay: Number(e.target.value)}
+                                })}
+                                className="w-full accent-[var(--brand-primary)]"
+                            />
+                        </div>
+
+                        {/* 模糊强度 */}
+                        <div className="space-y-1">
+                            <div className="flex justify-between">
+                                <label className="text-[11px] text-[var(--text-muted)]">模糊强度</label>
+                                <span className="text-[11px] text-[var(--text-muted)]">{current.ui.background.blur}px</span>
+                            </div>
+                            <input
+                                type="range" min={0} max={40} value={current.ui.background.blur}
+                                onChange={(e) => updatePending('ui', {
+                                    background: {...current.ui.background!, blur: Number(e.target.value)}
+                                })}
+                                className="w-full accent-[var(--brand-primary)]"
+                            />
+                        </div>
+                    </div>
+                )}
             </div>
             <div className="space-y-1">
                 <label className="text-xs text-[var(--text-muted)]">链接打开方式</label>
@@ -498,6 +752,15 @@ export default function SettingsDialog() {
                     </div>
                 </div>
             </div>
+
+            {/* 历史图片放大预览（复用项目看图组件：缩放/拖动/旋转） */}
+            {previewSrc && (
+                <ImagePreviewModal
+                    src={previewSrc}
+                    alt="背景图片预览"
+                    onClose={() => setPreviewSrc(null)}
+                />
+            )}
 
             {/* Footer: Save / Discard */}
             {isDirty && (

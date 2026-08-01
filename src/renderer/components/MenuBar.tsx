@@ -1,4 +1,5 @@
 import type {JSX} from 'react'
+import {createPortal} from 'react-dom'
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {motion} from 'framer-motion'
 import {useMenuBarStore} from '../stores/menuBarStore'
@@ -332,7 +333,7 @@ export default function MenuBar() {
   return (
       <nav
           ref={navRef}
-          className="h-[var(--menubar-height)] bg-[var(--surface)] border-t border-b border-[var(--border-muted)] flex items-center px-[var(--space-relaxed)] gap-[var(--space-tight)] select-none relative"
+          className="menubar h-[var(--menubar-height)] bg-[var(--surface)] border-t border-b border-[var(--border-muted)] flex items-center px-[var(--space-relaxed)] gap-[var(--space-tight)] select-none relative"
           role="navigation"
           aria-label="主菜单"
       >
@@ -402,48 +403,51 @@ export default function MenuBar() {
               )}
           </div>
 
-          {/* 下拉菜单 — 放在 overflow:hidden 容器之外，避免被裁剪 */}
-          {showMoreMenu && (() => {
-              const nav = navRef.current
-              const btn = moreBtnRef.current
-              if (!nav || !btn) return null
-              const navRect = nav.getBoundingClientRect()
-              const btnRect = btn.getBoundingClientRect()
-              return (
-                  <div
-                      ref={moreMenuRef}
-                      className="absolute py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md shadow-lg z-[var(--z-dropdown)] min-w-[140px]"
-                      style={{
-                          left: btnRect.left - navRect.left,
-                          top: navRect.bottom - navRect.top,
-                      }}
-                      onClick={e => e.stopPropagation()}
-                  >
-                      {menuItems
-                          .filter(item => item.type !== null && collapsedItems.includes(item.type!))
-                          .map(item => (
-                              <button
-                                  key={item.type}
-                                  onClick={() => handleItemClick(item.type!)}
-                                  className="relative w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                              >
-                                  <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center">
-                                      <svg className="w-3.5 h-3.5" {...item.icon.props}>
-                                          {item.icon.props.children}
-                                      </svg>
-                                  </span>
-                                  <span>{item.label}</span>
-                                  {(item.type === 'about' && hasUpdate) || (item.type === 'plugins' && pluginHasUpdate) ? (
-                                      <span
-                                          className="ml-auto w-1.5 h-1.5 rounded-full bg-red-500"
-                                          aria-label="有新版本"
-                                      />
-                                  ) : null}
-                              </button>
-                          ))}
-                  </div>
-              )
-          })()}
+          {/* 下拉菜单 — createPortal 挂到 body（脱离 .menubar 的 backdrop-filter stacking context），
+              fixed 定位避免被消息列表卡片遮挡；按钮在 overflow:hidden 容器内仅用于视觉显示 */}
+          {showMoreMenu && createPortal(
+              (() => {
+                  const btn = moreBtnRef.current
+                  if (!btn) return null
+                  const rect = btn.getBoundingClientRect()
+                  return (
+                      <div
+                          ref={moreMenuRef}
+                          className="fixed z-[9999] py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md shadow-lg min-w-[140px]"
+                          style={{
+                              left: rect.left,
+                              top: rect.bottom + 4,
+                          }}
+                          onClick={e => e.stopPropagation()}
+                          onMouseDown={e => e.stopPropagation()}
+                      >
+                          {menuItems
+                              .filter(item => item.type !== null && collapsedItems.includes(item.type!))
+                              .map(item => (
+                                  <button
+                                      key={item.type}
+                                      onClick={() => handleItemClick(item.type!)}
+                                      className="relative w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
+                                  >
+                                      <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center">
+                                          <svg className="w-3.5 h-3.5" {...item.icon.props}>
+                                              {item.icon.props.children}
+                                          </svg>
+                                      </span>
+                                      <span>{item.label}</span>
+                                      {(item.type === 'about' && hasUpdate) || (item.type === 'plugins' && pluginHasUpdate) ? (
+                                          <span
+                                              className="ml-auto w-1.5 h-1.5 rounded-full bg-red-500"
+                                              aria-label="有新版本"
+                                          />
+                                      ) : null}
+                                  </button>
+                              ))}
+                      </div>
+                  )
+              })(),
+              document.body,
+          )}
 
           {/* 测量容器 — 始终渲染所有菜单项，不占可见空间，用于精确计算溢出 */}
           <div

@@ -1,4 +1,5 @@
 import {useEffect, useRef, useState} from 'react'
+import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useAgentStore} from '../stores/agentStore'
 
@@ -89,7 +90,7 @@ export default function PermissionModeSelector() {
                 ref={buttonRef}
                 onClick={() => setIsOpen(!isOpen)}
                 className={`
-                    flex items-center gap-1.5 px-2.5 py-1 rounded-md
+                    menubar-selector-btn flex items-center gap-1.5 px-2.5 py-1 rounded-md
                     border border-transparent hover:border-[var(--border)]
                     text-xs transition-all duration-200 bg-[var(--surface)]
                     text-[var(--text-secondary)]
@@ -114,7 +115,9 @@ export default function PermissionModeSelector() {
                 </svg>
             </button>
 
-            <AnimatePresence>
+            {/* 下拉面板：createPortal 挂到 body，脱离菜单栏 stacking context */}
+            {createPortal(
+                <AnimatePresence>
                 {isOpen && (
                     <motion.div
                         initial={{opacity: 0, y: -8, scale: 0.96}}
@@ -123,6 +126,7 @@ export default function PermissionModeSelector() {
                         transition={{duration: 0.15, ease: [0.4, 0, 0.2, 1]}}
                         style={{top: position.top, right: position.right, width: '180px'}}
                         className="fixed z-[9999]"
+                        onMouseDown={(e) => e.stopPropagation()}
                     >
                         {/* 毛玻璃面板 */}
                         <div className="bg-[var(--surface-elevated)]/92 backdrop-blur-lg border border-[var(--border)] rounded-2xl shadow-2xl shadow-black/20 overflow-hidden">
@@ -165,7 +169,9 @@ export default function PermissionModeSelector() {
                         </div>
                     </motion.div>
                 )}
-            </AnimatePresence>
+            </AnimatePresence>,
+                document.body,
+            )}
         </div>
     )
 }

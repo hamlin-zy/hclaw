@@ -194,7 +194,7 @@ export default function TodoPanel({height}: TodoPanelProps) {
         <div className="relative flex shrink-0 min-h-0" style={{height: height || '50%'}}>
             {/* 面板主体 */}
             <div
-                className="h-full w-full bg-[var(--surface)] rounded-lg shadow-card border border-[var(--border)] flex flex-col overflow-hidden"
+                className="todo-panel-card h-full w-full bg-[var(--surface)] rounded-lg shadow-card border border-[var(--border)] flex flex-col overflow-hidden"
             >
                 {/* Header */}
                 <div

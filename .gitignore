@@ -23,6 +23,7 @@ nul
 # 临时文件和备份文件
 *.backup
 temp_*
+temp/
 *.bak
 *.old
 *.tmp
