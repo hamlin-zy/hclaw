@@ -7,6 +7,13 @@
 
 ---
 
+## [v0.2.97] - 2026-08-01
+
+### 新增
+- **子会话 LLM 调用统计持久化** — agent 工具创建的子会话在运行期间收集各轮 `llm_call_done` 事件（token 数、provider/model、耗时、缓存命中），随 assistant 消息持久化到数据库，打开子会话即可查看缓存命中率 (`src/main/agent/tools/builtin/agentTool.ts`, `src/main/repositories/sqlite/messageBlockHelper.ts`)
+
+---
+
 ## [v0.2.96] - 2026-08-04
 
 ### 修复

@@ -175,6 +175,7 @@ export function messageToBlocks(msg: Message, convId: string): { messages: Messa
     content: msg.role === 'assistant' ? '' : msg.content,
     timestamp: msg.timestamp,
     endedAt: msg.endedAt,
+    llmStats: msg.llmStats,
     metadata: {
       content: msg.content,
       agentName: msg.agentName,
