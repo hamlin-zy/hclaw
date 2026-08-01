@@ -90,6 +90,13 @@ export interface SubagentConfig {
   maxDepth: number
 }
 
+export interface UiBackground {
+    enabled: boolean
+    imagePath: string
+    overlay: number
+    blur: number
+}
+
 export interface SystemSettings {
   agent: {
     maxTurns: number
@@ -108,6 +115,7 @@ export interface SystemSettings {
   ui: {
     language: string
     theme: 'light' | 'dark' | 'yuanshandai' | 'shiyangjin' | 'system'
+    background?: UiBackground
   }
   subagent?: SubagentConfig
   /** 链接打开方式 */

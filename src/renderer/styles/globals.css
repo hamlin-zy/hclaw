@@ -2237,3 +2237,190 @@ html, body {
 .yuanshandai .hover\:text-gray-600:hover {
     color: var(--text-secondary) !important;
 }
+
+/* ========================================
+   Local Image Background — Glassmorphism
+   ======================================== */
+/*
+ * 背景图方案说明：
+ * - 背景层 + 遮罩层由 App.tsx 渲染（window-container 内的 absolute inset-0 z-0 层）
+ * - html.bg-enabled 由 App.tsx 的 useEffect 控制
+ * - --bg-overlay / --bg-blur 由 App.tsx 写入 html 内联 style
+ *
+ * 原则：
+ * 1. 只对"主要内容卡片"（侧栏、消息区、输入框、TitleBar/MenuBar）做半透明 + 毛玻璃
+ * 2. 弹窗/Modal/菜单必须保持不透明（--surface），防止背景透传干扰阅读
+ * 3. 用 !important 覆盖 Tailwind 原子类（bg-[var(--surface)] 等），
+ *    避免背景启用时残留不透明底色
+ */
+
+/* window-container 是背景层的定位基准（Task 3 已在 JSX 加 relative，这里兜底） */
+.window-container {
+    position: relative;
+}
+
+/* ── 背景启用时：html/body/window-container 全部透明化 ──
+ * 背景层 + 遮罩层是 window-container 内部第一个 absolute inset-0 z-0 层
+ * （App.tsx 渲染，与内容层同一 stacking context，保证 backdrop-filter 生效），
+ * 若这三层保留不透明 --surface 底色，会盖住背景图导致黑边/完全看不到图 */
+html.bg-enabled,
+.bg-enabled body,
+.bg-enabled .window-container {
+    background-color: transparent !important;
+}
+
+/* ── 内容卡片半透明化：语义 class app-surface-card ──
+ * 三列（左侧栏/中间工作区/右侧栏）+ 会话消息卡片 + 输入区容器都带 app-surface-card，
+ * 由 App.tsx / ConversationPage.tsx 显式标记，不依赖 Tailwind 类名猜测，
+ * 弹窗/下拉/工具栏等未标记元素天然不受影响。
+ *
+ * 透明度跟随设置 overlay 滑杆（--bg-surface-alpha）：
+ * overlay=0 → 40%，overlay=40 → 60%，overlay=100 → 90%。
+ * 深色主题下若保持 62% 近黑 surface，右侧栏看起来接近纯黑面板，
+ * 调低后背景图能透过毛玻璃显现。 */
+.bg-enabled .app-surface-card {
+    background-color: color-mix(in srgb, var(--surface) var(--bg-surface-alpha, 60%), transparent) !important;
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+}
+
+/* ── 欢迎页快捷键卡片（空会话，无消息滚动容器兜底）──
+ * 默认 Tailwind 原子类 bg-[var(--surface-muted)]/40 透明度写死，
+ * 背景启用时改为跟随 overlay 滑杆（--bg-surface-alpha），与内容卡片一致 */
+.bg-enabled .welcome-shortcut-card {
+    background-color: color-mix(in srgb, var(--surface-muted) var(--bg-surface-alpha, 60%), transparent) !important;
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+}
+.bg-enabled .welcome-shortcut-card:hover {
+    background-color: color-mix(in srgb, var(--surface-muted) calc(var(--bg-surface-alpha, 60%) + 20%), transparent) !important;
+}
+
+/* 输入区卡片略浅，与消息列表区分 */
+.bg-enabled [data-name="input-area-card"].app-surface-card {
+    background-color: color-mix(in srgb, var(--surface) 60%, transparent) !important;
+}
+
+/* ── TitleBar / MenuBar 半透明 ── */
+.bg-enabled .window-container > .titlebar,
+.bg-enabled .window-container > .menubar {
+    background-color: color-mix(in srgb, var(--surface) 55%, transparent) !important;
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+}
+
+/* ── 菜单栏选择器按钮（运行模式/工作模式/消息显示/模型方案）半透明 ──
+ * 四个按钮带 menubar-selector-btn 语义类。
+ * 用户确认：非激活态也全透明（与激活态按钮1一致，靠文字/图标显示），
+ * 去掉 55% 半透明黑底和 blur。 */
+.bg-enabled .menubar .menubar-selector-btn:not([class*="brand-primary"]) {
+    background-color: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+/* ── InputArea 根（data-input-area）半透明：它在输入卡片内部自带不透明背景，
+ * 若保持 bg-[var(--surface)] 会盖住外层毛玻璃，此处改为透明让背景透出 */
+.bg-enabled [data-input-area] {
+    background-color: transparent !important;
+}
+
+/* ── 浅色主题下气泡毛玻璃降透明（背景图透出） ──
+ * 浅色主题 --surface-elevated 是纯白，气泡默认 88% 白 → 大面积白色块。
+ * bg-enabled 下降至 65% + blur 跟随滑杆，让背景图透过气泡显现，
+ * 形成真正的毛玻璃质感（文字对比度由气泡底色 + 背景暗部保证）。 */
+:root:not(.dark):not(.yuanshandai) .bg-enabled .message-bubble.assistant {
+    background: color-mix(in srgb, var(--surface-elevated) 65%, transparent);
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+}
+
+/* ── 右侧面板最底层容器（side-panels）全透明 ──
+ * 最底层不做任何处理（无毛玻璃、无 surface 底色），背景图在右侧栏区域完整透出。
+ * 毛玻璃职责由两个子面板本体承担。 */
+.bg-enabled [data-name="side-panels"] {
+    background-color: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+/* ── 右侧面板内部子面板（权限规则 / 待办列表）内容底 ──
+ * 子面板本体 = 毛玻璃层：半透明 surface + blur，透明度跟随遮罩滑杆
+ * （--bg-surface-alpha），模糊跟随 --bg-blur。 */
+.bg-enabled .permission-rules-card,
+.bg-enabled .todo-panel-card {
+    background-color: color-mix(in srgb, var(--surface) var(--bg-surface-alpha, 60%), transparent) !important;
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+}
+
+/* ── 子面板内部元素（权限规则项 / 待办项卡片等）透明但不 blur ──
+ * 内部列表项已在子面板毛玻璃之上，若再 backdrop-filter 会双重模糊
+ * （背景模糊两次 + 文字发虚）。此处只跟随透明度（--bg-surface-alpha-inner
+ * = 主层 × 0.7，App.tsx 计算），保持内容清晰、背景模糊的层次。 */
+.bg-enabled .permission-rules-card [class*="bg-[var(--surface)]"],
+.bg-enabled .todo-panel-card [class*="bg-[var(--surface)]"] {
+    background-color: color-mix(in srgb, var(--surface) var(--bg-surface-alpha-inner, 45%), transparent) !important;
+}
+
+/* ── 消息列表卡片（data-name="message-list-card"）半透明 ──
+ * 毛玻璃职责下放到内部滚动容器（message-list-scroll-container），
+ * 此处自身只透出背景、不做 blur，避免与滚动容器双重模糊 */
+.bg-enabled [data-name="message-list-card"] {
+    background-color: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+/* ── 中间列（data-name="main-column"）纯透明壳 ──
+ * 它包裹消息列表卡片 + 输入卡片，自身不设底色/不 blur，
+ * 否则 62% surface 会盖在滚动容器的透明毛玻璃之上（"后面还有一层"） */
+.bg-enabled [data-name="main-column"] {
+    background-color: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+/* ── 消息滚动容器（气泡背景层，data-name="message-list-scroll-container"）毛玻璃 ──
+ * 气泡后面的那一层：半透明 surface + backdrop blur，让自定义背景图透过毛玻璃显现。
+ * 透明度跟随设置 overlay 滑杆（--bg-surface-alpha，App.tsx 计算写入），
+ * 模糊跟随 --bg-blur 滑杆。 */
+.bg-enabled [data-name="message-list-scroll-container"] {
+    background-color: transparent !important;
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+}
+
+/* ── 弹窗/菜单兜底：保持完全不透明，禁止毛玻璃透传 ──
+ * 注意：只命中"弹窗内容卡片"（role=dialog/alertdialog 元素本身及内部、fixed 容器层），
+ * 不碰 backdrop 遮罩层（如 ConfirmDialog 的 fixed inset-0 bg-black/40），
+ * 否则弹窗背景会从半透明黑变成纯色 --surface，破坏遮罩效果。
+ */
+.bg-enabled [role="dialog"],
+.bg-enabled [role="alertdialog"],
+.bg-enabled [role="dialog"] *,
+.bg-enabled [role="alertdialog"] * {
+    background-color: var(--surface) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+/* 固定定位的弹窗容器层（如 ConfirmDialog 的 z-[99999] 主体层）保持透明壳，
+   仅取消其子内容的毛玻璃与半透明 */
+.bg-enabled .fixed.inset-0[class*="z-[999"],
+.bg-enabled .fixed.inset-0[class*="z-[999"] * {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+/* MenuDialog / 其他常规弹窗内容 */
+.bg-enabled [class*="modal-overlay"] [class*="modal-content"],
+.bg-enabled [class*="modal-overlay"] [class*="modal-content"] *,
+.bg-enabled [class*="param-modal-content"],
+.bg-enabled [class*="param-modal-content"] *,
+.bg-enabled [class*="popup"] [class*="bg-[var(--surface)]"],
+.bg-enabled [class*="popup"] [class*="bg-[var(--surface)]"] * {
+    background-color: var(--surface) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}

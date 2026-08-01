@@ -339,6 +339,9 @@ export const createWindow = (): void => {
     });
 
     // 监听最大化状态变化（用于更新 UI + 持久化）
+    // 注：无框窗口最大化时 bounds 会比工作区大 ~15px（DWM 阴影装饰区，-7px 偏移），
+    // 但 getContentBounds() 精确等于 workArea（实验证实），渲染视口已铺满，无露底。
+    // setBounds 强行对齐会被 DWM 弹回，无需处理。
     mainWindow.on('maximize', () => {
         mainWindow?.webContents.send('window-maximized-changed', true);
         saveWindowState();

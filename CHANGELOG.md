@@ -7,6 +7,22 @@
 
 ---
 
+## [v0.2.98] - 2026-08-02
+
+### 新增
+- **背景图功能** — 支持背景图配置/选图/裁边/毛玻璃/透明度滑杆/历史图管理，无框窗口最大化贴齐工作区、图片删除与预览 (`src/main/ipc/background.ts`, `src/renderer/components/dialogs/SettingsDialog.tsx`, `src/renderer/stores/themeStore.ts`)
+
+### 重构
+- **模型适配器重构** — anthropic/google 适配器重写，统一流式解析与错误处理 (`src/main/agent/model/anthropicAdapter.ts`, `src/main/agent/model/googleAdapter.ts`)
+
+### 修复
+- **skillTool 修复** — 技能调用工具缺陷修正 (`src/main/agent/tools/builtin/skillTool.ts`)
+
+### 变更
+- **.gitignore 更新** — 添加 `temp/` 目录忽略 (`/.gitignore`)
+
+---
+
 ## [v0.2.97] - 2026-08-01
 
 ### 新增

@@ -127,6 +127,11 @@ declare global {
       openFolderDialog: () => Promise<string | null>
       selectFilePath: () => Promise<string | null>
 
+        // Background image management
+        backgroundPick: () => Promise<{ path: string } | null>
+        backgroundList: () => Promise<Array<{ path: string; name: string; size: number; mtime: number }>>
+        backgroundRemove: (path: string) => Promise<boolean>
+
       // Directory-level config (agents/skill/hooks)
       configDirRead: (dir: string, filename: string) => Promise<unknown>
       configDirWrite: (dir: string, filename: string, data: unknown) => Promise<boolean>
