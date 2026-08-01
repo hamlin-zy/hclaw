@@ -1,8 +1,5 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {useCallback, useEffect, useRef, useState} from 'react'
 import {motion} from 'framer-motion'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import remarkBreaks from 'remark-breaks'
 import {useAgentStore} from '../stores/agentStore'
 import {useConversationStore} from '../stores/conversationStore'
 import {useLLMStore} from '../stores/llmStore'
@@ -10,24 +7,12 @@ import {useMenuBarStore} from '../stores/menuBarStore'
 import {useInputHistoryStore} from '../stores/inputHistoryStore'
 import ModelAlertDialog from './ModelAlertDialog'
 import AttachedFilesBar from './AttachedFilesBar'
-import MarkdownPreviewArea from './MarkdownPreviewArea'
 import PendingQuestionCard from './PendingQuestionCard'
 import InputToolbar from './InputToolbar'
 import {CommandPalette} from './plugin/CommandPalette'
 
 import ImagePreviewModal from './common/ImagePreviewModal'
 import {generateFileId} from '../lib/format'
-
-
-// ★ Markdown 预览防抖 hook（模块级定义，遵循 Rules of Hooks）
-const useDebounce = <T,>(value: T, delay: number): T => {
-    const [debouncedValue, setDebouncedValue] = useState(value)
-    useEffect(() => {
-        const timer = setTimeout(() => setDebouncedValue(value), delay)
-        return () => clearTimeout(timer)
-    }, [value, delay])
-    return debouncedValue
-}
 
 /** 从 Blob 创建附件条目（右键粘贴/剪贴板粘贴共用） */
 async function blobToAttachedFile(blob: Blob): Promise<AttachedFile> {
@@ -92,41 +77,47 @@ export default function InputArea({isActive = true}: InputAreaProps) {
     const [input, setInput] = useState('')
     const [isDragging, setIsDragging] = useState(false)
     const [showModelAlert, setShowModelAlert] = useState(false)
-    const [isPreviewMode, setIsPreviewMode] = useState(false)
     const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
     // 输入历史导航
     const [historyIndex, setHistoryIndex] = useState(-1) // -1 = 当前输入
     const [savedInput, setSavedInput] = useState('') // 进入历史模式时保存当前输入
     const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-    // ★ Markdown 预览防抖：打字时不卡顿，松手 150ms 后更新预览
-    const debouncedInput = useDebounce(input, 150)
-    const markdownPreview = useMemo(() => (
-        <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkBreaks]}
-            components={{
-                p: ({children}) => <p className="mb-2 last:mb-0">{children}</p>,
-                h1: ({children}) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
-                h2: ({children}) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                h3: ({children}) => <h3 className="text-xs font-bold mb-2 mt-2 first:mt-0 uppercase tracking-wider">{children}</h3>,
-                code: ({children}) => <code className="px-1 py-0.5 rounded bg-[var(--brand-muted)] text-[var(--brand-primary)] font-mono text-[11px]">{children}</code>,
-                ul: ({children}) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                ol: ({children}) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-                li: ({children}) => <li className="ml-1">{children}</li>,
-                table: ({children}) => <table className="min-w-full divide-y divide-[var(--border)] text-[11px] my-2 border border-[var(--border)] rounded">{children}</table>,
-                th: ({children}) => <th className="px-2 py-1 bg-[var(--surface-muted)] font-bold">{children}</th>,
-                td: ({children}) => <td className="px-2 py-1 border-t border-[var(--border)]">{children}</td>,
-            }}
-        >
-            {debouncedInput}
-        </ReactMarkdown>
-    ), [debouncedInput])
+    // ★ 输入框最大高度 = 当前窗口高度的 2/3
+    const [maxInputHeight, setMaxInputHeight] = useState(() => Math.floor(window.innerHeight * 2 / 3))
 
-    // 高度状态
-    const [previewHeight, setPreviewHeight] = useState<number | null>(null) // null 表示使用默认值
+    // 窗口尺寸变化时实时更新上限，并重算当前高度
+    useEffect(() => {
+        const onResize = () => {
+            setMaxInputHeight(Math.floor(window.innerHeight * 2 / 3))
+        }
+        window.addEventListener('resize', onResize)
+        return () => window.removeEventListener('resize', onResize)
+    }, [])
 
-    // DOM 引用
-    const previewContainerRef = useRef<HTMLDivElement>(null)
+    // ★ 自动增高：内容变化时按内容高度扩展，封顶 maxInputHeight
+    const autoResize = useCallback(() => {
+        const ta = textareaRef.current
+        if (!ta) return
+        ta.style.height = 'auto'
+        // scrollHeight 不含边框（padding-box），而 height 是 border-box，
+        // 不加补偿会导致内容永远溢出 2px（边框高），滚动条始终出现
+        const borderHeight = ta.offsetHeight - ta.clientHeight
+        const nextHeight = Math.min(ta.scrollHeight + borderHeight, maxInputHeight)
+        ta.style.height = `${nextHeight}px`
+    }, [maxInputHeight])
+
+    // 输入内容变化（含提交清空）时触发高度重算
+    useEffect(() => {
+        autoResize()
+    }, [input, autoResize])
+
+    // ★ 切换会话回到激活态时重算高度：隐藏状态 scrollHeight 不可靠，等布局稳定后重算
+    useEffect(() => {
+        if (!isActive) return
+        const raf = requestAnimationFrame(() => autoResize())
+        return () => cancelAnimationFrame(raf)
+    }, [isActive, autoResize])
 
     // 文件附件状态
     const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
@@ -157,39 +148,6 @@ export default function InputArea({isActive = true}: InputAreaProps) {
         }))
     }, [attachedFiles])
 
-
-    // 预览区域拖拽调整高度
-    const handlePreviewResizeStart = useCallback((e: React.MouseEvent) => {
-        e.preventDefault()
-        e.stopPropagation()
-
-        const previewContainer = previewContainerRef.current
-        if (!previewContainer) return
-
-        // 获取当前高度和鼠标位置作为基准
-        const containerRect = previewContainer.getBoundingClientRect()
-        const initialMouseY = e.clientY
-        const initialHeight = containerRect.height
-
-        document.body.style.cursor = 'row-resize'
-        document.body.style.userSelect = 'none'
-
-        const handleMouseMove = (moveEvent: MouseEvent) => {
-            // 计算鼠标相对移动量，鼠标移动多少，高度就增减多少
-            const deltaY = moveEvent.clientY - initialMouseY
-            setPreviewHeight(initialHeight + deltaY)
-        }
-
-        const handleMouseUp = () => {
-            document.body.style.cursor = ''
-            document.body.style.userSelect = ''
-            document.removeEventListener('mousemove', handleMouseMove)
-            document.removeEventListener('mouseup', handleMouseUp)
-        }
-
-        document.addEventListener('mousemove', handleMouseMove)
-        document.addEventListener('mouseup', handleMouseUp)
-    }, [])
 
     /** 提交消息的内部逻辑，支持可选的 metadata */
     const submitMessage = async (text: string, options?: { metadata?: Record<string, unknown> }) => {
@@ -583,8 +541,9 @@ export default function InputArea({isActive = true}: InputAreaProps) {
 
     return (
         <div
-            className="px-3 pt-3 pb-1 border-[var(--border)] bg-[var(--surface)] flex flex-col"
+            className="px-3 pt-3 pb-0 bg-[var(--surface)] flex flex-col"
             data-input-area
+            data-name="input-area-root"
         >
             {/* Model Alert Dialog */}
             <ModelAlertDialog
@@ -615,12 +574,14 @@ export default function InputArea({isActive = true}: InputAreaProps) {
             {/* Hint banner */}
             {needsSession && (
                 <div role="alert"
+                     data-name="input-area-hint"
                      className="mb-2 px-3 py-2 rounded-lg bg-[var(--warning)]/10 border border-[var(--warning)] text-xs text-[var(--warning)]">
                     请先在左侧选择一个工作目录和会话，或点击「新建对话」
                 </div>
             )}
 
             <div
+                data-name="input-area-drop-region"
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
@@ -649,16 +610,9 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                 />
 
                 {/* Input */}
-                <div className={`relative ${isPaused ? 'border-[var(--brand-primary)]' : 'focus-within:border-[var(--brand-primary)]'}`}>
-                    {/* 实时预览层 */}
-                    <MarkdownPreviewArea
-                        isVisible={isPreviewMode && debouncedInput.trim().length > 0}
-                        content={markdownPreview}
-                        maxHeight={previewHeight}
-                        onResizeStart={handlePreviewResizeStart}
-                    />
-
+                <div data-name="input-area-input-box" className={`relative ${isPaused ? 'border-[var(--brand-primary)]' : 'focus-within:border-[var(--brand-primary)]'}`}>
                     <textarea
+                        data-name="input-area-textarea"
                         ref={textareaRef}
                         value={input}
                         onChange={(e) => {
@@ -667,10 +621,9 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
                         onContextMenu={handleContextMenu}
-                        placeholder={needsSession ? '请先选择工作目录和会话...' : '输入你的任务，让 HClaw 开始工作...'}
-                        className="w-full px-3 py-2.5 bg-[var(--surface)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] resize-none outline-none ring-0 focus:ring-0 focus:outline-none border-0"
-                        style={{minHeight: '120px'}}
-                        rows={3}
+                        placeholder={needsSession ? '请先选择工作目录和会话...' : '输入你的任务...'}
+                        className="w-full px-3 py-2.5 rounded-2xl bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] resize-none outline-none focus:outline-none"
+                        rows={1}
                     />
 
                     {/* 底部工具栏 */}
@@ -681,9 +634,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                         needsModel={needsModel}
                         agentState={agentState as {currentModelProvider?: string; currentModelName?: string}}
                         pendingMessagesCount={convData?.pendingMessages?.length ?? 0}
-                        isPreviewMode={isPreviewMode}
                         canSend={canSend}
-                        onTogglePreview={() => setIsPreviewMode(prev => !prev)}
                         onSubmit={handleSubmit}
                         onAbort={handleAbort}
                         onUploadFile={(files) => setAttachedFiles(prev => [...prev, ...files])}
@@ -698,7 +649,6 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                 onClose={() => setCommandPaletteOpen(false)}
                 onExecuteCommand={handleExecuteCommand}
             />
-
 
             {/* 图片预览弹窗（仅活跃会话） */}
             {isActive && previewImageUrl && (
