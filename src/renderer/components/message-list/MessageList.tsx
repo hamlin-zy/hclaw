@@ -65,7 +65,7 @@ function WelcomeMessage() {
                 {shortcuts.map(({label, keys}) => (
                     <div
                         key={label}
-                        className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg
+                        className="welcome-shortcut-card flex items-center justify-between gap-2 px-3 py-2 rounded-lg
                                    bg-[var(--surface-muted)]/40 border border-[var(--border-muted)]
                                    hover:bg-[var(--surface-muted)]/60 transition-colors"
                     >
@@ -452,9 +452,10 @@ export default function MessageList({conversationId}: { conversationId?: string 
             <div
                 ref={containerRef}
                 onScroll={handleScroll}
+                data-name="message-list-scroll-container"
                 className="relative flex-1 overflow-y-auto overflow-x-hidden"
             >
-                <div className="px-4 py-4">
+                <div data-name="message-list-inner" className="px-4 py-4">
                     {/* 加载更多触发器 */}
                     {hasMore && (
                         <LoadMoreTrigger
@@ -473,6 +474,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                         <div
                             key={message.id}
                             data-msg-idx={origIdx}
+                            data-name={`message-row-${message.role}`}
                             style={{contentVisibility: 'auto', containIntrinsicSize: 'auto 200px'}}
                         >
                             <MessageBubble

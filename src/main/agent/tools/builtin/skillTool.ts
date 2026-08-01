@@ -125,7 +125,9 @@ export const skillTool: Tool<SkillToolInput, SkillToolOutput> = {
 
     return {
       success: true,
-      output: buildPreview(skill),
+      // 完整指导放入 output（而非 500 字预览），避免 LLM 看到截断标记后误判技能内容不完整。
+      // 同时保留 injectMessage 双保险（anthropic/google adapter 已修复 system 消息送达）。
+      output: guidance,
       // 结构化数据保留给 tool_result 事件使用（skillName 等）
       _skillMeta: { skillName: skill.name, skillDir: skill.skillDir, guidancePreview: buildPreview(skill), extensions },
       injectMessage: { role: 'system', content: guidance },
