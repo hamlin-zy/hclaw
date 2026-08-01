@@ -182,7 +182,7 @@ export default function AskUserModal() {
                     animate={{scale: 1, opacity: 1}}
                     exit={{scale: 0.95, opacity: 0}}
                     transition={{duration: 0.15, ease: 'easeOut'}}
-                    className={`absolute pointer-events-auto w-[calc(100vw-2rem)] max-w-md bg-[var(--surface)] rounded-xl overflow-hidden transition-shadow duration-100 ${
+                    className={`absolute pointer-events-auto dialog-surface w-[calc(100vw-2rem)] max-w-md bg-[var(--surface)] rounded-xl overflow-hidden transition-shadow duration-100 ${
                         isDragging ? 'shadow-overlay scale-[1.02]' : 'shadow-elevated'
                     }`}
                     style={{left: position.x, top: position.y}}
@@ -200,7 +200,7 @@ export default function AskUserModal() {
                     >
                         <div className="flex items-center gap-3">
                             <div
-                                className="w-10 h-10 rounded-full bg-[var(--brand-primary)]/10 flex items-center justify-center shrink-0">
+                                className="w-10 h-10 rounded-full bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] flex items-center justify-center shrink-0">
                                 <svg className="w-5 h-5 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="none"
                                      stroke="currentColor" strokeWidth="2">
                                     <path
@@ -237,8 +237,8 @@ export default function AskUserModal() {
                                             disabled={isSubmitting}
                                             className={`w-full text-left px-4 py-3 rounded-lg border transition-all text-sm ${
                                                 isSelected
-                                                    ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
-                                                    : 'border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-primary)] hover:border-[var(--brand-primary)]/50 disabled:cursor-not-allowed'
+                                                    ? 'border-[var(--brand-primary)] bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
+                                                    : 'border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-primary)] hover:border-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)] disabled:cursor-not-allowed'
                                             }`}
                                         >
                                             <div className="flex items-center gap-3">
@@ -287,7 +287,7 @@ export default function AskUserModal() {
                                 disabled={!canSubmit || isSubmitting}
                                 className={`px-6 py-2 text-sm font-medium rounded-lg transition-all ${
                                     canSubmit && !isSubmitting
-                                        ? 'bg-[var(--brand-primary)] text-white hover:bg-[var(--brand-primary)]/80'
+                                        ? 'bg-[var(--brand-primary)] text-white hover:bg-[color-mix(in_srgb,var(--brand-primary)_80%,transparent)]'
                                         : 'bg-[var(--surface-muted)] text-[var(--text-muted)] cursor-not-allowed'
                                 }`}
                             >
