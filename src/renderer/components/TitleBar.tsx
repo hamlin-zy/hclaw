@@ -22,7 +22,7 @@ export default function TitleBar({className = ''}: TitleBarProps) {
 
     return (
         <header
-            className={`titlebar ${className}`}
+            className={`titlebar relative z-10 ${className}`}
             role="banner"
         >
             {/* 拖拽区域 + 内容 */}
