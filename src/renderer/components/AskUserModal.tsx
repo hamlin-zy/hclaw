@@ -250,15 +250,11 @@ export default function AskUserModal() {
                                                     }`}
                                                 >
                                                     {isSelected && (
-                                                        multiSelect ? (
-                                                            <svg className="w-3 h-3 text-white" viewBox="0 0 24 24"
-                                                                 fill="none"
-                                                                 stroke="currentColor" strokeWidth="3">
-                                                                <polyline points="20 6 9 17 4 12"/>
-                                                            </svg>
-                                                        ) : (
-                                                            <div className="w-2 h-2 rounded-full bg-white"/>
-                                                        )
+                                                        <svg className="w-3 h-3 text-white" viewBox="0 0 24 24"
+                                                             fill="none"
+                                                             stroke="currentColor" strokeWidth="3">
+                                                            <polyline points="20 6 9 17 4 12"/>
+                                                        </svg>
                                                     )}
                                                 </div>
                                                 <span>{option}</span>
