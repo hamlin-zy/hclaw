@@ -24,7 +24,7 @@ import {agentLoop} from '../../loop'
 import type {AgentStreamEvent} from '../../stream'
 import {logger} from '../../logger'
 import {agentRegistry} from '../../agentRegistry'
-import type {AgentTemplate} from '@shared/types'
+import type {AgentTemplate, LlmStats} from '@shared/types'
 import type {AgentDefinition} from '@shared/agent'
 import {runtimeConfigManager} from '../../runtimeConfigManager'
 import {systemSettingsRepo} from '../../../repositories/sqlite/systemSettingsRepository'
@@ -239,6 +239,8 @@ export const agentTool: Tool<AgentToolInput, string> = {
         let output = ''
         let hasError = false
         let errorMsg = ''
+        // 收集子会话各轮 LLM 调用统计（写入子会话自身 assistant 消息，供 input-toolbar-cache-rate 展示）
+        const childLlmStats: LlmStats[] = []
 
         activeChildSessions.add(childConvId)
 
@@ -265,12 +267,14 @@ export const agentTool: Tool<AgentToolInput, string> = {
 
                 // ── 累积文本输出 ──
                 if (event.type === 'text') {
-                    const content = (event as any).content || ''
-                    output += content
+                    output += event.content
                 }
 
                 // ── 事件分类转发给父上下文 ──
-                if (event.type === 'thinking' || event.type === 'tool_start' || event.type === 'tool_progress' || event.type === 'tool_result') {
+                if (event.type === 'llm_call_done') {
+                    // 收集子会话自身各轮 LLM 调用统计，随 assistant 消息持久化
+                    childLlmStats.push(toLlmStats(event))
+                } else if (event.type === 'thinking' || event.type === 'tool_start' || event.type === 'tool_progress' || event.type === 'tool_result') {
                     context.sendMessage({
                         type: 'subagent_progress',
                         taskId: childConvId,
@@ -283,7 +287,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
                     break
                 } else if (event.type === 'error') {
                     hasError = true
-                    errorMsg = (event as any).error || '未知错误'
+                    errorMsg = event.error || '未知错误'
                     context.sendMessage({type: 'subagent_done', taskId: childConvId, success: false, error: errorMsg})
                     sendChildAgentEvent(childConvId, {type: 'done', reason: 'error'})
                     break
@@ -311,6 +315,8 @@ export const agentTool: Tool<AgentToolInput, string> = {
             role: 'assistant',
             content: finalOutput,
             timestamp: Date.now(),
+            // 附带子会话自身各轮 LLM 调用统计，持久化后打开子会话即可看到缓存命中率
+            ...(childLlmStats.length > 0 ? {llmStats: childLlmStats} : {}),
         }])
 
         // 通知 UI 刷新（子会话在侧栏中出现）
@@ -344,17 +350,31 @@ export const agentTool: Tool<AgentToolInput, string> = {
     },
 }
 
+/** 将 llm_call_done 事件映射为持久化的 LlmStats 记录 */
+function toLlmStats(event: Extract<AgentStreamEvent, {type: 'llm_call_done'}>): LlmStats {
+    return {
+        inputTokens: event.inputTokens,
+        outputTokens: event.outputTokens,
+        provider: event.provider,
+        model: event.model,
+        duration: event.duration,
+        cacheReadTokens: event.cacheReadTokens,
+        cacheWriteTokens: event.cacheWriteTokens,
+        reasoningTokens: event.reasoningTokens,
+    }
+}
+
 /** 格式化子 Agent 事件为人类可读文本 */
 function formatProgress(event: AgentStreamEvent): string {
     switch (event.type) {
         case 'thinking': return '子 Agent 思考中...'
         case 'tool_start': {
-            const tc = (event as any).toolCall
+            const tc = event.toolCall
             return tc?.name ? `🔧 ${tc.name}` : '🔧 工具调用中...'
         }
-        case 'tool_progress': return `子 Agent: ${(event as any).progress || '执行中...'}`
+        case 'tool_progress': return `子 Agent: ${event.progress || '执行中...'}`
         case 'tool_result': {
-            const out = (event as any).result?.output
+            const out = event.result?.output
             if (out && typeof out === 'string') {
                 const trimmed = out.trim()
                 return trimmed.length > 60 ? trimmed.slice(0, 60) + '...' : trimmed
