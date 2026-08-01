@@ -92,7 +92,7 @@ export default defineConfig({
                 nodeModulesCopied = true;
 
                 const destDir = path.join(__dirname, '.vite', 'node_modules');
-                const packages = ['@photostructure/sqlite', 'node-addon-api', 'node-gyp-build', '@larksuiteoapi/node-sdk'];
+                const packages = ['@photostructure/sqlite', 'node-addon-api', 'node-gyp-build', '@larksuiteoapi/node-sdk', 'sharp', '@img']; // sharp 及其 @img 平台二进制（win32-x64 等）必须在打包时一起拷贝，否则运行时无法加载原生模块
 
                 for (const pkg of packages) {
                     const src = path.join(__dirname, 'node_modules', pkg);
