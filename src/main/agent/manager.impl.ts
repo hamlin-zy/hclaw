@@ -127,7 +127,7 @@ export class AgentManager {
       agent: {maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000, llmTimeout: 600000},
       model: {defaultMaxTokens: 8000, defaultTemperature: 0},
       mcp: {mcpTestTimeout: 15000},
-      ui: {language: 'zh-CN', theme: 'system'},
+      ui: {theme: 'system'},
       subagent: {maxConcurrency: 3, defaultTimeout: 15 * 60 * 1000, retryAttempts: 0, priorityEnabled: false, maxDepth: 3},
     }
     let initialSettings: SystemSettings | null = null
