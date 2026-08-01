@@ -1,4 +1,5 @@
 import {type ReactNode, useEffect, useRef, useState} from 'react'
+import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useAgentStore} from '../stores/agentStore'
 import {useModelSchemeStore} from '../stores/modelSchemeStore'
@@ -172,7 +173,7 @@ export default function WorkModeSelector() {
                 ref={buttonRef}
                 onClick={() => setIsOpen(!isOpen)}
                 className={`
-                    flex items-center gap-1.5 px-2.5 py-1 rounded-md
+                    menubar-selector-btn flex items-center gap-1.5 px-2.5 py-1 rounded-md
                     border border-transparent hover:border-[var(--border)]
                     text-xs transition-all duration-200 bg-[var(--surface)]
                 `}
@@ -188,7 +189,10 @@ export default function WorkModeSelector() {
                 </svg>
             </button>
 
-            <AnimatePresence>
+            {/* 下拉面板：createPortal 挂到 body，脱离菜单栏 stacking context
+                （bg-enabled 下 .menubar 有 backdrop-filter 会困住 fixed z-index） */}
+            {createPortal(
+                <AnimatePresence>
                 {isOpen && (
                     <motion.div
                         initial={{opacity: 0, y: -8, scale: 0.96}}
@@ -197,6 +201,7 @@ export default function WorkModeSelector() {
                         transition={{duration: 0.15, ease: [0.4, 0, 0.2, 1]}}
                         style={{top: position.top, right: position.right, width: '200px'}}
                         className="fixed z-[9999]"
+                        onMouseDown={(e) => e.stopPropagation()}
                     >
                         <div className="bg-[var(--surface-elevated)]/92 backdrop-blur-lg border border-[var(--border)] rounded-2xl shadow-2xl shadow-black/20 overflow-hidden">
                             <div className="p-1.5">
@@ -223,8 +228,8 @@ export default function WorkModeSelector() {
                                                 }
                                             `}
                                         >
-                                            <span className={`${isActive ? '' : 'opacity-70'}`}>{m.icon}</span>
-                                            <span className={`font-medium flex-1 ${isActive ? '' : 'text-[var(--text-secondary)]'}`}>
+                                            <span className={`${isActive ? 'text-[var(--brand-primary)]' : 'opacity-70'}`}>{m.icon}</span>
+                                            <span className={`font-medium flex-1 ${isActive ? 'text-[var(--brand-primary)]' : 'text-[var(--text-secondary)]'}`}>
                                                 {m.name}
                                             </span>
                                             {m.effortLabel && (
@@ -254,7 +259,9 @@ export default function WorkModeSelector() {
                         </div>
                     </motion.div>
                 )}
-            </AnimatePresence>
+            </AnimatePresence>,
+                document.body,
+            )}
         </div>
     )
 }

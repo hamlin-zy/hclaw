@@ -48,7 +48,8 @@ export class AnthropicAdapter implements ModelAdapter {
 
     const thinkingModeActive = !!thinkingEffort
     const needsCompatNormalization = this.isThirdPartyAPI()
-    let apiMessages = this.convertMessages(messages, thinkingModeActive, needsCompatNormalization)
+    const converted = convertMessages(messages, thinkingModeActive, needsCompatNormalization)
+    let apiMessages = converted.apiMessages
 
     const useContentBlocks = this.features?.systemContentBlocks
 
@@ -58,7 +59,7 @@ export class AnthropicAdapter implements ModelAdapter {
       apiMessages = injectAdditionalContext(apiMessages, additionalContext)
     }
 
-    // ★ 构建多块 system 数组：core prompt + command template（各块独立缓存）
+    // ★ 构建多块 system 数组：core prompt + command template + 注入的 system 消息
     // type 和 cache_control 是精确字面量类型，push 到类型化数组时无需 as const
     const systemBlocks: Anthropic.TextBlockParam[] = []
     if (systemPrompt) {
@@ -66,6 +67,11 @@ export class AnthropicAdapter implements ModelAdapter {
     }
     if (commandTemplate) {
         systemBlocks.push({ type: 'text', text: commandTemplate, cache_control: { type: 'ephemeral' } })
+    }
+    // 工具注入的 system 消息（如 skill 工具的完整指导）——之前被 convertMessages 直接丢弃，
+    // 导致 LLM 只能看到 buildPreview 的 500 字截断内容。现在收集后放入 system 块，与 OpenAI adapter 行为对齐。
+    if (converted.systemText) {
+        systemBlocks.push({ type: 'text', text: converted.systemText })
     }
 
     // system 参数：多块数组（缓存友好）或降级纯字符串
@@ -78,7 +84,7 @@ export class AnthropicAdapter implements ModelAdapter {
       max_tokens: maxTokens || 8192,
       messages: apiMessages,
       ...(system ? { system } : {}),
-      ...(tools?.length ? { tools: this.convertTools(tools) } : {}),
+      ...(tools?.length ? { tools: convertTools(tools, useContentBlocks) } : {}),
       stream: true,
     }
 
@@ -185,22 +191,6 @@ export class AnthropicAdapter implements ModelAdapter {
       if (abortSignal?.aborted) return
       yield { type: 'error', error: err instanceof Error ? err : new Error(String(err)) }
     }
-
-      /** 从 Anthropic usage 对象生成统一的 usage chunk */
-      function* yieldUsageChunk(usage: {
-          input_tokens?: number;
-          output_tokens?: number;
-          cache_read_input_tokens?: number;
-          cache_creation_input_tokens?: number
-      }): Generator<StreamChunk> {
-          yield {
-              type: 'usage',
-              inputTokens: usage.input_tokens || 0,
-              outputTokens: usage.output_tokens || 0,
-              cacheReadTokens: usage.cache_read_input_tokens || undefined,
-              cacheWriteTokens: usage.cache_creation_input_tokens || undefined,
-          }
-      }
   }
 
   getModelInfo(): ModelInfo {
@@ -234,29 +224,68 @@ export class AnthropicAdapter implements ModelAdapter {
   private isThirdPartyAPI(): boolean {
     return isThirdPartyAnthropicAPI(this.model, ((this.client as any).baseURL || ''))
   }
+}
 
-  /**
-   * 第三方 API thinking 块规范化。
-   * 第三方 API 不支持 Anthropic 的 signature 字段，且要求 thinking 内容非空。
-   * 参考 cc-switch PR #3203 的 fix(proxy): normalize DeepSeek Anthropic tool thinking history
-   */
-  private normalizeForThirdPartyAPI(contentBlocks: Anthropic.ContentBlockParam[]): void {
+/**
+ * 第三方 API thinking 块规范化。
+ * 第三方 API 不支持 Anthropic 的 signature 字段，且要求 thinking 内容非空。
+ * 参考 cc-switch PR #3203 的 fix(proxy): normalize DeepSeek Anthropic tool thinking history
+ */
+export function normalizeForThirdPartyAPI(contentBlocks: Anthropic.ContentBlockParam[]): void {
     for (const block of contentBlocks) {
-      if (block.type !== 'thinking') continue
-      // 1. 移除 signature（第三方 API 会拒绝带 signature 的 thinking 块）
-      delete (block as any).signature
-      // 2. 确保 thinking 内容非空
-      if (!block.thinking || !block.thinking.trim()) {
-        (block as any).thinking = '继续'
-      }
+        if (block.type !== 'thinking') continue
+        // 1. 移除 signature（第三方 API 会拒绝带 signature 的 thinking 块）
+        delete (block as any).signature
+        // 2. 确保 thinking 内容非空
+        if (!block.thinking || !block.thinking.trim()) {
+            (block as any).thinking = '继续'
+        }
     }
-  }
+}
 
-  private convertMessages(messages: readonly ChatMessage[], thinkingModeActive?: boolean, needsCompatNormalization?: boolean): Anthropic.MessageParam[] {
+/** 从 Anthropic usage 对象生成统一的 usage chunk */
+function* yieldUsageChunk(usage: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number
+}): Generator<StreamChunk> {
+    yield {
+        type: 'usage',
+        inputTokens: usage.input_tokens || 0,
+        outputTokens: usage.output_tokens || 0,
+        cacheReadTokens: usage.cache_read_input_tokens || undefined,
+        cacheWriteTokens: usage.cache_creation_input_tokens || undefined,
+    }
+}
+
+/** 将可能为 string 的消息内容规范化为字符串（非字符串内容视为空） */
+function textOf(content: unknown): string {
+    return typeof content === 'string' ? content : ''
+}
+
+export interface ConvertedMessages {
+    apiMessages: Anthropic.MessageParam[]
+    systemText: string
+}
+
+/**
+ * 将内部 ChatMessage[] 转换为 Anthropic API 消息 + 收集注入的 system 文本。
+ *
+ * system 角色消息（如 skill 工具的 injectMessage 完整指导）不会被丢弃，
+ * 而是收集到 systemText 中，由 chat() 通过 system 参数送达 LLM。
+ */
+export function convertMessages(
+    messages: readonly ChatMessage[],
+    thinkingModeActive?: boolean,
+    needsCompatNormalization?: boolean,
+): ConvertedMessages {
     const result: Anthropic.MessageParam[] = []
+    // 收集注入的 system 消息文本（如 skill 工具的 injectMessage），通过 system 参数送达
+    const systemParts: string[] = []
 
-      const validToolUseIds = new Set<string>()
-      const presentToolResultIds = new Set<string>()
+    const validToolUseIds = new Set<string>()
+    const presentToolResultIds = new Set<string>()
     for (const msg of messages) {
         if (msg.role === 'assistant' && msg.toolCalls) {
             for (const tc of msg.toolCalls) {
@@ -267,201 +296,209 @@ export class AnthropicAdapter implements ModelAdapter {
         }
     }
 
-      for (let i = 0; i < messages.length; i++) {
-          const msg = messages[i]
-          if (msg.role === 'system') continue
-
-      if (msg.role === 'user') {
-          const content = this.convertUserContent(msg.content)
-          result.push({role: 'user', content: content as any})
-      } else if (msg.role === 'assistant') {
-        // 构建 assistant 消息的内容块数组
-        const contentBlocks: Anthropic.ContentBlockParam[] = []
-
-        // 如果有 thinking 内容，必须放在 text 之前（Anthropic API 要求）
-        // 同时需要回传 signature（必须，API 要求 thinking 块携带 signature）
-        // 兼容：当 reasoningContent 存在而 thinking 不存在时（跨供应商消息），将其作为 thinking 内容
-        const thinkingText = msg.thinking || (msg as any).reasoningContent
-        if (thinkingText) {
-            if (needsCompatNormalization) {
-                // DeepSeek 不接受 signature 字段，且不要求 signature
-                contentBlocks.push({
-                    type: 'thinking' as const,
-                    thinking: thinkingText,
-                } as any)
-            } else if (msg.thinkingSignature) {
-                contentBlocks.push({
-                    type: 'thinking' as const,
-                    thinking: thinkingText,
-                    signature: msg.thinkingSignature,
-                })
-            } else {
-                // signature 是 Anthropic API 的必需字段，缺失会导致 400 错误
-                // 若确实无 signature（如跨供应商消息），降级为纯文本，跳过 thinking 块
-                logger.warn('[AnthropicAdapter] assistant 消息有 thinking 内容但无 signature，降级为纯文本', {
-                    thinkingLength: String(thinkingText).length,
-                })
-            }
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i]
+        if (msg.role === 'system') {
+            const text = textOf(msg.content)
+            if (text) systemParts.push(text)
+            continue
         }
 
-        const assistantContent = typeof msg.content === 'string' ? msg.content : ''
+        if (msg.role === 'user') {
+            const content = convertUserContent(msg.content)
+            result.push({role: 'user', content: content as any})
+        } else if (msg.role === 'assistant') {
+            // 构建 assistant 消息的内容块数组
+            const contentBlocks: Anthropic.ContentBlockParam[] = []
 
-        // ── 跨供应商 thinking 块兼容 ──
-        // DeepSeek Anthropic 兼容 API 在 thinking mode 下要求所有带 tool_use 的
-        // assistant 消息必须包含 {type:'thinking'} 块。旧供应商消息可能无 thinking 块，
-        // 注入空 thinking 块以满足格式校验。
-        // DeepSeek/MiMo: 即使当前请求未启用 thinking mode，所有带 tool_use 的
-        // assistant 消息也必须包含 thinking 块（否则 400）。
-        const hasThinkingBlock = contentBlocks.some(b => b.type === 'thinking')
-        if (msg.toolCalls?.length && !hasThinkingBlock && (needsCompatNormalization || thinkingModeActive)) {
-            if (needsCompatNormalization) {
-                // DeepSeek 不接受 signature 字段，只传 thinking 内容
-                contentBlocks.push({
-                    type: 'thinking' as const,
-                    thinking: '继续',
-                } as any)
-            } else {
-                contentBlocks.push({
-                    type: 'thinking' as const,
-                    thinking: '无',
-                    signature: '',
-                })
-            }
-        }
-
-        // ── DeepSeek thinking 块规范化 ──
-        // 在推送前对 contentBlocks 做后处理：移除 signature、填充空 thinking
-        if (needsCompatNormalization && contentBlocks.length > 0) {
-            this.normalizeForThirdPartyAPI(contentBlocks)
-        }
-
-        if (msg.toolCalls?.length) {
-          // 有 tool_calls：包含 text + thinking + tool_use
-          // 只包含有对应 tool_result 的 tool_use（Anthropic API 要求每个 tool_use 必须紧跟 tool_result）
-          if (assistantContent) {
-              contentBlocks.push({type: 'text', text: assistantContent})
-          }
-          let hasValidToolUse = false
-          for (const tc of msg.toolCalls) {
-              if (presentToolResultIds.has(tc.id)) {
-                  contentBlocks.push({
-                      type: 'tool_use',
-                      id: tc.id,
-                      name: tc.name,
-                      input: tc.arguments,
-                  } as Anthropic.ToolUseBlockParam)
-                  hasValidToolUse = true
-              } else {
-                  logger.warn(`[AnthropicAdapter] 跳过无对应 tool_result 的 tool_use`, {id: tc.id, name: tc.name})
-              }
-          }
-          if (hasValidToolUse) {
-              result.push({ role: 'assistant', content: contentBlocks })
-          } else if (contentBlocks.length > 0) {
-              // 有 text/thinking 但所有 tool_use 都被跳过 → 纯文本消息
-              result.push({ role: 'assistant', content: contentBlocks })
-          }
-        } else {
-          // 没有 tool_calls
-          if (msg.thinking) {
-              // 有 thinking 内容：必须用 content block 数组形式
-              if (assistantContent) {
-                  contentBlocks.push({type: 'text', text: assistantContent})
-              }
-              result.push({role: 'assistant', content: contentBlocks})
-          } else {
-              // 无 thinking：简单字符串形式（兼容旧格式）
-              result.push({role: 'assistant', content: assistantContent})
-          }
-        }
-      } else if (msg.role === 'tool') {
-          // 批处理：将所有连续的 tool 消息合并为单个 user 消息中的多个 tool_result 块
-          // Anthropic API 要求所有 tool_use 的 tool_result 必须在同一条 user 消息中
-          // system 消息（如 skill 工具的 injectMessage）会被跳过，不打断 tool 消息的合并
-          const toolBlocks: Anthropic.ToolResultBlockParam[] = []
-          while (i < messages.length && (messages[i].role === 'tool' || messages[i].role === 'system')) {
-              const toolMsg = messages[i]
-              // system 消息在外部循环中已被跳过，但会打断 tool 消息的连续合并；此处一并跳过
-              if (toolMsg.role === 'system') {
-                  i++
-                  continue
-              }
-              const toolUseId = toolMsg.toolCallId || ''
-              if (toolUseId && !validToolUseIds.has(toolUseId)) {
-                  i++
-                  continue
-              }
-              toolBlocks.push({
-                  type: 'tool_result',
-                  tool_use_id: toolUseId,
-                  content: toolMsg.toolResult || '',
-                  is_error: toolMsg.isError || false,
-              } as Anthropic.ToolResultBlockParam)
-              i++
-          }
-          if (toolBlocks.length > 0) {
-              result.push({ role: 'user', content: toolBlocks })
-          }
-          i-- // 补偿外层 for 循环的 i++
-      }
-    }
-
-    return result
-  }
-
-    private convertUserContent(content: string | ContentPart[]): Anthropic.ContentBlockParam[] {
-        if (typeof content === 'string') {
-            return [{type: 'text', text: content}]
-        }
-
-        const blocks: Anthropic.ContentBlockParam[] = []
-        for (const part of content) {
-            if (part.type === 'text') {
-                blocks.push({type: 'text', text: part.text})
-            } else if (part.type === 'image_url') {
-                const url = part.image_url.url
-                if (url.startsWith('data:')) {
-                    blocks.push({
-                        type: 'image',
-                        source: {
-                            type: 'base64',
-                            media_type: this.extractMediaType(url),
-                            data: this.extractBase64Data(url),
-                        },
+            // 如果有 thinking 内容，必须放在 text 之前（Anthropic API 要求）
+            // 同时需要回传 signature（必须，API 要求 thinking 块携带 signature）
+            // 兼容：当 reasoningContent 存在而 thinking 不存在时（跨供应商消息），将其作为 thinking 内容
+            const thinkingText = msg.thinking || (msg as any).reasoningContent
+            if (thinkingText) {
+                if (needsCompatNormalization) {
+                    // DeepSeek 不接受 signature 字段，且不要求 signature
+                    contentBlocks.push({
+                        type: 'thinking' as const,
+                        thinking: thinkingText,
                     } as any)
-                } else if (url.startsWith('http://') || url.startsWith('https://')) {
-                    blocks.push({
-                        type: 'image',
-                        source: {
-                            type: 'base64',
-                            media_type: 'image/jpeg',
-                            data: url,
-                        },
-                    } as any)
+                } else if (msg.thinkingSignature) {
+                    contentBlocks.push({
+                        type: 'thinking' as const,
+                        thinking: thinkingText,
+                        signature: msg.thinkingSignature,
+                    })
+                } else {
+                    // signature 是 Anthropic API 的必需字段，缺失会导致 400 错误
+                    // 若确实无 signature（如跨供应商消息），降级为纯文本，跳过 thinking 块
+                    logger.warn('[AnthropicAdapter] assistant 消息有 thinking 内容但无 signature，降级为纯文本', {
+                        thinkingLength: String(thinkingText).length,
+                    })
                 }
             }
-        }
 
-        return blocks.length > 0 ? blocks : [{type: 'text', text: ''}]
+            const assistantContent = textOf(msg.content)
+
+            // ── 跨供应商 thinking 块兼容 ──
+            // DeepSeek Anthropic 兼容 API 在 thinking mode 下要求所有带 tool_use 的
+            // assistant 消息必须包含 {type:'thinking'} 块。旧供应商消息可能无 thinking 块，
+            // 注入空 thinking 块以满足格式校验。
+            // DeepSeek/MiMo: 即使当前请求未启用 thinking mode，所有带 tool_use 的
+            // assistant 消息也必须包含 thinking 块（否则 400）。
+            const hasThinkingBlock = contentBlocks.some(b => b.type === 'thinking')
+            if (msg.toolCalls?.length && !hasThinkingBlock && (needsCompatNormalization || thinkingModeActive)) {
+                if (needsCompatNormalization) {
+                    // DeepSeek 不接受 signature 字段，只传 thinking 内容
+                    contentBlocks.push({
+                        type: 'thinking' as const,
+                        thinking: '继续',
+                    } as any)
+                } else {
+                    contentBlocks.push({
+                        type: 'thinking' as const,
+                        thinking: '无',
+                        signature: '',
+                    })
+                }
+            }
+
+            // ── DeepSeek thinking 块规范化 ──
+            // 在推送前对 contentBlocks 做后处理：移除 signature、填充空 thinking
+            if (needsCompatNormalization && contentBlocks.length > 0) {
+                normalizeForThirdPartyAPI(contentBlocks)
+            }
+
+            if (msg.toolCalls?.length) {
+                // 有 tool_calls：包含 text + thinking + tool_use
+                // 只包含有对应 tool_result 的 tool_use（Anthropic API 要求每个 tool_use 必须紧跟 tool_result）
+                if (assistantContent) {
+                    contentBlocks.push({type: 'text', text: assistantContent})
+                }
+                let hasValidToolUse = false
+                for (const tc of msg.toolCalls) {
+                    if (presentToolResultIds.has(tc.id)) {
+                        contentBlocks.push({
+                            type: 'tool_use',
+                            id: tc.id,
+                            name: tc.name,
+                            input: tc.arguments,
+                        } as Anthropic.ToolUseBlockParam)
+                        hasValidToolUse = true
+                    } else {
+                        logger.warn(`[AnthropicAdapter] 跳过无对应 tool_result 的 tool_use`, {id: tc.id, name: tc.name})
+                    }
+                }
+                if (hasValidToolUse) {
+                    result.push({ role: 'assistant', content: contentBlocks })
+                } else if (contentBlocks.length > 0) {
+                    // 有 text/thinking 但所有 tool_use 都被跳过 → 纯文本消息
+                    result.push({ role: 'assistant', content: contentBlocks })
+                }
+            } else {
+                // 没有 tool_calls
+                if (msg.thinking) {
+                    // 有 thinking 内容：必须用 content block 数组形式
+                    if (assistantContent) {
+                        contentBlocks.push({type: 'text', text: assistantContent})
+                    }
+                    result.push({role: 'assistant', content: contentBlocks})
+                } else {
+                    // 无 thinking：简单字符串形式（兼容旧格式）
+                    result.push({role: 'assistant', content: assistantContent})
+                }
+            }
+        } else if (msg.role === 'tool') {
+            // 批处理：将所有连续的 tool 消息合并为单个 user 消息中的多个 tool_result 块
+            // Anthropic API 要求所有 tool_use 的 tool_result 必须在同一条 user 消息中
+            // system 消息（如 skill 工具的 injectMessage）会被跳过，不打断 tool 消息的合并
+            const toolBlocks: Anthropic.ToolResultBlockParam[] = []
+            while (i < messages.length && (messages[i].role === 'tool' || messages[i].role === 'system')) {
+                const toolMsg = messages[i]
+                // system 消息在外部循环中已被跳过，但会打断 tool 消息的连续合并；此处一并跳过
+                // 同时收集其文本（injectMessage 恰好追加在所有 tool 消息之后，会被此 while 循环吞掉）
+                if (toolMsg.role === 'system') {
+                    const text = textOf(toolMsg.content)
+                    if (text) systemParts.push(text)
+                    i++
+                    continue
+                }
+                const toolUseId = toolMsg.toolCallId || ''
+                if (toolUseId && !validToolUseIds.has(toolUseId)) {
+                    i++
+                    continue
+                }
+                toolBlocks.push({
+                    type: 'tool_result',
+                    tool_use_id: toolUseId,
+                    content: toolMsg.toolResult || '',
+                    is_error: toolMsg.isError || false,
+                } as Anthropic.ToolResultBlockParam)
+                i++
+            }
+            if (toolBlocks.length > 0) {
+                result.push({ role: 'user', content: toolBlocks })
+            }
+            i-- // 补偿外层 for 循环的 i++
+        }
     }
 
-    private extractMediaType(dataUrl: string): string {
-        const match = dataUrl.match(/data:([^;]+);base64/)
-        if (match) {
-            const mimeType = match[1]
-            if (['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType)) {
-                return mimeType
+    return { apiMessages: result, systemText: systemParts.join('\n\n') }
+}
+
+/** 将内部 user 消息内容（文本或多模态块）转换为 Anthropic content blocks */
+export function convertUserContent(content: string | ContentPart[]): Anthropic.ContentBlockParam[] {
+    if (typeof content === 'string') {
+        return [{type: 'text', text: content}]
+    }
+
+    const blocks: Anthropic.ContentBlockParam[] = []
+    for (const part of content) {
+        if (part.type === 'text') {
+            blocks.push({type: 'text', text: part.text})
+        } else if (part.type === 'image_url') {
+            const url = part.image_url.url
+            if (url.startsWith('data:')) {
+                blocks.push({
+                    type: 'image',
+                    source: {
+                        type: 'base64',
+                        media_type: extractMediaType(url),
+                        data: extractBase64Data(url),
+                    },
+                } as any)
+            } else if (url.startsWith('http://') || url.startsWith('https://')) {
+                blocks.push({
+                    type: 'image',
+                    source: {
+                        type: 'base64',
+                        media_type: 'image/jpeg',
+                        data: url,
+                    },
+                } as any)
             }
         }
-        return 'image/jpeg'
     }
 
-    private extractBase64Data(dataUrl: string): string {
-        const match = dataUrl.match(/data:[^;]+;base64,(.+)/)
-        return match ? match[1] : dataUrl
-    }
+    return blocks.length > 0 ? blocks : [{type: 'text', text: ''}]
+}
 
-  private convertTools(tools: ToolDefinition[]): Anthropic.Tool[] {
+function extractMediaType(dataUrl: string): string {
+    const match = dataUrl.match(/data:([^;]+);base64/)
+    if (match) {
+        const mimeType = match[1]
+        if (['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType)) {
+            return mimeType
+        }
+    }
+    return 'image/jpeg'
+}
+
+function extractBase64Data(dataUrl: string): string {
+    const match = dataUrl.match(/data:[^;]+;base64,(.+)/)
+    return match ? match[1] : dataUrl
+}
+
+function convertTools(tools: ToolDefinition[], useContentBlocks?: boolean): Anthropic.Tool[] {
     const result: Anthropic.Tool[] = tools.map((t) => ({
       name: t.name,
       description: t.description,
@@ -472,9 +509,8 @@ export class AnthropicAdapter implements ModelAdapter {
     }))
     // 提示词缓存优化：tools 位于前缀最前，给最后一块打 cache_control
     // 可缓存整个工具数组，降低重复发送工具定义的开销
-    if (this.features?.systemContentBlocks && result.length > 0) {
+    if (useContentBlocks && result.length > 0) {
       result[result.length - 1].cache_control = { type: 'ephemeral' }
     }
     return result
   }
-}

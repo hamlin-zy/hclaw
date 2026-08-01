@@ -58,11 +58,18 @@ export class GoogleAdapter implements ModelAdapter {
     async *chat(params: ChatParams): AsyncGenerator<StreamChunk> {
         const {messages, systemPrompt, tools, maxTokens, abortSignal, additionalContext} = params
 
-        const {history, lastUserMsg} = this.convertMessages(messages)
+        const converted = convertMessages(messages)
+        const {history, lastUserMsg} = converted
         if (!lastUserMsg) {
             yield {type: 'error', error: new Error('No user message to send')}
             return
         }
+
+        // 注入的 system 消息（如 skill 工具的完整指导）拼入 systemInstruction，
+        // 与 OpenAI adapter 的 system 消息保留行为对齐
+        const effectiveSystemPrompt = converted.systemText
+            ? (systemPrompt ? `${systemPrompt}\n\n${converted.systemText}` : converted.systemText)
+            : systemPrompt
 
         if (additionalContext && lastUserMsg) {
             lastUserMsg.push({text: `\n\n📎 背景信息:\n${additionalContext}`})
@@ -76,12 +83,12 @@ export class GoogleAdapter implements ModelAdapter {
         if (this.isOAuth) {
             await this.refreshTokenIfExpired()
             const oauthFetch = this.createOAuthFetch(this.apiKey)
-            yield* this.chatOAuth(history, lastUserMsg, systemPrompt, tools, maxTokens, abortSignal, oauthFetch)
+            yield* this.chatOAuth(history, lastUserMsg, effectiveSystemPrompt, tools, maxTokens, abortSignal, oauthFetch)
             return
         }
 
         // ── API Key 模式：标准 SDK ──
-        yield* this.chatSDK(history, lastUserMsg, systemPrompt, tools, maxTokens, abortSignal)
+        yield* this.chatSDK(history, lastUserMsg, effectiveSystemPrompt, tools, maxTokens, abortSignal)
     }
 
     /**
@@ -286,132 +293,6 @@ export class GoogleAdapter implements ModelAdapter {
     }
   }
 
-  // ─── 内部方法 ──────────────────────────────────────
-
-  private convertMessages(messages: readonly ChatMessage[]): {
-    history: any[]
-      lastUserMsg: any[] | null
-  } {
-    const history: any[] = []
-      let lastUserMsg: any[] | null = null
-
-    // 分离最后一条用户消息（Gemini 要求 sendMessage 传入最新的用户消息）
-    const msgs = [...messages]
-    let lastUserIdx = -1
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].role === 'user') { lastUserIdx = i; break }
-    }
-    if (lastUserIdx >= 0) {
-        lastUserMsg = this.convertUserContent(msgs[lastUserIdx].content)
-      msgs.splice(lastUserIdx, 1)
-    }
-
-    for (const msg of msgs) {
-      if (msg.role === 'system') continue
-
-      if (msg.role === 'user') {
-          const parts = this.convertUserContent(msg.content)
-          history.push({role: 'user', parts})
-      } else if (msg.role === 'assistant') {
-        const parts: any[] = []
-          if (msg.content) {
-              const textParts = this.convertUserContent(typeof msg.content === 'string' ? msg.content : msg.content as ContentPart[])
-              parts.push(...textParts)
-          }
-        if (msg.toolCalls) {
-          for (const tc of msg.toolCalls) {
-            parts.push({
-              functionCall: { name: tc.name, args: tc.arguments },
-            })
-          }
-        }
-        history.push({ role: 'model', parts })
-      } else if (msg.role === 'context') {
-        // Hook additionalContext 注入的消息：转为 user 角色，让 LLM 能看到
-        const text = typeof msg.content === 'string' ? msg.content : ''
-        if (text) {
-          history.push({role: 'user', parts: [{text}]})
-        }
-      } else if (msg.role === 'tool') {
-        // functionResponse.name 必须是函数名，用于和 functionCall.name 匹配
-        history.push({
-          role: 'function',
-          parts: [
-            {
-              functionResponse: {
-                name: msg.functionName || '',
-                response: { result: msg.toolResult || '' },
-              },
-            },
-          ],
-        })
-      }
-    }
-
-    return { history, lastUserMsg }
-  }
-
-    /**
-     * 转换用户消息内容为 Gemini 格式
-     */
-    private convertUserContent(content: string | ContentPart[]): any[] {
-        if (typeof content === 'string') {
-            return [{text: content}]
-        }
-
-        const parts: any[] = []
-        for (const part of content) {
-            if (part.type === 'text') {
-                parts.push({text: part.text})
-            } else if (part.type === 'image_url') {
-                const url = part.image_url.url
-                if (url.startsWith('data:')) {
-                    const mimeType = this.extractMediaType(url)
-                    const base64Data = this.extractBase64Data(url)
-                    parts.push({
-                        inlineData: {mimeType, data: base64Data},
-                    })
-                } else if (url.startsWith('http://') || url.startsWith('https://')) {
-                    parts.push({
-                        inlineData: {mimeType: 'image/jpeg', data: url},
-                    })
-                }
-            } else if (part.type === 'input_audio') {
-                // Gemini 使用 inlineData 接收音频，mimeType 由 format 字段映射
-                const mimeType = this.audioFormatToMimeType(part.input_audio.format)
-                parts.push({
-                    inlineData: {mimeType, data: part.input_audio.data},
-                })
-            }
-        }
-
-        return parts.length > 0 ? parts : [{text: ''}]
-    }
-
-    private extractMediaType(dataUrl: string): string {
-        const match = dataUrl.match(/data:([^;]+);base64/)
-        return match ? match[1] : 'image/jpeg'
-    }
-
-    private extractBase64Data(dataUrl: string): string {
-        const match = dataUrl.match(/data:[^;]+;base64,(.+)/)
-        return match ? match[1] : dataUrl
-    }
-
-    private audioFormatToMimeType(format: string): string {
-        const mimeMap: Record<string, string> = {
-            wav: 'audio/wav',
-            mp3: 'audio/mpeg',
-            m4a: 'audio/mp4',
-            flac: 'audio/flac',
-            ogg: 'audio/ogg',
-            webm: 'audio/webm',
-            aac: 'audio/aac',
-            pcm: 'audio/L16;rate=16000;channels=1',
-        }
-        return mimeMap[format.toLowerCase()] || 'audio/wav'
-    }
-
   private convertTools(tools: ToolDefinition[]): any {
     return [
       {
@@ -439,3 +320,147 @@ export class GoogleAdapter implements ModelAdapter {
         }
     }
 }
+
+// ─── 内部方法 ──────────────────────────────────────
+
+/** 转换结果：history + 最后一条 user 消息 + 收集的注入 system 文本 */
+export interface ConvertedMessages {
+    history: any[]
+    lastUserMsg: any[] | null
+    systemText: string
+}
+
+/** 将可能为 string 的消息内容规范化为字符串（非字符串内容视为空） */
+function textOf(content: unknown): string {
+    return typeof content === 'string' ? content : ''
+}
+
+/**
+ * 将内部 ChatMessage[] 转换为 Gemini history + lastUserMsg，
+ * 并收集注入的 system 消息文本（如 skill 工具的 injectMessage）。
+ * system 消息不再被丢弃，由 chat() 拼入 systemInstruction 送达 LLM。
+ */
+export function convertMessages(messages: readonly ChatMessage[]): ConvertedMessages {
+    const history: any[] = []
+    let lastUserMsg: any[] | null = null
+    const systemParts: string[] = []
+
+    // 分离最后一条用户消息（Gemini 要求 sendMessage 传入最新的用户消息）
+    const msgs = [...messages]
+    let lastUserIdx = -1
+    for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === 'user') { lastUserIdx = i; break }
+    }
+    if (lastUserIdx >= 0) {
+        lastUserMsg = convertUserContent(msgs[lastUserIdx].content)
+        msgs.splice(lastUserIdx, 1)
+    }
+
+    for (const msg of msgs) {
+        if (msg.role === 'system') {
+            const text = textOf(msg.content)
+            if (text) systemParts.push(text)
+            continue
+        }
+
+        if (msg.role === 'user') {
+            const parts = convertUserContent(msg.content)
+            history.push({role: 'user', parts})
+        } else if (msg.role === 'assistant') {
+            const parts: any[] = []
+            if (msg.content) {
+                const textParts = convertUserContent(msg.content)
+                parts.push(...textParts)
+            }
+            if (msg.toolCalls) {
+                for (const tc of msg.toolCalls) {
+                    parts.push({
+                        functionCall: { name: tc.name, args: tc.arguments },
+                    })
+                }
+            }
+            history.push({ role: 'model', parts })
+        } else if (msg.role === 'context') {
+            // Hook additionalContext 注入的消息：转为 user 角色，让 LLM 能看到
+            const text = textOf(msg.content)
+            if (text) {
+                history.push({role: 'user', parts: [{text}]})
+            }
+        } else if (msg.role === 'tool') {
+            // functionResponse.name 必须是函数名，用于和 functionCall.name 匹配
+            history.push({
+                role: 'function',
+                parts: [
+                    {
+                        functionResponse: {
+                            name: msg.functionName || '',
+                            response: { result: msg.toolResult || '' },
+                        },
+                    },
+                ],
+            })
+        }
+    }
+
+    return { history, lastUserMsg, systemText: systemParts.join('\n\n') }
+}
+
+/** 将内部 user 消息内容（文本或多模态块）转换为 Gemini parts */
+function convertUserContent(content: string | ContentPart[]): any[] {
+    if (typeof content === 'string') {
+        return [{text: content}]
+    }
+
+    const parts: any[] = []
+    for (const part of content) {
+        if (part.type === 'text') {
+            parts.push({text: part.text})
+        } else if (part.type === 'image_url') {
+            const url = part.image_url.url
+            if (url.startsWith('data:')) {
+                const mimeType = extractMediaType(url)
+                const base64Data = extractBase64Data(url)
+                parts.push({
+                    inlineData: {mimeType, data: base64Data},
+                })
+            } else if (url.startsWith('http://') || url.startsWith('https://')) {
+                parts.push({
+                    inlineData: {mimeType: 'image/jpeg', data: url},
+                })
+            }
+        } else if (part.type === 'input_audio') {
+            // Gemini 使用 inlineData 接收音频，mimeType 由 format 字段映射
+            const mimeType = audioFormatToMimeType(part.input_audio.format)
+            parts.push({
+                inlineData: {mimeType, data: part.input_audio.data},
+            })
+        }
+    }
+
+    return parts.length > 0 ? parts : [{text: ''}]
+}
+
+function extractMediaType(dataUrl: string): string {
+    const match = dataUrl.match(/data:([^;]+);base64/)
+    return match ? match[1] : 'image/jpeg'
+}
+
+function extractBase64Data(dataUrl: string): string {
+    const match = dataUrl.match(/data:[^;]+;base64,(.+)/)
+    return match ? match[1] : dataUrl
+}
+
+function audioFormatToMimeType(format: string): string {
+    const mimeMap: Record<string, string> = {
+        wav: 'audio/wav',
+        mp3: 'audio/mpeg',
+        m4a: 'audio/mp4',
+        flac: 'audio/flac',
+        ogg: 'audio/ogg',
+        webm: 'audio/webm',
+        aac: 'audio/aac',
+        pcm: 'audio/L16;rate=16000;channels=1',
+    }
+    return mimeMap[format.toLowerCase()] || 'audio/wav'
+}
+

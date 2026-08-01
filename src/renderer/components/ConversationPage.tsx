@@ -32,7 +32,8 @@ const ConversationPage = memo(function ConversationPage({conversationId}: Conver
             {/* 消息列表卡片 — 仅已渲染的会话挂载（激活时渲染，切走后保留 10 分钟） */}
             {(isActive || wasRendered) && (
                 <div
-                    className="relative flex-1 bg-[var(--surface)] rounded-xl shadow-sm overflow-hidden flex flex-col min-h-0">
+                    data-name="message-list-card"
+                    className="app-surface-card relative flex-1 bg-[var(--surface)] rounded-xl shadow-sm overflow-hidden flex flex-col min-h-0">
                     {compactStats?.showBanner && (
                         <CompactWarningBanner
                             beforeTokens={compactStats.beforeTokens}
@@ -52,7 +53,7 @@ const ConversationPage = memo(function ConversationPage({conversationId}: Conver
             {/* 输入框卡片 — 始终挂载，保持输入状态 */}
             <div
                 data-name="input-area-card"
-                className="shrink-0 bg-[var(--surface)] rounded-t-[28px] rounded-b-[12px] shadow-[0_2px_12px_rgba(0,0,0,0.04)] dark:shadow-[0_2px_12px_rgba(0,0,0,0.12)] focus-within:shadow-[0_2px_16px_rgba(0,210,106,0.06)] transition-all duration-200 overflow-hidden mx-[20px]">
+                className="app-surface-card shrink-0 bg-[var(--surface)] rounded-t-[28px] rounded-b-[12px] shadow-[0_2px_12px_rgba(0,0,0,0.04)] dark:shadow-[0_2px_12px_rgba(0,0,0,0.12)] focus-within:shadow-[0_2px_16px_rgba(0,210,106,0.06)] transition-all duration-200 overflow-hidden mx-[20px]">
                 <InputArea isActive={isActive}/>
             </div>
         </>

@@ -3,6 +3,7 @@
  * 显示命令模板预览并输入参数执行
  */
 import React, {useState, useRef, useEffect} from 'react';
+import {createPortal} from 'react-dom';
 import {AnimatePresence, motion} from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -70,7 +71,7 @@ export function ParamInputModal({ isOpen, command, onSubmit, onCancel }: ParamIn
     ));
   };
 
-  return (
+  return createPortal(
     <AnimatePresence>
       <motion.div className="param-modal-overlay" onClick={onCancel}>
         <motion.div className="param-modal-content" onClick={e => e.stopPropagation()} onKeyDown={handleKeyDown}>
@@ -123,7 +124,8 @@ export function ParamInputModal({ isOpen, command, onSubmit, onCancel }: ParamIn
           </footer>
         </motion.div>
       </motion.div>
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
 

@@ -93,7 +93,7 @@ export default function PermissionRulesPanel({height}: PermissionRulesPanelProps
     return (
         <div className="relative flex shrink-0 min-h-0" style={{height: height || '50%'}}>
             <div
-                className="h-full bg-[var(--surface)] rounded-lg shadow-card border border-[var(--border)] flex flex-col overflow-hidden"
+                className="permission-rules-card h-full bg-[var(--surface)] rounded-lg shadow-card border border-[var(--border)] flex flex-col overflow-hidden"
             >
                 {/* Header */}
                 <div className="px-3 py-2.5 border-b border-[var(--border)] flex items-center justify-between shrink-0">

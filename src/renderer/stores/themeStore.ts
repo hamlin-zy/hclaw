@@ -24,8 +24,14 @@ function getInitialTheme(): 'light' | 'dark' | 'yuanshandai' | 'shiyangjin' {
 
 /** 解析原始主题值（处理 'system' 模式）并应用到 themeStore */
 export function resolveAndApplyTheme(theme: string): void {
+    // 图片背景启用时 system 强制解析为深色：
+    // 浅色白色毛玻璃叠在背景图上会变白雾，浅色系主题在背景开启时被禁用。
+    const {settings} = useSettingsStore.getState()
+    const bgEnabled = settings.ui.background?.enabled
     const resolved = theme === 'system'
-        ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        ? (bgEnabled
+            ? 'dark'
+            : (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'))
         : theme
     // resolved 在 'system' 分支下返回字面量，否则就是 theme 本身
     // 运行时确保只传入有效值
@@ -46,15 +52,23 @@ export const useThemeStore = create<ThemeStore>()((set, get) => ({
         // 循环切换：light → dark → yuanshandai → shiyangjin → light
         const themes: ThemeStore['theme'][] = ['light', 'dark', 'yuanshandai', 'shiyangjin']
         const current = get().theme
-        const nextIndex = (themes.indexOf(current) + 1) % themes.length
+        let nextIndex = (themes.indexOf(current) + 1) % themes.length
+        // 图片背景开启时跳过浅色系主题（浅色白色毛玻璃叠在背景图上变白雾）
+        const {settings} = useSettingsStore.getState()
+        if (settings.ui.background?.enabled) {
+            while (nextIndex !== themes.indexOf(current) &&
+                   (themes[nextIndex] === 'light' || themes[nextIndex] === 'shiyangjin')) {
+                nextIndex = (nextIndex + 1) % themes.length
+            }
+        }
         const newTheme = themes[nextIndex]
         set({theme: newTheme})
         syncThemeToCache(newTheme)
 
         // 持久化到 SQLite settings
-        const {settings} = useSettingsStore.getState()
+        const {settings: s} = useSettingsStore.getState()
         useSettingsStore.getState().updateSettings({
-            ui: {theme: newTheme, language: settings.ui.language}
+            ui: {theme: newTheme, language: s.ui.language}
         })
     },
     setTheme: (theme) => {

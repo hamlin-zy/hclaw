@@ -6,6 +6,7 @@ import * as fsPromises from 'fs/promises';
 import './repositories/init';
 
 import {ensureConfigLayout, initConfigIPC} from './config';
+import {initBackgroundIPC} from './ipc/background';
 import {createWindow, getMainWindow, initWindowIPC, setIsQuitting} from './window';
 import {createTray} from './tray';
 import {registerGlobalShortcuts} from './shortcuts';
@@ -154,6 +155,7 @@ app.on('open-url', (event, url) => {
 
 initWindowIPC();
 initConfigIPC();
+initBackgroundIPC();
 initConversationIPC();
 
 registerPluginIPC();
@@ -206,8 +208,11 @@ app.on('ready', async () => {
         const rawUrl = request.url
         // 使用 URL 解析提取 pathname，避免手动切片导致路径错误
         let filePath = ''
+        let host = ''
         try {
-            filePath = decodeURIComponent(new URL(rawUrl).pathname)
+            const u = new URL(rawUrl)
+            host = u.host
+            filePath = decodeURIComponent(u.pathname)
         } catch {
             // fallback: 手动提取（兼容 URL 解析失败的情况）
             const afterScheme = rawUrl.slice('hclaw-media://'.length)
@@ -216,6 +221,13 @@ app.on('ready', async () => {
         // Windows 上去掉前导斜杠（pathname 为 /E:/path → E:/path）
         if (process.platform === 'win32') {
             filePath = filePath.replace(/^[/\\]+/, '')
+            // 兼容单字母 host（盘符丢失场景）：hclaw-media://c/Users/... → c:/Users/...
+            // Chromium 会把 hclaw-media:///C:/path 规范化为 host="c" + pathname="/path"，
+            // 盘符 C: 进了 host，这里补回冒号（background.ts 已改用 hclaw-media://local/ 格式，
+            // 此分支仅用于兼容旧数据）
+            if (/^[a-zA-Z]$/.test(host)) {
+                filePath = host + ':/' + filePath.replace(/^[\\/]+/, '')
+            }
         }
 
         try {

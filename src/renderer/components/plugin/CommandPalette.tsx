@@ -11,6 +11,7 @@
  */
 
 import React, {useCallback, useEffect, useState} from 'react';
+import {createPortal} from 'react-dom';
 import {AnimatePresence, motion} from 'framer-motion';
 import {CommandList} from './CommandList';
 import {ParamInputModal} from './ParamInputModal';
@@ -166,7 +167,7 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
     }
   }, [paramModalOpen, filteredCommands, allCommands, executeSelectedCommand, onClose]);
 
-  return (
+  return createPortal(
     <>
       <AnimatePresence>
         {isOpen && !paramModalOpen && (
@@ -236,7 +237,8 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
         onSubmit={handleParamSubmit}
         onCancel={handleParamCancel}
       />
-    </>
+    </>,
+    document.body
   );
 }
 

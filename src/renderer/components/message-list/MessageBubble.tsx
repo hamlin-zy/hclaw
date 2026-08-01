@@ -30,6 +30,7 @@ const MessageBubble = memo(function MessageBubble({message, index, isStreaming =
             className={`flex ${isUser ? 'justify-end' : 'justify-start'} items-end gap-2 group my-3`}
             role="article"
             aria-label={`${isUser ? '用户' : '助手'}消息`}
+            data-name={`message-bubble-row-${isUser ? 'user' : 'assistant'}`}
         >
             {/* 用户消息左侧的操作按钮 - 仅在悬停时显示 */}
             {isUser && (
@@ -38,6 +39,7 @@ const MessageBubble = memo(function MessageBubble({message, index, isStreaming =
 
             {/* 消息气泡 - Glassmorphism 风格 */}
             <div
+                data-name="message-bubble"
                 className={`message-bubble ${isUser ? 'user' : 'assistant'} max-w-[85%] flex flex-col transition-all duration-200`}>
 
                 {/* Header - 仅助手消息显示 */}

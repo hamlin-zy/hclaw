@@ -148,6 +148,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   configRead: (name: string) => ipcRenderer.invoke('config-read', name),
   configWrite: (name: string, data: unknown) => ipcRenderer.invoke('config-write', name, data),
 
+  // Background image (local picture as app background)
+  backgroundPick: () => ipcRenderer.invoke('background-pick'),
+  backgroundRemove: (path: string) => ipcRenderer.invoke('background-remove', path),
+  backgroundList: () => ipcRenderer.invoke('background-list'),
+
     // System config directory
     configGetHclawDir: () => ipcRenderer.invoke('config-get-hclaw-dir'),
     configSetHclawDir: (dir: string) => ipcRenderer.invoke('config-set-hclaw-dir', dir),
