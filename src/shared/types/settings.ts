@@ -113,7 +113,6 @@ export interface SystemSettings {
     mcpTestTimeout: number
   }
   ui: {
-    language: string
     theme: 'light' | 'dark' | 'yuanshandai' | 'shiyangjin' | 'system'
     background?: UiBackground
   }

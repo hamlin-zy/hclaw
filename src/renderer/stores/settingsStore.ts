@@ -33,7 +33,6 @@ const DEFAULT_SETTINGS: SystemSettings = {
         mcpTestTimeout: 15000,
     },
     ui: {
-        language: 'zh-CN',
         theme: 'system',
     },
     subagent: {

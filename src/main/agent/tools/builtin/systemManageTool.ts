@@ -19,7 +19,6 @@ const inputSchema = z.object({
     settings: z.object({
         ui: z.object({
             theme: themeSchema.describe('UI 主题。light=明亮 | dark=暗黑 | yuanshandai=远山黛 | shiyangjin=十样锦 | system=跟随系统'),
-            language: z.string().optional().describe('界面语言，如 zh-CN、en-US'),
         }).optional(),
         agent: z.object({
             maxTurns: z.number().optional().describe('Agent 推理循环的最大迭代次数'),
@@ -69,7 +68,6 @@ export const systemManageTool: Tool<SystemManageInput, string> = {
                         const lines: string[] = []
                         lines.push('=== UI 配置 ===')
                         lines.push(`  主题: ${parsed.ui?.theme || '未知'}`)
-                        lines.push(`  语言: ${parsed.ui?.language || '未知'}`)
                         lines.push('')
                         lines.push('=== Agent 配置 ===')
                         lines.push(`  最大轮次: ${parsed.agent?.maxTurns ?? '-'}`)
