@@ -139,7 +139,7 @@ export default function ConfirmDialog() {
                         className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-[99999]"
                     >
                         <div
-                            className="w-full max-w-sm bg-[var(--surface)] rounded-xl shadow-elevated overflow-hidden pointer-events-auto"
+                            className="dialog-surface w-full max-w-sm bg-[var(--surface)] rounded-xl shadow-elevated overflow-hidden pointer-events-auto"
                             role="alertdialog"
                             aria-modal="true"
                             aria-labelledby="confirm-dialog-title"

@@ -2392,14 +2392,14 @@ html.bg-enabled,
 }
 
 /* ── 弹窗/菜单兜底：保持完全不透明，禁止毛玻璃透传 ──
- * 注意：只命中"弹窗内容卡片"（role=dialog/alertdialog 元素本身及内部、fixed 容器层），
+ * 注意：只命中"弹窗内容卡片"（dialog-surface 类所在元素本身），
  * 不碰 backdrop 遮罩层（如 ConfirmDialog 的 fixed inset-0 bg-black/40），
  * 否则弹窗背景会从半透明黑变成纯色 --surface，破坏遮罩效果。
+ * 使用 .dialog-surface 精确命中弹窗容器，而非 [role="dialog"] * 通配——
+ * 通配会覆盖弹窗内部按钮/选中态/状态色块等语义背景（bg-enabled 时弹窗内
+ * 激活态样式全部失效，如 AskUserModal 确认按钮变白）。
  */
-.bg-enabled [role="dialog"],
-.bg-enabled [role="alertdialog"],
-.bg-enabled [role="dialog"] *,
-.bg-enabled [role="alertdialog"] * {
+.bg-enabled .dialog-surface {
     background-color: var(--surface) !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
