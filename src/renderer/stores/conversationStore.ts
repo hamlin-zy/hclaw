@@ -133,10 +133,18 @@ const DEFAULT_AGENT_STATE = {
     },
 }
 
-/** 获取当前工作区第一个会话的 ID（删除后切换目标） */
-function getFirstConversationId(): string | null {
+/** 判断是否为根会话：无父级，或父级已删除的孤儿子会话（与侧边栏分组逻辑一致） */
+function isRootConversation(conv: ConversationSummary, idSet: Set<string>): boolean {
+    return !conv.parentConvId || !idSet.has(conv.parentConvId)
+}
+
+/** 获取当前工作区第一个根会话的 ID（非子会话；启动激活 / 删除后切换目标） */
+function getFirstRootConversationId(): string | null {
     const { currentWorkspacePath, workspaces } = useConversationStore.getState()
-    return currentWorkspacePath ? (workspaces[currentWorkspacePath]?.conversations[0]?.id ?? null) : null
+    if (!currentWorkspacePath) return null
+    const convs = workspaces[currentWorkspacePath]?.conversations || []
+    const idSet = new Set(convs.map(c => c.id))
+    return convs.find(c => isRootConversation(c, idSet))?.id ?? null
 }
 
 /** 切换会话状态核心逻辑：同步 loadedMessages、agent 状态、IPC 通知
@@ -222,15 +230,21 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
 
           set((state) => {
               const convs = state.workspaces[path]?.conversations || []
+              const idSet = new Set(convs.map(c => c.id))
+              // 仅激活根会话（非子会话），避免子会话抢占激活态
+              const firstRoot = convs.find(c => isRootConversation(c, idSet))
               return {
                   currentWorkspacePath: path,
-                  activeConversationId: convs[0]?.id || null,
+                  activeConversationId: firstRoot?.id || null,
                   workspaces: {...state.workspaces, [path]: {lastOpenedAt: Date.now(), conversations: convs}},
               }
           })
 
-          const firstConvId = get().workspaces[path]?.conversations[0]?.id
-          if (firstConvId) get().loadMessages(firstConvId)
+          // 加载消息仅针对根会话（与激活保持一致）
+          const convs = get().workspaces[path]?.conversations || []
+          const idSet = new Set(convs.map(c => c.id))
+          const rootConv = convs.find(c => isRootConversation(c, idSet))
+          if (rootConv) get().loadMessages(rootConv.id)
       },
 
       removeWorkspace: async (path) => {
@@ -318,7 +332,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   workspaces: {...state.workspaces, [wsPath]: {...state.workspaces[wsPath], conversations: remaining}},
               }
           })
-          if (wasActive) await switchActiveConversation(getFirstConversationId())
+          if (wasActive) await switchActiveConversation(getFirstRootConversationId())
           // 删除会话时同步清理 agent 运行时状态
           useAgentStore.getState().removeConvData(id)
       },
@@ -340,7 +354,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               for (const id of ids) delete newMap[id]
               return {messagesMap: newMap, workspaces: newWorkspaces}
           })
-          if (wasActiveIncluded) await switchActiveConversation(getFirstConversationId())
+          if (wasActiveIncluded) await switchActiveConversation(getFirstRootConversationId())
           for (const id of ids) {
               useAgentStore.getState().removeConvData(id)
           }
@@ -610,10 +624,15 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           set({workspaces, currentWorkspacePath})
 
           if (currentWorkspacePath && workspaces[currentWorkspacePath]?.conversations[0]) {
-              const latest = workspaces[currentWorkspacePath].conversations[0]
-              set({activeConversationId: latest.id})
-              get().markConversationRendered(latest.id)
-              await get().loadMessagesInitial(latest.id)
+              // ★ 仅激活并渲染根会话（非子会话）。
+              //   列表按 updatedAt 排序，而 agent 工具创建的子会话 updatedAt 较新常排在前，
+              //   若直接取 conversations[0] 会错误激活/渲染子会话。
+              const convs = workspaces[currentWorkspacePath].conversations
+              const idSet = new Set(convs.map(c => c.id))
+              const root = convs.find(c => isRootConversation(c, idSet)) ?? convs[0]
+              set({activeConversationId: root.id})
+              get().markConversationRendered(root.id)
+              await get().loadMessagesInitial(root.id)
           }
 
           // ★ 后台批量预加载当前工作区所有其他会话的前 2 条消息
