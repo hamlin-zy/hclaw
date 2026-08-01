@@ -51,7 +51,8 @@ const ConversationPage = memo(function ConversationPage({conversationId}: Conver
 
             {/* 输入框卡片 — 始终挂载，保持输入状态 */}
             <div
-                className="shrink-0 bg-[var(--surface)] rounded-t-[28px] rounded-b-[12px] shadow-[0_2px_12px_rgba(0,0,0,0.04)] dark:shadow-[0_2px_12px_rgba(0,0,0,0.12)] border border-[var(--border)] dark:border-[var(--border-emphasis)] focus-within:border-[var(--brand-primary)] focus-within:shadow-[0_2px_16px_rgba(0,210,106,0.06)] transition-all duration-200 overflow-hidden mx-[20px]">
+                data-name="input-area-card"
+                className="shrink-0 bg-[var(--surface)] rounded-t-[28px] rounded-b-[12px] shadow-[0_2px_12px_rgba(0,0,0,0.04)] dark:shadow-[0_2px_12px_rgba(0,0,0,0.12)] focus-within:shadow-[0_2px_16px_rgba(0,210,106,0.06)] transition-all duration-200 overflow-hidden mx-[20px]">
                 <InputArea isActive={isActive}/>
             </div>
         </>

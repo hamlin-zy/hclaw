@@ -170,6 +170,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
     return (
         <>
             <span
+                data-name="input-toolbar-cache-rate"
                 ref={triggerRef}
                 className="text-sm text-[var(--text-muted)] cursor-help tabular-nums leading-none"
                 onMouseEnter={scheduleShow}

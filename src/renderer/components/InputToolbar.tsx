@@ -14,9 +14,7 @@ interface InputToolbarProps {
     needsModel: boolean
     agentState: {currentModelProvider?: string; currentModelName?: string}
     pendingMessagesCount: number
-    isPreviewMode: boolean
     canSend: boolean
-    onTogglePreview: () => void
     onSubmit: () => void
     onAbort: () => void
     onUploadFile: (files: any[]) => void
@@ -25,7 +23,7 @@ interface InputToolbarProps {
 }
 
 /**
- * 底部输入工具栏 — 状态提示 / 缓存命中率 / 工具菜单 / 预览 / 发送 / 终止
+ * 底部输入工具栏 — 状态提示 / 缓存命中率 / 工具菜单 / 发送 / 终止
  */
 export default function InputToolbar({
     isRunning,
@@ -34,9 +32,7 @@ export default function InputToolbar({
     needsModel,
     agentState,
     pendingMessagesCount,
-    isPreviewMode,
     canSend,
-    onTogglePreview,
     onSubmit,
     onAbort,
     onUploadFile,
@@ -44,12 +40,12 @@ export default function InputToolbar({
     onOpenCommandPalette,
 }: InputToolbarProps) {
     return (
-        <div className="flex items-center justify-between px-2 py-1 border-t border-[var(--border)]" role="status" aria-live="polite">
-            <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+        <div data-name="input-toolbar" className="flex items-center justify-between px-2 py-1 border-t border-[var(--border)]" role="status" aria-live="polite">
+            <div data-name="input-toolbar-status" className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
                 {isRunning ? (
                     <span className="flex items-center gap-1 text-[var(--info)]">
                         <StatusDot color="var(--info)"/>
-                        {agentState.currentModelProvider ? agentState.currentModelProvider.charAt(0).toUpperCase() + agentState.currentModelProvider.slice(1) : ''} {agentState.currentModelName} 运行中...
+                        {agentState.currentModelName}{agentState.currentModelProvider ? `（${agentState.currentModelProvider.charAt(0).toUpperCase() + agentState.currentModelProvider.slice(1)}）` : ''} 运行中...
                     </span>
                 ) : compactInProgress ? (
                     <span className="flex items-center gap-1 text-[var(--warning)]">
@@ -71,7 +67,7 @@ export default function InputToolbar({
                 )}
             </div>
 
-            <div className="flex items-center gap-1">
+            <div data-name="input-toolbar-actions" className="flex items-center gap-1">
                 {/* 缓存命中率 */}
                 <CacheRateTooltip/>
 
@@ -82,25 +78,9 @@ export default function InputToolbar({
                     onOpenCommandPalette={onOpenCommandPalette}
                 />
 
-                {/* 预览按钮 */}
-                <button
-                    type="button"
-                    onClick={onTogglePreview}
-                    className={`p-1 rounded-md transition-colors ${
-                        isPreviewMode
-                            ? 'text-[var(--brand-primary)] bg-[var(--brand-muted)]'
-                            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
-                    }`}
-                    title={isPreviewMode ? '关闭预览' : 'Markdown 预览'}
-                >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                        <circle cx="12" cy="12" r="3"/>
-                    </svg>
-                </button>
-
                 {/* 发送按钮 */}
                 <button
+                    data-name="input-toolbar-send"
                     onClick={onSubmit}
                     disabled={!canSend}
                     className={`p-1 rounded-md transition-all ${
@@ -118,6 +98,7 @@ export default function InputToolbar({
                 </button>
                 {isRunning && (
                     <button
+                        data-name="input-toolbar-abort"
                         onClick={onAbort}
                         className="p-1.5 rounded-md bg-red-500 text-white hover:bg-red-600 transition-all"
                         title="点击终止"
