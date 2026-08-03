@@ -6,6 +6,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {fuzzyFilter} from '../../lib/search';
 import {CopyButton} from '../common/CopyButton';
 import {Command} from './CommandPalette';
+import {getPaletteEmptyText, PaletteSource, PaletteTab} from '../../lib/paletteTabs';
 
 interface DisplayCommand extends Command {
     source: 'plugin' | 'user' | 'skill' | 'agent';
@@ -28,7 +29,7 @@ const SOURCE_STYLE: Record<string, { icon: string; header: string; iconRing: str
         tag: 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]',
     },
     skill: {
-        icon: '🧠',
+        icon: '🛠️',
         header: 'text-[#8b5cf6] bg-[#8b5cf6]/10',
         iconRing: 'bg-[#8b5cf6]/10 text-[#8b5cf6]',
         tag: 'bg-[#8b5cf6]/10 text-[#8b5cf6]',
@@ -60,6 +61,10 @@ interface CommandListProps {
     selectedIndex: number;
     onCommandsLoaded?: (commands: Command[]) => void;
     onFilteredCommandsChange?: (commands: Command[]) => void;
+    /** 按 source 过滤展示（null/undefined = 不过滤） */
+    sourceFilter?: PaletteSource[] | null;
+    /** 当前 tab，用于空状态文案 */
+    tab?: PaletteTab;
 }
 
 export function CommandList({
@@ -67,7 +72,9 @@ export function CommandList({
                                 onCommandClick,
                                 selectedIndex,
                                 onCommandsLoaded,
-                                onFilteredCommandsChange
+                                onFilteredCommandsChange,
+                                sourceFilter,
+                                tab = 'all',
                             }: CommandListProps) {
     const [displayGroups, setDisplayGroups] = useState<DisplayGroup[]>([]);
     const [loading, setLoading] = useState(true);
@@ -157,10 +164,13 @@ export function CommandList({
             }
         }
 
+        // 按 tab 的 source 过滤（null = 不过滤）
+        const scoped = sourceFilter ? all.filter(cmd => sourceFilter.includes(cmd.source)) : all;
+
         if (!searchQuery.trim()) {
             // 无搜索：按名称字母序排列，不同类型交叉显示
-            all.sort((a, b) => a.name.localeCompare(b.name));
-            return all;
+            scoped.sort((a, b) => a.name.localeCompare(b.name));
+            return scoped;
         }
 
         // 有搜索：过滤 + 跨类型按相关度排序
@@ -184,11 +194,11 @@ export function CommandList({
                             desc.includes(query) ? 30 : 10;
         }
 
-        const matched = fuzzyFilter(all, searchQuery, ['name', 'description']);
+        const matched = fuzzyFilter(scoped, searchQuery, ['name', 'description']);
         matched.sort((a, b) => rank(b) - rank(a));
 
         return matched;
-    }, [displayGroups, searchQuery]);
+    }, [displayGroups, searchQuery, sourceFilter]);
 
     // 选中项变化时自动滚动到可视区域
     useEffect(() => {
@@ -235,7 +245,7 @@ export function CommandList({
     if (flatCommands.length === 0) return (
         <div className="p-8 text-center">
             <div className="text-sm text-[var(--text-muted)]">
-                {searchQuery ? '未找到匹配的命令' : '暂无可用命令'}
+                {getPaletteEmptyText(tab, !!searchQuery.trim())}
             </div>
         </div>
     );
