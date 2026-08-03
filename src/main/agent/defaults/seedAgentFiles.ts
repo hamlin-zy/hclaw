@@ -136,6 +136,69 @@ const MD_FILES: Record<string, string> = {
     'code-reviewer.md': CODE_REVIEWER_MD,
 }
 
+export type BuiltinAgentFileState = 'missing' | 'valid' | 'corrupt' | 'user-conflict'
+
+/**
+ * 判定 frontmatter 是否含 `source:hclaw` 内置标记。
+ *
+ * 行级匹配（非子串匹配），兼容两种写法：
+ * 1. 独立键 `source: hclaw`（占一整行，行首行尾无其他内容）
+ * 2. `tags:` 行内独立 token `source:hclaw`（内置文件现状：`tags: [implementer, sdd, builtin, source:hclaw]`）
+ *
+ * `# source:hclaw` 注释、`tags: [custom, mysource:hclawzz]` 等子串均不命中。
+ */
+function hasBuiltinMarker(frontmatter: string): boolean {
+    // 独立 `source: hclaw` 键（\r? 兼容 CRLF 行尾）
+    if (/^[ \t]*source[ \t]*:[ \t]*hclaw[ \t]*\r?$/m.test(frontmatter)) return true
+    // tags 行内独立 token `source:hclaw`（\b 边界防止 mysource:hclawzz / source:hclawzz 误命中）
+    if (/^tags:\s*\[[^\]]*\bsource:hclaw\b[^\]]*\]/im.test(frontmatter)) return true
+    return false
+}
+
+/**
+ * 分类单个 Agent 文件的状态，供 seed 决策分发。
+ *
+ * - `missing`       → 文件不存在 → 正常种子写入
+ * - `valid`         → 结构完整 + 含 `source:hclaw` 内置标记 + 正文非空 → 不覆盖
+ * - `corrupt`       → 结构不完整（空文件、无 `---` 开头、frontmatter 未闭合、读取失败）
+ *                     或含内置标记但正文为空 → 视为损坏 → 重建
+ * - `user-conflict` → 结构完整但无 `source:hclaw` 内置标记 → 用户自定义文件占了内置文件名 → 不覆盖，仅告警
+ *
+ * 读取后先剥离 UTF-8 BOM（`\uFEFF`），避免 `/^---/` 锚点误判。
+ */
+export function classifyBuiltinAgentFile(filePath: string): BuiltinAgentFileState {
+    if (!fs.existsSync(filePath)) return 'missing'
+
+    let content: string
+    try {
+        content = fs.readFileSync(filePath, 'utf-8')
+    } catch {
+        return 'corrupt'
+    }
+
+    content = content.replace(/^\uFEFF/, '')
+
+    // frontmatter: 以 --- 开头，闭合 --- 结尾；其后为正文
+    const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(content)
+    if (!match) return 'corrupt'
+
+    const frontmatter = match[1]
+    const body = match[2]
+
+    if (!hasBuiltinMarker(frontmatter)) return 'user-conflict'
+    return body.trim().length > 0 ? 'valid' : 'corrupt'
+}
+
+/**
+ * 校验单个 Agent 文件是否符合内置标准（classifyBuiltinAgentFile 的布尔封装）。
+ *
+ * 读取失败（文件不存在/无权限）或格式不符 → false。
+ * 不校验内容与内置版本的一致性——用户修改过但结构完整的文件视为有效，不会被重建。
+ */
+export function isValidBuiltinAgentFile(filePath: string): boolean {
+    return classifyBuiltinAgentFile(filePath) === 'valid'
+}
+
 export function seedDefaultAgentFiles(): void {
     if (!fs.existsSync(AGENTS_DIR)) {
         fs.mkdirSync(AGENTS_DIR, {recursive: true})
@@ -143,15 +206,39 @@ export function seedDefaultAgentFiles(): void {
 
     for (const [filename, content] of Object.entries(MD_FILES)) {
         const destPath = path.join(AGENTS_DIR, filename)
-        if (fs.existsSync(destPath)) {
-            continue  // 用户已有此文件，不覆盖
-        }
+        switch (classifyBuiltinAgentFile(destPath)) {
+            case 'missing':
+                // 文件不存在 → 正常种子写入
+                try {
+                    fs.writeFileSync(destPath, content, 'utf-8')
+                    logger.info('[seedAgentFiles] seeded', {filename})
+                } catch (err: any) {
+                    logger.warn('[seedAgentFiles] failed to seed', {filename, error: err?.message})
+                }
+                break
 
-        try {
-            fs.writeFileSync(destPath, content, 'utf-8')
-            logger.info('[seedAgentFiles] seeded', {filename})
-        } catch (err: any) {
-            logger.warn('[seedAgentFiles] failed to seed', {filename, error: err?.message})
+            case 'valid':
+                // 有效内置文件（含用户修改但保留 source:hclaw 标记）不覆盖
+                break
+
+            case 'corrupt':
+                // 内置文件损坏/不完整 → 重建（覆盖写）
+                try {
+                    logger.warn('[seedAgentFiles] builtin agent file invalid, re-seeding', {filename})
+                    fs.writeFileSync(destPath, content, 'utf-8')
+                    logger.info('[seedAgentFiles] re-seeded', {filename})
+                } catch (err: any) {
+                    logger.warn('[seedAgentFiles] failed to re-seed', {filename, error: err?.message})
+                }
+                break
+
+            case 'user-conflict':
+                // 用户自定义文件占了内置文件名（结构完整但无 source:hclaw）→ 不覆盖，仅告警
+                logger.warn(
+                    '[seedAgentFiles] user-defined agent file conflicts with builtin filename, skipping builtin template',
+                    {filename},
+                )
+                break
         }
     }
 }
