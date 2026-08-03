@@ -3,7 +3,8 @@
  *
  * 主 Agent 通过调用此工具派生子 Agent，支持：
  * - 任务描述（prompt）
- * - 可选的 agent 参数（指定子 Agent 名称，匹配后以该 Agent 身份启动）
+ * - agent 参数（必填，指定子 Agent 名称；从 agentRegistry 中查找，
+ *   未找到时返回错误 + 可用列表，强制 LLM 修正重试，不静默回退）
  * - 可选的 tools 参数（指定工具白名单，可覆盖 Agent 定义）
  * - 独立会话（子 Agent 拥有独立的 conversation，与父会话单向关联，侧栏可见）
  *
@@ -94,8 +95,8 @@ function getRecursionDepth(convId: string): number {
 
 const inputSchema = z.object({
     task: z.string().describe('子任务的完整描述（包含目标 + 参考材料）'),
-    agent: z.string().optional()
-        .describe('要作为子 Agent 运行的 Agent 名称（从 agentRegistry 中查找）'),
+    agent: z.string()
+        .describe('必填。要作为子 Agent 运行的 Agent 名称，从当前可用 Agent 列表中精确选择（如 "Implementer Agent"、"Code Reviewer Agent"）。根据任务类型选择最匹配的角色；不确定时用 "General Agent"。'),
     tools: z.array(z.string()).optional()
         .describe('允许使用的工具白名单（指定 agent 时覆盖 Agent 定义的白名单）'),
 })
@@ -145,14 +146,20 @@ export function resolveChildAssistantMessage(
 export const agentTool: Tool<AgentToolInput, string> = {
     name: 'agent',
     description:
-        '派生专门子 Agent 执行子任务。子 Agent 拥有独立的推理循环和工具访问权限。' +
-        '需要并行时，由主 Agent 在同一轮对话中同时调用多个 agent 工具实现。' +
-        '通过 agent 参数指定子 Agent 名称（从 agentRegistry 中查找），' +
-        'tools 参数可覆盖 Agent 定义的工具白名单。\n' +
-        '注意：superpowers 等三方插件的模板语法 `Subagent (general-purpose)` 是 Claude Code 生态的' +
-        '通用子代理写法，HClaw 中不存在同名 Agent。派发时应根据任务类型从可用能力列表中' +
-        '选择专用 Agent——实现任务 → "Implementer Agent"、代码审查 → "Code Reviewer Agent"，' +
-        '不要照搬模板名；未知名会回退 General Agent。',
+        '派生专门子 Agent 执行子任务。子 Agent 拥有独立的推理循环和工具访问权限。\n' +
+        '【必填参数】agent：从当前"可用能力"的 Agent 列表中选择一个（如 "Implementer Agent"、"Code Reviewer Agent"、"Explore Agent"、"Plan Agent"、"Verification Agent"、"General Agent"）。' +
+        '根据任务类型选择最匹配的角色：实现/修复→Implementer、审查→Code Reviewer、代码搜索/调研→Explore、架构规划→Plan、验证→Verification、模糊或跨领域→General。' +
+        '不要使用任何列表之外的名称（如 Claude Code 的 "Subagent (general-purpose)"），否则会报错并要求重试。\n' +
+        '需要并行时，由主 Agent 在同一轮对话中同时调用多个 agent 工具实现。\n' +
+        'tools 参数可覆盖 Agent 定义的工具白名单（可选）。\n' +
+        '【编排规范】\n' +
+        '1. 先规划再派遣：派遣前先分析整体任务，形成简洁的高层计划，识别关键路径上的' +
+        '阻塞任务与可并行的旁路任务；不要把正在阻塞自己的任务派出去然后空等。\n' +
+        '2. 并行优先：计划中的多个独立步骤，尽可能一次派遣多个子 Agent 并行执行。\n' +
+        '3. 能写则写：编码任务优先派遣可落地的代码修改子任务（Implementer），' +
+        '而非只读分析（Explore）——除非改动范围不明确需要先调研。\n' +
+        '4. 避免无意义派遣：仅"要求更深入/更全面"不构成派遣理由；简单任务自己做。\n' +
+        '5. 派遣后只协调：子 Agent 工作时不要重复执行它们的任务，等待结果后汇总。',
     inputSchema,
     isDestructive: false,
 
@@ -167,22 +174,26 @@ export const agentTool: Tool<AgentToolInput, string> = {
             }
         }
 
-        // ② 解析 agent → 转换为 AgentDefinition
-        let agentDefinition: AgentDefinition | undefined
-        const agentName = args.agent || 'General'
-        if (args.agent) {
-            const template = agentRegistry.find(args.agent)
-            if (template) {
-                agentDefinition = agentTemplateToDefinition(template)
-            } else {
-                logger.warn(`[AgentTool] agent "${args.agent}" not found, falling back to General`)
+        // ② 解析 agent（必填）→ 转换为 AgentDefinition
+        //    未找到时返回错误 + 可用 Agent 列表，强制 LLM 修正后重试（不再静默回退 General）
+        const template = agentRegistry.find(args.agent)
+        if (!template) {
+            const available = agentRegistry.getEnabled()
+                .map(a => a.name)
+                .filter(n => n && n !== 'General')
+            return {
+                success: false,
+                output: '',
+                error: `Agent "${args.agent}" 不存在。请从以下可用 Agent 中选择一个并重试：${available.join(', ') || 'General Agent'}`,
             }
         }
+        const agentName = template.name
+        const agentDefinition = agentTemplateToDefinition(template)
 
         // ③ tools 覆盖：同时指定 agent 和 tools 时，tools 覆盖 Agent 定义的白名单
-        if (agentDefinition && args.tools) {
-            agentDefinition = {...agentDefinition, tools: args.tools}
-        }
+        const effectiveAgentDefinition = args.tools
+            ? {...agentDefinition, tools: args.tools}
+            : agentDefinition
 
         // ④ 递归深度检查
         const settings = systemSettingsRepo.getJson<import('@shared/types').SystemSettings>('settings')
@@ -259,11 +270,11 @@ export const agentTool: Tool<AgentToolInput, string> = {
         const effectiveAgentDef: AgentDefinition = {
             source: 'user' as const,
             agentType: agentName,
-            whenToUse: agentDefinition?.whenToUse || '',
-            description: agentDefinition?.description || '',
-            systemPromptTemplate: agentDefinition?.systemPromptTemplate || '',
+            whenToUse: effectiveAgentDefinition.whenToUse || '',
+            description: effectiveAgentDefinition.description || '',
+            systemPromptTemplate: effectiveAgentDefinition.systemPromptTemplate || '',
             renderedSystemPrompt: '',
-            tools: agentDefinition?.tools || args.tools,
+            tools: effectiveAgentDefinition.tools || args.tools,
             permissionMode: 'auto',
         }
 
