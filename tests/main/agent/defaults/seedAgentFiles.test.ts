@@ -1,7 +1,7 @@
 /**
  * seedAgentFiles.ts 完整性校验测试
  *
- * 覆盖 isValidBuiltinAgentFile 的既有 8 用例 + Fix Round 1 新增用例（真实临时文件，非 mock）：
+ * 覆盖 classifyBuiltinAgentFile === 'valid' 的既有 8 用例 + Fix Round 1 新增用例（真实临时文件，非 mock）：
  *   1. 完整内置文件（frontmatter + source:hclaw 标记 + 非空正文）→ true
  *   2. 文件不存在 → false
  *   3. 空文件 → false
@@ -39,7 +39,6 @@ vi.mock('../../../../src/main/config', () => {
 
 import {
     classifyBuiltinAgentFile,
-    isValidBuiltinAgentFile,
     seedDefaultAgentFiles,
 } from '../../../../src/main/agent/defaults/seedAgentFiles'
 import {getHclawDir} from '../../../../src/main/config'
@@ -60,7 +59,7 @@ function writeTemp(content: string): string {
     return filePath
 }
 
-describe('isValidBuiltinAgentFile — 内置 Agent 文件完整性校验', () => {
+describe('classifyBuiltinAgentFile — 内置 Agent 文件完整性校验', () => {
     it('完整内置文件（frontmatter + source:hclaw + 非空正文）→ true', () => {
         const filePath = writeTemp(`---
 name: Test Agent
@@ -71,19 +70,19 @@ enabled: true
 
 正文内容
 `)
-        expect(isValidBuiltinAgentFile(filePath)).toBe(true)
+        expect(classifyBuiltinAgentFile(filePath) === 'valid').toBe(true)
     })
 
     it('文件不存在 → false', () => {
-        expect(isValidBuiltinAgentFile(path.join(tempDir, 'missing.md'))).toBe(false)
+        expect(classifyBuiltinAgentFile(path.join(tempDir, 'missing.md')) === 'valid').toBe(false)
     })
 
     it('空文件 → false', () => {
-        expect(isValidBuiltinAgentFile(writeTemp(''))).toBe(false)
+        expect(classifyBuiltinAgentFile(writeTemp('')) === 'valid').toBe(false)
     })
 
     it('无 frontmatter（直接正文）→ false', () => {
-        expect(isValidBuiltinAgentFile(writeTemp('plain body without frontmatter'))).toBe(false)
+        expect(classifyBuiltinAgentFile(writeTemp('plain body without frontmatter')) === 'valid').toBe(false)
     })
 
     it('缺 source:hclaw 标记（用户自定义 Agent）→ false', () => {
@@ -95,7 +94,7 @@ tags: [custom]
 
 用户正文
 `)
-        expect(isValidBuiltinAgentFile(filePath)).toBe(false)
+        expect(classifyBuiltinAgentFile(filePath) === 'valid').toBe(false)
     })
 
     it('正文为空 → false', () => {
@@ -104,7 +103,7 @@ name: Test Agent
 tags: [source:hclaw]
 ---
 `)
-        expect(isValidBuiltinAgentFile(filePath)).toBe(false)
+        expect(classifyBuiltinAgentFile(filePath) === 'valid').toBe(false)
     })
 
     it('正文仅空白 → false', () => {
@@ -115,7 +114,7 @@ tags: [source:hclaw]
 
    
 `)
-        expect(isValidBuiltinAgentFile(filePath)).toBe(false)
+        expect(classifyBuiltinAgentFile(filePath) === 'valid').toBe(false)
     })
 
     it('frontmatter 损坏（缺闭合 ---）→ false', () => {
@@ -125,11 +124,11 @@ tags: [source:hclaw]
 
 正文在未闭合 frontmatter 内
 `)
-        expect(isValidBuiltinAgentFile(filePath)).toBe(false)
+        expect(classifyBuiltinAgentFile(filePath) === 'valid').toBe(false)
     })
 })
 
-describe('isValidBuiltinAgentFile — Fix Round 1：BOM 与标记判定', () => {
+describe('classifyBuiltinAgentFile — Fix Round 1：BOM 与标记判定', () => {
     it('BOM 前缀 + 完整内置文件 → true', () => {
         const filePath = writeTemp(
             '\uFEFF' +
@@ -143,7 +142,7 @@ enabled: true
 正文内容
 `,
         )
-        expect(isValidBuiltinAgentFile(filePath)).toBe(true)
+        expect(classifyBuiltinAgentFile(filePath) === 'valid').toBe(true)
     })
 
     it('tags 子串误命中防护：tags: [custom, mysource:hclawzz] → false', () => {
@@ -154,7 +153,7 @@ tags: [custom, mysource:hclawzz]
 
 正文内容
 `)
-        expect(isValidBuiltinAgentFile(filePath)).toBe(false)
+        expect(classifyBuiltinAgentFile(filePath) === 'valid').toBe(false)
     })
 
     it('# source:hclaw 注释行 + 无真实标记 → false', () => {
@@ -166,13 +165,29 @@ tags: [custom]
 
 正文内容
 `)
-        expect(isValidBuiltinAgentFile(filePath)).toBe(false)
+        expect(classifyBuiltinAgentFile(filePath) === 'valid').toBe(false)
     })
 })
 
 describe('classifyBuiltinAgentFile — 四种状态分类', () => {
     it('文件不存在 → missing', () => {
         expect(classifyBuiltinAgentFile(path.join(tempDir, 'nope.md'))).toBe('missing')
+    })
+
+    it('独立键 source: hclaw 写法 → valid', () => {
+        const filePath = writeTemp(`---
+name: Test Agent
+source: hclaw
+tags: [test, builtin]
+---
+正文内容
+`)
+        expect(classifyBuiltinAgentFile(filePath)).toBe('valid')
+    })
+
+    it('CRLF 行尾的独立键 source: hclaw 写法 → valid', () => {
+        const filePath = writeTemp('---\r\nname: Test Agent\r\nsource: hclaw\r\ntags: [test, builtin]\r\n---\r\n正文内容\r\n')
+        expect(classifyBuiltinAgentFile(filePath)).toBe('valid')
     })
 
     it('完整内置文件 → valid', () => {
