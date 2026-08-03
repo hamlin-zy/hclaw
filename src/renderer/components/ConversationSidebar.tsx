@@ -8,6 +8,7 @@ import {useModelSchemeStore} from '../stores/modelSchemeStore'
 import {useAgentStore} from '../stores/agentStore'
 import {fuzzyFilter} from '../lib/search'
 import {confirm} from './ConfirmDialog'
+import {showUsageStats} from './dialogs/UsageStatsDialog'
 import {collectDescendants} from '../stores/conversationTree'
 
 type SystemStatus =
@@ -709,8 +710,8 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
 }) {
     const deleteConversation = useConversationStore((s) => s.deleteConversation)
     const togglePinConversation = useConversationStore((s) => s.togglePinConversation)
-    // 菜单高度约 240px（4个按钮 + 分隔线）
-    const MENU_HEIGHT = 240
+    // 菜单高度约 280px（5个按钮 + 分隔线）
+    const MENU_HEIGHT = 280
     const MENU_WIDTH = 180
 
     // 边界检测：确保菜单在视口内
@@ -743,6 +744,14 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
                 await deleteConversation(id)
             },
         })
+    }
+
+    const handleUsageStatsClick = (e: React.MouseEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        // ★ 先关闭上下文菜单，避免其全局点击/滚动监听器干扰弹窗
+        onClose()
+        showUsageStats({convId: id, title})
     }
 
     return (
@@ -787,6 +796,18 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
                     <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                 </svg>
                 重命名
+            </button>
+
+            <button
+                onClick={handleUsageStatsClick}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors"
+            >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="20" x2="18" y2="10"/>
+                    <line x1="12" y1="20" x2="12" y2="4"/>
+                    <line x1="6" y1="20" x2="6" y2="14"/>
+                </svg>
+                用量统计
             </button>
 
             <div className="my-1.5 h-px bg-[var(--border-muted)] mx-2"/>

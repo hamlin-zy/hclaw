@@ -64,6 +64,12 @@ export interface IConversationRepository {
     /** 查询所有会话及统计信息（消息数、block 数） */
     listWithStats(workspacePath: string): ConversationWithStats[]
 
+    /** 读取多会话的 LLM 统计与工具调用计数（用量统计弹窗用，不读消息正文） */
+    readUsageRaw(convIds: string[]): {
+        llmStatsByConv: Map<string, LlmStats[]>;
+        toolCallCountByConv: Map<string, number>;
+    }
+
     /** 批量删除会话（事务内） */
     deleteBatch(ids: string[]): boolean
 

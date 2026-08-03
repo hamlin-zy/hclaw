@@ -1,0 +1,203 @@
+import {useCallback, useEffect, useRef, useState} from 'react'
+import {AnimatePresence, motion} from 'framer-motion'
+import type {ConversationUsageStats} from '@shared/types'
+
+export interface UsageStatsOptions {
+    convId: string
+    title: string
+}
+
+/** 格式化 token 数（与 CacheRateTooltip 一致） */
+const formatTokenCount = (n: number): string => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`
+
+/**
+ * 显示用量统计弹窗
+ * @param options 目标会话
+ */
+export function showUsageStats(options: UsageStatsOptions): void {
+    window.dispatchEvent(
+        new CustomEvent('hclaw:show-usage-stats', {detail: options})
+    )
+}
+
+type LoadState =
+    | { status: 'loading' }
+    | { status: 'error'; message: string }
+    | { status: 'done'; data: ConversationUsageStats }
+
+/**
+ * 会话用量统计弹窗
+ * App 级渲染（App.tsx），CustomEvent 触发，与 ConfirmDialog 同体系
+ */
+export default function UsageStatsDialog() {
+    const [options, setOptions] = useState<UsageStatsOptions | null>(null)
+    const [load, setLoad] = useState<LoadState>({status: 'loading'})
+
+    useEffect(() => {
+        const handleShow = (e: CustomEvent<UsageStatsOptions>) => {
+            setOptions(e.detail)
+            setLoad({status: 'loading'})
+        }
+        window.addEventListener('hclaw:show-usage-stats', handleShow as EventListener)
+        return () => window.removeEventListener('hclaw:show-usage-stats', handleShow as EventListener)
+    }, [])
+
+    const requestSeqRef = useRef(0)
+
+    const loadData = useCallback(async (convId: string) => {
+        const seq = ++requestSeqRef.current
+        setLoad({status: 'loading'})
+        try {
+            const data = await window.electronAPI?.conversationUsageStats?.(convId)
+            if (seq !== requestSeqRef.current) return // 竞态：已有更新的请求发出
+            if (!data) {
+                setLoad({status: 'error', message: '统计数据加载失败'})
+            } else {
+                setLoad({status: 'done', data})
+            }
+        } catch (err) {
+            if (seq !== requestSeqRef.current) return
+            console.error('[UsageStatsDialog] load failed:', err)
+            setLoad({status: 'error', message: '统计数据加载失败'})
+        }
+    }, [])
+
+    // 打开时请求数据
+    useEffect(() => {
+        if (!options) return
+        void loadData(options.convId)
+    }, [options, loadData])
+
+    const handleClose = useCallback(() => {
+        setOptions(null)
+    }, [])
+
+    // ESC 关闭
+    useEffect(() => {
+        if (!options) return
+        const onEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') handleClose()
+        }
+        document.addEventListener('keydown', onEsc)
+        return () => document.removeEventListener('keydown', onEsc)
+    }, [options, handleClose])
+
+    const totalTokens = (d: ConversationUsageStats) => d.totalInputTokens + d.totalOutputTokens
+    const cacheRate = (d: ConversationUsageStats): string | null => {
+        const denom = d.totalInputTokens + d.totalCacheReadTokens
+        if (denom <= 0) return null
+        return `${(d.totalCacheReadTokens / denom * 100).toFixed(0)}%`
+    }
+
+    const renderBody = () => {
+        if (load.status === 'loading') {
+            return (
+                <div className="flex items-center justify-center py-10">
+                    <div className="w-6 h-6 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin"/>
+                </div>
+            )
+        }
+        if (load.status === 'error') {
+            return (
+                <div className="py-6 text-center">
+                    <p className="text-sm text-[var(--text-secondary)]">{load.message}</p>
+                    <button
+                        onClick={() => options && void loadData(options.convId)}
+                        className="mt-3 px-4 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
+                    >
+                        重试
+                    </button>
+                </div>
+            )
+        }
+        const d = load.data
+        const scope = `${d.parentCount} 个父会话 + ${d.childCount} 个子会话`
+        const rate = cacheRate(d)
+        const rows: Array<[string, string]> = [
+            ['累计 token（输入+输出）', formatTokenCount(totalTokens(d))],
+            ['输入', formatTokenCount(d.totalInputTokens)],
+            ['输出', formatTokenCount(d.totalOutputTokens)],
+            ['缓存命中', formatTokenCount(d.totalCacheReadTokens)],
+            ['缓存写入', formatTokenCount(d.totalCacheWriteTokens)],
+            ['缓存命中率', rate ?? '-'],
+            ['LLM 请求', `${d.requestCount} 次`],
+            ['工具调用', `${d.toolCallCount} 次`],
+        ]
+        return (
+            <div className="space-y-2.5">
+                <div className="flex items-center justify-between text-xs text-[var(--text-muted)] pb-2 border-b border-[var(--border)]">
+                    <span>统计范围</span>
+                    <span className="tabular-nums">{scope}</span>
+                </div>
+                {rows.map(([label, value]) => (
+                    <div key={label} className="flex items-center justify-between text-sm">
+                        <span className="text-[var(--text-secondary)]">{label}</span>
+                        <span className="text-[var(--text-primary)] font-medium tabular-nums">{value}</span>
+                    </div>
+                ))}
+            </div>
+        )
+    }
+
+    return (
+        <AnimatePresence>
+            {options && (
+                <>
+                    <motion.div
+                        initial={{opacity: 0}}
+                        animate={{opacity: 1}}
+                        exit={{opacity: 0}}
+                        transition={{duration: 0.15}}
+                        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[99998]"
+                        onClick={handleClose}
+                    />
+                    <motion.div
+                        initial={{scale: 0.95, opacity: 0}}
+                        animate={{scale: 1, opacity: 1}}
+                        exit={{scale: 0.95, opacity: 0}}
+                        transition={{duration: 0.15, ease: 'easeOut'}}
+                        className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-[99999]"
+                    >
+                        <div
+                            className="w-full max-w-sm bg-[var(--surface)] rounded-xl shadow-elevated overflow-hidden pointer-events-auto"
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="usage-stats-title"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)]">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-[var(--brand-primary)]/10">
+                                        <svg className="w-5 h-5 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <line x1="18" y1="20" x2="18" y2="10"/>
+                                            <line x1="12" y1="20" x2="12" y2="4"/>
+                                            <line x1="6" y1="20" x2="6" y2="14"/>
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <h2 id="usage-stats-title" className="text-sm font-semibold text-[var(--text-primary)] truncate">
+                                            用量统计 · {options.title}
+                                        </h2>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
+                                {renderBody()}
+                            </div>
+
+                            <div className="px-5 py-4 border-t border-[var(--border)] bg-[var(--surface-elevated)] flex justify-end">
+                                <button
+                                    onClick={handleClose}
+                                    className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
+                                >
+                                    关闭
+                                </button>
+                            </div>
+                        </div>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+    )
+}

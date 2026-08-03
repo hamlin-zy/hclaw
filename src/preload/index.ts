@@ -207,6 +207,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('conversation-list-by-workspace', workspacePath),
     conversationDeleteBatch: (ids: string[]) =>
         ipcRenderer.invoke('conversation-delete-batch', ids),
+    conversationUsageStats: (convId: string) =>
+        ipcRenderer.invoke('conversation-usage-stats', convId),
   conversationSetMessageEnded: (convId: string, messageId: string, endedAt: number) =>
     ipcRenderer.invoke('conversation-set-message-ended', convId, messageId, endedAt),
     // 监听主进程推送的新建会话（渠道创建等）
