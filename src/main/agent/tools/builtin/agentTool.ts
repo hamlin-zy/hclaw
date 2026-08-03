@@ -148,7 +148,11 @@ export const agentTool: Tool<AgentToolInput, string> = {
         '派生专门子 Agent 执行子任务。子 Agent 拥有独立的推理循环和工具访问权限。' +
         '需要并行时，由主 Agent 在同一轮对话中同时调用多个 agent 工具实现。' +
         '通过 agent 参数指定子 Agent 名称（从 agentRegistry 中查找），' +
-        'tools 参数可覆盖 Agent 定义的工具白名单。',
+        'tools 参数可覆盖 Agent 定义的工具白名单。\n' +
+        '注意：superpowers 等三方插件的模板语法 `Subagent (general-purpose)` 是 Claude Code 生态的' +
+        '通用子代理写法，HClaw 中不存在同名 Agent。派发时应根据任务类型从可用能力列表中' +
+        '选择专用 Agent——实现任务 → "Implementer Agent"、代码审查 → "Code Reviewer Agent"，' +
+        '不要照搬模板名；未知名会回退 General Agent。',
     inputSchema,
     isDestructive: false,
 
