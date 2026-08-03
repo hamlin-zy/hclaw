@@ -1,4 +1,5 @@
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useConversationStore} from '../stores/conversationStore'
 import {useSidebarStore} from '../stores/sidebarStore'
@@ -704,27 +705,34 @@ function ConversationList() {
   )
 }
 
+// ── 右键菜单布局常量 ──
+const CONTEXT_MENU_HEIGHT = 280 // 5 个按钮 + 分隔线
+const CONTEXT_MENU_WIDTH = 180
+// 菜单项通用样式；删除按钮叠加 error 变体
+const MENU_ITEM_CLASS = 'w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors'
+
 function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onStartRename}: {
     x: number; y: number; id: string; title: string; pinned?: boolean; parentConvId?: string;
     onClose: () => void; onStartRename: (id: string) => void
 }) {
     const deleteConversation = useConversationStore((s) => s.deleteConversation)
     const togglePinConversation = useConversationStore((s) => s.togglePinConversation)
-    // 菜单高度约 280px（5个按钮 + 分隔线）
-    const MENU_HEIGHT = 280
-    const MENU_WIDTH = 180
 
     // 边界检测：确保菜单在视口内
-    const adjustedX = Math.min(x, window.innerWidth - MENU_WIDTH - 10)
-    const adjustedY = y + MENU_HEIGHT > window.innerHeight
-        ? Math.max(10, window.innerHeight - MENU_HEIGHT - 10)
+    const adjustedX = Math.min(x, window.innerWidth - CONTEXT_MENU_WIDTH - 10)
+    const adjustedY = y + CONTEXT_MENU_HEIGHT > window.innerHeight
+        ? Math.max(10, window.innerHeight - CONTEXT_MENU_HEIGHT - 10)
         : y
 
-    const handleDeleteClick = async (e: React.MouseEvent) => {
+    // 阻止事件冒泡并关闭菜单，避免菜单的全局点击/滚动监听器干扰后续弹窗
+    const stopAndClose = (e: React.MouseEvent) => {
         e.preventDefault()
         e.stopPropagation()
-        // ★ 先关闭上下文菜单，避免其全局点击/滚动监听器干扰确认弹窗
         onClose()
+    }
+
+    const handleDeleteClick = async (e: React.MouseEvent) => {
+        stopAndClose(e)
         // 计算后代子会话数（含间接后代），用于删除确认文案
         const state = useConversationStore.getState()
         const wsPath = state.currentWorkspacePath
@@ -747,14 +755,11 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
     }
 
     const handleUsageStatsClick = (e: React.MouseEvent) => {
-        e.preventDefault()
-        e.stopPropagation()
-        // ★ 先关闭上下文菜单，避免其全局点击/滚动监听器干扰弹窗
-        onClose()
+        stopAndClose(e)
         showUsageStats({convId: id, title})
     }
 
-    return (
+    return createPortal(
         <motion.div
             initial={{opacity: 0, scale: 0.95}}
             animate={{opacity: 1, scale: 1}}
@@ -773,7 +778,7 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
                     e.stopPropagation()
                     togglePinConversation(id)
                 }}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors"
+                className={MENU_ITEM_CLASS}
             >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={pinned ? 'currentColor' : 'none'}
                      stroke="currentColor" strokeWidth="2">
@@ -789,7 +794,7 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
                     e.stopPropagation()
                     onStartRename(id)
                 }}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors"
+                className={MENU_ITEM_CLASS}
             >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
@@ -800,7 +805,7 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
 
             <button
                 onClick={handleUsageStatsClick}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors"
+                className={MENU_ITEM_CLASS}
             >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <line x1="18" y1="20" x2="18" y2="10"/>
@@ -813,14 +818,15 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
             <div className="my-1.5 h-px bg-[var(--border-muted)] mx-2"/>
             <button
                 onClick={handleDeleteClick}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--error)] hover:bg-[var(--error)]/10 transition-colors"
+                className={`${MENU_ITEM_CLASS} text-[var(--error)] hover:bg-[var(--error)]/10`}
             >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
                 </svg>
                 删除会话
             </button>
-        </motion.div>
+        </motion.div>,
+        document.body
     )
 }
 
