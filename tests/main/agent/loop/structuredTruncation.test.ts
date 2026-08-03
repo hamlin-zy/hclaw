@@ -4,11 +4,11 @@
  */
 
 import {describe, expect, it} from 'vitest'
-import type {ChatMessage} from '../model/types'
+import type {ChatMessage} from '../../../../src/main/agent/model/types'
 import {
     splitIntoTurns,
     structuredTruncateMessages,
-} from './structuredTruncation'
+} from '../../../../src/main/agent/loop/structuredTruncation'
 
 function makeUserMsg(idx: number, text: string): ChatMessage {
     return {id: `u${idx}`, role: 'user', content: text}
