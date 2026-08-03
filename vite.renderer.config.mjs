@@ -10,6 +10,7 @@ export default defineConfig({
   build: {
       outDir: path.resolve(__dirname, '.vite/renderer/main_window'),
     emptyOutDir: true,
+      cssMinify: 'esbuild',
       chunkSizeWarningLimit: 1500,
       rollupOptions: {
           input: {
