@@ -1,14 +1,13 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
+import type {ReactNode} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import type {ConversationUsageStats} from '@shared/types'
+import {formatTokenCount} from '../../lib/format'
 
 export interface UsageStatsOptions {
     convId: string
     title: string
 }
-
-/** 格式化 token 数（与 CacheRateTooltip 一致） */
-const formatTokenCount = (n: number): string => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`
 
 /**
  * 显示用量统计弹窗
@@ -24,6 +23,37 @@ type LoadState =
     | { status: 'loading' }
     | { status: 'error'; message: string }
     | { status: 'done'; data: ConversationUsageStats }
+
+/** 统计行：标签左、数值右，等宽数字对齐 */
+function StatRow({label, value, valueClass}: {label: string; value: string; valueClass?: string}) {
+    return (
+        <div className="flex items-center justify-between text-sm leading-6">
+            <span className="text-[var(--text-secondary)]">{label}</span>
+            <span className={`font-medium tabular-nums ${valueClass ?? 'text-[var(--text-primary)]'}`}>{value}</span>
+        </div>
+    )
+}
+
+/** KPI 指标卡：突出关键数字 */
+function KpiCard({label, value, accent}: {label: string; value: string; accent?: boolean}) {
+    return (
+        <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
+            <div className="truncate text-[10px] text-[var(--text-muted)]">{label}</div>
+            <div className={`mt-0.5 truncate text-base font-semibold tabular-nums ${accent ? 'text-[var(--brand-primary)]' : 'text-[var(--text-primary)]'}`}>
+                {value}
+            </div>
+        </div>
+    )
+}
+
+/** 分组标题 */
+function GroupTitle({children}: {children: ReactNode}) {
+    return (
+        <div className="pt-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] first:pt-0">
+            {children}
+        </div>
+    )
+}
 
 /**
  * 会话用量统计弹窗
@@ -113,28 +143,50 @@ export default function UsageStatsDialog() {
         const d = load.data
         const scope = `${d.parentCount} 个父会话 + ${d.childCount} 个子会话`
         const rate = cacheRate(d)
-        const rows: Array<[string, string]> = [
-            ['累计 token（输入+输出）', formatTokenCount(totalTokens(d))],
-            ['输入', formatTokenCount(d.totalInputTokens)],
-            ['输出', formatTokenCount(d.totalOutputTokens)],
-            ['缓存命中', formatTokenCount(d.totalCacheReadTokens)],
-            ['缓存写入', formatTokenCount(d.totalCacheWriteTokens)],
-            ['缓存命中率', rate ?? '-'],
-            ['LLM 请求', `${d.requestCount} 次`],
-            ['工具调用', `${d.toolCallCount} 次`],
-        ]
         return (
-            <div className="space-y-2.5">
-                <div className="flex items-center justify-between text-xs text-[var(--text-muted)] pb-2 border-b border-[var(--border)]">
-                    <span>统计范围</span>
-                    <span className="tabular-nums">{scope}</span>
+            <div className="space-y-3">
+                {/* 统计范围 */}
+                <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-muted)] px-3 py-2">
+                    <svg className="w-3.5 h-3.5 shrink-0 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+                        <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+                        <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+                        <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+                    </svg>
+                    <span className="text-xs text-[var(--text-muted)]">统计范围</span>
+                    <span className="ml-auto text-xs font-medium text-[var(--text-primary)] tabular-nums">{scope}</span>
                 </div>
-                {rows.map(([label, value]) => (
-                    <div key={label} className="flex items-center justify-between text-sm">
-                        <span className="text-[var(--text-secondary)]">{label}</span>
-                        <span className="text-[var(--text-primary)] font-medium tabular-nums">{value}</span>
-                    </div>
-                ))}
+
+                {/* 关键指标 KPI */}
+                <div className="grid grid-cols-2 gap-2">
+                    <KpiCard label="累计 token" value={formatTokenCount(totalTokens(d))} accent/>
+                    <KpiCard label="缓存命中率" value={rate ?? '-'}/>
+                </div>
+
+                {/* Token 明细 */}
+                <GroupTitle>Token 明细</GroupTitle>
+                <div className="space-y-1.5">
+                    <StatRow label="输入" value={formatTokenCount(d.totalInputTokens)}/>
+                    <StatRow label="输出" value={formatTokenCount(d.totalOutputTokens)}/>
+                </div>
+
+                {/* 缓存 */}
+                <GroupTitle>缓存</GroupTitle>
+                <div className="space-y-1.5">
+                    <StatRow label="缓存命中" value={formatTokenCount(d.totalCacheReadTokens)}/>
+                    <StatRow
+                        label="缓存写入"
+                        value={formatTokenCount(d.totalCacheWriteTokens)}
+                        valueClass={d.totalCacheWriteTokens > 0 ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}
+                    />
+                </div>
+
+                {/* 调用 */}
+                <GroupTitle>调用</GroupTitle>
+                <div className="space-y-1.5">
+                    <StatRow label="LLM 请求" value={`${d.requestCount} 次`}/>
+                    <StatRow label="工具调用" value={`${d.toolCallCount} 次`}/>
+                </div>
             </div>
         )
     }
@@ -159,16 +211,17 @@ export default function UsageStatsDialog() {
                         className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-[99999]"
                     >
                         <div
-                            className="w-full max-w-sm bg-[var(--surface)] rounded-xl shadow-elevated overflow-hidden pointer-events-auto"
+                            className="w-full max-w-md bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] overflow-hidden pointer-events-auto"
                             role="dialog"
                             aria-modal="true"
                             aria-labelledby="usage-stats-title"
                             onClick={(e) => e.stopPropagation()}
                         >
+                            {/* 头部：图标 + 标题 + 快捷关闭 */}
                             <div className="px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)]">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-[var(--brand-primary)]/10">
-                                        <svg className="w-5 h-5 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-[var(--brand-muted)]">
+                                        <svg className="w-4.5 h-4.5 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                             <line x1="18" y1="20" x2="18" y2="10"/>
                                             <line x1="12" y1="20" x2="12" y2="4"/>
                                             <line x1="6" y1="20" x2="6" y2="14"/>
@@ -178,7 +231,18 @@ export default function UsageStatsDialog() {
                                         <h2 id="usage-stats-title" className="text-sm font-semibold text-[var(--text-primary)] truncate">
                                             用量统计 · {options.title}
                                         </h2>
+                                        <p className="text-xs text-[var(--text-muted)] mt-0.5">会话 token 消耗与缓存概览</p>
                                     </div>
+                                    <button
+                                        onClick={handleClose}
+                                        aria-label="关闭"
+                                        className="p-1.5 -mr-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
+                                    >
+                                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                            <line x1="18" y1="6" x2="6" y2="18"/>
+                                            <line x1="6" y1="6" x2="18" y2="18"/>
+                                        </svg>
+                                    </button>
                                 </div>
                             </div>
 
@@ -186,10 +250,11 @@ export default function UsageStatsDialog() {
                                 {renderBody()}
                             </div>
 
-                            <div className="px-5 py-4 border-t border-[var(--border)] bg-[var(--surface-elevated)] flex justify-end">
+                            <div className="px-5 py-3.5 border-t border-[var(--border)] bg-[var(--surface-elevated)] flex items-center justify-between gap-3">
+                                <span className="text-[11px] text-[var(--text-muted)]">按 Esc 或点击遮罩关闭</span>
                                 <button
                                     onClick={handleClose}
-                                    className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
+                                    className="px-4 py-1.5 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
                                 >
                                     关闭
                                 </button>
