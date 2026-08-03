@@ -8,6 +8,7 @@ import {useModelSchemeStore} from '../stores/modelSchemeStore'
 import {useAgentStore} from '../stores/agentStore'
 import {fuzzyFilter} from '../lib/search'
 import {confirm} from './ConfirmDialog'
+import {collectDescendants} from '../stores/conversationTree'
 
 type SystemStatus =
     'initializing'
@@ -544,21 +545,25 @@ function ConversationList() {
     }, [childrenMap])
 
     // ★ 新子会话自动展开父级：检测 childrenMap 变化，新出现的子会话 → 展开其父会话
-    const prevChildrenRef = useRef<Map<string, Set<string>>>(new Map())
+    //   注意：prevChildrenRef 初始为 null，首次渲染跳过（避免启动时把所有父会话展开一轮，
+    //   覆盖掉「激活会话展开」逻辑）；后续 childrenMap 变化时只展开真正新增的子会话的父级。
+    const prevChildrenRef = useRef<Map<string, Set<string>> | null>(null)
     useEffect(() => {
         const current = new Map<string, Set<string>>()
         for (const [parentId, children] of childrenMap) {
             current.set(parentId, new Set(children.map(c => c.id)))
         }
         const prev = prevChildrenRef.current
-        // 查找新增的子会话
-        for (const [parentId, childIds] of current) {
-            const prevIds = prev.get(parentId) || new Set<string>()
-            for (const cid of childIds) {
-                if (!prevIds.has(cid)) {
-                    // 新子会话出现 → 展开父会话
-                    setExpandedParentId(parentId)
-                    break
+        if (prev) {
+            // 查找新增的子会话
+            for (const [parentId, childIds] of current) {
+                const prevIds = prev.get(parentId) || new Set<string>()
+                for (const cid of childIds) {
+                    if (!prevIds.has(cid)) {
+                        // 新子会话出现 → 展开父会话
+                        setExpandedParentId(parentId)
+                        break
+                    }
                 }
             }
         }
@@ -579,6 +584,8 @@ function ConversationList() {
     // ★ 当 activeConversationId 变化时自动管理 expandedParentId
     //    handleParentClick 仅处理父会话点击的展开/折叠切换；
     //    此 effect 负责子会话和独立会话场景的展开/折叠。
+    //    只依赖 activeConversationId：用户手动折叠当前父会话不会触发本 effect（依赖不变），
+    //    因此「激活的父会话始终展开其子会话」不会覆盖用户的手动折叠。
     useEffect(() => {
         if (!activeConversationId) return
         const activeConv = filtered.find(c => c.id === activeConversationId)
@@ -590,13 +597,13 @@ function ConversationList() {
                 return activeConv.parentConvId
             }
             if (childrenMap.has(activeConv.id)) {
-                // 切换到父会话 → 保持当前状态（handleParentClick 负责切换）
-                return prev
+                // 激活的父会话 → 始终展开其子会话列表（含启动初始化场景）
+                return activeConv.id
             }
             // 切换到独立会话（无子、无父） → 折叠所有已展开的父会话
             return null
         })
-    }, [activeConversationId, filtered, childrenMap])
+    }, [activeConversationId])
 
   if (!currentWorkspacePath) {
     return (
@@ -717,11 +724,19 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
         e.stopPropagation()
         // ★ 先关闭上下文菜单，避免其全局点击/滚动监听器干扰确认弹窗
         onClose()
+        // 计算后代子会话数（含间接后代），用于删除确认文案
+        const state = useConversationStore.getState()
+        const wsPath = state.currentWorkspacePath
+        const allConvs = wsPath ? state.workspaces[wsPath]?.conversations ?? [] : []
+        const descendants = collectDescendants(allConvs, [id])
+        const childCount = descendants.length - 1
         // 使用 App 级别的 ConfirmDialog（在 App.tsx 顶层渲染），
         // 完全隔离于侧边栏的 AnimatePresence 和流式重渲染影响
         await confirm({
             title: '删除会话',
-            message: `确定要删除"${title}"吗？此操作不可撤销。`,
+            message: childCount > 0
+                ? `确定要删除"${title}"吗？\n该会话包含 ${childCount} 个子会话，将一并删除。\n此操作不可撤销。`
+                : `确定要删除"${title}"吗？此操作不可撤销。`,
             confirmText: '确认删除',
             confirmVariant: 'danger',
             onConfirm: async () => {

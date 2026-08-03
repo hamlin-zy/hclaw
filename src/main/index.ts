@@ -436,5 +436,8 @@ app.on('will-quit', async () => {
   globalShortcut.unregisterAll();
   agentManager.abortAll();
   await mcpWorkerManager.shutdown();
+  // 退出前强制 checkpoint：把 WAL 合并回主库并截断
+  const {flushDatabase} = await import('./repositories/sqlite');
+  try { flushDatabase(); } catch { /* ignore */ }
   // Scheduler worker will be terminated by process exit; safe to ignore
 });

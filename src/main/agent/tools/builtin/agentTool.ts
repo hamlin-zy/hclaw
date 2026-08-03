@@ -24,7 +24,7 @@ import {agentLoop} from '../../loop'
 import type {AgentStreamEvent} from '../../stream'
 import {logger} from '../../logger'
 import {agentRegistry} from '../../agentRegistry'
-import type {AgentTemplate, LlmStats} from '@shared/types'
+import type {AgentTemplate, LlmStats, Message} from '@shared/types'
 import type {AgentDefinition} from '@shared/agent'
 import {runtimeConfigManager} from '../../runtimeConfigManager'
 import {systemSettingsRepo} from '../../../repositories/sqlite/systemSettingsRepository'
@@ -101,6 +101,44 @@ const inputSchema = z.object({
 })
 
 type AgentToolInput = z.infer<typeof inputSchema>
+
+// ─── 子会话 assistant 消息写入（防重复） ────────────────────
+
+/**
+ * 计算子会话完成时应写入的 assistant 消息。
+ *
+ * 防重复：流式期间渲染进程已把最终输出写入子会话（UUID 流式消息，含 llmStats）。
+ * 若子会话已有 assistant 消息，不再追加 msg-<ts> 重复消息，只把子 Agent 自身的
+ * LLM 统计补写进最后一条 assistant 消息；无已有 assistant 消息时才兜底写入完整结果。
+ *
+ * @returns 需要写库的消息；返回 null 表示无需写入
+ */
+export function resolveChildAssistantMessage(
+    existingMessages: Message[],
+    finalOutput: string,
+    childLlmStats: LlmStats[],
+    now: number,
+): Message | null {
+    const lastAssistant = [...existingMessages].reverse().find(m => m.role === 'assistant')
+
+    // 已有流式 assistant 消息：仅补写 llmStats（未写过的场景）
+    if (lastAssistant) {
+        if (childLlmStats.length > 0 && !lastAssistant.llmStats?.length) {
+            return {...lastAssistant, llmStats: childLlmStats}
+        }
+        return null
+    }
+
+    // 无已有 assistant 消息：兜底写入完整结果
+    const assistantMsgId = `msg-${now}-${Math.random().toString(36).slice(2, 8)}`
+    return {
+        id: assistantMsgId,
+        role: 'assistant',
+        content: finalOutput,
+        timestamp: now,
+        ...(childLlmStats.length > 0 ? {llmStats: childLlmStats} : {}),
+    }
+}
 
 // ─── 工具定义 ──────────────────────────────────────────────
 
@@ -309,15 +347,18 @@ export const agentTool: Tool<AgentToolInput, string> = {
 
         // ⑩ 写入子会话的辅助消息历史
         const finalOutput = (hasError ? '' : output.trim()) || '(无输出)'
-        const assistantMsgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-        conversationRepo.writeMessages(childConvId, [{
-            id: assistantMsgId,
-            role: 'assistant',
-            content: finalOutput,
-            timestamp: Date.now(),
-            // 附带子会话自身各轮 LLM 调用统计，持久化后打开子会话即可看到缓存命中率
-            ...(childLlmStats.length > 0 ? {llmStats: childLlmStats} : {}),
-        }])
+        // ★ 防重复：流式期间渲染进程已把最终输出写入子会话（streamingMessageId 消息，含 llmStats）。
+        //   若子会话已有 assistant 消息（UUID 流式消息），不再追加 msg-<ts> 重复消息，
+        //   只把子 Agent 自身的 LLM 统计补写进最后一条 assistant 消息。
+        const childAssistant = resolveChildAssistantMessage(
+            conversationRepo.readMessages(childConvId),
+            finalOutput,
+            childLlmStats,
+            Date.now(),
+        )
+        if (childAssistant) {
+            conversationRepo.writeMessages(childConvId, [childAssistant])
+        }
 
         // 通知 UI 刷新（子会话在侧栏中出现）
         // ★ 注意：agentLoop 内已通过 notifyMainProcessChildConvCreated 首屏通知，

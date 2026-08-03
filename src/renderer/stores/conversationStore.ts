@@ -3,6 +3,7 @@ import type {ConversationSummary, Message} from '@shared/types'
 
 import {useAgentStore, createDefaultConvData} from './agentStore'
 import {fuzzyFilter} from '../lib/search'
+import {collectDescendants} from './conversationTree'
 
 interface WorkspaceInfo {
   lastOpenedAt: number
@@ -74,14 +75,115 @@ interface ConversationStore {
   loadConversations: () => Promise<void>
 }
 
-// ─── Debounced Save ────────────────────────────────────
+// ─── Persistence: delta-first (增量优先) ───────────────────────
+// 性能优化：流式期间高频落库只写"变化的那一条消息"（conversation-write-messages-delta），
+// 不做全量重写，IPC 传输和 SQLite 写入量都小 1~2 个数量级。
+// 断电保留粒度：单条消息级，且事务原子（该消息要么完整要么不存在）。
+// 全量写（saveMessages）仅保留在退出/切换兜底路径。
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let isDirty = false
 
-/** 持久化指定会话的消息到磁盘 */
+/** 每会话的 dirty 消息 Map（messageId → Message），只增不减，flush 后清空 */
+const dirtyMessages: Record<string, Map<string, Message>> = {}
+/** 每会话的 delta 落库 debounce timer */
+const deltaTimers: Record<string, ReturnType<typeof setTimeout> | null> = {}
+
+function getDirtyMap(convId: string): Map<string, Message> {
+    if (!dirtyMessages[convId]) dirtyMessages[convId] = new Map()
+    return dirtyMessages[convId]
+}
+
+// ─── 子会话判定缓存 ─────────────────────────────────────
+// isChildConversation 在流式落库路径（markMessageDirty/scheduleDeltaSave/...）高频调用，
+// 每次 find 全量扫描 conversations。缓存父→子关系：只关心「某 id 是否在 conversations 中
+// 且带 parentConvId」。通过 zustand subscribe 在 workspaces/currentWorkspacePath 变化时
+// 重建缓存（缓存键 = 所有子会话 id 集合），避免每次 find。
+
+/** 子会话 id 缓存（含 currentWorkspacePath 版本号，防止工作区切换后误命中） */
+let childConvIdsCache = new Set<string>()
+let childConvCacheKey = ''
+
+/** 校验缓存并重建（写路径高频调用，开销 O(conversations)，远小于多次 find） */
+function ensureChildConvCache(): void {
+    const state = useConversationStore.getState()
+    const wsPath = state.currentWorkspacePath || ''
+    const convs = wsPath ? state.workspaces[wsPath]?.conversations ?? [] : []
+    // 会话列表按工作区隔离；指纹 = 工作区 + 所有会话的 id:parentConvId 摘要，
+    // 任一会话增删/父级变化/工作区切换都会改变指纹，从而触发重建。
+    let fingerprint = wsPath
+    for (const c of convs) {
+        fingerprint += `|${c.id}:${c.parentConvId || ''}`
+    }
+    if (fingerprint === childConvCacheKey) return
+    childConvCacheKey = fingerprint
+    const childIds = new Set<string>()
+    for (const c of convs) {
+        if (c.parentConvId) childIds.add(c.id)
+    }
+    childConvIdsCache = childIds
+}
+
+/**
+ * 判断是否为子会话（agent 工具创建）。
+ * 子会话的持久化由主进程 agentTool 负责（写入 user 任务消息 + 最终 assistant 结果），
+ * 渲染端不得落库子会话消息，否则流式期间写入的 UUID 消息会与 agentTool 写入的
+ * msg-<timestamp> 消息重复（幽灵重复气泡）。
+ */
+function isChildConversation(convId: string): boolean {
+    if (!convId) return false
+    ensureChildConvCache()
+    return childConvIdsCache.has(convId)
+}
+
+/** 标记一条消息为 dirty（内存态已更新，待增量落库） */
+function markMessageDirty(convId: string, message: Message) {
+    // ★ 子会话不落库（主进程 agentTool 负责持久化，见 isChildConversation）
+    if (isChildConversation(convId)) return
+    getDirtyMap(convId).set(message.id, message)
+    isDirty = true
+}
+
+/** 调度该会话的增量落库（debounce 合并流式高频更新） */
+function scheduleDeltaSave(convId: string, delay: number) {
+    if (isChildConversation(convId)) return
+    if (deltaTimers[convId]) clearTimeout(deltaTimers[convId]!)
+    deltaTimers[convId] = setTimeout(() => {
+        deltaTimers[convId] = null
+        void flushDirtyMessages(convId)
+    }, delay)
+}
+
+/** 立即把某会话的 dirty 消息增量写入 SQLite */
+async function flushDirtyMessages(convId: string): Promise<void> {
+    // ★ 子会话不落库（主进程 agentTool 负责持久化）
+    if (isChildConversation(convId)) {
+        // 清理可能残留的 dirty 标记（修复前标记的旧条目）
+        dirtyMessages[convId]?.clear()
+        return
+    }
+    if (deltaTimers[convId]) {
+        clearTimeout(deltaTimers[convId])
+        deltaTimers[convId] = null
+    }
+    const dirtyMap = dirtyMessages[convId]
+    if (!dirtyMap || dirtyMap.size === 0) return
+    const pending = [...dirtyMap.values()]
+    dirtyMap.clear()
+
+    try {
+        // 逐条 delta 写入（串行 invoke，避免 IPC 并发顺序错乱）
+        for (const msg of pending) {
+            await window.electronAPI?.conversationWriteMessagesDelta?.(convId, msg)
+        }
+    } catch {
+        // 失败不重试（下次 scheduleDeltaSave 会重新标记），避免积压
+    }
+}
+
+/** 持久化指定会话的全部消息（全量路径，仅退出/切换兜底使用） */
 async function persistMessages(convId: string, messages: Message[]) {
-    if (convId) {
+    if (convId && !isChildConversation(convId)) {
         await window.electronAPI?.conversationWriteMessages?.(convId, messages)
     }
 }
@@ -92,9 +194,12 @@ function scheduleSave(delay: number) {
   saveTimer = setTimeout(() => {
       const {activeConversationId, messagesMap} = useConversationStore.getState()
     if (activeConversationId && isDirty) {
-        const msgs = messagesMap[activeConversationId]
-        if (msgs) {
-            persistMessages(activeConversationId, msgs)
+        // ★ 子会话不落库（主进程 agentTool 负责持久化）
+        if (!isChildConversation(activeConversationId)) {
+            const msgs = messagesMap[activeConversationId]
+            if (msgs) {
+                persistMessages(activeConversationId, msgs)
+            }
         }
       isDirty = false
     }
@@ -107,9 +212,18 @@ function forceFlush() {
     clearTimeout(saveTimer)
     saveTimer = null
   }
+    // 增量优先：刷所有会话的 dirty 消息
     const {activeConversationId, loadedMessages} = useConversationStore.getState()
+    const convIds = Object.keys(dirtyMessages)
+    for (const convId of convIds) {
+        void flushDirtyMessages(convId)
+    }
+    // 若没有 dirty 消息但标记了 isDirty（全量待写），走全量兜底
   if (activeConversationId && isDirty) {
-      persistMessages(activeConversationId, loadedMessages)
+      const hasDirty = (dirtyMessages[activeConversationId]?.size ?? 0) > 0
+      if (!hasDirty) {
+          persistMessages(activeConversationId, loadedMessages)
+      }
     isDirty = false
   }
 }
@@ -119,6 +233,14 @@ function cancelPendingSave() {
     if (saveTimer) {
         clearTimeout(saveTimer)
         saveTimer = null
+    }
+    // 清空全部 delta timer 与 dirty 状态
+    for (const convId of Object.keys(deltaTimers)) {
+        if (deltaTimers[convId]) clearTimeout(deltaTimers[convId])
+        deltaTimers[convId] = null
+    }
+    for (const convId of Object.keys(dirtyMessages)) {
+        dirtyMessages[convId].clear()
     }
     isDirty = false
 }
@@ -320,43 +442,53 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       },
 
       deleteConversation: async (id) => {
-          const wasActive = get().activeConversationId === id
-          await window.electronAPI?.conversationDelete?.(id)
+          const state = get()
+          const wsPath = state.currentWorkspacePath
+          const conversations = wsPath ? state.workspaces[wsPath]?.conversations ?? [] : []
+          const toDelete = collectDescendants(conversations, [id])
+          const wasActive = toDelete.includes(state.activeConversationId || '')
+          await window.electronAPI?.conversationDeleteBatch?.(toDelete)
           set((state) => {
-              const {[id]: _, ...restMap} = state.messagesMap
+              const restMap = {...state.messagesMap}
+              for (const delId of toDelete) delete restMap[delId]
               const wsPath = state.currentWorkspacePath
               if (!wsPath || !state.workspaces[wsPath]) return {...state, messagesMap: restMap}
-              const remaining = state.workspaces[wsPath].conversations.filter(c => c.id !== id)
+              const remaining = state.workspaces[wsPath].conversations.filter(c => !toDelete.includes(c.id))
               return {
                   messagesMap: restMap,
                   workspaces: {...state.workspaces, [wsPath]: {...state.workspaces[wsPath], conversations: remaining}},
               }
           })
           if (wasActive) await switchActiveConversation(getFirstRootConversationId())
-          // 删除会话时同步清理 agent 运行时状态
-          useAgentStore.getState().removeConvData(id)
+          // 删除会话时同步清理 agent 运行时状态（含全部后代子会话）
+          for (const delId of toDelete) {
+              useAgentStore.getState().removeConvData(delId)
+          }
       },
 
       deleteConversations: async (ids) => {
           if (!ids.length) return
           const state = get()
-          const wasActiveIncluded = ids.includes(state.activeConversationId || '')
-          await window.electronAPI?.conversationDeleteBatch?.(ids)
+          const wsPath = state.currentWorkspacePath
+          const conversations = wsPath ? state.workspaces[wsPath]?.conversations ?? [] : []
+          const toDelete = collectDescendants(conversations, ids)
+          const wasActiveIncluded = toDelete.includes(state.activeConversationId || '')
+          await window.electronAPI?.conversationDeleteBatch?.(toDelete)
           set((s) => {
               const newWorkspaces: Record<string, WorkspaceInfo> = {}
               for (const [wsPath, wsInfo] of Object.entries(s.workspaces)) {
                   newWorkspaces[wsPath] = {
                       ...wsInfo,
-                      conversations: wsInfo.conversations.filter(c => !ids.includes(c.id))
+                      conversations: wsInfo.conversations.filter(c => !toDelete.includes(c.id))
                   }
               }
               const newMap = {...s.messagesMap}
-              for (const id of ids) delete newMap[id]
+              for (const delId of toDelete) delete newMap[delId]
               return {messagesMap: newMap, workspaces: newWorkspaces}
           })
           if (wasActiveIncluded) await switchActiveConversation(getFirstRootConversationId())
-          for (const id of ids) {
-              useAgentStore.getState().removeConvData(id)
+          for (const delId of toDelete) {
+              useAgentStore.getState().removeConvData(delId)
           }
       },
 
@@ -438,6 +570,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               messagesMap: {...state.messagesMap, [convId]: newConvMsgs},
               loadedMessages: convId === state.activeConversationId ? newConvMsgs : state.loadedMessages,
           }))
+          // 增量落库：用户消息/新 assistant 消息立即持久化（断电保留进度关键路径）
+          markMessageDirty(convId, newMessage)
+          scheduleDeltaSave(convId, 1000)
       },
 
       /** 更新指定会话中的消息（仅更新 UI 状态，持久化由主进程处理） */
@@ -451,6 +586,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               messagesMap: {...state.messagesMap, [convId]: newConvMsgs},
               loadedMessages: convId === state.activeConversationId ? newConvMsgs : state.loadedMessages,
           }))
+          // 增量落库：只写这一条变化的消息
+          markMessageDirty(convId, newConvMsgs[idx])
+          scheduleDeltaSave(convId, 2000)
       },
 
       addMessage: (message) => {
@@ -463,7 +601,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               messagesMap: {...state.messagesMap, [convId]: newConvMsgs},
               loadedMessages: convId === state.activeConversationId ? newConvMsgs : state.loadedMessages,
           }))
-          scheduleSave(1000)
+          markMessageDirty(convId, newMessage)
+          scheduleDeltaSave(convId, 1000)
       },
 
       updateMessage: (id, updates) => {
@@ -478,7 +617,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               messagesMap: {...state.messagesMap, [convId]: newConvMsgs},
               loadedMessages: convId === state.activeConversationId ? newConvMsgs : state.loadedMessages,
           }))
-          scheduleSave(2000)
+          markMessageDirty(convId, newConvMsgs[idx])
+          scheduleDeltaSave(convId, 2000)
       },
 
       deleteMessage: (id) => {
@@ -493,6 +633,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           if (convId) {
               window.electronAPI?.conversationDeleteMessage?.(convId, id)
           }
+          // 删除是结构性变更，delta 无法表达，清除该消息的 dirty 标记
+          dirtyMessages[convId]?.delete(id)
       },
 
       loadMessages: async (convId) => {
@@ -560,7 +702,14 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
 
       saveMessages: async () => {
           const {activeConversationId, loadedMessages} = get()
-          if (activeConversationId) {
+          // 优先刷 delta（只写变化消息）；未走 delta 路径的（历史兼容）才全量写
+          if (activeConversationId && !isChildConversation(activeConversationId)) {
+              const dirtyCount = dirtyMessages[activeConversationId]?.size ?? 0
+              if (dirtyCount > 0) {
+                  await flushDirtyMessages(activeConversationId)
+                  isDirty = false
+                  return
+              }
         await window.electronAPI?.conversationWriteMessages?.(activeConversationId, loadedMessages)
         isDirty = false
           }

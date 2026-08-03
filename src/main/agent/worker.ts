@@ -11,6 +11,7 @@ import {registerBuiltinTools} from './tools/index'
 import {permissionEngine} from './tools/permission'
 import {registerMCPTools, setMcpMessagePort, unregisterMCPTools} from './mcp/discovery'
 import {isMcpToolName} from '@shared/utils/mcpShortId'
+import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import {promptResolver} from './prompts/resolver'
 import {WORKER_MESSAGE_TYPES} from './constants'
 import {applySerializedCapabilitiesInWorker} from './capabilityManager'
@@ -90,7 +91,7 @@ async function main(): Promise<void> {
             maxRetryDelay: 120000,
             llmTimeout: 600000,
         },
-        model: {defaultMaxTokens: 8000, defaultTemperature: 0},
+        model: {defaultMaxTokens: DEFAULT_MAX_TOKENS, defaultTemperature: 0},
         mcp: {mcpTestTimeout: 15000},
         ui: {theme: 'system'},
         subagent: {maxConcurrency: 3, defaultTimeout: 15 * 60 * 1000, retryAttempts: 0, priorityEnabled: false, maxDepth: 3},

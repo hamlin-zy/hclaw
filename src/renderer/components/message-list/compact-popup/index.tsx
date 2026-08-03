@@ -10,6 +10,7 @@ import {memo, useEffect, useMemo} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useToolCallsStore} from '../../../stores/toolCallsStore'
 import {useAgentStore} from '../../../stores/agentStore'
+import {useConversationStore} from '../../../stores/conversationStore'
 import {useDraggableDialog} from '../../../hooks/useDraggableDialog'
 import {truncate} from '../../../lib/format'
 import {PopupToolCard} from './PopupToolCard'
@@ -23,6 +24,7 @@ const CompactToolPopup = memo(function CompactToolPopup() {
     const toolPopupData = useAgentStore((s) => s.toolPopupData)
     const closeToolPopup = useAgentStore((s) => s.closeToolPopup)
     const updateToolPopupExpanded = useAgentStore((s) => s.updateToolPopupExpanded)
+    const setActiveConversation = useConversationStore((s) => s.setActiveConversation)
 
     // ★ 所有 hooks 无条件声明
     const {dialogRef, position, isDragging, handleDragStart} = useDraggableDialog({visible: !!toolPopupData})
@@ -49,6 +51,14 @@ const CompactToolPopup = memo(function CompactToolPopup() {
             ? (expandedCardIds || []).filter((x: string) => x !== id)
             : [...(expandedCardIds || []), id]
         updateToolPopupExpanded(next)
+    }
+
+    // 跳转到子会话：优先取运行时 taskId（toolPopupData 是打开时的快照，运行中才补写的
+    // taskId 只存在于 toolCallsStore），再回退到 toolCall 静态 taskId
+    const handleJumpToSession = (tc: any) => {
+        const state = toolStates[tc.id]
+        const runtimeTaskId = state?.taskId ?? tc.taskId
+        if (runtimeTaskId) setActiveConversation(runtimeTaskId)
     }
 
     const displayTitle = title || '工具调用详情'
@@ -117,32 +127,47 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                                         : status === 'error' ? 'bg-[var(--error-muted)]/30 text-[var(--error)]'
                                                             : 'bg-[var(--info-muted)]/30 text-[var(--info)]'
                                                 }`}>{status === 'success' ? '已完成' : status === 'error' ? '失败' : '进行中'}</span>
+                                                {(state?.taskId || tc.taskId) && (
+                                                    <button
+                                                        onClick={() => handleJumpToSession(tc)}
+                                                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium hover:bg-[var(--surface-muted)] border border-[var(--border)] shrink-0"
+                                                        style={{color: 'var(--brand-primary)'}}
+                                                        title="跳转到子会话"
+                                                    >
+                                                        <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                                            <polyline points="15 3 21 3 21 9"/>
+                                                            <line x1="10" y1="14" x2="21" y2="3"/>
+                                                        </svg>
+                                                        跳转
+                                                    </button>
+                                                )}
                                             </div>
                                             {(() => {
-                                            const entries = mergeTimeline(progressLog || [], subAgentStream || [])
-                                            const lastTime = getLastActiveTime(progressLog || [], subAgentStream || [])
-                                            if (entries.length === 0) return null
-                                            return (
-                                                <div className="space-y-0.5">
-                                                    {entries.map((e, idx) => {
-                                                        const isLast = (e.kind === 'progress' ? e.log.timestamp : e.entry.timestamp) === lastTime
-                                                        if (e.kind === 'progress') {
+                                                const entries = mergeTimeline(progressLog || [], subAgentStream || [])
+                                                const lastTime = getLastActiveTime(progressLog || [], subAgentStream || [])
+                                                if (entries.length === 0) return null
+                                                return (
+                                                    <div className="space-y-0.5">
+                                                        {entries.map((e, idx) => {
+                                                            const isLast = (e.kind === 'progress' ? e.log.timestamp : e.entry.timestamp) === lastTime
+                                                            if (e.kind === 'progress') {
+                                                                return (
+                                                                    <div key={`p-${idx}`} className="flex items-start gap-2 pl-4 py-1 text-[10px]">
+                                                                        <span className="text-[var(--info)] mt-0.5 shrink-0">●</span>
+                                                                        <span className={`flex-1 break-all ${isLast ? 'text-[var(--info)]' : 'text-[var(--text-secondary)]'}`}>
+                                                                            {e.log.text.replace(/^子 Agent /, '')}
+                                                                        </span>
+                                                                    </div>
+                                                                )
+                                                            }
                                                             return (
-                                                                <div key={`p-${idx}`} className="flex items-start gap-2 pl-4 py-1 text-[10px]">
-                                                                    <span className="text-[var(--info)] mt-0.5 shrink-0">●</span>
-                                                                    <span className={`flex-1 break-all ${isLast ? 'text-[var(--info)]' : 'text-[var(--text-secondary)]'}`}>
-                                                                        {e.log.text.replace(/^子 Agent /, '')}
-                                                                    </span>
-                                                                </div>
+                                                                <StreamEntryCard key={`s-${idx}`} entry={e.entry} variant="popup" />
                                                             )
-                                                        }
-                                                        return (
-                                                            <StreamEntryCard key={`s-${idx}`} entry={e.entry} variant="popup" />
-                                                        )
-                                                    })}
-                                                </div>
-                                            )
-                                        })()}
+                                                        })}
+                                                    </div>
+                                                )
+                                            })()}
                                             {result?.output && <div className="mt-2 text-[10px] text-[var(--text-primary)] leading-relaxed p-2 bg-[var(--surface-overlay)] rounded max-h-48 overflow-x-hidden overflow-y-auto break-all select-text"><MarkdownRenderer>{truncate(String(result.output), 3000)}</MarkdownRenderer></div>}
                                             {result?.error && <pre className="mt-2 text-[10px] text-[var(--error)] font-mono whitespace-pre-wrap break-all leading-relaxed p-2 bg-[var(--error-muted)]/15 rounded max-h-48 overflow-x-hidden overflow-y-auto select-text">{String(result.error)}</pre>}
                                         </div>

@@ -33,15 +33,22 @@ function HookNotification({item, onComplete}: { item: HookResultItem; onComplete
           <line x1="6" y1="6" x2="18" y2="18"/>
         </svg>
       )}
-      
-      {/* 钩子名称 */}
-      <span className="font-medium text-sm">{item.hookName}</span>
-      
-      {/* 分隔符 */}
-      <span className="text-white/60">|</span>
-      
-      {/* 状态文字 */}
-      <span className="text-sm">{item.success ? '成功' : '失败'}</span>
+
+      {/* 通用通知消息（如 max_tokens 截断提示）；无 message 时回退为 hookName | 状态 */}
+      {item.message ? (
+        <span className="text-sm leading-snug max-w-[300px] whitespace-pre-wrap">{item.message}</span>
+      ) : (
+        <>
+          {/* 钩子名称 */}
+          <span className="font-medium text-sm">{item.hookName}</span>
+
+          {/* 分隔符 */}
+          <span className="text-white/60">|</span>
+
+          {/* 状态文字 */}
+          <span className="text-sm">{item.success ? '成功' : '失败'}</span>
+        </>
+      )}
     </motion.div>
   )
 }
