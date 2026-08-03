@@ -5,8 +5,8 @@
  */
 
 import {describe, expect, it} from 'vitest'
-import type {ChatMessage} from '../model/types'
-import {truncateForLlmCall} from './truncateBeforeLlm'
+import type {ChatMessage} from '../../../../src/main/agent/model/types'
+import {truncateForLlmCall} from '../../../../src/main/agent/loop/truncateBeforeLlm'
 
 function makeUserMsg(idx: number, text: string): ChatMessage {
     return {id: `u${idx}`, role: 'user', content: text}
