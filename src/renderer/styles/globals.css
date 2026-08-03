@@ -2284,6 +2284,15 @@ html.bg-enabled,
     -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
 }
 
+/* ── 左侧栏容器：降透明度至内部项同级（--bg-surface-alpha-inner = 主层 × 0.7）──
+ * 右侧栏修复后内部项用 alpha-inner 承载半透明底色，若左侧栏保持主层 alpha，
+ * 左深右浅视觉失衡（用户反馈"左侧比右侧深"）。此处对齐到 ×0.7 同一水平。 */
+.bg-enabled [data-name="left-sidebar-card"].app-surface-card {
+    background-color: color-mix(in srgb, var(--surface) var(--bg-surface-alpha-inner, 45%), transparent) !important;
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+}
+
 /* ── 欢迎页快捷键卡片（空会话，无消息滚动容器兜底）──
  * 默认 Tailwind 原子类 bg-[var(--surface-muted)]/40 透明度写死，
  * 背景启用时改为跟随 overlay 滑杆（--bg-surface-alpha），与内容卡片一致 */
@@ -2345,11 +2354,12 @@ html.bg-enabled,
 }
 
 /* ── 右侧面板内部子面板（权限规则 / 待办列表）内容底 ──
- * 子面板本体 = 毛玻璃层：半透明 surface + blur，透明度跟随遮罩滑杆
- * （--bg-surface-alpha），模糊跟随 --bg-blur。 */
+ * 子面板本体 = 纯 blur 层：底色全透明（与消息列表 message-list-card 架构一致），
+ * 模糊跟随 --bg-blur 滑杆。半透明底色由内部列表项承载（--bg-surface-alpha-inner），
+ * 避免"子面板本体 + 内部项"双层叠加导致右侧栏比左侧栏更深更实。 */
 .bg-enabled .permission-rules-card,
 .bg-enabled .todo-panel-card {
-    background-color: color-mix(in srgb, var(--surface) var(--bg-surface-alpha, 60%), transparent) !important;
+    background-color: transparent !important;
     backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
     -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
 }
