@@ -14,7 +14,7 @@
  * 3. 将渲染委托给子组件（ToolCallHeader、ToolCallBody 等）
  */
 
-import {memo, useMemo, useState} from 'react'
+import {memo, useCallback, useMemo, useState} from 'react'
 import type {ToolCall, ThinkBlock as ThinkBlockType} from '@shared/types'
 import {getToolSummary, resolveAgentDisplayName, resolveSkillDisplayName, resolveToolDisplayName, isSkillToolCall} from './utils/messageUtils'
 import {getFullStatusConfig} from './config/toolStatusConfig'
@@ -149,6 +149,20 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
     const isSubAgent = toolCall.name === 'agent' && !!toolCall.taskId
     const hasOutput = !!effectiveResult?.output || !!effectiveProgressLog?.length || !!effectiveSubAgentStream?.length
 
+    // ★ 需求1：查看按钮分流 —— 运行中的子 Agent 直接跳转子会话实时观看，
+    //   完成态弹 SubAgentViewer 展示工具结果集（浮窗内另有「跳转」按钮）
+    const setActiveConversation = useConversationStore((s) => s.setActiveConversation)
+    const handleJumpToSession = useCallback(() => {
+        if (toolCall.taskId) setActiveConversation(toolCall.taskId)
+    }, [toolCall.taskId, setActiveConversation])
+    const handleOpenViewer = () => {
+        if (isRunning && toolCall.taskId) {
+            setActiveConversation(toolCall.taskId)
+            return
+        }
+        setViewerOpen(true)
+    }
+
     return (
         <div
             className={`my-2 rounded-lg text-xs overflow-hidden transition-all duration-200 ${cfg.bg} ${
@@ -161,7 +175,8 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                     toolCall={toolCall}
                     expanded={false}
                     onToggleExpanded={() => {}}
-                    onOpenViewer={() => setViewerOpen(true)}
+                    onOpenViewer={handleOpenViewer}
+                    onJumpToSession={toolCall.taskId ? handleJumpToSession : undefined}
                     cfg={cfg}
                     isRunning={isRunning}
                     hasProgress={hasProgress}
@@ -187,7 +202,8 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                         toolCall={toolCall}
                         expanded={expanded}
                         onToggleExpanded={() => setExpanded(!expanded)}
-                        onOpenViewer={() => setViewerOpen(true)}
+                        onOpenViewer={handleOpenViewer}
+                        onJumpToSession={toolCall.taskId ? handleJumpToSession : undefined}
                         cfg={cfg}
                         isRunning={isRunning}
                         hasProgress={hasProgress}
@@ -235,6 +251,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                     result={effectiveResult as import('../../stores/toolCallsStore').ExtendedToolResult | null}
                     tokenUsage={effectiveTokenUsage ?? null}
                     onClose={() => setViewerOpen(false)}
+                    onJumpToSession={toolCall.taskId ? handleJumpToSession : undefined}
                 />
             )}
         </div>

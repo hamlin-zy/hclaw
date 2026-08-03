@@ -12,6 +12,8 @@ interface ToolCallHeaderProps {
     expanded: boolean
     onToggleExpanded: () => void
     onOpenViewer: () => void
+    /** 跳转到对应子会话（子 Agent 已完成且有 taskId 时由父组件传入；不传则隐藏按钮） */
+    onJumpToSession?: () => void
 
     // 状态配置
     cfg: {
@@ -54,6 +56,7 @@ export default function ToolCallHeader({
     expanded,
     onToggleExpanded,
     onOpenViewer,
+    onJumpToSession,
     cfg,
     isRunning,
     hasProgress,
@@ -88,8 +91,9 @@ export default function ToolCallHeader({
         </span>
     )
 
-    // ── 查看按钮（子 Agent 工具且有输出时显示） ──
-    const viewBtn = isSubAgent && hasOutput ? (
+    // ── 查看按钮（子 Agent 工具，完成态且有输出时显示） ──
+    // 运行中隐藏查看按钮（执行过程在子会话中实时展示，直接通过「跳转」按钮进入）
+    const viewBtn = isSubAgent && !isRunning && hasOutput ? (
         <button
             onClick={(e) => {
                 e.stopPropagation();
@@ -122,6 +126,24 @@ export default function ToolCallHeader({
                 </span>
             )}
             {viewBtn}
+            {onJumpToSession && (
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onJumpToSession()
+                    }}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium hover:bg-[var(--surface-muted)] border border-[var(--border)]"
+                    style={{color: 'var(--brand-primary)'}}
+                    title="跳转到子会话"
+                >
+                    <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                        <polyline points="15 3 21 3 21 9"/>
+                        <line x1="10" y1="14" x2="21" y2="3"/>
+                    </svg>
+                    跳转
+                </button>
+            )}
             <span className={`text-[10px] px-1.5 py-0.5 rounded-full shrink-0 ${cfg.color} ${cfg.bg}`}>
                 {cfg.label}
             </span>

@@ -8,6 +8,7 @@ import * as path from 'path'
 import {WORKER_MESSAGE_TYPES} from './constants'
 import type {AgentStreamEvent} from './stream'
 import type {AgentTemplate, LlmCallLog, SystemSettings} from '@shared/types'
+import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import type {ChatMessage, ModelConfig} from './model/types'
 import {permissionEngine} from './tools/permission'
 import {addLlmCallLog} from '../utils/llmCallLogStore'
@@ -125,9 +126,9 @@ export class AgentManager {
     // 加载配置
     const defaultSettings: SystemSettings = {
       agent: {maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000, llmTimeout: 600000},
-      model: {defaultMaxTokens: 8000, defaultTemperature: 0},
+      model: {defaultMaxTokens: DEFAULT_MAX_TOKENS, defaultTemperature: 0},
       mcp: {mcpTestTimeout: 15000},
-      ui: {language: 'zh-CN', theme: 'system'},
+      ui: {theme: 'system'},
       subagent: {maxConcurrency: 3, defaultTimeout: 15 * 60 * 1000, retryAttempts: 0, priorityEnabled: false, maxDepth: 3},
     }
     let initialSettings: SystemSettings | null = null
@@ -708,10 +709,16 @@ export class AgentManager {
         const idx = pending.toolCalls.findIndex(t => t.id === toolResult.toolCallId)
         if (idx === -1) break
         const normalized = normalizeToolResult(toolResult.result)
+        const tc = pending.toolCalls[idx]
         pending.toolCalls[idx] = {
-          ...pending.toolCalls[idx],
+          ...tc,
           status: normalized.output && !normalized.error ? 'success' : 'error',
           result: normalized,
+          // ★ 需求1链路：agent 工具从 result._meta 恢复子会话 ID（taskId === childConvId）
+          //   与 manager.accumulator.ts accumulateStreamEvent 保持逻辑一致（双轨）
+          ...(tc.name === 'agent' && normalized._meta?.childConvId
+            ? {taskId: normalized._meta.childConvId as string}
+            : {}),
         }
         this.pendingNeedsTurnReset.add(conversationId)
         break

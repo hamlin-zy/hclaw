@@ -14,6 +14,7 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {createPortal} from 'react-dom';
 import {AnimatePresence, motion} from 'framer-motion';
 import {CommandList} from './CommandList';
+import {nextPaletteTab, PALETTE_TABS, PaletteTab, TAB_SOURCES} from '../../lib/paletteTabs';
 import {ParamInputModal} from './ParamInputModal';
 
 export interface Command {
@@ -51,6 +52,7 @@ function findCommandById(commands: Command[], commandId: string): Command | unde
 export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPaletteProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [activeTab, setActiveTab] = useState<PaletteTab>('all');
 
   // 扁平化所有命令，用于键盘导航
   const [allCommands, setAllCommands] = useState<Command[]>([]);
@@ -73,19 +75,15 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
     if (!isOpen) {
       setSearchQuery('');
       setSelectedIndex(0);
+      setActiveTab('all');
       setParamModalOpen(false);
       setSelectedCommand(null);
     }
   }, [isOpen]);
 
-  // 生成显示用消息：/commandName [args]
-  const getDisplayMessage = useCallback((command: Command, args?: string): string => {
-    const base = `/${command.name}`
-    if (args) {
-      return `${base} ${args}`
-    }
-    return base
-  }, [])
+  // 生成显示用消息：命令名与任务内容以换行分隔（气泡内分行显示）
+  const getDisplayMessage = useCallback((command: Command, args?: string): string =>
+      args ? `/${command.name}\n${args}` : `/${command.name}`, [])
 
   // 处理命令点击
   const handleCommandClick = useCallback((command: Command) => {
@@ -110,6 +108,11 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
     setSelectedIndex(0);
   }, [searchQuery]);
 
+  // 切换 tab 时重置选中索引（列表内容已变化）
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [activeTab]);
+
     // 接收 CommandList 过滤后的扁平列表（与 selectedIndex 保持同步）
     const handleFilteredCommandsChange = useCallback((commands: Command[]) => {
         setFilteredCommands(commands);
@@ -119,7 +122,7 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
   const handleParamSubmit = useCallback((commandId: string, args: string) => {
     // 根据 commandId 找到命令，获取显示名称
     const command = findCommandById(allCommands, commandId)
-    const displayMessage = command ? getDisplayMessage(command, args) : `/${commandId} ${args}`
+    const displayMessage = command ? getDisplayMessage(command, args) : `/${commandId}\n${args}`
     onExecuteCommand(commandId, args, displayMessage)
     onClose();
     setParamModalOpen(false);
@@ -139,6 +142,13 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
     }
 
     const currentList = filteredCommands.length > 0 ? filteredCommands : allCommands;
+
+    // tab 切换：Alt+← / Alt+→（循环）
+    if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      e.preventDefault();
+      setActiveTab(prev => nextPaletteTab(prev, e.key === 'ArrowRight' ? 1 : -1));
+      return;
+    }
 
     switch (e.key) {
       case 'ArrowDown':
@@ -206,7 +216,7 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
                   </svg>
                   <input
                     type="text"
-                    placeholder="搜索命令..."
+                    placeholder={PALETTE_TABS.find(t => t.id === activeTab)!.placeholder}
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-4 py-2.5 bg-[var(--surface-muted)] rounded-lg
@@ -214,6 +224,24 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
                              focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
                     autoFocus
                   />
+                </div>
+
+                {/* Tab 栏 */}
+                <div className="mt-3 flex items-center gap-1">
+                  {PALETTE_TABS.map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`px-3 py-1.5 text-sm rounded-lg transition-colors focus:outline-none ${
+                        activeTab === tab.id
+                          ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)] font-medium'
+                          : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -224,7 +252,16 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
                 selectedIndex={selectedIndex}
                 onCommandsLoaded={handleCommandsLoaded}
                 onFilteredCommandsChange={handleFilteredCommandsChange}
+                sourceFilter={TAB_SOURCES[activeTab]}
+                tab={activeTab}
               />
+
+              {/* 键盘操作提示 */}
+              <div className="px-4 py-2 border-t border-[var(--border)]">
+                <div className="text-center text-[10px] text-[var(--text-muted)]">
+                  Alt+←/→ 切换标签 · ↑/↓ 选择 · Enter 执行
+                </div>
+              </div>
             </motion.div>
           </motion.div>
         )}

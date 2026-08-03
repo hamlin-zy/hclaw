@@ -41,6 +41,13 @@ export interface IConversationRepository {
 
   writeMessages(convId: string, messages: Message[]): boolean
 
+    /**
+     * 增量写入单条消息（UPSERT messages + 重建该消息的 blocks）。
+     * 相比 writeMessages 的全量重写，只影响一条消息，IPC 传输和 DB 写入量都小得多，
+     * 且单事务原子（断电时该消息要么完整、要么不存在，不会半写）。
+     */
+    writeMessagesDelta(convId: string, message: Message): boolean
+
   setMessageEnded(convId: string, messageId: string, endedAt: number): boolean
 
   /** 更新消息的 LLM 统计信息 */
@@ -56,6 +63,12 @@ export interface IConversationRepository {
 
     /** 查询所有会话及统计信息（消息数、block 数） */
     listWithStats(workspacePath: string): ConversationWithStats[]
+
+    /** 读取多会话的 LLM 统计与工具调用计数（用量统计弹窗用，不读消息正文） */
+    readUsageRaw(convIds: string[]): {
+        llmStatsByConv: Map<string, LlmStats[]>;
+        toolCallCountByConv: Map<string, number>;
+    }
 
     /** 批量删除会话（事务内） */
     deleteBatch(ids: string[]): boolean

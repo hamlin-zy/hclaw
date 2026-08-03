@@ -7,6 +7,30 @@
 
 ---
 
+## [v0.3.2] - 2026-08-03
+
+### 新增
+- **会话用量统计完整功能** — 用量聚合纯函数 + IPC 链路（repository/handler/preload）+ 弹窗组件 + 右键菜单入口，tool 块计数改用 tool_call 类型 (`src/main/usageStats.ts`, `src/main/conversation.ts`, `src/renderer/components/dialogs/UsageStatsDialog.tsx`, `src/renderer/components/ConversationSidebar.tsx`)
+- **命令面板类型 tab** — 添加类型 tab、Alt+←/→ 切换与快捷键提示，用户命令消息渲染能力徽章（图标+名称+类型标签+任务内容） (`src/renderer/components/plugin/CommandPalette.tsx`, `src/renderer/components/plugin/CommandList.tsx`, `src/renderer/lib/paletteTabs.ts`, `src/renderer/components/message-list/UserCommandBubble.tsx`)
+- **agent 参数强制校验与通用角色** — 强制校验 agent 参数并新增通用内置 Agent 角色，工具派遣引导语 + 单元测试锁定 (`src/main/agent/tools/builtin/agentTool.ts`, `src/main/agent/defaults/general.md`)
+- **技能图标统一** — 技能图标统一为 🛠️（Ctrl+K 弹窗 + 内联补全） (`src/renderer/components/plugin/CommandList.tsx`, `src/renderer/components/InlineCommandPicker.tsx`)
+
+### 重构
+- **命令解析纯函数化** — 命令解析逻辑抽取为纯函数，Ctrl+K 发送命令时命令名与任务内容以换行分隔 (`src/main/agent/loop/commandTextParser.ts`, `src/renderer/lib/userCommandParse.ts`)
+- **formatTokenCount 抽取** — 抽取公共模块并重构用量统计弹窗 (`src/renderer/lib/format.ts`, `src/renderer/components/dialogs/UsageStatsDialog.tsx`)
+- **collectDescendants 迁移至 shared** — 新增 ConversationUsageStats 类型 (`src/shared/utils/conversationTree.ts`, `src/shared/types/infra.ts`)
+- **测试目录规范** — 迁移 src/ 下 2 个孤儿测试到 tests/ 约定目录 (`tests/main/agent/loop/`)
+- **会话右键菜单简化** — 提取布局常量、去重菜单项样式、抽取 stopAndClose (`src/renderer/components/ConversationSidebar.tsx`)
+
+### 修复
+- **内置 Agent 种子文件健壮性** — 完整性校验损坏时自动重建、避免覆盖同名用户文件、兼容 BOM 与标记判定 (`src/main/agent/defaults/seedAgentFiles.ts`)
+- **用量统计断链** — 后代数据断链 + 弹窗重试失效 (`src/main/conversation.ts`, `src/renderer/components/dialogs/UsageStatsDialog.tsx`)
+- **右键菜单定位漂移** — 会话列表右键菜单改用 createPortal 挂载 body，修复 fixed 定位漂移 (`src/renderer/components/ConversationSidebar.tsx`)
+- **Alt+上下切换会话** — 切换时排除子会话 (`src/renderer/hooks/useGlobalHotkeys.ts`)
+- **背景启用时侧栏失衡** — 修复左右侧栏深浅失衡 (`src/renderer/App.tsx`, `src/renderer/styles/globals.css`)
+
+---
+
 ## [v0.3.1] - 2026-08-02
 
 ### 修复

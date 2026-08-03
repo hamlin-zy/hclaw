@@ -53,17 +53,11 @@ export function flushToolResultBatch(convId: string) {
     })
 
     const newConvMsgs = convMsgs.map(m => m.id === msgId ? {...m, toolCalls: updatedToolCalls} : m)
-    if (convId === useConversationStore.getState().activeConversationId) {
-        useConversationStore.setState({
-            messagesMap: {...useConversationStore.getState().messagesMap, [convId]: newConvMsgs},
-            loadedMessages: newConvMsgs,
-        })
-    } else {
-        useConversationStore.setState({
-            messagesMap: {...useConversationStore.getState().messagesMap, [convId]: newConvMsgs},
-        })
+    // 走 store action 更新，自动标记 dirty 并调度增量落库（避免全量 flushMessages）
+    const updatedMsg = newConvMsgs.find(m => m.id === msgId)
+    if (updatedMsg) {
+        useConversationStore.getState().updateMessageForConv(convId, msgId, {toolCalls: updatedToolCalls})
     }
-    useConversationStore.getState().flushMessages()
 }
 
 export function scheduleToolResultUpdate(convId: string, msgId: string, toolCallId: string, result: any) {

@@ -466,17 +466,6 @@ export default function SettingsDialog() {
                 <p className="text-[10px] text-[var(--text-muted)]">修改后重启应用生效。留空表示使用默认路径 ~/.hclaw</p>
             </div>
             <div className="space-y-1">
-                <label className="text-xs text-[var(--text-muted)]">语言</label>
-                <select
-                    className="w-full bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded px-3 py-1.5 text-sm outline-none focus:border-[var(--brand)]"
-                    value={current.ui.language}
-                    onChange={(e) => updatePending('ui', {language: e.target.value})}
-                >
-                    <option value="zh-CN">简体中文</option>
-                    <option value="en-US">English (Placeholder)</option>
-                </select>
-            </div>
-            <div className="space-y-1">
                 <label className="text-xs text-[var(--text-muted)]">外观</label>
                 <select
                     className="w-full bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded px-3 py-1.5 text-sm outline-none focus:border-[var(--brand)]"

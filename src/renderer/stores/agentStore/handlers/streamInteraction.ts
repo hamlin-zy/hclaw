@@ -3,6 +3,7 @@
 
 import type {StreamCtx} from './streamContext'
 import type {ConvAgentData} from '../types'
+import type {Message} from '@shared/types'
 import {IDLE_STATE, makeAgentState, createDefaultConvData} from '../defaultState'
 import {useConversationStore} from '../../conversationStore'
 import {useAgentStore} from '..'
@@ -190,6 +191,21 @@ export function handleWarning(ctx: StreamCtx) {
         get().updateConvData(convId, {
             executingToolsMessage: retryLabel,
             // 保持 agentState 不变（仍在 running），不清除 streamingMessageId
+        })
+        return
+    }
+
+    // ── max_tokens 截断提示：右上角全局通知（复用 HookResultsBar 机制，不打断流程） ──
+    if (msg.includes('达到最大 Token 数')) {
+        useAgentStore.getState().addHookResult({
+            id: `maxtokens-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            event: 'warning',
+            hookName: '响应截断',
+            success: false,
+            error: msg,
+            message: msg,
+            timestamp: Date.now(),
+            conversationId: convId,
         })
         return
     }

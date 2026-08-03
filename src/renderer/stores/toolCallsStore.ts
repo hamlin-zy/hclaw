@@ -53,6 +53,8 @@ export interface ToolCallState {
     result?: ExtendedToolResult
     /** 详细状态 */
     detailStatus?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+    /** 子 Agent 任务 ID（taskId === 子会话 ID，用于跳转/关联） */
+    taskId?: string
     /** token 用量（仅 agent 工具） */
     tokenUsage?: {
         inputTokens: number

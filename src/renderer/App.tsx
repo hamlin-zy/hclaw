@@ -9,6 +9,7 @@ import MenuDialogRenderer from './components/MenuDialogRenderer'
 import DiffModal from './components/DiffModal'
 import AskUserModal from './components/AskUserModal'
 import ConfirmDialog, {confirm} from './components/ConfirmDialog'
+import UsageStatsDialog from './components/dialogs/UsageStatsDialog'
 import PermissionConfirmModal from './components/PermissionConfirmModal'
 import CompactToolPopup from './components/message-list/compact-popup'
 import CombinedCardPopup from './components/message-list/compact-popup/CombinedCardPopup'
@@ -579,6 +580,7 @@ export default function App() {
           {!leftCollapsed && (
             <div
               className="app-surface-card bg-[var(--surface)] rounded-lg shadow-card border border-[var(--border)] overflow-hidden flex flex-col transition-all"
+              data-name="left-sidebar-card"
               style={{width: 'var(--sidebar-width)'}}>
               <ConversationSidebar/>
             </div>
@@ -601,6 +603,7 @@ export default function App() {
           <DiffModal key="diff-modal" />
           <AskUserModal key="ask-user-modal"/>
           <ConfirmDialog key="confirm-dialog"/>
+          <UsageStatsDialog key="usage-stats-dialog"/>
           <PermissionConfirmModal key="permission-confirm-modal"/>
           <CompactToolPopup key="compact-tool-popup"/>
           <CombinedCardPopup key="combined-card-popup"/>

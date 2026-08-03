@@ -39,12 +39,25 @@ export function useGlobalHotkeys() {
             }
 
             // Alt+↑ → 上一个会话 / Alt+↓ → 下一个会话
+            // 只在顶级会话（独立会话 + 父会话）之间切换，排除子会话；
+            // 当前激活的是子会话时，先切回其父会话。
             if (alt && !shift && (key === 'arrowup' || key === 'arrowdown')) {
                 e.preventDefault()
                 const convStore = useConversationStore.getState()
-                const convs = convStore.getFilteredConversations()
+                const allConvs = convStore.getFilteredConversations()
                 const currentId = convStore.activeConversationId
-                if (convs.length <= 1 || !currentId) return
+                if (!currentId) return
+
+                // 当前激活的是子会话 → 先切回其父会话
+                const activeConv = allConvs.find(c => c.id === currentId)
+                if (activeConv?.parentConvId) {
+                    convStore.setActiveConversation(activeConv.parentConvId)
+                    return
+                }
+
+                // 仅遍历顶级会话，排除子会话
+                const convs = allConvs.filter(c => !c.parentConvId)
+                if (convs.length <= 1) return
                 const idx = convs.findIndex(c => c.id === currentId)
                 const direction = key === 'arrowup' ? -1 : 1
                 const target = idx + direction

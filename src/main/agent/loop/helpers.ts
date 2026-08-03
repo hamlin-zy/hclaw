@@ -128,12 +128,3 @@ export function createDefaultResult(text: string): IntentAnalysisResult {
         suggestedModel,
     }
 }
-
-// ─── Token 格式化 ──────────────────────────────────────────
-
-export function formatTokenCount(tokens: number): string {
-    if (tokens >= 1000) {
-        return `${(tokens / 1000).toFixed(1)}K`
-    }
-    return `${tokens}`
-}

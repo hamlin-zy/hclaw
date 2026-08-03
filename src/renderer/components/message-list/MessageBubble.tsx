@@ -12,6 +12,7 @@ import InterleavedContent from './InterleavedContent'
 import {AssistantMessageActions, MessageActions} from './MessageActions'
 import {SkillBubble} from '../skill/SkillBubble'
 import {CommandBadge} from '../CommandBadge'
+import {UserCommandBubble, parseUserCommandContext} from './UserCommandBubble'
 
 interface MessageBubbleProps {
     message: Message
@@ -24,6 +25,10 @@ interface MessageBubbleProps {
  */
 const MessageBubble = memo(function MessageBubble({message, index, isStreaming = false}: MessageBubbleProps) {
     const isUser = message.role === 'user'
+    // 用户命令消息：解析命令上下文（skill/agent/command），渲染为能力徽章 + 任务内容
+    const userCmdCtx = isUser ? parseUserCommandContext(message) : null
+    // 命令消息时隐藏原始文本（已由徽章展示），附件/工具调用仍正常渲染
+    const commandTextHidden = {...message, content: ''}
 
     return (
         <div
@@ -129,8 +134,16 @@ const MessageBubble = memo(function MessageBubble({message, index, isStreaming =
                     </div>
                 )}
 
-                {/* Interleaved text + tool calls (按 textOffset 交错渲染) */}
-                <InterleavedContent message={message} isUser={isUser}/>
+                {/* 用户命令消息 → 能力徽章 + 任务内容（替换 /能力 文本行，纯渲染层） */}
+                {userCmdCtx && (
+                    <div className="mb-2">
+                        <UserCommandBubble ctx={userCmdCtx}/>
+                    </div>
+                )}
+
+                {/* Interleaved text + tool calls (按 textOffset 交错渲染)
+                    命令消息时隐藏原始文本（已由徽章展示），附件/工具调用仍正常渲染 */}
+                <InterleavedContent message={userCmdCtx ? commandTextHidden : message} isUser={isUser}/>
 
                 {/* Timestamp */}
                 <hr className="divider"/>

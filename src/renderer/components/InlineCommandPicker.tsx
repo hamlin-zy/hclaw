@@ -22,7 +22,7 @@ interface Props {
 
 // 源配置：{背景色, 文字色, 标签, 图标}
 const SRC = {
-    skill: {c: 'bg-[#8b5cf6]/10', t: 'text-[#8b5cf6]', l: '技能', i: '🧠'},
+    skill: {c: 'bg-[#8b5cf6]/10', t: 'text-[#8b5cf6]', l: '技能', i: '🛠️'},
     agent: {c: 'bg-[#0ea5e9]/10', t: 'text-[#0ea5e9]', l: '代理', i: '🤖'},
     user: {c: 'bg-[#f97316]/10', t: 'text-[#f97316]', l: '用户', i: '⚡'},
     plugin: {c: 'bg-[#6b7280]/10', t: 'text-[#6b7280]', l: '插件', i: '⚡'},

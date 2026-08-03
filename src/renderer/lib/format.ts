@@ -36,3 +36,8 @@ export function toSlug(name: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'item'
 }
+
+/** 格式化 token 数为可读形式（≥1000 显示为 x.xk） */
+export function formatTokenCount(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`
+}
