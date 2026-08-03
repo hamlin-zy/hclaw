@@ -7,6 +7,13 @@
 
 ---
 
+## [v0.3.3] - 2026-08-03
+
+### 变更
+- **CSS 压缩器指定为 esbuild** — 在渲染端 Vite 构建配置中显式指定 `cssMinify: 'esbuild'` (`vite.renderer.config.mjs`)
+
+---
+
 ## [v0.3.2] - 2026-08-03
 
 ### 新增
