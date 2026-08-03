@@ -26,6 +26,7 @@ import {permissionEngine} from '../tools/permission'
 import {permissionRulesManager} from '../permissions/permissionRule'
 import {runtimeConfigManager} from '../runtimeConfigManager'
 import {extractTextContent} from '../utils/contentUtils'
+import {parseCommandText} from './commandTextParser'
 import {setAgentToolConfig} from '../tools/builtin/agentTool'
 import {setSkillToolConfig} from '../tools/builtin/skillTool'
 import {filterToolsForAgent} from '../tools/filter'
@@ -119,23 +120,10 @@ export async function detectCommandContext(params: RunParams): Promise<{
 
     const messageContent = extractTextContent(lastUserMessage.content)
 
-    if (!messageContent.trim().startsWith('/')) {
-        return {commandContext: null, isCompactCommand: false}
-    }
-
-    const spaceIndex = messageContent.indexOf(' ')
-    const commandPart = spaceIndex === -1
-        ? messageContent.trim()
-        : messageContent.slice(0, spaceIndex).trim()
-
-    const commandName = commandPart.slice(1)
-    const commandArgs = spaceIndex === -1
-        ? undefined
-        : messageContent.slice(spaceIndex + 1).trim() || undefined
-
-    if (!commandName) {
-        return {commandContext: null, isCompactCommand: false}
-    }
+    // 解析命令文本（纯函数，见 commandTextParser.ts；支持换行/空格两种分隔）
+    const parsed = parseCommandText(messageContent)
+    if (!parsed) return {commandContext: null, isCompactCommand: false}
+    const {commandName, commandArgs} = parsed
 
     // 辅助：统一构建 CommandExecutionContext + 日志 + 事件
     const emitCommandStart = (
