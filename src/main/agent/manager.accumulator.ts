@@ -99,10 +99,16 @@ export function accumulateStreamEvent(
         break
       }
       const result = normalizeToolResult(event.result)
+      const tc = pending.toolCalls[idx]
       pending.toolCalls[idx] = {
-        ...pending.toolCalls[idx],
+        ...tc,
         status: result.output && !result.error ? 'success' : 'error',
         result,
+        // ★ 需求1链路：agent 工具从 result._meta 恢复子会话 ID（taskId === childConvId）
+        //   与 manager.impl.ts 私有 accumulateEvent 保持逻辑一致（双轨）
+        ...(tc.name === 'agent' && result._meta?.childConvId
+          ? {taskId: result._meta.childConvId as string}
+          : {}),
       }
       // 本轮 tool result 已处理完毕，下一次 text 事件是新回合的开始
       pendingNeedsTurnReset.add(conversationId)
@@ -156,6 +162,7 @@ export function normalizeToolResult(result: unknown): {
     content?: string
   }>
   diff?: string
+  _meta?: Record<string, unknown>
 } {
   if (!result) return {output: ''}
   const r = result as Record<string, unknown>
@@ -177,5 +184,7 @@ export function normalizeToolResult(result: unknown): {
       content?: string
     }> | undefined,
     diff: r.diff as string | undefined,
+    // ★ 透传 _meta（如 agent 工具的 childConvId），供 tool_result 分支恢复 taskId
+    ...(r._meta ? {_meta: r._meta as Record<string, unknown>} : {}),
   }
 }

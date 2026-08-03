@@ -185,6 +185,7 @@ declare global {
             totalCount: number
         }>
       conversationWriteMessages: (convId: string, messages: unknown[]) => Promise<boolean>
+      conversationWriteMessagesDelta: (convId: string, message: unknown) => Promise<boolean>
       conversationUpdateMeta: (convId: string, updates: Record<string, unknown>) => Promise<boolean>
       conversationDelete: (convId: string) => Promise<boolean>
       conversationDeleteMessage: (convId: string, messageId: string) => Promise<boolean>
@@ -192,6 +193,7 @@ declare global {
         conversationListWithStats: (workspacePath: string) => Promise<import('./types').ConversationWithStats[]>
         conversationListByWorkspace: (workspacePath: string) => Promise<{id: string}[]>
         conversationDeleteBatch: (ids: string[]) => Promise<boolean>
+        conversationUsageStats: (convId: string) => Promise<import('../shared/types/infra').ConversationUsageStats | null>
       conversationSetMessageEnded: (convId: string, messageId: string, endedAt: number) => Promise<boolean>
         // 监听主进程推送的新建会话（渠道创建等）
         onConversationCreated: (callback: (conv: {

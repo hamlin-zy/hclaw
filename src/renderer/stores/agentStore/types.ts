@@ -31,6 +31,8 @@ export interface HookResultItem {
     error?: string
     timestamp: number
     conversationId: string // 所属会话
+    /** 通用通知消息（非 hook 结果时使用，如 max_tokens 截断提示；优先级高于 hookName|状态） */
+    message?: string
 }
 
 // ─── 多会话独立 Agent 状态 ────────────────────────────

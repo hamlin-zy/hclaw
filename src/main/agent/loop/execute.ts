@@ -12,6 +12,7 @@ import type {ModelConfig} from '../model/types'
 import type {ToolContext, ToolDefinitionForLLM} from '../tools/types'
 import type {LoopState as AgentLoopState} from '../state'
 import type {ModelRole, WorkMode} from '@shared/types'
+import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import type {RunParams, LlmStreamResult, ToolExecutionResult} from './types'
 
 import {LLMCaller, isContextLengthError as checkContextLengthError, parsePlannedCommands} from './llmCaller'
@@ -227,7 +228,7 @@ export async function* executeLlmCallWithRetry(
                 ...(isAnthropic && commandTemplate ? {commandTemplate} : {}),
                 messages: messagesToSend,
                 tools: compactTools,
-                maxTokens: getSettings()?.model.defaultMaxTokens ?? 8000,
+                maxTokens: getSettings()?.model.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
                 temperature: getSettings()?.model.defaultTemperature ?? 0,
                 ...(effectiveThinkingEffort ? {thinkingEffort: effectiveThinkingEffort} : {}),
                 ...(params.hookAdditionalContext && {additionalContext: params.hookAdditionalContext}),
@@ -282,6 +283,16 @@ export async function* executeLlmCallWithRetry(
                     reasoningTokens = chunk.reasoningTokens || 0
                 } else if (chunk.type === 'thinking_signature') {
                     assistantThinkingSignature = chunk.signature
+                } else if (chunk.type === 'done') {
+                    // ── max_tokens 截断：回复不完整，提示用户（不视为错误，不中断流程） ──
+                    // adapter 层已识别 stop_reason='max_tokens' 并发出 done 事件，
+                    // 此处分发 warning 事件（主进程对 warning 直接穿透不终结 agent）。
+                    if (chunk.stopReason === 'max_tokens') {
+                        const maxTokens = getSettings()?.model.defaultMaxTokens ?? DEFAULT_MAX_TOKENS
+                        const tip = `响应达到最大 Token 数（${maxTokens}）上限被截断，回复可能不完整。请增大「设置 → 模型参数 → 默认最大Token数」后重试。`
+                        logger.warn(`[AgentLoop] ${tip}`)
+                        yield {type: 'warning', message: tip}
+                    }
                 }
             }
 

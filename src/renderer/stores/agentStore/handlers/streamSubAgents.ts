@@ -18,6 +18,30 @@ function findAgentCall(
     return calls?.find(c => c.name === 'agent' && c.status === 'running' && (!parentOnly || !c.taskId))
 }
 
+/**
+ * 给父会话消息中的 agent 工具调用补写子会话关联（taskId === childConvId）。
+ * 内联运行的子 Agent（agentTool.ts）不产生 subagent_start 事件，
+ * 父工具 card 的 taskId 只能从 subagent_progress / tool_result 事件中恢复。
+ * 幂等：已存在同名 taskId 时跳过；写入后经 updateMessageForConv 增量落库持久化。
+ * 注意：不从 agentStore 取 streamingMessageId（避免与 handlers 形成循环依赖），
+ * 直接从 messagesMap 查找包含该 toolCallId 的消息。
+ */
+export function ensureAgentToolTaskId(convId: string, toolCallId: string | undefined, childConvId: string) {
+    if (!toolCallId || !childConvId) return
+    const convStore = useConversationStore.getState()
+    const convMsgs = convStore.messagesMap[convId] || []
+    const msg = convMsgs.find(m => m.toolCalls?.some(tc => tc.id === toolCallId))
+    const agentTool = msg?.toolCalls?.find(tc => tc.id === toolCallId)
+    if (agentTool && agentTool.name === 'agent' && agentTool.taskId !== childConvId) {
+        const updatedToolCalls = msg!.toolCalls!.map(tc =>
+            tc.id === toolCallId ? {...tc, taskId: childConvId} : tc,
+        )
+        convStore.updateMessageForConv(convId, msg!.id, {toolCalls: updatedToolCalls})
+        // 同步运行时状态（toolCallsStore），使弹窗/卡片立即响应
+        useToolCallsStore.getState().updateToolCall(toolCallId, {taskId: childConvId})
+    }
+}
+
 export function handleAgentProgress(ctx: StreamCtx) {
     const {get, isAgentAborted, event} = ctx
     if (isAgentAborted) return
@@ -46,6 +70,17 @@ export function handleSubagentProgress(ctx: StreamCtx) {
     const convState = get().convAgentStates[convId] || createDefaultConvData()
     if (!convState.streamingMessageId && convState.agentState.status === 'idle') return
     const convStore = useConversationStore.getState()
+
+    // ★ 内联子 Agent（agentTool.ts 不产生 subagent_start，subagent_progress 无 toolCallId）：
+    //   用「无 taskId 的 running agent 工具」回退定位父工具，补写 taskId（运行中即可跳转子会话）
+    const parentAgentTool = findAgentCall(
+        (convStore.messagesMap[convId] || []).find(m => m.id === convState.streamingMessageId)?.toolCalls,
+        (event as any).toolCallId,
+        true,
+    )
+    if (parentAgentTool) {
+        ensureAgentToolTaskId(convId, parentAgentTool.id, event.taskId)
+    }
 
     const subLlmEvent = (event as any).subAgentStreamEvent
     if (subLlmEvent?.type === 'llm_call_done' && subLlmEvent.inputTokens !== undefined) {

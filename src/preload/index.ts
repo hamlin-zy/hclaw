@@ -190,6 +190,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('conversation-read-before', convId, beforeTimestamp, count),
   conversationWriteMessages: (convId: string, messages: unknown[]) =>
     ipcRenderer.invoke('conversation-write-messages', convId, messages),
+  conversationWriteMessagesDelta: (convId: string, message: unknown) =>
+    ipcRenderer.invoke('conversation-write-messages-delta', convId, message),
   conversationUpdateMeta: (convId: string, updates: Record<string, unknown>) =>
     ipcRenderer.invoke('conversation-update-meta', convId, updates),
   conversationDelete: (convId: string) =>
@@ -205,6 +207,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('conversation-list-by-workspace', workspacePath),
     conversationDeleteBatch: (ids: string[]) =>
         ipcRenderer.invoke('conversation-delete-batch', ids),
+    conversationUsageStats: (convId: string) =>
+        ipcRenderer.invoke('conversation-usage-stats', convId),
   conversationSetMessageEnded: (convId: string, messageId: string, endedAt: number) =>
     ipcRenderer.invoke('conversation-set-message-ended', convId, messageId, endedAt),
     // 监听主进程推送的新建会话（渠道创建等）

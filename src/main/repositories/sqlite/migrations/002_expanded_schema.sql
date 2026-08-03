@@ -7,7 +7,7 @@
 INSERT OR
 REPLACE INTO system_settings (key, value, updated_at)
 VALUES (
-    'settings', '{"agent":{"maxTurns":500,"retryCount":10,"initialRetryDelay":5000,"maxRetryDelay":120000,"llmTimeout":600000,"compactThreshold":700000},"model":{"defaultMaxTokens":8000,"defaultTemperature":0},"mcp":{"mcpTestTimeout":15000},"ui":{"language":"zh-CN","theme":"system"}}', strftime('%s', 'now') * 1000
+    'settings', '{"agent":{"maxTurns":500,"retryCount":10,"initialRetryDelay":5000,"maxRetryDelay":120000,"llmTimeout":600000,"compactThreshold":700000},"model":{"defaultMaxTokens":8000,"defaultTemperature":0},"mcp":{"mcpTestTimeout":15000},"ui":{"theme":"system"}}', strftime('%s', 'now') * 1000
     );
 
 -- mcps 表：MCP 服务器配置

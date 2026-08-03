@@ -66,9 +66,8 @@ export const useThemeStore = create<ThemeStore>()((set, get) => ({
         syncThemeToCache(newTheme)
 
         // 持久化到 SQLite settings
-        const {settings: s} = useSettingsStore.getState()
         useSettingsStore.getState().updateSettings({
-            ui: {theme: newTheme, language: s.ui.language}
+            ui: {theme: newTheme}
         })
     },
     setTheme: (theme) => {

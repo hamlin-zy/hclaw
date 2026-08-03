@@ -1,9 +1,7 @@
 import {memo, useMemo, useRef, useState, useCallback, useEffect} from 'react'
 import {createPortal} from 'react-dom'
 import {useConversationStore} from '../stores/conversationStore'
-
-/** 格式化 token 数为可读形式 */
-const formatTokenCount = (n: number): string => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`
+import {formatTokenCount} from '../lib/format'
 
 /**
  * 缓存命中率显示组件

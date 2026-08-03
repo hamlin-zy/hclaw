@@ -156,6 +156,62 @@ export class SqliteConversationRepository implements IConversationRepository {
         }
     }
 
+    /**
+     * 增量写入单条消息（渲染进程流式期间的频繁落库路径）。
+     * 只 UPSERT 该消息 + 重建其 blocks，不做全量重写。
+     */
+    writeMessagesDelta(convId: string, message: Message): boolean {
+        try {
+            const db = getDatabase()
+            const {messages: [msgRecord], blocks} = messageToBlocks(message, convId)
+
+            db.transaction(() => {
+                // 1. 删除该消息的旧 blocks（INSERT OR REPLACE 不级联删除 blocks）
+                db.prepare('DELETE FROM message_blocks WHERE message_id = ?').run(message.id)
+                // 2. UPSERT 消息行（保留已有 llm_stats，避免流式中间态覆盖已写入的统计）
+                const existingRow = db.prepare(
+                    'SELECT llm_stats FROM messages WHERE id = ?'
+                ).get(message.id) as { llm_stats: string | null } | undefined
+                const llmStats = message.llmStats ? JSON.stringify(message.llmStats) : (existingRow?.llm_stats ?? null)
+                db.prepare(
+                    'INSERT OR REPLACE INTO messages (id, conversation_id, role, timestamp, ended_at, metadata, llm_stats) VALUES (?, ?, ?, ?, ?, ?, ?)'
+                ).run(
+                    msgRecord.id,
+                    convId,
+                    msgRecord.role,
+                    msgRecord.timestamp,
+                    msgRecord.endedAt ?? null,
+                    JSON.stringify(msgRecord.metadata),
+                    llmStats,
+                )
+                // 3. 写入新 blocks
+                const blockStmt = db.prepare(
+                    'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                )
+                for (const block of blocks) {
+                    blockStmt.run(
+                        block.id,
+                        block.messageId,
+                        block.blockType,
+                        block.content,
+                        block.data,
+                        block.sequence,
+                        block.timestamp,
+                        block.endedAt ?? null,
+                    )
+                }
+                // 4. 更新会话时间戳
+                db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(Date.now(), convId)
+            })()
+
+            saveDatabase()
+            return true
+        } catch (err) {
+            console.error('[SqliteConversationRepository] writeMessagesDelta failed:', err)
+            return false
+        }
+    }
+
     setMessageEnded(convId: string, messageId: string, endedAt: number): boolean {
         try {
             const blocks = this.blockRepo.readBlocksByMessage(messageId)
@@ -352,6 +408,53 @@ export class SqliteConversationRepository implements IConversationRepository {
             console.error('[SqliteConversationRepository] listWithStats failed:', err)
             return []
         }
+    }
+
+    readUsageRaw(convIds: string[]): {
+        llmStatsByConv: Map<string, LlmStats[]>;
+        toolCallCountByConv: Map<string, number>;
+    } {
+        const llmStatsByConv = new Map<string, LlmStats[]>()
+        const toolCallCountByConv = new Map<string, number>()
+        if (convIds.length === 0) return {llmStatsByConv, toolCallCountByConv}
+
+        try {
+            const db = getDatabase()
+            const placeholders = convIds.map(() => '?').join(',')
+            const params = [...convIds]
+
+            // 一次查询取全部相关消息的 llm_stats（不读 metadata/content，避免传输正文）
+            const msgRows = db.prepare(
+                `SELECT conversation_id, llm_stats FROM messages WHERE conversation_id IN (${placeholders})`
+            ).all(...params) as Array<{ conversation_id: string; llm_stats: string | null }>
+
+            for (const row of msgRows) {
+                if (!row.llm_stats) continue
+                const list = llmStatsByConv.get(row.conversation_id) ?? []
+                try {
+                    list.push(...(JSON.parse(row.llm_stats) as LlmStats[]))
+                } catch {
+                    // 单条损坏的 llm_stats 忽略，不阻塞整体统计
+                }
+                llmStatsByConv.set(row.conversation_id, list)
+            }
+
+            // 工具调用计数：message_blocks 中 block_type='tool_call'
+            const toolRows = db.prepare(
+                `SELECT m.conversation_id, COUNT(*) AS cnt
+                 FROM message_blocks b
+                 JOIN messages m ON m.id = b.message_id
+                 WHERE b.block_type = 'tool_call' AND m.conversation_id IN (${placeholders})
+                 GROUP BY m.conversation_id`
+            ).all(...params) as Array<{ conversation_id: string; cnt: number }>
+
+            for (const row of toolRows) {
+                toolCallCountByConv.set(row.conversation_id, row.cnt)
+            }
+        } catch (err) {
+            console.error('[SqliteConversationRepository] readUsageRaw failed:', err)
+        }
+        return {llmStatsByConv, toolCallCountByConv}
     }
 
     deleteBatch(ids: string[]): boolean {

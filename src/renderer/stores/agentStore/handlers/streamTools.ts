@@ -13,6 +13,7 @@ import {
     scheduleToolResultUpdate,
 } from '../batching/toolResultBatch'
 import {normalizeToolResult} from '../helpers/misc'
+import {ensureAgentToolTaskId} from './streamSubAgents'
 
 export function handleToolUse(ctx: StreamCtx) {
     const {get, convId, isAgentAborted, isActiveConv, event} = ctx
@@ -195,6 +196,13 @@ export function handleToolResult(ctx: StreamCtx) {
 
     if (!msgId && convState.agentState.status === 'idle') return
 
+    // ★ 完成态兜底：agent 工具结果携带 _meta.childConvId 时给父工具补写子会话关联
+    //   （运行中已由 subagent_progress 写入，此处幂等覆盖；随增量落库持久化）
+    const meta = (event.result as any)?._meta as {childConvId?: string} | undefined
+    if (meta?.childConvId) {
+        ensureAgentToolTaskId(convId, event.toolCallId, meta.childConvId)
+    }
+
     const convMsgs = convStore.messagesMap[convId] || []
     const msg = convMsgs.find(m => m.id === msgId)
     const result = event.result ? normalizeToolResult(event.result) : null
@@ -210,7 +218,6 @@ export function handleToolResult(ctx: StreamCtx) {
 
     const newCount = Math.max(0, convState.runningToolCount - 1)
     const isDone = newCount <= 0
-    console.log(`[tool_result] toolId=${event.toolCallId}, runningToolCount: ${convState.runningToolCount} -> ${newCount}, isDone=${isDone}`)
     get().updateConvData(convId, {
         runningToolCount: newCount,
         isThinkingAfterTools: isDone,
@@ -239,5 +246,5 @@ export function handleToolDenied(ctx: StreamCtx) {
     )
 
     convStore.updateMessageForConv(convId, msgId, {toolCalls: updatedToolCalls})
-    useConversationStore.getState().flushMessages()
+    // 增量落库由 updateMessageForConv 内部调度（debounce 合并），无需立即全量 flush
 }

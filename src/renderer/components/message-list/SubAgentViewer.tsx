@@ -28,6 +28,8 @@ interface Props {
     result?: ExtendedToolResult | null
     tokenUsage?: { inputTokens: number; outputTokens: number; totalTokens: number } | null
     onClose: () => void
+    /** 跳转到对应子会话（由父组件在 taskId 存在时传入；不传则隐藏按钮） */
+    onJumpToSession?: () => void
 }
 
 type TabId = 'timeline' | 'stream'
@@ -105,7 +107,8 @@ export default function SubAgentViewer({
                                            subAgentStream,
                                            result,
                                            tokenUsage,
-                                           onClose
+                                           onClose,
+                                           onJumpToSession,
                                        }: Props) {
     const entries = subAgentStream ? mergeConsecutiveTextEntries(subAgentStream) : []
     const logs = progressLog || []
@@ -178,6 +181,21 @@ export default function SubAgentViewer({
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                     <span className="text-[10px] select-none" style={{color: 'var(--text-muted)'}}>{sz.w}×{sz.h}</span>
+                    {onJumpToSession && (
+                        <button
+                            onClick={onJumpToSession}
+                            className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium hover:bg-[var(--surface-muted)] transition-colors"
+                            style={{color: 'var(--brand-primary)'}}
+                            title="跳转到子会话"
+                        >
+                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                <polyline points="15 3 21 3 21 9"/>
+                                <line x1="10" y1="14" x2="21" y2="3"/>
+                            </svg>
+                            跳转
+                        </button>
+                    )}
                     <button onClick={onClose}
                             className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-[var(--surface-muted)] transition-colors"
                             style={{color: 'var(--text-muted)'}} aria-label="关闭">

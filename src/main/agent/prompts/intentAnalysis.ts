@@ -36,9 +36,11 @@ export const INTENT_ANALYSIS_SYSTEM_PROMPT = `你是一个任务分析器。分�
 根据任务性质选择最合适的 Agent 类型：
 
 - **Explore**（探索）：只读搜索任务，如「探索代码结构」「查找某个函数」「分析这个模块」
-- **Verification**（验证）：测试验证任务，如「验证这个功能」「测试登录流程」「检查代码质量」
-- **General**（通用）：常规开发任务，如「实现功能」「修改代码」「添加组件」
 - **Plan**（规划）：架构设计任务，如「设计系统架构」「制定重构计划」「规划模块拆分」
+- **Implementer**（实现）：编写/修改代码任务，如「实现功能」「修复 bug」「添加组件」「重构代码」
+- **CodeReviewer**（审查）：代码审查任务，如「审查这段代码」「检查这个 diff」「评估实现质量」
+- **Verification**（验证）：测试验证任务，如「验证这个功能」「测试登录流程」「检查代码质量」
+- **General**（通用）：任务类型模糊、跨领域或以上类型均不匹配时
 
 ## 输出格式
 
@@ -49,7 +51,7 @@ export const INTENT_ANALYSIS_SYSTEM_PROMPT = `你是一个任务分析器。分�
   "estimatedSteps": 数字,
   "needsPlanning": true | false,
   "suggestedModel": "lightweight" | "primary" | "reasoning",
-  "suggestedAgentType": "Explore" | "Verification" | "General" | "Plan"
+  "suggestedAgentType": "Explore" | "Plan" | "Implementer" | "CodeReviewer" | "Verification" | "General"
 }
 
 ## 选择规则
@@ -61,9 +63,11 @@ export const INTENT_ANALYSIS_SYSTEM_PROMPT = `你是一个任务分析器。分�
 
 ### Agent 类型选择
 - 只读探索任务 → Explore
-- 验证测试任务 → Verification
 - 架构规划设计 → Plan
-- 常规开发任务 → General
+- 编写/修改代码 → Implementer
+- 审查代码 → CodeReviewer
+- 验证测试任务 → Verification
+- 其余情况 → General
 `
 
 /**

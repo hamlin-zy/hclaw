@@ -1,4 +1,5 @@
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useConversationStore} from '../stores/conversationStore'
 import {useSidebarStore} from '../stores/sidebarStore'
@@ -8,6 +9,8 @@ import {useModelSchemeStore} from '../stores/modelSchemeStore'
 import {useAgentStore} from '../stores/agentStore'
 import {fuzzyFilter} from '../lib/search'
 import {confirm} from './ConfirmDialog'
+import {showUsageStats} from './dialogs/UsageStatsDialog'
+import {collectDescendants} from '../stores/conversationTree'
 
 type SystemStatus =
     'initializing'
@@ -544,21 +547,25 @@ function ConversationList() {
     }, [childrenMap])
 
     // ★ 新子会话自动展开父级：检测 childrenMap 变化，新出现的子会话 → 展开其父会话
-    const prevChildrenRef = useRef<Map<string, Set<string>>>(new Map())
+    //   注意：prevChildrenRef 初始为 null，首次渲染跳过（避免启动时把所有父会话展开一轮，
+    //   覆盖掉「激活会话展开」逻辑）；后续 childrenMap 变化时只展开真正新增的子会话的父级。
+    const prevChildrenRef = useRef<Map<string, Set<string>> | null>(null)
     useEffect(() => {
         const current = new Map<string, Set<string>>()
         for (const [parentId, children] of childrenMap) {
             current.set(parentId, new Set(children.map(c => c.id)))
         }
         const prev = prevChildrenRef.current
-        // 查找新增的子会话
-        for (const [parentId, childIds] of current) {
-            const prevIds = prev.get(parentId) || new Set<string>()
-            for (const cid of childIds) {
-                if (!prevIds.has(cid)) {
-                    // 新子会话出现 → 展开父会话
-                    setExpandedParentId(parentId)
-                    break
+        if (prev) {
+            // 查找新增的子会话
+            for (const [parentId, childIds] of current) {
+                const prevIds = prev.get(parentId) || new Set<string>()
+                for (const cid of childIds) {
+                    if (!prevIds.has(cid)) {
+                        // 新子会话出现 → 展开父会话
+                        setExpandedParentId(parentId)
+                        break
+                    }
                 }
             }
         }
@@ -579,6 +586,8 @@ function ConversationList() {
     // ★ 当 activeConversationId 变化时自动管理 expandedParentId
     //    handleParentClick 仅处理父会话点击的展开/折叠切换；
     //    此 effect 负责子会话和独立会话场景的展开/折叠。
+    //    只依赖 activeConversationId：用户手动折叠当前父会话不会触发本 effect（依赖不变），
+    //    因此「激活的父会话始终展开其子会话」不会覆盖用户的手动折叠。
     useEffect(() => {
         if (!activeConversationId) return
         const activeConv = filtered.find(c => c.id === activeConversationId)
@@ -590,13 +599,13 @@ function ConversationList() {
                 return activeConv.parentConvId
             }
             if (childrenMap.has(activeConv.id)) {
-                // 切换到父会话 → 保持当前状态（handleParentClick 负责切换）
-                return prev
+                // 激活的父会话 → 始终展开其子会话列表（含启动初始化场景）
+                return activeConv.id
             }
             // 切换到独立会话（无子、无父） → 折叠所有已展开的父会话
             return null
         })
-    }, [activeConversationId, filtered, childrenMap])
+    }, [activeConversationId])
 
   if (!currentWorkspacePath) {
     return (
@@ -696,32 +705,47 @@ function ConversationList() {
   )
 }
 
+// ── 右键菜单布局常量 ──
+const CONTEXT_MENU_HEIGHT = 280 // 5 个按钮 + 分隔线
+const CONTEXT_MENU_WIDTH = 180
+// 菜单项通用样式；删除按钮叠加 error 变体
+const MENU_ITEM_CLASS = 'w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors'
+
 function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onStartRename}: {
     x: number; y: number; id: string; title: string; pinned?: boolean; parentConvId?: string;
     onClose: () => void; onStartRename: (id: string) => void
 }) {
     const deleteConversation = useConversationStore((s) => s.deleteConversation)
     const togglePinConversation = useConversationStore((s) => s.togglePinConversation)
-    // 菜单高度约 240px（4个按钮 + 分隔线）
-    const MENU_HEIGHT = 240
-    const MENU_WIDTH = 180
 
     // 边界检测：确保菜单在视口内
-    const adjustedX = Math.min(x, window.innerWidth - MENU_WIDTH - 10)
-    const adjustedY = y + MENU_HEIGHT > window.innerHeight
-        ? Math.max(10, window.innerHeight - MENU_HEIGHT - 10)
+    const adjustedX = Math.min(x, window.innerWidth - CONTEXT_MENU_WIDTH - 10)
+    const adjustedY = y + CONTEXT_MENU_HEIGHT > window.innerHeight
+        ? Math.max(10, window.innerHeight - CONTEXT_MENU_HEIGHT - 10)
         : y
 
-    const handleDeleteClick = async (e: React.MouseEvent) => {
+    // 阻止事件冒泡并关闭菜单，避免菜单的全局点击/滚动监听器干扰后续弹窗
+    const stopAndClose = (e: React.MouseEvent) => {
         e.preventDefault()
         e.stopPropagation()
-        // ★ 先关闭上下文菜单，避免其全局点击/滚动监听器干扰确认弹窗
         onClose()
+    }
+
+    const handleDeleteClick = async (e: React.MouseEvent) => {
+        stopAndClose(e)
+        // 计算后代子会话数（含间接后代），用于删除确认文案
+        const state = useConversationStore.getState()
+        const wsPath = state.currentWorkspacePath
+        const allConvs = wsPath ? state.workspaces[wsPath]?.conversations ?? [] : []
+        const descendants = collectDescendants(allConvs, [id])
+        const childCount = descendants.length - 1
         // 使用 App 级别的 ConfirmDialog（在 App.tsx 顶层渲染），
         // 完全隔离于侧边栏的 AnimatePresence 和流式重渲染影响
         await confirm({
             title: '删除会话',
-            message: `确定要删除"${title}"吗？此操作不可撤销。`,
+            message: childCount > 0
+                ? `确定要删除"${title}"吗？\n该会话包含 ${childCount} 个子会话，将一并删除。\n此操作不可撤销。`
+                : `确定要删除"${title}"吗？此操作不可撤销。`,
             confirmText: '确认删除',
             confirmVariant: 'danger',
             onConfirm: async () => {
@@ -730,7 +754,12 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
         })
     }
 
-    return (
+    const handleUsageStatsClick = (e: React.MouseEvent) => {
+        stopAndClose(e)
+        showUsageStats({convId: id, title})
+    }
+
+    return createPortal(
         <motion.div
             initial={{opacity: 0, scale: 0.95}}
             animate={{opacity: 1, scale: 1}}
@@ -749,7 +778,7 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
                     e.stopPropagation()
                     togglePinConversation(id)
                 }}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors"
+                className={MENU_ITEM_CLASS}
             >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={pinned ? 'currentColor' : 'none'}
                      stroke="currentColor" strokeWidth="2">
@@ -765,7 +794,7 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
                     e.stopPropagation()
                     onStartRename(id)
                 }}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors"
+                className={MENU_ITEM_CLASS}
             >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
@@ -774,17 +803,30 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
                 重命名
             </button>
 
+            <button
+                onClick={handleUsageStatsClick}
+                className={MENU_ITEM_CLASS}
+            >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="20" x2="18" y2="10"/>
+                    <line x1="12" y1="20" x2="12" y2="4"/>
+                    <line x1="6" y1="20" x2="6" y2="14"/>
+                </svg>
+                用量统计
+            </button>
+
             <div className="my-1.5 h-px bg-[var(--border-muted)] mx-2"/>
             <button
                 onClick={handleDeleteClick}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--error)] hover:bg-[var(--error)]/10 transition-colors"
+                className={`${MENU_ITEM_CLASS} text-[var(--error)] hover:bg-[var(--error)]/10`}
             >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
                 </svg>
                 删除会话
             </button>
-        </motion.div>
+        </motion.div>,
+        document.body
     )
 }
 

@@ -1,5 +1,6 @@
 import {create} from 'zustand'
 import type {SystemSettings} from '@shared/types'
+import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import {resolveAndApplyTheme} from './themeStore'
 
 interface SettingsStore {
@@ -26,14 +27,13 @@ const DEFAULT_SETTINGS: SystemSettings = {
         llmTimeout: 600000,
     },
     model: {
-        defaultMaxTokens: 8000,
+        defaultMaxTokens: DEFAULT_MAX_TOKENS,
         defaultTemperature: 0,
     },
     mcp: {
         mcpTestTimeout: 15000,
     },
     ui: {
-        language: 'zh-CN',
         theme: 'system',
     },
     subagent: {

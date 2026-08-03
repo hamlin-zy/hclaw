@@ -51,6 +51,8 @@ export interface ToolCall {
     }>
     /** 变更内容（如 file_edit 等工具的 diff 显示） */
     diff?: string
+    /** 工具内部透传元数据（如 agent 工具的 childConvId，用于恢复子会话 ID） */
+    _meta?: Record<string, unknown>
   }
 }
 
