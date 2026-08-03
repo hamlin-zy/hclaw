@@ -226,6 +226,28 @@ export interface ConversationWithStats extends ConversationMeta {
   blockCount: number
 }
 
+/** 会话用量统计（父会话 + 全部后代子会话聚合） */
+export interface ConversationUsageStats {
+  /** 统计范围内的会话总数（含起点自身） */
+  conversationCount: number
+  /** 根会话数：parentConvId 为空，或父会话不在统计集合内（孤儿子会话算根） */
+  parentCount: number
+  /** 子会话数：parentConvId 非空且父会话在统计集合内 */
+  childCount: number
+  /** LLM 请求次数（Σ llmStats 条数） */
+  requestCount: number
+  /** 工具调用次数（Σ tool_use 块数） */
+  toolCallCount: number
+  /** 累计输入 token（Σ inputTokens） */
+  totalInputTokens: number
+  /** 累计输出 token（Σ outputTokens） */
+  totalOutputTokens: number
+  /** 累计缓存命中 token（Σ cacheReadTokens） */
+  totalCacheReadTokens: number
+  /** 累计缓存写入 token（Σ cacheWriteTokens） */
+  totalCacheWriteTokens: number
+}
+
 /** 用于 workspace 存储 */
 export interface WorkspaceData {
   lastOpenedAt: number

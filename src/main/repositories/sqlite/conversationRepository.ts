@@ -410,6 +410,53 @@ export class SqliteConversationRepository implements IConversationRepository {
         }
     }
 
+    readUsageRaw(convIds: string[]): {
+        llmStatsByConv: Map<string, LlmStats[]>;
+        toolCallCountByConv: Map<string, number>;
+    } {
+        const llmStatsByConv = new Map<string, LlmStats[]>()
+        const toolCallCountByConv = new Map<string, number>()
+        if (convIds.length === 0) return {llmStatsByConv, toolCallCountByConv}
+
+        try {
+            const db = getDatabase()
+            const placeholders = convIds.map(() => '?').join(',')
+            const params = [...convIds]
+
+            // 一次查询取全部相关消息的 llm_stats（不读 metadata/content，避免传输正文）
+            const msgRows = db.prepare(
+                `SELECT conversation_id, llm_stats FROM messages WHERE conversation_id IN (${placeholders})`
+            ).all(...params) as Array<{ conversation_id: string; llm_stats: string | null }>
+
+            for (const row of msgRows) {
+                if (!row.llm_stats) continue
+                const list = llmStatsByConv.get(row.conversation_id) ?? []
+                try {
+                    list.push(...(JSON.parse(row.llm_stats) as LlmStats[]))
+                } catch {
+                    // 单条损坏的 llm_stats 忽略，不阻塞整体统计
+                }
+                llmStatsByConv.set(row.conversation_id, list)
+            }
+
+            // 工具调用计数：message_blocks 中 block_type='tool_call'
+            const toolRows = db.prepare(
+                `SELECT m.conversation_id, COUNT(*) AS cnt
+                 FROM message_blocks b
+                 JOIN messages m ON m.id = b.message_id
+                 WHERE b.block_type = 'tool_call' AND m.conversation_id IN (${placeholders})
+                 GROUP BY m.conversation_id`
+            ).all(...params) as Array<{ conversation_id: string; cnt: number }>
+
+            for (const row of toolRows) {
+                toolCallCountByConv.set(row.conversation_id, row.cnt)
+            }
+        } catch (err) {
+            console.error('[SqliteConversationRepository] readUsageRaw failed:', err)
+        }
+        return {llmStatsByConv, toolCallCountByConv}
+    }
+
     deleteBatch(ids: string[]): boolean {
         try {
             const db = getDatabase()

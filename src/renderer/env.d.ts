@@ -193,6 +193,7 @@ declare global {
         conversationListWithStats: (workspacePath: string) => Promise<import('./types').ConversationWithStats[]>
         conversationListByWorkspace: (workspacePath: string) => Promise<{id: string}[]>
         conversationDeleteBatch: (ids: string[]) => Promise<boolean>
+        conversationUsageStats: (convId: string) => Promise<import('../shared/types/infra').ConversationUsageStats | null>
       conversationSetMessageEnded: (convId: string, messageId: string, endedAt: number) => Promise<boolean>
         // 监听主进程推送的新建会话（渠道创建等）
         onConversationCreated: (callback: (conv: {

@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 import type {ConversationSummary} from '@shared/types'
-import {collectDescendants} from '@/renderer/stores/conversationTree'
+import {collectDescendants} from '@/shared/utils/conversationTree'
 
 /** 构造最小 ConversationSummary（仅测试需要的字段） */
 function conv(id: string, parentConvId?: string): ConversationSummary {

@@ -208,3 +208,32 @@ describe('saveDatabase — 低频 WAL checkpoint', () => {
         }).not.toThrow()
     })
 })
+
+describe('readUsageRaw — 用量统计读取', () => {
+    it('按会话聚合 llm_stats 与 tool_call 块计数', () => {
+        // 写两条消息：一条带 llm_stats，一条带 toolCalls（落库为 tool_call 块）
+        repo.writeMessagesDelta('conv-usage-1', makeAssistantMsg('m1', 'hi', {
+            llmStats: [{inputTokens: 100, outputTokens: 20, provider: 'test', model: 'm', duration: 10, cacheReadTokens: 50}],
+        }))
+        repo.writeMessagesDelta('conv-usage-1', makeToolMsg('m2', '', 'result'))
+
+        const raw = repo.readUsageRaw(['conv-usage-1'])
+
+        expect(raw.llmStatsByConv.get('conv-usage-1')).toHaveLength(1)
+        expect(raw.llmStatsByConv.get('conv-usage-1')![0].inputTokens).toBe(100)
+        expect(raw.toolCallCountByConv.get('conv-usage-1')).toBe(1)
+    })
+
+    it('空数组返回空 map，不抛错', () => {
+        const raw = repo.readUsageRaw([])
+        expect(raw.llmStatsByConv.size).toBe(0)
+        expect(raw.toolCallCountByConv.size).toBe(0)
+    })
+
+    it('无 llm_stats 的会话不进入 map，不抛错', () => {
+        repo.writeMessagesDelta('conv-usage-2', makeAssistantMsg('m3', 'plain'))
+        const raw = repo.readUsageRaw(['conv-usage-2'])
+        expect(raw.llmStatsByConv.size).toBe(0)
+        expect(raw.toolCallCountByConv.size).toBe(0)
+    })
+})
