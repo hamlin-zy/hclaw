@@ -41,6 +41,15 @@ export function initConversationIPC(): void {
         }
   });
 
+    // ── 增量落库：流式期间只写单条变化消息（性能优化，避免全量重写 + IPC 传输） ──
+    ipcMain.handle('conversation-write-messages-delta', (_e, convId: string, message: unknown) => {
+        try {
+            return convRepo().writeMessagesDelta(convId, message as Message);
+        } catch {
+            return false;
+        }
+  });
+
     ipcMain.handle('conversation-update-meta', (_e, convId: string, updates: Record<string, unknown>) => {
         try {
             const result = convRepo().updateMeta(convId, updates as Partial<ConversationMeta>);

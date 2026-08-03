@@ -2,6 +2,7 @@ import {useCallback, useEffect, useMemo, useState} from 'react'
 import type {ConversationWithStats} from '@shared/types'
 import {useConversationStore} from '../../stores/conversationStore'
 import {confirm} from '../ConfirmDialog'
+import {collectDescendants} from '../../stores/conversationTree'
 
 /** 工具栏按钮样式常量 */
 const BTN_BORDERED = "px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors shrink-0"
@@ -86,9 +87,18 @@ export default function ConversationsDialog() {
     const handleDeleteSelected = useCallback(async () => {
         if (selectedCount === 0) return
 
+        // 计算后代子会话总数（含间接后代），用于删除确认文案
+        const state = useConversationStore.getState()
+        const wsPath = state.currentWorkspacePath
+        const allConvs = wsPath ? state.workspaces[wsPath]?.conversations ?? [] : []
+        const toDelete = collectDescendants(allConvs, Array.from(selectedIds))
+        const descendantCount = toDelete.length - selectedIds.size
+
         const confirmed = await confirm({
             title: '删除会话',
-            message: `确定要删除选中的 ${selectedCount} 个会话吗？\n此操作不可撤销，关联的消息和记录将一并删除。`,
+            message: descendantCount > 0
+                ? `确定要删除选中的 ${selectedCount} 个会话吗？\n（含 ${descendantCount} 个子会话将一并删除）\n此操作不可撤销，关联的消息和记录将一并删除。`
+                : `确定要删除选中的 ${selectedCount} 个会话吗？\n此操作不可撤销，关联的消息和记录将一并删除。`,
             confirmText: '删除',
             confirmVariant: 'danger',
             onConfirm: async () => {

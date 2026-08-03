@@ -81,6 +81,9 @@ export type MenuDialogType =
 
 // ─── System settings ───────────────────────────────────
 
+/** 默认最大 Token 数（模型输出的软上限，可在设置中调整） */
+export const DEFAULT_MAX_TOKENS = 50000
+
 export interface SubagentConfig {
   maxConcurrency: number
   defaultTimeout: number

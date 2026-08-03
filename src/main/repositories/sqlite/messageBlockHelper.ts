@@ -212,6 +212,9 @@ function toolCallToBlock(tc: ToolCall, messageId: string, seq: number, baseTimes
       progressPercent: tc.progressPercent,
       eta: tc.eta,
       tokenUsage: tc.tokenUsage,
+      // ★ 需求1链路：持久化子会话关联，刷新后可跳转子会话
+      taskId: tc.taskId,
+      taskDescription: tc.taskDescription,
     }),
     sequence: seq,
     timestamp: tc.textOffset !== undefined ? baseTimestamp + tc.textOffset : baseTimestamp,

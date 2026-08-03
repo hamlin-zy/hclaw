@@ -37,12 +37,79 @@ export function initDatabaseSync(): void {
     migrationsRun = true
 }
 
+// ── 低频 WAL checkpoint ────────────────────────────────────────────
+// 性能优化：WAL 模式下事务提交即持久（数据在 WAL 文件中），断电恢复不依赖 checkpoint。
+// 高频 checkpoint(TRUNCATE) 会把整个 WAL 合并回主库文件（374MB 库可达数百 ms），
+// 且同步阻塞 main 进程事件循环，是流式响应期间 UI 卡顿的主因之一。
+// 改为：防抖合并 + 周期兜底 + 超阈值强制，仅在需要时 checkpoint。
+//
+// 注意：仍保留周期兜底，避免 WAL 无限增长；退出时 flushDatabase() 强制 checkpoint。
+
+const WAL_CHECKPOINT_DEBOUNCE_MS = 10_000      // 距上次 checkpoint 后 ≥10s 才再次检查
+const WAL_CHECKPOINT_INTERVAL_MS = 30_000      // 周期兜底：每 30s 检查一次
+const WAL_CHECKPOINT_BYTES_THRESHOLD = 64 * 1024 * 1024  // WAL 超过 64MB 强制 checkpoint
+
+let lastCheckpointAt = 0
+let checkpointTimer: NodeJS.Timeout | null = null
+
+function walFileSize(): number {
+    try {
+        return fs.statSync(DB_FILE + '-wal').size
+    } catch {
+        return 0
+    }
+}
+
+function tryCheckpoint(force: boolean): boolean {
+    if (!db) return false
+    try {
+        if (!force) {
+            // 防抖：距上次检查不足窗口则跳过（每次 saveDatabase 都会进这里，必须廉价）
+            if (Date.now() - lastCheckpointAt < WAL_CHECKPOINT_DEBOUNCE_MS) return false
+            lastCheckpointAt = Date.now()
+            // 阈值：WAL 未超阈值则跳过，避免频繁全量合并
+            if (walFileSize() < WAL_CHECKPOINT_BYTES_THRESHOLD) return false
+        }
+        db.pragma('wal_checkpoint(TRUNCATE)')
+        lastCheckpointAt = Date.now()
+        return true
+    } catch {
+        return false
+    }
+}
+
+function schedulePeriodicCheckpoint(): void {
+    if (checkpointTimer) return
+    checkpointTimer = setTimeout(() => {
+        checkpointTimer = null
+        tryCheckpoint(false)
+    }, WAL_CHECKPOINT_INTERVAL_MS)
+    if (typeof checkpointTimer.unref === 'function') checkpointTimer.unref()
+}
+
+/**
+ * 标记数据库有写入，安排低频 checkpoint（防抖 + 周期兜底 + 超阈值强制）。
+ * 在事务提交后调用；WAL 文件自动保证断电恢复，无需每次同步合并主库。
+ * 高频调用时内部仅做 Date.now() 比较（<1μs），不阻塞事件循环。
+ */
 export function saveDatabase(): void {
-    if (db) db.pragma('wal_checkpoint(TRUNCATE)')
+    if (!db) return
+    schedulePeriodicCheckpoint()
+    tryCheckpoint(false)
+}
+
+/** 退出时强制 checkpoint，把 WAL 合并回主库并截断（应用正常退出路径） */
+export function flushDatabase(): void {
+    if (checkpointTimer) {
+        clearTimeout(checkpointTimer)
+        checkpointTimer = null
+    }
+    tryCheckpoint(true)
 }
 
 export function closeDatabase(): void {
     if (db) {
+        flushDatabase()
         db.close();
         db = null;
         initialized = false

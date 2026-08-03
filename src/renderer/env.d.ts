@@ -185,6 +185,7 @@ declare global {
             totalCount: number
         }>
       conversationWriteMessages: (convId: string, messages: unknown[]) => Promise<boolean>
+      conversationWriteMessagesDelta: (convId: string, message: unknown) => Promise<boolean>
       conversationUpdateMeta: (convId: string, updates: Record<string, unknown>) => Promise<boolean>
       conversationDelete: (convId: string) => Promise<boolean>
       conversationDeleteMessage: (convId: string, messageId: string) => Promise<boolean>

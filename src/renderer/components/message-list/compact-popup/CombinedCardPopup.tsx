@@ -263,15 +263,14 @@ const ToolSubCard = memo(function ToolSubCard({
     onOpenToolPopup: (toolCalls: ToolCall[]) => void
 }) {
     // 统计 & 按名称分组（合并遍历，一轮搞定）
-    const {chips, dotClass} = useMemo(() => {
-        let success = 0, error = 0, running = 0
+    const {chips, dotClass, isAgentGroup, isRunning, agentTc} = useMemo(() => {
+        let error = 0, running = 0
         const typeMap = new Map<string, {total: number; error: number; isAgent: boolean; isSkill: boolean}>()
         for (const tc of toolCalls) {
             const state = useToolCallsStore.getState().states[tc.id]
             const status = state?.status ?? tc.status
             // 全局统计
-            if (status === 'success') success++
-            else if (status === 'error') error++
+            if (status === 'error') error++
             else if (status === 'running') running++
             const displayName = resolveToolDisplayName(tc)
             if (!typeMap.has(displayName)) typeMap.set(displayName, {total: 0, error: 0, isAgent: tc.name === 'agent', isSkill: isSkillToolCall(tc)})
@@ -287,7 +286,9 @@ const ToolSubCard = memo(function ToolSubCard({
             : hasError
                 ? 'bg-[var(--error)]'
                 : 'bg-[var(--success)]'
-        return {chips, dotClass}
+        // 单 agent 工具（跳转按钮只对单个 agent 调用显示）
+        const agentTc = toolCalls.length === 1 && toolCalls[0].name === 'agent' ? toolCalls[0] : null
+        return {chips, dotClass, isAgentGroup: toolCalls.length > 0 && toolCalls.every(tc => tc.name === 'agent'), isRunning, agentTc}
     }, [toolCalls])
 
     // 运行中工具的动态刷新文本（从 toolCallsStore 实时读取，不能放入 useMemo）
@@ -334,10 +335,39 @@ const ToolSubCard = memo(function ToolSubCard({
                 )}
             </span>
 
-            <span className="text-[10px] text-[var(--text-muted)] shrink-0 flex items-center gap-0.5">
-                展开详情
-                <span className="text-[8px]">›</span>
-            </span>
+            {/* 展开详情：运行中的纯 agent 工具组隐藏（子 Agent 详情在子会话中实时观看，直接跳转） */}
+            {!(isAgentGroup && isRunning) && (
+                <span className="text-[10px] text-[var(--text-muted)] shrink-0 flex items-center gap-0.5">
+                    展开详情
+                    <span className="text-[8px]">›</span>
+                </span>
+            )}
+            {/* 跳转到子会话：agent 工具组且有 taskId（运行中或已完成均显示） */}
+            {/* 运行时 taskId 从 toolCallsStore 实时读取（弹窗 toolCalls 是打开时的快照，
+                运行中才补写的 taskId 只存在于运行时状态） */}
+            {agentTc && (() => {
+                const runtimeTaskId = useToolCallsStore.getState().states[agentTc.id]?.taskId ?? agentTc.taskId
+                if (!runtimeTaskId) return null
+                return (
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            useConversationStore.getState().setActiveConversation(runtimeTaskId)
+                        }}
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium shrink-0
+                            hover:bg-[var(--surface-muted)] border border-[var(--border)]"
+                        style={{color: 'var(--brand-primary)'}}
+                        title="跳转到子会话"
+                    >
+                        <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                            <polyline points="15 3 21 3 21 9"/>
+                            <line x1="10" y1="14" x2="21" y2="3"/>
+                        </svg>
+                        跳转
+                    </button>
+                )
+            })()}
         </button>
     )
 })
