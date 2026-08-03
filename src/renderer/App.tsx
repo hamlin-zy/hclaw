@@ -579,6 +579,7 @@ export default function App() {
           {!leftCollapsed && (
             <div
               className="app-surface-card bg-[var(--surface)] rounded-lg shadow-card border border-[var(--border)] overflow-hidden flex flex-col transition-all"
+              data-name="left-sidebar-card"
               style={{width: 'var(--sidebar-width)'}}>
               <ConversationSidebar/>
             </div>
