@@ -266,6 +266,17 @@ export const agentTool: Tool<AgentToolInput, string> = {
         // 通知渲染进程侧栏刷新（子会话已创建于 SQLite）
         notifyMainProcessChildConvCreated(childConvId, agentName, args.task, parentConvId)
 
+        // ★ 立即推送 subagent_start（携带 toolCallId）：子会话创建成功瞬间即可让父卡片
+        //   补写 taskId（taskId === childConvId），无需等第一个 subagent_progress 事件
+        //   （子 Agent 首次 LLM 输出才触发，冷启动可能滞后数秒）。
+        //   渲染进程 handleSubagentStart 按 toolCallId 精确定位父 agent 工具，幂等补写。
+        context.sendMessage({
+            type: 'subagent_start',
+            taskId: childConvId,
+            description: args.task,
+            toolCallId: context.toolCallId,
+        })
+
         // ⑦ 强制权限模式为 auto（子会话不弹确认框）
         const effectiveAgentDef: AgentDefinition = {
             source: 'user' as const,
@@ -331,17 +342,18 @@ export const agentTool: Tool<AgentToolInput, string> = {
                     context.sendMessage({
                         type: 'subagent_progress',
                         taskId: childConvId,
+                        toolCallId: context.toolCallId,
                         progress: formatProgress(event),
                         subAgentStreamEvent: event,
                     })
                 } else if (event.type === 'done') {
-                    context.sendMessage({type: 'subagent_done', taskId: childConvId, success: true, output})
+                    context.sendMessage({type: 'subagent_done', taskId: childConvId, success: true, output, toolCallId: context.toolCallId})
                     sendChildAgentEvent(childConvId, {type: 'done', reason: 'completed'})
                     break
                 } else if (event.type === 'error') {
                     hasError = true
                     errorMsg = event.error || '未知错误'
-                    context.sendMessage({type: 'subagent_done', taskId: childConvId, success: false, error: errorMsg})
+                    context.sendMessage({type: 'subagent_done', taskId: childConvId, success: false, error: errorMsg, toolCallId: context.toolCallId})
                     sendChildAgentEvent(childConvId, {type: 'done', reason: 'error'})
                     break
                 }

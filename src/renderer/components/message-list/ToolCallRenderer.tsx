@@ -49,7 +49,6 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
     const effectiveProgress = runtimeState?.progress ?? toolCall.progress
     const effectiveProgressPercent = runtimeState?.progressPercent ?? toolCall.progressPercent
     const effectiveEta = runtimeState?.eta ?? toolCall.eta
-    const effectiveDetailStatus = runtimeState?.detailStatus ?? toolCall.detailStatus
     const effectiveResult = runtimeState?.result ?? toolCall.result
     const effectiveTokenUsage = runtimeState?.tokenUsage ?? toolCall.tokenUsage
     const effectiveProgressLog = runtimeState?.progressLog
@@ -146,18 +145,23 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
         ? effectiveProgress.replace(/^子 Agent /, '')
         : effectiveProgress
 
-    const isSubAgent = toolCall.name === 'agent' && !!toolCall.taskId
+    // ★ 运行中补写的子会话 ID 只存在于 toolCallsStore 运行时状态（静态 toolCall.taskId
+    //   在 tool_result 后才落库，subagent_progress 期间缺失），故跳转判断优先取运行时 taskId
+    const effectiveTaskId = runtimeState?.taskId ?? toolCall.taskId
+    // ★ isSubAgent 判定基于 effectiveTaskId：运行中由 subagent_progress 补写，
+    //   完成态下 contentBlocks 副本已由 updateMessageContentBlocks 重建携带 taskId
+    const effectiveIsSubAgent = toolCall.name === 'agent' && !!effectiveTaskId
     const hasOutput = !!effectiveResult?.output || !!effectiveProgressLog?.length || !!effectiveSubAgentStream?.length
 
     // ★ 需求1：查看按钮分流 —— 运行中的子 Agent 直接跳转子会话实时观看，
     //   完成态弹 SubAgentViewer 展示工具结果集（浮窗内另有「跳转」按钮）
     const setActiveConversation = useConversationStore((s) => s.setActiveConversation)
     const handleJumpToSession = useCallback(() => {
-        if (toolCall.taskId) setActiveConversation(toolCall.taskId)
-    }, [toolCall.taskId, setActiveConversation])
+        if (effectiveTaskId) setActiveConversation(effectiveTaskId)
+    }, [effectiveTaskId, setActiveConversation])
     const handleOpenViewer = () => {
-        if (isRunning && toolCall.taskId) {
-            setActiveConversation(toolCall.taskId)
+        if (isRunning && effectiveTaskId) {
+            setActiveConversation(effectiveTaskId)
             return
         }
         setViewerOpen(true)
@@ -176,7 +180,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                     expanded={false}
                     onToggleExpanded={() => {}}
                     onOpenViewer={handleOpenViewer}
-                    onJumpToSession={toolCall.taskId ? handleJumpToSession : undefined}
+                    onJumpToSession={effectiveTaskId ? handleJumpToSession : undefined}
                     cfg={cfg}
                     isRunning={isRunning}
                     hasProgress={hasProgress}
@@ -191,7 +195,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                     mcpDisplayName={mcpDisplayName}
                     summary={summary}
                     terminalDisplay={terminalDisplay}
-                    isSubAgent={isSubAgent}
+                    isSubAgent={effectiveIsSubAgent}
                     hasOutput={hasOutput}
                     isCompact={true}
                 />
@@ -203,7 +207,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                         expanded={expanded}
                         onToggleExpanded={() => setExpanded(!expanded)}
                         onOpenViewer={handleOpenViewer}
-                        onJumpToSession={toolCall.taskId ? handleJumpToSession : undefined}
+                        onJumpToSession={effectiveTaskId ? handleJumpToSession : undefined}
                         cfg={cfg}
                         isRunning={isRunning}
                         hasProgress={hasProgress}
@@ -218,7 +222,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                         mcpDisplayName={mcpDisplayName}
                         summary={summary}
                         terminalDisplay={terminalDisplay}
-                        isSubAgent={isSubAgent}
+                        isSubAgent={effectiveIsSubAgent}
                         hasOutput={hasOutput}
                         isCompact={false}
                     />
@@ -251,7 +255,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                     result={effectiveResult as import('../../stores/toolCallsStore').ExtendedToolResult | null}
                     tokenUsage={effectiveTokenUsage ?? null}
                     onClose={() => setViewerOpen(false)}
-                    onJumpToSession={toolCall.taskId ? handleJumpToSession : undefined}
+                    onJumpToSession={effectiveTaskId ? handleJumpToSession : undefined}
                 />
             )}
         </div>
