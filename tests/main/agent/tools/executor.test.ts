@@ -38,6 +38,14 @@ describe('checkResultSize', () => {
         expect(result.output).toContain('超过 15000 字符限制')
     })
 
+    it('agent 工具输出超过 15KB 不截断（子 Agent 工作报告完整性豁免）', () => {
+        // 30KB > 通用 15KB 阈值，但 agent 是子 Agent 工作报告，应完整保留
+        const big = 'a'.repeat(30 * 1024)
+        const result = checkResultSize('agent', okResult(big))
+        expect(result.output).toContain(big) // 完整内容保留
+        expect(result.output).not.toContain('[结果已截断]')
+    })
+
     it('输出为空时不处理', () => {
         const result = checkResultSize('bash', {success: true, output: ''})
         expect(result.output).toBe('')

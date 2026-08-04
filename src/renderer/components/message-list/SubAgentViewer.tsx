@@ -9,7 +9,6 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import type {ExtendedToolResult, ProgressEntry, SubAgentStreamEntry} from '../../stores/toolCallsStore'
-import {truncate} from '../../lib/format'
 import {StreamEntryCard, mergeTimeline, mergeConsecutiveTextEntries, getLastActiveTime} from './StreamEntryRenderer'
 import MarkdownRenderer from './MarkdownRenderer'
 
@@ -317,7 +316,7 @@ export default function SubAgentViewer({
                             maxHeight: 300,
                             overflow: 'auto'
                         }}>
-                            <MarkdownRenderer>{truncate(String(result.output), 10000)}</MarkdownRenderer>
+                            <MarkdownRenderer>{String(result.output)}</MarkdownRenderer>
                         </div>
                     </div>
                 )}
