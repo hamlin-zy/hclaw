@@ -46,51 +46,39 @@ const RetryButton = memo(function RetryButton({message}: { message: Message }) {
 
 // 删除按钮组件 - 用于删除单条消息
 const DeleteButton = memo(function DeleteButton({message, bottomMargin = 'mb-[22px]'}: { message: Message; bottomMargin?: string }) {
-    const [isLoading, _setIsLoading] = useState(false)
     const agentStatus = useAgentStore((s) => s.agentState.status)
     const isRunning = agentStatus === 'running' || agentStatus === 'thinking'
     const deleteMessage = useConversationStore((s) => s.deleteMessage)
 
     const handleDelete = useCallback(async () => {
-        console.log('[DeleteButton] handleDelete clicked, messageId:', message.id)
-        if (isRunning || isLoading) return
+        if (isRunning) return
 
-        const confirmed = await confirm({
+        await confirm({
             title: '确认删除消息',
             message: '确定要删除这条消息吗？\n\n此操作不可撤销！',
             confirmText: '删除',
             cancelText: '取消',
             confirmVariant: 'danger',
             onConfirm: async () => {
-                console.log('[DeleteButton] calling deleteMessage, messageId:', message.id)
                 // 从 UI 消息列表和数据库删除
                 deleteMessage(message.id)
-                console.log('[DeleteButton] deleteMessage returned')
             },
         })
-
-        if (!confirmed) {
-            console.log('[DeleteButton] user cancelled')
-        }
-    }, [message.id, isRunning, isLoading, deleteMessage])
+    }, [message.id, isRunning, deleteMessage])
 
     return (
         <button
             onClick={handleDelete}
-            disabled={isRunning || isLoading}
+            disabled={isRunning}
             className={`${bottomMargin} flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-sm text-[var(--text-muted)] hover:text-red-500 hover:border-red-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex-shrink-0`}
             title="删除"
             aria-label="删除此消息"
         >
-            {isLoading ? (
-                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"/>
-            ) : (
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M3 6h18"/>
-                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
-                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
-                </svg>
-            )}
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 6h18"/>
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+            </svg>
         </button>
     )
 })

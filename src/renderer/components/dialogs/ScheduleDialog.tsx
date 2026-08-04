@@ -622,7 +622,7 @@ function ConversationsPanel({scheduleId, scheduleName, taskType}: ConversationsP
     const isScript = taskType === 'script'
 
     if (isScript) {
-        return <ScriptLogPanel scheduleId={scheduleId} scheduleName={scheduleName}/>
+        return <ScriptLogPanel scheduleId={scheduleId}/>
     }
 
     // Agent/Skill/Command：提示到会话列表搜索
@@ -651,7 +651,7 @@ function ConversationsPanel({scheduleId, scheduleName, taskType}: ConversationsP
 
 // ─── 脚本日志面板 ─────────────────────────────────────
 
-function ScriptLogPanel({scheduleId, scheduleName: _scheduleName}: {scheduleId: string; scheduleName: string}) {
+function ScriptLogPanel({scheduleId}: { scheduleId: string }) {
     const [logs, setLogs] = useState<ScriptLogEntry[]>([])
     const [loading, setLoading] = useState(true)
     const [expandedLog, setExpandedLog] = useState<string | null>(null)

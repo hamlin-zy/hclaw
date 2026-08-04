@@ -23,10 +23,7 @@ export function handleToolUse(ctx: StreamCtx) {
     const convState = get().convAgentStates[convId] || createDefaultConvData()
     const convStore = useConversationStore.getState()
 
-    console.log('[handleStreamEvent] tool_use event received, toolCallId:', tc.id, 'toolName:', tc.name, 'current streamingMessageId:', convState.streamingMessageId)
-
     if (convState.streamingMessageId === null && convState.agentState.status === 'idle') {
-        console.log('[handleStreamEvent] tool_use SKIPPED: streamingMessageId is null and status is idle')
         return
     }
 
@@ -44,7 +41,6 @@ export function handleToolUse(ctx: StreamCtx) {
         //   与主进程增量落库的 SQLite 消息 id 一致 → 运行中切换/刷新无重复气泡。
         //   主会话无 messageId，仍用 UUID 创建。
         msgId = (event.messageId as string | undefined) || crypto.randomUUID()
-        console.log('[handleStreamEvent] tool_use: creating new assistant message, id:', msgId)
         convStore.addMessageToConv(convId, {
             id: msgId,
             role: 'assistant',
@@ -56,15 +52,12 @@ export function handleToolUse(ctx: StreamCtx) {
 
     const convMsgs = convStore.messagesMap[convId] || []
     const msg = convMsgs.find(m => m.id === msgId)
-    console.log('[handleStreamEvent] tool_use: found message, id:', msgId, 'existing toolCalls:', msg?.toolCalls?.length)
     const existing = msg?.toolCalls || []
     if (existing.some(e => e.id === tc.id)) {
-        console.log('[handleStreamEvent] tool_use: SKIPPED (already exists), id:', tc.id)
         return
     }
     const updatedConvState = get().convAgentStates[convId] || createDefaultConvData()
     const textOffset = updatedConvState.streamBuffer.length
-    console.log('[handleStreamEvent] tool_use: adding toolCall to message, total toolCalls will be:', existing.length + 1)
     convStore.updateMessageForConv(convId, msgId, {
         toolCalls: [...existing, {
             id: tc.id,
@@ -76,7 +69,6 @@ export function handleToolUse(ctx: StreamCtx) {
             terminal: tc.terminal,
         }],
     })
-    console.log(`[tool_use] ${tc.name}[${tc.id}] count: ${updatedConvState.runningToolCount}→${updatedConvState.runningToolCount + 1}`)
     get().updateConvData(convId, {
         runningToolCount: updatedConvState.runningToolCount + 1,
     })

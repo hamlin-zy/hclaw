@@ -148,7 +148,7 @@ export const SkillBubble = memo(function SkillBubble({
         <span style={{flex: 1, fontWeight: 600, color: '#1e293b'}}>
           {skillName}
         </span>
-        <StatusBadge status={status} config={statusConfig} />
+        <StatusBadge config={statusConfig} />
         <ChevronIcon expanded={expanded} />
       </div>
 
@@ -157,7 +157,6 @@ export const SkillBubble = memo(function SkillBubble({
         <div style={{padding: 16}}>
           {/* Phase & Progress */}
           <PhaseSection
-            phase={phase}
             currentStep={currentStep}
             progress={progress}
             status={status}
@@ -207,7 +206,7 @@ export const SkillBubble = memo(function SkillBubble({
 
 // ─── 子组件 ──────────────────────────────────────────────
 
-function StatusBadge({status: _status, config}: {status: string; config: ReturnType<typeof getStatusConfig>}) {
+function StatusBadge({config}: { config: ReturnType<typeof getStatusConfig> }) {
   return (
     <span style={{
       display: 'inline-flex',
@@ -241,12 +240,10 @@ function ChevronIcon({expanded}: {expanded: boolean}) {
 }
 
 function PhaseSection({
-  phase: _phase,
   currentStep,
   progress,
   status,
 }: {
-  phase?: string
   currentStep?: string
   progress?: { current: number; total: number; label?: string }
   status: string

@@ -166,17 +166,9 @@ function LocalImage({src, alt}: {src: string; alt: string}) {
         // 方式 1: 通过 hclaw-media:// 协议（主进程自定义协议，渲染进程可直接访问）
         // 支持百分号编码路径（C:\... → C%3A%5C...）和反斜杠路径
         // localPathToMediaUrl 处理: Windows 绝对路径 → hclaw-media:///C:/path, Unix 绝对路径 → hclaw-media:///path
-        let mediaUrl = localPathToMediaUrl(src)
+        const mediaUrl = localPathToMediaUrl(src)
         setResolvedSrc(mediaUrl)
         setLoading(false)
-
-        // 方式 2（备用）: IPC readFileAsDataUrl → data: URL
-        // 仅在 hclaw-media 不工作时使用
-        // const filePath = resolveFilePath(src)
-        // window.electronAPI?.readFileAsDataUrl?.(filePath).then((dataUrl) => {
-        //     if (dataUrl) { setResolvedSrc(dataUrl); setLoading(false) }
-        //     else { setError(true); setLoading(false) }
-        // }).catch(() => { setError(true); setLoading(false) })
     }, [src])
 
     // 加载中占位（用 span 而非 div/figure，避免 validateDOMNesting: <div>/<figure> cannot appear as a descendant of <p>）
