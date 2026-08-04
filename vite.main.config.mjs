@@ -97,19 +97,34 @@ export default defineConfig({
                 for (const pkg of packages) {
                     const src = path.join(__dirname, 'node_modules', pkg);
                     const dest = path.join(destDir, pkg);
-                    if (fs.existsSync(src)) {
-                        try {
-                            if (fs.existsSync(dest)) {
-                                fs.rmSync(dest, {recursive: true, force: true});
-                            }
-                            fs.cpSync(src, dest, {recursive: true});
-                            console.log(`[copy-native-modules] Copied ${pkg} to ${dest}`);
-                        } catch (err) {
-                            console.warn(`[copy-native-modules] Skip ${pkg} (${err.code || err.message})`);
-                        }
-                    } else {
-                        console.warn(`[copy-native-modules] Source not found: ${src}`);
+                    if (!fs.existsSync(src)) {
+                        // 缺失源码包必须终止构建：残缺拷贝打进 asar 后，运行时无法解析
+                        // 模块入口（如 @photostructure/sqlite 无 package.json 时报
+                        // "Cannot find package .../index.js"），且该错误只在启动时暴露。
+                        throw new Error(`[copy-native-modules] Source not found: ${src}`);
                     }
+                    try {
+                        if (fs.existsSync(dest)) {
+                            fs.rmSync(dest, {recursive: true, force: true});
+                        }
+                        fs.cpSync(src, dest, {recursive: true});
+                    } catch (err) {
+                        // EPERM 等复制失败必须终止构建，不能静默跳过——残留的残缺拷贝
+                        // 会被 electron-builder 打进 asar，导致运行时模块解析失败。
+                        throw new Error(`[copy-native-modules] Failed to copy ${pkg} to ${dest} (${err.code || err.message}). ` +
+                            `Check that no running HClaw process / antivirus is locking files in node_modules, then retry.`);
+                    }
+                    // 完整性校验：被 ssr.external 引用的包必须有 package.json 入口，
+                    // 否则 Node 会 fallback 到 <pkg>/index.js 并在运行时报错。
+                    // 注意：scoped 组织目录（如 @img 下含 @img/sharp-win32-x64）本身
+                    // 没有 package.json，属于目录容器而非包，跳过校验。
+                    const pkgJson = path.join(dest, 'package.json');
+                    const isScopedContainer = src.startsWith(path.join(__dirname, 'node_modules', '@')) &&
+                        path.dirname(src) !== path.join(__dirname, 'node_modules', '@');
+                    if (!isScopedContainer && !fs.existsSync(pkgJson)) {
+                        throw new Error(`[copy-native-modules] Copied ${pkg} is missing package.json — package entry cannot be resolved at runtime.`);
+                    }
+                    console.log(`[copy-native-modules] Copied ${pkg} to ${dest}`);
                 }
             }
         },
