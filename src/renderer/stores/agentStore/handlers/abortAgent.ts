@@ -5,6 +5,7 @@ import {IDLE_STATE, createDefaultConvData} from '../defaultState'
 import {useConversationStore} from '../../conversationStore'
 import {useToolCallsStore} from '../../toolCallsStore'
 import {clearAllBatches} from '../helpers/convHelpers'
+import {flushThinkingBatch} from '../batching/thinkingBatch'
 
 type SetFn = (...args: any[]) => any
 type GetFn = () => AgentStore
@@ -17,6 +18,11 @@ export async function abortAgentImpl(
     try {
         await window.electronAPI?.agentAbort?.(conversationId)
     } catch { /* ignore */ }
+
+    // ★ 冲刷残留的 thinking 批，确保收尾快照包含最后一段思考内容：
+    //   abort 是用户异步操作，理论上微任务已清空；此调用为防御性兜底
+    //   （abort 与流式 chunk 交叠时，残留 batch 会导致 thinkBlock 缺尾）
+    flushThinkingBatch(conversationId)
 
     const convData = get().convAgentStates[conversationId] || createDefaultConvData()
     const streamingMsgId = convData.streamingMessageId

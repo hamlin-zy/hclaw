@@ -516,10 +516,12 @@ async function main(): Promise<void> {
         })
 
         // 初始化任务存储，绑定 sendMessage 以发送 tasks_update 事件
+        // ★ 事件携带 taskStore 内部的 conversationId（任务归属会话）：
+        //   子会话的任务更新会指向子会话 ID，而非固定 Worker 启动时的主会话 ID。
         taskStore.init((msg) => {
             parentPort?.postMessage({
                 type: 'stream',
-                conversationId: params.conversationId,
+                conversationId: msg.conversationId || params.conversationId,
                 event: {type: msg.type, tasks: msg.tasks},
             })
         })

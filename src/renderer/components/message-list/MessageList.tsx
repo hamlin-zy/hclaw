@@ -211,6 +211,8 @@ export default function MessageList({conversationId}: { conversationId?: string 
     const [showScrollBtn, setShowScrollBtn] = useState(false)
     const [newMsgCount, setNewMsgCount] = useState(0)
     const userScrolledAwayRef = useRef(false)
+    // 滚动初始化标记：防止消息异步加载时的竞态导致初始化被跳过
+    const scrollInitDoneRef = useRef(false)
     // 视口顶部消息索引（用于导航按钮状态判断）
     const [currentMsgIdx, setCurrentMsgIdx] = useState(0)
     // 追踪最近一次导航到的精确消息索引
@@ -347,31 +349,51 @@ export default function MessageList({conversationId}: { conversationId?: string 
     }, [scrollToBottom, messages.length])
 
     // ── 切换会话时重置状态 ───────────────────────────────
-    // ★ 等待历史消息加载完成后再滚动到底部：
-    //   会话切换瞬间消息可能尚未从 SQLite 加载（loadMessagesInitial 是异步的），
-    //   若立即滚动，列表为空或仅部分渲染（content-visibility 懒渲染），
-    //   会停在中部/顶部。因此用 MutationObserver 监听容器子节点，
-    //   待历史消息真正插入 DOM 后再执行滚动；超时兜底防止空会话卡住。
+    // 重置滚动相关状态并标记初始化未完成，等待后续初始化 effect。
     useEffect(() => {
         resetScrollState()
         setCurrentMsgIdx(0)
         lastNavigatedMsgIdxRef.current = null
         // 重置消息计数基准，使首次 0→N 的异步加载也能触发"新消息滚动"兜底
         prevCountRef.current = 0
+        // 重置滚动初始化标记，让下一次容器可用时重新初始化
+        scrollInitDoneRef.current = false
+    }, [activeConversationId])
 
+    // ── 初始化滚动到底部（会话切换 / 首次挂载补初始化） ────
+    // ★ 等待历史消息加载完成后再滚动到底部：
+    //   会话切换瞬间消息可能尚未从 SQLite 加载（loadMessagesInitial 是异步的），
+    //   若立即滚动，列表为空或仅部分渲染（content-visibility 懒渲染），
+    //   会停在中部/顶部。因此用 MutationObserver 监听容器子节点，
+    //   待历史消息真正插入 DOM 后再执行 scrollIntoView 精确滚动；
+    //   超时兜底防止空会话卡住。
+    // ★ 标记机制：启动时首个会话的消息加载完成前，MessageList 走空态分支
+    //   （containerRef 为 null），此 effect 会提前返回；消息到达后 messages.length
+    //   变化触发重跑，容器已挂载，才真正建立观察器——覆盖"应用启动激活首个会话"场景。
+    // ★ 清理时若初始化被打断（未 settle 即重跑），重置标记让下次重跑时重建观察器。
+    useEffect(() => {
+        if (scrollInitDoneRef.current) return
         const container = containerRef.current
-        if (!container) return
+        if (!container || messages.length === 0) return
+        scrollInitDoneRef.current = true
 
         let settled = false
         let settleTimer: number | null = null
+        let fallbackTimer: number | null = null
         let observer: MutationObserver | null = null
+
+        // 统一停止观察与计时（settle 与清理共用）
+        const stop = () => {
+            settled = true
+            if (settleTimer) clearTimeout(settleTimer)
+            if (fallbackTimer) clearTimeout(fallbackTimer)
+            observer?.disconnect()
+        }
 
         const settle = () => {
             if (settled) return
-            settled = true
-            if (settleTimer) clearTimeout(settleTimer)
-            if (observer) observer.disconnect()
-            // 消息元素已插入 DOM 且 content-visibility 完成首轮布局后滚动
+            stop()
+            // 消息元素已插入 DOM 且 content-visibility 完成布局后精确滚动
             requestAnimationFrame(() => {
                 const c = containerRef.current
                 if (!c) return
@@ -384,24 +406,33 @@ export default function MessageList({conversationId}: { conversationId?: string 
             })
         }
 
+        // 防抖调度：替换已有定时器
+        const scheduleSettle = (delay: number) => {
+            if (settleTimer) clearTimeout(settleTimer)
+            settleTimer = window.setTimeout(settle, delay)
+        }
+
         // 历史消息加载是异步的（loadMessagesInitial），子节点插入时触发滚动
         observer = new MutationObserver(() => {
             if (settled) return
-            if (settleTimer) clearTimeout(settleTimer)
-            settleTimer = window.setTimeout(settle, 50) // 短防抖，等一批子节点插入完
+            scheduleSettle(50) // 短防抖，等一批子节点插入完
         })
         observer.observe(container, {childList: true, subtree: true})
 
-        // 兜底：1500ms 内无子节点变化（如空会话）也执行一次滚动
-        settleTimer = window.setTimeout(settle, 1500)
+        // 立即调度一次：消息可能已插入 DOM（如启动场景补初始化），
+        // 无需等待 MutationObserver；若尚未插入，观察器回调会重置计时
+        scheduleSettle(50)
+        // 兜底：1500ms 内无子节点变化也执行一次滚动
+        fallbackTimer = window.setTimeout(settle, 1500)
 
         return () => {
             if (settled) return
-            settled = true
-            if (observer) observer.disconnect()
-            if (settleTimer) clearTimeout(settleTimer)
+            stop()
+            // 初始化被打断（消息加载中依赖变化触发 effect 重建），
+            // 重置标记以便下次依赖变化时重新初始化
+            scrollInitDoneRef.current = false
         }
-    }, [activeConversationId, scrollToBottom])
+    }, [activeConversationId, messages.length, scrollToBottom])
 
     // ── 新消息时滚动到底部 ────────────────────────────────
     // ★ 放开 prevCount > 0 门槛：会话切换后首次 0→N 的异步加载（loadMessagesInitial）
@@ -428,23 +459,36 @@ export default function MessageList({conversationId}: { conversationId?: string 
 
     // 流式内容更新时自动跟随（收到新内容但消息数不变）
     // ★ 使用 MutationObserver 仅在 DOM 实际变化时触发，避免无依赖 useEffect 每次渲染后强制布局
+    // ★ rAF 节流：流式期间 DOM 高频变化（每 text/thinking chunk 一次 characterData 变更），
+    //   MutationObserver 回调可能非常密集；el.scrollTop 写入会触发同步布局，
+    //   用 requestAnimationFrame 合并到每帧最多一次，避免布局抖动与主线程占用
     useEffect(() => {
         const el = containerRef.current
         if (!el || !streamingMessageId) return
         // 非活跃会话不监听滚动跟随
         if (conversationId !== useConversationStore.getState().activeConversationId) return
 
-        const observer = new MutationObserver(() => {
-            if (!userScrolledAwayRef.current) {
-                const dist = el.scrollHeight - el.scrollTop - el.clientHeight
-                if (dist < 200) {
-                    el.scrollTop = el.scrollHeight - el.clientHeight
+        let rafId = 0
+        const scheduleScroll = () => {
+            if (rafId) return
+            rafId = requestAnimationFrame(() => {
+                rafId = 0
+                if (!userScrolledAwayRef.current) {
+                    const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+                    if (dist < 200) {
+                        el.scrollTop = el.scrollHeight - el.clientHeight
+                    }
                 }
-            }
-        })
+            })
+        }
+
+        const observer = new MutationObserver(scheduleScroll)
 
         observer.observe(el, {childList: true, subtree: true, characterData: true})
-        return () => observer.disconnect()
+        return () => {
+            observer.disconnect()
+            if (rafId) cancelAnimationFrame(rafId)
+        }
     }, [streamingMessageId, conversationId])
 
     // ── 监听文本选择并自动复制（仅活跃会话） ──────────────

@@ -26,6 +26,7 @@ import {useToolCallsStore} from '../toolCallsStore'
 import {useModelSchemeStore} from '../modelSchemeStore'
 
 import {flushAllTextBatches} from './batching/textBatch'
+import {flushAllThinkingBatches} from './batching/thinkingBatch'
 import {flushToolResultBatch, getToolResultBatchMap} from './batching/toolResultBatch'
 import {saveHmrContext, restoreFromHmr} from './helpers/hmrPersistence'
 import {syncConvToTopLevel} from './helpers/convHelpers'
@@ -286,6 +287,7 @@ export const useAgentStore = create<AgentStore>()(
             // ── 刷新待处理批数据 ──────────────────────────────
             flushPendingStreamData: () => {
                 flushAllTextBatches()
+                flushAllThinkingBatches()
                 for (const convId of Object.keys(getToolResultBatchMap())) {
                     flushToolResultBatch(convId)
                 }
@@ -384,6 +386,7 @@ export const useAgentStore = create<AgentStore>()(
                 streamUnsubscribe = unsub
                 return () => {
                     flushAllTextBatches()
+                    flushAllThinkingBatches()
                     saveHmrContext()
                     streamUnsubscribe?.()
                     streamUnsubscribe = null

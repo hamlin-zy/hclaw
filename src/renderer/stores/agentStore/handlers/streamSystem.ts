@@ -109,18 +109,23 @@ export async function handleCompactPersisted(ctx: StreamCtx) {
 }
 
 export function handleTasksUpdate(ctx: StreamCtx) {
-    const {get, set, convId, event} = ctx
+    const {get, set, convId, isActiveConv, event} = ctx
     const tasks = event.tasks || []
     const isAllDone = tasks.length > 0 && tasks.every((t: any) => t.status === 'completed' || t.status === 'failed')
 
-    set((prev: any) => ({
-        tasks,
-        agentState: isAllDone && prev.runningToolCount === 0
-            ? {...prev.agentState, status: 'idle'}
-            : prev.agentState,
-        isThinkingAfterTools: isAllDone ? false : prev.isThinkingAfterTools,
-        streamingMessageId: isAllDone ? null : prev.streamingMessageId,
-    }))
+    // ★ 仅当事件属于「当前激活会话」时才更新顶层 tasks/agentState：
+    //   后台会话（如运行中的子会话）的任务更新只写入 convAgentStates[convId]，
+    //   切换会话时由 updateConvData 按 activeConversationId 同步顶层，实现待办跟随切换。
+    if (isActiveConv) {
+        set((prev: any) => ({
+            tasks,
+            agentState: isAllDone && prev.runningToolCount === 0
+                ? {...prev.agentState, status: 'idle'}
+                : prev.agentState,
+            isThinkingAfterTools: isAllDone ? false : prev.isThinkingAfterTools,
+            streamingMessageId: isAllDone ? null : prev.streamingMessageId,
+        }))
+    }
 
     get().updateConvData(convId, {tasks})
 

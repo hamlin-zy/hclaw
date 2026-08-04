@@ -334,8 +334,11 @@ export class AgentManager {
         }
 
         // 流事件处理
+        // ★ 使用 msg.conversationId（若存在）而非闭包固定的 Worker 主会话 ID：
+        //   taskStore 发出的 tasks_update 事件携带任务归属会话 ID（子会话任务 → 子会话 ID，
+        //   主会话任务 → 主会话 ID）。若固定用主会话 ID，子会话的待办更新会被错误路由到主会话。
         if (msg.type === 'stream' && msg.event) {
-          await this.handleStreamEvent(conversationId, worker, msg.event)
+          await this.handleStreamEvent(msg.conversationId || conversationId, worker, msg.event)
         } else if (msg.type === 'child_conv_created') {
           // 子 Agent 独立会话创建事件 → 直接通知渲染进程刷新侧栏
           // （不走 agent-stream，因为流事件处理器不认识这个类型）

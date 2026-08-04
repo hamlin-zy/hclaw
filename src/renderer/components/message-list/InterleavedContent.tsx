@@ -17,7 +17,7 @@
  * 设计目标：当所有数据生产者迁移到 contentBlocks 后，可移除旧路径及本注释。
  */
 
-import {useMemo} from 'react'
+import {useEffect, useMemo, useState} from 'react'
 import {useThemeStore} from '../../stores/themeStore'
 import {useAgentStore} from '../../stores/agentStore'
 import type {Message, ToolCall, ThinkBlock as ThinkBlockType, MediaBlock} from '@shared/types'
@@ -60,13 +60,46 @@ export type CombinedItem =
  * ★ 设计原则：
  *  用户不应看到原始 markdown 符号（**、`` ` `**、`|` 等），
  *  宁可让内容短暂跳跃，也不展示未解析的格式化文本。
+ *
+ * ★ 性能实现（此前只有注释没有实现，流式期间每个 text 段变更都全量跑
+ *   ReactMarkdown 解析，是高 chunk 频率下 UI 卡死的放大器之一）：
+ *   - 流式期间用 setTimeout 节流，最多每 200ms 做一次完整 markdown 渲染；
+ *   - 空闲（非流式）时直接渲染最新内容，无延迟；
+ *   - 卸载时清除挂起的定时器，避免内存泄漏。
  */
 function ThrottledMarkdown({content, isUser, theme}: {
     content: string; isUser: boolean; theme: 'light' | 'dark' | 'yuanshandai' | 'shiyangjin'
 }) {
+    const isStreaming = useAgentStore((s) => {
+        // 任意会话处于 thinking/running 都视为流式进行中
+        const states = s.convAgentStates
+        for (const convId in states) {
+            const st = states[convId]?.agentState?.status
+            if (st === 'thinking' || st === 'running') return true
+        }
+        return s.agentState.status === 'thinking' || s.agentState.status === 'running'
+    })
+
+    // 节流后的实际渲染内容：非流式立即同步，流式最多 200ms 合并一次
+    const [displayContent, setDisplayContent] = useState(content)
+    useEffect(() => {
+        if (!isStreaming) {
+            setDisplayContent(content)
+            return
+        }
+        let cancelled = false
+        const timer = setTimeout(() => {
+            if (!cancelled) setDisplayContent(content)
+        }, 200)
+        return () => {
+            cancelled = true
+            clearTimeout(timer)
+        }
+    }, [content, isStreaming])
+
     return (
         <div className="min-w-0">
-            <MarkdownRenderer isUser={isUser} theme={theme}>{content}</MarkdownRenderer>
+            <MarkdownRenderer isUser={isUser} theme={theme}>{displayContent}</MarkdownRenderer>
         </div>
     )
 }
