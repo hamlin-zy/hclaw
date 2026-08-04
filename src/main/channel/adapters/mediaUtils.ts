@@ -26,6 +26,7 @@ import crypto from 'crypto'
  * @returns              目录的绝对路径（目录已确保存在）
  */
 export function resolveSessionDir(channelId: string, conversationId?: string): string {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- config.ts 有 module-level 副作用（加载 SQLite 链 + electron 依赖），mediaUtils 运行在 channel Worker 中，须延迟加载
     const {getChannelSessionMediaDir, getChannelMediaDir} = require('../../config')
     return conversationId
         ? getChannelSessionMediaDir(channelId, conversationId)

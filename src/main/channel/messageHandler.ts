@@ -17,6 +17,7 @@ import {agentManager} from '../agent/manager'
 import {channelCommandManager} from './CommandManager'
 import {buildUserContent, hasAudioAttachment, isAttachmentOnlyMarker} from './utils'
 import {mcpService} from '../services/mcpService'
+import {getMainWindow} from '../window'
 import type {ChannelBindingRecord, CommandResult, IncomingMessage, ResourceRef} from './types'
 import type {ChatMessage, ModelConfig} from '../agent/model/types'
 import type {LLMProvider, ModelScheme, WorkMode} from '@shared/types'
@@ -145,10 +146,9 @@ async function persistMessage(
     }
 }
 
-/** 惰性获取主窗口，替代多次 require('../window') */
+/** 安全获取主窗口；window 模块在应用启动阶段可能尚未就绪 */
 function getMainWindowLazy(): Electron.BrowserWindow | null {
     try {
-        const {getMainWindow} = require('../window') as typeof import('../window')
         const win = getMainWindow()
         return win && !win.isDestroyed() ? win : null
     } catch (err) {
