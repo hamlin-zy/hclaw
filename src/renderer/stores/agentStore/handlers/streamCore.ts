@@ -8,6 +8,10 @@ import {
     accumulateTextBatch,
     scheduleImmediateTextFlush,
 } from '../batching/textBatch'
+import {
+    accumulateThinkingBatch,
+    scheduleImmediateThinkingFlush,
+} from '../batching/thinkingBatch'
 
 export function handleBegin(ctx: StreamCtx) {
     const {get, convId} = ctx
@@ -109,7 +113,7 @@ export function handleText(ctx: StreamCtx) {
 }
 
 export function handleThinking(ctx: StreamCtx) {
-    const {get, convId, isAgentAborted, isActiveConv, event} = ctx
+    const {get, convId, isAgentAborted, event} = ctx
     if (isAgentAborted) return
     const convState = get().convAgentStates[convId] || createDefaultConvData()
     if (convState.streamingMessageId === null && convState.agentState.status === 'idle') return
@@ -122,16 +126,11 @@ export function handleThinking(ctx: StreamCtx) {
     }
 
     const thinkChunk = event.content || ''
-    const prevContent = convState.thinkingContent || ''
-    const newContent = prevContent + thinkChunk
 
-    const isAfterTools = convState.isThinkingAfterTools
-    get().updateConvData(convId, {
-        thinkingContent: newContent,
-        isThinkingAfterTools: isAfterTools ? false : convState.isThinkingAfterTools,
-        agentState: {...convState.agentState, ...makeAgentState('thinking', isAfterTools ? 'waiting_for_response' : 'streaming')},
-    })
-
+    // ★ queueMicrotask 批处理：与 text 对称，每个 thinking chunk 只累积到缓冲区，
+    //   同微任务内多个块合并为一次 store 更新 + 一次 contentBlocks 重建。
+    //   此前每个 chunk 都走 updateMessageForConv + updateMessageContentBlocks
+    //   全量重建链，思考模式下高频 chunk 会持续占用渲染主线程导致 UI 卡死。
     let msgId = convState.streamingMessageId
     if (!msgId) {
         msgId = (event.messageId as string | undefined) || crypto.randomUUID()
@@ -143,32 +142,16 @@ export function handleThinking(ctx: StreamCtx) {
         get().updateConvData(convId, {streamingMessageId: msgId})
     }
 
-    convStore.updateMessageForConv(convId, msgId, {
-        thinkBlock: {
-            id: `think-${msgId}`,
-            content: newContent,
-            status: 'thinking',
-            timestamp: Date.now(),
-        },
+    const isAfterTools = convState.isThinkingAfterTools
+    get().updateConvData(convId, {
+        // 先同步更新 agentState（thinking 指示器即时响应），thinkingContent 由批处理合并写入
+        isThinkingAfterTools: isAfterTools ? false : convState.isThinkingAfterTools,
+        agentState: {...convState.agentState, ...makeAgentState('thinking', isAfterTools ? 'waiting_for_response' : 'streaming')},
     })
 
-    // streamBlocks 跟踪
-    const updatedConvData = get().convAgentStates[convId] || createDefaultConvData()
-    const currentBlocks = [...updatedConvData.streamBlocks]
-    const lastBlock = currentBlocks.length > 0 ? currentBlocks[currentBlocks.length - 1] : null
-    if (lastBlock?.type === 'think') {
-        lastBlock.thinkContent = (lastBlock.thinkContent || '') + thinkChunk
-    } else {
-        const textOffset = updatedConvData.streamBuffer.length
-        currentBlocks.push({
-            type: 'think',
-            id: `think-${crypto.randomUUID()}`,
-            textOffset,
-            thinkContent: thinkChunk,
-        })
-    }
-    get().updateConvData(convId, {streamBlocks: currentBlocks})
-    if (isActiveConv) {
-        get().updateMessageContentBlocks(convId)
-    }
+    accumulateThinkingBatch(convId, thinkChunk)
+    scheduleImmediateThinkingFlush(convId, msgId)
+
+    // 仅活跃会话需要 contentBlocks 重建；批处理 flush 内部已按活跃会话判断执行，
+    // 此处不再重复调用 updateMessageContentBlocks。
 }
