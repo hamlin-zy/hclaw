@@ -18,6 +18,7 @@ import {useConversationStore} from './stores/conversationStore'
 import {useLLMStore} from './stores/llmStore'
 import {useModelSchemeStore} from './stores/modelSchemeStore'
 import {useSkillStore} from './stores/skillStore'
+import {useAgentTemplateStore} from './stores/agentTemplateStore'
 import {useHookStore} from './stores/hookStore'
 import {useThemeStore, resolveAndApplyTheme} from './stores/themeStore'
 import {useSettingsStore} from './stores/settingsStore'
@@ -335,6 +336,9 @@ export default function App() {
           useSettingsStore.getState().loadSettings(),
           useHookStore.getState().fetchHooks(),
           useSkillStore.getState().refreshSkills(),
+          // ★ 历史 /能力 消息降级渲染依赖 agent 能力名集合，
+          //   缺失会导致重启后 agent 类命令（如 /code-simplifier）无法渲染徽章
+          useAgentTemplateStore.getState().init(),
         ])
 
         // 应用启动时同步主题设置

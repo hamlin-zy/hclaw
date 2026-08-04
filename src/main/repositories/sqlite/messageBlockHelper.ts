@@ -187,6 +187,11 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
       thinkBlock: msg.thinkBlock,
       toolCalls: msg.toolCalls,
       contentBlocks: msg.contentBlocks,
+      // ★ 命令上下文透传：UserCommandBubble 渲染 /能力 徽章依赖这些字段，
+      //   缺失会导致历史消息从 DB 加载后丢失命令样式（还原为纯文本）
+      commandId: (msg as {commandId?: string}).commandId ?? (msg.metadata?.commandId as string | undefined),
+      commandArgs: (msg as {commandArgs?: string}).commandArgs ?? (msg.metadata?.commandArgs as string | undefined),
+      commandTemplate: msg.metadata?.commandTemplate,
     },
   }
 

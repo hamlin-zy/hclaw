@@ -3,8 +3,12 @@
  * 单条消息的容器，包含头像、内容和时间戳
  */
 
-import {memo} from 'react'
+import {memo, useMemo} from 'react'
 import type {Message} from '@shared/types'
+import {useSkillStore} from '../../stores/skillStore'
+import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
+import {useUserCommandStore} from '../../stores/userCommandStore'
+import {formatDuration} from '../../lib/format'
 import ThinkBlock from '../ThinkBlock'
 import StepsBlock from '../StepsBlock'
 import AttachmentPreview from './AttachmentPreview'
@@ -13,6 +17,22 @@ import {AssistantMessageActions, MessageActions} from './MessageActions'
 import {SkillBubble} from '../skill/SkillBubble'
 import {CommandBadge} from '../CommandBadge'
 import {UserCommandBubble, parseUserCommandContext} from './UserCommandBubble'
+
+/**
+ * 已知能力名集合（供历史 /能力 消息降级渲染使用）
+ * 订阅三个 store，任意一方加载即可为旧消息补全能力名。
+ * 派生集合用 useMemo 缓存，仅在 store 原始数据变化时重建，避免每次 render 产生新数组。
+ */
+function useKnownCapabilities() {
+    const skills = useSkillStore((s) => s.skills)
+    const agents = useAgentTemplateStore((s) => s.templates)
+    const commands = useUserCommandStore((s) => s.commands)
+    return useMemo(() => ({
+        skills: skills.map(skill => skill.name),
+        agents: agents.map(t => t.name),
+        userCommands: commands.map(c => c.name),
+    }), [skills, agents, commands])
+}
 
 interface MessageBubbleProps {
     message: Message
@@ -23,8 +43,10 @@ interface MessageBubbleProps {
  */
 const MessageBubble = memo(function MessageBubble({message}: MessageBubbleProps) {
     const isUser = message.role === 'user'
+    // 已知能力名集合（历史消息 commandId 缺失时降级渲染 /能力 徽章用）
+    const knownCapabilities = useKnownCapabilities()
     // 用户命令消息：解析命令上下文（skill/agent/command），渲染为能力徽章 + 任务内容
-    const userCmdCtx = isUser ? parseUserCommandContext(message) : null
+    const userCmdCtx = isUser ? parseUserCommandContext(message, knownCapabilities) : null
     // 命令消息时隐藏原始文本（已由徽章展示），附件/工具调用仍正常渲染
     const commandTextHidden = {...message, content: ''}
 
@@ -159,7 +181,7 @@ const MessageBubble = memo(function MessageBubble({message}: MessageBubbleProps)
                                     minute: '2-digit'
                                 })}
                                 <span className="mx-1 opacity-50">·</span>
-                                <span>{Math.round((message.endedAt - message.timestamp) / 1000)}秒</span>
+                                <span>{formatDuration(message.endedAt - message.timestamp)}</span>
                             </>
                         ) : (
                             new Date(message.timestamp).toLocaleTimeString('zh-CN', {
