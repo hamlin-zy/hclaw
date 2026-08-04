@@ -96,7 +96,8 @@ export class GoogleAdapter implements ModelAdapter {
      */
     private createOAuthFetch(_oauthToken: string): typeof fetch {
         const originalFetch = globalThis.fetch.bind(globalThis)
-        return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        // 具名箭头函数：保留栈追踪可读性（oauthFetch 帧），箭头函数维持词法 this 捕获
+        const oauthFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
             const request = new Request(input instanceof URL ? input : input, init)
             // 仅拦截 Gemini API 请求
             if (!request.url.includes('generativelanguage.googleapis.com')) {
@@ -114,6 +115,7 @@ export class GoogleAdapter implements ModelAdapter {
             }
             return originalFetch(new Request(request.url, modifiedInit))
         }
+        return oauthFetch
     }
 
     /**
