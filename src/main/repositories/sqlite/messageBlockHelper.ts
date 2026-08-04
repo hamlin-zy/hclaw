@@ -37,7 +37,7 @@ function interleaveTextAndTools<T>(
  * - user/system 消息: messages 表1条，blocks 为空
  * - assistant 消息: messages 表1条(container)，blocks 存储各部分
  */
-export function messageToBlocks(msg: Message, convId: string): { messages: Message[]; blocks: MessageBlock[] } {
+export function messageToBlocks(msg: Message, _convId: string): { messages: Message[]; blocks: MessageBlock[] } {
   const blocks: MessageBlock[] = []
   let sequence = 0
 
@@ -187,6 +187,11 @@ export function messageToBlocks(msg: Message, convId: string): { messages: Messa
       thinkBlock: msg.thinkBlock,
       toolCalls: msg.toolCalls,
       contentBlocks: msg.contentBlocks,
+      // ★ 命令上下文透传：UserCommandBubble 渲染 /能力 徽章依赖这些字段，
+      //   缺失会导致历史消息从 DB 加载后丢失命令样式（还原为纯文本）
+      commandId: (msg as {commandId?: string}).commandId ?? (msg.metadata?.commandId as string | undefined),
+      commandArgs: (msg as {commandArgs?: string}).commandArgs ?? (msg.metadata?.commandArgs as string | undefined),
+      commandTemplate: msg.metadata?.commandTemplate,
     },
   }
 

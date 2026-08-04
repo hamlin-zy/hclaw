@@ -105,22 +105,6 @@ function calculateBounds(dialogWidth: number, dialogHeight: number) {
 }
 
 /**
- * Clamp position within boundary constraints
- * @param x Target X coordinate
- * @param y Target Y coordinate
- * @param dialogWidth Dialog width
- * @param dialogHeight Dialog height
- * @returns Clamped coordinates
- */
-function clampPosition(x: number, y: number, dialogWidth: number, dialogHeight: number) {
-    const {minX, minY, maxX, maxY} = calculateBounds(dialogWidth, dialogHeight)
-    return {
-        x: Math.min(Math.max(x, minX), maxX),
-        y: Math.min(Math.max(y, minY), maxY),
-    }
-}
-
-/**
  * Load saved position from localStorage
  */
 function loadPosition(storageKey: string): {x: number; y: number} | null {

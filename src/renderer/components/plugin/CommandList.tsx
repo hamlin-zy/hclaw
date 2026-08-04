@@ -2,7 +2,7 @@
  * CommandList - 命令列表组件
  * 从插件和用户自定义命令合并加载，支持搜索过滤和键盘导航
  */
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {fuzzyFilter} from '../../lib/search';
 import {CopyButton} from '../common/CopyButton';
 import {Command} from './CommandPalette';

@@ -5,7 +5,7 @@
  */
 
 import {logger} from './logger'
-import type {Message, ToolCall} from '@shared/types'
+import type {Message} from '@shared/types'
 import type {ChatMessage} from './model/types'
 import type {PendingAssistantMsg} from './manager.types'
 import type {AgentStreamEvent} from './stream'

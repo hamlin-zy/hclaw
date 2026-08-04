@@ -23,10 +23,7 @@ export function handleToolUse(ctx: StreamCtx) {
     const convState = get().convAgentStates[convId] || createDefaultConvData()
     const convStore = useConversationStore.getState()
 
-    console.log('[handleStreamEvent] tool_use event received, toolCallId:', tc.id, 'toolName:', tc.name, 'current streamingMessageId:', convState.streamingMessageId)
-
     if (convState.streamingMessageId === null && convState.agentState.status === 'idle') {
-        console.log('[handleStreamEvent] tool_use SKIPPED: streamingMessageId is null and status is idle')
         return
     }
 
@@ -40,8 +37,10 @@ export function handleToolUse(ctx: StreamCtx) {
 
     let msgId = convState.streamingMessageId
     if (!msgId) {
-        msgId = crypto.randomUUID()
-        console.log('[handleStreamEvent] tool_use: creating new assistant message, id:', msgId)
+        // ★ 子会话（主进程累积器）通过 messageId 指定固定 assistant 消息 id，
+        //   与主进程增量落库的 SQLite 消息 id 一致 → 运行中切换/刷新无重复气泡。
+        //   主会话无 messageId，仍用 UUID 创建。
+        msgId = (event.messageId as string | undefined) || crypto.randomUUID()
         convStore.addMessageToConv(convId, {
             id: msgId,
             role: 'assistant',
@@ -53,15 +52,12 @@ export function handleToolUse(ctx: StreamCtx) {
 
     const convMsgs = convStore.messagesMap[convId] || []
     const msg = convMsgs.find(m => m.id === msgId)
-    console.log('[handleStreamEvent] tool_use: found message, id:', msgId, 'existing toolCalls:', msg?.toolCalls?.length)
     const existing = msg?.toolCalls || []
     if (existing.some(e => e.id === tc.id)) {
-        console.log('[handleStreamEvent] tool_use: SKIPPED (already exists), id:', tc.id)
         return
     }
     const updatedConvState = get().convAgentStates[convId] || createDefaultConvData()
     const textOffset = updatedConvState.streamBuffer.length
-    console.log('[handleStreamEvent] tool_use: adding toolCall to message, total toolCalls will be:', existing.length + 1)
     convStore.updateMessageForConv(convId, msgId, {
         toolCalls: [...existing, {
             id: tc.id,
@@ -71,9 +67,11 @@ export function handleToolUse(ctx: StreamCtx) {
             textOffset,
             reason: tc.reason,
             terminal: tc.terminal,
+            // ★ 倒计时数据持久化：tool_use 阶段通常无 timeoutMs（主进程在 tool_start 才注入），
+            //   但若已携带则落库，保证不丢（tool_start 到达时会再补齐）
+            timeoutMs: tc.timeoutMs,
         }],
     })
-    console.log(`[tool_use] ${tc.name}[${tc.id}] count: ${updatedConvState.runningToolCount}→${updatedConvState.runningToolCount + 1}`)
     get().updateConvData(convId, {
         runningToolCount: updatedConvState.runningToolCount + 1,
     })
@@ -134,28 +132,45 @@ export function handleToolStart(ctx: StreamCtx) {
 
     const msg = convStore.messagesMap[convId]?.find(m => m.id === msgId)
     const existing = msg?.toolCalls || []
-    if (existing.some(e => e.id === tc.id)) {
-        // 工具已在 handleToolUse 中添加，确保 toolCallsStore 注册运行中状态
-        useToolCallsStore.getState().registerToolCall(tc.id, {status: 'running'})
-        get().updateConvData(convId, {
-            agentState: {...convState.agentState, status: 'running', phase: 'executing_tools'},
-            executingToolsMessage: null,
+    if (!existing.some(e => e.id === tc.id)) {
+        // 工具尚未经 tool_use 事件加入消息 → 补建 toolCall 条目（保留 textOffset 交错）
+        const textOffset = convState.streamBuffer.length
+        convStore.updateMessageForConv(convId, msgId, {
+            toolCalls: [...existing, {id: tc.id, name: tc.name, arguments: tc.arguments, status: 'running', textOffset, reason: tc.reason, terminal: tc.terminal, timeoutMs: tc.timeoutMs}],
         })
-        return
+    } else {
+        // ★ 已存在条目：tool_start 到达时主进程才注入 timeoutMs（tool_use 阶段可能缺失），
+        //   补写进消息副本，使倒计时数据随消息持久化（模式切换/重载后仍可用）
+        const needsTimeout = existing.some(e => e.id === tc.id && e.timeoutMs === undefined && tc.timeoutMs !== undefined)
+        if (needsTimeout) {
+            const patched = existing.map(e => e.id === tc.id && e.timeoutMs === undefined ? {...e, timeoutMs: tc.timeoutMs} : e)
+            convStore.updateMessageForConv(convId, msgId, {toolCalls: patched})
+        }
     }
 
-    const textOffset = convState.streamBuffer.length
-    convStore.updateMessageForConv(convId, msgId, {
-        toolCalls: [...existing, {id: tc.id, name: tc.name, arguments: tc.arguments, status: 'running', textOffset, reason: tc.reason, terminal: tc.terminal}],
-    })
+    // ★ 倒计时起点：tool_start 到达时刻（已存在则更新，否则注册）
+    registerRunningTool(tc.id, tc.timeoutMs)
 
     get().updateConvData(convId, {
         streamingMessageId: msgId,
         agentState: {...convState.agentState, status: 'running', phase: 'executing_tools'},
         executingToolsMessage: null,
     })
+}
 
-    useToolCallsStore.getState().registerToolCall(tc.id, {status: 'running'})
+/** 注册运行中工具的倒计时数据（tool_start 到达时刻为起点） */
+function registerRunningTool(toolCallId: string, timeoutMs?: number) {
+    const updates = {
+        status: 'running' as const,
+        startedAt: Date.now(),
+        ...(timeoutMs !== undefined ? {timeoutMs} : {}),
+    }
+    const store = useToolCallsStore.getState()
+    if (store.states[toolCallId]) {
+        store.updateToolCall(toolCallId, updates)
+    } else {
+        store.registerToolCall(toolCallId, updates)
+    }
 }
 
 export function handleToolProgress(ctx: StreamCtx) {

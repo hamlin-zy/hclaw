@@ -122,13 +122,7 @@ function isLocalFilePath(src: string): boolean {
     return false
 }
 
-/** 调试用：打印 img props */
-function img({node, src, alt, ...props}: any) {
-    console.debug('[MarkdownRenderer] img props:', {src, alt, node_url: node?.url})
-    return renderImg({src, alt, ...props})
-}
-
-function renderImg({src, alt, ...props}: any) {
+function renderImg({src, alt}: any) {
     // 检测媒体类型：音频/视频走 MediaPlayer，图片走 LocalImage
     const mediaType = src ? inferMediaTypeFromUrl(src) : null
     if (mediaType && mediaType !== 'image') {
@@ -144,25 +138,6 @@ function renderImg({src, alt, ...props}: any) {
         )
     }
     return <LocalImage src={src} alt={alt || ''} />
-}
-
-/**
- * 将 file:// URL 转为本地文件路径
- */
-function resolveFilePath(src: string): string {
-    if (src.startsWith('file://')) {
-        let path = src.slice('file://'.length)
-        // Windows: file:///C:/... → /C:/... → 去掉前导 /
-        if (/^\/[a-zA-Z]:[/\\]/.test(path)) {
-            path = path.slice(1)
-        }
-        try {
-            return decodeURIComponent(path)
-        } catch {
-            return path
-        }
-    }
-    return src
 }
 
 /**
@@ -191,17 +166,9 @@ function LocalImage({src, alt}: {src: string; alt: string}) {
         // 方式 1: 通过 hclaw-media:// 协议（主进程自定义协议，渲染进程可直接访问）
         // 支持百分号编码路径（C:\... → C%3A%5C...）和反斜杠路径
         // localPathToMediaUrl 处理: Windows 绝对路径 → hclaw-media:///C:/path, Unix 绝对路径 → hclaw-media:///path
-        let mediaUrl = localPathToMediaUrl(src)
+        const mediaUrl = localPathToMediaUrl(src)
         setResolvedSrc(mediaUrl)
         setLoading(false)
-
-        // 方式 2（备用）: IPC readFileAsDataUrl → data: URL
-        // 仅在 hclaw-media 不工作时使用
-        // const filePath = resolveFilePath(src)
-        // window.electronAPI?.readFileAsDataUrl?.(filePath).then((dataUrl) => {
-        //     if (dataUrl) { setResolvedSrc(dataUrl); setLoading(false) }
-        //     else { setError(true); setLoading(false) }
-        // }).catch(() => { setError(true); setLoading(false) })
     }, [src])
 
     // 加载中占位（用 span 而非 div/figure，避免 validateDOMNesting: <div>/<figure> cannot appear as a descendant of <p>）
@@ -445,7 +412,7 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
             )
         },
         // 代码块
-        code({node, inline, className, children, ref: _ref, ...props}: any) {
+        code({_node, inline, className, children, ref: _ref, ...props}: any) {
             const match = /language-(\w+)/.exec(className || '')
             // react-markdown v9 的 children 可能是数组，需要处理
             const codeString = Array.isArray(children) ? children.join('') : String(children ?? '')

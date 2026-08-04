@@ -108,7 +108,6 @@ export default function ModelSchemeDialog() {
         addScheme,
         updateScheme,
         removeScheme,
-        duplicateScheme,
         createFromPreset,
     } = useModelSchemeStore()
 

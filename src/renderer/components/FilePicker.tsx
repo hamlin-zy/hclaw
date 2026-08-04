@@ -89,10 +89,24 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
             ArrowDown: () => setSel(i => Math.min(i + 1, filtered.length - 1)),
             ArrowUp: () => setSel(i => Math.max(i - 1, 0)),
             Tab: () => {
-                if (item) item.isDirectory ? (onNavigate(item.name), setBadges([])) : toggleBadge(item.name)
+                if (item) {
+                    if (item.isDirectory) {
+                        onNavigate(item.name)
+                        setBadges([])
+                    } else {
+                        toggleBadge(item.name)
+                    }
+                }
             },
             Enter: () => {
-                if (item) item.isDirectory ? (onNavigate(item.name), setBadges([])) : toggleBadge(item.name)
+                if (item) {
+                    if (item.isDirectory) {
+                        onNavigate(item.name)
+                        setBadges([])
+                    } else {
+                        toggleBadge(item.name)
+                    }
+                }
             },
             ArrowLeft: () => currentNav && onGoBack(),
             Escape: () => onClose(),

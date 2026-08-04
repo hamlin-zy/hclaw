@@ -59,7 +59,6 @@ export default function HooksDialog() {
   }, {} as Record<Category, Hook[]>)
 
   const currentHooks = hooksByCategory[selectedCategory] || []
-  const categoryDef = eventDefinitions.find(d => d.category === selectedCategory)
 
   const handleSave = async (data: Partial<Hook> & { name: string; events: string[]; config: HookConfig }) => {
     const result = await saveHook({
@@ -93,6 +92,7 @@ export default function HooksDialog() {
               await deleteHook(id)
           }
       })
+      if (!confirmed) return
   }
 
   return (

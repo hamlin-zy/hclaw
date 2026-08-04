@@ -3,7 +3,6 @@
 
 import type {StreamCtx} from './streamContext'
 import type {ConvAgentData} from '../types'
-import type {Message} from '@shared/types'
 import {IDLE_STATE, makeAgentState, createDefaultConvData} from '../defaultState'
 import {useConversationStore} from '../../conversationStore'
 import {useAgentStore} from '..'

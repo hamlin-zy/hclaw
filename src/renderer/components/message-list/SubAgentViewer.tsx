@@ -9,7 +9,6 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import type {ExtendedToolResult, ProgressEntry, SubAgentStreamEntry} from '../../stores/toolCallsStore'
-import {truncate} from '../../lib/format'
 import {StreamEntryCard, mergeTimeline, mergeConsecutiveTextEntries, getLastActiveTime} from './StreamEntryRenderer'
 import MarkdownRenderer from './MarkdownRenderer'
 
@@ -114,7 +113,7 @@ export default function SubAgentViewer({
     const logs = progressLog || []
 
     const {pos, dragging, onStart: onDragStart} = useDrag({x: 120, y: 80})
-    const {sz, resizing, onStart: onResizeStart} = useResize({w: DEF_W, h: DEF_H})
+    const {sz, onStart: onResizeStart} = useResize({w: DEF_W, h: DEF_H})
     const [activeTab, setActiveTab] = useState<TabId>(entries.length > 0 ? 'stream' : 'timeline')
     const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
     const streamEndRef = useRef<HTMLDivElement>(null)
@@ -134,8 +133,12 @@ export default function SubAgentViewer({
     }, [activeTab, subAgentStream?.length])
 
     const toggleThinking = useCallback((idx: number) => setCollapsed(p => {
-        const n = new Set(p);
-        n.has(idx) ? n.delete(idx) : n.add(idx);
+        const n = new Set(p)
+        if (n.has(idx)) {
+            n.delete(idx)
+        } else {
+            n.add(idx)
+        }
         return n
     }), [])
 
@@ -313,7 +316,7 @@ export default function SubAgentViewer({
                             maxHeight: 300,
                             overflow: 'auto'
                         }}>
-                            <MarkdownRenderer>{truncate(String(result.output), 10000)}</MarkdownRenderer>
+                            <MarkdownRenderer>{String(result.output)}</MarkdownRenderer>
                         </div>
                     </div>
                 )}

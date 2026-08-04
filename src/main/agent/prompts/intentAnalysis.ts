@@ -120,7 +120,7 @@ export function parseIntentAnalysisResult(response: string): IntentAnalysisResul
             suggestedModel,
             suggestedAgentType,
         }
-    } catch (error) {
+    } catch {
                 // 返回默认值
         return {
             summary: '用户请求',

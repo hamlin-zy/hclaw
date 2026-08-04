@@ -12,6 +12,17 @@ export function getRelativeTime(ts: number): string {
   return new Date(ts).toLocaleDateString('zh-CN')
 }
 
+/** 将时长毫秒格式化为分级文本：<1min→n秒；<1h→m分n秒；>=1h→x小时m分n秒 */
+export function formatDuration(ms: number): string {
+  const totalSec = Math.max(0, Math.round(ms / 1000))
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  if (h > 0) return `${h}小时${m}分${s}秒`
+  if (m > 0) return `${m}分${s}秒`
+  return `${s}秒`
+}
+
 /** 提取路径最后一段（浏览器环境中替代 path.basename） */
 export function getBasename(p: string): string {
   const parts = p.split(/[/\\]/).filter(Boolean)

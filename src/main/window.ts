@@ -171,7 +171,7 @@ export function updateTitleBarOverlay(theme: ThemeMode): void {
             ...getOverlayConfig(theme),
             height: TITLEBAR_HEIGHT,
         });
-    } catch (err) {
+    } catch {
         // Titlebar overlay 未启用时静默忽略（窗口需使用 frame:false + titleBarOverlay:true）
     }
 }
@@ -561,7 +561,7 @@ export function initWindowIPC(): void {
             };
             const mime = mimeTypes[ext] || 'application/octet-stream';
             return `data:${mime};base64,${base64}`;
-        } catch (error) {
+        } catch {
             return null;
         }
     });

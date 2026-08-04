@@ -4,9 +4,6 @@ import type {AgentStore} from '../types'
 import {IDLE_STATE, makeAgentState} from '../defaultState'
 import {useConversationStore} from '../../conversationStore'
 import {clearAllBatches} from '../helpers/convHelpers'
-import {flushAllTextBatches, clearTextBatch} from '../batching/textBatch'
-import {saveHmrContext} from '../helpers/hmrPersistence'
-import {updateMessageContentBlocks} from '../contentBlocks'
 
 type SetFn = (...args: any[]) => any
 type GetFn = () => AgentStore

@@ -3,8 +3,7 @@ import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {switchActiveScheme, useModelSchemeStore} from '../stores/modelSchemeStore'
 import {useMenuBarStore} from '../stores/menuBarStore'
-import type {ModelRole, ModelScheme} from '@shared/types'
-import {useAgentStore} from '../stores/agentStore'
+import type {ModelScheme} from '@shared/types'
 
 /** 模型方案的颜色标识 */
 const SCHEME_COLORS = [
@@ -206,7 +205,7 @@ export default function SchemeSelector() {
             if (result.switched && result.schemeName) {
                 showToast(`已切换至「${result.schemeName}」`, 3000)
             }
-        } catch (err) {
+        } catch {
             showToast('方案切换失败', 3000)
         } finally {
             setIsSwitching(false)

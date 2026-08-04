@@ -7,9 +7,7 @@ import type {AgentStreamEvent} from '../stream'
 import type {LoopState as AgentLoopState} from '../state'
 import type {
     AgentTemplate,
-    CommandExecutionContext,
     HClawAgentType,
-    IntentAnalysisResult,
     MCPServer
 } from '@shared/types'
 import type {ModelRole} from '@shared/types'

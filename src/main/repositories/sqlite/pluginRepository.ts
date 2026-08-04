@@ -37,7 +37,6 @@ export class SqlitePluginRepository {
      * 根据名称获取插件
      */
     getByName(name: string): Plugin | null {
-        const start = Date.now()
         try {
             const db = getDatabase()
             const stmt = db.prepare('SELECT name, path, enabled FROM plugins WHERE name = ?')

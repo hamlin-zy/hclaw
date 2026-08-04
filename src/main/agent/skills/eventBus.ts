@@ -47,7 +47,7 @@ class SkillEventBusImpl {
             for (const cb of callbacks) {
                 try {
                     cb(event)
-                } catch (e) {
+                } catch {
                     // Listener error
                 }
             }
@@ -59,7 +59,7 @@ class SkillEventBusImpl {
             for (const cb of allCallbacks) {
                 try {
                     cb(event)
-                } catch (e) {
+                } catch {
                     // Listener error
                 }
             }

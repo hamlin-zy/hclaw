@@ -135,7 +135,7 @@ export function InlineCommandPicker({query, onClose, onComplete}: Props) {
                         <div key={g.source}>
                             <div
                                 className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider ${cfg.t} opacity-60`}>{g.label}</div>
-                            {items.map((item, idx) => {
+                            {items.map((item) => {
                                 const realIdx = flat.indexOf(item)
                                 return (
                                     <div key={item.id} data-idx={realIdx} onClick={() => onComplete(`/${item.name} `)}

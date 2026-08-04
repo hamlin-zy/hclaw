@@ -199,11 +199,15 @@ export function validateReferences(skillDir: string, refs: ReferenceRef[]): {
   const valid: ReferenceRef[] = []
   const invalid: string[] = []
   for (const ref of refs) {
-      resolveReferencePath(skillDir, ref.path) ? valid.push({
-          ...ref,
-          content: undefined,
-          loaded: false
-      }) : invalid.push(ref.path)
+      if (resolveReferencePath(skillDir, ref.path)) {
+          valid.push({
+              ...ref,
+              content: undefined,
+              loaded: false
+          })
+      } else {
+          invalid.push(ref.path)
+      }
   }
   return {valid, invalid}
 }

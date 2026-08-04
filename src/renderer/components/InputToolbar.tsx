@@ -1,4 +1,3 @@
-import {type ReactNode} from 'react'
 import CacheRateTooltip from './CacheRateTooltip'
 import ToolMenu from './ToolMenu'
 

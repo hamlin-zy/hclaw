@@ -71,7 +71,14 @@ export class MCPClient {
     debug: (...args: any[]) => void
   }
 
-  constructor(options?: { logger?: { info?: Function; error?: Function; warn?: Function; debug?: Function } }) {
+  constructor(options?: {
+    logger?: {
+      info?: (...args: unknown[]) => void
+      error?: (...args: unknown[]) => void
+      warn?: (...args: unknown[]) => void
+      debug?: (...args: unknown[]) => void
+    }
+  }) {
     const l = options?.logger
     // 统一使用项目 logger，避免降级到裸 console 绕过日志审计
     const levels = ['info', 'error', 'warn', 'debug'] as const
@@ -79,7 +86,8 @@ export class MCPClient {
       levels.map(level => [
         level,
         (...args: unknown[]) => {
-          if (l?.[level]) (l[level] as Function)(...args)
+          const fn = l?.[level]
+          if (fn) fn(...args)
           else if (args[0]) logger[level](String(args[0]), args.length > 1 ? { extra: args.slice(1) } : undefined)
         },
       ])
