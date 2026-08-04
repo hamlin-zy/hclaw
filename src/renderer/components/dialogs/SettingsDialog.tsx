@@ -24,7 +24,6 @@ export default function SettingsDialog() {
         settings,
         pendingSettings,
         isDirty,
-        loadSettings,
         updatePending,
         saveSettings,
         discardChanges

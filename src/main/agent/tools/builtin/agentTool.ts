@@ -20,7 +20,7 @@
 
 import {z} from 'zod'
 import {randomUUID} from 'crypto'
-import type {Tool, ToolContext, ToolResult} from '../types'
+import type {Tool, ToolResult} from '../types'
 import {agentLoop} from '../../loop'
 import type {AgentStreamEvent} from '../../stream'
 import {logger} from '../../logger'

@@ -5,9 +5,6 @@
 import {ipcMain} from 'electron'
 import {permissionEngine} from '../tools/permission'
 import {agentManager} from '../manager'
-import {runtimeConfigManager} from '../runtimeConfigManager'
-import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
-import {logger} from '../logger'
 
 export function registerHandlers(): void {
     // 获取权限模式

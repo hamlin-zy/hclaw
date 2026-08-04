@@ -491,7 +491,6 @@ class PowerManagerImpl {
      */
     private syncPluginSkillsEnabled(pluginEnabledMap: Record<string, boolean>): void {
         const pluginSkills = skillRegistry.getAll().filter(s => !!s.pluginName)
-        let synced = 0
 
         for (const skill of pluginSkills) {
             const pluginEnabled = pluginEnabledMap[skill.pluginName!]
@@ -499,7 +498,6 @@ class PowerManagerImpl {
                 skill.enabled = false
             } else {
                 skill.enabled = pluginEnabled
-                if (pluginEnabled) synced++
             }
         }
     }

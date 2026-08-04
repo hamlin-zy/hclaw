@@ -5,7 +5,6 @@ import type {MCPServer} from '@shared/types'
 import MCPToolsOverlay from './MCPToolsOverlay'
 import MCPUserServerCard from './MCPUserServerCard'
 import MCPPluginServerCard from './MCPPluginServerCard'
-import MCPEditCard from './MCPEditCard'
 import MCPEditModal from './MCPEditModal'
 import {useMcpErrorDialog} from './MCPErrorHelper'
 import {useMenuBarStore} from '../../stores/menuBarStore'
@@ -248,7 +247,11 @@ export default function MCPDialog() {
             // 用户 MCP 需要更新 store
             if (!server.id.startsWith('plugin:')) toggleMCPServer(server.id)
             await window.electronAPI?.mcp?.setEnabled?.(server.id, newEnabled)
-            newEnabled ? startServer(server) : stopServer(server.id)
+            if (newEnabled) {
+                startServer(server)
+            } else {
+                stopServer(server.id)
+            }
         }
         if (servers[0]?.id.startsWith('plugin:')) {
             setPluginMcpServers(prev => prev.map(s => ({...s, enabled: newEnabled})))

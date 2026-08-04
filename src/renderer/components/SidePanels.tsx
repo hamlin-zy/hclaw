@@ -10,7 +10,7 @@ import {useSidebarStore} from '../stores/sidebarStore'
  * 支持拖动分隔条来调整两个面板的高度比例。
  */
 export default function SidePanels() {
-    const {rightCollapsed, setRightCollapsed} = useSidebarStore()
+    const {setRightCollapsed} = useSidebarStore()
     const [topPanelHeight, setTopPanelHeight] = useState(70) // 权限规则 70%，待办列表 30%
     const containerRef = useRef<HTMLDivElement>(null)
     const isInitializedRef = useRef(false)

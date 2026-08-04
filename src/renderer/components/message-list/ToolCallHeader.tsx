@@ -183,7 +183,6 @@ export default function ToolCallHeader({
                 return parts.map((part, i) => {
                     // 前缀（m_ 或 mp_）用品牌色，服务名用品牌色+下划线，工具名用主色
                     if (i === 0) {
-                        const isPlugin = part.endsWith('p')
                         return (
                             <span key={i} className="text-[var(--brand-primary)]/70">
                                 {part}

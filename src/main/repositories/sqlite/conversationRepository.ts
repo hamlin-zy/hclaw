@@ -128,18 +128,14 @@ export class SqliteConversationRepository implements IConversationRepository {
                     'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
                 )
 
-                let insertedCount = 0
-                let blockCount = 0
                 for (const msg of messages) {
                     const {messages: [msgRecord], blocks} = messageToBlocks(msg, convId)
                     const llmStats = msg.llmStats ? JSON.stringify(msg.llmStats) : null
 
                     msgStmt.run(msgRecord.id, convId, msgRecord.role, msgRecord.timestamp, msgRecord.endedAt ?? null, JSON.stringify(msgRecord.metadata), llmStats)
-                    insertedCount++
 
                     for (const block of blocks) {
                         blockStmt.run(block.id, block.messageId, block.blockType, block.content, block.data, block.sequence, block.timestamp, block.endedAt ?? null)
-                        blockCount++
                     }
                 }
 

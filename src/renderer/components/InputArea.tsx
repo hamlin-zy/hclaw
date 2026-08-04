@@ -455,7 +455,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
     const isPaused = agentState.status === 'paused'
     // ★ 改造：从 convData 读取当前会话的 pendingQuestion
     const pendingQuestion = convData?.pendingQuestion ?? null
-    const respondQuestion = useAgentStore((s) => s.respondQuestion)
+    const _respondQuestion = useAgentStore((s) => s.respondQuestion)
     const compactInProgress = useAgentStore((s) => s.compactInProgress)
 
     // 有文本 或 附件 或 [文件名] 徽章时允许发送
@@ -463,11 +463,6 @@ export default function InputArea({isActive = true}: InputAreaProps) {
     const canSend = (input.trim().length > 0 || attachedFiles.length > 0 || hasBadgeContent) && !isPaused
     const needsSession = !activeConversationId
     const needsModel = !activeModelName
-
-    // 响应确认请求
-    const handleAction = async (action: 'allow' | 'always' | 'deny') => {
-        await respondQuestion(action)
-    }
 
     // 终止 Agent 执行
     const handleAbort = useCallback(async () => {
@@ -498,28 +493,11 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                     commandArgs: args,
                 }
             })
-        } catch (err) {
+        } catch {
             // 静默处理错误
         }
         setCommandPaletteOpen(false)
     }, [handleSubmitWithMessage])
-
-    // 工具：在 textarea 指定位置插入文本并聚焦
-    const insertAtCursor = useCallback((insert: string, prefixLen: number = 0) => {
-        const ta = textareaRef.current
-        if (!ta) return null
-        const cursor = ta.selectionStart
-        const before = input.slice(0, cursor - prefixLen)
-        const after = input.slice(cursor)
-        const result = (before + insert + after).replace(/^\s*/, '').trimStart()
-        setInput(result)
-        const newPos = before.length + insert.length
-        requestAnimationFrame(() => {
-            ta.focus();
-            ta.selectionStart = ta.selectionEnd = newPos
-        })
-        return result
-    }, [input])
 
     // 处理剪贴板粘贴（支持图片）
     const handlePaste = useCallback(async (e: React.ClipboardEvent) => {

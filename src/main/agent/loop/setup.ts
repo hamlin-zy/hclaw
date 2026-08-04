@@ -10,8 +10,7 @@
  */
 
 import type {AgentStreamEvent} from '../stream'
-import type {ToolContext, ToolDefinitionForLLM} from '../tools/types'
-import type {ChatMessage} from '../model/types'
+import type {ToolDefinitionForLLM} from '../tools/types'
 import type {RunParams, TurnModelSelection} from './types'
 import type {LoopState as AgentLoopState} from '../state'
 import type {AgentDefinition} from '@shared/agent'

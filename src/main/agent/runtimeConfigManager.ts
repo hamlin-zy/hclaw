@@ -26,7 +26,6 @@
 import {logger} from './logger'
 import type {LLMProvider, ModelRole, ModelScheme, RunMode, SystemSettings, WorkMode} from '@shared/types'
 // WORK_MODE_TO_MODEL_ROLE 已废弃，映射逻辑内联在 getModelRoleForWorkMode() 中
-import {getRoleConfig} from '@shared/modelSchemeHelpers'
 import {setCurrentScheme as setModelScheme} from './model/modelSchemeManager'
 import {getConfigBridge, setConfigBridge} from './common/configBridge'
 

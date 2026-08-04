@@ -136,7 +136,7 @@ export default function WorkModeSelector() {
                 if (mode) {
                     useAgentStore.setState({workMode: mode})
                 }
-            } catch (err) {
+            } catch {
                 // Error silently ignored
             }
         }

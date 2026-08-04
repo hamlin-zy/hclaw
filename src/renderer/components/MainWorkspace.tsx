@@ -41,7 +41,7 @@ export default function MainWorkspace() {
     }, [])
 
     // ★ 稳定化 conversationIds：仅在 ID 集合变化时重渲染
-    const conversationIds = useConversationStore(
+    const _conversationIds = useConversationStore(
         (s) => {
             const ws = s.currentWorkspacePath ? s.workspaces[s.currentWorkspacePath] : undefined
             return ws?.conversations.map(c => c.id) ?? []

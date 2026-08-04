@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useState} from 'react'
+import {useEffect, useMemo, useState} from 'react'
 import {clsx} from 'clsx'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
@@ -7,7 +7,7 @@ import {confirm} from '../ConfirmDialog'
 import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
 import type {AgentTemplate} from '@shared/types'
 import {fuzzyFilter} from '../../lib/search'
-import {Layers, Search, RefreshCw, Plus, Edit2, Trash2, X, Check, AlertCircle, ChevronDown, Folder} from 'lucide-react'
+import {Layers, Search, RefreshCw, Plus, Edit2, Trash2, X} from 'lucide-react'
 import LoadErrorBanner from '../common/LoadErrorBanner'
 
 // 标签样式配置（模块级常量，避免重复创建）
@@ -261,7 +261,6 @@ export default function AgentsDialog() {
         syncFromDisk,
         init,
         loading,
-        updateTemplateDescription,
         loadErrors,
     } = useAgentTemplateStore()
     const [showModal, setShowModal] = useState(false)

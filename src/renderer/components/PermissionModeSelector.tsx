@@ -23,7 +23,7 @@ export default function PermissionModeSelector() {
                 if (mode) {
                     useAgentStore.setState({permissionMode: mode})
                 }
-            } catch (err) {
+            } catch {
                 // Error silently ignored
             }
         }

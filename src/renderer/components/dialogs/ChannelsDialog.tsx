@@ -237,10 +237,10 @@ function WeChatLoginPanel({onConnected}: { onConnected: () => void }) {
 // ─── 主组件 ────────────────────────────────────────────
 
 export default function ChannelsDialog() {
-    const {channels, loading, loadChannels, create, update, remove} = useChannelStore()
+    const {channels, loadChannels, create, update, remove} = useChannelStore()
     const [expandedType, setExpandedType] = useState<ChannelType | null>(null)
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
-    const [connecting, setConnecting] = useState<ChannelType | null>(null)
+    const [_connecting, setConnecting] = useState<ChannelType | null>(null)
     const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     // 清除 toast 定时器

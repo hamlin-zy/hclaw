@@ -27,7 +27,7 @@ export function useGlobalHotkeys() {
                 e.preventDefault()
                 const store = useConversationStore.getState()
                 if (store.currentWorkspacePath) {
-                    store.createConversation().then((newId) => {
+                    store.createConversation().then(() => {
                         // 创建会话后触发焦点事件，让 InputArea 获取焦点
                         window.dispatchEvent(new CustomEvent('hclaw:focus-input'))
                     })

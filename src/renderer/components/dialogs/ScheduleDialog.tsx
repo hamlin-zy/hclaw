@@ -7,7 +7,6 @@
 
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 import {ScheduleUI, useScheduleStore} from '../../stores/scheduleStore'
-import {useConversationStore} from '../../stores/conversationStore'
 import {confirm} from '../ConfirmDialog'
 import {ScheduleEditModal, ScheduleFormData} from './ScheduleEditModal'
 import {Switch} from '../common/Switch'
@@ -16,15 +15,6 @@ import {fuzzyFilter} from '../../lib/search'
 // ─── 类型定义 ─────────────────────────────────────────
 
 type TabType = 'all' | 'enabled' | 'disabled' | 'failed'
-
-interface ConversationRecord {
-    id: string
-    status: string
-    startedAt: number
-    finishedAt?: number | null
-    messageCount?: number
-    error?: string | null
-}
 
 // ─── 状态配置 ─────────────────────────────────────────
 
@@ -68,12 +58,6 @@ function formatTime(ts: number | null | undefined): string {
     if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
 
     return `${d.getMonth() + 1}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function formatConversationTime(ts: number | null | undefined): string {
-    if (!ts) return '-'
-    const d = new Date(ts)
-    return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 /** 高亮文本中的搜索关键词 */
@@ -667,7 +651,7 @@ function ConversationsPanel({scheduleId, scheduleName, taskType}: ConversationsP
 
 // ─── 脚本日志面板 ─────────────────────────────────────
 
-function ScriptLogPanel({scheduleId, scheduleName}: {scheduleId: string; scheduleName: string}) {
+function ScriptLogPanel({scheduleId, scheduleName: _scheduleName}: {scheduleId: string; scheduleName: string}) {
     const [logs, setLogs] = useState<ScriptLogEntry[]>([])
     const [loading, setLoading] = useState(true)
     const [expandedLog, setExpandedLog] = useState<string | null>(null)

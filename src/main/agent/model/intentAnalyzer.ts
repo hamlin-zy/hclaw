@@ -78,7 +78,7 @@ export async function analyzeIntent(
                 outputContent: response.content.slice(0, 2000),
             },
         }
-    } catch (error) {
+    } catch {
         return {result: createDefaultResult(textContent)}
     }
 }

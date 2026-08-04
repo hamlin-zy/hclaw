@@ -122,13 +122,7 @@ function isLocalFilePath(src: string): boolean {
     return false
 }
 
-/** 调试用：打印 img props */
-function img({node, src, alt, ...props}: any) {
-    console.debug('[MarkdownRenderer] img props:', {src, alt, node_url: node?.url})
-    return renderImg({src, alt, ...props})
-}
-
-function renderImg({src, alt, ...props}: any) {
+function renderImg({src, alt}: any) {
     // 检测媒体类型：音频/视频走 MediaPlayer，图片走 LocalImage
     const mediaType = src ? inferMediaTypeFromUrl(src) : null
     if (mediaType && mediaType !== 'image') {
@@ -144,25 +138,6 @@ function renderImg({src, alt, ...props}: any) {
         )
     }
     return <LocalImage src={src} alt={alt || ''} />
-}
-
-/**
- * 将 file:// URL 转为本地文件路径
- */
-function resolveFilePath(src: string): string {
-    if (src.startsWith('file://')) {
-        let path = src.slice('file://'.length)
-        // Windows: file:///C:/... → /C:/... → 去掉前导 /
-        if (/^\/[a-zA-Z]:[/\\]/.test(path)) {
-            path = path.slice(1)
-        }
-        try {
-            return decodeURIComponent(path)
-        } catch {
-            return path
-        }
-    }
-    return src
 }
 
 /**
@@ -445,7 +420,7 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
             )
         },
         // 代码块
-        code({node, inline, className, children, ref: _ref, ...props}: any) {
+        code({_node, inline, className, children, ref: _ref, ...props}: any) {
             const match = /language-(\w+)/.exec(className || '')
             // react-markdown v9 的 children 可能是数组，需要处理
             const codeString = Array.isArray(children) ? children.join('') : String(children ?? '')

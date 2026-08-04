@@ -181,7 +181,7 @@ async function main(): Promise<void> {
             // power 变量保留用于后续扩展，目前仅做初始化
             const _power = await powerManager.getAllEnabledPower()
         }
-    } catch (err: any) {
+    } catch {
         
     }
 
@@ -272,7 +272,7 @@ async function main(): Promise<void> {
         regHooks(wkHookExe)
 
         const {loadHooksFromDirectory: loadHooks} = await import('./hooks/loader')
-        loadHooks().catch((err: any) =>
+        loadHooks().catch(() =>
             {}
         )
 
@@ -287,7 +287,7 @@ async function main(): Promise<void> {
                     if (result?.additionalContext) {
                         parts.push(result.additionalContext)
                     }
-                } catch (err: any) {
+                } catch {
                     
                 }
             }
@@ -307,7 +307,7 @@ async function main(): Promise<void> {
         if (hookAdditionalContext) {
             params.hookAdditionalContext = hookAdditionalContext
         }
-    } catch (err: any) {
+    } catch {
         
     }
 

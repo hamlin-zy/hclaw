@@ -23,7 +23,7 @@ interface MessageBubbleProps {
 /**
  * 消息气泡组件
  */
-const MessageBubble = memo(function MessageBubble({message, index, isStreaming = false}: MessageBubbleProps) {
+const MessageBubble = memo(function MessageBubble({message, index: _index, isStreaming: _isStreaming = false}: MessageBubbleProps) {
     const isUser = message.role === 'user'
     // 用户命令消息：解析命令上下文（skill/agent/command），渲染为能力徽章 + 任务内容
     const userCmdCtx = isUser ? parseUserCommandContext(message) : null

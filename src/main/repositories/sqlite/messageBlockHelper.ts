@@ -37,7 +37,7 @@ function interleaveTextAndTools<T>(
  * - user/system 消息: messages 表1条，blocks 为空
  * - assistant 消息: messages 表1条(container)，blocks 存储各部分
  */
-export function messageToBlocks(msg: Message, convId: string): { messages: Message[]; blocks: MessageBlock[] } {
+export function messageToBlocks(msg: Message, _convId: string): { messages: Message[]; blocks: MessageBlock[] } {
   const blocks: MessageBlock[] = []
   let sequence = 0
 

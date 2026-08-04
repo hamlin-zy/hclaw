@@ -253,7 +253,7 @@ export async function* executeScriptStream(
 
   // 使用事件监听来 yield 输出
   return new Promise<ScriptResult>((resolve) => {
-    proc.stdout?.on('data', (data: Buffer) => {
+    proc.stdout?.on('data', (_data: Buffer) => {
       // 通过事件方式通知
     })
 

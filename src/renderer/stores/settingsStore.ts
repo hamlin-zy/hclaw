@@ -75,7 +75,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
                 // 自动同步主题到 themeStore
                 resolveAndApplyTheme(mergedSettings.ui.theme)
             }
-        } catch (err) {
+        } catch {
             // 静默处理错误
         }
     },

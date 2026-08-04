@@ -152,7 +152,7 @@ export class PluginLoader {
       try {
         const plugin = await this.loadPlugin(pluginPath);
         return plugin;
-      } catch (error) {
+      } catch {
         return null;
       }
     })
@@ -196,7 +196,7 @@ export class PluginLoader {
         };
 
         return command;
-      } catch (error) {
+      } catch {
         return null;
       }
     })
@@ -235,7 +235,7 @@ export class PluginLoader {
     /**
      * Parse skills from .md files in the skills directory (recursive, 并行)
      */
-    private async parseSkills(pluginPath: string, pluginName: string): Promise<SkillDefinition[]> {
+    private async parseSkills(pluginPath: string, _pluginName: string): Promise<SkillDefinition[]> {
         const skillsDir = path.join(pluginPath, 'skills');
         const mdFiles = await this.collectMdFiles(skillsDir);
 
@@ -254,7 +254,7 @@ export class PluginLoader {
                 };
 
                 return skill;
-            } catch (error) {
+            } catch {
                 return null;
             }
         })
@@ -266,7 +266,7 @@ export class PluginLoader {
     /**
      * Parse agents from .md files in the agents directory (recursive, 并行)
      */
-    private async parseAgents(pluginPath: string, pluginName: string): Promise<AgentDefinition[]> {
+    private async parseAgents(pluginPath: string, _pluginName: string): Promise<AgentDefinition[]> {
         const agentsDir = path.join(pluginPath, 'agents');
         const mdFiles = await this.collectMdFiles(agentsDir);
 
@@ -284,7 +284,7 @@ export class PluginLoader {
                 };
 
                 return agent;
-            } catch (error) {
+            } catch {
                 return null;
             }
         })
@@ -320,7 +320,7 @@ export class PluginLoader {
    * 1. 数组格式: [{ type: "command", command: "...", events: [...], ... }]
    * 2. Claude Code 格式: { hooks: { EventName: [{ matcher, hooks: [{type,command}], id, description }] } }
    */
-  private async parseHooks(pluginPath: string, pluginName: string): Promise<HookConfig[]> {
+  private async parseHooks(pluginPath: string, _pluginName: string): Promise<HookConfig[]> {
     const hooksPath = path.join(pluginPath, 'hooks', 'hooks.json');
 
     try {
@@ -373,7 +373,7 @@ export class PluginLoader {
         }
 
       return [];
-    } catch (error) {
+    } catch {
       return [];
     }
   }
@@ -381,7 +381,7 @@ export class PluginLoader {
   /**
    * Parse MCP servers configuration from mcp/servers.json
    */
-  private async parseMcpServers(pluginPath: string, pluginName: string): Promise<McpServerConfig[]> {
+  private async parseMcpServers(pluginPath: string, _pluginName: string): Promise<McpServerConfig[]> {
     const mcpPath = path.join(pluginPath, 'mcp', 'servers.json');
 
     try {
@@ -403,7 +403,7 @@ export class PluginLoader {
       }
 
       return [];
-    } catch (error) {
+    } catch {
       return [];
     }
   }

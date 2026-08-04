@@ -94,7 +94,7 @@ export class GoogleAdapter implements ModelAdapter {
     /**
      * 创建 OAuth fetch：拦截 SDK 发起的请求，将 x-goog-api-key 替换为 Authorization: Bearer
      */
-    private createOAuthFetch(oauthToken: string): typeof fetch {
+    private createOAuthFetch(_oauthToken: string): typeof fetch {
         const originalFetch = globalThis.fetch.bind(globalThis)
         const self = this
         return async function oauthFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

@@ -39,8 +39,6 @@ import {powerManager} from './agent/powerManager';
 import {mcpWorkerManager} from './agent/mcp/mcpWorkerManager';
 import {runtimeConfigManager} from './agent/runtimeConfigManager';
 import {setConfigBridge} from './agent/common/configBridge';
-import {permissionEngine} from './agent/tools/permission';
-import {createConversationRepository} from './repositories';
 import {init as initUpdater} from './updater/updateChecker';
 import {versionManager} from './plugin/versionManager';
 
@@ -357,29 +355,6 @@ app.on('ready', async () => {
 
   // Step 5b: Start config file watchers (mcp.json, hooks.json)
   startConfigWatcher();
-
-  // ── Sync block 2: UI scene restoration (after sync block 1 completes) ──
-
-  // 1. Current working directory
-  const workingDir = runtimeConfigManager.getWorkingDir();
-
-  // 2. Session list in current working directory
-  const conversationRepo = createConversationRepository();
-  const sessions = conversationRepo.list();
-  const sortedSessions = sessions.sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  const activeSession = sortedSessions[0]?.id || null;
-
-  // 3. Current model scheme
-  const activeScheme = runtimeConfigManager.getScheme();
-
-  // 4. Current run mode
-  const runMode = runtimeConfigManager.getMode();
-
-  // 5. Permission rules
-  const permissionRules = await permissionEngine.getRules();
-
-  // 6. Todo list
-  const todoList = powerManager.getTodoList ? powerManager.getTodoList() : [];
 
   // Agent system: register built-in tools + IPC handlers
   agentManager.setMainWindow(getMainWindow());
