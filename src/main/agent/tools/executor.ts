@@ -263,7 +263,20 @@ export async function executeTool(
 const SIZE_WARNING_THRESHOLD = 5000 // 字符数阈值
 const SIZE_TRUNCATE_THRESHOLD = 15000 // 字符数截断阈值
 
-function checkResultSize(_toolName: string, result: ToolResult): ToolResult {
+/**
+ * 各工具的差异化截断阈值（字符数）
+ *
+ * bash 工具内部已有 2MB 输出上限（bashTool.ts MAX_OUTPUT_SIZE + TRUNCATION_NOTE），
+ * 若 executor 层再用 15KB 兜底截断，会把 bash 内部辛辛苦苦收集的完整输出
+ * 砍到只剩 15KB —— 比内部上限小 130 倍，用户观察到的"bash 输出被截断"即源于此。
+ * 因此 bash 的 executor 层阈值与内部上限对齐（2MB），内部截断是唯一截断点。
+ * 其余工具维持通用阈值。
+ */
+const TOOL_SIZE_TRUNCATE_THRESHOLDS: Record<string, number> = {
+    bash: 2 * 1024 * 1024,
+}
+
+export function checkResultSize(toolName: string, result: ToolResult): ToolResult {
     // 只检查字符串类型的输出
     if (typeof result.output !== 'string' || !result.output) {
         return result
@@ -271,16 +284,17 @@ function checkResultSize(_toolName: string, result: ToolResult): ToolResult {
 
     const output = result.output
     const length = output.length
+    const truncateThreshold = TOOL_SIZE_TRUNCATE_THRESHOLDS[toolName] ?? SIZE_TRUNCATE_THRESHOLD
 
     // 计算行数（用于 grep/glob 等搜索工具）
     const lineCount = (output.match(/\n/g) || []).length + 1
 
     // 检查是否需要警告或截断
-    if (length > SIZE_TRUNCATE_THRESHOLD) {
+    if (length > truncateThreshold) {
                 return {
             ...result,
-            output: output.slice(0, SIZE_TRUNCATE_THRESHOLD) +
-                `\n\n[结果已截断] 共 ${lineCount} 行，超过 ${SIZE_TRUNCATE_THRESHOLD} 字符限制。` +
+            output: output.slice(0, truncateThreshold) +
+                `\n\n[结果已截断] 共 ${lineCount} 行，超过 ${truncateThreshold} 字符限制。` +
                 `\n请使用更精准的搜索条件（如增加 filePattern、使用正则限制范围）重新搜索。`,
         }
     }
