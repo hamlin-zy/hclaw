@@ -31,14 +31,25 @@ function shouldShowIndicator(phase: string | undefined, status: string, isThinki
 
 /** 从 store（全局或 per-conversation）提取数据 */
 function useAgentData(conversationId?: string) {
-    const convData = useAgentStore((s) => conversationId ? s.convAgentStates[conversationId] : undefined)
+    const agentState = useAgentStore((s) =>
+        conversationId ? s.convAgentStates[conversationId]?.agentState : s.agentState)
+    const isThinkingAfterTools = useAgentStore((s) =>
+        conversationId ? (s.convAgentStates[conversationId]?.isThinkingAfterTools ?? false) : s.isThinkingAfterTools)
+    const runningToolCount = useAgentStore((s) =>
+        conversationId ? (s.convAgentStates[conversationId]?.runningToolCount ?? 0) : s.runningToolCount)
+    const streamingMessageId = useAgentStore((s) =>
+        conversationId ? (s.convAgentStates[conversationId]?.streamingMessageId ?? null) : s.streamingMessageId)
+    const errorMessage = useAgentStore((s) =>
+        conversationId ? (s.convAgentStates[conversationId]?.errorMessage ?? null) : s.errorMessage)
+    const executingToolsMessage = useAgentStore((s) =>
+        conversationId ? (s.convAgentStates[conversationId] as any)?.executingToolsMessage : (s as any).executingToolsMessage)
     return {
-        agentState: conversationId ? convData?.agentState : useAgentStore((s) => s.agentState),
-        isThinkingAfterTools: conversationId ? (convData?.isThinkingAfterTools ?? false) : useAgentStore((s) => s.isThinkingAfterTools),
-        runningToolCount: conversationId ? (convData?.runningToolCount ?? 0) : useAgentStore((s) => s.runningToolCount),
-        streamingMessageId: conversationId ? (convData?.streamingMessageId ?? null) : useAgentStore((s) => s.streamingMessageId),
-        errorMessage: conversationId ? (convData?.errorMessage ?? null) : useAgentStore((s) => s.errorMessage),
-        executingToolsMessage: conversationId ? (convData as any)?.executingToolsMessage : useAgentStore((s) => (s as any).executingToolsMessage),
+        agentState,
+        isThinkingAfterTools,
+        runningToolCount,
+        streamingMessageId,
+        errorMessage,
+        executingToolsMessage,
     }
 }
 
