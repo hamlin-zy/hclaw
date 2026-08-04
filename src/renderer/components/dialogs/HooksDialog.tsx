@@ -92,6 +92,7 @@ export default function HooksDialog() {
               await deleteHook(id)
           }
       })
+      if (!confirmed) return
   }
 
   return (
