@@ -109,6 +109,7 @@ export default function MCPUserServerCard({
                                         onDelete()
                                     }
                                 })
+                                if (!confirmed) return
                             }}
                             className="p-1.5 text-gray-300 hover:text-red-400 hover:bg-red-50 rounded-md transition-all"
                         >

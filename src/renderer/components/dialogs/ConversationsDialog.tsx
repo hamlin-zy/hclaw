@@ -116,6 +116,7 @@ export default function ConversationsDialog() {
                 }
             },
         })
+        if (!confirmed) return
     }, [selectedCount, selectedIds, deleteConversations, loadData])
 
     // ── 格式化时间 ──────────────────────────────────────────
