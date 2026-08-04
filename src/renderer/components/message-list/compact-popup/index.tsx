@@ -168,7 +168,8 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                                     </div>
                                                 )
                                             })()}
-                                            {result?.output && <div className="mt-2 text-[10px] text-[var(--text-primary)] leading-relaxed p-2 bg-[var(--surface-overlay)] rounded max-h-48 overflow-x-hidden overflow-y-auto break-all select-text"><MarkdownRenderer>{truncate(String(result.output), 3000)}</MarkdownRenderer></div>}
+                                            {/* agent 工具：子 Agent 工作报告不截断（完整保留，容器可滚动） */}
+                                            {result?.output && <div className="mt-2 text-[10px] text-[var(--text-primary)] leading-relaxed p-2 bg-[var(--surface-overlay)] rounded max-h-48 overflow-x-hidden overflow-y-auto break-all select-text"><MarkdownRenderer>{String(result.output)}</MarkdownRenderer></div>}
                                             {result?.error && <pre className="mt-2 text-[10px] text-[var(--error)] font-mono whitespace-pre-wrap break-all leading-relaxed p-2 bg-[var(--error-muted)]/15 rounded max-h-48 overflow-x-hidden overflow-y-auto select-text">{String(result.error)}</pre>}
                                         </div>
                                     )

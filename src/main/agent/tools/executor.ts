@@ -305,10 +305,14 @@ const SIZE_TRUNCATE_THRESHOLD = 15000 // 字符数截断阈值
  * 若 executor 层再用 15KB 兜底截断，会把 bash 内部辛辛苦苦收集的完整输出
  * 砍到只剩 15KB —— 比内部上限小 130 倍，用户观察到的"bash 输出被截断"即源于此。
  * 因此 bash 的 executor 层阈值与内部上限对齐（2MB），内部截断是唯一截断点。
+ *
+ * agent 工具同理：output 是子 Agent 的完整工作报告（主 Agent 汇总的依据），
+ * 截断会直接导致工作报告总结不完整，因此豁免通用 15KB 截断。
  * 其余工具维持通用阈值。
  */
 const TOOL_SIZE_TRUNCATE_THRESHOLDS: Record<string, number> = {
     bash: 2 * 1024 * 1024,
+    agent: Infinity,
 }
 
 export function checkResultSize(toolName: string, result: ToolResult): ToolResult {
