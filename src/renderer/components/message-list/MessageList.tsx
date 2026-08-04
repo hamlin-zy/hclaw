@@ -511,18 +511,14 @@ export default function MessageList({conversationId}: { conversationId?: string 
                     {messages
                         .map((message, origIdx) => ({message, origIdx}))
                         .filter(({message}) => message.role === 'user' || message.role === 'assistant')
-                        .map(({message, origIdx}, displayIdx) => (
+                        .map(({message, origIdx}) => (
                         <div
                             key={message.id}
                             data-msg-idx={origIdx}
                             data-name={`message-row-${message.role}`}
                             style={{contentVisibility: 'auto', containIntrinsicSize: 'auto 200px'}}
                         >
-                            <MessageBubble
-                                message={message}
-                                index={displayIdx}
-                                isStreaming={message.id === streamingMessageId}
-                            />
+                            <MessageBubble message={message}/>
                         </div>
                     ))}
                 </div>

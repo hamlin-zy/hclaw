@@ -238,7 +238,6 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                             effectiveProgressLog={effectiveProgressLog}
                             effectiveSubAgentStream={effectiveSubAgentStream}
                             effectiveTokenUsage={effectiveTokenUsage}
-                            effectiveStatus={effectiveStatus}
                             isRunning={isRunning}
                         />
                     )}
