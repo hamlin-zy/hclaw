@@ -21,6 +21,25 @@ const RECOVERY_COOLDOWN_MS = 5000;
 /** 记录上次恢复时间，用于冷却判断 */
 let lastRecoveryTime = 0;
 
+/**
+ * 渲染进程崩溃恢复已停止时通知用户。
+ * 冷却期内再次崩溃意味着自动恢复无效（典型原因：内存耗尽反复 OOM），
+ * 此时主进程只能放弃恢复，必须让用户知道发生了什么而不是面对白屏。
+ */
+function showCrashRecoveryStopped(reason: string, exitCode: number): void {
+    try {
+        dialog.showErrorBox(
+            'HClaw 界面已崩溃，自动恢复失败',
+            `渲染进程在短时间内连续崩溃（原因: ${reason}，退出码: ${exitCode}），自动恢复已停止。\n\n` +
+            '这通常是长时间运行导致内存耗尽。请手动重启应用；若频繁出现，建议：\n' +
+            '1. 关闭不使用的会话 / 减少并行任务\n' +
+            '2. 重启应用释放内存后重试',
+        );
+    } catch {
+        // 弹窗失败（极端情况）不阻塞，日志已记录原因
+    }
+}
+
 // ========================================
 // 类型定义
 // ========================================
@@ -366,6 +385,9 @@ export const createWindow = (): void => {
         if (now - lastRecoveryTime < RECOVERY_COOLDOWN_MS) {
             logger.warn('render-process-gone', {message: '恢复冷却中，跳过自动恢复', reason});
             // 通知托盘/用户：应用已崩溃，需要手动重启
+            // ★ 用户可见提示：冷却期内崩溃说明渲染进程反复异常（典型如内存耗尽），
+            //   静默跳过会让用户面对无响应/白屏窗口而不知发生了什么
+            showCrashRecoveryStopped(reason, exitCode);
             return;
         }
         lastRecoveryTime = now;
