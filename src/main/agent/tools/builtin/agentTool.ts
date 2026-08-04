@@ -26,12 +26,18 @@ import {agentLoop} from '../../loop'
 import type {AgentStreamEvent} from '../../stream'
 import {logger} from '../../logger'
 import {agentRegistry} from '../../agentRegistry'
-import type {AgentTemplate, LlmStats, Message} from '@shared/types'
+import type {AgentTemplate} from '@shared/types'
 import type {AgentDefinition} from '@shared/agent'
 import {runtimeConfigManager} from '../../runtimeConfigManager'
 import {systemSettingsRepo} from '../../../repositories/sqlite/systemSettingsRepository'
 import {permissionEngine} from '../permission'
 import {createConversationRepository} from '../../../repositories'
+import {
+    createChildConvAccumulator,
+    finalizeChildConv,
+    flushAccumulatorMessage,
+    handleChildEvent,
+} from './childConvMessages'
 
 // ─── 并发控制 ──────────────────────────────────────────────
 
@@ -103,44 +109,6 @@ const inputSchema = z.object({
 })
 
 type AgentToolInput = z.infer<typeof inputSchema>
-
-// ─── 子会话 assistant 消息写入（防重复） ────────────────────
-
-/**
- * 计算子会话完成时应写入的 assistant 消息。
- *
- * 防重复：流式期间渲染进程已把最终输出写入子会话（UUID 流式消息，含 llmStats）。
- * 若子会话已有 assistant 消息，不再追加 msg-<ts> 重复消息，只把子 Agent 自身的
- * LLM 统计补写进最后一条 assistant 消息；无已有 assistant 消息时才兜底写入完整结果。
- *
- * @returns 需要写库的消息；返回 null 表示无需写入
- */
-export function resolveChildAssistantMessage(
-    existingMessages: Message[],
-    finalOutput: string,
-    childLlmStats: LlmStats[],
-    now: number,
-): Message | null {
-    const lastAssistant = [...existingMessages].reverse().find(m => m.role === 'assistant')
-
-    // 已有流式 assistant 消息：仅补写 llmStats（未写过的场景）
-    if (lastAssistant) {
-        if (childLlmStats.length > 0 && !lastAssistant.llmStats?.length) {
-            return {...lastAssistant, llmStats: childLlmStats}
-        }
-        return null
-    }
-
-    // 无已有 assistant 消息：兜底写入完整结果
-    const assistantMsgId = `msg-${now}-${Math.random().toString(36).slice(2, 8)}`
-    return {
-        id: assistantMsgId,
-        role: 'assistant',
-        content: finalOutput,
-        timestamp: now,
-        ...(childLlmStats.length > 0 ? {llmStats: childLlmStats} : {}),
-    }
-}
 
 // ─── 工具定义 ──────────────────────────────────────────────
 
@@ -304,8 +272,12 @@ export const agentTool: Tool<AgentToolInput, string> = {
         let output = ''
         let hasError = false
         let errorMsg = ''
-        // 收集子会话各轮 LLM 调用统计（写入子会话自身 assistant 消息，供 input-toolbar-cache-rate 展示）
-        const childLlmStats: LlmStats[] = []
+        // ★ 子会话完整执行过程累积器：整个子 Agent 运行累积为「单条」assistant 消息
+        //   （思考/工具调用/正文按时间序写入 contentBlocks，与主会话同构：1 指令 + 1 助手气泡），
+        //   在 tool_result / llm_call_done 时机增量 UPSERT 同一条消息（控制落库频率），
+        //   done/error 时最终写入（endedAt）。替换旧的"仅完成时写一条最终摘要"方案，
+        //   保证子会话可完整回溯执行过程。
+        const childAcc = createChildConvAccumulator(childConvId)
 
         activeChildSessions.add(childConvId)
 
@@ -330,16 +302,20 @@ export const agentTool: Tool<AgentToolInput, string> = {
                 // ── 跳过内部事件 ──
                 if (event.type === 'intent_analyzed' || event.type === 'mode_change') continue
 
-                // ── 累积文本输出 ──
+                // ── 累积文本输出（返回给主 Agent 的最终摘要） ──
                 if (event.type === 'text') {
                     output += event.content
                 }
 
+                // ── 累积器处理（构建完整执行过程消息） ──
+                const shouldFlush = handleChildEvent(childAcc, event)
+                if (shouldFlush) {
+                    // 轮次完成（工具结果 / LLM 调用完成）→ 增量 UPSERT 同一条累积消息
+                    flushAccumulatorMessage(childAcc, conversationRepo, childConvId, false)
+                }
+
                 // ── 事件分类转发给父上下文 ──
-                if (event.type === 'llm_call_done') {
-                    // 收集子会话自身各轮 LLM 调用统计，随 assistant 消息持久化
-                    childLlmStats.push(toLlmStats(event))
-                } else if (event.type === 'thinking' || event.type === 'tool_start' || event.type === 'tool_progress' || event.type === 'tool_result') {
+                if (event.type === 'thinking' || event.type === 'tool_start' || event.type === 'tool_progress' || event.type === 'tool_result') {
                     context.sendMessage({
                         type: 'subagent_progress',
                         taskId: childConvId,
@@ -360,12 +336,24 @@ export const agentTool: Tool<AgentToolInput, string> = {
                 }
 
                 // ★ 转发所有流事件到子会话渲染进程（text/thinking/tool_*/agent_start 等）
-                //   用户切换到子会话时可以看到实时流式输出
-                sendChildAgentEvent(childConvId, event)
+                //   用户切换到子会话时可以看到实时流式输出。
+                //   内容事件附加累积器固定消息 id：渲染进程首个内容事件即创建同 id 消息，
+                //   与主进程增量落库的 SQLite 消息 id 一致 → 运行中切换/刷新无重复气泡。
+                if (event.type === 'text' || event.type === 'thinking' || event.type === 'tool_use') {
+                    sendChildAgentEvent(childConvId, {
+                        ...event,
+                        messageId: childAcc.assistantMsgId,
+                    } as AgentStreamEvent & {messageId?: string})
+                } else {
+                    sendChildAgentEvent(childConvId, event)
+                }
             }
         } catch (err: any) {
             hasError = true
             errorMsg = err.message || String(err)
+            // 异常同步到累积器（错误信息随单条消息持久化，供子会话回溯）
+            childAcc.hasError = true
+            childAcc.errorMsg = errorMsg
             logger.error('[AgentTool]', {action: 'childConvException', childConvId, error: errorMsg})
             // ★ 异常也通知渲染进程结束运行状态
             sendChildAgentEvent(childConvId, {type: 'done', reason: 'error'})
@@ -373,20 +361,12 @@ export const agentTool: Tool<AgentToolInput, string> = {
             activeChildSessions.delete(childConvId)
         }
 
-        // ⑩ 写入子会话的辅助消息历史
+        // ⑩ 写入子会话的辅助消息历史（最终落库）
+        // ★ 完整执行过程（思考/工具调用/正文）已累积为单条 assistant 消息，
+        //   运行中增量 UPSERT（tool_result / llm_call_done 时机），此处最终写入（endedAt）。
+        //   空轮次（极早退出）由累积器内部兜底为占位消息。
         const finalOutput = (hasError ? '' : output.trim()) || '(无输出)'
-        // ★ 防重复：流式期间渲染进程已把最终输出写入子会话（streamingMessageId 消息，含 llmStats）。
-        //   若子会话已有 assistant 消息（UUID 流式消息），不再追加 msg-<ts> 重复消息，
-        //   只把子 Agent 自身的 LLM 统计补写进最后一条 assistant 消息。
-        const childAssistant = resolveChildAssistantMessage(
-            conversationRepo.readMessages(childConvId),
-            finalOutput,
-            childLlmStats,
-            Date.now(),
-        )
-        if (childAssistant) {
-            conversationRepo.writeMessages(childConvId, [childAssistant])
-        }
+        finalizeChildConv(childAcc, conversationRepo, childConvId)
 
         // 通知 UI 刷新（子会话在侧栏中出现）
         // ★ 注意：agentLoop 内已通过 notifyMainProcessChildConvCreated 首屏通知，
@@ -417,20 +397,6 @@ export const agentTool: Tool<AgentToolInput, string> = {
             _meta: {childConvId},
         }
     },
-}
-
-/** 将 llm_call_done 事件映射为持久化的 LlmStats 记录 */
-function toLlmStats(event: Extract<AgentStreamEvent, {type: 'llm_call_done'}>): LlmStats {
-    return {
-        inputTokens: event.inputTokens,
-        outputTokens: event.outputTokens,
-        provider: event.provider,
-        model: event.model,
-        duration: event.duration,
-        cacheReadTokens: event.cacheReadTokens,
-        cacheWriteTokens: event.cacheWriteTokens,
-        reasoningTokens: event.reasoningTokens,
-    }
 }
 
 /** 格式化子 Agent 事件为人类可读文本 */

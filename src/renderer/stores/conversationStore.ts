@@ -267,9 +267,12 @@ async function switchActiveConversation(id: string | null) {
         } else {
             useConversationStore.setState({ activeConversationId: id })
             await store.loadMessagesInitial(id)
-            // ★ 仅在会话仍在流式运行时合并 streaming 消息（实时观看场景）
-            //   已完成（idle）的会话以 SQLite 持久化消息为准，避免与流式中间态重复
-            if (targetMsgs) {
+            // ★ 子会话：不合并渲染进程内存态流式消息。
+            //   子会话完整执行过程由主进程 agentTool 累积器按 LLM 轮次增量落库
+            //   （tool_result / llm_call_done 时机），SQLite 已是权威数据源；
+            //   若再合并内存态 UUID 流式消息（同一轮内容），会出现重复气泡。
+            //   主会话仍按原有逻辑合并流式消息（实时观看场景）。
+            if (targetMsgs && !isChildConversation(id)) {
                 const {useAgentStore} = await import('./agentStore')
                 const agentState = useAgentStore.getState().convAgentStates[id]?.agentState
                 const isRunning = agentState?.status === 'running' || agentState?.status === 'thinking'

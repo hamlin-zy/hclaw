@@ -40,7 +40,10 @@ export function handleToolUse(ctx: StreamCtx) {
 
     let msgId = convState.streamingMessageId
     if (!msgId) {
-        msgId = crypto.randomUUID()
+        // ★ 子会话（主进程累积器）通过 messageId 指定固定 assistant 消息 id，
+        //   与主进程增量落库的 SQLite 消息 id 一致 → 运行中切换/刷新无重复气泡。
+        //   主会话无 messageId，仍用 UUID 创建。
+        msgId = (event.messageId as string | undefined) || crypto.randomUUID()
         console.log('[handleStreamEvent] tool_use: creating new assistant message, id:', msgId)
         convStore.addMessageToConv(convId, {
             id: msgId,
