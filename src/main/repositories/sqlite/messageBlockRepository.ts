@@ -1,4 +1,4 @@
-import { getDatabase, saveDatabase } from './index'
+import { getDatabase } from './index'
 import type { IMessageBlockRepository } from '../interfaces'
 import type {MessageBlock} from '@shared/types'
 

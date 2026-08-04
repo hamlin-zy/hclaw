@@ -9,7 +9,7 @@
 
 import {create} from 'zustand'
 import {persist} from 'zustand/middleware'
-import type {AgentState, RunMode, WorkMode} from '@shared/types'
+import type {RunMode, WorkMode} from '@shared/types'
 // WORK_MODE_TO_MODEL_ROLE 已废弃，直接使用 mode 作为角色名
 
 import type {AgentStore} from './types'
@@ -25,7 +25,7 @@ import {useConversationStore} from '../conversationStore'
 import {useToolCallsStore} from '../toolCallsStore'
 import {useModelSchemeStore} from '../modelSchemeStore'
 
-import {flushAllTextBatches, flushTextBatch, clearTextBatch} from './batching/textBatch'
+import {flushAllTextBatches} from './batching/textBatch'
 import {flushToolResultBatch, getToolResultBatchMap} from './batching/toolResultBatch'
 import {saveHmrContext, restoreFromHmr} from './helpers/hmrPersistence'
 import {syncConvToTopLevel} from './helpers/convHelpers'

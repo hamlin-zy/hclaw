@@ -24,7 +24,6 @@ import type {IConversationRepository} from '../repositories/interfaces'
 import type {ConversationMeta} from '@shared/types'
 import type {ModelConfig} from '../agent/model/types'
 import {agentRegistry} from '../agent/agentRegistry'
-import {CommandDispatcher} from '../plugin/commands'
 import {runtimeConfigManager} from '../agent/runtimeConfigManager'
 import {getModelConfigForAgentType, resolveModelConfig} from '../agent/model/modelSelector'
 import {getHclawDir} from '../config'
@@ -210,7 +209,7 @@ class SchedulerManager {
       this.agentWorkerPool.onAgentStart = (scheduleId, convId) => {
           this.updateConversationStatus(convId, 'running')
       }
-      this.agentWorkerPool.onAgentDone = (scheduleId, convId, success) => {
+      this.agentWorkerPool.onAgentDone = (scheduleId, convId, _success) => {
           this.updateConversationStatus(convId, 'archived')
       }
       this.agentWorkerPool.init()
@@ -251,8 +250,6 @@ class SchedulerManager {
    */
   resetStaleRunningStatus(): void {
       try {
-          const schedules = this.scheduleRepo.listEnabled()
-          const scheduleIds = new Set(schedules.map(s => s.id))
           // 仅重置 code/shell 类型（跟随当前分派策略）
           // 这些任务的执行模式与 agent/skill/command 一致
           const allConvs = this.convRepo.list()
@@ -440,12 +437,12 @@ class SchedulerManager {
         content,
         timestamp: now,
       }])
-    } catch (err: any) {
+    } catch {
       // 静默失败 — 不影响主流程
     }
     try {
       this.convRepo.updateMeta(convId, {preview: content.slice(0, 200), updatedAt: now})
-    } catch (err: any) {
+    } catch {
       // 静默失败
     }
 

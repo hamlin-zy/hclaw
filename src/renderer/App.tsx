@@ -1,4 +1,4 @@
-import {Component, type ReactNode, useEffect, useState} from 'react'
+import {Component, type ReactNode, useEffect} from 'react'
 import {AnimatePresence} from 'framer-motion'
 import TitleBar from './components/TitleBar'
 import MenuBar from './components/MenuBar'
@@ -8,7 +8,7 @@ import SidePanels from './components/SidePanels'
 import MenuDialogRenderer from './components/MenuDialogRenderer'
 import DiffModal from './components/DiffModal'
 import AskUserModal from './components/AskUserModal'
-import ConfirmDialog, {confirm} from './components/ConfirmDialog'
+import ConfirmDialog from './components/ConfirmDialog'
 import UsageStatsDialog from './components/dialogs/UsageStatsDialog'
 import PermissionConfirmModal from './components/PermissionConfirmModal'
 import CompactToolPopup from './components/message-list/compact-popup'
@@ -376,7 +376,7 @@ export default function App() {
             }
           }
         }
-      } catch (err) {
+      } catch {
         // 静默处理错误
       }
     }

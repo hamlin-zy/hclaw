@@ -162,7 +162,6 @@ export function configPath(name: string): string {
  */
 function migrateUserCommandsFromDbToFs(commandsDir: string): void {
     const {getDatabase, saveDatabase} = require('./repositories/sqlite')
-    const {commandToMarkdown} = require('./command/presetCommands')
     const db = getDatabase()
 
     const rows = db.prepare("SELECT * FROM user_commands WHERE source = 'user'").all() as Array<{
@@ -331,7 +330,7 @@ export function ensureConfigLayout(): void {
  * 所有 electron 依赖集中在 initConfigIPC() 内延迟加载，该函数仅在主进程被调用。
  */
 export function initConfigIPC(): void {
-    const {ipcMain, safeStorage, app, clipboard, nativeImage} = require('electron')
+    const {ipcMain, safeStorage, clipboard, nativeImage} = require('electron')
     const configRepo = createConfigRepository()
 
     // System config directory — get/set with bootstrap file persistence
@@ -440,7 +439,7 @@ export function initConfigIPC(): void {
             const filePath = path.join(tempDir, uniqueName);
             fs.writeFileSync(filePath, Buffer.from(data.buffer));
             return filePath;
-        } catch (err) {
+        } catch {
             return null;
         }
     });
@@ -453,11 +452,10 @@ export function initConfigIPC(): void {
             const filePath = path.join(tempDir, uniqueName);
             fs.copyFileSync(data.sourcePath, filePath);
             return filePath;
-        } catch (err) {
+        } catch {
             return null;
         }
     });
-
     // Write image to system clipboard (expects PNG/JPEG buffer)
     ipcMain.handle('clipboard-write-image', async (_event: any, data: { buffer: number[] }) => {
         try {

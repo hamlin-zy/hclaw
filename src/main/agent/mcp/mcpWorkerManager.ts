@@ -86,7 +86,7 @@ export class MCPWorkerManager {
      * 同步杀死所有追踪的 PID（适用于 process.on('exit') 等同步场景）
      */
     private killAllTrackedPids(): void {
-        for (const [serverId, pid] of this.trackedPids) {
+        for (const [, pid] of this.trackedPids) {
             try {
                 execSync(`taskkill /F /T /PID ${pid} 2>nul`, {timeout: 2000, windowsHide: true})
             } catch {
@@ -276,7 +276,7 @@ export class MCPWorkerManager {
     }
 
     /** 处理 Worker 回传的 restart_complete 消息 */
-    private handleRestartComplete(serverId: string, success: boolean, _error?: string, merged?: boolean): void {
+    private handleRestartComplete(serverId: string, success: boolean, _error?: string, _merged?: boolean): void {
         const waiter = this.restartWaiters.get(serverId)
         if (waiter) {
             clearTimeout(waiter.timer)

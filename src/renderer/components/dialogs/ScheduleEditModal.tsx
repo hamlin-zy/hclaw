@@ -14,7 +14,7 @@ import {Switch} from '../common/Switch'
 import {useUserCommandStore} from '../../stores/userCommandStore'
 import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
 import {useSkillStore} from '../../stores/skillStore'
-import {fuzzyFilter, fuzzyFilterWithRank} from '../../lib/search'
+import {fuzzyFilterWithRank} from '../../lib/search'
 
 
 // ─── 类型定义 ─────────────────────────────────────
@@ -163,9 +163,6 @@ function CapabilityPicker({selected, onSelect}: {
     const [search, setSearch] = useState('')
     const [allItems, setAllItems] = useState<CapabilityItem[]>([])
     const [loading, setLoading] = useState(true)
-    const userCommands = useUserCommandStore(s => s.commands)
-    const agentTemplates = useAgentTemplateStore(s => s.templates)
-    const skills = useSkillStore(s => s.skills)
 
     useEffect(() => {
         loadCapabilities()

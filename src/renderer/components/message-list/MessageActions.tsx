@@ -46,7 +46,7 @@ const RetryButton = memo(function RetryButton({message}: { message: Message }) {
 
 // 删除按钮组件 - 用于删除单条消息
 const DeleteButton = memo(function DeleteButton({message, bottomMargin = 'mb-[22px]'}: { message: Message; bottomMargin?: string }) {
-    const [isLoading, setIsLoading] = useState(false)
+    const [isLoading, _setIsLoading] = useState(false)
     const agentStatus = useAgentStore((s) => s.agentState.status)
     const isRunning = agentStatus === 'running' || agentStatus === 'thinking'
     const deleteMessage = useConversationStore((s) => s.deleteMessage)

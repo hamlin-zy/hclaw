@@ -188,25 +188,6 @@ async function persistMessages(convId: string, messages: Message[]) {
     }
 }
 
-function scheduleSave(delay: number) {
-  isDirty = true
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-      const {activeConversationId, messagesMap} = useConversationStore.getState()
-    if (activeConversationId && isDirty) {
-        // ★ 子会话不落库（主进程 agentTool 负责持久化）
-        if (!isChildConversation(activeConversationId)) {
-            const msgs = messagesMap[activeConversationId]
-            if (msgs) {
-                persistMessages(activeConversationId, msgs)
-            }
-        }
-      isDirty = false
-    }
-    saveTimer = null
-  }, delay)
-}
-
 function forceFlush() {
   if (saveTimer) {
     clearTimeout(saveTimer)

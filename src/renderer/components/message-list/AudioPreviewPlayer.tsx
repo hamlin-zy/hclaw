@@ -26,7 +26,11 @@ const AudioPreviewPlayer = memo(function AudioPreviewPlayer({url, fileName}: Aud
     const togglePlay = useCallback(() => {
         const audio = audioRef.current
         if (!audio) return
-        playing ? audio.pause() : audio.play()
+        if (playing) {
+            audio.pause()
+        } else {
+            audio.play()
+        }
         setPlaying(!playing)
     }, [playing])
 

@@ -31,9 +31,7 @@ export const useChannelStore = create<{
     // 监听主进程推送的渠道状态变更
     if (typeof window !== 'undefined') {
         const api = (window as any).electronAPI?.channel
-        const cleanup = api?.onStatusChanged?.(() => reload())
-        // 注意：此 store 是持久化的，cleanup 在 HMR 时不会调用
-        // 但单页应用中组件卸载时会自动清理
+        api?.onStatusChanged?.(() => reload())
     }
 
     return {

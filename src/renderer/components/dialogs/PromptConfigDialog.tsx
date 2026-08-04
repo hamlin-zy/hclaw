@@ -93,7 +93,6 @@ export default function PromptConfigDialog() {
         schemes,
         activePromptSchemeId,
         addScheme,
-        updateScheme,
         removeScheme,
         duplicateScheme,
         setActiveScheme,

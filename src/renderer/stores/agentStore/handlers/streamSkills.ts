@@ -16,7 +16,7 @@ function getStreamMsg(ctx: StreamCtx) {
 }
 
 export function handleSkillMatched(ctx: StreamCtx) {
-    const {get, isAgentAborted, event} = ctx
+    const {isAgentAborted, event} = ctx
     if (isAgentAborted) return
     const skillName = typeof event.skillName === 'string' ? event.skillName : ''
     if (!event.skillId || !skillName) return
@@ -40,7 +40,7 @@ export function handleSkillMatched(ctx: StreamCtx) {
 }
 
 export function handleSkillStart(ctx: StreamCtx) {
-    const {get, isAgentAborted, event} = ctx
+    const {isAgentAborted, event} = ctx
     if (isAgentAborted) return
     const result = getStreamMsg(ctx)
     if (!result) return
@@ -63,7 +63,7 @@ export function handleSkillStart(ctx: StreamCtx) {
 }
 
 export function handleSkillPhase(ctx: StreamCtx) {
-    const {get, isAgentAborted, event} = ctx
+    const {isAgentAborted, event} = ctx
     if (isAgentAborted) return
     const result = getStreamMsg(ctx)
     if (!result?.msg?.skillExecution) return

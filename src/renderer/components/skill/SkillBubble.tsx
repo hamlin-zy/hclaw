@@ -207,7 +207,7 @@ export const SkillBubble = memo(function SkillBubble({
 
 // ─── 子组件 ──────────────────────────────────────────────
 
-function StatusBadge({status, config}: {status: string; config: ReturnType<typeof getStatusConfig>}) {
+function StatusBadge({status: _status, config}: {status: string; config: ReturnType<typeof getStatusConfig>}) {
   return (
     <span style={{
       display: 'inline-flex',
@@ -241,7 +241,7 @@ function ChevronIcon({expanded}: {expanded: boolean}) {
 }
 
 function PhaseSection({
-  phase,
+  phase: _phase,
   currentStep,
   progress,
   status,

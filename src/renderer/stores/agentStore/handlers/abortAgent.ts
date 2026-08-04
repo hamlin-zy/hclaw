@@ -5,7 +5,6 @@ import {IDLE_STATE, createDefaultConvData} from '../defaultState'
 import {useConversationStore} from '../../conversationStore'
 import {useToolCallsStore} from '../../toolCallsStore'
 import {clearAllBatches} from '../helpers/convHelpers'
-import {updateMessageContentBlocks} from '../contentBlocks'
 
 type SetFn = (...args: any[]) => any
 type GetFn = () => AgentStore

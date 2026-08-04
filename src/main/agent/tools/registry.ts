@@ -7,7 +7,6 @@
 import {logger} from '../logger'
 import type {Tool, ToolDefinitionForLLM} from './types'
 import {toolToDefinition} from './types'
-import {toolRepo, getToolTimeout, type ToolRecord} from '../../repositories/sqlite/toolRepository'
 
 // 延迟导入避免循环依赖
 let toolRepoModule: typeof import('../../repositories/sqlite/toolRepository') | null = null

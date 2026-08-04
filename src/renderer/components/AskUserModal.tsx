@@ -146,7 +146,11 @@ export default function AskUserModal() {
         setSelectedOptions(prev => {
             if (multiSelect) {
                 const next = new Set(prev)
-                next.has(option) ? next.delete(option) : next.add(option)
+                if (next.has(option)) {
+                    next.delete(option)
+                } else {
+                    next.add(option)
+                }
                 return next
             }
             return prev.has(option) ? new Set() : new Set([option])

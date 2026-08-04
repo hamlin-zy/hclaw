@@ -11,7 +11,7 @@ import {formatToolArgs} from './utils/messageUtils'
 import {truncate} from '../../lib/format'
 import ToolCallError from './ToolCallError'
 import ToolCallResult from './ToolCallResult'
-import {StreamEntryCard, ProgressTimeline, mergeTimeline, getLastActiveTime} from './StreamEntryRenderer'
+import {StreamEntryCard, mergeTimeline, getLastActiveTime} from './StreamEntryRenderer'
 
 interface ToolCallBodyProps {
     toolCall: ToolCall
@@ -42,7 +42,7 @@ export default function ToolCallBody({
     effectiveProgressLog,
     effectiveSubAgentStream,
     effectiveTokenUsage,
-    effectiveStatus,
+    effectiveStatus: _effectiveStatus,
     isRunning,
 }: ToolCallBodyProps) {
     return (

@@ -16,7 +16,6 @@ import {
     CapabilityFilter,
     CapabilityStats,
     CapabilityType,
-    CapabilitySource,
     PluginGroup,
 } from './types'
 

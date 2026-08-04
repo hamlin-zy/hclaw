@@ -31,8 +31,6 @@ export async function* withTimeout(
     timeoutMs: number = LLM_TIMEOUT_MS,
     abortSignal?: AbortSignal
 ): AsyncGenerator<StreamChunk> {
-    const startTime = Date.now()
-
     // 创建一个标记是否超时的 Promise
     let timeoutId: ReturnType<typeof setTimeout> | null = null
     let timeoutRejected = false

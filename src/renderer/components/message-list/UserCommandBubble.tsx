@@ -12,7 +12,7 @@
  */
 
 import {memo} from 'react'
-import {parseUserCommandContext, type UserCommandContext} from '../../lib/userCommandParse'
+import type {UserCommandContext} from '../../lib/userCommandParse'
 
 // re-export 供 MessageBubble 使用（保持单一实现源）
 export {parseUserCommandContext} from '../../lib/userCommandParse'

@@ -40,7 +40,7 @@ export function loadPluginsConfig(): PluginsConfig {
         const disabledPlugins = plugins.filter(p => !p.enabled).map(p => p.name)
 
         return {enabledPlugins, disabledPlugins}
-    } catch (err) {
+    } catch {
         return {...DEFAULT_CONFIG}
     }
 }
@@ -63,7 +63,7 @@ export function savePluginsConfig(config: PluginsConfig): boolean {
         }))
 
         return pluginRepo.save(plugins)
-    } catch (err) {
+    } catch {
         return false
     }
 }

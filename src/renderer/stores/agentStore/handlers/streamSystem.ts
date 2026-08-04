@@ -112,7 +112,6 @@ export function handleTasksUpdate(ctx: StreamCtx) {
     const {get, set, convId, event} = ctx
     const tasks = event.tasks || []
     const isAllDone = tasks.length > 0 && tasks.every((t: any) => t.status === 'completed' || t.status === 'failed')
-    const state = get()
 
     set((prev: any) => ({
         tasks,

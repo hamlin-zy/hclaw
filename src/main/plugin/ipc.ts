@@ -575,7 +575,7 @@ async function handleUpdate(
 
       // Re-register the plugin from disk (unregister first to avoid duplicates)
       registry.unregister(name);
-      const loadedPlugin = await loader.loadPlugin(result.path);
+      await loader.loadPlugin(result.path);
 
       // Re-apply enabled/disabled state from persisted config
       const shouldBeEnabled = isPluginEnabled(name, pluginsConfig);

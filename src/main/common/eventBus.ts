@@ -37,7 +37,7 @@ export class EventBus {
             for (const handler of handlers) {
                 try {
                     await handler(data)
-                } catch (err) {
+                } catch {
                     // Error in event handler
                 }
             }
