@@ -8,7 +8,7 @@
  * - 超过通用阈值但低于警告阈值时不截断
  */
 import {describe, expect, it} from 'vitest'
-import {checkResultSize} from '../../../../src/main/agent/tools/executor'
+import {checkResultSize, resolveToolTimeoutMs} from '../../../../src/main/agent/tools/executor'
 
 function okResult(output: string) {
     return {success: true, output}
@@ -56,5 +56,39 @@ describe('checkResultSize', () => {
         expect(result.output).toContain('[警告] 结果较大')
         expect(result.output).not.toContain('[结果已截断]')
         expect(result.output).toContain(mid) // 完整内容保留
+    })
+})
+
+describe('resolveToolTimeoutMs（工具执行超时解析，倒计时数据源）', () => {
+    it('bash：无参数时返回内部默认 30s', () => {
+        expect(resolveToolTimeoutMs('bash')).toBe(30000)
+    })
+
+    it('bash：LLM 传入秒数（<1000）自动视为秒转毫秒', () => {
+        expect(resolveToolTimeoutMs('bash', {timeout: 30})).toBe(30000)
+    })
+
+    it('bash：传入毫秒（>=1000）原样使用', () => {
+        expect(resolveToolTimeoutMs('bash', {timeout: 5000})).toBe(5000)
+    })
+
+    it('web_fetch：无参数时返回内部默认 15s', () => {
+        expect(resolveToolTimeoutMs('web_fetch')).toBe(15000)
+    })
+
+    it('web_fetch：参数覆盖生效', () => {
+        expect(resolveToolTimeoutMs('web_fetch', {timeout: 30000})).toBe(30000)
+    })
+
+    it('agent / ask_user：不显示倒计时（返回 undefined）', () => {
+        expect(resolveToolTimeoutMs('agent')).toBeUndefined()
+        expect(resolveToolTimeoutMs('ask_user')).toBeUndefined()
+    })
+
+    it('未知工具：返回通用默认 60s（不依赖 DB，纯默认分支）', () => {
+        // 注意：此分支内部会先查 DB，但测试环境无 DB 时 toolRepo.getTimeout 返回 null
+        // 因此结果应回退到 getToolDefaultTimeout → 60000
+        const result = resolveToolTimeoutMs('some_unknown_tool_xyz')
+        expect(result).toBe(60000)
     })
 })

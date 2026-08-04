@@ -10,6 +10,7 @@ import {getToolArgSummary, getToolDetail} from '../utils/messageUtils'
 import {getCompactStatusConfig} from '../config/toolStatusConfig'
 import {truncate} from '../../../lib/format'
 import MarkdownRenderer from '../MarkdownRenderer'
+import ToolCountdown from '../ToolCountdown'
 import {renderDiff, CopyButton} from './popupUtils'
 
 /**
@@ -101,6 +102,14 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
                     {isSkillTool ? 'Skill' : ''}<span className={isSkillTool ? 'font-mono' : 'font-mono font-semibold'}>{isSkillTool && displayName ? ` ${displayName}` : displayName}</span>
                 </span>
                 {argSummary && <span className="text-[10px] text-[var(--text-muted)] truncate flex-1 min-w-0 ml-1">{argSummary}</span>}
+                {/* 执行超时倒计时（运行中且有超时信息时显示） */}
+                {effectiveStatus === 'running' && (
+                    <ToolCountdown
+                        timeoutMs={runtimeState?.timeoutMs ?? toolCall.timeoutMs}
+                        startedAt={runtimeState?.startedAt}
+                        size="xs"
+                    />
+                )}
                 <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 font-medium ${cfg.badgeClass}`}>{cfg.label}</span>
                 <span className="text-[9px] text-[var(--text-muted)] shrink-0 transition-transform"
                      style={{transform: expanded ? 'rotate(90deg)' : 'none'}}>▸</span>

@@ -9,7 +9,7 @@
  * - 触发 Hook（beforeToolCall/afterToolCall + PreToolUse/PostToolUse）
  */
 
-import {executeTool, type ExecuteToolCall, type ExecuteToolResult} from '../tools/executor'
+import {executeTool, type ExecuteToolCall, type ExecuteToolResult, resolveToolTimeoutMs} from '../tools/executor'
 import {permissionEngine} from '../tools/permission'
 import type {ToolContext} from '../tools/types'
 
@@ -87,7 +87,17 @@ export class ToolExecutor {
         }
 
         // 通知工具开始
-        events.push({type: 'tool_start', toolCall})
+        // ★ 注入超时时间：UI 依据 timeoutMs 展示执行倒计时（agent/ask_user 无展示意义，不注入）
+        const timeoutMs = resolveToolTimeoutMs(toolCall.name, toolCall.arguments)
+        const toolStartEvent: AgentStreamEvent = {
+            type: 'tool_start',
+            toolCall: timeoutMs !== undefined ? {...toolCall, timeoutMs} : toolCall,
+        }
+        events.push(toolStartEvent)
+        // ★ 即时推送 tool_start：controller 在 executeToolCalls 返回后才 yield execEvents，
+        //   若不在此处转发，渲染进程收到时工具已结束（isRunning=false），倒计时无法显示。
+        //   events 数组仍保留 tool_start（主进程累积器落库路径），两处不冲突。
+        context.onEvent?.(toolStartEvent)
 
         // ── 触发 PermissionRequest Hook ──
         hookExecutor.execute('PermissionRequest', {

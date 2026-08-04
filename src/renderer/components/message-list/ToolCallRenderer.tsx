@@ -28,6 +28,7 @@ import {resolveMcpDisplayName, extractMcpToolName, isMcpToolName} from '@shared/
 import SubAgentViewer from './SubAgentViewer'
 import ToolCallHeader from './ToolCallHeader'
 import ToolCallBody from './ToolCallBody'
+import ToolCountdown from './ToolCountdown'
 
 interface ToolCallRendererProps {
     toolCall: ToolCall
@@ -53,6 +54,9 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
     const effectiveTokenUsage = runtimeState?.tokenUsage ?? toolCall.tokenUsage
     const effectiveProgressLog = runtimeState?.progressLog
     const effectiveSubAgentStream = runtimeState?.subAgentStream
+    // 倒计时数据：超时时间（主进程注入）+ 开始时刻（tool_start 到达时刻）
+    const effectiveTimeoutMs = runtimeState?.timeoutMs ?? toolCall.timeoutMs
+    const effectiveStartedAt = runtimeState?.startedAt
 
     // Agent 工具显示名
     const agentDisplayName = resolveAgentDisplayName(toolCall)
@@ -189,6 +193,8 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                     effectiveProgress={effectiveProgress}
                     effectiveAgentProgress={effectiveAgentProgress}
                     effectiveEta={effectiveEta}
+                    timeoutMs={effectiveTimeoutMs}
+                    startedAt={effectiveStartedAt}
                     agentDisplayName={agentDisplayName}
                     agentTypeLabel={agentTypeLabel}
                     skillDisplayName={skillDisplayName}
@@ -216,6 +222,8 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                         effectiveProgress={effectiveProgress}
                         effectiveAgentProgress={effectiveAgentProgress}
                         effectiveEta={effectiveEta}
+                        timeoutMs={effectiveTimeoutMs}
+                        startedAt={effectiveStartedAt}
                         agentDisplayName={agentDisplayName}
                         agentTypeLabel={agentTypeLabel}
                         skillDisplayName={skillDisplayName}
@@ -290,6 +298,26 @@ interface UltraCompactToolGroupProps {
 }
 
 /**
+ * 订阅 toolCallsStore 的运行时状态，驱动紧凑模式概要在工具注册/状态变化时重渲染。
+ *
+ * 说明：倒计时文本由 ToolCountdown 内部每秒自刷新，父级无需定时 tick；
+ * 订阅 store 仅在工具开始/结束/超时信息注入时触发重渲染，重新计算 minCountdown。
+ */
+function useToolCallsRuntimeVersion(): void {
+    // 任一运行中工具的 startedAt / timeoutMs 变化（注册/更新）→ 新求和 → 重渲染
+    useToolCallsStore((s) => {
+        let v = 0
+        for (const state of Object.values(s.states)) {
+            if (state.status === 'running') {
+                v += (state.startedAt ?? 0)
+                v += (state.timeoutMs ?? 0)
+            }
+        }
+        return v
+    })
+}
+
+/**
  * 统计一组工具调用的状态
  */
 function computeGroupStats(toolCalls: ToolCall[]) {
@@ -297,13 +325,26 @@ function computeGroupStats(toolCalls: ToolCall[]) {
     let errorCount = 0
     let runningCount = 0
     let pendingCount = 0
+    // 剩余时间最短的运行中工具（用于概要行倒计时显示）
+    // 剩余 = timeoutMs + startedAt - now，now 对所有工具相同，比较 deadline 即可
+    let minCountdown: {timeoutMs: number; startedAt: number} | undefined
 
     for (const tc of toolCalls) {
         const state = useToolCallsStore.getState().states[tc.id]
         const status = state?.status ?? tc.status
         if (status === 'success') successCount++
         else if (status === 'error') errorCount++
-        else if (status === 'running') runningCount++
+        else if (status === 'running') {
+            runningCount++
+            const timeoutMs = state?.timeoutMs ?? tc.timeoutMs
+            const startedAt = state?.startedAt
+            if (timeoutMs !== undefined && startedAt !== undefined) {
+                const deadline = timeoutMs + startedAt
+                if (minCountdown === undefined || deadline < minCountdown.timeoutMs + minCountdown.startedAt) {
+                    minCountdown = {timeoutMs, startedAt}
+                }
+            }
+        }
         else pendingCount++
     }
 
@@ -311,7 +352,7 @@ function computeGroupStats(toolCalls: ToolCall[]) {
     const hasError = errorCount > 0
     const isRunning = runningCount > 0
 
-    return { successCount, errorCount, runningCount, pendingCount, total, hasError, isRunning }
+    return { successCount, errorCount, runningCount, pendingCount, total, hasError, isRunning, minCountdown }
 }
 
 /**
@@ -340,6 +381,9 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
     skillDisplayName,
 }: UltraCompactToolGroupProps) {
     const openToolPopup = useAgentStore((s) => s.openToolPopup)
+
+    // 订阅运行时状态：工具开始/结束/超时信息注入时重渲染概要行（倒计时文本由 ToolCountdown 自刷新）
+    useToolCallsRuntimeVersion()
 
     const stats = computeGroupStats(toolCalls)
     const typeCounts = computeTypeCounts(toolCalls)
@@ -424,6 +468,11 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
                     </span>
                 )}
 
+                {/* 执行超时倒计时（组内任一工具运行中且带超时信息时显示最短剩余） */}
+                {stats.isRunning && stats.minCountdown !== undefined && (
+                    <ToolCountdown size="xs" timeoutMs={stats.minCountdown.timeoutMs} startedAt={stats.minCountdown.startedAt}/>
+                )}
+
                 {/* 展开详情 */}
                 <span className="text-[10px] text-[var(--text-muted)] shrink-0 flex items-center gap-0.5">
                     展开详情
@@ -473,6 +522,9 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
 }: UltraCompactCombinedGroupProps) {
     const openCombinedPopup = useAgentStore((s) => s.openCombinedPopup)
     const convId = useConversationStore((s) => s.activeConversationId) || ''
+
+    // 订阅运行时状态：工具开始/结束/超时信息注入时重渲染概要行（倒计时文本由 ToolCountdown 自刷新）
+    useToolCallsRuntimeVersion()
 
     const stats = computeGroupStats(toolCalls)
 
@@ -535,6 +587,11 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
                 ))}
             </span>
 
+            {/* 执行超时倒计时（组内任一工具运行中且带超时信息时显示最短剩余） */}
+            {stats.isRunning && stats.minCountdown !== undefined && (
+                <ToolCountdown size="xs" timeoutMs={stats.minCountdown.timeoutMs} startedAt={stats.minCountdown.startedAt}/>
+            )}
+
             {/* 展开详情 */}
             <span className="text-[10px] text-[var(--text-muted)] shrink-0 flex items-center gap-0.5">
                 展开详情
@@ -546,7 +603,16 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
 
 
 export default memo(ToolCallRendererBase, (prevProps, nextProps) => {
-    return prevProps.toolCall.id === nextProps.toolCall.id
+    if (prevProps.toolCall.id !== nextProps.toolCall.id) return false
+
+    // ★ 运行时状态对比：toolCallsStore 的 status / timeoutMs / startedAt 变化时
+    //   必须触发重渲染（模式切换、倒计时起点注册、超时注入等场景），
+    //   否则折叠展开态与倒计时数据会停留在切换前的旧值
+    const prevState = useToolCallsStore.getState().states[prevProps.toolCall.id]
+    const nextState = useToolCallsStore.getState().states[nextProps.toolCall.id]
+    return prevState?.status === nextState?.status
+        && prevState?.timeoutMs === nextState?.timeoutMs
+        && prevState?.startedAt === nextState?.startedAt
 })
 
 export {UltraCompactToolGroup, UltraCompactCombinedGroup}
