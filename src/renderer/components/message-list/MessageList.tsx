@@ -196,13 +196,13 @@ function findViewportTopMsgIdx(container: HTMLElement): number | null {
 // ─── MessageList 主组件 ───────────────────────────────────
 
 export default function MessageList({conversationId}: { conversationId?: string } = {}) {
-    const messagesFromMap = conversationId
-        ? useConversationStore((s) => s.messagesMap[conversationId] || [])
-        : []
-    const messages = conversationId ? messagesFromMap : useConversationStore((s) => s.loadedMessages)
+    const messages = useConversationStore((s) =>
+        conversationId ? (s.messagesMap[conversationId] || []) : s.loadedMessages)
     const activeConversationId = useConversationStore((s) => s.activeConversationId)
-    const hasMore = conversationId ? useConversationStore((s) => s.hasMoreMap[conversationId] ?? false) : false
-    const loadingMore = conversationId ? useConversationStore((s) => s.loadingMoreMap[conversationId] ?? false) : false
+    const hasMore = useConversationStore((s) =>
+        conversationId ? (s.hasMoreMap[conversationId] ?? false) : false)
+    const loadingMore = useConversationStore((s) =>
+        conversationId ? (s.loadingMoreMap[conversationId] ?? false) : false)
     // agent 状态
     const streamingMessageId = useAgentStore((s) => conversationId ? s.convAgentStates[conversationId]?.streamingMessageId ?? null : s.streamingMessageId)
 
