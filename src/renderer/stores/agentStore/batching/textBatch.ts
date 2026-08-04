@@ -14,11 +14,6 @@ export function accumulateTextBatch(convId: string, text: string) {
     textBatches[convId] = (textBatches[convId] || '') + text
 }
 
-/** 检查是否有待处理的文本批次 */
-export function hasTextBatch(convId: string): boolean {
-    return !!(textBatches[convId])
-}
-
 export function flushTextBatch(convId: string, streamingMessageId: string | null) {
     const batchText = textBatches[convId] || ''
     if (!batchText || !streamingMessageId) {

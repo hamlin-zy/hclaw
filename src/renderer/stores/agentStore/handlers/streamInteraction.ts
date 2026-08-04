@@ -11,6 +11,10 @@ import {
     clearTextBatch,
 } from '../batching/textBatch'
 import {
+    flushThinkingBatch,
+    clearThinkingBatch,
+} from '../batching/thinkingBatch'
+import {
     flushToolResultBatch,
     clearToolResultBatchData,
     getToolResultBatchMap,
@@ -18,12 +22,30 @@ import {
 import {parseCommands} from '../helpers/misc'
 import {saveCurrentConversation} from '../helpers/convHelpers'
 
+/**
+ * 冲刷并清空该会话残留的流式批数据（text + thinking）。
+ * 结束/错误事件必须把微任务合并的最后一段内容写入 store，
+ * 否则缓冲区内未刷出的 chunk 会丢失。
+ */
+function flushPendingStreamBatches(convId: string, streamingMessageId: string | null) {
+    flushTextBatch(convId, streamingMessageId)
+    clearTextBatch(convId)
+    flushThinkingBatch(convId)
+    clearThinkingBatch(convId)
+}
+
 export async function handleDone(ctx: StreamCtx) {
     const {get, convId, event} = ctx
-    const doneConvData = get().convAgentStates[convId] || createDefaultConvData()
     const convStore = useConversationStore.getState()
-    flushTextBatch(convId, doneConvData.streamingMessageId)
-    clearTextBatch(convId)
+
+    // ★ 先冲刷残留批数据，再取收尾快照：
+    //   批处理化后 thinking 内容可能仍滞留在微任务缓冲区（abort/紧邻 done 等时序），
+    //   若先取快照再 flush，后续 thinkBlock / contentBlocks 收尾会用缺最后一段的
+    //   旧快照覆盖 flush 刚写入的完整内容。正常路径下 flush 无操作，快照内容一致，
+    //   行为不变。
+    const streamingMessageId = get().convAgentStates[convId]?.streamingMessageId ?? null
+    flushPendingStreamBatches(convId, streamingMessageId)
+    const doneConvData = get().convAgentStates[convId] || createDefaultConvData()
 
     if (doneConvData.streamingMessageId) {
         const endedAt = Date.now()
@@ -133,8 +155,7 @@ export function handleError(ctx: StreamCtx) {
     const {get, set, convId, event} = ctx
     const errorMessage = event.error || '未知错误'
     const errorConvData = get().convAgentStates[convId] || createDefaultConvData()
-    flushTextBatch(convId, errorConvData.streamingMessageId)
-    clearTextBatch(convId)
+    flushPendingStreamBatches(convId, errorConvData.streamingMessageId)
 
     if (!errorConvData.streamingMessageId) {
         const newId = crypto.randomUUID()
@@ -334,10 +355,11 @@ export function handleUserMessageInjected(ctx: StreamCtx) {
     const {get, convId} = ctx
     const convState = get().convAgentStates[convId] || createDefaultConvData()
 
-    // 刷新缓冲区，确保当前消息内容已完整写入
+    // 刷新缓冲区，确保当前消息内容（文本 + 思考）已完整写入
     if (convState.streamingMessageId) {
-        flushTextBatch(convId, convState.streamingMessageId)
-        clearTextBatch(convId)
+        // ★ 与 done/error 一致的冲刷序列：thinking 批处理化后，
+        //   注入瞬间残留的 thinking batch 若不冲刷，会在下次 flush 时串入新消息
+        flushPendingStreamBatches(convId, convState.streamingMessageId)
 
         const trBatch = getToolResultBatchMap()[convId]
         if (trBatch && trBatch.size > 0) {

@@ -5,6 +5,28 @@ import {useConversationStore} from '../conversationStore'
 import {createDefaultConvData} from './defaultState'
 import {flushToolResultBatch, getToolResultBatchMap} from './batching/toolResultBatch'
 
+// ═══════════════════════════════════════════════════════════
+// 流式重建稳定性
+//
+// 此前 text 块 id 用 crypto.randomUUID() 生成，每次重建 contentBlocks 时
+// 所有 text 块 id 都会变化，导致 React 无法按 key 复用 DOM，消息气泡在
+// 流式期间每次 IPC 都整块重挂载（思考块全文重新渲染 + 布局抖动），
+// 是高 chunk 频率下 UI 卡死/崩溃的重要放大器。
+//
+// 修复：text 块 id 改为「流式消息 id + 文本起始偏移」派生，同一消息的
+// 同一文本区间在任何重建中 id 恒定；仅新增区间产生新 id。非流式消息
+// （无 streamingMessageId）回退为 offset 派生，同样稳定。
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * 派生稳定的 text 块 id。
+ * @param prefix 消息标识（优先 streamingMessageId）
+ * @param offset 文本块在全文中的起始偏移
+ */
+function textBlockId(prefix: string | null, offset: number): string {
+    return `text-${prefix || 'msg'}-${offset}`
+}
+
 /**
  * 从 streamBlocks + streamBuffer 重建 contentBlocks
  *
@@ -12,6 +34,7 @@ import {flushToolResultBatch, getToolResultBatchMap} from './batching/toolResult
  *   1. 按 textOffset 排序 streamBlocks，保证处理顺序正确
  *   2. lastOffset 只增不减（Math.max），防止乱序 streamBlock 导致 textOffset 回退
  *   3. 工具结果更新后重新调用以刷新 tool 状态
+ *   4. text 块 id 稳定派生（见上方注释），流式期间避免 React 重挂载
  */
 export function updateMessageContentBlocks(convId?: string) {
     // 使用传入的 convId，否则回退到当前活跃会话（向后兼容）
@@ -40,7 +63,7 @@ export function updateMessageContentBlocks(convId?: string) {
             const textSlice = fullText.slice(lastOffset, sb.textOffset)
             if (textSlice) {
                 assembled.push({
-                    id: `text-${crypto.randomUUID()}`,
+                    id: textBlockId(streamingMessageId, lastOffset),
                     type: 'text',
                     text: textSlice,
                 })
@@ -84,7 +107,7 @@ export function updateMessageContentBlocks(convId?: string) {
         const remainingText = fullText.slice(lastOffset)
         if (remainingText) {
             assembled.push({
-                id: `text-${crypto.randomUUID()}`,
+                id: textBlockId(streamingMessageId, lastOffset),
                 type: 'text',
                 text: remainingText,
             })

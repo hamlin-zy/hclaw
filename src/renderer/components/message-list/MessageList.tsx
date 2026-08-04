@@ -428,23 +428,36 @@ export default function MessageList({conversationId}: { conversationId?: string 
 
     // 流式内容更新时自动跟随（收到新内容但消息数不变）
     // ★ 使用 MutationObserver 仅在 DOM 实际变化时触发，避免无依赖 useEffect 每次渲染后强制布局
+    // ★ rAF 节流：流式期间 DOM 高频变化（每 text/thinking chunk 一次 characterData 变更），
+    //   MutationObserver 回调可能非常密集；el.scrollTop 写入会触发同步布局，
+    //   用 requestAnimationFrame 合并到每帧最多一次，避免布局抖动与主线程占用
     useEffect(() => {
         const el = containerRef.current
         if (!el || !streamingMessageId) return
         // 非活跃会话不监听滚动跟随
         if (conversationId !== useConversationStore.getState().activeConversationId) return
 
-        const observer = new MutationObserver(() => {
-            if (!userScrolledAwayRef.current) {
-                const dist = el.scrollHeight - el.scrollTop - el.clientHeight
-                if (dist < 200) {
-                    el.scrollTop = el.scrollHeight - el.clientHeight
+        let rafId = 0
+        const scheduleScroll = () => {
+            if (rafId) return
+            rafId = requestAnimationFrame(() => {
+                rafId = 0
+                if (!userScrolledAwayRef.current) {
+                    const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+                    if (dist < 200) {
+                        el.scrollTop = el.scrollHeight - el.clientHeight
+                    }
                 }
-            }
-        })
+            })
+        }
+
+        const observer = new MutationObserver(scheduleScroll)
 
         observer.observe(el, {childList: true, subtree: true, characterData: true})
-        return () => observer.disconnect()
+        return () => {
+            observer.disconnect()
+            if (rafId) cancelAnimationFrame(rafId)
+        }
     }, [streamingMessageId, conversationId])
 
     // ── 监听文本选择并自动复制（仅活跃会话） ──────────────
