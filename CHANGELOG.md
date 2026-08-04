@@ -7,6 +7,20 @@
 
 ---
 
+## [v0.3.5] - 2026-08-05
+
+### 新增
+- **Todo 任务按会话隔离** — 任务存储从扁平 Map 重构为按会话分层的 Map<convId, Map<taskId, Task>>，三个内置任务工具通过 conversationId 隔离作用域，子会话 todo 不再泄漏到主会话 (`src/main/agent/tasks/taskStore.ts`, `src/main/agent/tools/builtin/taskCreateTool.ts`)
+
+### 重构
+- **流式渲染性能优化** — thinking 块新增 thinkingBatch 与 textBatch 镜像合并策略，微任务内一次刷新合并 N 次块重建；文本块 id 改为基于消息 id + 偏移量派生，React 复用 DOM 节点避免整条消息气泡重挂载；ThrottledMarkdown 流式期间 200ms 节流；滚动跟随按帧合并 (`src/renderer/stores/agentStore/batching/thinkingBatch.ts`, `src/renderer/components/message-list/InterleavedContent.tsx`, `src/renderer/stores/agentStore/contentBlocks.ts`)
+
+### 修复
+- **渲染进程崩溃恢复放弃时通知用户** — 崩溃恢复冷却期内再次崩溃时，弹出带崩溃原因与退出码的错误对话框并给出建议，不再静默无响应 (`src/main/window.ts`)
+- **会话首次激活时滚动到底部** — 增加 done 标记使异步历史加载完成后 init effect 重新执行，抽取共享 stop()/scheduleSettle() 帮助函数 (`src/renderer/components/message-list/MessageList.tsx`)
+
+---
+
 ## [v0.3.4] - 2026-08-05
 
 ### 新增
