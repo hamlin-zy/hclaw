@@ -3,6 +3,11 @@
  *
  * 在独立线程中运行多个渠道适配器，通过 postMessage 与主进程通信。
  * 适配器按 channelType 动态创建，消息通过 parentPort 转发。
+ *
+ * ⚠️ 禁止静态 import 主进程模块（如 ChannelManager、window、agent/manager）：
+ * 本文件由 esbuild 单独打包（vite.main.config.mjs 的 bundle-channel-worker），
+ * 静态 import 会把 electron 等主进程依赖拉进 worker bundle，导致运行时崩溃。
+ * 主进程模块依赖一律使用函数内 require（延迟加载）。
  */
 
 import {parentPort} from 'worker_threads'

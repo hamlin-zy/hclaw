@@ -134,7 +134,7 @@ export default function SubAgentViewer({
     }, [activeTab, subAgentStream?.length])
 
     const toggleThinking = useCallback((idx: number) => setCollapsed(p => {
-        const n = new Set(p);
+        const n = new Set(p)
         if (n.has(idx)) {
             n.delete(idx)
         } else {

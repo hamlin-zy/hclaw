@@ -48,7 +48,8 @@ export default function SettingsDialog() {
     const saveHclawDir = useCallback(async (dir: string) => {
         setOrigHclawDir(dir)
         await window.electronAPI?.configSetHclawDir(dir)
-        const confirmed = await confirm({
+        // 重启动作在 onConfirm 内处理（确认时执行，取消时不执行），无需检查返回值
+        await confirm({
             title: '需要重启应用',
             message: '系统配置目录已更改，重启后才能生效。是否立即重启？',
             confirmText: '立即重启',
@@ -58,9 +59,6 @@ export default function SettingsDialog() {
                 await window.electronAPI?.invoke('app-restart')
             },
         })
-        if (confirmed) {
-            // restart already handled in onConfirm
-        }
     }, [])
 
     // 当前生效的值：优先 pending（未保存），否则用已保存值
