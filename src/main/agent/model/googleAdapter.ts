@@ -96,18 +96,17 @@ export class GoogleAdapter implements ModelAdapter {
      */
     private createOAuthFetch(_oauthToken: string): typeof fetch {
         const originalFetch = globalThis.fetch.bind(globalThis)
-        const self = this
-        return async function oauthFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+        return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
             const request = new Request(input instanceof URL ? input : input, init)
             // 仅拦截 Gemini API 请求
             if (!request.url.includes('generativelanguage.googleapis.com')) {
                 return originalFetch(request)
             }
             // 刷新 token（可能已过期）
-            await self.refreshTokenIfExpired()
+            await this.refreshTokenIfExpired()
             const headers = new Headers(request.headers)
             headers.delete('x-goog-api-key')
-            headers.set('Authorization', `Bearer ${self.apiKey}`)
+            headers.set('Authorization', `Bearer ${this.apiKey}`)
             const modifiedInit: RequestInit = {
                 ...init,
                 headers,

@@ -27,6 +27,7 @@ import {agentRegistry} from '../agent/agentRegistry'
 import {runtimeConfigManager} from '../agent/runtimeConfigManager'
 import {getModelConfigForAgentType, resolveModelConfig} from '../agent/model/modelSelector'
 import {getHclawDir} from '../config'
+import {getMainWindow} from '../window'
 import {SqliteWorkspaceRepository} from '../repositories/sqlite/workspaceRepository'
 import {createLogger} from '../agent/logger'
 
@@ -86,7 +87,6 @@ class SchedulerWorkerPool {
             if (msg.type === 'child_conv_created') {
                 // 子 Agent 独立会话创建事件 → 通知渲染进程刷新侧栏
                 try {
-                    const {getMainWindow} = require('../../window')
                     const win = getMainWindow()
                     if (win && !win.isDestroyed()) {
                         win.webContents.send('child_conv_created', {
@@ -227,7 +227,6 @@ class SchedulerManager {
       }
       // 推送状态变化到渲染进程，使侧边栏实时刷新（best-effort）
       try {
-          const {getMainWindow} = require('../window')
           const win = getMainWindow()
           if (win && !win.isDestroyed()) {
               win.webContents.send('conversation-updated', {
@@ -447,7 +446,6 @@ class SchedulerManager {
     }
 
     try {
-      const {getMainWindow} = require('../window')
       const win = getMainWindow()
       if (win && !win.isDestroyed()) {
         win.webContents.send('conversation-updated', {
@@ -500,7 +498,6 @@ class SchedulerManager {
 
     // 推送新会话事件到渲染进程，使会话列表实时刷新
     try {
-      const {getMainWindow} = require('../window')
       const win = getMainWindow()
       if (win && !win.isDestroyed()) {
         win.webContents.send('conversation-created', {

@@ -99,7 +99,7 @@ export interface MCPServerInfo {
     tools?: { listChanged?: boolean }
     resources?: { subscribe?: boolean; listChanged?: boolean }
     prompts?: { listChanged?: boolean }
-    logging?: {}
+    logging?: Record<string, unknown>
   }
 }
 

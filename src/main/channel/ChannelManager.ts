@@ -20,6 +20,9 @@ import type {IncomingMessage, WorkerEvent, ResourceRef} from './types'
 import {getChannelMediaDir} from '../config'
 import {container} from '../agent/common/container'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
+import {logger} from '../agent/logger'
+import {agentManager} from '../agent/manager'
+import {getMainWindow} from '../window'
 import type {SystemSettings} from '../../shared/types'
 
 export class ChannelManager {
@@ -60,7 +63,6 @@ export class ChannelManager {
         this.worker.on('message', (msg: WorkerEvent) => this.handleWorkerMessage(msg))
 
         // 提前缓存 logger，避免在两个事件回调中各 require 一次
-        const {logger} = require('../agent/logger')
         this.worker.on('error', (err: Error) => {
             logger.error('ChannelManager.worker.error', {error: err.message, stack: err.stack?.slice(0, 500)})
         })
@@ -216,7 +218,6 @@ export class ChannelManager {
                 this.downloadResources(channelId, resources),
             /** 中止指定会话的 Agent Worker（创建新会话时清理旧 Worker） */
             abortAgent: (conversationId) => {
-                const {agentManager} = require('../agent/manager')
                 agentManager.abort(conversationId).catch(() => {})
             },
         })
@@ -224,7 +225,6 @@ export class ChannelManager {
 
     private notifyRenderer(channel: string, data: unknown): void {
         try {
-            const {getMainWindow} = require('../window')
             const win = getMainWindow()
             if (win && !win.isDestroyed()) {
                 win.webContents.send(channel, data)

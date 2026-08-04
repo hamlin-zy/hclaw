@@ -8,6 +8,7 @@
 import * as fs from 'fs';
 import {ipcMain, IpcMainInvokeEvent} from 'electron';
 import * as path from 'path';
+import yaml from 'js-yaml';
 import {PluginRegistry} from './registry';
 import {PluginInstaller} from './installer';
 import {PluginLoader} from './loader';
@@ -30,6 +31,7 @@ import {
     savePluginsConfig,
 } from './plugins-config';
 import {createPluginRepository} from '../repositories';
+import {getDatabase, saveDatabase} from '../repositories/sqlite';
 import {createLogger} from '../agent/logger';
 import {getUserCommandStore, UpsertPluginOverrideInput, UserCommandData} from '../command/userCommandStore';
 import {getPresetCommand, getPresetCommandMarkdownFiles, commandToMarkdown} from '../command/presetCommands';
@@ -104,7 +106,6 @@ export function initializePluginSystem(): void {
   const pluginsDir = getPluginsDir();
 
   // Ensure plugins directory exists
-  const fs = require('fs');
   if (!fs.existsSync(pluginsDir)) {
     fs.mkdirSync(pluginsDir, { recursive: true });
   }
@@ -864,7 +865,7 @@ async function handleUpdateCommand(
     const match = existingContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/)
     if (!match) return {success: false, error: 'Invalid command file format'}
 
-    const frontmatter = JSON.parse(JSON.stringify(require('js-yaml').load(match[1]))) || {}
+    const frontmatter = JSON.parse(JSON.stringify(yaml.load(match[1]))) || {}
     const bodyContent = updates.content !== undefined ? updates.content : match[2].trim()
 
     // Merge frontmatter updates
@@ -874,7 +875,6 @@ async function handleUpdateCommand(
     if (updates.args !== undefined) frontmatter.args = updates.args
 
     // Write back
-    const yaml = require('js-yaml')
     const newContent = `---\n${yaml.dump(frontmatter).trimEnd()}\n---\n\n${bodyContent}`
 
     // If name changed, remove old file
@@ -915,8 +915,7 @@ async function handleDeleteCommand(
 
     // Also clean up any override record
     try {
-      const db = require('../repositories/sqlite').getDatabase()
-      const {saveDatabase} = require('../repositories/sqlite')
+      const db = getDatabase()
       db.prepare('DELETE FROM command_overrides WHERE command_id = ?').run(commandName)
       saveDatabase()
     } catch { /* ignore db cleanup errors */ }

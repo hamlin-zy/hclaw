@@ -20,6 +20,7 @@
 
 import {z} from 'zod'
 import {randomUUID} from 'crypto'
+import {parentPort} from 'worker_threads'
 import type {Tool, ToolResult} from '../types'
 import {agentLoop} from '../../loop'
 import type {AgentStreamEvent} from '../../stream'
@@ -456,7 +457,6 @@ function formatProgress(event: AgentStreamEvent): string {
 /** 通用双路径发送：Worker 线程走 parentPort → 主进程转发，主进程直接 IPC 通知渲染进程 */
 function sendToRenderer(workerType: string, workerPayload: Record<string, unknown>, mainChannel: string, mainPayload: Record<string, unknown>): void {
     try {
-        const {parentPort} = require('worker_threads')
         if (parentPort && typeof parentPort.postMessage === 'function') {
             parentPort.postMessage({type: workerType, ...workerPayload})
             return
@@ -465,6 +465,7 @@ function sendToRenderer(workerType: string, workerPayload: Record<string, unknow
         // not in Worker
     }
     try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- agentTool 运行在 MCP Worker 上下文，顶层 import window.ts 会把 electron 拉进 worker bundle
         const {getMainWindow} = require('../../../window')
         const win = getMainWindow()
         if (win && !win.isDestroyed()) {

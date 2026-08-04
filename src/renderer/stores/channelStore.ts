@@ -1,7 +1,7 @@
 import {create} from 'zustand'
 import type {ChannelConfig, ChannelType} from '@shared/types'
 
-export interface ChannelUI extends ChannelConfig {}
+export type ChannelUI = ChannelConfig
 
 function toUI(r: any): ChannelUI {
     return {
