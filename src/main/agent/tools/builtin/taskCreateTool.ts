@@ -21,14 +21,16 @@ export const taskCreateTool: Tool<TaskCreateInput, { taskId: string; title: stri
     requiredPermissions: [],
     isDestructive: false,
 
-    async execute(args: TaskCreateInput, _context: ToolContext): Promise<ToolResult<{ taskId: string; title: string }>> {
+    async execute(args: TaskCreateInput, context: ToolContext): Promise<ToolResult<{ taskId: string; title: string }>> {
         try {
-            const task = taskStore.createTask(args.title, args.description)
+            // 任务归属当前会话（子会话的待办只属于子会话，不与主会话共享）
+            const convId = context.conversationId
+            const task = taskStore.createTask(convId, args.title, args.description)
 
             // 触发 TaskCreated Hook
             import('../../../plugin/hooks').then(({hookExecutor}) => {
                 hookExecutor.execute('TaskCreated', {
-                    sessionId: (task as any).sessionId || '',
+                    sessionId: convId || '',
                     taskId: task.id,
                     taskName: task.title,
                 }).catch(() => {})
@@ -41,7 +43,7 @@ export const taskCreateTool: Tool<TaskCreateInput, { taskId: string; title: stri
                     taskId: task.id,
                     title: task.title,
                 },
-                tasks: taskStore.getAllTasks(),
+                tasks: taskStore.getAllTasks(convId),
             }
         } catch (err) {
             return {

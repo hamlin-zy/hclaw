@@ -27,8 +27,11 @@ export const taskUpdateTool: Tool<TaskUpdateInput, { updated: number; cleared: n
     requiredPermissions: [],
     isDestructive: false,
 
-    async execute(args: TaskUpdateInput, _context: ToolContext): Promise<ToolResult<{ updated: number; cleared: number; status?: TaskStatus }>> {
+    async execute(args: TaskUpdateInput, context: ToolContext): Promise<ToolResult<{ updated: number; cleared: number; status?: TaskStatus }>> {
         try {
+            // 任务归属当前会话（子会话的待办只属于子会话，不与主会话共享）
+            const convId = context.conversationId
+
             // 标准化 taskId 为数组
             const ids: string[] | undefined = args.taskId
                 ? Array.isArray(args.taskId) ? args.taskId : [args.taskId]
@@ -36,38 +39,38 @@ export const taskUpdateTool: Tool<TaskUpdateInput, { updated: number; cleared: n
 
             // ── 清空已完成任务 ──────────────────────────
             if (args.clear && !args.status) {
-                const allTasks = taskStore.getAllTasks()
+                const allTasks = taskStore.getAllTasks(convId)
                 let cleared = 0
                 const toClear = ids
                     ? allTasks.filter(t => ids.includes(t.id) && t.status === 'completed')
                     : allTasks.filter(t => t.status === 'completed')
                 for (const t of toClear) {
-                    taskStore.deleteTask(t.id)
+                    taskStore.deleteTask(convId, t.id)
                     cleared++
                 }
                 return {
                     success: true,
                     output: {updated: 0, cleared, status: undefined},
-                    tasks: taskStore.getAllTasks(),
+                    tasks: taskStore.getAllTasks(convId),
                 }
             }
 
             // ── 批量更新状态 ──────────────────────────
             if (args.status !== undefined) {
-                const allTasks = taskStore.getAllTasks()
+                const allTasks = taskStore.getAllTasks(convId)
                 let updated = 0
                 const targets = ids
                     ? allTasks.filter(t => ids.includes(t.id))
                     : allTasks
                 for (const t of targets) {
-                    const result = taskStore.updateTaskStatus(t.id, args.status)
+                    const result = taskStore.updateTaskStatus(convId, t.id, args.status)
                     if (result) updated++
 
                     // 触发 TaskCompleted Hook
                     if (args.status === 'completed') {
                         import('../../../plugin/hooks').then(({hookExecutor}) => {
                             hookExecutor.execute('TaskCompleted', {
-                                sessionId: '',
+                                sessionId: convId || '',
                                 taskId: t.id,
                                 taskName: t.title,
                             }).catch(() => {})
@@ -77,7 +80,7 @@ export const taskUpdateTool: Tool<TaskUpdateInput, { updated: number; cleared: n
                 return {
                     success: true,
                     output: {updated, cleared: 0, status: args.status},
-                    tasks: taskStore.getAllTasks(),
+                    tasks: taskStore.getAllTasks(convId),
                 }
             }
 

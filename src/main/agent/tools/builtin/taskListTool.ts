@@ -22,9 +22,11 @@ export const taskListTool: Tool<TaskListInput, Task[]> = {
     requiredPermissions: [],
     isDestructive: false,
 
-    async execute(args: TaskListInput, _context: ToolContext): Promise<ToolResult<Task[]>> {
+    async execute(args: TaskListInput, context: ToolContext): Promise<ToolResult<Task[]>> {
         try {
-            let tasks: Task[] = taskStore.getAllTasks()
+            // 仅列出当前会话的任务（子会话看不到主会话的待办，反之亦然）
+            const convId = context.conversationId
+            let tasks: Task[] = taskStore.getAllTasks(convId)
 
             // 按状态过滤
             if (args.status) {
