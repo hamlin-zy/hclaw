@@ -56,7 +56,6 @@ export class SqliteAgentRepository {
      * 根据 ID 获取 Agent
      */
     getById(id: string): Agent | null {
-        const start = Date.now()
         try {
             const db = getDatabase()
             const stmt = db.prepare(`
@@ -93,7 +92,6 @@ export class SqliteAgentRepository {
      * 根据名称获取 Agent
      */
     getByName(name: string): Agent | null {
-        const start = Date.now()
         try {
             const db = getDatabase()
             const stmt = db.prepare(`

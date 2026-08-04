@@ -66,7 +66,6 @@ export class SqliteAccountRepository {
      * 根据 ID 获取账户
      */
     getById(id: string): Account | null {
-        const start = Date.now()
         try {
             const db = getDatabase()
             const stmt = db.prepare(`

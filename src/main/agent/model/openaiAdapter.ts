@@ -23,7 +23,6 @@ import type {
     ToolDefinition,
 } from './types'
 import {injectAdditionalContext} from './utils'
-import {logger} from '../logger'
 
 export class OpenAIAdapter implements ModelAdapter {
   private client: OpenAI

@@ -40,15 +40,6 @@ export default function MainWorkspace() {
         return () => clearInterval(interval)
     }, [])
 
-    // ★ 稳定化 conversationIds：仅在 ID 集合变化时重渲染
-    const conversationIds = useConversationStore(
-        (s) => {
-            const ws = s.currentWorkspacePath ? s.workspaces[s.currentWorkspacePath] : undefined
-            return ws?.conversations.map(c => c.id) ?? []
-        },
-        (a, b) => a.length === b.length && a.every((id, i) => id === b[i])
-    )
-
     // ★ 只挂载已渲染过的会话（LRU 控制），避免为全部会话创建组件实例和 Zustand 订阅
     const renderedConversationIds = useConversationStore((s) => s.renderedConversationIds)
     const renderableIds = useMemo(() => {

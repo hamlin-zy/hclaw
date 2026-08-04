@@ -178,7 +178,9 @@ export const usePromptSchemeStore = create<PromptSchemeStore>()(
             storage: sqliteStorage as PersistStorage<PromptSchemeStore>,
             version: 1,
             onRehydrateStorage: () => (state) => {
-                state && (state.hasRehydrated = true)
+                if (state) {
+                    state.hasRehydrated = true
+                }
             },
         }
     )

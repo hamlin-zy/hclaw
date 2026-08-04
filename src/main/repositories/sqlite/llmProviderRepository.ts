@@ -78,7 +78,6 @@ export class SqliteProviderRepository {
    * 根据 ID 获取 Provider
    */
   getById(id: string): LLMProvider | null {
-    const start = Date.now()
     try {
       const db = getDatabase()
       const stmt = db.prepare(`
@@ -109,7 +108,6 @@ export class SqliteProviderRepository {
    * 根据名称获取 Provider
    */
   getByName(name: string): LLMProvider | null {
-    const start = Date.now()
     try {
       const db = getDatabase()
       const stmt = db.prepare(`
@@ -358,7 +356,6 @@ export class SqliteProviderModelRepository {
    * 根据 ID 获取模型
    */
   getById(id: string): SqlProviderModel | null {
-    const start = Date.now()
     try {
       const db = getDatabase()
         const row = db.prepare(`SELECT ${SQL_MODEL_COLUMNS} FROM provider_models WHERE id = ?`).get(id) as any

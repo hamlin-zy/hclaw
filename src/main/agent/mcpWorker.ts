@@ -56,11 +56,6 @@ interface UpdateServersMessage {
     servers: MCPServerConfig[]
 }
 
-interface RestartServerMessage {
-    type: 'restart_server'
-    serverId: string
-}
-
 type McpWorkerMessage = CallToolRequest | ListToolsRequest | ListAllRequest | UpdateServersMessage
 
 // ─── MCP Worker 服务 ──────────────────────────────────

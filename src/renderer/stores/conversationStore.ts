@@ -188,25 +188,6 @@ async function persistMessages(convId: string, messages: Message[]) {
     }
 }
 
-function scheduleSave(delay: number) {
-  isDirty = true
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-      const {activeConversationId, messagesMap} = useConversationStore.getState()
-    if (activeConversationId && isDirty) {
-        // ★ 子会话不落库（主进程 agentTool 负责持久化）
-        if (!isChildConversation(activeConversationId)) {
-            const msgs = messagesMap[activeConversationId]
-            if (msgs) {
-                persistMessages(activeConversationId, msgs)
-            }
-        }
-      isDirty = false
-    }
-    saveTimer = null
-  }, delay)
-}
-
 function forceFlush() {
   if (saveTimer) {
     clearTimeout(saveTimer)
@@ -286,9 +267,12 @@ async function switchActiveConversation(id: string | null) {
         } else {
             useConversationStore.setState({ activeConversationId: id })
             await store.loadMessagesInitial(id)
-            // ★ 仅在会话仍在流式运行时合并 streaming 消息（实时观看场景）
-            //   已完成（idle）的会话以 SQLite 持久化消息为准，避免与流式中间态重复
-            if (targetMsgs) {
+            // ★ 子会话：不合并渲染进程内存态流式消息。
+            //   子会话完整执行过程由主进程 agentTool 累积器按 LLM 轮次增量落库
+            //   （tool_result / llm_call_done 时机），SQLite 已是权威数据源；
+            //   若再合并内存态 UUID 流式消息（同一轮内容），会出现重复气泡。
+            //   主会话仍按原有逻辑合并流式消息（实时观看场景）。
+            if (targetMsgs && !isChildConversation(id)) {
                 const {useAgentStore} = await import('./agentStore')
                 const agentState = useAgentStore.getState().convAgentStates[id]?.agentState
                 const isRunning = agentState?.status === 'running' || agentState?.status === 'thinking'
@@ -942,7 +926,7 @@ if (typeof window !== 'undefined') {
 
         // 只清除非活跃会话的消息缓存，确保切换回该会话时从 DB 重新读取最新消息（如手机端消息）
         // 活跃会话的缓存不清除：1) 避免丢失尚未持久化的内存消息（新会话首条 Ctrl+K 自动重命名）
-        //                       2) scheduleSave 依赖 messagesMap[activeConversationId] 进行保存
+        //                       2) forceFlush 依赖 messagesMap[activeConversationId] 进行保存
         // 压缩场景下的缓存更新由 compact_done 事件中的 loadMessages 自行管理
         if (data.id !== activeConversationId && data.id in messagesMap && messagesMap[data.id]!.length > 0) {
             const newMap = {...messagesMap}

@@ -24,10 +24,10 @@ import type {IConversationRepository} from '../repositories/interfaces'
 import type {ConversationMeta} from '@shared/types'
 import type {ModelConfig} from '../agent/model/types'
 import {agentRegistry} from '../agent/agentRegistry'
-import {CommandDispatcher} from '../plugin/commands'
 import {runtimeConfigManager} from '../agent/runtimeConfigManager'
 import {getModelConfigForAgentType, resolveModelConfig} from '../agent/model/modelSelector'
 import {getHclawDir} from '../config'
+import {getMainWindow} from '../window'
 import {SqliteWorkspaceRepository} from '../repositories/sqlite/workspaceRepository'
 import {createLogger} from '../agent/logger'
 
@@ -87,7 +87,6 @@ class SchedulerWorkerPool {
             if (msg.type === 'child_conv_created') {
                 // 子 Agent 独立会话创建事件 → 通知渲染进程刷新侧栏
                 try {
-                    const {getMainWindow} = require('../../window')
                     const win = getMainWindow()
                     if (win && !win.isDestroyed()) {
                         win.webContents.send('child_conv_created', {
@@ -210,7 +209,7 @@ class SchedulerManager {
       this.agentWorkerPool.onAgentStart = (scheduleId, convId) => {
           this.updateConversationStatus(convId, 'running')
       }
-      this.agentWorkerPool.onAgentDone = (scheduleId, convId, success) => {
+      this.agentWorkerPool.onAgentDone = (scheduleId, convId, _success) => {
           this.updateConversationStatus(convId, 'archived')
       }
       this.agentWorkerPool.init()
@@ -228,7 +227,6 @@ class SchedulerManager {
       }
       // 推送状态变化到渲染进程，使侧边栏实时刷新（best-effort）
       try {
-          const {getMainWindow} = require('../window')
           const win = getMainWindow()
           if (win && !win.isDestroyed()) {
               win.webContents.send('conversation-updated', {
@@ -251,8 +249,6 @@ class SchedulerManager {
    */
   resetStaleRunningStatus(): void {
       try {
-          const schedules = this.scheduleRepo.listEnabled()
-          const scheduleIds = new Set(schedules.map(s => s.id))
           // 仅重置 code/shell 类型（跟随当前分派策略）
           // 这些任务的执行模式与 agent/skill/command 一致
           const allConvs = this.convRepo.list()
@@ -440,17 +436,16 @@ class SchedulerManager {
         content,
         timestamp: now,
       }])
-    } catch (err: any) {
+    } catch {
       // 静默失败 — 不影响主流程
     }
     try {
       this.convRepo.updateMeta(convId, {preview: content.slice(0, 200), updatedAt: now})
-    } catch (err: any) {
+    } catch {
       // 静默失败
     }
 
     try {
-      const {getMainWindow} = require('../window')
       const win = getMainWindow()
       if (win && !win.isDestroyed()) {
         win.webContents.send('conversation-updated', {
@@ -503,7 +498,6 @@ class SchedulerManager {
 
     // 推送新会话事件到渲染进程，使会话列表实时刷新
     try {
-      const {getMainWindow} = require('../window')
       const win = getMainWindow()
       if (win && !win.isDestroyed()) {
         win.webContents.send('conversation-created', {

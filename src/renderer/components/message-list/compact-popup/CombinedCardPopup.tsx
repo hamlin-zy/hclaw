@@ -34,6 +34,8 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
     const convMsgs = useConversationStore((s) =>
         combinedPopupData?.convId ? s.messagesMap[combinedPopupData.convId] : undefined,
     )
+    // ★ 订阅当前活跃会话：判断用户是否正通过弹窗在子会话中查看（此时显示「回到父会话」按钮）
+    const activeConversationId = useConversationStore((s) => s.activeConversationId)
 
     // 从会话存储中查找当前消息（实时更新，非快照）
     const liveMessage = useMemo(() => {
@@ -90,6 +92,9 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
         })
     }, [openToolPopup])
 
+    // ★ 订阅工具运行时状态：子 Agent 完成后 status/success 变化需驱动标题与子卡片实时刷新
+    const toolStates = useToolCallsStore((s) => s.states)
+
     // 构造弹窗标题 — 合并计算与统计，减少遍历
     const displayTitle = useMemo(() => {
         if (!combinedPopupData) return ''
@@ -98,7 +103,7 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
         if (thinkCount > 0) parts.push(`思考 ${thinkCount}`)
         const map = new Map<string, {total: number; success: number; isAgent: boolean; isSkill: boolean}>()
         for (const tc of toolCalls || []) {
-            const state = useToolCallsStore.getState().states[tc.id]
+            const state = toolStates[tc.id]
             const status = state?.status ?? tc.status
             const displayName = resolveToolDisplayName(tc)
             if (!map.has(displayName)) map.set(displayName, {total: 0, success: 0, isAgent: tc.name === 'agent', isSkill: isSkillToolCall(tc)})
@@ -111,11 +116,11 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
             )
         })
         return parts.join(' · ')
-    }, [combinedPopupData])
+    }, [combinedPopupData, toolStates])
 
     if (!combinedPopupData) return null
 
-    const {items, thinkCount, toolCalls} = combinedPopupData
+    const {items, toolCalls} = combinedPopupData
 
     const POPUP_WIDTH = 520
 
@@ -149,6 +154,21 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
                                     <span className="text-[10px] text-[var(--text-muted)] font-normal shrink-0">{toolCalls.length} 个调用</span>
                                 )}
                             </h4>
+                            {/* 回到父会话：当前活跃会话 ≠ 弹窗父会话（用户跳转到了子会话）时显示 */}
+                            {combinedPopupData.convId && activeConversationId !== combinedPopupData.convId && (
+                                <button
+                                    onClick={() => useConversationStore.getState().setActiveConversation(combinedPopupData.convId ?? null)}
+                                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium shrink-0 hover:bg-[var(--surface-muted)] border border-[var(--border)] mr-1"
+                                    style={{color: 'var(--text-secondary)'}}
+                                    title="回到主会话"
+                                >
+                                    <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M19 12H5"/>
+                                        <polyline points="12 19 5 12 12 5"/>
+                                    </svg>
+                                    主会话
+                                </button>
+                            )}
                             <button onClick={closeCombinedPopup}
                                 className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-primary)] transition-colors cursor-pointer">✕</button>
                         </div>
@@ -172,6 +192,10 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
                                             key={`tools-${idx}`}
                                             toolCalls={item.toolCalls!}
                                             onOpenToolPopup={handleOpenToolPopup}
+                                            onJumpToChild={(childConvId) => {
+                                                // 仅切换会话，保留二级弹窗打开（用户可随时切回父会话继续查看）
+                                                useConversationStore.getState().setActiveConversation(childConvId)
+                                            }}
                                         />
                                     )
                                 }
@@ -258,16 +282,22 @@ const ThinkBlockInPopup = memo(function ThinkBlockInPopup({thinkBlock}: {thinkBl
 const ToolSubCard = memo(function ToolSubCard({
     toolCalls,
     onOpenToolPopup,
+    onJumpToChild,
 }: {
     toolCalls: ToolCall[]
     onOpenToolPopup: (toolCalls: ToolCall[]) => void
+    /** 跳转子会话回调（由父组件传入，跳转同时关闭二级弹窗） */
+    onJumpToChild: (childConvId: string) => void
 }) {
+    // ★ 订阅工具运行时状态：完成态 status 变化需驱动子卡片统计/圆点实时刷新
+    const toolStates = useToolCallsStore((s) => s.states)
+
     // 统计 & 按名称分组（合并遍历，一轮搞定）
     const {chips, dotClass, isAgentGroup, isRunning, agentTc} = useMemo(() => {
         let error = 0, running = 0
         const typeMap = new Map<string, {total: number; error: number; isAgent: boolean; isSkill: boolean}>()
         for (const tc of toolCalls) {
-            const state = useToolCallsStore.getState().states[tc.id]
+            const state = toolStates[tc.id]
             const status = state?.status ?? tc.status
             // 全局统计
             if (status === 'error') error++
@@ -289,10 +319,9 @@ const ToolSubCard = memo(function ToolSubCard({
         // 单 agent 工具（跳转按钮只对单个 agent 调用显示）
         const agentTc = toolCalls.length === 1 && toolCalls[0].name === 'agent' ? toolCalls[0] : null
         return {chips, dotClass, isAgentGroup: toolCalls.length > 0 && toolCalls.every(tc => tc.name === 'agent'), isRunning, agentTc}
-    }, [toolCalls])
+    }, [toolCalls, toolStates])
 
     // 运行中工具的动态刷新文本（从 toolCallsStore 实时读取，不能放入 useMemo）
-    const toolStates = useToolCallsStore((s) => s.states)
     const runningProgress = useMemo(() => {
         for (const tc of toolCalls) {
             const state = toolStates[tc.id]
@@ -304,9 +333,32 @@ const ToolSubCard = memo(function ToolSubCard({
         return null
     }, [toolCalls, toolStates])
 
+    // ★ agent 工具：运行中点击直接跳转子会话实时观看（流式详情在子会话中展示）；
+    //   完成后点击仍打开三级弹窗看完整结果
+    const handleCardClick = () => {
+        if (agentTc && isRunning) {
+            const runtimeTaskId = toolStates[agentTc.id]?.taskId ?? agentTc.taskId
+            if (runtimeTaskId) {
+                onJumpToChild(runtimeTaskId)
+                return
+            }
+        }
+        onOpenToolPopup(toolCalls)
+    }
+
+    // 运行时 taskId 从 toolCallsStore 实时读取（弹窗 toolCalls 是打开时的快照，
+    // 运行中才补写的 taskId 只存在于运行时状态）
+    const runtimeTaskId = agentTc
+        ? toolStates[agentTc.id]?.taskId ?? agentTc.taskId
+        : undefined
+    const handleJumpToChild = (e: React.MouseEvent) => {
+        e.stopPropagation()
+        if (runtimeTaskId) onJumpToChild(runtimeTaskId)
+    }
+
     return (
         <button
-            onClick={() => onOpenToolPopup(toolCalls)}
+            onClick={handleCardClick}
             className="w-full flex items-center gap-2 px-3 py-2 my-1.5 rounded-lg text-left transition-colors
                 border border-[var(--border)] bg-[var(--surface-muted)]
                 hover:bg-[var(--surface-elevated)] hover:border-[var(--border-emphasis)] cursor-pointer"
@@ -343,31 +395,22 @@ const ToolSubCard = memo(function ToolSubCard({
                 </span>
             )}
             {/* 跳转到子会话：agent 工具组且有 taskId（运行中或已完成均显示） */}
-            {/* 运行时 taskId 从 toolCallsStore 实时读取（弹窗 toolCalls 是打开时的快照，
-                运行中才补写的 taskId 只存在于运行时状态） */}
-            {agentTc && (() => {
-                const runtimeTaskId = useToolCallsStore.getState().states[agentTc.id]?.taskId ?? agentTc.taskId
-                if (!runtimeTaskId) return null
-                return (
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            useConversationStore.getState().setActiveConversation(runtimeTaskId)
-                        }}
-                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium shrink-0
-                            hover:bg-[var(--surface-muted)] border border-[var(--border)]"
-                        style={{color: 'var(--brand-primary)'}}
-                        title="跳转到子会话"
-                    >
-                        <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-                            <polyline points="15 3 21 3 21 9"/>
-                            <line x1="10" y1="14" x2="21" y2="3"/>
-                        </svg>
-                        跳转
-                    </button>
-                )
-            })()}
+            {runtimeTaskId && (
+                <button
+                    onClick={handleJumpToChild}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium shrink-0
+                        hover:bg-[var(--surface-muted)] border border-[var(--border)]"
+                    style={{color: 'var(--brand-primary)'}}
+                    title="跳转到子会话"
+                >
+                    <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                        <polyline points="15 3 21 3 21 9"/>
+                        <line x1="10" y1="14" x2="21" y2="3"/>
+                    </svg>
+                    跳转
+                </button>
+            )}
         </button>
     )
 })

@@ -9,7 +9,6 @@ import {getRoleConfig} from '@shared/modelSchemeHelpers'
 import {resolveModelConfig} from '../model/modelSelector'
 import {createModelAdapter} from '../model/index'
 import type {ChatMessage} from '../model/types'
-import {logger} from '../logger'
 import {promisify} from 'util'
 import {execFile} from 'child_process'
 const execFileAsync = promisify(execFile)

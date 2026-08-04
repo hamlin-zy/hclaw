@@ -319,7 +319,9 @@ export const useModelSchemeStore = create<ModelSchemeStore>()(
             storage: sqliteStorage as PersistStorage<ModelSchemeStore>,
             version: 1,
             onRehydrateStorage: () => (state) => {
-                state && (state.hasRehydrated = true)
+                if (state) {
+                    state.hasRehydrated = true
+                }
             },
         }
     )
@@ -426,10 +428,6 @@ export async function switchActiveScheme(id: string): Promise<{
     if (currentSchemeId === id) {
         return {switched: false, schemeName: null}
     }
-
-    // 获取旧方案名称用于日志
-    const oldScheme = store.getActiveScheme()
-    const oldSchemeName = oldScheme?.name || 'unknown'
 
     // 更新渲染进程的方案状态
     store.setActiveScheme(id)

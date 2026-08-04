@@ -15,7 +15,6 @@ import {addLlmCallLog} from '../utils/llmCallLogStore'
 import {gracefulRestart} from '../utils/restart'
 import {HookExecutor, type HookResult} from '../plugin/hooks'
 import {capabilityManager} from './capabilityManager'
-import type {SerializableCapabilities} from '../common/capabilitySerializer'
 import {logger} from './logger'
 import {mcpWorkerManager, setAgentManagerRef} from './mcp/mcpWorkerManager'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
@@ -34,8 +33,8 @@ import {
 } from './manager.constants'
 import {createPendingMsg, normalizeToolResult} from './manager.accumulator'
 import {doMergeAndPersist} from './manager.persister'
-import {backupOldMessagesToDisk} from './manager.backup'
 import {loadPluginAgents} from './manager.pluginAgents'
+import {createConversationRepository} from '../repositories'
 
 // ─── AgentManager ──────────────────────────────────────
 
@@ -911,7 +910,6 @@ export class AgentManager {
     const result: Array<{role: string; content: string}> = []
 
     try {
-      const {createConversationRepository} = require('../repositories') as typeof import('../repositories')
       const repo = createConversationRepository()
       const {messages: convMsgs} = repo.readMessagesTail(conversationId, 10)
       const lastUserMsg = [...convMsgs].reverse().find(m => m.role === 'user')

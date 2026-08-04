@@ -6,6 +6,7 @@
  */
 
 import type {ToolCall} from '@shared/types'
+import ToolCountdown from './ToolCountdown'
 
 interface ToolCallHeaderProps {
     toolCall: ToolCall
@@ -31,6 +32,10 @@ interface ToolCallHeaderProps {
     effectiveProgress?: string
     effectiveAgentProgress?: string
     effectiveEta?: number
+
+    // 倒计时（超时剩余时间）
+    timeoutMs?: number
+    startedAt?: number
 
     // 显示信息
     agentDisplayName: string | null
@@ -65,6 +70,8 @@ export default function ToolCallHeader({
     effectiveProgress,
     effectiveAgentProgress,
     effectiveEta,
+    timeoutMs,
+    startedAt,
     agentDisplayName,
     agentTypeLabel,
     skillDisplayName,
@@ -183,7 +190,6 @@ export default function ToolCallHeader({
                 return parts.map((part, i) => {
                     // 前缀（m_ 或 mp_）用品牌色，服务名用品牌色+下划线，工具名用主色
                     if (i === 0) {
-                        const isPlugin = part.endsWith('p')
                         return (
                             <span key={i} className="text-[var(--brand-primary)]/70">
                                 {part}
@@ -239,12 +245,15 @@ export default function ToolCallHeader({
         </span>
     ) : null
 
+    const countdownBadge = isRunning ? <ToolCountdown timeoutMs={timeoutMs} startedAt={startedAt}/> : null
+
     // ── Compact 模式 ──
     if (isCompact) {
         return (
             <div className="w-full flex items-center gap-2 px-3 py-2 text-left">
                 {statusIndicator}
                 {toolDisplayName}
+                {countdownBadge}
                 {progressBar}
                 {progressText}
                 {viewBtn}
@@ -261,6 +270,7 @@ export default function ToolCallHeader({
         >
             {statusIndicator}
             {toolDisplayName}
+            {countdownBadge}
             {progressBar}
             {progressText}
             {metaSection}

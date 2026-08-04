@@ -1,6 +1,5 @@
 import {useState} from 'react'
 import type {MCPServer} from '@shared/types'
-import {confirm} from '../ConfirmDialog'
 
 // ─── Helpers ──────────────────────────────
 

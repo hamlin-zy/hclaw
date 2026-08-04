@@ -1,4 +1,4 @@
-import {Component, type ReactNode, useEffect, useState} from 'react'
+import {Component, type ReactNode, useEffect} from 'react'
 import {AnimatePresence} from 'framer-motion'
 import TitleBar from './components/TitleBar'
 import MenuBar from './components/MenuBar'
@@ -8,7 +8,7 @@ import SidePanels from './components/SidePanels'
 import MenuDialogRenderer from './components/MenuDialogRenderer'
 import DiffModal from './components/DiffModal'
 import AskUserModal from './components/AskUserModal'
-import ConfirmDialog, {confirm} from './components/ConfirmDialog'
+import ConfirmDialog from './components/ConfirmDialog'
 import UsageStatsDialog from './components/dialogs/UsageStatsDialog'
 import PermissionConfirmModal from './components/PermissionConfirmModal'
 import CompactToolPopup from './components/message-list/compact-popup'
@@ -18,6 +18,7 @@ import {useConversationStore} from './stores/conversationStore'
 import {useLLMStore} from './stores/llmStore'
 import {useModelSchemeStore} from './stores/modelSchemeStore'
 import {useSkillStore} from './stores/skillStore'
+import {useAgentTemplateStore} from './stores/agentTemplateStore'
 import {useHookStore} from './stores/hookStore'
 import {useThemeStore, resolveAndApplyTheme} from './stores/themeStore'
 import {useSettingsStore} from './stores/settingsStore'
@@ -335,6 +336,9 @@ export default function App() {
           useSettingsStore.getState().loadSettings(),
           useHookStore.getState().fetchHooks(),
           useSkillStore.getState().refreshSkills(),
+          // ★ 历史 /能力 消息降级渲染依赖 agent 能力名集合，
+          //   缺失会导致重启后 agent 类命令（如 /code-simplifier）无法渲染徽章
+          useAgentTemplateStore.getState().init(),
         ])
 
         // 应用启动时同步主题设置
@@ -376,7 +380,7 @@ export default function App() {
             }
           }
         }
-      } catch (err) {
+      } catch {
         // 静默处理错误
       }
     }

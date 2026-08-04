@@ -50,6 +50,10 @@ export interface ToolCallState {
     progress?: string
     progressPercent?: number
     eta?: number
+    /** 执行超时时间（毫秒），由主进程 tool_start 事件注入，用于倒计时显示 */
+    timeoutMs?: number
+    /** 工具开始执行的时间戳（tool_start 到达时刻），倒计时起点 */
+    startedAt?: number
     result?: ExtendedToolResult
     /** 详细状态 */
     detailStatus?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'

@@ -100,4 +100,45 @@ describe('parseUserCommandContext（徽章显示）', () => {
             content: '/build',
         })).toEqual({commandName: 'build', commandArgs: undefined, type: 'plugin'})
     })
+
+    describe('降级路径（历史消息 commandId 缺失）', () => {
+        const known = {
+            skills: ['brainstorming', 'systematic-debugging'],
+            agents: ['code-simplifier'],
+            userCommands: ['daily-report'],
+        }
+
+        it('content 首行命中已知 skill 名 → 渲染为 skill 徽章', () => {
+            expect(parseUserCommandContext(
+                {content: '/brainstorming\n我想设计一个功能'},
+                known,
+            )).toEqual({commandName: 'brainstorming', commandArgs: '我想设计一个功能', type: 'skill'})
+        })
+
+        it('content 首行命中已知 agent 名 → 渲染为 agent 徽章', () => {
+            expect(parseUserCommandContext(
+                {content: '/code-simplifier 帮我简化这段代码'},
+                known,
+            )).toEqual({commandName: 'code-simplifier', commandArgs: '帮我简化这段代码', type: 'agent'})
+        })
+
+        it('content 首行命中已知用户命令名 → 渲染为 user 徽章', () => {
+            expect(parseUserCommandContext(
+                {content: '/daily-report'},
+                known,
+            )).toEqual({commandName: 'daily-report', commandArgs: undefined, type: 'user'})
+        })
+
+        it('未命中任何已知能力 → 返回 null（保持纯文本）', () => {
+            expect(parseUserCommandContext({content: '/未知命令 随便说说'}, known)).toBeNull()
+        })
+
+        it('不传 known（未启用降级）→ 返回 null', () => {
+            expect(parseUserCommandContext({content: '/brainstorming 测试'})).toBeNull()
+        })
+
+        it('普通文本（非 / 开头）→ 返回 null', () => {
+            expect(parseUserCommandContext({content: '这是一条普通消息'}, known)).toBeNull()
+        })
+    })
 })

@@ -19,7 +19,6 @@ export default function SkillsDialog() {
         refreshSkills,
         loadSkills,
         installSkill,
-        removeSkill,
         loadErrors,
         initialized,
     } = useSkillStore()

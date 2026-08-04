@@ -15,7 +15,6 @@ import {createPortal} from 'react-dom'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
 import LinkContextMenu from '../common/LinkContextMenu'
-import {useMenuBarStore} from '../../stores/menuBarStore'
 import {useSkillStore} from '../../stores/skillStore'
 import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
 import {usePluginUpdateStore} from '../../stores/pluginUpdateStore'
@@ -136,7 +135,6 @@ interface LoadedPlugin extends PluginCapabilityDetails {
 }
 
 export default function PluginDialog() {
-  const { closeDialog } = useMenuBarStore()
   const [plugins, setPlugins] = useState<LoadedPlugin[]>([])
   const [loading, setLoading] = useState(true)
   const [installUrl, setInstallUrl] = useState('')
@@ -146,8 +144,6 @@ export default function PluginDialog() {
     const [expandedPlugin, setExpandedPlugin] = useState<string | null>(null)
     // Track which plugin is currently being toggled (enable/disable)
     const [togglingPlugin, setTogglingPlugin] = useState<string | null>(null)
-    // Track which plugin is currently being updated
-    const [updatingPlugin, setUpdatingPlugin] = useState<string | null>(null)
     // Track which plugin is currently being reset
     const [resettingPlugin, setResettingPlugin] = useState<string | null>(null)
     // Track update/reset result messages (per-plugin)
@@ -176,7 +172,6 @@ export default function PluginDialog() {
     const [syncingVersion, setSyncingVersion] = useState<string | null>(null)
     const [switchingVersion, setSwitchingVersion] = useState<string | null>(null)
     const pluginUpdateMap = usePluginUpdateStore(s => s.updateMap)
-    const updateStore = usePluginUpdateStore
     const {settings} = useSettingsStore()
     const linkMode = settings.linkOpening?.mode ?? 'ask'
     const [linkMenu, setLinkMenu] = useState<{visible: boolean; x: number; y: number; url: string}>({
@@ -222,7 +217,7 @@ export default function PluginDialog() {
         // Fetch real capability counts from authoritative registries (single IPC call)
         const counts = await api?.plugin?.getRealCounts?.()
         setRealCounts(counts || {})
-    } catch (err) {
+    } catch {
         // Error silently ignored
     } finally {
       setLoading(false)
@@ -375,7 +370,7 @@ export default function PluginDialog() {
         } else if (result?.error) {
             // Error silently
         }
-    } catch (err) {
+    } catch {
         // Error silently ignored
     }
   }
@@ -391,51 +386,6 @@ export default function PluginDialog() {
   const showUpdateMessage = (name: string, message: string, isError: boolean) => {
     setUpdateResult({ name, message, isError })
     setTimeout(() => setUpdateResult(prev => prev?.name === name ? null : prev), 5000)
-  }
-
-  const handleUpdate = async (name: string) => {
-    setUpdatingPlugin(name)
-    setUpdateResult(null)
-    try {
-      const api = window.electronAPI as any
-      const result = await api?.plugin?.update(name, { force: false })
-
-      if (result?.success) {
-        if (result.updated === false) {
-          showUpdateMessage(name, '已是最新版本', false)
-        } else {
-          const isForce = result.forceApplied
-          showUpdateMessage(name, isForce ? '强制更新成功（本地修改已丢弃）' : '更新成功', false)
-          await syncAfterUpdate(result)
-        }
-      } else if (result?.dirtyFiles?.length > 0) {
-        const confirmed = await confirm({
-          title: '本地文件有修改',
-          message: `插件 "${name}" 的以下文件已被本地修改：\n\n${result.dirtyFiles.join('\n')}\n\n是否强制覆盖并更新？（将丢弃所有本地修改）`,
-          confirmText: '强制覆盖并更新',
-          cancelText: '取消',
-          confirmVariant: 'danger',
-          onConfirm: async () => {},
-        })
-        if (confirmed) {
-          const forceResult = await api?.plugin?.update(name, { force: true })
-          if (forceResult?.success) {
-            showUpdateMessage(name, '强制更新成功（本地修改已丢弃）', false)
-            await syncAfterUpdate(forceResult)
-          } else {
-            showUpdateMessage(name, forceResult?.error?.message || '强制更新失败', true)
-          }
-        } else {
-          showUpdateMessage(name, '已取消', false)
-        }
-      } else {
-        showUpdateMessage(name, result?.error?.message || '更新失败', true)
-      }
-    } catch (err) {
-      showUpdateMessage(name, err instanceof Error ? err.message : String(err), true)
-    } finally {
-      setUpdatingPlugin(null)
-    }
   }
 
   const handleReset = async (name: string) => {

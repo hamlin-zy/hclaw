@@ -196,13 +196,13 @@ function findViewportTopMsgIdx(container: HTMLElement): number | null {
 // ─── MessageList 主组件 ───────────────────────────────────
 
 export default function MessageList({conversationId}: { conversationId?: string } = {}) {
-    const messagesFromMap = conversationId
-        ? useConversationStore((s) => s.messagesMap[conversationId] || [])
-        : []
-    const messages = conversationId ? messagesFromMap : useConversationStore((s) => s.loadedMessages)
+    const messages = useConversationStore((s) =>
+        conversationId ? (s.messagesMap[conversationId] || []) : s.loadedMessages)
     const activeConversationId = useConversationStore((s) => s.activeConversationId)
-    const hasMore = conversationId ? useConversationStore((s) => s.hasMoreMap[conversationId] ?? false) : false
-    const loadingMore = conversationId ? useConversationStore((s) => s.loadingMoreMap[conversationId] ?? false) : false
+    const hasMore = useConversationStore((s) =>
+        conversationId ? (s.hasMoreMap[conversationId] ?? false) : false)
+    const loadingMore = useConversationStore((s) =>
+        conversationId ? (s.loadingMoreMap[conversationId] ?? false) : false)
     // agent 状态
     const streamingMessageId = useAgentStore((s) => conversationId ? s.convAgentStates[conversationId]?.streamingMessageId ?? null : s.streamingMessageId)
 
@@ -347,28 +347,69 @@ export default function MessageList({conversationId}: { conversationId?: string 
     }, [scrollToBottom, messages.length])
 
     // ── 切换会话时重置状态 ───────────────────────────────
+    // ★ 等待历史消息加载完成后再滚动到底部：
+    //   会话切换瞬间消息可能尚未从 SQLite 加载（loadMessagesInitial 是异步的），
+    //   若立即滚动，列表为空或仅部分渲染（content-visibility 懒渲染），
+    //   会停在中部/顶部。因此用 MutationObserver 监听容器子节点，
+    //   待历史消息真正插入 DOM 后再执行滚动；超时兜底防止空会话卡住。
     useEffect(() => {
         resetScrollState()
         setCurrentMsgIdx(0)
         lastNavigatedMsgIdxRef.current = null
-        // 新会话自动滚动到底部（scrollIntoView 确保即使 content-visibility 未布局也能正确定位）
-        requestAnimationFrame(() => {
-            const container = containerRef.current
-            if (!container) return
-            const lastMsg = container.querySelector(':scope > div > :last-child')
-            if (lastMsg) {
-                lastMsg.scrollIntoView({block: 'end'})
-            } else {
-                scrollToBottom('auto')
-            }
+        // 重置消息计数基准，使首次 0→N 的异步加载也能触发"新消息滚动"兜底
+        prevCountRef.current = 0
+
+        const container = containerRef.current
+        if (!container) return
+
+        let settled = false
+        let settleTimer: number | null = null
+        let observer: MutationObserver | null = null
+
+        const settle = () => {
+            if (settled) return
+            settled = true
+            if (settleTimer) clearTimeout(settleTimer)
+            if (observer) observer.disconnect()
+            // 消息元素已插入 DOM 且 content-visibility 完成首轮布局后滚动
+            requestAnimationFrame(() => {
+                const c = containerRef.current
+                if (!c) return
+                const lastMsg = c.querySelector(':scope > div > :last-child')
+                if (lastMsg) {
+                    lastMsg.scrollIntoView({block: 'end'})
+                } else {
+                    scrollToBottom('auto')
+                }
+            })
+        }
+
+        // 历史消息加载是异步的（loadMessagesInitial），子节点插入时触发滚动
+        observer = new MutationObserver(() => {
+            if (settled) return
+            if (settleTimer) clearTimeout(settleTimer)
+            settleTimer = window.setTimeout(settle, 50) // 短防抖，等一批子节点插入完
         })
+        observer.observe(container, {childList: true, subtree: true})
+
+        // 兜底：1500ms 内无子节点变化（如空会话）也执行一次滚动
+        settleTimer = window.setTimeout(settle, 1500)
+
+        return () => {
+            if (settled) return
+            settled = true
+            if (observer) observer.disconnect()
+            if (settleTimer) clearTimeout(settleTimer)
+        }
     }, [activeConversationId, scrollToBottom])
 
     // ── 新消息时滚动到底部 ────────────────────────────────
+    // ★ 放开 prevCount > 0 门槛：会话切换后首次 0→N 的异步加载（loadMessagesInitial）
+    //   也视为新消息，加载完成即滚动到底部，作为 MutationObserver 方案的兜底
     const prevCountRef = useRef(messages.length)
     useEffect(() => {
         const prevCount = prevCountRef.current
-        if (messages.length > prevCount && prevCount > 0) {
+        if (messages.length > prevCount) {
             const newMsgs = messages.slice(prevCount)
             const hasUser = newMsgs.some(m => m.role === 'user')
 
@@ -470,18 +511,14 @@ export default function MessageList({conversationId}: { conversationId?: string 
                     {messages
                         .map((message, origIdx) => ({message, origIdx}))
                         .filter(({message}) => message.role === 'user' || message.role === 'assistant')
-                        .map(({message, origIdx}, displayIdx) => (
+                        .map(({message, origIdx}) => (
                         <div
                             key={message.id}
                             data-msg-idx={origIdx}
                             data-name={`message-row-${message.role}`}
                             style={{contentVisibility: 'auto', containIntrinsicSize: 'auto 200px'}}
                         >
-                            <MessageBubble
-                                message={message}
-                                index={displayIdx}
-                                isStreaming={message.id === streamingMessageId}
-                            />
+                            <MessageBubble message={message}/>
                         </div>
                     ))}
                 </div>

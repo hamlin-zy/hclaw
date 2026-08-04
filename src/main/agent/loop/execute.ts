@@ -499,6 +499,34 @@ export async function* executeToolCalls(
         sendMessage: (msg: any) => {
             if (!onEvent) return
             switch (msg.type) {
+                case 'subagent_progress':
+                    onEvent({
+                        type: 'subagent_progress',
+                        taskId: msg.taskId,
+                        toolCallId: msg.toolCallId,
+                        subAgentEvent: msg.subAgentEvent,
+                        progress: msg.progress,
+                        subAgentStreamEvent: msg.subAgentStreamEvent,
+                    })
+                    break
+                case 'subagent_start':
+                    onEvent({
+                        type: 'subagent_start',
+                        taskId: msg.taskId,
+                        description: msg.description || '',
+                        toolCallId: msg.toolCallId,
+                    })
+                    break
+                case 'subagent_done':
+                    onEvent({
+                        type: 'subagent_done',
+                        taskId: msg.taskId,
+                        success: msg.success ?? true,
+                        output: msg.output || '',
+                        error: msg.error,
+                        toolCallId: msg.toolCallId,
+                    })
+                    break
                 case 'skill_start':
                     onEvent({type: 'skill_start', skillName: msg.skillName})
                     break

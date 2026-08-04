@@ -21,7 +21,6 @@
 import {z} from 'zod'
 import type {Tool, ToolContext, ToolResult} from '../types'
 import {ChannelRepository} from '../../../channel/ChannelRepository'
-import {parentPort} from 'worker_threads'
 
 const channelRepo = new ChannelRepository()
 

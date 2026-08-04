@@ -237,10 +237,9 @@ function WeChatLoginPanel({onConnected}: { onConnected: () => void }) {
 // ─── 主组件 ────────────────────────────────────────────
 
 export default function ChannelsDialog() {
-    const {channels, loading, loadChannels, create, update, remove} = useChannelStore()
+    const {channels, loadChannels, create, update, remove} = useChannelStore()
     const [expandedType, setExpandedType] = useState<ChannelType | null>(null)
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
-    const [connecting, setConnecting] = useState<ChannelType | null>(null)
     const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     // 清除 toast 定时器
@@ -257,44 +256,39 @@ export default function ChannelsDialog() {
         channels.find(c => c.type === type), [channels])
 
     const handleSave = async (def: ChannelDef, config: Record<string, unknown>) => {
-        setConnecting(def.type)
-        try {
-            const existing = getChannel(def.type)
-            let result: { success: boolean; error?: string }
-            if (existing) {
-                result = await update(existing.id, {config})
-            } else {
-                result = await create(def.type, def.label, config)
-            }
+        const existing = getChannel(def.type)
+        let result: { success: boolean; error?: string }
+        if (existing) {
+            result = await update(existing.id, {config})
+        } else {
+            result = await create(def.type, def.label, config)
+        }
 
-            if (result.success) {
-                setToast({message: '配置已保存', type: 'success'})
-                setTimeout(clearToast, 2000)
+        if (result.success) {
+            setToast({message: '配置已保存', type: 'success'})
+            setTimeout(clearToast, 2000)
 
-                // 保存成功后自动尝试连接（保存到 DB 后自动启动）
-                // 注意：ChannelManager 已在应用启动时自动连接 enabled=true 的渠道，
-                // 此处通过 startWorker 主动触发连接并监听结果
-                const channelId = existing?.id || (result as any).id
-                if (channelId) {
-                    try {
-                        const startResult: any = await (window as any).electronAPI?.channel?.startWorker?.(channelId)
-                        if (startResult?.success) {
-                            setToast({message: '正在连接...', type: 'success'})
-                            setTimeout(clearToast, 2000)
-                        } else {
-                            setToast({message: `连接失败: ${startResult?.error || '未知错误'}`, type: 'error'})
-                            setTimeout(clearToast, 3000)
-                        }
-                    } catch {
-                        // 静默，不影响保存成功提示
+            // 保存成功后自动尝试连接（保存到 DB 后自动启动）
+            // 注意：ChannelManager 已在应用启动时自动连接 enabled=true 的渠道，
+            // 此处通过 startWorker 主动触发连接并监听结果
+            const channelId = existing?.id || (result as any).id
+            if (channelId) {
+                try {
+                    const startResult: any = await (window as any).electronAPI?.channel?.startWorker?.(channelId)
+                    if (startResult?.success) {
+                        setToast({message: '正在连接...', type: 'success'})
+                        setTimeout(clearToast, 2000)
+                    } else {
+                        setToast({message: `连接失败: ${startResult?.error || '未知错误'}`, type: 'error'})
+                        setTimeout(clearToast, 3000)
                     }
+                } catch {
+                    // 静默，不影响保存成功提示
                 }
-            } else {
-                setToast({message: `保存失败: ${result.error || '未知错误'}`, type: 'error'})
-                setTimeout(clearToast, 3000)
             }
-        } finally {
-            setConnecting(null)
+        } else {
+            setToast({message: `保存失败: ${result.error || '未知错误'}`, type: 'error'})
+            setTimeout(clearToast, 3000)
         }
     }
 

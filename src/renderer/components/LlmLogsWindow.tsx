@@ -20,7 +20,7 @@ export default function LlmLogsWindow() {
             if (result && Array.isArray(result)) {
                 setLogs(result)
             }
-        } catch (err) {
+        } catch {
             // Error silently ignored
         }
     }, [])
@@ -29,7 +29,7 @@ export default function LlmLogsWindow() {
         try {
             await window.electronAPI?.clearLlmCallLogs?.()
             setLogs([])
-        } catch (err) {
+        } catch {
             // Error silently ignored
         }
     }, [])
@@ -42,7 +42,7 @@ export default function LlmLogsWindow() {
             if (!newState) {
                 setLogs([])
             }
-        } catch (err) {
+        } catch {
             // Error silently ignored
         }
     }, [enabled])

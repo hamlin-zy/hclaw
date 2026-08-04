@@ -1,6 +1,7 @@
 import {ipcMain} from 'electron';
 import {createConversationRepository, createMessageBlockRepository} from './repositories';
 import {computeConversationUsageStats} from './usageStats'
+import {getMainWindow} from './window'
 import type {ConversationMeta, ConversationSummary, Message, MessageBlock} from '@shared/types';
 import {collectDescendants} from '@shared/utils/conversationTree'
 
@@ -57,7 +58,6 @@ export function initConversationIPC(): void {
             const result = convRepo().updateMeta(convId, updates as Partial<ConversationMeta>);
             // 通知渲染器更新会话预览等元数据
             if (result) {
-                const {getMainWindow} = require('./window')
                 const win = getMainWindow()
                 if (win && !win.isDestroyed()) {
                     win.webContents.send('conversation-updated', {

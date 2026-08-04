@@ -39,6 +39,9 @@ export function ensureAgentToolTaskId(convId: string, toolCallId: string | undef
         convStore.updateMessageForConv(convId, msg!.id, {toolCalls: updatedToolCalls})
         // 同步运行时状态（toolCallsStore），使弹窗/卡片立即响应
         useToolCallsStore.getState().updateToolCall(toolCallId, {taskId: childConvId})
+        // ★ 重建 contentBlocks（其 tool_use 块持有 toolCall 副本，不重建则渲染层读到的
+        //   仍是无 taskId 的旧副本，导致 Normal/Compact 卡片运行中不显示跳转按钮）
+        updateMessageContentBlocks(convId)
     }
 }
 
@@ -134,7 +137,6 @@ export function handleSubagentStart(ctx: StreamCtx) {
     if (isAgentAborted) return
     if (!event.taskId || !event.description) return
     const convState = get().convAgentStates[convId] || createDefaultConvData()
-    if (!convState.streamingMessageId && convState.agentState.status === 'idle') return
     if (!convState.streamingMessageId) return
     const convStore = useConversationStore.getState()
 
@@ -142,6 +144,11 @@ export function handleSubagentStart(ctx: StreamCtx) {
     const msg = convMsgs.find(m => m.id === convState.streamingMessageId)
     const agentTool = findAgentCall(msg?.toolCalls, (event as any).toolCallId)
     if (agentTool) {
+        // ★ 立即给父 agent 工具补写 taskId（taskId === childConvId，运行中即可跳转子会话）。
+        //   agentTool.ts 在子会话创建成功瞬间即推送 subagent_start（携带 toolCallId），
+        //   此处精确按 toolCallId 定位父工具并幂等补写，无需等 subagent_progress。
+        ensureAgentToolTaskId(convId, agentTool.id, event.taskId)
+
         const subToolCallId = `sub-${event.taskId}`
 
         // 防御性检查：避免重复 subagent_start 导致 toolCalls 中创建重复条目

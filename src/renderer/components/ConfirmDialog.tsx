@@ -14,11 +14,6 @@ export interface ConfirmDialogOptions {
     onCancel?: () => void
 }
 
-/**
- * 确认弹窗状态管理
- */
-let showConfirmDialog: ((options: ConfirmDialogOptions) => Promise<boolean>) | null = null
-
 // 内部状态
 let resolvePromise: ((value: boolean) => void) | null = null
 

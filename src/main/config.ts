@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import yaml from 'js-yaml';
 import {createConfigRepository} from './repositories';
 import {systemSettingsRepo} from './repositories/sqlite/systemSettingsRepository';
 import {workspaceRepo} from './repositories/sqlite/workspaceRepository';
@@ -161,8 +162,8 @@ export function configPath(name: string): string {
  * 读取 user_commands WHERE source='user'，写入 ~/.hclaw/commands/{name}.md，然后删除 DB 记录
  */
 function migrateUserCommandsFromDbToFs(commandsDir: string): void {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- repositories/sqlite 顶层 import config（getHclawDir），存在循环依赖；此函数仅启动迁移时调用，延迟加载避免模块初始化顺序问题
     const {getDatabase, saveDatabase} = require('./repositories/sqlite')
-    const {commandToMarkdown} = require('./command/presetCommands')
     const db = getDatabase()
 
     const rows = db.prepare("SELECT * FROM user_commands WHERE source = 'user'").all() as Array<{
@@ -180,7 +181,6 @@ function migrateUserCommandsFromDbToFs(commandsDir: string): void {
     }
 
     let migrated = 0
-    const yaml = require('js-yaml') as typeof import('js-yaml')
 
     for (const row of rows) {
         const filePath = path.join(commandsDir, `${row.name}.md`)
@@ -331,7 +331,8 @@ export function ensureConfigLayout(): void {
  * 所有 electron 依赖集中在 initConfigIPC() 内延迟加载，该函数仅在主进程被调用。
  */
 export function initConfigIPC(): void {
-    const {ipcMain, safeStorage, app, clipboard, nativeImage} = require('electron')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- Worker 进程无法 resolve electron，需延迟加载；此函数仅主进程调用
+    const {ipcMain, safeStorage, clipboard, nativeImage} = require('electron')
     const configRepo = createConfigRepository()
 
     // System config directory — get/set with bootstrap file persistence
@@ -440,7 +441,7 @@ export function initConfigIPC(): void {
             const filePath = path.join(tempDir, uniqueName);
             fs.writeFileSync(filePath, Buffer.from(data.buffer));
             return filePath;
-        } catch (err) {
+        } catch {
             return null;
         }
     });
@@ -453,11 +454,10 @@ export function initConfigIPC(): void {
             const filePath = path.join(tempDir, uniqueName);
             fs.copyFileSync(data.sourcePath, filePath);
             return filePath;
-        } catch (err) {
+        } catch {
             return null;
         }
     });
-
     // Write image to system clipboard (expects PNG/JPEG buffer)
     ipcMain.handle('clipboard-write-image', async (_event: any, data: { buffer: number[] }) => {
         try {

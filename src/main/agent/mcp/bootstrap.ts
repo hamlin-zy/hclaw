@@ -9,7 +9,6 @@ import {mcpClient} from './client'
 import {registerMCPTools} from './discovery'
 import type {MCPServerConfig} from './types'
 import {PluginRegistry} from '../../plugin/registry'
-import {logger} from '../logger'
 
 /** 单个服务启动超时（毫秒） */
 const SERVER_START_TIMEOUT = 15_000
@@ -57,7 +56,7 @@ function loadMcpConfig(): Array<Record<string, unknown>> | null {
             userDescription: server.userDescription,
             enabled: server.enabled,
         }))
-    } catch (err: any) {
+    } catch {
         return null
     }
 }
@@ -223,12 +222,10 @@ function loadMcpServersFromSinglePlugin(plugin: { name: string; path: string }):
         const parsed = parseMcpConfigFile(configPath)
         if (parsed.length === 0) continue
 
-        let added = 0
         for (const s of parsed.map(s => tagPluginServer(s, plugin.name, plugin.path))) {
             if (seen.has(s.id as string)) continue
             seen.add(s.id as string)
             servers.push(s)
-            added++
         }
 
     }
@@ -277,7 +274,7 @@ async function tryStartServer(config: MCPServerConfig): Promise<boolean> {
         // 注册工具
         const _registered = registerMCPTools(config.id, undefined, undefined, config.name)
         return true
-    } catch (err: any) {
+    } catch {
         return false
     }
 }
@@ -368,10 +365,6 @@ export async function bootstrapMcpServers(): Promise<void> {
             await new Promise(r => setTimeout(r, BOOTSTRAP_BATCH_DELAY))
         }
     }
-
-    // 统计结果
-    const succeeded = results.filter(r => r.status === 'fulfilled' && r.value.success).length
-    const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)).length
 
     // MCP connection results are logged individually by client.ts
 }

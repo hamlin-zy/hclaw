@@ -7,6 +7,32 @@
 
 ---
 
+## [v0.3.4] - 2026-08-05
+
+### 新增
+- **工具执行超时倒计时显示** — 工具调用头部实时显示超时倒计时，紧凑弹窗卡片同步支持 (`src/renderer/components/message-list/ToolCountdown.tsx`, `src/renderer/hooks/useToolCountdown.ts`)
+- **子会话保留完整执行过程（单条消息模式）** — 子 Agent 会话以单条消息模式合并完整执行链，新增 childConvMessages 链路 (`src/main/agent/tools/builtin/childConvMessages.ts`, `src/main/agent/tools/builtin/agentTool.ts`)
+- **子 Agent 运行中实时跳转子会话** — 子会话运行时可实时跳转并刷新状态 (`src/main/agent/tools/builtin/agentTool.ts`)
+
+### 重构
+- **清理未使用的 props、状态与调试日志** — 移除多处死代码与调试输出，净删 56 行 (`src/renderer/components/MainWorkspace.tsx`, `src/renderer/components/dialogs/ChannelsDialog.tsx`)
+
+### 修复
+- **子 Agent 工作报告结果集不再被多级截断** — 修复嵌套工具调用结果逐级截断的问题 (`src/main/agent/tools/executor.ts`)
+- **历史 /能力 消息徽章丢失** — 修复历史命令消息能力徽章不渲染 (`src/renderer/components/message-list/MessageBubble.tsx`, `src/renderer/lib/userCommandParse.ts`)
+- **会话切换滚动错位** — 等待历史消息加载完成后才滚动到底部 (`src/renderer/components/MessageList.tsx`)
+- **条件 Hook 调用（rules-of-hooks）** — 修复违反 Hook 规则的调用并补专项回归测试 (`src/renderer/components/message-list/`)
+- **删除确认弹窗取消误执行** — 修复 confirmed 返回值被忽略导致取消仍继续删除 (`src/renderer/components/`)
+- **bash 工具输出截断阈值对齐** — 输出截断阈值与内部上限 2MB 对齐 (`src/main/agent/tools/executor.ts`)
+
+### 变更
+- **copy-native-modules 构建加固** — 原生模块缺失/复制失败改为终止构建并加完整性校验 (`vite.main.config.mjs`)
+- **dependency-cruiser 依赖图护栏** — 新增依赖图规则与已知违规基线，防依赖退化 (`package.json`, `.dependency-cruiser.js`)
+- **lint 规则修复与批量清理** — 修复 Function/空对象/this 别名类型规则、require 静态化、死代码清理 (`package.json`, `src/`)
+- **零风险清理** — deferred minors 5 项清理，移除冗余依赖 (`package.json`, `package-lock.json`)
+
+---
+
 ## [v0.3.3] - 2026-08-03
 
 ### 变更

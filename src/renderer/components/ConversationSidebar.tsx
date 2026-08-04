@@ -107,7 +107,6 @@ function SystemStatusIndicator() {
 
 export default function ConversationSidebar() {
     const {leftCollapsed, setLeftCollapsed} = useSidebarStore()
-    const currentWorkspacePath = useConversationStore((s) => s.currentWorkspacePath)
 
   return (
       <div className="relative h-full flex shrink-0">
@@ -593,7 +592,7 @@ function ConversationList() {
         const activeConv = filtered.find(c => c.id === activeConversationId)
         if (!activeConv) return
 
-        setExpandedParentId(prev => {
+        setExpandedParentId(() => {
             if (activeConv.parentConvId) {
                 // 切换到子会话 → 展开其父会话（同族内导航）
                 return activeConv.parentConvId

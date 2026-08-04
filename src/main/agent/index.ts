@@ -13,7 +13,6 @@ import {permissionEngine} from './tools/permission'
 import {powerManager} from './powerManager'
 import {runtimeConfigManager} from './runtimeConfigManager'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
-import {logger} from './logger'
 
 import {registerHandlers as registerAgentHandlers} from './ipc/agents'
 import {registerHandlers as registerExecutionHandlers} from './ipc/execution'
@@ -40,7 +39,7 @@ export async function initAgent(): Promise<void> {
         if (savedWorkMode) {
             runtimeConfigManager.setWorkMode(savedWorkMode)
         }
-    } catch (err) {
+    } catch {
         // 首次启动无保存值，使用默认 'work'
     }
 

@@ -2,7 +2,7 @@ import {useState, useCallback} from 'react'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
 import type {MCPServer} from '@shared/types'
-import {statusDotClasses, transportColorClasses, buildMcpConfigJson} from './MCPUtils'
+import {statusDotClasses, buildMcpConfigJson} from './MCPUtils'
 
 type PluginServer = MCPServer & { pluginEnabled?: boolean }
 

@@ -31,6 +31,48 @@ export interface ExecuteToolResult {
   denyReason?: string
 }
 
+/**
+ * 拥有独立内部超时/中止机制的工具，executor 层不套外层超时兜底：
+ * - agent：由内部 maxTurns + llmTimeout 控制执行深度
+ * - ask_user：必须永久等待用户响应
+ * - bash：内部有 setTimeout + killProcessTree + AbortSignal，且已收集部分输出
+ * - web_fetch：内部有 http.get({timeout}) + req.on('timeout') + AbortSignal
+ * 外层超时与之竞争，会产生泛化的 ToolTimeoutError 覆盖内部的具体错误信息（如部分输出）
+ */
+export const SKIP_OUTER_TIMEOUT_TOOLS = new Set(['agent', 'ask_user', 'bash', 'web_fetch'])
+
+/**
+ * 内部管理超时的工具及其默认超时（与 builtin 工具内部常量保持一致），
+ * 供 UI 倒计时展示；LLM 可通过 timeout 参数覆盖（<1000 视为秒自动换算）。
+ */
+const INTERNAL_TIMEOUTS: Record<string, number> = {
+    bash: 30000,
+    web_fetch: 15000,
+}
+
+/**
+ * 解析工具的有效超时时间（毫秒）
+ * - agent / ask_user：无外层超时且无明确展示意义的内部超时 → undefined（不显示倒计时）
+ * - bash / web_fetch：解析其内部超时（含 LLM 参数覆盖），供 UI 倒计时显示
+ * - 其余工具：优先 DB 配置，否则工具默认值
+ * 供执行器与 UI 倒计时（tool_start 事件注入 timeoutMs）共用，保证两处一致。
+ */
+export function resolveToolTimeoutMs(toolName: string, args?: Record<string, unknown>): number | undefined {
+    if (toolName === 'agent' || toolName === 'ask_user') return undefined
+
+    const internalTimeout = INTERNAL_TIMEOUTS[toolName]
+    if (internalTimeout !== undefined) {
+        // LLM 可能误将秒当毫秒传入（如 timeout: 30 表示 30 秒），与 builtin 工具逻辑一致；
+        // 参数可能为字符串（未过 Zod coerce），先转数字避免字符串比较/拼接
+        const raw = typeof args?.timeout === 'string' ? Number(args.timeout) : (args?.timeout as number | undefined)
+        if (raw === undefined || Number.isNaN(raw)) return internalTimeout
+        return raw < 1000 ? raw * 1000 : raw
+    }
+
+    const dbTimeout = toolRepo.getTimeout(toolName)
+    return dbTimeout ?? getToolDefaultTimeout(toolName)
+}
+
 export async function executeTool(
   toolCall: ExecuteToolCall,
   context: ToolContext,
@@ -205,14 +247,8 @@ export async function executeTool(
 
     // ── 执行工具（带超时保护） ──
   try {
-      // 以下工具拥有独立的内部超时/中止机制，不需要 executor 层的外层超时兜底：
-      // - agent：由内部 maxTurns + llmTimeout 控制执行深度
-      // - ask_user：必须永久等待用户响应
-      // - bash：内部有 setTimeout + killProcessTree + AbortSignal，且已收集部分输出
-      // - web_fetch：内部有 http.get({timeout}) + req.on('timeout') + AbortSignal
-      // 外层超时与之竞争，会产生泛化的 ToolTimeoutError 覆盖内部的具体错误信息（如部分输出）
-      const skipOuterTimeout = new Set(['agent', 'ask_user', 'bash', 'web_fetch'])
-      if (skipOuterTimeout.has(tool.name)) {
+      // 拥有独立内部超时/中止机制的工具（见模块顶部 SKIP_OUTER_TIMEOUT_TOOLS 注释）
+      if (SKIP_OUTER_TIMEOUT_TOOLS.has(tool.name)) {
           const result = await tool.execute(parseResult.data, { ...context, toolCallId: toolCall.id })
           const checkedResult = checkResultSize(toolCall.name, result)
           return {
@@ -223,8 +259,7 @@ export async function executeTool(
       }
 
       // 获取工具超时时间（优先使用数据库配置，否则使用默认值）
-      const dbTimeout = toolRepo.getTimeout(tool.name)
-      const timeoutMs = dbTimeout ?? getToolDefaultTimeout(tool.name)
+      const timeoutMs = resolveToolTimeoutMs(tool.name, parseResult.data) ?? 60000
 
       // 使用超时包装器执行工具
       const result = await withToolTimeout(
@@ -263,7 +298,24 @@ export async function executeTool(
 const SIZE_WARNING_THRESHOLD = 5000 // 字符数阈值
 const SIZE_TRUNCATE_THRESHOLD = 15000 // 字符数截断阈值
 
-function checkResultSize(_toolName: string, result: ToolResult): ToolResult {
+/**
+ * 各工具的差异化截断阈值（字符数）
+ *
+ * bash 工具内部已有 2MB 输出上限（bashTool.ts MAX_OUTPUT_SIZE + TRUNCATION_NOTE），
+ * 若 executor 层再用 15KB 兜底截断，会把 bash 内部辛辛苦苦收集的完整输出
+ * 砍到只剩 15KB —— 比内部上限小 130 倍，用户观察到的"bash 输出被截断"即源于此。
+ * 因此 bash 的 executor 层阈值与内部上限对齐（2MB），内部截断是唯一截断点。
+ *
+ * agent 工具同理：output 是子 Agent 的完整工作报告（主 Agent 汇总的依据），
+ * 截断会直接导致工作报告总结不完整，因此豁免通用 15KB 截断。
+ * 其余工具维持通用阈值。
+ */
+const TOOL_SIZE_TRUNCATE_THRESHOLDS: Record<string, number> = {
+    bash: 2 * 1024 * 1024,
+    agent: Infinity,
+}
+
+export function checkResultSize(toolName: string, result: ToolResult): ToolResult {
     // 只检查字符串类型的输出
     if (typeof result.output !== 'string' || !result.output) {
         return result
@@ -271,16 +323,17 @@ function checkResultSize(_toolName: string, result: ToolResult): ToolResult {
 
     const output = result.output
     const length = output.length
+    const truncateThreshold = TOOL_SIZE_TRUNCATE_THRESHOLDS[toolName] ?? SIZE_TRUNCATE_THRESHOLD
 
     // 计算行数（用于 grep/glob 等搜索工具）
     const lineCount = (output.match(/\n/g) || []).length + 1
 
     // 检查是否需要警告或截断
-    if (length > SIZE_TRUNCATE_THRESHOLD) {
+    if (length > truncateThreshold) {
                 return {
             ...result,
-            output: output.slice(0, SIZE_TRUNCATE_THRESHOLD) +
-                `\n\n[结果已截断] 共 ${lineCount} 行，超过 ${SIZE_TRUNCATE_THRESHOLD} 字符限制。` +
+            output: output.slice(0, truncateThreshold) +
+                `\n\n[结果已截断] 共 ${lineCount} 行，超过 ${truncateThreshold} 字符限制。` +
                 `\n请使用更精准的搜索条件（如增加 filePattern、使用正则限制范围）重新搜索。`,
         }
     }
