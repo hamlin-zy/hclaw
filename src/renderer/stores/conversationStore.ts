@@ -923,7 +923,7 @@ if (typeof window !== 'undefined') {
 
         // 只清除非活跃会话的消息缓存，确保切换回该会话时从 DB 重新读取最新消息（如手机端消息）
         // 活跃会话的缓存不清除：1) 避免丢失尚未持久化的内存消息（新会话首条 Ctrl+K 自动重命名）
-        //                       2) scheduleSave 依赖 messagesMap[activeConversationId] 进行保存
+        //                       2) forceFlush 依赖 messagesMap[activeConversationId] 进行保存
         // 压缩场景下的缓存更新由 compact_done 事件中的 loadMessages 自行管理
         if (data.id !== activeConversationId && data.id in messagesMap && messagesMap[data.id]!.length > 0) {
             const newMap = {...messagesMap}

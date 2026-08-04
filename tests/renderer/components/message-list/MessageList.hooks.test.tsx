@@ -19,8 +19,12 @@ const {mockConversationState, mockAgentState} = vi.hoisted(() => ({
 }))
 
 vi.mock('../../../../src/renderer/stores/conversationStore', () => ({
-    useConversationStore: (selector: (s: typeof mockConversationState) => unknown) =>
-        selector(mockConversationState),
+    // MessageList 在 useEffect/回调中会调用 getState()（滚动加载/会话切换路径），
+    // mock 需提供与真实 store 一致的 API，避免后续测试扩展时崩溃
+    useConversationStore: Object.assign(
+        (selector: (s: typeof mockConversationState) => unknown) => selector(mockConversationState),
+        {getState: () => mockConversationState},
+    ),
 }))
 
 vi.mock('../../../../src/renderer/stores/agentStore', () => ({
