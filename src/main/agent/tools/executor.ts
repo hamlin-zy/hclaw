@@ -31,6 +31,48 @@ export interface ExecuteToolResult {
   denyReason?: string
 }
 
+/**
+ * 拥有独立内部超时/中止机制的工具，executor 层不套外层超时兜底：
+ * - agent：由内部 maxTurns + llmTimeout 控制执行深度
+ * - ask_user：必须永久等待用户响应
+ * - bash：内部有 setTimeout + killProcessTree + AbortSignal，且已收集部分输出
+ * - web_fetch：内部有 http.get({timeout}) + req.on('timeout') + AbortSignal
+ * 外层超时与之竞争，会产生泛化的 ToolTimeoutError 覆盖内部的具体错误信息（如部分输出）
+ */
+export const SKIP_OUTER_TIMEOUT_TOOLS = new Set(['agent', 'ask_user', 'bash', 'web_fetch'])
+
+/**
+ * 内部管理超时的工具及其默认超时（与 builtin 工具内部常量保持一致），
+ * 供 UI 倒计时展示；LLM 可通过 timeout 参数覆盖（<1000 视为秒自动换算）。
+ */
+const INTERNAL_TIMEOUTS: Record<string, number> = {
+    bash: 30000,
+    web_fetch: 15000,
+}
+
+/**
+ * 解析工具的有效超时时间（毫秒）
+ * - agent / ask_user：无外层超时且无明确展示意义的内部超时 → undefined（不显示倒计时）
+ * - bash / web_fetch：解析其内部超时（含 LLM 参数覆盖），供 UI 倒计时显示
+ * - 其余工具：优先 DB 配置，否则工具默认值
+ * 供执行器与 UI 倒计时（tool_start 事件注入 timeoutMs）共用，保证两处一致。
+ */
+export function resolveToolTimeoutMs(toolName: string, args?: Record<string, unknown>): number | undefined {
+    if (toolName === 'agent' || toolName === 'ask_user') return undefined
+
+    const internalTimeout = INTERNAL_TIMEOUTS[toolName]
+    if (internalTimeout !== undefined) {
+        // LLM 可能误将秒当毫秒传入（如 timeout: 30 表示 30 秒），与 builtin 工具逻辑一致；
+        // 参数可能为字符串（未过 Zod coerce），先转数字避免字符串比较/拼接
+        const raw = typeof args?.timeout === 'string' ? Number(args.timeout) : (args?.timeout as number | undefined)
+        if (raw === undefined || Number.isNaN(raw)) return internalTimeout
+        return raw < 1000 ? raw * 1000 : raw
+    }
+
+    const dbTimeout = toolRepo.getTimeout(toolName)
+    return dbTimeout ?? getToolDefaultTimeout(toolName)
+}
+
 export async function executeTool(
   toolCall: ExecuteToolCall,
   context: ToolContext,
@@ -205,14 +247,8 @@ export async function executeTool(
 
     // ── 执行工具（带超时保护） ──
   try {
-      // 以下工具拥有独立的内部超时/中止机制，不需要 executor 层的外层超时兜底：
-      // - agent：由内部 maxTurns + llmTimeout 控制执行深度
-      // - ask_user：必须永久等待用户响应
-      // - bash：内部有 setTimeout + killProcessTree + AbortSignal，且已收集部分输出
-      // - web_fetch：内部有 http.get({timeout}) + req.on('timeout') + AbortSignal
-      // 外层超时与之竞争，会产生泛化的 ToolTimeoutError 覆盖内部的具体错误信息（如部分输出）
-      const skipOuterTimeout = new Set(['agent', 'ask_user', 'bash', 'web_fetch'])
-      if (skipOuterTimeout.has(tool.name)) {
+      // 拥有独立内部超时/中止机制的工具（见模块顶部 SKIP_OUTER_TIMEOUT_TOOLS 注释）
+      if (SKIP_OUTER_TIMEOUT_TOOLS.has(tool.name)) {
           const result = await tool.execute(parseResult.data, { ...context, toolCallId: toolCall.id })
           const checkedResult = checkResultSize(toolCall.name, result)
           return {
@@ -223,8 +259,7 @@ export async function executeTool(
       }
 
       // 获取工具超时时间（优先使用数据库配置，否则使用默认值）
-      const dbTimeout = toolRepo.getTimeout(tool.name)
-      const timeoutMs = dbTimeout ?? getToolDefaultTimeout(tool.name)
+      const timeoutMs = resolveToolTimeoutMs(tool.name, parseResult.data) ?? 60000
 
       // 使用超时包装器执行工具
       const result = await withToolTimeout(

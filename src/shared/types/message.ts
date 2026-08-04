@@ -28,6 +28,8 @@ export interface ToolCall {
   progressPercent?: number
   /** 预计剩余时间（秒） */
   eta?: number
+  /** 执行超时时间（毫秒），由主进程在工具启动时注入，用于 UI 倒计时显示 */
+  timeoutMs?: number
   /** Token 消耗（agent 执行） */
   tokenUsage?: {
     inputTokens: number
@@ -73,6 +75,8 @@ export interface ToolCallInfo {
     name: string
     platform: string
   }
+  /** 执行超时时间（毫秒），由主进程在工具启动时注入，用于 UI 倒计时显示 */
+  timeoutMs?: number
 }
 
 // ─── Think / Steps / Tasks ────────────────────────────
