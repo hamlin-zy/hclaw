@@ -17,9 +17,10 @@
  * 设计目标：当所有数据生产者迁移到 contentBlocks 后，可移除旧路径及本注释。
  */
 
-import {useEffect, useMemo, useState} from 'react'
+import {useEffect, useMemo, useRef, useState} from 'react'
 import {useThemeStore} from '../../stores/themeStore'
 import {useAgentStore} from '../../stores/agentStore'
+import {useConversationStore} from '../../stores/conversationStore'
 import type {Message, ToolCall, ThinkBlock as ThinkBlockType, MediaBlock} from '@shared/types'
 import {isUltraCompactMode} from '../../lib/displayMode'
 import ThinkBlock from '../ThinkBlock'
@@ -53,7 +54,7 @@ export type CombinedItem =
     | { type: 'tools'; toolCalls: ToolCall[] }
 
 /**
- * 增量渲染：流式期间每 200ms 完整渲染一次。
+ * 增量渲染：流式期间对齐浏览器绘制节奏（rAF）渲染，避免 200ms 节流带来的"逐块冒出"卡顿。
  * 流式过程 不 暴露原始 markdown 文本给用户——未渲染部分仅显示一个刷新的光标指示器。
  * 流结束后立即完整渲染。
  *
@@ -61,41 +62,69 @@ export type CombinedItem =
  *  用户不应看到原始 markdown 符号（**、`` ` `**、`|` 等），
  *  宁可让内容短暂跳跃，也不展示未解析的格式化文本。
  *
- * ★ 性能实现（此前只有注释没有实现，流式期间每个 text 段变更都全量跑
- *   ReactMarkdown 解析，是高 chunk 频率下 UI 卡死的放大器之一）：
- *   - 流式期间用 setTimeout 节流，最多每 200ms 做一次完整 markdown 渲染；
+ * ★ 性能实现（rAF 帧级合并，替代原 setTimeout 200ms）：
+ *   - 流式期间用 requestAnimationFrame 合并到下一帧渲染（约 16ms @60Hz），
+ *     比固定 200ms 流畅 12 倍，且不会空转（IPC 间歇时帧内无新内容则跳过 setState）；
  *   - 空闲（非流式）时直接渲染最新内容，无延迟；
- *   - 卸载时清除挂起的定时器，避免内存泄漏。
+ *   - 卸载 / isStreaming 翻转时取消未执行的 rAF，避免内存泄漏与过期更新；
+ *   - ref 跟踪 props 最新 content，避免 effect 内闭包陈旧导致漏更；
+ *   - 标签页隐藏时 rAF 会被浏览器节流到 1Hz，切回时通过 visibilitychange 强制同步一次。
  */
 function ThrottledMarkdown({content, isUser, theme}: {
     content: string; isUser: boolean; theme: 'light' | 'dark' | 'yuanshandai' | 'shiyangjin'
 }) {
+    // ★ 修复：只订阅当前活跃会话的流式状态（原实现遍历全部会话，
+    //   任一会话流式时，所有消息块的 ThrottledMarkdown 都会启动 rAF 循环，
+    //   导致渲染进程 60fps 空转 × 块数，最终引发渲染异常/白边）。
+    //   活跃会话无 conv 状态时回退全局 agentState（主会话/旧路径兼容）。
+    const activeConversationId = useConversationStore((s) => s.activeConversationId)
     const isStreaming = useAgentStore((s) => {
-        // 任意会话处于 thinking/running 都视为流式进行中
-        const states = s.convAgentStates
-        for (const convId in states) {
-            const st = states[convId]?.agentState?.status
-            if (st === 'thinking' || st === 'running') return true
-        }
-        return s.agentState.status === 'thinking' || s.agentState.status === 'running'
+        const convSt = activeConversationId
+            ? s.convAgentStates[activeConversationId]?.agentState?.status
+            : undefined
+        if (convSt === 'thinking' || convSt === 'running') return true
+        const globalSt = s.agentState.status
+        return globalSt === 'thinking' || globalSt === 'running'
     })
 
-    // 节流后的实际渲染内容：非流式立即同步，流式最多 200ms 合并一次
+    // 帧级合并的渲染内容：非流式立即同步，流式每帧最多提交一次最新 content
     const [displayContent, setDisplayContent] = useState(content)
+    const contentRef = useRef(content)
+    contentRef.current = content
+
+    // 只在 isStreaming 翻转时重启 rAF 循环；content 变更通过 ref 自动跟随。
+    // content 刻意不入依赖：rAF 回调通过 contentRef 读取最新值，避免流式期间每帧重挂 effect。
     useEffect(() => {
+        // 统一提交入口：函数式更新读取最新 displayContent，等值时返回原引用（React bail out）
+        const syncLatest = () => {
+            setDisplayContent((prev) => (prev === contentRef.current ? prev : contentRef.current))
+        }
+
+        // 空闲时同步提交最新内容，无需节流
         if (!isStreaming) {
-            setDisplayContent(content)
+            syncLatest()
             return
         }
-        let cancelled = false
-        const timer = setTimeout(() => {
-            if (!cancelled) setDisplayContent(content)
-        }, 200)
-        return () => {
-            cancelled = true
-            clearTimeout(timer)
+
+        // rAF tick：每帧最多提交一次最新 content；等值时 bail out，避免空转 setState
+        let frameId = 0
+        const tick = () => {
+            syncLatest()
+            frameId = requestAnimationFrame(tick)
         }
-    }, [content, isStreaming])
+        frameId = requestAnimationFrame(tick)
+
+        // 标签页切回时强制同步（rAF 在 hidden 时被浏览器节流到 1Hz，会丢帧）
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible') syncLatest()
+        }
+        document.addEventListener('visibilitychange', handleVisibility)
+
+        return () => {
+            cancelAnimationFrame(frameId)
+            document.removeEventListener('visibilitychange', handleVisibility)
+        }
+    }, [isStreaming])
 
     return (
         <div className="min-w-0">
