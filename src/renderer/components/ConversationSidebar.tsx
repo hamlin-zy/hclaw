@@ -1,4 +1,4 @@
-import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useConversationStore} from '../stores/conversationStore'
@@ -178,26 +178,34 @@ export default function ConversationSidebar() {
 
 /* ─── Workspace Selector (Dropdown) ─── */
 
-function WorkspaceSelector() {
+/** 工作区切换抽屉宽度（px） */
+const DRAWER_WIDTH = 300
+
+export function WorkspaceSelector() {
   const currentWorkspacePath = useConversationStore((s) => s.currentWorkspacePath)
   const setWorkspace = useConversationStore((s) => s.setWorkspace)
   const workspaces = useConversationStore((s) => s.workspaces)
   const removeWorkspace = useConversationStore((s) => s.removeWorkspace)
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const [tooltipPath, setTooltipPath] = useState<string | null>(null)
-  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
-  const tooltipTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const ref = useRef<HTMLDivElement>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false)
+      const target = e.target as Node
+      if (ref.current?.contains(target)) return
+      if (drawerRef.current?.contains(target)) return
+      setIsOpen(false)
+    }
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false)
     }
     document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleEsc)
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
-      if (tooltipTimer.current !== undefined) clearTimeout(tooltipTimer.current)
+      document.removeEventListener('keydown', handleEsc)
     }
   }, [])
 
@@ -223,12 +231,40 @@ function WorkspaceSelector() {
     setSearch('')
   }
 
+  /**
+   * 展开时锚定到左侧边栏卡片的右上角。
+   * 动态读取卡片实际坐标（App.tsx 中 data-name="left-sidebar-card"，位于 TitleBar/MenuBar
+   * 之下的 main 区内，含 px-2/py-2 内边距）——不硬编码偏移，随布局自适应。
+   */
+  const positionDrawer = () => {
+    const drawerEl = drawerRef.current
+    const card = ref.current?.closest<HTMLElement>('[data-name="left-sidebar-card"]')
+    if (!drawerEl || !card) return
+    const cardRect = card.getBoundingClientRect()
+    const left = Math.min(cardRect.right, window.innerWidth - DRAWER_WIDTH - 10)
+    const top = cardRect.top
+    const maxHeight = Math.max(120, window.innerHeight - top - 12)
+    drawerEl.style.left = `${left}px`
+    drawerEl.style.top = `${top}px`
+    drawerEl.style.maxHeight = `${maxHeight}px`
+  }
+
+  useEffect(() => {
+    const onResize = () => { if (isOpen) positionDrawer() }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [isOpen])
+
   const displayName = currentWorkspacePath ? getBasename(currentWorkspacePath) : '选择工作目录'
 
   return (
     <div ref={ref} className="relative">
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          const next = !isOpen
+          setIsOpen(next)
+          if (next) requestAnimationFrame(positionDrawer)
+        }}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-label="选择工作目录"
@@ -253,23 +289,46 @@ function WorkspaceSelector() {
               </div>
           </div>
           <svg
-              className="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors"
+              className={`w-4 h-4 shrink-0 transition-transform duration-200 ${isOpen ? 'text-gray-600 dark:text-gray-300 rotate-180' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300'}`}
               viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-              <polyline points="6 9 12 15 18 9"/>
+              {/* 向右箭头（>）；展开时 rotate-180 指向左，隐喻"抽屉从右侧展开/收回" */}
+              <polyline points="9 18 15 12 9 6"/>
           </svg>
       </button>
 
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
+      {isOpen && (
+        <WorkspaceDrawerPortal
+          key="workspace-drawer"
+          drawerRef={drawerRef}
+          {...{ search, setSearch, filtered, handleSelect, handleOpenNew, removeWorkspace, currentWorkspacePath }}
+        />
+      )}
+    </div>
+  )
+}
+
+/** 工作区切换抽屉（portal 到 body 的悬浮面板，随开关即时挂载/卸载） */
+function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSelect, handleOpenNew, removeWorkspace, currentWorkspacePath}: {
+    drawerRef: RefObject<HTMLDivElement | null>
+    search: string
+    setSearch: (v: string) => void
+    filtered: { path: string; lastOpenedAt: number }[]
+    handleSelect: (path: string) => void
+    handleOpenNew: () => void
+    removeWorkspace: (path: string) => void
+    currentWorkspacePath: string | null
+}) {
+    return createPortal(
+        <motion.div
+            ref={drawerRef}
+            initial={{ opacity: 0, x: -12 }}
+            animate={{ opacity: 1, x: 0 }}
             transition={{duration: 0.15}}
-            className="absolute left-0 right-0 top-full mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-dropdown z-dropdown overflow-hidden"
+            className="fixed bg-[var(--surface)] border border-[var(--border-emphasis)] rounded-xl shadow-elevated overflow-hidden flex flex-col"
+            style={{zIndex: 9999, width: DRAWER_WIDTH}}
             role="listbox"
             aria-label="工作目录列表"
-          >
+        >
             {/* Search */}
               <div className="p-[var(--space-snug)] pt-[var(--space-loose)] border-b border-[var(--border-muted)]">
               <div className="relative">
@@ -290,7 +349,7 @@ function WorkspaceSelector() {
             </div>
 
             {/* Options */}
-              <div className="max-h-56 overflow-y-auto p-[var(--space-tight)]">
+              <div className="overflow-y-auto p-[var(--space-tight)] flex-1">
               {/* Open new directory (always first) */}
               <button
                 onClick={handleOpenNew}
@@ -318,25 +377,6 @@ function WorkspaceSelector() {
                         : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
                   }`}
                   onClick={() => handleSelect(entry.path)}
-                  onMouseEnter={(e) => {
-                    // 检查路径文本是否被截断
-                    const pathEl = e.currentTarget.querySelector<HTMLElement>('.flex-1.min-w-0 > div:last-child')
-                    const isTruncated = pathEl && pathEl.scrollWidth > pathEl.clientWidth
-                    if (!isTruncated) return
-
-                    const rect = e.currentTarget.getBoundingClientRect()
-                    tooltipTimer.current = setTimeout(() => {
-                      setTooltipPos({ x: rect.left, y: rect.top })
-                      setTooltipPath(entry.path)
-                    }, 1000)
-                  }}
-                  onMouseLeave={() => {
-                    if (tooltipTimer.current !== undefined) {
-                      clearTimeout(tooltipTimer.current)
-                      tooltipTimer.current = undefined
-                    }
-                    setTooltipPath(null)
-                  }}
                 >
                     <svg className="w-3.5 h-3.5 shrink-0 opacity-50" viewBox="0 0 24 24" fill="none"
                          stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -344,7 +384,7 @@ function WorkspaceSelector() {
                   </svg>
                   <div className="flex-1 min-w-0">
                       <div className="text-2xs font-medium truncate">{getBasename(entry.path)}</div>
-                      <div className="text-2xs text-[var(--text-muted)] truncate">{entry.path}</div>
+                      <div className="text-2xs text-[var(--text-muted)] [overflow-wrap:anywhere]">{entry.path}</div>
                   </div>
                   {entry.path === currentWorkspacePath && (
                       <svg className="w-3 h-3 text-[var(--brand-primary)] shrink-0" viewBox="0 0 24 24" fill="none"
@@ -385,20 +425,9 @@ function WorkspaceSelector() {
                       className="px-[var(--space-relaxed)] py-[var(--space-loose)] text-center text-2xs text-[var(--text-muted)]">无匹配目录</div>
               )}
             </div>
-            {/* 路径气泡提示 */}
-            {tooltipPath && (
-              <div
-                className="fixed z-[var(--z-tooltip)] px-2 py-1.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-2xs rounded shadow-lg max-w-80 break-all whitespace-pre-wrap pointer-events-none"
-                style={{ left: tooltipPos.x, top: tooltipPos.y - 10, transform: 'translateY(-100%)' }}
-              >
-                {tooltipPath}
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
+          </motion.div>,
+          document.body,
+        )
 }
 
 function WorkspaceIcon() {

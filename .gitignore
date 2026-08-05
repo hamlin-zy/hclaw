@@ -28,6 +28,7 @@ temp/
 *.old
 *.tmp
 *.temp
+.sync_logs_tmp/
 errors*.txt
 tsc*.txt
 typecheck*.txt
