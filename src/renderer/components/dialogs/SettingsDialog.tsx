@@ -163,6 +163,13 @@ export default function SettingsDialog() {
         resetTimerRef.current = setTimeout(() => setResetFeedback(null), 1500)
     }, [resetAllToDefault])
 
+    // 组件卸载时清除重置反馈计时器
+    useEffect(() => {
+        return () => {
+            if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
+        }
+    }, [])
+
     /** 内容区顶部的「恢复本页默认」按钮（shortcuts 只读 Tab 不渲染） */
     const renderResetSectionButton = (category: keyof SystemSettings) => (
         <div className="flex justify-end">
