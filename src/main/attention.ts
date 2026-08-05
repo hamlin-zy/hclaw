@@ -48,10 +48,10 @@ function buildHighlightIcon(): Electron.NativeImage | null {
     const cx = size.width - badgeRadius - 4
     const cy = size.height - badgeRadius - 4
 
+    const r2 = badgeRadius * badgeRadius
     for (let y = Math.max(0, cy - badgeRadius); y < Math.min(size.height, cy + badgeRadius + 1); y++) {
       for (let x = Math.max(0, cx - badgeRadius); x < Math.min(size.width, cx + badgeRadius + 1); x++) {
-        const dist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2)
-        if (dist <= badgeRadius) {
+        if ((x - cx) ** 2 + (y - cy) ** 2 <= r2) {
           const offset = (y * size.width + x) * 4
           const alpha = 0.9
           bitmap[offset]     = Math.round(bitmap[offset]     * (1 - alpha) + 50  * alpha) // B
@@ -144,9 +144,10 @@ function stopBlinking(): void {
     } catch { /* ignore */ }
   }
 
+  _flashFrameCalled = false
   try {
     const win = getMainWindow()
-    if (win && !win.isDestroyed()) { win.flashFrame(false); _flashFrameCalled = false }
+    if (win && !win.isDestroyed()) win.flashFrame(false)
   } catch { /* ignore */ }
 
   originalTrayImage = null
@@ -181,5 +182,5 @@ export function hasActiveAttention(): boolean {
 export const _testInternals = {
   get _flashFrameCalled() { return _flashFrameCalled },
   get _blinkTimer() { return blinkTimer },
-  reset() { stopBlinking(); attentionCount = 0 },
+  reset() { stopBlinking(); attentionCount = 0; _flashFrameCalled = false },
 }
