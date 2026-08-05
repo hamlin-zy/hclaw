@@ -314,31 +314,6 @@ export class OpenAIAdapter implements ModelAdapter {
         })
     }
 
-  /**
-   * 注入 additionalContext 到 OpenAI 格式的消息中
-   * Claude Code 规范：在最后一条 user 消息的 content 末尾追加
-   * 这样可以最大化缓存命中（缓存点在 additionalContext 之前）
-   */
-  private _injectAdditionalContext(
-    messages: OpenAI.ChatCompletionMessageParam[],
-    additionalContext: string
-  ): OpenAI.ChatCompletionMessageParam[] {
-    // 找到最后一条 role='user' 的消息
-    const contextText = `\n\n📎 背景信息:\n${additionalContext}`
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i]
-      if (msg.role === 'user') {
-        if (typeof msg.content === 'string') {
-          msg.content += contextText
-        } else if (Array.isArray(msg.content)) {
-          msg.content.push({type: 'text', text: contextText})
-        }
-        return messages
-      }
-    }
-    return messages
-  }
-
   private convertTools(tools: ToolDefinition[]): OpenAI.ChatCompletionTool[] {
     return tools.map((t) => ({
       type: 'function' as const,
