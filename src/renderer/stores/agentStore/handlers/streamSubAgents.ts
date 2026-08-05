@@ -196,6 +196,9 @@ export function handleSubagentDone(ctx: StreamCtx) {
         useToolCallsStore.getState().updateToolCall(subTool.id, {
             status: event.success ? 'success' : 'error',
         })
+        // ★ 内存释放：内联子 Agent 完成态不再需要过程数据（思考/工具执行流），
+        //   只保留最终输出（result，由 tool_result 事件落库）与 token 用量
+        useToolCallsStore.getState().clearAgentProcessData(subTool.id)
         const parentTool = findAgentCall(msg?.toolCalls, (event as any).toolCallId, true)
         if (parentTool) {
             const doneText = event.success

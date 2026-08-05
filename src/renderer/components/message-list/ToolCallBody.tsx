@@ -121,8 +121,10 @@ export default function ToolCallBody({
                     </div>
                 )}
 
-            {/* ── Agent 工具：处理过程 + 详细输出（按真实时间序交织渲染）── */}
-            {toolCall.name === 'agent' && (
+            {/* ── Agent 工具：处理过程 + 详细输出（按真实时间序交织渲染）──
+                 ★ 仅运行中展示执行过程（实时进度）；已完成 Agent 只展示最终输出，
+                   不展示思考、工具执行等过程细节 */}
+            {toolCall.name === 'agent' && isRunning && (
                 (effectiveProgressLog?.length ?? 0) > 0 || (effectiveSubAgentStream?.length ?? 0) > 0
             ) && (() => {
                 const entries = mergeTimeline(effectiveProgressLog, effectiveSubAgentStream)
