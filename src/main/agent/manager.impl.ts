@@ -19,6 +19,7 @@ import {logger} from './logger'
 import {mcpWorkerManager, setAgentManagerRef} from './mcp/mcpWorkerManager'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
 import {eventBus, MCPThemeEvents} from '../common/eventBus'
+import {notifyUserAttention, stopUserAttention} from '../attention'
 
 // 导入拆分模块
 import type {
@@ -267,6 +268,7 @@ export class AgentManager {
             question: msg.message || '',
             requestId: msg.requestId,
           })
+          notifyUserAttention()
           return
         }
 
@@ -280,6 +282,7 @@ export class AgentManager {
             multiSelect: askUserMsg.multiSelect,
             requestId: askUserMsg.requestId,
           })
+          notifyUserAttention()
           return
         }
 
@@ -636,6 +639,13 @@ export class AgentManager {
 
   /** Worker 退出处理 */
   private onWorkerExit(conversationId: string, worker: Worker, _code: number): void {
+    // Always release attention ref for the exiting worker, even if it was
+    // already replaced. stopUserAttention is idempotent at count=0, so this
+    // is safe regardless of which worker is current. If we defer this after
+    // the sentinel guard below, a worker-replace race (crash → cleanup →
+    // new start → old exit) would leak the refcount permanently.
+    stopUserAttention()
+
     const currentEntry = this.workers.get(conversationId)
     if (currentEntry && currentEntry.worker !== worker) {
       return
@@ -782,6 +792,7 @@ export class AgentManager {
     const entry = this.workers.get(conversationId)
     if (entry) {
       entry.worker.postMessage({type: WORKER_MESSAGE_TYPES.USER_CONFIRMATION_RESULT, requestId, result})
+      stopUserAttention()
     }
   }
 
@@ -790,6 +801,7 @@ export class AgentManager {
     const entry = this.workers.get(conversationId)
     if (entry) {
       entry.worker.postMessage({type: WORKER_MESSAGE_TYPES.USER_ANSWER_RESULT, requestId, answer})
+      stopUserAttention()
     }
   }
 

@@ -3,6 +3,7 @@ import fsPromises from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import {getTray, getTrayIconLoaded} from './tray';
+import {clearUserAttention} from './attention';
 import {getAppIcon} from './utils/icon';
 import {createLogger} from './agent/logger';
 import {systemSettingsRepo} from './repositories/sqlite/systemSettingsRepository';
@@ -369,6 +370,10 @@ export const createWindow = (): void => {
     mainWindow.on('unmaximize', () => {
         mainWindow?.webContents.send('window-maximized-changed', false);
         saveWindowState();
+    });
+
+    mainWindow.on('show', () => {
+        clearUserAttention();
     });
 
     // ---- 渲染进程崩溃/断连恢复 ----
