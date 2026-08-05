@@ -10,49 +10,71 @@ vi.mock('../../../../src/renderer/components/message-list/MarkdownRenderer', () 
     default: ({children}: { children: string }) => <div data-testid="markdown">{children}</div>,
 }))
 
-// 定义 mock 流条目（SubAgentViewer 展开/折叠验证的目标数据）
-const streamEntries = [
-    {type: 'thinking' as const, timestamp: 1000, content: '正在思考...'},
-    {type: 'text' as const, timestamp: 2000, content: '这是正文内容'},
-]
-
 beforeEach(() => {
     // SubAgentViewer 用 createPortal(document.body) 渲染，jsdom 支持
-    // scrollIntoView（自动滚动锚点）
     Element.prototype.scrollIntoView = vi.fn()
 })
 
-describe('SubAgentViewer toggle（Task 4 改写的折叠/展开分支）', () => {
-    it('详细输出页：思考块默认展开，点击后折叠', () => {
+describe('SubAgentViewer（已完成 Agent 只展示最终输出）', () => {
+    it('展示最终输出，不展示思考/工具执行等过程细节', () => {
         render(
             <SubAgentViewer
                 title="子Agent测试"
-                subAgentStream={streamEntries}
+                result={{success: true, output: '这是最终输出内容'}}
                 onClose={vi.fn()}
             />,
         )
 
-        // 默认 activeTab=stream（有 entries），思考内容可见
-        expect(screen.getByText('正在思考...')).toBeTruthy()
+        // 最终输出可见
+        expect(screen.getByText('最终输出')).toBeTruthy()
+        expect(screen.getByText('这是最终输出内容')).toBeTruthy()
 
-        // 点击"思考过程"折叠按钮 → 内容隐藏
-        fireEvent.click(screen.getByText('思考过程'))
-        expect(screen.queryByText('正在思考...')).toBeNull()
+        // 不应出现思考过程/时间轴/详细输出等过程细节入口
+        expect(screen.queryByText('思考过程')).toBeNull()
+        expect(screen.queryByText('执行时间轴')).toBeNull()
+        expect(screen.queryByText('详细输出')).toBeNull()
     })
 
-    it('再次点击"思考过程"展开恢复内容', () => {
+    it('无输出时显示占位文案，且不渲染过程细节', () => {
         render(
             <SubAgentViewer
                 title="子Agent测试"
-                subAgentStream={streamEntries}
+                result={null}
                 onClose={vi.fn()}
             />,
         )
 
-        fireEvent.click(screen.getByText('思考过程'))
-        expect(screen.queryByText('正在思考...')).toBeNull()
+        expect(screen.getByText('暂无最终输出')).toBeTruthy()
+        expect(screen.queryByText('思考过程')).toBeNull()
+        expect(screen.queryByText('执行时间轴')).toBeNull()
+    })
 
-        fireEvent.click(screen.getByText('思考过程'))
-        expect(screen.getByText('正在思考...')).toBeTruthy()
+    it('展示错误信息与 Token 用量', () => {
+        render(
+            <SubAgentViewer
+                title="子Agent测试"
+                result={{success: false, output: '', error: '执行失败'}}
+                tokenUsage={{inputTokens: 100, outputTokens: 50, totalTokens: 150}}
+                onClose={vi.fn()}
+            />,
+        )
+
+        expect(screen.getByText('错误')).toBeTruthy()
+        expect(screen.getByText('执行失败')).toBeTruthy()
+        expect(screen.getByText(/TOTAL 150/)).toBeTruthy()
+    })
+
+    it('点击关闭按钮调用 onClose', () => {
+        const onClose = vi.fn()
+        render(
+            <SubAgentViewer
+                title="子Agent测试"
+                result={{success: true, output: '输出'}}
+                onClose={onClose}
+            />,
+        )
+
+        fireEvent.click(screen.getByLabelText('关闭'))
+        expect(onClose).toHaveBeenCalled()
     })
 })

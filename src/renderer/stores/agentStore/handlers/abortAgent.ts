@@ -69,6 +69,8 @@ export async function abortAgentImpl(
                         status: 'cancelled',
                         progress: '已取消',
                     })
+                    // ★ 内存释放：中止的 Agent 工具不再需要过程数据（思考/工具执行流）
+                    useToolCallsStore.getState().clearAgentProcessData(tc.id)
                 }
             }
 
@@ -152,6 +154,9 @@ export async function abortAgentImpl(
                 status: 'cancelled',
                 progress: tcState.progress || '已取消',
             })
+            // ★ 内存释放：中止的 Agent 工具不再需要过程数据（思考/工具执行流）。
+            //   守卫（是否有 subAgentStream/progressLog）由 clearAgentProcessData 内部完成
+            useToolCallsStore.getState().clearAgentProcessData(toolCallId)
         }
     }
 }

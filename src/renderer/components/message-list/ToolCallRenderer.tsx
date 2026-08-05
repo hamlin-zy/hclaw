@@ -257,8 +257,6 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                 <SubAgentViewer
                     title={'Agent ' + (agentDisplayName || '子 Agent')}
                     agentType={agentTypeLabel}
-                    progressLog={effectiveProgressLog}
-                    subAgentStream={effectiveSubAgentStream}
                     result={effectiveResult as import('../../stores/toolCallsStore').ExtendedToolResult | null}
                     tokenUsage={effectiveTokenUsage ?? null}
                     onClose={() => setViewerOpen(false)}
@@ -566,11 +564,13 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
 
             {/* 芯片列表 */}
             <span className="flex items-center gap-1.5 text-[11px] min-w-0 flex-1 overflow-hidden">
-                {/* 思考计数芯片 */}
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded
-                    bg-[rgba(91,141,217,0.15)] text-[var(--brand-primary)] shrink-0 font-mono font-semibold">
-                    思考 {thinkCount}
-                </span>
+                {/* 思考计数芯片（无思考块时隐藏） */}
+                {thinkCount > 0 && (
+                    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded
+                        bg-[rgba(91,141,217,0.15)] text-[var(--brand-primary)] shrink-0 font-mono font-semibold">
+                        思考 {thinkCount}
+                    </span>
+                )}
                 {/* 工具芯片 */}
                 {chips.map((chip) => (
                     <span key={chip.name}
