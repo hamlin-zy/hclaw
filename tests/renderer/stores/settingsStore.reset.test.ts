@@ -66,6 +66,16 @@ describe('resetAllToDefault', () => {
         }
         expect(state.isDirty).toBe(true)
     })
+
+    it('pendingSettings 非 null 基座时恢复覆盖生效', () => {
+        const {updatePending, resetAllToDefault} = useSettingsStore.getState()
+        updatePending('agent', {maxTurns: 111})
+        resetAllToDefault()
+        const state = useSettingsStore.getState()
+        expect(state.pendingSettings).not.toBeNull()
+        expect(state.pendingSettings?.agent).toEqual(DEFAULT_SETTINGS.agent)
+        expect(state.isDirty).toBe(true)
+    })
 })
 
 describe('恢复动作不触发写盘', () => {

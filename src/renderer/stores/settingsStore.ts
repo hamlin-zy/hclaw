@@ -18,7 +18,7 @@ interface SettingsStore {
     updateSettings: (updates: Partial<SystemSettings>) => Promise<void>
     /** 恢复指定分类为默认值（仅写入 pending，不落盘） */
     resetCategoryToDefault: (category: keyof SystemSettings) => void
-    /** 恢复全部 7 个分类为默认值（仅写入 pending，不落盘） */
+    /** 恢复全部分类为默认值（仅写入 pending，不落盘） */
     resetAllToDefault: () => void
 }
 
