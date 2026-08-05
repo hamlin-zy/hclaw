@@ -102,9 +102,15 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     resetAllToDefault: () => {
         const {pendingSettings, settings} = get()
         const base = pendingSettings || settings
-        const updated: SystemSettings = {...base}
-        for (const category of Object.keys(DEFAULT_SETTINGS) as Array<keyof SystemSettings>) {
-            updated[category] = DEFAULT_SETTINGS[category]
+        const updated: SystemSettings = {
+            ...base,
+            agent: DEFAULT_SETTINGS.agent,
+            model: DEFAULT_SETTINGS.model,
+            mcp: DEFAULT_SETTINGS.mcp,
+            ui: DEFAULT_SETTINGS.ui,
+            subagent: DEFAULT_SETTINGS.subagent,
+            channels: DEFAULT_SETTINGS.channels,
+            linkOpening: DEFAULT_SETTINGS.linkOpening,
         }
         set({pendingSettings: updated, isDirty: true})
     },
