@@ -7,6 +7,25 @@
 
 ---
 
+## [v0.3.7] - 2026-08-05
+
+### 新增
+- **Attention 提醒机制** — 窗口隐藏/最小化时，权限对话框（permission）和用户提问（ask_user）通过任务栏闪烁 + 自定义系统托盘图标叠加角标提醒用户，防止长期阻塞 (`src/main/attention.ts`, `src/main/agent/manager.impl.ts`, `src/main/window.ts`, `tests/main/attention.test.ts`)
+- **工作区切换重构为右侧悬浮抽屉** — 侧边栏工作区下拉框改为右侧滑出面板，带过渡动画和悬停关闭，UI 更整洁 (`src/renderer/components/ConversationSidebar.tsx`, `tests/renderer/components/ConversationSidebar.workspace-selector.test.tsx`)
+
+### 优化
+- **attention.ts 圆角角标生成性能优化** — `Math.sqrt` 平方根计算改为平方比较 `r²`，减少循环内浮点运算 (`src/main/attention.ts`)
+
+### 修复
+- **OpenAI/Gemini usage token 语义对齐 Anthropic 基准** — `prompt_tokens`/`completion_tokens`/`total_tokens` 映射标准化，消除三方模型 Token 统计偏差 (`src/main/agent/model/openaiAdapter.ts`, `src/main/agent/model/googleAdapter.ts`)
+- **scheme-selector 下拉框无法切换选项** — 修复模型方案选择器点击无响应问题 (`src/renderer/components/SchemeSelector.tsx`)
+- **attention.ts 状态管理修正** — `_flashFrameCalled` 在 `stopBlinking()` 开头显式重置，替代原本依赖 `flashFrame(false)` 回调后再置 false 的竞态隐患；`_testInternals.reset()` 同步重置 (`src/main/attention.ts`)
+
+### 删除
+- **openaiAdapter 死代码清理** — 移除已废弃的 `_injectAdditionalContext` 方法 (`src/main/agent/model/openaiAdapter.ts`)
+
+---
+
 ## [v0.3.6] - 2026-08-05
 
 ### 新增
