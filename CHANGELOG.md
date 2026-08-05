@@ -7,6 +7,21 @@
 
 ---
 
+## [v0.3.6] - 2026-08-05
+
+### 新增
+- **设置支持按分类/全部恢复默认** — settings store 支持按分类/全部恢复默认（进 pending 不写盘），设置弹窗各 Tab 添加恢复默认按钮与恢复全部按钮 (`src/renderer/stores/settingsStore.ts`, `src/renderer/components/dialogs/SettingsDialog.tsx`)
+
+### 重构
+- **Agent 仅展示最终输出并释放过程数据** — 运行中的 Agent 工具保留实时进度时间轴，已完成/已取消的 Agent 只展示最终输出（+ 错误信息 + Token 用量）；新增 clearAgentProcessData 清理 progressLog / subAgentStream，避免长会话过程数据常驻内存 (`src/renderer/components/message-list/SubAgentViewer.tsx`, `src/renderer/stores/toolCallsStore.ts`)
+- **message-list 流式渲染性能优化** — 用 requestAnimationFrame 帧级合并替代 200ms 节流，流式渲染流畅度约提升 12 倍；仅订阅当前活跃会话的流式状态，避免 60fps 空转 (`src/renderer/components/message-list/InterleavedContent.tsx`)
+
+### 修复
+- **会话切换回运行时助手气泡正文截断** — 运行中会话合并方向反转为内存流式消息为权威，SQLite 仅补缺，完成态仍以 SQLite 为准防重复气泡 (`src/renderer/stores/conversationStore.ts`)
+- **resetAllToDefault 显式展开分类修复 TS2322 类型错误** — 恢复默认功能的评审改进（基座分支测试/timer 清理/注释）(`src/renderer/stores/settingsStore.ts`, `src/renderer/components/dialogs/SettingsDialog.tsx`)
+
+---
+
 ## [v0.3.5] - 2026-08-05
 
 ### 新增
