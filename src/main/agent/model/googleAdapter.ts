@@ -312,9 +312,13 @@ export class GoogleAdapter implements ModelAdapter {
         cachedContentTokenCount?: number
     } | undefined): Generator<StreamChunk> {
         if (usageMetadata) {
+            // ★ 核心修正：Gemini 的 promptTokenCount 是总输入（已包含 cachedContentTokenCount），
+            // 与 Anthropic 的 input_tokens 语义（不含缓存）不同。减去缓存部分避免 UI 层
+            // 按「input + cacheRead」计算时双算缓存 token。
+            const cached = usageMetadata.cachedContentTokenCount || 0
             yield {
                 type: 'usage',
-                inputTokens: usageMetadata.promptTokenCount || 0,
+                inputTokens: Math.max(0, (usageMetadata.promptTokenCount || 0) - cached),
                 outputTokens: usageMetadata.candidatesTokenCount || 0,
                 cacheReadTokens: usageMetadata.cachedContentTokenCount || undefined,
             }
