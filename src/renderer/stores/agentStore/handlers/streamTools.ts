@@ -224,10 +224,14 @@ export function handleToolResult(ctx: StreamCtx) {
 
     if (msg?.toolCalls && result && msgId) {
         useToolCallsStore.getState().setToolResult(event.toolCallId, result)
-        if (event.skillName) {
-            const tc = msg.toolCalls.find(tc => tc.id === event.toolCallId)
-            if (tc) useToolCallsStore.getState().updateToolCall(event.toolCallId, {skillName: event.skillName} as any)
+        const tc = msg.toolCalls.find(tc => tc.id === event.toolCallId)
+        if (event.skillName && tc) {
+            useToolCallsStore.getState().updateToolCall(event.toolCallId, {skillName: event.skillName} as any)
         }
+        // ★ 内存释放：agent 工具完成态不再需要过程数据（思考/工具执行流），
+        //   只保留最终输出（result）与 token 用量，避免长会话中大量子 Agent 的过程数据常驻内存。
+        //   clearAgentProcessData 内部对非 agent / 无过程数据的工具自动短路
+        useToolCallsStore.getState().clearAgentProcessData(event.toolCallId)
         scheduleToolResultUpdate(convId, msgId, event.toolCallId, result)
     }
 

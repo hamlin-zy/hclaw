@@ -248,6 +248,7 @@ export default function ToolCallHeader({
     const countdownBadge = isRunning ? <ToolCountdown timeoutMs={timeoutMs} startedAt={startedAt}/> : null
 
     // ── Compact 模式 ──
+    // 注意：viewBtn 不在此处单独渲染 —— metaSection 内已包含 viewBtn，避免重复显示
     if (isCompact) {
         return (
             <div className="w-full flex items-center gap-2 px-3 py-2 text-left">
@@ -256,7 +257,6 @@ export default function ToolCallHeader({
                 {countdownBadge}
                 {progressBar}
                 {progressText}
-                {viewBtn}
                 {metaSection}
             </div>
         )

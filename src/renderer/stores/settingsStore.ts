@@ -16,9 +16,13 @@ interface SettingsStore {
     discardChanges: () => void
     /** 直接更新设置并保存到磁盘（用于外部触发器如主题切换） */
     updateSettings: (updates: Partial<SystemSettings>) => Promise<void>
+    /** 恢复指定分类为默认值（仅写入 pending，不落盘） */
+    resetCategoryToDefault: (category: keyof SystemSettings) => void
+    /** 恢复全部分类为默认值（仅写入 pending，不落盘） */
+    resetAllToDefault: () => void
 }
 
-const DEFAULT_SETTINGS: SystemSettings = {
+export const DEFAULT_SETTINGS: SystemSettings = {
     agent: {
         maxTurns: 500,
         retryCount: 10,
@@ -35,6 +39,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
     },
     ui: {
         theme: 'system',
+        background: {enabled: false, imagePath: '', overlay: 50, blur: 16},
     },
     subagent: {
         maxConcurrency: 3,
@@ -86,6 +91,26 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         const updated = {
             ...base,
             [category]: {...base[category], ...values}
+        }
+        set({pendingSettings: updated, isDirty: true})
+    },
+
+    resetCategoryToDefault: (category) => {
+        get().updatePending(category, DEFAULT_SETTINGS[category])
+    },
+
+    resetAllToDefault: () => {
+        const {pendingSettings, settings} = get()
+        const base = pendingSettings || settings
+        const updated: SystemSettings = {
+            ...base,
+            agent: DEFAULT_SETTINGS.agent,
+            model: DEFAULT_SETTINGS.model,
+            mcp: DEFAULT_SETTINGS.mcp,
+            ui: DEFAULT_SETTINGS.ui,
+            subagent: DEFAULT_SETTINGS.subagent,
+            channels: DEFAULT_SETTINGS.channels,
+            linkOpening: DEFAULT_SETTINGS.linkOpening,
         }
         set({pendingSettings: updated, isDirty: true})
     },
