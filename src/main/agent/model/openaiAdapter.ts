@@ -135,17 +135,25 @@ export class OpenAIAdapter implements ModelAdapter {
       for await (const chunk of stream) {
         if (abortSignal?.aborted) break
 
-        const choice = chunk.choices?.[0]
-        if (!choice) continue
-
-          // 始终收集 usage 信息（某些 API 在最后一个 chunk 才有 usage）
+          // ★ 修正顺序：OpenAI 标准流式响应（stream_options: {include_usage: true}）中，
+          // usage 位于最后一个 choices 为空的独立 chunk。必须先收集再跳过空 choices，
+          // 否则永远收不到 usage，统计信息缺失。
           if (chunk.usage) {
-              lastInputTokens = chunk.usage.prompt_tokens || 0
               lastOutputTokens = chunk.usage.completion_tokens || 0
               const details = extractUsageDetails(chunk.usage)
-              if (details.cacheReadTokens) lastCacheReadTokens = details.cacheReadTokens
+              const cached = details.cacheReadTokens || 0
+              if (cached > 0) lastCacheReadTokens = cached
+              // ★ 核心修正：OpenAI 的 prompt_tokens 是总输入（已包含 cached_tokens，见官方文档
+              // 示例 prompt_tokens: 2006, cached_tokens: 1920），而 Anthropic 的 input_tokens 不含
+              // 缓存部分（缓存单独用 cache_read_input_tokens 上报）。UI 层统一按 Anthropic 语义
+              // 计算（上下文 = input + cacheRead），若原样上报会双算缓存 token 导致上下文虚高、
+              // 命中率被稀释。因此减去 cached 部分，使 inputTokens 语义与 Anthropic 对齐。
+              lastInputTokens = Math.max(0, (chunk.usage.prompt_tokens || 0) - cached)
               if (details.reasoningTokens) lastReasoningTokens = details.reasoningTokens
           }
+
+        const choice = chunk.choices?.[0]
+        if (!choice) continue
 
         const delta = choice.delta
 
