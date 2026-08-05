@@ -73,6 +73,9 @@ function FixedDropdown({
     // createPortal 挂到 body：脱离菜单栏 stacking context
     //（bg-enabled 下 .menubar 有 backdrop-filter，会困住内部 fixed 元素的 z-index，
     //  面板会被消息列表卡片盖住）
+    // 面板根节点必须阻止 mousedown 冒泡到 document：面板不在父组件 dropdownRef
+    // （按钮容器）内，否则会被父组件的 handleClickOutside 判定为"外部点击"而提前
+    // 关闭（卸载），导致 click 事件丢失、选项无法切换。与 WorkModeSelector 同款防护。
     return createPortal(
         <motion.div
             ref={dropdownRef}
@@ -81,6 +84,7 @@ function FixedDropdown({
             exit={{opacity: 0, y: -8, scale: 0.96}}
             transition={{duration: 0.15, ease: [0.4, 0, 0.2, 1]}}
             style={{top: position.top, right: position.right}}
+            onMouseDown={(e) => e.stopPropagation()}
             className="fixed z-[9999] min-w-[200px] max-w-[280px]"
         >
             {/* 下拉面板 - 毛玻璃效果 */}
