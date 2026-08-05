@@ -143,7 +143,9 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                                     </button>
                                                 )}
                                             </div>
-                                            {(() => {
+                                            {/* ★ 已完成 Agent 只展示最终输出，不展示思考/工具执行过程细节；
+                                                仅运行中保留实时进度时间轴 */}
+                                            {(['running', 'pending'].includes(status)) && (() => {
                                                 const entries = mergeTimeline(progressLog || [], subAgentStream || [])
                                                 const lastTime = getLastActiveTime(progressLog || [], subAgentStream || [])
                                                 if (entries.length === 0) return null

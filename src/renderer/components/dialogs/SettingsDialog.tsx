@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from 'react'
+import {useCallback, useEffect, useRef, useState} from 'react'
 import {Kbd, KbdCombo} from '../common/Kbd'
 import {Switch} from '../common/Switch'
 import ImagePreviewModal from '../common/ImagePreviewModal'
@@ -26,7 +26,9 @@ export default function SettingsDialog() {
         isDirty,
         updatePending,
         saveSettings,
-        discardChanges
+        discardChanges,
+        resetCategoryToDefault,
+        resetAllToDefault,
     } = useSettingsStore()
     const [activeTab, setActiveTab] = useState<Category>('ui')
     const [saving, setSaving] = useState(false)
@@ -143,8 +145,50 @@ export default function SettingsDialog() {
         discardChanges()
     }, [discardChanges])
 
+    // ── 恢复默认按钮反馈（点击后短暂显示"已恢复默认"） ──
+    const [resetFeedback, setResetFeedback] = useState<string | null>(null)
+    const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    const handleResetCategory = useCallback((category: keyof SystemSettings) => {
+        resetCategoryToDefault(category)
+        setResetFeedback(`${category}-tab`)
+        if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
+        resetTimerRef.current = setTimeout(() => setResetFeedback(null), 1500)
+    }, [resetCategoryToDefault])
+
+    const handleResetAll = useCallback(() => {
+        resetAllToDefault()
+        setResetFeedback('all')
+        if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
+        resetTimerRef.current = setTimeout(() => setResetFeedback(null), 1500)
+    }, [resetAllToDefault])
+
+    // 组件卸载时清除重置反馈计时器
+    useEffect(() => {
+        return () => {
+            if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
+        }
+    }, [])
+
+    /** 内容区顶部的「恢复本页默认」按钮（shortcuts 只读 Tab 不渲染） */
+    const renderResetSectionButton = (category: keyof SystemSettings) => (
+        <div className="flex justify-end">
+            <button
+                onClick={() => handleResetCategory(category)}
+                className={`px-2.5 py-1 text-[11px] rounded-md border transition-colors ${
+                    resetFeedback === `${category}-tab`
+                        ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
+                        : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
+                }`}
+            >
+                {resetFeedback === `${category}-tab` ? '✓ 已恢复默认' : '恢复本页默认'}
+            </button>
+        </div>
+    )
+
     const renderAgentSettings = () => (
         <div className="space-y-[var(--space-relaxed)]">
+            {renderResetSectionButton('agent')}
             <NumberField
                 label="最大轮次 (maxTurns)"
                 description="Agent 推理循环的最大迭代次数"
@@ -195,6 +239,7 @@ export default function SettingsDialog() {
 
     const renderSubagentSettings = () => (
         <div className="space-y-[var(--space-relaxed)]">
+            {renderResetSectionButton('subagent')}
             <NumberField
                 label="最大并发数 (maxConcurrency)"
                 description="子 Agent 同时运行的最大数量"
@@ -247,6 +292,7 @@ export default function SettingsDialog() {
 
     const renderModelSettings = () => (
         <div className="space-y-[var(--space-relaxed)]">
+            {renderResetSectionButton('model')}
             <NumberField
                 label="默认最大 Token 数 (maxTokens)"
                 description="LLM 输出的最大 Token 数"
@@ -421,6 +467,7 @@ export default function SettingsDialog() {
 
     const renderUiSettings = () => (
         <div className="space-y-[var(--space-relaxed)]">
+            {renderResetSectionButton('ui')}
             <div className="space-y-1">
                 <label className="text-xs text-[var(--text-muted)]">系统配置目录</label>
                 <div className="flex gap-2">
@@ -673,6 +720,7 @@ export default function SettingsDialog() {
 
     const renderChannelSettings = () => (
         <div className="space-y-[var(--space-relaxed)]">
+            {renderResetSectionButton('channels')}
             <div className="flex items-center justify-between py-2">
                 <div>
                     <label className="text-xs text-[var(--text-muted)]">连接后发送打招呼信息</label>
@@ -735,6 +783,19 @@ export default function SettingsDialog() {
                         {activeTab === 'subagent' && renderSubagentSettings()}
                         {activeTab === 'channels' && renderChannelSettings()}
                         {activeTab === 'shortcuts' && renderShortcutsSettings()}
+
+                        <div className="flex justify-end mt-6">
+                            <button
+                                onClick={handleResetAll}
+                                className={`px-3 py-1.5 text-[11px] rounded-md border transition-colors ${
+                                    resetFeedback === 'all'
+                                        ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
+                                        : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--error)] hover:border-[var(--error)]'
+                                }`}
+                            >
+                                {resetFeedback === 'all' ? '✓ 已恢复全部默认' : '恢复全部默认'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

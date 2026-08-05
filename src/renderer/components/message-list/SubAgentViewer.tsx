@@ -3,35 +3,25 @@
  *
  * 特性：
  * - 无幕布，可拖拽标题栏移动，可拖拽边缘/角落缩放
- * - 双标签页：时间轴 / 详细输出（思考/工具调用/正文）
+ * - 已完成 Agent 卡片只展示最终输出（+ Token 用量），不展示思考、工具执行等过程细节
  */
 
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
-import type {ExtendedToolResult, ProgressEntry, SubAgentStreamEntry} from '../../stores/toolCallsStore'
-import {StreamEntryCard, mergeTimeline, mergeConsecutiveTextEntries, getLastActiveTime} from './StreamEntryRenderer'
+import type {ExtendedToolResult} from '../../stores/toolCallsStore'
 import MarkdownRenderer from './MarkdownRenderer'
-
-const fmtTime = (ts: number) => {
-    const d = new Date(ts)
-    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`
-}
 
 // ── 类型 ──
 
 interface Props {
     title: string
     agentType?: string | null
-    progressLog?: ProgressEntry[]
-    subAgentStream?: SubAgentStreamEntry[]
     result?: ExtendedToolResult | null
     tokenUsage?: { inputTokens: number; outputTokens: number; totalTokens: number } | null
     onClose: () => void
     /** 跳转到对应子会话（由父组件在 taskId 存在时传入；不传则隐藏按钮） */
     onJumpToSession?: () => void
 }
-
-type TabId = 'timeline' | 'stream'
 
 const MIN_W = 420, MIN_H = 320, DEF_W = 680, DEF_H = 520
 
@@ -92,31 +82,27 @@ function useResize(init: { w: number; h: number }) {
             window.removeEventListener('mouseup', up)
         }
     }, [resize])
-    return {sz, resizing: resize, onStart}
+    return {sz, onStart}
 }
-
-
 
 // ── 主组件 ─────────────────────────────────
 
 export default function SubAgentViewer({
                                            title,
                                            agentType,
-                                           progressLog,
-                                           subAgentStream,
                                            result,
                                            tokenUsage,
                                            onClose,
                                            onJumpToSession,
                                        }: Props) {
-    const entries = subAgentStream ? mergeConsecutiveTextEntries(subAgentStream) : []
-    const logs = progressLog || []
-
-    const {pos, dragging, onStart: onDragStart} = useDrag({x: 120, y: 80})
+    // ★ 弹窗初始位置：主窗口水平垂直居中（需求：查看弹窗居中显示）。
+    //   弹窗为条件渲染，每次打开重新挂载，初始值重新计算 → 每次打开均居中；
+    //   Math.max 兜底防止窗口过小时弹窗溢出视口
+    const {pos, dragging, onStart: onDragStart} = useDrag({
+        x: Math.max((window.innerWidth - DEF_W) / 2, 8),
+        y: Math.max((window.innerHeight - DEF_H) / 2, 80),
+    })
     const {sz, onStart: onResizeStart} = useResize({w: DEF_W, h: DEF_H})
-    const [activeTab, setActiveTab] = useState<TabId>(entries.length > 0 ? 'stream' : 'timeline')
-    const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
-    const streamEndRef = useRef<HTMLDivElement>(null)
 
     // ESC 关闭
     useEffect(() => {
@@ -126,26 +112,6 @@ export default function SubAgentViewer({
         window.addEventListener('keydown', h)
         return () => window.removeEventListener('keydown', h)
     }, [onClose])
-
-    // 自动滚动
-    useEffect(() => {
-        if (activeTab === 'stream' && streamEndRef.current) streamEndRef.current.scrollIntoView({behavior: 'smooth'})
-    }, [activeTab, subAgentStream?.length])
-
-    const toggleThinking = useCallback((idx: number) => setCollapsed(p => {
-        const n = new Set(p)
-        if (n.has(idx)) {
-            n.delete(idx)
-        } else {
-            n.add(idx)
-        }
-        return n
-    }), [])
-
-    const tabs: { id: TabId; label: string; count: number }[] = [
-        {id: 'timeline', label: '时间轴', count: logs.length},
-        {id: 'stream', label: '详细输出', count: entries.length},
-    ]
 
     return createPortal(
         <div className="fixed z-[9999] rounded-xl overflow-hidden shadow-2xl border flex flex-col"
@@ -166,12 +132,8 @@ export default function SubAgentViewer({
                  }}
                  onMouseDown={onDragStart}>
                 <div className="flex items-center gap-2 min-w-0">
-                    <svg className="w-4 h-4 shrink-0" style={{color: 'var(--brand-primary)'}} viewBox="0 0 24 24"
-                         fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="12" cy="12" r="3"/>
-                        <path
-                            d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-                    </svg>
+                    {/* ★ 代理机器人图标（与全站 agent 卡片 🤖 保持一致，原为齿轮图标） */}
+                    <span className="w-4 h-4 shrink-0 text-[var(--brand-primary)] text-sm leading-none">🤖</span>
                     <span className="text-sm font-semibold truncate" style={{color: 'var(--text-primary)'}}>
                         {title.length > 50 ? title.slice(0, 50) + '...' : title}
                     </span>
@@ -183,7 +145,6 @@ export default function SubAgentViewer({
                     )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                    <span className="text-[10px] select-none" style={{color: 'var(--text-muted)'}}>{sz.w}×{sz.h}</span>
                     {onJumpToSession && (
                         <button
                             onClick={onJumpToSession}
@@ -209,98 +170,11 @@ export default function SubAgentViewer({
                 </div>
             </div>
 
-            {/* ── 标签页（数据驱动） ── */}
-            <div className="flex items-center gap-1 px-3 py-1.5 shrink-0"
-                 style={{borderBottom: '1px solid var(--border)'}}>
-                {tabs.map(t => (
-                    <button key={t.id} onClick={() => setActiveTab(t.id)}
-                            className={`px-3 py-1 rounded text-[11px] font-medium transition-all ${activeTab === t.id ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}>
-                        {t.label}
-                        {t.count > 0 && <span className="ml-1.5 text-[10px] opacity-60">{t.count}</span>}
-                    </button>
-                ))}
-            </div>
-
-            {/* ── 内容区 ── */}
+            {/* ── 内容区：只展示最终输出（已完成 Agent 不展示思考、工具执行等过程细节） ── */}
             <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3"
                  style={{backgroundColor: 'var(--surface)'}}>
-                {activeTab === 'timeline' ? (
-                    /* 时间轴标签页 — 进度 + 流式条目按真实时间序交织渲染 */
-                    (logs.length > 0 || (subAgentStream && subAgentStream.length > 0)) ? (
-                        <div className="space-y-2">
-                            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider"
-                                 style={{color: 'var(--text-muted)'}}>
-                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                     strokeWidth="2">
-                                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                                </svg>
-                                执行时间轴
-                            </div>
-                            {(() => {
-                                const merged = mergeTimeline(logs, subAgentStream || [])
-                                const lastTime = getLastActiveTime(logs, subAgentStream || [])
-                                return (
-                                    <div className="relative pl-4 ml-1 space-y-1"
-                                         style={{borderLeft: '2px solid var(--border-muted)'}}>
-                                        {merged.map((e, i) => {
-                                            const ts = e.kind === 'progress' ? e.log.timestamp : e.entry.timestamp
-                                            const active = ts === lastTime
-                                            if (e.kind === 'progress') {
-                                                return (
-                                                    <div key={`p-${i}`} className="relative flex items-start gap-3 py-1">
-                                                        <div className="absolute -left-[17px] top-2.5 w-2 h-2 rounded-full shrink-0"
-                                                             style={{
-                                                                 backgroundColor: active ? 'var(--brand-primary)' : 'var(--border-muted)',
-                                                                 boxShadow: active ? '0 0 6px rgba(91,141,217,0.5)' : 'none'
-                                                             }}/>
-                                                        <span className="text-[10px] font-mono mt-1 shrink-0"
-                                                              style={{color: 'var(--text-muted)'}}>{fmtTime(ts)}</span>
-                                                        <span className="text-xs leading-relaxed" style={{
-                                                            color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-                                                            fontWeight: active ? 500 : 400
-                                                        }}>
-                                                            {e.log.text.replace(/^子 Agent /, '')}
-                                                        </span>
-                                                    </div>
-                                                )
-                                            }
-                                            return (
-                                                <div key={`s-${i}`}>
-                                                    <StreamEntryCard entry={e.entry} variant="viewer"
-                                                                     collapsed={collapsed.has(-i - 1)}
-                                                                     onToggle={() => {}}/>
-                                                </div>
-                                            )
-                                        })}
-                                    </div>
-                                )
-                            })()}
-                        </div>
-                    ) : (
-                        <div className="text-center py-8 text-sm"
-                             style={{color: 'var(--text-muted)'}}>暂无时间轴数据</div>
-                    )
-                ) : (
-                    /* 详细输出标签页 */
-                    entries.length > 0 ? (
-                        entries.map((entry, idx) => (
-                            <StreamEntryCard key={idx} entry={entry} variant="viewer"
-                                             collapsed={collapsed.has(idx)}
-                                             onToggle={() => toggleThinking(idx)}/>
-                        ))
-                    ) : (
-                        <div className="text-center py-8 text-sm" style={{color: 'var(--text-muted)'}}>子 Agent
-                            正在运行中，暂无详细输出...</div>
-                    )
-                )}
-
-                {/* 自动滚动锚点（仅 stream tab） */}
-                {activeTab === 'stream' && <div ref={streamEndRef}/>}
-
-                {/* 最终输出 + Token（双标签页共用） */}
-                {result?.output && (
-                    <div className={`space-y-2 ${activeTab === 'stream' ? 'pt-3 border-t' : 'pt-2'}`}
-                         style={activeTab === 'stream' ? {borderColor: 'var(--border)'} : undefined}>
+                {result?.output ? (
+                    <div className="space-y-2">
                         <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider"
                              style={{color: 'var(--text-muted)'}}>
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -318,6 +192,35 @@ export default function SubAgentViewer({
                         }}>
                             <MarkdownRenderer>{String(result.output)}</MarkdownRenderer>
                         </div>
+                    </div>
+                ) : (
+                    <div className="text-center py-8 text-sm" style={{color: 'var(--text-muted)'}}>
+                        暂无最终输出
+                    </div>
+                )}
+
+                {result?.error && (
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider"
+                             style={{color: 'var(--error)'}}>
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 strokeWidth="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="15" y1="9" x2="9" y2="15"/>
+                                <line x1="9" y1="9" x2="15" y2="15"/>
+                            </svg>
+                            错误
+                        </div>
+                        <pre className="rounded-lg p-3 text-xs leading-relaxed whitespace-pre-wrap break-all"
+                             style={{
+                                 backgroundColor: 'var(--error-muted)/15',
+                                 border: '1px solid rgba(239,68,68,0.2)',
+                                 color: 'var(--error)',
+                                 maxHeight: 300,
+                                 overflow: 'auto'
+                             }}>
+                            {String(result.error)}
+                        </pre>
                     </div>
                 )}
 
@@ -352,5 +255,3 @@ export default function SubAgentViewer({
         document.body
     )
 }
-
-

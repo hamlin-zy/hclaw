@@ -267,26 +267,21 @@ async function switchActiveConversation(id: string | null) {
         } else {
             useConversationStore.setState({ activeConversationId: id })
             await store.loadMessagesInitial(id)
-            // ★ 子会话：不合并渲染进程内存态流式消息。
-            //   子会话完整执行过程由主进程 agentTool 累积器按 LLM 轮次增量落库
-            //   （tool_result / llm_call_done 时机），SQLite 已是权威数据源；
-            //   若再合并内存态 UUID 流式消息（同一轮内容），会出现重复气泡。
-            //   主会话仍按原有逻辑合并流式消息（实时观看场景）。
-            if (targetMsgs && !isChildConversation(id)) {
-                const {useAgentStore} = await import('./agentStore')
+            // ★ 运行中的会话（status 为 running/thinking）：合并渲染进程内存态流式消息。
+            //   内存消息为权威（含最新流式内容），SQLite 快照仅用于补缺——纯文本流期间主进程
+            //   累积器只在 tool_result / llm_call_done 时机落库，快照可能陈旧，若以 SQLite 为权威
+            //   会覆盖内存完整流式内容导致正文被截断。按消息 id 去重，同 id（msg-<ts>-<rand>）
+            //   不重复；完成态（idle）不合并，以 SQLite 为准，防重复气泡。
+            if (targetMsgs) {
                 const agentState = useAgentStore.getState().convAgentStates[id]?.agentState
                 const isRunning = agentState?.status === 'running' || agentState?.status === 'thinking'
                 if (isRunning) {
-                    const sqliteMsgs = useConversationStore.getState().messagesMap[id]
-                    const existingIds = new Set(sqliteMsgs.map(m => m.id))
-                    const streamingOnly = targetMsgs.filter(m => !existingIds.has(m.id))
-                    if (streamingOnly.length > 0) {
-                        const merged = [...sqliteMsgs, ...streamingOnly]
-                        useConversationStore.setState({
-                            messagesMap: { ...useConversationStore.getState().messagesMap, [id]: merged },
-                            loadedMessages: merged,
-                        })
-                    }
+                    const {messagesMap} = useConversationStore.getState()
+                    const sqliteMsgs = messagesMap[id] || []
+                    const targetIds = new Set(targetMsgs.map(m => m.id))
+                    const merged = [...sqliteMsgs.filter(m => !targetIds.has(m.id)), ...targetMsgs]
+                        .sort((a, b) => a.timestamp - b.timestamp)
+                    useConversationStore.setState({messagesMap: {...messagesMap, [id]: merged}, loadedMessages: merged})
                 }
             }
         }

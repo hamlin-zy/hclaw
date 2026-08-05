@@ -104,6 +104,9 @@ interface ToolCallsStore {
 
     /** 向子 Agent 流追加事件条目（立即更新，不走批处理队列） */
     appendSubAgentStream: (toolCallId: string, entry: SubAgentStreamEntry) => void
+
+    /** 清理 Agent 过程数据（progressLog / subAgentStream）——完成态不再需要，释放内存 */
+    clearAgentProcessData: (toolCallId: string) => void
 }
 
 // ─── 批量更新队列 ───────────────────────────────────────
@@ -296,6 +299,22 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
                         ...existing,
                         subAgentStream: [...currentStream, entry],
                     },
+                },
+            }
+        })
+    },
+
+    clearAgentProcessData: (toolCallId) => {
+        set((state) => {
+            const existing = state.states[toolCallId]
+            if (!existing) return {}
+            // 仅当过程数据非空时才触发更新，避免无谓的 set
+            if (!existing.subAgentStream?.length && !existing.progressLog?.length) return {}
+            const {subAgentStream: _s, progressLog: _p, ...rest} = existing
+            return {
+                states: {
+                    ...state.states,
+                    [toolCallId]: {...rest},
                 },
             }
         })
