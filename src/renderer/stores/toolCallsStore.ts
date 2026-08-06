@@ -305,20 +305,25 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
                 }
             }
 
-            // 达到上限：shift 头部 + push 尾部 + 首次截断插入标记
+            // 达到上限：截断为滑动窗口。截断标记插入头部；下次溢出时 slice 会将其从头部
+            // 移出，因此每次溢出都重新插入一条标记（窗口内始终恰好一条）。
             const trimmed = currentStream.slice(-MAX_SUBAGENT_STREAM_ENTRIES + 1)
-            const hasMarker = trimmed.some(e => e.type === 'text' && (e as any)._truncationMarker)
-            const withEntry = hasMarker
-                ? [...trimmed, entry]
-                : [
-                    { type: 'text' as const, timestamp: Date.now(), content: '(已截断较早流式记录，仅保留最近 500 条)', _truncationMarker: true },
-                    ...trimmed,
-                    entry,
-                  ]
             return {
                 states: {
                     ...state.states,
-                    [toolCallId]: { ...existing, subAgentStream: withEntry },
+                    [toolCallId]: {
+                        ...existing,
+                        subAgentStream: [
+                            {
+                                type: 'text' as const,
+                                timestamp: Date.now(),
+                                content: `(已截断较早流式记录，仅保留最近 ${MAX_SUBAGENT_STREAM_ENTRIES} 条)`,
+                                _truncationMarker: true,
+                            },
+                            ...trimmed,
+                            entry,
+                        ],
+                    },
                 },
             }
         })

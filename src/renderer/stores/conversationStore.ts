@@ -160,7 +160,19 @@ function markMessageDirty(convId: string, message: Message) {
 const THROTTLE_MS = 2000
 const THROTTLE_CHAR_THRESHOLD = 500
 
-function scheduleDeltaSave(convId: string, _delay: number) {
+/** 立即写并重置 throttle 记账（立即写与兜底 timer 两条路径共用） */
+function flushAndReset(convId: string, state: DeltaThrottleState): void {
+    if (state.timer) {
+        clearTimeout(state.timer)
+        state.timer = null
+    }
+    void flushDirtyMessages(convId)
+    state.lastFlush = Date.now()
+    state.accumulatedChars = 0
+}
+
+/** throttle 调度：距上次写入 ≥2s 或累积 ≥500 字符立即写，否则挂兜底 timer */
+function scheduleDeltaSave(convId: string): void {
     if (isChildConversation(convId)) return
     let state = deltaThrottle[convId]
     if (!state) {
@@ -173,21 +185,10 @@ function scheduleDeltaSave(convId: string, _delay: number) {
 
     if (shouldFlushNow) {
         // 距上次写入超过 2s 或累积超过 500 字符 → 立即写
-        if (state.timer) {
-            clearTimeout(state.timer)
-            state.timer = null
-        }
-        void flushDirtyMessages(convId)
-        state.lastFlush = Date.now()
-        state.accumulatedChars = 0
+        flushAndReset(convId, state)
     } else if (!state.timer) {
         // 未到阈值 → 设兜底 timer（确保不会永远不写）
-        state.timer = setTimeout(() => {
-            void flushDirtyMessages(convId)
-            state.lastFlush = Date.now()
-            state.accumulatedChars = 0
-            state.timer = null
-        }, THROTTLE_MS - elapsed)
+        state.timer = setTimeout(() => flushAndReset(convId, state), THROTTLE_MS - elapsed)
     }
 }
 
@@ -221,26 +222,36 @@ async function flushDirtyMessages(convId: string): Promise<void> {
             await window.electronAPI?.conversationWriteMessagesDelta?.(convId, msg)
         }
         // 截断大型工具结果的内存副本（完整内容已落库）
-        const store = useConversationStore.getState()
-        const msgs = store.messagesMap[convId]
-        if (msgs) {
-            let needsUpdate = false
-            const newMsgs = msgs.map(m => {
-                if (!pendingIds.has(m.id)) return m
-                const truncated = truncateLargeResults(m)
-                if (truncated !== m) needsUpdate = true
-                return truncated
-            })
-            if (needsUpdate) {
-                useConversationStore.setState({
-                    messagesMap: { ...store.messagesMap, [convId]: newMsgs },
-                    loadedMessages: convId === store.activeConversationId ? newMsgs : store.loadedMessages,
-                })
-            }
-        }
+        truncatePersistedMessages(convId, pendingIds, pending)
     } catch {
         // 失败不重试（下次 scheduleDeltaSave 会重新标记），避免积压
     }
+}
+
+/** 截断本轮已落库消息中大型工具结果的内存副本（完整内容已在 DB）。
+ *  完成态消息（endedAt 已写，flush 前设置）同时释放 side cache——
+ *  完整字符串唯一持有者即 cache，释放后内存双回收（messagesMap 大字符串 + cache），
+ *  且完成态不会再 dirty，无覆盖 DB 风险。 */
+function truncatePersistedMessages(convId: string, pendingIds: Set<string>, pendingMsgs: Message[]): void {
+    const store = useConversationStore.getState()
+    const msgs = store.messagesMap[convId]
+    if (!msgs) return
+    // 完成态消息集合（endedAt 已写）：先释放其 side cache 再截断（skipCache 避免重新登记）
+    const finalIds = new Set(pendingMsgs.filter(p => p.endedAt != null).map(p => p.id))
+    let needsUpdate = false
+    const newMsgs = msgs.map(m => {
+        if (!pendingIds.has(m.id)) return m
+        const isFinal = finalIds.has(m.id)
+        if (isFinal) fullToolOutputCache.delete(m.id)
+        const truncated = truncateLargeResults(m, convId, isFinal)
+        if (truncated !== m) needsUpdate = true
+        return truncated
+    })
+    if (!needsUpdate) return
+    useConversationStore.setState({
+        messagesMap: { ...store.messagesMap, [convId]: newMsgs },
+        loadedMessages: convId === store.activeConversationId ? newMsgs : store.loadedMessages,
+    })
 }
 
 const TOOL_RESULT_MEMORY_CAP = 5000
@@ -251,14 +262,28 @@ const TOOL_RESULT_MEMORY_CAP = 5000
 // 永久覆盖完整工具输出。这里在截断时把完整 output 存入 side cache，每次写库前回填，
 // 保证 DB 永远写入完整内容。
 
-/** 截断时保存的完整工具输出缓存（messageId → toolCallId → 完整 output），
- *  用于消息再次 dirty 时回填，保证 DB 永远写入完整内容 */
-const fullToolOutputCache: Map<string, Map<string, string>> = new Map()
+/** 截断时保存的完整工具输出缓存（messageId → 完整 output 集合 + 所属会话），
+ *  用于消息再次 dirty 时回填，保证 DB 永远写入完整内容。
+ *  value 携带 convId：deleteConversation / maybeTrimConversation 需按会话批量释放，
+ *  仅凭 msgId 无法枚举某会话的全部 cache 条目（消息可能已不在 messagesMap）。 */
+interface FullOutputCacheEntry {
+    convId: string
+    outputs: Map<string, string>
+}
+const fullToolOutputCache: Map<string, FullOutputCacheEntry> = new Map()
 
-function getFullOutputCache(msgId: string): Map<string, string> {
+function getOrCreateFullOutputCache(msgId: string, convId: string): FullOutputCacheEntry {
     let m = fullToolOutputCache.get(msgId)
-    if (!m) { m = new Map(); fullToolOutputCache.set(msgId, m) }
+    if (!m) { m = {convId, outputs: new Map()}; fullToolOutputCache.set(msgId, m) }
     return m
+}
+
+/** 按会话清空 side cache（删除会话 / evict 场景）。
+ *  完整工具输出已在 DB，释放内存安全。 */
+function clearFullOutputCacheForConversation(convId: string): void {
+    for (const [msgId, entry] of fullToolOutputCache) {
+        if (entry.convId === convId) fullToolOutputCache.delete(msgId)
+    }
 }
 
 /** 从 side cache 回填完整工具输出（截断的内存副本 → 完整内容）。
@@ -271,7 +296,7 @@ function restoreFullToolOutputs(messages: Message[]): Message[] {
         if (!cache || !m.toolCalls) return m
         const toolCalls = m.toolCalls
         const newToolCalls = toolCalls.map(tc => {
-            const full = cache.get(tc.id)
+            const full = cache.outputs.get(tc.id)
             if (full !== undefined && tc.result?.output !== full) {
                 return { ...tc, result: { ...tc.result!, output: full } }
             }
@@ -286,18 +311,21 @@ function restoreFullToolOutputs(messages: Message[]): Message[] {
     return changed ? restored : messages
 }
 
-/** 截断 message 中大型工具结果的内存副本，完整内容已通过 flushDirtyMessages 落库 */
-function truncateLargeResults(message: Message): Message {
+/** 截断 message 中大型工具结果的内存副本，完整内容已通过 flushDirtyMessages 落库。
+ *  @param convId 消息所属会话（cache 按会话登记，供批量释放）
+ *  @param skipCache 完成态消息专用：只截断内存副本、不写 cache——
+ *   消息已完成（endedAt 已写）不会再 dirty，无需回填，同时该路径已释放 cache */
+function truncateLargeResults(message: Message, convId: string, skipCache = false): Message {
     if (!message.toolCalls || message.toolCalls.length === 0) return message
     let modified = false
     const truncated = message.toolCalls.map(tc => {
         if (!tc.result || typeof tc.result.output !== 'string') return tc
         if (tc.result.output.length <= TOOL_RESULT_MEMORY_CAP) return tc
         // 幂等短路：该 toolCall 已截断过（cache 已有完整内容）则跳过，避免重复截断/重复存
-        const cache = getFullOutputCache(message.id)
-        if (cache.has(tc.id)) return tc
+        const cache = getOrCreateFullOutputCache(message.id, convId)
+        if (cache.outputs.has(tc.id)) return tc
         // 首次截断：先把完整内容存入 side cache（供后续 dirty 写入回填），再截断内存副本
-        cache.set(tc.id, tc.result.output)
+        if (!skipCache) cache.outputs.set(tc.id, tc.result.output)
         modified = true
         return {
             ...tc,
@@ -324,43 +352,53 @@ function computeMessageWeight(msg: Message): number {
     w += (msg.contentBlocks?.length ?? 0)
     if (msg.toolCalls) {
         for (const tc of msg.toolCalls) {
-            if (tc.result?.output && tc.result.output.length > 1000) {
-                w += 5
+            // 截断后 output 只剩 5KB，但完整内容仍驻留 side cache——
+            // 优先读截断标记 _outputTruncatedLength 反映真实内存占用，否则按当前 output 长度
+            const result = tc.result as {output?: string; _outputTruncatedLength?: number} | undefined
+            const fullLen = typeof result?._outputTruncatedLength === 'number'
+                ? result._outputTruncatedLength
+                : (typeof result?.output === 'string' ? result.output.length : 0)
+            if (fullLen > 1000) {
+                // 真实字节计权：1000 字符 = 1 权重（此前固定 +5 严重低估，500 上限形同虚设）
+                w += Math.max(1, Math.ceil(fullLen / 1000))
             }
         }
     }
     return w
 }
 
-function maybeTrimConversation(convId: string): void {
+async function maybeTrimConversation(convId: string): Promise<void> {
     const store = useConversationStore.getState()
     const msgs = store.messagesMap[convId]
     if (!msgs || convId === store.activeConversationId) return
     const totalWeight = msgs.reduce((sum, m) => sum + computeMessageWeight(m), 0)
     if (totalWeight <= CONVERSATION_WEIGHT_CAP) return
 
-    // 先 flush dirty
+    // 先 flush dirty（await 完成后再 evict：restore 依赖 side cache，
+    // 若先 evict 清 cache，异步 flush 中的 restore 会失败 → 截断副本写库覆盖完整内容）
     const dirtyMap = dirtyMessages[convId]
-    if (dirtyMap && dirtyMap.size > 0) {
-        // 异步 flush 后再 trim
-        void flushDirtyMessages(convId)
+    if (dirtyMap?.size) {
+        await flushDirtyMessages(convId)
     }
 
-    // Evict 最旧的 30% 消息
-    const evictCount = Math.max(1, Math.floor(msgs.length * 0.3))
-    const evicted = msgs.slice(0, evictCount)
-    const kept = msgs.slice(evictCount)
+    // flush 期间 truncatePersistedMessages 会更新 messagesMap（截断大工具结果）——
+    // 用 flush 前的旧快照 setState 会把截断回滚并覆盖并发写入，故重读最新状态再 evict
+    const currentMsgs = useConversationStore.getState().messagesMap[convId]
+    if (!currentMsgs) return
+    const evictCount = Math.max(1, Math.floor(currentMsgs.length * 0.3))
+    const evicted = currentMsgs.slice(0, evictCount)
+    const kept = currentMsgs.slice(evictCount)
 
-    useConversationStore.setState({
-        messagesMap: { ...store.messagesMap, [convId]: kept },
-        hasMoreMap: { ...store.hasMoreMap, [convId]: true },
-    })
+    useConversationStore.setState(state => ({
+        messagesMap: { ...state.messagesMap, [convId]: kept },
+        hasMoreMap: { ...state.hasMoreMap, [convId]: true },
+    }))
 
-    // 清理被 evict 消息的 dirty 标记
-    if (dirtyMessages[convId]) {
-        const evictIds = new Set(evicted.map(m => m.id))
-        for (const id of evictIds) {
-            dirtyMessages[convId]?.delete(id)
+    // 清理被 evict 消息的 dirty 标记 + side cache（完整内容已在 DB，释放内存安全）
+    if (dirtyMap) {
+        for (const evictedMsg of evicted) {
+            dirtyMap.delete(evictedMsg.id)
+            fullToolOutputCache.delete(evictedMsg.id)
         }
     }
 }
@@ -654,7 +692,11 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           await window.electronAPI?.conversationDeleteBatch?.(toDelete)
           set((state) => {
               const restMap = {...state.messagesMap}
-              for (const delId of toDelete) delete restMap[delId]
+              for (const delId of toDelete) {
+                  delete restMap[delId]
+                  // 删除会话时同步释放其 side cache（完整工具输出不再需要，防泄漏）
+                  clearFullOutputCacheForConversation(delId)
+              }
               const wsPath = state.currentWorkspacePath
               if (!wsPath || !state.workspaces[wsPath]) return {...state, messagesMap: restMap}
               const remaining = state.workspaces[wsPath].conversations.filter(c => !toDelete.includes(c.id))
@@ -687,7 +729,11 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   }
               }
               const newMap = {...s.messagesMap}
-              for (const delId of toDelete) delete newMap[delId]
+              for (const delId of toDelete) {
+                  delete newMap[delId]
+                  // 删除会话时同步释放其 side cache（完整工具输出不再需要，防泄漏）
+                  clearFullOutputCacheForConversation(delId)
+              }
               return {messagesMap: newMap, workspaces: newWorkspaces}
           })
           if (wasActiveIncluded) await switchActiveConversation(getFirstRootConversationId())
@@ -776,7 +822,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           }))
           // 增量落库：用户消息/新 assistant 消息立即持久化（断电保留进度关键路径）
           markMessageDirty(convId, newMessage)
-          scheduleDeltaSave(convId, 1000)
+          scheduleDeltaSave(convId)
           // 异步检查内存权重上限（不阻塞当前操作）
           setTimeout(() => maybeTrimConversation(convId), 0)
       },
@@ -794,7 +840,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           }))
           // 增量落库：只写这一条变化的消息
           markMessageDirty(convId, newConvMsgs[idx])
-          scheduleDeltaSave(convId, 2000)
+          scheduleDeltaSave(convId)
           // 异步检查内存权重上限（不阻塞当前操作）
           setTimeout(() => maybeTrimConversation(convId), 0)
       },
@@ -802,31 +848,13 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       addMessage: (message) => {
           const convId = get().activeConversationId
           if (!convId) return
-          const newMessage: Message = {...message, id: message.id || crypto.randomUUID(), timestamp: Date.now()}
-          const convMsgs = get().messagesMap[convId] || []
-          const newConvMsgs = [...convMsgs, newMessage]
-          set(state => ({
-              messagesMap: {...state.messagesMap, [convId]: newConvMsgs},
-              loadedMessages: convId === state.activeConversationId ? newConvMsgs : state.loadedMessages,
-          }))
-          markMessageDirty(convId, newMessage)
-          scheduleDeltaSave(convId, 1000)
+          get().addMessageToConv(convId, message)
       },
 
       updateMessage: (id, updates) => {
           const convId = get().activeConversationId
           if (!convId) return
-          const convMsgs = get().messagesMap[convId] || []
-          const idx = convMsgs.findIndex(m => m.id === id)
-          if (idx === -1) return
-          const newConvMsgs = [...convMsgs]
-          newConvMsgs[idx] = {...newConvMsgs[idx], ...updates}
-          set(state => ({
-              messagesMap: {...state.messagesMap, [convId]: newConvMsgs},
-              loadedMessages: convId === state.activeConversationId ? newConvMsgs : state.loadedMessages,
-          }))
-          markMessageDirty(convId, newConvMsgs[idx])
-          scheduleDeltaSave(convId, 2000)
+          get().updateMessageForConv(convId, id, updates)
       },
 
       deleteMessage: (id) => {
