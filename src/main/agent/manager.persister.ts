@@ -148,7 +148,7 @@ export async function doMergeAndPersist(
   db.transaction(() => {
     db.prepare('DELETE FROM message_blocks WHERE message_id = ?').run(pending.id)
     db.prepare(
-      'INSERT OR REPLACE INTO messages (id, conversation_id, role, timestamp, ended_at, metadata, llm_stats) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT OR REPLACE INTO messages (id, conversation_id, role, timestamp, ended_at, metadata, llm_stats, is_partial) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(
       msgRecord.id,
       conversationId,
@@ -157,6 +157,7 @@ export async function doMergeAndPersist(
       msgRecord.endedAt ?? null,
       JSON.stringify(msgRecord.metadata),
       existingLlmStats ?? null,
+      isFinal ? 0 : 1,
     )
 
     const blockStmt = db.prepare(

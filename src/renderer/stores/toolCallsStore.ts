@@ -149,6 +149,9 @@ function scheduleBatchFlush(store: { set: (fn: (state: ToolCallsStore) => Partia
     })
 }
 
+/** 子 Agent 流式事件数组滑动窗口上限：控制单条 assistant 气泡的内存占用 */
+const MAX_SUBAGENT_STREAM_ENTRIES = 500
+
 export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
     states: {},
     
@@ -285,20 +288,37 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
                 return {
                     states: {
                         ...state.states,
+                        [toolCallId]: { ...existing, subAgentStream: newStream },
+                    },
+                }
+            }
+
+            if (currentStream.length < MAX_SUBAGENT_STREAM_ENTRIES) {
+                return {
+                    states: {
+                        ...state.states,
                         [toolCallId]: {
                             ...existing,
-                            subAgentStream: newStream,
+                            subAgentStream: [...currentStream, entry],
                         },
                     },
                 }
             }
+
+            // 达到上限：shift 头部 + push 尾部 + 首次截断插入标记
+            const trimmed = currentStream.slice(-MAX_SUBAGENT_STREAM_ENTRIES + 1)
+            const hasMarker = trimmed.some(e => e.type === 'text' && (e as any)._truncationMarker)
+            const withEntry = hasMarker
+                ? [...trimmed, entry]
+                : [
+                    { type: 'text' as const, timestamp: Date.now(), content: '(已截断较早流式记录，仅保留最近 500 条)', _truncationMarker: true },
+                    ...trimmed,
+                    entry,
+                  ]
             return {
                 states: {
                     ...state.states,
-                    [toolCallId]: {
-                        ...existing,
-                        subAgentStream: [...currentStream, entry],
-                    },
+                    [toolCallId]: { ...existing, subAgentStream: withEntry },
                 },
             }
         })
