@@ -100,6 +100,21 @@ class SchedulerWorkerPool {
                 }
                 return
             }
+            if (msg.type === 'session_created') {
+                try {
+                    const win = getMainWindow()
+                    if (win && !win.isDestroyed()) {
+                        win.webContents.send('session_created', {
+                            id: msg.convId,
+                            title: msg.title,
+                            workspacePath: msg.workspacePath || '',
+                        })
+                    }
+                } catch (e) {
+                    logger.error('[Scheduler] 转发 session_created 失败', {error: String(e)})
+                }
+                return
+            }
             if (msg.type === 'task:result') {
                 logger.debug('worker.taskResult', {scheduleId: msg.scheduleId, success: String(msg.success), error: msg.error?.slice(0, 200) || '(none)', outputLen: String((msg.output || '').length)})
                 this.workerTasks.delete(worker)

@@ -11,7 +11,6 @@
  *   helpers.ts    — 工具函数（视觉模型检测、消息清理、意图分析等）
  *   setup.ts      — 运行前设置（初始化、命令检测、模型选择、工具过滤、系统提示词）
  *   execute.ts    — LLM 调用执行与工具执行
- *   compress.ts   — 压缩与事件发送
  */
 
 import type {AgentStreamEvent} from '../stream'
@@ -31,7 +30,139 @@ import type {RunParams, MainLoopExitReason, ControllerState} from './types'
 import {createDefaultResult, endTurnCleanup} from './helpers'
 import {initializeRunEnvironment, detectCommandContext, selectModelForTurn, filterTools, buildSystemPrompt} from './setup'
 import {executeLlmCallWithRetry, executeToolCalls, extractMediaFromToolResults} from './execute'
-import {emitLlmCallDone, handleNoToolCalls, getLastUserMessage} from './compress'
+// ─── LLM 调用事件与工具方法（内联自历史 compress.ts） ───
+import type {ChatMessage} from '../model/types'
+
+/**
+ * 发射 llm_call_done 事件（含输入输出摘要）
+ */
+function* emitLlmCallDone(
+    turnCount: number,
+    state: AgentLoopState,
+    lastLoggedMsgCount: number,
+    assistantContent: string,
+    collectedToolCalls: Array<{id: string; name: string; arguments: Record<string, unknown>}>,
+    conversationTitle: string,
+    provider: string,
+    model: string,
+    inputTokens: number,
+    outputTokens: number,
+    cacheReadTokens: number,
+    cacheWriteTokens: number,
+    reasoningTokens: number,
+    llmDuration: number,
+    systemPrompt: string,
+): Generator<AgentStreamEvent, void> {
+    let inputContent = ''
+    if (turnCount === 1) {
+        const lastUserMsg = getLastUserMessage(state)
+        inputContent = lastUserMsg ? extractTextContent(lastUserMsg.content) : ''
+    } else {
+        const newMessages = state.messages.slice(lastLoggedMsgCount)
+        const toolNameMap = new Map<string, string>()
+        for (const msg of state.messages) {
+            if (msg.role === 'assistant' && msg.toolCalls) {
+                for (const tc of msg.toolCalls) {
+                    toolNameMap.set(tc.id, tc.name)
+                }
+            }
+        }
+        const toolResults = newMessages
+            .filter(m => m.role === 'tool')
+            .map(m => {
+                const toolName = m.toolCallId ? (toolNameMap.get(m.toolCallId) || 'unknown') : 'unknown'
+                const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+                return `[tool result: ${toolName}]\n${content.slice(0, 300)}`
+            })
+            .join('\n\n')
+        inputContent = toolResults || '(no new context)'
+    }
+
+    let outputContent = assistantContent
+    if (collectedToolCalls.length > 0) {
+        const toolInfo = collectedToolCalls
+            .map(tc => `[tool: ${tc.name}] ${JSON.stringify(tc.arguments).slice(0, 200)}`)
+            .join('\n')
+        outputContent = assistantContent
+            ? `${assistantContent}\n\n--- tool calls ---\n${toolInfo}`
+            : `--- tool calls ---\n${toolInfo}`
+    }
+
+    const toolCallsInfo = collectedToolCalls.map(tc => ({
+        id: tc.id,
+        name: tc.name,
+        input: tc.arguments,
+    }))
+
+    const recentMessages = state.messages.slice(lastLoggedMsgCount).map(msg => {
+        const result: {
+            role: string
+            content: string
+            toolCalls?: Array<{id: string; name: string; arguments: Record<string, unknown>}>
+            toolCallId?: string
+            toolResult?: string
+        } = {
+            role: msg.role,
+            content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+        }
+        if (msg.role === 'assistant' && msg.toolCalls) {
+            result.toolCalls = msg.toolCalls.map(tc => ({
+                id: tc.id,
+                name: tc.name,
+                arguments: tc.arguments,
+            }))
+        }
+        if (msg.role === 'tool') {
+            result.toolCallId = msg.toolCallId
+            result.toolResult = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+        }
+        return result
+    })
+
+    yield {
+        type: 'llm_call_done',
+        conversationTitle,
+        provider,
+        model,
+        duration: llmDuration,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens: cacheReadTokens > 0 ? cacheReadTokens : undefined,
+        cacheWriteTokens: cacheWriteTokens > 0 ? cacheWriteTokens : undefined,
+        reasoningTokens: reasoningTokens > 0 ? reasoningTokens : undefined,
+        inputContent: inputContent.slice(0, 500),
+        outputContent: outputContent.slice(0, 2000),
+        toolCalls: toolCallsInfo,
+        messages: recentMessages,
+        systemPrompt,
+    }
+}
+
+/**
+ * 处理 LLM 未发起工具调用的情况
+ */
+function* handleNoToolCalls(
+    assistantContent: string,
+    assistantThinking: string,
+    assistantReasoningContent: string,
+    turns: number,
+): Generator<AgentStreamEvent, void> {
+    if (!assistantContent && !assistantThinking && !assistantReasoningContent) {
+        logger.warn(`[AgentLoop] LLM 返回了空响应（无文本、无思考内容、无工具调用）`)
+    }
+
+    logger.debug(`[AgentLoop] end turn ${turns} reason:no_tool_calls`)
+    logger.info(`[AgentLoop] loop done turns:${turns} reason:completed`)
+    yield {type: 'done', reason: 'completed'}
+    endTurnCleanup()
+}
+
+/** 获取最后一条用户消息 */
+function getLastUserMessage(state: AgentLoopState): ChatMessage | null {
+    return state.messages && state.messages.length > 0
+        ? [...state.messages].reverse().find(m => m.role === 'user') ?? null
+        : null
+}
 
 // ─── 缓存载荷类型 ────────────────────────────────────────
 

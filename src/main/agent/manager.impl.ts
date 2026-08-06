@@ -18,6 +18,7 @@ import {capabilityManager} from './capabilityManager'
 import {logger} from './logger'
 import {mcpWorkerManager, setAgentManagerRef} from './mcp/mcpWorkerManager'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
+import {runtimeConfigManager} from './runtimeConfigManager'
 import {eventBus, MCPThemeEvents} from '../common/eventBus'
 import {notifyUserAttention, stopUserAttention} from '../attention'
 
@@ -360,6 +361,21 @@ export class AgentManager {
             }
             children.add(childMsg.childConvId)
           }
+        } else if (msg.type === 'session_created') {
+          // 独立会话创建事件 → 通知渲染进程刷新侧栏 + 自动切换
+          const sessionMsg = msg as unknown as { convId: string; title?: string; workspacePath?: string }
+          this.sendToMainWindow('session_created', {
+            id: sessionMsg.convId,
+            title: sessionMsg.title || '新会话',
+            workspacePath: sessionMsg.workspacePath || '',
+          })
+        } else if (msg.type === 'session_handoff_start') {
+          await this.startHandoffSession(msg as unknown as {
+            convId: string
+            title?: string
+            messages: ChatMessage[]
+            workingDir: string
+          })
         } else if (msg.type === 'child_agent_event') {
           // ★ 子会话 agent 生命周期事件（begin / done）→ 转发到渲染进程
           //   使得侧边栏能展示子会话的运行状态动画（与父会话一致）
@@ -973,13 +989,26 @@ export class AgentManager {
     // ★ 级联清理子会话：父会话终止时，确保所有子会话的 running 状态也被清除
     //    即使 Worker 侧的 catch 块已寄送 done 事件，Worker termination 可能导致消息丢失，
     //    此处从主进程侧兜底发送 done 事件到渲染进程
-    const children = this.parentToChildren.get(conversationId)
-    if (children) {
-      for (const childConvId of children) {
-        this.forwardToRenderer(childConvId, {type: 'done', reason: 'aborted'} as AgentStreamEvent)
+    // ★ 多级级联：递归遍历 parentToChildren 树（而非仅直接子级），
+    //   主会话终止 → 一级子会话 → 二级子会话…逐层下发 done(aborted)，
+    //   否则二级子会话的 running 状态永远无法清除。
+    const collectDescendantConvs = (rootId: string, acc: string[] = []): string[] => {
+      const children = this.parentToChildren.get(rootId)
+      if (children) {
+        for (const childConvId of children) {
+          acc.push(childConvId)
+          collectDescendantConvs(childConvId, acc)
+        }
       }
-      this.parentToChildren.delete(conversationId)
+      return acc
     }
+    const allDescendants = collectDescendantConvs(conversationId)
+    for (const childConvId of allDescendants) {
+      // 逐级下发 done(aborted)，同时清理该子会话的关系映射（含各中间层条目）
+      this.forwardToRenderer(childConvId, {type: 'done', reason: 'aborted'} as AgentStreamEvent)
+      this.parentToChildren.delete(childConvId)
+    }
+    this.parentToChildren.delete(conversationId)
 
     // 触发 SessionEnd Hook
     HookExecutor.getInstance().execute('SessionEnd', {
@@ -991,6 +1020,34 @@ export class AgentManager {
     this.pendingAssistantMsg.delete(conversationId)
     this.pendingNeedsTurnReset.delete(conversationId)
     this.streamListeners.delete(conversationId)
+  }
+
+  /**
+   * session_handoff 工具回调：为新会话启动独立 Agent Worker（交接首轮运行）。
+   * 复用 start() 既有链路——用户在新会话发消息时 start() 会自动 abort 该 Worker 并重建。
+   * ★ 模型配置从主进程 runtimeConfigManager 组装（含 API key）——工具侧传入的裸 modelConfig（apiKey 为空）无法创建 LLM adapter。
+   */
+  private async startHandoffSession(msg: {
+    convId: string
+    title?: string
+    messages: ChatMessage[]
+    workingDir: string
+  }): Promise<void> {
+    const handoffScheme = runtimeConfigManager.getScheme()
+    const handoffProviders = runtimeConfigManager.getProviders()
+    await this.start({
+      conversationId: msg.convId,
+      messages: msg.messages,
+      modelConfig: {} as ModelConfig, // 由 loop 从 schemeConfig 解析
+      maxTurns: systemSettingsRepo.getJson<SystemSettings>('settings')?.agent?.maxTurns ?? 500,
+      workingDir: msg.workingDir,
+      schemeConfig: handoffScheme ? {
+        scheme: handoffScheme,
+        providers: handoffProviders as any,
+      } : undefined,
+      workMode: runtimeConfigManager.getWorkMode(),
+      conversationTitle: msg.title,
+    })
   }
 }
 
