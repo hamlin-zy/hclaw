@@ -207,9 +207,16 @@ export function handleWarning(ctx: StreamCtx) {
     const retryMatch = msg.match(/^retry\s+(\d+)\/(\d+)[：:]\s*(.*)/)
     if (retryMatch) {
         const [, attempt, total, errorDetail] = retryMatch
-        const retryLabel = `重试 ${attempt}/${total}：${errorDetail}`
+        // ★ 已取消重试：主进程 retryBackoff 在 abort 时发送，明确提示用户等待已终止
+        const cancelMatch = msg.match(/^retry\s+(\d+)\/(\d+)[：:]\s*已取消重试/)
+        if (cancelMatch) {
+            get().updateConvData(convId, {
+                executingToolsMessage: {label: '重试已取消', urgent: true},
+            })
+            return
+        }
         get().updateConvData(convId, {
-            executingToolsMessage: retryLabel,
+            executingToolsMessage: {label: `重试 ${attempt}/${total}：${errorDetail}`, urgent: false},
             // 保持 agentState 不变（仍在 running），不清除 streamingMessageId
         })
         return
