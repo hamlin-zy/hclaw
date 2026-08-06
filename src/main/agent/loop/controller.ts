@@ -22,6 +22,7 @@ import {ToolExecutor} from './toolExecutor'
 import {addMessage, createAssistantMessage} from '../state'
 import {logger} from '../logger'
 import {extractTextContent, getMessagePreview} from '../utils/contentUtils'
+import {formatYmd, isCacheStale} from '../utils/dateUtils'
 import {permissionRulesManager} from '../permissions/permissionRule'
 import type {IConversationRepository} from '../../repositories/interfaces'
 import {createConversationRepository} from '../../repositories'
@@ -169,6 +170,8 @@ function getLastUserMessage(state: AgentLoopState): ChatMessage | null {
 interface CachePayload {
     core: string
     commandTemplate: string
+    /** 系统提示词构建日期（yyyy-MM-dd），用于跨天失效 */
+    buildDate?: string
 }
 
 /** 安全解析 DB 缓存 JSON，兼容旧格式纯字符串 */
@@ -349,6 +352,10 @@ export class AgentLoopController {
             const cached = safeParseCache(cachedSystemPrompt)
             const cachedCore = cached?.core ?? null
 
+            // ★ 缓存跨天失效：构建日期不是今天（或无 buildDate 的旧缓存）→ 强制重建
+            const today = formatYmd()
+            const cacheStale = isCacheStale(cached?.buildDate, today)
+
             const systemPrompt = await buildSystemPrompt({
                 commandContext,
                 agentDefinition,
@@ -359,14 +366,14 @@ export class AgentLoopController {
                 agentType,
                 agentTemplates,
                 isCompactCommand,
-                cachedSystemPrompt: cachedCore,
+                cachedSystemPrompt: cacheStale ? null : cachedCore,
             })
 
             // ★ 提取 commandTemplate：新命令优先，其次回退到缓存值
             const commandTemplate = commandContext?.commandTemplate ?? cached?.commandTemplate ?? ''
 
             // ★ 构建新的缓存载荷（JSON 格式）
-            const newCachePayload = JSON.stringify({core: systemPrompt, commandTemplate})
+            const newCachePayload = JSON.stringify({core: systemPrompt, commandTemplate, buildDate: today})
 
             // ★ 缓存未命中时写入 DB（不阻塞主流程）
             if (conversationRepo && newCachePayload !== cachedSystemPrompt) {
