@@ -16,7 +16,7 @@ export type AgentStreamEvent =
   | { type: 'tool_use'; toolCall: ToolCallInfo }
   | { type: 'tools_start'; toolCount: number }
   | { type: 'tool_start'; toolCall: ToolCallInfo }
-  | { type: 'tool_progress'; toolCallId: string; progress: string }
+  | { type: 'tool_progress'; toolCallId: string; progress: string; retryCountdown?: number }
   | { type: 'tool_result'; toolCallId: string; toolName: string; skillName?: string; result: ToolResult }
   | { type: 'tool_denied'; toolCallId: string; reason: string }
   | { type: 'permission_confirm'; question: string; requestId?: string }

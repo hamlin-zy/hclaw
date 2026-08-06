@@ -26,7 +26,7 @@ import {agentLoop} from '../../loop'
 import type {AgentStreamEvent} from '../../stream'
 import {logger} from '../../logger'
 import {agentRegistry} from '../../agentRegistry'
-import type {AgentTemplate} from '@shared/types'
+import {agentTemplateToDefinition} from '../../agentTemplateConverter'
 import type {AgentDefinition} from '@shared/agent'
 import {runtimeConfigManager} from '../../runtimeConfigManager'
 import {systemSettingsRepo} from '../../../repositories/sqlite/systemSettingsRepository'
@@ -42,34 +42,6 @@ import {
 // ─── 并发控制 ──────────────────────────────────────────────
 
 const activeChildSessions = new Set<string>()
-
-// ─── Agent 模板转换 ───────────────────────────────────────
-
-/**
- * 将 AgentTemplate 转换为 AgentDefinition
- *
- * source 使用 'user' 以确保 agent 工具不被 built-in 规则禁止。
- * AgentTemplate 没有 source 字段；built-in source 会额外禁止 agent 工具（防递归），
- * 本地 Agent 和插件 Agent 都不应该禁止 agent 工具，'user' 对所有场景安全。
- */
-function agentTemplateToDefinition(template: AgentTemplate): AgentDefinition {
-    return {
-        source: 'user',
-        agentType: template.name,
-        whenToUse: template.whenToUse || template.description || '',
-        description: template.description || '',
-        systemPromptTemplate: template.systemPrompt,
-        renderedSystemPrompt: '',
-        tools: template.allowedTools,
-        disallowedTools: template.disallowedTools,
-        tags: template.tags,
-        model: template.model,
-        permissionMode: template.permissionMode,
-        maxTurns: template.maxTurns,
-        isolation: template.isolation,
-        requiredMcpServers: template.requiredMcpServers,
-    }
-}
 
 // ─── 递归深度追踪 ────────────────────────────────────────
 
