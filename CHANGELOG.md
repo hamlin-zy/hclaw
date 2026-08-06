@@ -7,6 +7,15 @@
 
 ---
 
+## [Unreleased]
+
+### 修复
+- **MCP 工具结果不再被 15KB 通用阈值截断** — MCP 结果与内部 128KB 上限对齐（`src/main/agent/tools/executor.ts`），LLM 不再看到"[结果已截断] 共 X 行"而误判结果集不完整
+- **LLM 重试等待显示逐秒倒计时** — 重试期间状态栏每秒刷新"重试中，Xs 后重试..."，最后 3 秒红色紧迫态（`src/renderer/components/message-list/StatusIndicators.tsx`）
+- **重试取消/不可重试时明确提示** — 等待中点击停止立即显示"重试已取消"，不再静默消失（`src/main/agent/loop/execute.ts`）
+
+---
+
 ## [v0.3.7] - 2026-08-05
 
 ### 新增

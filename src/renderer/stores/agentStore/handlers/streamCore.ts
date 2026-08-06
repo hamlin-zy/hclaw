@@ -13,6 +13,19 @@ import {
     scheduleImmediateThinkingFlush,
 } from '../batching/thinkingBatch'
 
+/**
+ * 判定当前 executingToolsMessage 是否为「重试相关」消息。
+ * 覆盖两类来源：
+ * - warning 对象分支：{label: '重试 1/10：...'} / {label: '重试已取消', urgent: true}
+ * - 倒计时对象分支：{label: '重试中，Xs 后重试...', urgent: true}
+ * - 兼容遗留字符串分支：'重试 1/10：...'（startsWith('重试 ') 语义保持不变）
+ * LLM 成功恢复输出/工具调用时以此清除残留，避免状态栏冻结显示倒计时。
+ */
+export function isRetryMessage(msg: string | {label: string; urgent: boolean} | null): boolean {
+    if (typeof msg === 'string') return msg.startsWith('重试 ')
+    return msg ? msg.label.startsWith('重试') : false
+}
+
 export function handleBegin(ctx: StreamCtx) {
     const {get, convId} = ctx
     console.log('[handleStreamEvent] begin event, convId:', convId)
@@ -78,7 +91,8 @@ export function handleText(ctx: StreamCtx) {
     }
 
     // 清除重试状态消息（成功重试后 LLM 开始输出内容）
-    if (convState.executingToolsMessage?.startsWith('重试 ')) {
+    // 覆盖倒计时对象分支（{label: '重试中...'}）与遗留字符串分支（'重试 ...'）
+    if (isRetryMessage(convState.executingToolsMessage)) {
         get().updateConvData(convId, {executingToolsMessage: null})
     }
 
@@ -121,7 +135,8 @@ export function handleThinking(ctx: StreamCtx) {
     const convStore = useConversationStore.getState()
 
     // 清除重试状态消息（成功重试后 LLM 开始输出思考内容）
-    if (convState.executingToolsMessage?.startsWith('重试 ')) {
+    // 覆盖倒计时对象分支（{label: '重试中...'}）与遗留字符串分支（'重试 ...'）
+    if (isRetryMessage(convState.executingToolsMessage)) {
         get().updateConvData(convId, {executingToolsMessage: null})
     }
 

@@ -14,6 +14,7 @@ import {
 } from '../batching/toolResultBatch'
 import {normalizeToolResult} from '../helpers/misc'
 import {ensureAgentToolTaskId} from './streamSubAgents'
+import {isRetryMessage} from './streamCore'
 
 export function handleToolUse(ctx: StreamCtx) {
     const {get, convId, isAgentAborted, isActiveConv, event} = ctx
@@ -28,7 +29,8 @@ export function handleToolUse(ctx: StreamCtx) {
     }
 
     // 清除重试状态消息（成功重试后 LLM 开始调用工具）
-    if (convState.executingToolsMessage?.startsWith('重试 ')) {
+    // 覆盖倒计时对象分支（{label: '重试中...'}）与遗留字符串分支（'重试 ...'）
+    if (isRetryMessage(convState.executingToolsMessage)) {
         get().updateConvData(convId, {executingToolsMessage: null})
     }
 
@@ -179,6 +181,18 @@ export function handleToolProgress(ctx: StreamCtx) {
     if (!event.toolCallId) return
     const convState = get().convAgentStates[convId] || createDefaultConvData()
     if (!convState.streamingMessageId && convState.agentState.status === 'idle') return
+
+    // ★ retryBackoff 每秒推送的剩余秒数 → 渲染为带紧迫态的倒计时对象
+    if (typeof (event as any).retryCountdown === 'number') {
+        get().updateConvData(convId, {
+            executingToolsMessage: {
+                label: `重试中，${(event as any).retryCountdown}s 后重试...`,
+                urgent: (event as any).retryCountdown <= 3,
+            },
+        })
+        return
+    }
+
     // 状态缺失时同步注册（确保 UI 立即可见），已存在时走批量队列（防抖高频更新）
     const existingState = useToolCallsStore.getState().states[event.toolCallId]
     if (!existingState || existingState.status === 'pending') {

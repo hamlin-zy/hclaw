@@ -88,6 +88,8 @@ export interface AgentStreamEvent {
   toolCall?: ToolCallInfo
   toolCallId?: string
   progress?: string
+  /** tool_progress 事件的重试倒计时剩余秒数（retryCountdown） */
+  retryCountdown?: number
   result?: { success: boolean; output: unknown; error?: string }
   reason?: 'completed' | 'aborted' | 'error'
   error?: string
