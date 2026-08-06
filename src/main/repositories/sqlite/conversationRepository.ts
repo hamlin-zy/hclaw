@@ -92,7 +92,7 @@ export class SqliteConversationRepository implements IConversationRepository {
             const db = getDatabase()
 
             const msgRows = db.prepare(
-                'SELECT id, role, timestamp, ended_at, metadata, llm_stats FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC'
+                'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC'
             ).all(convId) as typeof this.msgRowType[]
 
             return  this.buildMessagesFromRows(msgRows)
@@ -280,7 +280,8 @@ export class SqliteConversationRepository implements IConversationRepository {
     /** Row shape returned by message SELECT queries. */
     private readonly msgRowType = null as unknown as {
         id: string; role: string; timestamp: number;
-        ended_at: number | null; metadata: string | null; llm_stats: string | null
+        ended_at: number | null; metadata: string | null; llm_stats: string | null;
+        is_partial: number
     }
 
     /** Assemble message rows + their blocks into Message objects. */
@@ -318,6 +319,11 @@ export class SqliteConversationRepository implements IConversationRepository {
                 } catch { /* ignore */
                 }
             }
+            // 标记崩溃恢复的未完成消息：
+            // is_partial=1（主进程心跳写入未 final）或 assistant 消息无 ended_at（渲染端 delta 最后写入但未完成）
+            if (role === 'assistant' && (row.is_partial === 1 || row.ended_at == null)) {
+                message.metadata = { ...message.metadata, _partialRecovery: true }
+            }
             const blocks: MessageBlock[] = (blocksByMsg.get(row.id) || []).map(b => ({
                 id: b.id, messageId: b.message_id, blockType: b.block_type as BlockType,
                 content: b.content, data: b.data, sequence: b.sequence,
@@ -336,7 +342,7 @@ export class SqliteConversationRepository implements IConversationRepository {
             const totalCount = totalRow?.cnt ?? 0
 
             const msgRows = db.prepare(
-                'SELECT id, role, timestamp, ended_at, metadata, llm_stats FROM messages WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT ?'
+                'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT ?'
             ).all(convId, count) as typeof this.msgRowType[]
             msgRows.reverse()
 
@@ -359,7 +365,7 @@ export class SqliteConversationRepository implements IConversationRepository {
             const totalCount = totalRow?.cnt ?? 0
 
             const msgRows = db.prepare(
-                'SELECT id, role, timestamp, ended_at, metadata, llm_stats FROM messages WHERE conversation_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?'
+                'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?'
             ).all(convId, beforeTimestamp, count) as typeof this.msgRowType[]
             msgRows.reverse()
 

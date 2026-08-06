@@ -57,6 +57,11 @@ export class AgentManager {
   /** 跨轮追踪：tool_result 完成后，下一次 text 事件需重置 pending，开启新回合 */
   private pendingNeedsTurnReset: Set<string> = new Set()
 
+  /** 心跳落库 timer（纯文本 streaming 期间每 5s 的兜底落库，防崩溃丢消息） */
+  private heartbeatTimers: Map<string, ReturnType<typeof setInterval>> = new Map()
+  /** 上次心跳落库的内容 hash（去重用） */
+  private lastPersistedHash: Map<string, string> = new Map()
+
   constructor() {
     eventBus.on(MCPThemeEvents.TOOLS_REFRESHED, () => {
       this.broadcastMcpToolsRefresh()
@@ -425,6 +430,11 @@ export class AgentManager {
       this.accumulateEvent(conversationId, event),
     )
 
+    // 启动心跳落库（text/thinking chunk 到达时启动 5s 间隔兜底落库）
+    if (event.type === 'text' || event.type === 'thinking') {
+      this.startHeartbeat(conversationId)
+    }
+
     // ★ 修复重复 assistant 消息：将主进程 pending.id 注入事件，
     // 使渲染进程复用同一 ID，避免两个路径使用不同 ID 写入 DB 导致重复
     const pending = this.pendingAssistantMsg.get(conversationId)
@@ -452,6 +462,8 @@ export class AgentManager {
 
     // llm_call_done 事件
     if (event.type === 'llm_call_done') {
+      // 单轮 LLM 调用结束：只清心跳，不做 final 落库（避免提前写 endedAt 并误判 is_partial=0）
+      this.clearHeartbeat(conversationId)
       this.logLlmCall(event as Extract<AgentStreamEvent, {type: 'llm_call_done'}>)
     } else if (event.type === 'subagent_progress' && (event as {subAgentStreamEvent?: AgentStreamEvent}).subAgentStreamEvent?.type === 'llm_call_done') {
       this.logLlmCall((event as {subAgentStreamEvent: AgentStreamEvent}).subAgentStreamEvent as Extract<AgentStreamEvent, {type: 'llm_call_done'}>)
@@ -483,6 +495,33 @@ export class AgentManager {
     }
 
     this.forwardToRenderer(conversationId, event)
+  }
+
+  /** 启动心跳落库：纯文本 streaming 期间每 5s 兜底落库一次，防崩溃丢消息 */
+  private startHeartbeat(conversationId: string): void {
+    if (this.heartbeatTimers.has(conversationId)) return
+    const timer = setInterval(async () => {
+      const pending = this.pendingAssistantMsg.get(conversationId)
+      if (!pending) return
+      const hash = `${pending.content ?? ''}|${pending.thinkContent ?? ''}`
+      if (hash === this.lastPersistedHash.get(conversationId)) return
+      try {
+        await doMergeAndPersist(conversationId, pending, false)
+        this.lastPersistedHash.set(conversationId, hash)
+      } catch (err) {
+        logger.error('[AgentManager] heartbeat persist failed', {error: err, conversationId})
+      }
+    }, 5000)
+    this.heartbeatTimers.set(conversationId, timer)
+  }
+
+  private clearHeartbeat(conversationId: string): void {
+    const timer = this.heartbeatTimers.get(conversationId)
+    if (timer) {
+      clearInterval(timer)
+      this.heartbeatTimers.delete(conversationId)
+    }
+    this.lastPersistedHash.delete(conversationId)
   }
 
   /** 向 Worker 回传渠道发送结果 */
@@ -569,6 +608,7 @@ export class AgentManager {
     event: {type: 'done'; reason: 'completed' | 'aborted' | 'error'},
   ): Promise<void> {
     try {
+      this.clearHeartbeat(conversationId)
       await doMergeAndPersist(conversationId, this.pendingAssistantMsg.get(conversationId), true)
     } catch (err) {
       logger.error('[AgentManager] 持久化异常', {error: err})
@@ -595,6 +635,7 @@ export class AgentManager {
   /** 处理 error 事件 */
   private async handleErrorEvent(conversationId: string, errorMsg: string): Promise<void> {
     try {
+      this.clearHeartbeat(conversationId)
       await doMergeAndPersist(conversationId, this.pendingAssistantMsg.get(conversationId), true)
     } catch (err) {
       logger.error('[AgentManager] 持久化异常', {error: err})
@@ -782,6 +823,8 @@ export class AgentManager {
     if (sendFallbackDone) {
       this.notifyStreamListeners(conversationId, {type: 'done', reason: 'aborted'} as unknown as AgentStreamEvent)
     }
+
+    this.clearHeartbeat(conversationId)
 
     setTimeout(() => {
       const currentEntry = this.workers.get(conversationId)
@@ -1020,6 +1063,10 @@ export class AgentManager {
     this.pendingAssistantMsg.delete(conversationId)
     this.pendingNeedsTurnReset.delete(conversationId)
     this.streamListeners.delete(conversationId)
+    // ★ 安全网兜底清心跳：onWorkerError/onWorkerExit 崩溃路径只走 cleanup()，
+    //   若此处不清，5s interval 永久残留并可能接管同会话重启后的新心跳。
+    //   clearHeartbeat 幂等，与 abort 路径的显式清理共存安全。
+    this.clearHeartbeat(conversationId)
   }
 
   /**

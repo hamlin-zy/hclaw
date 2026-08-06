@@ -87,8 +87,14 @@ let isDirty = false
 
 /** 每会话的 dirty 消息 Map（messageId → Message），只增不减，flush 后清空 */
 const dirtyMessages: Record<string, Map<string, Message>> = {}
-/** 每会话的 delta 落库 debounce timer */
-const deltaTimers: Record<string, ReturnType<typeof setTimeout> | null> = {}
+
+/** Throttle state per conversation for delta save */
+interface DeltaThrottleState {
+    lastFlush: number
+    accumulatedChars: number
+    timer: ReturnType<typeof setTimeout> | null
+}
+const deltaThrottle: Record<string, DeltaThrottleState> = {}
 
 function getDirtyMap(convId: string): Map<string, Message> {
     if (!dirtyMessages[convId]) dirtyMessages[convId] = new Map()
@@ -143,16 +149,46 @@ function markMessageDirty(convId: string, message: Message) {
     if (isChildConversation(convId)) return
     getDirtyMap(convId).set(message.id, message)
     isDirty = true
+    // 累积字符计数（text content + thinkContent）
+    const chars = (message.content?.length ?? 0) + (message.thinkBlock?.content?.length ?? 0)
+    const throttle = deltaThrottle[convId]
+    if (throttle) {
+        throttle.accumulatedChars += chars
+    }
 }
 
-/** 调度该会话的增量落库（debounce 合并流式高频更新） */
-function scheduleDeltaSave(convId: string, delay: number) {
+const THROTTLE_MS = 2000
+const THROTTLE_CHAR_THRESHOLD = 500
+
+function scheduleDeltaSave(convId: string, _delay: number) {
     if (isChildConversation(convId)) return
-    if (deltaTimers[convId]) clearTimeout(deltaTimers[convId]!)
-    deltaTimers[convId] = setTimeout(() => {
-        deltaTimers[convId] = null
+    let state = deltaThrottle[convId]
+    if (!state) {
+        state = { lastFlush: 0, accumulatedChars: 0, timer: null }
+        deltaThrottle[convId] = state
+    }
+
+    const elapsed = Date.now() - state.lastFlush
+    const shouldFlushNow = elapsed >= THROTTLE_MS || state.accumulatedChars >= THROTTLE_CHAR_THRESHOLD
+
+    if (shouldFlushNow) {
+        // 距上次写入超过 2s 或累积超过 500 字符 → 立即写
+        if (state.timer) {
+            clearTimeout(state.timer)
+            state.timer = null
+        }
         void flushDirtyMessages(convId)
-    }, delay)
+        state.lastFlush = Date.now()
+        state.accumulatedChars = 0
+    } else if (!state.timer) {
+        // 未到阈值 → 设兜底 timer（确保不会永远不写）
+        state.timer = setTimeout(() => {
+            void flushDirtyMessages(convId)
+            state.lastFlush = Date.now()
+            state.accumulatedChars = 0
+            state.timer = null
+        }, THROTTLE_MS - elapsed)
+    }
 }
 
 /** 立即把某会话的 dirty 消息增量写入 SQLite */
@@ -163,22 +199,169 @@ async function flushDirtyMessages(convId: string): Promise<void> {
         dirtyMessages[convId]?.clear()
         return
     }
-    if (deltaTimers[convId]) {
-        clearTimeout(deltaTimers[convId])
-        deltaTimers[convId] = null
+    // 清理 throttle 状态：清掉兜底 timer 但保留 state（throttle 语义依赖 state 跨 flush 存活，
+    // 供 scheduleDeltaSave 的 lastFlush/accumulatedChars 更新生效）
+    const throttleState = deltaThrottle[convId]
+    if (throttleState?.timer) {
+        clearTimeout(throttleState.timer)
+        throttleState.timer = null
     }
     const dirtyMap = dirtyMessages[convId]
     if (!dirtyMap || dirtyMap.size === 0) return
     const pending = [...dirtyMap.values()]
+    // 保存本次写入的消息 ID 集合（dirtyMap 随后被 clear，截断判断需用此集合）
+    const pendingIds = new Set(pending.map(p => p.id))
     dirtyMap.clear()
 
     try {
         // 逐条 delta 写入（串行 invoke，避免 IPC 并发顺序错乱）
-        for (const msg of pending) {
+        for (const rawMsg of pending) {
+            // 回填完整工具输出（截断的内存副本不写库，DB 永远存完整内容）
+            const msg = restoreFullToolOutputs([rawMsg])[0]
             await window.electronAPI?.conversationWriteMessagesDelta?.(convId, msg)
+        }
+        // 截断大型工具结果的内存副本（完整内容已落库）
+        const store = useConversationStore.getState()
+        const msgs = store.messagesMap[convId]
+        if (msgs) {
+            let needsUpdate = false
+            const newMsgs = msgs.map(m => {
+                if (!pendingIds.has(m.id)) return m
+                const truncated = truncateLargeResults(m)
+                if (truncated !== m) needsUpdate = true
+                return truncated
+            })
+            if (needsUpdate) {
+                useConversationStore.setState({
+                    messagesMap: { ...store.messagesMap, [convId]: newMsgs },
+                    loadedMessages: convId === store.activeConversationId ? newMsgs : store.loadedMessages,
+                })
+            }
         }
     } catch {
         // 失败不重试（下次 scheduleDeltaSave 会重新标记），避免积压
+    }
+}
+
+const TOOL_RESULT_MEMORY_CAP = 5000
+
+// ─── 工具输出完整性：side cache（截断 → 回填）──────────────────────
+// Fix Round 1：截断的是内存副本，但同一消息再次 dirty（SDD 多工具调用 / done 收尾等）时，
+// updateMessageForConv 的 spread 会携带截断副本 → flush 全量 UPSERT 把截断内容写回 DB，
+// 永久覆盖完整工具输出。这里在截断时把完整 output 存入 side cache，每次写库前回填，
+// 保证 DB 永远写入完整内容。
+
+/** 截断时保存的完整工具输出缓存（messageId → toolCallId → 完整 output），
+ *  用于消息再次 dirty 时回填，保证 DB 永远写入完整内容 */
+const fullToolOutputCache: Map<string, Map<string, string>> = new Map()
+
+function getFullOutputCache(msgId: string): Map<string, string> {
+    let m = fullToolOutputCache.get(msgId)
+    if (!m) { m = new Map(); fullToolOutputCache.set(msgId, m) }
+    return m
+}
+
+/** 从 side cache 回填完整工具输出（截断的内存副本 → 完整内容）。
+ *  仅当确有回填时返回新数组，否则返回原数组（不触发额外重建）。
+ *  供 delta 写入循环与全量写兜底路径统一使用。 */
+function restoreFullToolOutputs(messages: Message[]): Message[] {
+    let changed = false
+    const restored = messages.map(m => {
+        const cache = fullToolOutputCache.get(m.id)
+        if (!cache || !m.toolCalls) return m
+        const toolCalls = m.toolCalls
+        const newToolCalls = toolCalls.map(tc => {
+            const full = cache.get(tc.id)
+            if (full !== undefined && tc.result?.output !== full) {
+                return { ...tc, result: { ...tc.result!, output: full } }
+            }
+            return tc
+        })
+        if (newToolCalls.some((tc, i) => tc !== toolCalls[i])) {
+            changed = true
+            return { ...m, toolCalls: newToolCalls }
+        }
+        return m
+    })
+    return changed ? restored : messages
+}
+
+/** 截断 message 中大型工具结果的内存副本，完整内容已通过 flushDirtyMessages 落库 */
+function truncateLargeResults(message: Message): Message {
+    if (!message.toolCalls || message.toolCalls.length === 0) return message
+    let modified = false
+    const truncated = message.toolCalls.map(tc => {
+        if (!tc.result || typeof tc.result.output !== 'string') return tc
+        if (tc.result.output.length <= TOOL_RESULT_MEMORY_CAP) return tc
+        // 幂等短路：该 toolCall 已截断过（cache 已有完整内容）则跳过，避免重复截断/重复存
+        const cache = getFullOutputCache(message.id)
+        if (cache.has(tc.id)) return tc
+        // 首次截断：先把完整内容存入 side cache（供后续 dirty 写入回填），再截断内存副本
+        cache.set(tc.id, tc.result.output)
+        modified = true
+        return {
+            ...tc,
+            result: {
+                ...tc.result,
+                _fullOutputStored: true as any,
+                _outputTruncatedLength: tc.result.output.length as any,
+                output: tc.result.output.slice(0, TOOL_RESULT_MEMORY_CAP)
+                    + '\n\n*(输出过长，已截断。展开加载完整内容)*',
+            },
+        }
+    })
+    return modified ? { ...message, toolCalls: truncated } : message
+}
+
+// ─── 单会话内存权重上限（兜底）──────────────────────────
+// 长会话/重工具输出会话在非活跃时可能无界增长，本函数作为兜底：
+// 权重超限的非活跃会话先 flush dirty，再 evict 最旧的 30% 消息。
+
+const CONVERSATION_WEIGHT_CAP = 500
+
+function computeMessageWeight(msg: Message): number {
+    let w = 1
+    w += (msg.contentBlocks?.length ?? 0)
+    if (msg.toolCalls) {
+        for (const tc of msg.toolCalls) {
+            if (tc.result?.output && tc.result.output.length > 1000) {
+                w += 5
+            }
+        }
+    }
+    return w
+}
+
+function maybeTrimConversation(convId: string): void {
+    const store = useConversationStore.getState()
+    const msgs = store.messagesMap[convId]
+    if (!msgs || convId === store.activeConversationId) return
+    const totalWeight = msgs.reduce((sum, m) => sum + computeMessageWeight(m), 0)
+    if (totalWeight <= CONVERSATION_WEIGHT_CAP) return
+
+    // 先 flush dirty
+    const dirtyMap = dirtyMessages[convId]
+    if (dirtyMap && dirtyMap.size > 0) {
+        // 异步 flush 后再 trim
+        void flushDirtyMessages(convId)
+    }
+
+    // Evict 最旧的 30% 消息
+    const evictCount = Math.max(1, Math.floor(msgs.length * 0.3))
+    const evicted = msgs.slice(0, evictCount)
+    const kept = msgs.slice(evictCount)
+
+    useConversationStore.setState({
+        messagesMap: { ...store.messagesMap, [convId]: kept },
+        hasMoreMap: { ...store.hasMoreMap, [convId]: true },
+    })
+
+    // 清理被 evict 消息的 dirty 标记
+    if (dirtyMessages[convId]) {
+        const evictIds = new Set(evicted.map(m => m.id))
+        for (const id of evictIds) {
+            dirtyMessages[convId]?.delete(id)
+        }
     }
 }
 
@@ -204,7 +387,8 @@ function forceFlush() {
   if (activeConversationId && isDirty) {
       const hasDirty = (dirtyMessages[activeConversationId]?.size ?? 0) > 0
       if (!hasDirty) {
-          persistMessages(activeConversationId, loadedMessages)
+          // 全量写兜底：同样从 side cache 回填，防止截断的内存副本覆盖 DB 完整内容
+          persistMessages(activeConversationId, restoreFullToolOutputs(loadedMessages))
       }
     isDirty = false
   }
@@ -216,10 +400,11 @@ function cancelPendingSave() {
         clearTimeout(saveTimer)
         saveTimer = null
     }
-    // 清空全部 delta timer 与 dirty 状态
-    for (const convId of Object.keys(deltaTimers)) {
-        if (deltaTimers[convId]) clearTimeout(deltaTimers[convId])
-        deltaTimers[convId] = null
+    // 清空全部 delta throttle 与 dirty 状态
+    for (const convId of Object.keys(deltaThrottle)) {
+        const ts = deltaThrottle[convId]
+        if (ts?.timer) clearTimeout(ts.timer)
+        delete deltaThrottle[convId]
     }
     for (const convId of Object.keys(dirtyMessages)) {
         dirtyMessages[convId].clear()
@@ -592,6 +777,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           // 增量落库：用户消息/新 assistant 消息立即持久化（断电保留进度关键路径）
           markMessageDirty(convId, newMessage)
           scheduleDeltaSave(convId, 1000)
+          // 异步检查内存权重上限（不阻塞当前操作）
+          setTimeout(() => maybeTrimConversation(convId), 0)
       },
 
       /** 更新指定会话中的消息（仅更新 UI 状态，持久化由主进程处理） */
@@ -608,6 +795,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           // 增量落库：只写这一条变化的消息
           markMessageDirty(convId, newConvMsgs[idx])
           scheduleDeltaSave(convId, 2000)
+          // 异步检查内存权重上限（不阻塞当前操作）
+          setTimeout(() => maybeTrimConversation(convId), 0)
       },
 
       addMessage: (message) => {
@@ -654,6 +843,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           }
           // 删除是结构性变更，delta 无法表达，清除该消息的 dirty 标记
           dirtyMessages[convId]?.delete(id)
+          // 同步清除 side cache 中该消息的完整工具输出缓存，防止泄漏
+          fullToolOutputCache.delete(id)
       },
 
       loadMessages: async (convId) => {
@@ -729,7 +920,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   isDirty = false
                   return
               }
-        await window.electronAPI?.conversationWriteMessages?.(activeConversationId, loadedMessages)
+        // 全量写兜底：同样从 side cache 回填，防止截断的内存副本覆盖 DB 完整内容
+        await window.electronAPI?.conversationWriteMessages?.(activeConversationId, restoreFullToolOutputs(loadedMessages))
         isDirty = false
           }
       },

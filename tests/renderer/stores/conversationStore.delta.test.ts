@@ -4,7 +4,7 @@
  * 覆盖本次性能优化（优化 2+3+4）：
  * - addMessageToConv / updateMessageForConv 只触发增量写（conversationWriteMessagesDelta），
  *   不触发全量写（conversationWriteMessages）
- * - 高频流式更新被 debounce 合并：N 次更新只产生一次 delta IPC 调用
+ * - 高频流式更新被 throttle 合并：首个 chunk 立即写，2s 窗口内其余更新合并为一次兜底写
  * - 多条 dirty 消息一次性 flush，且只写变化的消息
  * - flushMessages（abort 场景）强制立即刷 dirty
  * - saveMessages 优先刷 dirty，无 dirty 时才走全量兜底
@@ -83,7 +83,7 @@ describe('增量落库（delta-first）', () => {
         expect(fullCalls.length).toBe(0)
     })
 
-    it('高频流式更新被 debounce 合并为一次 delta 写', async () => {
+    it('高频流式更新被 throttle 合并为一次 delta 写', async () => {
         vi.useFakeTimers()
         const store = useConversationStore.getState()
 
@@ -92,12 +92,14 @@ describe('增量落库（delta-first）', () => {
             store.addMessageToConv('conv-1', makeMsg('m1', `chunk${i}`))
             store.updateMessageForConv('conv-1', 'm1', {content: `chunk${i + 1}`})
         }
-        // debounce 窗口内不应有任何调用
-        expect(deltaCalls.length).toBe(0)
-
-        await vi.advanceTimersByTimeAsync(2100)
+        // throttle 语义：首个 chunk 立即写（lastFlush=0 → 立即 flush）
         expect(deltaCalls.length).toBe(1)
+        // 2s 窗口内其余更新不逐次触发写（累积约 115 字符 < 500 阈值），仅合并为一次兜底写
+        await vi.advanceTimersByTimeAsync(2100)
+        expect(deltaCalls.length).toBe(2)
         expect(deltaCalls[0].message.id).toBe('m1')
+        // 兜底写携带窗口内最新内容
+        expect(deltaCalls[1].message.content).toBe('chunk10')
         expect(fullCalls.length).toBe(0)
     })
 
@@ -119,23 +121,30 @@ describe('增量落库（delta-first）', () => {
         const store = useConversationStore.getState()
 
         store.addMessageToConv('conv-1', makeMsg('m1', 'a'))
-        expect(deltaCalls.length).toBe(0) // debounce 未到期
+        // throttle 首写立即发生
+        expect(deltaCalls.length).toBe(1)
 
+        // 窗口内新增 dirty（不立即写，挂起兜底 timer）
+        store.updateMessageForConv('conv-1', 'm1', {content: 'a2'})
+        expect(deltaCalls.length).toBe(1)
+
+        // abort 场景：flushMessages 强制立即刷掉窗口内 dirty
         store.flushMessages()
         await Promise.resolve()
 
-        expect(deltaCalls.length).toBe(1)
-        expect(deltaCalls[0].message.id).toBe('m1')
+        expect(deltaCalls.length).toBe(2)
+        expect(deltaCalls[1].message.content).toBe('a2')
     })
 
     it('saveMessages 优先刷 dirty；无 dirty 时才全量兜底', async () => {
         vi.useFakeTimers()
         const store = useConversationStore.getState()
 
-        // 场景 1：有 dirty → 只走 delta
+        // 场景 1：窗口内存在 dirty → 只走 delta，不走全量
         store.addMessageToConv('conv-1', makeMsg('m1', 'a'))
+        store.updateMessageForConv('conv-1', 'm1', {content: 'a2'})
         await store.saveMessages()
-        expect(deltaCalls.length).toBe(1)
+        expect(deltaCalls.length).toBe(2) // 首写 + saveMessages 刷 dirty
         expect(fullCalls.length).toBe(0)
 
         // 场景 2：无 dirty（已 flush）→ 全量兜底
@@ -151,8 +160,9 @@ describe('增量落库（delta-first）', () => {
         store.updateMessageForConv('conv-1', 'm1', {content: 'v2'})
         await vi.advanceTimersByTimeAsync(2100)
 
-        expect(deltaCalls).toHaveLength(1)
-        expect(deltaCalls[0].message.content).toBe('v2')
+        expect(deltaCalls).toHaveLength(2)
+        expect(deltaCalls[0].message.content).toBe('v1') // 首写
+        expect(deltaCalls[1].message.content).toBe('v2') // 兜底写携带最新内容
     })
 
     it('cancelPendingSave 后不再落库（compact 场景）', async () => {
@@ -160,9 +170,15 @@ describe('增量落库（delta-first）', () => {
         const store = useConversationStore.getState()
 
         store.addMessageToConv('conv-1', makeMsg('m1', 'a'))
+        // 窗口内新增 dirty，挂起兜底 timer
+        store.updateMessageForConv('conv-1', 'm1', {content: 'a2'})
+        expect(deltaCalls.length).toBe(1)
+
+        // compact 场景：取消待写（清除 throttle timer 与 dirty），不触发写入
         store.cancelPendingSave()
 
         await vi.advanceTimersByTimeAsync(5000)
-        expect(deltaCalls.length).toBe(0)
+        // 兜底 timer 已被清除 → 不产生额外写
+        expect(deltaCalls.length).toBe(1)
     })
 })
