@@ -6,12 +6,12 @@
  * - 权重超限 → evict 最旧 30%（messagesMap 长度减少、hasMoreMap[convId]=true）
  * - 活跃会话（activeConversationId === convId）跳过 trim
  * - 非活跃会话才 trim
- * - 大工具结果（output >1000 字符）权重 +5 计入
+ * - 大工具结果（output >1000 字符）按真实字节计权（1000 字符 = 1 权重）
  * - evict 后 messagesMap 保留最新消息（最旧的被移除）
  *
  * maybeTrimConversation 由 addMessageToConv / updateMessageForConv 的
  * setTimeout(..., 0) 触发，用 vi.useFakeTimers + advanceTimersByTimeAsync(0) 执行。
- * 权重规则：base 1 + contentBlocks 数量 + output>1000 的 toolCall 每个 +5。
+ * 权重规则：base 1 + contentBlocks 数量 + 每个 toolCall 按 Math.ceil(output.length/1000) 计权。
  */
 import {describe, expect, it, beforeEach, afterEach, vi} from 'vitest'
 import type {Message} from '../../../src/shared/types/message'
@@ -38,7 +38,7 @@ import {useConversationStore} from '../../../src/renderer/stores/conversationSto
 const CONV = 'conv-bg'        // 被填充的会话（默认非活跃）
 const ACTIVE = 'conv-active'  // 活跃会话（默认不参与填充）
 
-/** 单条消息：base 1 + output>1000 工具结果 +5 = 权重 6 */
+/** 单条消息：base 1 + 工具结果 6001 字符（ceil(6001/1000)=7）= 权重 8 */
 function makeHeavyToolMsg(id: string): Message {
     return {
         id,
@@ -50,7 +50,7 @@ function makeHeavyToolMsg(id: string): Message {
             name: 'bash',
             arguments: {},
             status: 'success' as const,
-            result: {output: 'o'.repeat(1001)}, // >1000 → 权重 +5
+            result: {output: 'o'.repeat(6001)}, // 6001 字符 → 权重 7（真实字节计权）
         }],
     }
 }
@@ -92,11 +92,11 @@ afterEach(() => {
 
 describe('maybeTrimConversation — 500 权重上限 + evict 30%', () => {
     it('权重 ≤500 不 trim：messagesMap 长度不变', async () => {
-        // 80 × 6 = 480 ≤ 500
-        addMany(80, CONV, makeHeavyToolMsg)
+        // 60 × 8 = 480 ≤ 500
+        addMany(60, CONV, makeHeavyToolMsg)
         await vi.advanceTimersByTimeAsync(0)
 
-        expect(useConversationStore.getState().messagesMap[CONV]).toHaveLength(80)
+        expect(useConversationStore.getState().messagesMap[CONV]).toHaveLength(60)
         expect(useConversationStore.getState().hasMoreMap[CONV]).toBeFalsy()
     })
 
@@ -137,14 +137,14 @@ describe('maybeTrimConversation — 500 权重上限 + evict 30%', () => {
         expect(useConversationStore.getState().messagesMap[ACTIVE]).toHaveLength(85)
     })
 
-    it('大工具结果（output>1000）权重 +5 计入：同样数量下工具消息超限而普通消息不超', async () => {
+    it('大工具结果（output>1000）权重计入：同样数量下工具消息超限而普通消息不超', async () => {
         // 84 条普通消息：权重 84 → 不 trim
         addMany(84, CONV, makePlainMsg)
         await vi.advanceTimersByTimeAsync(0)
         expect(useConversationStore.getState().messagesMap[CONV]).toHaveLength(84)
         expect(useConversationStore.getState().hasMoreMap[CONV]).toBeFalsy()
 
-        // 84 条工具消息：权重 84×6=504 > 500 → trim（+5 权重生效）
+        // 84 条工具消息：权重 84×8=672 > 500 → trim（字节权重生效）
         useConversationStore.setState({messagesMap: {...useConversationStore.getState().messagesMap, [CONV]: []}})
         addMany(84, CONV, makeHeavyToolMsg)
         await vi.advanceTimersByTimeAsync(0)
