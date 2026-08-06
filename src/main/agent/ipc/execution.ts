@@ -10,6 +10,7 @@ import {agentManager} from '../manager'
 import {permissionEngine} from '../tools/permission'
 import {isAudioFile, isImageFile, isNetworkImageUrl} from '../utils/imageProcessor'
 import {runtimeConfigManager} from '../runtimeConfigManager'
+import {resolveAgentDefinitionFromCommandId} from '../agentTemplateConverter'
 import {logger} from '../logger'
 import type {SystemSettings} from '@shared/types'
 import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
@@ -302,6 +303,14 @@ export function registerHandlers(): void {
             const settingsForWorker = systemSettingsRepo.getJson<SystemSettings>('settings')
             const maxTurnsFromSettings = settingsForWorker?.agent?.maxTurns ?? 500
 
+            // ★ 命令模式工具过滤修复：从 messageMetadata.commandId 解析 agentDefinition。
+            //   命令路径（Ctrl+K / /agent）此前不构造 agentDefinition，filterTools 回退
+            //   General 类型导致 tools/disallowedTools 白黑名单全部失效（Plan Agent 等
+            //   只读 Agent 实际拿到全部工具）。注入后走与子 Agent 派发一致的过滤链。
+            const agentDefinition = resolveAgentDefinitionFromCommandId(
+                params.messageMetadata?.commandId as string | undefined,
+            )
+
             // 构建 worker 参数
             const workerParams: AgentStartParams = {
                 conversationId: params.conversationId,
@@ -317,6 +326,7 @@ export function registerHandlers(): void {
                     providers: currentProviders as any,
                 } : undefined,
                 workMode: runtimeConfigManager.getWorkMode(),
+                ...(agentDefinition ? {agentDefinition} : {}),
             }
 
             logger.debug('[agent-start]', {

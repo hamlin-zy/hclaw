@@ -450,7 +450,18 @@ export async function* retryBackoff(
     yield {type: 'warning', message: `retry ${attempt}/${retryCount}：${errorMsg}`}
 
     for (let s = delaySeconds; s > 0; s--) {
-        if (abortSignal?.aborted) break
+        if (abortSignal?.aborted) {
+            // ★ 明确告知用户重试已被取消，避免"倒计时后不重试"的错觉
+            yield {type: 'warning', message: `retry ${attempt}/${retryCount}：已取消重试`}
+            return
+        }
+        // ★ 每秒发一次剩余倒计时（渲染端 streamInteraction 已支持 tool_progress 显示）
+        yield {
+            type: 'tool_progress',
+            toolCallId: 'retry-backoff',
+            progress: `重试 ${attempt}/${retryCount} 剩余 ${s}s`,
+            retryCountdown: s,
+        }
         await sleep(1000)
     }
 }
