@@ -309,9 +309,10 @@ const SIZE_TRUNCATE_THRESHOLD = 15000 // 字符数截断阈值
  * agent 工具同理：output 是子 Agent 的完整工作报告（主 Agent 汇总的依据），
  * 截断会直接导致工作报告总结不完整，因此豁免通用 15KB 截断。
  *
- * MCP 工具（m_/mp_ 前缀）同理：内部已有 128KB 结果上限（MCP_TOOL_RESULT_MAX_CHARS），
- * executor 层阈值与内部上限对齐（128KB），内部截断是唯一截断点，
- * 因此结果在 128KB 以内时原样返回（不截断、不附加"[警告] 结果较大"）。
+ * MCP 工具（m_/mp_ 前缀）：MCP 结果路径（mcp/formatResult.ts 拼接 text parts）无内部截断，
+ * executor 层 128KB 阈值即 MCP 结果的唯一截断点（产品规格）。
+ * 因此结果在 128KB 以内时原样返回（不截断、不附加"[警告] 结果较大"），
+ * 超过 128KB 由下方截断兜底并附截断标记。
  * 否则 LLM 看到"[结果已截断] 共 X 行"，误以为 MCP 结果集不完整。
  * 其余工具维持通用阈值。
  */
@@ -319,9 +320,8 @@ const TOOL_SIZE_TRUNCATE_THRESHOLDS: Record<string, number> = {
     bash: 2 * 1024 * 1024,
     agent: Infinity,
 }
-// MCP 内部 128KB 结果上限（mcp/client.ts MCP_TOOL_RESULT_MAX_CHARS），
-// 与 bash 同逻辑：内部上限即唯一截断点，executor 层不得二次截断。
-// 否则 LLM 看到"[结果已截断] 共 X 行"，误以为 MCP 结果集不完整。
+// executor 层对 MCP 结果的 128KB 截断阈值（产品规格）：
+// MCP 结果路径无内部上限，此阈值即 MCP 结果的唯一截断点。
 const MCP_SIZE_TRUNCATE_THRESHOLD = 128 * 1024
 
 export function checkResultSize(toolName: string, result: ToolResult): ToolResult {

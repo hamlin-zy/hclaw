@@ -32,7 +32,7 @@ describe('retryBackoff', () => {
         expect(countdowns[0].progress).toContain('3s')
     })
 
-    it('abort 后立即停止，不再发倒计时', async () => {
+    it('abort 后立即停止，不再发倒计时，且 yield 已取消重试 warning', async () => {
         vi.useFakeTimers()
         const ac = new AbortController()
         const gen = retryBackoff(2, 10, error, 5000, ac.signal)
@@ -55,6 +55,10 @@ describe('retryBackoff', () => {
         vi.useRealTimers()
 
         expect(events.filter(e => e.type === 'tool_progress').length).toBe(1)
+        // abort 后必须 yield "已取消重试" warning，明确提示等待已终止
+        const cancelWarnings = events.filter(e => e.type === 'warning' && e.message.includes('已取消重试'))
+        expect(cancelWarnings).toHaveLength(1)
+        expect(cancelWarnings[0].message).toBe('retry 2/10：已取消重试')
     })
 
     it('无 abortSignal 参数时兼容（undefined）', async () => {
