@@ -32,6 +32,7 @@ import {channelListTool} from './builtin/channelListTool'
 import {channelSendTool} from './builtin/channelSendTool'
 import {schedulerManageTool} from './builtin/schedulerManageTool'
 import {systemManageTool} from './builtin/systemManageTool'
+import {sessionHandoffTool} from './builtin/sessionHandoffTool'
 
 import {loadSkillsFromDirectory} from '../skills'
 import {skillRegistry} from '../skills/registry'
@@ -64,6 +65,7 @@ export function registerBuiltinTools(): void {
       channelSendTool,
       schedulerManageTool,
       systemManageTool,
+      sessionHandoffTool,
   ])
 }
 

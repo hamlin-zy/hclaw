@@ -33,6 +33,7 @@ interface ConversationStore {
 
     // Conversations
   createConversation: () => Promise<string>
+    handleSessionCreated: (convId: string, title: string, workspacePath: string) => void
   deleteConversation: (id: string) => Promise<void>
     deleteConversations: (ids: string[]) => Promise<void>
   setActiveConversation: (id: string | null) => void
@@ -418,6 +419,45 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           // 用默认值初始化新会话的 agent 状态，确保待办列表不会残留旧会话数据
           useAgentStore.getState().updateConvData(id, createDefaultConvData())
           return id
+      },
+
+      // 会话移交工具创建新会话时的处理：侧栏顶部插入 + 自动切换（复用 createConversation 的 state 更新逻辑）
+      handleSessionCreated: (convId, title, workspacePath) => {
+          const now = Date.now()
+          const summary: ConversationSummary = {
+              id: convId,
+              title,
+              preview: '',
+              createdAt: now,
+              updatedAt: now,
+              channel: undefined,
+          }
+
+          set((state) => {
+              if (!workspacePath) return {
+                  activeConversationId: convId,
+                  loadedMessages: [],
+                  messagesMap: {...state.messagesMap, [convId]: []},
+              }
+              const wsInfo = state.workspaces[workspacePath] || {lastOpenedAt: now, conversations: []}
+              // 去重守卫：会话已存在（双投递）则只切换激活，不重复插入侧栏条目
+              if (wsInfo.conversations.some(c => c.id === convId)) {
+                  return {...state, activeConversationId: convId}
+              }
+              return {
+                  activeConversationId: convId,
+                  loadedMessages: [],
+                  messagesMap: {...state.messagesMap, [convId]: []},
+                  workspaces: {
+                      ...state.workspaces,
+                      [workspacePath]: {...wsInfo, conversations: [summary, ...wsInfo.conversations]},
+                  },
+              }
+          })
+          // 用默认值初始化新会话的 agent 状态，确保待办列表不会残留旧会话数据
+          useAgentStore.getState().updateConvData(convId, createDefaultConvData())
+          // 交接总结已由主进程写入 SQLite，加载为可见消息（非阻塞）
+          get().loadMessagesInitial(convId).catch?.(() => {})
       },
 
       deleteConversation: async (id) => {

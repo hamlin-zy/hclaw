@@ -298,6 +298,22 @@ export const agentTool: Tool<AgentToolInput, string> = {
                 agentDefinition: effectiveAgentDef,
                 conversationTitle: `子 Agent: ${args.task.slice(0, 50)}`,
                 abortSignal: context.abortSignal,
+                // ★ 关键：转发嵌套子 Agent（二级及以上）的 subagent_* 事件到父上下文。
+                //   本 agentLoop 的 toolContext.sendMessage 依赖 onEvent 转发事件；
+                //   若不传，嵌套 agentTool 的 context.sendMessage 变为空操作
+                //   （execute.ts: if (!onEvent) return），二级子 Agent 的
+                //   subagent_start/progress/done 全部丢失 → 父卡片无滚动、无子会话。
+                //   toolCallId 必须替换为当前 agentTool 的 context.toolCallId
+                //   （主会话中一级 agent 工具的调用 ID），渲染进程才能按 toolCallId
+                //   定位到正确的一级 Agent 卡片。
+                onEvent: (event: any) => {
+                    if (event.type === 'subagent_start' || event.type === 'subagent_progress' || event.type === 'subagent_done') {
+                        context.sendMessage({
+                            ...event,
+                            toolCallId: context.toolCallId,
+                        })
+                    }
+                },
             })) {
                 // ── 跳过内部事件 ──
                 if (event.type === 'intent_analyzed' || event.type === 'mode_change') continue
@@ -324,8 +340,19 @@ export const agentTool: Tool<AgentToolInput, string> = {
                         subAgentStreamEvent: event,
                     })
                 } else if (event.type === 'done') {
-                    context.sendMessage({type: 'subagent_done', taskId: childConvId, success: true, output, toolCallId: context.toolCallId})
-                    sendChildAgentEvent(childConvId, {type: 'done', reason: 'completed'})
+                    // ★ 透传原始 done 事件（保留 reason: completed/aborted），
+                    //   子会话 UI 才能正确显示中止态而非误报完成；父卡片 success 按 reason 判定
+                    const doneReason = (event as {reason?: string}).reason || 'completed'
+                    const isAborted = doneReason === 'aborted'
+                    context.sendMessage({
+                        type: 'subagent_done',
+                        taskId: childConvId,
+                        success: !isAborted,
+                        output: isAborted ? '' : output,
+                        error: isAborted ? '已中止' : undefined,
+                        toolCallId: context.toolCallId,
+                    })
+                    sendChildAgentEvent(childConvId, event)
                     break
                 } else if (event.type === 'error') {
                     hasError = true
@@ -334,6 +361,9 @@ export const agentTool: Tool<AgentToolInput, string> = {
                     sendChildAgentEvent(childConvId, {type: 'done', reason: 'error'})
                     break
                 }
+                // 说明：嵌套子 Agent（二级及以上）的 subagent_start/progress/done
+                // 由下方 agentLoop 的 onEvent 侧通道转发到父上下文，不会进入此 for-await
+                // 循环（agentLoop 生成器不产出 subagent_* 事件），故此处无需再处理。
 
                 // ★ 转发所有流事件到子会话渲染进程（text/thinking/tool_*/agent_start 等）
                 //   用户切换到子会话时可以看到实时流式输出。

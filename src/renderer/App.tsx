@@ -480,6 +480,18 @@ export default function App() {
     }
   }, [])
 
+  // ── 监听会话移交工具创建的新会话事件（刷新侧栏 + 自动切换） ──
+  useEffect(() => {
+    const cleanup = window.electronAPI?.receive?.('session_created', (payload: any) => {
+      if (!payload?.id) return
+      useConversationStore.getState().handleSessionCreated(payload.id, payload.title, payload.workspacePath || '')
+    })
+
+    return () => {
+      cleanup?.()
+    }
+  }, [])
+
     // ── 监听服务商配置变更，同步到主进程全局管理器 ──
     useEffect(() => {
       const buildSignature = (providers: ReturnType<typeof useLLMStore.getState>['providers']) =>
