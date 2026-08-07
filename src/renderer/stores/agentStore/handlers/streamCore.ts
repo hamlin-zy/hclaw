@@ -3,7 +3,7 @@
 
 import type {StreamCtx} from './streamContext'
 import {STREAMING_STATE, makeAgentState, createDefaultConvData} from '../defaultState'
-import {useConversationStore} from '../../conversationStore'
+import {useConversationStore, recordTextBlock} from '../../conversationStore'
 import {
     accumulateTextBatch,
     scheduleImmediateTextFlush,
@@ -112,6 +112,9 @@ export function handleText(ctx: StreamCtx) {
             streamBuffer: textContent,
             agentState: {...convState.agentState, status: 'running', phase: 'responding'},
         })
+        // ★ 块级增量：第一条 text 也需切块落库（纯文本回复/无工具调用的首个段永远不走 else 分支）。
+        //   后续 text 经 textBatch → flushTextBatch → recordTextBlock 切块，此处直接为第一条切块。
+        recordTextBlock(convId, id, textContent)
     } else {
         // ★ queueMicrotask 批处理：每个文本块累积到批处理缓冲区，
         // 同微任务内多个块合并为一次 store 更新，防止高频 IPC 触发

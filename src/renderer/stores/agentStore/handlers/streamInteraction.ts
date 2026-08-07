@@ -4,8 +4,9 @@
 import type {StreamCtx} from './streamContext'
 import type {ConvAgentData} from '../types'
 import {IDLE_STATE, makeAgentState, createDefaultConvData} from '../defaultState'
-import {useConversationStore} from '../../conversationStore'
+import {useConversationStore, recordThinkBlock, finalizeMessageDelta} from '../../conversationStore'
 import {flushConversationDirty} from '../../conversationStore'
+import {textBlockId} from '../contentBlocks'
 import {useAgentStore} from '..'
 import {
     flushTextBatch,
@@ -86,7 +87,7 @@ export async function handleDone(ctx: StreamCtx) {
             for (const sb of sortedBlocks) {
                 if (sb.textOffset > lastOffset) {
                     const textSlice = fullText.slice(lastOffset, sb.textOffset)
-                    if (textSlice) assembled.push({id: `text-${crypto.randomUUID()}`, type: 'text', text: textSlice})
+                    if (textSlice) assembled.push({id: textBlockId(doneConvData.streamingMessageId, lastOffset), type: 'text', text: textSlice})
                 }
                 if (sb.type === 'think') {
                     assembled.push({
@@ -104,7 +105,7 @@ export async function handleDone(ctx: StreamCtx) {
             }
             if (lastOffset < fullText.length) {
                 const remainingText = fullText.slice(lastOffset)
-                if (remainingText) assembled.push({id: `text-${crypto.randomUUID()}`, type: 'text', text: remainingText})
+                if (remainingText) assembled.push({id: textBlockId(doneConvData.streamingMessageId, lastOffset), type: 'text', text: remainingText})
             }
             if (assembled.length > 0) {
                 convStore.updateMessageForConv(convId, doneConvData.streamingMessageId!, {contentBlocks: assembled})
@@ -117,6 +118,20 @@ export async function handleDone(ctx: StreamCtx) {
                 commandExecution: {...cmdMsg.commandExecution, status: 'done', endTime: endedAt},
             })
         }
+
+        // ★ ledger 补充：DB 中所有 think 块 status 置 complete
+        //   （flushThinkingBatch 记的是 'thinking'；上方内存 thinkBlock complete 更新不进 DB）。
+        //   必须用 streamBlocks 里 think 块的 id（think-${msgId}-${thinkSeq}），
+        //   绝不能从扁平字段 think-${streamingMessageId} 派生，否则会 INSERT 重复 think 块。
+        //   多 think 段（think→tool→think）逐段置 complete，避免早前段 reload 后仍显示 'thinking'。
+        for (const sb of doneConvData.streamBlocks) {
+            if (sb.type === 'think') {
+                recordThinkBlock(convId, doneConvData.streamingMessageId, sb.id, sb.thinkContent ?? '', 'complete', sb.textOffset)
+            }
+        }
+
+        // ★ 块级增量收尾：finalize patch（主进程补 ended_at + end 块，崩溃恢复比消息行更可靠）
+        finalizeMessageDelta(convId, doneConvData.streamingMessageId, endedAt)
     }
 
     get().updateConvData(convId, {
@@ -191,6 +206,8 @@ export function handleError(ctx: StreamCtx) {
         useConversationStore.getState().updateMessageForConv(convId, errorMsgId, {
             endedAt: Date.now(),
         })
+        // ★ 块级增量收尾：error 收尾同样 finalize（endedAt 判空同域，无流式消息的 error 跳过）
+        finalizeMessageDelta(convId, errorMsgId, Date.now())
     }
     void flushConversationDirty(convId)
 }
@@ -395,6 +412,8 @@ export function handleUserMessageInjected(ctx: StreamCtx) {
         useConversationStore.getState().updateMessageForConv(convId, convState.streamingMessageId, {
             endedAt: Date.now(),
         })
+        // ★ 块级增量收尾：injected 收尾同样 finalize（旧消息流强制结束，补 end 块）
+        finalizeMessageDelta(convId, convState.streamingMessageId, Date.now())
         void flushConversationDirty(convId)
     }
 

@@ -107,6 +107,7 @@ vi.mock('@/renderer/stores/conversationStore', () => ({
     useConversationStore: {
         getState: () => mockConversationState,
     },
+    recordThinkBlock: vi.fn(),
 }))
 
 /** 从 updateMessageForConv mock 调用中取出最近一次写入的 contentBlocks */

@@ -192,6 +192,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('conversation-write-messages', convId, messages),
   conversationWriteMessagesDelta: (convId: string, message: unknown) =>
     ipcRenderer.invoke('conversation-write-messages-delta', convId, message),
+  conversationWriteBlockDelta: (convId: string, msgId: string, patch: unknown) =>
+    ipcRenderer.invoke('conversation-write-block-delta', convId, msgId, patch),
   conversationUpdateMeta: (convId: string, updates: Record<string, unknown>) =>
     ipcRenderer.invoke('conversation-update-meta', convId, updates),
   conversationDelete: (convId: string) =>

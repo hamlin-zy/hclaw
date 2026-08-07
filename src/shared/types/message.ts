@@ -215,6 +215,16 @@ export interface MessageBlock {
   endedAt?: number
 }
 
+/** 块级增量写入补丁（流式期间渲染进程高频路径） */
+export interface BlockDeltaPatch {
+  /** 本次新增/增长块。渲染端已生成 id/type/content/data/timestamp；sequence 由主进程分配（渲染端传 0）。finalize 收尾时可不传 */
+  upsertBlocks?: MessageBlock[]
+  /** 首次建行时传：role/timestamp + 瘦身 metadata（Task 5 后不含块字段）。后续 flush / finalize 只传 endedAt */
+  messageFields?: { role?: string; timestamp?: number; metadata?: Record<string, unknown>; endedAt?: number }
+  /** done/error 收尾传 true：补 messages.ended_at + end 块 */
+  finalize?: boolean
+}
+
 // ─── Attachment ────────────────────────────────────────
 
 export interface Attachment {

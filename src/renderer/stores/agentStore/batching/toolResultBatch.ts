@@ -1,6 +1,6 @@
 // ── 工具结果批量更新（减少高频 loadedMessages 更新） ──────────────────────
 
-import {useConversationStore} from '../../conversationStore'
+import {useConversationStore, recordToolResultBlock} from '../../conversationStore'
 import {useAgentStore} from '..'
 
 export interface PendingToolResultUpdate {
@@ -65,6 +65,10 @@ export function flushToolResultBatch(convId: string) {
     // 走 store action 更新，自动标记 dirty 并调度增量落库（避免全量 flushMessages）
     if (convMsgs.some(m => m.id === msgId)) {
         useConversationStore.getState().updateMessageForConv(convId, msgId, {toolCalls: updatedToolCalls})
+        // ★ 块级增量：每个本批更新的 toolCall 记 tool_result 块（含完整 result）
+        for (const tc of updatedToolCalls) {
+            if (batch.has(tc.id)) recordToolResultBlock(convId, msgId, tc)
+        }
     }
 }
 

@@ -19,11 +19,12 @@ import {flushToolResultBatch, getToolResultBatchMap} from './batching/toolResult
 // ═══════════════════════════════════════════════════════════
 
 /**
- * 派生稳定的 text 块 id。
+ * 派生稳定的 text 块 id（done/abort 组装路径与流式重建路径统一使用，
+ * 避免 completion/abort 路径仍用 randomUUID 导致 id 永久分叉）。
  * @param prefix 消息标识（优先 streamingMessageId）
  * @param offset 文本块在全文中的起始偏移
  */
-function textBlockId(prefix: string | null, offset: number): string {
+export function textBlockId(prefix: string | null, offset: number): string {
     return `text-${prefix || 'msg'}-${offset}`
 }
 
