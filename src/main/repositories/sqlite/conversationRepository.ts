@@ -320,7 +320,7 @@ export class SqliteConversationRepository implements IConversationRepository {
                 }
             }
             // 标记崩溃恢复的未完成消息：
-            // is_partial=1（主进程心跳写入未 final）或 assistant 消息无 ended_at（渲染端 delta 最后写入但未完成）
+            // is_partial=1（流式中间态落库未 final）或 assistant 消息无 ended_at（渲染端 delta 最后写入但未完成）
             if (role === 'assistant' && (row.is_partial === 1 || row.ended_at == null)) {
                 message.metadata = { ...message.metadata, _partialRecovery: true }
             }

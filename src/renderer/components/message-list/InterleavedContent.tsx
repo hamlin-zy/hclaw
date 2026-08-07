@@ -68,7 +68,7 @@ export type CombinedItem =
  *   - 空闲（非流式）时直接渲染最新内容，无延迟；
  *   - 卸载 / isStreaming 翻转时取消未执行的 rAF，避免内存泄漏与过期更新；
  *   - ref 跟踪 props 最新 content，避免 effect 内闭包陈旧导致漏更；
- *   - 标签页隐藏时 rAF 会被浏览器节流到 1Hz，切回时通过 visibilitychange 强制同步一次。
+ *   - 标签页隐藏时冻结渲染（不提交 setState、零 markdown 解析），恢复可见时合并渲染最新内容一次。
  */
 export function ThrottledMarkdown({content, isUser, theme}: {
     content: string; isUser: boolean; theme: 'light' | 'dark' | 'yuanshandai' | 'shiyangjin'

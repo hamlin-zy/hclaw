@@ -62,10 +62,8 @@ export function flushToolResultBatch(convId: string) {
         return tc
     })
 
-    const newConvMsgs = convMsgs.map(m => m.id === msgId ? {...m, toolCalls: updatedToolCalls} : m)
     // 走 store action 更新，自动标记 dirty 并调度增量落库（避免全量 flushMessages）
-    const updatedMsg = newConvMsgs.find(m => m.id === msgId)
-    if (updatedMsg) {
+    if (convMsgs.some(m => m.id === msgId)) {
         useConversationStore.getState().updateMessageForConv(convId, msgId, {toolCalls: updatedToolCalls})
     }
 }

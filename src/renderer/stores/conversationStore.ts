@@ -91,8 +91,6 @@ const dirtyMessages: Record<string, Map<string, Message>> = {}
 /** Throttle state per conversation for delta save */
 interface DeltaThrottleState {
     lastFlush: number
-    accumulatedChars: number
-    lastChars: number
     timer: ReturnType<typeof setTimeout> | null
 }
 const deltaThrottle: Record<string, DeltaThrottleState> = {}
@@ -150,14 +148,6 @@ function markMessageDirty(convId: string, message: Message) {
     if (isChildConversation(convId)) return
     getDirtyMap(convId).set(message.id, message)
     isDirty = true
-    // 增量字符计数（仅诊断用，不再作为触发条件）：累积 = 当前全长 - 上次已计数长度
-    const chars = (message.content?.length ?? 0) + (message.thinkBlock?.content?.length ?? 0)
-    const throttle = deltaThrottle[convId]
-    if (throttle) {
-        const delta = Math.max(0, chars - throttle.lastChars)
-        throttle.accumulatedChars += delta
-        throttle.lastChars = chars
-    }
 }
 
 const THROTTLE_MS = 30000
@@ -171,7 +161,6 @@ function flushAndReset(convId: string, state: DeltaThrottleState): void {
     }
     void flushDirtyMessages(convId)
     state.lastFlush = Date.now()
-    state.accumulatedChars = 0
 }
 
 /** throttle 调度：距上次写入 ≥30s 立即写，否则挂 30s 兜底 timer */
@@ -179,7 +168,7 @@ function scheduleDeltaSave(convId: string): void {
     if (isChildConversation(convId)) return
     let state = deltaThrottle[convId]
     if (!state) {
-        state = { lastFlush: 0, accumulatedChars: 0, lastChars: 0, timer: null }
+        state = { lastFlush: 0, timer: null }
         deltaThrottle[convId] = state
     }
 
@@ -201,7 +190,7 @@ async function flushDirtyMessages(convId: string): Promise<void> {
         return
     }
     // 清理 throttle 状态：清掉兜底 timer 但保留 state（throttle 语义依赖 state 跨 flush 存活，
-    // 供 scheduleDeltaSave 的 lastFlush/accumulatedChars 更新生效）
+    // 供 scheduleDeltaSave 的 lastFlush 更新生效）
     const throttleState = deltaThrottle[convId]
     if (throttleState?.timer) {
         clearTimeout(throttleState.timer)

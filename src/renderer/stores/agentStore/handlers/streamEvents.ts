@@ -46,8 +46,8 @@ export async function handleStreamEventImpl(set: SetFn, get: GetFn, payload: Age
     const ctx: StreamCtx = {set, get, convId, isActiveConv, isAgentAborted, event}
 
     // ★ 段边界落库：thinking→text / text→tool 等类型切换即段结束 → 立即刷 dirty。
-    //   done/error 不在此触发（shouldFlushOnBoundary 返回 false），
-    //   由 handleDone/handleError 收尾后统一 flush，避免无 endedAt 快照覆盖主进程 final 写。
+    //   done/error/user_message_injected 不在此触发（shouldFlushOnBoundary 返回 false），
+    //   由各自 handler 收尾后统一 flush，避免无 endedAt 快照覆盖主进程 final 写。
     const prevType = lastStreamType.get(convId)
     if (shouldFlushOnBoundary(prevType, event.type)) {
         void flushConversationDirty(convId)
