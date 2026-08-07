@@ -272,7 +272,6 @@ export function finalizeMessageDelta(convId: string, msgId: string, endedAt: num
 }
 
 const THROTTLE_MS = 30000
-// THROTTLE_CHAR_THRESHOLD 已删除：字符计数不再作为落库触发条件（段边界触发替代）
 
 /** 立即写并重置 throttle 记账（立即写与兜底 timer 两条路径共用） */
 function flushAndReset(convId: string, state: DeltaThrottleState): void {
