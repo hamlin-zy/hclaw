@@ -73,10 +73,16 @@ export function flushThinkingBatch(convId: string) {
     if (lastBlock?.type === 'think') {
         lastBlock.thinkContent = (lastBlock.thinkContent || '') + batch
     } else {
+        const thinkStartOffset = updatedState.streamBuffer.length
+        // think 段序号派生：同消息内已有 think 块数（0, 1, 2, ...），单调递增天然唯一。
+        // 注意不能用 thinkStartOffset 作 id——那是文本流长度，think 内容不入 streamBuffer，
+        // 工具前后两个 think 段（think → tool → think）offset 相同会碰撞，导致同 id 块
+        // INSERT OR REPLACE 静默覆盖。textOffset 仍是 contentBlocks 交错重建的锚点语义，需保留。
+        const thinkSeq = currentBlocks.filter(b => b.type === 'think').length
         currentBlocks.push({
             type: 'think',
-            id: `think-${crypto.randomUUID()}`,
-            textOffset: updatedState.streamBuffer.length,
+            id: `think-${msgId}-${thinkSeq}`,
+            textOffset: thinkStartOffset,
             thinkContent: batch,
         })
     }

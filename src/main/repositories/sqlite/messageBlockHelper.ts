@@ -51,7 +51,7 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
           case 'think':
             if (cb.thinkBlock) {
               blocks.push({
-                id: `${msg.id}-think-${cb.id}`,
+                id: cb.id,
                 messageId: msg.id,
                 blockType: 'think',
                 content: cb.thinkBlock.content,
@@ -64,7 +64,7 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
           case 'text':
             if (cb.text) {
               blocks.push({
-                id: `${msg.id}-text-${cb.id}`,
+                id: cb.id,
                 messageId: msg.id,
                 blockType: 'text',
                 content: cb.text,
@@ -93,7 +93,7 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
             case 'media':
                 if (cb.media) {
                     blocks.push({
-                        id: `${msg.id}-media-${cb.id}`,
+                        id: cb.id,
                         messageId: msg.id,
                         blockType: 'media',
                         content: cb.media.caption || null,
