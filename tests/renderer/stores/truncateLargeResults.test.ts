@@ -199,7 +199,7 @@ describe('side cache 回填 — DB 永远写入完整内容（Critical）', () =
                 },
             ],
         })
-        await vi.advanceTimersByTimeAsync(2100)
+        await vi.advanceTimersByTimeAsync(31000)
 
         // 第二次写入：第一个工具仍为完整 10KB（从 side cache 回填，未用截断副本覆盖 DB）
         expect(deltaCalls.length).toBeGreaterThanOrEqual(2)
@@ -220,7 +220,7 @@ describe('side cache 回填 — DB 永远写入完整内容（Critical）', () =
 
         // 仅改正文触发第二次 flush（toolCalls 未变）→ truncateLargeResults 再次执行
         store.updateMessageForConv('conv-1', 'm-idem', {content: '更新后的正文'})
-        await vi.advanceTimersByTimeAsync(2100)
+        await vi.advanceTimersByTimeAsync(31000)
 
         const afterSecond = useConversationStore.getState().messagesMap['conv-1'][0]
         expect(afterSecond.content).toBe('更新后的正文')

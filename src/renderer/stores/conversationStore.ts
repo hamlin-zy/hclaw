@@ -92,6 +92,7 @@ const dirtyMessages: Record<string, Map<string, Message>> = {}
 interface DeltaThrottleState {
     lastFlush: number
     accumulatedChars: number
+    lastChars: number
     timer: ReturnType<typeof setTimeout> | null
 }
 const deltaThrottle: Record<string, DeltaThrottleState> = {}
@@ -149,16 +150,18 @@ function markMessageDirty(convId: string, message: Message) {
     if (isChildConversation(convId)) return
     getDirtyMap(convId).set(message.id, message)
     isDirty = true
-    // 累积字符计数（text content + thinkContent）
+    // 增量字符计数（仅诊断用，不再作为触发条件）：累积 = 当前全长 - 上次已计数长度
     const chars = (message.content?.length ?? 0) + (message.thinkBlock?.content?.length ?? 0)
     const throttle = deltaThrottle[convId]
     if (throttle) {
-        throttle.accumulatedChars += chars
+        const delta = Math.max(0, chars - throttle.lastChars)
+        throttle.accumulatedChars += delta
+        throttle.lastChars = chars
     }
 }
 
-const THROTTLE_MS = 2000
-const THROTTLE_CHAR_THRESHOLD = 500
+const THROTTLE_MS = 30000
+// THROTTLE_CHAR_THRESHOLD 已删除：字符计数不再作为落库触发条件（段边界触发替代）
 
 /** 立即写并重置 throttle 记账（立即写与兜底 timer 两条路径共用） */
 function flushAndReset(convId: string, state: DeltaThrottleState): void {
@@ -171,23 +174,20 @@ function flushAndReset(convId: string, state: DeltaThrottleState): void {
     state.accumulatedChars = 0
 }
 
-/** throttle 调度：距上次写入 ≥2s 或累积 ≥500 字符立即写，否则挂兜底 timer */
+/** throttle 调度：距上次写入 ≥30s 立即写，否则挂 30s 兜底 timer */
 function scheduleDeltaSave(convId: string): void {
     if (isChildConversation(convId)) return
     let state = deltaThrottle[convId]
     if (!state) {
-        state = { lastFlush: 0, accumulatedChars: 0, timer: null }
+        state = { lastFlush: 0, accumulatedChars: 0, lastChars: 0, timer: null }
         deltaThrottle[convId] = state
     }
 
     const elapsed = Date.now() - state.lastFlush
-    const shouldFlushNow = elapsed >= THROTTLE_MS || state.accumulatedChars >= THROTTLE_CHAR_THRESHOLD
-
-    if (shouldFlushNow) {
-        // 距上次写入超过 2s 或累积超过 500 字符 → 立即写
+    // 首次（lastFlush=0）立即写；此后仅 30s 兜底 timer 触发（段边界由 Task 2 显式 flush）
+    if (elapsed >= THROTTLE_MS) {
         flushAndReset(convId, state)
     } else if (!state.timer) {
-        // 未到阈值 → 设兜底 timer（确保不会永远不写）
         state.timer = setTimeout(() => flushAndReset(convId, state), THROTTLE_MS - elapsed)
     }
 }
@@ -226,6 +226,11 @@ async function flushDirtyMessages(convId: string): Promise<void> {
     } catch {
         // 失败不重试（下次 scheduleDeltaSave 会重新标记），避免积压
     }
+}
+
+/** 按会话立即刷 dirty（段边界 / done / error / injected 收尾路径调用） */
+export function flushConversationDirty(convId: string): Promise<void> {
+    return flushDirtyMessages(convId)
 }
 
 /** 截断本轮已落库消息中大型工具结果的内存副本（完整内容已在 DB）。

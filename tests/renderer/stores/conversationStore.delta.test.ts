@@ -4,7 +4,7 @@
  * 覆盖本次性能优化（优化 2+3+4）：
  * - addMessageToConv / updateMessageForConv 只触发增量写（conversationWriteMessagesDelta），
  *   不触发全量写（conversationWriteMessages）
- * - 高频流式更新被 throttle 合并：首个 chunk 立即写，2s 窗口内其余更新合并为一次兜底写
+ * - 高频流式更新被 throttle 合并：首个 chunk 立即写，30s 窗口内其余更新合并为一次兜底写
  * - 多条 dirty 消息一次性 flush，且只写变化的消息
  * - flushMessages（abort 场景）强制立即刷 dirty
  * - saveMessages 优先刷 dirty，无 dirty 时才走全量兜底
@@ -94,8 +94,11 @@ describe('增量落库（delta-first）', () => {
         }
         // throttle 语义：首个 chunk 立即写（lastFlush=0 → 立即 flush）
         expect(deltaCalls.length).toBe(1)
-        // 2s 窗口内其余更新不逐次触发写（累积约 115 字符 < 500 阈值），仅合并为一次兜底写
-        await vi.advanceTimersByTimeAsync(2100)
+        // 30s 窗口内不产生兜底写（防御 THROTTLE_MS 回退到 2s 的回归）
+        await vi.advanceTimersByTimeAsync(5000)
+        expect(deltaCalls.length).toBe(1)
+        // 30s 兜底 timer 触发，合并为一次兜底写
+        await vi.advanceTimersByTimeAsync(31000)
         expect(deltaCalls.length).toBe(2)
         expect(deltaCalls[0].message.id).toBe('m1')
         // 兜底写携带窗口内最新内容
@@ -109,7 +112,7 @@ describe('增量落库（delta-first）', () => {
 
         store.addMessageToConv('conv-1', makeMsg('m1', 'a'))
         store.addMessageToConv('conv-1', makeMsg('m2', 'b'))
-        await vi.advanceTimersByTimeAsync(2100)
+        await vi.advanceTimersByTimeAsync(31000)
 
         expect(deltaCalls.length).toBe(2)
         expect(deltaCalls.map(c => c.message.id).sort()).toEqual(['m1', 'm2'])
@@ -158,7 +161,7 @@ describe('增量落库（delta-first）', () => {
 
         store.addMessageToConv('conv-1', makeMsg('m1', 'v1'))
         store.updateMessageForConv('conv-1', 'm1', {content: 'v2'})
-        await vi.advanceTimersByTimeAsync(2100)
+        await vi.advanceTimersByTimeAsync(31000)
 
         expect(deltaCalls).toHaveLength(2)
         expect(deltaCalls[0].message.content).toBe('v1') // 首写

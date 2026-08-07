@@ -1,5 +1,6 @@
 import * as path from 'path'
 import * as fs from 'fs'
+import {Worker} from 'node:worker_threads'
 import {DatabaseSync, enhance} from '@photostructure/sqlite'
 import {getHclawDir} from '../../config'
 
@@ -11,6 +12,45 @@ let migrationsRun = false
 
 const DB_DIR = path.join(getHclawDir(), 'data')
 const DB_FILE = path.join(DB_DIR, 'hclaw.db')
+
+// ── WAL checkpoint worker（主进程零阻塞）────────────────────────────
+// checkpoint 移入 worker_threads 独立连接：WAL 超阈值时的 TRUNCATE 合并
+// （数百 ms 级别）在 worker 线程执行，不再阻塞主进程事件循环。
+// 启动失败/崩溃时静默降级为同步 checkpoint 路径（saveDatabase 内兜底）。
+
+let checkpointWorker: Worker | null = null
+
+/** 启动 checkpoint worker（失败静默降级为同步 checkpoint 路径） */
+function ensureCheckpointWorker(): void {
+    if (checkpointWorker) return
+    try {
+        const w = new Worker(path.join(__dirname, 'checkpointWorker.js'), {
+            workerData: {dbPath: DB_FILE},
+        })
+        w.on('error', () => {
+            w.terminate().catch(() => {})
+            if (checkpointWorker === w) checkpointWorker = null
+        })
+        w.on('exit', () => {
+            if (checkpointWorker === w) checkpointWorker = null
+        })
+        w.on('message', (msg: unknown) => {
+            // ★ 持久性 checkpoint 失败 → 停掉并置空，触发同步降级路径（防 WAL 无限增长）
+            if (msg && typeof msg === 'object' && (msg as {type?: string}).type === 'error') {
+                w.terminate().catch(() => {})
+                if (checkpointWorker === w) checkpointWorker = null
+            }
+        })
+        checkpointWorker = w
+    } catch {
+        checkpointWorker = null
+    }
+}
+
+function stopCheckpointWorker(): void {
+    checkpointWorker?.terminate().catch(() => {})
+    checkpointWorker = null
+}
 
 function ensureInitialized(): void {
     if (initialized) return
@@ -35,6 +75,7 @@ export function initDatabaseSync(): void {
     ensureInitialized()
     runMigrations()
     migrationsRun = true
+    ensureCheckpointWorker()
 }
 
 // ── 低频 WAL checkpoint ────────────────────────────────────────────
@@ -94,6 +135,9 @@ function schedulePeriodicCheckpoint(): void {
  */
 export function saveDatabase(): void {
     if (!db) return
+    if (checkpointWorker) return  // worker 自驱动周期 checkpoint，主进程零阻塞
+    // 降级：worker 未启动/崩溃 → 同步路径（保留原防抖+阈值语义）
+    ensureCheckpointWorker()
     schedulePeriodicCheckpoint()
     tryCheckpoint(false)
 }
@@ -105,6 +149,7 @@ export function flushDatabase(): void {
         checkpointTimer = null
     }
     tryCheckpoint(true)
+    stopCheckpointWorker()
 }
 
 export function closeDatabase(): void {
