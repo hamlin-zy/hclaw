@@ -29,6 +29,32 @@ const PAIRED_BRACKET_RE = /[（(【\[「][^）)】\]」]*[）)】\]」]/g
 /** 括号保护占位符（NUL 不出现在正常文本，不参与拆分/trim） */
 const BRACKET_PLACEHOLDER = '\u0000'
 
+/** v3: JSON 数组字符串优先检测 — 须在括号保护之前，防 [...] 被 PAIRED_BRACKET_RE 吞掉 */
+function tryParseJsonArray(raw: string): string[] | null {
+    const trimmed = raw.trim()
+    if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return null
+
+    try {
+        const parsed = JSON.parse(trimmed)
+        if (!Array.isArray(parsed)) return null
+
+        const items = parsed
+            .map((elem: unknown) => optionToString(elem as RawOption))
+            .filter((s): s is string => s !== null)
+
+        // 空数组 / 全过滤 → 返回空列表，由清洗阶段收敛为 undefined
+        if (items.length === 0) return []
+
+        console.warn(
+            `[askUserTool] 检测到 JSON 数组字符串，已自动解析为 ${items.length} 个选项。` +
+            '建议 LLM 使用标准数组格式: options: ["A", "B"]'
+        )
+        return items
+    } catch {
+        return null // 不是合法 JSON，fall through
+    }
+}
+
 /** 弱分隔符拆分：先把括号内容占位保护，拆分后再还原（括号内顿号/逗号永不充当选项分隔符） */
 function splitByWeakSeparators(raw: string): string[] {
     const segments: string[] = []
@@ -95,8 +121,12 @@ export function normalizeOptions(raw: string | RawOption[] | undefined): string[
     // ── 拆分成原始字符串列表 ──
     let items: string[]
     if (typeof raw === 'string') {
-        // 含序号时优先按序号拆（spec: 避免 "一、苹果 二、香蕉" 被 `、` 当分隔符提前拆分）
-        if (SEQUENCE_RE.test(raw)) {
+        // ── v3: JSON 数组字符串优先检测（须先于括号保护，防 [...] 被 PAIRED_BRACKET_RE 吞掉） ──
+        const jsonItems = tryParseJsonArray(raw)
+        if (jsonItems) {
+            items = jsonItems
+        } else if (SEQUENCE_RE.test(raw)) {
+            // 含序号时优先按序号拆（spec: 避免 "一、苹果 二、香蕉" 被 `、` 当分隔符提前拆分）
             // 整串带序号（如 "1. 跑步 2. 游泳" / "一、苹果 二、香蕉"）：按序号 lookahead 拆分后去序号
             const seqSplit = raw.split(SEQUENCE_SPLIT_RE)
             const seqItems = seqSplit.map(s => s.replace(SEQUENCE_RE, ''))
@@ -172,7 +202,11 @@ export const askUserTool: Tool<AskUserInput, string> = {
     description:
         '向用户提问并等待回答。用于澄清意图或获取额外信息。工具会阻塞直到用户选择选项或输入内容。\n' +
         '- question 必填：简洁明确的问题，一次只问一个问题\n' +
-        '- options 可选：字符串数组 ["A","B"] 或分隔字符串 "A、B"（自动拆分）\n' +
+        '- options 可选：字符串数组 ["选项A","选项B"] 或分隔字符串 "选项A、选项B、选项C"（顿号/逗号/换行/竖线均可）\n' +
+        '  标准用法：ask_user({question: "选哪个？", options: ["A方案","B方案","C方案"]})\n' +
+        '  分隔字符串：ask_user({question: "选哪个？", options: "跑步、游泳、打球"})\n' +
+        '  换行分隔：ask_user({question: "选哪个？", options: "方案A\\n方案B\\n方案C"})\n' +
+        '  注意：options 是字符串数组，不要传 JSON 序列化的字符串（如 \'[\"A\",\"B\"]\' 是错误的）\n' +
         '- multiSelect 可选：true/false\n' +
         '若已有足够信息或能自行推理，不要调用本工具。',
     inputSchema,
