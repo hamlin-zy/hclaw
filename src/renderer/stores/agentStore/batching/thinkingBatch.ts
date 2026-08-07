@@ -5,7 +5,7 @@
 // 全量重建链（此前是 UI 卡死的核心原因）。
 
 import {useAgentStore} from '..'
-import {useConversationStore} from '../../conversationStore'
+import {useConversationStore, recordThinkBlock} from '../../conversationStore'
 import {createDefaultConvData} from '../defaultState'
 
 /** 每个会话的累积思考文本 */
@@ -87,6 +87,14 @@ export function flushThinkingBatch(convId: string) {
         })
     }
     useAgentStore.getState().updateConvData(convId, {streamBlocks: currentBlocks})
+
+    // ★ 块级增量：最后 think 块的 id/textOffset 来自已更新的 streamBlocks
+    //   （Task 1 后 id = think-${msgId}-${thinkSeq}，绝不能从扁平字段 think-${msgId} 派生）
+    const updatedBlocks = useAgentStore.getState().convAgentStates[convId]?.streamBlocks ?? []
+    const lastThink = [...updatedBlocks].reverse().find(b => b.type === 'think')
+    if (lastThink && lastThink.type === 'think') {
+        recordThinkBlock(convId, msgId, lastThink.id, lastThink.thinkContent ?? '', 'thinking', lastThink.textOffset)
+    }
 
     // 4. 仅在活跃会话重建 contentBlocks（合并后一次全量重建，替代每 chunk 一次）
     const activeConvId = useConversationStore.getState().activeConversationId

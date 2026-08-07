@@ -52,6 +52,7 @@ vi.mock('@/renderer/stores/conversationStore', () => ({
     useConversationStore: {
         getState: () => mockConversationState,
     },
+    recordToolResultBlock: vi.fn(),
 }))
 
 vi.mock('@/renderer/stores/agentStore', () => ({

@@ -1,4 +1,5 @@
 import type {
+  BlockDeltaPatch,
   ConversationMeta,
   ConversationWithStats,
   LlmStats,
@@ -47,6 +48,12 @@ export interface IConversationRepository {
      * 且单事务原子（断电时该消息要么完整、要么不存在，不会半写）。
      */
     writeMessagesDelta(convId: string, message: Message): boolean
+
+    /**
+     * 块级增量写入（流式期间渲染进程高频路径，幂等 UPSERT）。
+     * 渲染端按块 id 增量提交：已存在块 UPDATE content/data，新块 INSERT 并分配 sequence。
+     */
+    writeBlockDelta(convId: string, msgId: string, patch: BlockDeltaPatch): boolean
 
   setMessageEnded(convId: string, messageId: string, endedAt: number): boolean
 

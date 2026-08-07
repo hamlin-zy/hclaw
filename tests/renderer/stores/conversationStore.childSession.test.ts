@@ -3,14 +3,15 @@
  *
  * 覆盖 b9d406f（渲染端跳过子会话落库）引入的行为约定：
  * - 子会话（parentConvId 存在）的 addMessageToConv/updateMessageForConv 不触发任何落库
- *   （conversationWriteMessagesDelta / conversationWriteMessages 均不调用），仅维护内存态
- * - 根会话正常走 delta 落库
+ *   （conversationWriteBlockDelta / conversationWriteMessages 均不调用），仅维护内存态
+ * - 根会话正常走块级增量落库（conversationWriteBlockDelta）
  * - 子会话删除后（不再存在于 workspaces）按未知会话处理（不属于子会话）
  *
  * 隔离：mock window.electronAPI，不触碰真实 IPC / SQLite
  */
 import {describe, expect, it, beforeEach, afterEach, vi} from 'vitest'
 import type {Message} from '../../../src/shared/types/message'
+import type {BlockDeltaPatch} from '@shared/types'
 
 // mock agentStore（conversationStore 依赖它，但仅 action 内部惰性调用 getState）
 vi.mock('../../../src/renderer/stores/agentStore', () => ({
@@ -37,7 +38,7 @@ function makeMsg(id: string, content: string, role: 'user' | 'assistant' = 'assi
     return {id, role, content, timestamp: Date.now()}
 }
 
-let deltaCalls: Array<{convId: string; message: Message}>
+let blockDeltaCalls: Array<{convId: string; msgId: string; patch: BlockDeltaPatch}>
 let fullCalls: Array<{convId: string; messages: Message[]}>
 
 const ROOT_ID = 'conv-root'
@@ -62,12 +63,12 @@ function setupWorkspace() {
 }
 
 beforeEach(() => {
-    deltaCalls = []
+    blockDeltaCalls = []
     fullCalls = []
     ;(globalThis as any).window = {
         electronAPI: {
-            conversationWriteMessagesDelta: vi.fn(async (convId: string, message: Message) => {
-                deltaCalls.push({convId, message})
+            conversationWriteBlockDelta: vi.fn(async (convId: string, msgId: string, patch: BlockDeltaPatch) => {
+                blockDeltaCalls.push({convId, msgId, patch})
                 return true
             }),
             conversationWriteMessages: vi.fn(async (convId: string, messages: Message[]) => {
@@ -88,16 +89,16 @@ describe('子会话不落库（渲染端仅维护内存态）', () => {
     it('子会话 addMessageToConv 不触发任何落库，根会话正常落库', async () => {
         vi.useFakeTimers()
 
-        // 根会话：正常 delta 写
+        // 根会话：正常块级增量写
         useConversationStore.getState().addMessageToConv(ROOT_ID, makeMsg('m-root', 'hello'))
         await vi.advanceTimersByTimeAsync(1200)
-        expect(deltaCalls.map(c => c.convId)).toEqual([ROOT_ID])
+        expect(blockDeltaCalls.map(c => c.convId)).toEqual([ROOT_ID])
 
         // 子会话：不触发落库
-        deltaCalls.length = 0
+        blockDeltaCalls.length = 0
         useConversationStore.getState().addMessageToConv(CHILD_ID, makeMsg('m-child', 'child-msg'))
         await vi.advanceTimersByTimeAsync(5000)
-        expect(deltaCalls.length).toBe(0)
+        expect(blockDeltaCalls.length).toBe(0)
         expect(fullCalls.length).toBe(0)
     })
 
@@ -109,7 +110,7 @@ describe('子会话不落库（渲染端仅维护内存态）', () => {
         store.updateMessageForConv(CHILD_ID, 'm-child', {content: 'v2'})
         await vi.advanceTimersByTimeAsync(5000)
 
-        expect(deltaCalls.length).toBe(0)
+        expect(blockDeltaCalls.length).toBe(0)
         expect(fullCalls.length).toBe(0)
         // 内存态已更新
         const msgs = useConversationStore.getState().messagesMap[CHILD_ID] || []
@@ -124,7 +125,7 @@ describe('子会话不落库（渲染端仅维护内存态）', () => {
         store.flushMessages()
         await Promise.resolve()
 
-        expect(deltaCalls.length).toBe(0)
+        expect(blockDeltaCalls.length).toBe(0)
         expect(fullCalls.length).toBe(0)
     })
 
@@ -138,7 +139,7 @@ describe('子会话不落库（渲染端仅维护内存态）', () => {
 
         await useConversationStore.getState().saveMessages()
 
-        expect(deltaCalls.length).toBe(0)
+        expect(blockDeltaCalls.length).toBe(0)
         expect(fullCalls.length).toBe(0)
     })
 
@@ -159,9 +160,9 @@ describe('子会话不落库（渲染端仅维护内存态）', () => {
         useConversationStore.getState().addMessageToConv(CHILD_ID, makeMsg('m-child', 'a'))
         await vi.advanceTimersByTimeAsync(1200)
 
-        // 会话不存在于 workspaces → isChildConversation 返回 false → 走正常 delta 落库
-        expect(deltaCalls.length).toBe(1)
-        expect(deltaCalls[0].convId).toBe(CHILD_ID)
+        // 会话不存在于 workspaces → isChildConversation 返回 false → 走正常块级增量落库
+        expect(blockDeltaCalls.length).toBe(1)
+        expect(blockDeltaCalls[0].convId).toBe(CHILD_ID)
     })
 
     it('新子会话加入后立即生效（缓存失效）', async () => {
@@ -180,10 +181,10 @@ describe('子会话不落库（渲染端仅维护内存态）', () => {
         })
         useConversationStore.getState().addMessageToConv(CHILD_ID, makeMsg('m-root-before', 'a'))
         await vi.advanceTimersByTimeAsync(1200)
-        expect(deltaCalls.length).toBe(1)
+        expect(blockDeltaCalls.length).toBe(1)
 
         // 之后 CHILD_ID 变成子会话（如主进程补建 parentConvId 后通知渲染端）
-        deltaCalls.length = 0
+        blockDeltaCalls.length = 0
         useConversationStore.setState({
             workspaces: {
                 '/ws': {
@@ -198,7 +199,7 @@ describe('子会话不落库（渲染端仅维护内存态）', () => {
 
         useConversationStore.getState().addMessageToConv(CHILD_ID, makeMsg('m-child-after', 'b'))
         await vi.advanceTimersByTimeAsync(5000)
-        expect(deltaCalls.length).toBe(0)
+        expect(blockDeltaCalls.length).toBe(0)
     })
 
     it('工作区切换后按新工作区判断（缓存隔离）', async () => {
@@ -229,11 +230,11 @@ describe('子会话不落库（渲染端仅维护内存态）', () => {
         })
         useConversationStore.getState().addMessageToConv('conv-b-child', makeMsg('m1', 'x'))
         await vi.advanceTimersByTimeAsync(5000)
-        expect(deltaCalls.length).toBe(0)
+        expect(blockDeltaCalls.length).toBe(0)
         expect(fullCalls.length).toBe(0)
 
         // 切回工作区 A：A 中 conv-a1 是根 → 正常落库
-        deltaCalls.length = 0
+        blockDeltaCalls.length = 0
         useConversationStore.setState({
             currentWorkspacePath: '/wsA',
             workspaces: {
@@ -245,7 +246,7 @@ describe('子会话不落库（渲染端仅维护内存态）', () => {
         })
         useConversationStore.getState().addMessageToConv('conv-a1', makeMsg('m2', 'y'))
         await vi.advanceTimersByTimeAsync(1200)
-        expect(deltaCalls.length).toBe(1)
-        expect(deltaCalls[0].convId).toBe('conv-a1')
+        expect(blockDeltaCalls.length).toBe(1)
+        expect(blockDeltaCalls[0].convId).toBe('conv-a1')
     })
 })

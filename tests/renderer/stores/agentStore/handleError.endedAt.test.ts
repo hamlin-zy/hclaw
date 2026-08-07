@@ -31,6 +31,7 @@ vi.mock('../../../../src/renderer/stores/conversationStore', () => ({
         getState: () => mockConversationState,
     },
     flushConversationDirty: mockFlushDirty,
+    finalizeMessageDelta: vi.fn(),
 }))
 
 vi.mock('../../../../src/renderer/stores/agentStore', () => ({

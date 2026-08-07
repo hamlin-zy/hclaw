@@ -43,6 +43,7 @@ vi.mock('../../../../src/renderer/stores/conversationStore', () => ({
             updateMessageForConv: vi.fn(),
         }),
     },
+    recordToolCallBlock: vi.fn(),
 }))
 
 vi.mock('../../../../src/renderer/stores/agentStore/batching/textBatch', () => ({

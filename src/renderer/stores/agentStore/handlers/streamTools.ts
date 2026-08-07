@@ -2,8 +2,9 @@
 // tool_use, tools_start, tool_start, tool_progress, tool_detail, tool_result, tool_denied
 
 import type {StreamCtx} from './streamContext'
+import type {ToolCall} from '@shared/types'
 import {makeAgentState, createDefaultConvData} from '../defaultState'
-import {useConversationStore} from '../../conversationStore'
+import {useConversationStore, recordToolCallBlock} from '../../conversationStore'
 import {useToolCallsStore} from '../../toolCallsStore'
 import {
     flushTextBatch,
@@ -60,20 +61,23 @@ export function handleToolUse(ctx: StreamCtx) {
     }
     const updatedConvState = get().convAgentStates[convId] || createDefaultConvData()
     const textOffset = updatedConvState.streamBuffer.length
+    const newTc: ToolCall = {
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.arguments,
+        status: 'running',
+        textOffset,
+        reason: tc.reason,
+        terminal: tc.terminal,
+        // ★ 倒计时数据持久化：tool_use 阶段通常无 timeoutMs（主进程在 tool_start 才注入），
+        //   但若已携带则落库，保证不丢（tool_start 到达时会再补齐）
+        timeoutMs: tc.timeoutMs,
+    }
     convStore.updateMessageForConv(convId, msgId, {
-        toolCalls: [...existing, {
-            id: tc.id,
-            name: tc.name,
-            arguments: tc.arguments,
-            status: 'running',
-            textOffset,
-            reason: tc.reason,
-            terminal: tc.terminal,
-            // ★ 倒计时数据持久化：tool_use 阶段通常无 timeoutMs（主进程在 tool_start 才注入），
-            //   但若已携带则落库，保证不丢（tool_start 到达时会再补齐）
-            timeoutMs: tc.timeoutMs,
-        }],
+        toolCalls: [...existing, newTc],
     })
+    // ★ 块级增量：tool_use 事件到达即记 tool_call 块（id = ${msgId}-tc-${tc.id}）
+    recordToolCallBlock(convId, msgId, newTc)
     get().updateConvData(convId, {
         runningToolCount: updatedConvState.runningToolCount + 1,
     })

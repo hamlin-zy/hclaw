@@ -237,3 +237,36 @@ describe('块 id 统一规范（主进程去前缀 + 渲染侧 cb.id 直存）',
         expect(restored.contentBlocks?.find(cb => cb.type === 'text')?.id).toBe('text-m1-5')
     })
 })
+
+describe('metadata 瘦身（Task 5：主进程 messageToBlocks 全量写路径与渲染端一致）', () => {
+    it('assistant metadata 瘦身：不含 content/thinkBlock/toolCalls/contentBlocks', () => {
+        const msg: Message = {
+            id: 'm1', role: 'assistant', content: '正文', timestamp: 1000,
+            thinkBlock: {id: 'think-m1-0', content: '思考', status: 'complete', timestamp: 1},
+            toolCalls: [{id: 'tc1', name: 'bash', arguments: {}, status: 'success', textOffset: 0, result: {output: 'ok'}}],
+            contentBlocks: [{id: 'text-m1-0', type: 'text', text: '正文'}],
+            agentName: 'agent-a',
+        }
+        const {messages: [record]} = messageToBlocks(msg, 'conv-1')
+        expect(record.metadata.contentBlocks).toBeUndefined()
+        expect(record.metadata.thinkBlock).toBeUndefined()
+        expect(record.metadata.toolCalls).toBeUndefined()
+        expect(record.metadata.content).toBeUndefined()
+        expect(record.metadata.agentName).toBe('agent-a')
+        // user/system 保留 content（buildMessagesFromRows:313 读回 metadata.content）
+        const {messages: [userRecord]} = messageToBlocks(
+            {id: 'u1', role: 'user', content: '你好', timestamp: 1} as Message,
+            'conv-1',
+        )
+        expect(userRecord.metadata.content).toBe('你好')
+    })
+
+    it('system 消息 metadata 同样保留 content', () => {
+        const {messages: [record]} = messageToBlocks(
+            {id: 's1', role: 'system', content: '系统提示', timestamp: 1} as Message,
+            'conv-1',
+        )
+        expect(record.metadata.content).toBe('系统提示')
+        expect(record.content).toBe('系统提示')
+    })
+})
