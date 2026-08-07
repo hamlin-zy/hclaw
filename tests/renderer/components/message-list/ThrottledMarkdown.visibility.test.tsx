@@ -51,13 +51,18 @@ const flushRaf = () => {
 }
 
 const setVisibility = (state: 'visible' | 'hidden') => {
+    // visibilityState 与 hidden 同步定义：vitest 的 jsdom 中两者不联动，
+    // 而组件源码同时读取 document.visibilityState（visibilitychange 分支）与
+    // document.hidden（effect 启动守卫），需保证测试环境语义一致。
     Object.defineProperty(document, 'visibilityState', {value: state, configurable: true})
+    Object.defineProperty(document, 'hidden', {value: state === 'hidden', configurable: true})
     document.dispatchEvent(new Event('visibilitychange'))
 }
 
 beforeEach(() => {
     rafCallbacks = new Map()
     rafId = 0
+    mockAgentState.agentState = {status: 'running'}
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
         const id = ++rafId
         rafCallbacks.set(id, cb)
@@ -68,6 +73,7 @@ beforeEach(() => {
     })
     // 默认从可见状态开始
     Object.defineProperty(document, 'visibilityState', {value: 'visible', configurable: true})
+    Object.defineProperty(document, 'hidden', {value: false, configurable: true})
 })
 
 afterEach(() => {
@@ -108,5 +114,43 @@ describe('ThrottledMarkdown 隐藏冻结（Task 5）', () => {
         act(() => { setVisibility('visible') })
         act(() => { flushRaf() })
         expect(screen.getByTestId('md').textContent).toBe('C')
+    })
+
+    it('hidden 中 isStreaming false→true 翻转不重启 rAF（防隐藏期间积压解析）', () => {
+        const {rerender} = render(<ThrottledMarkdown content="A" isUser={false} theme="dark"/>)
+
+        // 1. 初始 visible + 流式中：渲染后 DOM 含 content A
+        act(() => { flushRaf() })
+        expect(screen.getByTestId('md').textContent).toBe('A')
+
+        // 2. 切 hidden：rAF 被取消
+        act(() => { setVisibility('hidden') })
+        expect(rafCallbacks.size).toBe(0)
+
+        // 3. hidden 中 isStreaming 翻转 false → true（自动续跑/新任务重建 effect）：
+        //    ★ 核心：翻转期间不得调度新 rAF（旧实现无条件 requestAnimationFrame →
+        //       hidden 期间 1Hz 持续解析 markdown 积压）
+        const rafCallsBefore = rafId
+        act(() => {
+            mockAgentState.agentState = {status: 'idle'} // isStreaming=false
+            rerender(<ThrottledMarkdown content="A" isUser={false} theme="dark"/>)
+        })
+        act(() => {
+            mockAgentState.agentState = {status: 'running'} // isStreaming=true（翻转）
+            rerender(<ThrottledMarkdown content="A" isUser={false} theme="dark"/>)
+        })
+        expect(rafId).toBe(rafCallsBefore)
+
+        // 4. hidden 期间 content 更新 → rAF 未重启 → DOM 冻结为 A
+        act(() => {
+            rerender(<ThrottledMarkdown content="B" isUser={false} theme="dark"/>)
+            flushRaf()
+        })
+        expect(screen.getByTestId('md').textContent).toBe('A')
+
+        // 5. 切 visible：由 visibilitychange 监听接管 → 同步最新并重启 rAF → 渲染 B
+        act(() => { setVisibility('visible') })
+        act(() => { flushRaf() })
+        expect(screen.getByTestId('md').textContent).toBe('B')
     })
 })

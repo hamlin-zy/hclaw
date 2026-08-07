@@ -159,9 +159,13 @@ export function handleError(ctx: StreamCtx) {
     const {get, set, convId, event} = ctx
     const errorMessage = event.error || '未知错误'
     const errorConvData = get().convAgentStates[convId] || createDefaultConvData()
-    flushPendingStreamBatches(convId, errorConvData.streamingMessageId)
+    // ★ 与 done/injected 对称：先取进入 error 前的流式消息快照再冲刷。
+    //   （末尾 updateConvData 会把 streamingMessageId 置 null，必须先捕获，
+    //    才能在 flush 前补 endedAt，防无 endedAt 快照覆盖主进程 final 写）
+    const errorMsgId = errorConvData.streamingMessageId
+    flushPendingStreamBatches(convId, errorMsgId)
 
-    if (!errorConvData.streamingMessageId) {
+    if (!errorMsgId) {
         const newId = crypto.randomUUID()
         useConversationStore.getState().addMessageToConv(convId, {id: newId, role: 'assistant', content: ''})
         get().updateConvData(convId, {streamingMessageId: newId})
@@ -180,6 +184,14 @@ export function handleError(ctx: StreamCtx) {
         errorMessage: state.errorMessage || errorMessage,
         agentState: {...state.agentState, status: 'error'},
     }))
+
+    // ★ 与 done/injected 对称：flush 前先补 endedAt（防无 endedAt 快照覆盖主进程 final 写）。
+    //   无流式消息的 error 此分支自然跳过，flush 仍执行。
+    if (errorMsgId) {
+        useConversationStore.getState().updateMessageForConv(convId, errorMsgId, {
+            endedAt: Date.now(),
+        })
+    }
     void flushConversationDirty(convId)
 }
 

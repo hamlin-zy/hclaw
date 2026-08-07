@@ -125,7 +125,10 @@ export function ThrottledMarkdown({content, isUser, theme}: {
             }
         }
 
-        frameId = requestAnimationFrame(tick)
+        // ★ 启动守卫：hidden 中不启动 rAF（isStreaming false→true 翻转重建 effect 时
+        //   也不会在隐藏期间启动，避免 1Hz 持续解析 markdown 积压）。
+        //   visible 由 handleVisibility 的 visible 分支负责启动；cancel(0) 是安全 no-op。
+        frameId = document.hidden ? 0 : requestAnimationFrame(tick)
         document.addEventListener('visibilitychange', handleVisibility)
 
         return () => {
