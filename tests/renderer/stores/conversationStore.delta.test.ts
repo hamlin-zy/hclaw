@@ -223,16 +223,18 @@ describe('块级增量记账', () => {
         expect(patch.messageFields!.metadata).not.toHaveProperty('content')
     })
 
-    it('recordTextBlock 按 offset 切块：两次 flush 产生两个稳定 id 的 text 块', async () => {
-        // 首次：正文前 500 字符 → text-m1-0；追加 300 → text-m1-500（同一次 flush 前两次记账合并）
+    it('recordTextBlock 同 textSeq 段内增量拼接：两次 flush 合并为一个 text 块（mergeBlocksById 语义）', async () => {
+        // recordTextBlock 按 textSeq 派生 id：同一 textSeq（无 think/tool 时为 0）的两段文本复用同 id，
+        // mergeBlocksById 合并 content（增量拼接），flush 时只发一块。这是 textSeq 方案的正确行为：
+        // 同一 text 段内多次 flush 走 DB UPDATE 而非新 INSERT（O(segments) 而非 O(chunks)）。
         recordTextBlock('conv-1', 'm1', 'a'.repeat(500))
         recordTextBlock('conv-1', 'm1', 'a'.repeat(500) + 'b'.repeat(300))
         await flushConversationDirty('conv-1')
-        // 断言调用形状：一次 flush 含 2 个 upsertBlocks，id = text-m1-0 / text-m1-500，content 长度 500/300
         const {patch} = blockDeltaCalls[blockDeltaCalls.length - 1]
-        expect(patch.upsertBlocks!.map(b => b.id)).toEqual(['text-m1-0', 'text-m1-500'])
-        expect(patch.upsertBlocks![0].content).toHaveLength(500)
-        expect(patch.upsertBlocks![1].content).toHaveLength(300)
+        // 同 textSeq → 同 id text-m1-0，合并后仅一块，content 为两次切片的拼接
+        expect(patch.upsertBlocks!.map(b => b.id)).toEqual(['text-m1-0'])
+        expect(patch.upsertBlocks![0].content).toHaveLength(800)
+        expect(patch.upsertBlocks![0].content).toBe('a'.repeat(500) + 'b'.repeat(300))
     })
 
     it('recordThinkBlock 同 id 段内增长：二次记账同一 id', async () => {

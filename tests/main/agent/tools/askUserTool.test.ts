@@ -160,6 +160,39 @@ describe('normalizeOptions', () => {
             '方案 C：参数调优（最小改动、治标）',
         ])
     })
+
+    // ── v3 JSON 数组字符串检测（2026-08-07） ──
+
+    it('v3: JSON 数组字符串自动解析（防 PAIRED_BRACKET_RE 误吞 [...]）', () => {
+        expect(normalizeOptions('["A","B","C"]')).toEqual(['A', 'B', 'C'])
+    })
+
+    it('v3: JSON 数组字符串含中文', () => {
+        expect(normalizeOptions('["我一个人开发","有协作者在 main 分支","有协作者也在 develop"]'))
+            .toEqual(['我一个人开发', '有协作者在 main 分支', '有协作者也在 develop'])
+    })
+
+    it('v3: JSON 数组元素为对象时取 label', () => {
+        expect(normalizeOptions('[{"label":"跑步"},{"label":"游泳"}]'))
+            .toEqual(['跑步', '游泳'])
+    })
+
+    it('v3: 混合元素类型的 JSON 数组', () => {
+        expect(normalizeOptions('["跑步",{"label":"游泳"},42,true,null,{"foo":"bar"}]'))
+            .toEqual(['跑步', '游泳', '42', 'true'])
+    })
+
+    it('v3: 合法 JSON 但非数组 → fall through 到字符串拆分', () => {
+        expect(normalizeOptions('"just a string"')).toEqual(['"just a string"'])
+    })
+
+    it('v3: 空 JSON 数组 → undefined', () => {
+        expect(normalizeOptions('[]')).toBeUndefined()
+    })
+
+    it('v3: 非法 JSON（不闭合括号）→ fall through', () => {
+        expect(normalizeOptions('["A","B"')).toEqual(['["A"', '"B"'])
+    })
 })
 
 describe('normalizeMultiSelect', () => {

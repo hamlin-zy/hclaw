@@ -216,8 +216,6 @@ export class SqliteConversationRepository implements IConversationRepository {
     writeBlockDelta(convId: string, msgId: string, patch: BlockDeltaPatch): boolean {
         try {
             const db = getDatabase()
-            // [BLOCKDBG:main] 诊断：主进程收到块级增量写
-            console.log('[BLOCKDBG:main]', convId, msgId.slice(0, 8), 'blocks=', patch.upsertBlocks?.length ?? 0, 'finalize=', !!patch.finalize, 'mf=', patch.messageFields ? Object.keys(patch.messageFields).join(',') : '-')
             db.transaction(() => {
                 // ★ 先建/更新消息行，再写块：message_blocks.message_id 有外键引用 messages.id
                 //   （迁移 001_initial.sql:62 ON DELETE CASCADE）。首写（消息行尚不存在）时
@@ -257,6 +255,13 @@ export class SqliteConversationRepository implements IConversationRepository {
                         )
                     }
                 }
+                let nextSeq = -1
+                const resolveSeq = (): number => {
+                    if (nextSeq < 0) {
+                        nextSeq = (db.prepare('SELECT COALESCE(MAX(sequence), -1) + 1 AS s FROM message_blocks WHERE message_id = ?').get(msgId) as {s: number}).s
+                    }
+                    return nextSeq++
+                }
                 for (const block of patch.upsertBlocks ?? []) {
                     const existing = db.prepare('SELECT id FROM message_blocks WHERE id = ?').get(block.id) as {id: string} | undefined
                     if (existing) {
@@ -264,9 +269,8 @@ export class SqliteConversationRepository implements IConversationRepository {
                             block.content, block.data, block.timestamp, block.id,
                         )
                     } else {
-                        const nextSeq = (db.prepare('SELECT COALESCE(MAX(sequence), -1) + 1 AS s FROM message_blocks WHERE message_id = ?').get(msgId) as {s: number}).s
                         db.prepare('INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-                            block.id, msgId, block.blockType, block.content, block.data, nextSeq, block.timestamp, block.endedAt ?? null,
+                            block.id, msgId, block.blockType, block.content, block.data, resolveSeq(), block.timestamp, block.endedAt ?? null,
                         )
                     }
                 }
@@ -276,9 +280,8 @@ export class SqliteConversationRepository implements IConversationRepository {
                     if (endBlock) {
                         db.prepare("UPDATE message_blocks SET data = ?, ended_at = ? WHERE id = ?").run(JSON.stringify({endedAt}), endedAt, endBlock.id)
                     } else {
-                        const nextSeq = (db.prepare('SELECT COALESCE(MAX(sequence), -1) + 1 AS s FROM message_blocks WHERE message_id = ?').get(msgId) as {s: number}).s
                         db.prepare("INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, 'end', NULL, ?, ?, ?, ?)").run(
-                            `${msgId}-end`, msgId, JSON.stringify({endedAt}), nextSeq, endedAt, endedAt,
+                            `${msgId}-end`, msgId, JSON.stringify({endedAt}), resolveSeq(), endedAt, endedAt,
                         )
                     }
                     db.prepare('UPDATE messages SET ended_at = ? WHERE id = ?').run(endedAt, msgId)
@@ -288,19 +291,7 @@ export class SqliteConversationRepository implements IConversationRepository {
             saveDatabase()
             return true
         } catch (err) {
-            // [BLOCKDBG:err] 诊断：失败详情（含失败块 id 摘要 + 完整错误）。
-            // 用 console.log 而非 console.error：主进程终端只转发 stdout，error 走 stderr 会看不到。
-            const ids = (patch.upsertBlocks ?? []).slice(0, 10).map(b => `${b.blockType}:${b.id.slice(0, 50)}`).join('\n  ')
-            console.log('[BLOCKDBG:err] writeBlockDelta FAILED:', {
-                convId, msgId: msgId.slice(0, 8),
-                blocks: patch.upsertBlocks?.length ?? 0,
-                finalize: !!patch.finalize,
-                mf: patch.messageFields ? Object.keys(patch.messageFields).join(',') : '-',
-                error: err instanceof Error ? err.message : String(err),
-                stack: err instanceof Error ? err.stack?.split('\n').slice(0, 5).join('\n') : undefined,
-                firstBlockIds: ids,
-            })
-            console.log('[SqliteConversationRepository] writeBlockDelta failed:', err)
+            console.error('[SqliteConversationRepository] writeBlockDelta failed:', err)
             return false
         }
     }

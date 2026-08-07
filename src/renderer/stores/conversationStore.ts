@@ -126,8 +126,6 @@ export function accumulateBlockDelta(convId: string, msgId: string, patch: Parti
     if (isChildConversation(convId)) return
     const map = getBlockDeltaMap(convId)
     const cur = map.get(msgId) ?? {upsertBlocks: []}
-    // [BLOCKDBG:acc] 诊断：块是否进 dirty map
-    console.warn('[BLOCKDBG:acc]', convId, msgId.slice(0, 8), 'blocks=', patch.upsertBlocks?.length ?? 0, 'finalize=', !!patch.finalize)
     map.set(msgId, {
         upsertBlocks: mergeBlocksById(cur.upsertBlocks, patch.upsertBlocks ?? []),
         // 字段级合并而非整体替换：finalize 只传 {endedAt}，必须与已累积的
@@ -238,21 +236,16 @@ export function recordThinkBlock(convId: string, msgId: string, id: string, cont
     })
 }
 
-/** tool_call 块（tool_use 事件到达） */
+/** tool_call 块（tool_use 事件到达）。序列化 ToolCall 除 result 外的所有字段，
+ *  确保类型新增字段时自动覆盖（无需逐一罗列 14 字段）。 */
 export function recordToolCallBlock(convId: string, msgId: string, tc: ToolCall): void {
     if (isChildConversation(convId)) return
-    const timestamp = Date.now()
+    const {result: _result, ...persistable} = tc
     accumulateBlockDelta(convId, msgId, {
         upsertBlocks: [{
             id: `${msgId}-tc-${tc.id}`, messageId: msgId, blockType: 'tool_call',
-            content: null, sequence: 0, timestamp,
-            data: JSON.stringify({
-                id: tc.id, name: tc.name, arguments: tc.arguments, status: tc.status,
-                textOffset: tc.textOffset, reason: tc.reason, terminal: tc.terminal,
-                timeoutMs: tc.timeoutMs, progress: tc.progress, detailStatus: tc.detailStatus,
-                progressPercent: tc.progressPercent, eta: tc.eta, tokenUsage: tc.tokenUsage,
-                taskId: tc.taskId, taskDescription: tc.taskDescription,
-            }),
+            content: null, sequence: 0, timestamp: Date.now(),
+            data: JSON.stringify(persistable),
         }],
     })
 }
@@ -335,15 +328,10 @@ async function flushDirtyMessages(convId: string): Promise<void> {
     const pending = [...dirtyMap.entries()]
     dirtyMap.clear()
     const succeeded: Array<[string, BlockDeltaPatch]> = []
-    // [BLOCKDBG:flush] 诊断：flush 时 dirty map 快照内容
-    console.warn('[BLOCKDBG:flush]', convId, 'pending=', pending.length,
-        'api=', typeof window.electronAPI?.conversationWriteBlockDelta,
-        pending.map(([id, p]) => `${id.slice(0, 8)}:b${p.upsertBlocks?.length ?? 0}f${p.finalize ? 1 : 0}`).join(','))
     try {
         // 逐条块级增量写入（串行 invoke，避免 IPC 并发顺序错乱）
         for (const [msgId, patch] of pending) {
             const ok = await window.electronAPI?.conversationWriteBlockDelta?.(convId, msgId, patch) ?? true
-            console.warn('[BLOCKDBG:flush] invoke', msgId.slice(0, 8), 'blocks=', patch.upsertBlocks?.length ?? 0, 'ok=', ok)
             if (!ok) {
                 // 主进程返回 false（SQLite 写失败/事务回滚）：恢复该消息 patch 待兜底重试
                 console.warn(`[conversationStore] writeBlockDelta 失败，恢复 dirty 待兜底重试: conv=${convId} msg=${msgId}`)

@@ -106,7 +106,7 @@ describe('完整事件流块级增量产出（think→text→tool_use→tool_res
         await flushConversationDirty('conv-1')
         expect(blockDeltaCalls).toHaveLength(2)
         expect(blockDeltaCalls[1].patch.upsertBlocks).toContainEqual(expect.objectContaining({
-            id: 'text-msg-1-0',
+            id: 'text-msg-1-1', // textSeq=1：streamBlocks 中已有 1 个 think 块（think-msg-1-0）
             blockType: 'text',
             content: '正文内容',
         }))
@@ -164,14 +164,15 @@ describe('完整事件流块级增量产出（think→text→tool_use→tool_res
         for (const tb of doneTextBlocks) {
             expect(tb.id).toMatch(/^text-msg-1-\d+$/)
         }
-        // 该流程中 text 段起点为 offset 0（'正文内容' 位于 think 之后）
+        // 该流程中 text 段起点为 offset 0（'正文内容' 位于 think 之后）。
+        // 注：contentBlocks 的 text id 用 offset 派生（textBlockId），块 delta 的 text id 用 textSeq 派生。
         expect(doneTextBlocks[0].id).toBe('text-msg-1-0')
 
         // ── DB 等价终态：块 id 集合完整、无嵌套、无遗留扁平 think id ──
         const allBlockIds = blockDeltaCalls.flatMap(c => c.patch.upsertBlocks ?? []).map(b => b.id)
         expect(new Set(allBlockIds)).toEqual(new Set([
             'think-msg-1-0',   // 段序号派生（非扁平 think-msg-1）
-            'text-msg-1-0',    // 按已落库偏移派生
+            'text-msg-1-1',    // textSeq=1：streamBlocks 中已有 1 个 think 块
             'msg-1-tc-tc-1',   // 主进程 tool_call 块 id 规范
             'msg-1-tr-tc-1',   // 主进程 tool_result 块 id 规范
         ]))
