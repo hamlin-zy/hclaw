@@ -5,6 +5,7 @@ import type {StreamCtx} from './streamContext'
 import type {ConvAgentData} from '../types'
 import {IDLE_STATE, makeAgentState, createDefaultConvData} from '../defaultState'
 import {useConversationStore} from '../../conversationStore'
+import {flushConversationDirty} from '../../conversationStore'
 import {useAgentStore} from '..'
 import {
     flushTextBatch,
@@ -136,6 +137,9 @@ export async function handleDone(ctx: StreamCtx) {
         executingToolsMessage: null,
     })
 
+    // ★ 段边界语义：done 收尾完成后统一落库（endedAt/contentBlocks/tool_result 已合并）
+    void flushConversationDirty(convId)
+
     if (event.reason !== 'aborted') {
         const pendingMsgs = get().convAgentStates[convId]?.pendingMessages
         if (pendingMsgs && pendingMsgs.length > 0) {
@@ -176,6 +180,7 @@ export function handleError(ctx: StreamCtx) {
         errorMessage: state.errorMessage || errorMessage,
         agentState: {...state.agentState, status: 'error'},
     }))
+    void flushConversationDirty(convId)
 }
 
 export async function handleAskUser(ctx: StreamCtx) {
@@ -373,6 +378,12 @@ export function handleUserMessageInjected(ctx: StreamCtx) {
             flushToolResultBatch(convId)
         }
         clearToolResultBatchData(convId)
+        // ★ 竞态防护：先补旧消息 endedAt（主进程 doMergeAndPersist(oldPending,true) 已写 final），
+        //   再 flush，避免无 endedAt 快照覆盖
+        useConversationStore.getState().updateMessageForConv(convId, convState.streamingMessageId, {
+            endedAt: Date.now(),
+        })
+        void flushConversationDirty(convId)
     }
 
     // 重置流式状态——清除累加器，避免新消息带入旧内容

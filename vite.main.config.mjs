@@ -22,6 +22,7 @@ export default defineConfig({
         worker: path.resolve(__dirname, 'src/main/agent/worker.ts'),
           mcpWorker: path.resolve(__dirname, 'src/main/agent/mcpWorker.ts'),
           schedulerWorker: path.resolve(__dirname, 'src/main/scheduler/worker.ts'),
+          checkpointWorker: path.resolve(__dirname, 'src/main/repositories/sqlite/checkpointWorker.ts'),
       },
           output: {
               entryFileNames: '[name].js',
