@@ -109,7 +109,7 @@ describe('buildMessagesFromRows — 崩溃恢复标记 _partialRecovery', () => 
     })
 
     it('混合会话：仅未完成的 assistant 消息带标记，其余原样', () => {
-        insertMsg('m-crash', 'assistant', 1, null)          // 心跳写入未 final
+        insertMsg('m-crash', 'assistant', 1, null)          // 流式中间态落库未 final
         insertMsg('m-final', 'assistant', 0, 7777)          // 正常完成
         insertMsg('u-normal', 'user', 0, 7777)              // 用户消息
 
