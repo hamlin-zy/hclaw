@@ -78,7 +78,6 @@ export interface AgentStreamEvent {
     | 'skill_script_start' | 'skill_script_output' | 'skill_script_done'
     | 'skill_log' | 'skill_end'
     | 'llm_call_done' | 'intent_analyzed' | 'mode_change'
-    | 'context_compacted' | 'compact_status'
     | 'permission-rules-updated'
     | 'agent_start' | 'agent_progress' | 'tool_detail' | 'tool_use'
     | 'settings-updated' | 'app-restart'
@@ -134,8 +133,6 @@ export interface AgentStreamEvent {
   savedTokens?: number
   compactedMessages?: number
   preservedInfo?: string[]
-  // 压缩状态（compact_status）
-  compactStatus?: 'waiting' | 'compacting' | 'completed'
   // Agent 启动字段（agent_start）
   agentId?: string
   // Agent 进度字段（agent_progress）
