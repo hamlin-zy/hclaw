@@ -17,8 +17,32 @@ import type {Tool, ToolContext, ToolResult} from '../types'
  * 所有函数绝不抛异常：任何输入都收敛为可用值或安全降级。
  */
 
-/** 多分隔符拆分：英文逗号、中文逗号、顿号、分号、换行、竖线 */
-const OPTION_SPLIT_RE = /[,，、;；\n|]+/
+/** 强分隔符：换行、竖线 —— 选项文本内部极少出现，误拆风险低（v2 防误拆新增） */
+const STRONG_SPLIT_RE = /\n|\|/
+
+/** 弱分隔符：英文逗号、中文逗号、顿号、分号 —— 仅整串无强分隔符时使用 */
+const WEAK_SPLIT_RE = /[,，、;；]+/
+
+/** 成对括号（含中文全角）：括号内分隔符不参与弱拆分，防 "（彻底重构、改动最大）" 被顿号拦腰拆断 */
+const PAIRED_BRACKET_RE = /[（(【\[「][^）)】\]」]*[）)】\]」]/g
+
+/** 括号保护占位符（NUL 不出现在正常文本，不参与拆分/trim） */
+const BRACKET_PLACEHOLDER = '\u0000'
+
+/** 弱分隔符拆分：先把括号内容占位保护，拆分后再还原（括号内顿号/逗号永不充当选项分隔符） */
+function splitByWeakSeparators(raw: string): string[] {
+    const segments: string[] = []
+    const masked = raw.replace(PAIRED_BRACKET_RE, (m) => {
+        segments.push(m)
+        return `${BRACKET_PLACEHOLDER}${segments.length - 1}${BRACKET_PLACEHOLDER}`
+    })
+    return masked.split(WEAK_SPLIT_RE).map((part) =>
+        part.replace(
+            new RegExp(`${BRACKET_PLACEHOLDER}(\\d+)${BRACKET_PLACEHOLDER}`, 'g'),
+            (_, idx: string) => segments[Number(idx)] ?? ''
+        )
+    )
+}
 
 /** 序号模式：数字/字母/中文数字后跟 . ) 、（识别与拆分共用同一模式，避免两处失同步） */
 const SEQUENCE_PATTERN = '\\d+[.)、]|[A-Za-z][.)、]|[一二三四五六七八九十]+[、.]'
@@ -71,14 +95,21 @@ export function normalizeOptions(raw: string | RawOption[] | undefined): string[
     // ── 拆分成原始字符串列表 ──
     let items: string[]
     if (typeof raw === 'string') {
-        const split = raw.split(OPTION_SPLIT_RE)
         // 含序号时优先按序号拆（spec: 避免 "一、苹果 二、香蕉" 被 `、` 当分隔符提前拆分）
         if (SEQUENCE_RE.test(raw)) {
             // 整串带序号（如 "1. 跑步 2. 游泳" / "一、苹果 二、香蕉"）：按序号 lookahead 拆分后去序号
             const seqSplit = raw.split(SEQUENCE_SPLIT_RE)
-            items = seqSplit.length >= 2 ? seqSplit.map(s => s.replace(SEQUENCE_RE, '')) : split
+            const seqItems = seqSplit.map(s => s.replace(SEQUENCE_RE, ''))
+            // 真正序号列表去前缀后应剩 ≥2 个非空段（如 "1. 跑步 2. 游泳" → 跑步/游泳/打球）；
+            // "A、B、C" 被字母序号模式误判时去前缀后仅剩 1 段（如 'A、'→''、'B、C'→'C'）→ 降级弱拆分兜底
+            const validSeqCount = seqItems.filter(s => s.trim().length > 0).length
+            items = validSeqCount >= 2 ? seqItems : splitByWeakSeparators(raw)
+        } else if (STRONG_SPLIT_RE.test(raw)) {
+            // 强分隔符（换行/竖线）优先：选项文本内部极少出现，顿号/逗号不参与，避免误拆
+            items = raw.split(STRONG_SPLIT_RE)
         } else {
-            items = split
+            // 弱分隔符（顿号/逗号/分号）兜底：括号保护后拆分，防选项内部并列短语被拦腰拆断
+            items = splitByWeakSeparators(raw)
         }
     } else {
         items = raw.map(optionToString).filter((s): s is string => s !== null)

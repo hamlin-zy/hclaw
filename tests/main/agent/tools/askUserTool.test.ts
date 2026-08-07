@@ -117,6 +117,49 @@ describe('normalizeOptions', () => {
     it('不可拆分的单个字符串作为单选项', () => {
         expect(normalizeOptions('这是一个完整的说明文字')).toEqual(['这是一个完整的说明文字'])
     })
+
+    // ── v2 防误拆（2026-08-07）：括号保护 + 强分隔符优先 ──
+
+    it('括号内顿号不参与拆分（防 "（重构、调优）" 被拆断）', () => {
+        expect(normalizeOptions('方案A、方案B（重构、调优）、方案C')).toEqual([
+            '方案A',
+            '方案B（重构、调优）',
+            '方案C',
+        ])
+    })
+
+    it('全角/半角括号内逗号同样受保护', () => {
+        expect(normalizeOptions('A（1,2）、B')).toEqual(['A（1,2）', 'B'])
+        expect(normalizeOptions('C(3,4)、D')).toEqual(['C(3,4)', 'D'])
+    })
+
+    it('换行强分隔符优先，顿号不参与拆分', () => {
+        expect(normalizeOptions('方案A\n方案B、方案C')).toEqual(['方案A', '方案B、方案C'])
+    })
+
+    it('竖线强分隔符优先', () => {
+        expect(normalizeOptions('A|B、C')).toEqual(['A', 'B、C'])
+    })
+
+    it('字母序号误判降级：顿号列表 "A、B、C" 拆为三项，不被当序号删掉', () => {
+        expect(normalizeOptions('A、B、C')).toEqual(['A', 'B', 'C'])
+    })
+
+    it('括号内唯一顿号拆不出多段时整串保留（回退单选项）', () => {
+        expect(normalizeOptions('方案（重构、调优）')).toEqual(['方案（重构、调优）'])
+    })
+
+    it('回归：截图场景——选项内括号并列短语不再被拆断', () => {
+        const raw =
+            '方案 A：阶段边界落库 + checkpoint 空闲化 + 隐藏冻结渲染、' +
+            '方案 B：主进程统一落库（彻底重构、改动最大）、' +
+            '方案 C：参数调优（最小改动、治标）'
+        expect(normalizeOptions(raw)).toEqual([
+            '方案 A：阶段边界落库 + checkpoint 空闲化 + 隐藏冻结渲染',
+            '方案 B：主进程统一落库（彻底重构、改动最大）',
+            '方案 C：参数调优（最小改动、治标）',
+        ])
+    })
 })
 
 describe('normalizeMultiSelect', () => {
