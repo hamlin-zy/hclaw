@@ -1,16 +1,10 @@
 // ── 系统/状态事件处理器 ────────────────────────────
-// intent_analyzed, mode_change, context_compacted, compact_status,
-// hook_result, compact_persisted, tasks_update, llm_call_done, command_start
+// intent_analyzed, mode_change, hook_result,
+// tasks_update, llm_call_done, command_start
 
 import type {StreamCtx} from './streamContext'
 import {createDefaultConvData} from '../defaultState'
 import {useConversationStore} from '../../conversationStore'
-import {
-    clearTextBatch,
-} from '../batching/textBatch'
-import {
-    clearToolResultBatchData,
-} from '../batching/toolResultBatch'
 
 export function handleIntentAnalyzed(ctx: StreamCtx) {
     const {get, convId, isAgentAborted, event} = ctx
@@ -36,32 +30,6 @@ export function handleModeChange(ctx: StreamCtx) {
     }))
 }
 
-export function handleContextCompacted(ctx: StreamCtx) {
-    const {get, convId, isAgentAborted, event} = ctx
-    if (isAgentAborted) return
-    const convState = get().convAgentStates[convId] || createDefaultConvData()
-    const convStore = useConversationStore.getState()
-    if (convState.streamingMessageId && event.message) {
-        const compactText = `\n\n> 📦 ${event.message}`
-        const compactContent = convState.streamBuffer + compactText
-        convStore.updateMessageForConv(convId, convState.streamingMessageId, {
-            content: compactContent,
-        })
-        get().updateConvData(convId, {streamBuffer: compactContent})
-    }
-}
-
-export function handleCompactStatus(ctx: StreamCtx) {
-    const {set, isAgentAborted, event} = ctx
-    if (isAgentAborted) return
-    const compactStatus = event.compactStatus
-    if (compactStatus === 'compacting') {
-        set({compactInProgress: true})
-    } else if (compactStatus === 'completed') {
-        set({compactInProgress: false})
-    }
-}
-
 export function handleHookResult(ctx: StreamCtx) {
     const {get, isAgentAborted, event} = ctx
     if (isAgentAborted) return
@@ -76,35 +44,6 @@ export function handleHookResult(ctx: StreamCtx) {
         error: hr.error,
         timestamp: Date.now(),
         conversationId: convId,
-    })
-}
-
-export async function handleCompactPersisted(ctx: StreamCtx) {
-    const {get, set, convId, isAgentAborted, event} = ctx
-    if (isAgentAborted || !convId) return
-
-    clearTextBatch(convId)
-    clearToolResultBatchData(convId)
-
-    get().updateConvData(convId, {
-        streamingMessageId: null,
-        streamBuffer: '',
-        thinkingContent: null,
-        streamBlocks: [],
-        isThinkingAfterTools: false,
-        runningToolCount: 0,
-    })
-
-    useConversationStore.getState().cancelPendingSave()
-    await useConversationStore.getState().loadMessages(convId)
-    set({
-        compactStats: {
-            beforeTokens: event.beforeTokens,
-            afterTokens: event.afterTokens,
-            savedTokens: event.savedTokens,
-            compactedMessages: event.compactedMessages,
-            showBanner: true,
-        },
     })
 }
 
