@@ -7,7 +7,7 @@ import {BrowserWindow} from 'electron'
 import * as path from 'path'
 import {WORKER_MESSAGE_TYPES} from './constants'
 import type {AgentStreamEvent} from './stream'
-import type {AgentTemplate, LlmCallLog, SystemSettings} from '@shared/types'
+import type {AgentTemplate, LlmCallLog, Message, SystemSettings} from '@shared/types'
 import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import type {ChatMessage, ModelConfig} from './model/types'
 import {permissionEngine} from './tools/permission'
@@ -34,7 +34,7 @@ import {
   SKIP_LOG_EVENT_TYPES,
 } from './manager.constants'
 import {createPendingMsg, normalizeToolResult} from './manager.accumulator'
-import {doMergeAndPersist} from './manager.persister'
+
 import {loadPluginAgents} from './manager.pluginAgents'
 import {createConversationRepository} from '../repositories'
 
@@ -405,7 +405,7 @@ export class AgentManager {
     if (event.type === 'user_message_injected') {
       const oldPending = this.pendingAssistantMsg.get(conversationId)
       if (oldPending) {
-        await doMergeAndPersist(conversationId, oldPending, true)
+        await this.#mergeAndPersist(conversationId, oldPending, true)
       }
       this.pendingAssistantMsg.set(conversationId, null)
       // 将旧 messageId 附带在事件上，让渲染进程知道哪个消息已完成
@@ -457,18 +457,6 @@ export class AgentManager {
       this.logLlmCall((event as {subAgentStreamEvent: AgentStreamEvent}).subAgentStreamEvent as Extract<AgentStreamEvent, {type: 'llm_call_done'}>)
     }
 
-    // compact_persist 事件
-    if (event.type === 'compact_persist') {
-      await this.handleCompactPersist(conversationId, event as {
-        messages: ChatMessage[]
-        beforeTokens: number
-        afterTokens: number
-        savedTokens: number
-        message: string
-      })
-      return
-    }
-
     // done 事件
     if (event.type === 'done') {
       const doneEvent = event as {type: 'done'; reason: 'completed' | 'aborted' | 'error'}
@@ -515,6 +503,136 @@ export class AgentManager {
     }
   }
 
+  /**
+   * 合并 pending assistant 消息并写入 SQLite（核心方法）
+   *
+   * 使用 UPSERT 只写入/更新该条 assistant 消息及其 blocks，
+   * 不再做 DELETE ALL + REINSERT ALL，避免并发写入导致消息丢失。
+   *
+   * @param isFinal - 是否为最终写入（done/error），会影响 thinkBlock 状态和 endedAt
+   */
+  async #mergeAndPersist(
+    conversationId: string,
+    pending: PendingAssistantMsg | null | undefined,
+    isFinal: boolean,
+  ): Promise<void> {
+    if (!pending || (!pending.content && pending.toolCalls.length === 0 && !pending.thinkContent)) {
+      return
+    }
+
+    const {getDatabase, saveDatabase} = await import('../repositories/sqlite')
+    const db = getDatabase()
+    const now = Date.now()
+
+    // ★ 块级增量模型保险丝：渲染端已在段边界精细落库（有 blocks）。
+    //   此时只补 endedAt/缺失字段（setMessageEnded 原语），绝不 DELETE+全量 INSERT 覆盖精细块。
+    const {createConversationRepository} = await import('../repositories')
+    const convRepo = createConversationRepository()
+    const existingBlocks = db.prepare('SELECT COUNT(*) AS c FROM message_blocks WHERE message_id = ?').get(pending.id) as {c: number}
+    if ((existingBlocks?.c ?? 0) > 0) {
+      if (isFinal) {
+        convRepo.setMessageEnded(conversationId, pending.id, now)
+      }
+      return
+    }
+    // ↓ 以下为现状全量写路径（仅"无 blocks"消息——如渲染进程崩溃从未落库）
+
+    const {messageToBlocks} = await import('../repositories/sqlite/messageBlockHelper')
+
+    // 读取写入前的消息数
+    const beforeUserRows = db.prepare(
+      'SELECT id, role FROM messages WHERE conversation_id = ? AND role = ? ORDER BY timestamp ASC'
+    ).all(conversationId, 'user') as Array<{id: string; role: string}>
+
+    const msg: Message = {
+      id: pending.id,
+      role: 'assistant',
+      content: pending.content,
+      timestamp: pending.timestamp,
+      endedAt: isFinal ? now : undefined,
+      toolCalls: pending.toolCalls.length > 0 ? pending.toolCalls : undefined,
+      thinkBlock: pending.thinkContent
+        ? {
+            id: `think-${pending.id}`,
+            content: pending.thinkContent,
+            status: isFinal ? 'complete' : 'thinking',
+            timestamp: now,
+          }
+        : undefined,
+    }
+
+    const {messages: [msgRecord], blocks} = messageToBlocks(msg, conversationId)
+
+    // ★ 修复重复消息：读取已有 llm_stats，避免 INSERT OR REPLACE 将其覆盖为 null
+    // （渲染进程可能已通过 writeMessages 或 updateMessageLlmStats IPC 提前写入）
+    const existingRow = db.prepare(
+      'SELECT llm_stats FROM messages WHERE id = ?'
+    ).get(pending.id) as { llm_stats: string | null } | undefined
+    const existingLlmStats = existingRow?.llm_stats
+
+    // 使用事务包裹：先重查块数（TOCTOU 防护）→ 再删旧 blocks → UPSERT message → 写入新 blocks
+    let raced = false
+    db.transaction(() => {
+      // ★ TOCTOU 防护（review 修复）：上面的 await import(...) 让出的时间片内，
+      //   渲染端可能已把精细块落库——若此时仍走"无 blocks"分支的 DELETE + 全量 INSERT，
+      //   会删掉渲染端刚写的块并用主进程截断版覆盖（违反不变式"已落库块永不重写"）。
+      //   故在事务内重查块数：一旦出现块 → 放弃全量写，退化为只补 endedAt。
+      const recheck = db.prepare('SELECT COUNT(*) AS c FROM message_blocks WHERE message_id = ?').get(pending.id) as {c: number}
+      if ((recheck?.c ?? 0) > 0) {
+        raced = true
+        if (isFinal) {
+          convRepo.setMessageEnded(conversationId, pending.id, now)
+        }
+        return
+      }
+      db.prepare('DELETE FROM message_blocks WHERE message_id = ?').run(pending.id)
+      db.prepare(
+        'INSERT OR REPLACE INTO messages (id, conversation_id, role, timestamp, ended_at, metadata, llm_stats, is_partial) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(
+        msgRecord.id,
+        conversationId,
+        msgRecord.role,
+        msgRecord.timestamp,
+        msgRecord.endedAt ?? null,
+        JSON.stringify(msgRecord.metadata),
+        existingLlmStats ?? null,
+        isFinal ? 0 : 1,
+      )
+
+      const blockStmt = db.prepare(
+        'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      for (const block of blocks) {
+        blockStmt.run(
+          block.id,
+          block.messageId,
+          block.blockType,
+          block.content,
+          block.data,
+          block.sequence,
+          block.timestamp,
+          block.endedAt ?? null,
+        )
+      }
+    })()
+    if (raced) return
+    saveDatabase()
+
+    // 检查 user 消息是否丢失
+    const afterUserRows = db.prepare(
+      'SELECT id, role FROM messages WHERE conversation_id = ? AND role = ? ORDER BY timestamp ASC'
+    ).all(conversationId, 'user') as Array<{id: string; role: string}>
+    if (afterUserRows.length < beforeUserRows.length) {
+      const missing = beforeUserRows.filter(b => !afterUserRows.find(a => a.id === b.id))
+      logger.error('[AgentManager] user消息减少', {
+        before: beforeUserRows.length,
+        after: afterUserRows.length,
+        missingIds: missing.map(r => r.id?.slice(0, 8)).join(','),
+        conversationId,
+      })
+    }
+  }
+
   /** 处理渠道媒体文件发送 */
   private async handleChannelSendMedia(
     _worker: Worker,
@@ -532,44 +650,13 @@ export class AgentManager {
     }
   }
 
-  /** 处理 compact_persist 事件 */
-  private async handleCompactPersist(
-    conversationId: string,
-    event: {
-      messages: ChatMessage[]
-      beforeTokens: number
-      afterTokens: number
-      savedTokens: number
-      message: string
-    },
-  ): Promise<void> {
-    const {persistCompactedMessages} = await import('./manager.persister')
-    const persisted = await persistCompactedMessages(conversationId, event)
-    if (persisted) {
-      this.forwardToRenderer(conversationId, {
-        type: 'compact_persisted',
-        beforeTokens: event.beforeTokens,
-        afterTokens: event.afterTokens,
-        savedTokens: event.savedTokens,
-        compactedMessages: event.messages.length, // 类型按 stream.ts 定义
-        message: event.message,
-      })
-    } else {
-      logger.error('[TRACE-compact_persist] 持久化失败')
-      this.forwardToRenderer(conversationId, {
-        type: 'error',
-        error: '压缩结果持久化失败，历史消息未变更',
-      })
-    }
-  }
-
   /** 处理 done 事件 */
   private async handleDoneEvent(
     conversationId: string,
     event: {type: 'done'; reason: 'completed' | 'aborted' | 'error'},
   ): Promise<void> {
     try {
-      await doMergeAndPersist(conversationId, this.pendingAssistantMsg.get(conversationId), true)
+      await this.#mergeAndPersist(conversationId, this.pendingAssistantMsg.get(conversationId), true)
     } catch (err) {
       logger.error('[AgentManager] 持久化异常', {error: err})
     }
@@ -595,7 +682,7 @@ export class AgentManager {
   /** 处理 error 事件 */
   private async handleErrorEvent(conversationId: string, errorMsg: string): Promise<void> {
     try {
-      await doMergeAndPersist(conversationId, this.pendingAssistantMsg.get(conversationId), true)
+      await this.#mergeAndPersist(conversationId, this.pendingAssistantMsg.get(conversationId), true)
     } catch (err) {
       logger.error('[AgentManager] 持久化异常', {error: err})
     }
@@ -615,7 +702,7 @@ export class AgentManager {
 
     try {
       // 1. 持久化当前 pending assistant 消息（如果有）
-      await doMergeAndPersist(conversationId, this.pendingAssistantMsg.get(conversationId), true)
+      await this.#mergeAndPersist(conversationId, this.pendingAssistantMsg.get(conversationId), true)
       this.pendingAssistantMsg.set(conversationId, null)
 
       // 2. 将残留消息写入会话历史

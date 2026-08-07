@@ -6,8 +6,6 @@
  * - manager.types.ts: 类型定义
  * - manager.constants.ts: 常量定义
  * - manager.accumulator.ts: 流事件累积器
- * - manager.persister.ts: 消息持久化器
- * - manager.backup.ts: 消息备份工具
  * - manager.pluginAgents.ts: 插件 Agent 加载器
  */
 
