@@ -273,16 +273,14 @@ export function registerHandlers(): void {
                 // system 消息跳过（由 systemPrompt 处理）
             }
 
-            const messages: AgentStartParams['messages'] = [
-                ...convertedMessages,
-                {
-                    role: 'user' as const,
-                    content: userMessageContent,
-                    // 将消息元数据传递给 Worker，供 Agent Loop 识别命令模式
-                    metadata: params.messageMetadata,
-                    id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                },
-            ]
+            const messages = convertedMessages as AgentStartParams['messages']
+            messages.push({
+                role: 'user' as const,
+                content: userMessageContent,
+                // 将消息元数据传递给 Worker，供 Agent Loop 识别命令模式
+                metadata: params.messageMetadata,
+                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            })
             // 诊断：统计构建后的 tool 消息数量
             const toolMsgCount = messages.filter(m => m.role === 'tool').length
             const assistantWithTcCount = messages.filter(m => m.role === 'assistant' && (m.toolCalls?.length ?? 0) > 0).length
