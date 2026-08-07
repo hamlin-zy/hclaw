@@ -255,6 +255,17 @@ export function useScrollToBottom({
         setNewMessageCount(0)
     }, [])
 
+    // ── 窗口恢复可见时延迟滚动（先呈现首帧，避免恢复瞬间大 DOM 同步布局） ──
+    useEffect(() => {
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible' && hasInitializedRef.current) {
+                window.setTimeout(() => doScrollToBottom(true), 100)
+            }
+        }
+        document.addEventListener('visibilitychange', onVisibility)
+        return () => document.removeEventListener('visibilitychange', onVisibility)
+    }, [doScrollToBottom])
+
     return {
         showScrollToBottom,
         scrollToBottom: scrollToBottomButton,
