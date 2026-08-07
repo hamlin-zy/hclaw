@@ -148,3 +148,92 @@ describe('用户命令上下文透传（/能力 徽章持久化链路）', () =>
         expect(record.metadata?.commandArgs).toBeUndefined()
     })
 })
+
+describe('块 id 统一规范（主进程去前缀 + 渲染侧 cb.id 直存）', () => {
+    it('新路径块 id 不嵌套（直接采用渲染侧 cb.id）', () => {
+        const msg: Message = {
+            id: 'm1', role: 'assistant', content: '', timestamp: 1000,
+            contentBlocks: [
+                {id: 'think-m1-0', type: 'think', thinkBlock: {id: 'think-m1-0', content: '思考', status: 'complete', timestamp: 1}},
+                {id: 'text-m1-0', type: 'text', text: '正文'},
+                {id: 'tool-tc1', type: 'tool_use', toolCall: {id: 'tc1', name: 'bash', arguments: {}, status: 'running', textOffset: 2}},
+            ],
+        }
+        const {blocks} = messageToBlocks(msg, 'conv-1')
+        expect(blocks.map(b => b.id)).toEqual(['think-m1-0', 'text-m1-0', 'm1-tc-tc1'])
+        // 断言无嵌套：id 中不应出现 `${msg.id}-` 包裹其他 id 的形态
+        expect(blocks.every(b => !b.id.includes('m1-text-m1') && !b.id.includes('m1-think-m1'))).toBe(true)
+    })
+
+    it('blocksToMessage 在新 id 规范下 round-trip 还原 contentBlocks', () => {
+        const msg: Message = {
+            id: 'm1', role: 'assistant', content: '', timestamp: 1000,
+            contentBlocks: [
+                {id: 'think-m1-0', type: 'think', thinkBlock: {id: 'think-m1-0', content: '思考', status: 'complete', timestamp: 1}},
+                {id: 'text-m1-0', type: 'text', text: '正文'},
+            ],
+        }
+        const {messages: [record], blocks} = messageToBlocks(msg, 'conv-1')
+        const restored = blocksToMessage(record, blocks)
+        expect(restored.contentBlocks?.map(cb => cb.id)).toEqual(['think-m1-0', 'text-m1-0'])
+    })
+
+    it('工具前后两个不同 think id（think-m1-0 / think-m1-1）各产生独立块，不互相覆盖（回归保护）', () => {
+        // 对应渲染侧 think id 段序号派生（Task 1）：同一消息两个 think 段 offset 相同但 id 不同，
+        // 落库后两块都在（INSERT OR REPLACE 按 id 主键不再互相覆盖）
+        const msg: Message = {
+            id: 'm1', role: 'assistant', content: '', timestamp: 1000,
+            contentBlocks: [
+                {id: 'think-m1-0', type: 'think', thinkBlock: {id: 'think-m1-0', content: '工具前思考', status: 'complete', timestamp: 1}},
+                {id: 'text-m1-0', type: 'text', text: '正文'},
+                {id: 'tool-tc1', type: 'tool_use', toolCall: {id: 'tc1', name: 'bash', arguments: {}, status: 'running', textOffset: 0}},
+                {id: 'think-m1-1', type: 'think', thinkBlock: {id: 'think-m1-1', content: '工具后思考', status: 'complete', timestamp: 2}},
+            ],
+        }
+        const {messages: [record], blocks} = messageToBlocks(msg, 'conv-1')
+        const thinkBlocks = blocks.filter(b => b.blockType === 'think')
+        expect(thinkBlocks.map(b => b.id).sort()).toEqual(['think-m1-0', 'think-m1-1'])
+        expect(thinkBlocks.map(b => b.content).sort()).toEqual(['工具前思考', '工具后思考'])
+        // 两块都能经 blocksToMessage 还原（不互相覆盖）
+        const restored = blocksToMessage(record, blocks)
+        const restoredThink = restored.contentBlocks?.filter(cb => cb.type === 'think')
+        expect(restoredThink?.map(cb => cb.id).sort()).toEqual(['think-m1-0', 'think-m1-1'])
+    })
+
+    it('同一 think 段幂等 UPDATE 语义：同 id 单行后写内容 → blocksToMessage 仅一个块且为后写', () => {
+        // think 段内多次 flush 不产生新块：同 id 的 INSERT OR REPLACE 是幂等更新。
+        // 两次写入后 DB 中只有一行（后写内容），读回经 blocksToMessage 不得出现重复 think 块
+        const msg: Message = {
+            id: 'm1', role: 'assistant', content: '', timestamp: 1000,
+            contentBlocks: [
+                {id: 'think-m1-0', type: 'think', thinkBlock: {id: 'think-m1-0', content: '思考1思考2', status: 'complete', timestamp: 3}},
+            ],
+        }
+        const {messages: [record], blocks} = messageToBlocks(msg, 'conv-1')
+        const thinkBlocks = blocks.filter(b => b.blockType === 'think')
+        expect(thinkBlocks).toHaveLength(1)
+        expect(thinkBlocks[0].id).toBe('think-m1-0')
+        expect(thinkBlocks[0].content).toBe('思考1思考2')
+        const restored = blocksToMessage(record, blocks)
+        expect(restored.contentBlocks?.filter(cb => cb.type === 'think')).toHaveLength(1)
+        expect(restored.contentBlocks?.find(cb => cb.type === 'think')).toMatchObject({
+            id: 'think-m1-0',
+        })
+    })
+
+    it('text 块 id 仍为 text-${msgId}-${offset}，不随 think id 改动受影响', () => {
+        const msg: Message = {
+            id: 'm1', role: 'assistant', content: '', timestamp: 1000,
+            contentBlocks: [
+                {id: 'think-m1-0', type: 'think', thinkBlock: {id: 'think-m1-0', content: '思考', status: 'complete', timestamp: 1}},
+                {id: 'text-m1-5', type: 'text', text: '偏移5正文'},
+            ],
+        }
+        const {messages: [record], blocks} = messageToBlocks(msg, 'conv-1')
+        const textBlock = blocks.find(b => b.blockType === 'text')
+        expect(textBlock?.id).toBe('text-m1-5')
+        expect(textBlock?.content).toBe('偏移5正文')
+        const restored = blocksToMessage(record, blocks)
+        expect(restored.contentBlocks?.find(cb => cb.type === 'text')?.id).toBe('text-m1-5')
+    })
+})
