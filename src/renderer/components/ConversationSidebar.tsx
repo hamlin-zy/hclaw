@@ -645,24 +645,32 @@ function ConversationList() {
     //    此 effect 负责子会话和独立会话场景的展开/折叠。
     //    只依赖 activeConversationId：用户手动折叠当前父会话不会触发本 effect（依赖不变），
     //    因此「激活的父会话始终展开其子会话」不会覆盖用户的手动折叠。
+    //    ★ 同一时刻只允许一个父会话分支展开：新展开集合 = active 的祖先链 ∪ { active 自身（若有子） }，
+    //    其余父会话一律折叠 —— 修复「父会话 A ↔ B 切换时旧父会话不折叠」的问题。
     useEffect(() => {
         if (!activeConversationId) return
         const activeConv = filtered.find(c => c.id === activeConversationId)
         if (!activeConv) return
 
         setExpandedParentIds(prev => {
-            const next = new Set(prev)
+            // 需要保持展开的父级：active 的祖先链 + active 自身（若其有子会话）
+            const keep = new Set<string>()
             if (activeConv.parentConvId) {
-                // 切换到子会话 → 展开其全部祖先（同族内导航，支持多级嵌套）
-                return addSelfAndAncestors(next, convById, activeConv.parentConvId)
+                addSelfAndAncestors(keep, convById, activeConv.parentConvId)
             }
             if (childrenMap.has(activeConv.id)) {
-                // 激活的父会话 → 始终展开其子会话列表（含启动初始化场景）
-                next.add(activeConv.id)
-                return next
+                keep.add(activeConv.id)
             }
-            // 切换到独立会话（无子、无父） → 清空所有已展开的父会话
-            return new Set<string>()
+
+            // 折叠不在 keep 内的父会话，并确保 keep 内的父会话均展开
+            const next = new Set<string>()
+            for (const id of prev) {
+                if (keep.has(id)) next.add(id)
+            }
+            for (const id of keep) {
+                next.add(id)
+            }
+            return next
         })
     }, [activeConversationId])
 
