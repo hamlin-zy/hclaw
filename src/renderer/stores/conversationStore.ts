@@ -1224,6 +1224,12 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const state = get()
           const keepIds = state.renderedConversationIds.filter(id => {
               if (id === state.activeConversationId) return true
+              // ★ Agent 保护：运行中或等待用户交互的会话不允许清理
+              const agentConv = useAgentStore.getState().convAgentStates[id]
+              if (agentConv?.agentState?.status === 'running' ||
+                  agentConv?.agentState?.status === 'thinking') return true
+              if (agentConv?.pendingPermissionConfirm ||
+                  agentConv?.pendingQuestion) return true
               const lastActive = state.conversationLastActiveAt[id] ?? 0
               return now - lastActive < TEN_MIN_MS
           })
