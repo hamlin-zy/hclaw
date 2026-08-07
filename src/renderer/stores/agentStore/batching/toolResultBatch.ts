@@ -13,6 +13,16 @@ let toolResultBatches: Record<string, Map<string, PendingToolResultUpdate>> = {}
 /** 全局 RAF 调度 */
 let globalToolResultFlushScheduled = false
 
+/** 隐藏冻结：hidden 时已注册一次性 visibilitychange 监听（避免重复注册） */
+let hiddenFlushRegistered = false
+
+/** 合并 flush 全部会话的积压 batch（rAF 与 visibilitychange 恢复共用） */
+function flushAllBatches(): void {
+    for (const cId of Object.keys(toolResultBatches)) {
+        flushToolResultBatch(cId)
+    }
+}
+
 export function getToolResultBatch(convId: string): Map<string, PendingToolResultUpdate> {
     if (!toolResultBatches[convId]) {
         toolResultBatches[convId] = new Map()
@@ -64,13 +74,26 @@ export function scheduleToolResultUpdate(convId: string, msgId: string, toolCall
     const batch = getToolResultBatch(convId)
     batch.set(toolCallId, {toolCallId, result})
 
+    // ★ 隐藏冻结：窗口 hidden 时只累积，注册一次性 visibilitychange，visible 时合并 flush
+    if (typeof document !== 'undefined' && document.hidden) {
+        if (!hiddenFlushRegistered) {
+            hiddenFlushRegistered = true
+            document.addEventListener('visibilitychange', function onVis() {
+                if (document.visibilityState === 'visible') {
+                    document.removeEventListener('visibilitychange', onVis)
+                    hiddenFlushRegistered = false
+                    flushAllBatches()
+                }
+            })
+        }
+        return
+    }
+
     if (globalToolResultFlushScheduled) return
     globalToolResultFlushScheduled = true
     requestAnimationFrame(() => {
         globalToolResultFlushScheduled = false
-        for (const cId of Object.keys(toolResultBatches)) {
-            flushToolResultBatch(cId)
-        }
+        flushAllBatches()
     })
 }
 
