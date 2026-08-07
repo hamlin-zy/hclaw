@@ -87,33 +87,6 @@ export type AgentStreamEvent =
     }>;
     systemPrompt?: string;
   }
-  | {
-    type: 'context_compacted';
-    beforeTokens: number;
-    afterTokens: number;
-    savedTokens: number;
-    compactedMessages: number;
-    preservedInfo: string[];
-    message: string;
-  }
-  | { type: 'compact_status'; compactStatus: 'waiting' | 'compacting' | 'completed' }
-    | {
-    type: 'compact_persist';
-    messages: import('./model/types').ChatMessage[];
-    beforeTokens: number;
-    afterTokens: number;
-    savedTokens: number;
-    compactedMessages: number;
-    message: string;
-}
-    | {
-    type: 'compact_persisted';
-    beforeTokens: number;
-    afterTokens: number;
-    savedTokens: number;
-    compactedMessages: number;
-    message: string;
-}
   | { type: 'permission-rules-updated' }
   | { type: 'tasks_update'; tasks: import('../../shared/types').Task[] }
     | {
