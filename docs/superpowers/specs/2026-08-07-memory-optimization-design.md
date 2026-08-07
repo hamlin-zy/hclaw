@@ -88,12 +88,19 @@ if (agentConv?.pendingPermissionConfirm ||
 迁移 `034_message_indexes.sql`（按项目编号规范，续在 `033_message_partial.sql` 之后）：
 
 ```sql
--- 替换单列索引为复合索引：同时覆盖 WHERE + ORDER BY，消除文件排序
+-- messages 表：替换单列索引为复合索引
 DROP INDEX IF EXISTS idx_messages_conversation_id;
 CREATE INDEX idx_messages_conv_ts ON messages(conversation_id, timestamp);
+
+-- message_blocks 表：复合索引覆盖 WHERE + ORDER BY
+-- buildMessagesFromRows 查询: WHERE message_id IN (...) ORDER BY message_id, sequence
+DROP INDEX IF EXISTS idx_message_blocks_message_id;
+CREATE INDEX idx_message_blocks_msg_seq ON message_blocks(message_id, sequence);
 ```
 
-受益方：`readMessages`（WHERE + ORDER BY timestamp ASC）、`readMessagesTail`（WHERE + ORDER BY timestamp DESC LIMIT N）、`readMessagesBefore`（WHERE + ORDER BY + LIMIT）。复合索引替代原 `idx_messages_conversation_id`（仅覆盖 WHERE），排序列直接从索引读取无需额外步骤。
+messages 受益：`readMessages` / `readMessagesTail` / `readMessagesBefore`（WHERE 覆盖 + 消除临时排序）。
+
+message_blocks 受益：`buildMessagesFromRows`（172 blocks / 21 messages 的会话，`WHERE message_id IN (21 ids) ORDER BY message_id, sequence` 可直接走索引，无需额外排序——blocks 表的数据量是 messages 表的 8 倍，这块收益更大）。
 
 ### Part D: 死代码清理
 
