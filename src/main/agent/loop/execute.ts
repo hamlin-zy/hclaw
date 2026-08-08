@@ -11,7 +11,7 @@ import type {ChatMessage} from '../model/types'
 import type {ModelConfig} from '../model/types'
 import type {ToolContext, ToolDefinitionForLLM} from '../tools/types'
 import type {LoopState as AgentLoopState} from '../state'
-import type {ModelRole, WorkMode} from '@shared/types'
+import type {ModelRole} from '@shared/types'
 import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import type {RunParams, LlmStreamResult, ToolExecutionResult} from './types'
 
@@ -21,19 +21,15 @@ import {addMessage} from '../state'
 import {PreprocessCache} from './preprocessCache'
 import {logger} from '../logger'
 import {permissionEngine} from '../tools/permission'
-import {runtimeConfigManager} from '../runtimeConfigManager'
-import {getSchemeVersion} from '../model/modelSchemeManager'
 import {isThirdPartyAnthropicAPI} from '../model/utils'
 import {classifyErrorEnhanced} from '../common/errorClassifier'
 import {LLM_TIMEOUT_MS, sleep, TimeoutError, withTimeout} from '../../utils/retry'
 import {hookExecutor, type HookResult} from '../../plugin/hooks'
 import {attachMediaBlocksToMessage, extractMediaBlocksFromToolResults} from '../mediaExtractor'
 import {isVisionModel, sanitizeMessagesForModel, sanitizeThinkingForModel} from './helpers'
-import {container, DI_TOKENS} from '../common/container'
-import type {ToolRegistry} from '../tools/registry'
-import {checkAdapterNeedsRecreate, recreateAdapter} from './setup'
+import {getToolRegistry} from '../tools/registry'
 
-const toolRegistry: ToolRegistry = container.get<ToolRegistry>(DI_TOKENS.ToolRegistry)
+const toolRegistry = getToolRegistry()
 
 // ═══════════════════════════════════════════════════════════
 //  LLM 调用（含重试）
@@ -94,9 +90,7 @@ export async function* executeLlmCallWithRetry(
     let currentDelay = getSettings()?.agent.initialRetryDelay ?? 5000
 
     const llmStartTime = Date.now()
-    let adapter = (llmCaller as any)['adapter']
-    let lastSchemeVersion: number | null = null
-    let lastWorkMode: WorkMode = runtimeConfigManager.getWorkMode()
+    let adapter: any = null
     let currentProvider: string = modelConfig.provider
     let currentModel: string = modelConfig.model
     let currentConfigSource: string = 'fallback'
@@ -112,20 +106,19 @@ export async function* executeLlmCallWithRetry(
         const collectedToolCalls: Array<{id: string; name: string; arguments: Record<string, unknown>}> = []
 
         try {
-            // ── 重建适配器（如需） ──
-            const needsRecreate = checkAdapterNeedsRecreate(adapter, lastSchemeVersion, lastWorkMode)
-            if (needsRecreate) {
-                const recreateResult = yield* recreateAdapter(
-                    params, modelConfig, workModeRole,
-                )
-                adapter = recreateResult.adapter
-                currentProvider = recreateResult.providerType
-                currentModel = recreateResult.modelId
-                currentConfigSource = recreateResult.configSource
-                currentSchemeName = recreateResult.schemeName ?? currentSchemeName
-                lastSchemeVersion = getSchemeVersion().version
-                lastWorkMode = runtimeConfigManager.getWorkMode()
-            }
+            // ── 获取/重建适配器（收归 LLMCaller，含 schemeVersion + workMode 检测） ──
+            const adapterResult = await llmCaller.getAdapter(
+                'main',
+                workModeRole as any,
+                modelConfig,
+                params.schemeUpdatePromise,
+                abortSignal,
+            )
+            adapter = adapterResult.adapter
+            currentProvider = adapterResult.providerType
+            currentModel = adapterResult.modelId
+            currentConfigSource = adapterResult.configSource
+            currentSchemeName = adapterResult.schemeName ?? currentSchemeName
 
             // ── 归一化消息历史（增量缓存） ──
             const normalizedMessages = preprocessCache.process(state.messages || [])
