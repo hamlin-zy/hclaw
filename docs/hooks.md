@@ -79,8 +79,8 @@ Command hook 可以通过 stdout 输出 JSON 来控制决策：
 | SessionStart | 会话启动 | command/prompt/http/agent | - |
 | SessionEnd | 会话清理/结束 | command/http | - |
 | UserPromptSubmit | 用户消息提交后 | command/prompt/agent | - |
-| ThinkStart | LLM 思考开始 | command/function/http | - |
-| ThinkEnd | LLM 思考结束 | command/function/http | - |
+| ThinkStart | LLM 开始产生思考内容（首段 thinking/reasoning chunk 出现时触发；与 ThinkEnd 成对） | command/function/http | - |
+| ThinkEnd | LLM 思考结束（产生过思考内容时触发） | command/function/http | - |
 | PreToolUse | 工具执行前 | command/prompt/agent | ✓ |
 | PostToolUse | 工具执行成功 | command/http/prompt | ✓ |
 | PostToolUseFailure | 工具执行失败 | command/http | ✓ |

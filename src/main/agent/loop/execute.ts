@@ -109,7 +109,7 @@ export async function* executeLlmCallWithRetry(
             // ── 获取/重建适配器（收归 LLMCaller，含 schemeVersion + workMode 检测） ──
             const adapterResult = await llmCaller.getAdapter(
                 'main',
-                workModeRole as any,
+                workModeRole,
                 modelConfig,
                 params.schemeUpdatePromise,
                 abortSignal,
@@ -211,11 +211,6 @@ export async function* executeLlmCallWithRetry(
                 ? `${systemPrompt}\n\n## 当前命令任务\n\n${commandTemplate}`
                 : systemPrompt
 
-            // ── 触发 ThinkStart Hook（仅推理模式——effectiveThinkingEffort 存在时） ──
-            if (effectiveThinkingEffort) {
-                hookExecutor.execute('ThinkStart', {sessionId}).catch(() => {})
-            }
-
             const rawStream = adapter.chat({
                 systemPrompt: effectiveSystemPrompt,
                 ...(isAnthropic && commandTemplate ? {commandTemplate} : {}),
@@ -241,6 +236,7 @@ export async function* executeLlmCallWithRetry(
             let reasoningTokens = 0
             let assistantThinkingSignature = ''
             let producedThinking = false
+            let thinkStarted = false
 
             for await (const chunk of stream) {
                 if (abortSignal?.aborted) break
@@ -253,11 +249,19 @@ export async function* executeLlmCallWithRetry(
                     contentParts.push(chunk.content)
                     yield {type: 'text', content: chunk.content}
                 } else if (chunk.type === 'thinking') {
-                    producedThinking = true
+                    if (!thinkStarted) {
+                        thinkStarted = true
+                        producedThinking = true
+                        hookExecutor.execute('ThinkStart', {sessionId}).catch(() => {})
+                    }
                     thinkingParts.push(chunk.content)
                     yield {type: 'thinking', content: chunk.content}
                 } else if (chunk.type === 'reasoning') {
-                    producedThinking = true
+                    if (!thinkStarted) {
+                        thinkStarted = true
+                        producedThinking = true
+                        hookExecutor.execute('ThinkStart', {sessionId}).catch(() => {})
+                    }
                     reasoningParts.push(chunk.content)
                     yield {type: 'thinking', content: chunk.content}
                 } else if (chunk.type === 'tool_use') {
