@@ -514,6 +514,23 @@ function SearchInput() {
 
 /* ─── Conversation List ─── */
 
+/**
+ * 将会话 id 及其全部祖先加入集合（自近及远），返回集合引用。
+ * convById 为会话 id→对象 映射，T 只需满足 parentConvId?: string 即可。
+ */
+function addSelfAndAncestors<T extends {parentConvId?: string}>(
+    set: Set<string>,
+    convById: Map<string, T>,
+    id: string,
+): Set<string> {
+    let cur: string | null = id
+    while (cur) {
+        set.add(cur)
+        cur = convById.get(cur)?.parentConvId || null
+    }
+    return set
+}
+
 function ConversationList() {
   const currentWorkspacePath = useConversationStore((s) => s.currentWorkspacePath)
     const getFilteredConversations = useConversationStore((s) => s.getFilteredConversations)
@@ -529,7 +546,7 @@ function ConversationList() {
         parentConvId?: string;
     } | null>(null)
     const [renamingId, setRenamingId] = useState<string | null>(null)
-    const [expandedParentId, setExpandedParentId] = useState<string | null>(null)
+    const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set())
     const listRef = useRef<HTMLDivElement>(null)
 
     // 监听全局点击以关闭菜单
@@ -574,9 +591,14 @@ function ConversationList() {
         return map
     }, [childrenMap])
 
+    // id → conversation 映射，供祖先链查找复用
+    const convById = useMemo(() => new Map(filtered.map(c => [c.id, c])), [filtered])
+
     // ★ 新子会话自动展开父级：检测 childrenMap 变化，新出现的子会话 → 展开其父会话
     //   注意：prevChildrenRef 初始为 null，首次渲染跳过（避免启动时把所有父会话展开一轮，
     //   覆盖掉「激活会话展开」逻辑）；后续 childrenMap 变化时只展开真正新增的子会话的父级。
+    //   同时沿 parentConvId 链向上展开所有祖先，确保二级子会话出现时其父（一级子会话）
+    //   与其祖父（主会话）都处于展开态，侧栏才能完整显示嵌套树。
     const prevChildrenRef = useRef<Map<string, Set<string>> | null>(null)
     useEffect(() => {
         const current = new Map<string, Set<string>>()
@@ -590,8 +612,9 @@ function ConversationList() {
                 const prevIds = prev.get(parentId) || new Set<string>()
                 for (const cid of childIds) {
                     if (!prevIds.has(cid)) {
-                        // 新子会话出现 → 展开父会话
-                        setExpandedParentId(parentId)
+                        // 新子会话出现 → 展开其父会话及其所有祖先
+                        setExpandedParentIds(prevSet =>
+                            addSelfAndAncestors(new Set(prevSet), convById, parentId))
                         break
                     }
                 }
@@ -601,37 +624,53 @@ function ConversationList() {
     }, [childrenMap])
 
     // ★ handleParentClick 必须在早期 return 之前声明（React Hooks 规则）
-    // expandedParentId: 当前展开的父会话 ID（null = 所有父会话子会话折叠）。
-    // 切换到其他父会话时自动替换（失焦父会话自动折叠），点击当前父会话切换展开/折叠。
+    // expandedParentIds: 已展开的父会话 ID 集合（空 = 所有父会话子会话折叠）。
+    // 点击父会话在集合中切换展开/折叠；激活子会话时自动展开其全部祖先（见下方 effect）。
     const handleParentClick = useCallback((convId: string, isCurrentlyActive: boolean, activeChildOfThisParent: boolean) => {
-        setExpandedParentId(prev => {
+        setExpandedParentIds(prev => {
             // 当前选中该父会话 OR 当前激活的是其子会话 → 不折叠，保持展开
-            if ((isCurrentlyActive || activeChildOfThisParent) && prev === convId) return prev
-            return prev === convId ? null : convId
+            if (isCurrentlyActive || activeChildOfThisParent) {
+                if (prev.has(convId)) return prev
+                return new Set(prev).add(convId)
+            }
+            const next = new Set(prev)
+            if (next.has(convId)) next.delete(convId)
+            else next.add(convId)
+            return next
         })
     }, [])
 
-    // ★ 当 activeConversationId 变化时自动管理 expandedParentId
+    // ★ 当 activeConversationId 变化时自动管理 expandedParentIds
     //    handleParentClick 仅处理父会话点击的展开/折叠切换；
     //    此 effect 负责子会话和独立会话场景的展开/折叠。
     //    只依赖 activeConversationId：用户手动折叠当前父会话不会触发本 effect（依赖不变），
     //    因此「激活的父会话始终展开其子会话」不会覆盖用户的手动折叠。
+    //    ★ 同一时刻只允许一个父会话分支展开：新展开集合 = active 的祖先链 ∪ { active 自身（若有子） }，
+    //    其余父会话一律折叠 —— 修复「父会话 A ↔ B 切换时旧父会话不折叠」的问题。
     useEffect(() => {
         if (!activeConversationId) return
         const activeConv = filtered.find(c => c.id === activeConversationId)
         if (!activeConv) return
 
-        setExpandedParentId(() => {
+        setExpandedParentIds(prev => {
+            // 需要保持展开的父级：active 的祖先链 + active 自身（若其有子会话）
+            const keep = new Set<string>()
             if (activeConv.parentConvId) {
-                // 切换到子会话 → 展开其父会话（同族内导航）
-                return activeConv.parentConvId
+                addSelfAndAncestors(keep, convById, activeConv.parentConvId)
             }
             if (childrenMap.has(activeConv.id)) {
-                // 激活的父会话 → 始终展开其子会话列表（含启动初始化场景）
-                return activeConv.id
+                keep.add(activeConv.id)
             }
-            // 切换到独立会话（无子、无父） → 折叠所有已展开的父会话
-            return null
+
+            // 折叠不在 keep 内的父会话，并确保 keep 内的父会话均展开
+            const next = new Set<string>()
+            for (const id of prev) {
+                if (keep.has(id)) next.add(id)
+            }
+            for (const id of keep) {
+                next.add(id)
+            }
+            return next
         })
     }, [activeConversationId])
 
@@ -662,6 +701,20 @@ function ConversationList() {
   function groupByParent(conversations: Array<typeof filtered[number]>): Array<(typeof filtered[number]) & { indentLevel: number; childCount: number }> {
       const result: Array<(typeof filtered[number]) & { indentLevel: number; childCount: number }> = []
       const placed = new Set<string>()
+      // 祖先链查找复用组件级 convById memo
+
+      // ★ 多级嵌套支持：子会话显示的前提是「其全部祖先」都已展开。
+      //   仅判断直接父级展开不够——一级子会话本身展开了但其祖父（主会话）折叠时，
+      //   一级子会话根本不会出现在列表中，二级子会话更不可能显示。
+      function isAncestryExpanded(conv: typeof filtered[number]): boolean {
+          let cur = conv.parentConvId || null
+          while (cur) {
+              if (!expandedParentIds.has(cur)) return false
+              const parent = convById.get(cur)
+              cur = parent?.parentConvId || null
+          }
+          return true
+      }
 
       function addWithChildren(conv: typeof filtered[number], indentLevel: number) {
           if (placed.has(conv.id)) return
@@ -669,12 +722,15 @@ function ConversationList() {
           const directChildren = childrenMap.get(conv.id)
           result.push({ ...conv, indentLevel, childCount: directChildren?.length || 0 })
 
-          // 非展开的父会话跳过子会话（只有 expandedParentId === conv.id 时显示）
-          if (expandedParentId === conv.id) {
+          // 非展开的父会话跳过子会话（仅当该父会话及其全部祖先展开时才显示子级）
+          if (expandedParentIds.has(conv.id)) {
               if (directChildren) {
                   directChildren.sort((a, b) => b.updatedAt - a.updatedAt)
                   for (const child of directChildren) {
-                      addWithChildren(child, indentLevel + 1)
+                      // 递归前检查祖先链：若 child 的祖先链中某级未展开则跳过整棵子树
+                      if (isAncestryExpanded(child)) {
+                          addWithChildren(child, indentLevel + 1)
+                      }
                   }
               }
           }

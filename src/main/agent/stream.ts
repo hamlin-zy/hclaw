@@ -16,7 +16,7 @@ export type AgentStreamEvent =
   | { type: 'tool_use'; toolCall: ToolCallInfo }
   | { type: 'tools_start'; toolCount: number }
   | { type: 'tool_start'; toolCall: ToolCallInfo }
-  | { type: 'tool_progress'; toolCallId: string; progress: string }
+  | { type: 'tool_progress'; toolCallId: string; progress: string; retryCountdown?: number }
   | { type: 'tool_result'; toolCallId: string; toolName: string; skillName?: string; result: ToolResult }
   | { type: 'tool_denied'; toolCallId: string; reason: string }
   | { type: 'permission_confirm'; question: string; requestId?: string }
@@ -87,33 +87,6 @@ export type AgentStreamEvent =
     }>;
     systemPrompt?: string;
   }
-  | {
-    type: 'context_compacted';
-    beforeTokens: number;
-    afterTokens: number;
-    savedTokens: number;
-    compactedMessages: number;
-    preservedInfo: string[];
-    message: string;
-  }
-  | { type: 'compact_status'; compactStatus: 'waiting' | 'compacting' | 'completed' }
-    | {
-    type: 'compact_persist';
-    messages: import('./model/types').ChatMessage[];
-    beforeTokens: number;
-    afterTokens: number;
-    savedTokens: number;
-    compactedMessages: number;
-    message: string;
-}
-    | {
-    type: 'compact_persisted';
-    beforeTokens: number;
-    afterTokens: number;
-    savedTokens: number;
-    compactedMessages: number;
-    message: string;
-}
   | { type: 'permission-rules-updated' }
   | { type: 'tasks_update'; tasks: import('../../shared/types').Task[] }
     | {

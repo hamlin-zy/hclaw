@@ -4,7 +4,9 @@
 import type {StreamCtx} from './streamContext'
 import type {ConvAgentData} from '../types'
 import {IDLE_STATE, makeAgentState, createDefaultConvData} from '../defaultState'
-import {useConversationStore} from '../../conversationStore'
+import {useConversationStore, recordThinkBlock, finalizeMessageDelta} from '../../conversationStore'
+import {flushConversationDirty} from '../../conversationStore'
+import {textBlockId} from '../contentBlocks'
 import {useAgentStore} from '..'
 import {
     flushTextBatch,
@@ -85,7 +87,7 @@ export async function handleDone(ctx: StreamCtx) {
             for (const sb of sortedBlocks) {
                 if (sb.textOffset > lastOffset) {
                     const textSlice = fullText.slice(lastOffset, sb.textOffset)
-                    if (textSlice) assembled.push({id: `text-${crypto.randomUUID()}`, type: 'text', text: textSlice})
+                    if (textSlice) assembled.push({id: textBlockId(doneConvData.streamingMessageId, lastOffset), type: 'text', text: textSlice})
                 }
                 if (sb.type === 'think') {
                     assembled.push({
@@ -103,7 +105,7 @@ export async function handleDone(ctx: StreamCtx) {
             }
             if (lastOffset < fullText.length) {
                 const remainingText = fullText.slice(lastOffset)
-                if (remainingText) assembled.push({id: `text-${crypto.randomUUID()}`, type: 'text', text: remainingText})
+                if (remainingText) assembled.push({id: textBlockId(doneConvData.streamingMessageId, lastOffset), type: 'text', text: remainingText})
             }
             if (assembled.length > 0) {
                 convStore.updateMessageForConv(convId, doneConvData.streamingMessageId!, {contentBlocks: assembled})
@@ -116,6 +118,20 @@ export async function handleDone(ctx: StreamCtx) {
                 commandExecution: {...cmdMsg.commandExecution, status: 'done', endTime: endedAt},
             })
         }
+
+        // ★ ledger 补充：DB 中所有 think 块 status 置 complete
+        //   （flushThinkingBatch 记的是 'thinking'；上方内存 thinkBlock complete 更新不进 DB）。
+        //   必须用 streamBlocks 里 think 块的 id（think-${msgId}-${thinkSeq}），
+        //   绝不能从扁平字段 think-${streamingMessageId} 派生，否则会 INSERT 重复 think 块。
+        //   多 think 段（think→tool→think）逐段置 complete，避免早前段 reload 后仍显示 'thinking'。
+        for (const sb of doneConvData.streamBlocks) {
+            if (sb.type === 'think') {
+                recordThinkBlock(convId, doneConvData.streamingMessageId, sb.id, sb.thinkContent ?? '', 'complete', sb.textOffset)
+            }
+        }
+
+        // ★ 块级增量收尾：finalize patch（主进程补 ended_at + end 块，崩溃恢复比消息行更可靠）
+        finalizeMessageDelta(convId, doneConvData.streamingMessageId, endedAt)
     }
 
     get().updateConvData(convId, {
@@ -136,6 +152,9 @@ export async function handleDone(ctx: StreamCtx) {
         executingToolsMessage: null,
     })
 
+    // ★ 段边界语义：done 收尾完成后统一落库（endedAt/contentBlocks/tool_result 已合并）
+    void flushConversationDirty(convId)
+
     if (event.reason !== 'aborted') {
         const pendingMsgs = get().convAgentStates[convId]?.pendingMessages
         if (pendingMsgs && pendingMsgs.length > 0) {
@@ -155,9 +174,13 @@ export function handleError(ctx: StreamCtx) {
     const {get, set, convId, event} = ctx
     const errorMessage = event.error || '未知错误'
     const errorConvData = get().convAgentStates[convId] || createDefaultConvData()
-    flushPendingStreamBatches(convId, errorConvData.streamingMessageId)
+    // ★ 与 done/injected 对称：先取进入 error 前的流式消息快照再冲刷。
+    //   （末尾 updateConvData 会把 streamingMessageId 置 null，必须先捕获，
+    //    才能在 flush 前补 endedAt，防无 endedAt 快照覆盖主进程 final 写）
+    const errorMsgId = errorConvData.streamingMessageId
+    flushPendingStreamBatches(convId, errorMsgId)
 
-    if (!errorConvData.streamingMessageId) {
+    if (!errorMsgId) {
         const newId = crypto.randomUUID()
         useConversationStore.getState().addMessageToConv(convId, {id: newId, role: 'assistant', content: ''})
         get().updateConvData(convId, {streamingMessageId: newId})
@@ -176,6 +199,17 @@ export function handleError(ctx: StreamCtx) {
         errorMessage: state.errorMessage || errorMessage,
         agentState: {...state.agentState, status: 'error'},
     }))
+
+    // ★ 与 done/injected 对称：flush 前先补 endedAt（防无 endedAt 快照覆盖主进程 final 写）。
+    //   无流式消息的 error 此分支自然跳过，flush 仍执行。
+    if (errorMsgId) {
+        useConversationStore.getState().updateMessageForConv(convId, errorMsgId, {
+            endedAt: Date.now(),
+        })
+        // ★ 块级增量收尾：error 收尾同样 finalize（endedAt 判空同域，无流式消息的 error 跳过）
+        finalizeMessageDelta(convId, errorMsgId, Date.now())
+    }
+    void flushConversationDirty(convId)
 }
 
 export async function handleAskUser(ctx: StreamCtx) {
@@ -207,9 +241,16 @@ export function handleWarning(ctx: StreamCtx) {
     const retryMatch = msg.match(/^retry\s+(\d+)\/(\d+)[：:]\s*(.*)/)
     if (retryMatch) {
         const [, attempt, total, errorDetail] = retryMatch
-        const retryLabel = `重试 ${attempt}/${total}：${errorDetail}`
+        // ★ 已取消重试：主进程 retryBackoff 在 abort 时发送，明确提示用户等待已终止
+        const cancelMatch = msg.match(/^retry\s+(\d+)\/(\d+)[：:]\s*已取消重试/)
+        if (cancelMatch) {
+            get().updateConvData(convId, {
+                executingToolsMessage: {label: '重试已取消', urgent: true},
+            })
+            return
+        }
         get().updateConvData(convId, {
-            executingToolsMessage: retryLabel,
+            executingToolsMessage: {label: `重试 ${attempt}/${total}：${errorDetail}`, urgent: false},
             // 保持 agentState 不变（仍在 running），不清除 streamingMessageId
         })
         return
@@ -366,6 +407,14 @@ export function handleUserMessageInjected(ctx: StreamCtx) {
             flushToolResultBatch(convId)
         }
         clearToolResultBatchData(convId)
+        // ★ 竞态防护：先补旧消息 endedAt（主进程 doMergeAndPersist(oldPending,true) 已写 final），
+        //   再 flush，避免无 endedAt 快照覆盖
+        useConversationStore.getState().updateMessageForConv(convId, convState.streamingMessageId, {
+            endedAt: Date.now(),
+        })
+        // ★ 块级增量收尾：injected 收尾同样 finalize（旧消息流强制结束，补 end 块）
+        finalizeMessageDelta(convId, convState.streamingMessageId, Date.now())
+        void flushConversationDirty(convId)
     }
 
     // 重置流式状态——清除累加器，避免新消息带入旧内容

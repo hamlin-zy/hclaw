@@ -44,7 +44,7 @@ export default function InputToolbar({
                 {isRunning ? (
                     <span className="flex items-center gap-1 text-[var(--info)]">
                         <StatusDot color="var(--info)"/>
-                        {agentState.currentModelName}{agentState.currentModelProvider ? `（${agentState.currentModelProvider.charAt(0).toUpperCase() + agentState.currentModelProvider.slice(1)}）` : ''} 运行中...
+                        {agentState.currentModelName}{agentState.currentModelProvider ? `（${agentState.currentModelProvider.toLowerCase()}）` : ''} 运行中...
                     </span>
                 ) : compactInProgress ? (
                     <span className="flex items-center gap-1 text-[var(--warning)]">

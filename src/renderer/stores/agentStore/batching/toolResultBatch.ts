@@ -1,6 +1,6 @@
 // ── 工具结果批量更新（减少高频 loadedMessages 更新） ──────────────────────
 
-import {useConversationStore} from '../../conversationStore'
+import {useConversationStore, recordToolResultBlock} from '../../conversationStore'
 import {useAgentStore} from '..'
 
 export interface PendingToolResultUpdate {
@@ -12,6 +12,16 @@ let toolResultBatches: Record<string, Map<string, PendingToolResultUpdate>> = {}
 
 /** 全局 RAF 调度 */
 let globalToolResultFlushScheduled = false
+
+/** 隐藏冻结：hidden 时已注册一次性 visibilitychange 监听（避免重复注册） */
+let hiddenFlushRegistered = false
+
+/** 合并 flush 全部会话的积压 batch（rAF 与 visibilitychange 恢复共用） */
+function flushAllBatches(): void {
+    for (const cId of Object.keys(toolResultBatches)) {
+        flushToolResultBatch(cId)
+    }
+}
 
 export function getToolResultBatch(convId: string): Map<string, PendingToolResultUpdate> {
     if (!toolResultBatches[convId]) {
@@ -52,11 +62,13 @@ export function flushToolResultBatch(convId: string) {
         return tc
     })
 
-    const newConvMsgs = convMsgs.map(m => m.id === msgId ? {...m, toolCalls: updatedToolCalls} : m)
     // 走 store action 更新，自动标记 dirty 并调度增量落库（避免全量 flushMessages）
-    const updatedMsg = newConvMsgs.find(m => m.id === msgId)
-    if (updatedMsg) {
+    if (convMsgs.some(m => m.id === msgId)) {
         useConversationStore.getState().updateMessageForConv(convId, msgId, {toolCalls: updatedToolCalls})
+        // ★ 块级增量：每个本批更新的 toolCall 记 tool_result 块（含完整 result）
+        for (const tc of updatedToolCalls) {
+            if (batch.has(tc.id)) recordToolResultBlock(convId, msgId, tc)
+        }
     }
 }
 
@@ -64,13 +76,26 @@ export function scheduleToolResultUpdate(convId: string, msgId: string, toolCall
     const batch = getToolResultBatch(convId)
     batch.set(toolCallId, {toolCallId, result})
 
+    // ★ 隐藏冻结：窗口 hidden 时只累积，注册一次性 visibilitychange，visible 时合并 flush
+    if (typeof document !== 'undefined' && document.hidden) {
+        if (!hiddenFlushRegistered) {
+            hiddenFlushRegistered = true
+            document.addEventListener('visibilitychange', function onVis() {
+                if (document.visibilityState === 'visible') {
+                    document.removeEventListener('visibilitychange', onVis)
+                    hiddenFlushRegistered = false
+                    flushAllBatches()
+                }
+            })
+        }
+        return
+    }
+
     if (globalToolResultFlushScheduled) return
     globalToolResultFlushScheduled = true
     requestAnimationFrame(() => {
         globalToolResultFlushScheduled = false
-        for (const cId of Object.keys(toolResultBatches)) {
-            flushToolResultBatch(cId)
-        }
+        flushAllBatches()
     })
 }
 

@@ -3,22 +3,17 @@
  *
  * 职责：
  * - 创建和管理 adapter
- * - 处理重试逻辑
- * - 统一的错误分类
+ * - 重建判定（schemeVersion / workMode / suggestedModel 角色变化触发重建）
+ *
+ * 注：重试逻辑已迁至 execute.ts（shouldRetryAttempt + 指数退避），本类不再处理。
  */
 
 import type {ModelConfig} from '../model/types'
+import type {ModelRole} from '@shared/types'
 import {createAdapterForContext, type ModelAdapter} from '../model/index'
-import {classifyErrorEnhanced, getRetryDelay} from '../common/errorClassifier'
 import {logger} from '../logger'
-import {sleep} from '../../utils/retry'
 import {getSchemeVersion} from '../model/modelSchemeManager'
-
-export interface LLMCallerConfig {
-    maxRetries: number
-    initialDelay: number
-    maxDelay: number
-}
+import {runtimeConfigManager} from '../runtimeConfigManager'
 
 export interface AdapterResult {
     adapter: ModelAdapter
@@ -28,23 +23,47 @@ export interface AdapterResult {
     schemeName?: string | null
 }
 
-export interface LLMCallResult {
-    content: string
-    toolCalls: Array<{id: string; name: string; arguments: Record<string, unknown>}>
-    inputTokens: number
-    outputTokens: number
-    plannedCommands?: string[]
-}
-
 export class LLMCaller {
     private adapter: ModelAdapter | null = null
     private lastVersion: number = -1
+    /** A2: 上次创建 adapter 时的工作模式，用于检测 auto/其他模式切换触发重建 */
+    private lastWorkMode: string = ''
+    /** F1: 上次创建 adapter 时传入的 suggestedModel（角色）。auto 模式下逐 turn 由意图分析决定（simple→lightweight、complex→reasoning），变化需重建 */
+    private lastSuggestedModel: string = ''
     private currentProvider: string = ''
     private currentModel: string = ''
     private currentConfigSource: 'global-scheme' | 'scheme-param' | 'fallback' = 'fallback'
     private currentSchemeName: string | null = null
 
-    constructor(private config: LLMCallerConfig) {}
+    /**
+     * 记录新建的 adapter 并同步重建判定所需的版本/工作模式/建议角色，
+     * 返回统一的 AdapterResult。全局路径与 fallback 路径共用，
+     * 避免任一路径漏同步导致后续重建判定失准。
+     */
+    private recordAdapter(
+        adapter: ModelAdapter,
+        provider: string,
+        model: string,
+        configSource: AdapterResult['configSource'],
+        schemeName: string | null,
+        suggestedModel?: ModelRole,
+    ): AdapterResult {
+        this.adapter = adapter
+        this.currentProvider = provider
+        this.currentModel = model
+        this.currentConfigSource = configSource
+        this.currentSchemeName = schemeName
+        this.lastVersion = getSchemeVersion().version
+        this.lastWorkMode = runtimeConfigManager.getWorkMode()
+        this.lastSuggestedModel = suggestedModel ?? ''
+        return {
+            adapter: this.adapter,
+            providerType: this.currentProvider,
+            modelId: this.currentModel,
+            configSource: this.currentConfigSource,
+            schemeName: this.currentSchemeName,
+        }
+    }
 
     /**
      * 获取或创建适配器
@@ -52,12 +71,14 @@ export class LLMCaller {
      */
     async getAdapter(
         context: 'main' | 'subAgent' | 'background' | 'planning',
-        suggestedModel?: string,
+        suggestedModel?: ModelRole,
         fallbackConfig?: ModelConfig,
         schemeUpdatePromise?: () => Promise<void>,
+        // 注：createAdapterForContext 签名（model/index.ts:252）为 (context, intentAnalysis?, fallbackConfig?)
+        // 三参，无 abortSignal 支持。_abortSignal 暂仅接收不透传，留作未来扩展。
         _abortSignal?: AbortSignal
     ): Promise<AdapterResult> {
-        const needsRecreate = this.needsAdapterRecreate()
+        const needsRecreate = this.needsAdapterRecreate(suggestedModel)
 
         if (needsRecreate) {
             // 等待方案更新完成（如果有）
@@ -69,7 +90,7 @@ export class LLMCaller {
             try {
                 const globalAdapterResult = await createAdapterForContext(
                     context,
-                    {suggestedModel: suggestedModel as any},
+                    {suggestedModel},
                     fallbackConfig
                 )
                 logger.debug('[LLMCaller]', {
@@ -78,22 +99,14 @@ export class LLMCaller {
                     model: this.currentModel,
                     globalAdapterResult
                 })
-                this.adapter = globalAdapterResult.adapter
-                this.currentProvider = globalAdapterResult.providerType
-                this.currentModel = globalAdapterResult.modelId
-                this.currentConfigSource = globalAdapterResult.configSource as 'global-scheme' | 'scheme-param' | 'fallback'
-                this.currentSchemeName = globalAdapterResult.schemeName || null
-
-                // 记录当前版本
-                this.lastVersion = getSchemeVersion().version
-
-                return {
-                    adapter: this.adapter,
-                    providerType: this.currentProvider,
-                    modelId: this.currentModel,
-                    configSource: this.currentConfigSource,
-                    schemeName: this.currentSchemeName,
-                }
+                return this.recordAdapter(
+                    globalAdapterResult.adapter,
+                    globalAdapterResult.providerType,
+                    globalAdapterResult.modelId,
+                    globalAdapterResult.configSource as AdapterResult['configSource'],
+                    globalAdapterResult.schemeName || null,
+                    suggestedModel,
+                )
             } catch (error) {
                 // createAdapterForContext 会抛出异常如果没有可用配置
                 const err = error as Error
@@ -107,18 +120,16 @@ export class LLMCaller {
                 }
 
                 const {createModelAdapter} = await import('../model/index')
-                this.adapter = createModelAdapter(fallbackConfig)
-                this.currentConfigSource = 'fallback'
-                this.currentProvider = fallbackConfig.provider
-                this.currentModel = fallbackConfig.model
-
-                return {
-                    adapter: this.adapter,
-                    providerType: this.currentProvider,
-                    modelId: this.currentModel,
-                    configSource: this.currentConfigSource,
-                    schemeName: this.currentSchemeName,
-                }
+                // F2: fallback 路径同样同步版本/工作模式/建议角色，
+                // 避免后续全局路径恢复时被静默钉死在 fallback 配置上
+                return this.recordAdapter(
+                    createModelAdapter(fallbackConfig),
+                    fallbackConfig.provider,
+                    fallbackConfig.model,
+                    'fallback',
+                    null,
+                    suggestedModel,
+                )
             }
         }
 
@@ -132,48 +143,34 @@ export class LLMCaller {
     }
 
     /**
-     * 执行 LLM 调用（带重试）
-     */
-    async withRetry<T>(
-        operation: () => Promise<T>,
-        onRetry?: (error: Error, attempt: number) => void
-    ): Promise<T> {
-        let lastError: Error
-
-        for (let attempt = 1; attempt <= this.config.maxRetries; attempt++) {
-            try {
-                return await operation()
-            } catch (error) {
-                lastError = error instanceof Error ? error : new Error(String(error))
-
-                if (!classifyErrorEnhanced(lastError).retryable) {
-                    throw lastError
-                }
-
-                onRetry?.(lastError, attempt)
-
-                if (attempt < this.config.maxRetries) {
-                    const delay = getRetryDelay(lastError)
-                    const actualDelay = Math.min(delay * Math.pow(2, attempt - 1), this.config.maxDelay)
-                    logger.warn('[LLMCaller]', {action: 'retry', attempt, delay: actualDelay})
-                    await sleep(actualDelay)
-                }
-            }
-        }
-
-        throw lastError!
-    }
-
-    /**
      * 检查是否需要重新创建适配器
+     *
+     * 触发条件：
+     * - 尚无 adapter
+     * - 方案版本（schemeVersion）变更
+     * - A2: 工作模式（auto/其他）变更——影响模型选择角色
+     * - F1: 逐 turn 的 suggestedModel（角色）变更——auto 模式下
+     *   workModeRole 由意图分析按复杂度决定（simple→lightweight、complex→reasoning），
+     *   而 workMode 保持 'auto' 不变，必须单独检测角色变化才能路由到正确模型
+     *
+     * 注：本类不再提供 withRetry —— execute.ts 自带完整重试逻辑
+     * （shouldRetryAttempt + 指数退避），避免双路径重试。
      */
-    private needsAdapterRecreate(): boolean {
+    private needsAdapterRecreate(suggestedModel?: ModelRole): boolean {
         if (!this.adapter) {
             return true
         }
         // 检查方案版本是否变更
         const newVersion = getSchemeVersion().version
-        return newVersion !== this.lastVersion
+        if (newVersion !== this.lastVersion) return true
+        // A2: 工作模式变更（auto/其他）也会影响模型选择角色，需重建
+        const currentWorkMode = runtimeConfigManager.getWorkMode()
+        if (this.lastWorkMode !== '' && currentWorkMode !== this.lastWorkMode) return true
+        // F1: 逐 turn 角色（suggestedModel）变化需重建。
+        // 首次调用（lastSuggestedModel 为空）沿用 lastWorkMode 的 '' 守卫模式：
+        // 此时 adapter 尚为 null，已在首个分支返回 true，无需在此特殊处理。
+        const currentSuggestedModel = suggestedModel ?? ''
+        return this.lastSuggestedModel !== '' && currentSuggestedModel !== this.lastSuggestedModel
     }
 
     /**
@@ -182,12 +179,15 @@ export class LLMCaller {
     reset(): void {
         this.adapter = null
         this.lastVersion = -1
+        this.lastWorkMode = ''
+        this.lastSuggestedModel = ''
     }
 
-    getAdapterInfo() {
+    getAdapterInfo(): AdapterResult {
         return {
-            provider: this.currentProvider,
-            model: this.currentModel,
+            adapter: this.adapter!,
+            providerType: this.currentProvider,
+            modelId: this.currentModel,
             configSource: this.currentConfigSource,
             schemeName: this.currentSchemeName,
         }

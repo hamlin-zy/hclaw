@@ -9,31 +9,28 @@
 import type {AgentStreamEvent} from '../stream'
 import type {ChatMessage} from '../model/types'
 import type {ModelConfig} from '../model/types'
+import type {ModelAdapter} from '../model/index'
 import type {ToolContext, ToolDefinitionForLLM} from '../tools/types'
 import type {LoopState as AgentLoopState} from '../state'
-import type {ModelRole, WorkMode} from '@shared/types'
+import type {ModelRole} from '@shared/types'
 import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import type {RunParams, LlmStreamResult, ToolExecutionResult} from './types'
 
 import {LLMCaller, isContextLengthError as checkContextLengthError, parsePlannedCommands} from './llmCaller'
 import {ToolExecutor} from './toolExecutor'
-import {addMessage, normalizeToolCallMessages} from '../state'
+import {addMessage} from '../state'
+import {PreprocessCache} from './preprocessCache'
 import {logger} from '../logger'
 import {permissionEngine} from '../tools/permission'
-import {runtimeConfigManager} from '../runtimeConfigManager'
-import {getSchemeVersion} from '../model/modelSchemeManager'
 import {isThirdPartyAnthropicAPI} from '../model/utils'
 import {classifyErrorEnhanced} from '../common/errorClassifier'
 import {LLM_TIMEOUT_MS, sleep, TimeoutError, withTimeout} from '../../utils/retry'
 import {hookExecutor, type HookResult} from '../../plugin/hooks'
 import {attachMediaBlocksToMessage, extractMediaBlocksFromToolResults} from '../mediaExtractor'
 import {isVisionModel, sanitizeMessagesForModel, sanitizeThinkingForModel} from './helpers'
-import {truncateForLlmCall} from './truncateBeforeLlm'
-import {container, DI_TOKENS} from '../common/container'
-import type {ToolRegistry} from '../tools/registry'
-import {checkAdapterNeedsRecreate, recreateAdapter} from './setup'
+import {getToolRegistry} from '../tools/registry'
 
-const toolRegistry: ToolRegistry = container.get<ToolRegistry>(DI_TOKENS.ToolRegistry)
+const toolRegistry = getToolRegistry()
 
 // ═══════════════════════════════════════════════════════════
 //  LLM 调用（含重试）
@@ -53,6 +50,21 @@ export interface ExecuteLlmCallParams {
     params: RunParams
     isCompactCommand: boolean
     turns: number
+    /** LLM 调用前 normalize 增量缓存（source-count 判失效） */
+    preprocessCache: PreprocessCache
+}
+
+/**
+ * 判定本次 attempt 是否值得重试。
+ * A1 修复：context-length 错误（上下文超限）是确定性失败——消息未截断则重试必再失败，
+ * 与设计文档 v2 决策"超出模型上下文窗口即失败"一致，故一律不重试。
+ */
+export function shouldRetryAttempt(
+    _error: any,
+    isContextLengthError: boolean,
+    retryableFromClassifier: boolean,
+): boolean {
+    return retryableFromClassifier && !isContextLengthError
 }
 
 /**
@@ -71,7 +83,7 @@ export async function* executeLlmCallWithRetry(
     ctx: ExecuteLlmCallParams,
 ): AsyncGenerator<AgentStreamEvent, LlmStreamResult | null> {
     const {llmCaller, state, systemPrompt, commandTemplate, availableToolDefinitions, modelConfig,
-        workModeRole, schemeName, getSettings, params, isCompactCommand, turns} = ctx
+        workModeRole, schemeName, getSettings, params, isCompactCommand, turns, preprocessCache} = ctx
     const {abortSignal, requestConfirmation, sessionId} = params
 
     const retryCount = getSettings()?.agent.retryCount ?? 10
@@ -79,9 +91,7 @@ export async function* executeLlmCallWithRetry(
     let currentDelay = getSettings()?.agent.initialRetryDelay ?? 5000
 
     const llmStartTime = Date.now()
-    let adapter = (llmCaller as any)['adapter']
-    let lastSchemeVersion: number | null = null
-    let lastWorkMode: WorkMode = runtimeConfigManager.getWorkMode()
+    let adapter: ModelAdapter | null = null
     let currentProvider: string = modelConfig.provider
     let currentModel: string = modelConfig.model
     let currentConfigSource: string = 'fallback'
@@ -97,23 +107,22 @@ export async function* executeLlmCallWithRetry(
         const collectedToolCalls: Array<{id: string; name: string; arguments: Record<string, unknown>}> = []
 
         try {
-            // ── 重建适配器（如需） ──
-            const needsRecreate = checkAdapterNeedsRecreate(adapter, lastSchemeVersion, lastWorkMode)
-            if (needsRecreate) {
-                const recreateResult = yield* recreateAdapter(
-                    params, modelConfig, workModeRole,
-                )
-                adapter = recreateResult.adapter
-                currentProvider = recreateResult.providerType
-                currentModel = recreateResult.modelId
-                currentConfigSource = recreateResult.configSource
-                currentSchemeName = recreateResult.schemeName ?? currentSchemeName
-                lastSchemeVersion = getSchemeVersion().version
-                lastWorkMode = runtimeConfigManager.getWorkMode()
-            }
+            // ── 获取/重建适配器（收归 LLMCaller，含 schemeVersion + workMode 检测） ──
+            const adapterResult = await llmCaller.getAdapter(
+                'main',
+                workModeRole,
+                modelConfig,
+                params.schemeUpdatePromise,
+                abortSignal,
+            )
+            adapter = adapterResult.adapter
+            currentProvider = adapterResult.providerType
+            currentModel = adapterResult.modelId
+            currentConfigSource = adapterResult.configSource
+            currentSchemeName = adapterResult.schemeName ?? currentSchemeName
 
-            // ── 归一化消息历史 ──
-            const normalizedMessages = normalizeToolCallMessages(state.messages || [])
+            // ── 归一化消息历史（增量缓存） ──
+            const normalizedMessages = preprocessCache.process(state.messages || [])
             let messagesToSend: ChatMessage[] = normalizedMessages
 
             // ── ContextRetrieval ──
@@ -128,31 +137,11 @@ export async function* executeLlmCallWithRetry(
 
                 const retrievalMessages = yield* executeContextRetrieval(messagesToSend, sessionId)
                 if (retrievalMessages) {
+                    // ContextRetrieval 在消息中间插入知识 → 增量假设被破坏，失效缓存
+                    preprocessCache.reset()
                     messagesToSend = retrievalMessages
                 }
             }
-
-            // ── PreCompact Hook ──
-            hookExecutor.execute('PreCompact', {sessionId}).catch(() => {})
-
-            // ── 结构感知截断（每次调用前，保证不超模型 context window） ──
-            // 顺序：必须在 ContextRetrieval 之后（否则截断会丢掉新增的 retrieval 消息）；
-            //        可在 image 过滤之前（让图片占位 token 也算入 budget 估算）
-            const truncateResult = truncateForLlmCall({
-                messages: messagesToSend,
-            })
-            if (truncateResult.action === 'structured_truncate') {
-                logger.info(
-                    `[AgentLoop] Structured truncation triggered: ${messagesToSend.length} → ${truncateResult.messages.length} messages`,
-                )
-            }
-            messagesToSend = truncateResult.messages
-
-            // ── PostCompact Hook ──
-            hookExecutor.execute('PostCompact', {sessionId}).catch(() => {})
-
-            // ── 触发 ThinkStart Hook ──
-            hookExecutor.execute('ThinkStart', {sessionId}).catch(() => {})
 
             // ── 执行 LLM 调用 ──
             if (!adapter) throw new Error('Adapter not initialized')
@@ -223,12 +212,13 @@ export async function* executeLlmCallWithRetry(
                 ? `${systemPrompt}\n\n## 当前命令任务\n\n${commandTemplate}`
                 : systemPrompt
 
+            const maxTokens = getSettings()?.model.defaultMaxTokens ?? DEFAULT_MAX_TOKENS
             const rawStream = adapter.chat({
                 systemPrompt: effectiveSystemPrompt,
                 ...(isAnthropic && commandTemplate ? {commandTemplate} : {}),
                 messages: messagesToSend,
                 tools: compactTools,
-                maxTokens: getSettings()?.model.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
+                maxTokens,
                 temperature: getSettings()?.model.defaultTemperature ?? 0,
                 ...(effectiveThinkingEffort ? {thinkingEffort: effectiveThinkingEffort} : {}),
                 ...(params.hookAdditionalContext && {additionalContext: params.hookAdditionalContext}),
@@ -247,6 +237,8 @@ export async function* executeLlmCallWithRetry(
             let cacheWriteTokens = 0
             let reasoningTokens = 0
             let assistantThinkingSignature = ''
+            let producedThinking = false
+            let thinkStarted = false
 
             for await (const chunk of stream) {
                 if (abortSignal?.aborted) break
@@ -259,9 +251,19 @@ export async function* executeLlmCallWithRetry(
                     contentParts.push(chunk.content)
                     yield {type: 'text', content: chunk.content}
                 } else if (chunk.type === 'thinking') {
+                    if (!thinkStarted) {
+                        thinkStarted = true
+                        producedThinking = true
+                        hookExecutor.execute('ThinkStart', {sessionId}).catch(() => {})
+                    }
                     thinkingParts.push(chunk.content)
                     yield {type: 'thinking', content: chunk.content}
                 } else if (chunk.type === 'reasoning') {
+                    if (!thinkStarted) {
+                        thinkStarted = true
+                        producedThinking = true
+                        hookExecutor.execute('ThinkStart', {sessionId}).catch(() => {})
+                    }
                     reasoningParts.push(chunk.content)
                     yield {type: 'thinking', content: chunk.content}
                 } else if (chunk.type === 'tool_use') {
@@ -288,7 +290,6 @@ export async function* executeLlmCallWithRetry(
                     // adapter 层已识别 stop_reason='max_tokens' 并发出 done 事件，
                     // 此处分发 warning 事件（主进程对 warning 直接穿透不终结 agent）。
                     if (chunk.stopReason === 'max_tokens') {
-                        const maxTokens = getSettings()?.model.defaultMaxTokens ?? DEFAULT_MAX_TOKENS
                         const tip = `响应达到最大 Token 数（${maxTokens}）上限被截断，回复可能不完整。请增大「设置 → 模型参数 → 默认最大Token数」后重试。`
                         logger.warn(`[AgentLoop] ${tip}`)
                         yield {type: 'warning', message: tip}
@@ -301,8 +302,10 @@ export async function* executeLlmCallWithRetry(
             const assistantThinking = thinkingParts.join('')
             const assistantReasoningContent = reasoningParts.join('')
 
-            // ── 触发 ThinkEnd Hook ──
-            hookExecutor.execute('ThinkEnd', {sessionId}).catch(() => {})
+            // ── 触发 ThinkEnd Hook（仅实际产生思考内容时） ──
+            if (producedThinking) {
+                hookExecutor.execute('ThinkEnd', {sessionId}).catch(() => {})
+            }
 
             // ── 解析 plannedCommands ──
             let plannedCommands: string[] | undefined
@@ -347,17 +350,15 @@ export async function* executeLlmCallWithRetry(
         } catch (error: any) {
             lastError = error
             const hasContextLengthErr = checkContextLengthError(error)
-            const isRetryable = classifyErrorEnhanced(error).retryable || hasContextLengthErr
+            const retryableFromClassifier = classifyErrorEnhanced(error).retryable
+            const isRetryable = shouldRetryAttempt(error, hasContextLengthErr, retryableFromClassifier)
 
             if (isRetryable) {
                 logger.warn(`[AgentLoop] turn ${turns} attempt ${attempt} failed: ${error.message} retryable`)
             } else {
-                logger.error(`[AgentLoop] attempt ${attempt} failed: ${error.message} non-retryable`)
+                logger.error(`[AgentLoop] attempt ${attempt} failed: ${error.message} non-retryable${hasContextLengthErr ? ' (context length exceeded, not retrying)' : ''}`)
             }
 
-            if (hasContextLengthErr) {
-                logger.warn(`[AgentLoop] context length error on turn ${turns} attempt ${attempt} — will retry with truncation already applied`)
-            }
             if (!isRetryable || attempt >= retryCount) break
 
             yield* retryBackoff(attempt, retryCount, error, currentDelay, abortSignal)
@@ -367,8 +368,11 @@ export async function* executeLlmCallWithRetry(
 
     // ── 所有重试都失败 ──
     if (!abortSignal?.aborted) {
-        const errorMessage = `LLM call failed after ${retryCount} retries: ${lastError?.message || 'Unknown error'}`
-        logger.info(`[AgentLoop] llm_call_failed after ${retryCount} retries: ${errorMessage}`)
+        const isCtx = checkContextLengthError(lastError)
+        const errorMessage = isCtx
+            ? `上下文超出模型窗口限制，已停止（不重试）。请在新会话中继续，或减少任务规模后重试。`
+            : `LLM call failed after ${retryCount} retries: ${lastError?.message || 'Unknown error'}`
+        logger.info(`[AgentLoop] llm_call_failed: ${errorMessage}`)
         yield {type: 'error', error: errorMessage}
     }
     return null
@@ -450,7 +454,18 @@ export async function* retryBackoff(
     yield {type: 'warning', message: `retry ${attempt}/${retryCount}：${errorMsg}`}
 
     for (let s = delaySeconds; s > 0; s--) {
-        if (abortSignal?.aborted) break
+        if (abortSignal?.aborted) {
+            // ★ 明确告知用户重试已被取消，避免"倒计时后不重试"的错觉
+            yield {type: 'warning', message: `retry ${attempt}/${retryCount}：已取消重试`}
+            return
+        }
+        // ★ 每秒发一次剩余倒计时（渲染端 streamInteraction 已支持 tool_progress 显示）
+        yield {
+            type: 'tool_progress',
+            toolCallId: 'retry-backoff',
+            progress: `重试 ${attempt}/${retryCount} 剩余 ${s}s`,
+            retryCountdown: s,
+        }
         await sleep(1000)
     }
 }

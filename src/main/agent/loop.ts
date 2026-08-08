@@ -147,12 +147,8 @@ export async function* agentLoop(
   setAgentToolConfig()
   setSkillToolConfig()
 
-  // 创建 LLMCaller
-  const llmCaller = new LLMCaller({
-    maxRetries: getSettings()?.agent.retryCount ?? 10,
-    initialDelay: getSettings()?.agent.initialRetryDelay ?? 5000,
-    maxDelay: getSettings()?.agent.maxRetryDelay ?? 120_000,
-  })
+  // 创建 LLMCaller（adapter 管理；重试配置由 execute.ts 按 settings 读取）
+  const llmCaller = new LLMCaller()
 
   // 创建 ToolExecutor
   const toolExecutor = new ToolExecutor()

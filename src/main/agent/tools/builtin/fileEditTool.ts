@@ -253,12 +253,17 @@ export const fileEditTool: Tool<FileEditInput, string> = {
       // 生成 Diff（基于原始内容比较，diff 统一用 LF 对比）
       const patch = diff.createPatch(filePath, content.replace(/\r\n/g, '\n'), finalContent.replace(/\r\n/g, '\n'))
 
+      // 简化输出：省略文件头（Index/===/---/+++），从第一个 hunk 头 @@ 开始
+      // 文件路径已由 file_edit 参数区展示；indexOf('\n@@')+1 精确指向首个 hunk
+      // （首个 hunk 前必有换行；找不到时返回 -1+1=0，slice(0) 天然回退为完整 patch）
+      const simplifiedPatch = patch.slice(patch.indexOf('\n@@') + 1)
+
       await fs.writeFile(absPath, finalContent, 'utf-8')
 
       return {
         success: true,
         output: `Replaced ${replaceAll ? matchCount : 1} match(es)`,
-        diff: patch, // 返回补丁数据
+        diff: simplifiedPatch, // 返回补丁数据（已简化，省略文件头）
         artifacts: [{ filePath: absPath, action: 'modified' }],
       }
     } catch (err: any) {

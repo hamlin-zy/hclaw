@@ -149,6 +149,9 @@ function scheduleBatchFlush(store: { set: (fn: (state: ToolCallsStore) => Partia
     })
 }
 
+/** 子 Agent 流式事件数组滑动窗口上限：控制单条 assistant 气泡的内存占用 */
+const MAX_SUBAGENT_STREAM_ENTRIES = 500
+
 export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
     states: {},
     
@@ -285,19 +288,41 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
                 return {
                     states: {
                         ...state.states,
+                        [toolCallId]: { ...existing, subAgentStream: newStream },
+                    },
+                }
+            }
+
+            if (currentStream.length < MAX_SUBAGENT_STREAM_ENTRIES) {
+                return {
+                    states: {
+                        ...state.states,
                         [toolCallId]: {
                             ...existing,
-                            subAgentStream: newStream,
+                            subAgentStream: [...currentStream, entry],
                         },
                     },
                 }
             }
+
+            // 达到上限：截断为滑动窗口。截断标记插入头部；下次溢出时 slice 会将其从头部
+            // 移出，因此每次溢出都重新插入一条标记（窗口内始终恰好一条）。
+            const trimmed = currentStream.slice(-MAX_SUBAGENT_STREAM_ENTRIES + 1)
             return {
                 states: {
                     ...state.states,
                     [toolCallId]: {
                         ...existing,
-                        subAgentStream: [...currentStream, entry],
+                        subAgentStream: [
+                            {
+                                type: 'text' as const,
+                                timestamp: Date.now(),
+                                content: `(已截断较早流式记录，仅保留最近 ${MAX_SUBAGENT_STREAM_ENTRIES} 条)`,
+                                _truncationMarker: true,
+                            },
+                            ...trimmed,
+                            entry,
+                        ],
                     },
                 },
             }

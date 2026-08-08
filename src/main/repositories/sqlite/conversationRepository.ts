@@ -2,7 +2,7 @@ import {getDatabase, saveDatabase} from './index'
 import {SqliteMessageBlockRepository} from './messageBlockRepository'
 import {blocksToMessage, messageToBlocks} from './messageBlockHelper'
 import type {IConversationRepository} from '../interfaces'
-import type {BlockType, ConversationMeta, ConversationWithStats, LlmStats, Message, MessageBlock} from '@shared/types'
+import type {BlockDeltaPatch, BlockType, ConversationMeta, ConversationWithStats, LlmStats, Message, MessageBlock} from '@shared/types'
 
 export class SqliteConversationRepository implements IConversationRepository {
     private blockRepo = new SqliteMessageBlockRepository()
@@ -92,7 +92,7 @@ export class SqliteConversationRepository implements IConversationRepository {
             const db = getDatabase()
 
             const msgRows = db.prepare(
-                'SELECT id, role, timestamp, ended_at, metadata, llm_stats FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC'
+                'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC'
             ).all(convId) as typeof this.msgRowType[]
 
             return  this.buildMessagesFromRows(msgRows)
@@ -208,6 +208,94 @@ export class SqliteConversationRepository implements IConversationRepository {
         }
     }
 
+    /**
+     * 块级增量写入（流式期间渲染进程高频路径）。
+     * 幂等 UPSERT：块 id 存在则 UPDATE content/data（think/text 尾块增长），不存在则 INSERT 并分配 sequence。
+     * 不变式：已落库块永不重写（不 DELETE 任何已有块）。
+     */
+    writeBlockDelta(convId: string, msgId: string, patch: BlockDeltaPatch): boolean {
+        try {
+            const db = getDatabase()
+            db.transaction(() => {
+                // ★ 先建/更新消息行，再写块：message_blocks.message_id 有外键引用 messages.id
+                //   （迁移 001_initial.sql:62 ON DELETE CASCADE）。首写（消息行尚不存在）时
+                //   若先 INSERT 块会撞 FOREIGN KEY constraint failed 整笔回滚——此前流式期间
+                //   增量块全部因此丢失，仅靠主进程保险丝全量写兜底（已实测根因）。
+                if (patch.messageFields && typeof patch.messageFields.role === 'string') {
+                    // ★ NOT NULL 对只验一半的修复（review）：role 判了 string 但 timestamp 未校验，
+                    //   缺失/非法 timestamp 会让 INSERT OR REPLACE 撞 `timestamp INTEGER NOT NULL`，
+                    //   整笔事务回滚（连块写入一起丢）并静默返回 false。
+                    //   改为显式防御：要求建行但 timestamp 非法 → 抛错回滚整笔事务返回 false，
+                    //   渲染端按"失败重试"语义保留 dirty 块待 30s 兜底重试，绝不写半笔/垃圾行。
+                    const ts = patch.messageFields.timestamp
+                    if (typeof ts !== 'number' || !Number.isFinite(ts)) {
+                        throw new Error(`writeBlockDelta: messageFields.timestamp 非法（缺失/非有限数），msg=${msgId}`)
+                    }
+                    // ★ REPLACE-into-CASCADE fix：INSERT OR REPLACE 在冲突时先 DELETE 旧行再 INSERT，
+                    //   DELETE 触发 message_blocks.message_id 的 ON DELETE CASCADE，导致该消息
+                    //   所有已落库的块被连带删除。改为「首次 INSERT OR IGNORE + 后续 UPDATE」模式。
+                    const existingRow = db.prepare('SELECT metadata, llm_stats FROM messages WHERE id = ?').get(msgId) as { metadata: string | null; llm_stats: string | null } | undefined
+                    const metadata = patch.messageFields.metadata
+                        ? JSON.stringify(patch.messageFields.metadata)
+                        : (existingRow?.metadata ?? '{}')
+                    if (existingRow) {
+                        // 行已存在 → UPDATE 可变字段（metadata / ended_at），不触发 DELETE CASCADE
+                        db.prepare('UPDATE messages SET metadata = ?, ended_at = COALESCE(?, ended_at) WHERE id = ?').run(
+                            metadata,
+                            patch.messageFields.endedAt ?? null,
+                            msgId,
+                        )
+                    } else {
+                        // 首写 → INSERT（此时无块，不存在 CASCADE 风险）
+                        db.prepare('INSERT INTO messages (id, conversation_id, role, timestamp, ended_at, metadata, llm_stats) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+                            msgId, convId, patch.messageFields.role, patch.messageFields.timestamp,
+                            patch.messageFields.endedAt ?? null,
+                            metadata,
+                            null,
+                        )
+                    }
+                }
+                let nextSeq = -1
+                const resolveSeq = (): number => {
+                    if (nextSeq < 0) {
+                        nextSeq = (db.prepare('SELECT COALESCE(MAX(sequence), -1) + 1 AS s FROM message_blocks WHERE message_id = ?').get(msgId) as {s: number}).s
+                    }
+                    return nextSeq++
+                }
+                for (const block of patch.upsertBlocks ?? []) {
+                    const existing = db.prepare('SELECT id FROM message_blocks WHERE id = ?').get(block.id) as {id: string} | undefined
+                    if (existing) {
+                        db.prepare('UPDATE message_blocks SET content = ?, data = ?, timestamp = ? WHERE id = ?').run(
+                            block.content, block.data, block.timestamp, block.id,
+                        )
+                    } else {
+                        db.prepare('INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+                            block.id, msgId, block.blockType, block.content, block.data, resolveSeq(), block.timestamp, block.endedAt ?? null,
+                        )
+                    }
+                }
+                if (patch.finalize) {
+                    const endedAt = patch.messageFields?.endedAt ?? Date.now()
+                    const endBlock = db.prepare("SELECT id FROM message_blocks WHERE message_id = ? AND block_type = 'end'").get(msgId) as {id: string} | undefined
+                    if (endBlock) {
+                        db.prepare("UPDATE message_blocks SET data = ?, ended_at = ? WHERE id = ?").run(JSON.stringify({endedAt}), endedAt, endBlock.id)
+                    } else {
+                        db.prepare("INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, 'end', NULL, ?, ?, ?, ?)").run(
+                            `${msgId}-end`, msgId, JSON.stringify({endedAt}), resolveSeq(), endedAt, endedAt,
+                        )
+                    }
+                    db.prepare('UPDATE messages SET ended_at = ? WHERE id = ?').run(endedAt, msgId)
+                }
+                db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(Date.now(), convId)
+            })()
+            saveDatabase()
+            return true
+        } catch (err) {
+            console.error('[SqliteConversationRepository] writeBlockDelta failed:', err)
+            return false
+        }
+    }
+
     setMessageEnded(convId: string, messageId: string, endedAt: number): boolean {
         try {
             const blocks = this.blockRepo.readBlocksByMessage(messageId)
@@ -280,7 +368,8 @@ export class SqliteConversationRepository implements IConversationRepository {
     /** Row shape returned by message SELECT queries. */
     private readonly msgRowType = null as unknown as {
         id: string; role: string; timestamp: number;
-        ended_at: number | null; metadata: string | null; llm_stats: string | null
+        ended_at: number | null; metadata: string | null; llm_stats: string | null;
+        is_partial: number
     }
 
     /** Assemble message rows + their blocks into Message objects. */
@@ -318,6 +407,11 @@ export class SqliteConversationRepository implements IConversationRepository {
                 } catch { /* ignore */
                 }
             }
+            // 标记崩溃恢复的未完成消息：
+            // is_partial=1（流式中间态落库未 final）或 assistant 消息无 ended_at（渲染端 delta 最后写入但未完成）
+            if (role === 'assistant' && (row.is_partial === 1 || row.ended_at == null)) {
+                message.metadata = { ...message.metadata, _partialRecovery: true }
+            }
             const blocks: MessageBlock[] = (blocksByMsg.get(row.id) || []).map(b => ({
                 id: b.id, messageId: b.message_id, blockType: b.block_type as BlockType,
                 content: b.content, data: b.data, sequence: b.sequence,
@@ -336,7 +430,7 @@ export class SqliteConversationRepository implements IConversationRepository {
             const totalCount = totalRow?.cnt ?? 0
 
             const msgRows = db.prepare(
-                'SELECT id, role, timestamp, ended_at, metadata, llm_stats FROM messages WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT ?'
+                'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT ?'
             ).all(convId, count) as typeof this.msgRowType[]
             msgRows.reverse()
 
@@ -359,7 +453,7 @@ export class SqliteConversationRepository implements IConversationRepository {
             const totalCount = totalRow?.cnt ?? 0
 
             const msgRows = db.prepare(
-                'SELECT id, role, timestamp, ended_at, metadata, llm_stats FROM messages WHERE conversation_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?'
+                'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?'
             ).all(convId, beforeTimestamp, count) as typeof this.msgRowType[]
             msgRows.reverse()
 

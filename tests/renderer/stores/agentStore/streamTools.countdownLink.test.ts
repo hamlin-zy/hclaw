@@ -47,6 +47,7 @@ vi.mock('../../../../src/renderer/stores/conversationStore', () => ({
             updateMessageForConv: vi.fn(),
         }),
     },
+    recordToolCallBlock: vi.fn(),
 }))
 
 // textBatch 依赖 window/requestAnimationFrame，mock 掉

@@ -28,6 +28,8 @@ export class OpenAIAdapter implements ModelAdapter {
   private client: OpenAI
   private model: string
   private providerName: string
+  /** AdapterConvertCache — 增量转换缓存 */
+  private convertCache: { count: number; result: OpenAI.ChatCompletionMessageParam[] } | null = null
 
     constructor(config: ModelConfig, injectedClient?: OpenAI) {
         if (injectedClient) {
@@ -233,12 +235,67 @@ export class OpenAIAdapter implements ModelAdapter {
     messages: readonly ChatMessage[],
     systemPrompt?: string,
   ): OpenAI.ChatCompletionMessageParam[] {
-    const result: OpenAI.ChatCompletionMessageParam[] = []
+    // 同长度重试 → 命中缓存
+    if (this.convertCache && this.convertCache.count === messages.length) {
+      return this.convertCache.result
+    }
 
+    // 缓存无效或消息减少 → 全量重建
+    if (!this.convertCache || this.convertCache.count > messages.length) {
+      const full = this.convertAll(messages, systemPrompt)
+      this.convertCache = {count: messages.length, result: full}
+      return full
+    }
+
+    // 增量：只转换新增段 [prevCount, end)
+    const prevCount = this.convertCache.count
+    const result: OpenAI.ChatCompletionMessageParam[] = [...this.convertCache.result]
+    for (let i = prevCount; i < messages.length; i++) {
+      const msg = messages[i]
+      if (msg.role === 'system') {
+        const content = typeof msg.content === 'string' ? msg.content : ''
+        result.push({role: 'system', content})
+      } else if (msg.role === 'user') {
+        result.push({role: 'user', content: this.convertUserContent(msg.content)})
+      } else if (msg.role === 'assistant') {
+        const assistantMsg: Record<string, any> = {
+          role: 'assistant',
+          content: typeof msg.content === 'string' ? msg.content : null,
+        }
+        if ((msg as any).reasoningContent !== undefined) {
+          assistantMsg.reasoning_content = (msg as any).reasoningContent
+        } else if ((msg as any).thinking) {
+          assistantMsg.reasoning_content = (msg as any).thinking
+        }
+        if (msg.toolCalls?.length) {
+          assistantMsg.tool_calls = msg.toolCalls.map((tc) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+          }))
+        }
+        result.push(assistantMsg as any)
+      } else if (msg.role === 'tool') {
+        result.push({
+          role: 'tool',
+          tool_call_id: msg.toolCallId || '',
+          content: msg.toolResult || '',
+        })
+      }
+    }
+    this.convertCache = {count: messages.length, result}
+    return result
+  }
+
+  /** 全量转换（原逻辑抽取，供 convertMessages 首轮与测试使用） */
+  private convertAll(
+    messages: readonly ChatMessage[],
+    systemPrompt?: string,
+  ): OpenAI.ChatCompletionMessageParam[] {
+    const result: OpenAI.ChatCompletionMessageParam[] = []
     if (systemPrompt) {
       result.push({ role: 'system', content: systemPrompt })
     }
-
     for (const msg of messages) {
       if (msg.role === 'system') {
           // system 消息只支持文本
@@ -278,8 +335,17 @@ export class OpenAIAdapter implements ModelAdapter {
         })
       }
     }
-
     return result
+  }
+
+  /** 测试辅助：走增量缓存路径 */
+  convertMessagesForTest(messages: readonly ChatMessage[]): OpenAI.ChatCompletionMessageParam[] {
+    return this.convertMessages(messages)
+  }
+
+  /** 测试辅助：绕过缓存走全量路径 */
+  convertMessagesForTestFull(messages: readonly ChatMessage[]): OpenAI.ChatCompletionMessageParam[] {
+    return this.convertAll(messages)
   }
 
     /**

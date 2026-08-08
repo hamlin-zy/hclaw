@@ -81,8 +81,9 @@ export interface ConvAgentData {
     intentResult: IntentAnalysisResult | null
     /** LLM 运行错误信息，显示在消息列表左下角而非消息气泡中 */
     errorMessage: string | null
-    /** 工具执行开始时的临时提示消息（如"工具执行中..."），tool_start 后清除 */
-    executingToolsMessage: string | null
+    /** 工具执行开始时的临时提示消息（如"工具执行中..."），tool_start 后清除；
+     *  重试等待时对象结构（label + urgent 紧迫态），字符串分支保留兼容 */
+    executingToolsMessage: string | { label: string; urgent: boolean } | null
     /** 用户运行时发送的消息队列，下一 turn 依次作为独立消息处理 */
     pendingMessages: Array<{
         content: string
