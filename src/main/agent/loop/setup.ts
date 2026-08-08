@@ -15,7 +15,7 @@ import type {RunParams, TurnModelSelection} from './types'
 import type {LoopState as AgentLoopState} from '../state'
 import type {AgentDefinition} from '@shared/agent'
 import type {CommandExecutionContext, HClawAgentType} from '@shared/types'
-import type {ModelRole, RunMode, WorkMode} from '@shared/types'
+import type {ModelRole, RunMode} from '@shared/types'
 import type {ToolRegistry} from '../tools/registry'
 
 import {container, DI_TOKENS} from '../common/container'
@@ -35,7 +35,6 @@ import {renderSystemPrompt} from '../utils/promptRenderer'
 import {getCurrentSchemeInfo} from '../model/index'
 import {resolveModelConfig, selectModelForTaskWithRole} from '../model/modelSelector'
 import {getRoleConfig} from '@shared/modelSchemeHelpers'
-import {getSchemeVersion} from '../model/modelSchemeManager'
 import {getRoleDisplayName} from './helpers'
 import {resolveEntityCommand} from '../entityCommandResolver'
 
@@ -283,90 +282,6 @@ export async function filterTools(
     }
 
     return availableToolDefinitions
-}
-
-// ─── 适配器状态检查 ────────────────────────────────────────
-
-/**
- * 检查是否需要重建适配器
- */
-export function checkAdapterNeedsRecreate(
-    adapter: any,
-    lastSchemeVersion: number | null,
-    lastWorkMode: WorkMode,
-): boolean {
-    if (!adapter) return true
-    const newVersion = getSchemeVersion().version
-    if (lastSchemeVersion !== null && newVersion !== lastSchemeVersion) return true
-    const currentWorkMode = runtimeConfigManager.getWorkMode()
-    return lastWorkMode !== currentWorkMode
-}
-
-/**
- * 重建模型适配器
- */
-export async function* recreateAdapter(
-    params: RunParams,
-    modelConfig: import('../model/types').ModelConfig,
-    workModeRole: ModelRole,
-): AsyncGenerator<AgentStreamEvent, {
-    adapter: any
-    providerType: string
-    modelId: string
-    configSource: string
-    schemeName: string | null
-}> {
-    if (params.schemeUpdatePromise) {
-        await params.schemeUpdatePromise()
-    }
-
-    let resolvedConfig = modelConfig
-    try {
-        const schemeInfo = getCurrentSchemeInfo()
-        if (schemeInfo.id && schemeInfo.name) {
-            const currentScheme = runtimeConfigManager.getScheme()
-            const providers = runtimeConfigManager.getProviders()
-            if (currentScheme && providers.length > 0) {
-                const roleResult = selectModelForTaskWithRole(currentScheme, 'main', {suggestedModel: workModeRole})
-                const resolved = resolveModelConfig(roleResult.config, providers)
-                if (resolved) resolvedConfig = resolved
-            }
-        }
-    } catch (resolveErr) {
-        logger.warn(
-            `[AgentLoop] re-resolve-model-config failed: ${(resolveErr as Error)?.message}, using existing config`,
-        )
-    }
-
-    try {
-        const {createAdapterForContext} = await import('../model/index')
-        const result = await createAdapterForContext(
-            'main',
-            {suggestedModel: workModeRole as any},
-            resolvedConfig,
-        )
-        return {
-            adapter: result.adapter,
-            providerType: result.providerType,
-            modelId: result.modelId,
-            configSource: result.configSource,
-            schemeName: result.schemeName || null,
-        }
-    } catch (error) {
-        const err = error as Error
-        logger.error(`[AgentLoop] create-adapter-failed: ${err?.message}`)
-        if (!resolvedConfig?.provider || !resolvedConfig?.model) {
-            throw new Error('Cannot create adapter: no valid config.')
-        }
-        const {createModelAdapter} = await import('../model/index')
-        return {
-            adapter: createModelAdapter(resolvedConfig),
-            providerType: resolvedConfig.provider,
-            modelId: resolvedConfig.model,
-            configSource: 'fallback',
-            schemeName: null,
-        }
-    }
 }
 
 // ─── 系统提示词构建 ────────────────────────────────────────

@@ -9,10 +9,9 @@
 
 import type {ModelConfig} from '../model/types'
 import {createAdapterForContext, type ModelAdapter} from '../model/index'
-import {classifyErrorEnhanced, getRetryDelay} from '../common/errorClassifier'
 import {logger} from '../logger'
-import {sleep} from '../../utils/retry'
 import {getSchemeVersion} from '../model/modelSchemeManager'
+import {runtimeConfigManager} from '../runtimeConfigManager'
 
 export interface LLMCallerConfig {
     maxRetries: number
@@ -39,6 +38,8 @@ export interface LLMCallResult {
 export class LLMCaller {
     private adapter: ModelAdapter | null = null
     private lastVersion: number = -1
+    /** A2: 上次创建 adapter 时的工作模式，用于检测 auto/其他模式切换触发重建 */
+    private lastWorkMode: string = ''
     private currentProvider: string = ''
     private currentModel: string = ''
     private currentConfigSource: 'global-scheme' | 'scheme-param' | 'fallback' = 'fallback'
@@ -55,6 +56,8 @@ export class LLMCaller {
         suggestedModel?: string,
         fallbackConfig?: ModelConfig,
         schemeUpdatePromise?: () => Promise<void>,
+        // 注：createAdapterForContext 签名（model/index.ts:252）为 (context, intentAnalysis?, fallbackConfig?)
+        // 三参，无 abortSignal 支持。_abortSignal 暂仅接收不透传，留作未来扩展。
         _abortSignal?: AbortSignal
     ): Promise<AdapterResult> {
         const needsRecreate = this.needsAdapterRecreate()
@@ -84,8 +87,9 @@ export class LLMCaller {
                 this.currentConfigSource = globalAdapterResult.configSource as 'global-scheme' | 'scheme-param' | 'fallback'
                 this.currentSchemeName = globalAdapterResult.schemeName || null
 
-                // 记录当前版本
+                // 记录当前版本与工作模式
                 this.lastVersion = getSchemeVersion().version
+                this.lastWorkMode = runtimeConfigManager.getWorkMode()
 
                 return {
                     adapter: this.adapter,
@@ -132,40 +136,15 @@ export class LLMCaller {
     }
 
     /**
-     * 执行 LLM 调用（带重试）
-     */
-    async withRetry<T>(
-        operation: () => Promise<T>,
-        onRetry?: (error: Error, attempt: number) => void
-    ): Promise<T> {
-        let lastError: Error
-
-        for (let attempt = 1; attempt <= this.config.maxRetries; attempt++) {
-            try {
-                return await operation()
-            } catch (error) {
-                lastError = error instanceof Error ? error : new Error(String(error))
-
-                if (!classifyErrorEnhanced(lastError).retryable) {
-                    throw lastError
-                }
-
-                onRetry?.(lastError, attempt)
-
-                if (attempt < this.config.maxRetries) {
-                    const delay = getRetryDelay(lastError)
-                    const actualDelay = Math.min(delay * Math.pow(2, attempt - 1), this.config.maxDelay)
-                    logger.warn('[LLMCaller]', {action: 'retry', attempt, delay: actualDelay})
-                    await sleep(actualDelay)
-                }
-            }
-        }
-
-        throw lastError!
-    }
-
-    /**
      * 检查是否需要重新创建适配器
+     *
+     * 触发条件：
+     * - 尚无 adapter
+     * - 方案版本（schemeVersion）变更
+     * - A2: 工作模式（auto/其他）变更——影响模型选择角色
+     *
+     * 注：本类不再提供 withRetry —— execute.ts 自带完整重试逻辑
+     * （shouldRetryAttempt + 指数退避），避免双路径重试。
      */
     private needsAdapterRecreate(): boolean {
         if (!this.adapter) {
@@ -173,7 +152,10 @@ export class LLMCaller {
         }
         // 检查方案版本是否变更
         const newVersion = getSchemeVersion().version
-        return newVersion !== this.lastVersion
+        if (newVersion !== this.lastVersion) return true
+        // A2: 工作模式变更（auto/其他）也会影响模型选择角色，需重建
+        const currentWorkMode = runtimeConfigManager.getWorkMode()
+        return this.lastWorkMode !== '' && currentWorkMode !== this.lastWorkMode
     }
 
     /**
@@ -182,6 +164,7 @@ export class LLMCaller {
     reset(): void {
         this.adapter = null
         this.lastVersion = -1
+        this.lastWorkMode = ''
     }
 
     getAdapterInfo() {
