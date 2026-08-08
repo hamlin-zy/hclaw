@@ -243,7 +243,7 @@ describe('execute 弱模型容错集成', () => {
 
     it('output 包含问题与用户回答', async () => {
         const {context} = createContext()
-        const result = await askUserTool.execute({question: '你好'}, context)
+        const result = await askUserTool.execute({question: '你好', options: ['是', '否'], multiSelect: false}, context)
         expect(result.success).toBe(true)
         expect(result.output).toContain('问题: 你好')
         expect(result.output).toContain('用户回答: 用户回答')
@@ -251,7 +251,7 @@ describe('execute 弱模型容错集成', () => {
 
     it('空/纯空白 question 返回失败且不调用 askUserQuestion', async () => {
         const {askUserQuestion, context} = createContext()
-        const result = await askUserTool.execute({question: '   '}, context)
+        const result = await askUserTool.execute({question: '   ', options: ['是'], multiSelect: false}, context)
         expect(result.success).toBe(false)
         expect(askUserQuestion).not.toHaveBeenCalled()
     })
@@ -262,7 +262,7 @@ describe('execute 弱模型容错集成', () => {
             abortSignal: new AbortController().signal,
             sendMessage: () => {},
         } as unknown as ToolContext
-        const result = await askUserTool.execute({question: '你好'}, context)
+        const result = await askUserTool.execute({question: '你好', options: ['是', '否'], multiSelect: false}, context)
         expect(result.success).toBe(false)
         expect(result.error).toBe('askUserQuestion not available')
     })

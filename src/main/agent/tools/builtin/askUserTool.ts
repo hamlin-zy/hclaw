@@ -186,13 +186,11 @@ const inputSchema = z.object({
             z.array(z.union([z.string(), z.number(), z.boolean(), z.record(z.string(), z.unknown())])),
             z.string(),
         ])
-        .optional()
-        .describe('可选的选项列表，字符串数组或分隔字符串（自动拆分）'),
-    /** 是否允许多选，默认单选；接受布尔变体字符串（"true"/"yes"/"1" 等） */
+        .describe('必填。选项列表，字符串数组。示例：["A方案","B方案","C方案"]'),
+    /** 是否允许多选；接受布尔变体字符串（"true"/"yes"/"1" 等） */
     multiSelect: z
         .union([z.boolean(), z.string(), z.number()])
-        .optional()
-        .describe('是否允许多选，默认单选'),
+        .describe('必填。是否允许多选（true/false）'),
 })
 
 type AskUserInput = z.infer<typeof inputSchema>
@@ -202,12 +200,8 @@ export const askUserTool: Tool<AskUserInput, string> = {
     description:
         '向用户提问并等待回答。用于澄清意图或获取额外信息。工具会阻塞直到用户选择选项或输入内容。\n' +
         '- question 必填：简洁明确的问题，一次只问一个问题\n' +
-        '- options 可选：字符串数组 ["选项A","选项B"] 或分隔字符串 "选项A、选项B、选项C"（顿号/逗号/换行/竖线均可）\n' +
-        '  标准用法：ask_user({question: "选哪个？", options: ["A方案","B方案","C方案"]})\n' +
-        '  分隔字符串：ask_user({question: "选哪个？", options: "跑步、游泳、打球"})\n' +
-        '  换行分隔：ask_user({question: "选哪个？", options: "方案A\\n方案B\\n方案C"})\n' +
-        '  注意：options 是字符串数组，不要传 JSON 序列化的字符串（如 \'[\"A\",\"B\"]\' 是错误的）\n' +
-        '- multiSelect 可选：true/false\n' +
+        '- options 必填：字符串数组。标准用法：ask_user({question: "选哪个？", options: ["A方案","B方案","C方案"]})\n' +
+        '- multiSelect 必填：true/false\n' +
         '若已有足够信息或能自行推理，不要调用本工具。',
     inputSchema,
     requiredPermissions: [],
