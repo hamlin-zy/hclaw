@@ -142,9 +142,6 @@ export async function* executeLlmCallWithRetry(
                 }
             }
 
-            // ── 触发 ThinkStart Hook ──
-            hookExecutor.execute('ThinkStart', {sessionId}).catch(() => {})
-
             // ── 执行 LLM 调用 ──
             if (!adapter) throw new Error('Adapter not initialized')
 
@@ -214,6 +211,11 @@ export async function* executeLlmCallWithRetry(
                 ? `${systemPrompt}\n\n## 当前命令任务\n\n${commandTemplate}`
                 : systemPrompt
 
+            // ── 触发 ThinkStart Hook（仅推理模式——effectiveThinkingEffort 存在时） ──
+            if (effectiveThinkingEffort) {
+                hookExecutor.execute('ThinkStart', {sessionId}).catch(() => {})
+            }
+
             const rawStream = adapter.chat({
                 systemPrompt: effectiveSystemPrompt,
                 ...(isAnthropic && commandTemplate ? {commandTemplate} : {}),
@@ -238,6 +240,7 @@ export async function* executeLlmCallWithRetry(
             let cacheWriteTokens = 0
             let reasoningTokens = 0
             let assistantThinkingSignature = ''
+            let producedThinking = false
 
             for await (const chunk of stream) {
                 if (abortSignal?.aborted) break
@@ -250,9 +253,11 @@ export async function* executeLlmCallWithRetry(
                     contentParts.push(chunk.content)
                     yield {type: 'text', content: chunk.content}
                 } else if (chunk.type === 'thinking') {
+                    producedThinking = true
                     thinkingParts.push(chunk.content)
                     yield {type: 'thinking', content: chunk.content}
                 } else if (chunk.type === 'reasoning') {
+                    producedThinking = true
                     reasoningParts.push(chunk.content)
                     yield {type: 'thinking', content: chunk.content}
                 } else if (chunk.type === 'tool_use') {
@@ -292,8 +297,10 @@ export async function* executeLlmCallWithRetry(
             const assistantThinking = thinkingParts.join('')
             const assistantReasoningContent = reasoningParts.join('')
 
-            // ── 触发 ThinkEnd Hook ──
-            hookExecutor.execute('ThinkEnd', {sessionId}).catch(() => {})
+            // ── 触发 ThinkEnd Hook（仅实际产生思考内容时） ──
+            if (producedThinking) {
+                hookExecutor.execute('ThinkEnd', {sessionId}).catch(() => {})
+            }
 
             // ── 解析 plannedCommands ──
             let plannedCommands: string[] | undefined
