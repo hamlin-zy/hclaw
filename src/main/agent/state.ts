@@ -230,6 +230,20 @@ export function normalizeToolCallMessages(messages: ReadonlyArray<ChatMessage> |
     return result
 }
 
+/**
+ * 判定消息是否为 normalize 注入的合成 error tool 结果。
+ *
+ * 不能用 isError 单独判定：真实失败结果（createToolResultMessage，
+ * isError = !result.success）也是 isError: true。合成消息的精确特征：
+ * content 为空 + toolResult 以 [INTERRUPTED] 开头。
+ */
+export function isSyntheticToolResult(msg: ChatMessage): boolean {
+    return msg.role === 'tool' && msg.isError === true
+        && msg.content === ''
+        && typeof msg.toolResult === 'string'
+        && msg.toolResult.startsWith('[INTERRUPTED]')
+}
+
 /** 创建助手消息（含工具调用、计划命令和可选的 thinking 内容） */
 export function createAssistantMessage(
   textContent: string,
