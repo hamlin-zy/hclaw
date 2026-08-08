@@ -31,6 +31,8 @@ export class GoogleAdapter implements ModelAdapter {
     private refreshToken?: string
     private _tokenExpiryDate?: number
     private config!: ModelConfig & Record<string, any>
+    /** AdapterConvertCache — 受限增量转换缓存 */
+    private convertCache: GoogleConvertCache | null = null
 
     constructor(config: ModelConfig, injectedGenAI?: GoogleGenerativeAI) {
         this.apiKey = config.apiKey || ''
@@ -58,7 +60,8 @@ export class GoogleAdapter implements ModelAdapter {
     async *chat(params: ChatParams): AsyncGenerator<StreamChunk> {
         const {messages, systemPrompt, tools, maxTokens, abortSignal, additionalContext} = params
 
-        const converted = convertMessages(messages)
+        const converted = convertMessagesIncremental(messages, this.convertCache)
+        this.convertCache = converted.cache
         const {history, lastUserMsg} = converted
         if (!lastUserMsg) {
             yield {type: 'error', error: new Error('No user message to send')}
@@ -408,6 +411,95 @@ export function convertMessages(messages: readonly ChatMessage[]): ConvertedMess
     }
 
     return { history, lastUserMsg, systemText: systemParts.join('\n\n') }
+}
+
+export interface GoogleConvertCache {
+    inputCount: number
+    history: any[]
+    lastUserMsg: any[] | null
+    systemText: string
+}
+
+/**
+ * 受限增量版 convertMessages。
+ *
+ * 仅当新增段不含 user 消息时走增量（追加 history）；新增段含 user 时
+ * 强制全量（lastUserMsg 分离逻辑依赖最后一条 user 的位置，无法增量）。
+ */
+export function convertMessagesIncremental(
+    messages: readonly ChatMessage[],
+    cache: GoogleConvertCache | null,
+): { history: any[]; lastUserMsg: any[] | null; systemText: string; cache: GoogleConvertCache } {
+    // 命中：消息数相同 → 返回缓存
+    if (cache && cache.inputCount === messages.length) {
+        return {history: cache.history, lastUserMsg: cache.lastUserMsg, systemText: cache.systemText, cache}
+    }
+
+    // 缓存无效 / 消息减少 / 新增段含 user → 全量
+    const newSection = cache ? messages.slice(cache.inputCount) : messages
+    const hasNewUser = newSection.some(m => m.role === 'user')
+    if (!cache || cache.inputCount > messages.length || hasNewUser) {
+        const full = convertMessages(messages)
+        return {
+            history: full.history,
+            lastUserMsg: full.lastUserMsg,
+            systemText: full.systemText,
+            cache: {inputCount: messages.length, history: full.history, lastUserMsg: full.lastUserMsg, systemText: full.systemText},
+        }
+    }
+
+    // 增量：追加新增段到 history（新增段只含 assistant/tool/context/system）
+    const history = [...cache.history]
+    const systemParts: string[] = cache.systemText ? [cache.systemText] : []
+    for (const msg of newSection) {
+        if (msg.role === 'system') {
+            const text = textOf(msg.content)
+            if (text) systemParts.push(text)
+            continue
+        }
+
+        if (msg.role === 'assistant') {
+            const parts: any[] = []
+            if (msg.content) {
+                const textParts = convertUserContent(msg.content)
+                parts.push(...textParts)
+            }
+            if (msg.toolCalls) {
+                for (const tc of msg.toolCalls) {
+                    parts.push({
+                        functionCall: { name: tc.name, args: tc.arguments },
+                    })
+                }
+            }
+            history.push({ role: 'model', parts })
+        } else if (msg.role === 'context') {
+            // Hook additionalContext 注入的消息：转为 user 角色，让 LLM 能看到
+            const text = textOf(msg.content)
+            if (text) {
+                history.push({role: 'user', parts: [{text}]})
+            }
+        } else if (msg.role === 'tool') {
+            // functionResponse.name 必须是函数名，用于和 functionCall.name 匹配
+            history.push({
+                role: 'function',
+                parts: [
+                    {
+                        functionResponse: {
+                            name: msg.functionName || '',
+                            response: { result: msg.toolResult || '' },
+                        },
+                    },
+                ],
+            })
+        }
+    }
+    const systemText = systemParts.join('\n\n')
+    return {
+        history,
+        lastUserMsg: cache.lastUserMsg,
+        systemText,
+        cache: {inputCount: messages.length, history, lastUserMsg: cache.lastUserMsg, systemText},
+    }
 }
 
 /** 将内部 user 消息内容（文本或多模态块）转换为 Gemini parts */
