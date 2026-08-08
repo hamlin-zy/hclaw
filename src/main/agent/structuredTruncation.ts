@@ -28,7 +28,7 @@
  * 调用时机：每次 LLM 调用前，预算超出后调用本函数收敛到预算内。
  */
 
-import type {ChatMessage} from '../model/types'
+import type {ChatMessage} from './model/types'
 
 /** 默认高价值工具列表（v4）— 低价值工具指不在该列表中的所有工具 */
 const DEFAULT_HIGH_VALUE_TOOL_NAMES = new Set([
