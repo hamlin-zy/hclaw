@@ -40,6 +40,8 @@ export class LLMCaller {
     private lastVersion: number = -1
     /** A2: 上次创建 adapter 时的工作模式，用于检测 auto/其他模式切换触发重建 */
     private lastWorkMode: string = ''
+    /** F1: 上次创建 adapter 时传入的 suggestedModel（角色）。auto 模式下逐 turn 由意图分析决定（simple→lightweight、complex→reasoning），变化需重建 */
+    private lastSuggestedModel: string = ''
     private currentProvider: string = ''
     private currentModel: string = ''
     private currentConfigSource: 'global-scheme' | 'scheme-param' | 'fallback' = 'fallback'
@@ -60,7 +62,7 @@ export class LLMCaller {
         // 三参，无 abortSignal 支持。_abortSignal 暂仅接收不透传，留作未来扩展。
         _abortSignal?: AbortSignal
     ): Promise<AdapterResult> {
-        const needsRecreate = this.needsAdapterRecreate()
+        const needsRecreate = this.needsAdapterRecreate(suggestedModel)
 
         if (needsRecreate) {
             // 等待方案更新完成（如果有）
@@ -87,9 +89,10 @@ export class LLMCaller {
                 this.currentConfigSource = globalAdapterResult.configSource as 'global-scheme' | 'scheme-param' | 'fallback'
                 this.currentSchemeName = globalAdapterResult.schemeName || null
 
-                // 记录当前版本与工作模式
+                // 记录当前版本、工作模式与建议角色
                 this.lastVersion = getSchemeVersion().version
                 this.lastWorkMode = runtimeConfigManager.getWorkMode()
+                this.lastSuggestedModel = suggestedModel ?? ''
 
                 return {
                     adapter: this.adapter,
@@ -115,6 +118,12 @@ export class LLMCaller {
                 this.currentConfigSource = 'fallback'
                 this.currentProvider = fallbackConfig.provider
                 this.currentModel = fallbackConfig.model
+
+                // F2: fallback 路径也要同步版本/工作模式/建议角色，
+                // 避免后续全局路径恢复时被静默钉死在 fallback 配置上
+                this.lastVersion = getSchemeVersion().version
+                this.lastWorkMode = runtimeConfigManager.getWorkMode()
+                this.lastSuggestedModel = suggestedModel ?? ''
 
                 return {
                     adapter: this.adapter,
@@ -142,11 +151,14 @@ export class LLMCaller {
      * - 尚无 adapter
      * - 方案版本（schemeVersion）变更
      * - A2: 工作模式（auto/其他）变更——影响模型选择角色
+     * - F1: 逐 turn 的 suggestedModel（角色）变更——auto 模式下
+     *   workModeRole 由意图分析按复杂度决定（simple→lightweight、complex→reasoning），
+     *   而 workMode 保持 'auto' 不变，必须单独检测角色变化才能路由到正确模型
      *
      * 注：本类不再提供 withRetry —— execute.ts 自带完整重试逻辑
      * （shouldRetryAttempt + 指数退避），避免双路径重试。
      */
-    private needsAdapterRecreate(): boolean {
+    private needsAdapterRecreate(suggestedModel?: string): boolean {
         if (!this.adapter) {
             return true
         }
@@ -155,7 +167,12 @@ export class LLMCaller {
         if (newVersion !== this.lastVersion) return true
         // A2: 工作模式变更（auto/其他）也会影响模型选择角色，需重建
         const currentWorkMode = runtimeConfigManager.getWorkMode()
-        return this.lastWorkMode !== '' && currentWorkMode !== this.lastWorkMode
+        if (this.lastWorkMode !== '' && currentWorkMode !== this.lastWorkMode) return true
+        // F1: 逐 turn 角色（suggestedModel）变化需重建。
+        // 首次调用（lastSuggestedModel 为空）沿用 lastWorkMode 的 '' 守卫模式：
+        // 此时 adapter 尚为 null，已在首个分支返回 true，无需在此特殊处理。
+        const currentSuggestedModel = suggestedModel ?? ''
+        return this.lastSuggestedModel !== '' && currentSuggestedModel !== this.lastSuggestedModel
     }
 
     /**
@@ -165,6 +182,7 @@ export class LLMCaller {
         this.adapter = null
         this.lastVersion = -1
         this.lastWorkMode = ''
+        this.lastSuggestedModel = ''
     }
 
     getAdapterInfo() {

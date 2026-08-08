@@ -81,7 +81,47 @@ describe('LLMCaller.getAdapter (A2 adapter 管理收归 + workMode 变化重建)
         await caller.getAdapter('main', undefined, undefined, undefined, controller.signal)
         const callArgs = mockCreate.mock.calls[0]
         expect(callArgs[0]).toBe('main')
-        // createAdapterForContext 仅接收三参（context, intentAnalysis?, fallbackConfig?）
+        // createAdapterForContext only accepts 3 args (context, intentAnalysis?, fallbackConfig?)
         expect(callArgs.length).toBeLessThanOrEqual(3)
+    })
+
+    it('F1: workMode unchanged but suggestedModel (role) changes triggers recreate', async () => {
+        const caller = new LLMCaller({maxRetries: 1, initialDelay: 1, maxDelay: 2})
+        const first = await caller.getAdapter('main', 'lightweight')
+        // role is decided per-turn by intent analysis: simple -> lightweight, complex -> reasoning
+        const second = await caller.getAdapter('main', 'reasoning')
+        expect(second.adapter).not.toBe(first.adapter)
+        expect(mockCreate).toHaveBeenCalledTimes(2)
+        // second create must carry the new role
+        const secondArgs = mockCreate.mock.calls[1]
+        expect(secondArgs[1]).toEqual({suggestedModel: 'reasoning'})
+        // role reverting also triggers recreate
+        const third = await caller.getAdapter('main', 'lightweight')
+        expect(third.adapter).not.toBe(second.adapter)
+        expect(mockCreate).toHaveBeenCalledTimes(3)
+    })
+
+    it('F2: after global path fails to fallback, next call retries global path (state synced)', async () => {
+        const caller = new LLMCaller({maxRetries: 1, initialDelay: 1, maxDelay: 2})
+        const fallbackConfig = {provider: 'custom' as const, model: 'fb-model'}
+
+        // first: global path succeeds with role lightweight
+        const first = await caller.getAdapter('main', 'lightweight')
+        expect(first.configSource).toBe('global-scheme')
+
+        // second: role changes -> recreate -> global path fails -> fallback
+        // (old bug: catch path kept lastSuggestedModel/lastVersion at stale values)
+        mockCreate.mockRejectedValueOnce(new Error('global scheme unavailable'))
+        const {createModelAdapter} = await import('../../../../src/main/agent/model/index')
+        const second = await caller.getAdapter('main', 'reasoning', fallbackConfig)
+        expect(second.configSource).toBe('fallback')
+        expect(createModelAdapter).toHaveBeenCalledTimes(1)
+
+        // third: role reverts to lightweight -> with F2 sync the recreate is not
+        // suppressed by stale state, so the (now recovered) global path is retried
+        const third = await caller.getAdapter('main', 'lightweight', fallbackConfig)
+        expect(third.adapter).not.toBe(second.adapter)
+        expect(third.configSource).toBe('global-scheme')
+        expect(mockCreate).toHaveBeenCalledTimes(3) // success + failed + retried
     })
 })
