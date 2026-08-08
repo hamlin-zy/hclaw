@@ -14,6 +14,52 @@ export type {ChatMessage} from './model/types'
 
 import {logger} from './logger'
 
+/** 分块持久化追加结构 — append 时共享前面所有满块，仅复制最后一个不满块 */
+const CHUNK_SIZE = 32
+
+export class ChunkedMessages {
+  private chunks: ReadonlyArray<ChatMessage>[]
+
+  constructor(messages: ChatMessage[] = []) {
+    this.chunks = []
+    for (let i = 0; i < messages.length; i += CHUNK_SIZE) {
+      this.chunks.push(Object.freeze(messages.slice(i, i + CHUNK_SIZE)))
+    }
+  }
+
+  /** 追加一条消息 — 仅复制块索引数组与最后一个不满块 */
+  append(msg: ChatMessage): ChunkedMessages {
+    const result = new ChunkedMessages()
+    result.chunks = [...this.chunks]
+    const last = result.chunks[result.chunks.length - 1]
+    if (last && last.length < CHUNK_SIZE) {
+      result.chunks[result.chunks.length - 1] = Object.freeze([...last, msg])
+    } else {
+      result.chunks.push(Object.freeze([msg]))
+    }
+    return result
+  }
+
+  /** O(n) 扁平化 — 仅在需要完整数组时调用 */
+  toArray(): ChatMessage[] {
+    if (this.chunks.length === 0) return []
+    if (this.chunks.length === 1) return [...this.chunks[0]]
+    const total = this.length
+    const result: ChatMessage[] = new Array(total)
+    let offset = 0
+    for (const c of this.chunks) {
+      for (const m of c) result[offset++] = m
+    }
+    return result
+  }
+
+  get length(): number {
+    let n = 0
+    for (const c of this.chunks) n += c.length
+    return n
+  }
+}
+
 export interface LoopState {
   /** 对话消息历史（只读数组，防止意外修改） */
   readonly messages: ReadonlyArray<ChatMessage>
@@ -23,6 +69,8 @@ export interface LoopState {
   tokenUsage: TokenUsage
   /** 是否已中止 */
   aborted: boolean
+  /** 分块持久化存储（内部结构共享，追加 O(块)） */
+  readonly _chunked: ChunkedMessages
 }
 
 /**
@@ -30,9 +78,11 @@ export interface LoopState {
  * @returns 新的 LoopState 实例，原实例保持不变
  */
 export function addMessage(state: LoopState, message: ChatMessage): LoopState {
+  const next = state._chunked.append(message)
   return Object.freeze({
     ...state,
-    messages: Object.freeze([...state.messages, message])
+    messages: Object.freeze(next.toArray()),
+    _chunked: next,
   })
 }
 
@@ -41,12 +91,14 @@ export function addMessage(state: LoopState, message: ChatMessage): LoopState {
  * @returns 新的 LoopState 实例，原实例保持不变
  */
 export function removeMessage(state: LoopState, index: number): LoopState {
+  const next = new ChunkedMessages([
+    ...state.messages.slice(0, index),
+    ...state.messages.slice(index + 1),
+  ])
   return Object.freeze({
     ...state,
-    messages: Object.freeze([
-      ...state.messages.slice(0, index),
-      ...state.messages.slice(index + 1)
-    ])
+    messages: Object.freeze([...next.toArray()]),
+    _chunked: next,
   })
 }
 
@@ -58,8 +110,10 @@ export interface TokenUsage {
 }
 
 export function createLoopState(messages: ChatMessage[]): LoopState {
+  const chunked = new ChunkedMessages(messages)
   return Object.freeze({
     messages: Object.freeze([...messages]),
+    _chunked: chunked,
     turnCount: 0,
     tokenUsage: { inputTokens: 0, outputTokens: 0, estimatedContextTokens: 0 },
     aborted: false,
