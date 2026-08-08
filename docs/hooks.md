@@ -87,8 +87,8 @@ Command hook 可以通过 stdout 输出 JSON 来控制决策：
 | PermissionRequest | 权限请求对话框显示 | command/prompt | ✓ |
 | PermissionDenied | 权限被拒绝 | command/prompt | ✓ |
 | ContextRetrieval | 上下文检索（注入知识） | command | - |
-| PreCompact | 上下文压缩前 | command/prompt | - |
-| PostCompact | 上下文压缩后 | command/http | - |
+| PreCompact | ~~上下文压缩前~~（已弃用，compact 功能移除） | command/prompt | - |
+| PostCompact | ~~上下文压缩后~~（已弃用，compact 功能移除） | command/http | - |
 | FileChanged | 文件变更（Write/Edit 等） | command/http | ✓ |
 | Stop | 响应完成 | command/http/agent | - |
 | StopFailure | 响应失败 | command/http | - |
