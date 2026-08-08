@@ -3,11 +3,13 @@
  *
  * 职责：
  * - 创建和管理 adapter
- * - 处理重试逻辑
- * - 统一的错误分类
+ * - 重建判定（schemeVersion / workMode / suggestedModel 角色变化触发重建）
+ *
+ * 注：重试逻辑已迁至 execute.ts（shouldRetryAttempt + 指数退避），本类不再处理。
  */
 
 import type {ModelConfig} from '../model/types'
+import type {ModelRole} from '@shared/types'
 import {createAdapterForContext, type ModelAdapter} from '../model/index'
 import {logger} from '../logger'
 import {getSchemeVersion} from '../model/modelSchemeManager'
@@ -55,7 +57,7 @@ export class LLMCaller {
      */
     async getAdapter(
         context: 'main' | 'subAgent' | 'background' | 'planning',
-        suggestedModel?: string,
+        suggestedModel?: ModelRole,
         fallbackConfig?: ModelConfig,
         schemeUpdatePromise?: () => Promise<void>,
         // 注：createAdapterForContext 签名（model/index.ts:252）为 (context, intentAnalysis?, fallbackConfig?)
@@ -74,7 +76,7 @@ export class LLMCaller {
             try {
                 const globalAdapterResult = await createAdapterForContext(
                     context,
-                    {suggestedModel: suggestedModel as any},
+                    {suggestedModel},
                     fallbackConfig
                 )
                 logger.debug('[LLMCaller]', {
@@ -158,7 +160,7 @@ export class LLMCaller {
      * 注：本类不再提供 withRetry —— execute.ts 自带完整重试逻辑
      * （shouldRetryAttempt + 指数退避），避免双路径重试。
      */
-    private needsAdapterRecreate(suggestedModel?: string): boolean {
+    private needsAdapterRecreate(suggestedModel?: ModelRole): boolean {
         if (!this.adapter) {
             return true
         }
