@@ -107,6 +107,20 @@ describe('PreprocessCache — 增长场景增量路径（方案 A）', () => {
     expect(cache.process(s2)).toBe(s2)
   })
 
+  it('Object.freeze 输入：增量零拷贝轮返回冻结数组本身且不抛错', () => {
+    const cache = new PreprocessCache()
+    const s1 = [makeUser(0), makeAssistant(0)]
+    cache.process(s1) // 全量轮建立缓存
+    const s2 = Object.freeze([...s1, makeUser(1)])
+    const r2 = cache.process(s2)
+    expect(r2).toBe(s2)
+    expect(Object.isFrozen(r2)).toBe(true)
+    // 冻结数组上再次增长仍安全（slice/filter 均产生新数组）
+    const s3 = [...s2, makeUser(2)]
+    const r3 = cache.process(s3)
+    expect(r3).toEqual(normalizeToolCallMessages(s3))
+  })
+
   it('Set 原地复用：增量路径不重建全量 Set（结构性断言）', () => {
     const s1 = [makeUser(0), makeAssistant(0, [{id: 'tc1', name: 'bash', arguments: {}}]), makeTool(0, 'tc1', 'ok')]
     const s2 = [...s1, makeUser(1)]
