@@ -58,6 +58,19 @@ export interface ExecuteLlmCallParams {
 }
 
 /**
+ * 判定本次 attempt 是否值得重试。
+ * A1 修复：context-length 错误（上下文超限）是确定性失败——消息未截断则重试必再失败，
+ * 与设计文档 v2 决策"超出模型上下文窗口即失败"一致，故一律不重试。
+ */
+export function shouldRetryAttempt(
+    _error: any,
+    isContextLengthError: boolean,
+    retryableFromClassifier: boolean,
+): boolean {
+    return retryableFromClassifier && !isContextLengthError
+}
+
+/**
  * 执行 LLM 调用，包含完整的重试逻辑
  *
  * 职责：
@@ -338,17 +351,15 @@ export async function* executeLlmCallWithRetry(
         } catch (error: any) {
             lastError = error
             const hasContextLengthErr = checkContextLengthError(error)
-            const isRetryable = classifyErrorEnhanced(error).retryable || hasContextLengthErr
+            const retryableFromClassifier = classifyErrorEnhanced(error).retryable
+            const isRetryable = shouldRetryAttempt(error, hasContextLengthErr, retryableFromClassifier)
 
             if (isRetryable) {
                 logger.warn(`[AgentLoop] turn ${turns} attempt ${attempt} failed: ${error.message} retryable`)
             } else {
-                logger.error(`[AgentLoop] attempt ${attempt} failed: ${error.message} non-retryable`)
+                logger.error(`[AgentLoop] attempt ${attempt} failed: ${error.message} non-retryable${hasContextLengthErr ? ' (context length exceeded, not retrying)' : ''}`)
             }
 
-            if (hasContextLengthErr) {
-                logger.warn(`[AgentLoop] context length error on turn ${turns} attempt ${attempt} — will retry with truncation already applied`)
-            }
             if (!isRetryable || attempt >= retryCount) break
 
             yield* retryBackoff(attempt, retryCount, error, currentDelay, abortSignal)
@@ -358,8 +369,11 @@ export async function* executeLlmCallWithRetry(
 
     // ── 所有重试都失败 ──
     if (!abortSignal?.aborted) {
-        const errorMessage = `LLM call failed after ${retryCount} retries: ${lastError?.message || 'Unknown error'}`
-        logger.info(`[AgentLoop] llm_call_failed after ${retryCount} retries: ${errorMessage}`)
+        const isCtx = checkContextLengthError(lastError)
+        const errorMessage = isCtx
+            ? `上下文超出模型窗口限制，已停止（不重试）。请在新会话中继续，或减少任务规模后重试。`
+            : `LLM call failed after ${retryCount} retries: ${lastError?.message || 'Unknown error'}`
+        logger.info(`[AgentLoop] llm_call_failed: ${errorMessage}`)
         yield {type: 'error', error: errorMessage}
     }
     return null
