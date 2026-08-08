@@ -28,7 +28,6 @@ import {LLM_TIMEOUT_MS, sleep, TimeoutError, withTimeout} from '../../utils/retr
 import {hookExecutor, type HookResult} from '../../plugin/hooks'
 import {attachMediaBlocksToMessage, extractMediaBlocksFromToolResults} from '../mediaExtractor'
 import {isVisionModel, sanitizeMessagesForModel, sanitizeThinkingForModel} from './helpers'
-import {truncateForLlmCall} from './truncateBeforeLlm'
 import {container, DI_TOKENS} from '../common/container'
 import type {ToolRegistry} from '../tools/registry'
 import {checkAdapterNeedsRecreate, recreateAdapter} from './setup'
@@ -134,19 +133,6 @@ export async function* executeLlmCallWithRetry(
 
             // ── PreCompact Hook ──
             hookExecutor.execute('PreCompact', {sessionId}).catch(() => {})
-
-            // ── 结构感知截断（每次调用前，保证不超模型 context window） ──
-            // 顺序：必须在 ContextRetrieval 之后（否则截断会丢掉新增的 retrieval 消息）；
-            //        可在 image 过滤之前（让图片占位 token 也算入 budget 估算）
-            const truncateResult = truncateForLlmCall({
-                messages: messagesToSend,
-            })
-            if (truncateResult.action === 'structured_truncate') {
-                logger.info(
-                    `[AgentLoop] Structured truncation triggered: ${messagesToSend.length} → ${truncateResult.messages.length} messages`,
-                )
-            }
-            messagesToSend = truncateResult.messages
 
             // ── PostCompact Hook ──
             hookExecutor.execute('PostCompact', {sessionId}).catch(() => {})

@@ -1,7 +1,7 @@
 /**
  * Token 估算工具
  *
- * 简单字符/token 估算（chars/4 近似），供 truncateForLlmCall 计算 budget 使用。
+ * 简单字符/token 估算（chars/4 近似），供上下文 token 估算与日志诊断使用。
  * 复杂度可控，无需引入第三方分词库。
  */
 
