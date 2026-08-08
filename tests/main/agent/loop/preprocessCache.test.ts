@@ -4,8 +4,8 @@
  */
 import {describe, expect, it} from 'vitest'
 import type {ChatMessage} from '../../../../src/main/agent/model/types'
-import {normalizeToolCallMessages} from '../../../../src/main/agent/state'
-import {PreprocessCache} from '../../../../src/main/agent/loop/preprocessCache'
+import {normalizeToolCallMessages, isSyntheticToolResult} from '../../../../src/main/agent/state'
+import {PreprocessCache, normalizeIncremental} from '../../../../src/main/agent/loop/preprocessCache'
 
 function makeUser(idx: number): ChatMessage {
   return {id: `u${idx}`, role: 'user', content: `user ${idx}`}
@@ -69,5 +69,87 @@ describe('PreprocessCache — 增量与全量 normalizeToolCallMessages 一致',
     const s2 = [makeUser(0), makeUser(1)]
     const r = cache.process(s2, true)
     expect(r).toEqual(normalizeToolCallMessages(s2))
+  })
+})
+
+describe('PreprocessCache — 增长场景增量路径（方案 A）', () => {
+  it('混合场景顺序：同一 assistant 部分真实结果部分孤儿，增量输出 === 全量输出', () => {
+    const cache = new PreprocessCache()
+    const s1 = [makeUser(0), makeAssistant(0)]
+    cache.process(s1)
+    const s2 = [
+      ...s1,
+      makeAssistant(1, [
+        {id: 'tc1', name: 'bash', arguments: {}},
+        {id: 'tc2', name: 'bash', arguments: {}},
+      ]),
+      makeTool(1, 'tc1', 'ok'),
+    ]
+    const r2 = cache.process(s2)
+    const full2 = normalizeToolCallMessages(s2)
+    expect(r2).toEqual(full2)
+    // 全量版语义：合成消息插在连续 tool 消息之后 → [a1, tool(tc1), syn(tc2)]
+    const a1Idx = full2.findIndex(m => m.id === 'a1')
+    expect(full2[a1Idx + 1]!.toolCallId).toBe('tc1')
+    expect(full2[a1Idx + 1]!.isError).toBeUndefined()
+    expect(full2[a1Idx + 2]!.isError).toBe(true)
+    expect(full2[a1Idx + 2]!.toolCallId).toBe('tc2')
+  })
+
+  it('零拷贝：增量轮前缀干净且无孤儿时返回输入数组本身', () => {
+    const cache = new PreprocessCache()
+    const s1 = [makeUser(0), makeAssistant(0)]
+    cache.process(s1) // 全量轮建立缓存
+    const s2 = [...s1, makeUser(1)]
+    const r2 = cache.process(s2) // 增量轮：无孤儿、前缀干净 → 零拷贝
+    expect(r2).toBe(s2)
+    // 同长度重试命中返回同一引用
+    expect(cache.process(s2)).toBe(s2)
+  })
+
+  it('Set 原地复用：增量路径不重建全量 Set（结构性断言）', () => {
+    const s1 = [makeUser(0), makeAssistant(0, [{id: 'tc1', name: 'bash', arguments: {}}]), makeTool(0, 'tc1', 'ok')]
+    const s2 = [...s1, makeUser(1)]
+    const cached = normalizeToolCallMessages(s1)
+    const resultIds = new Set<string>(['tc1'])
+    const syntheticIds = new Set<string>()
+    const out = normalizeIncremental(s2, s1.length, cached, resultIds, syntheticIds)
+    // 同一 Set 实例被原地更新（证明不重建全量 Set）
+    expect(out.resultIds).toBe(resultIds)
+    expect(out.syntheticIds).toBe(syntheticIds)
+    expect(out.resultIds.has('tc1')).toBe(true)
+    expect(out.zeroCopy).toBe(true)
+    expect(out.result).toBe(s2)
+    expect(out.result).toEqual(normalizeToolCallMessages(s2))
+  })
+
+  it('脏前缀稳态：前缀含合成消息且本轮干净时输出仍含合成消息', () => {
+    const cache = new PreprocessCache()
+    // 第一轮：孤儿注入 → syntheticIds 含 orphan1
+    const s1 = [makeUser(0), makeAssistant(0, [{id: 'orphan1', name: 'bash', arguments: {}}])]
+    const r1 = cache.process(s1)
+    expect(r1.some(m => m.role === 'tool' && m.isError)).toBe(true)
+    // 第二轮：追加用户消息（无孤儿、无取代）→ 脏前缀稳态，不零拷贝但语义正确
+    const s2 = [...s1, makeUser(1)]
+    const r2 = cache.process(s2)
+    expect(r2).toEqual(normalizeToolCallMessages(s2))
+    expect(r2.filter(m => m.role === 'tool' && m.isError).length).toBe(1)
+    expect(r2).not.toBe(s2)
+  })
+
+  it('取代过滤收紧：前缀含真实失败结果（isError=true）不误删', () => {
+    const cache = new PreprocessCache()
+    // 第一轮：tc1 有真实失败结果（content 非空 → 非合成）
+    const s1 = [
+      makeUser(0),
+      makeAssistant(0, [{id: 'tc1', name: 'bash', arguments: {}}]),
+      {id: 't0', role: 'tool', toolCallId: 'tc1', content: 'stderr 输出', toolResult: '命令执行失败', isError: true},
+    ]
+    cache.process(s1)
+    // 第二轮：追加消息，无取代交集 → 真实失败结果保留
+    const s2 = [...s1, makeUser(1)]
+    const r2 = cache.process(s2)
+    expect(r2).toEqual(normalizeToolCallMessages(s2))
+    expect(r2.filter(m => m.role === 'tool' && m.toolCallId === 'tc1').length).toBe(1)
   })
 })
