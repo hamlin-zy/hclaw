@@ -31,6 +31,7 @@ import type {RunParams, MainLoopExitReason, ControllerState} from './types'
 import {createDefaultResult, endTurnCleanup} from './helpers'
 import {initializeRunEnvironment, detectCommandContext, selectModelForTurn, filterTools, buildSystemPrompt} from './setup'
 import {executeLlmCallWithRetry, executeToolCalls, extractMediaFromToolResults} from './execute'
+import {PreprocessCache} from './preprocessCache'
 // ─── LLM 调用事件与工具方法（内联自历史 compress.ts） ───
 import type {ChatMessage} from '../model/types'
 
@@ -274,6 +275,9 @@ export class AgentLoopController {
         let turnCount = 0
         let lastLoggedMsgCount = 0
 
+        // ★ LLM 调用前 normalize 增量缓存
+        const preprocessCache = new PreprocessCache()
+
         // ★ 从 DB 加载缓存的系统提示词
         let cachedSystemPrompt: string | null = null
         const conversationRepo: IConversationRepository | null = sessionId
@@ -395,6 +399,7 @@ export class AgentLoopController {
                 params,
                 isCompactCommand,
                 turns: turnCount,
+                preprocessCache,
             })
 
             if (abortSignal?.aborted) return 'early_exit'
