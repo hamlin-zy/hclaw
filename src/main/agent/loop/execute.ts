@@ -142,12 +142,6 @@ export async function* executeLlmCallWithRetry(
                 }
             }
 
-            // ── PreCompact Hook ──
-            hookExecutor.execute('PreCompact', {sessionId}).catch(() => {})
-
-            // ── PostCompact Hook ──
-            hookExecutor.execute('PostCompact', {sessionId}).catch(() => {})
-
             // ── 触发 ThinkStart Hook ──
             hookExecutor.execute('ThinkStart', {sessionId}).catch(() => {})
 
