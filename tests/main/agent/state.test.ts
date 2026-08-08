@@ -66,6 +66,16 @@ describe('isSyntheticToolResult — 合成 error 消息精确判据', () => {
         })).toBe(false)
     })
 
+    it('真实失败结果（content 为空但 toolResult 非 [INTERRUPTED] 前缀）判定为 false', () => {
+        expect(isSyntheticToolResult({
+            role: 'tool',
+            toolCallId: 'tc1',
+            content: '',
+            toolResult: '[ERROR] 命令执行失败，退出码 1',
+            isError: true,
+        })).toBe(false)
+    })
+
     it('真实成功结果判定为 false', () => {
         expect(isSyntheticToolResult({
             role: 'tool',

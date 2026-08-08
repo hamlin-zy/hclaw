@@ -99,6 +99,10 @@ export interface IncrementalNormalizeResult {
  *    插到该 assistant 之后连续 tool 消息之后（对齐全量版 insertAt 语义，
  *    保证 tool_result 与 tool_use 顺序一致）。
  * 3. 稳态零拷贝：前缀干净 + 无孤儿 + 无取代 → result 为输入数组本身。
+ *
+ * 依赖假设：toolCallId 全局唯一（模型生成的 UUID）。若同一 id 跨 assistant 复用，
+ * 增量判据（resultIds 不含合成 id）与全量判据（existingResultIds 含合成 id）会有差异；
+ * 实际流程中该场景不可达，此处记录以保证未来变更知情。
  */
 export function normalizeIncremental(
   messages: ReadonlyArray<ChatMessage>,
