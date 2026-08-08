@@ -3,7 +3,7 @@
  */
 import {describe, expect, it} from 'vitest'
 import type {ChatMessage} from '../../../src/main/agent/model/types'
-import {addMessage, createLoopState} from '../../../src/main/agent/state'
+import {addMessage, createLoopState, isSyntheticToolResult} from '../../../src/main/agent/state'
 
 function makeMsg(idx: number, role: ChatMessage['role'] = 'user'): ChatMessage {
     return {id: `m${idx}`, role, content: `message ${idx}`}
@@ -42,5 +42,37 @@ describe('ChunkedMessages — 分块持久化追加', () => {
         const state = createLoopState(msgs)
         expect(state.messages).toEqual(msgs)
         expect(state.turnCount).toBe(0)
+    })
+})
+
+describe('isSyntheticToolResult — 合成 error 消息精确判据', () => {
+    it('normalize 注入的合成消息判定为 true', () => {
+        expect(isSyntheticToolResult({
+            role: 'tool',
+            toolCallId: 'orphan1',
+            content: '',
+            toolResult: '[INTERRUPTED] 工具调用被中断，未获取到执行结果（tool: bash）',
+            isError: true,
+        })).toBe(true)
+    })
+
+    it('真实失败结果（content 非空、isError）判定为 false', () => {
+        expect(isSyntheticToolResult({
+            role: 'tool',
+            toolCallId: 'tc1',
+            content: 'stderr 输出内容',
+            toolResult: '命令执行失败，退出码 1',
+            isError: true,
+        })).toBe(false)
+    })
+
+    it('真实成功结果判定为 false', () => {
+        expect(isSyntheticToolResult({
+            role: 'tool',
+            toolCallId: 'tc1',
+            content: 'ok',
+            toolResult: 'ok',
+            isError: false,
+        })).toBe(false)
     })
 })
