@@ -112,11 +112,14 @@ export default function UsageStatsDialog() {
         return () => document.removeEventListener('keydown', onEsc)
     }, [options, handleClose])
 
-    const totalTokens = (d: ConversationUsageStats) => d.totalInputTokens + d.totalOutputTokens
+    // 总 token = 输入 + 输出 + 缓存命中 + 缓存写入（含全部 token 流量）
+    const totalTokens = (d: ConversationUsageStats) =>
+        d.totalInputTokens + d.totalOutputTokens + d.totalCacheReadTokens + d.totalCacheWriteTokens
+    // 命中率口径与 CacheRateTooltip 一致：缓存命中 /（输入 + 缓存命中）；输出与缓存写入不计入分母
     const cacheRate = (d: ConversationUsageStats): string | null => {
-        const denom = d.totalInputTokens + d.totalCacheReadTokens
-        if (denom <= 0) return null
-        return `${(d.totalCacheReadTokens / denom * 100).toFixed(0)}%`
+        const denominator = d.totalInputTokens + d.totalCacheReadTokens
+        if (denominator <= 0) return null
+        return `${(d.totalCacheReadTokens / denominator * 100).toFixed(0)}%`
     }
 
     const renderBody = () => {
@@ -159,7 +162,7 @@ export default function UsageStatsDialog() {
 
                 {/* 关键指标 KPI */}
                 <div className="grid grid-cols-2 gap-2">
-                    <KpiCard label="累计 token" value={formatTokenCount(totalTokens(d))} accent/>
+                    <KpiCard label="总 token（含缓存）" value={formatTokenCount(totalTokens(d))} accent/>
                     <KpiCard label="缓存命中率" value={rate ?? '-'}/>
                 </div>
 
@@ -174,11 +177,9 @@ export default function UsageStatsDialog() {
                 <GroupTitle>缓存</GroupTitle>
                 <div className="space-y-1.5">
                     <StatRow label="缓存命中" value={formatTokenCount(d.totalCacheReadTokens)}/>
-                    <StatRow
-                        label="缓存写入"
-                        value={formatTokenCount(d.totalCacheWriteTokens)}
-                        valueClass={d.totalCacheWriteTokens > 0 ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}
-                    />
+                    {d.totalCacheWriteTokens > 0 && (
+                        <StatRow label="缓存写入" value={formatTokenCount(d.totalCacheWriteTokens)}/>
+                    )}
                 </div>
 
                 {/* 调用 */}

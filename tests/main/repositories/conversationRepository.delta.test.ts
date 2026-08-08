@@ -12,6 +12,7 @@
  */
 import {describe, expect, it, beforeEach, afterEach, vi} from 'vitest'
 import type {Message} from '../../../src/shared/types/message'
+import type {BlockDeltaPatch} from '../../../src/shared/types/message'
 
 // 注意：vi.mock 工厂被提升（hoist），不能引用文件级 const —— 路径必须在工厂内计算
 vi.mock('../../../src/main/config', () => {
@@ -72,8 +73,13 @@ beforeEach(() => {
     )`)
     db.exec(`CREATE TABLE IF NOT EXISTS message_blocks (
         id TEXT PRIMARY KEY, message_id TEXT NOT NULL, block_type TEXT NOT NULL,
-        content TEXT, data TEXT, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, ended_at INTEGER
+        content TEXT, data TEXT, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, ended_at INTEGER,
+        FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE CASCADE
     )`)
+    // ★ 生产外键约束：与迁移 001 对齐——message_blocks.message_id → messages.id。
+    //   真实环境外键开启（否则此前 writeBlockDelta「先插块后建行」的 FK 失败不会被测试暴露），
+    //   这里显式开启，防同类回归。
+    db.exec('PRAGMA foreign_keys = ON')
     repo.create('conv-1', {id: 'conv-1', title: 't', workspacePath: '/tmp/test-ws', createdAt: 1, updatedAt: 1, preview: '', status: 'active'})
 })
 
@@ -235,5 +241,107 @@ describe('readUsageRaw — 用量统计读取', () => {
         const raw = repo.readUsageRaw(['conv-usage-2'])
         expect(raw.llmStatsByConv.size).toBe(0)
         expect(raw.toolCallCountByConv.size).toBe(0)
+    })
+})
+
+describe('writeBlockDelta — 块级增量', () => {
+    it('INSERT 新块并分配连续 sequence', () => {
+        const patch: BlockDeltaPatch = {
+            upsertBlocks: [
+                {id: 'text-m1-0', messageId: 'm1', blockType: 'text', content: '正文', data: null, sequence: 0, timestamp: 1},
+            ],
+            messageFields: {role: 'assistant', timestamp: 1, metadata: {agentName: 'a'}},
+        }
+        expect(repo.writeBlockDelta('conv-1', 'm1', patch)).toBe(true)
+        const blocks = db.prepare('SELECT id, sequence FROM message_blocks WHERE message_id = ? ORDER BY sequence').all('m1')
+        expect(blocks).toEqual([{id: 'text-m1-0', sequence: 0}])
+    })
+
+    it('同一块 id 再次写入 = UPDATE（内容增长），不重复 INSERT，sequence 不变', () => {
+        // 先建行（FK：message_blocks.message_id → messages.id，行必须先存在）
+        repo.writeBlockDelta('conv-1', 'm1', {messageFields: {role: 'assistant', timestamp: 1}})
+        repo.writeBlockDelta('conv-1', 'm1', {upsertBlocks: [{id: 'think-m1-0', messageId: 'm1', blockType: 'think', content: '思考前段', data: null, sequence: 0, timestamp: 1}]})
+        repo.writeBlockDelta('conv-1', 'm1', {upsertBlocks: [{id: 'think-m1-0', messageId: 'm1', blockType: 'think', content: '思考前段+后段', data: null, sequence: 0, timestamp: 2}]})
+        const rows = db.prepare('SELECT id, content, sequence FROM message_blocks WHERE message_id = ?').all('m1')
+        expect(rows).toHaveLength(1)
+        expect(rows[0]).toEqual({id: 'think-m1-0', content: '思考前段+后段', sequence: 0})
+    })
+
+    it('多块 flush：sequence 连续分配', () => {
+        repo.writeBlockDelta('conv-1', 'm1', {messageFields: {role: 'assistant', timestamp: 1}})
+        repo.writeBlockDelta('conv-1', 'm1', {upsertBlocks: [
+            {id: 'text-m1-0', messageId: 'm1', blockType: 'text', content: 'a', data: null, sequence: 0, timestamp: 1},
+            {id: 'text-m1-1', messageId: 'm1', blockType: 'text', content: 'b', data: null, sequence: 0, timestamp: 1},
+        ]})
+        const seqs = db.prepare('SELECT sequence FROM message_blocks WHERE message_id = ? ORDER BY sequence').all('m1') as Array<{sequence: number}>
+        expect(seqs.map(r => r.sequence)).toEqual([0, 1])
+    })
+
+    it('finalize：补 ended_at + end 块；重复 finalize 幂等', () => {
+        repo.writeBlockDelta('conv-1', 'm1', {messageFields: {role: 'assistant', timestamp: 1}})
+        expect(repo.writeBlockDelta('conv-1', 'm1', {finalize: true, messageFields: {endedAt: 99}})).toBe(true)
+        const m = db.prepare('SELECT ended_at FROM messages WHERE id = ?').get('m1') as {ended_at: number}
+        expect(m.ended_at).toBe(99)
+        const end = db.prepare("SELECT id, data FROM message_blocks WHERE message_id = ? AND block_type = 'end'").get('m1') as {id: string; data: string}
+        expect(end.id).toBe('m1-end')
+        expect(JSON.parse(end.data).endedAt).toBe(99)
+        // 重复 finalize
+        repo.writeBlockDelta('conv-1', 'm1', {finalize: true, messageFields: {endedAt: 100}})
+        const m2 = db.prepare('SELECT ended_at FROM messages WHERE id = ?').get('m1') as {ended_at: number}
+        expect(m2.ended_at).toBe(100)
+        const cnt = db.prepare("SELECT COUNT(*) AS c FROM message_blocks WHERE message_id = ? AND block_type = 'end'").get('m1') as {c: number}
+        expect(cnt.c).toBe(1)
+    })
+
+    it('messageFields 写入保留已有 llm_stats', () => {
+        repo.writeMessages('conv-1', [{id: 'm1', role: 'assistant', content: 'x', timestamp: 1, llmStats: [{inputTokens: 1, outputTokens: 1, provider: 'p', model: 'm', duration: 1}]} as Message])
+        repo.writeBlockDelta('conv-1', 'm1', {messageFields: {role: 'assistant', timestamp: 1, metadata: {agentName: 'a'}}})
+        const llm = db.prepare('SELECT llm_stats FROM messages WHERE id = ?').get('m1') as {llm_stats: string}
+        expect(llm.llm_stats).toContain('inputTokens')
+    })
+
+    it('messageFields 含 role 但缺 timestamp：拒绝写入（false + 无任何部分写入，含块）', () => {
+        // ★ NOT NULL 对只验一半的回归防护：role 判了 string 但 timestamp 缺失时，
+        //   不得让 INSERT OR REPLACE 撞 timestamp NOT NULL 回滚整笔事务后静默 false——
+        //   改为写前显式校验：整笔拒绝返回 false，块也不得插入（防半笔落库）。
+        const patch: BlockDeltaPatch = {
+            upsertBlocks: [{id: 'text-m1-0', messageId: 'm1', blockType: 'text', content: '正文', data: null, sequence: 0, timestamp: 1}],
+            messageFields: {role: 'assistant'}, // ★ 缺 timestamp
+        }
+        expect(repo.writeBlockDelta('conv-1', 'm1', patch)).toBe(false)
+        // 事务整体回滚：块未插入（无部分写入）
+        const blocks = db.prepare('SELECT id FROM message_blocks WHERE message_id = ?').all('m1')
+        expect(blocks).toHaveLength(0)
+        // 消息行也未插入
+        const rows = db.prepare('SELECT id FROM messages WHERE id = ?').all('m1')
+        expect(rows).toHaveLength(0)
+    })
+
+    it('messageFields.timestamp 非有限数（NaN/Infinity）：同样拒绝写入，无部分写入', () => {
+        for (const bad of [NaN, Infinity, -Infinity]) {
+            const patch: BlockDeltaPatch = {
+                upsertBlocks: [{id: `text-m1-${bad}`, messageId: 'm1', blockType: 'text', content: '正文', data: null, sequence: 0, timestamp: 1}],
+                messageFields: {role: 'assistant', timestamp: bad as number},
+            }
+            expect(repo.writeBlockDelta('conv-1', 'm1', patch)).toBe(false)
+            expect(db.prepare('SELECT id FROM message_blocks WHERE message_id = ?').all('m1')).toHaveLength(0)
+            expect(db.prepare('SELECT id FROM messages WHERE id = ?').all('m1')).toHaveLength(0)
+        }
+    })
+})
+
+describe('setMessageEnded — 补写原语（Task 6 保险丝复用语义）', () => {
+    it('补写语义：有 blocks 的消息 setMessageEnded 只补 endedAt，不触碰 blocks', () => {
+        // 预置块级增量写入（渲染端已落库的精细块）
+        repo.writeBlockDelta('conv-1', 'm1', {
+            upsertBlocks: [{id: 'text-m1-0', messageId: 'm1', blockType: 'text', content: '精细块', data: null, sequence: 0, timestamp: 1}],
+            messageFields: {role: 'assistant', timestamp: 1},
+        })
+        repo.setMessageEnded('conv-1', 'm1', 200)
+        // 精细块未被覆盖（end 块是 setMessageEnded 自身补的，排除在外）
+        const blocks = db.prepare("SELECT id, content FROM message_blocks WHERE message_id = ? AND block_type != 'end'").all('m1')
+        expect(blocks).toEqual([{id: 'text-m1-0', content: '精细块'}])
+        const end = db.prepare("SELECT COUNT(*) AS c FROM message_blocks WHERE message_id = ? AND block_type = 'end'").get('m1') as {c: number}
+        expect(end.c).toBe(1)
     })
 })

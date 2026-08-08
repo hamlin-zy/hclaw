@@ -51,7 +51,7 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
           case 'think':
             if (cb.thinkBlock) {
               blocks.push({
-                id: `${msg.id}-think-${cb.id}`,
+                id: cb.id,
                 messageId: msg.id,
                 blockType: 'think',
                 content: cb.thinkBlock.content,
@@ -64,7 +64,7 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
           case 'text':
             if (cb.text) {
               blocks.push({
-                id: `${msg.id}-text-${cb.id}`,
+                id: cb.id,
                 messageId: msg.id,
                 blockType: 'text',
                 content: cb.text,
@@ -93,7 +93,7 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
             case 'media':
                 if (cb.media) {
                     blocks.push({
-                        id: `${msg.id}-media-${cb.id}`,
+                        id: cb.id,
                         messageId: msg.id,
                         blockType: 'media',
                         content: cb.media.caption || null,
@@ -168,7 +168,7 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
     }
   }
 
-  // 构建 messages 表记录（assistant 只存元信息，user/system 存全部）
+  // 构建 messages 表记录（assistant 只存非块字段元信息，内容以 blocks 为唯一权威；user/system 存 content）
   const messageRecord: Message = {
     id: msg.id,
     role: msg.role,
@@ -177,21 +177,19 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
     endedAt: msg.endedAt,
     llmStats: msg.llmStats,
     metadata: {
-      content: msg.content,
       agentName: msg.agentName,
       agentType: msg.agentType,
       model: msg.model,
       skillExecution: msg.skillExecution,
       attachments: msg.attachments,
       plannedCommands: msg.plannedCommands,
-      thinkBlock: msg.thinkBlock,
-      toolCalls: msg.toolCalls,
-      contentBlocks: msg.contentBlocks,
       // ★ 命令上下文透传：UserCommandBubble 渲染 /能力 徽章依赖这些字段，
       //   缺失会导致历史消息从 DB 加载后丢失命令样式（还原为纯文本）
       commandId: (msg as {commandId?: string}).commandId ?? (msg.metadata?.commandId as string | undefined),
       commandArgs: (msg as {commandArgs?: string}).commandArgs ?? (msg.metadata?.commandArgs as string | undefined),
       commandTemplate: msg.metadata?.commandTemplate,
+      // ★ user/system 必须保留 content：buildMessagesFromRows 读回取 metadata.content（非 content 列）
+      ...(msg.role === 'user' || msg.role === 'system' ? {content: msg.content} : {}),
     },
   }
 

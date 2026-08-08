@@ -8,7 +8,7 @@ import type {ChatMessage} from '../../../../src/main/agent/model/types'
 import {
     splitIntoTurns,
     structuredTruncateMessages,
-} from '../../../../src/main/agent/loop/structuredTruncation'
+} from '../../../../src/main/agent/structuredTruncation'
 
 function makeUserMsg(idx: number, text: string): ChatMessage {
     return {id: `u${idx}`, role: 'user', content: text}

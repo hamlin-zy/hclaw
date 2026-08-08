@@ -10,7 +10,9 @@ import {agentManager} from '../manager'
 import {permissionEngine} from '../tools/permission'
 import {isAudioFile, isImageFile, isNetworkImageUrl} from '../utils/imageProcessor'
 import {runtimeConfigManager} from '../runtimeConfigManager'
+import {resolveAgentDefinitionFromCommandId} from '../agentTemplateConverter'
 import {logger} from '../logger'
+import {structuredTruncateMessages} from '../structuredTruncation'
 import type {SystemSettings} from '@shared/types'
 import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
 
@@ -272,16 +274,28 @@ export function registerHandlers(): void {
                 // system 消息跳过（由 systemPrompt 处理）
             }
 
-            const messages: AgentStartParams['messages'] = [
-                ...convertedMessages,
-                {
-                    role: 'user' as const,
-                    content: userMessageContent,
-                    // 将消息元数据传递给 Worker，供 Agent Loop 识别命令模式
-                    metadata: params.messageMetadata,
-                    id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                },
-            ]
+            let messages = convertedMessages as AgentStartParams['messages']
+            messages.push({
+                role: 'user' as const,
+                content: userMessageContent,
+                // 将消息元数据传递给 Worker，供 Agent Loop 识别命令模式
+                metadata: params.messageMetadata,
+                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            })
+
+            // ── 会话边界结构化截断（v2：从 loop 内前移到 agent_start 前）──
+            // 保留第一轮 + 最近 7 轮完整，中间区间按 v4 工具价值剥离。
+            // loop 内不再截断（实时事实链不可丢），超长 loop 超上下文由调用方兜底。
+            const truncateResult = structuredTruncateMessages(messages, {keepRecentTurns: 7})
+            if (truncateResult.droppedTurns > 0) {
+                logger.info('[agent-start] 会话边界结构化截断', {
+                    before: messages.length,
+                    after: truncateResult.messages.length,
+                    droppedTurns: truncateResult.droppedTurns,
+                })
+                messages = truncateResult.messages as AgentStartParams['messages']
+            }
+
             // 诊断：统计构建后的 tool 消息数量
             const toolMsgCount = messages.filter(m => m.role === 'tool').length
             const assistantWithTcCount = messages.filter(m => m.role === 'assistant' && (m.toolCalls?.length ?? 0) > 0).length
@@ -302,6 +316,14 @@ export function registerHandlers(): void {
             const settingsForWorker = systemSettingsRepo.getJson<SystemSettings>('settings')
             const maxTurnsFromSettings = settingsForWorker?.agent?.maxTurns ?? 500
 
+            // ★ 命令模式工具过滤修复：从 messageMetadata.commandId 解析 agentDefinition。
+            //   命令路径（Ctrl+K / /agent）此前不构造 agentDefinition，filterTools 回退
+            //   General 类型导致 tools/disallowedTools 白黑名单全部失效（Plan Agent 等
+            //   只读 Agent 实际拿到全部工具）。注入后走与子 Agent 派发一致的过滤链。
+            const agentDefinition = resolveAgentDefinitionFromCommandId(
+                params.messageMetadata?.commandId as string | undefined,
+            )
+
             // 构建 worker 参数
             const workerParams: AgentStartParams = {
                 conversationId: params.conversationId,
@@ -317,6 +339,7 @@ export function registerHandlers(): void {
                     providers: currentProviders as any,
                 } : undefined,
                 workMode: runtimeConfigManager.getWorkMode(),
+                ...(agentDefinition ? {agentDefinition} : {}),
             }
 
             logger.debug('[agent-start]', {

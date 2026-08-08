@@ -2,8 +2,9 @@
 // tool_use, tools_start, tool_start, tool_progress, tool_detail, tool_result, tool_denied
 
 import type {StreamCtx} from './streamContext'
+import type {ToolCall} from '@shared/types'
 import {makeAgentState, createDefaultConvData} from '../defaultState'
-import {useConversationStore} from '../../conversationStore'
+import {useConversationStore, recordToolCallBlock} from '../../conversationStore'
 import {useToolCallsStore} from '../../toolCallsStore'
 import {
     flushTextBatch,
@@ -14,6 +15,7 @@ import {
 } from '../batching/toolResultBatch'
 import {normalizeToolResult} from '../helpers/misc'
 import {ensureAgentToolTaskId} from './streamSubAgents'
+import {isRetryMessage} from './streamCore'
 
 export function handleToolUse(ctx: StreamCtx) {
     const {get, convId, isAgentAborted, isActiveConv, event} = ctx
@@ -28,7 +30,8 @@ export function handleToolUse(ctx: StreamCtx) {
     }
 
     // 清除重试状态消息（成功重试后 LLM 开始调用工具）
-    if (convState.executingToolsMessage?.startsWith('重试 ')) {
+    // 覆盖倒计时对象分支（{label: '重试中...'}）与遗留字符串分支（'重试 ...'）
+    if (isRetryMessage(convState.executingToolsMessage)) {
         get().updateConvData(convId, {executingToolsMessage: null})
     }
 
@@ -58,20 +61,23 @@ export function handleToolUse(ctx: StreamCtx) {
     }
     const updatedConvState = get().convAgentStates[convId] || createDefaultConvData()
     const textOffset = updatedConvState.streamBuffer.length
+    const newTc: ToolCall = {
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.arguments,
+        status: 'running',
+        textOffset,
+        reason: tc.reason,
+        terminal: tc.terminal,
+        // ★ 倒计时数据持久化：tool_use 阶段通常无 timeoutMs（主进程在 tool_start 才注入），
+        //   但若已携带则落库，保证不丢（tool_start 到达时会再补齐）
+        timeoutMs: tc.timeoutMs,
+    }
     convStore.updateMessageForConv(convId, msgId, {
-        toolCalls: [...existing, {
-            id: tc.id,
-            name: tc.name,
-            arguments: tc.arguments,
-            status: 'running',
-            textOffset,
-            reason: tc.reason,
-            terminal: tc.terminal,
-            // ★ 倒计时数据持久化：tool_use 阶段通常无 timeoutMs（主进程在 tool_start 才注入），
-            //   但若已携带则落库，保证不丢（tool_start 到达时会再补齐）
-            timeoutMs: tc.timeoutMs,
-        }],
+        toolCalls: [...existing, newTc],
     })
+    // ★ 块级增量：tool_use 事件到达即记 tool_call 块（id = ${msgId}-tc-${tc.id}）
+    recordToolCallBlock(convId, msgId, newTc)
     get().updateConvData(convId, {
         runningToolCount: updatedConvState.runningToolCount + 1,
     })
@@ -179,6 +185,18 @@ export function handleToolProgress(ctx: StreamCtx) {
     if (!event.toolCallId) return
     const convState = get().convAgentStates[convId] || createDefaultConvData()
     if (!convState.streamingMessageId && convState.agentState.status === 'idle') return
+
+    // ★ retryBackoff 每秒推送的剩余秒数 → 渲染为带紧迫态的倒计时对象
+    if (typeof (event as any).retryCountdown === 'number') {
+        get().updateConvData(convId, {
+            executingToolsMessage: {
+                label: `重试中，${(event as any).retryCountdown}s 后重试...`,
+                urgent: (event as any).retryCountdown <= 3,
+            },
+        })
+        return
+    }
+
     // 状态缺失时同步注册（确保 UI 立即可见），已存在时走批量队列（防抖高频更新）
     const existingState = useToolCallsStore.getState().states[event.toolCallId]
     if (!existingState || existingState.status === 'pending') {

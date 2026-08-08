@@ -2,7 +2,7 @@ import {ipcMain} from 'electron';
 import {createConversationRepository, createMessageBlockRepository} from './repositories';
 import {computeConversationUsageStats} from './usageStats'
 import {getMainWindow} from './window'
-import type {ConversationMeta, ConversationSummary, Message, MessageBlock} from '@shared/types';
+import type {BlockDeltaPatch, ConversationMeta, ConversationSummary, Message, MessageBlock} from '@shared/types';
 import {collectDescendants} from '@shared/utils/conversationTree'
 
 /** 注册会话管理相关 IPC handlers */
@@ -48,6 +48,14 @@ export function initConversationIPC(): void {
     ipcMain.handle('conversation-write-messages-delta', (_e, convId: string, message: unknown) => {
         try {
             return convRepo().writeMessagesDelta(convId, message as Message);
+        } catch {
+            return false;
+        }
+  });
+
+    ipcMain.handle('conversation-write-block-delta', (_e, convId: string, msgId: string, patch: unknown) => {
+        try {
+            return convRepo().writeBlockDelta(convId, msgId, patch as BlockDeltaPatch);
         } catch {
             return false;
         }

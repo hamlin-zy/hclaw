@@ -5,7 +5,7 @@
 // 全量重建链（此前是 UI 卡死的核心原因）。
 
 import {useAgentStore} from '..'
-import {useConversationStore} from '../../conversationStore'
+import {useConversationStore, recordThinkBlock} from '../../conversationStore'
 import {createDefaultConvData} from '../defaultState'
 
 /** 每个会话的累积思考文本 */
@@ -73,14 +73,28 @@ export function flushThinkingBatch(convId: string) {
     if (lastBlock?.type === 'think') {
         lastBlock.thinkContent = (lastBlock.thinkContent || '') + batch
     } else {
+        const thinkStartOffset = updatedState.streamBuffer.length
+        // think 段序号派生：同消息内已有 think 块数（0, 1, 2, ...），单调递增天然唯一。
+        // 注意不能用 thinkStartOffset 作 id——那是文本流长度，think 内容不入 streamBuffer，
+        // 工具前后两个 think 段（think → tool → think）offset 相同会碰撞，导致同 id 块
+        // INSERT OR REPLACE 静默覆盖。textOffset 仍是 contentBlocks 交错重建的锚点语义，需保留。
+        const thinkSeq = currentBlocks.filter(b => b.type === 'think').length
         currentBlocks.push({
             type: 'think',
-            id: `think-${crypto.randomUUID()}`,
-            textOffset: updatedState.streamBuffer.length,
+            id: `think-${msgId}-${thinkSeq}`,
+            textOffset: thinkStartOffset,
             thinkContent: batch,
         })
     }
     useAgentStore.getState().updateConvData(convId, {streamBlocks: currentBlocks})
+
+    // ★ 块级增量：最后 think 块的 id/textOffset 来自已更新的 streamBlocks
+    //   （Task 1 后 id = think-${msgId}-${thinkSeq}，绝不能从扁平字段 think-${msgId} 派生）
+    const updatedBlocks = useAgentStore.getState().convAgentStates[convId]?.streamBlocks ?? []
+    const lastThink = [...updatedBlocks].reverse().find(b => b.type === 'think')
+    if (lastThink && lastThink.type === 'think') {
+        recordThinkBlock(convId, msgId, lastThink.id, lastThink.thinkContent ?? '', 'thinking', lastThink.textOffset)
+    }
 
     // 4. 仅在活跃会话重建 contentBlocks（合并后一次全量重建，替代每 chunk 一次）
     const activeConvId = useConversationStore.getState().activeConversationId

@@ -139,7 +139,15 @@ export const ThinkingIndicator = memo(function ThinkingIndicator({conversationId
 
     // 优先级：工具执行提示 > 错误 > thinking 指示器 > 流式暂停
     if (executingToolsMessage) {
-        return <StatusLine>{executingToolsMessage}</StatusLine>
+        if (typeof executingToolsMessage === 'string') {
+            return <StatusLine>{executingToolsMessage}</StatusLine>
+        }
+        const {label, urgent} = executingToolsMessage
+        return (
+            <StatusLine className={urgent ? 'text-[var(--error)] font-medium' : undefined}>
+                {label}
+            </StatusLine>
+        )
     }
 
     if (errorMessage) {

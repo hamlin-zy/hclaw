@@ -3,6 +3,7 @@
 import type {AgentStore} from '../types'
 import {IDLE_STATE, createDefaultConvData} from '../defaultState'
 import {useConversationStore} from '../../conversationStore'
+import {textBlockId} from '../contentBlocks'
 import {useToolCallsStore} from '../../toolCallsStore'
 import {clearAllBatches} from '../helpers/convHelpers'
 import {flushThinkingBatch} from '../batching/thinkingBatch'
@@ -92,7 +93,7 @@ export async function abortAgentImpl(
                     if (sb.textOffset > lastOffset) {
                         const textSlice = fullText.slice(lastOffset, sb.textOffset)
                         if (textSlice) {
-                            assembled.push({id: `text-${crypto.randomUUID()}`, type: 'text', text: textSlice})
+                            assembled.push({id: textBlockId(streamingMsgId, lastOffset), type: 'text', text: textSlice})
                         }
                     }
                     if (sb.type === 'think') {
@@ -116,7 +117,7 @@ export async function abortAgentImpl(
                 if (lastOffset < fullText.length) {
                     const remainingText = fullText.slice(lastOffset)
                     if (remainingText) {
-                        assembled.push({id: `text-${crypto.randomUUID()}`, type: 'text', text: remainingText})
+                        assembled.push({id: textBlockId(streamingMsgId, lastOffset), type: 'text', text: remainingText})
                     }
                 }
                 if (assembled.length > 0) {

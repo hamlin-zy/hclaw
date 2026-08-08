@@ -19,6 +19,7 @@ import {agentRegistry} from './agentRegistry'
 import {skillRegistry} from './skills'
 import {getHclawDir} from '../config'
 import {CommandDispatcher} from '../plugin/commands'
+import {formatYmd} from './utils/dateUtils'
 
 
 export interface SystemPromptContext {
@@ -56,7 +57,8 @@ export async function buildSystemPrompt(
 - **操作系统**: ${displayOS(shellInfo.os)}
 - **Node.js**: ${process.version}
 - **工作目录**: ${ctx.workingDir}
-- **权限模式**: ${ctx.permissionMode}`)
+- **权限模式**: ${ctx.permissionMode}
+- **当前日期**: ${formatYmd()}`)
 
     // 系统目录结构（配置目录/数据目录说明）
     const dirsSection = r.resolve('system.directories')

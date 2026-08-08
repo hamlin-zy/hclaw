@@ -68,9 +68,9 @@ export type CombinedItem =
  *   - 空闲（非流式）时直接渲染最新内容，无延迟；
  *   - 卸载 / isStreaming 翻转时取消未执行的 rAF，避免内存泄漏与过期更新；
  *   - ref 跟踪 props 最新 content，避免 effect 内闭包陈旧导致漏更；
- *   - 标签页隐藏时 rAF 会被浏览器节流到 1Hz，切回时通过 visibilitychange 强制同步一次。
+ *   - 标签页隐藏时冻结渲染（不提交 setState、零 markdown 解析），恢复可见时合并渲染最新内容一次。
  */
-function ThrottledMarkdown({content, isUser, theme}: {
+export function ThrottledMarkdown({content, isUser, theme}: {
     content: string; isUser: boolean; theme: 'light' | 'dark' | 'yuanshandai' | 'shiyangjin'
 }) {
     // ★ 修复：只订阅当前活跃会话的流式状态（原实现遍历全部会话，
@@ -112,12 +112,23 @@ function ThrottledMarkdown({content, isUser, theme}: {
             syncLatest()
             frameId = requestAnimationFrame(tick)
         }
-        frameId = requestAnimationFrame(tick)
 
-        // 标签页切回时强制同步（rAF 在 hidden 时被浏览器节流到 1Hz，会丢帧）
+        // ★ 隐藏冻结：hidden 时彻底停掉 rAF 且不提交（displayContent 保持快照，
+        //   content 仍经 ref 累积）；visible 时只渲染最新一次并重启循环。
+        //   避免隐藏期间 1Hz 反复解析 markdown 积压、恢复瞬间渲染风暴。
         const handleVisibility = () => {
-            if (document.visibilityState === 'visible') syncLatest()
+            if (document.visibilityState === 'visible') {
+                syncLatest()
+                if (isStreaming) frameId = requestAnimationFrame(tick)
+            } else {
+                cancelAnimationFrame(frameId)
+            }
         }
+
+        // ★ 启动守卫：hidden 中不启动 rAF（isStreaming false→true 翻转重建 effect 时
+        //   也不会在隐藏期间启动，避免 1Hz 持续解析 markdown 积压）。
+        //   visible 由 handleVisibility 的 visible 分支负责启动；cancel(0) 是安全 no-op。
+        frameId = document.hidden ? 0 : requestAnimationFrame(tick)
         document.addEventListener('visibilitychange', handleVisibility)
 
         return () => {

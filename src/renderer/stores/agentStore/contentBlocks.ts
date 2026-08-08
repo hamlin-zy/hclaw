@@ -1,5 +1,6 @@
 // ── ContentBlocks 构建 ──────────────────────────────────
 
+import type {ContentBlock, ToolCall} from '@shared/types'
 import {useAgentStore} from '.'
 import {useConversationStore} from '../conversationStore'
 import {createDefaultConvData} from './defaultState'
@@ -19,12 +20,71 @@ import {flushToolResultBatch, getToolResultBatchMap} from './batching/toolResult
 // ═══════════════════════════════════════════════════════════
 
 /**
- * 派生稳定的 text 块 id。
+ * 派生稳定的 text 块 id（done/abort 组装路径与流式重建路径统一使用，
+ * 避免 completion/abort 路径仍用 randomUUID 导致 id 永久分叉）。
  * @param prefix 消息标识（优先 streamingMessageId）
  * @param offset 文本块在全文中的起始偏移
  */
-function textBlockId(prefix: string | null, offset: number): string {
+export function textBlockId(prefix: string | null, offset: number): string {
     return `text-${prefix || 'msg'}-${offset}`
+}
+
+/** 流式块原始形态（来自 convAgentStates.streamBlocks） */
+interface StreamBlockEntry {
+    type: string
+    id: string
+    textOffset: number
+    thinkContent?: string
+    thinkSignature?: string
+    toolCall?: ToolCall | null
+}
+
+/**
+ * 纯函数：从 streamBlocks + streamBuffer 组装 ContentBlock[]。
+ * 供 done/abort/流式重建三路径共用，保证排序一致性和 id 稳定性。
+ */
+export function assembleContentBlocks(params: {
+    streamingMsgId: string | null
+    streamBlocks: StreamBlockEntry[]
+    fullText: string
+    toolCallMap: Map<string, ToolCall>
+    thinkStatus: 'thinking' | 'complete'
+    thinkTimestamp: number
+}): ContentBlock[] {
+    const {streamingMsgId, streamBlocks, fullText, toolCallMap, thinkStatus, thinkTimestamp} = params
+    if (!streamingMsgId || streamBlocks.length === 0) return []
+
+    const sorted = [...streamBlocks].sort((a, b) => a.textOffset - b.textOffset)
+    const assembled: ContentBlock[] = []
+    let lastOffset = 0
+
+    for (const sb of sorted) {
+        if (sb.textOffset > lastOffset) {
+            const textSlice = fullText.slice(lastOffset, sb.textOffset)
+            if (textSlice) {
+                assembled.push({id: textBlockId(streamingMsgId, lastOffset), type: 'text', text: textSlice})
+            }
+        }
+        if (sb.type === 'think') {
+            assembled.push({
+                id: sb.id, type: 'think',
+                thinkBlock: {
+                    id: sb.id, content: sb.thinkContent || '', status: thinkStatus, timestamp: thinkTimestamp,
+                    ...(sb.thinkSignature ? {signature: sb.thinkSignature} : {}),
+                },
+            })
+        } else if (sb.type === 'tool_use' && sb.toolCall) {
+            const latestTc = toolCallMap.get(sb.toolCall.id) || sb.toolCall
+            assembled.push({id: sb.id, type: 'tool_use', toolCall: latestTc})
+        }
+        if (sb.textOffset > lastOffset) lastOffset = sb.textOffset
+    }
+
+    if (lastOffset < fullText.length) {
+        const remaining = fullText.slice(lastOffset)
+        if (remaining) assembled.push({id: textBlockId(streamingMsgId, lastOffset), type: 'text', text: remaining})
+    }
+    return assembled
 }
 
 /**
@@ -37,7 +97,6 @@ function textBlockId(prefix: string | null, offset: number): string {
  *   4. text 块 id 稳定派生（见上方注释），流式期间避免 React 重挂载
  */
 export function updateMessageContentBlocks(convId?: string) {
-    // 使用传入的 convId，否则回退到当前活跃会话（向后兼容）
     const targetConvId = convId || useConversationStore.getState().activeConversationId
     if (!targetConvId) return
     const convData = useAgentStore.getState().convAgentStates[targetConvId] || createDefaultConvData()
@@ -50,69 +109,22 @@ export function updateMessageContentBlocks(convId?: string) {
         flushToolResultBatch(targetConvId)
     }
 
-    const fullText = streamBuffer
-    const assembled: import('@shared/types').ContentBlock[] = []
-    let lastOffset = 0
-
-    //  按 textOffset 排序，确保处理顺序正确（防止乱序到达）
-    const sortedBlocks = [...streamBlocks].sort((a, b) => a.textOffset - b.textOffset)
-
-    for (const sb of sortedBlocks) {
-        // 提取 textOffset 之前的文本段
-        if (sb.textOffset > lastOffset) {
-            const textSlice = fullText.slice(lastOffset, sb.textOffset)
-            if (textSlice) {
-                assembled.push({
-                    id: textBlockId(streamingMessageId, lastOffset),
-                    type: 'text',
-                    text: textSlice,
-                })
-            }
-        }
-
-        // 添加 think 或 tool_use block
-        if (sb.type === 'think') {
-            assembled.push({
-                id: sb.id,
-                type: 'think',
-                thinkBlock: {
-                    id: sb.id,
-                    content: sb.thinkContent || '',
-                    status: 'thinking',
-                    timestamp: Date.now(),
-                    ...(sb.thinkSignature ? {signature: sb.thinkSignature} : {}),
-                },
-            })
-        } else if (sb.type === 'tool_use' && sb.toolCall) {
-            // 从 messagesMap 查找最新工具调用数据（含 result），
-            // streamBlocks 不存储 result，避免与 messagesMap 冗余
-            const convMsgs = useConversationStore.getState().messagesMap[targetConvId] || []
-            const currentMsg = convMsgs.find(m => m.id === streamingMessageId)
-            const latestTc = currentMsg?.toolCalls?.find(tc => tc.id === sb.toolCall!.id) || sb.toolCall
-            assembled.push({
-                id: sb.id,
-                type: 'tool_use',
-                toolCall: latestTc,
-            })
-        }
-
-        //  lastOffset 只增不减，防止 textOffset 回退导致文本重复/丢失
-        if (sb.textOffset > lastOffset) {
-            lastOffset = sb.textOffset
-        }
+    // 从 messagesMap 构建 toolCallMap（含 result）
+    const convMsgs = useConversationStore.getState().messagesMap[targetConvId] || []
+    const currentMsg = convMsgs.find(m => m.id === streamingMessageId)
+    const toolCallMap = new Map<string, ToolCall>()
+    if (currentMsg?.toolCalls) {
+        for (const tc of currentMsg.toolCalls) toolCallMap.set(tc.id, tc)
     }
 
-    // 所有 block 之后的剩余文本
-    if (lastOffset < fullText.length) {
-        const remainingText = fullText.slice(lastOffset)
-        if (remainingText) {
-            assembled.push({
-                id: textBlockId(streamingMessageId, lastOffset),
-                type: 'text',
-                text: remainingText,
-            })
-        }
-    }
+    const assembled = assembleContentBlocks({
+        streamingMsgId: streamingMessageId,
+        streamBlocks: streamBlocks as Parameters<typeof assembleContentBlocks>[0]['streamBlocks'],
+        fullText: streamBuffer,
+        toolCallMap,
+        thinkStatus: 'thinking',
+        thinkTimestamp: Date.now(),
+    })
 
     if (assembled.length > 0) {
         useConversationStore.getState().updateMessageForConv(targetConvId, streamingMessageId, {

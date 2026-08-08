@@ -28,6 +28,8 @@ export class AnthropicAdapter implements ModelAdapter {
   private client: Anthropic
   private model: string
   private features: ModelConfig['features'] = undefined
+  /** AdapterConvertCache — 增量 API 消息转换缓存（随 adapter 实例，重建自动清空） */
+  private convertCache: ConvertCache | null = null
 
     constructor(config: ModelConfig, injectedClient?: Anthropic) {
         // 如果注入了客户端，直接使用；否则创建新客户端
@@ -48,7 +50,8 @@ export class AnthropicAdapter implements ModelAdapter {
 
     const thinkingModeActive = !!thinkingEffort
     const needsCompatNormalization = this.isThirdPartyAPI()
-    const converted = convertMessages(messages, thinkingModeActive, needsCompatNormalization)
+    const converted = convertMessagesIncremental(messages, thinkingModeActive, needsCompatNormalization, this.convertCache)
+    this.convertCache = converted.cache
     let apiMessages = converted.apiMessages
 
     const useContentBlocks = this.features?.systemContentBlocks
@@ -443,6 +446,192 @@ export function convertMessages(
     }
 
     return { apiMessages: result, systemText: systemParts.join('\n\n') }
+}
+
+/** 增量转换缓存状态 */
+export interface ConvertCache {
+    inputCount: number
+    apiMessages: Anthropic.MessageParam[]
+    systemText: string
+}
+
+/**
+ * 增量版 convertMessages — 与全量输出逐条一致，但只转换新增消息段。
+ *
+ * cache 为 null 时等价于全量 convertMessages（首轮）。
+ * 跨边界工具合并：若缓存最后一个 apiMessage 是「未闭合的 tool_result 批」
+ * （role==='user' 且 content 全为 tool_result），且新增段以 tool 消息开头，
+ * 则把新增 tool_result 并入该批而非新建 user 消息。
+ *
+ * 增量路径不支持 thinking 块 / 第三方 API 兼容规范化的复杂转换，遇此类
+ * 场景回退全量（thinking 模式消息通常较少，全量成本可接受）。
+ *
+ * 跨批次 tool result（新增段中出现 tool 消息且其 tool_use 位于缓存段）会
+ * 使缓存段输出不稳定（该 tool_use 转换时可能因缺 tool_result 被跳过），
+ * 同样回退全量。缓存段 + 新增段在同批次内完成 tool 配对的常见路径走增量。
+ */
+export function convertMessagesIncremental(
+    messages: readonly ChatMessage[],
+    thinkingModeActive: boolean | undefined,
+    needsCompatNormalization: boolean | undefined,
+    cache: ConvertCache | null,
+): { apiMessages: Anthropic.MessageParam[]; systemText: string; cache: ConvertCache } {
+    // 命中：消息数相同 → 直接返回缓存（同 turn 重试零成本）
+    if (cache && cache.inputCount === messages.length) {
+        return {apiMessages: cache.apiMessages, systemText: cache.systemText, cache}
+    }
+
+    // 全量重建（共享路径）：复杂场景 / 缓存失效 / 跨批次不稳定时回退全量
+    const rebuildFull = () => {
+        const full = convertMessages(messages, thinkingModeActive, needsCompatNormalization)
+        return {
+            apiMessages: full.apiMessages,
+            systemText: full.systemText,
+            cache: {inputCount: messages.length, apiMessages: full.apiMessages, systemText: full.systemText},
+        }
+    }
+
+    // 复杂场景回退全量
+    // reasoningContent 也会走 thinking 块转换分支（无 signature 时降级并告警），一并回退
+    const hasThinking = messages.some(
+        m => m.role === 'assistant' && (m.thinking || m.thinkingSignature || (m as any).reasoningContent),
+    )
+    if (thinkingModeActive || needsCompatNormalization || hasThinking) {
+        return rebuildFull()
+    }
+
+    // 缓存无效或消息减少 → 全量
+    if (!cache || cache.inputCount > messages.length) {
+        return rebuildFull()
+    }
+
+    // 增量：只处理 [prevCount, end) 段
+    const prevCount = cache.inputCount
+    const newSection = messages.slice(prevCount)
+
+    // 跨批次 tool result 检测：新增段出现 tool 消息且其 toolCallId 与缓存段内的
+    // assistant toolCalls 配对 → 该 tool_use 在缓存段转换时可能因缺 tool_result 被跳过，
+    // 新结果到达后缓存段输出不再稳定（需回溯修正）→ 回退全量。
+    const hasCrossBatchToolResult = newSection.some(m => m.role === 'tool')
+    if (hasCrossBatchToolResult) {
+        const cachedToolUseIds = new Set<string>()
+        for (let j = 0; j < prevCount; j++) {
+            const m = messages[j]
+            if (m.role === 'assistant' && m.toolCalls) {
+                for (const tc of m.toolCalls) cachedToolUseIds.add(tc.id)
+            }
+        }
+        if (newSection.some(m => m.role === 'tool' && !!m.toolCallId && cachedToolUseIds.has(m.toolCallId))) {
+            return rebuildFull()
+        }
+    }
+
+    const apiMessages: Anthropic.MessageParam[] = [...cache.apiMessages]
+    const systemParts: string[] = cache.systemText ? [cache.systemText] : []
+
+    // 跨边界：检查缓存末尾是否未闭合的 tool_result 批
+    const lastApi = apiMessages[apiMessages.length - 1]
+    const lastIsOpenToolBatch = !!lastApi
+        && lastApi.role === 'user'
+        && Array.isArray(lastApi.content)
+        && (lastApi.content as any[]).every(b => b.type === 'tool_result')
+
+    // 收集全量 validToolUseIds / presentToolResultIds（含缓存段）
+    const validToolUseIds = new Set<string>()
+    const presentToolResultIds = new Set<string>()
+    for (const msg of messages) {
+        if (msg.role === 'assistant' && msg.toolCalls) {
+            for (const tc of msg.toolCalls) validToolUseIds.add(tc.id)
+        } else if (msg.role === 'tool' && msg.toolCallId) {
+            presentToolResultIds.add(msg.toolCallId)
+        }
+    }
+
+    let openBatch: Anthropic.ToolResultBlockParam[] | null = null
+    if (lastIsOpenToolBatch) {
+        openBatch = (lastApi as any).content as Anthropic.ToolResultBlockParam[]
+        apiMessages.pop()
+    }
+
+    // 转换新增段
+    let i = 0
+    while (i < newSection.length) {
+        const msg = newSection[i]
+        if (msg.role === 'tool') {
+            // 与全量版一致：将连续的 tool 消息（含穿插的 system 消息）合并为单个 tool_result 批
+            const toolBlocks: Anthropic.ToolResultBlockParam[] = []
+            while (i < newSection.length) {
+                const m = newSection[i]
+                if (m.role === 'system') {
+                    const text = textOf(m.content)
+                    if (text) systemParts.push(text)
+                    i++
+                    continue
+                }
+                if (m.role !== 'tool') break
+                const toolUseId = m.toolCallId || ''
+                if (toolUseId && !validToolUseIds.has(toolUseId)) {
+                    i++
+                    continue
+                }
+                toolBlocks.push({
+                    type: 'tool_result',
+                    tool_use_id: toolUseId,
+                    content: m.toolResult || '',
+                    is_error: m.isError || false,
+                } as Anthropic.ToolResultBlockParam)
+                i++
+            }
+            if (toolBlocks.length > 0) {
+                openBatch = openBatch ? [...openBatch, ...toolBlocks] : [...toolBlocks]
+            }
+            continue
+        }
+        // 非 tool 消息：先 flush openBatch
+        if (openBatch && openBatch.length > 0) {
+            apiMessages.push({role: 'user', content: openBatch})
+            openBatch = null
+        }
+        if (msg.role === 'user') {
+            apiMessages.push({role: 'user', content: convertUserContent(msg.content) as any})
+        } else if (msg.role === 'assistant') {
+            const blocks: Anthropic.ContentBlockParam[] = []
+            const content = textOf(msg.content)
+            if (msg.toolCalls?.length) {
+                // 只包含有对应 tool_result 的 tool_use（Anthropic API 要求每个 tool_use 必须紧跟 tool_result）
+                if (content) blocks.push({type: 'text', text: content})
+                for (const tc of msg.toolCalls) {
+                    if (presentToolResultIds.has(tc.id)) {
+                        blocks.push({
+                            type: 'tool_use',
+                            id: tc.id,
+                            name: tc.name,
+                            input: tc.arguments,
+                        } as Anthropic.ToolUseBlockParam)
+                    }
+                }
+                // 与全量版一致：有有效内容才推送（无 text 且所有 tool_use 被跳过时不输出空消息）
+                if (blocks.length > 0) {
+                    apiMessages.push({role: 'assistant', content: blocks})
+                }
+            } else {
+                // 无 thinking 场景（增量路径已回退全量）：简单字符串形式，与全量版一致
+                apiMessages.push({role: 'assistant', content})
+            }
+        } else if (msg.role === 'system') {
+            const text = textOf(msg.content)
+            if (text) systemParts.push(text)
+        }
+        i++
+    }
+
+    // 尾部 openBatch 未闭合 → 保留在结果尾部（下次增量继续合并）
+    if (openBatch && openBatch.length > 0) {
+        apiMessages.push({role: 'user', content: openBatch})
+    }
+
+    const systemText = systemParts.join('\n\n')
+    return {apiMessages, systemText, cache: {inputCount: messages.length, apiMessages, systemText}}
 }
 
 /** 将内部 user 消息内容（文本或多模态块）转换为 Anthropic content blocks */

@@ -10,6 +10,7 @@
 
 import type {AgentTypeConfig} from '@shared/types'
 import type {ToolDefinitionForLLM} from '../tools/types'
+import {resolveToolName, parseToolSpec} from '../tools/toolNameResolver'
 
 // ─── 内置 Agent 类型配置 ────────────────────────────────────────
 
@@ -236,20 +237,28 @@ export function filterToolsByAgentType(
         return tools
     }
 
+    const toolNames = tools.map(t => t.name)
+
+    // 通配特判（在别名解析前判断原始值）
+    const allowedIsWildcard = Array.isArray(allowed) && allowed.length === 1 && allowed[0] === '*'
+
+    // 别名解析：解析失败的条目丢弃（如 'TaskWrite' 无对应 HClaw 工具）
+    const disallowedSet = new Set(
+        (disallowed ?? [])
+            .map(spec => resolveToolName(parseToolSpec(spec).toolName, toolNames))
+            .filter((n): n is string => n !== undefined),
+    )
+    const allowedSet = allowedIsWildcard || allowed === undefined
+        ? null
+        : new Set(
+            (allowed ?? [])
+                .map(spec => resolveToolName(parseToolSpec(spec).toolName, toolNames))
+                .filter((n): n is string => n !== undefined),
+        )
+
     return tools.filter((tool) => {
-        const toolName = tool.name
-
-        // 检查是否在禁用列表中
-        if (disallowed && disallowed.includes(toolName)) {
-            return false
-        }
-
-        // 如果有允许列表，检查是否在列表中
-        // allowed === ['*'] 表示允许所有工具
-        if (allowed && !(allowed.length === 1 && allowed[0] === '*') && !allowed.includes(toolName)) {
-            return false
-        }
-
+        if (disallowedSet.has(tool.name)) return false
+        if (allowedSet !== null && !allowedSet.has(tool.name)) return false
         return true
     })
 }

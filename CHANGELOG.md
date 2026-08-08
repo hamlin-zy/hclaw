@@ -7,6 +7,42 @@
 
 ---
 
+## [v0.4.0] - 2026-08-09
+
+### 新增
+- **块级增量持久化全链路** — 消息块增量写入（writeBlockDelta → 渲染端 dirty 记账 → handler 接入 → metadata 瘦身 → 保险丝 → FK/CASCADE 修复），块 id 统一规范 + think id 段序号派生防碰撞 (`src/main/agent/manager.impl.ts`, `src/main/repositories/sqlite/messageBlockHelper.ts`, `src/renderer/stores/conversationStore.ts`)
+- **session_handoff 会话交接工具** — 长会话上下文超限时生成结构化交接总结，新会话自动续接 + 多级子 Agent 级联清理 (`src/main/agent/tools/builtin/sessionHandoffTool.ts`)
+- **agent tool whitelist 重构** — 共享解析器 + 命令模式过滤 + 类型安全，MCP 工具结果豁免截断 (`src/main/agent/tools/filter.ts`, `src/main/agent/tools/toolNameResolver.ts`, `src/main/agent/tools/executor.ts`)
+- **ask_user 参数归一化容错** — v1 基础容错 + v2 schema 宽进与清洗、字符串 options 拆分防误拆（括号保护 + 强分隔符优先 + 字母序号误判降级）、JSON 数组容错 (`src/main/agent/tools/builtin/askUserTool.ts`)
+- **系统提示词注入当前日期** — 本地时区日期工具，缓存跨天自动重建 (`src/main/agent/utils/dateUtils.ts`, `src/main/agent/systemPrompt.ts`)
+- **file_edit diff 输出简化** — 输出收敛到 @@ hunk (`src/main/agent/tools/builtin/fileEditTool.ts`)
+- **数据库复合索引** — messages (conv_id+ts) 与 message_blocks (msg_id+seq) (`src/main/repositories/sqlite/index.ts`)
+- **isSyntheticToolResult 精确谓词** — 区分合成工具结果 (`src/main/agent/agentTemplateConverter.ts`)
+
+### 优化
+- **消息增量转换缓存（AdapterConvertCache）** — Anthropic/OpenAI/Google 三路 adapter 消息增量转换（限制 no-new-user 场景），消除重复全量转换 (`src/main/agent/model/anthropicAdapter.ts`, `src/main/agent/model/openaiAdapter.ts`, `src/main/agent/model/googleAdapter.ts`)
+- **incremental normalize 流水线（PreprocessCache）** — source-count 缓存 + 增量 Set + zero-copy normalize，ChunkedMessages 持久 append 结构 (`src/main/agent/loop/preprocessCache.ts`, `src/main/agent/state.ts`)
+- **结构化截断移到会话边界** — agent_start 时执行，移除循环内截断；remove compact 全部残留（事件类型/处理器/压缩循环/死代码） (`src/main/agent/loop/compress.ts`, `src/main/agent/loop/controller.ts`)
+- **LLMCaller 简化** — 删除死配置/接口、提取 recordAdapter 消除双路径重复、adapter 管理收归 LLMCaller（补 workMode/suggestedModel 重建检测）、删除 setup 平行路径 (`src/main/agent/loop/llmCaller.ts`, `src/main/agent/loop/setup.ts`)
+- **持久化落库优化** — 30s 兜底 + 段边界触发 + worker_threads WAL checkpoint + 心跳移除 + 防竞态 (`src/main/repositories/sqlite/checkpointWorker.ts`, `src/main/agent/manager.impl.ts`)
+- **渲染冻结优化** — ThrottledMarkdown + toolResultBatch hidden 冻结 + 窗口恢复滚动延迟 (`src/renderer/components/message-list/InterleavedContent.tsx`)
+- **agent-start handler 消除 spread 拷贝** — push 替代 (`src/main/agent/ipc/execution.ts`)
+- **ThinkStart/ThinkEnd hook 按实际思考行为门控** — 首段思考 chunk 触发、完全配对，清理过时注释与 as-any 类型 (`src/main/agent/loop/execute.ts`)
+
+### 修复
+- **multi-conversation memory leak** — unbounded tool output cache 修复 + weight model（含 conversationStore / toolCallsStore 简化） (`src/renderer/stores/conversationStore.ts`, `src/renderer/stores/toolCallsStore.ts`)
+- **context-length 错误不再重试** — 与设计文档 v2 决策一致，失败给出明确指引 (`src/main/agent/loop/controller.ts`)
+- **保护 running/pending-agent 会话不被空闲清理** (`src/main/agent/manager.impl.ts`)
+- **usage-stats 弹窗展示口径对齐** — 总 token 含缓存流量、缓存写入按协议条件展示 (`src/main/agent/model/`)
+- **error 收尾补 endedAt 防竞态** — ThrottledMarkdown hidden 中不启动 rAF (`src/renderer/components/message-list/ThrottledMarkdown.tsx`)
+- **切换父会话时折叠其他已展开的父会话分支** (`src/renderer/components/ConversationSidebar.tsx`)
+
+### 删除
+- **compact 死代码全面清理** — compress 循环、PreCompact/PostCompact 幽灵 hook、compact 事件类型与处理器 (`src/main/agent/loop/compress.ts`, `src/main/agent/stream.ts`, `src/main/agent/loop/controller.ts`)
+- **manager.persister.ts / manager.backup.ts 死代码** — 合并入 manager.impl.ts (`src/main/agent/manager.persister.ts`, `src/main/agent/manager.backup.ts`)
+
+---
+
 ## [v0.3.7] - 2026-08-05
 
 ### 新增
