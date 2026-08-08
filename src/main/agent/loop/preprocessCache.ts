@@ -124,6 +124,10 @@ export function normalizeIncremental(
       break
     }
   }
+  // 隐式不变式：该轮含取代时 result 必非零拷贝（落入下方构造分支）。
+  // 且下次零拷贝短路 `syntheticIds.size === 0` 已排除同引用前缀：
+  // 上一轮零拷贝后 cached 与 messages 前缀同引用，本轮被取代重建 →
+  // 后续轮次该前缀成为 cached，但 resultIds/syntheticIds 已按真实结果更新，不会反向污染。
   if (replaced) {
     prefix = cached.filter(
       m => !(isSyntheticToolResult(m) && m.toolCallId && newRealResultIds.has(m.toolCallId)),
