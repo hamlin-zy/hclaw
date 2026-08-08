@@ -9,6 +9,7 @@
 import type {AgentStreamEvent} from '../stream'
 import type {ChatMessage} from '../model/types'
 import type {ModelConfig} from '../model/types'
+import type {ModelAdapter} from '../model/index'
 import type {ToolContext, ToolDefinitionForLLM} from '../tools/types'
 import type {LoopState as AgentLoopState} from '../state'
 import type {ModelRole} from '@shared/types'
@@ -90,7 +91,7 @@ export async function* executeLlmCallWithRetry(
     let currentDelay = getSettings()?.agent.initialRetryDelay ?? 5000
 
     const llmStartTime = Date.now()
-    let adapter: any = null
+    let adapter: ModelAdapter | null = null
     let currentProvider: string = modelConfig.provider
     let currentModel: string = modelConfig.model
     let currentConfigSource: string = 'fallback'
@@ -211,12 +212,13 @@ export async function* executeLlmCallWithRetry(
                 ? `${systemPrompt}\n\n## 当前命令任务\n\n${commandTemplate}`
                 : systemPrompt
 
+            const maxTokens = getSettings()?.model.defaultMaxTokens ?? DEFAULT_MAX_TOKENS
             const rawStream = adapter.chat({
                 systemPrompt: effectiveSystemPrompt,
                 ...(isAnthropic && commandTemplate ? {commandTemplate} : {}),
                 messages: messagesToSend,
                 tools: compactTools,
-                maxTokens: getSettings()?.model.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
+                maxTokens,
                 temperature: getSettings()?.model.defaultTemperature ?? 0,
                 ...(effectiveThinkingEffort ? {thinkingEffort: effectiveThinkingEffort} : {}),
                 ...(params.hookAdditionalContext && {additionalContext: params.hookAdditionalContext}),
@@ -288,7 +290,6 @@ export async function* executeLlmCallWithRetry(
                     // adapter 层已识别 stop_reason='max_tokens' 并发出 done 事件，
                     // 此处分发 warning 事件（主进程对 warning 直接穿透不终结 agent）。
                     if (chunk.stopReason === 'max_tokens') {
-                        const maxTokens = getSettings()?.model.defaultMaxTokens ?? DEFAULT_MAX_TOKENS
                         const tip = `响应达到最大 Token 数（${maxTokens}）上限被截断，回复可能不完整。请增大「设置 → 模型参数 → 默认最大Token数」后重试。`
                         logger.warn(`[AgentLoop] ${tip}`)
                         yield {type: 'warning', message: tip}

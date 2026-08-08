@@ -15,26 +15,12 @@ import {logger} from '../logger'
 import {getSchemeVersion} from '../model/modelSchemeManager'
 import {runtimeConfigManager} from '../runtimeConfigManager'
 
-export interface LLMCallerConfig {
-    maxRetries: number
-    initialDelay: number
-    maxDelay: number
-}
-
 export interface AdapterResult {
     adapter: ModelAdapter
     providerType: string
     modelId: string
     configSource: 'global-scheme' | 'scheme-param' | 'fallback'
     schemeName?: string | null
-}
-
-export interface LLMCallResult {
-    content: string
-    toolCalls: Array<{id: string; name: string; arguments: Record<string, unknown>}>
-    inputTokens: number
-    outputTokens: number
-    plannedCommands?: string[]
 }
 
 export class LLMCaller {
@@ -49,7 +35,35 @@ export class LLMCaller {
     private currentConfigSource: 'global-scheme' | 'scheme-param' | 'fallback' = 'fallback'
     private currentSchemeName: string | null = null
 
-    constructor(private config: LLMCallerConfig) {}
+    /**
+     * 记录新建的 adapter 并同步重建判定所需的版本/工作模式/建议角色，
+     * 返回统一的 AdapterResult。全局路径与 fallback 路径共用，
+     * 避免任一路径漏同步导致后续重建判定失准。
+     */
+    private recordAdapter(
+        adapter: ModelAdapter,
+        provider: string,
+        model: string,
+        configSource: AdapterResult['configSource'],
+        schemeName: string | null,
+        suggestedModel?: ModelRole,
+    ): AdapterResult {
+        this.adapter = adapter
+        this.currentProvider = provider
+        this.currentModel = model
+        this.currentConfigSource = configSource
+        this.currentSchemeName = schemeName
+        this.lastVersion = getSchemeVersion().version
+        this.lastWorkMode = runtimeConfigManager.getWorkMode()
+        this.lastSuggestedModel = suggestedModel ?? ''
+        return {
+            adapter: this.adapter,
+            providerType: this.currentProvider,
+            modelId: this.currentModel,
+            configSource: this.currentConfigSource,
+            schemeName: this.currentSchemeName,
+        }
+    }
 
     /**
      * 获取或创建适配器
@@ -85,24 +99,14 @@ export class LLMCaller {
                     model: this.currentModel,
                     globalAdapterResult
                 })
-                this.adapter = globalAdapterResult.adapter
-                this.currentProvider = globalAdapterResult.providerType
-                this.currentModel = globalAdapterResult.modelId
-                this.currentConfigSource = globalAdapterResult.configSource as 'global-scheme' | 'scheme-param' | 'fallback'
-                this.currentSchemeName = globalAdapterResult.schemeName || null
-
-                // 记录当前版本、工作模式与建议角色
-                this.lastVersion = getSchemeVersion().version
-                this.lastWorkMode = runtimeConfigManager.getWorkMode()
-                this.lastSuggestedModel = suggestedModel ?? ''
-
-                return {
-                    adapter: this.adapter,
-                    providerType: this.currentProvider,
-                    modelId: this.currentModel,
-                    configSource: this.currentConfigSource,
-                    schemeName: this.currentSchemeName,
-                }
+                return this.recordAdapter(
+                    globalAdapterResult.adapter,
+                    globalAdapterResult.providerType,
+                    globalAdapterResult.modelId,
+                    globalAdapterResult.configSource as AdapterResult['configSource'],
+                    globalAdapterResult.schemeName || null,
+                    suggestedModel,
+                )
             } catch (error) {
                 // createAdapterForContext 会抛出异常如果没有可用配置
                 const err = error as Error
@@ -116,24 +120,16 @@ export class LLMCaller {
                 }
 
                 const {createModelAdapter} = await import('../model/index')
-                this.adapter = createModelAdapter(fallbackConfig)
-                this.currentConfigSource = 'fallback'
-                this.currentProvider = fallbackConfig.provider
-                this.currentModel = fallbackConfig.model
-
-                // F2: fallback 路径也要同步版本/工作模式/建议角色，
+                // F2: fallback 路径同样同步版本/工作模式/建议角色，
                 // 避免后续全局路径恢复时被静默钉死在 fallback 配置上
-                this.lastVersion = getSchemeVersion().version
-                this.lastWorkMode = runtimeConfigManager.getWorkMode()
-                this.lastSuggestedModel = suggestedModel ?? ''
-
-                return {
-                    adapter: this.adapter,
-                    providerType: this.currentProvider,
-                    modelId: this.currentModel,
-                    configSource: this.currentConfigSource,
-                    schemeName: this.currentSchemeName,
-                }
+                return this.recordAdapter(
+                    createModelAdapter(fallbackConfig),
+                    fallbackConfig.provider,
+                    fallbackConfig.model,
+                    'fallback',
+                    null,
+                    suggestedModel,
+                )
             }
         }
 
@@ -187,10 +183,11 @@ export class LLMCaller {
         this.lastSuggestedModel = ''
     }
 
-    getAdapterInfo() {
+    getAdapterInfo(): AdapterResult {
         return {
-            provider: this.currentProvider,
-            model: this.currentModel,
+            adapter: this.adapter!,
+            providerType: this.currentProvider,
+            modelId: this.currentModel,
             configSource: this.currentConfigSource,
             schemeName: this.currentSchemeName,
         }

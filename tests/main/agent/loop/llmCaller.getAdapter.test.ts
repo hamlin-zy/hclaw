@@ -41,7 +41,7 @@ describe('LLMCaller.getAdapter (A2 adapter 管理收归 + workMode 变化重建)
     })
 
     it('首次调用创建 adapter', async () => {
-        const caller = new LLMCaller({maxRetries: 1, initialDelay: 1, maxDelay: 2})
+        const caller = new LLMCaller()
         const result = await caller.getAdapter('main')
         expect(result.adapter).toBeTruthy()
         expect(mockCreate).toHaveBeenCalledTimes(1)
@@ -50,7 +50,7 @@ describe('LLMCaller.getAdapter (A2 adapter 管理收归 + workMode 变化重建)
     })
 
     it('连续调用（schemeVersion/workMode 不变）复用 adapter，不重建', async () => {
-        const caller = new LLMCaller({maxRetries: 1, initialDelay: 1, maxDelay: 2})
+        const caller = new LLMCaller()
         const first = await caller.getAdapter('main')
         const second = await caller.getAdapter('main')
         expect(second.adapter).toBe(first.adapter)
@@ -58,7 +58,7 @@ describe('LLMCaller.getAdapter (A2 adapter 管理收归 + workMode 变化重建)
     })
 
     it('schemeVersion 变化触发重建', async () => {
-        const caller = new LLMCaller({maxRetries: 1, initialDelay: 1, maxDelay: 2})
+        const caller = new LLMCaller()
         const first = await caller.getAdapter('main')
         mockGetVersion.mockReturnValue({version: 2, updatedAt: 0})
         const second = await caller.getAdapter('main')
@@ -67,7 +67,7 @@ describe('LLMCaller.getAdapter (A2 adapter 管理收归 + workMode 变化重建)
     })
 
     it('A2: workMode 变化触发重建（auto → reasoning）', async () => {
-        const caller = new LLMCaller({maxRetries: 1, initialDelay: 1, maxDelay: 2})
+        const caller = new LLMCaller()
         const first = await caller.getAdapter('main')
         mockGetWorkMode.mockReturnValue('reasoning')
         const second = await caller.getAdapter('main')
@@ -76,7 +76,7 @@ describe('LLMCaller.getAdapter (A2 adapter 管理收归 + workMode 变化重建)
     })
 
     it('_abortSignal 参数被接收但不透传（createAdapterForContext 无 abortSignal 支持，留作扩展）', async () => {
-        const caller = new LLMCaller({maxRetries: 1, initialDelay: 1, maxDelay: 2})
+        const caller = new LLMCaller()
         const controller = new AbortController()
         await caller.getAdapter('main', undefined, undefined, undefined, controller.signal)
         const callArgs = mockCreate.mock.calls[0]
@@ -86,7 +86,7 @@ describe('LLMCaller.getAdapter (A2 adapter 管理收归 + workMode 变化重建)
     })
 
     it('F1: workMode unchanged but suggestedModel (role) changes triggers recreate', async () => {
-        const caller = new LLMCaller({maxRetries: 1, initialDelay: 1, maxDelay: 2})
+        const caller = new LLMCaller()
         const first = await caller.getAdapter('main', 'lightweight')
         // role is decided per-turn by intent analysis: simple -> lightweight, complex -> reasoning
         const second = await caller.getAdapter('main', 'reasoning')
@@ -102,7 +102,7 @@ describe('LLMCaller.getAdapter (A2 adapter 管理收归 + workMode 变化重建)
     })
 
     it('F2: after global path fails to fallback, next call retries global path (state synced)', async () => {
-        const caller = new LLMCaller({maxRetries: 1, initialDelay: 1, maxDelay: 2})
+        const caller = new LLMCaller()
         const fallbackConfig = {provider: 'custom' as const, model: 'fb-model'}
 
         // first: global path succeeds with role lightweight
