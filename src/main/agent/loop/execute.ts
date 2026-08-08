@@ -17,7 +17,8 @@ import type {RunParams, LlmStreamResult, ToolExecutionResult} from './types'
 
 import {LLMCaller, isContextLengthError as checkContextLengthError, parsePlannedCommands} from './llmCaller'
 import {ToolExecutor} from './toolExecutor'
-import {addMessage, normalizeToolCallMessages} from '../state'
+import {addMessage} from '../state'
+import {PreprocessCache} from './preprocessCache'
 import {logger} from '../logger'
 import {permissionEngine} from '../tools/permission'
 import {runtimeConfigManager} from '../runtimeConfigManager'
@@ -52,6 +53,8 @@ export interface ExecuteLlmCallParams {
     params: RunParams
     isCompactCommand: boolean
     turns: number
+    /** LLM 调用前 normalize 增量缓存（source-count 判失效） */
+    preprocessCache: PreprocessCache
 }
 
 /**
@@ -70,7 +73,7 @@ export async function* executeLlmCallWithRetry(
     ctx: ExecuteLlmCallParams,
 ): AsyncGenerator<AgentStreamEvent, LlmStreamResult | null> {
     const {llmCaller, state, systemPrompt, commandTemplate, availableToolDefinitions, modelConfig,
-        workModeRole, schemeName, getSettings, params, isCompactCommand, turns} = ctx
+        workModeRole, schemeName, getSettings, params, isCompactCommand, turns, preprocessCache} = ctx
     const {abortSignal, requestConfirmation, sessionId} = params
 
     const retryCount = getSettings()?.agent.retryCount ?? 10
@@ -111,8 +114,8 @@ export async function* executeLlmCallWithRetry(
                 lastWorkMode = runtimeConfigManager.getWorkMode()
             }
 
-            // ── 归一化消息历史 ──
-            const normalizedMessages = normalizeToolCallMessages(state.messages || [])
+            // ── 归一化消息历史（增量缓存） ──
+            const normalizedMessages = preprocessCache.process(state.messages || [])
             let messagesToSend: ChatMessage[] = normalizedMessages
 
             // ── ContextRetrieval ──
@@ -127,6 +130,8 @@ export async function* executeLlmCallWithRetry(
 
                 const retrievalMessages = yield* executeContextRetrieval(messagesToSend, sessionId)
                 if (retrievalMessages) {
+                    // ContextRetrieval 在消息中间插入知识 → 增量假设被破坏，失效缓存
+                    preprocessCache.reset()
                     messagesToSend = retrievalMessages
                 }
             }
