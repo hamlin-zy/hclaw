@@ -54,22 +54,26 @@ export class ToolExecutor {
 
             // 如果 PreToolUse hook 阻止
             if (!preToolResult.allowed) {
+                const denyReason = preToolResult.error || 'Blocked by PreToolUse hook'
+                const deniedResult = {success: false, output: null, error: denyReason}
                 events.push({
                     type: 'tool_denied',
                     toolCallId: toolCall.id,
-                    reason: preToolResult.error || 'Blocked by PreToolUse hook'
+                    reason: denyReason
+                })
+                // ★ 即时推送 tool_completed（拒绝场景同样停止倒计时）
+                context.onEvent?.({
+                    type: 'tool_completed',
+                    toolCallId: toolCall.id,
+                    result: deniedResult,
                 })
                 return {
                     result: {
                         toolCallId: toolCall.id,
                         toolName: toolCall.name,
                         denied: true,
-                        denyReason: preToolResult.error || 'Blocked by PreToolUse hook',
-                        result: {
-                            success: false,
-                            output: null,
-                            error: preToolResult.error || 'Blocked by PreToolUse hook'
-                        }
+                        denyReason,
+                        result: deniedResult,
                     },
                     events
                 }
@@ -133,6 +137,14 @@ export class ToolExecutor {
                 ...postHookResult.updatedToolOutput,
             }
         }
+
+        // ★ 即时推送 tool_completed：并行场景下 Promise.all 会阻塞正式 tool_result，
+        //   此处先通知 UI 更新状态/停止倒计时，与 tool_start 的即时推送对称。
+        context.onEvent?.({
+            type: 'tool_completed',
+            toolCallId: toolCall.id,
+            result: execResult.result,
+        })
 
         return {result: execResult, events}
     }
