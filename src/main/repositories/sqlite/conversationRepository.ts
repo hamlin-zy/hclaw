@@ -263,11 +263,22 @@ export class SqliteConversationRepository implements IConversationRepository {
                     return nextSeq++
                 }
                 for (const block of patch.upsertBlocks ?? []) {
-                    const existing = db.prepare('SELECT id FROM message_blocks WHERE id = ?').get(block.id) as {id: string} | undefined
+                    const existing = db.prepare('SELECT id, block_type, content FROM message_blocks WHERE id = ?').get(block.id) as {id: string; block_type: string; content: string | null} | undefined
                     if (existing) {
-                        db.prepare('UPDATE message_blocks SET content = ?, data = ?, timestamp = ? WHERE id = ?').run(
-                            block.content, block.data, block.timestamp, block.id,
-                        )
+                        if (block.blockType === 'text' && existing.block_type === 'text') {
+                            // ★ text 块追加语义：渲染端 recordTextBlock 传的是「增量切片」（fullText.slice(lastOffset)），
+                            //   跨 flush 时同 id text 块携带的是自上次 flush 以来的新增字符。若这里整体覆盖，
+                            //   会丢掉上次 flush 已落库的旧切片（"历史正文只剩最后一个字符"的根因，05b219c 引入）。
+                            //   改为追加：DB 已存内容 + 本次切片 = 完整文本。think/tool_call/tool_result 保持覆盖
+                            //   （渲染端对这些块传完整内容，追加会重复）。
+                            db.prepare('UPDATE message_blocks SET content = COALESCE(content, \'\') || ?, data = ?, timestamp = ? WHERE id = ?').run(
+                                block.content ?? '', block.data, block.timestamp, block.id,
+                            )
+                        } else {
+                            db.prepare('UPDATE message_blocks SET content = ?, data = ?, timestamp = ? WHERE id = ?').run(
+                                block.content, block.data, block.timestamp, block.id,
+                            )
+                        }
                     } else {
                         db.prepare('INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
                             block.id, msgId, block.blockType, block.content, block.data, resolveSeq(), block.timestamp, block.endedAt ?? null,
