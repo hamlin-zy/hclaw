@@ -54,6 +54,46 @@ async function safeText(res: Response): Promise<string> {
   }
 }
 
+/** 模型 ID 列表 → 带类型推断的结果条目 */
+function toModelEntries(models: string[]): {id: string; modelType: ModelType}[] {
+  return models.map(id => ({id, modelType: inferModelType(id)}))
+}
+
+/** 解析失败/空列表 → 统一失败结果 */
+function parseError(models: string[] | null): {success: false; error: string; code: FetchErrorCode} {
+  return models === null
+    ? {success: false, error: FETCH_ERROR_MESSAGES.parse, code: 'parse'}
+    : {success: false, error: FETCH_ERROR_MESSAGES.empty, code: 'empty'}
+}
+
+/**
+ * google oauth2：accessToken 过期则刷新。返回 {accessToken, oauthTokens}：
+ * - accessToken：刷新后的新 token（或原 token）
+ * - oauthTokens：仅当发生过刷新时非空（供调用方回传弹窗更新）
+ */
+async function refreshOAuthIfNeeded(
+  params: Pick<FetchModelsParams, 'type' | 'authType' | 'accessToken' | 'refreshToken' | 'expiryDate'>,
+  deps: RefreshTokenDeps,
+): Promise<{ok: true; accessToken: string; oauthTokens?: OAuthTokens} | {ok: false; error: string}> {
+  if (params.type !== 'google' || params.authType !== 'google-oauth2') {
+    return {ok: true, accessToken: params.accessToken || ''}
+  }
+  const expired = !params.expiryDate || Date.now() > params.expiryDate
+  if (!expired || !params.refreshToken || !deps.refreshGoogleToken) {
+    return {ok: true, accessToken: params.accessToken || ''}
+  }
+  try {
+    const refreshed = await deps.refreshGoogleToken(params.refreshToken)
+    return {
+      ok: true,
+      accessToken: refreshed.accessToken,
+      oauthTokens: {accessToken: refreshed.accessToken, refreshToken: params.refreshToken, expiryDate: refreshed.expiryDate},
+    }
+  } catch (e: any) {
+    return {ok: false, error: `Google Token 刷新失败：${e?.message || e}`}
+  }
+}
+
 export async function fetchProviderModels(
   params: FetchModelsParams,
   deps: RefreshTokenDeps = {},
@@ -61,24 +101,14 @@ export async function fetchProviderModels(
   // 参数快照 + trim（请求发出后用户修改表单不影响本次请求）
   const type = params.type
   let apiKey = (params.apiKey || '').trim()
-  let accessToken = params.accessToken || ''
   const baseUrl = (params.baseUrl || '').trim()
   const authType = params.authType || 'api-key'
 
   // google oauth2：accessToken 过期先刷新（刷新结果通过 oauthTokens 回传弹窗更新）
-  let oauthTokens: OAuthTokens | undefined
-  if (type === 'google' && authType === 'google-oauth2') {
-    const expired = !params.expiryDate || Date.now() > params.expiryDate
-    if (expired && params.refreshToken && deps.refreshGoogleToken) {
-      try {
-        const refreshed = await deps.refreshGoogleToken(params.refreshToken)
-        accessToken = refreshed.accessToken
-        oauthTokens = {accessToken: refreshed.accessToken, refreshToken: params.refreshToken, expiryDate: refreshed.expiryDate}
-      } catch (e: any) {
-        return {success: false, error: `Google Token 刷新失败：${e?.message || e}`, code: 'auth'}
-      }
-    }
-  }
+  const oauth = await refreshOAuthIfNeeded(params, deps)
+  if (!oauth.ok) return {success: false, error: oauth.error, code: 'auth'}
+  const accessToken = oauth.accessToken
+  const oauthTokens = oauth.oauthTokens
 
   const doFetch = async (url: string, headers: Record<string, string>): Promise<{status: number; body: string}> => {
     try {
@@ -108,9 +138,9 @@ export async function fetchProviderModels(
       if (!errCode) {
         const models = parseModelsResponse('openai', retry.body)
         if (models && models.length > 0) {
-          return {success: true, data: models.map(id => ({id, modelType: inferModelType(id)})), oauthTokens}
+          return {success: true, data: toModelEntries(models), oauthTokens}
         }
-        return {success: false, error: FETCH_ERROR_MESSAGES[models === null ? 'parse' : 'empty'], code: models === null ? 'parse' : 'empty'}
+        return parseError(models)
       }
       return {success: false, error: FETCH_ERROR_MESSAGES[errCode], code: errCode}
     }
@@ -121,7 +151,7 @@ export async function fetchProviderModels(
   const models = parseModelsResponse(type, body)
   if (models === null) return {success: false, error: FETCH_ERROR_MESSAGES.parse, code: 'parse'}
   if (models.length === 0) return {success: false, error: FETCH_ERROR_MESSAGES.empty, code: 'empty'}
-  return {success: true, data: models.map(id => ({id, modelType: inferModelType(id)})), oauthTokens}
+  return {success: true, data: toModelEntries(models), oauthTokens}
 }
 
 export interface ModelTestParams {
@@ -161,21 +191,11 @@ export async function testProviderModel(params: ModelTestParams, deps: FetcherDe
   const model = params.model.trim()
   const authType = params.authType || 'api-key'
 
-  // google oauth2：过期先刷新
-  let oauthTokens: OAuthTokens | undefined
-  let accessToken = params.accessToken || ''
-  if (type === 'google' && authType === 'google-oauth2') {
-    const expired = !params.expiryDate || Date.now() > params.expiryDate
-    if (expired && params.refreshToken && deps.refreshGoogleToken) {
-      try {
-        const refreshed = await deps.refreshGoogleToken(params.refreshToken)
-        accessToken = refreshed.accessToken
-        oauthTokens = {accessToken: refreshed.accessToken, refreshToken: params.refreshToken, expiryDate: refreshed.expiryDate}
-      } catch (e: any) {
-        return {success: false, error: `Google Token 刷新失败：${e?.message || e}`}
-      }
-    }
-  }
+  // google oauth2：过期先刷新（刷新结果通过 oauthTokens 回传弹窗更新）
+  const oauth = await refreshOAuthIfNeeded(params, deps)
+  if (!oauth.ok) return {success: false, error: oauth.error}
+  const accessToken = oauth.accessToken
+  const oauthTokens = oauth.oauthTokens
 
   // 前置校验
   if (!model) return {success: false, error: '模型名称不能为空'}

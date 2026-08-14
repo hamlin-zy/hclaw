@@ -125,6 +125,16 @@ export async function* executeLlmCallWithRetry(
             const normalizedMessages = preprocessCache.process(state.messages || [])
             let messagesToSend: ChatMessage[] = normalizedMessages
 
+            // ★ normalize 发生了合成注入/取代（输出 ≠ 输入，非纯追加）：
+            //   adapter 的增量转换缓存按「长度」命中，无法感知前缀内容变化，
+            //   若复用旧缓存会把过期前缀与新追加段拼接，产生孤儿 tool 消息
+            //   （opencode 网关 400: Messages with role 'tool' must be a response
+            //    to a preceding message with role 'tool_calls'）。
+            //   失效 adapter 转换缓存，让本次 chat() 全量重建。
+            if (preprocessCache.lastWasNonZeroCopy) {
+                adapter?.invalidateConvertCache?.()
+            }
+
             // ── ContextRetrieval ──
             if (!isCompactCommand) {
                 // 触发 UserPromptSubmit Hook
@@ -139,6 +149,7 @@ export async function* executeLlmCallWithRetry(
                 if (retrievalMessages) {
                     // ContextRetrieval 在消息中间插入知识 → 增量假设被破坏，失效缓存
                     preprocessCache.reset()
+                    adapter?.invalidateConvertCache?.()
                     messagesToSend = retrievalMessages
                 }
             }

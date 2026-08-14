@@ -297,6 +297,11 @@ export class GoogleAdapter implements ModelAdapter {
     }
   }
 
+  /** 失效增量转换缓存（normalize 注入/取代后由调用方触发，下次全量重建） */
+  invalidateConvertCache(): void {
+    this.convertCache = null
+  }
+
   private convertTools(tools: ToolDefinition[]): any {
     return [
       {

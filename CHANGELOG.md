@@ -7,6 +7,21 @@
 
 ---
 
+## [v0.4.2] - 2026-08-14
+
+### 新增
+- **官网上线** — Astro 静态站点 + GitHub Pages 自动部署，含首页英雄区、功能特性、时间线与文档体系 (`website/`)
+
+### 修复
+- **跨 flush 增量覆盖导致历史正文残缺** — 增量写入会话边界对齐，修复并发 flush 场景下消息块被覆盖丢失 (`src/main/repositories/sqlite/conversationRepository.ts`)
+- **opencode 网关孤儿 tool 消息导致的 400 错误** — adapter 增量转换对孤儿 tool 消息容错，preprocess 缓存清理策略修正 (`src/main/agent/loop/execute.ts`, `src/main/agent/loop/preprocessCache.ts`, `src/main/agent/model/openaiAdapter.ts`, `src/main/agent/model/anthropicAdapter.ts`, `src/main/agent/model/googleAdapter.ts`)
+- **长任务最小化后 UI 卡死与布局溢出** — 后台节流下流式转发改用 gcScheduler 调度，窗口恢复时延迟滚动避免布局错位 (`src/main/agent/manager.streamForward.ts`, `src/main/agent/stream.ts`, `src/main/window.ts`, `src/renderer/App.tsx`, `src/renderer/lib/gcScheduler.ts`)
+
+### 重构
+- **代码简化** — 消除重复逻辑与死代码，插件技能路径提示与根部辅助文件扫描逻辑收敛 (`src/main/agent/skills/extensions.ts`, `src/main/agent/skills/guidance.ts`, `src/main/providerModelFetcher.ts`, `src/renderer/components/dialogs/ProviderEditModal.tsx`)
+
+---
+
 ## [v0.4.1] - 2026-08-14
 
 ### 新增
