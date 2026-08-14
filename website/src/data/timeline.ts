@@ -8,7 +8,12 @@ export interface TimelineItem {
 
 export const timelineItems: TimelineItem[] = [
   {
-    version: 'v0.4.1', date: '2026-08-14', tag: '最新',
+    version: 'v0.4.2', date: '2026-08-14', tag: '最新',
+    title: '稳定性修复与官网上线',
+    items: ['修复跨 flush 正文残缺、孤儿 tool 消息 400 错误', '长任务最小化后 UI 卡死修复，代码简化重构', '新增官网（Astro + GitHub Pages 自动部署）'],
+  },
+  {
+    version: 'v0.4.1', date: '2026-08-14',
     title: '模型管理增强',
     items: ['服务商智能识别填充 + Base URL 格式校验', '一键拉取模型列表、批量测试、密钥脱敏'],
   },
