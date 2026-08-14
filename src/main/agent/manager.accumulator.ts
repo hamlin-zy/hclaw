@@ -11,13 +11,53 @@ import {PENDING_MSG_MAX_BYTES} from './manager.constants'
 import type {AgentStreamEvent} from './stream'
 import type {PendingAssistantMsg} from './manager.types'
 
-/** 截断字符串到上限，超出则记录警告 */
-function capField(value: string, label: string, conversationId: string): string {
-  if (value.length <= PENDING_MSG_MAX_BYTES) return value
-  logger.warn(`[AgentManager] pendingAssistantMsg ${label} 超过容量上限，已截断`, {
-    conversationId, maxBytes: PENDING_MSG_MAX_BYTES,
-  })
-  return value.slice(0, PENDING_MSG_MAX_BYTES)
+/**
+ * 方案 C：段内数组追加 + O(1) 长度计数；超限时截断末段。
+ * 原地修改 parts，返回追加后的长度与是否发生截断（供调用方记录日志）。
+ * 截断语义与旧 capField（逐字 slice 到 maxBytes）保持一致。
+ */
+export function appendCappedPart(
+  parts: string[],
+  chunk: string,
+  length: number,
+  maxBytes: number,
+): {length: number; truncated: boolean} {
+  parts.push(chunk)
+  length += chunk.length
+  if (length <= maxBytes) {
+    return {length, truncated: false}
+  }
+  const overflow = length - maxBytes
+  const last = parts[parts.length - 1]
+  parts[parts.length - 1] = last.slice(0, Math.max(0, last.length - overflow))
+  return {length: maxBytes, truncated: true}
+}
+
+/**
+ * 方案 C：惰性拼接完成 —— join parts → content/thinkContent，清空 parts，返回原引用。
+ *
+ * 契约（重要）：finalize 之后 pending 不应再继续累积 text/thinking。
+ * contentParts/thinkParts 已在此被清空，而 content/thinkContent 不参与后续累积，
+ * 若 finalize 后再 push 并二次 finalize，新段会覆盖旧的 content/thinkContent。
+ *
+ * 当前调用图保证该契约成立：finalize 仅在终态路径触发——
+ * #mergeAndPersist（user_message_injected / done / error）与
+ * extractLastLoopMessages（done-completed，且发生在 #mergeAndPersist 之后），
+ * 之后 pending 被置 null 或 worker 结束，不会再有后续 text/thinking 事件。
+ *
+ * 幂等性：parts 为空时原样返回，重复调用安全。contentLength 不重置——
+ * 它仅用于累积阶段的 tool_use textOffset 派生，finalize 后不再参与 content 语义。
+ */
+export function finalizePending(pending: PendingAssistantMsg): PendingAssistantMsg {
+  if (pending.contentParts && pending.contentParts.length > 0) {
+    pending.content = pending.contentParts.join('')
+    pending.contentParts = []
+  }
+  if (pending.thinkParts && pending.thinkParts.length > 0) {
+    pending.thinkContent = pending.thinkParts.join('')
+    pending.thinkParts = []
+  }
+  return pending
 }
 
 /**
@@ -50,7 +90,17 @@ export function accumulateStreamEvent(
       if (!pending) {
         pending = createPendingMsg()
       }
-      pending.content = capField(pending.content + content, '内容', conversationId)
+      // ★ 方案 C：段内数组累积 + O(1) 计数；capField 截断语义保持（超限截当前段）
+      pending.contentParts = pending.contentParts || []
+      const {length, truncated} = appendCappedPart(
+        pending.contentParts, content, pending.contentLength, PENDING_MSG_MAX_BYTES,
+      )
+      pending.contentLength = length
+      if (truncated) {
+        logger.warn('[AgentManager] pendingAssistantMsg 内容超过容量上限，已截断', {
+          maxBytes: PENDING_MSG_MAX_BYTES,
+        })
+      }
       break
     }
 
@@ -59,9 +109,16 @@ export function accumulateStreamEvent(
       if (!pending) {
         pending = createPendingMsg()
       }
-      pending.thinkContent = capField(
-        (pending.thinkContent || '') + thinkChunk, 'thinkContent', conversationId,
+      pending.thinkParts = pending.thinkParts || []
+      const {length, truncated} = appendCappedPart(
+        pending.thinkParts, thinkChunk, pending.thinkLength || 0, PENDING_MSG_MAX_BYTES,
       )
+      pending.thinkLength = length
+      if (truncated) {
+        logger.warn('[AgentManager] pendingAssistantMsg thinkContent 超过容量上限，已截断', {
+          maxBytes: PENDING_MSG_MAX_BYTES,
+        })
+      }
       break
     }
 
@@ -82,7 +139,7 @@ export function accumulateStreamEvent(
           name: tc.name,
           arguments: tc.arguments,
           status: 'running',
-          textOffset: pending.content.length,
+          textOffset: pending.contentLength,
           reason: tc.reason,
           terminal: tc.terminal,
         })
@@ -144,6 +201,7 @@ export function createPendingMsg(): PendingAssistantMsg {
   return {
     id: crypto.randomUUID(),
     content: '',
+    contentLength: 0,
     toolCalls: [],
     thinkContent: null,
     timestamp: Date.now(),

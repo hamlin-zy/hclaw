@@ -21,6 +21,8 @@ import {runtimeConfigManager} from './runtimeConfigManager'
 import {taskStore} from './tasks/taskStore'
 import {logger} from './logger'
 import {getMessagePreview} from './utils/contentUtils'
+import {createStreamBatchAccumulator} from './streamBatch'
+import type {AgentStreamEvent} from './stream'
 
 /** Phase 2: 通过 MessagePort 从 MCP Worker 获取已连接的工具列表 */
 async function listMcpServersFromWorker(port: MessagePort): Promise<Array<{
@@ -311,6 +313,16 @@ async function main(): Promise<void> {
         
     }
 
+    // ★ 方案 C：流式事件批量累积器（32ms 窗口内容级合并）
+    //   声明在 try 外，使 finally 可访问 dispose() 兜底清理定时器。
+    //   两处 postMessage（onEvent 回调 + 循环体）必须统一走累积器，否则工具事件
+    //   绕过合并直接 post，破坏 think → tool_use 顺序（spec §5.2 接入点）。
+    const streamBatch = createStreamBatchAccumulator({
+        post: (event) => {
+            parentPort?.postMessage({type: 'stream', conversationId: params.conversationId, event})
+        },
+    })
+
     try {
         // ── 方案更新同步机制 ──
         // 确保方案切换完成后再继续 LLM 调用
@@ -561,11 +573,7 @@ async function main(): Promise<void> {
             // 传递运行中注入的用户消息队列引用
             pendingInjectedMessages,
             onEvent: (e) => {
-                parentPort?.postMessage({
-                    type: 'stream',
-                    conversationId: params.conversationId,
-                    event: e,
-                })
+                streamBatch.push(e as AgentStreamEvent)
             }
         })) {
             // 检查权限规则是否变化（工具执行后用户点击"始终允许"会添加规则）
@@ -579,15 +587,12 @@ async function main(): Promise<void> {
                 lastRuleCount = currentRuleCount
             }
 
-      // 转发事件到主进程
-      parentPort?.postMessage({
-        type: 'stream',
-        conversationId: params.conversationId,
-        event,
-      })
+      // 转发事件到主进程（经批量累积器，方案 C）
+      streamBatch.push(event)
 
       // 检查是否结束
       if (event.type === 'done') {
+        streamBatch.flush()
         break
       }
     }
@@ -610,12 +615,19 @@ async function main(): Promise<void> {
       })
     }
   } catch (err: any) {
+    // 先 flush 尾部缓冲：保证 text/thinking 先于 error 到达主进程，
+    // 避免主进程收到 error 时仍缺失最后一批流式内容。
+    streamBatch.flush()
     parentPort?.postMessage({
       type: 'error',
       conversationId: params.conversationId,
       event: { type: 'error', error: err.message },
     })
   } finally {
+    // flush 幂等：覆盖 abort / early_exit 等不产出 done 事件的正常退出路径，
+    // 保留 ≤32ms 窗口内未触发的尾部内容；dispose 负责清理 timer。
+    streamBatch.flush()
+    streamBatch.dispose()
     // Worker 中的记忆引擎通过 IPC 管理，无需在此清理
   }
 }
