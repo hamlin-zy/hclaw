@@ -9,8 +9,8 @@ export interface TimelineItem {
 export const timelineItems: TimelineItem[] = [
   {
     version: 'v0.4.3', date: '2026-08-15', tag: '最新',
-    title: '流式管道优化',
-    items: ['主进程流式事件批处理与内容累积优化', '渲染层固定时间窗批处理与 memo 隔离', '修复并行工具倒计时假超时'],
+    title: '流式体验优化',
+    items: ['长对话连续输出更流畅顺滑', '高频流式更新下界面更稳定', '修复并行工具倒计时偶发显示超时'],
   },
   {
     version: 'v0.4.2', date: '2026-08-14',
