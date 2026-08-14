@@ -19,6 +19,8 @@ export interface SkillExtensions {
   templates?: SkillTemplate[]
   /** 示例列表 */
   examples?: SkillExample[]
+  /** 技能目录根部的辅助文件（SKILL.md 正文引用的同目录文档/脚本） */
+  rootDocs?: SkillScript[]
 }
 
 export interface SkillReference {

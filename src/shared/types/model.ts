@@ -68,7 +68,7 @@ export const WORK_MODE_LABELS: Record<string, string> = {
 export type TaskComplexity = 'simple' | 'moderate' | 'complex'
 
 /** Model type */
-export type ModelType = 'text' | 'voice' | 'video' | 'image' | 'music' | 'multimodal'
+export type ModelType = 'text' | 'voice' | 'video' | 'image' | 'music' | 'multimodal' | 'embedding'
 
 // ─── Agent config ──────────────────────────────────────
 

@@ -106,6 +106,20 @@ function buildRoutingSection(_ctx: SystemPromptContext, r: PromptResolver): stri
     return r.resolve('system.routing')
 }
 
+/** 缩短插件名称（superpowers@github → superpowers） */
+function shortPluginName(name: string): string {
+  return name.split('@')[0]
+}
+
+/** 从 Agent 的 id/tags 推断插件来源名称（无则返回空字符串） */
+function getAgentPluginName(agent: {id: string; tags?: string[]}): string | undefined {
+  const fromTags = agent.tags?.find(t => t.startsWith('plugin:'))
+  if (fromTags) return fromTags.slice('plugin:'.length)
+  const idColon = agent.id.indexOf(':')
+  if (idColon > 0) return agent.id.slice(0, idColon)
+  return undefined
+}
+
 function buildCapabilityIndex(_ctx: SystemPromptContext): string {
   const seen = new Set<string>()
   const entries: Array<{
@@ -126,7 +140,7 @@ function buildCapabilityIndex(_ctx: SystemPromptContext): string {
     if (seen.has(key)) continue
     seen.add(key)
     entries.push({
-      name: skill.name,
+      name: skill.name + (skill.pluginName ? ` (${shortPluginName(skill.pluginName)})` : ''),
       type: '技能' as const,
       description: desc,
       trigger,
@@ -145,7 +159,7 @@ function buildCapabilityIndex(_ctx: SystemPromptContext): string {
     if (seen.has(key)) continue
     seen.add(key)
     entries.push({
-      name: agent.name,
+      name: agent.name + (getAgentPluginName(agent) ? ` (${shortPluginName(getAgentPluginName(agent)!)})` : ''),
       type: '代理' as const,
       description: desc,
       trigger,

@@ -2,6 +2,8 @@
  * 技能扩展资源扫描器
  *
  * 扫描技能目录，发现 references/ 和 scripts/ 扩展结构。
+ * 同时收集技能目录根部的辅助文件（如 superpowers 风格的 .md/.sh/.ts），
+ * 使 SKILL.md 正文引用的同目录文件可被 LLM 直接发现。
  */
 
 import * as fs from 'fs/promises'
@@ -61,7 +63,7 @@ export async function scanSkillExtensions(skillDir: string): Promise<SkillExtens
     } catch {
         return {references: [], scripts: []}
     }
-    const [references, scripts] = await Promise.all([
+    const [references, scripts, rootDocs] = await Promise.all([
         scanExtDir<SkillReference>(skillDir, 'references', e => e === '.md' || e === '.txt', (f, rel) => ({
             name: path.basename(f, path.extname(f)),
             filePath: rel,
@@ -71,6 +73,11 @@ export async function scanSkillExtensions(skillDir: string): Promise<SkillExtens
             name: path.basename(f),
             filePath: rel,
             language: SCRIPT_EXTENSIONS[path.extname(f).toLowerCase()],
+        })),
+        scanExtDir<SkillScript>(skillDir, '', e => e === '.md' || e in SCRIPT_EXTENSIONS, (f, rel) => ({
+            name: path.basename(f),
+            filePath: rel,
+            language: SCRIPT_EXTENSIONS[path.extname(f).toLowerCase()] ?? 'other',
         })),
     ])
     return {references, scripts}
