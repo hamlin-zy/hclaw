@@ -28,6 +28,12 @@ export class PreprocessCache {
   private resultIds = new Set<string>()
   /** 前缀中合成 error 消息的 id */
   private syntheticIds = new Set<string>()
+  /**
+   * 最近一次 process() 是否发生了「合成注入 / 取代」——即输出与输入内容不一致
+   * （zeroCopy=false）。调用方（execute.ts）据此失效 adapter 的增量转换缓存，
+   * 避免 adapter 按长度命中返回基于过期前缀的转换结果，产生孤儿 tool 消息。
+   */
+  lastWasNonZeroCopy: boolean = false
 
   /**
    * 处理消息集，返回 normalize 后的 ChatMessage[]。
@@ -38,8 +44,9 @@ export class PreprocessCache {
    * 返回语义：可能返回输入数组本身（稳态零拷贝），调用方只读消费。
    */
   process(messages: ReadonlyArray<ChatMessage>, forceRebuild = false): ChatMessage[] {
-    // 同长度重试 → 命中缓存，零处理
+    // 同长度重试 → 命中缓存，零处理（输出与上次一致，无需失效 adapter 缓存）
     if (!forceRebuild && this.sourceCount === messages.length) {
+      this.lastWasNonZeroCopy = false
       return this.result
     }
 
@@ -55,6 +62,9 @@ export class PreprocessCache {
       }
       this.sourceCount = messages.length
       this.result = full
+      // 全量路径：adapter 缓存与本次全量重建天然同步（count 对齐或重建），
+      // 但若注入改变了长度/内容，仍需通知 adapter 全量重建以对齐
+      this.lastWasNonZeroCopy = full.length !== messages.length
       return full
     }
 
@@ -66,6 +76,7 @@ export class PreprocessCache {
     this.result = normalized.result
     this.resultIds = normalized.resultIds
     this.syntheticIds = normalized.syntheticIds
+    this.lastWasNonZeroCopy = normalized.zeroCopy !== true
     return normalized.result
   }
 
@@ -75,6 +86,7 @@ export class PreprocessCache {
     this.result = []
     this.resultIds = new Set<string>()
     this.syntheticIds = new Set<string>()
+    this.lastWasNonZeroCopy = false
   }
 }
 

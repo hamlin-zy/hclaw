@@ -214,6 +214,11 @@ export class AnthropicAdapter implements ModelAdapter {
     }
   }
 
+  /** 失效增量转换缓存（normalize 注入/取代后由调用方触发，下次全量重建） */
+  invalidateConvertCache(): void {
+    this.convertCache = null
+  }
+
   // ─── 内部方法 ──────────────────────────────────────
 
   // ─── 第三方 API 检测 ────────────────────────────────────────
