@@ -55,3 +55,5 @@ CODEBUDDY.md
 .codegraph
 .superpowers
 docs/superpowers
+# 探针调试文件
+tmp/
