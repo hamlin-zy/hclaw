@@ -7,6 +7,9 @@ import {
 } from './repositories/sqlite/llmProviderRepository'
 import {encryptSecret} from './utils/crypto'
 import {createLogger} from './agent/logger'
+import {fetchProviderModels, testProviderModel} from './providerModelFetcher'
+import {createModelAdapter} from './agent/model'
+import {GoogleAuthService} from './auth/googleAuth'
 
 const logger = createLogger('ProviderIPC')
 const providerRepo = new SqliteProviderRepository()
@@ -219,6 +222,21 @@ export function initProviderIPC(): void {
             return {success: false, error: String(err)}
         }
     })
+
+  // ==================== 模型拉取 / 测试（无副作用，不写库、不产生会话） ====================
+
+  // 拉取模型列表（复用真实 key 调服务商 /models 接口，绕 CORS 由主进程执行）
+  ipcMain.handle('provider:fetch-models', (_, params) =>
+    fetchProviderModels(params, {
+      refreshGoogleToken: (refreshToken: string) => GoogleAuthService.refreshAccessToken(refreshToken),
+    }))
+
+  // 模型连通性测试（复用 createModelAdapter，仅发最小 'ping' 请求）
+  ipcMain.handle('provider:test-model', (_, params) =>
+    testProviderModel(params, {
+      createAdapter: createModelAdapter,
+      refreshGoogleToken: (refreshToken: string) => GoogleAuthService.refreshAccessToken(refreshToken),
+    }))
 
   logger.info('init', {module: 'provider-ipc'})
 }

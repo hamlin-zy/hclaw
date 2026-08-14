@@ -177,6 +177,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   secretDecrypt: (cipherText: string) =>
     ipcRenderer.invoke('secret-decrypt', cipherText),
 
+  // Provider 模型拉取 / 测试（主进程执行，绕 CORS）
+  providerFetchModels: (params: any) => ipcRenderer.invoke('provider:fetch-models', params),
+  providerTestModel: (params: any) => ipcRenderer.invoke('provider:test-model', params),
+
   // Conversation management
   conversationCreate: (convId: string, meta: Record<string, unknown>) =>
     ipcRenderer.invoke('conversation-create', convId, meta),
