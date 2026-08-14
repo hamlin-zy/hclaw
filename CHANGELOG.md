@@ -10,10 +10,10 @@
 ## [v0.4.3] - 2026-08-15
 
 ### 优化
-- **流式管道优化** — 主进程流式事件批处理与内容累积（新增 streamBatch + manager.accumulator 增强），渲染层固定时间窗批处理与 memo 隔离，降低高频流式事件渲染开销 (`src/main/agent/streamBatch.ts`, `src/main/agent/manager.accumulator.ts`, `src/main/agent/manager.impl.ts`, `src/main/agent/worker.ts`, `src/renderer/stores/agentStore/batching/textBatch.ts`, `src/renderer/stores/agentStore/batching/thinkingBatch.ts`, `src/renderer/components/message-list/InterleavedContent.tsx`)
+- **流式响应更流畅** — 高频流式输出下的界面渲染与事件处理性能提升，长对话连续输出更稳定顺滑（`streamBatch.ts`, `manager.accumulator.ts`, `textBatch.ts`, `thinkingBatch.ts`, `InterleavedContent.tsx` 等）
 
 ### 修复
-- **并行工具倒计时假超时** — 并行工具即时完成信号，修复已完工具倒计时仍显示假超时 (`src/main/agent/loop/toolExecutor.ts`, `src/main/agent/stream.ts`, `src/renderer/stores/agentStore/handlers/streamEvents.ts`, `src/renderer/stores/agentStore/handlers/streamTools.ts`)
+- **修复并行执行工具时倒计时偶发显示超时的问题** — 工具实际已完成但界面倒计时仍在走，改为完成即同步显示（`toolExecutor.ts`, `streamTools.ts` 等）
 
 ---
 
