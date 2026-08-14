@@ -266,6 +266,18 @@ export function handleToolResult(ctx: StreamCtx) {
     }
 }
 
+/**
+ * ★ 即时完成信号（tool_completed）：与 tool_start 的即时推送对称。
+ *   并行工具场景下 Promise.all 会阻塞正式 tool_result，导致已完成工具
+ *   的倒计时误判为「已超时」。此事件仅更新 UI 状态（停止倒计时），
+ *   不递减 runningToolCount、不落库——这些由正式 tool_result 负责。
+ */
+export function handleToolCompleted(ctx: StreamCtx) {
+    const {event} = ctx
+    if (!event.toolCallId || !event.result) return
+    useToolCallsStore.getState().setToolResult(event.toolCallId, normalizeToolResult(event.result))
+}
+
 export function handleToolDenied(ctx: StreamCtx) {
     const {get, convId, isAgentAborted, event} = ctx
     if (isAgentAborted || !event.toolCallId) return
