@@ -1,0 +1,141 @@
+---
+const core = [
+  { icon: 'agent', title: 'Agent 管理', desc: '图形化界面便捷管理多个 Agent 配置和状态，灵活切换。' },
+  { icon: 'skills', title: 'Skills 管理', desc: '可视化技能管理，内置/自定义技能一键安装与配置。' },
+  { icon: 'mcp', title: 'MCP 服务生态', desc: '图形化 MCP 配置，实现文件操作、浏览器自动化、媒体生成等能力。' },
+];
+
+const misc = [
+  { title: '本地优先', desc: '所有数据本地 SQLite 存储，除 LLM 请求外无任何外部请求，保护隐私。' },
+  { title: '会话管理', desc: '多会话并行工作，侧边栏快速切换，高效管理多个任务上下文。' },
+  { title: '快捷指令', desc: 'Commands 指令系统，图形化配置和管理快捷命令，Ctrl+K 呼出。' },
+  { title: '视觉理解', desc: '支持图像识别和理解，可处理用户发送的图片内容。' },
+  { title: '定时任务', desc: 'Cron 表达式调度，自动执行周期性任务，可指定 Agent / Skill。' },
+  { title: '系统提示词编辑', desc: '灵活可编辑的提示词模板，随时调整 AI 行为，即时生效。' },
+];
+---
+
+<section id="features" class="container">
+  <div class="section-head">
+    <h2 class="section-title">全图形化，全开放</h2>
+    <p class="section-desc">HClaw 本质上是一个本地 Agent 壳子，所有配置项开放，你可以自由编排自己的 Agent。</p>
+  </div>
+
+  <div class="feat-core">
+    {core.map((it) => (
+      <div class="feat-card">
+        <div class="feat-icon">
+          {
+            it.icon === 'agent' && (
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="3" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M9 10h6M9 13.5h6M9 17h3.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M4 9h3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+            )
+          }
+          {
+            it.icon === 'skills' && (
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linejoin="round"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linejoin="round"/></svg>
+            )
+          }
+          {
+            it.icon === 'mcp' && (
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="6" r="2" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="19" cy="6" r="2" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="12" cy="18" r="2" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M7 6h10M6 8l4.5 8M18 8l-4.5 8" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+            )
+          }
+        </div>
+        <h3>{it.title}</h3>
+        <p>{it.desc}</p>
+      </div>
+    ))}
+  </div>
+
+  <div class="feat-list">
+    {misc.map((it) => (
+      <div class="feat-item">
+        <h3>{it.title}</h3>
+        <p>{it.desc}</p>
+      </div>
+    ))}
+  </div>
+</section>
+
+<style>
+  #features { padding: 96px 0; }
+
+  /* 前 3 项：核心能力三件套，大卡片（一排 3 个） */
+  .feat-core {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-bottom: 24px;
+  }
+  .feat-card {
+    position: relative;
+    padding: 30px 30px 34px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-raised);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    transition: transform .2s, border-color .2s, box-shadow .2s;
+  }
+  .feat-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-strong);
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
+  }
+  .feat-icon {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+    border-radius: 10px;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .feat-icon svg { width: 24px; height: 24px; }
+  .feat-card h3 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 10px; }
+  .feat-card p { color: var(--text-muted); font-size: 14.5px; line-height: 1.7; }
+
+  /* 后 6 项：紧凑双栏文字列表，标题 + 一行描述 */
+  .feat-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  .feat-item {
+    padding: 20px 24px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    transition: border-color .2s, background .2s;
+  }
+  .feat-item:hover { border-color: var(--border-strong); background: var(--bg-raised); }
+  .feat-item h3 {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .feat-item h3::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex: none;
+  }
+  .feat-item p {
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  @media (max-width: 900px) {
+    .feat-core { grid-template-columns: 1fr; }
+    .feat-list { grid-template-columns: 1fr; }
+  }
+</style>

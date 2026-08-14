@@ -1,0 +1,154 @@
+---
+const items = [
+  {
+    icon: 'install',
+    big: '极简安装',
+    title: '像装微信一样',
+    desc: '无需 Node.js、Python 等环境，下载双击即用，纯图形界面操作。',
+  },
+  {
+    icon: 'channels',
+    big: '多渠道',
+    title: '微信 + 飞书接入',
+    desc: '桌面端与 IM 消息实时同步，让 AI 直接出现在你的聊天列表里。',
+  },
+  {
+    icon: 'cache',
+    big: '95%+',
+    title: '缓存命中率',
+    desc: '任意模型、任意服务商切换，优化缓存命中，大幅节省 Token 成本。',
+  },
+  {
+    icon: 'models',
+    big: '多模型',
+    title: '对话中动态切换',
+    desc: 'Anthropic / OpenAI / Google / Ollama，交叉使用，请求不中断。',
+  },
+];
+---
+
+<section id="highlights" class="container">
+  <div class="section-head">
+    <h2 class="section-title">为什么选择 HClaw</h2>
+    <p class="section-desc">四个关键词，说清楚 HClaw 的核心价值。</p>
+  </div>
+
+  <div class="hl-list">
+    <div class="hl-item hl-item--lead">
+      <div class="hl-row">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3H5a2 2 0 0 0-2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 3h4a2 2 0 0 1 2 2v4M15 21h4a2 2 0 0 0 2-2v-4" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="m8 12 2.5 2.5L16 9" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        <h3>{items[0].title}</h3>
+      </div>
+      <div class="hl-big">{items[0].big}</div>
+      <p>{items[0].desc}</p>
+    </div>
+
+    <div class="hl-row hl-row--3">
+      <div class="hl-item">
+        <div class="hl-row">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8l-4 4V6Z" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linejoin="round"/><path d="M9 10.5h.01M12 10.5h.01M15 10.5h.01" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+          <h3>{items[1].title}</h3>
+        </div>
+        <div class="hl-big">{items[1].big}</div>
+        <p>{items[1].desc}</p>
+      </div>
+
+      <div class="hl-item">
+        <div class="hl-row">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M20 4v5h-5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <h3>{items[2].title}</h3>
+        </div>
+        <div class="hl-big hl-big--accent">{items[2].big}</div>
+        <p>{items[2].desc}</p>
+      </div>
+
+      <div class="hl-item">
+        <div class="hl-row">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 12h5l-1.5 9L16 9h-5l2-6H8Z" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linejoin="round"/></svg>
+          <h3>{items[3].title}</h3>
+        </div>
+        <div class="hl-big">{items[3].big}</div>
+        <p>{items[3].desc}</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  #highlights { padding: 96px 0 40px; }
+
+  .hl-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  /* 每一项共用：序号 + 图标行 + 大字号关键词 + 说明 */
+  .hl-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 26px 28px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-raised);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    transition: transform .2s, border-color .2s, box-shadow .2s;
+  }
+  .hl-item:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-strong);
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
+  }
+
+  /* 第一项：主角卡（纵向呼吸） */
+  .hl-item--lead { flex-direction: column; }
+
+  .hl-row { display: flex; align-items: center; gap: 12px; }
+  .hl-item svg { width: 22px; height: 22px; flex: none; color: var(--accent); }
+
+  .hl-item h3 {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+
+  .hl-big {
+    margin-top: 12px;
+    font-size: 2.6rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: var(--text);
+  }
+  .hl-item--lead .hl-big { margin-top: 18px; font-size: 3.4rem; }
+
+  /* 95%+ 用 accent 强调，但不做渐变、不做 hero-metric 式大数字 */
+  .hl-big--accent { color: var(--accent); }
+
+  .hl-item p {
+    margin-top: 8px;
+    color: var(--text-muted);
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  /* 次级三卡：横排（首列放底部竖排 2 项、第二列 1 项）
+     让「2 + 1 错位」替代等大四宫格 */
+  .hl-row--3 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .hl-row--3 .hl-item { flex-direction: column; }
+  .hl-row--3 .hl-item:last-child { grid-column: 1 / -1; }
+
+  @media (max-width: 900px) {
+    .hl-list { grid-template-columns: 1fr; }
+    .hl-row--3 { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 620px) {
+    .hl-row--3 { grid-template-columns: 1fr; }
+    .hl-row--3 .hl-item:last-child { grid-column: auto; }
+    .hl-big { font-size: 2.2rem; }
+    .hl-item--lead .hl-big { font-size: 2.8rem; }
+  }
+</style>
