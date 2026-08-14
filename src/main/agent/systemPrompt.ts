@@ -158,8 +158,9 @@ function buildCapabilityIndex(_ctx: SystemPromptContext): string {
     const key = `agent:${agent.name}`
     if (seen.has(key)) continue
     seen.add(key)
+    const pluginName = getAgentPluginName(agent)
     entries.push({
-      name: agent.name + (getAgentPluginName(agent) ? ` (${shortPluginName(getAgentPluginName(agent)!)})` : ''),
+      name: agent.name + (pluginName ? ` (${shortPluginName(pluginName)})` : ''),
       type: '代理' as const,
       description: desc,
       trigger,

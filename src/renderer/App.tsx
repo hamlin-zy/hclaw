@@ -28,6 +28,7 @@ import {usePluginUpdateStore} from './stores/pluginUpdateStore'
 import {useMenuBarStore} from './stores/menuBarStore'
 import {useGlobalHotkeys} from './hooks/useGlobalHotkeys'
 import TooltipPortal from './components/common/TooltipPortal'
+import {createGcScheduler} from './lib/gcScheduler'
 import type {ModelType} from '@shared/types'
 
 interface ErrorBoundaryProps {
@@ -589,7 +590,7 @@ export default function App() {
       }, 0)
     }
 
-    const onMaximizedChange = (_maximized: boolean) => {
+    const onMaximizedChange = () => {
       // 最大化/还原切换后布局尺寸变化，跳过过渡动画
       settleLayout()
     }
@@ -669,7 +670,6 @@ export default function App() {
 // ── 闲置期自动 GC（仅限 electron 渲染进程 + expose-gc 启用时）──
 // 门控逻辑（隐藏期间不 GC / 恢复后宽限期）已提取到 lib/gcScheduler.ts，可单测。
 if (typeof window !== 'undefined' && typeof (window as any).gc === 'function' && 'requestIdleCallback' in window) {
-    const {createGcScheduler} = require('./lib/gcScheduler') as typeof import('./lib/gcScheduler')
     createGcScheduler({
         isHidden: () => typeof document !== 'undefined' && document.hidden,
         now: () => Date.now(),
