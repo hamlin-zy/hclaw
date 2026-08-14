@@ -308,6 +308,11 @@ export const createWindow = (): void => {
             // 允许渲染进程加载本地文件（file://），用于 Markdown 图片渲染
             // 注意：contextIsolation: true 已将主进程 Node.js 与渲染进程隔离，风险可控
             webSecurity: false,
+            // ★ 禁用后台节流：长任务（sdd 等）运行期间窗口最小化时，
+            //   rAF/timer 被节流导致流式 IPC 事件积压，恢复瞬间一次性涌入主线程造成 UI 卡死。
+            //   queueMicrotask 不受 backgroundThrottling 影响，保持渲染进程全速处理事件，
+            //   恢复时 UI 立即可用（代价：最小化期间 CPU 占用与前台相当）。
+            backgroundThrottling: false,
         },
 
         // ---- 显示控制 ----

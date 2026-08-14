@@ -567,6 +567,43 @@ export default function App() {
     return () => document.removeEventListener('contextmenu', handleContextMenu)
   }, [])
 
+  // ── 窗口尺寸变化：布局过渡禁用（修复最小化恢复后三列溢出） ──
+  // 场景：长任务最小化 → 恢复瞬间主线程忙于消化积压事件，transition-all 动画帧丢失，
+  // 布局宽度停在中间态（消息列表/右侧栏溢出不可见），且不再补帧。
+  // 方案：resize / window-maximized-changed（主进程 window.ts 已推送）触发时，
+  // 临时给 window-container 挂 .layout-settling（CSS 中 transition: none !important），
+  // 下一帧强制布局直接跳到终值后移除。不修改任何布局类名/结构。
+  useEffect(() => {
+    const root = document.querySelector('.window-container') as HTMLElement | null
+    if (!root) return
+    let timer: number | null = null
+
+    const settleLayout = () => {
+      if (timer) clearTimeout(timer)
+      root.classList.add('layout-settling')
+      // 强制同步 reflow，确保布局立即以终值计算（跳过过渡中间态）
+      void root.offsetHeight
+      timer = window.setTimeout(() => {
+        root.classList.remove('layout-settling')
+        timer = null
+      }, 0)
+    }
+
+    const onMaximizedChange = (_maximized: boolean) => {
+      // 最大化/还原切换后布局尺寸变化，跳过过渡动画
+      settleLayout()
+    }
+    const onResize = () => settleLayout()
+
+    window.addEventListener('resize', onResize)
+    const unsub = window.electronAPI?.onWindowMaximizedChange?.(onMaximizedChange)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      if (unsub) unsub()
+      if (timer) clearTimeout(timer)
+    }
+  }, [])
+
   return (
     <ErrorBoundary>
       {/* macOS Tooltip Portal（突破 overflow: hidden 祖先容器裁剪） */}
@@ -630,20 +667,24 @@ export default function App() {
 }
 
 // ── 闲置期自动 GC（仅限 electron 渲染进程 + expose-gc 启用时）──
+// 门控逻辑（隐藏期间不 GC / 恢复后宽限期）已提取到 lib/gcScheduler.ts，可单测。
 if (typeof window !== 'undefined' && typeof (window as any).gc === 'function' && 'requestIdleCallback' in window) {
-    const MIN_GC_INTERVAL = 45000
-    let lastGc = 0
-
-    const tryGc = () => {
-        const now = Date.now()
-        if (now - lastGc < MIN_GC_INTERVAL) return
-        ;(window as any).requestIdleCallback((idle: {didTimeout: boolean}) => {
-            if (idle.didTimeout) return
-            ;(window as any).gc()
-            lastGc = now
-        }, {timeout: 5000})
-    }
-
-    setInterval(tryGc, 60000)
-    setTimeout(tryGc, 15000)
+    const {createGcScheduler} = require('./lib/gcScheduler') as typeof import('./lib/gcScheduler')
+    createGcScheduler({
+        isHidden: () => typeof document !== 'undefined' && document.hidden,
+        now: () => Date.now(),
+        requestIdle: (cb: (didTimeout: boolean) => void, _timeout: number) => {
+            ;(window as any).requestIdleCallback(cb, {timeout: _timeout})
+            return true
+        },
+        runGc: () => (window as any).gc(),
+        onVisible: (cb: () => void) => {
+            if (typeof document === 'undefined') return () => {}
+            const handler = () => { if (document.visibilityState === 'visible') cb() }
+            document.addEventListener('visibilitychange', handler)
+            return () => document.removeEventListener('visibilitychange', handler)
+        },
+        scheduleInterval: (cb: () => void, ms: number) => setInterval(cb, ms),
+        scheduleTimeout: (cb: () => void, ms: number) => setTimeout(cb, ms),
+    })
 }

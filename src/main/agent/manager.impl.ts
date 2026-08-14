@@ -34,6 +34,7 @@ import {
   SKIP_LOG_EVENT_TYPES,
 } from './manager.constants'
 import {createPendingMsg, normalizeToolResult} from './manager.accumulator'
+import {createForwardPayload} from './manager.streamForward'
 
 import {loadPluginAgents} from './manager.pluginAgents'
 import {createConversationRepository} from '../repositories'
@@ -1015,8 +1016,11 @@ export class AgentManager {
       cacheReadTokens: event.cacheReadTokens,
       cacheWriteTokens: event.cacheWriteTokens,
       reasoningTokens: event.reasoningTokens,
-      inputContent: event.inputContent,
-      outputContent: event.outputContent,
+      // inputContent/outputContent 在事件类型中已声明可选（渲染端转发载荷不含），
+      // 日志消费的是 worker→主进程原始事件，worker 侧 controller.ts 总是填充；
+      // 防御性默认值兜底（空串）。
+      inputContent: event.inputContent ?? '',
+      outputContent: event.outputContent ?? '',
       toolCalls: event.toolCalls as LlmCallLog['toolCalls'],
       messages: event.messages as LlmCallLog['messages'],
       systemPrompt: event.systemPrompt,
@@ -1065,7 +1069,9 @@ export class AgentManager {
     }
 
     try {
-      this.mainWindow.webContents.send('agent-stream', {conversationId, event})
+      // ★ llm_call_done 瘦身逻辑见 manager.streamForward.ts（渲染端只用 stats 字段，
+      //   大字段不再经 IPC 全链传输；LLM 日志走独立通道不受影响）
+      this.mainWindow.webContents.send('agent-stream', createForwardPayload(conversationId, event))
     } catch (err: unknown) {
       logger.error('forwardToRenderer', {error: err instanceof Error ? err.message : String(err)})
     }
