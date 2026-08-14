@@ -2434,3 +2434,17 @@ html.bg-enabled,
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
 }
+
+/* ========================================
+   Layout Settling — 窗口尺寸变化时禁用过渡
+   修复：最小化恢复后窗口化/最大化切换时，transition-all 动画帧丢失
+   导致三列布局宽度停在中间态（消息列表/右侧栏溢出不可见）。
+   App.tsx 在 resize / window-maximized-changed 时临时挂载本类，
+   下一帧移除，强制布局直接跳到终值。
+   ======================================== */
+.layout-settling [data-name='left-sidebar-card'],
+.layout-settling [data-name='main-column'],
+.layout-settling [data-name='side-panels'] {
+    transition: none !important;
+}
+
