@@ -1,5 +1,5 @@
 import {createWithEqualityFn} from 'zustand/traditional'
-import type {ConversationSummary, Message, BlockDeltaPatch, MessageBlock, ToolCall} from '@shared/types'
+import type {ConversationSummary, Message, ContentBlock, BlockDeltaPatch, MessageBlock, ToolCall} from '@shared/types'
 
 import {useAgentStore, createDefaultConvData} from './agentStore'
 import {fuzzyFilter} from '../lib/search'
@@ -57,6 +57,8 @@ interface ConversationStore {
   updateMessage: (id: string, updates: Partial<Message>) => void
     /** 更新指定会话中的消息（用于非活跃会话的后台 agent 写入） */
     updateMessageForConv: (convId: string, id: string, updates: Partial<Message>) => void
+    /** 块级增量：替换指定会话消息 contentBlocks 中指定 id 的块（其他块引用不变） */
+    updateMessageBlockForConv: (convId: string, id: string, blockId: string, blockPatch: ContentBlock) => void
   deleteMessage: (id: string) => void
   loadMessages: (convId: string) => Promise<void>
     /** 增量加载：只加载最近 N 条，替代 loadMessages 的全量加载 */
@@ -1004,6 +1006,21 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           scheduleDeltaSave(convId)
           // 异步检查内存权重上限（不阻塞当前操作）
           setTimeout(() => maybeTrimConversation(convId), 0)
+      },
+
+      /** 块级增量：替换 contentBlocks 数组中指定 id 的块（其他块引用不变 → React.memo bail out）
+       *  无该 id 时追加到末尾；找不到 message 安全返回（spec §6.2 方案 B1） */
+      updateMessageBlockForConv: (convId: string, id: string, blockId: string, blockPatch: ContentBlock) => {
+          const msg = get().messagesMap[convId]?.find(m => m.id === id)
+          if (!msg) return
+          const blocks = msg.contentBlocks || []
+          const bIdx = blocks.findIndex(b => b.id === blockId)
+          // 块级替换：新建数组但未变化块保持引用（React.memo bail out 依赖）
+          const newBlocks = bIdx === -1
+              ? [...blocks, blockPatch]
+              : blocks.map((b, i) => (i === bIdx ? blockPatch : b))
+          // 复用 updateMessageForConv 的 set + 落库联动，消除重复
+          get().updateMessageForConv(convId, id, {contentBlocks: newBlocks})
       },
 
       addMessage: (message) => {

@@ -7,7 +7,7 @@ import {flushConversationDirty} from '../../conversationStore'
 
 import type {StreamCtx} from './streamContext'
 import {handleBegin, handleAgentStart, handleText, handleThinking} from './streamCore'
-import {handleToolUse, handleToolsStart, handleToolStart, handleToolProgress, handleToolDetail, handleToolResult, handleToolDenied} from './streamTools'
+import {handleToolUse, handleToolsStart, handleToolStart, handleToolProgress, handleToolDetail, handleToolResult, handleToolCompleted, handleToolDenied} from './streamTools'
 import {handleAgentProgress, handleSubagentProgress, handleSubagentStart, handleSubagentDone} from './streamSubAgents'
 import {handleSkillMatched, handleSkillStart, handleSkillPhase, handleSkillReferenceLoaded, handleSkillScriptStart, handleSkillScriptOutput, handleSkillScriptDone, handleSkillLog, handleSkillEnd} from './streamSkills'
 import {handleIntentAnalyzed, handleModeChange, handleHookResult, handleTasksUpdate, handleLlmCallDone, handleCommandStart} from './streamSystem'
@@ -65,6 +65,7 @@ export async function handleStreamEventImpl(set: SetFn, get: GetFn, payload: Age
         case 'tool_progress':          handleToolProgress(ctx);            break
         case 'tool_detail':            handleToolDetail(ctx);              break
         case 'tool_result':            handleToolResult(ctx);              break
+        case 'tool_completed':         handleToolCompleted(ctx);           break
         case 'tool_denied':            handleToolDenied(ctx);              break
         case 'agent_progress':         handleAgentProgress(ctx);           break
         case 'subagent_progress':      handleSubagentProgress(ctx);        break

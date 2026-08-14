@@ -6,7 +6,7 @@
  * （模拟 worker 事件序列，验证 toolCallsStore 运行时状态完整）
  */
 import {describe, it, expect, vi, beforeEach} from 'vitest'
-import {handleToolUse, handleToolStart} from '../../../../src/renderer/stores/agentStore/handlers/streamTools'
+import {handleToolUse, handleToolStart, handleToolCompleted} from '../../../../src/renderer/stores/agentStore/handlers/streamTools'
 import {useToolCallsStore} from '../../../../src/renderer/stores/toolCallsStore'
 
 const mockConvData = vi.hoisted((): {
@@ -118,5 +118,55 @@ describe('bash 工具倒计时链路（tool_use → tool_start）', () => {
         const state = useToolCallsStore.getState().states[toolCallId]
         expect(state?.status).toBe('running')
         expect(state?.timeoutMs).toBeUndefined()
+    })
+})
+
+describe('tool_completed 即时完成信号（停止倒计时）', () => {
+    it('tool_completed 到达 → setToolResult 置 success，runningToolCount 不递减', () => {
+        const toolCallId = 'call-bash-completed-1'
+        const convId = 'conv-1'
+
+        handleToolUse(makeCtx(convId, {
+            type: 'tool_use',
+            toolCall: {id: toolCallId, name: 'bash', arguments: {command: 'sleep 10'}},
+        }))
+        handleToolStart(makeCtx(convId, {
+            type: 'tool_start',
+            toolCall: {id: toolCallId, name: 'bash', arguments: {command: 'sleep 10'}, timeoutMs: 30000},
+        }))
+
+        expect(mockConvData.convAgentStates[convId].runningToolCount).toBe(1)
+
+        handleToolCompleted(makeCtx(convId, {
+            type: 'tool_completed',
+            toolCallId,
+            result: {success: true, output: 'done'},
+        }))
+
+        const state = useToolCallsStore.getState().states[toolCallId]
+        expect(state?.status).toBe('success')
+        expect(state?.result?.output).toBe('done')
+        // ★ 关键：不递减 runningToolCount（正式 tool_result 负责），避免并行场景计数错乱
+        expect(mockConvData.convAgentStates[convId].runningToolCount).toBe(1)
+    })
+
+    it('tool_completed 错误结果 → status 置 error', () => {
+        const toolCallId = 'call-bash-completed-2'
+        const convId = 'conv-1'
+
+        handleToolStart(makeCtx(convId, {
+            type: 'tool_start',
+            toolCall: {id: toolCallId, name: 'bash', arguments: {command: 'sleep 10'}, timeoutMs: 30000},
+        }))
+
+        handleToolCompleted(makeCtx(convId, {
+            type: 'tool_completed',
+            toolCallId,
+            result: {success: false, output: null, error: 'boom'},
+        }))
+
+        const state = useToolCallsStore.getState().states[toolCallId]
+        expect(state?.status).toBe('error')
+        expect(state?.result?.error).toBe('boom')
     })
 })

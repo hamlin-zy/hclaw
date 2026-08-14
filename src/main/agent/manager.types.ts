@@ -64,8 +64,15 @@ export type {WorkerEntry}
 export interface PendingAssistantMsg {
   id: string
   content: string
+  /** 方案 C：text 段内累积（惰性 join，消除 O(n²) 拼接）；finalizePending 时清空 */
+  contentParts?: string[]
+  /** 正文累积长度（O(1) 计数）——★ tool_use textOffset 派生依赖，替代 content.length */
+  contentLength: number
   toolCalls: ToolCall[]
   thinkContent: string | null
+  /** 方案 C：thinking 段内累积（对称 text） */
+  thinkParts?: string[]
+  thinkLength?: number
   timestamp: number
 }
 
