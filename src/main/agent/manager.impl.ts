@@ -32,8 +32,9 @@ import type {
 import {
   WORKER_GRACEFUL_SHUTDOWN_MS,
   SKIP_LOG_EVENT_TYPES,
+  PENDING_MSG_MAX_BYTES,
 } from './manager.constants'
-import {createPendingMsg, normalizeToolResult} from './manager.accumulator'
+import {createPendingMsg, normalizeToolResult, finalizePending, appendCappedPart} from './manager.accumulator'
 import {createForwardPayload} from './manager.streamForward'
 
 import {loadPluginAgents} from './manager.pluginAgents'
@@ -517,7 +518,12 @@ export class AgentManager {
     pending: PendingAssistantMsg | null | undefined,
     isFinal: boolean,
   ): Promise<void> {
-    if (!pending || (!pending.content && pending.toolCalls.length === 0 && !pending.thinkContent)) {
+    if (!pending) {
+      return
+    }
+    // ★ 方案 C：读取 content/thinkContent 前 finalize（惰性 join）
+    pending = finalizePending(pending)
+    if (!pending.content && pending.toolCalls.length === 0 && !pending.thinkContent) {
       return
     }
 
@@ -787,16 +793,19 @@ export class AgentManager {
         }
         if (!content && !pending) break
         if (!pending) pending = createPendingMsg()
-        pending.content += content
-        if (pending.content.length > 100 * 1024) {
-          pending.content = pending.content.slice(0, 100 * 1024)
-        }
+        // ★ 方案 C：段内数组 + contentLength（镜像 accumulator.ts，复用 appendCappedPart）
+        pending.contentParts = pending.contentParts || []
+        pending.contentLength = appendCappedPart(
+          pending.contentParts, content, pending.contentLength, PENDING_MSG_MAX_BYTES,
+        ).length
         break
       }
       case 'thinking': {
         const thinkChunk = (event as {type: 'thinking'; content?: string}).content || ''
         if (!pending) pending = createPendingMsg()
-        pending.thinkContent = (pending.thinkContent || '') + thinkChunk
+        pending.thinkParts = pending.thinkParts || []
+        pending.thinkParts.push(thinkChunk)
+        pending.thinkLength = (pending.thinkLength || 0) + thinkChunk.length
         break
       }
       case 'tool_use':
@@ -812,7 +821,7 @@ export class AgentManager {
             name: tc.name,
             arguments: tc.arguments,
             status: 'running',
-            textOffset: pending.content.length,
+            textOffset: pending.contentLength,
             reason: tc.reason,
             terminal: tc.terminal,
           })
@@ -1042,8 +1051,12 @@ export class AgentManager {
 
       // 从 pendingAssistantMsg 读取当前循环的 assistant 响应
       const pending = this.pendingAssistantMsg.get(conversationId)
-      if (pending && pending.content) {
-        result.push({role: 'assistant', content: pending.content})
+      if (pending) {
+        // ★ 方案 C：读取 content 前 finalize（惰性 join）
+        finalizePending(pending)
+        if (pending.content) {
+          result.push({role: 'assistant', content: pending.content})
+        }
       }
     } catch (err) {
       logger.warn('[AgentManager] extractLastLoopMessages failed', {error: err})
