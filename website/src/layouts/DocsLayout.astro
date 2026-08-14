@@ -1,0 +1,179 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import { docsGroups } from '../data/docsNav';
+interface Props {
+  title: string;
+  currentSlug?: string;
+}
+const { title, currentSlug } = Astro.props;
+---
+<BaseLayout title={title}>
+  <div class="docs-shell">
+    <aside class="docs-sidebar">
+      <a class="docs-sidebar-title" href="/hclaw/docs/">文档</a>
+      {docsGroups.map((g) => (
+        <div class="docs-group">
+          <div class="docs-group-title">{g.title}</div>
+          {g.items.map((it) => (
+            <a
+              href={`/hclaw/docs/${it.slug}`}
+              class:list={['docs-link', { active: it.slug === currentSlug }]}
+            >{it.title}</a>
+          ))}
+        </div>
+      ))}
+    </aside>
+    <article class="docs-content">
+      {currentSlug && (
+        <div class="docs-prose">
+          <slot name="prose" />
+        </div>
+      )}
+      <slot />
+    </article>
+  </div>
+</BaseLayout>
+
+<style>
+  .docs-shell {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 48px;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 48px 32px;
+  }
+  .docs-sidebar {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+  }
+  .docs-sidebar-title {
+    display: block;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: -0.02em;
+    margin-bottom: 20px;
+    color: var(--text);
+  }
+  .docs-group { margin-bottom: 20px; }
+  .docs-group-title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .docs-link {
+    display: block;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 14.5px;
+    color: var(--text-muted);
+    transition: color .15s, background .15s;
+  }
+  .docs-link:hover { color: var(--text); background: var(--bg-raised); }
+  .docs-link.active { color: var(--accent); background: var(--accent-soft); }
+  .docs-content { min-width: 0; }
+
+  .docs-prose :global(h1) {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    margin: 0 0 20px;
+    line-height: 1.2;
+  }
+  .docs-prose :global(h2) {
+    font-size: 1.4rem;
+    font-weight: 650;
+    margin: 36px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .docs-prose :global(h3) {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 24px 0 10px;
+  }
+  .docs-prose :global(h4) {
+    font-size: 1.02rem;
+    font-weight: 600;
+    margin: 20px 0 8px;
+    color: var(--text);
+  }
+  .docs-prose :global(p) { color: var(--text-muted); margin: 12px 0; }
+  .docs-prose :global(ul),
+  .docs-prose :global(ol) {
+    margin: 12px 0 12px 22px;
+    color: var(--text-muted);
+  }
+  .docs-prose :global(li) { margin: 6px 0; }
+  .docs-prose :global(strong) { color: var(--text); font-weight: 650; }
+  .docs-prose :global(code) {
+    background: var(--bg-raised-2);
+    padding: 2px 7px;
+    border-radius: 6px;
+    font-size: 0.9em;
+    font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    color: var(--accent-2);
+  }
+  .docs-prose :global(pre) {
+    background: var(--bg-raised-2);
+    padding: 18px;
+    border-radius: 12px;
+    overflow-x: auto;
+    margin: 14px 0;
+    border: 1px solid var(--border);
+  }
+  .docs-prose :global(pre code) {
+    background: none;
+    padding: 0;
+    color: var(--text);
+    font-size: 0.88em;
+  }
+  .docs-prose :global(a) {
+    color: var(--accent);
+    border-bottom: 1px dotted var(--accent);
+  }
+  .docs-prose :global(a:hover) { border-bottom-style: solid; }
+  .docs-prose :global(blockquote) {
+    border-left: 3px solid var(--accent);
+    padding: 4px 0 4px 16px;
+    margin: 14px 0;
+    color: var(--text-muted);
+  }
+  .docs-prose :global(hr) {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 28px 0;
+  }
+  .docs-prose :global(table) {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 14px;
+  }
+  .docs-prose :global(th),
+  .docs-prose :global(td) {
+    border: 1px solid var(--border);
+    padding: 10px 14px;
+    text-align: left;
+  }
+  .docs-prose :global(th) { background: var(--bg-raised); font-weight: 600; color: var(--text); }
+  .docs-prose :global(td) { color: var(--text-muted); }
+  .docs-prose :global(img) {
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    margin: 16px 0;
+    max-width: 100%;
+    height: auto;
+  }
+
+  @media (max-width: 860px) {
+    .docs-shell { grid-template-columns: 1fr; gap: 28px; padding: 32px 20px; }
+    .docs-sidebar { position: static; max-height: none; overflow-y: visible; }
+  }
+</style>

@@ -1,0 +1,75 @@
+---
+---
+<nav id="nav">
+  <div class="nav-inner">
+    <a href="/hclaw/" aria-label="HClaw 首页">
+      <div class="nav-logo">
+        <img src="/hclaw/icon.png" alt="HClaw" />
+        HClaw
+      </div>
+    </a>
+    <div class="nav-links">
+      <a href="/hclaw/#highlights">亮点</a>
+      <a href="/hclaw/#features">特性</a>
+      <a href="/hclaw/docs/">文档</a>
+      <a href="/hclaw/#timeline">迭代</a>
+      <a href="/hclaw/#download">下载</a>
+      <a href="/hclaw/#community">社区</a>
+      <a href="https://github.com/hamlin-zy/hclaw" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">GitHub</a>
+      <a href="/hclaw/#download" class="btn btn-primary btn-sm">下载</a>
+    </div>
+  </div>
+</nav>
+
+<style>
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(13, 10, 9, 0.85);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border-bottom: 1px solid transparent;
+  transition: border-color .3s;
+}
+nav.scrolled { border-bottom-color: var(--border); }
+.nav-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 14px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nav-logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; letter-spacing: -0.02em; }
+.nav-logo img {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  object-fit: cover;
+  display: block;
+  mix-blend-mode: lighten;
+}
+.nav-links { display: flex; align-items: center; gap: 8px; }
+.nav-links a {
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-size: 14.5px;
+  color: var(--text-muted);
+  transition: color .2s, background .2s;
+}
+.nav-links a:hover { color: var(--text); background: var(--bg-raised); }
+@media (max-width: 900px) {
+  .nav-links a:not(.btn) { display: none; }
+}
+@media (max-width: 560px) {
+  .nav-inner { padding: 12px 20px; }
+}
+</style>
+
+<script>
+const nav = document.getElementById('nav');
+window.addEventListener('scroll', () => {
+  nav.classList.toggle('scrolled', window.scrollY > 20);
+}, { passive: true });
+</script>

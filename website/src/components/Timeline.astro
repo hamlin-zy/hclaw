@@ -1,0 +1,178 @@
+---
+import { timelineItems } from '../data/timeline';
+---
+<section id="timeline" class="container">
+  <div class="section-head">
+    <h2 class="section-title">从 0.2.31 到 0.4.1，持续快速演进</h2>
+    <p class="section-desc">3 个月 8 个版本，每一次更新都在让 HClaw 更快、更稳、更顺手。</p>
+  </div>
+
+  <div class="timeline-wrap">
+    <div class="timeline-line"></div>
+    {timelineItems.map((it) => {
+      const isLatest = it.tag === '最新';
+      const isStart = it.tag === '起点';
+      return (
+        <div
+          class:list={[
+            'timeline-item',
+            { latest: isLatest, start: isStart },
+          ]}
+        >
+          <div class="timeline-dot"></div>
+          <div class="timeline-meta">
+            <div class="timeline-verrow">
+              <span class:list={['timeline-ver', { latest: isLatest }]}>{it.version}</span>
+              {it.tag && <span class="timeline-tag">{it.tag}</span>}
+            </div>
+            <span class="timeline-date">{it.date}</span>
+          </div>
+          <div class="timeline-body">
+            <h4>{it.title}</h4>
+            <ul>
+              {it.items.map((line) => <li>{line}</li>)}
+            </ul>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+</section>
+
+<style>
+  #timeline { padding: 96px 0; }
+
+  /* 时间线主体：左侧竖线 + 每行一条记录 */
+  .timeline-wrap { position: relative; padding-left: 48px; }
+  .timeline-line {
+    position: absolute;
+    left: 8px;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    background: rgba(168, 154, 146, 0.35);
+  }
+
+  .timeline-item {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+    padding: 20px 0;
+  }
+
+  /* 圆点：常规 muted，最新版 accent 且带外圈 */
+  .timeline-dot {
+    position: absolute;
+    left: -48px;
+    top: 28px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    border: 2px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--border-strong);
+    transform: translateX(-50%);
+  }
+  .timeline-item.latest .timeline-dot {
+    background: var(--accent);
+    border-color: var(--bg);
+    box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
+  }
+  .timeline-item.start .timeline-dot {
+    background: transparent;
+    border-color: var(--border-strong);
+    box-shadow: none;
+  }
+
+  /* 元信息列：版本号（等宽）+ 日期 */
+  .timeline-meta { display: flex; flex-direction: column; gap: 4px; }
+  .timeline-verrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .timeline-ver {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .timeline-ver.latest { color: var(--accent); }
+  .timeline-date { color: var(--text-faint); font-size: 13.5px; }
+
+  /* 徽章：只给「最新」用 accent 实底，其余统一 ghost（克制） */
+  .timeline-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-muted);
+    border: 1px solid var(--border-strong);
+    background: transparent;
+  }
+  .timeline-item.latest .timeline-tag {
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .timeline-item.start .timeline-tag {
+    color: var(--text-faint);
+  }
+
+  /* 内容列：标题 + 变更列表 */
+  .timeline-body {
+    padding: 16px 20px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-raised);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .timeline-body:hover { border-color: var(--border-strong); }
+  .timeline-item.latest .timeline-body {
+    border-color: rgba(255, 107, 94, 0.3);
+    background: var(--bg-raised-2);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.15);
+  }
+  .timeline-item.start .timeline-body {
+    background: var(--bg);
+    border-color: var(--border);
+    box-shadow: none;
+  }
+  .timeline-body h4 {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    margin-bottom: 10px;
+  }
+  .timeline-item.start .timeline-body h4 { color: var(--text-muted); }
+  .timeline-body ul { list-style: none; }
+  .timeline-body ul li {
+    position: relative;
+    padding-left: 18px;
+    color: var(--text-muted);
+    font-size: 14.5px;
+    line-height: 1.7;
+  }
+  .timeline-body ul li + li { margin-top: 8px; }
+  .timeline-body ul li::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 0.72em;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--text-faint);
+  }
+  .timeline-item.latest .timeline-body ul li::before { background: var(--accent); }
+
+  @media (max-width: 760px) {
+    .timeline-wrap { padding-left: 36px; }
+    .timeline-item { grid-template-columns: 1fr; gap: 12px; }
+    .timeline-dot { left: -36px; top: 24px; }
+  }
+</style>

@@ -1,0 +1,52 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+import { docsGroups } from '../../data/docsNav';
+const title = 'HClaw 文档';
+---
+<DocsLayout title={title}>
+  <h1 class="docs-page-title">HClaw 文档</h1>
+  <p class="lede">从安装到进阶，掌握 HClaw 的全部能力。文档与产品保持同步更新。</p>
+  {docsGroups.map((g) => (
+    <section class="doc-group-cards">
+      <h2>{g.title}</h2>
+      <div class="doc-cards">
+        {g.items.map((it) => (
+          <a href={`/hclaw/docs/${it.slug}`} class="doc-card">
+            <span class="doc-card-title">{it.title}</span>
+            <span class="doc-card-arrow" aria-hidden="true">→</span>
+          </a>
+        ))}
+      </div>
+    </section>
+  ))}
+</DocsLayout>
+
+<style>
+  .docs-page-title {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+    margin: 0 0 20px;
+    color: var(--text);
+  }
+  .lede { color: var(--text-muted); font-size: 16.5px; margin: 12px 0 32px; }
+  .doc-group-cards { margin-bottom: 32px; }
+  .doc-group-cards h2 { font-size: 1.3rem; font-weight: 650; margin: 0 0 14px; }
+  .doc-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .doc-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    transition: border-color .2s, transform .2s;
+  }
+  .doc-card:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+  .doc-card-title { font-weight: 600; font-size: 14.5px; }
+  .doc-card-arrow { color: var(--accent); }
+  @media (max-width: 860px) { .doc-cards { grid-template-columns: 1fr; } }
+</style>
