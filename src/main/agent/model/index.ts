@@ -67,7 +67,7 @@ export function createModelAdapter(config: ModelConfig): ModelAdapter {
     case 'openai':
       return new OpenAIAdapter(config)
     case 'google':
-        logger.info('[index.ts] createModelAdapter - google:', { config })
+        logger.info('[index.ts] createModelAdapter - google:', { ...config, apiKey: config.apiKey ? '***' : undefined })
       return new GoogleAdapter(config)
     case 'ollama':
       return new OllamaAdapter(config)

@@ -5,6 +5,7 @@
  * 提取自 skillTool.ts，供 skillTool 和 IPC handler 共享使用。
  */
 
+import * as path from 'path'
 import type {SkillDefinition} from './types'
 
 /** 构建技能指导（含扩展资源路径） */
@@ -22,11 +23,15 @@ export function buildGuidance(skill: SkillDefinition): string {
         const extLines = [
             skill.extensions.scripts?.length && (
                 '## 可用脚本\n' +
-                skill.extensions.scripts.map(s => `- \`${skill.skillDir}/scripts/${s.name}\``).join('\n')
+                skill.extensions.scripts.map(s => `- \`${path.join(skill.skillDir ?? '', s.filePath)}\``).join('\n')
             ),
             skill.extensions.references?.length && (
                 '## 参考文档\n' +
-                skill.extensions.references.map(r => `- \`${skill.skillDir}/references/${r.name}.md\``).join('\n')
+                skill.extensions.references.map(r => `- \`${path.join(skill.skillDir ?? '', r.filePath)}\``).join('\n')
+            ),
+            skill.extensions.rootDocs?.length && (
+                '## 目录辅助文件\n' +
+                skill.extensions.rootDocs.map(r => `- \`${path.join(skill.skillDir ?? '', r.filePath)}\``).join('\n')
             ),
         ].filter(Boolean) as string[]
 

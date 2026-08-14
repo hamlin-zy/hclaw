@@ -433,6 +433,10 @@ declare global {
             setEnabled: (id: string, enabled: boolean) => Promise<{ success: boolean; error?: string }>
         }
 
+        // Provider 模型拉取 / 测试（主进程执行，绕 CORS；不写库、不产生会话）
+        providerFetchModels: (params: any) => Promise<any>
+        providerTestModel: (params: any) => Promise<any>
+
         // Model Scheme (模型方案) 管理
         modelScheme: {
             list: () => Promise<{ success: boolean; data?: any[]; error?: string }>

@@ -7,6 +7,16 @@
 
 ---
 
+## [v0.4.1] - 2026-08-14
+
+### 新增
+- **模型管理增强** — 服务商智能识别填充（输入名称自动匹配 DeepSeek 等预设模型、预设卡片补全 baseUrl）、Base URL 格式校验（blur 触发，无法解析的 URL 不再误告警）、一键拉取模型列表 + 就地结果面板（搜索/类型筛选/全选/替换/合并）、模型单行测试 + 一键批量测试（✔/✖ 状态位 + 进度 + 取消 + 结果失效清空）、google 类型保存时自动写入固定 baseUrl、测试日志密钥脱敏、拉取结果面板适配暗色主题；新增 provider:fetch-models / provider:test-model IPC (`src/main/providerModelFetcher.ts`, `src/main/llmProviderIPC.ts`, `src/shared/modelPresets.ts`, `src/renderer/components/dialogs/ProviderEditModal.tsx`, `tests/modelPresets.test.ts`, `tests/providerModelFetcher.test.ts`)
+
+### 修复
+- **插件技能/Agent 路径提示与根部辅助文件扫描** — system.directories 提示词补充 skills/ 多来源说明（public/custom/~/.agents/skills）与 plugins/<name>/ 内技能/Agent 位置；能力索引表格插件来源条目追加 (插件名) 后缀；扩展扫描器新增扫描技能目录根部辅助文件（.md/.sh/.ts 等），使 SKILL.md 正文引用的同目录文件可被发现；guidance 扩展资源路径改用相对路径拼接 (`src/main/agent/systemPrompt.ts`, `src/main/agent/skills/extensions.ts`, `src/main/agent/skills/guidance.ts`, `src/shared/prompts.ts`, `src/shared/skillTypes.ts`)
+
+---
+
 ## [v0.4.0] - 2026-08-09
 
 ### 新增
