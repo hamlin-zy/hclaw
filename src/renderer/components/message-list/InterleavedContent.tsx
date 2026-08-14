@@ -17,7 +17,7 @@
  * 设计目标：当所有数据生产者迁移到 contentBlocks 后，可移除旧路径及本注释。
  */
 
-import {useEffect, useMemo, useRef, useState} from 'react'
+import {memo, useEffect, useMemo, useRef, useState} from 'react'
 import {useThemeStore} from '../../stores/themeStore'
 import {useAgentStore} from '../../stores/agentStore'
 import {useConversationStore} from '../../stores/conversationStore'
@@ -143,6 +143,15 @@ export function ThrottledMarkdown({content, isUser, theme}: {
         </div>
     )
 }
+
+// ── 方案 B2：块级 memo 隔离 ──
+// text 块：默认浅比较（content 字符串引用）——块级增量下未变化块引用不变 → bail out
+const ThrottledMarkdownMemo = memo(ThrottledMarkdown)
+// think 块：每次块级增量构建新 thinkBlock 对象，默认浅比较永不相等 → ★ 必须自定义 comparator
+const ThinkBlockMemo = memo(ThinkBlock, (prev, next) =>
+    prev.thinkBlock.content === next.thinkBlock.content
+    && prev.thinkBlock.status === next.thinkBlock.status
+)
 
 /**
  * 【旧路径】从扁平字段（text + toolCalls.textOffset）构建交错片段。
@@ -337,10 +346,10 @@ export default function InterleavedContent({message, isUser}: InterleavedContent
     const renderSegment = (seg: Segment, i: number) => {
         switch (seg.type) {
             case 'think-thread':
-                return <div key={seg.blockId} className="mb-2"><ThinkBlock thinkBlock={seg.thinkBlock}/></div>
+                return <div key={seg.blockId} className="mb-2"><ThinkBlockMemo thinkBlock={seg.thinkBlock}/></div>
             case 'text':
                 return seg.content ?
-                    <ThrottledMarkdown key={`t-${i}`} content={seg.content} isUser={isUser} theme={theme}/> : null
+                    <ThrottledMarkdownMemo key={`t-${i}`} content={seg.content} isUser={isUser} theme={theme}/> : null
             case 'media':
                 return <div key={`media-${i}`} className="my-1"><MediaPlayer media={seg.mediaBlock}/></div>
             case 'tool-with-reason':

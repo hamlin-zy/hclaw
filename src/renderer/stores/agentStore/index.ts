@@ -380,11 +380,21 @@ export const useAgentStore = create<AgentStore>()(
             // ── 流式监听器注册 ──────────────────────────────
             registerStreamListener: () => {
                 streamUnsubscribe?.()
+                // ★ 方案 A：后台窗口 setTimeout 被 Chromium 节流（1s），恢复可见时强制 flush，
+                //   防积压后一次性涌出渲染风暴（spec §4.2 visibilitychange 兜底）
+                const onVisibilityChange = () => {
+                    if (document.visibilityState === 'visible') {
+                        flushAllTextBatches()
+                        flushAllThinkingBatches()
+                    }
+                }
+                document.addEventListener('visibilitychange', onVisibilityChange)
                 const unsub = window.electronAPI?.onAgentStream?.((payload: any) => {
                     get().handleStreamEvent(payload)
                 }) || null
                 streamUnsubscribe = unsub
                 return () => {
+                    document.removeEventListener('visibilitychange', onVisibilityChange)
                     flushAllTextBatches()
                     flushAllThinkingBatches()
                     saveHmrContext()

@@ -125,4 +125,85 @@ describe('ToolExecutor.execute tool_start 即时推送', () => {
         expect(sent.type).toBe('tool_start')
         expect(sent.toolCall.timeoutMs).toBeUndefined()
     })
+
+    it('tool_completed 在工具执行完成后通过 onEvent 即时推送（与 tool_start 对称）', async () => {
+        const onEvent = vi.fn()
+        const executor = new ToolExecutor()
+        const context = {
+            workingDir: 'E:\\workspace',
+            abortSignal: new AbortController().signal,
+            sendMessage: vi.fn(),
+            onEvent,
+        }
+
+        const order: string[] = []
+        const {executeTool} = await import('../../../../src/main/agent/tools/executor')
+        ;(executeTool as any).mockImplementation(async () => {
+            order.push('execute-done')
+            return {toolCallId: 'tc-1', toolName: 'bash', result: {success: true, output: 'done'}}
+        })
+        onEvent.mockImplementation((e: any) => order.push(`onEvent-${e.type}`))
+
+        await executor.execute(
+            {id: 'tc-1', name: 'bash', arguments: {command: 'sleep 10'}},
+            context as any,
+        )
+
+        // tool_completed 必须通过 onEvent 即时推送（Promise.all 阻塞正式 tool_result 前的旁路）
+        const completedCalls = onEvent.mock.calls.filter(c => c[0].type === 'tool_completed')
+        expect(completedCalls.length).toBe(1)
+        expect(completedCalls[0][0].toolCallId).toBe('tc-1')
+        expect(completedCalls[0][0].result.success).toBe(true)
+
+        // 时序：tool_start 先于 executeTool 完成，tool_completed 后于完成
+        const startIdx = order.indexOf('onEvent-tool_start')
+        const doneIdx = order.indexOf('execute-done')
+        const completedIdx = order.indexOf('onEvent-tool_completed')
+        expect(startIdx).toBeLessThan(doneIdx)
+        expect(doneIdx).toBeLessThan(completedIdx)
+    })
+
+    it('tool_completed 只走 onEvent 旁路，不进入 events 数组（正式 tool_result 由 processResult 生成）', async () => {
+        const onEvent = vi.fn()
+        const executor = new ToolExecutor()
+        const context = {
+            workingDir: 'E:\\workspace',
+            abortSignal: new AbortController().signal,
+            sendMessage: vi.fn(),
+            onEvent,
+        }
+
+        const {events} = await executor.execute(
+            {id: 'tc-1', name: 'bash', arguments: {command: 'sleep 10'}},
+            context as any,
+        )
+
+        expect(events.some(e => e.type === 'tool_completed')).toBe(false)
+        expect(events.some(e => e.type === 'tool_start')).toBe(true)
+    })
+
+    it('PreToolUse 拒绝场景同样即时推送 tool_completed（停止倒计时）', async () => {
+        const onEvent = vi.fn()
+        const executor = new ToolExecutor()
+        const context = {
+            workingDir: 'E:\\workspace',
+            abortSignal: new AbortController().signal,
+            sendMessage: vi.fn(),
+            onEvent,
+        }
+
+        const {hookExecutor} = await import('../../../../src/main/plugin/hooks')
+        ;(hookExecutor.execute as any).mockResolvedValueOnce({allowed: false, error: 'blocked'})
+
+        await executor.execute(
+            {id: 'tc-1', name: 'bash', arguments: {command: 'sleep 10'}},
+            context as any,
+        )
+
+        const completedCalls = onEvent.mock.calls.filter(c => c[0].type === 'tool_completed')
+        expect(completedCalls.length).toBe(1)
+        expect(completedCalls[0][0].toolCallId).toBe('tc-1')
+        expect(completedCalls[0][0].result.success).toBe(false)
+        expect(completedCalls[0][0].result.error).toBe('blocked')
+    })
 })
