@@ -15,29 +15,32 @@ const SCRIPT_EXTENSIONS: Record<string, SkillScript['language']> = {
     '.ts': 'typescript', '.py': 'python', '.sh': 'bash', '.ps1': 'other', '.bash': 'bash',
 }
 
-/** 递归遍历目录 */
-const walkDir = async (dir: string): Promise<string[]> => {
-  const results: string[] = []
+/** 递归遍历目录（跳过隐藏目录、node_modules 与 excludeDirs） */
+const walkDir = async (dir: string, excludeDirs: string[] = []): Promise<string[]> => {
+    const excluded = new Set(excludeDirs)
+    const results: string[] = []
     const walk = async (current: string): Promise<void> => {
-    try {
-        for (const entry of await fs.readdir(current, {withFileTypes: true})) {
-            const full = path.join(current, entry.name)
-            if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') await walk(full)
-            else if (entry.isFile()) results.push(full)
+        try {
+            for (const entry of await fs.readdir(current, {withFileTypes: true})) {
+                const full = path.join(current, entry.name)
+                if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules' && !excluded.has(entry.name)) await walk(full)
+                else if (entry.isFile()) results.push(full)
+            }
+        } catch {
+            // 目录读取失败（无权限/已删除）时跳过
         }
-    } catch {
     }
-    }
-  await walk(dir)
-  return results
+    await walk(dir)
+    return results
 }
 
-/** 扫描单个扩展目录 */
+/** 扫描单个扩展目录（excludeDirs：递归时排除的子目录名，用于根部辅助文件扫描避免与 references/scripts 重复） */
 const scanExtDir = async <T>(
     skillDir: string,
     subDir: string,
     filter: (ext: string) => boolean,
-    map: (filePath: string, relPath: string) => T
+    map: (filePath: string, relPath: string) => T,
+    excludeDirs: string[] = []
 ): Promise<T[]> => {
     const fullDir = path.join(skillDir, subDir)
     try {
@@ -45,7 +48,7 @@ const scanExtDir = async <T>(
     } catch {
         return []
     }
-    const files = await walkDir(fullDir)
+    const files = await walkDir(fullDir, excludeDirs)
     return files
         .filter(f => filter(path.extname(f).toLowerCase()))
         .map(f => map(f, path.relative(skillDir, f)))
@@ -78,7 +81,7 @@ export async function scanSkillExtensions(skillDir: string): Promise<SkillExtens
             name: path.basename(f),
             filePath: rel,
             language: SCRIPT_EXTENSIONS[path.extname(f).toLowerCase()] ?? 'other',
-        })),
+        }), ['references', 'scripts']),
     ])
     return {references, scripts}
 }

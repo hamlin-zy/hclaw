@@ -6,7 +6,6 @@ import type {ModelType} from '@shared/types'
 import {isEncrypted} from '../../lib/crypto'
 import {
   GOOGLE_BASE_URL,
-  PROVIDER_PRESETS as MODEL_PRESETS,
   presetModelsFor,
   recognizeProvider,
   validateBaseUrl,
@@ -21,7 +20,7 @@ interface ProviderEditModalProps {
   onSave: (data: Omit<LLMProvider, 'id'> & { models?: ProviderModel[] }) => Promise<void>
 }
 
-/** 预设快捷卡片（官方 4 类型；与识别表 MODEL_PRESETS 独立，卡片固定展示这 4 个） */
+/** 预设快捷卡片（官方 4 类型；与识别表 PROVIDER_PRESETS 独立，卡片固定展示这 4 个） */
 const CARD_PRESETS: Array<{ id: LLMProvider['type']; name: string; baseUrl: string }> = [
   {id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1'},
   {id: 'anthropic', name: 'Anthropic', baseUrl: 'https://api.anthropic.com'},
@@ -203,6 +202,19 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
     return !!getEffectiveApiKey().trim()
   }, [providerType, authType, apiKey, apiKeyTouched, isEncryptedKey, isEdit, oauthTokens, provider?.credentials?.accessToken])
 
+  /** 拉取/测试不可用的提示文案（与 canFetch 判断对应） */
+  const credentialBlockReason = useMemo(() => {
+    if (providerType === 'google' && authType === 'google-oauth2') return 'Google 未授权，请先完成登录'
+    if (isEdit && isEncryptedKey && !apiKeyTouched && !apiKey) return '无法解密 API Key，请重新填写'
+    return '请先填写 API Key'
+  }, [providerType, authType, isEdit, isEncryptedKey, apiKeyTouched, apiKey])
+
+  /** 服务商返回刷新后的 oauth tokens 时同步到表单 */
+  const applyOAuthTokens = (tokens: {accessToken: string; refreshToken: string; expiryDate: number}) => {
+    setOauthTokens(tokens)
+    setApiKeyTouched(true)
+  }
+
   const handleFetchModels = async () => {
     if (fetching) return
     setFetching(true)
@@ -224,10 +236,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
         setFetchError(result?.error || '拉取失败')
         return
       }
-      if (result.oauthTokens) {
-        setOauthTokens({accessToken: result.oauthTokens.accessToken, refreshToken: result.oauthTokens.refreshToken, expiryDate: result.oauthTokens.expiryDate})
-        setApiKeyTouched(true)
-      }
+      if (result.oauthTokens) applyOAuthTokens(result.oauthTokens)
       setFetchedResult(result.data)
       // 默认勾选 text/multimodal 与未标注类型的模型
       setSelectedIds(new Set(result.data.filter(m => !m.modelType || m.modelType === 'text' || m.modelType === 'multimodal').map(m => m.id)))
@@ -267,7 +276,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
     setSelectedIds(new Set())
   }
 
-  /** 单行测试是否可用（与 canFetch 同规则） */
+  /** 单行测试是否可用（与拉取同规则） */
   const canTest = canFetch
 
   /** 记录测试参数快照（点击瞬间） */
@@ -298,10 +307,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
       features: providerType === 'anthropic' ? {systemContentBlocks: useSystemArray} : undefined,
     })
     if (result?.success) {
-      if (result.oauthTokens) {
-        setOauthTokens({accessToken: result.oauthTokens.accessToken, refreshToken: result.oauthTokens.refreshToken, expiryDate: result.oauthTokens.expiryDate})
-        setApiKeyTouched(true)
-      }
+      if (result.oauthTokens) applyOAuthTokens(result.oauthTokens)
       setTestStates(prev => ({...prev, [modelId]: {status: 'ok', latencyMs: result.latencyMs}}))
     } else {
       setTestStates(prev => ({...prev, [modelId]: {status: 'fail', error: result?.error || '测试失败'}}))
@@ -601,14 +607,14 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                     </button>
                   ) : (
                     <button onClick={handleTestAll} disabled={models.filter(m => m.name.trim()).length === 0 || !canTest}
-                      title={!canTest ? (isEdit && isEncryptedKey && !apiKeyTouched && !apiKey ? '无法解密 API Key，请重新填写' : '请先填写 API Key') : '测试全部模型'}
+                      title={!canTest ? credentialBlockReason : '测试全部模型'}
                       className="flex items-center gap-1 text-[10px] font-medium text-brand-500 hover:text-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                       <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
                       测试全部
                     </button>
                   )}
                   <button onClick={handleFetchModels} disabled={fetching || !canFetch}
-                    title={!canFetch ? (providerType === 'google' && authType === 'google-oauth2' ? 'Google 未授权，请先完成登录' : isEdit && isEncryptedKey && !apiKeyTouched && !apiKey ? '无法解密 API Key，请重新填写' : '请先填写 API Key') : '自动获取模型列表'}
+                    title={!canFetch ? credentialBlockReason : '自动获取模型列表'}
                     className="flex items-center gap-1 text-[10px] font-medium text-brand-500 hover:text-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                     {fetching
                       ? <span className="w-3 h-3 border-2 border-brand-300 border-t-transparent rounded-full animate-spin" />
@@ -696,7 +702,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                           <button
                             onClick={(e) => { e.stopPropagation(); handleTestModel(model.id, model.name) }}
                             disabled={batchTesting || !canTest || !model.name.trim()}
-                            title={!model.name.trim() ? '请先填写模型名称' : !canTest ? (isEdit && isEncryptedKey && !apiKeyTouched && !apiKey ? '无法解密 API Key，请重新填写' : '请先填写 API Key') : '测试此模型'}
+                            title={!model.name.trim() ? '请先填写模型名称' : !canTest ? credentialBlockReason : '测试此模型'}
                             className="shrink-0 p-1 text-gray-300 hover:text-brand-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
                             <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
                           </button>

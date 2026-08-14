@@ -1,5 +1,4 @@
-import type {ProviderType} from './types'
-import type {AuthType, ModelType} from './types'
+import type {AuthType, ModelType, ProviderType} from './types'
 
 export interface ProviderPreset {
   /** 匹配的域名关键词（host 解析后小写，子串包含即命中；不含端口与路径） */

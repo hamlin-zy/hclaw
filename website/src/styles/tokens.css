@@ -1,0 +1,107 @@
+:root {
+  --bg: #0D0A09;
+  --bg-raised: #171210;
+  --bg-raised-2: #1D1714;
+  --border: rgba(168, 154, 146, 0.12);
+  --border-strong: rgba(168, 154, 146, 0.22);
+  --text: #F5ECE6;
+  --text-muted: #A99A92;
+  --text-faint: #7A6A62;
+  --accent: #FF6B5E;
+  --accent-2: #FFA26B;
+  --accent-ink: #1A0B08;
+  --accent-soft: rgba(255, 107, 94, 0.12);
+  --font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+::selection { background: var(--accent-soft); color: var(--text); }
+a { color: inherit; text-decoration: none; }
+img { max-width: 100%; display: block; }
+
+/* 全局布局 */
+.container { max-width: 1120px; margin: 0 auto; padding: 0 32px; position: relative; z-index: 1; }
+section { padding: 96px 0; position: relative; }
+
+/* ---- 组件基元 ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 15px;
+  border-radius: 999px;
+  cursor: pointer;
+  border: none;
+  transition: transform .15s, box-shadow .2s, background .2s, border-color .2s;
+  white-space: nowrap;
+}
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  padding: 12px 26px;
+  box-shadow: 0 4px 24px rgba(255, 107, 94, 0.28);
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 32px rgba(255, 107, 94, 0.38); }
+.btn-ghost {
+  background: transparent;
+  color: var(--text);
+  padding: 12px 26px;
+  border: 1px solid var(--border-strong);
+}
+.btn-ghost:hover { border-color: var(--text-muted); transform: translateY(-1px); }
+.btn-sm { padding: 8px 18px; font-size: 14px; }
+
+/* ---- 全局背景层 ---- */
+.glow {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(600px 400px at 50% -10%, rgba(255, 107, 94, 0.10), transparent 60%),
+    radial-gradient(800px 500px at 85% 10%, rgba(255, 162, 107, 0.05), transparent 60%);
+}
+
+/* ---- 区块标题（标题自己说话，无 eyebrow 小标签） ---- */
+.section-head { max-width: 640px; margin-bottom: 56px; }
+.section-title {
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--text);
+  padding-left: 20px;
+  position: relative;
+}
+.section-title::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.14em;
+  bottom: 0.14em;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.section-desc {
+  margin-top: 14px;
+  color: var(--text-muted);
+  font-size: 16.5px;
+  line-height: 1.7;
+  max-width: 560px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}

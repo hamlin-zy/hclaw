@@ -1,0 +1,38 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+<BaseLayout title="404 · HClaw" description="页面不存在，回到 HClaw 首页。">
+  <div class="nf">
+    <h1>404</h1>
+    <p>页面不存在。</p>
+    <a href="/hclaw/" class="btn btn-primary">返回首页</a>
+  </div>
+</BaseLayout>
+
+<style>
+  .nf {
+    min-height: 72vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    text-align: center;
+    padding: 48px 24px;
+  }
+  /* 大标题不用渐变：靠字重 + accent 纯色强调 */
+  .nf h1 {
+    font-size: clamp(4rem, 16vw, 6.5rem);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: var(--accent);
+  }
+  .nf p {
+    color: var(--text-muted);
+    font-size: 17px;
+  }
+  .nf .btn {
+    margin-top: 12px;
+  }
+</style>

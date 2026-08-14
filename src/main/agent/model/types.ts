@@ -186,4 +186,13 @@ export interface ModelAdapter {
 
   /** 获取当前模型信息 */
   getModelInfo(): ModelInfo
+
+  /**
+   * 失效内部消息转换缓存（AdapterConvertCache）。
+   *
+   * 当调用方对消息历史做了非「纯追加」的修改（normalize 合成注入/取代、
+   * ContextRetrieval 中间插入等）后调用，确保下次 chat() 全量重建转换结果，
+   * 避免按长度命中的增量缓存基于过期前缀产生错位消息（孤儿 tool 等）。
+   */
+  invalidateConvertCache?(): void
 }

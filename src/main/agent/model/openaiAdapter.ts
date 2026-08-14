@@ -23,13 +23,19 @@ import type {
     ToolDefinition,
 } from './types'
 import {injectAdditionalContext} from './utils'
+import {isSyntheticToolResult} from '../state'
 
 export class OpenAIAdapter implements ModelAdapter {
   private client: OpenAI
   private model: string
   private providerName: string
-  /** AdapterConvertCache — 增量转换缓存 */
-  private convertCache: { count: number; result: OpenAI.ChatCompletionMessageParam[] } | null = null
+  /** AdapterConvertCache — 增量 API 消息转换缓存（随 adapter 实例，重建自动清空） */
+  private convertCache: {
+    count: number
+    result: OpenAI.ChatCompletionMessageParam[]
+    /** 前缀结构指纹：缓存段每条消息的 role + tool 关联 id 的签名，命中时校验前缀未变 */
+    prefixKey: string
+  } | null = null
 
     constructor(config: ModelConfig, injectedClient?: OpenAI) {
         if (injectedClient) {
@@ -229,26 +235,68 @@ export class OpenAIAdapter implements ModelAdapter {
     }
   }
 
+  /** 失效增量转换缓存（normalize 注入/取代后由调用方触发，下次全量重建） */
+  invalidateConvertCache(): void {
+    this.convertCache = null
+  }
+
   // ─── 内部方法 ──────────────────────────────────────
+
+  /**
+   * 计算消息数组的「结构指纹」：role + 工具关联 id + tool 结果内容指纹。
+   *
+   * 用于增量缓存的命中校验：只有当输入前缀的 role 序列、工具关联 id 与
+   * tool 结果内容与缓存构建时一致，增量追加才是安全的。
+   * normalize 合成注入/取代（[INTERRUPTED] ↔ 真实结果）、ContextRetrieval
+   * 中间插入都会改变指纹 → 触发全量重建，避免孤儿 tool 消息
+   * （opencode 400: Messages with role 'tool' must be a response to a preceding
+   *  message with role 'tool_calls'）。
+   */
+  private static buildPrefixKey(messages: readonly ChatMessage[], count: number): string {
+    let key = ''
+    for (let i = 0; i < count; i++) {
+      const m = messages[i]
+      if (m.role === 'tool') {
+        // tool 消息：关联 id + 合成标记（合成 → 真实取代会改变此标记）
+        key += 't:' + (m.toolCallId || '') + ':' + (isSyntheticToolResult(m) ? 'syn' : 'real') + ';'
+      } else {
+        key += (m.role || '?')[0] + ':'
+        if (m.role === 'assistant' && m.toolCalls?.length) {
+          key += m.toolCalls.map(tc => tc.id).join(',')
+        }
+        key += ';'
+      }
+    }
+    return key
+  }
 
   private convertMessages(
     messages: readonly ChatMessage[],
     systemPrompt?: string,
   ): OpenAI.ChatCompletionMessageParam[] {
-    // 同长度重试 → 命中缓存
+    // 命中判定：长度相等 + 前缀结构指纹一致（同 turn 重试 / 纯追加且前缀未变）
     if (this.convertCache && this.convertCache.count === messages.length) {
-      return this.convertCache.result
+      const prefixKey = OpenAIAdapter.buildPrefixKey(messages, messages.length)
+      if (this.convertCache.prefixKey === prefixKey) {
+        return this.convertCache.result
+      }
+      // 长度相同但内容变化（如合成消息被真实结果取代）→ 全量重建
+      return this.rebuildCache(messages, systemPrompt, prefixKey)
     }
 
     // 缓存无效或消息减少 → 全量重建
     if (!this.convertCache || this.convertCache.count > messages.length) {
-      const full = this.convertAll(messages, systemPrompt)
-      this.convertCache = {count: messages.length, result: full}
-      return full
+      return this.rebuildCache(messages, systemPrompt)
     }
 
-    // 增量：只转换新增段 [prevCount, end)
+    // 增量：只转换新增段 [prevCount, end)，但先校验前缀结构未变
     const prevCount = this.convertCache.count
+    const cachedPrefixKey = OpenAIAdapter.buildPrefixKey(messages, prevCount)
+    if (this.convertCache.prefixKey !== cachedPrefixKey) {
+      // 前缀内容变化（合成注入/取代/中间插入）→ 增量前提被破坏，全量重建
+      return this.rebuildCache(messages, systemPrompt)
+    }
+
     const result: OpenAI.ChatCompletionMessageParam[] = [...this.convertCache.result]
     for (let i = prevCount; i < messages.length; i++) {
       const msg = messages[i]
@@ -283,8 +331,27 @@ export class OpenAIAdapter implements ModelAdapter {
         })
       }
     }
-    this.convertCache = {count: messages.length, result}
+    const prefixKey = OpenAIAdapter.buildPrefixKey(messages, messages.length)
+    this.convertCache = {count: messages.length, result, prefixKey}
     return result
+  }
+
+  /**
+   * 全量重建转换缓存并返回结果。
+   * prefixKey 已算出时复用（命中分支），否则重新计算。
+   */
+  private rebuildCache(
+    messages: readonly ChatMessage[],
+    systemPrompt: string | undefined,
+    prefixKey?: string,
+  ): OpenAI.ChatCompletionMessageParam[] {
+    const full = this.convertAll(messages, systemPrompt)
+    this.convertCache = {
+      count: messages.length,
+      result: full,
+      prefixKey: prefixKey ?? OpenAIAdapter.buildPrefixKey(messages, messages.length),
+    }
+    return full
   }
 
   /** 全量转换（原逻辑抽取，供 convertMessages 首轮与测试使用） */

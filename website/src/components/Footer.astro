@@ -1,0 +1,35 @@
+---
+---
+<footer>
+  <div class="container footer-inner">
+    <div class="footer-logo">
+      <strong>HClaw</strong> · 本地 AI Agent 桌面客户端
+    </div>
+    <div class="footer-links">
+      <a href="/hclaw/docs/">文档</a>
+      <a href="https://github.com/hamlin-zy/hclaw" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/hamlin-zy/hclaw/blob/develop/LICENSE" target="_blank" rel="noopener">MIT License</a>
+      <a href="https://github.com/hamlin-zy/hclaw/releases" target="_blank" rel="noopener">Releases</a>
+    </div>
+  </div>
+</footer>
+
+<style>
+footer {
+  border-top: 1px solid var(--border);
+  padding: 40px 0;
+  margin-top: 40px;
+}
+.footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  color: var(--text-faint);
+  font-size: 13.5px;
+}
+.footer-links { display: flex; gap: 20px; }
+.footer-links a { color: var(--text-faint); transition: color .2s; }
+.footer-links a:hover { color: var(--text); }
+</style>

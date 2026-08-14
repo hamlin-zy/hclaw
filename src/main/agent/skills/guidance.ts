@@ -8,6 +8,9 @@
 import * as path from 'path'
 import type {SkillDefinition} from './types'
 
+/** 拼接技能目录下的资源绝对路径 */
+const resPath = (skill: SkillDefinition, filePath: string): string => path.join(skill.skillDir ?? '', filePath)
+
 /** 构建技能指导（含扩展资源路径） */
 export function buildGuidance(skill: SkillDefinition): string {
     const parts = [
@@ -23,15 +26,15 @@ export function buildGuidance(skill: SkillDefinition): string {
         const extLines = [
             skill.extensions.scripts?.length && (
                 '## 可用脚本\n' +
-                skill.extensions.scripts.map(s => `- \`${path.join(skill.skillDir ?? '', s.filePath)}\``).join('\n')
+                skill.extensions.scripts.map(s => `- \`${resPath(skill, s.filePath)}\``).join('\n')
             ),
             skill.extensions.references?.length && (
                 '## 参考文档\n' +
-                skill.extensions.references.map(r => `- \`${path.join(skill.skillDir ?? '', r.filePath)}\``).join('\n')
+                skill.extensions.references.map(r => `- \`${resPath(skill, r.filePath)}\``).join('\n')
             ),
             skill.extensions.rootDocs?.length && (
                 '## 目录辅助文件\n' +
-                skill.extensions.rootDocs.map(r => `- \`${path.join(skill.skillDir ?? '', r.filePath)}\``).join('\n')
+                skill.extensions.rootDocs.map(r => `- \`${resPath(skill, r.filePath)}\``).join('\n')
             ),
         ].filter(Boolean) as string[]
 
