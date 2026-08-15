@@ -1,0 +1,96 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+---
+<BaseLayout title="服务条款 · HClaw" description="HClaw 服务条款与使用协议。">
+  <div class="glow"></div>
+  <Nav />
+  <main>
+    <div class="legal container">
+      <h1>服务条款</h1>
+      <p class="updated">生效日期：2026-08-16 · 最近更新：2026-08-16</p>
+
+      <section>
+        <h2>1. 接受条款</h2>
+        <p>下载、安装或使用 HClaw（"本软件"）即表示您同意本服务条款。如果您不同意本条款，请勿使用本软件。</p>
+      </section>
+
+      <section>
+        <h2>2. 许可</h2>
+        <p>HClaw 以 MIT 许可证开源发布，您可以自由使用、修改和分发，但须遵守 MIT 许可证的条款。详细信息见 <a href="https://github.com/hamlin-zy/hclaw/blob/develop/LICENSE" target="_blank" rel="noopener">LICENSE</a>。</p>
+      </section>
+
+      <section>
+        <h2>3. 第三方服务</h2>
+        <p>HClaw 允许您接入第三方模型服务商（如 OpenAI、Anthropic、Google Gemini 等）和 MCP 服务。您自行承担使用这些服务的费用与责任，并须遵守各服务商的条款与隐私政策。HClaw 不对第三方服务的可用性、内容或行为负责。</p>
+      </section>
+
+      <section>
+        <h2>4. 使用责任</h2>
+        <ul>
+          <li>您应对通过 HClaw 产生的全部内容与行为负责；</li>
+          <li>请勿将 HClaw 用于任何违法活动；</li>
+          <li>请妥善保管您的 API Key 与 OAuth 凭据，勿与他人共享。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>5. 免责声明</h2>
+        <p>本软件按"现状"提供，不附带任何明示或暗示的担保，包括但不限于适销性、特定用途适用性及不侵权的担保。在任何情况下，作者或版权持有人均不对因使用本软件而产生的任何索赔、损害或其他责任负责。</p>
+      </section>
+
+      <section>
+        <h2>6. 条款变更</h2>
+        <p>我们可能不时更新本服务条款。重大变更时将在官网公布。</p>
+      </section>
+
+      <section>
+        <h2>7. 联系我们</h2>
+        <ul>
+          <li>GitHub Issues：<a href="https://github.com/hamlin-zy/hclaw/issues" target="_blank" rel="noopener">github.com/hamlin-zy/hclaw/issues</a></li>
+          <li>电子邮件：hellofzss@gmail.com</li>
+        </ul>
+      </section>
+    </div>
+  </main>
+  <Footer />
+</BaseLayout>
+
+<style>
+  .legal {
+    max-width: 760px;
+    padding: 72px 32px 96px;
+  }
+  .legal h1 {
+    font-size: clamp(2rem, 4vw, 2.6rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 10px;
+  }
+  .legal .updated {
+    color: var(--text-faint);
+    font-size: 13.5px;
+    margin-bottom: 40px;
+  }
+  .legal section { margin-bottom: 36px; }
+  .legal h2 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin-bottom: 14px;
+    padding-left: 16px;
+    position: relative;
+  }
+  .legal h2::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0.18em; bottom: 0.18em;
+    width: 4px; border-radius: 2px;
+    background: var(--accent);
+  }
+  .legal p { color: var(--text-muted); margin: 10px 0; line-height: 1.75; }
+  .legal ul { margin: 10px 0 10px 22px; color: var(--text-muted); }
+  .legal li { margin: 6px 0; line-height: 1.7; }
+  .legal a { color: var(--accent); border-bottom: 1px dotted var(--accent); }
+  .legal a:hover { border-bottom-style: solid; }
+</style>
