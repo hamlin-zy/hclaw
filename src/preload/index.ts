@@ -180,6 +180,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Provider 模型拉取 / 测试（主进程执行，绕 CORS）
   providerFetchModels: (params: any) => ipcRenderer.invoke('provider:fetch-models', params),
   providerTestModel: (params: any) => ipcRenderer.invoke('provider:test-model', params),
+  modelMetaGetWindow: (model: string) =>
+    ipcRenderer.invoke('model-meta:get-window', {model}),
 
   // Conversation management
   conversationCreate: (convId: string, meta: Record<string, unknown>) =>
