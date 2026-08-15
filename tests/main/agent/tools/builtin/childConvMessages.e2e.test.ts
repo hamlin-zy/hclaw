@@ -47,6 +47,18 @@ const toolUse = (id: string, name: string, args: Record<string, unknown> = {}): 
 const toolResult = (id: string, output: string): AgentStreamEvent => ({
     type: 'tool_result', toolCallId: id, toolName: 'bash', result: {success: true, output},
 })
+const llmCallDone = (): AgentStreamEvent => ({
+    type: 'llm_call_done',
+    conversationTitle: 'child',
+    provider: 'test',
+    model: 'm',
+    duration: 5000,
+    inputTokens: 100,
+    outputTokens: 200,
+    ttftMs: 800,
+    decodeMs: 5000,
+    tokensPerSecond: 40,
+})
 
 const CONV_ID = 'conv-child-e2e'
 
@@ -190,6 +202,20 @@ describe('子会话完整执行过程持久化（端到端 — 单条消息模�
         const assistant = msgs[1]
         expect(assistant.contentBlocks!.map(b => b.type)).toEqual(['think', 'text'])
         expect(assistant.content).toBe('直接回答结果')
+    })
+
+    it('llm_call_done 携带 token 时序字段时，llmStats 落库保留', () => {
+        driveAccumulator([
+            text('带时序的回答'),
+            llmCallDone(),
+        ], repo)
+
+        const msgs = repo.readMessages(CONV_ID)
+        const assistant = msgs[1]
+        expect(assistant.llmStats).toHaveLength(1)
+        expect(assistant.llmStats![0].ttftMs).toBe(800)
+        expect(assistant.llmStats![0].decodeMs).toBe(5000)
+        expect(assistant.llmStats![0].tokensPerSecond).toBe(40)
     })
 
     it('消息可通过 blocksToMessage 正常还原（UI 渲染路径）', () => {

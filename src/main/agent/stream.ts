@@ -70,6 +70,9 @@ export type AgentStreamEvent =
     cacheReadTokens?: number;
     cacheWriteTokens?: number;
     reasoningTokens?: number;
+    ttftMs?: number;
+    decodeMs?: number;
+    tokensPerSecond?: number;
     // 大字段（inputContent/outputContent/messages/systemPrompt/toolCalls）仅供主进程 LLM 日志
     // 消费；forwardToRenderer 转发到渲染进程时会剥离（manager.streamForward.ts），
     // 渲染端收到的 llm_call_done 载荷不含这些字段，故全部声明为可选。

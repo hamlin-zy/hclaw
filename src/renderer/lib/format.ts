@@ -52,3 +52,16 @@ export function toSlug(name: string): string {
 export function formatTokenCount(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`
 }
+
+/** 解码吞吐展示：≥10 取整，<10 保留一位小数，负数 clamp 到 0。 */
+export function formatTokensPerSecond(tps: number): string {
+  const clamped = Math.max(0, tps)
+  return clamped >= 10 ? String(Math.round(clamped)) : String(Math.round(clamped * 10) / 10)
+}
+
+/** 速率：outputTokens ÷ (durationMs/1000)；非法输入返回 null。 */
+export function tokensPerSecond(outputTokens: number, durationMs: number): number | null {
+  if (typeof outputTokens !== 'number' || outputTokens <= 0) return null
+  if (typeof durationMs !== 'number' || durationMs <= 0) return null
+  return outputTokens / (durationMs / 1000)
+}

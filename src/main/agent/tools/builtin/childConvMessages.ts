@@ -208,6 +208,9 @@ export function handleChildEvent(acc: ChildConvAccumulator, event: AgentStreamEv
                 cacheReadTokens: event.cacheReadTokens,
                 cacheWriteTokens: event.cacheWriteTokens,
                 reasoningTokens: event.reasoningTokens,
+                ttftMs: event.ttftMs,
+                decodeMs: event.decodeMs,
+                tokensPerSecond: event.tokensPerSecond,
             })
             // LLM 调用完成 → 该轮输出完毕，标记增量落库时机
             return true

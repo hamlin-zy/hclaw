@@ -13,6 +13,12 @@ export interface MessageTokenStats {
   totalInputTokens: number
   totalOutputTokens: number
   totalCacheReadTokens: number
+  /** 累计解码时长（毫秒），平均吞吐 = Σoutput ÷ ΣdecodeMs */
+  totalDecodeMs: number
+  /** 累计首字延迟（毫秒），平均首字 = totalTtftMs ÷ ttftCount */
+  totalTtftMs: number
+  /** 携带首字延迟的 LLM 调用数（旧数据无 ttftMs 不计入） */
+  ttftCount: number
   currentInputTokens: number
   currentOutputTokens: number
   currentCacheReadTokens: number
@@ -24,6 +30,9 @@ export function computeMessageTokenStats(messages: Message[]): MessageTokenStats
   let totalInputTokens = 0
   let totalOutputTokens = 0
   let totalCacheReadTokens = 0
+  let totalDecodeMs = 0
+  let totalTtftMs = 0
+  let ttftCount = 0
   let currentInputTokens = 0
   let currentOutputTokens = 0
   let currentCacheReadTokens = 0
@@ -36,6 +45,11 @@ export function computeMessageTokenStats(messages: Message[]): MessageTokenStats
       totalInputTokens += s.inputTokens || 0
       totalOutputTokens += s.outputTokens || 0
       totalCacheReadTokens += s.cacheReadTokens || 0
+      totalDecodeMs += s.decodeMs || 0
+      if (typeof s.ttftMs === 'number') {
+        totalTtftMs += s.ttftMs
+        ttftCount += 1
+      }
       currentInputTokens = s.inputTokens || 0
       currentOutputTokens = s.outputTokens || 0
       currentCacheReadTokens = s.cacheReadTokens || 0
@@ -51,6 +65,9 @@ export function computeMessageTokenStats(messages: Message[]): MessageTokenStats
     totalInputTokens,
     totalOutputTokens,
     totalCacheReadTokens,
+    totalDecodeMs,
+    totalTtftMs,
+    ttftCount,
     currentInputTokens,
     currentOutputTokens,
     currentCacheReadTokens,

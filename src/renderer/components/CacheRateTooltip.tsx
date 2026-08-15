@@ -1,9 +1,23 @@
 import {memo, useRef, useState, useCallback, useEffect} from 'react'
 import {createPortal} from 'react-dom'
-import {formatTokenCount} from '../lib/format'
+import {formatTokenCount, formatTokensPerSecond, tokensPerSecond} from '../lib/format'
 import {useMessageTokenStats} from '../hooks/useMessageTokenStats'
 import {useWindowUsage} from '../hooks/useWindowUsage'
-import ContextUsageBadge from './ContextUsageBadge'
+import MetricBadge from './MetricBadge'
+
+/**
+ * 缓存命中率徽章颜色：≥90 优秀绿 / 70~90 一般黄 / <70 警惕红。
+ * 注意：与 MetricBadge 内置分级的阈值方向相反（命中率越高越健康，
+ * 内置分级是百分比越高越危险），因此不能复用内置分级，必须显式传入 accent。
+ */
+function cacheRateAccent(rate: number): string {
+    return rate >= 90 ? 'var(--success)' : rate >= 70 ? 'var(--warning)' : 'var(--error)'
+}
+
+/** 平均吞吐徽章颜色：>150 高速绿 / 100~150 正常蓝 / 50~100 慢黄 / <=50 太慢红 */
+function throughputAccent(tps: number): string {
+    return tps > 150 ? 'var(--success)' : tps > 100 ? 'var(--info)' : tps > 50 ? 'var(--warning)' : 'var(--error)'
+}
 
 /**
  * 缓存命中率显示组件
@@ -24,8 +38,13 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
 
     const cacheRead = stats.totalCacheReadTokens
     const denominator = Math.max(stats.totalInputTokens + cacheRead, 1)
-    const rate = (cacheRead / denominator * 100).toFixed(0)
+    const rate = Math.round(cacheRead / denominator * 100)
     const currentTotalTokens = stats.currentInputTokens + stats.currentCacheReadTokens
+
+    // 平均吞吐 = Σ输出token ÷ Σ解码时长（首 token 之后，不含首字延迟）
+    const decodeRate = tokensPerSecond(stats.totalOutputTokens, stats.totalDecodeMs)
+    // 平均首字 = Σ首字延迟 ÷ 有效样本数（ttftMs 已排除重试干扰，attempt 级采集）
+    const avgTtftSeconds = stats.ttftCount > 0 ? stats.totalTtftMs / stats.ttftCount / 1000 : null
 
     const updatePosition = useCallback(() => {
         if (!triggerRef.current) return
@@ -127,6 +146,20 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                             ? `窗口使用率 = ${formatTokenCount(currentTotalTokens)} / ${formatTokenCount(contextLength)} = ${pct}%`
                             : '窗口大小未知'}
                     </div>
+                    <div className="mt-1.5 pt-1.5 border-t border-[var(--border-dashed)] flex flex-col gap-1">
+                        <div className="flex items-center justify-between gap-8">
+                            <span>平均吞吐</span>
+                            <span className="tabular-nums text-[var(--text-primary)]">
+                                {decodeRate != null ? `${formatTokensPerSecond(decodeRate)} tok/s` : '—'}
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-8">
+                            <span>平均首字</span>
+                            <span className="tabular-nums text-[var(--text-primary)]">
+                                {avgTtftSeconds != null ? `${avgTtftSeconds.toFixed(1)}s` : '—'}
+                            </span>
+                        </div>
+                    </div>
                     <div className="mt-1.5 pt-1.5 border-t border-[var(--border-dashed)] text-[var(--text-tertiary)]">
                         低价值上下文自动裁剪，上下文数值仅代表末次请求
                     </div>
@@ -140,11 +173,22 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
             <span
                 data-name="input-toolbar-cache-rate"
                 ref={triggerRef}
-                className="text-sm text-[var(--text-muted)] cursor-help tabular-nums leading-none"
+                className="flex items-center gap-1 text-sm text-[var(--text-muted)] cursor-help tabular-nums leading-none"
                 onMouseEnter={scheduleShow}
                 onMouseLeave={scheduleHide}
             >
-                缓存 {rate}% · <ContextUsageBadge numerator={currentTotalTokens} pct={pct}/>
+                {/* 缓存命中率徽章（进度环 = 命中率） */}
+                <MetricBadge pct={rate} accent={cacheRateAccent(rate)}>
+                    缓存 {rate}%
+                </MetricBadge>
+                {/* 窗口占用徽章（进度环 = 窗口使用率，内置分级） */}
+                <MetricBadge pct={pct}>窗口 {formatTokenCount(currentTotalTokens)}</MetricBadge>
+                {/* 平均吞吐徽章（静态边框） */}
+                {decodeRate != null && (
+                    <MetricBadge accent={throughputAccent(decodeRate)}>
+                        {formatTokensPerSecond(decodeRate)} tok/s
+                    </MetricBadge>
+                )}
             </span>
             {show && createPortal(tooltipContent, document.body)}
         </>
