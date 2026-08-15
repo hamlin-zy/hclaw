@@ -18,8 +18,8 @@ describe('computeMessageTokenStats', () => {
   it('累计值 + 当前值（最后一条 llmStats 覆盖）+ 计数', () => {
     const messages: Message[] = [
       msg('m1', [
-        {inputTokens: 100, outputTokens: 20, provider: 'p', model: 'model-a', duration: 1, cacheReadTokens: 50},
-        {inputTokens: 200, outputTokens: 40, provider: 'p', model: 'model-b', duration: 1, cacheReadTokens: 30},
+        {inputTokens: 100, outputTokens: 20, provider: 'p', model: 'model-a', duration: 1000, cacheReadTokens: 50, decodeMs: 800, ttftMs: 400},
+        {inputTokens: 200, outputTokens: 40, provider: 'p', model: 'model-b', duration: 2000, cacheReadTokens: 30, decodeMs: 1600, ttftMs: 600},
       ], [{id: 't1', name: 'bash', arguments: {}, status: 'pending'}]),
     ]
 
@@ -30,6 +30,9 @@ describe('computeMessageTokenStats', () => {
     expect(s.totalInputTokens).toBe(300)
     expect(s.totalOutputTokens).toBe(60)
     expect(s.totalCacheReadTokens).toBe(80)
+    expect(s.totalDecodeMs).toBe(2400)
+    expect(s.totalTtftMs).toBe(1000)
+    expect(s.ttftCount).toBe(2)
     // 当前值 = 最后一条 llmStats（model-b）
     expect(s.currentInputTokens).toBe(200)
     expect(s.currentOutputTokens).toBe(40)
@@ -53,6 +56,9 @@ describe('computeMessageTokenStats', () => {
     expect(s.totalInputTokens).toBe(0)
     expect(s.totalOutputTokens).toBe(0)
     expect(s.totalCacheReadTokens).toBe(0)
+    expect(s.totalDecodeMs).toBe(0)
+    expect(s.totalTtftMs).toBe(0)
+    expect(s.ttftCount).toBe(0)
     expect(s.currentInputTokens).toBe(0)
     expect(s.currentOutputTokens).toBe(0)
     expect(s.currentCacheReadTokens).toBe(0)
@@ -74,6 +80,9 @@ describe('computeMessageTokenStats', () => {
     ]
     const s = computeMessageTokenStats(messages)
     expect(s.currentInputTokens).toBe(2)
+    // 旧数据无 ttftMs → 不计入首字样本
+    expect(s.totalTtftMs).toBe(0)
+    expect(s.ttftCount).toBe(0)
   })
 })
 

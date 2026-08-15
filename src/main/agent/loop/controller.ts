@@ -52,6 +52,9 @@ function* emitLlmCallDone(
     cacheReadTokens: number,
     cacheWriteTokens: number,
     reasoningTokens: number,
+    ttftMs: number | undefined,
+    decodeMs: number | undefined,
+    tokensPerSecond: number | undefined,
     llmDuration: number,
     systemPrompt: string,
 ): Generator<AgentStreamEvent, void> {
@@ -132,6 +135,9 @@ function* emitLlmCallDone(
         cacheReadTokens: cacheReadTokens > 0 ? cacheReadTokens : undefined,
         cacheWriteTokens: cacheWriteTokens > 0 ? cacheWriteTokens : undefined,
         reasoningTokens: reasoningTokens > 0 ? reasoningTokens : undefined,
+        ttftMs,
+        decodeMs,
+        tokensPerSecond,
         inputContent: inputContent.slice(0, 500),
         outputContent: outputContent.slice(0, 2000),
         toolCalls: toolCallsInfo,
@@ -410,6 +416,7 @@ export class AgentLoopController {
                 assistantReasoningContent, collectedToolCalls, plannedCommands,
                 inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
                 reasoningTokens, llmDuration,
+                ttftMs, decodeMs, tokensPerSecond,
                 currentProvider, currentModel, currentSchemeName,
             } = llmResult
 
@@ -420,7 +427,7 @@ export class AgentLoopController {
                 conversationTitle ?? '',
                 currentSchemeName || currentProvider, currentModel,
                 inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
-                reasoningTokens, llmDuration, systemPrompt,
+                reasoningTokens, ttftMs, decodeMs, tokensPerSecond, llmDuration, systemPrompt,
             )
             lastLoggedMsgCount = currentState.messages.length
 
@@ -438,6 +445,9 @@ export class AgentLoopController {
                         cacheReadTokens: cacheReadTokens > 0 ? cacheReadTokens : undefined,
                         cacheWriteTokens: cacheWriteTokens > 0 ? cacheWriteTokens : undefined,
                         reasoningTokens: reasoningTokens > 0 ? reasoningTokens : undefined,
+                        ttftMs,
+                        decodeMs,
+                        tokensPerSecond,
                     },
                     assistantThinking || undefined,
                     assistantThinkingSignature || undefined,

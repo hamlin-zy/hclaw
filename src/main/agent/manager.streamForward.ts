@@ -27,6 +27,9 @@ export function trimLlmCallDoneForRenderer(
     cacheReadTokens: event.cacheReadTokens,
     cacheWriteTokens: event.cacheWriteTokens,
     reasoningTokens: event.reasoningTokens,
+    ttftMs: event.ttftMs,
+    decodeMs: event.decodeMs,
+    tokensPerSecond: event.tokensPerSecond,
   }
 }
 
