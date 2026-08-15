@@ -43,6 +43,13 @@ export const globTool: Tool<GlobInput, string[]> = {
       ? path.resolve(context.workingDir, directory)
       : context.workingDir
 
+    // 根目录不存在时直接返回错误（避免被递归搜索静默吞掉）
+    try {
+      await fs.access(searchDir)
+    } catch {
+      return { success: false, output: [], error: `Search failed: directory not found: ${searchDir}` }
+    }
+
     try {
       let matches: string[]
 
@@ -51,7 +58,7 @@ export const globTool: Tool<GlobInput, string[]> = {
           matches = await regexSearch(regex, searchDir, maxDepth, maxResults)
       } else {
         // glob 模式
-          matches = await globSearch(pattern!, searchDir, maxResults)
+          matches = await globSearch(pattern!, searchDir, maxDepth, maxResults)
       }
 
       // 返回相对路径
@@ -90,12 +97,15 @@ async function regexSearch(
 
       const fullPath = path.join(dir, entry.name)
 
-      if (entry.isFile() && regex.test(entry.name)) {
-        results.push(fullPath)
+      if (entry.isDirectory()) {
+        // 跳过 node_modules（与 glob 模式一致）
+        if (entry.name === 'node_modules') continue
+        await walk(fullPath, depth + 1)
+        continue
       }
 
-      if (entry.isDirectory()) {
-        await walk(fullPath, depth + 1)
+      if (entry.isFile() && regex.test(entry.name)) {
+        results.push(fullPath)
       }
     }
   }
@@ -108,6 +118,7 @@ async function regexSearch(
 async function globSearch(
     pattern: string,
     rootDir: string,
+    maxDepth?: number,
     maxResults?: number,
 ): Promise<string[]> {
   const results: string[] = []
@@ -115,8 +126,9 @@ async function globSearch(
   // 分割 pattern：**/ 之前的前缀和之后的 glob 部分
   const parts = pattern.split('/')
 
-  async function walk(dir: string, patternParts: string[]): Promise<void> {
+  async function walk(dir: string, patternParts: string[], depth: number): Promise<void> {
       if (maxResults !== undefined && results.length >= maxResults) return
+      if (maxDepth !== undefined && depth > maxDepth) return
 
     let entries
     try {
@@ -131,13 +143,13 @@ async function globSearch(
       // ** 匹配零或多层目录
       // 尝试剩余 pattern 在当前目录匹配
       if (rest.length > 0) {
-        await walk(dir, rest)
+        await walk(dir, rest, depth)
       }
       // 递归所有子目录
       for (const entry of entries) {
           if (maxResults !== undefined && results.length >= maxResults) return
-        if (entry.isDirectory() && !entry.name.startsWith('.')) {
-          await walk(path.join(dir, entry.name), patternParts)
+        if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+          await walk(path.join(dir, entry.name), patternParts, depth + 1)
         }
       }
     } else {
@@ -147,18 +159,22 @@ async function globSearch(
           if (maxResults !== undefined && results.length >= maxResults) return
         if (!matcher.test(entry.name)) continue
 
+        // 跳过隐藏文件/隐藏目录和 node_modules
+        if (entry.name.startsWith('.')) continue
+        if (entry.name === 'node_modules') continue
+
         const fullPath = path.join(dir, entry.name)
         if (rest.length === 0) {
           // pattern 末尾：匹配文件/目录
           results.push(fullPath)
         } else if (entry.isDirectory()) {
-          await walk(fullPath, rest)
+          await walk(fullPath, rest, depth + 1)
         }
       }
     }
   }
 
-  await walk(rootDir, parts)
+  await walk(rootDir, parts, 0)
   return results.sort()
 }
 
