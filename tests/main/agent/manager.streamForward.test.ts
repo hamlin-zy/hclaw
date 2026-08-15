@@ -15,6 +15,9 @@ function makeFullLlmCallDone(): Extract<AgentStreamEvent, {type: 'llm_call_done'
         cacheReadTokens: 800,
         cacheWriteTokens: 200,
         reasoningTokens: 100,
+        ttftMs: 800,
+        decodeMs: 5000,
+        tokensPerSecond: 40,
         inputContent: 'x'.repeat(500),      // 大字段
         outputContent: 'y'.repeat(2000),    // 大字段
         toolCalls: [{id: 'tc-1', name: 'bash', input: {command: 'ls'}, output: 'ok', success: true}],
@@ -45,6 +48,9 @@ describe('createForwardPayload — 转发载荷构造', () => {
         expect(e.cacheReadTokens).toBe(800)
         expect(e.cacheWriteTokens).toBe(200)
         expect(e.reasoningTokens).toBe(100)
+        expect(e.ttftMs).toBe(800)
+        expect(e.decodeMs).toBe(5000)
+        expect(e.tokensPerSecond).toBe(40)
         // 大字段必须被剥离（IPC 流量瘦身的核心断言）
         expect(e.inputContent).toBeUndefined()
         expect(e.outputContent).toBeUndefined()
@@ -84,12 +90,15 @@ describe('trimLlmCallDoneForRenderer — 字段级瘦身契约', () => {
             'cacheReadTokens',
             'cacheWriteTokens',
             'conversationTitle',
+            'decodeMs',
             'duration',
             'inputTokens',
             'model',
             'outputTokens',
             'provider',
             'reasoningTokens',
+            'tokensPerSecond',
+            'ttftMs',
             'type',
         ])
     })
@@ -111,6 +120,9 @@ describe('trimLlmCallDoneForRenderer — 字段级瘦身契约', () => {
         expect(out.cacheReadTokens).toBeUndefined()
         expect(out.cacheWriteTokens).toBeUndefined()
         expect(out.reasoningTokens).toBeUndefined()
+        expect(out.ttftMs).toBeUndefined()
+        expect(out.decodeMs).toBeUndefined()
+        expect(out.tokensPerSecond).toBeUndefined()
         expect(out.type).toBe('llm_call_done')
     })
 })

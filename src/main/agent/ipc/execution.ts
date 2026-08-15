@@ -13,7 +13,7 @@ import {runtimeConfigManager} from '../runtimeConfigManager'
 import {resolveAgentDefinitionFromCommandId} from '../agentTemplateConverter'
 import {logger} from '../logger'
 import {structuredTruncateMessages} from '../structuredTruncation'
-import type {SystemSettings} from '@shared/types'
+import type {LlmStats, SystemSettings} from '@shared/types'
 import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
 
 export function registerHandlers(): void {
@@ -409,7 +409,7 @@ export function registerHandlers(): void {
     ipcMain.handle('message:updateLlmStats', async (_event, params: {
         conversationId: string
         messageId: string
-        llmStats: Array<{inputTokens: number; outputTokens: number; provider: string; model: string; duration: number}>
+        llmStats: LlmStats[]
     }) => {
         try {
             const {createConversationRepository} = await import('../../repositories')

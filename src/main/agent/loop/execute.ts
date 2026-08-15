@@ -29,6 +29,7 @@ import {hookExecutor, type HookResult} from '../../plugin/hooks'
 import {attachMediaBlocksToMessage, extractMediaBlocksFromToolResults} from '../mediaExtractor'
 import {isVisionModel, sanitizeMessagesForModel, sanitizeThinkingForModel} from './helpers'
 import {getToolRegistry} from '../tools/registry'
+import {computeTokenTiming, isTokenDelta} from './tokenTiming'
 
 const toolRegistry = getToolRegistry()
 
@@ -242,6 +243,9 @@ export async function* executeLlmCallWithRetry(
             )
 
             // ── 处理流式 chunk ──
+            // 本次 attempt 的解码时序（首 token 边界，与 llmStartTime 的重试级语义区分）
+            const attemptStartTime = Date.now()
+            let firstTokenTime: number | null = null
             let inputTokens = 0
             let outputTokens = 0
             let cacheReadTokens = 0
@@ -253,6 +257,10 @@ export async function* executeLlmCallWithRetry(
 
             for await (const chunk of stream) {
                 if (abortSignal?.aborted) break
+
+                if (firstTokenTime === null && isTokenDelta(chunk)) {
+                    firstTokenTime = Date.now()
+                }
 
                 if (chunk.type === 'error') {
                     throw (chunk as any).error || new Error('LLM Stream Error')
@@ -308,6 +316,11 @@ export async function* executeLlmCallWithRetry(
                 }
             }
 
+            const attemptEnd = Date.now()
+            const timing = firstTokenTime !== null
+                ? computeTokenTiming(attemptStartTime, firstTokenTime, attemptEnd, outputTokens)
+                : null
+
             // ── 流式汇编 ──
             const assistantContent = contentParts.join('')
             const assistantThinking = thinkingParts.join('')
@@ -357,6 +370,7 @@ export async function* executeLlmCallWithRetry(
                 currentModel,
                 currentConfigSource,
                 currentSchemeName,
+                ...(timing === null ? {} : timing),
             }
         } catch (error: any) {
             lastError = error

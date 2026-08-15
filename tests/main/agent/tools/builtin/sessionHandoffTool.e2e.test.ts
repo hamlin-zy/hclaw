@@ -40,4 +40,23 @@ describe('session_handoff Tool', () => {
         })
         expect(result.success).toBe(false)
     })
+
+    it('capability 可选，合法值通过校验并原样保留', () => {
+        const result = sessionHandoffTool.inputSchema.safeParse({
+            title: '测试',
+            handoffSummary: '## 任务目标\n继续任务',
+            capability: 'brainstorming',
+        })
+        expect(result.success).toBe(true)
+        expect(result.data?.capability).toBe('brainstorming')
+    })
+
+    it('capability 为空串时仍通过（拼接逻辑跳过）', () => {
+        const result = sessionHandoffTool.inputSchema.safeParse({
+            title: '测试',
+            handoffSummary: '## 任务目标\n继续任务',
+            capability: '',
+        })
+        expect(result.success).toBe(true)
+    })
 })

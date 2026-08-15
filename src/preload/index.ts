@@ -180,6 +180,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Provider 模型拉取 / 测试（主进程执行，绕 CORS）
   providerFetchModels: (params: any) => ipcRenderer.invoke('provider:fetch-models', params),
   providerTestModel: (params: any) => ipcRenderer.invoke('provider:test-model', params),
+  modelMetaGetWindow: (model: string) =>
+    ipcRenderer.invoke('model-meta:get-window', {model}),
 
   // Conversation management
   conversationCreate: (convId: string, meta: Record<string, unknown>) =>
@@ -454,6 +456,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         const handler = (_: unknown, tokens: any) => callback(tokens)
         ipcRenderer.on('google-auth-success', handler)
         return () => ipcRenderer.removeListener('google-auth-success', handler)
+    },
+    onGoogleAuthError: (callback: (info: {error: string}) => void) => {
+        const handler = (_: unknown, info: {error: string}) => callback(info)
+        ipcRenderer.on('google-auth-error', handler)
+        return () => ipcRenderer.removeListener('google-auth-error', handler)
     },
 
     // 通用 IPC 接口 (为了兼容性和灵活性)

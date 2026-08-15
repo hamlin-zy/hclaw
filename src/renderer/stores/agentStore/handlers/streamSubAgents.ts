@@ -94,6 +94,9 @@ export function handleSubagentProgress(ctx: StreamCtx) {
             provider: subLlmEvent.provider,
             model: subLlmEvent.model ?? 'unknown',
             duration: subLlmEvent.duration ?? 0,
+            ttftMs: subLlmEvent.ttftMs,
+            decodeMs: subLlmEvent.decodeMs,
+            tokensPerSecond: subLlmEvent.tokensPerSecond,
         }
         const activeConvMsgs = convStore.messagesMap[convId] || []
         const currentMsg = activeConvMsgs.find(m => m.id === convState.streamingMessageId)
