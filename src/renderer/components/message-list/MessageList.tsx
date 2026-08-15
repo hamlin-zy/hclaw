@@ -217,6 +217,8 @@ export default function MessageList({conversationId}: { conversationId?: string 
     const [currentMsgIdx, setCurrentMsgIdx] = useState(0)
     // 追踪最近一次导航到的精确消息索引
     const lastNavigatedMsgIdxRef = useRef<number | null>(null)
+    // 追踪上一次 loadingMore 状态，用于检测一次向前分页的完成
+    const prevLoadingMoreRef = useRef(false)
     // requestAnimationFrame 节流，每个动画帧最多一次 elementsFromPoint 检测
     const rafPendingRef = useRef(false)
 
@@ -354,6 +356,8 @@ export default function MessageList({conversationId}: { conversationId?: string 
         resetScrollState()
         setCurrentMsgIdx(0)
         lastNavigatedMsgIdxRef.current = null
+        // 重置加载状态追踪，避免跨会话的 loadingMore 残留干扰校准
+        prevLoadingMoreRef.current = false
         // 重置消息计数基准，使首次 0→N 的异步加载也能触发"新消息滚动"兜底
         prevCountRef.current = 0
         // 重置滚动初始化标记，让下一次容器可用时重新初始化
@@ -456,6 +460,35 @@ export default function MessageList({conversationId}: { conversationId?: string 
         }
         prevCountRef.current = messages.length
     }, [messages.length, scrollToBottom])
+
+    // ── 加载更多后重新校准导航定位 ────────────────────────
+    // ★ 根因：loadMoreMessages 把更早的消息插入列表头部时，视口位置
+    //   （scrollTop）不变，不会触发滚动事件；而 currentMsgIdx /
+    //   lastNavigatedMsgIdxRef 仍是加载前的旧索引。此时"上一条/下一条"
+    //   按钮的激活状态与 DOM 实际位置脱节：新加载出的用户消息无法被
+    //   导航到（filter(idx < viewportIdx) 的 viewportIdx 已变但按钮状态
+    //   还是按旧索引算）。
+    // ★ 修复：loadingMore false→true→false 时（即一次向前分页完成），
+    //   等 React 重渲染 + content-visibility 布局稳定后，用
+    //   findViewportTopMsgIdx 重读视口顶部的真实索引，重校准
+    //   currentMsgIdx 与 lastNavigatedMsgIdxRef。
+    useEffect(() => {
+        if (prevLoadingMoreRef.current === loadingMore || !loadingMore) return
+        prevLoadingMoreRef.current = loadingMore
+        if (!loadingMore) {
+            // 加载完成：双 rAF 确保 DOM 已更新且 content-visibility 布局稳定
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                const container = containerRef.current
+                if (!container || !container.isConnected) return
+                const idx = findViewportTopMsgIdx(container)
+                if (idx !== null) {
+                    setCurrentMsgIdx(idx)
+                    // 若上一次导航目标因头部插入消息而偏移，清除旧标记
+                    lastNavigatedMsgIdxRef.current = null
+                }
+            }))
+        }
+    }, [loadingMore])
 
     // 流式内容更新时自动跟随（收到新内容但消息数不变）
     // ★ 使用 MutationObserver 仅在 DOM 实际变化时触发，避免无依赖 useEffect 每次渲染后强制布局
