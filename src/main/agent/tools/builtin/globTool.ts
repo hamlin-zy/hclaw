@@ -93,18 +93,13 @@ async function regexSearch(
 
     for (const entry of entries) {
         if (maxResults !== undefined && results.length >= maxResults) return
-      if (entry.name.startsWith('.')) continue
+      if (shouldSkipEntry(entry)) continue
 
       const fullPath = path.join(dir, entry.name)
 
       if (entry.isDirectory()) {
-        // 跳过 node_modules（与 glob 模式一致）
-        if (entry.name === 'node_modules') continue
         await walk(fullPath, depth + 1)
-        continue
-      }
-
-      if (entry.isFile() && regex.test(entry.name)) {
+      } else if (entry.isFile() && regex.test(entry.name)) {
         results.push(fullPath)
       }
     }
@@ -148,7 +143,7 @@ async function globSearch(
       // 递归所有子目录
       for (const entry of entries) {
           if (maxResults !== undefined && results.length >= maxResults) return
-        if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+        if (entry.isDirectory() && !shouldSkipEntry(entry)) {
           await walk(path.join(dir, entry.name), patternParts, depth + 1)
         }
       }
@@ -157,11 +152,8 @@ async function globSearch(
       const matcher = globToRegex(current)
       for (const entry of entries) {
           if (maxResults !== undefined && results.length >= maxResults) return
+        if (shouldSkipEntry(entry)) continue
         if (!matcher.test(entry.name)) continue
-
-        // 跳过隐藏文件/隐藏目录和 node_modules
-        if (entry.name.startsWith('.')) continue
-        if (entry.name === 'node_modules') continue
 
         const fullPath = path.join(dir, entry.name)
         if (rest.length === 0) {
@@ -184,4 +176,9 @@ function globToRegex(glob: string): RegExp {
     .replace(/\*/g, '.*')
     .replace(/\?/g, '.')
   return new RegExp(`^${escaped}$`)
+}
+
+/** 统一跳过隐藏项与 node_modules（regex 与 glob 模式共用） */
+function shouldSkipEntry(entry: { name: string }): boolean {
+  return entry.name.startsWith('.') || entry.name === 'node_modules'
 }
