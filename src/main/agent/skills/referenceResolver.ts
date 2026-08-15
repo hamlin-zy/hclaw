@@ -12,7 +12,7 @@ import type {ReferenceRef, ScriptCall} from './types'
 // ─── 常量 ──────────────────────────────────────────────
 
 const REF_PATTERN_BACKTICK = /`references\/([^`]+)`/g
-const REF_PATTERN_PLAIN = /references\/([^\s,\]\)]+\.md)/gi
+const REF_PATTERN_PLAIN = /(?<!`)references\/([^\s,\]\)]+\.md)/gi
 
 const SCRIPT_PATTERNS: Array<{ pattern: RegExp; lang: string }> = [
   {pattern: /\$\s*node\s+\.\/scripts\/([^\s'"]+)(?:\s+'([^']*)')?/g, lang: 'node'},
@@ -158,8 +158,8 @@ export function loadReferenceContent(refPath: string, options?: {
 
 const generateToc = (content: string): string | null => {
     const headings = content.split('\n')
-        .map((line, i) => ({...line.match(/^(#{1,6})\s+(.+)/)?.groups, line: i + 1}))
-        .filter((h): h is { level: string; text: string; line: number } => !!h)
+        .map((line, i) => ({...line.match(/^(?<level>#{1,6})\s+(?<text>.+)/)?.groups, line: i + 1}))
+        .filter((h): h is { level: string; text: string; line: number } => !!h.level)
     if (headings.length < 2) return null
 
     return ['## Table of Contents', '',

@@ -14,10 +14,10 @@ import iconv from 'iconv-lite'
 
 /** 写文件命令正则模式（保守策略首批覆盖） */
 const WRITE_CMD_PATTERNS = [
-  // Set-Content: 匹配路径参数
-  { regex: /Set-Content\s+(?:.*\s)?(?:-Path\s+)?['"]([^'"]+)['"]|Set-Content\s+(\S+)/gi },
-  // Out-File: 匹配路径参数
-  { regex: /Out-File\s+(?:.*\s)?(?:-FilePath\s+)?['"]([^'"]+)['"]|Out-File\s+(\S+)/gi },
+  // Set-Content: 引号路径优先，-Path 后裸路径回退
+  { regex: /Set-Content\s+(?:(?:.*?\s)?-Path\s+)?(['"][^'"]+['"])|Set-Content\s+(?:-Path\s+)?(\S+)/gi },
+  // Out-File: 引号路径优先，-FilePath 后裸路径回退
+  { regex: /Out-File\s+(?:(?:.*?\s)?-FilePath\s+)?(['"][^'"]+['"])|Out-File\s+(?:-FilePath\s+)?(\S+)/gi },
   // > 重定向: 排除比较运算符 (>=, <=, !=, -gt, -ge, >$null)
   { regex: /(?<![<>=!-])\s>(?!>)\s*['"]?([^'"\s|;]+)/g },
   // >> 追加重定向
@@ -142,7 +142,8 @@ export function parseFileWriteTargets(command: string): string[] {
     for (const match of matches) {
       for (let i = 1; i < match.length; i++) {
         if (match[i]) {
-          const p = match[i].trim()
+          // 剥掉路径外层的引号（'path' / "path"）
+          const p = match[i].trim().replace(/^['"]|['"]$/g, '')
           if (p.length > 0 && !paths.includes(p)) {
             paths.push(p)
           }
@@ -224,9 +225,10 @@ export async function alignFileEncoding(
     if (buf.length < 4) return false
     if (isBinaryFile(buf)) return false
 
-    // BOM 剥离：原始编码非 UTF-8（即无 BOM），但当前文件头部出现 BOM
+    // BOM 剥离：原始编码为无 BOM 的 UTF-8，但当前文件头部出现 BOM
+    // （如 [System.IO.File]::WriteAllText 配合 [Text.Encoding]::UTF8 引入的 BOM）
     const originalWasUtf8 = /^UTF-8$/i.test(originalEncoding)
-    if (!originalWasUtf8 && hasUtf8Bom(buf)) {
+    if (originalWasUtf8 && hasUtf8Bom(buf)) {
       await fs.writeFile(filePath, stripUtf8Bom(buf))
       return true
     }
