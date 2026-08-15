@@ -8,6 +8,7 @@ import {
 import {encryptSecret} from './utils/crypto'
 import {createLogger} from './agent/logger'
 import {fetchProviderModels, testProviderModel} from './providerModelFetcher'
+import {modelMetaRegistry} from './modelMetaRegistry'
 import {createModelAdapter} from './agent/model'
 import {GoogleAuthService} from './auth/googleAuth'
 
@@ -237,6 +238,13 @@ export function initProviderIPC(): void {
       createAdapter: createModelAdapter,
       refreshGoogleToken: (refreshToken: string) => GoogleAuthService.refreshAccessToken(refreshToken),
     }))
+
+  // 模型元数据：查询窗口大小（OpenRouter 补全；0 = 未知）
+  // ensureLoaded：首次无缓存时等待后台 refresh 完成，避免查询竞态返回 0
+  ipcMain.handle('model-meta:get-window', async (_, params: {model: string}) => {
+    await modelMetaRegistry.ensureLoaded()
+    return { contextLength: modelMetaRegistry.getContextLength(params.model) }
+  })
 
   logger.info('init', {module: 'provider-ipc'})
 }

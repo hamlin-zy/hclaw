@@ -1,7 +1,9 @@
-import {memo, useMemo, useRef, useState, useCallback, useEffect} from 'react'
+import {memo, useRef, useState, useCallback, useEffect} from 'react'
 import {createPortal} from 'react-dom'
-import {useConversationStore} from '../stores/conversationStore'
 import {formatTokenCount} from '../lib/format'
+import {useMessageTokenStats} from '../hooks/useMessageTokenStats'
+import {useWindowUsage} from '../hooks/useWindowUsage'
+import ContextUsageBadge from './ContextUsageBadge'
 
 /**
  * 缓存命中率显示组件
@@ -12,50 +14,13 @@ import {formatTokenCount} from '../lib/format'
  * tooltip 通过 Portal 渲染到 document.body，突破祖先容器的 overflow: hidden 裁剪
  */
 const CacheRateTooltip = memo(function CacheRateTooltip() {
-    const loadedMessages = useConversationStore(s => s.loadedMessages)
     const triggerRef = useRef<HTMLSpanElement>(null)
     const [show, setShow] = useState(false)
     const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const [pos, setPos] = useState({bottom: 0, right: 0})
 
-    const stats = useMemo(() => {
-        let requestCount = 0
-        let totalInputTokens = 0
-        let totalOutputTokens = 0
-        let totalCacheReadTokens = 0
-        let toolCallCount = 0
-        let currentInputTokens = 0
-        let currentOutputTokens = 0
-        let currentCacheReadTokens = 0
-
-        for (const msg of loadedMessages) {
-            if (msg.role !== 'assistant') continue
-            const statsList = Array.isArray(msg.llmStats) ? msg.llmStats : []
-            requestCount += statsList.length
-            for (const s of statsList) {
-                totalInputTokens += s.inputTokens || 0
-                totalOutputTokens += s.outputTokens || 0
-                totalCacheReadTokens += s.cacheReadTokens || 0
-                currentInputTokens = s.inputTokens || 0
-                currentOutputTokens = s.outputTokens || 0
-                currentCacheReadTokens = s.cacheReadTokens || 0
-            }
-            if (msg.toolCalls?.length) {
-                toolCallCount += msg.toolCalls.length
-            }
-        }
-
-        return {
-            requestCount,
-            totalInputTokens,
-            totalOutputTokens,
-            totalCacheReadTokens,
-            toolCallCount,
-            currentInputTokens,
-            currentOutputTokens,
-            currentCacheReadTokens,
-        }
-    }, [loadedMessages])
+    const stats = useMessageTokenStats()
+    const {contextLength, pct} = useWindowUsage(stats)
 
     const cacheRead = stats.totalCacheReadTokens
     const denominator = Math.max(stats.totalInputTokens + cacheRead, 1)
@@ -119,7 +84,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                 <div className="flex items-center gap-2 text-[var(--text-muted)] mb-1.5 pb-1.5 border-b border-[var(--border)]">
                     <span className="font-medium text-[var(--text-primary)]">缓存命中率 {rate}%</span>
                     <span>·</span>
-                    <span>上下文窗口 {formatTokenCount(currentTotalTokens)}</span>
+                    <span>窗口占用 {formatTokenCount(currentTotalTokens)}</span>
                     <span>·</span>
                     <span>LLM {stats.requestCount}次</span>
                     <span>·</span>
@@ -155,7 +120,12 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                         命中率 = {formatTokenCount(stats.totalCacheReadTokens)} / ({formatTokenCount(stats.totalInputTokens)} + {formatTokenCount(stats.totalCacheReadTokens)}) = {rate}%
                     </div>
                     <div>
-                        上下文 = {formatTokenCount(stats.currentInputTokens)} + {formatTokenCount(stats.currentCacheReadTokens)} = {formatTokenCount(currentTotalTokens)}
+                        窗口占用 = 输入 {formatTokenCount(stats.currentInputTokens)} + 缓存命中 {formatTokenCount(stats.currentCacheReadTokens)} = {formatTokenCount(currentTotalTokens)}
+                    </div>
+                    <div>
+                        {contextLength > 0
+                            ? `窗口使用率 = ${formatTokenCount(currentTotalTokens)} / ${formatTokenCount(contextLength)} = ${pct}%`
+                            : '窗口大小未知'}
                     </div>
                     <div className="mt-1.5 pt-1.5 border-t border-[var(--border-dashed)] text-[var(--text-tertiary)]">
                         低价值上下文自动裁剪，上下文数值仅代表末次请求
@@ -174,7 +144,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                 onMouseEnter={scheduleShow}
                 onMouseLeave={scheduleHide}
             >
-                缓存 {rate}% · 上下文 {formatTokenCount(currentTotalTokens)}
+                缓存 {rate}% · <ContextUsageBadge numerator={currentTotalTokens} pct={pct}/>
             </span>
             {show && createPortal(tooltipContent, document.body)}
         </>

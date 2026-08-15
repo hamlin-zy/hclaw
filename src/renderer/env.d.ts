@@ -436,6 +436,7 @@ declare global {
         // Provider 模型拉取 / 测试（主进程执行，绕 CORS；不写库、不产生会话）
         providerFetchModels: (params: any) => Promise<any>
         providerTestModel: (params: any) => Promise<any>
+        modelMetaGetWindow: (model: string) => Promise<{contextLength: number}>
 
         // Model Scheme (模型方案) 管理
         modelScheme: {
