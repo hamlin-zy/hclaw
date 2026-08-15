@@ -544,6 +544,7 @@ declare global {
             refreshToken?: string;
             email?: string
         }) => void) => () => void
+        onGoogleAuthError: (callback: (info: {error: string}) => void) => () => void
 
         // Context compaction
         compact?: {
