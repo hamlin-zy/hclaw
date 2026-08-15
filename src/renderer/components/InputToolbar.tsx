@@ -67,7 +67,7 @@ export default function InputToolbar({
             </div>
 
             <div data-name="input-toolbar-actions" className="flex items-center gap-1">
-                {/* 缓存命中率 */}
+                {/* 缓存命中率 + 窗口占用 + 平均吞吐 */}
                 <CacheRateTooltip/>
 
                 {/* + 展开按钮 */}

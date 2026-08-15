@@ -34,6 +34,9 @@ export interface LlmStreamResult {
     cacheReadTokens: number
     cacheWriteTokens: number
     reasoningTokens: number
+    ttftMs?: number
+    decodeMs?: number
+    tokensPerSecond?: number
     llmDuration: number
     adapter: any
     currentProvider: string

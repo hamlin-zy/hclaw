@@ -1,0 +1,7 @@
+{
+  "//": "Google OAuth 客户端密钥配置样板。",
+  "//": "复制此文件为 config/google-oauth.local.json 并填写真实值（该文件已在 .gitignore 中，不会提交）。",
+  "//": "获取方式：Google Cloud Console → Google Auth Platform → 客户端 → 选择桌面客户端 → 添加客户端密钥。",
+  "clientId": "your-oauth-client-id.apps.googleusercontent.com",
+  "clientSecret": "GOCSPX-xxxxxxxxxxxxxxxxxxxx"
+}

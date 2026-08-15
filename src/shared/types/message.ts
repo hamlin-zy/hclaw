@@ -255,6 +255,12 @@ export interface LlmStats {
   cacheWriteTokens?: number
   /** 推理/思考 token 数（仅部分模型返回） */
   reasoningTokens?: number
+  /** 首字延迟（毫秒） */
+  ttftMs?: number
+  /** 纯解码时长（毫秒） */
+  decodeMs?: number
+  /** 解码吞吐（tok/s） */
+  tokensPerSecond?: number
 }
 
 /** 权限确认 */

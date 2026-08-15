@@ -258,6 +258,9 @@ export function createAssistantMessage(
       cacheReadTokens?: number;
       cacheWriteTokens?: number;
       reasoningTokens?: number
+      ttftMs?: number;
+      decodeMs?: number;
+      tokensPerSecond?: number
   },
   /** Anthropic extended thinking 内容，需在后续请求中原样回传 */
   thinkingContent?: string,

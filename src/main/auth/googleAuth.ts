@@ -1,13 +1,50 @@
 import {randomBytes, createHash} from 'crypto';
-import {ipcMain, shell} from 'electron';
+import {app, ipcMain, shell} from 'electron';
 import axios from 'axios';
 import http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
 import {getMainWindow} from '../window';
 
 // Google OAuth2 凭据配置
 // GOOGLE_CLIENT_ID 是公开标识，可放心硬编码或通过环境变量覆盖
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID
-    || '150971104661-h4p7h7p42vp3vp2muqnjt3itqfes90ie.apps.googleusercontent.com';
+    || '150971104661-h4p70rvp744mrs3gjj8son0saicps21d.apps.googleusercontent.com';
+
+/**
+ * 加载本地 Google OAuth 配置（含 client_secret）。
+ * 优先级：GOOGLE_CLIENT_SECRET 环境变量 > config/google-oauth.local.json
+ * 该配置文件不提交 git（已在 .gitignore），避免密钥泄露。
+ */
+function loadGoogleOAuthConfig(): {clientId?: string; clientSecret?: string} {
+    if (process.env.GOOGLE_CLIENT_SECRET) {
+        return {clientSecret: process.env.GOOGLE_CLIENT_SECRET};
+    }
+    try {
+        // 开发环境：仓库根目录 config/；打包环境：resources/config/
+        const candidates = [
+            path.join(app.getAppPath(), 'config', 'google-oauth.local.json'),
+            path.join(process.resourcesPath ?? '', 'config', 'google-oauth.local.json'),
+        ];
+        for (const p of candidates) {
+            if (fs.existsSync(p)) {
+                const cfg = JSON.parse(fs.readFileSync(p, 'utf-8'));
+                return {clientId: cfg.clientId, clientSecret: cfg.clientSecret};
+            }
+        }
+    } catch {
+        // 配置文件缺失/损坏时按无 secret 处理（public client 场景仍可工作）
+    }
+    return {};
+}
+
+const oauthConfig = loadGoogleOAuthConfig();
+const GOOGLE_CLIENT_SECRET = oauthConfig.clientSecret || '';
+
+/** 判断当前是否为需要 client_secret 的机密客户端 */
+function hasClientSecret(): boolean {
+    return GOOGLE_CLIENT_SECRET.length > 0;
+}
 
 /** 生成 PKCE code_verifier（随机字符串，43-128 字符） */
 function generateCodeVerifier(): string {
@@ -43,6 +80,8 @@ export class GoogleAuthService {
         const codeChallenge = generateCodeChallenge(codeVerifier);
 
         const redirectUri = `http://127.0.0.1:${port}`;
+        // Gemini API 访问必需的 scope（ai.google.dev OAuth 教程使用 generative-language.retriever）。
+        // 应用处于"测试"发布状态时，测试用户授权不会触发"未经 Google 验证"警告。
         const scopes = [
             'https://www.googleapis.com/auth/userinfo.email',
             'https://www.googleapis.com/auth/userinfo.profile',
@@ -63,19 +102,26 @@ export class GoogleAuthService {
         return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
     }
 
-    /** 使用授权码交换 Token（PKCE 流程，用 code_verifier 代替 client_secret） */
+    /** 使用授权码交换 Token（PKCE 流程；机密客户端带 client_secret，公开客户端省略） */
     static async exchangeCodeForToken(code: string, port: number) {
         const codeVerifier = GoogleAuthService._pendingCodeVerifier;
         GoogleAuthService._pendingCodeVerifier = null; // 一次性使用
 
         const redirectUri = `http://127.0.0.1:${port}`;
-        const response = await axios.post('https://oauth2.googleapis.com/token', {
+        const body: Record<string, string> = {
             code,
             client_id: GOOGLE_CLIENT_ID,
-            code_verifier: codeVerifier,
+            code_verifier: codeVerifier!,
             redirect_uri: redirectUri,
             grant_type: 'authorization_code',
-        });
+        };
+        if (hasClientSecret()) {
+            body.client_secret = GOOGLE_CLIENT_SECRET;
+        }
+        const response = await axios.post('https://oauth2.googleapis.com/token',
+            new URLSearchParams(body),
+            {headers: {'Content-Type': 'application/x-www-form-urlencoded'}}
+        );
 
         const data = response.data;
         return {
@@ -86,13 +132,20 @@ export class GoogleAuthService {
         };
     }
 
-    /** 刷新 Access Token（桌面应用可省略 client_secret） */
+    /** 刷新 Access Token（机密客户端带 client_secret） */
     static async refreshAccessToken(refreshToken: string) {
-        const response = await axios.post('https://oauth2.googleapis.com/token', {
+        const body: Record<string, string> = {
             refresh_token: refreshToken,
             client_id: GOOGLE_CLIENT_ID,
             grant_type: 'refresh_token',
-        });
+        };
+        if (hasClientSecret()) {
+            body.client_secret = GOOGLE_CLIENT_SECRET;
+        }
+        const response = await axios.post('https://oauth2.googleapis.com/token',
+            new URLSearchParams(body),
+            {headers: {'Content-Type': 'application/x-www-form-urlencoded'}}
+        );
 
         const data = response.data;
         return {
@@ -139,7 +192,13 @@ export function initGoogleAuthIPC() {
                         }
                         resolve({success: true});
                     } catch (err: any) {
-                        resolve({success: false, error: err.message});
+                        // 失败时通知渲染进程，避免 UI 静默卡死
+                        const error = err?.message || String(err);
+                        const win = getMainWindow();
+                        if (win && !win.isDestroyed()) {
+                            win.webContents.send('google-auth-error', {error});
+                        }
+                        resolve({success: false, error});
                     }
 
                     setTimeout(() => {

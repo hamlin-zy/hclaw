@@ -26,6 +26,7 @@ import {hookExecutor, registerBuiltinHandlers} from './plugin/hooks';
 import {loadHooksFromDirectory} from './agent/hooks/loader';
 import {GoogleAuthService, initGoogleAuthIPC} from './auth/googleAuth';
 import {initProviderIPC} from './llmProviderIPC';
+import {modelMetaRegistry} from './modelMetaRegistry';
 import {initModelSchemeIPC} from './modelSchemeIPC';
 import {initPromptSchemeIPC} from './promptSchemeIPC';
 import {promptSchemeRepo} from './repositories/sqlite/promptSchemeRepository';
@@ -173,6 +174,8 @@ app.on('ready', async () => {
   // DB is initialized at module import time via ./repositories/init
 
   ensureConfigLayout();
+
+  void modelMetaRegistry.init();
 
     // MIME 类型映射表（用于自定义协议返回正确的 Content-Type）
     const MIME_MAP: Record<string, string> = {

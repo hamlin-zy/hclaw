@@ -86,6 +86,9 @@ export interface ChatMessage {
         cacheReadTokens?: number;
         cacheWriteTokens?: number;
         reasoningTokens?: number
+        ttftMs?: number;
+        decodeMs?: number;
+        tokensPerSecond?: number
     }[]
 }
 

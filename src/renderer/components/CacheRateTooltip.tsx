@@ -1,7 +1,23 @@
-import {memo, useMemo, useRef, useState, useCallback, useEffect} from 'react'
+import {memo, useRef, useState, useCallback, useEffect} from 'react'
 import {createPortal} from 'react-dom'
-import {useConversationStore} from '../stores/conversationStore'
-import {formatTokenCount} from '../lib/format'
+import {formatTokenCount, formatTokensPerSecond, tokensPerSecond} from '../lib/format'
+import {useMessageTokenStats} from '../hooks/useMessageTokenStats'
+import {useWindowUsage} from '../hooks/useWindowUsage'
+import MetricBadge from './MetricBadge'
+
+/**
+ * 缓存命中率徽章颜色：≥90 优秀绿 / 70~90 一般黄 / <70 警惕红。
+ * 注意：与 MetricBadge 内置分级的阈值方向相反（命中率越高越健康，
+ * 内置分级是百分比越高越危险），因此不能复用内置分级，必须显式传入 accent。
+ */
+function cacheRateAccent(rate: number): string {
+    return rate >= 90 ? 'var(--success)' : rate >= 70 ? 'var(--warning)' : 'var(--error)'
+}
+
+/** 平均吞吐徽章颜色：>150 高速绿 / 100~150 正常蓝 / 50~100 慢黄 / <=50 太慢红 */
+function throughputAccent(tps: number): string {
+    return tps > 150 ? 'var(--success)' : tps > 100 ? 'var(--info)' : tps > 50 ? 'var(--warning)' : 'var(--error)'
+}
 
 /**
  * 缓存命中率显示组件
@@ -12,55 +28,23 @@ import {formatTokenCount} from '../lib/format'
  * tooltip 通过 Portal 渲染到 document.body，突破祖先容器的 overflow: hidden 裁剪
  */
 const CacheRateTooltip = memo(function CacheRateTooltip() {
-    const loadedMessages = useConversationStore(s => s.loadedMessages)
     const triggerRef = useRef<HTMLSpanElement>(null)
     const [show, setShow] = useState(false)
     const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const [pos, setPos] = useState({bottom: 0, right: 0})
 
-    const stats = useMemo(() => {
-        let requestCount = 0
-        let totalInputTokens = 0
-        let totalOutputTokens = 0
-        let totalCacheReadTokens = 0
-        let toolCallCount = 0
-        let currentInputTokens = 0
-        let currentOutputTokens = 0
-        let currentCacheReadTokens = 0
-
-        for (const msg of loadedMessages) {
-            if (msg.role !== 'assistant') continue
-            const statsList = Array.isArray(msg.llmStats) ? msg.llmStats : []
-            requestCount += statsList.length
-            for (const s of statsList) {
-                totalInputTokens += s.inputTokens || 0
-                totalOutputTokens += s.outputTokens || 0
-                totalCacheReadTokens += s.cacheReadTokens || 0
-                currentInputTokens = s.inputTokens || 0
-                currentOutputTokens = s.outputTokens || 0
-                currentCacheReadTokens = s.cacheReadTokens || 0
-            }
-            if (msg.toolCalls?.length) {
-                toolCallCount += msg.toolCalls.length
-            }
-        }
-
-        return {
-            requestCount,
-            totalInputTokens,
-            totalOutputTokens,
-            totalCacheReadTokens,
-            toolCallCount,
-            currentInputTokens,
-            currentOutputTokens,
-            currentCacheReadTokens,
-        }
-    }, [loadedMessages])
+    const stats = useMessageTokenStats()
+    const {contextLength, pct} = useWindowUsage(stats)
 
     const cacheRead = stats.totalCacheReadTokens
     const denominator = Math.max(stats.totalInputTokens + cacheRead, 1)
-    const rate = (cacheRead / denominator * 100).toFixed(0)
+    const rate = Math.round(cacheRead / denominator * 100)
     const currentTotalTokens = stats.currentInputTokens + stats.currentCacheReadTokens
+
+    // 平均吞吐 = Σ输出token ÷ Σ解码时长（首 token 之后，不含首字延迟）
+    const decodeRate = tokensPerSecond(stats.totalOutputTokens, stats.totalDecodeMs)
+    // 平均首字 = Σ首字延迟 ÷ 有效样本数（ttftMs 已排除重试干扰，attempt 级采集）
+    const avgTtftSeconds = stats.ttftCount > 0 ? stats.totalTtftMs / stats.ttftCount / 1000 : null
 
     const updatePosition = useCallback(() => {
         if (!triggerRef.current) return
@@ -119,7 +103,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                 <div className="flex items-center gap-2 text-[var(--text-muted)] mb-1.5 pb-1.5 border-b border-[var(--border)]">
                     <span className="font-medium text-[var(--text-primary)]">缓存命中率 {rate}%</span>
                     <span>·</span>
-                    <span>上下文窗口 {formatTokenCount(currentTotalTokens)}</span>
+                    <span>窗口占用 {formatTokenCount(currentTotalTokens)}</span>
                     <span>·</span>
                     <span>LLM {stats.requestCount}次</span>
                     <span>·</span>
@@ -155,7 +139,26 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                         命中率 = {formatTokenCount(stats.totalCacheReadTokens)} / ({formatTokenCount(stats.totalInputTokens)} + {formatTokenCount(stats.totalCacheReadTokens)}) = {rate}%
                     </div>
                     <div>
-                        上下文 = {formatTokenCount(stats.currentInputTokens)} + {formatTokenCount(stats.currentCacheReadTokens)} = {formatTokenCount(currentTotalTokens)}
+                        窗口占用 = 输入 {formatTokenCount(stats.currentInputTokens)} + 缓存命中 {formatTokenCount(stats.currentCacheReadTokens)} = {formatTokenCount(currentTotalTokens)}
+                    </div>
+                    <div>
+                        {contextLength > 0
+                            ? `窗口使用率 = ${formatTokenCount(currentTotalTokens)} / ${formatTokenCount(contextLength)} = ${pct}%`
+                            : '窗口大小未知'}
+                    </div>
+                    <div className="mt-1.5 pt-1.5 border-t border-[var(--border-dashed)] flex flex-col gap-1">
+                        <div className="flex items-center justify-between gap-8">
+                            <span>平均吞吐</span>
+                            <span className="tabular-nums text-[var(--text-primary)]">
+                                {decodeRate != null ? `${formatTokensPerSecond(decodeRate)} tok/s` : '—'}
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-8">
+                            <span>平均首字</span>
+                            <span className="tabular-nums text-[var(--text-primary)]">
+                                {avgTtftSeconds != null ? `${avgTtftSeconds.toFixed(1)}s` : '—'}
+                            </span>
+                        </div>
                     </div>
                     <div className="mt-1.5 pt-1.5 border-t border-[var(--border-dashed)] text-[var(--text-tertiary)]">
                         低价值上下文自动裁剪，上下文数值仅代表末次请求
@@ -170,11 +173,22 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
             <span
                 data-name="input-toolbar-cache-rate"
                 ref={triggerRef}
-                className="text-sm text-[var(--text-muted)] cursor-help tabular-nums leading-none"
+                className="flex items-center gap-1 text-sm text-[var(--text-muted)] cursor-help tabular-nums leading-none"
                 onMouseEnter={scheduleShow}
                 onMouseLeave={scheduleHide}
             >
-                缓存 {rate}% · 上下文 {formatTokenCount(currentTotalTokens)}
+                {/* 缓存命中率徽章（进度环 = 命中率） */}
+                <MetricBadge pct={rate} accent={cacheRateAccent(rate)}>
+                    缓存 {rate}%
+                </MetricBadge>
+                {/* 窗口占用徽章（进度环 = 窗口使用率，内置分级） */}
+                <MetricBadge pct={pct}>窗口 {formatTokenCount(currentTotalTokens)}</MetricBadge>
+                {/* 平均吞吐徽章（静态边框） */}
+                {decodeRate != null && (
+                    <MetricBadge accent={throughputAccent(decodeRate)}>
+                        {formatTokensPerSecond(decodeRate)} tok/s
+                    </MetricBadge>
+                )}
             </span>
             {show && createPortal(tooltipContent, document.body)}
         </>

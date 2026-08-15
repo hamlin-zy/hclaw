@@ -24,6 +24,8 @@ extraResources:
     to: icon.png
   - from: public/icon.ico
     to: icon.ico
+  - from: config/google-oauth.local.json
+    to: config/google-oauth.local.json
 
 # macOS 配置
 mac:
