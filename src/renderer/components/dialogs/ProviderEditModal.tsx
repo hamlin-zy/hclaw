@@ -49,6 +49,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
   // OAuth2
   const [oauthTokens, setOauthTokens] = useState<{ accessToken: string; refreshToken: string; expiryDate: number } | null>(null)
   const [email, setEmail] = useState<string | undefined>(provider?.email)
+  const [oauthError, setOauthError] = useState<string | null>(null)
 
   // 缓存特性
   const [useSystemArray, setUseSystemArray] = useState(
@@ -118,6 +119,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
     if (providerType !== 'google') return
     const handleGoogleSuccess = async (tokens: any) => {
       setIsLoggingIn(false)
+      setOauthError(null)
       setOauthTokens({
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
@@ -128,8 +130,17 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
       setApiKeyTouched(true)  // OAuth 认证成功视为主动修改了 credential
       setEmail(tokens.email)
     }
+    // 监听 Google 登录失败（主进程 token 交换/用户信息获取失败时通知，避免静默卡死）
+    const handleGoogleError = (info: {error: string}) => {
+      setIsLoggingIn(false)
+      setOauthError(info.error || 'Google 授权失败，请重试')
+    }
     const cleanup = window.electronAPI?.onGoogleAuthSuccess(handleGoogleSuccess)
-    return () => cleanup?.()
+    const cleanupError = window.electronAPI?.onGoogleAuthError(handleGoogleError)
+    return () => {
+      cleanup?.()
+      cleanupError?.()
+    }
   }, [providerType])
 
   // 按 ESC 关闭弹窗
@@ -149,7 +160,18 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
 
   const handleGoogleLogin = async () => {
     setIsLoggingIn(true)
-    try { await window.electronAPI?.authGoogleLogin() } catch { setIsLoggingIn(false) }
+    setOauthError(null)
+    try {
+      const result = await window.electronAPI?.authGoogleLogin()
+      // 主进程可能立即返回失败（如 client_id 未配置）
+      if (result && !result.success) {
+        setIsLoggingIn(false)
+        setOauthError(result.error || 'Google 授权失败，请重试')
+      }
+    } catch {
+      setIsLoggingIn(false)
+      setOauthError('Google 授权启动失败')
+    }
   }
 
   /** 编辑模式解密失败 / 未填入的 key 返回 ''（供拉取/测试前置判断） */
@@ -530,6 +552,11 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                         className="w-full py-1.5 bg-white border border-gray-200 rounded text-[11px] flex items-center justify-center gap-1.5 hover:bg-gray-50 transition-colors disabled:opacity-50">
                         {isLoggingIn ? '正在授权...' : '使用 Google 账号登录'}
                       </button>
+                    )}
+                    {oauthError && (
+                      <div className="text-[10px] text-red-500 bg-red-50 border border-red-100 rounded px-2 py-1">
+                        Google 授权失败：{oauthError}
+                      </div>
                     )}
                   </div>
                 ) : (

@@ -57,3 +57,6 @@ CODEBUDDY.md
 docs/superpowers
 # 探针调试文件
 tmp/
+
+# Google OAuth 本地密钥配置（含真实 client secret，禁止提交）
+config/google-oauth.local.json
