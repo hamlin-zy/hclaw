@@ -37,6 +37,9 @@ const inputSchema = z.object({
             + '## 下一步计划（新会话应从何处继续，明确第一步动作）\n'
             + '## 关键上下文（相关文件路径 / 已运行命令 / 重要决策 / 注意事项）'
         ),
+    capability: z.string()
+        .optional()
+        .describe('可选：新会话要触发的技能/代理名（如 brainstorming），不带 / 前缀；留空时不拼接命令前缀'),
 })
 
 type SessionHandoffInput = z.infer<typeof inputSchema>
@@ -87,12 +90,31 @@ export const sessionHandoffTool: Tool<SessionHandoffInput, string> = {
         }
 
         // ④ 写入首条 user 消息（交接总结）
+        //    capability 非空时拼接 "/能力名\n" 前缀 → 新会话首条消息触发对应技能/代理命令（detectCommandContext 会解析）
         const userMsgId = `msg-${now}-${Math.random().toString(36).slice(2, 8)}`
+        const capability = args.capability?.trim()?.replace(/^\/+/, '')
+        const firstMessageContent = capability
+            ? `/${capability}\n${args.handoffSummary}`
+            : args.handoffSummary
+
+        // 命中 skill/agent 时透传 commandId，供 UI 渲染 /能力 徽章（与 loop/setup.ts 同源解析）
+        // 动态 import：entityCommandResolver 会连带加载 skills loader（config/repositories 等
+        // electron 绑定模块），顶层静态加载会破坏本工具的 schema 单测环境。
+        let commandId: string | undefined
+        if (capability) {
+            try {
+                const {resolveEntityCommand} = await import('../../entityCommandResolver')
+                commandId = resolveEntityCommand(capability)?.commandId
+            } catch (err) {
+                logger.debug('[SessionHandoffTool] resolveEntityCommand failed', {error: String(err)})
+            }
+        }
         const userMsg = {
             id: userMsgId,
             role: 'user' as const,
-            content: args.handoffSummary,
+            content: firstMessageContent,
             timestamp: now,
+            ...(commandId ? {metadata: {commandId}} : {}),
         }
         if (!conversationRepo.writeMessages(newConvId, [userMsg])) {
             return {success: false, output: '', error: '写入交接总结失败'}
