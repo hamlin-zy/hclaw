@@ -8,7 +8,12 @@ export interface TimelineItem {
 
 export const timelineItems: TimelineItem[] = [
   {
-    version: 'v0.4.3', date: '2026-08-15', tag: '最新',
+    version: 'v0.4.4', date: '2026-08-16', tag: '最新',
+    title: '内存泄漏修复',
+    items: ['修复长会话与大量工具输出场景的内存持续增长', '渲染端持久化逻辑简化，移除常驻缓存与全量写兜底'],
+  },
+  {
+    version: 'v0.4.3', date: '2026-08-15',
     title: '流式体验优化',
     items: ['长对话连续输出更流畅顺滑', '高频流式更新下界面更稳定', '修复并行工具倒计时偶发显示超时'],
   },
