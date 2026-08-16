@@ -60,3 +60,6 @@ tmp/
 
 # Google OAuth 本地密钥配置（含真实 client secret，禁止提交）
 config/google-oauth.local.json
+
+# 自定义域名部署副本（本地构建用，不提交）
+website-h/
