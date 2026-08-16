@@ -267,15 +267,15 @@ describe('writeBlockDelta — 块级增量', () => {
         expect(rows[0]).toEqual({id: 'think-m1-0', content: '思考前段+后段', sequence: 0})
     })
 
-    it('text 块跨 flush 追加语义：同 id 增量切片追加而非覆盖（历史正文残缺回归）', () => {
-        // ★ 复现 05b219c 引入的 bug：recordTextBlock 传「增量切片」（fullText.slice(lastOffset)），
-        //   跨 flush 时若整体覆盖会丢掉已落库的旧切片，重启后正文只剩最后一次 flush 的片段。
+    it('text 块跨 flush 追加语义：同 id 增量文本追加而非覆盖（历史正文残缺回归）', () => {
+        // ★ 复现 05b219c 引入的 bug：recordTextBlock 传「增量文本」（batch，独立短字符串），
+        //   跨 flush 时若整体覆盖会丢掉已落库的旧片段，重启后正文只剩最后一次 flush 的片段。
         repo.writeBlockDelta('conv-1', 'm1', {messageFields: {role: 'assistant', timestamp: 1}})
         // flush 1：前半段
         repo.writeBlockDelta('conv-1', 'm1', {upsertBlocks: [
             {id: 'text-m1-0', messageId: 'm1', blockType: 'text', content: '前100字', data: null, sequence: 0, timestamp: 1},
         ]})
-        // flush 2：增量切片（渲染端 textFlushOffsets 已推进，只带新字符）
+        // flush 2：增量文本（渲染端 recordTextBlock 传 batch，只带新字符）
         repo.writeBlockDelta('conv-1', 'm1', {upsertBlocks: [
             {id: 'text-m1-0', messageId: 'm1', blockType: 'text', content: '后50字', data: null, sequence: 0, timestamp: 2},
         ]})
