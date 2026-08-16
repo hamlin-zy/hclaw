@@ -7,7 +7,7 @@
  * - 高频流式更新被 throttle 合并：首个 chunk 立即写，30s 窗口内其余更新合并为一次兜底写
  * - 多条 dirty 消息一次性 flush，且只写变化的消息
  * - flushMessages（abort 场景）强制立即刷 dirty
- * - saveMessages 优先刷 dirty，无 dirty 时才走全量兜底
+ * - saveMessages 只刷 dirty，无 dirty 时不再全量写
  * - record/finalize 系列：recordTextBlock 按 offset 切块、recordThinkBlock 同 id 覆盖、
  *   finalizeMessageDelta 产出 finalize patch
  *
@@ -57,8 +57,8 @@ beforeEach(() => {
     blockDeltaCalls = []
     ;(globalThis as any).window = {
         electronAPI: {
-            // 旧整条消息 delta 通道 mock 保留（backward-compat）：Task 3 后 flush 不再走它，
-            // 但全量写兜底路径相关的既有断言仍引用 conversationWriteMessages。
+            // 旧整条消息 delta / 全量写通道 mock 保留：flush 已不走它们，
+            // 仅用于断言不再被调用（全量写兜底路径已移除）。
             conversationWriteMessagesDelta: vi.fn(async (convId: string, message: Message) => {
                 deltaCalls.push({convId, message})
                 return true
@@ -156,7 +156,7 @@ describe('块级增量落库（delta-first）', () => {
         expect(blockDeltaCalls[1].patch.messageFields?.metadata).toMatchObject({agentName: 'a2'})
     })
 
-    it('saveMessages 优先刷 dirty；无 dirty 时才全量兜底', async () => {
+    it('saveMessages 优先刷 dirty；无 dirty 时不再全量写（全量写兜底已移除）', async () => {
         vi.useFakeTimers()
         const store = useConversationStore.getState()
 
@@ -167,9 +167,9 @@ describe('块级增量落库（delta-first）', () => {
         expect(blockDeltaCalls.length).toBe(2) // 首写 + saveMessages 刷 dirty
         expect(fullCalls.length).toBe(0)
 
-        // 场景 2：无 dirty（已 flush）→ 全量兜底
+        // 场景 2：无 dirty（已 flush）→ 不再全量写
         await store.saveMessages()
-        expect(fullCalls.length).toBe(1)
+        expect(fullCalls.length).toBe(0)
     })
 
     it('updateMessageForConv 修改后再次落库携带最新 messageFields', async () => {
@@ -228,10 +228,10 @@ describe('块级增量记账', () => {
         // mergeBlocksById 合并 content（增量拼接），flush 时只发一块。这是 textSeq 方案的正确行为：
         // 同一 text 段内多次 flush 走 DB UPDATE 而非新 INSERT（O(segments) 而非 O(chunks)）。
         recordTextBlock('conv-1', 'm1', 'a'.repeat(500))
-        recordTextBlock('conv-1', 'm1', 'a'.repeat(500) + 'b'.repeat(300))
+        recordTextBlock('conv-1', 'm1', 'b'.repeat(300))
         await flushConversationDirty('conv-1')
         const {patch} = blockDeltaCalls[blockDeltaCalls.length - 1]
-        // 同 textSeq → 同 id text-m1-0，合并后仅一块，content 为两次切片的拼接
+        // 同 textSeq → 同 id text-m1-0，合并后仅一块，content 为两次增量的拼接
         expect(patch.upsertBlocks!.map(b => b.id)).toEqual(['text-m1-0'])
         expect(patch.upsertBlocks![0].content).toHaveLength(800)
         expect(patch.upsertBlocks![0].content).toBe('a'.repeat(500) + 'b'.repeat(300))
@@ -248,7 +248,7 @@ describe('块级增量记账', () => {
         expect(patch.upsertBlocks![0].content).toBe('思考12')
     })
 
-    it('finalizeMessageDelta 产生 finalize patch + 清 text 记账', async () => {
+    it('finalizeMessageDelta 产生 finalize patch', async () => {
         finalizeMessageDelta('conv-1', 'm1', 123)
         await flushConversationDirty('conv-1')
         // 断言 patch.finalize === true, messageFields.endedAt === 123
@@ -317,7 +317,7 @@ describe('flush 失败重试（设计 §8：IPC invoke 失败 → dirty 块保�
                 return writeCount < 2 ? false : true
             },
         )
-        const msgId = 'm-retry-1' // 与文件内其他用例的 textFlushOffsets 隔离
+        const msgId = 'm-retry-1'
         const content = '内容内容内容内容内容' // 10 字符
         recordTextBlock('conv-1', msgId, content)
         await flushConversationDirty('conv-1')
@@ -328,8 +328,7 @@ describe('flush 失败重试（设计 §8：IPC invoke 失败 → dirty 块保�
         expect(blockDeltaCalls[0].patch.upsertBlocks![0].content).toBe(content)
 
         // ★ 关键断言：失败后 dirty 保留 → 下次 flush 重发同一 patch。
-        //   textFlushOffsets 已在 recordTextBlock 记账时推进，重试不重新切块——
-        //   重发的是首次构建好的完整 patch（含完整文本切片，内容不丢）。
+        //   recordTextBlock 传增量文本，重试重发的就是首次构建好的增量 patch（内容不丢）。
         await flushConversationDirty('conv-1')
         expect(blockDeltaCalls).toHaveLength(2)
         expect(blockDeltaCalls[1].msgId).toBe(msgId)
