@@ -14,8 +14,8 @@ export const WORKER_MESSAGE_TYPES = {
     UPDATE_SCHEME: 'update-scheme',
     /** 更新权限模式 (permissionMode) */
     UPDATE_PERMISSION_MODE: 'update-permission-mode',
-    /** 更新工作模式 (workMode) */
-    UPDATE_WORK_MODE: 'update-work-mode',
+    /** 更新会话级模型 override（主进程 → Worker 广播） */
+    UPDATE_MODEL_OVERRIDE: 'update_model_override',
     /** 请求权限确认 (Worker -> Main) */
     PERMISSION_CONFIRM: 'permission-confirm',
     /** 权限确认结果 (Main -> Worker) */

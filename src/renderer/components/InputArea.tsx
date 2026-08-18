@@ -665,6 +665,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                         agentState={agentState as {currentModelProvider?: string; currentModelName?: string}}
                         pendingMessagesCount={convData?.pendingMessages?.length ?? 0}
                         canSend={canSend}
+                        conversationId={activeConversationId ?? ''}
                         onSubmit={handleSubmit}
                         onAbort={handleAbort}
                         onUploadFile={(files) => setAttachedFiles(prev => [...prev, ...files])}

@@ -8,7 +8,12 @@ export interface TimelineItem {
 
 export const timelineItems: TimelineItem[] = [
   {
-    version: 'v0.4.6', date: '2026-08-18', tag: '最新',
+    version: 'v0.4.7', date: '2026-08-19', tag: '最新',
+    title: '会话级模型选择器与 Responses API',
+    items: ['每个会话可独立指定模型，服务商→模型 2 级菜单，默认跟随全局配置', '新建子会话自动继承父会话模型，不再被全局模型限制', 'OpenAI 兼容服务商支持 Responses API，流式输出与用量统计适配', '模型方案固定 6 角色，角色体系更精简'],
+  },
+  {
+    version: 'v0.4.6', date: '2026-08-18',
     title: '交接引导与用量统计增强',
     items: ['新增交接引导：上下文接近上限时弹窗询问交接/继续/取消，长对话不再被自动截断', '用量窗口新增按时间走势的用量曲线，会话成本支持 USD/CNY 切换', '修复子会话运行时长显示为 0、项目选择器丢失其他项目的问题'],
   },

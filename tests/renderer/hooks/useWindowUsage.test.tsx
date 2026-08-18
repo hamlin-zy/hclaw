@@ -3,7 +3,8 @@
  * useWindowUsage hook 测试
  *
  * 保护：上下文窗口使用率计算。
- * - 工作模式 → 方案角色 → 模型名解析（useMemo 纯逻辑）
+ * - 当前生效模型名（useMemo 纯逻辑）：运行态 agentState.currentModelName 优先，
+ *   空则退化 primary 角色解析
  * - contextLength 从 electronAPI.modelMetaGetWindow 异步获取
  * - pct = computeUsagePct(stats.currentInputTokens + stats.currentCacheReadTokens, contextLength)
  *
@@ -35,6 +36,7 @@ function makeStats(overrides: Partial<MessageTokenStats> = {}): MessageTokenStat
         currentCacheReadTokens: 0,
         currentDecodeMs: 0,
         currentHasTtft: false,
+        lastTimedStats: null,
         ...overrides,
     }
 }
@@ -67,7 +69,10 @@ function makeProvider(id: string, modelId: string, modelName: string): LLMProvid
 
 /** 重置 stores 到可测试初始态 */
 function resetStores() {
-    useAgentStore.setState({workMode: 'primary'})
+    // agentState.currentModelName 清空（新逻辑：运行态模型名优先，空则退化 primary 角色解析）
+    useAgentStore.setState({
+        agentState: {...useAgentStore.getState().agentState, currentModelName: undefined},
+    })
     useModelSchemeStore.setState({schemes: [], activeSchemeId: null})
     useLLMStore.setState({providers: []})
 }
@@ -133,6 +138,26 @@ describe('useWindowUsage', () => {
         // pct = (10000+5000)/200000 = 7.5% → 8
         expect(result.current.contextLength).toBe(200000)
         expect(result.current.pct).toBe(8)
+    })
+
+    it('运行态模型名（agentState.currentModelName）优先于 primary 角色解析', async () => {
+        useModelSchemeStore.setState({
+            activeSchemeId: 's1',
+            schemes: [makeScheme('s1', 'primary', 'ep1', 'm1')],
+        })
+        useLLMStore.setState({providers: [makeProvider('ep1', 'm1', 'claude-3.5-sonnet')]})
+        useAgentStore.setState({
+            agentState: {...useAgentStore.getState().agentState, currentModelName: 'deepseek-v3'},
+        })
+
+        const {result} = renderHook(() => useWindowUsage(makeStats({currentInputTokens: 1000})))
+
+        await act(async () => {
+            await Promise.resolve()
+        })
+
+        // 用运行态模型名查询（而非 primary 角色解析出的 claude-3.5-sonnet）
+        expect((window.electronAPI as any).modelMetaGetWindow).toHaveBeenCalledWith('deepseek-v3')
     })
 
     it('窗口未知（contextLength 0）→ pct 0', async () => {

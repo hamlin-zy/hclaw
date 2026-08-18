@@ -16,6 +16,7 @@ import type {LoopState as AgentLoopState} from '../state'
 import type {AgentDefinition} from '@shared/agent'
 import type {CommandExecutionContext, HClawAgentType} from '@shared/types'
 import type {ModelRole, RunMode} from '@shared/types'
+import type {ModelOverride, ModelScheme, LLMProvider} from '@shared/types'
 import type {ToolRegistry} from '../tools/registry'
 
 import {container, DI_TOKENS} from '../common/container'
@@ -32,11 +33,11 @@ import {filterToolsForAgent} from '../tools/filter'
 import {filterToolsByAgentType, getAgentToolRestrictions} from '../agentTypes/configs'
 import {buildSystemPrompt as buildSystemPromptBase} from '../systemPrompt'
 import {renderSystemPrompt} from '../utils/promptRenderer'
-import {getCurrentSchemeInfo} from '../model/index'
-import {resolveModelConfig, selectModelForTaskWithRole} from '../model/modelSelector'
+import {resolveModelConfig, resolveDirectModelConfig, selectModelForTaskWithRole} from '../model/modelSelector'
 import {getRoleConfig} from '@shared/modelSchemeHelpers'
 import {getRoleDisplayName} from './helpers'
 import {resolveEntityCommand} from '../entityCommandResolver'
+import {createConversationRepository} from '../../repositories'
 
 const toolRegistry: ToolRegistry = container.get<ToolRegistry>(DI_TOKENS.ToolRegistry)
 
@@ -174,38 +175,95 @@ export async function detectCommandContext(params: RunParams): Promise<{
 
 // ─── 模型选择 ──────────────────────────────────────────────
 
+/** 沿 parentConvId 链向上查找最近的有效 override（agentTool 子会话继承父会话） */
+function findEffectiveOverride(convId: string): ModelOverride | null {
+    const repo = createConversationRepository()
+    let current = convId
+    const visited = new Set<string>()
+    while (current && !visited.has(current)) {
+        visited.add(current)
+        const ov = runtimeConfigManager.getOverride(current)
+        if (ov) return ov
+        try {
+            const meta = repo.readMeta(current) as { parentConvId?: string } | null
+            current = meta?.parentConvId || ''
+        } catch {
+            return null
+        }
+    }
+    return null
+}
+
 /**
- * 根据工作模式和意图分析结果选择模型
- * - auto 模式：意图分析为主，建议的模型未启用时 fallback 到 primary
- * - 其他模式：使用工作模式映射到对应角色
+ * 根据「显式 modelRole → 会话 override → auto 意图分析」三级决策选择模型
+ * - 显式 modelRole（agentTool 子会话）：仅 3 文本角色且方案角色已启用配置才生效
+ * - 会话 override：绕过角色直接解析该模型（directModel），失效则降级 auto + warning
+ * - auto：意图分析为主，建议的模型未启用时 fallback 到 primary
  * - 图片消息：loop 始终使用工作模式模型，图片分析由 analyze_image 内置工具调用视觉理解模型处理
  */
 export function* selectModelForTurn(
     analysis: {suggestedModel: ModelRole; complexity: string},
     schemeConfig: RunParams['schemeConfig'],
+    sessionId?: string,
+    modelRoleOverride?: ModelRole,
 ): Generator<AgentStreamEvent, TurnModelSelection> {
-    const currentWorkMode = runtimeConfigManager.getWorkMode()
+    const currentScheme = runtimeConfigManager.getScheme() || (schemeConfig?.scheme as ModelScheme | undefined) || null
+    // 单次调用缓存（避免重复 getProviders()）：runtime 优先、schemeConfig 兜底（与原实现双路径等价）
+    const runtimeProviders = runtimeConfigManager.getProviders()
+    const providers: LLMProvider[] = runtimeProviders.length > 0
+        ? runtimeProviders
+        : ((schemeConfig?.providers as LLMProvider[] | undefined) || [])
 
-    let suggestedRole: ModelRole = 'primary'
-    let modelSelectionReason: string = ''
-
-    if (currentWorkMode === 'auto') {
-        suggestedRole = analysis.suggestedModel
-        modelSelectionReason = `auto模式·意图分析:${analysis.complexity}`
-
-        const currentScheme = runtimeConfigManager.getScheme()
-        if (currentScheme) {
-            const roleConfig = getRoleConfig(currentScheme, analysis.suggestedModel)
-            if (!roleConfig?.enabled) {
-                logger.info(`[AgentLoop] auto模式：意图建议的${analysis.suggestedModel}模型未启用，fallback到primary`)
-                suggestedRole = 'primary'
-                modelSelectionReason += '(fallback→primary)'
+    // ── 0. 显式 modelRole（agentTool 子会话）：仅 3 文本角色且方案角色已启用配置才生效 ──
+    if (modelRoleOverride && ['primary', 'lightweight', 'reasoning'].includes(modelRoleOverride)) {
+        const roleConfig = currentScheme && getRoleConfig(currentScheme, modelRoleOverride)
+        if (roleConfig?.enabled && roleConfig.endpointId && roleConfig.modelId && providers.length > 0) {
+            const resolved = resolveModelConfig(roleConfig, providers)
+            if (resolved) {
+                return {
+                    modelConfig: resolved,
+                    schemeId: currentScheme?.id || null,
+                    schemeName: currentScheme?.name || null,
+                    suggestedRole: modelRoleOverride,
+                    providerName: resolved._providerName,
+                }
             }
         }
-    } else {
-        suggestedRole = runtimeConfigManager.getModelRoleForWorkMode()
-        const currentScheme = runtimeConfigManager.getScheme()
-        modelSelectionReason = `工作模式:${getRoleDisplayName(currentScheme, currentWorkMode)}`
+        // 校验降级：角色未启用/未配置 → 落入后续步骤
+    }
+
+    // ── 1. 会话 override（子会话沿父链继承）──
+    const override = sessionId ? findEffectiveOverride(sessionId) : null
+    if (override) {
+        if (providers.length > 0) {
+            const direct = resolveDirectModelConfig(override.endpointId, override.modelId, providers)
+            if (direct) {
+                return {
+                    modelConfig: direct,
+                    schemeId: currentScheme?.id || null,
+                    schemeName: currentScheme?.name || null,
+                    suggestedRole: 'primary' as ModelRole, // 占位：override 不经角色
+                    directModel: true,
+                    providerName: direct._providerName,
+                }
+            }
+        }
+        // override 失效（服务商/模型已删除或禁用）→ 降级 auto + warning
+        logger.warn(`[AgentLoop] 会话模型 override 失效（${override.endpointId}/${override.modelId}），降级 auto`)
+        yield {type: 'warning', message: '会话指定的模型已失效，已切换为自动模式'}
+    }
+
+    // ── 2. auto 意图分析（移除手动分支，恒走 auto）──
+    let suggestedRole: ModelRole = analysis.suggestedModel
+    let modelSelectionReason = `auto模式·意图分析:${analysis.complexity}`
+
+    if (currentScheme) {
+        const roleConfig = getRoleConfig(currentScheme, analysis.suggestedModel)
+        if (!roleConfig?.enabled) {
+            logger.info(`[AgentLoop] auto模式：意图建议的${analysis.suggestedModel}模型未启用，fallback到primary`)
+            suggestedRole = 'primary'
+            modelSelectionReason += '(fallback→primary)'
+        }
     }
 
     logger.info(`[AgentLoop] 模型选择：${modelSelectionReason} → ${suggestedRole}`)
@@ -214,42 +272,23 @@ export function* selectModelForTurn(
     let schemeId: string | null = null
     let schemeName: string | null = null
 
-    const schemeInfo = getCurrentSchemeInfo()
-    if (schemeInfo.id && schemeInfo.name) {
-        schemeId = schemeInfo.id
-        schemeName = schemeInfo.name
-
-        const currentScheme = runtimeConfigManager.getScheme()
-        const providers = runtimeConfigManager.getProviders()
-        if (currentScheme && providers.length > 0) {
-            const roleResult = selectModelForTaskWithRole(currentScheme, 'main', {suggestedModel: suggestedRole})
-            const resolved = resolveModelConfig(roleResult.config, providers)
-            if (resolved) {
-                modelConfig = resolved
-            } else {
-                logger.warn(`[AgentLoop] ${roleResult.role} 模型配置无法解析，fallback 到 primary`)
-                const primaryResolved = resolveModelConfig(
-                    selectModelForTaskWithRole(currentScheme, 'main', {suggestedModel: 'primary'}).config,
-                    providers,
-                )
-                if (primaryResolved) modelConfig = primaryResolved
-            }
-            if (resolved && roleResult.role !== suggestedRole) {
-                const warnMsg = `${modelSelectionReason}，实际使用「${getRoleDisplayName(currentScheme, roleResult.role)}」模型`
-                logger.warn(`[AgentLoop] model-fallback: ${warnMsg}`)
-                yield {type: 'warning', message: warnMsg}
-            }
-        }
-    } else if (schemeConfig && schemeConfig.scheme && Array.isArray(schemeConfig.providers)) {
-        const roleResult = selectModelForTaskWithRole(schemeConfig.scheme, 'main', {suggestedModel: suggestedRole})
-        const resolved = resolveModelConfig(roleResult.config, schemeConfig.providers)
+    if (currentScheme && providers.length > 0) {
+        const roleResult = selectModelForTaskWithRole(currentScheme, 'main', {suggestedModel: suggestedRole})
+        const resolved = resolveModelConfig(roleResult.config, providers)
         if (resolved) {
             modelConfig = resolved
-            schemeId = schemeConfig.scheme.id
-            schemeName = schemeConfig.scheme.name
+            schemeId = currentScheme.id
+            schemeName = currentScheme.name
+        } else {
+            logger.warn(`[AgentLoop] ${roleResult.role} 模型配置无法解析，fallback 到 primary`)
+            const primaryResolved = resolveModelConfig(
+                selectModelForTaskWithRole(currentScheme, 'main', {suggestedModel: 'primary'}).config,
+                providers,
+            )
+            if (primaryResolved) modelConfig = primaryResolved
         }
         if (resolved && roleResult.role !== suggestedRole) {
-            const warnMsg = `${modelSelectionReason}，实际使用「${getRoleDisplayName(schemeConfig.scheme, roleResult.role)}」模型`
+            const warnMsg = `${modelSelectionReason}，实际使用「${getRoleDisplayName(roleResult.role)}」模型`
             logger.warn(`[AgentLoop] model-fallback: ${warnMsg}`)
             yield {type: 'warning', message: warnMsg}
         }

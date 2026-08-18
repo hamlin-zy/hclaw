@@ -380,6 +380,8 @@ class SchedulerManager {
         // Agent/Skill/Command 类型：创建会话 → 写入消息 → agentManager.start
         convId = crypto.randomUUID()
         this.createSchedulerConversation(convId, msg.scheduleId, schedule?.name || '', startTime, schedule?.workspaceId)
+        // 定时任务会话无选择入口：固化继承 lastSelected
+        runtimeConfigManager.setOverride(convId, runtimeConfigManager.getLastSelected())
         logger.debug('execute.conversationCreated', {source: msg.source, convId, scheduleId: msg.scheduleId})
 
         const userContent = this.buildUserMessage(msg.taskTarget, msg.taskArgs)
@@ -405,7 +407,6 @@ class SchedulerManager {
             scheme: currentScheme,
             providers: currentProviders as any,
           } : undefined,
-          workMode: runtimeConfigManager.getWorkMode() as any,
         })
 
         logger.info('execute.agentDone', {source: msg.source, scheduleId: msg.scheduleId, convId})

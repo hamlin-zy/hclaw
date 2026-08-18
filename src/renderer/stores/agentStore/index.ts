@@ -9,8 +9,7 @@
 
 import {create} from 'zustand'
 import {persist} from 'zustand/middleware'
-import type {RunMode, WorkMode} from '@shared/types'
-// WORK_MODE_TO_MODEL_ROLE 已废弃，直接使用 mode 作为角色名
+import type {RunMode} from '@shared/types'
 
 import type {AgentStore} from './types'
 import type {HookResultItem} from './types'
@@ -23,7 +22,6 @@ import {IDLE_STATE, STREAMING_STATE, DEFAULT_TOP_LEVEL, createDefaultConvData} f
 export {createDefaultConvData}
 import {useConversationStore} from '../conversationStore'
 import {useToolCallsStore} from '../toolCallsStore'
-import {useModelSchemeStore} from '../modelSchemeStore'
 
 import {flushAllTextBatches} from './batching/textBatch'
 import {flushAllThinkingBatches} from './batching/thinkingBatch'
@@ -56,11 +54,12 @@ export const useAgentStore = create<AgentStore>()(
             intentResult: null,
             permissionRules: [],
             permissionMode: 'safe',
-            workMode: 'primary',
             messageDisplayMode: 'detailed',
             compactStats: null,
             compactInProgress: false,
             errorMessage: null,
+            modelOverride: null,
+            lastSelected: null,
             hookResults: [],
             convAgentStates: {},
 
@@ -105,44 +104,11 @@ export const useAgentStore = create<AgentStore>()(
                 set((prev) => ({agentState: {...prev.agentState, ...state}}))
             },
 
-            setMode: (mode) => {
-                set((prev) => ({agentState: {...prev.agentState, mode}}))
-            },
-
             // ── 权限模式 ──────────────────────────────
             setPermissionMode: async (mode: RunMode) => {
                 try {
                     await window.electronAPI?.agentSetPermissionMode?.(mode)
                     set({permissionMode: mode})
-                } catch { /* 静默处理错误 */ }
-            },
-
-            // ── 工作模式 ──────────────────────────────
-            setWorkMode: async (mode: WorkMode) => {
-                try {
-                    await window.electronAPI?.agentSetWorkMode?.(mode)
-                    set({workMode: mode})
-
-                    const currentStatus = get().agentState.status
-                    if (currentStatus === 'idle' || currentStatus === 'error' || currentStatus === 'paused') {
-                        // mode 直接作为角色名查找
-                        const role = mode === 'auto' ? 'primary' : mode
-                        const modelConfig = useModelSchemeStore.getState().getModelConfigForRole(role as any)
-                        if (!modelConfig) return
-
-                        const {provider, model: modelName} = modelConfig
-                        const agentStatePatch = {currentModelName: modelName, currentModelProvider: provider}
-
-                        const activeConvId = useConversationStore.getState().activeConversationId
-                        const convData = activeConvId ? get().convAgentStates[activeConvId] : undefined
-                        if (convData) {
-                            get().updateConvData(activeConvId!, {
-                                agentState: {...convData.agentState, ...agentStatePatch},
-                            })
-                        } else {
-                            set({agentState: {...get().agentState, ...agentStatePatch}})
-                        }
-                    }
                 } catch { /* 静默处理错误 */ }
             },
 
@@ -152,6 +118,14 @@ export const useAgentStore = create<AgentStore>()(
                 try {
                     await window.electronAPI?.configWrite?.('message-display-mode', {mode})
                 } catch { /* 静默处理持久化错误 */ }
+            },
+
+            // ── 会话级模型 override ──────────────────────────
+            setModelOverride: async (convId, override) => {
+                try {
+                    await window.electronAPI?.modelOverrideSet?.(convId, override)
+                    set({modelOverride: override})
+                } catch { /* 静默处理 */ }
             },
 
             // ── 权限确认 ──────────────────────────────

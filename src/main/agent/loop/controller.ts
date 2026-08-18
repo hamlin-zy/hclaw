@@ -339,7 +339,7 @@ export class AgentLoopController {
             const analysis = createDefaultResult(analysisText)
 
             // ── 选择模型 ──
-            const selection = yield* selectModelForTurn(analysis, schemeConfig)
+            const selection = yield* selectModelForTurn(analysis, schemeConfig, sessionId, params.modelRole)
 
             // ── 过滤工具列表 ──
             const agentType = (agentTypeParam ?? params.agentType) || 'General'
@@ -411,6 +411,7 @@ export class AgentLoopController {
                 isCompactCommand,
                 turns: turnCount,
                 preprocessCache,
+                directModel: selection.directModel,
             })
 
             if (abortSignal?.aborted) return 'early_exit'

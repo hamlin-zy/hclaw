@@ -34,12 +34,13 @@ let cachedConfigHash: string | null = null
 /**
  * 计算配置哈希，用于检测配置变更
  */
-function computeConfigHash(client: any): string {
+function computeConfigHash(client: any, apiStyle?: string): string {
     const key = {
         apiKey: client?.apiKey || '',
         baseURL: client?.baseURL || client?.baseUrl || '',
         model: client?.model || '',
         provider: client?.provider || '',
+        apiStyle: apiStyle || 'chat',
     }
     return crypto.createHash('sha256')
         .update(JSON.stringify(key))
@@ -65,6 +66,7 @@ export function createModelAdapter(config: ModelConfig): ModelAdapter {
     case 'anthropic':
       return new AnthropicAdapter(config)
     case 'openai':
+    case 'custom':
       return new OpenAIAdapter(config)
     case 'google':
         logger.info('[index.ts] createModelAdapter - google:', { ...config, apiKey: config.apiKey ? '***' : undefined })
@@ -116,6 +118,7 @@ export async function createAdapterForRole(
     let version: number
     let authType: string
     let apiKey = ''
+    let apiStyle = 'chat'
     let refreshToken: string | undefined
     let tokenExpiryDate: number | undefined
     let features: import('@shared/types').ProviderFeatures | undefined
@@ -134,6 +137,8 @@ export async function createAdapterForRole(
         refreshToken = result.refreshToken
         tokenExpiryDate = result.tokenExpiryDate
         features = result.features
+        // apiStyle 透传：进入配置哈希，服务商 apiStyle 变更 → 适配器自动重建
+        apiStyle = (result as any).apiStyle || 'chat'
     } catch (error: any) {
         // 全局管理器获取失败，尝试使用兜底配置
         logger.error('[createAdapterForRole] getClientForCurrentScheme 失败', { error: error.message, stack: error.stack })
@@ -157,7 +162,7 @@ export async function createAdapterForRole(
     }
 
     // 计算当前配置的哈希值
-    const currentConfigHash = computeConfigHash(client)
+    const currentConfigHash = computeConfigHash(client, apiStyle)
     
     // 检查缓存：版本号、方案ID、角色均匹配且配置未变更
     const currentVersion = getSchemeVersion()?.version
@@ -201,6 +206,7 @@ export async function createAdapterForRole(
             refreshToken,
             tokenExpiryDate,
             features,
+            apiStyle: apiStyle as any,
         }
 
         switch (providerType) {

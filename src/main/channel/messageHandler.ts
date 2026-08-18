@@ -18,9 +18,11 @@ import {channelCommandManager} from './CommandManager'
 import {buildUserContent, hasAudioAttachment, isAttachmentOnlyMarker} from './utils'
 import {mcpService} from '../services/mcpService'
 import {getMainWindow} from '../window'
+import {runtimeConfigManager} from '../agent/runtimeConfigManager'
+import {resolveChannelModelConfig} from '../agent/model/modelSelector'
 import type {ChannelBindingRecord, CommandResult, IncomingMessage, ResourceRef} from './types'
 import type {ChatMessage, ModelConfig} from '../agent/model/types'
-import type {LLMProvider, ModelScheme, WorkMode} from '@shared/types'
+import type {LLMProvider, ModelScheme} from '@shared/types'
 import {logger} from '../agent/logger'
 
 /** 统一的结构化错误日志，避免 (err as Error)?.message || err 重复书写 */
@@ -507,15 +509,14 @@ async function processAgentMessage(
         }
     })
     // 4. Get runtime config
-    const {runtimeConfigManager} = await import('../agent/runtimeConfigManager')
     const currentScheme = runtimeConfigManager.getScheme() as ModelScheme | undefined
     const currentProviders = runtimeConfigManager.getProviders() as LLMProvider[] | undefined
     const meta = convRepo.readMeta(binding.conversationId) as { workspacePath?: string }
     const workingDir = meta?.workspacePath || ''
-    const workMode = runtimeConfigManager.getWorkMode()
-    const roleProviderInfo = runtimeConfigManager.getModelConfigForWorkMode()
-    const modelConfig: ModelConfig | undefined = roleProviderInfo.isValid && roleProviderInfo.provider && roleProviderInfo.modelId
-        ? {provider: roleProviderInfo.provider.type, model: roleProviderInfo.modelId}
+    // 渠道会话模型：会话 override（创建时继承 lastSelected 固化）→ 直接解析；无 → auto（不预置）
+    const convOverride = runtimeConfigManager.getOverride(binding.conversationId)
+    const modelConfig = (currentProviders && currentProviders.length > 0)
+        ? resolveChannelModelConfig(convOverride, currentProviders)
         : undefined
 
     // 5. Run agent and get response (with progress notifications every 5 minutes)
@@ -530,7 +531,6 @@ async function processAgentMessage(
             workingDir,
             currentScheme,
             currentProviders,
-            workMode,
             modelConfig,
             onProgress: (minutes: number) => {
                 sendViaWorker(
@@ -590,7 +590,6 @@ interface RunAgentOptions {
     workingDir: string
     currentScheme?: ModelScheme
     currentProviders?: LLMProvider[]
-    workMode: WorkMode | undefined
     modelConfig?: ModelConfig
     /** 可选：进度通知回调，参数为已运行分钟数 */
     onProgress?: (minutes: number) => void
@@ -604,7 +603,6 @@ async function runAgent(options: RunAgentOptions): Promise<string> {
         workingDir,
         currentScheme,
         currentProviders,
-        workMode,
         modelConfig,
         onProgress,
     } = options
@@ -662,7 +660,6 @@ async function runAgent(options: RunAgentOptions): Promise<string> {
                 schemeConfig: currentScheme && currentProviders
                     ? {scheme: currentScheme, providers: currentProviders}
                     : undefined,
-                workMode: workMode as string | undefined,
             })
             .catch((err) => {
                 removeListener()
@@ -709,6 +706,9 @@ async function createNewSession(
 
     // Create conversation record (must await so FK constraint satisfied before upsertBinding)
     await createConversationRecord(convId, msg.channelId, msg.userId, workspacePath)
+
+    // 渠道会话无选择入口：固化继承 lastSelected（防 UI 侧 lastSelected 漂移污染）
+    runtimeConfigManager.setOverride(convId, runtimeConfigManager.getLastSelected())
 
     // Create binding
     channelRepo.upsertBinding(msg.channelId, msg.userId, convId)

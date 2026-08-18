@@ -22,6 +22,8 @@ export interface TurnModelSelection {
     suggestedRole: ModelRole
     /** providers 表服务商名（providers.name，人类可读），用于 agent_start 事件展示 */
     providerName?: string
+    /** 模型由会话 override 直接指定（绕过角色路由），适配器直接以该 config 创建 */
+    directModel?: boolean
 }
 
 export interface LlmStreamResult {
@@ -96,6 +98,8 @@ export interface RunParams {
     }
     /** 消息元数据（如命令模板等），用于识别命令模式 */
     messageMetadata?: Record<string, unknown>
+    /** 显式指定模型角色（agentTool 子会话专用；primary/lightweight/reasoning） */
+    modelRole?: ModelRole
     /**
      * Hook 执行后注入的额外上下文
      * 来自 SessionStart/UserPromptSubmit hook 的 additionalContext

@@ -283,6 +283,8 @@ export async function getClientForCurrentScheme(
     tokenExpiryDate?: number;
     /** 扩展特性 */
     features?: import('@shared/types').ProviderFeatures;
+    /** API 协议形态（chat / responses） */
+    apiStyle?: 'chat' | 'responses';
 }> {
     const currentScheme = getConfigBridge().getScheme()
 
@@ -325,6 +327,7 @@ export async function getClientForCurrentScheme(
         refreshToken: isOAuth2 ? creds?.refreshToken : undefined,
         tokenExpiryDate: isOAuth2 ? creds?.expiryDate : undefined,
         features: provider.features,
+        apiStyle: provider.apiStyle || 'chat',
     }
 }
 

@@ -46,6 +46,24 @@ describe('checkResultSize', () => {
         expect(result.output).not.toContain('[结果已截断]')
     })
 
+    it('agent 工具输出超过警告阈值时不追加警告（Infinity 完全豁免）', () => {
+        // 10KB > 5KB 警告阈值，但 agent 阈值 Infinity 表示完全豁免（连警告尾巴也不加）
+        const big = 'a'.repeat(10 * 1024)
+        const result = checkResultSize('agent', okResult(big))
+        expect(result.output).toBe(big)
+        expect(result.output).not.toContain('[警告] 结果较大')
+    })
+
+    it('skill 工具输出超过警告阈值时不追加警告（buildGuidance 三端一致性豁免）', () => {
+        // 10KB > 5KB 警告阈值，但 skill output 是 buildGuidance 原文，
+        // 落库后 restoreSkillSystemMessages 逐字节重建 system 消息，警告尾巴会破坏一致性
+        const big = 'g'.repeat(10 * 1024)
+        const result = checkResultSize('skill', okResult(big))
+        expect(result.output).toBe(big) // 完整内容保留，无尾巴
+        expect(result.output).not.toContain('[警告] 结果较大')
+        expect(result.output).not.toContain('[结果已截断]')
+    })
+
     it('输出为空时不处理', () => {
         const result = checkResultSize('bash', {success: true, output: ''})
         expect(result.output).toBe('')
