@@ -61,8 +61,8 @@ describe('UsageWindow 全局用量窗口', () => {
         expect(screen.getByText('Deepseek-ant')).toBeTruthy()
         expect(screen.queryByText('Anthropic')).toBeNull()
         expect(screen.getByText('OpenAI')).toBeTruthy()
-        // 成本口径说明（圆圈问号）存在
-        expect(screen.getByRole('img', {name: '成本口径说明'})).toBeTruthy()
+        // 成本口径说明（圆圈问号）存在：工具栏 + 总成本 KPI + 表头成本列，共 3 处
+        expect(screen.getAllByRole('img', {name: '成本口径说明'}).length).toBeGreaterThanOrEqual(3)
         // 数据口径提示：客户端侧统计，非服务商账单
         expect(screen.getByText('统计数据为客户端侧记录，仅供对照，实际用量以服务商官网为准')).toBeTruthy()
     })
