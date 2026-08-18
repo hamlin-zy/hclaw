@@ -9,11 +9,17 @@
 
 ## [Unreleased]
 
-### 变更
-- **移除自动截断** — agent_start 前无条件轮数门截断删除（`structuredTruncation.ts` 整删）；轮数门在 DeepSeek 缓存经济（命中/未命中 = 1/30）下是纯亏损路径：每次截断制造一次全量未命中（贵 30 倍），省下的重复 token 按命中价算几乎免费
-- **交接引导系统** — 发送前 `context:get-usage` 检查上下文占比，≥ 阈值（默认 50%）弹窗询问交接/继续/取消（可"本会话不再提醒"，阈值调整后恢复）；交接时消息替换为 `session_handoff` 交接指令模板（丢弃 commandId/commandTemplate）
-- **loop 级溢出保护** — 每次 LLM 调用前估算 token，占用超过用户配置的交接阈值（默认 50%，0=关闭）时按 `midLoopOverflowMode` 自动注入交接指令并强制结束本轮（auto-handoff）或优雅停止（graceful-stop）；`context_length` 错误文案增强引导
-- **新配置项** — `agent.handoffThresholdRatio`（默认 0.5，0=关闭）、`agent.midLoopOverflowMode`（默认 auto-handoff），设置面板 Agent 区可调
+---
+
+## [v0.4.6] - 2026-08-18
+
+### 新增
+- **交接引导系统** — 长对话不再被自动截断：上下文占用接近上限时，发送前弹窗询问"交接新会话 / 继续 / 取消"，对话中途溢出也会自动提示并引导交接，避免 AI 记忆错乱；触发阈值与处理模式可配置（`agent.handoffThresholdRatio` 默认 50%、`agent.midLoopOverflowMode` 默认自动交接）
+- **用量统计增强** — 用量窗口新增按时间走势的用量曲线；会话成本支持按分组切换 USD/CNY 货币
+
+### 修复
+- **修复子会话运行时长恒为 0 的问题** — 子会话耗时统计显示异常（`childConvMessages.ts`）
+- **修复新建子会话后项目选择器丢失其他项目的问题** — 新会话不再覆盖工作区配置（`conversationStore.ts`）
 
 ---
 
