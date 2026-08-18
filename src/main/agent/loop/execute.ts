@@ -77,6 +77,8 @@ export interface ExecuteLlmCallParams {
     turns: number
     /** LLM 调用前 normalize 增量缓存（source-count 判失效） */
     preprocessCache: PreprocessCache
+    /** 模型由会话 override 直接指定，跳过角色路由直接以 modelConfig 创建适配器 */
+    directModel?: boolean
 }
 
 /**
@@ -108,7 +110,7 @@ export async function* executeLlmCallWithRetry(
     ctx: ExecuteLlmCallParams,
 ): AsyncGenerator<AgentStreamEvent, LlmStreamResult | null> {
     const {llmCaller, state, systemPrompt, commandTemplate, availableToolDefinitions, modelConfig,
-        workModeRole, schemeName, getSettings, params, isCompactCommand, turns, preprocessCache} = ctx
+        workModeRole, schemeName, getSettings, params, isCompactCommand, turns, preprocessCache, directModel} = ctx
     const {abortSignal, requestConfirmation, sessionId} = params
 
     const retryCount = getSettings()?.agent.retryCount ?? 10
@@ -135,13 +137,14 @@ export async function* executeLlmCallWithRetry(
         const collectedToolCalls: Array<{id: string; name: string; arguments: Record<string, unknown>}> = []
 
         try {
-            // ── 获取/重建适配器（收归 LLMCaller，含 schemeVersion + workMode 检测） ──
+            // ── 获取/重建适配器（收归 LLMCaller，含 schemeVersion + 角色/direct 检测） ──
             const adapterResult = await llmCaller.getAdapter(
                 'main',
                 workModeRole,
                 modelConfig,
                 params.schemeUpdatePromise,
                 abortSignal,
+                directModel,
             )
             adapter = adapterResult.adapter
             currentProvider = adapterResult.providerType

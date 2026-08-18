@@ -33,8 +33,8 @@ export interface AgentStartParams {
   }
   /** 会话标题 */
   conversationTitle?: string
-  /** 工作模式（不传则使用默认值 'work'） */
-  workMode?: string
+  /** 会话级模型 override（由主进程解析后传给 Worker；null=显式 auto） */
+  modelOverride?: import('@shared/types').ModelOverride | null
   /**
    * 序列化的能力列表
    * 主进程序列化后传递给 Worker，Worker 直接使用，无需重新加载

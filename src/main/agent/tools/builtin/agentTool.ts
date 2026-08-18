@@ -80,6 +80,8 @@ const inputSchema = z.object({
         .describe('必填。要作为子 Agent 运行的 Agent 名称，从当前可用 Agent 列表中精确选择（如 "Implementer Agent"、"Code Reviewer Agent"）。根据任务类型选择最匹配的角色；不确定时用 "General Agent"。'),
     tools: z.array(z.string()).optional()
         .describe('允许使用的工具白名单（指定 agent 时覆盖 Agent 定义的白名单）'),
+    modelRole: z.enum(['primary', 'lightweight', 'reasoning']).optional()
+        .describe('指定子 Agent 使用的模型角色（可选）。按任务复杂度指定：简单任务→lightweight、复杂推理→reasoning、常规→primary。未指定时子会话继承父会话模型选择。'),
 })
 
 type AgentToolInput = z.infer<typeof inputSchema>
@@ -265,6 +267,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
                     {role: 'user', content: args.task},
                 ],
                 modelConfig,
+                modelRole: args.modelRole,
                 workingDir,
                 settings: settings || undefined,
                 maxTurns: maxTurnsLimit,

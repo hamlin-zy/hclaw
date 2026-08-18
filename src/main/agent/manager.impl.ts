@@ -156,7 +156,12 @@ export class AgentManager {
     // 初始化 pending
     this.pendingAssistantMsg.set(params.conversationId, null)
 
-    const workerParams = {...params, settings: initialSettings, capabilities}
+    const workerParams = {
+      ...params,
+      modelOverride: runtimeConfigManager.getOverride(params.conversationId),
+      settings: initialSettings,
+      capabilities,
+    }
 
     const worker = new Worker(workerPath, {
       type: 'module' as const,
@@ -972,12 +977,12 @@ export class AgentManager {
     }
   }
 
-  /** 广播工作模式更新到所有运行中的 Agent */
-  broadcastWorkModeUpdate(workMode: string): void {
+  /** 广播会话级模型 override 更新到所有运行中的 Agent（主进程 → Worker） */
+  broadcastModelOverride(convId: string, override: import('@shared/types').ModelOverride | null): void {
     for (const id of this.getRunningConversations()) {
       const entry = this.workers.get(id)
       if (entry) {
-        entry.worker.postMessage({type: WORKER_MESSAGE_TYPES.UPDATE_WORK_MODE, workMode})
+        entry.worker.postMessage({type: WORKER_MESSAGE_TYPES.UPDATE_MODEL_OVERRIDE, convId, override})
       }
     }
   }
@@ -1162,7 +1167,7 @@ export class AgentManager {
         scheme: handoffScheme,
         providers: handoffProviders as any,
       } : undefined,
-      workMode: runtimeConfigManager.getWorkMode(),
+      modelOverride: runtimeConfigManager.getOverride(msg.convId),
       conversationTitle: msg.title,
     })
   }

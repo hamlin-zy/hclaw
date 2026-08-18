@@ -2,7 +2,7 @@
  * modelSelector 单元测试
  *
  * 覆盖：
- * - selectModelForTask：新旧 scheme 结构兼容、planning/background 上下文、
+ * - selectModelForTask：roles 数组结构解析、planning/background 上下文、
  *   suggestedModel 优先、fallback 链式查找
  * - selectModelForTaskWithRole：返回实际角色、reasoning 配置不完整时 fallback、
  *   suggestedModel 即使未启用也使用、兜底选择
@@ -56,7 +56,7 @@ const DEFAULT_ROLES: Record<RoleKey, ModelRoleConfig> = {
     reasoning: {endpointId: 'prov-reason', modelId: 'model-reason', enabled: false},
 }
 
-/** 构造 roles 数组结构（新结构）scheme */
+/** 构造 roles 数组结构 scheme */
 function makeRolesScheme(overrides: RoleOverrides = {}): ModelScheme {
     const roles = (['primary', 'lightweight', 'reasoning'] as RoleKey[]).map((role): ModelSchemeRole => ({
         id: `id-${role}`,
@@ -66,17 +66,6 @@ function makeRolesScheme(overrides: RoleOverrides = {}): ModelScheme {
         ...(overrides[role] ?? {}),
     }))
     return {id: 'scheme-1', name: 'test-scheme', enabled: true, roles}
-}
-
-/** 构造 roles 对象形式（旧结构）scheme */
-function makeLegacyScheme(overrides: RoleOverrides = {}): Record<string, unknown> {
-    return {
-        id: 'legacy-scheme',
-        name: 'legacy',
-        primary: {...DEFAULT_ROLES.primary, ...(overrides.primary ?? {})},
-        lightweight: {...DEFAULT_ROLES.lightweight, ...(overrides.lightweight ?? {})},
-        reasoning: {...DEFAULT_ROLES.reasoning, ...(overrides.reasoning ?? {})},
-    }
 }
 
 /** 构造 LLMProvider */
@@ -114,12 +103,6 @@ beforeEach(() => {
 // ─── selectModelForTask ─────────────────────────────────────────
 
 describe('selectModelForTask', () => {
-    it('旧结构 scheme（roles 对象形式）→ 正常返回 primary', () => {
-        const result = selectModelForTask(makeLegacyScheme(), 'main')
-        expect(result.endpointId).toBe('prov-primary')
-        expect(result.modelId).toBe('model-primary')
-    })
-
     it('新结构（roles 数组）→ 兼容解析返回 primary', () => {
         const result = selectModelForTask(makeRolesScheme(), 'main')
         expect(result.endpointId).toBe('prov-primary')
@@ -148,7 +131,7 @@ describe('selectModelForTask', () => {
     })
 
     it('fallback：background 无 lightweight → 回退 primary', () => {
-        const scheme = makeLegacyScheme({lightweight: {enabled: false}})
+        const scheme = makeRolesScheme({lightweight: {enabled: false}})
         const result = selectModelForTask(scheme, 'background')
         expect(result.endpointId).toBe('prov-primary')
     })

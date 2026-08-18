@@ -7,6 +7,7 @@
 import type {ChatMessage} from '../model/types'
 import type {IntentAnalysisResult} from '@shared/types'
 import type {ModelRole} from '@shared/types'
+import {MODEL_ROLE_INFO} from '@shared/modelSchemeHelpers'
 
 // ─── Constants ─────────────────────────────────────────────
 
@@ -70,13 +71,10 @@ export function sanitizeThinkingForModel(messages: ChatMessage[]): ChatMessage[]
 // ─── 角色显示名 ────────────────────────────────────────────
 
 /**
- * 从方案中按角色名查找 displayName
+ * 从 MODEL_ROLE_INFO 获取角色显示名（displayName 固定，无需遍历 scheme）
  */
-export function getRoleDisplayName(
-    scheme: { roles: Array<{ role: string; displayName?: string }> } | null | undefined,
-    role: string,
-): string {
-    return scheme?.roles?.find(r => r.role === role)?.displayName || role
+export function getRoleDisplayName(role: string): string {
+    return MODEL_ROLE_INFO[role as ModelRole]?.name || role
 }
 
 // ─── GC 清理 ───────────────────────────────────────────────
@@ -114,10 +112,10 @@ export function createDefaultResult(text: string): IntentAnalysisResult {
     else if (complexity === 'moderate') estimatedSteps = 3
 
     let suggestedModel: ModelRole = 'primary'
-    if (complexity === 'simple' || (isExploration && complexity !== 'complex')) {
-        suggestedModel = 'lightweight'
-    } else if (complexity === 'complex') {
+    if (complexity === 'complex') {
         suggestedModel = 'reasoning'
+    } else if (isExploration && complexity === 'simple') {
+        suggestedModel = 'lightweight'
     }
 
     return {

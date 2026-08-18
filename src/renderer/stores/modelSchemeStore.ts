@@ -125,13 +125,6 @@ interface ModelSchemeStore {
 
     /** 获取激活的方案 */
     getActiveScheme: () => ModelScheme | null
-    /** 获取某个角色的完整模型配置（解析 endpoint + model） */
-    getModelConfigForRole: (role: ModelRole) => {
-        provider: string
-        model: string
-        apiKey?: string
-        baseUrl?: string
-    } | null
 }
 
 // ─── Store 实现 ───────────────────────────────────────────
@@ -282,36 +275,6 @@ export const useModelSchemeStore = create<ModelSchemeStore>()(
             getActiveScheme: () => {
                 const state = get()
                 return state.schemes.find((s) => s.id === state.activeSchemeId) || null
-            },
-
-            getModelConfigForRole: (role) => {
-                const scheme = get().getActiveScheme()
-                if (!scheme) return null
-
-                // Find role by role field in roles[], fallback to primary if disabled
-                let roleConfig = scheme.roles.find((r) => r.role === role)
-                if (!roleConfig?.enabled && role !== 'primary') {
-                    roleConfig = scheme.roles.find((r) => r.role === 'primary')
-                }
-                if (!roleConfig) return null
-
-                // 从 llmStore 获取 endpoint 信息
-                const llmState = useLLMStore.getState()
-                const provider = llmState.providers.find(
-                    (p) => p.id === roleConfig.endpointId
-                )
-                if (!provider) return null
-
-                const model = provider.models.find((m) => m.id === roleConfig.modelId)
-                if (!model) return null
-
-                // 返回解析后的配置
-                return {
-                    provider: provider.type,
-                    model: model.name,
-                    apiKey: provider.credentials?.apiKey,
-                    baseUrl: provider.baseUrl,
-                }
             },
         }),
         {

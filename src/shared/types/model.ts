@@ -15,6 +15,8 @@ export interface ModelConfig {
   model: string
   /** 认证类型：api-key (默认) 或 google-oauth2 */
   authType?: 'api-key' | 'google-oauth2'
+  /** API 协议形态：chat=Chat Completions（默认），responses=OpenAI Responses API */
+  apiStyle?: 'chat' | 'responses'
   apiKey?: string
   /** 保存的凭据 ID */
   credentialId?: string
@@ -41,28 +43,6 @@ export type ModelRole =
   | 'image_understanding'
   | 'audio_understanding'
   | 'video_understanding'
-  | 'image_generation'
-  | 'video_generation'
-  | 'voice_clone'
-  | 'voice_synthesis'
-  | 'music_generation'
-
-/**
- * Work mode - controls which model role the agent loop uses
- */
-export type WorkMode = string
-
-/**
- * @deprecated 工作模式直接使用方案角色名，不再需要中间映射。
- */
-export const WORK_MODE_TO_MODEL_ROLE: Partial<Record<string, ModelRole>> = {
-  'auto': 'primary',
-}
-
-/** @deprecated 显示名统一从 scheme role 的 displayName 读取。 */
-export const WORK_MODE_LABELS: Record<string, string> = {
-  'auto': '自动模式',
-}
 
 /** Task complexity level */
 export type TaskComplexity = 'simple' | 'moderate' | 'complex'
@@ -110,6 +90,16 @@ export interface ModelRoleConfig {
   enabled: boolean
   /** 推理/思考强度（undefined=禁用，auto=自动高强度，low/medium/high/xhigh/max=手动指定） */
   thinkingEffort?: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+}
+
+/** 会话级模型覆盖（用户经 ModelSelector 显式指定的模型） */
+export interface ModelOverride {
+  /** LLMProvider.id */
+  endpointId: string
+  /** 该服务商下的模型 ID */
+  modelId: string
+  /** 服务商显示名（providers.name），供 UI 展示 */
+  providerName?: string
 }
 
 /** 模型方案角色新结构 */
@@ -176,6 +166,8 @@ export interface LLMProvider {
   projectId?: string
   /** 扩展特性 */
   features?: ProviderFeatures
+  /** API 协议形态：chat（默认）/ responses；仅 openai/custom 类型有效 */
+  apiStyle?: 'chat' | 'responses'
   /** API Key（仅 api-key 认证模式） */
   apiKey?: string
   credentials?: ProviderCredentials
