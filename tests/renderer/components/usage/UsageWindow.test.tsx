@@ -24,12 +24,15 @@ beforeEach(() => {
         usageStatsQuery: vi.fn().mockResolvedValue(mockStats),
         initialTheme: 'dark',
         onThemeChanged: vi.fn(),
-        // 无边框窗口控制 API
-        usageWindowMinimize: vi.fn(),
-        usageWindowMaximize: vi.fn(),
-        usageWindowClose: vi.fn(),
-        usageWindowIsMaximized: vi.fn().mockResolvedValue(false),
-        onUsageWindowMaximizedChange: vi.fn().mockReturnValue(() => {}),
+        // 通用窗口控制 API（独立窗口）
+        windowId: 'usage-window',
+        windowControls: {
+            minimize: vi.fn(),
+            maximize: vi.fn(),
+            close: vi.fn(),
+            isMaximized: vi.fn().mockResolvedValue(false),
+            onMaximizedChange: vi.fn().mockReturnValue(() => {}),
+        },
     })
 })
 
@@ -118,9 +121,9 @@ describe('UsageWindow 全局用量窗口', () => {
         fireEvent.click(screen.getByLabelText('最小化'))
         fireEvent.click(screen.getByLabelText('最大化'))
         fireEvent.click(screen.getByLabelText('关闭'))
-        expect(api().usageWindowMinimize).toHaveBeenCalledTimes(1)
-        expect(api().usageWindowMaximize).toHaveBeenCalledTimes(1)
-        expect(api().usageWindowClose).toHaveBeenCalledTimes(1)
+        expect(api().windowControls.minimize).toHaveBeenCalledTimes(1)
+        expect(api().windowControls.maximize).toHaveBeenCalledTimes(1)
+        expect(api().windowControls.close).toHaveBeenCalledTimes(1)
     })
 
     it('查询失败 → 显示错误提示', async () => {
@@ -138,11 +141,11 @@ describe('UsageWindow 全局用量窗口', () => {
     it('最大化状态 → 按钮在「最大化/还原」间切换', async () => {
         // 捕获主进程广播的最大化状态变更回调
         let maxChangedHandler: ((v: boolean) => void) | undefined
-        api().onUsageWindowMaximizedChange = vi.fn((cb: (v: boolean) => void) => {
+        api().windowControls.onMaximizedChange = vi.fn((cb: (v: boolean) => void) => {
             maxChangedHandler = cb
             return () => {}
         })
-        api().usageWindowIsMaximized = vi.fn().mockResolvedValue(false)
+        api().windowControls.isMaximized = vi.fn().mockResolvedValue(false)
 
         render(<UsageWindow />)
         await waitFor(() => expect(screen.getByLabelText('最大化')).toBeTruthy())

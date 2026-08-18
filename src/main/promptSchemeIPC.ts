@@ -1,6 +1,7 @@
 import {ipcMain, IpcMainInvokeEvent} from 'electron'
 import {promptSchemeRepo} from './repositories/sqlite/promptSchemeRepository'
 import {promptResolver} from './agent/prompts/resolver'
+import {broadcastToOtherWindows} from './utils/windowBroadcast'
 
 /** 包装 IPC handler，自动处理 try-catch 并返回统一格式 */
 function handle<T>(fn: (event: IpcMainInvokeEvent, ...args: any[]) => T) {
@@ -21,14 +22,22 @@ export function initPromptSchemeIPC(): void {
 
     ipcMain.handle('prompt-scheme:get', handle((_, id: string) => promptSchemeRepo.getById(id)))
 
-    ipcMain.handle('prompt-scheme:save', handle((_, scheme: any) => promptSchemeRepo.save(scheme)))
+    ipcMain.handle('prompt-scheme:save', handle((event, scheme: any) => {
+        const result = promptSchemeRepo.save(scheme)
+        broadcastToOtherWindows(event, 'prompt-schemes-changed')
+        return result
+    }))
 
-    ipcMain.handle('prompt-scheme:delete', handle((_, id: string) => promptSchemeRepo.delete(id)))
+    ipcMain.handle('prompt-scheme:delete', handle((event, id: string) => {
+        const result = promptSchemeRepo.delete(id)
+        broadcastToOtherWindows(event, 'prompt-schemes-changed')
+        return result
+    }))
 
     ipcMain.handle('prompt-scheme:get-active-id', handle(() => promptSchemeRepo.getActiveId()))
 
     // 激活/切换提示词方案 - 更新 PromptResolver + 持久化
-    ipcMain.handle('update-prompt-scheme', handle((_, schemeId: string | null) => {
+    ipcMain.handle('update-prompt-scheme', handle((event, schemeId: string | null) => {
         // 持久化到 system_settings
         promptSchemeRepo.setActiveId(schemeId)
 
@@ -38,6 +47,8 @@ export function initPromptSchemeIPC(): void {
         } else {
             promptResolver.reset() // 无激活方案或无此 ID 时，用代码兜底
         }
+
+        broadcastToOtherWindows(event, 'prompt-schemes-changed')
     }))
 
 }

@@ -2,7 +2,6 @@ import type {JSX} from 'react'
 import {createPortal} from 'react-dom'
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {motion} from 'framer-motion'
-import {useMenuBarStore} from '../stores/menuBarStore'
 import {useThemeStore} from '../stores/themeStore'
 import {useSidebarStore} from '../stores/sidebarStore'
 import {useUpdaterStore} from '../stores/updaterStore'
@@ -202,8 +201,8 @@ const menuItems: { type: string | null; icon: JSX.Element; label: string }[] = [
         </svg>
     },
 ]
+
 export default function MenuBar() {
-    const {openDialog} = useMenuBarStore()
     const {theme, toggleTheme} = useThemeStore()
     const {toggleLeft, toggleRight, leftCollapsed, rightCollapsed} = useSidebarStore()
     const hasUpdate = useUpdaterStore((s) => s.result?.status === 'update-available')
@@ -306,26 +305,21 @@ export default function MenuBar() {
   // 监听自定义事件：打开 LLM 配置
   useEffect(() => {
     const handleOpenLLMConfig = () => {
-      openDialog('llm-config')
+      window.electronAPI?.openConfigWindow?.('llm-config')
     }
     window.addEventListener('hclaw:open-llm-config', handleOpenLLMConfig)
     return () => {
       window.removeEventListener('hclaw:open-llm-config', handleOpenLLMConfig)
     }
-  }, [openDialog])
+  }, [])
 
-    const handleItemClick = (type: string, e?: React.MouseEvent) => {
+    const handleItemClick = (type: string) => {
         if (type === 'llm-call-logs') {
             window.electronAPI?.openLlmLogsWindow?.()
         } else if (type === 'usage-stats') {
             window.electronAPI?.openUsageStatsWindow?.()
         } else {
-            // 捕获按钮位置用于弹窗锚点展开动画
-            const rect = e?.currentTarget?.getBoundingClientRect()
-            const origin = rect
-                ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
-                : undefined
-            openDialog(type as any, origin)
+            window.electronAPI?.openConfigWindow?.(type)
         }
         setShowMoreMenu(false)
     }
@@ -379,7 +373,7 @@ export default function MenuBar() {
                   return (
                       <motion.button
                           key={item.type}
-                          onClick={(e) => handleItemClick(item.type!, e)}
+                          onClick={() => handleItemClick(item.type!)}
                           title={item.label}
                           data-tooltip={item.label}
                           aria-label={item.label}

@@ -40,6 +40,7 @@ import type {CommandDefinition} from '@shared/types';
 import {readHookConfig, writeHookConfig} from '../config/hookConfig';
 import {versionManager} from './versionManager';
 import type {VersionInfo, SwitchResult} from './versionManager';
+import {broadcastToOtherWindows} from '../utils/windowBroadcast';
 
 const logger = createLogger('plugin')
 
@@ -562,7 +563,7 @@ async function handleReload(_event: IpcMainInvokeEvent): Promise<{ success: bool
  * Returns updated result with skills and agents for UI sync.
  */
 async function handleUpdate(
-  _event: IpcMainInvokeEvent,
+  event: IpcMainInvokeEvent,
   name: string,
   options?: { force?: boolean }
 ): Promise<Record<string, unknown>> {
@@ -602,6 +603,8 @@ async function handleUpdate(
       // Return updated skills and agents for UI sync
       const allSkills = skillRegistry.getAll();
       const allAgents = agentRegistry.getAll();
+      // 跨窗口广播：升级成功后通知所有窗口（主窗口 MenuBar 红点实时同步）
+      broadcastToOtherWindows(event, 'plugin:status-update', versionManager.getAllVersionMeta());
       return { ...result, skills: serializeSkills(allSkills), agents: allAgents };
     }
 
@@ -619,7 +622,7 @@ async function handleUpdate(
  * 由 PluginDialog 的「同步版本」按钮调用。
  */
 async function handleSyncVersions(
-  _event: IpcMainInvokeEvent,
+  event: IpcMainInvokeEvent,
   name: string,
 ): Promise<{success: boolean; versionInfo?: VersionInfo; error?: string}> {
   try {
@@ -627,6 +630,8 @@ async function handleSyncVersions(
     if (!info) {
       return {success: false, error: 'Plugin not found or not a git source'}
     }
+    // 跨窗口广播：同步成功后通知所有窗口（主窗口 MenuBar 红点实时同步）
+    broadcastToOtherWindows(event, 'plugin:status-update', versionManager.getAllVersionMeta())
     return {success: true, versionInfo: info}
   } catch (err) {
     return {success: false, error: asError(err)}
@@ -656,11 +661,16 @@ async function handleGetVersions(
  * 切换插件版本 — git checkout + powerManager.refresh。
  */
 async function handleSwitchVersion(
-  _event: IpcMainInvokeEvent,
+  event: IpcMainInvokeEvent,
   name: string,
   ref: string,
 ): Promise<SwitchResult> {
-  return versionManager.switchVersion(name, ref)
+  const result = await versionManager.switchVersion(name, ref)
+  if (result.success) {
+    // 跨窗口广播：切换成功后通知所有窗口（主窗口 MenuBar 红点实时同步）
+    broadcastToOtherWindows(event, 'plugin:status-update', versionManager.getAllVersionMeta())
+  }
+  return result
 }
 
 /**

@@ -49,7 +49,7 @@ export function setLogWindowRef(win: BrowserWindow | null): void {
 /**
  * 注册 IPC handlers
  */
-export function initLlmCallLogIPC(getMainWindow: () => BrowserWindow | null): void {
+export function initLlmCallLogIPC(): void {
     ipcMain.handle('llm-call-logs:get', () => {
         return getLlmCallLogs()
     })
@@ -64,7 +64,7 @@ export function initLlmCallLogIPC(getMainWindow: () => BrowserWindow | null): vo
             logWindow.focus()
             return
         }
-        createWindow(getMainWindow)
+        createWindow()
     })
 }
 

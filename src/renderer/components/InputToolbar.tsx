@@ -17,7 +17,6 @@ interface InputToolbarProps {
     onSubmit: () => void
     onAbort: () => void
     onUploadFile: (files: any[]) => void
-    onOpenDialog: (...args: any[]) => void
     onOpenCommandPalette: () => void
 }
 
@@ -35,7 +34,6 @@ export default function InputToolbar({
     onSubmit,
     onAbort,
     onUploadFile,
-    onOpenDialog,
     onOpenCommandPalette,
 }: InputToolbarProps) {
     // 运行态模型提示：{服务商名称}/{模型名称}（provider 缺失时仅显示模型名）
@@ -77,7 +75,6 @@ export default function InputToolbar({
                 {/* + 展开按钮 */}
                 <ToolMenu
                     onUploadFile={onUploadFile}
-                    onOpenDialog={onOpenDialog}
                     onOpenCommandPalette={onOpenCommandPalette}
                 />
 

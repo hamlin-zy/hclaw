@@ -8,6 +8,7 @@ import {getAppIcon} from './utils/icon';
 import {createLogger} from './agent/logger';
 import {systemSettingsRepo} from './repositories/sqlite/systemSettingsRepository';
 import * as updateChecker from './updater/updateChecker';
+import type {UpdateResult} from '../shared/types/updater';
 import {readThemeSetting} from './utils/theme';
 
 const logger = createLogger('window');
@@ -446,6 +447,19 @@ export const createWindow = (): void => {
 // IPC Handlers
 // ========================================
 
+/**
+ * 广播更新检查结果给所有窗口。
+ *
+ * 背景：about 迁为独立窗口后，「关于页点检查更新」仅经 invoke 返回，主窗口感知不到，
+ * 主窗口 update-notice 不再弹出。统一由这里广播 updater:status-changed，
+ * 主窗口与独立窗口都能收到并同步 UI。
+ */
+export function broadcastUpdaterStatus(result: UpdateResult): void {
+    for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('updater:status-changed', result);
+    }
+}
+
 /** 注册窗口控制相关 IPC handlers */
 export function initWindowIPC(): void {
     // ---- 系统信息 ----
@@ -459,7 +473,9 @@ export function initWindowIPC(): void {
     });
 
     ipcMain.handle('updater:check-for-update', async () => {
-        return updateChecker.checkForUpdate();
+        const result = await updateChecker.checkForUpdate();
+        broadcastUpdaterStatus(result);
+        return result;
     });
 
     ipcMain.handle('get-platform', () => {

@@ -228,6 +228,19 @@ export default function PluginDialog() {
     loadPlugins()
   }, [loadPlugins])
 
+  // ── 订阅插件版本状态推送（独立窗口打开即同步红点，运行中接收跨窗口广播） ──
+  useEffect(() => {
+    // Passive listener (push from main process broadcast)
+    const unsubscribe = window.electronAPI?.plugin?.onPluginStatusUpdate?.((data: any) => {
+      if (data && typeof data === 'object') {
+        usePluginUpdateStore.getState().setVersionMeta(data)
+      }
+    })
+    // Active pull (fallback — pulls from main process cache, no git fetch)
+    usePluginUpdateStore.getState().refreshFromCache()
+    return () => unsubscribe?.()
+  }, [])
+
   // 页面加载完成后，并行预加载所有 git 源插件的版本数据
   // 使下拉框默认值始终使用当前 tag 名称而非 manifest.version
   useEffect(() => {

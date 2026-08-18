@@ -55,9 +55,9 @@ export default function UsageWindow() {
     // 无边框窗口：最大化状态同步（更新最大化/还原按钮）
     useEffect(() => {
         const api = window.electronAPI
-        if (!api?.usageWindowIsMaximized) return
-        void api.usageWindowIsMaximized().then(setIsMaximized)
-        return api.onUsageWindowMaximizedChange?.(setIsMaximized)
+        if (!api?.windowControls) return
+        void api.windowControls.isMaximized().then(setIsMaximized)
+        return api.windowControls.onMaximizedChange(setIsMaximized)
     }, [])
 
     useEffect(() => {
@@ -90,13 +90,13 @@ export default function UsageWindow() {
                     <div className="titlebar-center drag-region" />
                     <div className="titlebar-right no-drag">
                         <div className="window-controls">
-                            <button className="window-control-btn" onClick={() => window.electronAPI?.usageWindowMinimize?.()} aria-label="最小化">
+                            <button className="window-control-btn" onClick={() => window.electronAPI?.windowControls?.minimize?.()} aria-label="最小化">
                                 <MinimizeIcon/>
                             </button>
-                            <button className="window-control-btn" onClick={() => window.electronAPI?.usageWindowMaximize?.()} aria-label={isMaximized ? '还原' : '最大化'}>
+                            <button className="window-control-btn" onClick={() => window.electronAPI?.windowControls?.maximize?.()} aria-label={isMaximized ? '还原' : '最大化'}>
                                 {isMaximized ? <RestoreIcon/> : <MaximizeIcon/>}
                             </button>
-                            <button className="window-control-btn window-control-btn--close" onClick={() => window.electronAPI?.usageWindowClose?.()} aria-label="关闭">
+                            <button className="window-control-btn window-control-btn--close" onClick={() => window.electronAPI?.windowControls?.close?.()} aria-label="关闭">
                                 <CloseIcon/>
                             </button>
                         </div>
