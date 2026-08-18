@@ -60,6 +60,7 @@ describe('useMessageTokenStats', () => {
             currentCacheReadTokens: 0,
             currentDecodeMs: 0,
             currentHasTtft: false,
+            lastTimedStats: null,
         })
     })
 
@@ -190,6 +191,29 @@ describe('useMessageTokenStats', () => {
         const {result} = renderHook(() => useMessageTokenStats())
         expect(result.current.currentDecodeMs).toBe(30)
         expect(result.current.currentHasTtft).toBe(false)
+    })
+
+    it('末次为纯工具轮次（无 ttftMs）：lastTimedStats 回退到上一个文本轮次', () => {
+        setLoadedMessages([
+            makeMessage({
+                llmStats: [
+                    {inputTokens: 100, outputTokens: 20, provider: 'p', model: 'm', duration: 1000, cacheReadTokens: 50, decodeMs: 800, ttftMs: 400},
+                ],
+            }),
+            // 纯工具调用轮次：仅 tool_use，无文本解码（ttftMs/decodeMs 缺失）
+            makeMessage({
+                llmStats: [
+                    {inputTokens: 200, outputTokens: 12, provider: 'p', model: 'm', duration: 100, cacheReadTokens: 30},
+                ],
+                toolCalls: [{id: 't1', name: 'bash', arguments: {}}],
+            }),
+        ])
+        const {result} = renderHook(() => useMessageTokenStats())
+        // current* 保持"最后一条 llmStats"语义
+        expect(result.current.currentInputTokens).toBe(200)
+        expect(result.current.currentHasTtft).toBe(false)
+        // 末次吞吐口径回退（t/s 徽章不消失）
+        expect(result.current.lastTimedStats).toEqual({outputTokens: 20, decodeMs: 800})
     })
 
     it('toolCalls 计数累计（仅统计 assistant 消息）', () => {

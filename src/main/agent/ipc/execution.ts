@@ -12,7 +12,6 @@ import {isAudioFile, isImageFile, isNetworkImageUrl} from '../utils/imageProcess
 import {runtimeConfigManager} from '../runtimeConfigManager'
 import {resolveAgentDefinitionFromCommandId} from '../agentTemplateConverter'
 import {logger} from '../logger'
-import {structuredTruncateMessages} from '../structuredTruncation'
 import {convertAssistantHistoryMessage} from './historyConverter'
 import type {LlmStats, SystemSettings} from '@shared/types'
 import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
@@ -249,19 +248,6 @@ export function registerHandlers(): void {
                 metadata: params.messageMetadata,
                 id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             })
-
-            // ── 会话边界结构化截断（v2：从 loop 内前移到 agent_start 前）──
-            // 保留第一轮 + 最近 7 轮完整，中间区间按 v4 工具价值剥离。
-            // loop 内不再截断（实时事实链不可丢），超长 loop 超上下文由调用方兜底。
-            const truncateResult = structuredTruncateMessages(messages, {keepRecentTurns: 7})
-            if (truncateResult.droppedTurns > 0) {
-                logger.info('[agent-start] 会话边界结构化截断', {
-                    before: messages.length,
-                    after: truncateResult.messages.length,
-                    droppedTurns: truncateResult.droppedTurns,
-                })
-                messages = truncateResult.messages
-            }
 
             // 诊断：统计构建后的 tool 消息数量
             const toolMsgCount = messages.filter(m => m.role === 'tool').length

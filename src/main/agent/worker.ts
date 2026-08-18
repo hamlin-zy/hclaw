@@ -18,6 +18,7 @@ import {applySerializedCapabilitiesInWorker} from './capabilityManager'
 import type {AgentStartParams} from './manager'
 import {updateGlobalScheme} from './model/index'
 import {runtimeConfigManager} from './runtimeConfigManager'
+import {modelMetaRegistry} from '../modelMetaRegistry'
 import {taskStore} from './tasks/taskStore'
 import {logger} from './logger'
 import {getMessagePreview} from './utils/contentUtils'
@@ -92,6 +93,8 @@ async function main(): Promise<void> {
             initialRetryDelay: 5000,
             maxRetryDelay: 120000,
             llmTimeout: 600000,
+            handoffThresholdRatio: 0.5,
+            midLoopOverflowMode: 'auto-handoff',
         },
         model: {defaultMaxTokens: DEFAULT_MAX_TOKENS, defaultTemperature: 0},
         mcp: {mcpTestTimeout: 15000},
@@ -115,6 +118,11 @@ async function main(): Promise<void> {
 
     // 同步系统设置到 RuntimeConfigManager（使工具函数能读取用户配置）
     runtimeConfigManager.updateSettings(currentSettings)
+
+    // 加载 or-models.json 缓存到 worker 本地 registry 实例（worker_threads 独立模块环境，
+    // 主进程 init() 不在此生效；只读缓存不触发网络 refresh）。
+    // 无缓存时保持空表 → loop 门回退 adapter 硬编码表（渐进增强）。
+    modelMetaRegistry.initFromCacheOnly()
 
     // 从 params.schemeConfig 同步当前方案（agent-start 传递的）
     if (params.schemeConfig) {

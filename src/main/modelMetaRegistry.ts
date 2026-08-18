@@ -50,6 +50,16 @@ export class ModelMetaRegistry {
     void this.refresh()
   }
 
+  /**
+   * 只读缓存初始化（worker_threads 侧用）。
+   * worker 是独立模块环境，主进程的 init() 不会在其中生效；
+   * 此方法同步读同一缓存文件（~/.hclaw/model-meta/or-models.json），不触发网络 refresh。
+   * 无缓存/损坏时保持空表 → 查询返回 0 → 调用方自动回退 adapter 表（渐进增强）。
+   */
+  initFromCacheOnly(): void {
+    this.loadFromCache()
+  }
+
   /** 拉取并更新；防并发（refreshPromise 复用）；失败保留旧数据 */
   async refresh(): Promise<void> {
     if (this.refreshPromise) return this.refreshPromise

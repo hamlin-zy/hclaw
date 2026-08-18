@@ -23,7 +23,7 @@ beforeEach(() => {
     // 重置 store 为「已保存的自定义设置」状态
     useSettingsStore.setState({
         settings: {
-            agent: {maxTurns: 999, retryCount: 99, initialRetryDelay: 9000, maxRetryDelay: 90000, llmTimeout: 900000},
+            agent: {maxTurns: 999, retryCount: 99, initialRetryDelay: 9000, maxRetryDelay: 90000, llmTimeout: 900000, handoffThresholdRatio: 0.5, midLoopOverflowMode: 'auto-handoff'},
             model: {defaultMaxTokens: 12345, defaultTemperature: 1.5},
             mcp: {mcpTestTimeout: 9999},
             ui: {theme: 'dark', background: {enabled: true, imagePath: '/tmp/x.png', overlay: 80, blur: 30}},

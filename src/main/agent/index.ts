@@ -16,6 +16,7 @@ import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepositor
 
 import {registerHandlers as registerAgentHandlers} from './ipc/agents'
 import {registerHandlers as registerExecutionHandlers} from './ipc/execution'
+import {registerHandlers as registerContextUsageHandlers} from './ipc/contextUsage'
 import {registerHandlers as registerPermissionHandlers} from './ipc/permissions'
 import {registerHandlers as registerSkillHandlers} from './ipc/skills'
 import {registerHandlers as registerConfigHandlers} from './ipc/config'
@@ -60,6 +61,7 @@ export async function initAgent(): Promise<void> {
 export function registerAgentIPC(): void {
     registerAgentHandlers()
     registerExecutionHandlers()
+    registerContextUsageHandlers()
     registerPermissionHandlers()
     registerSkillHandlers()
     registerConfigHandlers()

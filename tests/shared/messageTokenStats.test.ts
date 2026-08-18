@@ -67,6 +67,7 @@ describe('computeMessageTokenStats', () => {
     expect(s.currentCacheReadTokens).toBe(0)
     expect(s.currentDecodeMs).toBe(0)
     expect(s.currentHasTtft).toBe(false)
+    expect(s.lastTimedStats).toBeNull()
   })
 
   it('assistant 消息无 llmStats / 空 llmStats → 不崩溃', () => {
@@ -90,6 +91,39 @@ describe('computeMessageTokenStats', () => {
     expect(s.ttftCount).toBe(0)
     // 末次请求无时序 → currentHasTtft false
     expect(s.currentDecodeMs).toBe(0)
+    expect(s.currentHasTtft).toBe(false)
+  })
+
+  it('末次为纯工具轮次（无 ttftMs）时，末次吞吐口径回退到最后一个带文本解码的请求', () => {
+    // 复现：文本回答轮次（带完整时序）→ 纯工具调用轮次（仅 tool_use，无文本解码，
+    // execute.ts 中 firstTokenTime 未设置 → ttftMs/decodeMs 缺失）
+    const messages: Message[] = [
+      msg('m1', [
+        {inputTokens: 100, outputTokens: 20, provider: 'p', model: 'm', duration: 1000, cacheReadTokens: 50, decodeMs: 800, ttftMs: 400},
+      ]),
+      msg('m2', [
+        {inputTokens: 200, outputTokens: 12, provider: 'p', model: 'm', duration: 100, cacheReadTokens: 30},
+      ], [{id: 't1', name: 'bash', arguments: {}, status: 'pending'}]),
+    ]
+    const s = computeMessageTokenStats(messages)
+    // current* 保持"最后一条 llmStats"原始语义（工具轮次真实消耗 + 无时序标记）
+    expect(s.currentInputTokens).toBe(200)
+    expect(s.currentCacheReadTokens).toBe(30)
+    expect(s.currentOutputTokens).toBe(12)
+    expect(s.currentDecodeMs).toBe(0)
+    expect(s.currentHasTtft).toBe(false)
+    // 末次吞吐口径回退到最后一个有文本解码的轮次（t/s 徽章不因纯工具轮次消失）
+    expect(s.lastTimedStats).toEqual({outputTokens: 20, decodeMs: 800})
+  })
+
+  it('全部为纯工具轮次（无任何 ttftMs）→ lastTimedStats 为 null', () => {
+    const messages: Message[] = [
+      msg('m1', [
+        {inputTokens: 100, outputTokens: 8, provider: 'p', model: 'm', duration: 100},
+      ], [{id: 't1', name: 'bash', arguments: {}, status: 'pending'}]),
+    ]
+    const s = computeMessageTokenStats(messages)
+    expect(s.lastTimedStats).toBeNull()
     expect(s.currentHasTtft).toBe(false)
   })
 })

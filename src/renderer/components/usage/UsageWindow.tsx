@@ -1,30 +1,15 @@
 import {useEffect, useState} from 'react'
-import {formatTokenCompact, formatCost, USD_TO_CNY_RATE, type Currency} from '../../lib/format'
+import {formatTokenCompact, formatCost, formatTokensPerSecond, tokensPerSecond, USD_TO_CNY_RATE, type Currency} from '../../lib/format'
 import {useThemeSync} from '../../lib/theme'
+import {ClientStatsNotice, InfoTip, COST_DISCLAIMER, providerDisplayName} from './statsParts'
 import type {GlobalUsageStats, TimeRange} from '@shared/types'
 
 type View = 'provider' | 'model'
-
-/** 已知服务商类型的规范展示名（openai → OpenAI 等首字母缩写） */
-const PROVIDER_DISPLAY: Record<string, string> = {
-    anthropic: 'Anthropic',
-    openai: 'OpenAI',
-    google: 'Google',
-    ollama: 'Ollama',
-}
 
 /** 分段控件按钮统一样式（时间范围 / 分组视图 / 货币切换三处复用） */
 const SEGMENT_BTN = 'px-2.5 py-1 text-xs rounded-md transition-colors'
 const SEGMENT_ACTIVE = 'bg-[var(--surface-elevated)] shadow-sm text-[var(--text-primary)] font-medium'
 const SEGMENT_INACTIVE = 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-
-/** 分组名称展示：provider 视图用规范名（未知类型回退首字母大写），model 视图原样 */
-function displayName(key: string, view: View): string {
-    if (view === 'provider') {
-        return PROVIDER_DISPLAY[key] ?? (key.length > 0 ? key[0].toUpperCase() + key.slice(1) : key)
-    }
-    return key
-}
 
 /** 趋势柱状条（纯 CSS，零图表库） */
 function TrendBar({value, max, day, isToday}: {value: number; max: number; day: string; isToday: boolean}) {
@@ -71,6 +56,9 @@ export default function UsageWindow() {
 
     const maxTrend = data ? Math.max(...data.trend.map(t => t.inputTokens + t.outputTokens + t.cacheReadTokens), 1) : 1
     const grandTotal = data ? data.breakdown.reduce((s, b) => s + b.totalTokens, 0) : 0
+    // 时序 KPI（口径与消息 tooltip 一致）：平均吞吐 = Σ输出 ÷ Σ解码时长；平均首字 = Σ首字 ÷ 样本数
+    const avgDecodeRate = data ? tokensPerSecond(data.kpi.totalOutputTokens, data.kpi.totalDecodeMs) : null
+    const avgTtftSeconds = data && data.kpi.ttftCount > 0 ? data.kpi.totalTtftMs / data.kpi.ttftCount / 1000 : null
 
     return (
         <div className="h-screen flex flex-col bg-[var(--surface)] text-[var(--text-primary)] font-['Inter',sans-serif]">
@@ -131,7 +119,7 @@ export default function UsageWindow() {
                         </button>
                     ))}
                 </div>
-                <InfoTip text="成本为估算值，仅供对照：输入 / 输出 / 缓存命中 token 分别按模型单价计费；未定价模型显示「—」，不计入合计；人民币按固定汇率 7.2 折算，非实时行情。实际账单请以服务商官方为准。" />
+                <InfoTip text={COST_DISCLAIMER} />
             </div>
 
             {/* 主体 */}
@@ -150,10 +138,13 @@ export default function UsageWindow() {
                 {data && (
                     <>
                         {/* 关键指标：总成本为主，其余为辅助 */}
-                        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] overflow-hidden">
-                            <div className="grid grid-cols-2 md:grid-cols-4">
+                        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)]">
+                            <div className="grid grid-cols-2 md:grid-cols-6">
                                 <div className="p-4">
-                                    <div className="text-[11px] text-[var(--text-muted)]">总成本</div>
+                                    <div className="flex items-center gap-1 text-[11px] text-[var(--text-muted)]">
+                                        总成本
+                                        <InfoTip text={COST_DISCLAIMER}/>
+                                    </div>
                                     <div className="mt-1 text-2xl font-semibold tabular-nums leading-none text-[var(--brand-primary)]">
                                         {formatCost(data.kpi.totalCostUsd, currency)}
                                     </div>
@@ -172,6 +163,18 @@ export default function UsageWindow() {
                                 <div className="p-4 border-l border-[var(--border)]">
                                     <div className="text-[11px] text-[var(--text-muted)]">缓存命中率</div>
                                     <div className="mt-1 text-xl font-semibold tabular-nums leading-none text-[var(--text-primary)]">{data.kpi.cacheHitRate != null ? `${data.kpi.cacheHitRate}%` : '—'}</div>
+                                </div>
+                                <div className="p-4 border-l border-[var(--border)]">
+                                    <div className="text-[11px] text-[var(--text-muted)]">平均吞吐</div>
+                                    <div className="mt-1 text-xl font-semibold tabular-nums leading-none text-[var(--text-primary)]">
+                                        {avgDecodeRate != null ? `${formatTokensPerSecond(avgDecodeRate)} t/s` : '—'}
+                                    </div>
+                                </div>
+                                <div className="p-4 border-l border-[var(--border)]">
+                                    <div className="text-[11px] text-[var(--text-muted)]">平均首字</div>
+                                    <div className="mt-1 text-xl font-semibold tabular-nums leading-none text-[var(--text-primary)]">
+                                        {avgTtftSeconds != null ? `${avgTtftSeconds.toFixed(1)}s` : '—'}
+                                    </div>
                                 </div>
                             </div>
                         </section>
@@ -207,7 +210,14 @@ export default function UsageWindow() {
                                     <thead>
                                         <tr className="bg-[var(--surface-muted)] text-[var(--text-muted)] border-b border-[var(--border)]">
                                             {['名称', '请求', '输入', '输出', '缓存命中', '合计', '成本', '占比'].map(h => (
-                                                <th key={h} className="text-right font-medium px-3 py-2.5 first:text-left first:px-4">{h}</th>
+                                                <th key={h} className="text-right font-medium px-3 py-2.5 first:text-left first:px-4">
+                                                    {h === '成本' ? (
+                                                        <span className="inline-flex items-center justify-end gap-1">
+                                                            成本
+                                                            <InfoTip text={COST_DISCLAIMER}/>
+                                                        </span>
+                                                    ) : h}
+                                                </th>
                                             ))}
                                         </tr>
                                     </thead>
@@ -224,7 +234,7 @@ export default function UsageWindow() {
                                                         <div className="flex items-center gap-2">
                                                             <span className="w-1.5 h-1.5 rounded-full bg-[var(--brand-primary)] shrink-0"/>
                                                             <div>
-                                                                <div>{view === 'provider' ? (b.providerName || displayName(b.key, view)) : displayName(b.key, view)}</div>
+                                                                <div>{view === 'provider' ? (b.providerName || providerDisplayName(b.key)) : b.key}</div>
                                                                 {view === 'model' && b.providerType && (
                                                                     <div className="text-[10px] font-normal text-[var(--text-muted)]">{b.providerName || b.providerType}</div>
                                                                 )}
@@ -252,6 +262,9 @@ export default function UsageWindow() {
                                 </table>
                             )}
                         </section>
+
+                        {/* 数据口径提示：客户端侧统计，非服务商账单 */}
+                        <ClientStatsNotice centered/>
                     </>
                 )}
             </div>
@@ -293,26 +306,5 @@ function CloseIcon() {
         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
-    )
-}
-
-// ========================================
-// 信息提示（圆圈问号 + hover tooltip）
-// ========================================
-
-function InfoTip({text}: {text: string}) {
-    return (
-        <div className="relative group shrink-0">
-            <span
-                role="img"
-                aria-label="成本口径说明"
-                className="w-4 h-4 rounded-full border border-[var(--border-emphasis)] text-[var(--text-muted)] flex items-center justify-center text-[10px] leading-none cursor-help select-none group-hover:text-[var(--text-secondary)] group-hover:border-[var(--text-secondary)] transition-colors"
-            >
-                ?
-            </span>
-            <div className="absolute right-0 top-full mt-1.5 w-72 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] shadow-elevated px-3 py-2.5 text-[11px] leading-relaxed text-[var(--text-secondary)] opacity-0 pointer-events-none translate-y-0.5 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-150 z-50">
-                {text}
-            </div>
-        </div>
     )
 }

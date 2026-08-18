@@ -27,6 +27,13 @@ interface DraggableDialogOptions {
     storageKey?: string
     /** Optional: id of the element that labels this dialog (for aria-labelledby) */
     ariaLabelledBy?: string
+    /**
+     * Optional: recenter when this value changes while visible.
+     * Use for dialogs whose content height settles asynchronously after open
+     * (e.g. data loading) — the initial center is measured too early and lands
+     * low; pass a signal that changes once the final height is known.
+     */
+    recenterSignal?: unknown
 }
 
 interface DraggableDialogResult {
@@ -141,6 +148,7 @@ export function useDraggableDialog({
     visible,
     storageKey,
     ariaLabelledBy,
+    recenterSignal,
 }: DraggableDialogOptions): DraggableDialogResult {
     const dialogRef = useRef<HTMLDivElement>(null)
     const [position, setPosition] = useState<{x: number; y: number}>(() => {
@@ -224,7 +232,7 @@ export function useDraggableDialog({
             const clamped = clampPositionCached(targetX, targetY, w, h)
             setPosition(clamped)
         })
-    }, [visible, storageKey, clampPositionCached])
+    }, [visible, storageKey, clampPositionCached, recenterSignal])
 
     // ── Drag start ──
     const handleDragStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
