@@ -1,31 +1,32 @@
 /**
  * 配置/模型方案 IPC handlers
  *
- * 处理工作模式、系统设置、模型方案切换、客户端预热等
+ * 处理系统设置、模型方案切换、客户端预热等
  */
 
 import {ipcMain} from 'electron'
 import {agentManager} from '../manager'
 import {runtimeConfigManager} from '../runtimeConfigManager'
-import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
 import {toolRepo as sqliteToolRepo} from '../../repositories/sqlite/toolRepository'
 import {logger} from '../logger'
 import {broadcastToOtherWindows} from '../../utils/windowBroadcast'
 import type {ModelConfig} from '../model/types'
 
 export function registerHandlers(): void {
-    // 获取工作模式
-    ipcMain.handle('agent-get-work-mode', async () => {
-        return systemSettingsRepo.get('work_mode') || 'primary'
+    // 获取会话级模型 override（含全局 lastSelected）
+    ipcMain.handle('model-override-get', async (_event, convId: string) => {
+        const override = runtimeConfigManager.getOverride(convId)
+        const lastSelected = runtimeConfigManager.getLastSelected()
+        return {success: true, data: {override, lastSelected}}
     })
 
-    // 设置工作模式
-    ipcMain.handle('agent-set-work-mode', async (_event, mode: string) => {
-        systemSettingsRepo.set('work_mode', mode)
-        // 同步到主进程的 runtimeConfigManager，确保新启动的 Worker 获取正确的工作模式
-        runtimeConfigManager.setWorkMode(mode)
-        // 广播到所有运行中的 Worker
-        agentManager.broadcastWorkModeUpdate(mode)
+    // 设置会话级模型 override（切回 auto 传 null）；广播多窗口 + 运行中 Worker（动态同步）
+    ipcMain.handle('model-override-set', async (event, convId: string, override: import('@shared/types').ModelOverride | null) => {
+        runtimeConfigManager.setOverride(convId, override)
+        broadcastToOtherWindows(event, 'model-override-changed', {convId, override})
+        // ★ 主进程 → 运行中 Worker 广播：UI 会话 agentLoop 跑在 worker 线程，
+        //   不广播则 worker 内存 override 不更新，动态同步失效（复用原 broadcastWorkModeUpdate 机制）
+        agentManager.broadcastModelOverride(convId, override)
         return {success: true}
     })
 

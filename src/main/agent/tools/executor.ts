@@ -309,6 +309,11 @@ const SIZE_TRUNCATE_THRESHOLD = 15000 // 字符数截断阈值
  * agent 工具同理：output 是子 Agent 的完整工作报告（主 Agent 汇总的依据），
  * 截断会直接导致工作报告总结不完整，因此豁免通用 15KB 截断。
  *
+ * skill 工具同理：output 是 buildGuidance 原文（injectMessage.content 同源），
+ * 落库后 restoreSkillSystemMessages 从 result.output 逐字节重建 system 消息，
+ * 任何截断或"[警告] 结果较大"尾巴都会破坏三端一致性（运行时 toolResult /
+ * DB tool_result / 历史重建），故豁免（阈值 Infinity 同时跳过截断与警告）。
+ *
  * MCP 工具（m_/mp_ 前缀）：MCP 结果路径（mcp/formatResult.ts 拼接 text parts）无内部截断，
  * executor 层 128KB 阈值即 MCP 结果的唯一截断点（产品规格）。
  * 因此结果在 128KB 以内时原样返回（不截断、不附加"[警告] 结果较大"），
@@ -319,6 +324,7 @@ const SIZE_TRUNCATE_THRESHOLD = 15000 // 字符数截断阈值
 const TOOL_SIZE_TRUNCATE_THRESHOLDS: Record<string, number> = {
     bash: 2 * 1024 * 1024,
     agent: Infinity,
+    skill: Infinity,
 }
 // executor 层对 MCP 结果的 128KB 截断阈值（产品规格）：
 // MCP 结果路径无内部上限，此阈值即 MCP 结果的唯一截断点。
@@ -349,7 +355,9 @@ export function checkResultSize(toolName: string, result: ToolResult): ToolResul
         }
     }
 
-    if (length > SIZE_WARNING_THRESHOLD && !isMcpTool) {
+    // 阈值 Infinity 表示完全豁免（agent/skill）：连警告尾巴也不加，
+    // 否则会改写 output 原文，破坏缓存一致性（见 TOOL_SIZE_TRUNCATE_THRESHOLDS 注释）
+    if (length > SIZE_WARNING_THRESHOLD && !isMcpTool && Number.isFinite(truncateThreshold)) {
         // 添加警告但不截断
         return {
             ...result,

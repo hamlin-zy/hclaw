@@ -9,9 +9,7 @@ import {
     useModelSchemeStore
 } from '../../stores/modelSchemeStore'
 import {useLLMStore} from '../../stores/llmStore'
-import type {LLMProvider} from '@shared/types'
 import {createDefaultRoles, MODEL_ROLE_INFO, resolveRoleDisplay} from '@shared/modelSchemeHelpers'
-import {renderWorkModeIcon, WORK_MODE_ICONS} from '@shared/roleIcons'
 
 // ─── 共享常量 ─────────────────────────────────────────────────
 
@@ -75,6 +73,14 @@ const MODEL_TYPE_CONFIG = [
             <line x1="8" y1="23" x2="16" y2="23"/>
         </svg>)
     },
+    {
+        value: 'video' as ModelType,
+        label: '视频',
+        icon: (<svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polygon points="23 7 16 12 23 17 23 7"/>
+            <rect x="1" y="5" width="15" height="14" rx="2"/>
+        </svg>)
+    },
 ] as const
 
 const MODEL_TYPE_ICON_MAP = Object.fromEntries(MODEL_TYPE_CONFIG.map(t => [t.value, t.icon]))
@@ -85,6 +91,7 @@ const ROLE_GROUPS: Array<{ type: ModelType; label: string; icon: React.ReactNode
     {type: 'text', label: '文本', icon: MODEL_TYPE_ICON_MAP['text'], roles: ['primary', 'lightweight', 'reasoning']},
     {type: 'image', label: '视觉', icon: MODEL_TYPE_ICON_MAP['image'], roles: ['image_understanding']},
     {type: 'voice', label: '听觉', icon: MODEL_TYPE_ICON_MAP['voice'], roles: ['audio_understanding']},
+    {type: 'video', label: '视频', icon: MODEL_TYPE_ICON_MAP['video'], roles: ['video_understanding']},
 ]
 
 /** 使用默认 provider/model 创建角色列表 */
@@ -113,8 +120,6 @@ export default function ModelSchemeDialog() {
     const [selectedSchemeId, setSelectedSchemeId] = useState<string | null>(activeSchemeId)
     const [isEditingName, setIsEditingName] = useState(false)
     const [showPresetPicker, setShowPresetPicker] = useState(false)
-    const [showAddRole, setShowAddRole] = useState(false)
-    const [editingRole, setEditingRole] = useState<ModelSchemeRole | null>(null)
 
     // 侧边栏宽度调节
     const [sidebarWidth, setSidebarWidth] = useState(220)
@@ -435,73 +440,13 @@ export default function ModelSchemeDialog() {
                                                                 ...displayScheme,
                                                                 roles: updateRole(displayScheme.roles, role.id, c),
                                                             })}
-                                                            onDelete={!isBuiltin ? () => setLocalScheme({
-                                                                ...displayScheme,
-                                                                roles: displayScheme.roles.filter(r => r.id !== role.id),
-                                                            }) : undefined}
-                                                            onEdit={type === 'text' ? () => setEditingRole(role) : undefined}
                                                         />
                                                     )
                                                 })}
                                         </div>
-                                        {type === 'text' && (
-                                            <button
-                                                onClick={() => setShowAddRole(true)}
-                                                className="mt-3 flex items-center gap-1 text-[11px] font-medium text-brand-500 hover:text-brand-600 transition-colors"
-                                            >
-                                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                                    <path d="M12 5v14M5 12h14"/>
-                                                </svg>
-                                                添加工作模式
-                                            </button>
-                                        )}
                                     </div>
                                 ))}
                             </div>
-
-                            {/* 添加/编辑工作模式弹窗 */}
-                            {(showAddRole || editingRole) && (
-                                <AddRoleDialog
-                                    providers={useLLMStore.getState().providers}
-                                    initialRole={editingRole || undefined}
-                                    onSave={(data) => {
-                                        const effort = (data.thinkingEffort || undefined) as ModelSchemeRole['thinkingEffort']
-                                        const roleFields = {
-                                            displayName: data.name,
-                                            icon: data.icon || undefined,
-                                            description: data.description || undefined,
-                                            endpointId: data.endpointId,
-                                            modelId: data.modelId,
-                                            thinkingEffort: effort,
-                                            enabled: data.enabled,
-                                        }
-                                        if (editingRole) {
-                                            setLocalScheme({
-                                                ...displayScheme!,
-                                                roles: displayScheme!.roles.map(r =>
-                                                    r.id === editingRole.id ? {...r, ...roleFields} : r
-                                                ),
-                                            })
-                                            setEditingRole(null)
-                                        } else {
-                                            setLocalScheme({
-                                                ...displayScheme!,
-                                                roles: [...displayScheme!.roles, {
-                                                    id: crypto.randomUUID(),
-                                                    role: crypto.randomUUID(),
-                                                    modelType: 'text',
-                                                    ...roleFields,
-                                                }],
-                                            })
-                                            setShowAddRole(false)
-                                        }
-                                    }}
-                                    onClose={() => {
-                                        setShowAddRole(false)
-                                        setEditingRole(null)
-                                    }}
-                                />
-                            )}
 
                         </div>
 
@@ -665,15 +610,11 @@ function RoleConfigEditor({
                               role,
                               config,
                               onChange,
-                              onDelete,
-                              onEdit,
                               isBuiltin = true,
                           }: {
     role: ModelSchemeRole
     config: ModelSchemeRole
     onChange: (config: Partial<ModelSchemeRole>) => void
-    onDelete?: () => void
-    onEdit?: () => void
     isBuiltin?: boolean
 }) {
     const {providers} = useLLMStore()
@@ -724,7 +665,7 @@ function RoleConfigEditor({
             {/* Header: icon + name + description + toggle */}
             <div className="flex items-start justify-between gap-2">
                 <div className="flex items-start gap-2 min-w-0">
-                    <span className="text-base mt-0.5 shrink-0">{renderWorkModeIcon(roleDisplay.icon)}</span>
+                    <span className="text-base mt-0.5 shrink-0">{roleDisplay.icon}</span>
                     <div className="min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
                             <div className="text-sm font-medium text-gray-800 leading-tight">{roleDisplay.name}</div>
@@ -817,240 +758,6 @@ function RoleConfigEditor({
                     </div>
                 </div>
             )}
-
-            {/* 操作按钮 */}
-            {isText && (
-                <div className="flex justify-end gap-1 mt-1.5">
-                    {onEdit && (
-                        <button
-                            onClick={onEdit}
-                            className="px-2 py-0.5 text-[11px] text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded transition-colors"
-                            title="编辑工作模式"
-                        >
-                            编辑
-                        </button>
-                    )}
-                    {!isBuiltin && onDelete && (
-                        <button
-                            onClick={onDelete}
-                            className="px-2 py-0.5 text-[11px] text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                            title="删除此工作模式"
-                        >
-                            删除
-                        </button>
-                    )}
-                </div>
-            )}
         </div>
     )
 }
-
-// ─── 添加角色弹窗 ────────────────────────────────────────────
-
-function AddRoleDialog({
-                           providers,
-                           initialRole,
-                           onSave,
-                           onClose,
-                       }: {
-    providers: LLMProvider[]
-    initialRole?: ModelSchemeRole
-    onSave: (data: { name: string; icon: string; description: string; endpointId: string; modelId: string; thinkingEffort: string | null; enabled: boolean }) => void
-    onClose: () => void
-}) {
-    const roleInfo = initialRole ? MODEL_ROLE_INFO[initialRole.role as keyof typeof MODEL_ROLE_INFO] : undefined
-    const [name, setName] = useState(initialRole?.displayName || '')
-    const [icon, setIcon] = useState(initialRole?.icon || roleInfo?.icon || '')
-    const [showIconPicker, setShowIconPicker] = useState(false)
-    const iconPickerRef = useRef<HTMLDivElement>(null)
-    const [description, setDescription] = useState(initialRole?.description || roleInfo?.description || '')
-    const [endpointId, setEndpointId] = useState(initialRole?.endpointId || '')
-    const [modelId, setModelId] = useState(initialRole?.modelId || '')
-    const [thinkingEffort, setThinkingEffort] = useState(initialRole?.thinkingEffort || '')
-    const [enabled, setEnabled] = useState(initialRole?.enabled ?? true)
-
-    useEffect(() => {
-        if (!showIconPicker) return
-        const handleClickOutside = (e: MouseEvent) => {
-            if (iconPickerRef.current && !iconPickerRef.current.contains(e.target as Node)) {
-                setShowIconPicker(false)
-            }
-        }
-        document.addEventListener('mousedown', handleClickOutside)
-        return () => document.removeEventListener('mousedown', handleClickOutside)
-    }, [showIconPicker])
-
-    // 按 ESC 关闭弹窗
-    useEffect(() => {
-        const handleEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose()
-        }
-        document.addEventListener('keydown', handleEsc)
-        return () => document.removeEventListener('keydown', handleEsc)
-    }, [onClose])
-
-    const selectedProvider = providers.find((p) => p.id === endpointId)
-    const availableModels = selectedProvider?.models.filter((m: any) => m.enabled) || []
-
-    const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const val = e.target.value
-        if (val === 'open-llm-config') {
-            window.electronAPI?.openConfigWindow?.('llm-config')
-            window.electronAPI?.windowControls?.close?.()
-            return
-        }
-        setEndpointId(val)
-        setModelId('')
-    }
-
-    const handleSave = () => {
-        if (!name.trim()) return
-        onSave({
-            name: name.trim(),
-            icon: icon.trim(),
-            description: description.trim(),
-            endpointId,
-            modelId,
-            thinkingEffort: thinkingEffort || null,
-            enabled,
-        })
-    }
-
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-            <motion.div
-                initial={{opacity: 0, scale: 0.95}}
-                animate={{opacity: 1, scale: 1}}
-                className="bg-white rounded-xl shadow-xl p-5 w-[400px]"
-            >
-                <h4 className="text-sm font-semibold text-gray-800 mb-4">{initialRole ? '编辑工作模式' : '添加工作模式'}</h4>
-                <div className="space-y-3">
-                    <div>
-                        <label className="block text-xs text-gray-500 mb-1">模式名称</label>
-                        <input
-                            type="text"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            placeholder="例如：极速模式"
-                            className="w-full px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded text-gray-700 placeholder-gray-300 focus:border-brand-300 focus:outline-none"
-                            autoFocus
-                        />
-                    </div>
-
-                    {/* 图标选择器 */}
-                    <div ref={iconPickerRef} className="relative">
-                        <label className="block text-xs text-gray-500 mb-1">图标</label>
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={() => setShowIconPicker(!showIconPicker)}
-                                className="w-11 h-10 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-center hover:border-brand-300 transition-colors shrink-0 text-[var(--text-secondary)]"
-                            >
-                                {icon ? renderWorkModeIcon(icon) : <span className="text-base">✨</span>}
-                            </button>
-                            <div className="text-xs text-gray-400">
-                                {icon ? '点击修改图标' : '点击选择一个图标'}
-                            </div>
-                        </div>
-                        {showIconPicker && (
-                            <div className="absolute top-full left-0 mt-1 z-20 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-lg p-2.5 w-[340px]">
-                                <div className="grid grid-cols-8 gap-1">
-                                    {WORK_MODE_ICONS.map((def) => (
-                                        <button
-                                            key={def.id}
-                                            onClick={() => { setIcon(def.id); setShowIconPicker(false) }}
-                                            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors text-[var(--text-secondary)] ${
-                                                icon === def.id
-                                                    ? 'bg-[var(--brand-primary)]/15 ring-2 ring-[var(--brand-primary)]/40 ring-offset-1'
-                                                    : 'hover:bg-[var(--surface-muted)]'
-                                            }`}
-                                            title={def.id}
-                                        >
-                                            {def.svg}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    <div>
-                        <label className="block text-xs text-gray-500 mb-1">描述</label>
-                        <input
-                            type="text"
-                            value={description}
-                            onChange={(e) => setDescription(e.target.value)}
-                            placeholder="可选的模式描述..."
-                            className="w-full px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded text-gray-700 placeholder-gray-300 focus:border-brand-300 focus:outline-none"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-xs text-gray-500 mb-1">服务商</label>
-                        <select
-                            value={endpointId}
-                            onChange={handleProviderChange}
-                            className="w-full px-2 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded text-gray-600 focus:outline-none focus:border-brand-300"
-                        >
-                            <option value="">选择服务商</option>
-                            {providers
-                                .filter((p: any) => p.enabled)
-                                .map((p: any) => (
-                                    <option key={p.id} value={p.id}>{p.name}</option>
-                                ))}
-                            <option disabled>───────</option>
-                            <option value="open-llm-config" className="text-brand-500 font-medium">⚙️ LLM 配置</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-xs text-gray-500 mb-1">模型</label>
-                        <select
-                            value={modelId}
-                            onChange={(e) => setModelId(e.target.value)}
-                            disabled={!endpointId}
-                            className="w-full px-2 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded text-gray-600 focus:outline-none focus:border-brand-300 disabled:opacity-50"
-                        >
-                            <option value="">选择模型</option>
-                            {availableModels.map((m: any) => (
-                                <option key={m.id} value={m.id}>{m.name}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-xs text-gray-500 mb-1">思考强度</label>
-                        <select
-                            value={thinkingEffort}
-                            onChange={(e) => setThinkingEffort(e.target.value)}
-                            className="w-full px-2 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded text-gray-600 focus:outline-none focus:border-brand-300"
-                        >
-                            {EFFORT_OPTIONS.map(opt => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div className="flex items-center gap-2 pt-1">
-                        <input
-                            type="checkbox"
-                            id="role-enabled"
-                            checked={enabled}
-                            onChange={(e) => setEnabled(e.target.checked)}
-                            className="w-3.5 h-3.5 rounded border-gray-300 text-brand-500"
-                        />
-                        <label htmlFor="role-enabled" className="text-xs text-gray-500">启用此工作模式</label>
-                    </div>
-                </div>
-                <div className="flex items-center justify-end gap-2 mt-5">
-                    <button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors">
-                        取消
-                    </button>
-                    <button
-                        onClick={handleSave}
-                        disabled={!name.trim()}
-                        className="px-3 py-1.5 text-xs bg-brand-500 text-white rounded-md hover:bg-brand-600 transition-colors disabled:opacity-50"
-                    >
-                        {initialRole ? '保存更改' : '添加模式'}
-                    </button>
-                </div>
-            </motion.div>
-        </div>
-    )
-}
-

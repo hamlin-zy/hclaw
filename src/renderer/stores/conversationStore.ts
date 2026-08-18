@@ -227,7 +227,7 @@ export function recordTextBlock(convId: string, msgId: string, incrementalText: 
 }
 
 /** think 块（段内增长同 id → 主进程 UPDATE 内容） */
-export function recordThinkBlock(convId: string, msgId: string, id: string, content: string, status: 'thinking' | 'complete', startOffset: number): void {
+export function recordThinkBlock(convId: string, msgId: string, id: string, content: string, status: 'thinking' | 'complete', _startOffset: number): void {
     if (isChildConversation(convId)) return
     const timestamp = Date.now()
     const agentState = useAgentStore.getState().convAgentStates[convId]

@@ -17,7 +17,7 @@ import type {AgentStreamEvent} from './stream'
 import {LLMCaller} from './loop/llmCaller'
 import {ToolExecutor} from './loop/toolExecutor'
 import {AgentLoopController} from './loop/controller'
-import type {HClawAgentType, IntentAnalysisResult} from '@shared/types'
+import type {HClawAgentType, IntentAnalysisResult, ModelRole} from '@shared/types'
 import type {AgentDefinition} from '@shared/agent'
 import {permissionEngine} from './tools/permission'
 import {setAgentToolConfig} from './tools/builtin/agentTool'
@@ -61,6 +61,8 @@ export interface AgentLoopParams {
   }
   /** 消息元数据（如命令模板等），用于 Agent Loop 识别命令模式 */
   messageMetadata?: Record<string, unknown>
+  /** 显式指定模型角色（agentTool 子会话专用；primary/lightweight/reasoning） */
+  modelRole?: ModelRole
   /**
    * Hook 执行后注入的额外上下文
    * 来自 SessionStart/UserPromptSubmit hook 的 additionalContext
@@ -118,6 +120,7 @@ export async function* agentLoop(
     channelSend,
     messageMetadata,
     hookAdditionalContext,
+    modelRole,
   } = params
 
   // 使用动态更新的 settings（而非解构时捕获的静态引用）
@@ -185,5 +188,6 @@ export async function* agentLoop(
     hookAdditionalContext,
     // 传递运行中注入的用户消息队列
     pendingInjectedMessages: params.pendingInjectedMessages,
+    modelRole,
   })
 }

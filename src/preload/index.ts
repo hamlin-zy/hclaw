@@ -186,6 +186,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   configRead: (name: string) => ipcRenderer.invoke('config-read', name),
   configWrite: (name: string, data: unknown) => ipcRenderer.invoke('config-write', name, data),
 
+  // Session-level model override (model-override-get/set IPC)
+  modelOverrideGet: (convId: string) =>
+    ipcRenderer.invoke('model-override-get', convId),
+  modelOverrideSet: (convId: string, override: import('../shared/types/model').ModelOverride | null) =>
+    ipcRenderer.invoke('model-override-set', convId, override),
+
   // Background image (local picture as app background)
   backgroundPick: () => ipcRenderer.invoke('background-pick'),
   backgroundRemove: (path: string) => ipcRenderer.invoke('background-remove', path),
@@ -479,8 +485,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     agentAddPermissionRule: (rule: any) => ipcRenderer.invoke('agent-add-permission-rule', rule),
     agentRemovePermissionRule: (toolName: string) => ipcRenderer.invoke('agent-remove-permission-rule', toolName),
     agentSetPermissionMode: (mode: string) => ipcRenderer.invoke('agent-set-permission-mode', mode),
-    agentGetWorkMode: () => ipcRenderer.invoke('agent-get-work-mode'),
-    agentSetWorkMode: (mode: string) => ipcRenderer.invoke('agent-set-work-mode', mode),
 
     // Skills management
     skillsRefresh: (forceRefresh?: boolean) => ipcRenderer.invoke('skills-refresh', forceRefresh),

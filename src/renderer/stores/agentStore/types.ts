@@ -1,4 +1,4 @@
-import type {AgentState, IntentAnalysisResult, RunMode, Task, WorkMode} from '@shared/types'
+import type {AgentState, IntentAnalysisResult, RunMode, Task} from '@shared/types'
 import type {AgentStreamEvent} from '../../../main/agent/stream'
 
 /** Agent Stream Payload 类型 */
@@ -148,8 +148,6 @@ export interface AgentStore {
     permissionRules: any[]
     /** 当前权限模式 */
     permissionMode: 'auto' | 'safe'
-    /** 当前工作模式 */
-    workMode: WorkMode
     /** 消息显示模式：详细模式（detailed）、精简模式（compact）、紧凑模式（ultra-compact） */
     messageDisplayMode: 'detailed' | 'compact' | 'ultra-compact'
     /** 压缩结果统计，用于展示 CompactWarningBanner */
@@ -164,6 +162,10 @@ export interface AgentStore {
     compactInProgress: boolean
     /** LLM 运行错误信息，显示在消息列表左下角而非消息气泡中 */
     errorMessage: string | null
+    /** 当前会话的模型 override（null=auto） */
+    modelOverride: import('@shared/types').ModelOverride | null
+    /** 全局最近一次手动选择（新建会话继承） */
+    lastSelected: import('@shared/types').ModelOverride | null
 
     // ── Actions ────────────────────────────────────
     clearCompactBanner: () => void
@@ -187,10 +189,10 @@ export interface AgentStore {
     removeConvData: (convId: string) => void
 
     setAgentState: (state: Partial<AgentState>) => void
-    setMode: (mode: 'auto') => void
     setPermissionMode: (mode: RunMode) => Promise<void>
-    setWorkMode: (mode: WorkMode) => Promise<void>
     setMessageDisplayMode: (mode: 'detailed' | 'compact' | 'ultra-compact') => void
+    /** 设置会话 override（写主进程 + 本地） */
+    setModelOverride: (convId: string, override: import('@shared/types').ModelOverride | null) => Promise<void>
     respondQuestion: (result: 'allow' | 'always' | 'deny') => Promise<void>
     answerQuestion: (answer: string) => Promise<void>
     clearPendingQuestion: () => void

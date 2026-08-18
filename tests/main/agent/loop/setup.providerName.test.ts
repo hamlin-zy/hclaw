@@ -7,7 +7,7 @@
  *
  * Mock 策略：
  * - runtimeConfigManager 是真实单例，通过公开静态方法
- *   initialize/updateScheme/setWorkMode 注入测试 scheme/providers；
+ *   initialize/updateScheme 注入测试 scheme/providers；
  *   configBridge 由 initialize 注册，getCurrentSchemeInfo 走真实链路，无需 mock。
  * - setup.ts 顶层还 import 了 permissionEngine / toolRegistry 等模块，
  *   但 selectModelForTurn 不触碰它们，仅 import 链存在即可。
@@ -83,7 +83,6 @@ describe('selectModelForTurn 返回 providerName（服务商人类可读名）',
         // 重置单例状态并注入测试 scheme/providers
         runtimeConfigManager.initialize()
         runtimeConfigManager.updateScheme('scheme-1', SCHEME, PROVIDERS)
-        runtimeConfigManager.setWorkMode('primary')
     })
 
     it('返回 providers.name 作为 providerName', async () => {

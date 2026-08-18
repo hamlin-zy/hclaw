@@ -12,7 +12,7 @@ import {isAudioFile, isImageFile, isNetworkImageUrl} from '../utils/imageProcess
 import {runtimeConfigManager} from '../runtimeConfigManager'
 import {resolveAgentDefinitionFromCommandId} from '../agentTemplateConverter'
 import {logger} from '../logger'
-import {convertAssistantHistoryMessage} from './historyConverter'
+import {convertAssistantHistoryMessage, restoreSkillSystemMessages} from './historyConverter'
 import type {LlmStats, SystemSettings} from '@shared/types'
 import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
 
@@ -233,7 +233,13 @@ export function registerHandlers(): void {
                     // ★ 按 contentBlocks 的 think 边界无损还原多 assistant
                     //   （loop 内存态：一次 LLM 调用 = 一个 assistant；否则跨 turn
                     //   重建的 prompt 前缀与上一轮 loop 末不一致，KV cache 断裂）
-                    for (const converted of convertAssistantHistoryMessage(msg)) {
+                    const convertedAssistant = convertAssistantHistoryMessage(msg)
+                    // ★ 原样还原 skill 工具的 system 注入消息（KV cache 前缀一致性）
+                    // 运行时 injectMessage 追加在 tool 消息之后（execute.ts deferredMessages），
+                    // 但 system 消息不落库，重建若不恢复会改变 system 块序列 → 缓存整段断裂。
+                    // 详见 restoreSkillSystemMessages 的 JSDoc。
+                    restoreSkillSystemMessages(msg, convertedAssistant)
+                    for (const converted of convertedAssistant) {
                         convertedMessages.push(converted)
                     }
                 }
@@ -314,7 +320,6 @@ export function registerHandlers(): void {
                     scheme: currentScheme,
                     providers: currentProviders as any,
                 } : undefined,
-                workMode: runtimeConfigManager.getWorkMode(),
                 ...(agentDefinition ? {agentDefinition} : {}),
             }
 

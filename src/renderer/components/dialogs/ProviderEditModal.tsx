@@ -43,6 +43,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
   const [showApiKey, setShowApiKey] = useState(false)
   const [providerType, setProviderType] = useState<LLMProvider['type']>(provider?.type || 'openai')
   const [authType, setAuthType] = useState<'api-key' | 'google-oauth2'>(provider?.authType || 'api-key')
+  const [apiStyle, setApiStyle] = useState<'chat' | 'responses'>(provider?.apiStyle || 'chat')
   const [enabled, setEnabled] = useState(provider?.enabled ?? true)
   const [saving, setSaving] = useState(false)
 
@@ -390,6 +391,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
         name: name.trim(),
         type: providerType,
         authType: authType,
+        apiStyle,
         email: email,
         baseUrl: providerType === 'google' ? GOOGLE_BASE_URL : (baseUrl.trim() || undefined),
         features: providerType === 'anthropic' ? { systemContentBlocks: useSystemArray } : undefined,
@@ -472,6 +474,26 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                 ))}
               </div>
             </div>
+
+            {/* API 形态 — 仅 openai/custom 显示 */}
+            {(providerType === 'openai' || providerType === 'custom') && (
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">API形态</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {([
+                    {id: 'chat', name: 'Chat Completions'},
+                    {id: 'responses', name: 'Responses API'},
+                  ] as const).map((p) => (
+                    <button key={p.id} onClick={() => setApiStyle(p.id)}
+                      className={`px-2 py-1.5 text-xs rounded-md border transition-colors ${
+                        apiStyle === p.id ? 'bg-brand-50 border-brand-200 text-brand-600' : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                      }`}
+                    >{p.name}</button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1">Responses API 为 OpenAI 官方推荐协议；第三方兼容服务请保持 Chat Completions。</p>
+              </div>
+            )}
 
             {/* 服务商名称 */}
             <div>

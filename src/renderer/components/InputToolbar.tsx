@@ -1,5 +1,6 @@
 import CacheRateTooltip from './CacheRateTooltip'
 import ToolMenu from './ToolMenu'
+import ModelSelector from './ModelSelector'
 
 /** 状态栏脉冲圆点 */
 const StatusDot = ({color = 'var(--info)'}: {color?: string}) => (
@@ -14,6 +15,8 @@ interface InputToolbarProps {
     agentState: {currentModelProvider?: string; currentModelName?: string}
     pendingMessagesCount: number
     canSend: boolean
+    /** 当前会话 ID（ModelSelector 会话级 override 读取/写入；可选以兼容未传入的调用方） */
+    conversationId?: string
     onSubmit: () => void
     onAbort: () => void
     onUploadFile: (files: any[]) => void
@@ -21,7 +24,7 @@ interface InputToolbarProps {
 }
 
 /**
- * 底部输入工具栏 — 状态提示 / 缓存命中率 / 工具菜单 / 发送 / 终止
+ * 底部输入工具栏 — 状态提示 / 缓存命中率 / 模型选择 / 工具菜单 / 发送 / 终止
  */
 export default function InputToolbar({
     isRunning,
@@ -31,6 +34,7 @@ export default function InputToolbar({
     agentState,
     pendingMessagesCount,
     canSend,
+    conversationId,
     onSubmit,
     onAbort,
     onUploadFile,
@@ -71,6 +75,9 @@ export default function InputToolbar({
             <div data-name="input-toolbar-actions" className="flex items-center gap-1 shrink-0">
                 {/* 缓存命中率 + 窗口占用 + 平均吞吐 */}
                 <CacheRateTooltip/>
+
+                {/* 会话级模型选择器（auto 默认），ms-2 与徽章组形成 8px 分组间隔 */}
+                <ModelSelector conversationId={conversationId ?? ''}/>
 
                 {/* + 展开按钮 */}
                 <ToolMenu

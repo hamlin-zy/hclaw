@@ -10,29 +10,32 @@ import {useLLMStore} from '../stores/llmStore'
  * - contextLength = OpenRouter 补全的窗口大小（0 = 未知）
  * - pct = computeUsagePct(numerator, contextLength)
  *
- * 分母基于「当前工作模式对应的模型名」查询（而非历史消息的模型名）：
- *   workMode（useAgentStore）→ activeScheme.roles.find(r => r.role === workMode)
+ * 分母基于「当前生效模型名」查询（而非历史消息的模型名）：
+ *   优先取运行态模型提示 agentState.currentModelName（InputToolbar 同源）；
+ *   为空（未运行）时退化为 primary 角色解析：
+ *   → activeScheme.roles.find(r => r.role === 'primary' && enabled)
  *   → role.endpointId + role.modelId（provider_models 的 UUID）
  *   → providers.find(p => p.id === endpointId).models.find(m => m.id === modelId).name
  *
- * 工作模式 / 方案 / 模型配置变化时重查（不依赖 token 变化）。
+ * 模型名 / 方案 / 模型配置变化时重查（不依赖 token 变化）。
  */
 export function useWindowUsage(stats: MessageTokenStats) {
-  const workMode = useAgentStore(s => s.workMode)
+  const agentState = useAgentStore(s => s.agentState)
   const activeSchemeId = useModelSchemeStore(s => s.activeSchemeId)
   const schemes = useModelSchemeStore(s => s.schemes)
   const providers = useLLMStore(s => s.providers)
 
-  // 当前工作模式 → 方案角色 → 人类可读模型名（provider_models.id 是 UUID，需解析）
+  // 当前生效模型名：取运行态模型提示（InputToolbar 同源）；空则退化为 primary 角色解析
   const currentModelName = useMemo(() => {
+    if (agentState.currentModelName) return agentState.currentModelName
     const scheme = schemes.find(s => s.id === activeSchemeId)
     if (!scheme) return ''
-    const role = scheme.roles.find(r => r.role === workMode)
-    if (!role?.enabled) return ''
+    const role = scheme.roles.find(r => r.role === 'primary' && r.enabled)
+    if (!role) return ''
     const provider = providers.find(p => p.id === role.endpointId)
     const model = provider?.models.find(m => m.id === role.modelId)
     return model?.name || ''
-  }, [schemes, activeSchemeId, workMode, providers])
+  }, [schemes, activeSchemeId, agentState.currentModelName, providers])
 
   const [contextLength, setContextLength] = useState(0)
 

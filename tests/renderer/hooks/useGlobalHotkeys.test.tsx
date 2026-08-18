@@ -82,7 +82,6 @@ describe('useGlobalHotkeys', () => {
             toolPopupData: null,
             combinedPopupData: null,
             pendingPermissionConfirm: null,
-            workMode: 'primary',
             abortAgent: origActions.abortAgent,
         })
         useThemeStore.setState({theme: 'light'})

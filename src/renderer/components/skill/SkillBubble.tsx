@@ -91,7 +91,7 @@ const STYLES = {
 export const SkillBubble = memo(function SkillBubble({
   skillName,
   status,
-  phase,
+  phase: _phase,
   currentStep,
   progress,
   references,
