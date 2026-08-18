@@ -1,8 +1,9 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import type {ConversationUsageStats, UsageBreakdown} from '@shared/types'
-import {formatTokenCount, formatTokenCompact, formatCost} from '../../lib/format'
-import {KpiCard, StatRow, GroupTitle, providerDisplayName} from '../usage/statsParts'
+import {formatTokenCount, formatTokenCompact, formatTokensPerSecond, tokensPerSecond, formatCost, type Currency} from '../../lib/format'
+import {KpiCard, StatRow, GroupTitle, providerDisplayName, ClientStatsNotice} from '../usage/statsParts'
+import {useDraggableDialog} from '../../hooks/useDraggableDialog'
 
 export interface UsageStatsOptions {
     convId: string
@@ -31,6 +32,15 @@ export default function UsageStatsDialog() {
     const [options, setOptions] = useState<UsageStatsOptions | null>(null)
     const [load, setLoad] = useState<LoadState>({status: 'loading'})
     const [groupView, setGroupView] = useState<'provider' | 'model'>('provider')
+    const [currency, setCurrency] = useState<Currency>('USD')
+
+    // 弹窗可拖动：每次打开居中，拖动时边界约束（hook 管理 ARIA 角色与定位）
+    // recenterSignal：数据加载完成后弹窗高度定型，重新居中一次（初始居中测量于 loading 态，高度偏小会偏下）
+    const {dialogRef, position, isDragging, handleDragStart} = useDraggableDialog({
+        visible: !!options,
+        ariaLabelledBy: 'usage-stats-title',
+        recenterSignal: load.status,
+    })
 
     useEffect(() => {
         const handleShow = (e: CustomEvent<UsageStatsOptions>) => {
@@ -139,8 +149,14 @@ export default function UsageStatsDialog() {
         const d = load.data
         const scope = `${d.parentCount} 个父会话 + ${d.childCount} 个子会话`
         const rate = cacheRate(d)
+        // 时序 KPI（口径与消息 tooltip 一致）：平均吞吐 = Σ输出 ÷ Σ解码时长；平均首字 = Σ首字 ÷ 样本数
+        const avgDecodeRate = tokensPerSecond(d.totalOutputTokens, d.totalDecodeMs)
+        const avgTtftSeconds = d.ttftCount > 0 ? d.totalTtftMs / d.ttftCount / 1000 : null
         return (
             <div className="space-y-3">
+                {/* 数据口径提示：客户端侧统计，非服务商账单 */}
+                <ClientStatsNotice/>
+
                 {/* 统计范围 */}
                 <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-muted)] px-3 py-2">
                     <svg className="w-3.5 h-3.5 shrink-0 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -157,11 +173,13 @@ export default function UsageStatsDialog() {
                 <div className="grid grid-cols-2 gap-2">
                     <KpiCard label="总 token（含缓存）" value={formatTokenCompact(totalTokens(d))} accent/>
                     <KpiCard label="缓存命中率" value={rate ?? '-'}/>
+                    <KpiCard label="平均吞吐" value={avgDecodeRate != null ? `${formatTokensPerSecond(avgDecodeRate)} t/s` : '—'}/>
+                    <KpiCard label="平均首字" value={avgTtftSeconds != null ? `${avgTtftSeconds.toFixed(1)}s` : '—'}/>
                 </div>
 
-                {/* Token 明细 */}
+                {/* Token 明细（两列并排压缩纵向空间） */}
                 <GroupTitle>Token 明细</GroupTitle>
-                <div className="space-y-1.5">
+                <div className="grid grid-cols-2 gap-1.5">
                     <StatRow label="输入" value={formatTokenCount(d.totalInputTokens)}/>
                     <StatRow label="输出" value={formatTokenCount(d.totalOutputTokens)}/>
                 </div>
@@ -198,6 +216,17 @@ export default function UsageStatsDialog() {
                                     按模型
                                 </button>
                             </div>
+                            {/* 美元 / 人民币切换（与菜单栏用量统计同口径，固定汇率 7.2） */}
+                            <div className="flex gap-0.5 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
+                                <button onClick={() => setCurrency('USD')}
+                                        className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${currency === 'USD' ? 'bg-[var(--surface-elevated)] shadow-sm' : 'text-[var(--text-muted)]'}`}>
+                                    $ 美元
+                                </button>
+                                <button onClick={() => setCurrency('CNY')}
+                                        className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${currency === 'CNY' ? 'bg-[var(--surface-elevated)] shadow-sm' : 'text-[var(--text-muted)]'}`}>
+                                    ¥ 人民币
+                                </button>
+                            </div>
                         </div>
                         <div className="space-y-2">
                             {(() => {
@@ -230,7 +259,7 @@ export default function UsageStatsDialog() {
                                                 <div><div className="text-[9px] text-[var(--text-muted)]">输入</div><div className="text-xs tabular-nums">{formatTokenCount(b.inputTokens)}</div></div>
                                                 <div><div className="text-[9px] text-[var(--text-muted)]">输出</div><div className="text-xs tabular-nums">{formatTokenCount(b.outputTokens)}</div></div>
                                                 <div><div className="text-[9px] text-[var(--text-muted)]">缓存命中</div><div className="text-xs tabular-nums">{b.cacheReadTokens > 0 ? formatTokenCount(b.cacheReadTokens) : '—'}</div></div>
-                                                <div><div className="text-[9px] text-[var(--text-muted)]">成本</div><div className="text-xs tabular-nums text-[var(--brand-primary)]">{formatCost(b.costUsd)}</div></div>
+                                                <div><div className="text-[9px] text-[var(--text-muted)]">成本</div><div className="text-xs tabular-nums text-[var(--brand-primary)]">{formatCost(b.costUsd, currency)}</div></div>
                                             </div>
                                         </div>
                                     )
@@ -260,17 +289,23 @@ export default function UsageStatsDialog() {
                         animate={{scale: 1, opacity: 1}}
                         exit={{scale: 0.95, opacity: 0}}
                         transition={{duration: 0.15, ease: 'easeOut'}}
-                        className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-[99999]"
+                        className="fixed inset-0 pointer-events-none z-[99999]"
                     >
                         <div
-                            className="w-full max-w-md bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] overflow-hidden pointer-events-auto"
+                            ref={dialogRef}
                             role="dialog"
                             aria-modal="true"
                             aria-labelledby="usage-stats-title"
+                            className={`absolute pointer-events-auto bg-[var(--surface)] rounded-xl border border-[var(--border)] overflow-hidden w-[448px] max-w-[calc(100vw-2rem)] transition-shadow duration-100 ${isDragging ? 'scale-[1.02]' : 'shadow-elevated'}`}
+                            style={{left: position.x, top: position.y}}
                             onClick={(e) => e.stopPropagation()}
                         >
-                            {/* 头部：图标 + 标题 + 快捷关闭 */}
-                            <div className="px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)]">
+                            {/* 头部：图标 + 标题 + 快捷关闭（拖动手柄） */}
+                            <div
+                                onMouseDown={handleDragStart}
+                                onTouchStart={handleDragStart}
+                                className={`px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)] select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                            >
                                 <div className="flex items-center gap-3">
                                     <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-[var(--brand-muted)]">
                                         <svg className="w-4.5 h-4.5 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -300,16 +335,6 @@ export default function UsageStatsDialog() {
 
                             <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
                                 {renderBody()}
-                            </div>
-
-                            <div className="px-5 py-3.5 border-t border-[var(--border)] bg-[var(--surface-elevated)] flex items-center justify-between gap-3">
-                                <span className="text-[11px] text-[var(--text-muted)]">按 Esc 或点击遮罩关闭</span>
-                                <button
-                                    onClick={handleClose}
-                                    className="px-4 py-1.5 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                                >
-                                    关闭
-                                </button>
                             </div>
                         </div>
                     </motion.div>

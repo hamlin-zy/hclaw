@@ -25,6 +25,12 @@ interface ModelAggRow {
   cache_read_tokens: number
   cache_write_tokens: number
   total_tokens: number
+  /** 组内累计纯解码时长（全 NULL 时为 null） */
+  decode_ms: number | null
+  /** 组内累计首字延迟（全 NULL 时为 null） */
+  ttft_ms: number | null
+  /** 组内携带首字延迟的调用数（COUNT 忽略 NULL） */
+  ttft_count: number
 }
 
 export class SqliteLlmUsageRepository {
@@ -59,7 +65,10 @@ export class SqliteLlmUsageRepository {
                SUM(output_tokens) AS output_tokens,
                SUM(cache_read_tokens) AS cache_read_tokens,
                SUM(cache_write_tokens) AS cache_write_tokens,
-               SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) AS total_tokens
+               SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) AS total_tokens,
+               SUM(decode_ms) AS decode_ms,
+               SUM(ttft_ms) AS ttft_ms,
+               COUNT(ttft_ms) AS ttft_count
         FROM llm_usage
         WHERE (? IS NULL OR created_at >= ?)
         GROUP BY provider_type, model
@@ -120,7 +129,10 @@ export class SqliteLlmUsageRepository {
                SUM(output_tokens) AS output_tokens,
                SUM(cache_read_tokens) AS cache_read_tokens,
                SUM(cache_write_tokens) AS cache_write_tokens,
-               SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) AS total_tokens
+               SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) AS total_tokens,
+               SUM(decode_ms) AS decode_ms,
+               SUM(ttft_ms) AS ttft_ms,
+               COUNT(ttft_ms) AS ttft_count
         FROM llm_usage
         WHERE conversation_id IN (${placeholders})
         GROUP BY provider_type, model
@@ -152,6 +164,9 @@ export class SqliteLlmUsageRepository {
         {model: r.model, inputTokens: r.input_tokens, outputTokens: r.output_tokens, cacheReadTokens: r.cache_read_tokens},
         getMeta,
       ),
+      decodeMs: r.decode_ms ?? undefined,
+      ttftMs: r.ttft_ms ?? undefined,
+      ttftCount: r.ttft_count,
     }
   }
 
@@ -169,6 +184,10 @@ export class SqliteLlmUsageRepository {
         existing.cacheWriteTokens += r.cacheWriteTokens
         existing.totalTokens += r.totalTokens
         existing.costUsd += r.costUsd
+        // 时序字段按组累加（全组无时序数据时保持 undefined）
+        existing.decodeMs = (existing.decodeMs ?? 0) + (r.decodeMs ?? 0) || undefined
+        existing.ttftMs = (existing.ttftMs ?? 0) + (r.ttftMs ?? 0) || undefined
+        existing.ttftCount = (existing.ttftCount ?? 0) + (r.ttftCount ?? 0)
         // providerName 合并时取第一个非 NULL（同 provider 不同 model 可能有 NULL/有值）
         if (!existing.providerName && r.providerName) existing.providerName = r.providerName
       } else {

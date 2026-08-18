@@ -191,6 +191,30 @@ describe('queryAggregated（全局聚合 + 成本）', () => {
         // a/b（createdAt=1000）与 d（10 天前）被过滤，仅 c 在 7 天内
         expect(rows[0]!.requestCount).toBe(1)
     })
+
+    it('时序字段：SUM(decode_ms)、SUM(ttft_ms) 聚合，COUNT(ttft_ms) 忽略 NULL 样本', () => {
+        // beforeEach 已插入 a/b（makeRecord 默认 decodeMs=5000、ttftMs=800）
+        db.prepare('INSERT INTO conversations (id, workspace_path, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+            .run('conv-9', '', '{}', 1000, 1000)
+        // 历史行：有 decodeMs 但无 ttftMs（旧数据）→ 不计入 ttft_count
+        repo.record(makeRecord({id: 't1', conversationId: 'conv-9', decodeMs: 10000, ttftMs: undefined}))
+        const rows = repo.queryAggregated({range: 'all', view: 'model'}, mockGetMeta)
+
+        const totalDecode = rows.reduce((s, r) => s + (r.decodeMs ?? 0), 0)
+        const totalTtft = rows.reduce((s, r) => s + (r.ttftMs ?? 0), 0)
+        const ttftCount = rows.reduce((s, r) => s + (r.ttftCount ?? 0), 0)
+        expect(totalDecode).toBe(20000)   // 5000 + 5000 + 10000
+        expect(totalTtft).toBe(1600)      // 800 + 800（t1 无 ttft）
+        expect(ttftCount).toBe(2)         // COUNT(ttft_ms) 忽略 NULL
+    })
+
+    it('mergeByProvider：时序字段按服务商累加（provider 视图同样携带）', () => {
+        const rows = repo.queryAggregated({range: 'all', view: 'provider'}, mockGetMeta)
+        expect(rows).toHaveLength(1)
+        expect(rows[0]!.decodeMs).toBe(10000)   // 5000 + 5000
+        expect(rows[0]!.ttftMs).toBe(1600)      // 800 + 800
+        expect(rows[0]!.ttftCount).toBe(2)
+    })
 })
 
 describe('queryTrend（按天趋势）', () => {

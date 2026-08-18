@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react'
-import {formatTokenCompact, formatCost, USD_TO_CNY_RATE, type Currency} from '../../lib/format'
+import {formatTokenCompact, formatCost, formatTokensPerSecond, tokensPerSecond, USD_TO_CNY_RATE, type Currency} from '../../lib/format'
 import {useThemeSync} from '../../lib/theme'
+import {ClientStatsNotice} from './statsParts'
 import type {GlobalUsageStats, TimeRange} from '@shared/types'
 
 type View = 'provider' | 'model'
@@ -71,6 +72,9 @@ export default function UsageWindow() {
 
     const maxTrend = data ? Math.max(...data.trend.map(t => t.inputTokens + t.outputTokens + t.cacheReadTokens), 1) : 1
     const grandTotal = data ? data.breakdown.reduce((s, b) => s + b.totalTokens, 0) : 0
+    // 时序 KPI（口径与消息 tooltip 一致）：平均吞吐 = Σ输出 ÷ Σ解码时长；平均首字 = Σ首字 ÷ 样本数
+    const avgDecodeRate = data ? tokensPerSecond(data.kpi.totalOutputTokens, data.kpi.totalDecodeMs) : null
+    const avgTtftSeconds = data && data.kpi.ttftCount > 0 ? data.kpi.totalTtftMs / data.kpi.ttftCount / 1000 : null
 
     return (
         <div className="h-screen flex flex-col bg-[var(--surface)] text-[var(--text-primary)] font-['Inter',sans-serif]">
@@ -131,7 +135,7 @@ export default function UsageWindow() {
                         </button>
                     ))}
                 </div>
-                <InfoTip text="成本为估算值，仅供对照：输入 / 输出 / 缓存命中 token 分别按模型单价计费；未定价模型显示「—」，不计入合计；人民币按固定汇率 7.2 折算，非实时行情。实际账单请以服务商官方为准。" />
+                <InfoTip text="统计数据为客户端本地记录，仅供对照：输入 / 输出 / 缓存命中 token 分别按模型单价计费；未定价模型显示「—」，不计入合计；人民币按固定汇率 7.2 折算，非实时行情。实际用量与费用请以服务商官网为准。" />
             </div>
 
             {/* 主体 */}
@@ -151,7 +155,7 @@ export default function UsageWindow() {
                     <>
                         {/* 关键指标：总成本为主，其余为辅助 */}
                         <section className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] overflow-hidden">
-                            <div className="grid grid-cols-2 md:grid-cols-4">
+                            <div className="grid grid-cols-2 md:grid-cols-6">
                                 <div className="p-4">
                                     <div className="text-[11px] text-[var(--text-muted)]">总成本</div>
                                     <div className="mt-1 text-2xl font-semibold tabular-nums leading-none text-[var(--brand-primary)]">
@@ -172,6 +176,18 @@ export default function UsageWindow() {
                                 <div className="p-4 border-l border-[var(--border)]">
                                     <div className="text-[11px] text-[var(--text-muted)]">缓存命中率</div>
                                     <div className="mt-1 text-xl font-semibold tabular-nums leading-none text-[var(--text-primary)]">{data.kpi.cacheHitRate != null ? `${data.kpi.cacheHitRate}%` : '—'}</div>
+                                </div>
+                                <div className="p-4 border-l border-[var(--border)]">
+                                    <div className="text-[11px] text-[var(--text-muted)]">平均吞吐</div>
+                                    <div className="mt-1 text-xl font-semibold tabular-nums leading-none text-[var(--text-primary)]">
+                                        {avgDecodeRate != null ? `${formatTokensPerSecond(avgDecodeRate)} t/s` : '—'}
+                                    </div>
+                                </div>
+                                <div className="p-4 border-l border-[var(--border)]">
+                                    <div className="text-[11px] text-[var(--text-muted)]">平均首字</div>
+                                    <div className="mt-1 text-xl font-semibold tabular-nums leading-none text-[var(--text-primary)]">
+                                        {avgTtftSeconds != null ? `${avgTtftSeconds.toFixed(1)}s` : '—'}
+                                    </div>
                                 </div>
                             </div>
                         </section>
@@ -252,6 +268,9 @@ export default function UsageWindow() {
                                 </table>
                             )}
                         </section>
+
+                        {/* 数据口径提示：客户端侧统计，非服务商账单 */}
+                        <ClientStatsNotice centered/>
                     </>
                 )}
             </div>

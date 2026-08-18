@@ -56,9 +56,11 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
 
   // 徽章口径 = 末次请求（InputArea 下方统计只针对最后一次 LLM 请求）
   const lastRate = hitRateOf(currentCacheRead, currentInput)
-  // 末次吞吐 = 末次输出 token ÷ 末次解码时长（首 token 之后，不含首字延迟）
-  const lastDecodeRate = stats.currentHasTtft
-    ? tokensPerSecond(stats.currentOutputTokens, stats.currentDecodeMs)
+  // 末次吞吐 = 最后一条携带文本解码时序（ttftMs）的请求：
+  // 纯工具调用轮次无文本输出（ttftMs/decodeMs 缺失），回退到上一个有文本解码的轮次，
+  // 避免 t/s 徽章在工具轮次后消失
+  const lastDecodeRate = stats.lastTimedStats
+    ? tokensPerSecond(stats.lastTimedStats.outputTokens, stats.lastTimedStats.decodeMs)
     : null
 
   const updatePosition = useCallback(() => {
