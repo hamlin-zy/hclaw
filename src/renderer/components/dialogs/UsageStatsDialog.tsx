@@ -1,8 +1,8 @@
-import {useCallback, useEffect, useRef, useState} from 'react'
-import type {ReactNode} from 'react'
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
-import type {ConversationUsageStats} from '@shared/types'
-import {formatTokenCount} from '../../lib/format'
+import type {ConversationUsageStats, UsageBreakdown} from '@shared/types'
+import {formatTokenCount, formatTokenCompact, formatCost} from '../../lib/format'
+import {KpiCard, StatRow, GroupTitle, providerDisplayName} from '../usage/statsParts'
 
 export interface UsageStatsOptions {
     convId: string
@@ -24,44 +24,13 @@ type LoadState =
     | { status: 'error'; message: string }
     | { status: 'done'; data: ConversationUsageStats }
 
-/** 统计行：标签左、数值右，等宽数字对齐 */
-function StatRow({label, value, valueClass}: {label: string; value: string; valueClass?: string}) {
-    return (
-        <div className="flex items-center justify-between text-sm leading-6">
-            <span className="text-[var(--text-secondary)]">{label}</span>
-            <span className={`font-medium tabular-nums ${valueClass ?? 'text-[var(--text-primary)]'}`}>{value}</span>
-        </div>
-    )
-}
-
-/** KPI 指标卡：突出关键数字 */
-function KpiCard({label, value, accent}: {label: string; value: string; accent?: boolean}) {
-    return (
-        <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
-            <div className="truncate text-[10px] text-[var(--text-muted)]">{label}</div>
-            <div className={`mt-0.5 truncate text-base font-semibold tabular-nums ${accent ? 'text-[var(--brand-primary)]' : 'text-[var(--text-primary)]'}`}>
-                {value}
-            </div>
-        </div>
-    )
-}
-
-/** 分组标题 */
-function GroupTitle({children}: {children: ReactNode}) {
-    return (
-        <div className="pt-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] first:pt-0">
-            {children}
-        </div>
-    )
-}
-
-/**
- * 会话用量统计弹窗
+/** 会话用量统计弹窗
  * App 级渲染（App.tsx），CustomEvent 触发，与 ConfirmDialog 同体系
  */
 export default function UsageStatsDialog() {
     const [options, setOptions] = useState<UsageStatsOptions | null>(null)
     const [load, setLoad] = useState<LoadState>({status: 'loading'})
+    const [groupView, setGroupView] = useState<'provider' | 'model'>('provider')
 
     useEffect(() => {
         const handleShow = (e: CustomEvent<UsageStatsOptions>) => {
@@ -73,6 +42,30 @@ export default function UsageStatsDialog() {
     }, [])
 
     const requestSeqRef = useRef(0)
+
+    /** 分组卡片数据：按服务商聚合（成本求和、totalTokens 降序）或按模型展开 */
+    const breakdownCards = useMemo<UsageBreakdown[]>(() => {
+        if (load.status !== 'done' || load.data.breakdown.length === 0) return []
+        const d = load.data
+        if (groupView === 'model') return d.breakdown
+        const map = new Map<string, UsageBreakdown>()
+        for (const b of d.breakdown) {
+            const key = b.providerType ?? 'unknown'
+            const g = map.get(key) ?? {
+                key, providerType: key, providerName: b.providerName, requestCount: 0, inputTokens: 0, outputTokens: 0,
+                cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0,
+            }
+            g.requestCount += b.requestCount
+            g.inputTokens += b.inputTokens
+            g.outputTokens += b.outputTokens
+            g.cacheReadTokens += b.cacheReadTokens
+            g.cacheWriteTokens += b.cacheWriteTokens
+            g.totalTokens += b.totalTokens
+            g.costUsd += b.costUsd
+            map.set(key, g)
+        }
+        return [...map.values()].sort((a, b) => b.totalTokens - a.totalTokens)
+    }, [load, groupView])
 
     const loadData = useCallback(async (convId: string) => {
         const seq = ++requestSeqRef.current
@@ -162,7 +155,7 @@ export default function UsageStatsDialog() {
 
                 {/* 关键指标 KPI */}
                 <div className="grid grid-cols-2 gap-2">
-                    <KpiCard label="总 token（含缓存）" value={formatTokenCount(totalTokens(d))} accent/>
+                    <KpiCard label="总 token（含缓存）" value={formatTokenCompact(totalTokens(d))} accent/>
                     <KpiCard label="缓存命中率" value={rate ?? '-'}/>
                 </div>
 
@@ -188,6 +181,64 @@ export default function UsageStatsDialog() {
                     <StatRow label="LLM 请求" value={`${d.requestCount} 次`}/>
                     <StatRow label="工具调用" value={`${d.toolCallCount} 次`}/>
                 </div>
+
+                {/* 分组用量（会话运行期间切换服务商/模型的用量下钻） */}
+                {load.status === 'done' && load.data.breakdown.length > 0 && (
+                    <>
+                        <div className="my-3 border-t border-dashed border-[var(--border-dashed)]"/>
+                        <div className="flex items-center justify-between pt-2 pb-1">
+                            <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">分组用量</span>
+                            <div className="flex gap-0.5 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
+                                <button onClick={() => setGroupView('provider')}
+                                        className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${groupView === 'provider' ? 'bg-[var(--surface-elevated)] shadow-sm' : 'text-[var(--text-muted)]'}`}>
+                                    按服务商
+                                </button>
+                                <button onClick={() => setGroupView('model')}
+                                        className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${groupView === 'model' ? 'bg-[var(--surface-elevated)] shadow-sm' : 'text-[var(--text-muted)]'}`}>
+                                    按模型
+                                </button>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            {(() => {
+                                const grand = breakdownCards.reduce((s, b) => s + b.totalTokens, 0)
+                                return breakdownCards.map((b) => {
+                                    const pct = grand > 0 ? Math.round(b.totalTokens / grand * 100) : 0
+                                    const modelCount = groupView === 'provider'
+                                        ? load.data.breakdown.filter(x => (x.providerType ?? 'unknown') === b.key).length
+                                        : 1
+                                    const title = groupView === 'provider'
+                                        ? (b.providerName || providerDisplayName(b.key))
+                                        : b.key
+                                    return (
+                                        <div key={`${b.providerType}-${b.key}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
+                                            <div className="flex items-center gap-2">
+                                                <span className="w-2 h-2 rounded-full bg-[var(--brand-primary)] shrink-0"/>
+                                                <span className="text-xs font-medium text-[var(--text-primary)]">{title}</span>
+                                                <span className="text-[10px] text-[var(--text-tertiary)]">
+                                                    {groupView === 'provider' ? `${modelCount} 个模型` : (b.providerName || b.providerType)}
+                                                </span>
+                                                <span className="ml-auto text-xs font-semibold tabular-nums text-[var(--brand-primary)]">{pct}%</span>
+                                            </div>
+                                            <div className="h-[5px] rounded-sm bg-[var(--border)] mt-2 overflow-hidden">
+                                                <div className="h-full rounded-sm bg-[var(--brand-primary)]" style={{width: `${Math.max(pct, 2)}%`}}/>
+                                            </div>
+                                            <div className="mt-2 text-[11px] text-[var(--text-secondary)] tabular-nums">
+                                                请求 <b className="text-[var(--text-primary)]">{b.requestCount}</b> 次 · 合计 <b className="text-[var(--text-primary)]">{formatTokenCount(b.totalTokens)}</b>
+                                            </div>
+                                            <div className="grid grid-cols-4 gap-2 mt-2 pt-2 border-t border-[var(--border-muted)]">
+                                                <div><div className="text-[9px] text-[var(--text-muted)]">输入</div><div className="text-xs tabular-nums">{formatTokenCount(b.inputTokens)}</div></div>
+                                                <div><div className="text-[9px] text-[var(--text-muted)]">输出</div><div className="text-xs tabular-nums">{formatTokenCount(b.outputTokens)}</div></div>
+                                                <div><div className="text-[9px] text-[var(--text-muted)]">缓存命中</div><div className="text-xs tabular-nums">{b.cacheReadTokens > 0 ? formatTokenCount(b.cacheReadTokens) : '—'}</div></div>
+                                                <div><div className="text-[9px] text-[var(--text-muted)]">成本</div><div className="text-xs tabular-nums text-[var(--brand-primary)]">{formatCost(b.costUsd)}</div></div>
+                                            </div>
+                                        </div>
+                                    )
+                                })
+                            })()}
+                        </div>
+                    </>
+                )}
             </div>
         )
     }

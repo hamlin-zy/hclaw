@@ -63,6 +63,8 @@ export type AgentStreamEvent =
     type: 'llm_call_done';
     conversationTitle: string;
     provider: string;
+    providerType: string;   // 精确服务商类型（anthropic/openai/google/ollama/custom）
+    providerName: string;   // providers 表服务商名（providers.name），供用量统计人类可读展示
     model: string;
     duration: number;
     inputTokens: number;
@@ -76,6 +78,8 @@ export type AgentStreamEvent =
     // 大字段（inputContent/outputContent/messages/systemPrompt/toolCalls）仅供主进程 LLM 日志
     // 消费；forwardToRenderer 转发到渲染进程时会剥离（manager.streamForward.ts），
     // 渲染端收到的 llm_call_done 载荷不含这些字段，故全部声明为可选。
+    /** 主进程注入的当前 assistant 消息 id（manager.impl.ts 的 pending.id），用于 llm_usage 幂等键 */
+    messageId?: string;
     inputContent?: string;
     outputContent?: string;
     toolCalls?: Array<{
@@ -102,6 +106,8 @@ export type AgentStreamEvent =
     agentId: string;
     model: string;
     provider?: string;
+    /** providers 表服务商名（providers.name，人类可读），供输入框底部展示 */
+    providerName?: string;
     tools: string[];
     isolation?: string
 }

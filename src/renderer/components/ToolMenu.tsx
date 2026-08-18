@@ -26,14 +26,13 @@ function MenuButton({icon, label, onClick}: MenuButtonProps) {
 
 interface ToolMenuProps {
     onUploadFile: (files: {id: string; name: string; path: string; size: number; type: string; isImage: boolean; previewUrl?: string}[]) => void
-    onOpenDialog: (...args: any[]) => void
     onOpenCommandPalette: () => void
 }
 
 /**
  * "+" 工具菜单按钮 — 点击后从按钮上方弹出菜单（通过 Portal 避免 overflow 裁剪）
  */
-export default function ToolMenu({onUploadFile, onOpenDialog, onOpenCommandPalette}: ToolMenuProps) {
+export default function ToolMenu({onUploadFile, onOpenCommandPalette}: ToolMenuProps) {
     const [toolMenuOpen, setToolMenuOpen] = useState(false)
     const toolBtnRef = useRef<HTMLDivElement>(null)
     const [toolMenuPos, setToolMenuPos] = useState<{bottom: number; right: number} | null>(null)
@@ -116,8 +115,8 @@ export default function ToolMenu({onUploadFile, onOpenDialog, onOpenCommandPalet
                                         el.click()
                                     }}
                                 />
-                                <MenuButton icon={<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>} label="工具列表 + MCP" onClick={() => { closeMenu(); onOpenDialog('tool-list') }}/>
-                                <MenuButton icon={<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>} label="系统提示词" onClick={() => { closeMenu(); onOpenDialog('system-prompt') }}/>
+                                <MenuButton icon={<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>} label="工具列表 + MCP" onClick={() => { closeMenu(); window.electronAPI?.openConfigWindow?.('tool-list') }}/>
+                                <MenuButton icon={<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>} label="系统提示词" onClick={() => { closeMenu(); window.electronAPI?.openConfigWindow?.('system-prompt') }}/>
                                 <MenuButton icon={<path d="M13 10V3L4 14h7v7l9-11h-7z"/>} label="技能命令" onClick={() => { closeMenu(); onOpenCommandPalette() }}/>
                             </motion.div>,
                             document.body

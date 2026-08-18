@@ -125,7 +125,7 @@ export class SqliteConversationRepository implements IConversationRepository {
                     'INSERT OR REPLACE INTO messages (id, conversation_id, role, timestamp, ended_at, metadata, llm_stats) VALUES (?, ?, ?, ?, ?, ?, ?)'
                 )
                 const blockStmt = db.prepare(
-                    'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                    'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
                 )
 
                 for (const msg of messages) {
@@ -135,7 +135,7 @@ export class SqliteConversationRepository implements IConversationRepository {
                     msgStmt.run(msgRecord.id, convId, msgRecord.role, msgRecord.timestamp, msgRecord.endedAt ?? null, JSON.stringify(msgRecord.metadata), llmStats)
 
                     for (const block of blocks) {
-                        blockStmt.run(block.id, block.messageId, block.blockType, block.content, block.data, block.sequence, block.timestamp, block.endedAt ?? null)
+                        blockStmt.run(block.id, block.messageId, block.blockType, block.content, block.data, block.sequence, block.timestamp, block.endedAt ?? null, block.turnIndex ?? null)
                     }
                 }
 
@@ -182,7 +182,7 @@ export class SqliteConversationRepository implements IConversationRepository {
                 )
                 // 3. 写入新 blocks
                 const blockStmt = db.prepare(
-                    'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                    'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
                 )
                 for (const block of blocks) {
                     blockStmt.run(
@@ -194,6 +194,7 @@ export class SqliteConversationRepository implements IConversationRepository {
                         block.sequence,
                         block.timestamp,
                         block.endedAt ?? null,
+                        block.turnIndex ?? null,
                     )
                 }
                 // 4. 更新会话时间戳
@@ -255,13 +256,14 @@ export class SqliteConversationRepository implements IConversationRepository {
                         )
                     }
                 }
-                let nextSeq = -1
-                const resolveSeq = (): number => {
-                    if (nextSeq < 0) {
-                        nextSeq = (db.prepare('SELECT COALESCE(MAX(sequence), -1) + 1 AS s FROM message_blocks WHERE message_id = ?').get(msgId) as {s: number}).s
-                    }
-                    return nextSeq++
-                }
+                // ★ sequence 分配：每次 INSERT 都重新查询 MAX(sequence)+1。
+                //   不缓存 nextSeq——end 块（finalize 分支）必须恒为当前最大，
+                //   若沿用缓存值，end 可能排在该 patch 后续新插入块之前
+                //   （历史 bug：end 被挤到 text 与 tool_call 之间，读回时
+                //   轮次内顺序错乱 → 重建序列与 loop 内存态逐 token 不一致
+                //   → KV cache 从该轮整段断裂）。事务内逐次查询开销可忽略。
+                const nextSeq = (): number =>
+                    (db.prepare('SELECT COALESCE(MAX(sequence), -1) + 1 AS s FROM message_blocks WHERE message_id = ?').get(msgId) as {s: number}).s
                 for (const block of patch.upsertBlocks ?? []) {
                     const existing = db.prepare('SELECT id, block_type, content FROM message_blocks WHERE id = ?').get(block.id) as {id: string; block_type: string; content: string | null} | undefined
                     if (existing) {
@@ -271,6 +273,9 @@ export class SqliteConversationRepository implements IConversationRepository {
                             //   会丢掉上次 flush 已落库的旧切片（"历史正文只剩最后一个字符"的根因，05b219c 引入）。
                             //   改为追加：DB 已存内容 + 本次切片 = 完整文本。think/tool_call/tool_result 保持覆盖
                             //   （渲染端对这些块传完整内容，追加会重复）。
+                            // ★ turn_index 只在 INSERT 时确定归属轮次；UPDATE 分支不得覆盖
+                            //   （handleDone 重写 think 块置 complete 时 currentTurnIndex 已是末轮，
+                            //    覆盖会错误地把所有 think 块标成末轮——实测 14 个 think 全变 turn 22）。
                             db.prepare('UPDATE message_blocks SET content = COALESCE(content, \'\') || ?, data = ?, timestamp = ? WHERE id = ?').run(
                                 block.content ?? '', block.data, block.timestamp, block.id,
                             )
@@ -280,8 +285,8 @@ export class SqliteConversationRepository implements IConversationRepository {
                             )
                         }
                     } else {
-                        db.prepare('INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-                            block.id, msgId, block.blockType, block.content, block.data, resolveSeq(), block.timestamp, block.endedAt ?? null,
+                        db.prepare('INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+                            block.id, msgId, block.blockType, block.content, block.data, nextSeq(), block.timestamp, block.endedAt ?? null, block.turnIndex ?? null,
                         )
                     }
                 }
@@ -292,7 +297,7 @@ export class SqliteConversationRepository implements IConversationRepository {
                         db.prepare("UPDATE message_blocks SET data = ?, ended_at = ? WHERE id = ?").run(JSON.stringify({endedAt}), endedAt, endBlock.id)
                     } else {
                         db.prepare("INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, 'end', NULL, ?, ?, ?, ?)").run(
-                            `${msgId}-end`, msgId, JSON.stringify({endedAt}), resolveSeq(), endedAt, endedAt,
+                            `${msgId}-end`, msgId, JSON.stringify({endedAt}), nextSeq(), endedAt, endedAt,
                         )
                     }
                     db.prepare('UPDATE messages SET ended_at = ? WHERE id = ?').run(endedAt, msgId)
@@ -351,7 +356,7 @@ export class SqliteConversationRepository implements IConversationRepository {
 
             // Rewrite remaining messages
             const msgStmt = db.prepare('INSERT OR REPLACE INTO messages (id, conversation_id, role, timestamp, ended_at, metadata, llm_stats) VALUES (?, ?, ?, ?, ?, ?, ?)')
-            const blockStmt = db.prepare('INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+            const blockStmt = db.prepare('INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
 
             for (const msg of remaining) {
                 const {messages: [msgRecord], blocks} = messageToBlocks(msg, convId)
@@ -361,7 +366,7 @@ export class SqliteConversationRepository implements IConversationRepository {
 
                 db.prepare('DELETE FROM message_blocks WHERE message_id = ?').run(msgRecord.id)
                 for (const block of blocks) {
-                    blockStmt.run(block.id, block.messageId, block.blockType, block.content, block.data, block.sequence, block.timestamp, block.endedAt ?? null)
+                    blockStmt.run(block.id, block.messageId, block.blockType, block.content, block.data, block.sequence, block.timestamp, block.endedAt ?? null, block.turnIndex ?? null)
                 }
             }
 
@@ -390,18 +395,56 @@ export class SqliteConversationRepository implements IConversationRepository {
         const db = getDatabase()
         const msgIds = msgRows.map(r => r.id)
         const blocksRows = db.prepare(
-            `SELECT id, message_id, block_type, content, data, sequence, timestamp, ended_at
+            `SELECT id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index
              FROM message_blocks WHERE message_id IN (${msgIds.map(() => '?').join(',')})
              ORDER BY message_id, sequence ASC`
         ).all(...msgIds) as Array<{
             id: string; message_id: string; block_type: string; content: string | null; data: string | null;
-            sequence: number; timestamp: number; ended_at: number | null
+            sequence: number; timestamp: number; ended_at: number | null; turn_index: number | null
         }>
 
         const blocksByMsg = new Map<string, typeof blocksRows>()
         for (const row of blocksRows) {
             if (!blocksByMsg.has(row.message_id)) blocksByMsg.set(row.message_id, [])
             blocksByMsg.get(row.message_id)!.push(row)
+        }
+
+        // ── B1：按 message_id 批量查 llm_usage（新数据唯一源）──
+        // 消息加载时统一组装 Message.llmStats：历史 parse llm_stats 列 + 新数据追加 llm_usage 行。
+        // 复用 idx_llm_usage_message 索引，会话级一次查询，组装语义与 readUsageRaw 双源合并一致
+        // （历史在前、llm_usage 新数据在后）。
+        const usageByMsg = new Map<string, LlmStats[]>()
+        try {
+            const usageRows = db.prepare(
+                `SELECT message_id, provider_type, model, provider_name, input_tokens, output_tokens,
+                        cache_read_tokens, cache_write_tokens, reasoning_tokens, ttft_ms, decode_ms, duration_ms
+                 FROM llm_usage WHERE message_id IN (${msgIds.map(() => '?').join(',')})
+                 ORDER BY created_at ASC`
+            ).all(...msgIds) as Array<{
+                message_id: string; provider_type: string; model: string; provider_name: string | null;
+                input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number;
+                reasoning_tokens: number; ttft_ms: number | null; decode_ms: number | null; duration_ms: number
+            }>
+            for (const row of usageRows) {
+                const list = usageByMsg.get(row.message_id) ?? []
+                list.push({
+                    inputTokens: row.input_tokens,
+                    outputTokens: row.output_tokens,
+                    provider: row.provider_type,   // LlmStats.provider 存精确服务商类型（与 readUsageRaw 一致）
+                    model: row.model,
+                    providerName: row.provider_name ?? undefined,
+                    duration: row.duration_ms,
+                    cacheReadTokens: row.cache_read_tokens > 0 ? row.cache_read_tokens : undefined,
+                    cacheWriteTokens: row.cache_write_tokens > 0 ? row.cache_write_tokens : undefined,
+                    reasoningTokens: row.reasoning_tokens > 0 ? row.reasoning_tokens : undefined,
+                    ttftMs: row.ttft_ms ?? undefined,
+                    decodeMs: row.decode_ms ?? undefined,
+                })
+                usageByMsg.set(row.message_id, list)
+            }
+        } catch (err) {
+            // 单次组装失败不阻塞消息加载：llm_usage 行缺失时消息保持 llm_stats 列原样
+            console.error('[SqliteConversationRepository] buildMessagesFromRows llm_usage query failed:', err)
         }
 
         return msgRows.map(row => {
@@ -418,6 +461,11 @@ export class SqliteConversationRepository implements IConversationRepository {
                 } catch { /* ignore */
                 }
             }
+            // B1：llm_usage 新数据追加在 llm_stats 历史数据之后（历史在前、新数据在后，与 readUsageRaw 语义一致）
+            const newStats = usageByMsg.get(row.id)
+            if (newStats && newStats.length > 0) {
+                message.llmStats = [...(message.llmStats ?? []), ...newStats]
+            }
             // 标记崩溃恢复的未完成消息：
             // is_partial=1（流式中间态落库未 final）或 assistant 消息无 ended_at（渲染端 delta 最后写入但未完成）
             if (role === 'assistant' && (row.is_partial === 1 || row.ended_at == null)) {
@@ -427,6 +475,7 @@ export class SqliteConversationRepository implements IConversationRepository {
                 id: b.id, messageId: b.message_id, blockType: b.block_type as BlockType,
                 content: b.content, data: b.data, sequence: b.sequence,
                 timestamp: b.timestamp, endedAt: b.ended_at ?? undefined,
+                turnIndex: b.turn_index ?? undefined,
             }))
             return role === 'assistant' ? blocksToMessage(message, blocks) : message
         })
@@ -538,6 +587,62 @@ export class SqliteConversationRepository implements IConversationRepository {
                     // 单条损坏的 llm_stats 忽略，不阻塞整体统计
                 }
                 llmStatsByConv.set(row.conversation_id, list)
+            }
+
+            // ── 新数据源：llm_usage 表（唯一写入源，按会话聚合） ──
+            const usageRows = db.prepare(
+                `SELECT conversation_id, provider_type, model, provider_name, input_tokens, output_tokens,
+                        cache_read_tokens, cache_write_tokens, reasoning_tokens, ttft_ms, decode_ms, duration_ms
+                 FROM llm_usage WHERE conversation_id IN (${placeholders})`
+            ).all(...params) as Array<{
+                conversation_id: string; provider_type: string; model: string; provider_name: string | null;
+                input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number;
+                reasoning_tokens: number; ttft_ms: number | null; decode_ms: number | null; duration_ms: number;
+            }>
+
+            // provider_name 同组兜底：历史行（加列前写入）为 NULL，用同 model+provider_type 的非 NULL 值补（数据驱动，同一 model 归属稳定）
+            const providerNameByGroup = new Map<string, string>()
+            for (const row of usageRows) {
+                if (row.provider_name) {
+                    const gk = `${row.model}\u0000${row.provider_type}`
+                    if (!providerNameByGroup.has(gk)) providerNameByGroup.set(gk, row.provider_name)
+                }
+            }
+
+            for (const row of usageRows) {
+                const list = llmStatsByConv.get(row.conversation_id) ?? []
+                list.push({
+                    inputTokens: row.input_tokens,
+                    outputTokens: row.output_tokens,
+                    provider: row.provider_type,   // LlmStats.provider 存精确服务商类型（B1 组装后渲染端无感）
+                    model: row.model,
+                    providerName: row.provider_name ?? providerNameByGroup.get(`${row.model}\u0000${row.provider_type}`),
+                    duration: row.duration_ms,
+                    cacheReadTokens: row.cache_read_tokens > 0 ? row.cache_read_tokens : undefined,
+                    cacheWriteTokens: row.cache_write_tokens > 0 ? row.cache_write_tokens : undefined,
+                    reasoningTokens: row.reasoning_tokens > 0 ? row.reasoning_tokens : undefined,
+                    ttftMs: row.ttft_ms ?? undefined,
+                    decodeMs: row.decode_ms ?? undefined,
+                })
+                llmStatsByConv.set(row.conversation_id, list)
+            }
+
+            // ── 历史数据归一化：llm_stats 列的 provider 可能是方案名（旧版本 currentSchemeName || currentProvider），
+            //    用 llm_usage 表的 model → provider_type 精确映射覆盖（同一 model 的 provider 归属稳定，数据驱动） ──
+            const KNOWN_PROVIDERS = new Set(['anthropic', 'openai', 'google', 'ollama', 'custom'])
+            const modelProviderMap = new Map<string, string>()
+            for (const row of usageRows) {
+                if (!modelProviderMap.has(row.model)) modelProviderMap.set(row.model, row.provider_type)
+            }
+            if (modelProviderMap.size > 0) {
+                for (const list of llmStatsByConv.values()) {
+                    for (const s of list) {
+                        if (s.provider && !KNOWN_PROVIDERS.has(s.provider)) {
+                            const exact = modelProviderMap.get(s.model)
+                            if (exact) s.provider = exact
+                        }
+                    }
+                }
             }
 
             // 工具调用计数：message_blocks 中 block_type='tool_call'

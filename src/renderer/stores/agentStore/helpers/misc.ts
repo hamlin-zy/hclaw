@@ -1,19 +1,27 @@
 // ── 通用辅助函数 ──────────────────────────────────────────
 
 import type {SubAgentStreamEntry} from '../../toolCallsStore'
+import {formatToolResult} from '@shared/utils/toolResult'
 
 /** 将 event.result 标准化为统一格式 */
 export function normalizeToolResult(raw: any) {
+    if (!raw) return {success: true, output: '', toolResult: '', error: undefined}
     const rawOutput = raw.output
     const outputStr = typeof rawOutput === 'string'
         ? rawOutput
         : (rawOutput && typeof rawOutput === 'object')
             ? JSON.stringify(rawOutput, null, 2)
             : String(rawOutput ?? '')
+    const success = raw.success ?? false
     return {
-        success: raw.success ?? false,
+        success,
         output: outputStr,
         error: raw.error,
+        // 与主进程 normalizeToolResult / loop createToolResultMessage 完全一致，
+        // 保证 tool_result 落库内容与发送给 API 的字符串逐字节一致。
+        // 传 outputStr（已字符串化）而非原始对象：字符串经 formatToolResult 原样返回，
+        // 与主进程对原始对象 JSON.stringify(…, null, 2) 的结果逐字节相同。
+        toolResult: formatToolResult({success, output: outputStr, error: raw.error}),
         artifacts: raw.artifacts,
         diff: raw.diff,
     }

@@ -1,7 +1,7 @@
 /**
  * LLM 调用日志缓冲模块
  *
- * 使用内存缓冲 + 批量增量写入，减少同步 I/O 阻塞
+ * 内存缓冲用于日志窗口实时推送，写入采用每次追加（低频低量，开销可忽略）。
  * 日志格式：JSONL（每行一个 JSON 对象）
  */
 
@@ -11,9 +11,8 @@ import {app, BrowserWindow, ipcMain} from 'electron'
 import {randomUUID} from 'crypto'
 import type {LlmCallLog} from '@shared/types'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
-import {getAppIconPath} from './icon'
+import {createAppWindow} from './windowFactory'
 
-const MAX_BUFFER_SIZE = 100
 const CONFIG_KEY = 'llmLogEnabled'
 
 /** 惰性获取日志文件路径（避免在 app 就绪前访问） */
@@ -64,10 +63,10 @@ export function addToBuffer(entry: Omit<LlmCallLog, 'id' | 'timestamp'>): LlmCal
         logWindow.webContents.send('llm-call-log', log)
     }
 
-    // 缓冲区满则刷盘
-    if (buffer.length >= MAX_BUFFER_SIZE) {
-        flush()
-    }
+    // 每次写入立即落盘（低频低量，appendFileSync 开销可忽略）；buffer 仅用于
+    // 窗口实时推送，退出时 flush 兜底。此前「buffer 满 100 才刷盘」会导致
+    // 低量日志滞留内存，进程不退出时日志文件为空。
+    flush()
 
     return log
 }
@@ -144,31 +143,15 @@ export function clearLogs(): void {
 /**
  * 创建 LLM 日志窗口
  */
-export function createLlmLogsWindow(_getMainWindow: () => BrowserWindow | null): void {
-    // 获取应用图标
-    const iconPath = getAppIconPath()
-
-    logWindow = new BrowserWindow({
+export function createLlmLogsWindow(): void {
+    logWindow = createAppWindow({
+        id: 'llm-logs',
+        title: 'LLM 调用日志',
+        entryHtml: 'llm-logs.html',
         width: 1200,
         height: 700,
         minWidth: 800,
         minHeight: 400,
-        icon: iconPath,
-        webPreferences: {
-            preload: path.join(__dirname, '../preload/index.js'),
-            nodeIntegration: false,
-            contextIsolation: true,
-        },
-        show: false,
-        title: 'LLM 调用日志',
-    })
-
-    // 删除菜单栏
-    logWindow.setMenu(null)
-    logWindow.setMenuBarVisibility(false)
-
-    logWindow.once('ready-to-show', () => {
-        logWindow?.show()
     })
 
     logWindow.on('closed', () => {
@@ -176,17 +159,6 @@ export function createLlmLogsWindow(_getMainWindow: () => BrowserWindow | null):
     })
 
     setLogWindow(logWindow)
-
-    // 加载页面
-    const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--inspect')
-    if (isDev) {
-        // 开发模式：使用 Vite dev server
-        logWindow.loadURL('http://localhost:5173/llm-logs.html')
-        logWindow.webContents.openDevTools({mode: 'detach'})
-    } else {
-        // 生产模式：加载打包后的文件（renderer 构建输出在 main_window 子目录下）
-        logWindow.loadFile(path.join(__dirname, '../renderer/main_window/llm-logs.html'))
-    }
 }
 
 /**

@@ -1,5 +1,4 @@
-﻿import type {BrowserWindow} from 'electron'
-import {ipcMain} from 'electron'
+﻿import {BrowserWindow, ipcMain} from 'electron'
 import {logger} from '../logger'
 import {mcpClient} from './client'
 import type {MCPServerConfig} from './types'
@@ -15,12 +14,6 @@ import fs from 'fs'
 const ok = () => ({success: true})
 /** IPC 响应辅助：失败 */
 const fail = (err: unknown) => ({success: false, error: String(err)})
-
-let mainWindow: BrowserWindow | null = null
-
-export function setMainWindow(win: BrowserWindow | null): void {
-  mainWindow = win
-}
 
 export function registerMCPIPC(): void {
     // 列出所有 MCP 服务器配置（不含运行时状态）
@@ -317,13 +310,14 @@ export function registerMCPEventForwarding(): () => void {
     const unsubscribeService = mcpService.onEvent((event) => {
         if (event.type === 'status-changed') {
             const data = event.data as { serverId: string; status: string; error?: string; tools?: unknown[] }
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('mcp:status-changed', data)
+            // 广播给所有渲染窗口（配置窗口独立化后主窗口之外还有 mcp 窗口/其他窗口）
+            for (const win of BrowserWindow.getAllWindows()) {
+                if (!win.isDestroyed()) win.webContents.send('mcp:status-changed', data)
             }
         } else if (event.type === 'list-changed') {
-            // 列表变更（新增/删除/外部修改 mcp.json）→ 通知渲染进程刷新
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('mcp:list-changed')
+            // 列表变更（新增/删除/外部修改 mcp.json）→ 通知所有渲染窗口刷新
+            for (const win of BrowserWindow.getAllWindows()) {
+                if (!win.isDestroyed()) win.webContents.send('mcp:list-changed')
             }
         }
     })

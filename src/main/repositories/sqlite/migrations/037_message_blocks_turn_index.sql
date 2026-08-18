@@ -1,0 +1,12 @@
+-- 037: message_blocks 增加 turn_index 列（方案 2：跨 turn 重建缓存一致性）
+--
+-- 记录每个 contentBlock 所属的 LLM 调用轮次序号，使跨 turn 重建能按轮次无损
+-- 还原多 assistant 消息（loop 内存态 = 一次 LLM 调用一条 assistant），
+-- 解决无 think 的调用轮被 think 边界推断吞并导致的 KV cache 断裂。
+--
+-- ⚠️ 只加列，不回填历史数据：
+--   · 新会话：渲染端 agent_start 事件到达时精确写入 turn_index（无损分组）
+--   · 旧会话（turn_index 为 NULL）：historyConverter 回退 think 边界推断，
+--     与修复前行为一致，无兼容性风险
+-- 单语句迁移：执行成功即记录到 migrations 表；失败无副作用，重试安全。
+ALTER TABLE message_blocks ADD COLUMN turn_index INTEGER;

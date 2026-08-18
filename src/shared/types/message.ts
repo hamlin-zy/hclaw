@@ -43,8 +43,17 @@ export interface ToolCall {
   /** 技能名称（skill 工具显示用） */
   skillName?: string
   result?: {
-    output: string
+    /** 工具是否执行成功（与 toolResult 格式化的成败判定一致） */
+    success?: boolean
+    /** 工具原始输出：字符串或对象（对象由 formatToolResult 统一格式化） */
+    output: unknown
     error?: string
+    /**
+     * 已格式化 tool_result 内容（与发送给 API 的字符串逐字节一致）。
+     * 新数据由 normalizeToolResult / formatToolResult 落库，重建时原样回传，
+     * 保证跨 turn 前缀一致；旧数据无此字段时由 historyConverter 回退重建。
+     */
+    toolResult?: string
     /** 文件变更列表，用于 UI 显示变更 */
     artifacts?: Array<{
       filePath: string
@@ -144,7 +153,7 @@ export interface FileChangeGroup {
 
 export type BlockType = 'think' | 'text' | 'tool_call' | 'tool_result' | 'media' | 'end'
 
-export type ContentBlockType = 'think' | 'text' | 'tool_use' | 'media'
+export type ContentBlockType = 'think' | 'text' | 'tool_use' | 'media' | 'end'
 
 /** 媒体类型 */
 export type MediaType = 'audio' | 'image' | 'video'
@@ -202,6 +211,10 @@ export interface ContentBlock {
   toolCall?: ToolCall
   /** For 'media' blocks */
   media?: MediaBlock
+  /** For 'end' blocks：消息收尾哨兵（承载 endedAt），用于保留块级时间序 */
+  endedAt?: number
+  /** LLM 调用轮次序号（方案 2：跨 turn 重建时按此分组还原多 assistant，旧数据可缺省） */
+  turnIndex?: number
 }
 
 export interface MessageBlock {
@@ -213,6 +226,8 @@ export interface MessageBlock {
   sequence: number
   timestamp: number
   endedAt?: number
+  /** LLM 调用轮次序号（agent 循环内第几次 LLM 调用）。方案 2：跨 turn 重建时按此分组无损还原多 assistant */
+  turnIndex?: number
 }
 
 /** 块级增量写入补丁（流式期间渲染进程高频路径） */
@@ -249,6 +264,8 @@ export interface LlmStats {
   provider: string
   model: string
   duration: number
+  /** providers 表服务商名（providers.name），历史数据可空 */
+  providerName?: string
   /** 缓存命中的 token 数 */
   cacheReadTokens?: number
   /** 缓存创建的 token 数 */
@@ -259,9 +276,12 @@ export interface LlmStats {
   ttftMs?: number
   /** 纯解码时长（毫秒） */
   decodeMs?: number
-  /** 解码吞吐（tok/s） */
+  /** 解码吞吐（t/s） */
   tokensPerSecond?: number
 }
+
+/** 解码吞吐保守下限（毫秒）：decodeMs 低于此值视为首 token 边界虚短，按此值计算 t/s 防爆表 */
+export const MIN_DECODE_MS = 500
 
 /** 权限确认 */
 export interface PermissionConfirm {

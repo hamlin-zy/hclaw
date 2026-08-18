@@ -43,6 +43,8 @@ describe('handleLlmCallDone — llmStats 组装', () => {
             inputTokens: 100,
             outputTokens: 200,
             provider: 'test',
+            providerType: 'test',
+            providerName: 'MiniMax',
             model: 'm',
             duration: 5000,
             ttftMs: 800,
@@ -56,6 +58,9 @@ describe('handleLlmCallDone — llmStats 组装', () => {
         expect(updates.llmStats[0].ttftMs).toBe(800)
         expect(updates.llmStats[0].decodeMs).toBe(5000)
         expect(updates.llmStats[0].tokensPerSecond).toBe(40)
+        expect(updates.llmStats[0].providerName).toBe('MiniMax')
+        // ★ B1 唯一源：不再通过 IPC 写回 llm_stats 列（llm_usage 为主进程唯一写入源）
+        expect(mockElectronUpdate).not.toHaveBeenCalled()
     })
 
     it('无新字段时不报错', () => {
@@ -64,6 +69,7 @@ describe('handleLlmCallDone — llmStats 组装', () => {
             inputTokens: 100,
             outputTokens: 200,
             provider: 'test',
+            providerType: 'test',
             model: 'm',
             duration: 5000,
         }) as any)
@@ -72,5 +78,7 @@ describe('handleLlmCallDone — llmStats 组装', () => {
         const [, , updates] = mockUpdate.mock.calls[0]
         expect(updates.llmStats[0].ttftMs).toBeUndefined()
         expect(updates.llmStats[0].tokensPerSecond).toBeUndefined()
+        // ★ B1 唯一源：内存态更新保留，IPC 写回已移除
+        expect(mockElectronUpdate).not.toHaveBeenCalled()
     })
 })

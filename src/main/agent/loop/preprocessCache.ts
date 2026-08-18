@@ -20,6 +20,7 @@
 
 import type {ChatMessage} from '../model/types'
 import {normalizeToolCallMessages, isSyntheticToolResult} from '../state'
+import {interruptedToolResult} from '@shared/utils/toolResult'
 
 export class PreprocessCache {
   private sourceCount: number = -1
@@ -191,7 +192,7 @@ export function normalizeIncremental(
           role: 'tool',
           toolCallId: tc.id,
           content: '',
-          toolResult: `[INTERRUPTED] 工具调用被中断，未获取到执行结果（tool: ${tc.name}）`,
+          toolResult: interruptedToolResult(tc.name),
           isError: true,
         })
       }

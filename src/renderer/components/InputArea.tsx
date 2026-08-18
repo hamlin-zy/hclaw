@@ -3,7 +3,6 @@ import {motion} from 'framer-motion'
 import {useAgentStore} from '../stores/agentStore'
 import {useConversationStore} from '../stores/conversationStore'
 import {useLLMStore} from '../stores/llmStore'
-import {useMenuBarStore} from '../stores/menuBarStore'
 import {useInputHistoryStore} from '../stores/inputHistoryStore'
 import ModelAlertDialog from './ModelAlertDialog'
 import AttachedFilesBar from './AttachedFilesBar'
@@ -65,7 +64,6 @@ export default function InputArea({isActive = true}: InputAreaProps) {
     const createConversation = useConversationStore((s) => s.createConversation)
     const setActiveConversation = useConversationStore((s) => s.setActiveConversation)
     const updateConversationMeta = useConversationStore((s) => s.updateConversationMeta)
-    const openDialog = useMenuBarStore((s) => s.openDialog)
 
     // 从 llmStore 获取活跃模型名称（用于展示）
     const activeModelName = useLLMStore((s) => {
@@ -615,7 +613,6 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                         onSubmit={handleSubmit}
                         onAbort={handleAbort}
                         onUploadFile={(files) => setAttachedFiles(prev => [...prev, ...files])}
-                        onOpenDialog={openDialog}
                         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
                     />
                 </div>

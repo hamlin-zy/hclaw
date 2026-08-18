@@ -8,6 +8,8 @@ function makeFullLlmCallDone(): Extract<AgentStreamEvent, {type: 'llm_call_done'
         type: 'llm_call_done',
         conversationTitle: 'sdd 长任务',
         provider: 'anthropic',
+        providerType: 'anthropic',   // 新增：精确服务商类型
+        providerName: 'Deepseek-ant', // 新增：providers 表服务商名（人类可读）
         model: 'claude-sonnet-4-5',
         duration: 12345,
         inputTokens: 1000,
@@ -41,6 +43,8 @@ describe('createForwardPayload — 转发载荷构造', () => {
         const e = out as Extract<AgentStreamEvent, {type: 'llm_call_done'}>
         // 保留的 stats 字段
         expect(e.provider).toBe('anthropic')
+        expect(e.providerType).toBe('anthropic')   // 新增
+        expect(e.providerName).toBe('Deepseek-ant') // 新增
         expect(e.model).toBe('claude-sonnet-4-5')
         expect(e.duration).toBe(12345)
         expect(e.inputTokens).toBe(1000)
@@ -96,6 +100,8 @@ describe('trimLlmCallDoneForRenderer — 字段级瘦身契约', () => {
             'model',
             'outputTokens',
             'provider',
+            'providerName',
+            'providerType',
             'reasoningTokens',
             'tokensPerSecond',
             'ttftMs',
@@ -108,6 +114,8 @@ describe('trimLlmCallDoneForRenderer — 字段级瘦身契约', () => {
             type: 'llm_call_done',
             conversationTitle: '',
             provider: 'openai',
+            providerType: 'openai',
+            providerName: 'OpenAI',
             model: 'gpt-4o',
             duration: 0,
             inputTokens: 1,

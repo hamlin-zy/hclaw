@@ -10,7 +10,6 @@ import {
 } from '../../stores/modelSchemeStore'
 import {useLLMStore} from '../../stores/llmStore'
 import type {LLMProvider} from '@shared/types'
-import {useMenuBarStore} from '../../stores/menuBarStore'
 import {createDefaultRoles, MODEL_ROLE_INFO, resolveRoleDisplay} from '@shared/modelSchemeHelpers'
 import {renderWorkModeIcon, WORK_MODE_ICONS} from '@shared/roleIcons'
 
@@ -678,7 +677,6 @@ function RoleConfigEditor({
     isBuiltin?: boolean
 }) {
     const {providers} = useLLMStore()
-    const {openDialog} = useMenuBarStore()
     const roleDisplay = resolveRoleDisplay(role)
     const isText = config.modelType === 'text'
 
@@ -693,7 +691,8 @@ function RoleConfigEditor({
     const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const val = e.target.value
         if (val === 'open-llm-config') {
-            openDialog('llm-config')
+            window.electronAPI?.openConfigWindow?.('llm-config')
+            window.electronAPI?.windowControls?.close?.()
             return
         }
         onChange({
@@ -706,7 +705,8 @@ function RoleConfigEditor({
     const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const val = e.target.value
         if (val === 'open-llm-config') {
-            openDialog('llm-config')
+            window.electronAPI?.openConfigWindow?.('llm-config')
+            window.electronAPI?.windowControls?.close?.()
             return
         }
         onChange({...config, modelId: val})
@@ -868,7 +868,6 @@ function AddRoleDialog({
     const [modelId, setModelId] = useState(initialRole?.modelId || '')
     const [thinkingEffort, setThinkingEffort] = useState(initialRole?.thinkingEffort || '')
     const [enabled, setEnabled] = useState(initialRole?.enabled ?? true)
-    const {openDialog} = useMenuBarStore()
 
     useEffect(() => {
         if (!showIconPicker) return
@@ -896,7 +895,8 @@ function AddRoleDialog({
     const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const val = e.target.value
         if (val === 'open-llm-config') {
-            openDialog('llm-config')
+            window.electronAPI?.openConfigWindow?.('llm-config')
+            window.electronAPI?.windowControls?.close?.()
             return
         }
         setEndpointId(val)

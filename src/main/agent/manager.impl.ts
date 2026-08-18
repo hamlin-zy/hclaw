@@ -36,6 +36,7 @@ import {
 } from './manager.constants'
 import {createPendingMsg, normalizeToolResult, finalizePending, appendCappedPart} from './manager.accumulator'
 import {createForwardPayload} from './manager.streamForward'
+import {recordLlmUsageEvent} from '../usageWrite'
 
 import {loadPluginAgents} from './manager.pluginAgents'
 import {createConversationRepository} from '../repositories'
@@ -431,7 +432,7 @@ export class AgentManager {
     // 使渲染进程复用同一 ID，避免两个路径使用不同 ID 写入 DB 导致重复
     const pending = this.pendingAssistantMsg.get(conversationId)
     if (pending?.id) {
-      ;(event as Record<string, unknown>).messageId = pending.id
+      ;(event as {messageId?: string}).messageId = pending.id
     }
 
     // settings-updated 事件：直接发送到渲染进程
@@ -454,9 +455,12 @@ export class AgentManager {
 
     // llm_call_done 事件
     if (event.type === 'llm_call_done') {
-      this.logLlmCall(event as Extract<AgentStreamEvent, {type: 'llm_call_done'}>)
-    } else if (event.type === 'subagent_progress' && (event as {subAgentStreamEvent?: AgentStreamEvent}).subAgentStreamEvent?.type === 'llm_call_done') {
-      this.logLlmCall((event as {subAgentStreamEvent: AgentStreamEvent}).subAgentStreamEvent as Extract<AgentStreamEvent, {type: 'llm_call_done'}>)
+      this.logLlmCall(event)
+      recordLlmUsageEvent(conversationId, event)
+    } else if (event.type === 'subagent_progress') {
+      // 该分支仅 JSONL 日志（logLlmCall），不写 llm_usage：内联子 Agent 的用量由路径 2 在 worker 内记录
+      const subEvent = event.subAgentStreamEvent
+      if (subEvent?.type === 'llm_call_done') this.logLlmCall(subEvent)
     }
 
     // done 事件
@@ -607,7 +611,7 @@ export class AgentManager {
       )
 
       const blockStmt = db.prepare(
-        'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       for (const block of blocks) {
         blockStmt.run(
@@ -619,6 +623,7 @@ export class AgentManager {
           block.sequence,
           block.timestamp,
           block.endedAt ?? null,
+          block.turnIndex ?? null,
         )
       }
     })()
@@ -837,7 +842,7 @@ export class AgentManager {
         const tc = pending.toolCalls[idx]
         pending.toolCalls[idx] = {
           ...tc,
-          status: normalized.output && !normalized.error ? 'success' : 'error',
+          status: normalized.success ? 'success' : 'error',
           result: normalized,
           // ★ 需求1链路：agent 工具从 result._meta 恢复子会话 ID（taskId === childConvId）
           //   与 manager.accumulator.ts accumulateStreamEvent 保持逻辑一致（双轨）
@@ -853,10 +858,16 @@ export class AgentManager {
         if (!pending || !denied.toolCallId) break
         const idx = pending.toolCalls.findIndex(t => t.id === denied.toolCallId)
         if (idx === -1) break
+        const deniedReason = `[PERMISSION_DENIED] ${denied.reason || '权限被拒绝'}`
         pending.toolCalls[idx] = {
           ...pending.toolCalls[idx],
           status: 'error',
-          result: {output: '', error: denied.reason || '权限被拒绝'},
+          // 与 loop 内存态 createToolResultMessage 失败格式逐字节一致（含 [ERROR] 前缀）
+          result: {
+            output: '',
+            error: deniedReason,
+            toolResult: `[ERROR] ${deniedReason}`,
+          },
         }
         break
       }

@@ -2,7 +2,6 @@ import {useCallback, useEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {switchActiveScheme, useModelSchemeStore} from '../stores/modelSchemeStore'
-import {useMenuBarStore} from '../stores/menuBarStore'
 import type {ModelScheme} from '@shared/types'
 
 /** 模型方案的颜色标识 */
@@ -173,7 +172,6 @@ function FixedDropdown({
  */
 export default function SchemeSelector() {
     const {schemes, activeSchemeId} = useModelSchemeStore()
-    const {openDialog} = useMenuBarStore()
     const [isOpen, setIsOpen] = useState(false)
     const [isSwitching, setIsSwitching] = useState(false)
     const [toastMessage, setToastMessage] = useState<string | null>(null)
@@ -292,7 +290,7 @@ export default function SchemeSelector() {
                     onSwitch={handleSchemeSwitch}
                     onOpenConfig={() => {
                         setIsOpen(false)
-                        openDialog('scheme-config')
+                        window.electronAPI?.openConfigWindow?.('scheme-config')
                     }}
                 />
             </div>

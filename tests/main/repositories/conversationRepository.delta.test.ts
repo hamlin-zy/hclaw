@@ -61,8 +61,9 @@ beforeEach(() => {
     // 每个用例独立表结构：DROP 后重建，避免跨用例数据残留
     db.exec('DROP TABLE IF EXISTS message_blocks')
     db.exec('DROP TABLE IF EXISTS messages')
+    db.exec('DROP TABLE IF EXISTS llm_usage')
     db.exec('DROP TABLE IF EXISTS conversations')
-    // 最小 schema（与迁移 001 + 006 对齐）
+    // 最小 schema（与迁移 001 + 006 + Task 2 llm_usage 对齐）
     db.exec(`CREATE TABLE IF NOT EXISTS conversations (
         id TEXT PRIMARY KEY, workspace_path TEXT NOT NULL DEFAULT '', meta TEXT NOT NULL,
         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
@@ -73,8 +74,19 @@ beforeEach(() => {
     )`)
     db.exec(`CREATE TABLE IF NOT EXISTS message_blocks (
         id TEXT PRIMARY KEY, message_id TEXT NOT NULL, block_type TEXT NOT NULL,
-        content TEXT, data TEXT, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, ended_at INTEGER,
+        content TEXT, data TEXT, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, ended_at INTEGER, turn_index INTEGER,
         FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE CASCADE
+    )`)
+    // readUsageRaw 双源合并（Task 6）读取 llm_usage 表，测试 schema 需与生产迁移对齐
+    db.exec(`CREATE TABLE IF NOT EXISTS llm_usage (
+        id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
+        provider_type TEXT NOT NULL, model TEXT NOT NULL,
+        provider_name TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        ttft_ms INTEGER, decode_ms INTEGER, duration_ms INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
     )`)
     // ★ 生产外键约束：与迁移 001 对齐——message_blocks.message_id → messages.id。
     //   真实环境外键开启（否则此前 writeBlockDelta「先插块后建行」的 FK 失败不会被测试暴露），
@@ -373,5 +385,60 @@ describe('setMessageEnded — 补写原语（Task 6 保险丝复用语义）', (
         expect(blocks).toEqual([{id: 'text-m1-0', content: '精细块'}])
         const end = db.prepare("SELECT COUNT(*) AS c FROM message_blocks WHERE message_id = ? AND block_type = 'end'").get('m1') as {c: number}
         expect(end.c).toBe(1)
+    })
+})
+
+describe('writeBlockDelta — turn_index 仅 INSERT 写入，UPDATE 不覆盖（方案 2 回归）', () => {
+    it('块已存在时 UPDATE（think 内容增长）不覆盖已落库的 turn_index', () => {
+        // 首轮：INSERT think 块，turn_index=0
+        repo.writeBlockDelta('conv-1', 'm1', {
+            messageFields: {role: 'assistant', timestamp: 1000},
+            upsertBlocks: [
+                {id: 'think-m1-0', messageId: 'm1', blockType: 'think', content: '思考A', data: JSON.stringify({id: 'think-m1-0', content: '思考A', status: 'thinking', timestamp: 1}), sequence: 0, timestamp: 1, turnIndex: 0},
+            ],
+        })
+        expect((db.prepare("SELECT turn_index FROM message_blocks WHERE id = 'think-m1-0'").get() as {turn_index: number}).turn_index).toBe(0)
+
+        // 末轮（handleDone 重写置 complete）：渲染端 currentTurnIndex 已是末轮（如 5）
+        // 同 id 再次写入 → UPDATE 分支 → turn_index 不得被覆盖成 5
+        repo.writeBlockDelta('conv-1', 'm1', {
+            upsertBlocks: [
+                {id: 'think-m1-0', messageId: 'm1', blockType: 'think', content: '思考A', data: JSON.stringify({id: 'think-m1-0', content: '思考A', status: 'complete', timestamp: 2}), sequence: 0, timestamp: 2, turnIndex: 5},
+            ],
+        })
+        // ★ 核心断言：turn_index 保持 0（归属轮次不变），仅内容/状态更新
+        const row = db.prepare("SELECT turn_index, data FROM message_blocks WHERE id = 'think-m1-0'").get() as {turn_index: number; data: string}
+        expect(row.turn_index).toBe(0)
+        expect(JSON.parse(row.data).status).toBe('complete')
+    })
+
+    it('text 块增量追加（跨 flush）不覆盖 turn_index', () => {
+        repo.writeBlockDelta('conv-1', 'm1', {
+            messageFields: {role: 'assistant', timestamp: 1000},
+            upsertBlocks: [
+                {id: 'text-m1-0', messageId: 'm1', blockType: 'text', content: '正文1', data: null, sequence: 0, timestamp: 1, turnIndex: 0},
+            ],
+        })
+        expect((db.prepare("SELECT turn_index FROM message_blocks WHERE id = 'text-m1-0'").get() as {turn_index: number}).turn_index).toBe(0)
+
+        // 第二轮 text 增量（同 textSeq 同 id）：turn_index 保持首轮值
+        repo.writeBlockDelta('conv-1', 'm1', {
+            upsertBlocks: [
+                {id: 'text-m1-0', messageId: 'm1', blockType: 'text', content: '续写', data: null, sequence: 0, timestamp: 2, turnIndex: 3},
+            ],
+        })
+        const row = db.prepare("SELECT turn_index, content FROM message_blocks WHERE id = 'text-m1-0'").get() as {turn_index: number; content: string}
+        expect(row.turn_index).toBe(0)
+        expect(row.content).toBe('正文1续写')
+    })
+
+    it('INSERT 新块时 turn_index 正常写入（新会话精确溯源）', () => {
+        repo.writeBlockDelta('conv-1', 'm1', {
+            messageFields: {role: 'assistant', timestamp: 1000},
+            upsertBlocks: [
+                {id: 'tc-m1-x', messageId: 'm1', blockType: 'tool_call', content: null, data: JSON.stringify({id: 'x', name: 'bash', arguments: {}}), sequence: 0, timestamp: 1, turnIndex: 2},
+            ],
+        })
+        expect((db.prepare("SELECT turn_index FROM message_blocks WHERE id = 'tc-m1-x'").get() as {turn_index: number}).turn_index).toBe(2)
     })
 })

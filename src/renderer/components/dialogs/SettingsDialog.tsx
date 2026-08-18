@@ -3,6 +3,8 @@ import {Kbd, KbdCombo} from '../common/Kbd'
 import {Switch} from '../common/Switch'
 import ImagePreviewModal from '../common/ImagePreviewModal'
 import {useSettingsStore} from '../../stores/settingsStore'
+import {useThemeStore} from '../../stores/themeStore'
+import {applyThemeClass} from '../../lib/theme'
 import {SystemSettings} from '@shared/types'
 import {confirm} from '../ConfirmDialog'
 
@@ -32,6 +34,7 @@ export default function SettingsDialog() {
     } = useSettingsStore()
     const [activeTab, setActiveTab] = useState<Category>('ui')
     const [saving, setSaving] = useState(false)
+    const [loaded, setLoaded] = useState(false)
     const [hclawDir, setHclawDir] = useState('')
     const [origHclawDir, setOrigHclawDir] = useState('')
 
@@ -45,6 +48,32 @@ export default function SettingsDialog() {
             setHclawDir(dir)
             setOrigHclawDir(dir)
         })
+    }, [])
+
+    // ── 设置窗口为独立 JS 堆：打开时须显式加载已保存设置 ──
+    // 否则显示默认值（settingsStore 无 persist 中间件，初始值 = DEFAULT_SETTINGS），
+    // 且保存时以默认值为基座覆盖写库，丢失已保存配置。
+    // loaded 门闩：加载完成前禁止保存（loadSettings 是异步 IPC，防止用户提前修改时
+    // updatePending 以 DEFAULT_SETTINGS 为基座生成 pending、保存覆盖写库的竞态）。
+    useEffect(() => {
+        let cancelled = false
+        void (async () => {
+            try {
+                await useSettingsStore.getState().loadSettings()
+                if (cancelled) return
+                setLoaded(true)
+                // 独立 JS 堆的 CSS 同步：loadSettings 内部 resolveAndApplyTheme 已更新 themeStore，
+                // 但 CSS class 仍是窗口打开时的 initialTheme，此处 applyThemeClass 对齐，避免分叉。
+                if (window.electronAPI) {
+                    applyThemeClass(useThemeStore.getState().theme)
+                }
+            } catch (err) {
+                console.warn('[SettingsDialog] 加载已保存设置失败:', err)
+            }
+        })()
+        return () => {
+            cancelled = true
+        }
     }, [])
 
     const saveHclawDir = useCallback(async (dir: string) => {
@@ -117,6 +146,7 @@ export default function SettingsDialog() {
     }, [current.ui.background, historyImages, updatePending])
 
     const handleSave = useCallback(async () => {
+        if (!loaded) return
         setSaving(true)
         try {
             // 图片背景启用时强制使用深色系主题：
@@ -139,7 +169,7 @@ export default function SettingsDialog() {
         } finally {
             setSaving(false)
         }
-    }, [saveSettings, pendingSettings, settings])
+    }, [loaded, saveSettings, pendingSettings, settings])
 
     const handleDiscard = useCallback(() => {
         discardChanges()
@@ -824,7 +854,7 @@ export default function SettingsDialog() {
                     </button>
                     <button
                         onClick={handleSave}
-                        disabled={saving}
+                        disabled={!loaded || saving}
                         className="px-3 py-1.5 text-[11px] font-medium rounded-md bg-[var(--brand-primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
                     >
                         {saving ? '保存中...' : '保存'}

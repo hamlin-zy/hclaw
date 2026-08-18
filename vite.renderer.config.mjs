@@ -16,6 +16,8 @@ export default defineConfig({
           input: {
               main: path.resolve(__dirname, 'src/renderer/index.html'),
               llmLogs: path.resolve(__dirname, 'src/renderer/llm-logs.html'),
+              usage: path.resolve(__dirname, 'src/renderer/usage.html'),
+              dialogWindow: path.resolve(__dirname, 'src/renderer/dialogWindow.html'),
           },
           output: {
               manualChunks: (id) => {

@@ -7,6 +7,7 @@ import {
 } from './repositories/sqlite/llmProviderRepository'
 import {encryptSecret} from './utils/crypto'
 import {createLogger} from './agent/logger'
+import {broadcastToOtherWindows} from './utils/windowBroadcast'
 import {fetchProviderModels, testProviderModel} from './providerModelFetcher'
 import {modelMetaRegistry} from './modelMetaRegistry'
 import {createModelAdapter} from './agent/model'
@@ -45,7 +46,7 @@ export function initProviderIPC(): void {
   })
 
   // 保存 Provider（新增或更新）
-  ipcMain.handle('provider:save', async (_, provider: LLMProvider) => {
+  ipcMain.handle('provider:save', async (event, provider: LLMProvider) => {
     try {
       // 如果有 apiKey，需要加密（检查是否已加密，避免重复加密）
       let processedProvider = { ...provider }
@@ -63,6 +64,7 @@ export function initProviderIPC(): void {
         }
       }
       const success = providerRepo.save(processedProvider)
+      broadcastToOtherWindows(event, 'llm-config-changed')
       return { success }
     } catch (err) {
       console.error('[ProviderIPC] save failed:', err)
@@ -71,10 +73,11 @@ export function initProviderIPC(): void {
   })
 
   // 批量保存 Providers（替换全部）
-  ipcMain.handle('provider:save-all', async (_, providers: LLMProvider[]) => {
+  ipcMain.handle('provider:save-all', async (event, providers: LLMProvider[]) => {
     try {
       if (!providers || providers.length === 0) {
         const success = providerRepo.saveAll([])
+        broadcastToOtherWindows(event, 'llm-config-changed')
         return { success }
       }
 
@@ -101,6 +104,7 @@ export function initProviderIPC(): void {
       logger.info('save-all', {count: processedProviders.length})
       const success = providerRepo.saveAll(processedProviders)
       logger.info('save-all:result', {success})
+      broadcastToOtherWindows(event, 'llm-config-changed')
       return { success }
     } catch (err) {
       console.error('[ProviderIPC] saveAll failed:', err)
@@ -109,9 +113,10 @@ export function initProviderIPC(): void {
   })
 
   // 删除 Provider
-  ipcMain.handle('provider:delete', async (_, id: string) => {
+  ipcMain.handle('provider:delete', async (event, id: string) => {
     try {
       const success = providerRepo.delete(id)
+      broadcastToOtherWindows(event, 'llm-config-changed')
       return { success }
     } catch (err) {
       console.error('[ProviderIPC] delete failed:', err)
@@ -120,9 +125,10 @@ export function initProviderIPC(): void {
   })
 
   // 更新 Provider enabled 状态
-  ipcMain.handle('provider:set-enabled', async (_, id: string, enabled: boolean) => {
+  ipcMain.handle('provider:set-enabled', async (event, id: string, enabled: boolean) => {
     try {
       const success = providerRepo.setEnabled(id, enabled)
+      broadcastToOtherWindows(event, 'llm-config-changed')
       return { success }
     } catch (err) {
       console.error('[ProviderIPC] setEnabled failed:', err)
@@ -155,9 +161,10 @@ export function initProviderIPC(): void {
   })
 
   // 保存模型
-    ipcMain.handle('provider-model:save', async (_, model: SqlProviderModel) => {
+    ipcMain.handle('provider-model:save', async (event, model: SqlProviderModel) => {
     try {
       const success = providerModelRepo.save(model)
+      broadcastToOtherWindows(event, 'llm-config-changed')
       return { success }
     } catch (err) {
       console.error('[ProviderIPC] model save failed:', err)
@@ -166,9 +173,10 @@ export function initProviderIPC(): void {
   })
 
   // 批量保存模型（替换某 Provider 的全部）
-    ipcMain.handle('provider-model:save-by-provider', async (_, providerId: string, models: SqlProviderModel[]) => {
+    ipcMain.handle('provider-model:save-by-provider', async (event, providerId: string, models: SqlProviderModel[]) => {
     try {
       const success = providerModelRepo.saveByProviderId(providerId, models)
+      broadcastToOtherWindows(event, 'llm-config-changed')
       return { success }
     } catch (err) {
       console.error('[ProviderIPC] saveByProviderId failed:', err)
@@ -177,9 +185,10 @@ export function initProviderIPC(): void {
   })
 
   // 删除模型
-  ipcMain.handle('provider-model:delete', async (_, id: string) => {
+  ipcMain.handle('provider-model:delete', async (event, id: string) => {
     try {
       const success = providerModelRepo.delete(id)
+      broadcastToOtherWindows(event, 'llm-config-changed')
       return { success }
     } catch (err) {
       console.error('[ProviderIPC] model delete failed:', err)
@@ -188,9 +197,10 @@ export function initProviderIPC(): void {
   })
 
   // 删除某 Provider 的所有模型
-  ipcMain.handle('provider-model:delete-by-provider', async (_, providerId: string) => {
+  ipcMain.handle('provider-model:delete-by-provider', async (event, providerId: string) => {
     try {
       const success = providerModelRepo.deleteByProviderId(providerId)
+      broadcastToOtherWindows(event, 'llm-config-changed')
       return { success }
     } catch (err) {
       console.error('[ProviderIPC] deleteByProviderId failed:', err)
@@ -199,9 +209,10 @@ export function initProviderIPC(): void {
   })
 
   // 更新模型 enabled 状态
-  ipcMain.handle('provider-model:set-enabled', async (_, id: string, enabled: boolean) => {
+  ipcMain.handle('provider-model:set-enabled', async (event, id: string, enabled: boolean) => {
     try {
       const success = providerModelRepo.setEnabled(id, enabled)
+      broadcastToOtherWindows(event, 'llm-config-changed')
       return { success }
     } catch (err) {
       console.error('[ProviderIPC] model setEnabled failed:', err)
