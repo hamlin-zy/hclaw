@@ -11,8 +11,7 @@ import {app, BrowserWindow, ipcMain} from 'electron'
 import {randomUUID} from 'crypto'
 import type {LlmCallLog} from '@shared/types'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
-import {getAppIconPath} from './icon'
-import {readThemeSetting} from './theme'
+import {createAppWindow} from './windowFactory'
 
 const CONFIG_KEY = 'llmLogEnabled'
 
@@ -144,35 +143,15 @@ export function clearLogs(): void {
 /**
  * 创建 LLM 日志窗口
  */
-export function createLlmLogsWindow(_getMainWindow: () => BrowserWindow | null): void {
-    // 获取应用图标
-    const iconPath = getAppIconPath()
-
-    // 读取主题配置，独立窗口与主窗口保持同一主题（防首绘闪白）
-    const {backgroundColor, rawTheme} = readThemeSetting()
-    logWindow = new BrowserWindow({
+export function createLlmLogsWindow(): void {
+    logWindow = createAppWindow({
+        id: 'llm-logs',
+        title: 'LLM 调用日志',
+        entryHtml: 'llm-logs.html',
         width: 1200,
         height: 700,
         minWidth: 800,
         minHeight: 400,
-        icon: iconPath,
-        backgroundColor: backgroundColor === 'dark' ? '#1e1e1e' : '#ffffff',
-        webPreferences: {
-            preload: path.join(__dirname, '../preload/index.js'),
-            nodeIntegration: false,
-            contextIsolation: true,
-            additionalArguments: [`--hclaw-theme=${rawTheme}`],
-        },
-        show: false,
-        title: 'LLM 调用日志',
-    })
-
-    // 删除菜单栏
-    logWindow.setMenu(null)
-    logWindow.setMenuBarVisibility(false)
-
-    logWindow.once('ready-to-show', () => {
-        logWindow?.show()
     })
 
     logWindow.on('closed', () => {
@@ -180,17 +159,6 @@ export function createLlmLogsWindow(_getMainWindow: () => BrowserWindow | null):
     })
 
     setLogWindow(logWindow)
-
-    // 加载页面
-    const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--inspect')
-    if (isDev) {
-        // 开发模式：使用 Vite dev server
-        logWindow.loadURL('http://localhost:5173/llm-logs.html')
-        logWindow.webContents.openDevTools({mode: 'detach'})
-    } else {
-        // 生产模式：加载打包后的文件（renderer 构建输出在 main_window 子目录下）
-        logWindow.loadFile(path.join(__dirname, '../renderer/main_window/llm-logs.html'))
-    }
 }
 
 /**

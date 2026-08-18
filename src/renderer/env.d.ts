@@ -17,6 +17,14 @@ declare global {
       updaterGetStatus: () => Promise<import('../shared/types/updater').UpdateResult | null>
       updaterCheckForUpdate: () => Promise<import('../shared/types/updater').UpdateResult>
       onUpdaterStatusChanged: (callback: (result: import('../shared/types/updater').UpdateResult) => void) => () => void
+      // 模型方案变更推送（其他窗口改了 model-schemes → 本窗口需重新 hydration）
+      onModelSchemesChanged: (callback: () => void) => () => void
+      // 模型配置（providers/models）变更推送
+      onLlmConfigChanged: (callback: () => void) => () => void
+      // 工具列表变更推送
+      onToolsChanged: (callback: () => void) => () => void
+      // 提示词方案变更推送
+      onPromptSchemesChanged: (callback: () => void) => () => void
       minimizeWindow: () => Promise<void>
       maximizeWindow: () => Promise<void>
       closeWindow: () => Promise<void>
@@ -24,6 +32,8 @@ declare global {
       onWindowMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void
         setWindowTheme: (theme: string) => Promise<void>
         onThemeChanged: (callback: (theme: string) => void) => () => void
+        // 系统设置变更推送（其他窗口改了 settings → 本窗口需重新 hydration）
+        onSettingsChanged: (callback: (settings: any) => void) => () => void
         platform: string
 
         // Command palette
@@ -291,11 +301,19 @@ declare global {
         // 全局用量统计窗口
         openUsageStatsWindow: () => Promise<void>
         usageStatsQuery: (params: {range: string; view: string}) => Promise<import('../shared/types/infra').GlobalUsageStats>
-        usageWindowMinimize: () => Promise<void>
-        usageWindowMaximize: () => Promise<void>
-        usageWindowClose: () => Promise<void>
-        usageWindowIsMaximized: () => Promise<boolean>
-        onUsageWindowMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void
+        windowId: string
+        /** 配置窗口类型（--hclaw-dialog；仅配置窗口有，主窗口为空字符串） */
+        dialogType: string
+        /** 打开配置对话框独立窗口（主进程注册表按 dialogType 管理单例） */
+        openConfigWindow: (dialogType: string) => Promise<void>
+        /** 独立窗口通用控制（主窗口无 --hclaw-window-id，此值为 undefined） */
+        windowControls?: {
+            minimize: () => Promise<void>
+            maximize: () => Promise<void>
+            close: () => Promise<void>
+            isMaximized: () => Promise<boolean>
+            onMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void
+        }
 
         // Skills management
         skillsRefresh: (forceRefresh?: boolean) => Promise<{

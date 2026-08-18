@@ -17,6 +17,8 @@ import {useAgentStore} from './stores/agentStore'
 import {useConversationStore} from './stores/conversationStore'
 import {useLLMStore} from './stores/llmStore'
 import {useModelSchemeStore} from './stores/modelSchemeStore'
+import {useToolStore} from './stores/toolStore'
+import {usePromptSchemeStore} from './stores/promptSchemeStore'
 import {useSkillStore} from './stores/skillStore'
 import {useAgentTemplateStore} from './stores/agentTemplateStore'
 import {useHookStore} from './stores/hookStore'
@@ -441,6 +443,79 @@ export default function App() {
           resolveAndApplyTheme(settings.ui.theme)
         }
       }
+    })
+
+    return () => {
+      cleanup?.()
+    }
+  }, [])
+
+  // ── 订阅 settings-changed 广播：设置窗口保存背景图/遮罩/模糊等设置后主窗口刷新 settingsStore ──
+  // loadSettings 内部会刷新 settings（含 ui.background）并 resolveAndApplyTheme：
+  // 背景 effect（依赖 background 各字段）随之重跑应用新背景；主题若未变则同值 bail-out 无副作用。
+  // 与上方 'settings-updated'（agent 工具路径）订阅并存，互不替代。
+  useEffect(() => {
+    const cleanup = window.electronAPI?.onSettingsChanged?.(() => {
+      void useSettingsStore.getState().loadSettings()
+    })
+
+    return () => {
+      cleanup?.()
+    }
+  }, [])
+
+  // ── 订阅主进程 theme-changed 广播：设置窗口/主窗口 setWindowTheme 广播回来后刷新 themeStore ──
+  // 说明：设置窗口/主窗口 setWindowTheme 广播 theme-changed 回来后，主窗口经此订阅刷新 themeStore
+  // （useEffect([theme]) 会自动 applyThemeClass + setWindowTheme，setWindowTheme 重发广播幂等无害；
+  // 同值 set 后 React 对相同快照 bail-out，useEffect 不重跑，无回环）。
+  // 注意：此处仅刷新 themeStore，settingsStore.ui.theme 保持原值；后续 settings-updated/重启会自愈。
+  useEffect(() => {
+    const cleanup = window.electronAPI?.onThemeChanged?.((theme: string) => {
+      resolveAndApplyTheme(theme)
+    })
+
+    return () => {
+      cleanup?.()
+    }
+  }, [])
+
+  // ── 模型方案变更推送：其他窗口（独立配置窗口）改了 model-schemes → 主窗口重新 hydration ──
+  useEffect(() => {
+    const cleanup = window.electronAPI?.onModelSchemesChanged?.(() => {
+      void useModelSchemeStore.persist.rehydrate()
+    })
+
+    return () => {
+      cleanup?.()
+    }
+  }, [])
+
+  // ── 模型配置变更推送：其他窗口（llm-config）改了 providers/models → 主窗口重新 hydration ──
+  useEffect(() => {
+    const cleanup = window.electronAPI?.onLlmConfigChanged?.(() => {
+      void useLLMStore.persist.rehydrate()
+    })
+
+    return () => {
+      cleanup?.()
+    }
+  }, [])
+
+  // ── 工具列表变更推送：其他窗口（tools）改了启用/超时 → 主窗口重新加载 ──
+  useEffect(() => {
+    const cleanup = window.electronAPI?.onToolsChanged?.(() => {
+      void useToolStore.getState().loadTools()
+    })
+
+    return () => {
+      cleanup?.()
+    }
+  }, [])
+
+  // ── 提示词方案变更推送：其他窗口（prompt-config）改了 prompt-schemes → 主窗口重新 hydration ──
+  useEffect(() => {
+    const cleanup = window.electronAPI?.onPromptSchemesChanged?.(() => {
+      void usePromptSchemeStore.persist.rehydrate()
     })
 
     return () => {

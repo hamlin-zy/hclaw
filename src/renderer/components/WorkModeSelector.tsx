@@ -3,7 +3,6 @@ import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useAgentStore} from '../stores/agentStore'
 import {useModelSchemeStore} from '../stores/modelSchemeStore'
-import {useMenuBarStore} from '../stores/menuBarStore'
 import {resolveRoleDisplay} from '@shared/modelSchemeHelpers'
 import {renderWorkModeIcon} from '@shared/roleIcons'
 import type {ModelScheme} from '@shared/types'
@@ -115,7 +114,6 @@ function getRoleIcon(roleId: string): ReactNode {
  */
 export default function WorkModeSelector() {
     const {workMode, setWorkMode} = useAgentStore()
-    const {openDialog} = useMenuBarStore()
     const [isOpen, setIsOpen] = useState(false)
     const [position, setPosition] = useState({top: 0, right: 0})
     const dropdownRef = useRef<HTMLDivElement>(null)
@@ -244,7 +242,7 @@ export default function WorkModeSelector() {
                                         <button
                                             onClick={() => {
                                                 setIsOpen(false)
-                                                openDialog('scheme-config')
+                                                window.electronAPI?.openConfigWindow?.('scheme-config')
                                             }}
                                             className="w-full flex items-center gap-1.5 px-2.5 py-2 text-left text-xs rounded-xl text-brand-500 hover:bg-brand-50 transition-colors"
                                         >

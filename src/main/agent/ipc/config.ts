@@ -10,6 +10,7 @@ import {runtimeConfigManager} from '../runtimeConfigManager'
 import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
 import {toolRepo as sqliteToolRepo} from '../../repositories/sqlite/toolRepository'
 import {logger} from '../logger'
+import {broadcastToOtherWindows} from '../../utils/windowBroadcast'
 import type {ModelConfig} from '../model/types'
 
 export function registerHandlers(): void {
@@ -37,11 +38,14 @@ export function registerHandlers(): void {
     })
 
     // 更新全局系统设置并同步到所有运行中的 Agent
-    ipcMain.handle('settings-update', async (_event, settings: import('@shared/types').SystemSettings) => {
+    ipcMain.handle('settings-update', async (event, settings: import('@shared/types').SystemSettings) => {
         const runningIds = agentManager.getRunningConversations()
         runningIds.forEach(id => {
             agentManager.broadcastSettings(id, settings)
         })
+        // 广播给除发起窗口外的所有渲染窗口（跨窗口数据一致性）：
+        // 设置窗口写库后主窗口经 'settings-changed' 刷新 settingsStore（含 ui.background 背景/遮罩/模糊）。
+        broadcastToOtherWindows(event, 'settings-changed', settings)
         return {success: true}
     })
 

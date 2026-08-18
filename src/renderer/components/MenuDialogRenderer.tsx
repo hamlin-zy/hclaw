@@ -1,23 +1,6 @@
 import {useEffect, useState} from 'react'
 import {useMenuBarStore} from '../stores/menuBarStore'
 import MenuDialog from './MenuDialog'
-import LLMConfigDialog from './dialogs/LLMConfigDialog'
-import ModelSchemeDialog from './dialogs/ModelSchemeDialog'
-import MCPDialog from './dialogs/MCPDialog'
-import ToolsDialog from './dialogs/ToolsDialog'
-import AgentsDialog from './dialogs/AgentsDialog'
-import SkillsDialog from './dialogs/SkillsDialog'
-import HooksDialog from './dialogs/HooksDialog'
-import PluginDialog from './dialogs/PluginDialog'
-import CommandsDialog from './dialogs/CommandsDialog'
-import ScheduleDialog from './dialogs/ScheduleDialog'
-import ChannelsDialog from './dialogs/ChannelsDialog'
-import PromptConfigDialog from './dialogs/PromptConfigDialog'
-import ConversationsDialog from './dialogs/ConversationsDialog'
-import SettingsDialog from './dialogs/SettingsDialog'
-import ToolListDialog from './dialogs/ToolListDialog'
-import SystemPromptDialog from './dialogs/SystemPromptDialog'
-import AboutDialog from './dialogs/AboutDialog'
 import UpdateNoticeDialog from './dialogs/UpdateNoticeDialog'
 
 interface DialogConfig {
@@ -33,24 +16,7 @@ interface DialogConfig {
 }
 
 const DIALOG_CONFIG: Record<string, DialogConfig> = {
-  'llm-config': {title: '模型配置', Component: LLMConfigDialog, initialWidth: 620},
-    'scheme-config': {title: '模型方案', Component: ModelSchemeDialog, initialWidth: 770},
-  'mcp': { title: 'MCP 服务', Component: MCPDialog, initialWidth: 680 },
-  'tools': { title: '工具管理', Component: ToolsDialog, initialWidth: 580 },
-  'agents': { title: 'Agents', Component: AgentsDialog, initialWidth: 600 },
-  'skills': { title: 'Skills', Component: SkillsDialog, initialWidth: 580 },
-  'hooks': { title: 'Hooks', Component: HooksDialog, initialWidth: 693 },
-    'plugins': {title: '插件管理', Component: PluginDialog, initialWidth: 640},
-    'commands': {title: '命令管理', Component: CommandsDialog, initialWidth: 580},
-    'schedules': {title: '定时任务', Component: ScheduleDialog, initialWidth: 680},
-    'channels': {title: '渠道管理', Component: ChannelsDialog, initialWidth: 480},
-    'prompt-config': {title: '提示词方案', Component: PromptConfigDialog, initialWidth: 720},
-    'conversations': {title: '会话管理', Component: ConversationsDialog, initialWidth: 780, minWidth: 370},
-    'settings': {title: '系统设置', Component: SettingsDialog, initialWidth: 780},
-    'tool-list': {title: '工具列表预览', Component: ToolListDialog, initialWidth: 580},
-    'system-prompt': {title: '系统提示词预览', Component: SystemPromptDialog, initialWidth: 680},
-    'about': {title: '关于 HClaw', Component: AboutDialog, initialWidth: 400, minWidth: 360, initialHeight: 430},
-  'update-notice': {title: '更新通知', Component: UpdateNoticeDialog, initialWidth: 380, minWidth: 340, initialHeight: 360},
+    'update-notice': {title: '更新通知', Component: UpdateNoticeDialog, initialWidth: 380, minWidth: 340, initialHeight: 360},
 }
 
 /** 根据当前视图宽度和配置，计算居中 Modal 的实际最大宽度 */

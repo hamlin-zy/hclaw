@@ -21,9 +21,27 @@ export default function ConversationsDialog() {
     const [error, setError] = useState<string | null>(null)
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
     const [deleting, setDeleting] = useState(false)
+    // store 初始化是否完成（独立窗口 JS 堆无主窗口的 store 状态，需显式初始化后才可查询）
+    const [workspaceReady, setWorkspaceReady] = useState(false)
+
+    // ── 独立窗口 store 初始化 ────────────────────────────────
+    // 独立窗口是全新 JS 堆，不继承主窗口 zustand store（currentWorkspacePath 初始为 null）。
+    // 打开时显式调用 store.loadConversations()（仿 toolStore.loadTools 模式），内部经
+    // workspace.getCurrent 解析当前工作区并填充 workspaces / currentWorkspacePath，
+    // 否则会话列表查询（conversationListWithStats）与删除时的后代展开都拿不到工作区路径。
+    useEffect(() => {
+        const state = useConversationStore.getState()
+        if (state.currentWorkspacePath) {
+            setWorkspaceReady(true)
+            return
+        }
+        void state.loadConversations().finally(() => setWorkspaceReady(true))
+    }, [])
 
     // ── 加载数据 ────────────────────────────────────────────
     const loadData = useCallback(async () => {
+        // 初始化完成前保持加载态，避免闪现"暂无会话"；若最终无工作区则回退空列表
+        if (!workspaceReady) return
         if (!currentWorkspacePath) {
             setConversations([])
             setLoading(false)
@@ -44,7 +62,7 @@ export default function ConversationsDialog() {
         } finally {
             setLoading(false)
         }
-    }, [currentWorkspacePath])
+    }, [workspaceReady, currentWorkspacePath])
 
     useEffect(() => {
         loadData()

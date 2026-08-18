@@ -7,7 +7,6 @@ import MCPUserServerCard from './MCPUserServerCard'
 import MCPPluginServerCard from './MCPPluginServerCard'
 import MCPEditModal from './MCPEditModal'
 import {useMcpErrorDialog} from './MCPErrorHelper'
-import {useMenuBarStore} from '../../stores/menuBarStore'
 
 type TabType = 'user' | 'plugin'
 
@@ -21,7 +20,7 @@ export default function MCPDialog() {
         setServerStatusesBatch,
     } = useMcpStore()
     const {McpErrorOverlay, showError} = useMcpErrorDialog({
-        onNavigateHome: () => useMenuBarStore.getState().closeDialog(),
+        onNavigateHome: () => window.electronAPI?.windowControls?.close?.(),
     })
     const [activeTab, setActiveTab] = useState<TabType>('user')
     const [editTarget, setEditTarget] = useState<MCPServer | 'add' | null>(null)
