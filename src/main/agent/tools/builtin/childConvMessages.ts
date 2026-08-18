@@ -40,6 +40,9 @@ export interface ChildConvAccumulator {
      *  一次子 Agent 运行 = 一条消息；同一子会话内用户二次发指令会开启新的 agent 运行，
      *  生成新的 id（不覆盖旧消息），与主会话的多轮交互行为一致。 */
     assistantMsgId: string
+    /** 本次运行的开始时刻（消息 timestamp 固定值；与主会话 createPendingMsg 的 timestamp 语义一致，
+     *  最终落库时 endedAt - timestamp 即为真实运行时长。此前 timestamp 随落库时刻重建，导致该差值恒为 0）。 */
+    startTime: number
     /** 全部轮次正文（text 事件累积） */
     textContent: string
     /** 全部轮次的流式块（think / tool_use，按事件序累积） */
@@ -60,6 +63,7 @@ export function createChildConvAccumulator(_convId?: string): ChildConvAccumulat
     const now = Date.now()
     return {
         assistantMsgId: `msg-${now}-${Math.random().toString(36).slice(2, 8)}`,
+        startTime: now,
         textContent: '',
         blocks: [],
         toolCalls: new Map(),
@@ -122,7 +126,7 @@ export function buildCurrentMessage(acc: ChildConvAccumulator, now: number): Mes
         id: acc.assistantMsgId,
         role: 'assistant',
         content: acc.textContent,
-        timestamp: now,
+        timestamp: acc.startTime,
     }
     if (toolCalls.length > 0) msg.toolCalls = toolCalls
     if (blocks.length > 0) msg.contentBlocks = blocks
@@ -281,7 +285,7 @@ export function flushAccumulatorMessage(
             id: acc.assistantMsgId,
             role: 'assistant',
             content: acc.textContent || (acc.hasError ? `执行失败: ${acc.errorMsg}` : '(无输出)'),
-            timestamp: now,
+            timestamp: acc.startTime,   // 与 buildCurrentMessage 一致：固定为运行开始时刻
         }
     }
 
