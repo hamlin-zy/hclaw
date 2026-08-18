@@ -54,8 +54,16 @@ export function initUsageStatsIPC(): void {
         const cacheHitRate = inputTokens + cacheReadTokens > 0
             ? Math.round(cacheReadTokens / (inputTokens + cacheReadTokens) * 100)
             : null
+        // 时序 KPI：原始累加值（平均吞吐/首字由渲染层 tokensPerSecond 计算，口径与 tooltip 一致）
+        const totalOutputTokens = allRows.reduce((s, b) => s + b.outputTokens, 0)
+        const totalDecodeMs = allRows.reduce((s, b) => s + (b.decodeMs ?? 0), 0)
+        const totalTtftMs = allRows.reduce((s, b) => s + (b.ttftMs ?? 0), 0)
+        const ttftCount = allRows.reduce((s, b) => s + (b.ttftCount ?? 0), 0)
 
-        const result: GlobalUsageStats = {kpi: {totalTokens, totalCostUsd, requestCount, cacheHitRate}, trend, breakdown}
+        const result: GlobalUsageStats = {
+            kpi: {totalTokens, totalCostUsd, requestCount, cacheHitRate, totalOutputTokens, totalDecodeMs, totalTtftMs, ttftCount},
+            trend, breakdown,
+        }
         return result
     })
 }

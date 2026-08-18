@@ -5,7 +5,8 @@ import UsageWindow from '../../../../src/renderer/components/usage/UsageWindow'
 import type {GlobalUsageStats} from '@shared/types'
 
 const mockStats: GlobalUsageStats = {
-    kpi: {totalTokens: 27790000, totalCostUsd: 12.88, requestCount: 267, cacheHitRate: 93},
+    // 时序：350000 输出 / 3500000ms 解码 = 100 t/s；首字 2400ms ÷ 2 样本 = 1.2s
+    kpi: {totalTokens: 27790000, totalCostUsd: 12.88, requestCount: 267, cacheHitRate: 93, totalOutputTokens: 350000, totalDecodeMs: 3500000, totalTtftMs: 2400, ttftCount: 2},
     trend: [
         {day: '2026-08-10', inputTokens: 1000000, outputTokens: 200000, cacheReadTokens: 5000000},
         {day: '2026-08-11', inputTokens: 1200000, outputTokens: 240000, cacheReadTokens: 6000000},
@@ -48,6 +49,11 @@ describe('UsageWindow 全局用量窗口', () => {
         await waitFor(() => expect(screen.getByText('27.8M')).toBeTruthy())
         expect(screen.getByText('总成本')).toBeTruthy()
         expect(screen.getByText('$12.88')).toBeTruthy()
+        // 时序 KPI：平均吞吐 = Σ输出 ÷ Σ解码时长；平均首字 = Σ首字 ÷ 样本数
+        expect(screen.getByText('平均吞吐')).toBeTruthy()
+        expect(screen.getByText('100 t/s')).toBeTruthy()
+        expect(screen.getByText('平均首字')).toBeTruthy()
+        expect(screen.getByText('1.2s')).toBeTruthy()
         // 趋势柱状条按天渲染
         expect(screen.getAllByTestId('trend-bar')).toHaveLength(2)
         // 分组表按服务商
@@ -57,6 +63,19 @@ describe('UsageWindow 全局用量窗口', () => {
         expect(screen.getByText('OpenAI')).toBeTruthy()
         // 成本口径说明（圆圈问号）存在
         expect(screen.getByRole('img', {name: '成本口径说明'})).toBeTruthy()
+        // 数据口径提示：客户端侧统计，非服务商账单
+        expect(screen.getByText('统计数据为客户端侧记录，仅供对照，实际用量以服务商官网为准')).toBeTruthy()
+    })
+
+    it('无时序数据 → 平均吞吐/首字显示 —', async () => {
+        api().usageStatsQuery = vi.fn().mockResolvedValue({
+            ...mockStats,
+            kpi: {...mockStats.kpi, totalOutputTokens: 0, totalDecodeMs: 0, totalTtftMs: 0, ttftCount: 0},
+        })
+        render(<UsageWindow />)
+        await waitFor(() => expect(screen.getByText('平均吞吐')).toBeTruthy())
+        // 平均吞吐、平均首字两个 KPI 均为占位符（缓存命中率仍为 93%）
+        expect(screen.getAllByText('—')).toHaveLength(2)
     })
 
     it('切换视图（按模型）→ 重新查询', async () => {

@@ -246,6 +246,12 @@ export interface ConversationUsageStats {
   totalCacheReadTokens: number
   /** 累计缓存写入 token（Σ cacheWriteTokens） */
   totalCacheWriteTokens: number
+  /** 累计纯解码时长（毫秒），平均吞吐 = ΣoutputTokens ÷ ΣdecodeMs（与 CacheRateTooltip 口径一致） */
+  totalDecodeMs: number
+  /** 累计首字延迟（毫秒），平均首字 = totalTtftMs ÷ ttftCount */
+  totalTtftMs: number
+  /** 携带首字延迟的 LLM 调用数（旧数据无 ttftMs 不计入） */
+  ttftCount: number
   /** 分组用量（按 provider+model，totalTokens 降序） */
   breakdown: UsageBreakdown[]
 }
@@ -298,6 +304,12 @@ export interface UsageBreakdown {
   cacheWriteTokens: number
   totalTokens: number     // 输入+输出+缓存（含全部 token 流量）
   costUsd: number         // 实时价格 × token（未定价模型为 0）
+  /** 组内累计纯解码时长（毫秒，历史数据/工具轮次可缺） */
+  decodeMs?: number
+  /** 组内累计首字延迟（毫秒，仅统计有 ttft 的样本） */
+  ttftMs?: number
+  /** 组内携带首字延迟的调用数 */
+  ttftCount?: number
 }
 
 /** 时间趋势点（按天） */
@@ -317,6 +329,14 @@ export interface GlobalUsageStats {
     totalCostUsd: number
     requestCount: number
     cacheHitRate: number | null   // 口径：cacheRead / (input + cacheRead)
+    /** 累计输出 token（平均吞吐分子，渲染层用 tokensPerSecond 计算展示，口径与 tooltip 一致） */
+    totalOutputTokens: number
+    /** 累计纯解码时长（毫秒） */
+    totalDecodeMs: number
+    /** 累计首字延迟（毫秒） */
+    totalTtftMs: number
+    /** 携带首字延迟的调用数 */
+    ttftCount: number
   }
   trend: TrendPoint[]
   breakdown: UsageBreakdown[]
