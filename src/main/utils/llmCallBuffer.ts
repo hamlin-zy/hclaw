@@ -12,6 +12,7 @@ import {randomUUID} from 'crypto'
 import type {LlmCallLog} from '@shared/types'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
 import {getAppIconPath} from './icon'
+import {readThemeSetting} from './theme'
 
 const MAX_BUFFER_SIZE = 100
 const CONFIG_KEY = 'llmLogEnabled'
@@ -148,16 +149,20 @@ export function createLlmLogsWindow(_getMainWindow: () => BrowserWindow | null):
     // 获取应用图标
     const iconPath = getAppIconPath()
 
+    // 读取主题配置，独立窗口与主窗口保持同一主题（防首绘闪白）
+    const {backgroundColor, rawTheme} = readThemeSetting()
     logWindow = new BrowserWindow({
         width: 1200,
         height: 700,
         minWidth: 800,
         minHeight: 400,
         icon: iconPath,
+        backgroundColor: backgroundColor === 'dark' ? '#1e1e1e' : '#ffffff',
         webPreferences: {
             preload: path.join(__dirname, '../preload/index.js'),
             nodeIntegration: false,
             contextIsolation: true,
+            additionalArguments: [`--hclaw-theme=${rawTheme}`],
         },
         show: false,
         title: 'LLM 调用日志',

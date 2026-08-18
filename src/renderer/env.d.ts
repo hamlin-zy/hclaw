@@ -22,7 +22,8 @@ declare global {
       closeWindow: () => Promise<void>
       isMaximized: () => Promise<boolean>
       onWindowMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void
-        setWindowTheme: (theme: 'light' | 'dark' | 'yuanshandai' | 'shiyangjin' | 'system') => Promise<void>
+        setWindowTheme: (theme: string) => Promise<void>
+        onThemeChanged: (callback: (theme: string) => void) => () => void
         platform: string
 
         // Command palette
@@ -286,6 +287,15 @@ declare global {
         onLlmCallLog: (callback: (log: any) => void) => () => void
         getLlmLogEnabled: () => Promise<boolean>
         toggleLlmLog: (enabled: boolean) => Promise<boolean>
+
+        // 全局用量统计窗口
+        openUsageStatsWindow: () => Promise<void>
+        usageStatsQuery: (params: {range: string; view: string}) => Promise<import('../shared/types/infra').GlobalUsageStats>
+        usageWindowMinimize: () => Promise<void>
+        usageWindowMaximize: () => Promise<void>
+        usageWindowClose: () => Promise<void>
+        usageWindowIsMaximized: () => Promise<boolean>
+        onUsageWindowMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void
 
         // Skills management
         skillsRefresh: (forceRefresh?: boolean) => Promise<{

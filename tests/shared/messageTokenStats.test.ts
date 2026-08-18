@@ -37,6 +37,9 @@ describe('computeMessageTokenStats', () => {
     expect(s.currentInputTokens).toBe(200)
     expect(s.currentOutputTokens).toBe(40)
     expect(s.currentCacheReadTokens).toBe(30)
+    // 末次时序 = 最后一条 llmStats（model-b）
+    expect(s.currentDecodeMs).toBe(1600)
+    expect(s.currentHasTtft).toBe(true)
   })
 
   it('忽略非 assistant 消息', () => {
@@ -62,6 +65,8 @@ describe('computeMessageTokenStats', () => {
     expect(s.currentInputTokens).toBe(0)
     expect(s.currentOutputTokens).toBe(0)
     expect(s.currentCacheReadTokens).toBe(0)
+    expect(s.currentDecodeMs).toBe(0)
+    expect(s.currentHasTtft).toBe(false)
   })
 
   it('assistant 消息无 llmStats / 空 llmStats → 不崩溃', () => {
@@ -83,6 +88,9 @@ describe('computeMessageTokenStats', () => {
     // 旧数据无 ttftMs → 不计入首字样本
     expect(s.totalTtftMs).toBe(0)
     expect(s.ttftCount).toBe(0)
+    // 末次请求无时序 → currentHasTtft false
+    expect(s.currentDecodeMs).toBe(0)
+    expect(s.currentHasTtft).toBe(false)
   })
 })
 

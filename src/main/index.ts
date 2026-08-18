@@ -18,6 +18,7 @@ import {migrateHooksFromSqlite, migrateMcpFromSqlite} from './config/migrateMcpH
 import {mcpService} from './services/mcpService';
 import {initLlmCallLogIPC} from './utils/llmCallLogStore';
 import {initLlmLogIPC} from './utils/llmCallBuffer';
+import {initUsageStatsIPC} from './utils/usageWindow';
 import {startConfigWatcher} from './config-watcher';
 import {initializePlugins, registerPluginIPC} from './plugin/ipc';
 import {registerCapabilityIPC} from './capability/ipc';
@@ -365,6 +366,9 @@ app.on('ready', async () => {
   // LLM call log IPC handlers
   initLlmCallLogIPC(getMainWindow);
   initLlmLogIPC();
+
+  // 全局用量统计窗口 + IPC
+  initUsageStatsIPC(getMainWindow);
 
   // Scheduler system initialization (loads enabled schedules into worker)
   schedulerManager.init()

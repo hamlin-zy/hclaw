@@ -404,6 +404,44 @@ export class SqliteConversationRepository implements IConversationRepository {
             blocksByMsg.get(row.message_id)!.push(row)
         }
 
+        // ── B1：按 message_id 批量查 llm_usage（新数据唯一源）──
+        // 消息加载时统一组装 Message.llmStats：历史 parse llm_stats 列 + 新数据追加 llm_usage 行。
+        // 复用 idx_llm_usage_message 索引，会话级一次查询，组装语义与 readUsageRaw 双源合并一致
+        // （历史在前、llm_usage 新数据在后）。
+        const usageByMsg = new Map<string, LlmStats[]>()
+        try {
+            const usageRows = db.prepare(
+                `SELECT message_id, provider_type, model, provider_name, input_tokens, output_tokens,
+                        cache_read_tokens, cache_write_tokens, reasoning_tokens, ttft_ms, decode_ms, duration_ms
+                 FROM llm_usage WHERE message_id IN (${msgIds.map(() => '?').join(',')})
+                 ORDER BY created_at ASC`
+            ).all(...msgIds) as Array<{
+                message_id: string; provider_type: string; model: string; provider_name: string | null;
+                input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number;
+                reasoning_tokens: number; ttft_ms: number | null; decode_ms: number | null; duration_ms: number
+            }>
+            for (const row of usageRows) {
+                const list = usageByMsg.get(row.message_id) ?? []
+                list.push({
+                    inputTokens: row.input_tokens,
+                    outputTokens: row.output_tokens,
+                    provider: row.provider_type,   // LlmStats.provider 存精确服务商类型（与 readUsageRaw 一致）
+                    model: row.model,
+                    providerName: row.provider_name ?? undefined,
+                    duration: row.duration_ms,
+                    cacheReadTokens: row.cache_read_tokens > 0 ? row.cache_read_tokens : undefined,
+                    cacheWriteTokens: row.cache_write_tokens > 0 ? row.cache_write_tokens : undefined,
+                    reasoningTokens: row.reasoning_tokens > 0 ? row.reasoning_tokens : undefined,
+                    ttftMs: row.ttft_ms ?? undefined,
+                    decodeMs: row.decode_ms ?? undefined,
+                })
+                usageByMsg.set(row.message_id, list)
+            }
+        } catch (err) {
+            // 单次组装失败不阻塞消息加载：llm_usage 行缺失时消息保持 llm_stats 列原样
+            console.error('[SqliteConversationRepository] buildMessagesFromRows llm_usage query failed:', err)
+        }
+
         return msgRows.map(row => {
             const role = row.role as 'user' | 'assistant' | 'system'
             const metadata = row.metadata ? JSON.parse(row.metadata) : {}
@@ -417,6 +455,11 @@ export class SqliteConversationRepository implements IConversationRepository {
                     message.llmStats = JSON.parse(row.llm_stats)
                 } catch { /* ignore */
                 }
+            }
+            // B1：llm_usage 新数据追加在 llm_stats 历史数据之后（历史在前、新数据在后，与 readUsageRaw 语义一致）
+            const newStats = usageByMsg.get(row.id)
+            if (newStats && newStats.length > 0) {
+                message.llmStats = [...(message.llmStats ?? []), ...newStats]
             }
             // 标记崩溃恢复的未完成消息：
             // is_partial=1（流式中间态落库未 final）或 assistant 消息无 ended_at（渲染端 delta 最后写入但未完成）
@@ -538,6 +581,62 @@ export class SqliteConversationRepository implements IConversationRepository {
                     // 单条损坏的 llm_stats 忽略，不阻塞整体统计
                 }
                 llmStatsByConv.set(row.conversation_id, list)
+            }
+
+            // ── 新数据源：llm_usage 表（唯一写入源，按会话聚合） ──
+            const usageRows = db.prepare(
+                `SELECT conversation_id, provider_type, model, provider_name, input_tokens, output_tokens,
+                        cache_read_tokens, cache_write_tokens, reasoning_tokens, ttft_ms, decode_ms, duration_ms
+                 FROM llm_usage WHERE conversation_id IN (${placeholders})`
+            ).all(...params) as Array<{
+                conversation_id: string; provider_type: string; model: string; provider_name: string | null;
+                input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number;
+                reasoning_tokens: number; ttft_ms: number | null; decode_ms: number | null; duration_ms: number;
+            }>
+
+            // provider_name 同组兜底：历史行（加列前写入）为 NULL，用同 model+provider_type 的非 NULL 值补（数据驱动，同一 model 归属稳定）
+            const providerNameByGroup = new Map<string, string>()
+            for (const row of usageRows) {
+                if (row.provider_name) {
+                    const gk = `${row.model}\u0000${row.provider_type}`
+                    if (!providerNameByGroup.has(gk)) providerNameByGroup.set(gk, row.provider_name)
+                }
+            }
+
+            for (const row of usageRows) {
+                const list = llmStatsByConv.get(row.conversation_id) ?? []
+                list.push({
+                    inputTokens: row.input_tokens,
+                    outputTokens: row.output_tokens,
+                    provider: row.provider_type,   // LlmStats.provider 存精确服务商类型（B1 组装后渲染端无感）
+                    model: row.model,
+                    providerName: row.provider_name ?? providerNameByGroup.get(`${row.model}\u0000${row.provider_type}`),
+                    duration: row.duration_ms,
+                    cacheReadTokens: row.cache_read_tokens > 0 ? row.cache_read_tokens : undefined,
+                    cacheWriteTokens: row.cache_write_tokens > 0 ? row.cache_write_tokens : undefined,
+                    reasoningTokens: row.reasoning_tokens > 0 ? row.reasoning_tokens : undefined,
+                    ttftMs: row.ttft_ms ?? undefined,
+                    decodeMs: row.decode_ms ?? undefined,
+                })
+                llmStatsByConv.set(row.conversation_id, list)
+            }
+
+            // ── 历史数据归一化：llm_stats 列的 provider 可能是方案名（旧版本 currentSchemeName || currentProvider），
+            //    用 llm_usage 表的 model → provider_type 精确映射覆盖（同一 model 的 provider 归属稳定，数据驱动） ──
+            const KNOWN_PROVIDERS = new Set(['anthropic', 'openai', 'google', 'ollama', 'custom'])
+            const modelProviderMap = new Map<string, string>()
+            for (const row of usageRows) {
+                if (!modelProviderMap.has(row.model)) modelProviderMap.set(row.model, row.provider_type)
+            }
+            if (modelProviderMap.size > 0) {
+                for (const list of llmStatsByConv.values()) {
+                    for (const s of list) {
+                        if (s.provider && !KNOWN_PROVIDERS.has(s.provider)) {
+                            const exact = modelProviderMap.get(s.model)
+                            if (exact) s.provider = exact
+                        }
+                    }
+                }
             }
 
             // 工具调用计数：message_blocks 中 block_type='tool_call'

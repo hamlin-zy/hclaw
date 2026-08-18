@@ -26,7 +26,7 @@ const MetricBadge = memo(function MetricBadge({
         (pct == null ? undefined : pct >= 80 ? 'var(--error)' : pct >= 50 ? 'var(--warning)' : 'var(--success)')
 
     return (
-        <span className="relative inline-flex items-center align-middle">
+        <span className="relative inline-flex items-center align-middle shrink-0 whitespace-nowrap">
             {/* 边框环层：pct 提供时按比例填充，否则 100% 纯色静态边框 */}
             <span
                 aria-hidden

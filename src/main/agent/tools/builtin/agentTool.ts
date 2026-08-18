@@ -38,6 +38,8 @@ import {
     flushAccumulatorMessage,
     handleChildEvent,
 } from './childConvMessages'
+import {toLlmUsageRecord} from '@shared/llmUsage'
+import {llmUsageRepo} from '../../../repositories/sqlite/llmUsageRepository'
 
 // ─── 并发控制 ──────────────────────────────────────────────
 
@@ -300,6 +302,15 @@ export const agentTool: Tool<AgentToolInput, string> = {
                 if (shouldFlush) {
                     // 轮次完成（工具结果 / LLM 调用完成）→ 增量 UPSERT 同一条累积消息
                     flushAccumulatorMessage(childAcc, conversationRepo, childConvId, false)
+                }
+
+                // ── LLM 用量落库（路径 2：子会话用量记在子会话名下，不经主进程） ──
+                if (event.type === 'llm_call_done') {
+                    llmUsageRepo.record(toLlmUsageRecord(event, {
+                        conversationId: childConvId,
+                        messageId: childAcc.assistantMsgId,   // 累积器固定消息 id
+                        seq: childAcc.llmStats.length - 1,    // handleChildEvent 已 push，此处为 push 前序号
+                    }))
                 }
 
                 // ── 事件分类转发给父上下文 ──

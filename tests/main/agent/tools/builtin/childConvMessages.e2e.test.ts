@@ -32,10 +32,12 @@ import {closeDatabase, getDatabase} from '../../../../../src/main/repositories/s
 import {SqliteConversationRepository} from '../../../../../src/main/repositories/sqlite/conversationRepository'
 import {
     createChildConvAccumulator,
+    buildCurrentMessage,
     handleChildEvent,
     flushAccumulatorMessage,
     finalizeChildConv,
 } from '../../../../../src/main/agent/tools/builtin/childConvMessages'
+import type {Message} from '@shared/types'
 
 // ─── 事件工厂 ──────────────────────────────────────────
 
@@ -51,6 +53,8 @@ const llmCallDone = (): AgentStreamEvent => ({
     type: 'llm_call_done',
     conversationTitle: 'child',
     provider: 'test',
+    providerType: 'anthropic',
+    providerName: 'Deepseek-ant',
     model: 'm',
     duration: 5000,
     inputTokens: 100,
@@ -204,18 +208,21 @@ describe('子会话完整执行过程持久化（端到端 — 单条消息模�
         expect(assistant.content).toBe('直接回答结果')
     })
 
-    it('llm_call_done 携带 token 时序字段时，llmStats 落库保留', () => {
-        driveAccumulator([
+    it('llm_call_done 携带 token 时序字段时，llmStats 不再随消息落库（B1：llm_usage 唯一源）', () => {
+        const acc = driveAccumulator([
             text('带时序的回答'),
             llmCallDone(),
         ], repo)
 
+        // 累积器仍在内存收集 llmStats（供 agentTool 路径 2 写入 llm_usage 表）
+        expect(acc.llmStats).toHaveLength(1)
+        expect(acc.llmStats[0].ttftMs).toBe(800)
+        expect(acc.llmStats[0].decodeMs).toBe(5000)
+        expect(acc.llmStats[0].tokensPerSecond).toBe(40)
+        // 写侧剥离：消息不再携带 llm_stats（Message.llmStats 由读取层 B1 组装）
         const msgs = repo.readMessages(CONV_ID)
         const assistant = msgs[1]
-        expect(assistant.llmStats).toHaveLength(1)
-        expect(assistant.llmStats![0].ttftMs).toBe(800)
-        expect(assistant.llmStats![0].decodeMs).toBe(5000)
-        expect(assistant.llmStats![0].tokensPerSecond).toBe(40)
+        expect(assistant.llmStats).toBeUndefined()
     })
 
     it('消息可通过 blocksToMessage 正常还原（UI 渲染路径）', () => {
@@ -234,4 +241,44 @@ describe('子会话完整执行过程持久化（端到端 — 单条消息模�
         expect(assistant.toolCalls![0].result?.output).toBe('hi')
         expect(assistant.contentBlocks!.some(b => b.type === 'think')).toBe(true)
     })
+})
+
+describe('写侧剥离（B1 唯一源）+ providerType 精确（llm_usage 改造）', () => {
+  it('handleChildEvent 的 llm_call_done 用 event.providerType（精确服务商类型）', () => {
+    const acc = createChildConvAccumulator()
+    handleChildEvent(acc, {
+      type: 'llm_call_done',
+      conversationTitle: '',
+      provider: '方案A',               // 脏字段（混方案名）
+      providerType: 'anthropic',       // 精确服务商类型
+      providerName: 'Deepseek-ant',
+      model: 'claude-sonnet-4',
+      duration: 100,
+      inputTokens: 10,
+      outputTokens: 2,
+    } as never)
+    expect(acc.llmStats).toHaveLength(1)
+    expect(acc.llmStats[0]!.provider).toBe('anthropic')   // 用 providerType 覆盖
+  })
+
+  it('buildCurrentMessage 不再设置 msg.llmStats（即使 acc.llmStats 非空）', () => {
+    const acc = createChildConvAccumulator()
+    handleChildEvent(acc, {
+      type: 'llm_call_done', conversationTitle: '', provider: 'p', providerType: 'openai', providerName: 'MiniMax',
+      model: 'gpt-4o', duration: 1, inputTokens: 1, outputTokens: 1,
+    } as never)
+    const msg = buildCurrentMessage(acc, 1000)
+    expect(msg).not.toBeNull()
+    expect(msg!.llmStats).toBeUndefined()
+  })
+
+  it('flushAccumulatorMessage 占位分支（空累积 + final）不设 msg.llmStats', () => {
+    const acc = createChildConvAccumulator()
+    // 直接往 acc.llmStats 塞数据（模拟已消费 llm_call_done 但无内容块）
+    acc.llmStats.push({inputTokens: 1, outputTokens: 1, provider: 'p', model: 'm', duration: 1})
+    const repo = {writeMessages: vi.fn()}
+    flushAccumulatorMessage(acc, repo as never, 'conv-1', true)
+    const written = (repo.writeMessages as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Message[]
+    expect(written[0]!.llmStats).toBeUndefined()
+  })
 })

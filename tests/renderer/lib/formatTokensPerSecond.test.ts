@@ -32,4 +32,11 @@ describe('tokensPerSecond（速率计算）', () => {
     it('output = 0 返回 null', () => {
         expect(tokensPerSecond(0, 5000)).toBeNull()
     })
+    it('duration 过短（<500ms）按 500ms 保守下限计算，防 t/s 爆表', () => {
+        // 真实案例：decode_ms=1 + output=759 → 理论 759000 t/s → 封顶 1518 t/s
+        expect(tokensPerSecond(759, 1)).toBe(1518)
+        // 边界：恰好 500ms 正常计算
+        expect(tokensPerSecond(200, 500)).toBe(400)
+        expect(tokensPerSecond(200, 499)).toBe(400)
+    })
 })

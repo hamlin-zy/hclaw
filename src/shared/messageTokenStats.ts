@@ -5,7 +5,7 @@
  * - 累计值 = 所有 assistant 消息的 llmStats 求和
  * - 当前值 = 遍历顺序中最后一条 llmStats 的对应字段
  */
-import type {Message} from './types'
+import type {LlmStats, Message} from './types'
 
 export interface MessageTokenStats {
   requestCount: number
@@ -22,6 +22,10 @@ export interface MessageTokenStats {
   currentInputTokens: number
   currentOutputTokens: number
   currentCacheReadTokens: number
+  /** 末次请求解码时长（毫秒），末次吞吐 = 末次 output ÷ 末次 decodeMs */
+  currentDecodeMs: number
+  /** 末次请求是否携带首字延迟（旧数据无 ttftMs 时末次吞吐/首字显示 —） */
+  currentHasTtft: boolean
 }
 
 export function computeMessageTokenStats(messages: Message[]): MessageTokenStats {
@@ -36,10 +40,12 @@ export function computeMessageTokenStats(messages: Message[]): MessageTokenStats
   let currentInputTokens = 0
   let currentOutputTokens = 0
   let currentCacheReadTokens = 0
+  let currentDecodeMs = 0
+  let currentHasTtft = false
 
   for (const msg of messages) {
     if (msg.role !== 'assistant') continue
-    const statsList = Array.isArray(msg.llmStats) ? msg.llmStats : []
+    const statsList: LlmStats[] = Array.isArray(msg.llmStats) ? msg.llmStats : []
     requestCount += statsList.length
     for (const s of statsList) {
       totalInputTokens += s.inputTokens || 0
@@ -50,9 +56,12 @@ export function computeMessageTokenStats(messages: Message[]): MessageTokenStats
         totalTtftMs += s.ttftMs
         ttftCount += 1
       }
+      // 末次值 = 最后一条 llmStats 覆盖
       currentInputTokens = s.inputTokens || 0
       currentOutputTokens = s.outputTokens || 0
       currentCacheReadTokens = s.cacheReadTokens || 0
+      currentDecodeMs = s.decodeMs || 0
+      currentHasTtft = typeof s.ttftMs === 'number'
     }
     if (msg.toolCalls?.length) {
       toolCallCount += msg.toolCalls.length
@@ -71,6 +80,8 @@ export function computeMessageTokenStats(messages: Message[]): MessageTokenStats
     currentInputTokens,
     currentOutputTokens,
     currentCacheReadTokens,
+    currentDecodeMs,
+    currentHasTtft,
   }
 }
 

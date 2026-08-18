@@ -61,8 +61,9 @@ beforeEach(() => {
     // 每个用例独立表结构：DROP 后重建，避免跨用例数据残留
     db.exec('DROP TABLE IF EXISTS message_blocks')
     db.exec('DROP TABLE IF EXISTS messages')
+    db.exec('DROP TABLE IF EXISTS llm_usage')
     db.exec('DROP TABLE IF EXISTS conversations')
-    // 最小 schema（与迁移 001 + 006 对齐）
+    // 最小 schema（与迁移 001 + 006 + Task 2 llm_usage 对齐）
     db.exec(`CREATE TABLE IF NOT EXISTS conversations (
         id TEXT PRIMARY KEY, workspace_path TEXT NOT NULL DEFAULT '', meta TEXT NOT NULL,
         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
@@ -75,6 +76,17 @@ beforeEach(() => {
         id TEXT PRIMARY KEY, message_id TEXT NOT NULL, block_type TEXT NOT NULL,
         content TEXT, data TEXT, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, ended_at INTEGER,
         FOREIGN KEY (message_id) REFERENCES messages (id) ON DELETE CASCADE
+    )`)
+    // readUsageRaw 双源合并（Task 6）读取 llm_usage 表，测试 schema 需与生产迁移对齐
+    db.exec(`CREATE TABLE IF NOT EXISTS llm_usage (
+        id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
+        provider_type TEXT NOT NULL, model TEXT NOT NULL,
+        provider_name TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        ttft_ms INTEGER, decode_ms INTEGER, duration_ms INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
     )`)
     // ★ 生产外键约束：与迁移 001 对齐——message_blocks.message_id → messages.id。
     //   真实环境外键开启（否则此前 writeBlockDelta「先插块后建行」的 FK 失败不会被测试暴露），
