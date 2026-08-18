@@ -1,7 +1,7 @@
 /**
  * LLM 调用日志缓冲模块
  *
- * 使用内存缓冲 + 批量增量写入，减少同步 I/O 阻塞
+ * 内存缓冲用于日志窗口实时推送，写入采用每次追加（低频低量，开销可忽略）。
  * 日志格式：JSONL（每行一个 JSON 对象）
  */
 
@@ -14,7 +14,6 @@ import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepositor
 import {getAppIconPath} from './icon'
 import {readThemeSetting} from './theme'
 
-const MAX_BUFFER_SIZE = 100
 const CONFIG_KEY = 'llmLogEnabled'
 
 /** 惰性获取日志文件路径（避免在 app 就绪前访问） */
@@ -65,10 +64,10 @@ export function addToBuffer(entry: Omit<LlmCallLog, 'id' | 'timestamp'>): LlmCal
         logWindow.webContents.send('llm-call-log', log)
     }
 
-    // 缓冲区满则刷盘
-    if (buffer.length >= MAX_BUFFER_SIZE) {
-        flush()
-    }
+    // 每次写入立即落盘（低频低量，appendFileSync 开销可忽略）；buffer 仅用于
+    // 窗口实时推送，退出时 flush 兜底。此前「buffer 满 100 才刷盘」会导致
+    // 低量日志滞留内存，进程不退出时日志文件为空。
+    flush()
 
     return log
 }

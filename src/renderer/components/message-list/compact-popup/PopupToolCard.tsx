@@ -55,7 +55,7 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
     const cfg = statusConfig(effectiveStatus)
     const argSummary = getToolArgSummary(toolCall)
     const detail = isSkillTool ? getSkillDetail(toolCall) : getToolDetail(toolCall)
-    const hasOutput = effectiveResult?.output && effectiveStatus !== 'running'
+    const hasOutput = !!effectiveResult?.output && effectiveStatus !== 'running'
     const errorLine = effectiveResult?.error
 
     // MCP 工具显示名：解析为可读格式

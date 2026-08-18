@@ -132,3 +132,54 @@ export function updateMessageContentBlocks(convId?: string) {
         })
     }
 }
+
+/**
+ * 运行中会话切换/加载后的渲染端补全（根因修复）。
+ *
+ * 背景：切回后台（非活跃）运行中的会话时，消息气泡只渲染 thinking、
+ * 无正文/工具调用，要等 LLM 结束才恢复。两个成因叠加：
+ *   ① 块级落库惰性（段边界 + 30s 兜底，见 conversationStore.scheduleDeltaSave）
+ *      → DB 快照只有已 flush 的 think 块（thinking→text 段边界先落库），
+ *      text/tool 块仍滞留渲染进程 dirty 队列 → loadMessagesInitial 读半成品；
+ *   ② 非活跃期间 contentBlocks 冻结不重建（所有重建入口都有活跃会话守卫）。
+ *   半成品消息 contentBlocks=[think×N] → InterleavedContent 新路径只渲染思考。
+ *
+ * 修复：用 agentStore 的 streamBlocks/streamBuffer 重建完整 contentBlocks，
+ * 覆盖 DB/内存中的半成品快照；DB 尚无该消息时（dirty 未落库）先用内存
+ * 流式数据组装完整消息。LLM 结束后 handleDone 本就会组装完整 contentBlocks，
+ * 本函数使运行中切换即刻获得相同效果。
+ */
+export function reconcileStreamingContent(convId: string): void {
+    const convData = useAgentStore.getState().convAgentStates[convId]
+    const msgId = convData?.streamingMessageId
+    const status = convData?.agentState?.status
+    if (!msgId || (status !== 'running' && status !== 'thinking')) return
+
+    const convStore = useConversationStore.getState()
+    const msgs = convStore.messagesMap[convId] || []
+    if (!msgs.some(m => m.id === msgId)) {
+        // 内存中无该消息（dirty 尚未落库）→ 用流式数据组装完整消息（含 thinkBlock/toolCalls）
+        const toolCalls: ToolCall[] = []
+        for (const sb of convData.streamBlocks) {
+            const toolCall = sb.type === 'tool_use' ? sb.toolCall : undefined
+            if (toolCall && !toolCalls.some(t => t.id === toolCall.id)) {
+                toolCalls.push(toolCall)
+            }
+        }
+        convStore.addMessageToConv(convId, {
+            id: msgId,
+            role: 'assistant',
+            content: convData.streamBuffer || '',
+            ...(convData.thinkingContent ? {
+                thinkBlock: {
+                    id: `think-${msgId}`,
+                    content: convData.thinkingContent,
+                    status: 'thinking' as const,
+                    timestamp: Date.now(),
+                },
+            } : {}),
+            toolCalls,
+        })
+    }
+    updateMessageContentBlocks(convId)
+}

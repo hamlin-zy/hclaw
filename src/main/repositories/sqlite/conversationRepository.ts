@@ -125,7 +125,7 @@ export class SqliteConversationRepository implements IConversationRepository {
                     'INSERT OR REPLACE INTO messages (id, conversation_id, role, timestamp, ended_at, metadata, llm_stats) VALUES (?, ?, ?, ?, ?, ?, ?)'
                 )
                 const blockStmt = db.prepare(
-                    'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                    'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
                 )
 
                 for (const msg of messages) {
@@ -135,7 +135,7 @@ export class SqliteConversationRepository implements IConversationRepository {
                     msgStmt.run(msgRecord.id, convId, msgRecord.role, msgRecord.timestamp, msgRecord.endedAt ?? null, JSON.stringify(msgRecord.metadata), llmStats)
 
                     for (const block of blocks) {
-                        blockStmt.run(block.id, block.messageId, block.blockType, block.content, block.data, block.sequence, block.timestamp, block.endedAt ?? null)
+                        blockStmt.run(block.id, block.messageId, block.blockType, block.content, block.data, block.sequence, block.timestamp, block.endedAt ?? null, block.turnIndex ?? null)
                     }
                 }
 
@@ -182,7 +182,7 @@ export class SqliteConversationRepository implements IConversationRepository {
                 )
                 // 3. 写入新 blocks
                 const blockStmt = db.prepare(
-                    'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                    'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
                 )
                 for (const block of blocks) {
                     blockStmt.run(
@@ -194,6 +194,7 @@ export class SqliteConversationRepository implements IConversationRepository {
                         block.sequence,
                         block.timestamp,
                         block.endedAt ?? null,
+                        block.turnIndex ?? null,
                     )
                 }
                 // 4. 更新会话时间戳
@@ -255,13 +256,14 @@ export class SqliteConversationRepository implements IConversationRepository {
                         )
                     }
                 }
-                let nextSeq = -1
-                const resolveSeq = (): number => {
-                    if (nextSeq < 0) {
-                        nextSeq = (db.prepare('SELECT COALESCE(MAX(sequence), -1) + 1 AS s FROM message_blocks WHERE message_id = ?').get(msgId) as {s: number}).s
-                    }
-                    return nextSeq++
-                }
+                // ★ sequence 分配：每次 INSERT 都重新查询 MAX(sequence)+1。
+                //   不缓存 nextSeq——end 块（finalize 分支）必须恒为当前最大，
+                //   若沿用缓存值，end 可能排在该 patch 后续新插入块之前
+                //   （历史 bug：end 被挤到 text 与 tool_call 之间，读回时
+                //   轮次内顺序错乱 → 重建序列与 loop 内存态逐 token 不一致
+                //   → KV cache 从该轮整段断裂）。事务内逐次查询开销可忽略。
+                const nextSeq = (): number =>
+                    (db.prepare('SELECT COALESCE(MAX(sequence), -1) + 1 AS s FROM message_blocks WHERE message_id = ?').get(msgId) as {s: number}).s
                 for (const block of patch.upsertBlocks ?? []) {
                     const existing = db.prepare('SELECT id, block_type, content FROM message_blocks WHERE id = ?').get(block.id) as {id: string; block_type: string; content: string | null} | undefined
                     if (existing) {
@@ -271,6 +273,9 @@ export class SqliteConversationRepository implements IConversationRepository {
                             //   会丢掉上次 flush 已落库的旧切片（"历史正文只剩最后一个字符"的根因，05b219c 引入）。
                             //   改为追加：DB 已存内容 + 本次切片 = 完整文本。think/tool_call/tool_result 保持覆盖
                             //   （渲染端对这些块传完整内容，追加会重复）。
+                            // ★ turn_index 只在 INSERT 时确定归属轮次；UPDATE 分支不得覆盖
+                            //   （handleDone 重写 think 块置 complete 时 currentTurnIndex 已是末轮，
+                            //    覆盖会错误地把所有 think 块标成末轮——实测 14 个 think 全变 turn 22）。
                             db.prepare('UPDATE message_blocks SET content = COALESCE(content, \'\') || ?, data = ?, timestamp = ? WHERE id = ?').run(
                                 block.content ?? '', block.data, block.timestamp, block.id,
                             )
@@ -280,8 +285,8 @@ export class SqliteConversationRepository implements IConversationRepository {
                             )
                         }
                     } else {
-                        db.prepare('INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-                            block.id, msgId, block.blockType, block.content, block.data, resolveSeq(), block.timestamp, block.endedAt ?? null,
+                        db.prepare('INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+                            block.id, msgId, block.blockType, block.content, block.data, nextSeq(), block.timestamp, block.endedAt ?? null, block.turnIndex ?? null,
                         )
                     }
                 }
@@ -292,7 +297,7 @@ export class SqliteConversationRepository implements IConversationRepository {
                         db.prepare("UPDATE message_blocks SET data = ?, ended_at = ? WHERE id = ?").run(JSON.stringify({endedAt}), endedAt, endBlock.id)
                     } else {
                         db.prepare("INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, 'end', NULL, ?, ?, ?, ?)").run(
-                            `${msgId}-end`, msgId, JSON.stringify({endedAt}), resolveSeq(), endedAt, endedAt,
+                            `${msgId}-end`, msgId, JSON.stringify({endedAt}), nextSeq(), endedAt, endedAt,
                         )
                     }
                     db.prepare('UPDATE messages SET ended_at = ? WHERE id = ?').run(endedAt, msgId)
@@ -351,7 +356,7 @@ export class SqliteConversationRepository implements IConversationRepository {
 
             // Rewrite remaining messages
             const msgStmt = db.prepare('INSERT OR REPLACE INTO messages (id, conversation_id, role, timestamp, ended_at, metadata, llm_stats) VALUES (?, ?, ?, ?, ?, ?, ?)')
-            const blockStmt = db.prepare('INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+            const blockStmt = db.prepare('INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
 
             for (const msg of remaining) {
                 const {messages: [msgRecord], blocks} = messageToBlocks(msg, convId)
@@ -361,7 +366,7 @@ export class SqliteConversationRepository implements IConversationRepository {
 
                 db.prepare('DELETE FROM message_blocks WHERE message_id = ?').run(msgRecord.id)
                 for (const block of blocks) {
-                    blockStmt.run(block.id, block.messageId, block.blockType, block.content, block.data, block.sequence, block.timestamp, block.endedAt ?? null)
+                    blockStmt.run(block.id, block.messageId, block.blockType, block.content, block.data, block.sequence, block.timestamp, block.endedAt ?? null, block.turnIndex ?? null)
                 }
             }
 
@@ -390,12 +395,12 @@ export class SqliteConversationRepository implements IConversationRepository {
         const db = getDatabase()
         const msgIds = msgRows.map(r => r.id)
         const blocksRows = db.prepare(
-            `SELECT id, message_id, block_type, content, data, sequence, timestamp, ended_at
+            `SELECT id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index
              FROM message_blocks WHERE message_id IN (${msgIds.map(() => '?').join(',')})
              ORDER BY message_id, sequence ASC`
         ).all(...msgIds) as Array<{
             id: string; message_id: string; block_type: string; content: string | null; data: string | null;
-            sequence: number; timestamp: number; ended_at: number | null
+            sequence: number; timestamp: number; ended_at: number | null; turn_index: number | null
         }>
 
         const blocksByMsg = new Map<string, typeof blocksRows>()
@@ -470,6 +475,7 @@ export class SqliteConversationRepository implements IConversationRepository {
                 id: b.id, messageId: b.message_id, blockType: b.block_type as BlockType,
                 content: b.content, data: b.data, sequence: b.sequence,
                 timestamp: b.timestamp, endedAt: b.ended_at ?? undefined,
+                turnIndex: b.turn_index ?? undefined,
             }))
             return role === 'assistant' ? blocksToMessage(message, blocks) : message
         })

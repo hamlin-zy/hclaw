@@ -16,11 +16,7 @@ import {
     flushThinkingBatch,
     clearThinkingBatch,
 } from '../batching/thinkingBatch'
-import {
-    flushToolResultBatch,
-    clearToolResultBatchData,
-    getToolResultBatchMap,
-} from '../batching/toolResultBatch'
+import {flushToolResultBatch} from '../batching/toolResultBatch'
 import {parseCommands} from '../helpers/misc'
 import {saveCurrentConversation} from '../helpers/convHelpers'
 
@@ -64,11 +60,13 @@ export async function handleDone(ctx: StreamCtx) {
             })
         }
 
-        const trBatch = getToolResultBatchMap()[convId]
-        if (trBatch && trBatch.size > 0) {
-            flushToolResultBatch(convId)
-        }
-        clearToolResultBatchData(convId)
+        // ★ 收尾前同步冲刷 rAF 延迟的 tool_result 批：tool_result 经
+        //   scheduleToolResultUpdate 排队等 requestAnimationFrame，若 done 与工具结果
+        //   同事件循环到达，rAF 尚未触发 → 直接 flush 读到空批，tool_result 延后到
+        //   下一帧才进 dirty map，而 finalizeMessageDelta（end 块）同步先进 → 两次 IPC
+        //   落库使 DB 块序变成 text → end → tool_result（跨 turn 缓存断裂根因）。
+        //   flush 对空批为无操作，可直接调用。
+        flushToolResultBatch(convId)
 
         const streamBlocks = doneConvData.streamBlocks
         const fullText = doneConvData.streamBuffer
@@ -143,6 +141,8 @@ export async function handleDone(ctx: StreamCtx) {
         },
         streamBuffer: '',
         thinkingContent: null,
+        // ★ 方案 2：本用户 turn 结束，清除 turnIndex（下一用户 turn 首轮 agent_start 从 0 重新计数）
+        currentTurnIndex: undefined,
         streamBlocks: [],
         streamingMessageId: null,
         isThinkingAfterTools: false,
@@ -206,6 +206,9 @@ export function handleError(ctx: StreamCtx) {
         useConversationStore.getState().updateMessageForConv(convId, errorMsgId, {
             endedAt: Date.now(),
         })
+        // ★ 收尾前同步冲刷 rAF tool_result 批（与 handleDone 同因：确保
+        //   tool_result 先于 end 进入 dirty map 同批落库）
+        flushToolResultBatch(convId)
         // ★ 块级增量收尾：error 收尾同样 finalize（endedAt 判空同域，无流式消息的 error 跳过）
         finalizeMessageDelta(convId, errorMsgId, Date.now())
     }
@@ -402,11 +405,9 @@ export function handleUserMessageInjected(ctx: StreamCtx) {
         //   注入瞬间残留的 thinking batch 若不冲刷，会在下次 flush 时串入新消息
         flushPendingStreamBatches(convId, convState.streamingMessageId)
 
-        const trBatch = getToolResultBatchMap()[convId]
-        if (trBatch && trBatch.size > 0) {
-            flushToolResultBatch(convId)
-        }
-        clearToolResultBatchData(convId)
+        // ★ 收尾前同步冲刷 rAF tool_result 批（与 handleDone 同因：确保
+        //   tool_result 先于 end 进入 dirty map 同批落库）
+        flushToolResultBatch(convId)
         // ★ 竞态防护：先补旧消息 endedAt（主进程 doMergeAndPersist(oldPending,true) 已写 final），
         //   再 flush，避免无 endedAt 快照覆盖
         useConversationStore.getState().updateMessageForConv(convId, convState.streamingMessageId, {

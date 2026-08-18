@@ -158,9 +158,14 @@ export async function* executeLlmCallWithRetry(
             // ── 执行 LLM 调用 ──
             if (!adapter) throw new Error('Adapter not initialized')
 
-            const thinkingEffort = workModeRole === 'reasoning'
-                ? (modelConfig.thinkingEffort || 'auto')
-                : undefined
+            // ★ 思考强度：尊重方案配置（modelConfig.thinkingEffort 由 modelSelector 从
+            //   scheme role 的 thinking_effort 解析，如 lightweight=high）。
+            //   此前硬编码 workModeRole === 'reasoning' 才启用思考，导致 lightweight 等
+            //   角色配置的 thinking_effort 被丢弃（配置→执行断链：方案配了 high 实际不思考，
+            //   且 LLM 仍返回 reasoning → 落库 think 块 vs loop 发送剥离 → 跨 turn 缓存断裂）。
+            //   旧行为兜底：scheme 未配 thinking_effort 时，reasoning 角色仍默认 'auto'。
+            const thinkingEffort = modelConfig.thinkingEffort
+                ?? (workModeRole === 'reasoning' ? 'auto' : undefined)
 
             const compactTools = isCompactCommand ? [] : availableToolDefinitions
 

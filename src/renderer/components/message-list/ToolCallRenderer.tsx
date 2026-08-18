@@ -132,7 +132,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
             // 优先从结果中获取（最准确），其次从当前方案配置获取（执行中即可显示）
             const output = effectiveResult?.output ?? toolCall.result?.output
             if (output) {
-                const modelMatch = output.match(/^\[视觉模型:\s*([^\]]+)\]/)
+                const modelMatch = String(output).match(/^\[视觉模型:\s*([^\]]+)\]/)
                 if (modelMatch) return `视觉模型: ${modelMatch[1].trim()}`
             }
             if (schemeVisionModelName) return `视觉模型: ${schemeVisionModelName}`

@@ -18,6 +18,7 @@
 
 import type {AgentStreamEvent} from '../../stream'
 import type {ContentBlock, LlmStats, Message, ToolCall} from '@shared/types'
+import {formatToolResult} from '@shared/utils/toolResult'
 
 // ─── 累积器状态 ──────────────────────────────────────────
 
@@ -185,11 +186,23 @@ export function handleChildEvent(acc: ChildConvAccumulator, event: AgentStreamEv
         case 'tool_result': {
             const existing = acc.toolCalls.get(event.toolCallId)
             if (existing) {
-                existing.status = event.result?.error ? 'error' : 'success'
+                const toolResult = event.result as {
+                    output?: unknown
+                    error?: string
+                    toolResult?: string
+                    _meta?: Record<string, unknown>
+                }
+                existing.status = toolResult.error ? 'error' : 'success'
                 existing.result = {
-                    output: event.result?.output || '',
-                    error: event.result?.error,
-                    _meta: (event.result as {_meta?: Record<string, unknown>})?._meta,
+                    output: toolResult.output || '',
+                    error: toolResult.error,
+                    toolResult: toolResult.toolResult
+                        ?? formatToolResult({
+                            success: !toolResult.error,
+                            output: toolResult.output ?? '',
+                            error: toolResult.error,
+                        }),
+                    _meta: toolResult._meta,
                 }
                 if (event.skillName) existing.skillName = event.skillName
                 acc.pendingToolCount = Math.max(0, acc.pendingToolCount - 1)
