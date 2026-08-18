@@ -78,6 +78,12 @@ interface ConversationStore {
 
   // Init
   loadConversations: () => Promise<void>
+
+  // Handoff guidance（交接引导）
+  /** 会话级"交接弹窗不再提醒"标记（convId → true） */
+  handoffDismissed: Record<string, boolean>
+  dismissHandoffPrompt: (convId: string) => void
+  clearHandoffDismissals: () => void
 }
 
 // ─── Persistence: delta-first (增量优先) ───────────────────────
@@ -606,6 +612,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       renderedConversationIds: [],
       conversationLastActiveAt: {},
       searchQuery: '',
+      handoffDismissed: {},
 
       // ── Workspace ──────────────────────────────────────
 
@@ -892,6 +899,12 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       // ── Search ─────────────────────────────────────────
 
       setSearchQuery: (query) => set({searchQuery: query}),
+
+      // ── Handoff guidance（交接引导）──────────────────────
+
+      dismissHandoffPrompt: (convId) =>
+          set((s) => ({handoffDismissed: {...s.handoffDismissed, [convId]: true}})),
+      clearHandoffDismissals: () => set({handoffDismissed: {}}),
 
       getFilteredConversations: () => {
           const {currentWorkspacePath, workspaces, searchQuery} = get()

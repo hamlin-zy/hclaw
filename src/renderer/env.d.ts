@@ -79,6 +79,11 @@ declare global {
         running: boolean
         allRunning: string[]
       }>
+        contextGetUsage: (conversationId: string) => Promise<{
+          ratio: number
+          windowTokens: number
+          estimatedTokens: number
+        }>
         agentSetPermissionMode: (mode: 'safe' | 'auto') => Promise<boolean>
         agentGetWorkMode: () => Promise<string>
         agentSetWorkMode: (mode: string) => Promise<boolean>

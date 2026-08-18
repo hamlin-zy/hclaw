@@ -423,6 +423,7 @@ export class AgentLoopController {
                 reasoningTokens, llmDuration,
                 ttftMs, decodeMs, tokensPerSecond,
                 currentProvider, currentModel, currentSchemeName, providerName,
+                handoffRequested,
             } = llmResult
 
             // ── 发送 LLM 调用完成事件 ──
@@ -486,6 +487,14 @@ export class AgentLoopController {
 
             // ── 从 tool result 提取媒体文件 ──
             currentState = extractMediaFromToolResults(currentState)
+
+            // ── mid-loop 交接门：auto-handoff 注入后，工具执行完成即强制结束本轮 ──
+            // 无论模型是否成功调用 session_handoff，都不进入下一轮，防止交接门反复命中导致重复注入死循环。
+            if (handoffRequested) {
+                logger.info(`[AgentLoop] mid-loop handoff requested, force ending turn ${this.turns}`)
+                endTurnCleanup()
+                return 'early_exit'
+            }
 
             // Turn 结束
             logger.debug(`[AgentLoop] end turn ${this.turns} reason:tool_calls_executed`)
