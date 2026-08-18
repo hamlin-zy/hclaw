@@ -1,4 +1,4 @@
-import {app, BrowserWindow, dialog, ipcMain, nativeTheme, screen, shell} from 'electron';
+import {app, BrowserWindow, dialog, ipcMain, screen, shell} from 'electron';
 import fsPromises from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -8,6 +8,8 @@ import {getAppIcon} from './utils/icon';
 import {createLogger} from './agent/logger';
 import {systemSettingsRepo} from './repositories/sqlite/systemSettingsRepository';
 import * as updateChecker from './updater/updateChecker';
+import type {UpdateResult} from '../shared/types/updater';
+import {readThemeSetting} from './utils/theme';
 
 const logger = createLogger('window');
 
@@ -201,32 +203,7 @@ export const createWindow = (): void => {
     const icon = getAppIcon();
 
     // ── 读取主题配置，渲染窗口前就确定正确主题，避免闪现 ──
-    // initialTheme: 映射后的 dark/light，仅用于 backgroundColor
-    // rawThemeForRenderer: 原始主题名（'dark'/'light'/'yuanshandai'/'shiyangjin'），传递给渲染进程
-    let initialTheme: 'light' | 'dark' = 'light'
-    let rawThemeForRenderer: string = 'light'
-    try {
-        const settings = systemSettingsRepo.getJson<{ ui?: { theme?: string } }>('settings')
-        const themeSetting = settings?.ui?.theme
-        if (themeSetting === 'dark') {
-            initialTheme = 'dark'
-            rawThemeForRenderer = 'dark'
-        } else if (themeSetting === 'light') {
-            initialTheme = 'light'
-            rawThemeForRenderer = 'light'
-        } else if (themeSetting === 'yuanshandai') {
-            initialTheme = 'dark'        // 远山黛是深色主题 → dark bg
-            rawThemeForRenderer = 'yuanshandai'  // 但传递给渲染进程的必须是原始名称
-        } else if (themeSetting === 'shiyangjin') {
-            initialTheme = 'light'       // 十样锦是浅色主题 → light bg
-            rawThemeForRenderer = 'shiyangjin'   // 原始名称传递
-        } else {
-            initialTheme = nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
-            rawThemeForRenderer = initialTheme
-        }
-    } catch {
-        // SQLite 未就绪时使用默认值
-    }
+    const {backgroundColor: initialTheme, rawTheme: rawThemeForRenderer} = readThemeSetting()
 
     // ── 平台检测 ──
     const isMac = process.platform === 'darwin'
@@ -470,6 +447,19 @@ export const createWindow = (): void => {
 // IPC Handlers
 // ========================================
 
+/**
+ * 广播更新检查结果给所有窗口。
+ *
+ * 背景：about 迁为独立窗口后，「关于页点检查更新」仅经 invoke 返回，主窗口感知不到，
+ * 主窗口 update-notice 不再弹出。统一由这里广播 updater:status-changed，
+ * 主窗口与独立窗口都能收到并同步 UI。
+ */
+export function broadcastUpdaterStatus(result: UpdateResult): void {
+    for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('updater:status-changed', result);
+    }
+}
+
 /** 注册窗口控制相关 IPC handlers */
 export function initWindowIPC(): void {
     // ---- 系统信息 ----
@@ -483,7 +473,9 @@ export function initWindowIPC(): void {
     });
 
     ipcMain.handle('updater:check-for-update', async () => {
-        return updateChecker.checkForUpdate();
+        const result = await updateChecker.checkForUpdate();
+        broadcastUpdaterStatus(result);
+        return result;
     });
 
     ipcMain.handle('get-platform', () => {
@@ -511,9 +503,12 @@ export function initWindowIPC(): void {
         return mainWindow?.isMaximized();
     });
 
-    /** 设置窗口主题（同步更新 titleBarOverlay） */
-    ipcMain.handle('set-window-theme', (_event, theme: ThemeMode) => {
-        updateTitleBarOverlay(theme);
+    /** 设置窗口主题（同步 titleBarOverlay + 广播给所有窗口跟随） */
+    ipcMain.handle('set-window-theme', (_event, theme: string) => {
+        updateTitleBarOverlay(theme as ThemeMode);
+        for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) win.webContents.send('theme-changed', theme)
+        }
     });
 
     /** 检测 Windows 11（渲染进程通过 preload 调用） */

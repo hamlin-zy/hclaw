@@ -93,6 +93,7 @@ export function handleSubagentProgress(ctx: StreamCtx) {
             outputTokens: subLlmEvent.outputTokens ?? 0,
             provider: subLlmEvent.provider,
             model: subLlmEvent.model ?? 'unknown',
+            providerName: subLlmEvent.providerName,
             duration: subLlmEvent.duration ?? 0,
             ttftMs: subLlmEvent.ttftMs,
             decodeMs: subLlmEvent.decodeMs,

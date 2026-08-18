@@ -6,8 +6,8 @@ export class SqliteMessageBlockRepository implements IMessageBlockRepository {
   writeBlock(convId: string, block: MessageBlock): void {
     const db = getDatabase()
     const stmt = db.prepare(
-      `INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     stmt.run(
       block.id,
@@ -17,7 +17,8 @@ export class SqliteMessageBlockRepository implements IMessageBlockRepository {
       block.data,
       block.sequence,
       block.timestamp,
-      block.endedAt ?? null
+      block.endedAt ?? null,
+      block.turnIndex ?? null,
     )
   }
 
@@ -49,7 +50,7 @@ export class SqliteMessageBlockRepository implements IMessageBlockRepository {
   readBlocksByMessage(messageId: string): MessageBlock[] {
     const db = getDatabase()
     const stmt = db.prepare(
-      'SELECT id, message_id, block_type, content, data, sequence, timestamp, ended_at FROM message_blocks WHERE message_id = ? ORDER BY sequence ASC'
+      'SELECT id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index FROM message_blocks WHERE message_id = ? ORDER BY sequence ASC'
     )
       const rows = stmt.all(messageId) as Array<{
           id: string,
@@ -59,7 +60,8 @@ export class SqliteMessageBlockRepository implements IMessageBlockRepository {
           data: string | null,
           sequence: number,
           timestamp: number,
-          ended_at: number | null
+          ended_at: number | null,
+          turn_index: number | null,
       }>
     return rows.map(row => ({
         id: row.id,
@@ -70,6 +72,7 @@ export class SqliteMessageBlockRepository implements IMessageBlockRepository {
         sequence: row.sequence,
         timestamp: row.timestamp,
         endedAt: row.ended_at ?? undefined,
+        turnIndex: row.turn_index ?? undefined,
     }))
   }
 
@@ -82,8 +85,8 @@ export class SqliteMessageBlockRepository implements IMessageBlockRepository {
   writeBlocks(convId: string, blocks: MessageBlock[]): void {
     const db = getDatabase()
     const stmt = db.prepare(
-      `INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     for (const block of blocks) {
       stmt.run(
@@ -94,7 +97,8 @@ export class SqliteMessageBlockRepository implements IMessageBlockRepository {
         block.data,
         block.sequence,
         block.timestamp,
-        block.endedAt ?? null
+        block.endedAt ?? null,
+        block.turnIndex ?? null,
       )
     }
   }

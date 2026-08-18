@@ -7,17 +7,19 @@ import './repositories/init';
 
 import {ensureConfigLayout, initConfigIPC} from './config';
 import {initBackgroundIPC} from './ipc/background';
-import {createWindow, getMainWindow, initWindowIPC, setIsQuitting} from './window';
+import {createWindow, getMainWindow, initWindowIPC, setIsQuitting, broadcastUpdaterStatus} from './window';
 import {createTray} from './tray';
 import {registerGlobalShortcuts} from './shortcuts';
 import {createAppMenu} from './menu';
 import {initConversationIPC} from './conversation';
 import {agentManager, initAgent, registerAgentIPC} from './agent';
-import {registerMCPEventForwarding, registerMCPIPC, setMainWindow} from './agent/mcp/ipc';
+import {registerMCPEventForwarding, registerMCPIPC} from './agent/mcp/ipc';
 import {migrateHooksFromSqlite, migrateMcpFromSqlite} from './config/migrateMcpHookFromSqlite';
 import {mcpService} from './services/mcpService';
 import {initLlmCallLogIPC} from './utils/llmCallLogStore';
 import {initLlmLogIPC} from './utils/llmCallBuffer';
+import {initUsageStatsIPC} from './utils/usageWindow';
+import {initConfigWindowIPC} from './utils/configWindow';
 import {startConfigWatcher} from './config-watcher';
 import {initializePlugins, registerPluginIPC} from './plugin/ipc';
 import {registerCapabilityIPC} from './capability/ipc';
@@ -306,12 +308,11 @@ app.on('ready', async () => {
     promptSchemeRepo.initializeDefaults();
 
   createWindow();
-  setMainWindow(getMainWindow());
 
     // 设置自定义应用菜单，移除与渲染进程快捷键冲突的默认加速器（如 Ctrl+N）
     createAppMenu();
 
-  // MCP event forwarding channel must be registered after createWindow (needs mainWindow)
+  // MCP 事件转发广播给所有渲染窗口（须在窗口创建后注册）
   registerMCPEventForwarding();
 
   createTray();
@@ -363,8 +364,14 @@ app.on('ready', async () => {
   agentManager.setMainWindow(getMainWindow());
 
   // LLM call log IPC handlers
-  initLlmCallLogIPC(getMainWindow);
+  initLlmCallLogIPC();
   initLlmLogIPC();
+
+  // 全局用量统计窗口 + IPC
+  initUsageStatsIPC();
+
+  // 配置对话框独立窗口注册表 + open-config-window IPC
+  initConfigWindowIPC();
 
   // Scheduler system initialization (loads enabled schedules into worker)
   schedulerManager.init()
@@ -378,10 +385,7 @@ app.on('ready', async () => {
   // 启动时静默检查更新（fire-and-forget，不阻塞主窗口显示）
   initUpdater()
     .then((result) => {
-      const win = getMainWindow();
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('updater:status-changed', result);
-      }
+      broadcastUpdaterStatus(result);
     })
     .catch((err) => {
       logger.warn('updater-init-failed', {error: String(err)});

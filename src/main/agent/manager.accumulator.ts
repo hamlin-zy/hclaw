@@ -8,6 +8,7 @@
 import crypto from 'node:crypto'
 import {logger} from './logger'
 import {PENDING_MSG_MAX_BYTES} from './manager.constants'
+import {formatToolResult} from '@shared/utils/toolResult'
 import type {AgentStreamEvent} from './stream'
 import type {PendingAssistantMsg} from './manager.types'
 
@@ -159,7 +160,7 @@ export function accumulateStreamEvent(
       const tc = pending.toolCalls[idx]
       pending.toolCalls[idx] = {
         ...tc,
-        status: result.output && !result.error ? 'success' : 'error',
+        status: result.success ? 'success' : 'error',
         result,
         // ★ 需求1链路：agent 工具从 result._meta 恢复子会话 ID（taskId === childConvId）
         //   与 manager.impl.ts 私有 accumulateEvent 保持逻辑一致（双轨）
@@ -180,10 +181,16 @@ export function accumulateStreamEvent(
       if (idx === -1) {
         break
       }
+      const deniedReason = `[PERMISSION_DENIED] ${event.reason || '权限被拒绝'}`
       pending.toolCalls[idx] = {
         ...pending.toolCalls[idx],
         status: 'error',
-        result: {output: '', error: event.reason || '权限被拒绝'},
+        // 与 loop 内存态 createToolResultMessage 失败格式逐字节一致（含 [ERROR] 前缀）
+        result: {
+          output: '',
+          error: deniedReason,
+          toolResult: `[ERROR] ${deniedReason}`,
+        },
       }
       break
     }
@@ -210,10 +217,19 @@ export function createPendingMsg(): PendingAssistantMsg {
 
 /**
  * 将 tool_result 事件中的 result 转为 ToolCall.result 格式
+ *
+ * ★ 缓存一致性契约：返回的 toolResult 必须与 loop 内存态 createToolResultMessage
+ *   （formatToolResult）逐字节一致。它是 historyConverter 重建时回传的最终字符串，
+ *   一致则跨 turn 重建后的 API 请求前缀与上一轮 loop 末逐 token 相同，最大化缓存命中。
+ *
+ * output 保持原始值（对象不强制 String 化，避免 [object Object] 丢失格式）；
+ * toolResult 为格式化后的最终字符串（成功=输出/格式化 JSON，失败=[ERROR] 前缀）。
  */
 export function normalizeToolResult(result: unknown): {
-  output: string
+  success: boolean
+  output: unknown
   error?: string
+  toolResult: string
   artifacts?: Array<{
     filePath: string
     action: 'created' | 'modified' | 'deleted'
@@ -222,20 +238,31 @@ export function normalizeToolResult(result: unknown): {
   diff?: string
   _meta?: Record<string, unknown>
 } {
-  if (!result) return {output: ''}
+  if (!result) return {success: true, output: '', toolResult: ''}
   const r = result as Record<string, unknown>
+  const success = r.success === true
   // 总是保留 output 内容，不因 success=false 丢弃（工具可能既有输出又有报错）
-  let output = String(r.output ?? '')
-  if (output.length > PENDING_MSG_MAX_BYTES) {
+  const rawOutput = r.output
+  // 字符串超限截断（仅字符串类型；对象交给 JSON 序列化后由 toolResult 侧统一处理）
+  let output = rawOutput
+  if (typeof rawOutput === 'string' && rawOutput.length > PENDING_MSG_MAX_BYTES) {
     logger.warn('[AgentManager] tool result 超过容量上限，已截断', {
       maxBytes: PENDING_MSG_MAX_BYTES,
-      originalBytes: output.length,
+      originalBytes: rawOutput.length,
     })
-    output = output.slice(0, PENDING_MSG_MAX_BYTES) + '\n\n...(截断)'
+    output = rawOutput.slice(0, PENDING_MSG_MAX_BYTES) + '\n\n...(截断)'
   }
   return {
+    success,
     output,
     error: r.error as string | undefined,
+    // 与 createToolResultMessage / formatToolResult 完全一致（成功/失败统一格式）
+    // success 判定与 createToolResultMessage 的 !result.success 等价（仅 true 视为成功）
+    toolResult: formatToolResult({
+      success,
+      output,
+      error: r.error as string | undefined,
+    }),
     artifacts: r.artifacts as Array<{
       filePath: string
       action: 'created' | 'modified' | 'deleted'

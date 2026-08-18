@@ -1,7 +1,7 @@
 import {create} from 'zustand'
 import type {SystemSettings} from '@shared/types'
 import {DEFAULT_MAX_TOKENS} from '@shared/types'
-import {resolveAndApplyTheme} from './themeStore'
+import {resolveAndApplyTheme, useThemeStore} from './themeStore'
 
 interface SettingsStore {
     settings: SystemSettings
@@ -119,9 +119,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         const {pendingSettings} = get()
         if (!pendingSettings) return
 
-        // 同步主题到 themeStore
-        resolveAndApplyTheme(pendingSettings.ui.theme)
-
         try {
             // 1. 先写入数据库，成功后才更新本地状态
             const ok = await window.electronAPI?.configWrite('settings', pendingSettings as any)
@@ -130,7 +127,21 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             }
             set({settings: pendingSettings})
 
-            // 2. 广播到运行中的 Agent
+            // 2. 同步主题到 themeStore（须放在 set({settings}) 之后：
+            //    resolveAndApplyTheme 读取的 settings 是本次 pending（含背景启用状态），
+            //    修正 "system + 本次启用背景" 被解析为 light 的角例）
+            const prevTheme = useThemeStore.getState().theme
+            resolveAndApplyTheme(pendingSettings.ui.theme)
+
+            // 3. 广播主题变更：走既有 set-window-theme 权威通道（titleBarOverlay + 广播 theme-changed 给所有窗口）
+            //    传 themeStore 解析后的值（上面 resolveAndApplyTheme 已把 'system' 解析为具体主题），
+            //    避免 'system' 原值导致 titleBarOverlay 走浅色兜底、独立窗口 applyThemeClass 不解析。
+            //    主题未变（resolve 前后同值）时跳过重广播。
+            if (useThemeStore.getState().theme !== prevTheme) {
+                window.electronAPI?.setWindowTheme?.(useThemeStore.getState().theme)?.catch(() => {})
+            }
+
+            // 4. 广播到运行中的 Agent
             const broadcastResult = await window.electronAPI?.settingsUpdate?.(pendingSettings as any)
             if (broadcastResult && !(broadcastResult as any).success) {
                 console.warn('[Settings] Agent 同步警告:', (broadcastResult as any).error)
@@ -166,6 +177,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
                 throw new Error('数据库写入失败')
             }
             set({settings: newSettings})
+
+            // 广播主题变更：镜像 saveSettings 顺序（resolve → setWindowTheme → settingsUpdate）
+            //    先 resolveAndApplyTheme 消除"依赖调用方预置 themeStore"的隐式耦合；
+            //    再走既有 set-window-theme 权威通道，传解析后的值（避免 'system' 原值广播）；
+            //    主题未变（resolve 前后同值）时跳过重广播。
+            const prevTheme = useThemeStore.getState().theme
+            resolveAndApplyTheme(newSettings.ui.theme)
+            if (useThemeStore.getState().theme !== prevTheme) {
+                window.electronAPI?.setWindowTheme?.(useThemeStore.getState().theme)?.catch(() => {})
+            }
 
             const broadcastResult = await window.electronAPI?.settingsUpdate?.(newSettings as any)
             if (broadcastResult && !(broadcastResult as any).success) {

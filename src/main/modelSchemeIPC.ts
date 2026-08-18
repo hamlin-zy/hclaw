@@ -1,6 +1,7 @@
 import {ipcMain} from 'electron'
 import {modelSchemeRepo} from './repositories/sqlite/modelSchemeRepository'
 import {createLogger} from './agent/logger'
+import {broadcastToOtherWindows} from './utils/windowBroadcast'
 
 const logger = createLogger('ModelSchemeIPC')
 
@@ -25,9 +26,10 @@ export function initModelSchemeIPC(): void {
     }
   })
 
-  ipcMain.handle('model-scheme:save', async (_, scheme: any) => {
+  ipcMain.handle('model-scheme:save', async (event, scheme: any) => {
     try {
       const success = modelSchemeRepo.save(scheme)
+      broadcastToOtherWindows(event, 'model-schemes-changed')
       return { success }
     } catch (err) {
       console.error('[ModelSchemeIPC] save failed:', err)
@@ -35,9 +37,10 @@ export function initModelSchemeIPC(): void {
     }
   })
 
-  ipcMain.handle('model-scheme:delete', async (_, id: string) => {
+  ipcMain.handle('model-scheme:delete', async (event, id: string) => {
     try {
       const success = modelSchemeRepo.delete(id)
+      broadcastToOtherWindows(event, 'model-schemes-changed')
       return { success }
     } catch (err) {
       console.error('[ModelSchemeIPC] delete failed:', err)
@@ -45,7 +48,7 @@ export function initModelSchemeIPC(): void {
     }
   })
 
-  ipcMain.handle('model-scheme:set-active', async (_, schemeId: string) => {
+  ipcMain.handle('model-scheme:set-active', async (event, schemeId: string) => {
     try {
       // Store active scheme ID in system_settings table
       const { systemSettingsRepo } = await import('./repositories/sqlite/systemSettingsRepository')
@@ -68,6 +71,7 @@ export function initModelSchemeIPC(): void {
             console.error('[ModelSchemeIPC] 同步工具状态失败:', syncErr)
         }
 
+      broadcastToOtherWindows(event, 'model-schemes-changed')
       return { success: true }
     } catch (err) {
       console.error('[ModelSchemeIPC] setActive failed:', err)

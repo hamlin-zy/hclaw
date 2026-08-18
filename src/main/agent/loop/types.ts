@@ -20,6 +20,8 @@ export interface TurnModelSelection {
     schemeId: string | null
     schemeName: string | null
     suggestedRole: ModelRole
+    /** providers 表服务商名（providers.name，人类可读），用于 agent_start 事件展示 */
+    providerName?: string
 }
 
 export interface LlmStreamResult {
@@ -43,6 +45,8 @@ export interface LlmStreamResult {
     currentModel: string
     currentConfigSource: string
     currentSchemeName: string | null
+    /** providers 表服务商名（providers.name），供用量统计按服务商展示人类可读名 */
+    providerName: string
 }
 
 export interface ToolExecutionResult {

@@ -92,6 +92,19 @@ export default function AboutDialog() {
     window.electronAPI?.getAppVersion?.().then(setAppVersion).catch(() => setAppVersion(''))
   }, [])
 
+  // ── 同步更新状态：打开即拉取主进程缓存 + 订阅后续推送（跨窗口红点/提示同步） ──
+  useEffect(() => {
+    // 先拉一次缓存（主进程可能已完成静默检查并写入缓存）
+    window.electronAPI?.updaterGetStatus?.().then((result) => {
+      if (result) useUpdaterStore.getState().setResult(result)
+    })
+    // 订阅后续推送（AboutDialog 手动检查 / 主进程静默检查都会广播）
+    const unsubscribe = window.electronAPI?.onUpdaterStatusChanged?.((result) => {
+      useUpdaterStore.getState().setResult(result)
+    })
+    return () => unsubscribe?.()
+  }, [])
+
   const handleCheckUpdate = useCallback(async () => {
     setChecking(true)
     try {

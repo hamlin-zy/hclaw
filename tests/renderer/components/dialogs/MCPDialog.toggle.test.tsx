@@ -46,10 +46,6 @@ vi.mock('../../../../src/renderer/stores/mcpStore', () => {
     return {useMcpStore: hook}
 })
 
-vi.mock('../../../../src/renderer/stores/menuBarStore', () => ({
-    useMenuBarStore: {getState: () => ({closeDialog: vi.fn()})},
-}))
-
 vi.mock('../../../../src/renderer/components/dialogs/MCPUserServerCard', () => ({
     default: () => <div data-testid="user-server-card">user card</div>,
 }))
@@ -72,7 +68,10 @@ vi.mock('../../../../src/renderer/components/dialogs/MCPErrorHelper', () => ({
 // Switch 是真实组件（无外部依赖），不 mock
 
 beforeEach(() => {
-    vi.stubGlobal('electronAPI', {mcp: mcpApiMock})
+    vi.stubGlobal('electronAPI', {
+        mcp: mcpApiMock,
+        windowControls: {close: vi.fn()},
+    })
     mcpApiMock.setEnabled.mockClear()
     mcpApiMock.startServer.mockClear()
     mcpApiMock.stopServer.mockClear()

@@ -46,6 +46,8 @@ function* emitLlmCallDone(
     collectedToolCalls: Array<{id: string; name: string; arguments: Record<string, unknown>}>,
     conversationTitle: string,
     provider: string,
+    providerType: string,   // 新增：精确服务商类型
+    providerName: string,   // 新增：providers 表服务商名（人类可读）
     model: string,
     inputTokens: number,
     outputTokens: number,
@@ -128,6 +130,8 @@ function* emitLlmCallDone(
         type: 'llm_call_done',
         conversationTitle,
         provider,
+        providerType,   // 新增
+        providerName,   // 新增
         model,
         duration: llmDuration,
         inputTokens,
@@ -351,6 +355,7 @@ export class AgentLoopController {
                 agentId: sessionId || '',
                 model: selection.modelConfig.model,
                 provider: selection.modelConfig.provider,
+                providerName: selection.providerName,
                 tools: availableToolDefinitions.map(t => t.name),
             }
 
@@ -417,7 +422,7 @@ export class AgentLoopController {
                 inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
                 reasoningTokens, llmDuration,
                 ttftMs, decodeMs, tokensPerSecond,
-                currentProvider, currentModel, currentSchemeName,
+                currentProvider, currentModel, currentSchemeName, providerName,
             } = llmResult
 
             // ── 发送 LLM 调用完成事件 ──
@@ -425,7 +430,7 @@ export class AgentLoopController {
                 turnCount, currentState, lastLoggedMsgCount,
                 assistantContent, collectedToolCalls,
                 conversationTitle ?? '',
-                currentSchemeName || currentProvider, currentModel,
+                currentSchemeName || currentProvider, currentProvider, providerName, currentModel,
                 inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
                 reasoningTokens, ttftMs, decodeMs, tokensPerSecond, llmDuration, systemPrompt,
             )
@@ -436,19 +441,8 @@ export class AgentLoopController {
                 currentState,
                 createAssistantMessage(
                     assistantContent, collectedToolCalls, plannedCommands,
-                    {
-                        provider: currentSchemeName || currentProvider,
-                        model: currentModel,
-                        duration: llmDuration,
-                        inputTokens,
-                        outputTokens,
-                        cacheReadTokens: cacheReadTokens > 0 ? cacheReadTokens : undefined,
-                        cacheWriteTokens: cacheWriteTokens > 0 ? cacheWriteTokens : undefined,
-                        reasoningTokens: reasoningTokens > 0 ? reasoningTokens : undefined,
-                        ttftMs,
-                        decodeMs,
-                        tokensPerSecond,
-                    },
+                    undefined,
+                    // llmStats 不再随消息落库（B1：llm_usage 唯一源，Message.llmStats 由读取层组装）
                     assistantThinking || undefined,
                     assistantThinkingSignature || undefined,
                     selection.suggestedRole === 'reasoning'

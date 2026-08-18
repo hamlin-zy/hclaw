@@ -132,3 +132,92 @@ describe('computeConversationUsageStats', () => {
         expect(result.toolCallCount).toBe(5)   // 工具计数独立于 llm_stats
     })
 })
+
+// ── breakdown 分组（Task 6） ─────────────────────────────
+
+/** 带 provider/model 的 LlmStats（复用现有 conv()） */
+function statWithProvider(input: number, output: number, provider: string, model: string, providerName?: string): LlmStats {
+    return {
+        inputTokens: input,
+        outputTokens: output,
+        provider,
+        model,
+        duration: 100,
+        ...(providerName ? {providerName} : {}),
+    }
+}
+
+describe('computeConversationUsageStats — breakdown 分组', () => {
+    it('按模型粒度输出 breakdown（key=model、providerType=服务商、totalTokens 降序）', () => {
+        const convs = [conv('root')]
+        const llmStats = new Map([
+            ['root', [
+                statWithProvider(100, 20, 'anthropic', 'claude-sonnet-4'),
+                statWithProvider(50, 10, 'anthropic', 'claude-opus-4'),
+                statWithProvider(30, 5, 'openai', 'gpt-4o'),
+            ]],
+        ])
+        const result = computeConversationUsageStats(convs, llmStats, new Map(), 'root')
+
+        expect(result.breakdown).toHaveLength(3)
+        // key = model（与 UsageBreakdown 类型一致），providerType = 服务商
+        expect(result.breakdown[0]!.key).toBe('claude-sonnet-4')
+        expect(result.breakdown[0]!.providerType).toBe('anthropic')
+        expect(result.breakdown[0]!.totalTokens).toBe(120)
+        expect(result.breakdown[2]!.key).toBe('gpt-4o')
+        expect(result.breakdown[2]!.providerType).toBe('openai')
+        expect(result.breakdown[2]!.requestCount).toBe(1)
+        // 总计口径不变（回归）
+        expect(result.totalInputTokens).toBe(180)
+        expect(result.requestCount).toBe(3)
+    })
+
+    it('providerName 透传到 breakdown（无则 undefined）', () => {
+        const convs = [conv('root')]
+        const llmStats = new Map([
+            ['root', [
+                statWithProvider(30, 5, 'openai', 'gpt-4o'),
+                statWithProvider(10, 1, 'anthropic', 'claude-sonnet-4', 'Deepseek-ant'),
+            ]],
+        ])
+        const result = computeConversationUsageStats(convs, llmStats, new Map(), 'root')
+
+        // totalTokens 降序：gpt-4o(35) > claude-sonnet-4(11)
+        expect(result.breakdown[0]!.providerName).toBeUndefined()
+        expect(result.breakdown[1]!.providerName).toBe('Deepseek-ant')
+    })
+
+    it('同 provider+model 组内 providerName 非 NULL 优先（历史 NULL + 新值 → 取有值者）', () => {
+        const convs = [conv('root')]
+        const llmStats = new Map([
+            ['root', [
+                statWithProvider(30, 5, 'anthropic', 'deepseek-v4-flash'),   // 无 providerName（历史）
+                statWithProvider(10, 1, 'anthropic', 'deepseek-v4-flash', 'Deepseek-ant'),
+            ]],
+        ])
+        const result = computeConversationUsageStats(convs, llmStats, new Map(), 'root')
+
+        expect(result.breakdown).toHaveLength(1)
+        expect(result.breakdown[0]!.providerName).toBe('Deepseek-ant')
+        expect(result.breakdown[0]!.requestCount).toBe(2)
+    })
+
+    it('同 provider+model 多条 → 合并为一行', () => {
+        const convs = [conv('root')]
+        const llmStats = new Map([
+            ['root', [
+                statWithProvider(10, 1, 'anthropic', 'claude-sonnet-4'),
+                statWithProvider(20, 2, 'anthropic', 'claude-sonnet-4'),
+            ]],
+        ])
+        const result = computeConversationUsageStats(convs, llmStats, new Map(), 'root')
+        expect(result.breakdown).toHaveLength(1)
+        expect(result.breakdown[0]!.requestCount).toBe(2)
+        expect(result.breakdown[0]!.inputTokens).toBe(30)
+    })
+
+    it('无 llmStats → breakdown 空数组（不崩溃）', () => {
+        const result = computeConversationUsageStats([conv('root')], new Map(), new Map(), 'root')
+        expect(result.breakdown).toEqual([])
+    })
+})

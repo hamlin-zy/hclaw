@@ -33,6 +33,8 @@ function makeStats(overrides: Partial<MessageTokenStats> = {}): MessageTokenStat
         currentInputTokens: 0,
         currentOutputTokens: 0,
         currentCacheReadTokens: 0,
+        currentDecodeMs: 0,
+        currentHasTtft: false,
         ...overrides,
     }
 }

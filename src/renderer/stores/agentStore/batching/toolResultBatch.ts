@@ -54,6 +54,7 @@ export function flushToolResultBatch(convId: string) {
                 result: {
                     output: String(pending.result.output ?? ''),
                     error: pending.result.error,
+                    toolResult: pending.result.toolResult,
                     artifacts: pending.result.artifacts,
                     diff: pending.result.diff,
                 },

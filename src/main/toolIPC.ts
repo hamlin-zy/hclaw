@@ -1,6 +1,7 @@
 import {ipcMain} from 'electron'
 import {toolRepo} from './repositories/sqlite/toolRepository'
 import {toolRegistry} from './agent/tools/registry'
+import {broadcastToOtherWindows} from './utils/windowBroadcast'
 
 // ─── IPC 结果包装工具 ─────────────────────────────────
 
@@ -48,15 +49,24 @@ export function initToolIPC(): void {
         }
     })
 
-    ipcMain.handle('tool:setEnabled', async (_, id: string, enabled: boolean) =>
-        wrapVoid(() => toolRepo.setEnabled(id, enabled)))
+    ipcMain.handle('tool:setEnabled', async (event, id: string, enabled: boolean) => {
+        const result = wrapVoid(() => toolRepo.setEnabled(id, enabled))
+        if (result.success) broadcastToOtherWindows(event, 'tools-changed')
+        return result
+    })
 
-    ipcMain.handle('tool:setEnabledBatch', async (_, updates: Array<{ id: string; enabled: boolean }>) =>
-        wrapVoid(() => toolRepo.setEnabledBatch(updates)))
+    ipcMain.handle('tool:setEnabledBatch', async (event, updates: Array<{ id: string; enabled: boolean }>) => {
+        const result = wrapVoid(() => toolRepo.setEnabledBatch(updates))
+        if (result.success) broadcastToOtherWindows(event, 'tools-changed')
+        return result
+    })
 
     ipcMain.handle('tool:getTimeout', async (_, id: string) =>
         wrapSync(() => toolRepo.getTimeout(id)))
 
-    ipcMain.handle('tool:setTimeout', async (_, id: string, timeout: number | null) =>
-        wrapVoid(() => toolRepo.setTimeout(id, timeout)))
+    ipcMain.handle('tool:setTimeout', async (event, id: string, timeout: number | null) => {
+        const result = wrapVoid(() => toolRepo.setTimeout(id, timeout))
+        if (result.success) broadcastToOtherWindows(event, 'tools-changed')
+        return result
+    })
 }

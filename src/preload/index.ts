@@ -14,6 +14,14 @@ const isWin11 = win11Arg ? win11Arg.split('=')[1] === '1' : false
 const darwinArg = process.argv.find(arg => arg.startsWith('--hclaw-darwin='))
 const isDarwin = darwinArg ? darwinArg.split('=')[1] === '1' : false
 
+// 从 additionalArguments 读取窗口 id（独立窗口才有；主窗口无此参数 → windowControls 不注入）
+const windowIdArg = process.argv.find(arg => arg.startsWith('--hclaw-window-id='))
+const windowId = windowIdArg ? windowIdArg.split('=')[1] : ''
+
+// 从 additionalArguments 读取配置窗口类型（仅配置窗口有）
+const dialogArg = process.argv.find(arg => arg.startsWith('--hclaw-dialog='))
+const dialogType = dialogArg ? dialogArg.split('=')[1] : ''
+
 contextBridge.exposeInMainWorld('electronAPI', {
     initialTheme: initialThemeValue,
     isWin11,
@@ -34,6 +42,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_: unknown, result: unknown) => callback(result as UpdateResult)
     ipcRenderer.on('updater:status-changed', handler)
     return () => ipcRenderer.removeListener('updater:status-changed', handler)
+  },
+
+  // 模型方案变更推送（其他窗口改了 model-schemes → 本窗口需重新 hydration）
+  onModelSchemesChanged: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('model-schemes-changed', handler)
+    return () => ipcRenderer.removeListener('model-schemes-changed', handler)
+  },
+
+  // 模型配置（providers/models）变更推送（其他窗口改了 llm 配置 → 本窗口需重新 hydration）
+  onLlmConfigChanged: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('llm-config-changed', handler)
+    return () => ipcRenderer.removeListener('llm-config-changed', handler)
+  },
+
+  // 工具列表变更推送（其他窗口改了工具启用/超时 → 本窗口需重新加载）
+  onToolsChanged: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('tools-changed', handler)
+    return () => ipcRenderer.removeListener('tools-changed', handler)
+  },
+
+  // 提示词方案变更推送（其他窗口改了 prompt-schemes → 本窗口需重新 hydration）
+  onPromptSchemesChanged: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('prompt-schemes-changed', handler)
+    return () => ipcRenderer.removeListener('prompt-schemes-changed', handler)
   },
 
     // 监听最大化状态变化（用于更新 UI）
@@ -411,6 +447,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getLlmLogEnabled: () => ipcRenderer.invoke('llm-log:enabled'),
     toggleLlmLog: (enabled: boolean) => ipcRenderer.invoke('llm-log:toggle', enabled),
 
+    // 全局用量统计窗口
+    openUsageStatsWindow: () => ipcRenderer.invoke('open-usage-stats-window'),
+    usageStatsQuery: (params: {range: string; view: string}) =>
+        ipcRenderer.invoke('usage-stats:query', params),
+    windowId,
+    dialogType,
+    openConfigWindow: (type: string) => ipcRenderer.invoke('open-config-window', type),
+    // 通用独立窗口控制（仅独立窗口注入：主窗口无 --hclaw-window-id）
+    ...(windowId
+        ? {
+              windowControls: {
+                  minimize: () => ipcRenderer.invoke(`${windowId}:minimize`),
+                  maximize: () => ipcRenderer.invoke(`${windowId}:maximize`),
+                  close: () => ipcRenderer.invoke(`${windowId}:close`),
+                  isMaximized: () => ipcRenderer.invoke(`${windowId}:is-maximized`),
+                  onMaximizedChange: (callback: (isMaximized: boolean) => void) => {
+                      const handler = (_: unknown, v: boolean) => callback(v)
+                      ipcRenderer.on(`${windowId}-maximized-changed`, handler)
+                      return () => ipcRenderer.removeListener(`${windowId}-maximized-changed`, handler)
+                  },
+              },
+          }
+        : {}),
+
     // Permission rules management
     agentGetPermissionRules: () => ipcRenderer.invoke('agent-get-permission-rules'),
     agentCleanPermissionRules: () => ipcRenderer.invoke('agent-clean-permission-rules'),
@@ -447,8 +507,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('settings-update', settings),
 
     // Window theme management
-    setWindowTheme: (theme: 'light' | 'dark') =>
+    setWindowTheme: (theme: string) =>
         ipcRenderer.invoke('set-window-theme', theme),
+    onThemeChanged: (callback: (theme: string) => void) => {
+        const handler = (_e: unknown, theme: string) => callback(theme)
+        ipcRenderer.on('theme-changed', handler)
+        return () => { ipcRenderer.removeListener('theme-changed', handler) }
+    },
+
+    // 系统设置变更推送（其他窗口改了 settings → 本窗口需重新 hydration，
+    // 如背景图/遮罩/模糊等 ui.background 变更后主窗口刷新 settingsStore）
+    onSettingsChanged: (callback: (settings: any) => void) => {
+        const handler = (_e: unknown, settings: any) => callback(settings)
+        ipcRenderer.on('settings-changed', handler)
+        return () => { ipcRenderer.removeListener('settings-changed', handler) }
+    },
 
     // Google OAuth2 认证
     authGoogleLogin: () => ipcRenderer.invoke('auth-google-login'),

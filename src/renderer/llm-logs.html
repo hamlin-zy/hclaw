@@ -4,12 +4,32 @@
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:;">
+          content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: file: hclaw-media:; media-src 'self' blob: file: hclaw-media:;">
     <title>HClaw - LLM 调用日志</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
           rel="stylesheet">
+    <script>
+        // 在浏览器首次绘制前同步读取主题，防止日/夜间主题闪烁（与 index.html 同款，精简版）
+        (function () {
+            try {
+                var theme = window.electronAPI?.initialTheme || localStorage.getItem('hclaw-theme');
+                var THEMES = {
+                    'dark': {class: 'dark', vars: {'--surface': '#1e1e1e', '--surface-muted': '#252526', '--surface-elevated': '#2d2d2d', '--surface-overlay': '#333333', '--text-primary': '#d4d4d4', '--text-secondary': '#969696', '--text-muted': '#808080', '--border': 'rgba(255,255,255,0.06)', '--border-muted': 'rgba(255,255,255,0.03)', '--brand-primary': '#34d399', '--brand-muted': 'rgba(52,211,153,0.18)', '--success': '#10b981', '--warning': '#d4a021', '--error': '#c45c5c', '--info': '#5b8dd9'}},
+                    'yuanshandai': {class: 'yuanshandai', vars: {'--surface': '#31475d', '--surface-muted': '#3a546f', '--surface-elevated': '#426078', '--surface-overlay': '#273c52', '--text-primary': '#e8edf2', '--text-secondary': '#b8c4d0', '--text-muted': '#8a9aad', '--border': 'rgba(255,255,255,0.08)', '--border-muted': 'rgba(255,255,255,0.04)', '--brand-primary': '#2dd4a8', '--brand-muted': 'rgba(26,192,148,0.18)', '--success': '#10b981', '--warning': '#d4a021', '--error': '#c45c5c', '--info': '#5b8dd9'}},
+                    'shiyangjin': {class: 'shiyangjin', vars: {'--surface': '#FFF8F7', '--surface-muted': '#FFF2F0', '--surface-elevated': '#FFFFFF', '--surface-overlay': '#FFEDEA', '--text-primary': '#3C2E2D', '--text-secondary': '#8A7B79', '--text-muted': '#B6A7A5', '--border': '#F0DDDA', '--border-muted': '#F5E8E5', '--brand-primary': '#D6756B', '--brand-muted': 'rgba(255,175,168,0.15)', '--success': '#10b981', '--warning': '#f59e0b', '--error': '#ef4444', '--info': '#3b82f6'}}
+                };
+                var rootStyle = document.documentElement.style;
+                if (theme && THEMES[theme]) {
+                    document.documentElement.classList.add(THEMES[theme].class);
+                    for (var key in THEMES[theme].vars) rootStyle.setProperty(key, THEMES[theme].vars[key]);
+                }
+                if (window.electronAPI?.isWin11) document.documentElement.classList.add('win11');
+                if (window.electronAPI?.isDarwin) document.documentElement.classList.add('darwin');
+            } catch (e) {}
+        })();
+    </script>
 </head>
 <body>
 <div id="root"></div>

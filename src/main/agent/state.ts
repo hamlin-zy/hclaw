@@ -13,6 +13,7 @@ import type {ChatMessage, ToolCallRequest} from './model/types'
 export type {ChatMessage} from './model/types'
 
 import {logger} from './logger'
+import {formatToolResult, interruptedToolResult} from '@shared/utils/toolResult'
 
 /** 分块持久化追加结构 — append 时共享前面所有满块，仅复制最后一个不满块 */
 const CHUNK_SIZE = 32
@@ -126,37 +127,13 @@ export function createToolResultMessage(
   toolName: string,
   result: { success: boolean; output: any; error?: string },
 ): ChatMessage {
-    // 失败时：确保 LLM 能同时看到错误原因和输出内容
-    const isError = !result.success
-    let toolResult: string
-
-    if (isError) {
-      // 失败情况：组合错误信息和输出内容，确保 LLM 能获得完整的错误上下文
-      const errorPart = result.error ? `[ERROR] ${result.error}` : ''
-      const outputPart = typeof result.output === 'string' && result.output
-        ? result.output
-        : typeof result.output !== 'undefined'
-          ? JSON.stringify(result.output, null, 2)
-          : ''
-
-      // 组合错误和输出：先显示错误，再显示输出
-      toolResult = errorPart + (errorPart && outputPart ? '\n' : '') + outputPart
-    } else {
-      // 成功情况：只显示输出
-      if (typeof result.output === 'string') {
-        toolResult = result.output
-      } else {
-        toolResult = JSON.stringify(result.output, null, 2)
-      }
-    }
-
   return {
     role: 'tool',
     toolCallId,
     content: '',
-      toolResult,
-      isError,
-      functionName: toolName,
+    toolResult: formatToolResult(result),
+    isError: !result.success,
+    functionName: toolName,
   }
 }
 
@@ -214,7 +191,7 @@ export function normalizeToolCallMessages(messages: ReadonlyArray<ChatMessage> |
                 role: 'tool',
                 toolCallId: tc.id,
                 content: '',
-                toolResult: `[INTERRUPTED] 工具调用被中断，未获取到执行结果（tool: ${tc.name}）`,
+                toolResult: interruptedToolResult(tc.name),
                 isError: true,
             })
             existingResultIds.add(tc.id)

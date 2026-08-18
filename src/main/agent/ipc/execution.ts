@@ -13,8 +13,38 @@ import {runtimeConfigManager} from '../runtimeConfigManager'
 import {resolveAgentDefinitionFromCommandId} from '../agentTemplateConverter'
 import {logger} from '../logger'
 import {structuredTruncateMessages} from '../structuredTruncation'
+import {convertAssistantHistoryMessage} from './historyConverter'
 import type {LlmStats, SystemSettings} from '@shared/types'
 import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
+
+/**
+ * 判断 history 最后一条 user 是否与本次待发送消息（params.message）为同一条已落库消息。
+ *
+ * 背景（跨 turn 缓存断裂根因之一）：渲染端先 addMessage 落库、再 startAgent 传同一消息。
+ * 新会话首条消息在 throttle 首次立即 flush 场景必现，execution.ts 若无条件 push history 的
+ * user 再 push params.message，重建序列出现 [user, user] 重复，与 loop 内存态（单 user）
+ * 逐 token 不一致 → 跨 turn KV cache 从首条消息处整段断裂。
+ *
+ * 判定条件（全部满足才视为同一条）：
+ *  1. history 末条是 user（= 尚未被 assistant 回复处理，正是本次待发送消息）
+ *  2. 内容与 params.message 逐字一致
+ *  3. 附件数量一致
+ *
+ * ★ 边界：用户连续发送相同内容（如两次"很好"）时，第二条的 history 末条是第一条的
+ *   assistant 回复（role='assistant'）→ 条件 1 不满足 → 不去重，两条 user 都保留。
+ */
+export function isDuplicatePendingUserMessage(
+    history: Array<{role: string; content?: unknown; attachments?: unknown[]}>,
+    pendingMessage: string,
+    pendingAttachments?: Array<unknown>,
+): boolean {
+    const last = history[history.length - 1]
+    if (!last || last.role !== 'user') return false
+    if (typeof last.content !== 'string') return false
+    if (last.content !== pendingMessage) return false
+    if ((last.attachments?.length ?? 0) !== (pendingAttachments?.length ?? 0)) return false
+    return true
+}
 
 export function registerHandlers(): void {
     // 启动 Agent（简化版：配置从全局获取）
@@ -125,10 +155,25 @@ export function registerHandlers(): void {
             }
 
             // 转换历史消息（兼容新旧格式）
-            const convertedMessages: Array<any> = []
+            const convertedMessages: AgentStartParams['messages'] = []
+
+            // ★ 去重防护：渲染端先 addMessage 落库、再 startAgent 传同一消息，
+            //   已落库的最后一条 user 就是本次待发送消息 → 循环内跳过它，避免
+            //   重建序列出现 [user, user] 重复导致跨 turn KV cache 断裂。
+            //   判定逻辑见 isDuplicatePendingUserMessage（纯函数，已单测锁定边界）。
+            const lastHistoryMsg = history[history.length - 1]
+            const isDuplicatePendingUser = isDuplicatePendingUserMessage(
+                history,
+                params.message || '',
+                params.messageAttachments,
+            )
 
             for (const msg of history) {
                 if (msg.role === 'user') {
+                    // 与本次待发送消息重复的最后一条已落库 user → 跳过
+                    if (isDuplicatePendingUser && msg === lastHistoryMsg) {
+                        continue
+                    }
                     const attachments = msg.attachments || msg.messageAttachments
                     let userContent: string | Array<any> = msg.content || ''
 
@@ -186,95 +231,17 @@ export function registerHandlers(): void {
                         id: msg.id || `msg-${Date.now()}`,
                     })
                 } else if (msg.role === 'assistant') {
-                    // 兼容新旧格式的 thinking/thinkBlock
-                    let assistantThinking: string | undefined
-                    let assistantSignature: string | undefined
-                    let assistantReasoning: string | undefined
-                    let assistantContent: string
-
-                    if (msg.thinking !== undefined) {
-                        assistantThinking = msg.thinking
-                        assistantSignature = msg.thinkingSignature
-                        assistantReasoning = msg.reasoningContent || msg.thinking
-                        assistantContent = msg.content
-                    } else if (msg.thinkBlock?.content) {
-                        // 新路径：使用 thinkBlock 字段
-                        const thinkParts = msg.thinkBlock.signature
-                            ? [msg.thinkBlock.content]
-                            : msg.thinkBlock.content.split('\n').filter(Boolean)
-                        const textParts = msg.content
-                            ? typeof msg.content === 'string'
-                                ? [msg.content]
-                                : []
-                            : []
-
-                        assistantThinking = thinkParts.join('\n') || undefined
-                        assistantReasoning = thinkParts.join('\n') || undefined
-                        assistantContent = textParts.join('')
-                    } else {
-                        // 旧路径：扁平字段后向兼容
-                        assistantThinking = msg.thinkBlock?.content
-                        assistantSignature = (msg.thinkBlock as any)?.signature
-                        assistantReasoning = msg.thinkBlock?.content
-                        assistantContent = msg.content
-                    }
-
-                    // 提取 toolCalls 和对应的 tool result
-                    const toolCallsForMessage: Array<any> = []
-                    const toolMessagesForResult: Array<any> = []
-
-                    if (msg.toolCalls && Array.isArray(msg.toolCalls)) {
-                        for (const tc of msg.toolCalls) {
-                            toolCallsForMessage.push({
-                                id: tc.id,
-                                name: tc.name,
-                                arguments: tc.arguments || tc.input || tc.args || {},
-                                status: tc.status,
-                            })
-                            // 每个 tool_use 必须有对应的 tool_result（Anthropic API 强制要求）
-                            const hasResult = tc.result != null
-                            if (hasResult) {
-                                const rawResult = tc.result
-                                toolMessagesForResult.push({
-                                    toolCallId: tc.id,
-                                    toolResult: typeof rawResult === 'string' ? rawResult : (rawResult?.output ?? JSON.stringify(rawResult)),
-                                    isError: tc.isError || tc.status === 'error' || false,
-                                })
-                            } else {
-                                // 缺少 result（中断/超时/结果丢失），生成一条合成错误结果
-                                toolMessagesForResult.push({
-                                    toolCallId: tc.id,
-                                    toolResult: `[工具执行被中断或结果丢失] ${tc.name} 工具调用未返回执行结果。该工具可能因超时、用户中止或系统错误而未完成。`,
-                                    isError: true,
-                                })
-                            }
-                        }
-                    }
-
-                    convertedMessages.push({
-                        role: 'assistant',
-                        content: assistantContent,
-                        thinking: assistantThinking,
-                        thinkingSignature: assistantSignature,
-                        reasoningContent: assistantReasoning,
-                        toolCalls: toolCallsForMessage.length > 0 ? toolCallsForMessage : undefined,
-                    })
-
-                    // 展开 toolCalls 中的 result 为独立的 tool 消息
-                    for (const tr of toolMessagesForResult) {
-                        convertedMessages.push({
-                            role: 'tool' as const,
-                            content: '',
-                            toolCallId: tr.toolCallId,
-                            toolResult: tr.toolResult,
-                            isError: tr.isError,
-                        })
+                    // ★ 按 contentBlocks 的 think 边界无损还原多 assistant
+                    //   （loop 内存态：一次 LLM 调用 = 一个 assistant；否则跨 turn
+                    //   重建的 prompt 前缀与上一轮 loop 末不一致，KV cache 断裂）
+                    for (const converted of convertAssistantHistoryMessage(msg)) {
+                        convertedMessages.push(converted)
                     }
                 }
                 // system 消息跳过（由 systemPrompt 处理）
             }
 
-            let messages = convertedMessages as AgentStartParams['messages']
+            let messages = convertedMessages
             messages.push({
                 role: 'user' as const,
                 content: userMessageContent,
@@ -293,7 +260,7 @@ export function registerHandlers(): void {
                     after: truncateResult.messages.length,
                     droppedTurns: truncateResult.droppedTurns,
                 })
-                messages = truncateResult.messages as AgentStartParams['messages']
+                messages = truncateResult.messages
             }
 
             // 诊断：统计构建后的 tool 消息数量
@@ -307,6 +274,29 @@ export function registerHandlers(): void {
                 assistantWithToolCalls: assistantWithTcCount,
                 totalToolCalls: totalTcCount,
             })
+
+            // ★ 缓存一致性诊断（方案 2 调试）：记录重建序列的精确摘要，
+            //   供跨 turn 重建与 loop 末态逐 token 比对。
+            //   每消息记录 role + content/thinking/reasoning/toolResult 字符长度，
+            //   assistant 额外记录 thinking 来源（thinking vs reasoningContent）。
+            if (messages.length > 4) {
+                const msgSummary = messages.map(m => {
+                    const base: Record<string, unknown> = {r: m.role}
+                    if (m.role === 'assistant') {
+                        base.c = (typeof m.content === 'string' ? m.content.length : 0)
+                        base.th = (m.thinking || '').length
+                        base.rc = (m.reasoningContent || '').length
+                        base.tc = m.toolCalls?.length ?? 0
+                    } else if (m.role === 'tool') {
+                        base.tr = (m.toolResult || '').length
+                        base.id = (m.toolCallId || '').slice(-8)
+                    } else {
+                        base.c = (typeof m.content === 'string' ? m.content.length : 'non-str')
+                    }
+                    return base
+                })
+                logger.info('[agent-start] 重建序列摘要', {convId: params.conversationId.slice(-8), summary: msgSummary})
+            }
 
             // 从 runtimeConfigManager 获取当前模型方案（single source of truth）
             const currentScheme = runtimeConfigManager.getScheme()
