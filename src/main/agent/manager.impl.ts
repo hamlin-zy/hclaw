@@ -129,7 +129,7 @@ export class AgentManager {
 
     // 加载配置
     const defaultSettings: SystemSettings = {
-      agent: {maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000, llmTimeout: 600000},
+      agent: {maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000, llmTimeout: 600000, handoffThresholdRatio: 0.5, midLoopOverflowMode: 'auto-handoff'},
       model: {defaultMaxTokens: DEFAULT_MAX_TOKENS, defaultTemperature: 0},
       mcp: {mcpTestTimeout: 15000},
       ui: {theme: 'system'},

@@ -131,6 +131,34 @@ describe('computeConversationUsageStats', () => {
         expect(result.totalInputTokens).toBe(1)
         expect(result.toolCallCount).toBe(5)   // 工具计数独立于 llm_stats
     })
+
+    it('时序字段：累加 decodeMs；ttftMs 仅计入有样本的记录（旧数据无 ttft 不算）', () => {
+        const convs = [conv('root')]
+        const withTiming = (decodeMs: number, ttftMs?: number): LlmStats => ({
+            ...stats(0, 0),
+            decodeMs,
+            ...(ttftMs !== undefined ? {ttftMs} : {}),
+        })
+        const llmStats = new Map([
+            ['root', [
+                withTiming(5000, 800),
+                withTiming(15000, 1200),
+                withTiming(8000),   // 无 ttftMs（旧数据）→ 不计入 ttftCount
+            ]],
+        ])
+        const result = computeConversationUsageStats(convs, llmStats, new Map(), 'root')
+
+        expect(result.totalDecodeMs).toBe(28000)
+        expect(result.totalTtftMs).toBe(2000)
+        expect(result.ttftCount).toBe(2)
+    })
+
+    it('无任何时序数据：decodeMs/ttft 全 0，不崩溃', () => {
+        const result = computeConversationUsageStats([conv('root')], new Map(), new Map(), 'root')
+        expect(result.totalDecodeMs).toBe(0)
+        expect(result.totalTtftMs).toBe(0)
+        expect(result.ttftCount).toBe(0)
+    })
 })
 
 // ── breakdown 分组（Task 6） ─────────────────────────────

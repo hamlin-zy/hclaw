@@ -47,6 +47,8 @@ export interface LlmStreamResult {
     currentSchemeName: string | null
     /** providers 表服务商名（providers.name），供用量统计按服务商展示人类可读名 */
     providerName: string
+    /** mid-loop 交接门已注入交接指令（auto-handoff）；controller 应在工具执行后强制结束本轮 */
+    handoffRequested?: boolean
 }
 
 export interface ToolExecutionResult {

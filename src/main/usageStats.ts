@@ -44,6 +44,9 @@ export function computeConversationUsageStats(
     let totalOutputTokens = 0
     let totalCacheReadTokens = 0
     let totalCacheWriteTokens = 0
+    let totalDecodeMs = 0
+    let totalTtftMs = 0
+    let ttftCount = 0
     // 分组：模型粒度（key = `${provider}|${model}`，转 UsageBreakdown 时拆出），totalTokens 最后排序
     const groupMap = new Map<string, UsageBreakdown>()
 
@@ -55,6 +58,12 @@ export function computeConversationUsageStats(
             totalOutputTokens += s.outputTokens || 0
             totalCacheReadTokens += s.cacheReadTokens || 0
             totalCacheWriteTokens += s.cacheWriteTokens || 0
+            // 时序口径与 computeMessageTokenStats 一致：decodeMs 缺失记 0；ttftMs 仅累加有值的样本
+            totalDecodeMs += s.decodeMs || 0
+            if (typeof s.ttftMs === 'number') {
+                totalTtftMs += s.ttftMs
+                ttftCount += 1
+            }
             const provider = s.provider || 'unknown'
             const model = s.model || 'unknown'
             const mapKey = `${provider}\u0000${model}`   // \u0000 分隔，避免 model 含 '|' 时分裂
@@ -94,6 +103,9 @@ export function computeConversationUsageStats(
         totalOutputTokens,
         totalCacheReadTokens,
         totalCacheWriteTokens,
+        totalDecodeMs,
+        totalTtftMs,
+        ttftCount,
         breakdown,
     }
 }
