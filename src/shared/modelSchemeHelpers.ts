@@ -99,30 +99,30 @@ const DEFAULT_ROLES: Omit<ModelSchemeRole, 'id'>[] = [
     {role: 'reasoning', endpointId: '', modelId: '', modelType: 'text', enabled: false, thinkingEffort: 'auto'},
     {role: 'image_understanding', endpointId: '', modelId: '', modelType: 'image', enabled: false},
     {role: 'audio_understanding', endpointId: '', modelId: '', modelType: 'voice', enabled: false},
+    {role: 'video_understanding', endpointId: '', modelId: '', modelType: 'video', enabled: false},
 ]
 
 // ─── 模型角色显示信息 ─────────────────────────────────────
 
 export const MODEL_ROLE_INFO: Record<ModelRole, { name: string; description: string; icon: string }> = {
-    primary: {name: '工作模式', description: '主力模型 · 常规任务执行 · 复杂任务兜底', icon: '🎯'},
-    lightweight: {name: '闲聊模式', description: '轻量模型 · 简单对话 · 后台轻量任务', icon: '💬'},
-    reasoning: {name: '超脑模式', description: '推理模型 · 复杂任务规划 · 深度推理分析', icon: '🧠'},
+    primary: {name: '主力模型', description: '主力模型 · 常规任务执行 · 复杂任务兜底', icon: '🎯'},
+    lightweight: {name: '轻量模型', description: '轻量模型 · 简单对话 · 后台轻量任务', icon: '💬'},
+    reasoning: {name: '推理模型', description: '推理模型 · 复杂任务规划 · 深度推理分析', icon: '🧠'},
     image_understanding: {
         name: '图像理解',
-        description: '分析图片内容。选支持视觉的多模态模型即可，配置后启用 analyze_image 工具。',
+        description: '分析图片内容。需配置支持 OpenAI 兼容视觉接口（image_url 输入）的模型，配置后启用 analyze_image 工具。',
         icon: '📷'
     },
     audio_understanding: {
         name: '音频理解',
-        description: '分析音频内容。选支持语音的多模态模型即可，配置后启用 speech_to_text 工具。',
+        description: '分析音频内容。需配置支持 OpenAI 兼容音频接口（input_audio 输入）的模型，配置后启用 speech_to_text 工具。',
         icon: '🎧'
     },
-    video_understanding: {name: '视频理解', description: '视频内容分析', icon: '🎬'},
-    image_generation: {name: '图像生成', description: '图像生成任务', icon: '🎨'},
-    video_generation: {name: '视频生成', description: '视频生成任务', icon: '🎥'},
-    voice_clone: {name: '声音克隆', description: '声音克隆任务', icon: '🎤'},
-    voice_synthesis: {name: '语音合成', description: '语音合成任务', icon: '🔊'},
-    music_generation: {name: '音乐生成', description: '音乐生成任务', icon: '🎵'},
+    video_understanding: {
+        name: '视频理解',
+        description: '视频内容分析。需配置支持 OpenAI 兼容视频接口（video_url / 抽帧图片列表输入）的模型，预留供未来视频分析工具使用。',
+        icon: '🎬'
+    },
 }
 
 /** 获取模型角色的显示信息 */

@@ -9,6 +9,7 @@ import type {
     IntentAnalysisResult,
     LLMProvider,
     ModelConfig,
+    ModelOverride,
     ModelRole,
     ModelRoleConfig,
     ModelScheme
@@ -21,31 +22,17 @@ const providerRepo = new SqliteProviderRepository()
 
 export type TaskContext = 'main' | 'subAgent' | 'background' | 'planning'
 
-/** 从 scheme 中获取角色配置（兼容新旧两种结构） */
-function getRoleFromScheme(scheme: any, roleName: string): ModelRoleConfig | undefined {
-    if (Array.isArray(scheme.roles)) {
-        const roleObj = scheme.roles.find((r: any) => r.role === roleName)
-        return roleObj ? {
-            endpointId: roleObj.endpointId,
-            modelId: roleObj.modelId,
-            enabled: roleObj.enabled,
-            thinkingEffort: roleObj.thinkingEffort,
-        } : undefined
-    }
-    return scheme[roleName]
-}
-
 /** 获取优先角色配置（fallback 链式查找） */
-function getPreferredRole(scheme: any, context: TaskContext, intent?: IntentAnalysisResult): ModelRoleConfig {
-    const primary = getRoleFromScheme(scheme, 'primary')
-    const lightweight = getRoleFromScheme(scheme, 'lightweight')
-    const reasoning = getRoleFromScheme(scheme, 'reasoning')
+function getPreferredRole(scheme: ModelScheme, context: TaskContext, intent?: IntentAnalysisResult): ModelRoleConfig {
+    const primary = getRoleConfig(scheme, 'primary')
+    const lightweight = getRoleConfig(scheme, 'lightweight')
+    const reasoning = getRoleConfig(scheme, 'reasoning')
 
     if (context === 'planning') return reasoning?.enabled ? reasoning : (primary ?? lightweight!)
     if (context === 'background') return lightweight?.enabled ? lightweight : (primary ?? reasoning!)
 
     if (intent?.suggestedModel) {
-        const roleConfig = getRoleFromScheme(scheme, intent.suggestedModel)
+        const roleConfig = getRoleConfig(scheme, intent.suggestedModel)
         if (roleConfig?.enabled) return roleConfig
     }
 
@@ -54,10 +41,9 @@ function getPreferredRole(scheme: any, context: TaskContext, intent?: IntentAnal
 
 /**
  * 为任务选择模型配置
- * 支持新旧两种 scheme 结构
  */
 export function selectModelForTask(
-    scheme: any,
+    scheme: ModelScheme,
     context: TaskContext,
     intent?: IntentAnalysisResult,
 ): ModelRoleConfig {
@@ -95,13 +81,13 @@ export interface ModelSelectionResult {
  * - 返回实际选中的角色名称（而非仅配置），让调用方能检测 fallback
  */
 export function selectModelForTaskWithRole(
-    scheme: any,
+    scheme: ModelScheme,
     context: TaskContext,
     intent?: Partial<IntentAnalysisResult> & { suggestedModel?: ModelRole },
 ): ModelSelectionResult {
-    const primary = getRoleFromScheme(scheme, 'primary')
-    const lightweight = getRoleFromScheme(scheme, 'lightweight')
-    const reasoning = getRoleFromScheme(scheme, 'reasoning')
+    const primary = getRoleConfig(scheme, 'primary')
+    const lightweight = getRoleConfig(scheme, 'lightweight')
+    const reasoning = getRoleConfig(scheme, 'reasoning')
 
     if (context === 'planning') {
         if (reasoning?.enabled && reasoning.endpointId && reasoning.modelId) return {config: reasoning, role: 'reasoning'}
@@ -114,7 +100,7 @@ export function selectModelForTaskWithRole(
     }
 
     if (intent?.suggestedModel) {
-        const roleConfig = getRoleFromScheme(scheme, intent.suggestedModel)
+        const roleConfig = getRoleConfig(scheme, intent.suggestedModel)
         // 当 suggestedModel 由用户通过工作模式显式选择时，即使角色未启用也使用该角色
         // 只有角色缺少 endpointId 或 modelId（未配置）时才 fallback
         if (roleConfig?.endpointId && roleConfig.modelId) return {config: roleConfig, role: intent.suggestedModel}
@@ -168,6 +154,8 @@ export function resolveModelConfig(
         projectId: provider.projectId,
         // 保存 provider 名称用于日志显示
         _providerName: provider.name || provider.id,
+        // 透传服务商 API 协议形态（chat / responses），适配器按此分派
+        apiStyle: provider.apiStyle || 'chat',
     }
 
     // 同步推理强度
@@ -247,6 +235,35 @@ export function getModelConfigForAgentType(
 ): { roleConfig: ModelRoleConfig; modelConfig: ModelConfig } | null {
     const roleConfig = selectModelForAgentType(scheme, agentType)
     return resolveWithFallback(roleConfig, scheme, providers)
+}
+
+/**
+ * 直接解析 provider+model 为 ModelConfig（绕过角色，会话 override 专用）
+ * - provider 不存在/禁用 / model 不存在/禁用 → null（调用方降级 auto + warning）
+ * - 复用 resolveModelConfig 的 OAuth2 token 解析与 apiStyle 透传
+ */
+export function resolveDirectModelConfig(
+    endpointId: string,
+    modelId: string,
+    providers: LLMProvider[],
+): ModelConfig | null {
+    const provider = providers.find((p) => p.id === endpointId)
+    if (!provider || !provider.enabled) return null
+    const model = provider.models.find((m) => m.id === modelId)
+    if (!model || !model.enabled) return null
+    return resolveModelConfig({endpointId, modelId, enabled: true}, providers)
+}
+
+/**
+ * 渠道会话初始 modelConfig：会话 override → 直接解析；无 override → undefined（auto）
+ * 提取为纯函数便于单测（messageHandler 依赖面大，不直接测）
+ */
+export function resolveChannelModelConfig(
+    convOverride: ModelOverride | null,
+    providers: LLMProvider[],
+): ModelConfig | undefined {
+    if (!convOverride || providers.length === 0) return undefined
+    return resolveDirectModelConfig(convOverride.endpointId, convOverride.modelId, providers) || undefined
 }
 
 // 获取模型角色的显示信息 — 委托给共享模块

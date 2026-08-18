@@ -51,12 +51,8 @@ const DEFAULT_ROLE_TEMPLATES: Array<{role: string; modelType: ModelType; enabled
     {role: 'lightweight', modelType: 'text', enabled: false, fillEndpoint: true},
     {role: 'reasoning', modelType: 'text', enabled: false, fillEndpoint: true},
     {role: 'image_understanding', modelType: 'image', enabled: false, fillEndpoint: false},
+    {role: 'audio_understanding', modelType: 'voice', enabled: false, fillEndpoint: false},
     {role: 'video_understanding', modelType: 'video', enabled: false, fillEndpoint: false},
-    {role: 'image_generation', modelType: 'image', enabled: false, fillEndpoint: false},
-    {role: 'video_generation', modelType: 'video', enabled: false, fillEndpoint: false},
-    {role: 'voice_clone', modelType: 'voice', enabled: false, fillEndpoint: false},
-    {role: 'voice_synthesis', modelType: 'voice', enabled: false, fillEndpoint: false},
-    {role: 'music_generation', modelType: 'music', enabled: false, fillEndpoint: false},
 ]
 
 class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {

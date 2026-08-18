@@ -85,8 +85,6 @@ declare global {
           estimatedTokens: number
         }>
         agentSetPermissionMode: (mode: 'safe' | 'auto') => Promise<boolean>
-        agentGetWorkMode: () => Promise<string>
-        agentSetWorkMode: (mode: string) => Promise<boolean>
         agentGetPermissionRules: () => Promise<any[]>
         agentCleanPermissionRules: () => Promise<{ success: boolean }>
         agentRemovePermissionRule: (toolName: string) => Promise<boolean>
@@ -130,6 +128,16 @@ declare global {
                 models: Array<{ id: string; name: string; enabled: boolean }>
             }>
         }) => Promise<{ success: boolean; error?: string }>
+
+        // Session-level model override (model-override-get/set IPC)
+        modelOverrideGet: (convId: string) => Promise<{
+            success: boolean
+            data: {
+                override: import('../shared/types/model').ModelOverride | null
+                lastSelected: import('../shared/types/model').ModelOverride | null
+            }
+        }>
+        modelOverrideSet: (convId: string, override: import('../shared/types/model').ModelOverride | null) => Promise<{ success: boolean }>
 
       // Config file read/write
       configRead: (name: string) => Promise<unknown>

@@ -8,7 +8,6 @@ import {useUpdaterStore} from '../stores/updaterStore'
 import {usePluginUpdateStore} from '../stores/pluginUpdateStore'
 import SchemeSelector from './SchemeSelector'
 import PermissionModeSelector from './PermissionModeSelector'
-import WorkModeSelector from './WorkModeSelector'
 import MessageDisplayModeSelector from './MessageDisplayModeSelector'
 
 /** 可翻转的箭头图标，避免重复 polyline */
@@ -477,10 +476,9 @@ export default function MenuBar() {
               )}
           </div>
 
-          {/* 方案 / 权限 / 工作模式 / 消息显示模式选择器 — 靠右侧竖线 */}
+          {/* 方案 / 权限 / 消息显示模式选择器 — 靠右侧竖线 */}
           <SchemeSelector/>
           <PermissionModeSelector/>
-          <WorkModeSelector/>
           <MessageDisplayModeSelector/>
 
           {/* 分隔线 */}

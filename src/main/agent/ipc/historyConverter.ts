@@ -19,7 +19,7 @@
 import {formatToolResult, interruptedToolResult} from '@shared/utils/toolResult'
 
 export interface HistoryChatMessage {
-  role: 'assistant' | 'tool'
+  role: 'assistant' | 'tool' | 'system'
   content: string
   thinking?: string
   thinkingSignature?: string
@@ -41,7 +41,7 @@ interface ToolCallOut {
 }
 
 /** 历史 toolCall 兼容形态（保留旧数据可能存在的 input/args/string result） */
-interface HistoryToolCall {
+export interface HistoryToolCall {
   id: string
   name: string
   arguments: Record<string, unknown>
@@ -305,6 +305,92 @@ function convertFlat(msg: any): HistoryChatMessage[] {
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
   })
   return result
+}
+
+/**
+ * 原样还原 skill 工具的 system 注入消息（KV cache 前缀一致性修复）。
+ *
+ * 背景：运行时 skill 工具 execute（skillTool.ts）返回
+ *   injectMessage: { role: 'system', content: buildGuidance(skill) }
+ * 该消息在 loop 内存态作为独立 system 消息追加到所有 tool 消息之后（execute.ts
+ * deferredMessages），经 convertMessages 收集为 converted.systemText 放入 system
+ * 块（无 cache_control）。但落库时 system 消息不持久化（execution.ts 重建路径
+ * 显式跳过 system 消息），重建若不恢复，system 块序列从
+ * [主提示词, commandTemplate, systemText] 变为 [主提示词, commandTemplate]，
+ * 与上一轮 loop 末逐 token 不一致 → DeepSeek KV 缓存从该处整段断裂 →
+ * 首跳 input_tokens 全量重发（几万 token）。
+ *
+ * 恢复策略（逐 token 还原约束）：运行时每轮 LLM 调用（turn）结束后才追加该轮
+ * skill 的 system 消息（execute.ts:683-686），因此 system 必须插在**该 turn 的
+ * 最后一个 tool 消息之后**、下一个 turn 的 assistant 之前，而不是统一追加到
+ * 数组末尾——后者在含多个 turnIndex 的消息（convertFromTurnIndex 拆出多段）中
+ * 会错位，同样破坏缓存前缀。
+ *
+ * @param msg DB 加载的历史 assistant 消息（toolCalls 已由 messageBlockHelper 挂载 result）
+ * @param converted 该消息的 turnIndex 分组重建结果（assistant + tool 消息），原地内嵌 system
+ */
+export function restoreSkillSystemMessages(
+  msg: {toolCalls?: HistoryToolCall[]},
+  converted: HistoryChatMessage[],
+): void {
+  // skill toolCall.id → guidance（仅成功时有值，见 extractGuidance）
+  const skillGuidance = new Map<string, string>()
+  for (const tc of msg.toolCalls ?? []) {
+    if (tc.name === 'skill') {
+      const guidance = extractGuidance(tc)
+      if (guidance) skillGuidance.set(tc.id, guidance)
+    }
+  }
+  if (skillGuidance.size === 0) return
+
+  // 逐 turn 扫描：每个 assistant 与其后的连续 tool 消息构成一个 turn。
+  // 该 turn 的 skill system 统一插在最后一个 tool 之后（与运行时一致）。
+  let i = 0
+  while (i < converted.length) {
+    if (converted[i].role !== 'assistant') {
+      i++
+      continue
+    }
+    // 找当前 turn 的最后一个 tool 消息
+    let lastToolIdx = i
+    let j = i + 1
+    while (j < converted.length && converted[j].role === 'tool') {
+      lastToolIdx = j
+      j++
+    }
+    // 按 assistant.toolCalls 顺序收集该 turn 的 skill system
+    const systems = (converted[i].toolCalls ?? [])
+      .filter(tc => skillGuidance.has(tc.id))
+      .map(tc => ({role: 'system' as const, content: skillGuidance.get(tc.id)!}))
+    if (systems.length > 0) {
+      converted.splice(lastToolIdx + 1, 0, ...systems)
+    }
+    // 跳过已处理的 turn（含插入的 system，故 +systems.length）
+    i = j + systems.length
+  }
+}
+
+/**
+ * 从 skill 工具调用结果提取 guidance（buildGuidance 原文）。
+ *
+ * 逐 token 还原约束（KV 缓存一致性）：运行时仅成功 skill 有 injectMessage，
+ * 且 injectMessage.content === output（buildGuidance 字符串）；失败分支
+ * （未找到/禁用）无 injectMessage。因此「output 是字符串」即注入判据——
+ * 失败时 output 是对象（skillTool 118 行 {success:false,...}），绝不会误注入。
+ *
+ * 兼容：
+ * - 极旧纯字符串 result 视为 guidance 原样返回（与 toolResultMessage 语义一致）
+ * - tc.isError / status==='error' 顶层标记（新数据）与 error 字段（其他工具失败形态）
+ *   均显式拦截，双保险
+ */
+function extractGuidance(tc: HistoryToolCall): string {
+  const raw = tc.result
+  if (raw === undefined || raw === null) return ''
+  if (typeof raw === 'string') return raw
+  if (tc.isError || tc.status === 'error' || raw.error) return ''
+  // 成功时 output 恒为 buildGuidance 字符串；非字符串（对象/缺失）一律不注入，
+  // 避免把失败输出或 toolResult 尾巴当作 guidance 注入破坏缓存前缀。
+  return typeof raw.output === 'string' ? raw.output : ''
 }
 
 /**

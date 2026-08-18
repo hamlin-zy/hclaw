@@ -144,9 +144,9 @@ async function main(): Promise<void> {
         )
     }
 
-    // 同步工作模式（如果传入了 workMode）
-    if (params.workMode) {
-        runtimeConfigManager.setWorkMode(params.workMode)
+    // 会话级模型 override（主进程已固化到 DB；此处仅同步内存，避免覆盖主进程 lastSelected）
+    if (params.modelOverride !== undefined) {
+        runtimeConfigManager.applyOverrideFromMain(params.conversationId, params.modelOverride ?? null)
     }
 
 // 加载提示词配置
@@ -463,9 +463,10 @@ async function main(): Promise<void> {
                     await permissionEngine.setMode(msg.permissionMode)
                     runtimeConfigManager.syncFromMain({mode: msg.permissionMode})
                 }
-            } else if (msg.type === WORKER_MESSAGE_TYPES.UPDATE_WORK_MODE) {
-                if (msg.workMode) {
-                    runtimeConfigManager.setWorkMode(msg.workMode)
+            } else if (msg.type === WORKER_MESSAGE_TYPES.UPDATE_MODEL_OVERRIDE) {
+                if (msg.convId && msg.override !== undefined) {
+                    // 仅同步内存（主进程已固化到 DB），不覆盖主进程 lastSelected
+                    runtimeConfigManager.applyOverrideFromMain(msg.convId, msg.override ?? null)
                 }
             } else if (msg.type === WORKER_MESSAGE_TYPES.USER_CONFIRMATION_RESULT) {
                 const resolve = confirmationRequests.get(msg.requestId)

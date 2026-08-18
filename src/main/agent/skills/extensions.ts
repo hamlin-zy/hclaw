@@ -83,7 +83,7 @@ export async function scanSkillExtensions(skillDir: string): Promise<SkillExtens
             language: SCRIPT_EXTENSIONS[path.extname(f).toLowerCase()] ?? 'other',
         }), ['references', 'scripts']),
     ])
-    return {references, scripts}
+    return {references, scripts, rootDocs}
 }
 
 export const getSupportedScriptExtensions = (): string[] => Object.keys(SCRIPT_EXTENSIONS)

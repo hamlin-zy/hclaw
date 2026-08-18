@@ -24,10 +24,14 @@
  */
 
 import {logger} from './logger'
-import type {LLMProvider, ModelRole, ModelScheme, RunMode, SystemSettings, WorkMode} from '@shared/types'
-// WORK_MODE_TO_MODEL_ROLE 已废弃，映射逻辑内联在 getModelRoleForWorkMode() 中
+import type {LLMProvider, ModelRole, ModelScheme, RunMode, SystemSettings} from '@shared/types'
+import type {ModelOverride} from '@shared/types'
 import {setCurrentScheme as setModelScheme} from './model/modelSchemeManager'
 import {getConfigBridge, setConfigBridge} from './common/configBridge'
+import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
+// Task 5 override 状态机的会话仓库工厂：统一从 repositories barrel 导入，
+// 避免运行时双路径解析（mock 工厂优先 + 类兜底）带来的维护脆弱性。
+import {createConversationRepository} from '../repositories'
 
 // ─── 类型定义 ─────────────────────────────────────────────
 
@@ -90,7 +94,6 @@ export interface SerializedRuntimeConfig {
 
 const DEFAULT_WORKING_DIR = ''
 const DEFAULT_MODE: RunMode = 'safe'
-const DEFAULT_WORK_MODE: WorkMode = 'primary'
 
 // ─── 全局状态 ─────────────────────────────────────────────
 
@@ -98,7 +101,6 @@ let currentWorkingDir: string = DEFAULT_WORKING_DIR
 let currentScheme: ModelScheme | null = null
 let currentProviders: LLMProvider[] = []
 let currentMode: RunMode = DEFAULT_MODE
-let currentWorkMode: WorkMode = DEFAULT_WORK_MODE
 let currentSettings: SystemSettings | null = null
 let configVersion: number = 0
 let lastUpdatedAt: number = Date.now()
@@ -312,42 +314,67 @@ export class RuntimeConfigManager {
         notifyChange()
     }
 
-    /**
-     * 获取当前工作模式
-     */
-    static getWorkMode(): WorkMode {
-        return currentWorkMode
+    // ─── 会话级模型 override ─────────────────────────────────
+
+    /** 会话 → override 内存缓存（null=显式 auto；无 key=未加载） */
+    private static sessionOverrides = new Map<string, ModelOverride | null>()
+    /** 全局记忆：最近一次用户手动选择（auto=null），新建会话继承 */
+    private static lastSelectedOverride: ModelOverride | null = null
+    private static overrideKey = 'model_override_last_selected'
+
+    /** 启动时从 system_settings 恢复 lastSelected（主进程调用；worker 不调用） */
+    static initOverrideState(): void {
+        try {
+            const raw = systemSettingsRepo.getJson<ModelOverride | null>(this.overrideKey)
+            this.lastSelectedOverride = raw && typeof raw === 'object' ? raw : null
+        } catch {
+            this.lastSelectedOverride = null
+        }
+    }
+
+    /** 全局最近一次手动选择（新建会话继承用） */
+    static getLastSelected(): ModelOverride | null {
+        return this.lastSelectedOverride
+    }
+
+    /** 读取指定会话的 override：内存缓存 → 懒加载 DB（缺省 null=auto） */
+    static getOverride(convId: string): ModelOverride | null {
+        const cached = this.sessionOverrides.get(convId)
+        if (cached !== undefined) return cached
+        let stored: ModelOverride | null = null
+        try {
+            const meta = createConversationRepository().readMeta(convId) as { modelOverride?: ModelOverride | null } | null
+            stored = meta?.modelOverride ?? null
+        } catch {
+            stored = null
+        }
+        this.sessionOverrides.set(convId, stored)
+        return stored
     }
 
     /**
-     * 设置工作模式
+     * 设置会话 override：更新会话 + 全局 lastSelected（切回 auto → lastSelected=null），落库。
+     * 仅主进程（UI 会话 / 渠道 / worker 定时任务会话创建固化）调用。
      */
-    static setWorkMode(mode: WorkMode): void {
-        if (currentWorkMode === mode) return
-        currentWorkMode = mode
+    static setOverride(convId: string, override: ModelOverride | null): void {
+        this.sessionOverrides.set(convId, override)
+        this.lastSelectedOverride = override
+        try {
+            createConversationRepository().updateMeta(convId, {modelOverride: override ?? null} as any)
+            systemSettingsRepo.setJson(this.overrideKey, this.lastSelectedOverride)
+        } catch (err) {
+            logger.warn('[RuntimeConfigManager] setOverride 持久化失败', {error: String(err), convId})
+        }
         notifyChange()
     }
 
     /**
-     * 根据工作模式获取对应的模型角色
-     * - auto 模式：使用 primary 作为兜底
-     * - 其他：从 scheme 的 roles 中按 role 查找
+     * 主进程同步到 worker 的入口：仅更新内存 Map。
+     * 会话 override 已由主进程固化到 DB，worker 侧不得重复落库，
+     * 否则会覆盖主进程最新的 lastSelected。
      */
-    static getModelRoleForWorkMode(): ModelRole {
-        if (currentWorkMode === 'auto') return 'primary'
-        if (currentScheme) {
-            const matched = currentScheme.roles.find(r => r.role === currentWorkMode)
-            if (matched) return matched.role as ModelRole
-        }
-        return 'primary'
-    }
-
-    /**
-     * 根据工作模式获取对应的模型配置
-     */
-    static getModelConfigForWorkMode(): RoleProviderInfo {
-        const role = this.getModelRoleForWorkMode()
-        return this.getRoleProvider(role)
+    static applyOverrideFromMain(convId: string, override: ModelOverride | null): void {
+        this.sessionOverrides.set(convId, override)
     }
 
     /**
@@ -458,7 +485,6 @@ export class RuntimeConfigManager {
     static syncFromMain(data: {
         scheme?: { id: string; scheme: ModelScheme; providers: LLMProvider[] }
         mode?: RunMode
-        workMode?: WorkMode
         workingDir?: string
         settings?: SystemSettings
     }): void {
@@ -469,9 +495,6 @@ export class RuntimeConfigManager {
         }
         if (data.mode !== undefined) {
             currentMode = data.mode
-        }
-        if (data.workMode !== undefined) {
-            currentWorkMode = data.workMode
         }
         if (data.workingDir !== undefined) {
             currentWorkingDir = data.workingDir
