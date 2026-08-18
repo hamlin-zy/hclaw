@@ -34,6 +34,8 @@ interface ConversationStore {
     // Conversations
   createConversation: () => Promise<string>
     handleSessionCreated: (convId: string, title: string, workspacePath: string) => void
+    /** 子会话创建事件处理（agent 工具创建）：侧栏顶部插入，保留其他工作区 */
+    handleChildConvCreated: (convId: string, title: string, parentConvId?: string) => void
   deleteConversation: (id: string) => Promise<void>
     deleteConversations: (ids: string[]) => Promise<void>
   setActiveConversation: (id: string | null) => void
@@ -756,6 +758,34 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           useAgentStore.getState().updateConvData(convId, createDefaultConvData())
           // 交接总结已由主进程写入 SQLite，加载为可见消息（非阻塞）
           get().loadMessagesInitial(convId).catch?.(() => {})
+      },
+
+      // 子 Agent 独立会话创建事件处理：侧栏顶部插入 + 自动归属当前工作区
+      // ★ 必须保留其他工作区条目（...state.workspaces），否则项目选择器会丢失其他项目
+      handleChildConvCreated: (convId, title, parentConvId) => {
+          const now = Date.now()
+          const summary: ConversationSummary = {
+              id: convId,
+              title,
+              preview: '',
+              createdAt: now,
+              updatedAt: now,
+              parentConvId: parentConvId || undefined,
+          }
+          set((state) => {
+              const wsPath = state.currentWorkspacePath
+              if (!wsPath) return state
+              const wsInfo = state.workspaces[wsPath]
+              if (!wsInfo) return state
+              // 去重守卫：会话已存在（双投递）则跳过
+              if (wsInfo.conversations.some(c => c.id === convId)) return state
+              return {
+                  workspaces: {
+                      ...state.workspaces,
+                      [wsPath]: {...wsInfo, conversations: [summary, ...wsInfo.conversations]},
+                  },
+              }
+          })
       },
 
       deleteConversation: async (id) => {

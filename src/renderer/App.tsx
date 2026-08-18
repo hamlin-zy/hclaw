@@ -527,28 +527,8 @@ export default function App() {
   useEffect(() => {
     const cleanup = window.electronAPI?.receive?.('child_conv_created', (data: any) => {
       if (!data?.id) return
-      const {workspaces, currentWorkspacePath} = useConversationStore.getState()
-      if (!currentWorkspacePath) return
-      const ws = workspaces[currentWorkspacePath]
-      if (ws) {
-        // 去重：避免会话已存在时重复添加
-        if (ws.conversations.some(c => c.id === data.id)) return
-        useConversationStore.setState({
-          workspaces: {
-            [currentWorkspacePath]: {
-              ...ws,
-              conversations: [{
-                id: data.id,
-                title: data.title || '子 Agent',
-                preview: '',
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-                parentConvId: data.parentConvId || undefined,
-              }, ...ws.conversations],
-            },
-          },
-        })
-      }
+      // 委托 store action：内部保留其他工作区条目（防止 workspaces 被整体覆盖导致项目选择器丢项目）
+      useConversationStore.getState().handleChildConvCreated(data.id, data.title || '子 Agent', data.parentConvId)
     })
 
     return () => {
