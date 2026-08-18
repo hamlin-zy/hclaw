@@ -2,6 +2,7 @@ import {create} from 'zustand'
 import type {SystemSettings} from '@shared/types'
 import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import {resolveAndApplyTheme, useThemeStore} from './themeStore'
+import {useConversationStore} from './conversationStore'
 
 interface SettingsStore {
     settings: SystemSettings
@@ -29,6 +30,8 @@ export const DEFAULT_SETTINGS: SystemSettings = {
         initialRetryDelay: 5000,
         maxRetryDelay: 120000,
         llmTimeout: 600000,
+        handoffThresholdRatio: 0.5,
+        midLoopOverflowMode: 'auto-handoff',
     },
     model: {
         defaultMaxTokens: DEFAULT_MAX_TOKENS,
@@ -125,6 +128,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             if (!ok) {
                 throw new Error('数据库写入失败')
             }
+            // 在 set({settings}) 之前捕获旧阈值（spec 3.2：仅阈值变更时恢复"不再提醒"抑制标记）
+            const oldThresholdRatio = get().settings?.agent?.handoffThresholdRatio ?? 0.5
             set({settings: pendingSettings})
 
             // 2. 同步主题到 themeStore（须放在 set({settings}) 之后：
@@ -145,6 +150,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             const broadcastResult = await window.electronAPI?.settingsUpdate?.(pendingSettings as any)
             if (broadcastResult && !(broadcastResult as any).success) {
                 console.warn('[Settings] Agent 同步警告:', (broadcastResult as any).error)
+            }
+
+            // 阈值调整后恢复各会话的"不再提醒"抑制标记（spec 3.2：仅阈值变更时恢复）
+            const newThresholdRatio = pendingSettings.agent?.handoffThresholdRatio ?? 0.5
+            if (oldThresholdRatio !== newThresholdRatio) {
+                useConversationStore.getState().clearHandoffDismissals()
             }
 
             // 全部成功后清除待保存状态

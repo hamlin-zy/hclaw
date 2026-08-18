@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
+import {createPortal} from 'react-dom'
 import {motion} from 'framer-motion'
 import {useAgentStore} from '../stores/agentStore'
 import {useConversationStore} from '../stores/conversationStore'
@@ -9,6 +10,9 @@ import AttachedFilesBar from './AttachedFilesBar'
 import PendingQuestionCard from './PendingQuestionCard'
 import InputToolbar from './InputToolbar'
 import {CommandPalette} from './plugin/CommandPalette'
+import {HandoffDialog, type HandoffChoice} from './HandoffDialog'
+import {buildHandoffMessage} from '../utils/handoff'
+import {useSettingsStore} from '../stores/settingsStore'
 
 import ImagePreviewModal from './common/ImagePreviewModal'
 import {generateFileId} from '../lib/format'
@@ -76,10 +80,20 @@ export default function InputArea({isActive = true}: InputAreaProps) {
     const [isDragging, setIsDragging] = useState(false)
     const [showModelAlert, setShowModelAlert] = useState(false)
     const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+    // 发送前交接引导弹窗状态（空闲发送时达标触发）
+    const [handoffPrompt, setHandoffPrompt] = useState<{
+        conversationId: string
+        ratio: number
+        windowTokens: number
+        estimatedTokens: number
+        onChoice: (c: HandoffChoice) => void
+    } | null>(null)
     // 输入历史导航
     const [historyIndex, setHistoryIndex] = useState(-1) // -1 = 当前输入
     const [savedInput, setSavedInput] = useState('') // 进入历史模式时保存当前输入
     const textareaRef = useRef<HTMLTextAreaElement>(null)
+    // 发送前交接弹窗防重入：弹窗打开期间（回车连发）阻止第二次检查覆盖 onChoice，导致首个 Promise 永久挂起
+    const handoffPromptOpenRef = useRef(false)
 
     // ★ 输入框最大高度 = 当前窗口高度的 2/3
     const [maxInputHeight, setMaxInputHeight] = useState(() => Math.floor(window.innerHeight * 2 / 3))
@@ -188,42 +202,49 @@ export default function InputArea({isActive = true}: InputAreaProps) {
             return
         }
 
+        // ── 提交用户消息的公共尾部：addMessage + 默认标题重命名 + 清空输入状态 ──
+        const commitMessage = (content: string, metadata?: Record<string, unknown>) => {
+            addMessage({
+                role: 'user',
+                content,
+                attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined,
+                metadata,
+            })
+
+            // 自动重命名默认标题（用原始 text）
+            const wsPath = useConversationStore.getState().currentWorkspacePath
+            const convList = wsPath ? useConversationStore.getState().workspaces[wsPath]?.conversations : []
+            const currentConv = convList?.find(c => c.id === convId)
+            if (currentConv?.title === '新对话') {
+                updateConversationMeta(convId, {
+                    title: text.slice(0, 30) + (text.length > 30 ? '...' : ''),
+                    preview: text.slice(0, 30)
+                })
+            }
+
+            setInput('')
+            // 重置历史导航状态
+            setHistoryIndex(-1)
+            setSavedInput('')
+            clearAttachedFiles()
+            textareaRef.current?.focus()
+        }
+
         // ── 有文字的提交 ──
         setPendingAttachmentFiles([])
 
         // 记录到输入历史（持久化）
         useInputHistoryStore.getState().pushEntry(text)
 
-        // 添加消息（含合并后的附件）
-        addMessage({
-            role: 'user',
-            content: text,
-            attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined,
-            metadata: options?.metadata,
-        })
-
-        // 自动重命名默认标题
-        const wsPath = useConversationStore.getState().currentWorkspacePath
-        const convList = wsPath ? useConversationStore.getState().workspaces[wsPath]?.conversations : []
-        const currentConv = convList?.find(c => c.id === convId)
-        if (currentConv?.title === '新对话') {
-            updateConversationMeta(convId, {
-                title: text.slice(0, 30) + (text.length > 30 ? '...' : ''),
-                preview: text.slice(0, 30)
-            })
-        }
-
-        setInput('')
-        // 重置历史导航状态
-        setHistoryIndex(-1)
-        setSavedInput('')
-        clearAttachedFiles()
-        textareaRef.current?.focus()
-
-        // ★ 判断是否在运行中 → 走队列 + 实时注入 / 直接启动
+        // ★ 判断是否在运行中 → 走队列 + 实时注入 / 直接启动（分支判定提前，
+        //   使空闲分支可在 addMessage 之前完成发送前交接检查）
         const convState = useAgentStore.getState().convAgentStates[convId]
         const isRunningNow = convState?.agentState.status === 'running' || convState?.agentState.status === 'thinking'
+
         if (isRunningNow) {
+            // ── 运行中分支：保持原行为 ──
+            commitMessage(text, options?.metadata)
+
             // 运行时：先尝试实时注入到运行中的 Agent Worker（不中断）
             // ── pendingMessages 是兜底机制 ──────────────────────────────
             // 注入成功后消息会进入 worker 的 pendingInjectedMessages 队列，
@@ -246,12 +267,46 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                 })
             }
         } else {
-            // 空闲时：启动 Agent，传递合并后的附件
+            // ── 空闲分支（重构）：先做发送前交接检查，通过后才 addMessage ──
+            const threshold = useSettingsStore.getState().settings?.agent?.handoffThresholdRatio ?? 0.5
+            const dismissed = useConversationStore.getState().handoffDismissed[convId]
+            let finalText = text
+            let finalMetadata = options?.metadata
+
+            if (threshold > 0 && !dismissed && !handoffPromptOpenRef.current) {
+                handoffPromptOpenRef.current = true
+                try {
+                    const usage = await window.electronAPI?.contextGetUsage(convId)
+                    if (usage && usage.ratio >= threshold) {
+                        const choice = await new Promise<HandoffChoice>((resolve) => {
+                            setHandoffPrompt({...usage, conversationId: convId, onChoice: resolve})
+                        })
+                        setHandoffPrompt(null)
+                        // 取消：此时 addMessage / setInput 均未执行 → 消息保留在输入框（spec 3.2）
+                        if (choice === 'cancel') return
+                        if (choice === 'handoff') {
+                            finalText = buildHandoffMessage(text)
+                            // ★ 命令模式边界（spec 3.2）：丢弃 commandId 与 commandTemplate，
+                            //   避免交接指令以命令模式执行导致工具被过滤（session_handoff 不可用）
+                            const {commandId: _cid, commandTemplate: _ct, ...restMetadata} = options?.metadata || {}
+                            finalMetadata = Object.keys(restMetadata).length > 0 ? restMetadata : undefined
+                        }
+                    }
+                } catch {
+                    // IPC 失败（如 DB 异常）→ 按无 usage 直发，不阻断发送
+                } finally {
+                    handoffPromptOpenRef.current = false
+                }
+            }
+
+            // 检查通过后：添加消息（含合并后的附件）
+            commitMessage(finalText, finalMetadata)
+
             startAgent({
                 conversationId: convId,
-                message: text,
+                message: finalText,
                 messageAttachments: mergedAttachments.length > 0 ? mergedAttachments : undefined,
-                messageMetadata: options?.metadata,
+                messageMetadata: finalMetadata,
             })
         }
     }
@@ -632,6 +687,23 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                     onClose={() => setPreviewImageUrl(null)}
                 />
             )}
+
+            {/* 发送前交接引导弹窗 */}
+            {/* ★ portal 到 body：input-area-card 是 app-surface-card，背景启用时带 backdrop-filter
+                （globals.css 创建 stacking context），会把 fixed 弹窗的 z-index 锁死在卡片内部，
+                导致被同为 app-surface-card 的 message-list-card 遮挡。与 AskUserModal 同理，
+                提升到顶层渲染后 z-[var(--z-overlay)] 直接对根 stacking context 生效。 */}
+            {handoffPrompt &&
+                createPortal(
+                    <HandoffDialog
+                        conversationId={handoffPrompt.conversationId}
+                        ratio={handoffPrompt.ratio}
+                        windowTokens={handoffPrompt.windowTokens}
+                        estimatedTokens={handoffPrompt.estimatedTokens}
+                        onChoice={handoffPrompt.onChoice}
+                    />,
+                    document.body,
+                )}
         </div>
     )
 }

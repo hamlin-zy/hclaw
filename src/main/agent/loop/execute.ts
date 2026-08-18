@@ -30,8 +30,32 @@ import {attachMediaBlocksToMessage, extractMediaBlocksFromToolResults} from '../
 import {isVisionModel, sanitizeMessagesForModel, sanitizeThinkingForModel} from './helpers'
 import {getToolRegistry} from '../tools/registry'
 import {computeTokenTiming, isTokenDelta} from './tokenTiming'
+import {estimateTotalContextTokens} from '../context'
+import {resolveMaxContextTokens} from './modelMaxContext'
+import {modelMetaRegistry} from '../../modelMetaRegistry'
 
 const toolRegistry = getToolRegistry()
+
+// ── mid-loop 交接门（取代自动截断）：接近窗口上限时的溢出保护 ──
+// 触发线复用用户配置 handoffThresholdRatio（默认 0.5；0 = 关闭 loop 级保护）。
+// 不再硬编码 0.9（用户 2026-08-18 拍板：完全尊重用户配置）。
+
+/** mid-loop 专用交接指令（与发送前模板不同——无用户新输入，交接进行中的任务） */
+export const MID_LOOP_HANDOFF_PROMPT =
+    '当前任务执行中上下文接近窗口上限，请总结对话历史与任务进度，准备交接(session_handoff)到新会话继续执行当前任务。'
+
+export type HandoffGateAction = 'none' | 'inject' | 'stop'
+
+export function evaluateHandoffGate(
+    usageTokens: number,
+    windowTokens: number,
+    thresholdRatio: number,
+    mode: 'auto-handoff' | 'graceful-stop',
+): HandoffGateAction {
+    if (thresholdRatio <= 0) return 'none' // 0 = 关闭 loop 级保护（用户自担超窗风险）
+    if (usageTokens <= thresholdRatio * windowTokens) return 'none'
+    return mode === 'auto-handoff' ? 'inject' : 'stop'
+}
 
 // ═══════════════════════════════════════════════════════════
 //  LLM 调用（含重试）
@@ -99,6 +123,9 @@ export async function* executeLlmCallWithRetry(
     let currentSchemeName = schemeName
     let lastError: any
 
+    let handoffGateEvaluated = false
+    let handoffInjected = false
+
     for (let attempt = 1; attempt <= retryCount; attempt++) {
         if (abortSignal?.aborted) return null
 
@@ -125,6 +152,46 @@ export async function* executeLlmCallWithRetry(
             // ── 归一化消息历史（增量缓存） ──
             const normalizedMessages = preprocessCache.process(state.messages || [])
             let messagesToSend: ChatMessage[] = normalizedMessages
+
+            // ── mid-loop 交接门（每轮 LLM 调用评估一次）──
+            // 估算仅在首次 attempt 执行；注入在每次 attempt 重新追加（messagesToSend 每次重建）。
+            if (!handoffGateEvaluated) {
+                handoffGateEvaluated = true
+                const windowTokens = resolveMaxContextTokens({
+                    provider: currentProvider,
+                    model: currentModel,
+                    modelScheme: modelConfig as {maxContextTokens?: number},
+                    modelMetaContextLength: modelMetaRegistry.getContextLength(currentModel),
+                    adapterInfo: adapter?.getModelInfo?.() ?? null,
+                })
+                const usageTokens = estimateTotalContextTokens(messagesToSend, systemPrompt)
+                const agentSettings = getSettings()?.agent
+                const action = evaluateHandoffGate(
+                    usageTokens,
+                    windowTokens,
+                    agentSettings?.handoffThresholdRatio ?? 0.5,
+                    agentSettings?.midLoopOverflowMode ?? 'auto-handoff',
+                )
+                if (action === 'stop') {
+                    const pct = windowTokens > 0 ? Math.round((usageTokens / windowTokens) * 100) : 0
+                    yield {
+                        type: 'error',
+                        error: `上下文已接近窗口上限（约 ${pct}%），本轮已停止。建议交接或新建会话继续。`,
+                    }
+                    return null
+                }
+                if (action === 'inject') handoffInjected = true
+            }
+            if (handoffInjected) {
+                messagesToSend = [
+                    ...messagesToSend,
+                    {
+                        role: 'user',
+                        content: MID_LOOP_HANDOFF_PROMPT,
+                        id: `handoff-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    } as ChatMessage,
+                ]
+            }
 
             // ★ normalize 发生了合成注入/取代（输出 ≠ 输入，非纯追加）：
             //   adapter 的增量转换缓存按「长度」命中，无法感知前缀内容变化，
@@ -376,6 +443,7 @@ export async function* executeLlmCallWithRetry(
                 currentConfigSource,
                 currentSchemeName,
                 providerName: modelConfig._providerName || currentProvider,
+                handoffRequested: handoffInjected,
                 ...(timing === null ? {} : timing),
             }
         } catch (error: any) {
@@ -401,7 +469,7 @@ export async function* executeLlmCallWithRetry(
     if (!abortSignal?.aborted) {
         const isCtx = checkContextLengthError(lastError)
         const errorMessage = isCtx
-            ? `上下文超出模型窗口限制，已停止（不重试）。请在新会话中继续，或减少任务规模后重试。`
+            ? `上下文已超出模型窗口，本会话无法继续执行。请新建会话（原会话历史仍可查看）；可在设置中调整交接引导阈值，让后续会话更早收到交接提醒。`
             : `LLM call failed after ${retryCount} retries: ${lastError?.message || 'Unknown error'}`
         logger.info(`[AgentLoop] llm_call_failed: ${errorMessage}`)
         yield {type: 'error', error: errorMessage}

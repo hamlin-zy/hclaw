@@ -264,6 +264,32 @@ export default function SettingsDialog() {
                 fallback={600}
                 decimals={1}
             />
+            <NumberField
+                label="交接引导阈值 (%)"
+                description="发送消息时，若当前会话上下文占用超过此比例，将弹窗询问是否交接到新会话；单次任务执行中上下文超过此比例时，也会按下方「单轮内溢出处理」触发自动交接或优雅停止。默认 50%。设 0 同时关闭发送前弹窗与单轮内保护（不推荐——可能裸报窗口超限错误）。"
+                value={Math.round((current.agent.handoffThresholdRatio ?? 0.5) * 100)}
+                onChange={(v) => updatePending('agent', {handoffThresholdRatio: Math.min(100, Math.max(0, Math.round(v))) / 100})}
+                min={0}
+                fallback={50}
+            />
+            <div className="grid grid-cols-1 gap-2">
+                <label className="flex items-center justify-between text-sm">
+                    <span>
+                        单轮内溢出处理
+                        <span className="ml-1 text-xs text-[var(--text-secondary)]">
+                            单次任务执行中上下文接近窗口上限时的处理。自动交接：自动总结并交接到新会话继续执行；优雅停止：停止本轮并提示手动处理。
+                        </span>
+                    </span>
+                    <select
+                        className="rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2 py-1 text-sm"
+                        value={current.agent.midLoopOverflowMode ?? 'auto-handoff'}
+                        onChange={(e) => updatePending('agent', {midLoopOverflowMode: e.target.value as 'auto-handoff' | 'graceful-stop'})}
+                    >
+                        <option value="auto-handoff">自动交接（推荐）</option>
+                        <option value="graceful-stop">优雅停止</option>
+                    </select>
+                </label>
+            </div>
         </div>
     )
 

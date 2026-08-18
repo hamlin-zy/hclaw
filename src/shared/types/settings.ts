@@ -107,6 +107,10 @@ export interface SystemSettings {
     initialRetryDelay: number
     maxRetryDelay: number
     llmTimeout: number
+    /** 发送前交接引导阈值（0-1；0 = 关闭引导）。默认 0.5 */
+    handoffThresholdRatio: number
+    /** loop 内接近窗口上限时的行为。默认 'auto-handoff' */
+    midLoopOverflowMode: 'auto-handoff' | 'graceful-stop'
   }
   model: {
     defaultMaxTokens: number
