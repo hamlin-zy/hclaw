@@ -37,6 +37,8 @@ const llmDone = (tokens: number): AgentStreamEvent => ({
     type: 'llm_call_done',
     conversationTitle: '',
     provider: 'anthropic',
+    providerType: 'anthropic',
+    providerName: 'Deepseek-ant',
     model: 'claude',
     duration: 100,
     inputTokens: tokens,
@@ -151,7 +153,7 @@ describe('childConvMessages（子会话完整执行过程累积器 — 单条消
         expect(written[0].messages[0].id).toBe(written[1].messages[0].id)
     })
 
-    it('llm_call_done 累积 llmStats 并触发增量落库', () => {
+    it('llm_call_done 累积 llmStats 并触发增量落库（写侧剥离：消息不携带 llm_stats）', () => {
         const {repo, written} = mockRepo()
         const acc = createChildConvAccumulator('c')
         handleChildEvent(acc, thinking('思考'))
@@ -162,7 +164,8 @@ describe('childConvMessages（子会话完整执行过程累积器 — 单条消
         expect(acc.llmStats[0].inputTokens).toBe(100)
 
         flushAccumulatorMessage(acc, repo, 'c', false)
-        expect(written[0].messages[0].llmStats).toHaveLength(1)
+        // B1 唯一源：llmStats 只在累积器收集（供 agentTool 写 llm_usage），不再随消息落库
+        expect(written[0].messages[0].llmStats).toBeUndefined()
         expect(written[0].messages[0].contentBlocks![0].type).toBe('think')
     })
 

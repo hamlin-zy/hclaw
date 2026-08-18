@@ -2,6 +2,8 @@
  * 渲染进程共享格式化工具函数
  */
 
+import {MIN_DECODE_MS} from '@shared/types'
+
 /** 相对时间格式化 */
 export function getRelativeTime(ts: number): string {
   const diff = Date.now() - ts
@@ -53,6 +55,14 @@ export function formatTokenCount(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`
 }
 
+/** 紧凑格式化 token 数：≥1e9 → x.xB；≥1e6 → x.xM；≥1000 → x.xk；否则原样 */
+export function formatTokenCompact(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return `${n}`
+}
+
 /** 解码吞吐展示：≥10 取整，<10 保留一位小数，负数 clamp 到 0。 */
 export function formatTokensPerSecond(tps: number): string {
   const clamped = Math.max(0, tps)
@@ -63,5 +73,32 @@ export function formatTokensPerSecond(tps: number): string {
 export function tokensPerSecond(outputTokens: number, durationMs: number): number | null {
   if (typeof outputTokens !== 'number' || outputTokens <= 0) return null
   if (typeof durationMs !== 'number' || durationMs <= 0) return null
-  return outputTokens / (durationMs / 1000)
+  // 防爆表：时长过短视为首 token 边界虚短的异常数据（历史坏数据/网关抖动），
+  // 按 MIN_DECODE_MS 保守下限计算，避免 190000 t/s 级异常值。
+  const effective = Math.max(MIN_DECODE_MS, durationMs)
+  return outputTokens / (effective / 1000)
+}
+
+/** 货币类型 */
+export type Currency = 'USD' | 'CNY'
+
+/** 美元→人民币固定汇率（本地展示口径，非实时行情） */
+export const USD_TO_CNY_RATE = 7.2
+
+/** 成本格式化：0 或负数 → '—'（未定价）；<0.01 → '<$0.01'；否则 $x.xx（四舍五入到分）。CNY 按固定汇率换算。 */
+export function formatCost(usd: number, currency: Currency = 'USD'): string {
+  if (typeof usd !== 'number' || !Number.isFinite(usd) || usd <= 0) return '—'
+  if (currency === 'CNY') {
+    const cny = usd * USD_TO_CNY_RATE
+    // 加 1e-9 epsilon 规避 IEEE-754 浮点边界（如 10.715 存为 10.714999…，toFixed(2) 会得 10.71 而非 10.72）
+    return `¥${(cny + 1e-9).toFixed(2)}`
+  }
+  if (usd < 0.01) return '<$0.01'
+  return `$${(usd + 1e-9).toFixed(2)}`
+}
+
+/** 占比格式化：0-100 整数百分比；负数/NaN → '0' */
+export function formatPercent(n: number): string {
+  if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return '0'
+  return String(Math.round(n * 100))
 }

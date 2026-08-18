@@ -87,6 +87,7 @@ export function handleLlmCallDone(ctx: StreamCtx) {
             outputTokens: event.outputTokens ?? 0,
             provider: event.provider,
             model: event.model ?? 'unknown',
+            providerName: event.providerName,
             duration: event.duration ?? 0,
             cacheReadTokens: event.cacheReadTokens,
             cacheWriteTokens: event.cacheWriteTokens,
@@ -102,14 +103,6 @@ export function handleLlmCallDone(ctx: StreamCtx) {
         const updatedStats = [...existingStats, newStats]
 
         useConversationStore.getState().updateMessageForConv(convId, msgId, {llmStats: updatedStats})
-
-        if (convId) {
-            ;(window.electronAPI as any)?.message?.updateLlmStats?.({
-                conversationId: convId,
-                messageId: msgId,
-                llmStats: updatedStats,
-            })
-        }
     }
 }
 

@@ -54,6 +54,8 @@ describe('handleSubagentProgress — llmStats 组装', () => {
                 inputTokens: 100,
                 outputTokens: 200,
                 provider: 'test',
+                providerType: 'test',
+                providerName: 'Deepseek-ant',
                 model: 'm',
                 duration: 5000,
                 ttftMs: 800,
@@ -67,5 +69,6 @@ describe('handleSubagentProgress — llmStats 组装', () => {
         expect(updates.llmStats[0].ttftMs).toBe(800)
         expect(updates.llmStats[0].decodeMs).toBe(5000)
         expect(updates.llmStats[0].tokensPerSecond).toBe(40)
+        expect(updates.llmStats[0].providerName).toBe('Deepseek-ant')
     })
 })

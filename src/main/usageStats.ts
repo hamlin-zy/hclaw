@@ -4,7 +4,7 @@
  * 纯函数：不接触 DB / IPC，输入由调用方（conversation.ts IPC handler）
  * 从 SQLite 组装后传入，保证可独立单元测试。
  */
-import type {ConversationSummary, ConversationUsageStats, LlmStats} from '@shared/types'
+import type {ConversationSummary, ConversationUsageStats, LlmStats, UsageBreakdown} from '@shared/types'
 import {collectDescendants} from '@shared/utils/conversationTree'
 
 /**
@@ -44,6 +44,8 @@ export function computeConversationUsageStats(
     let totalOutputTokens = 0
     let totalCacheReadTokens = 0
     let totalCacheWriteTokens = 0
+    // 分组：模型粒度（key = `${provider}|${model}`，转 UsageBreakdown 时拆出），totalTokens 最后排序
+    const groupMap = new Map<string, UsageBreakdown>()
 
     for (const convId of convIds) {
         toolCallCount += toolCallCountByConv.get(convId) ?? 0
@@ -53,8 +55,34 @@ export function computeConversationUsageStats(
             totalOutputTokens += s.outputTokens || 0
             totalCacheReadTokens += s.cacheReadTokens || 0
             totalCacheWriteTokens += s.cacheWriteTokens || 0
+            const provider = s.provider || 'unknown'
+            const model = s.model || 'unknown'
+            const mapKey = `${provider}\u0000${model}`   // \u0000 分隔，避免 model 含 '|' 时分裂
+            const g = groupMap.get(mapKey) ?? {
+                key: model,               // UsageBreakdown.key = model（UI 按模型显示 / 按服务商聚合）
+                providerType: provider,   // UsageBreakdown.providerType = 服务商
+                providerName: undefined,  // providers 表服务商名（组内非 NULL 优先，见下方累加）
+                requestCount: 0,
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                totalTokens: 0,
+                costUsd: 0,
+            }
+            // providerName 组内非 NULL 优先：历史行（无 name）不覆盖新值
+            if (!g.providerName && s.providerName) g.providerName = s.providerName
+            g.requestCount++
+            g.inputTokens += s.inputTokens || 0
+            g.outputTokens += s.outputTokens || 0
+            g.cacheReadTokens += s.cacheReadTokens || 0
+            g.cacheWriteTokens += s.cacheWriteTokens || 0
+            g.totalTokens = g.inputTokens + g.outputTokens + g.cacheReadTokens + g.cacheWriteTokens
+            groupMap.set(mapKey, g)
         }
     }
+
+    const breakdown = [...groupMap.values()].sort((a, b) => b.totalTokens - a.totalTokens)
 
     return {
         conversationCount: convIds.length,
@@ -66,5 +94,6 @@ export function computeConversationUsageStats(
         totalOutputTokens,
         totalCacheReadTokens,
         totalCacheWriteTokens,
+        breakdown,
     }
 }

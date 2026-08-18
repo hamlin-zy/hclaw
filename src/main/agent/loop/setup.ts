@@ -255,7 +255,7 @@ export function* selectModelForTurn(
         }
     }
 
-    return {modelConfig, schemeId, schemeName, suggestedRole}
+    return {modelConfig, schemeId, schemeName, suggestedRole, providerName: modelConfig._providerName}
 }
 
 // ─── 工具过滤 ──────────────────────────────────────────────

@@ -246,6 +246,8 @@ export interface ConversationUsageStats {
   totalCacheReadTokens: number
   /** 累计缓存写入 token（Σ cacheWriteTokens） */
   totalCacheWriteTokens: number
+  /** 分组用量（按 provider+model，totalTokens 降序） */
+  breakdown: UsageBreakdown[]
 }
 
 /** 用于 workspace 存储 */
@@ -259,4 +261,63 @@ export interface WorkspaceConfig {
   currentWorkspacePath: string | null
   activeConversationId: string | null
   workspaces: Record<string, WorkspaceData>
+}
+
+// ─── LLM 用量独立表（llm_usage） ─────────────────────────
+
+/** 单条 LLM 用量事件（= llm_usage 表一行） */
+export interface LlmUsageRecord {
+  id: string              // usage_<messageId>_<seq>
+  conversationId: string
+  messageId: string
+  providerType: string    // anthropic/openai/google/ollama/custom（精确服务商类型）
+  model: string
+  /** providers 表服务商名（providers.name），历史数据可空 */
+  providerName?: string
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  reasoningTokens: number
+  ttftMs?: number
+  decodeMs?: number
+  durationMs: number
+  createdAt: number
+}
+
+/** 分组聚合行（按服务商或模型） */
+export interface UsageBreakdown {
+  key: string             // provider_type 或 model
+  providerType?: string   // 按模型分组时附所属服务商（UI 小字标注）
+  /** providers 表服务商名（providers.name），按服务商分组时展示用，历史数据可空 */
+  providerName?: string
+  requestCount: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  totalTokens: number     // 输入+输出+缓存（含全部 token 流量）
+  costUsd: number         // 实时价格 × token（未定价模型为 0）
+}
+
+/** 时间趋势点（按天） */
+export interface TrendPoint {
+  day: string             // 'YYYY-MM-DD'
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+}
+
+export type TimeRange = 'today' | '7d' | '30d' | 'all'
+
+/** 全局用量统计 IPC 返回 */
+export interface GlobalUsageStats {
+  kpi: {
+    totalTokens: number     // 输入+输出+缓存读取+缓存写入（含全部 token 流量）
+    totalCostUsd: number
+    requestCount: number
+    cacheHitRate: number | null   // 口径：cacheRead / (input + cacheRead)
+  }
+  trend: TrendPoint[]
+  breakdown: UsageBreakdown[]
 }

@@ -249,6 +249,8 @@ export interface LlmStats {
   provider: string
   model: string
   duration: number
+  /** providers 表服务商名（providers.name），历史数据可空 */
+  providerName?: string
   /** 缓存命中的 token 数 */
   cacheReadTokens?: number
   /** 缓存创建的 token 数 */
@@ -259,9 +261,12 @@ export interface LlmStats {
   ttftMs?: number
   /** 纯解码时长（毫秒） */
   decodeMs?: number
-  /** 解码吞吐（tok/s） */
+  /** 解码吞吐（t/s） */
   tokensPerSecond?: number
 }
+
+/** 解码吞吐保守下限（毫秒）：decodeMs 低于此值视为首 token 边界虚短，按此值计算 t/s 防爆表 */
+export const MIN_DECODE_MS = 500
 
 /** 权限确认 */
 export interface PermissionConfirm {

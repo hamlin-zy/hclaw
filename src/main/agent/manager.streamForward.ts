@@ -20,6 +20,8 @@ export function trimLlmCallDoneForRenderer(
     type: 'llm_call_done',
     conversationTitle: event.conversationTitle,
     provider: event.provider,
+    providerType: event.providerType,   // 新增
+    providerName: event.providerName,   // 新增：providers 表服务商名
     model: event.model,
     duration: event.duration,
     inputTokens: event.inputTokens,

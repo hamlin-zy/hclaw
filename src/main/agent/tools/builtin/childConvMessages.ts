@@ -47,7 +47,7 @@ export interface ChildConvAccumulator {
     toolCalls: Map<string, ToolCall>
     /** 当前轮已声明但未收到 tool_result 的工具数（=0 时该轮工具全部完成，可增量落库） */
     pendingToolCount: number
-    /** 全部轮次的 llmStats（llm_call_done 时写入，随单条消息持久化） */
+    /** 全部轮次的 llmStats（llm_call_done 时写入，供 agentTool 路径 2 写 llm_usage 表；不再随消息持久化） */
     llmStats: LlmStats[]
     /** 是否已发生错误 */
     hasError: boolean
@@ -74,7 +74,8 @@ export function createChildConvAccumulator(_convId?: string): ChildConvAccumulat
 /**
  * 从累积器构建完整 assistant 消息（单条，含至今全部轮次）。
  * contentBlocks 按 textOffset 交错：think / text / tool_use 保持时间序。
- * 仅当存在有效内容（思考/文本/工具调用/llmStats）时返回非 null。
+ * 仅当存在有效内容（思考/文本/工具调用）时返回非 null。
+ * （llmStats 不再随消息落库：B1 llm_usage 唯一源，llm_stats 由读取层组装）
  */
 export function buildCurrentMessage(acc: ChildConvAccumulator, now: number): Message | null {
     const blocks: ContentBlock[] = []
@@ -124,7 +125,6 @@ export function buildCurrentMessage(acc: ChildConvAccumulator, now: number): Mes
     }
     if (toolCalls.length > 0) msg.toolCalls = toolCalls
     if (blocks.length > 0) msg.contentBlocks = blocks
-    if (acc.llmStats.length > 0) msg.llmStats = [...acc.llmStats]
     return msg
 }
 
@@ -202,8 +202,9 @@ export function handleChildEvent(acc: ChildConvAccumulator, event: AgentStreamEv
             acc.llmStats.push({
                 inputTokens: event.inputTokens,
                 outputTokens: event.outputTokens,
-                provider: event.provider,
+                provider: event.providerType,   // 精确服务商类型（替代脏的 event.provider）
                 model: event.model,
+                providerName: event.providerName,   // providers 表服务商名（人类可读）
                 duration: event.duration,
                 cacheReadTokens: event.cacheReadTokens,
                 cacheWriteTokens: event.cacheWriteTokens,
@@ -269,7 +270,6 @@ export function flushAccumulatorMessage(
             content: acc.textContent || (acc.hasError ? `执行失败: ${acc.errorMsg}` : '(无输出)'),
             timestamp: now,
         }
-        if (acc.llmStats.length > 0) msg.llmStats = [...acc.llmStats]
     }
 
     if (!msg) return

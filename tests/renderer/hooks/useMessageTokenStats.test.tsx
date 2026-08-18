@@ -58,6 +58,8 @@ describe('useMessageTokenStats', () => {
             currentInputTokens: 0,
             currentOutputTokens: 0,
             currentCacheReadTokens: 0,
+            currentDecodeMs: 0,
+            currentHasTtft: false,
         })
     })
 
@@ -86,6 +88,9 @@ describe('useMessageTokenStats', () => {
         expect(result.current.currentInputTokens).toBe(20)
         expect(result.current.currentOutputTokens).toBe(5)
         expect(result.current.currentCacheReadTokens).toBe(2)
+        // 末次时序 = 最后一条 llmStats 的时序字段
+        expect(result.current.currentDecodeMs).toBe(100)
+        expect(result.current.currentHasTtft).toBe(false)
     })
 
     it('单条消息多条 llmStats：请求数累加，当前值取最后一条统计', () => {
@@ -149,6 +154,42 @@ describe('useMessageTokenStats', () => {
         expect(result.current.totalDecodeMs).toBe(0)
         expect(result.current.ttftCount).toBe(1)
         expect(result.current.totalTtftMs).toBe(0)
+    })
+
+    it('末次时序字段：最后一条 llmStats 的 decodeMs/ttftMs/ttft 存在性', () => {
+        setLoadedMessages([
+            makeMessage({
+                llmStats: [
+                    {inputTokens: 10, outputTokens: 1, provider: 'p', model: 'm', duration: 100, decodeMs: 50, ttftMs: 300},
+                ],
+            }),
+            makeMessage({
+                llmStats: [
+                    {inputTokens: 30, outputTokens: 3, provider: 'p', model: 'm', duration: 200, decodeMs: 120, ttftMs: 400},
+                ],
+            }),
+        ])
+        const {result} = renderHook(() => useMessageTokenStats())
+        // 末次请求 = 最后一条 llmStats（第二条消息）
+        expect(result.current.currentDecodeMs).toBe(120)
+        expect(result.current.currentHasTtft).toBe(true)
+        // 累计不受影响
+        expect(result.current.totalDecodeMs).toBe(170)
+        expect(result.current.totalTtftMs).toBe(700)
+        expect(result.current.ttftCount).toBe(2)
+    })
+
+    it('末次请求无 ttftMs：currentHasTtft 为 false', () => {
+        setLoadedMessages([
+            makeMessage({
+                llmStats: [
+                    {inputTokens: 5, outputTokens: 2, provider: 'p', model: 'm', duration: 0, decodeMs: 30},
+                ],
+            }),
+        ])
+        const {result} = renderHook(() => useMessageTokenStats())
+        expect(result.current.currentDecodeMs).toBe(30)
+        expect(result.current.currentHasTtft).toBe(false)
     })
 
     it('toolCalls 计数累计（仅统计 assistant 消息）', () => {

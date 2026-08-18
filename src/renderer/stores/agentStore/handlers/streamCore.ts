@@ -57,7 +57,8 @@ export function handleAgentStart(ctx: StreamCtx) {
 
     // ── 记录当前模型信息（用于输入框底部展示） ──
     const modelName = event.model
-    const provider = event.provider
+    // ★ 优先使用服务商名称（providers.name，人类可读），旧事件无该字段时回退 api 类型
+    const provider = event.providerName ?? event.provider
     if (modelName) {
         set((prev: any) => ({
             agentState: {...prev.agentState, currentModelName: modelName, currentModelProvider: provider},

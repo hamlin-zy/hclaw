@@ -370,6 +370,7 @@ export async function* executeLlmCallWithRetry(
                 currentModel,
                 currentConfigSource,
                 currentSchemeName,
+                providerName: modelConfig._providerName || currentProvider,
                 ...(timing === null ? {} : timing),
             }
         } catch (error: any) {

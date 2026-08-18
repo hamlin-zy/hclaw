@@ -8,8 +8,10 @@
 import {useCallback, useEffect, useState} from 'react'
 import {LogsModal} from './LogsModal'
 import {type LlmCallLog} from '@shared/types'
+import {useThemeSync} from '../lib/theme'
 
 export default function LlmLogsWindow() {
+    useThemeSync()
     const [logs, setLogs] = useState<LlmCallLog[]>([])
     const [selectedLogId, setSelectedLogId] = useState<string | null>(null)
     const [enabled, setEnabled] = useState(false)

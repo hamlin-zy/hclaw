@@ -411,6 +411,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getLlmLogEnabled: () => ipcRenderer.invoke('llm-log:enabled'),
     toggleLlmLog: (enabled: boolean) => ipcRenderer.invoke('llm-log:toggle', enabled),
 
+    // 全局用量统计窗口
+    openUsageStatsWindow: () => ipcRenderer.invoke('open-usage-stats-window'),
+    usageStatsQuery: (params: {range: string; view: string}) =>
+        ipcRenderer.invoke('usage-stats:query', params),
+    usageWindowMinimize: () => ipcRenderer.invoke('usage-window:minimize'),
+    usageWindowMaximize: () => ipcRenderer.invoke('usage-window:maximize'),
+    usageWindowClose: () => ipcRenderer.invoke('usage-window:close'),
+    usageWindowIsMaximized: () => ipcRenderer.invoke('usage-window:is-maximized'),
+    onUsageWindowMaximizedChange: (callback: (isMaximized: boolean) => void) => {
+        const handler = (_: unknown, isMaximized: boolean) => callback(isMaximized)
+        ipcRenderer.on('usage-window-maximized-changed', handler)
+        return () => ipcRenderer.removeListener('usage-window-maximized-changed', handler)
+    },
+
     // Permission rules management
     agentGetPermissionRules: () => ipcRenderer.invoke('agent-get-permission-rules'),
     agentCleanPermissionRules: () => ipcRenderer.invoke('agent-clean-permission-rules'),
@@ -447,8 +461,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('settings-update', settings),
 
     // Window theme management
-    setWindowTheme: (theme: 'light' | 'dark') =>
+    setWindowTheme: (theme: string) =>
         ipcRenderer.invoke('set-window-theme', theme),
+    onThemeChanged: (callback: (theme: string) => void) => {
+        const handler = (_e: unknown, theme: string) => callback(theme)
+        ipcRenderer.on('theme-changed', handler)
+        return () => { ipcRenderer.removeListener('theme-changed', handler) }
+    },
 
     // Google OAuth2 认证
     authGoogleLogin: () => ipcRenderer.invoke('auth-google-login'),

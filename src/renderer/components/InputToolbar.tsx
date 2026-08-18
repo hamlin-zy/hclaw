@@ -38,35 +38,39 @@ export default function InputToolbar({
     onOpenDialog,
     onOpenCommandPalette,
 }: InputToolbarProps) {
+    // 运行态模型提示：{服务商名称}/{模型名称}（provider 缺失时仅显示模型名）
+    const runningModelLabel = agentState.currentModelProvider
+        ? `${agentState.currentModelProvider}/${agentState.currentModelName}`
+        : agentState.currentModelName
     return (
         <div data-name="input-toolbar" className="flex items-center justify-between px-2 py-1 border-t border-[var(--border)]" role="status" aria-live="polite">
-            <div data-name="input-toolbar-status" className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+            <div data-name="input-toolbar-status" className="flex items-center gap-2 text-xs text-[var(--text-muted)] flex-1 min-w-0">
                 {isRunning ? (
-                    <span className="flex items-center gap-1 text-[var(--info)]">
+                    <span className="flex items-center gap-1 text-[var(--info)] min-w-0">
                         <StatusDot color="var(--info)"/>
-                        {agentState.currentModelName}{agentState.currentModelProvider ? `（${agentState.currentModelProvider.toLowerCase()}）` : ''} 运行中...
+                        <span className="truncate min-w-0">{runningModelLabel} 运行中...</span>
                     </span>
                 ) : compactInProgress ? (
-                    <span className="flex items-center gap-1 text-[var(--warning)]">
+                    <span className="flex items-center gap-1 text-[var(--warning)] min-w-0">
                         <StatusDot color="var(--warning)"/>
-                        正在压缩上下文以节省 token...
+                        <span className="truncate min-w-0">正在压缩上下文以节省 token...</span>
                     </span>
                 ) : needsSession ? (
-                    <span>请先选择工作目录和会话</span>
+                    <span className="truncate min-w-0">请先选择工作目录和会话</span>
                 ) : needsModel ? (
-                    <span>请先在右上角选择 LLM 服务商</span>
+                    <span className="truncate min-w-0">请先在右上角选择 LLM 服务商</span>
                 ) : (
-                    <span>按 Shift+Enter 换行，Enter 发送</span>
+                    <span className="truncate min-w-0">按 Shift+Enter 换行，Enter 发送</span>
                 )}
                 {pendingMessagesCount > 0 && (
-                    <span className="text-[var(--warning)] flex items-center gap-1">
+                    <span className="text-[var(--warning)] flex items-center gap-1 shrink-0 whitespace-nowrap">
                         <StatusDot color="var(--warning)"/>
                         {pendingMessagesCount} 条消息待处理
                     </span>
                 )}
             </div>
 
-            <div data-name="input-toolbar-actions" className="flex items-center gap-1">
+            <div data-name="input-toolbar-actions" className="flex items-center gap-1 shrink-0">
                 {/* 缓存命中率 + 窗口占用 + 平均吞吐 */}
                 <CacheRateTooltip/>
 

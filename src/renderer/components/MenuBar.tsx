@@ -182,6 +182,15 @@ const menuItems: { type: string | null; icon: JSX.Element; label: string }[] = [
             <line x1="16" y1="17" x2="8" y2="17"/>
         </svg>
     },
+    {
+        type: 'usage-stats',
+        label: '用量',
+        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+        </svg>
+    },
     {type: null, icon: <div className="w-px h-3.5 bg-[var(--border)]" aria-hidden="true"/>, label: ''},
     {
         type: 'about',
@@ -308,6 +317,8 @@ export default function MenuBar() {
     const handleItemClick = (type: string, e?: React.MouseEvent) => {
         if (type === 'llm-call-logs') {
             window.electronAPI?.openLlmLogsWindow?.()
+        } else if (type === 'usage-stats') {
+            window.electronAPI?.openUsageStatsWindow?.()
         } else {
             // 捕获按钮位置用于弹窗锚点展开动画
             const rect = e?.currentTarget?.getBoundingClientRect()

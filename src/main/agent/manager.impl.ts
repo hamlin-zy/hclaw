@@ -36,6 +36,7 @@ import {
 } from './manager.constants'
 import {createPendingMsg, normalizeToolResult, finalizePending, appendCappedPart} from './manager.accumulator'
 import {createForwardPayload} from './manager.streamForward'
+import {recordLlmUsageEvent} from '../usageWrite'
 
 import {loadPluginAgents} from './manager.pluginAgents'
 import {createConversationRepository} from '../repositories'
@@ -431,7 +432,7 @@ export class AgentManager {
     // 使渲染进程复用同一 ID，避免两个路径使用不同 ID 写入 DB 导致重复
     const pending = this.pendingAssistantMsg.get(conversationId)
     if (pending?.id) {
-      ;(event as Record<string, unknown>).messageId = pending.id
+      ;(event as {messageId?: string}).messageId = pending.id
     }
 
     // settings-updated 事件：直接发送到渲染进程
@@ -454,9 +455,12 @@ export class AgentManager {
 
     // llm_call_done 事件
     if (event.type === 'llm_call_done') {
-      this.logLlmCall(event as Extract<AgentStreamEvent, {type: 'llm_call_done'}>)
-    } else if (event.type === 'subagent_progress' && (event as {subAgentStreamEvent?: AgentStreamEvent}).subAgentStreamEvent?.type === 'llm_call_done') {
-      this.logLlmCall((event as {subAgentStreamEvent: AgentStreamEvent}).subAgentStreamEvent as Extract<AgentStreamEvent, {type: 'llm_call_done'}>)
+      this.logLlmCall(event)
+      recordLlmUsageEvent(conversationId, event)
+    } else if (event.type === 'subagent_progress') {
+      // 该分支仅 JSONL 日志（logLlmCall），不写 llm_usage：内联子 Agent 的用量由路径 2 在 worker 内记录
+      const subEvent = event.subAgentStreamEvent
+      if (subEvent?.type === 'llm_call_done') this.logLlmCall(subEvent)
     }
 
     // done 事件
