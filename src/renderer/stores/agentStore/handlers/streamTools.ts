@@ -289,7 +289,13 @@ export function handleToolDenied(ctx: StreamCtx) {
     const msg = convMsgs.find(m => m.id === msgId)
     if (!msg?.toolCalls) return
 
-    const errorResult = {output: '', error: event.reason || '权限被拒绝'}
+    const deniedReason = `[PERMISSION_DENIED] ${event.reason || '权限被拒绝'}`
+    const errorResult = {
+        output: '',
+        error: deniedReason,
+        // 与 loop 内存态 createToolResultMessage 失败格式逐字节一致（含 [ERROR] 前缀）
+        toolResult: `[ERROR] ${deniedReason}`,
+    }
     const updatedToolCalls = msg.toolCalls.map(tc =>
         tc.id === event.toolCallId ? {...tc, status: 'error' as const, result: errorResult} : tc,
     )

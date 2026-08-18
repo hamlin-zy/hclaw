@@ -16,6 +16,7 @@ export function createDefaultConvData(): ConvAgentData {
         agentState: {...IDLE_STATE, currentModelName: undefined, currentModelProvider: undefined},
         streamBuffer: '',
         thinkingContent: null,
+        currentTurnIndex: undefined,
         streamBlocks: [],
         streamingMessageId: null,
         isThinkingAfterTools: false,

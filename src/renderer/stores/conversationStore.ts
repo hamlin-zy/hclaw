@@ -213,6 +213,7 @@ export function recordTextBlock(convId: string, msgId: string, incrementalText: 
         upsertBlocks: [{
             id: `text-${msgId}-${textSeq}`, messageId: msgId, blockType: 'text',
             content: incrementalText, data: null, sequence: 0, timestamp: Date.now(),
+            turnIndex: agentState?.currentTurnIndex,
         }],
     })
 }
@@ -221,10 +222,12 @@ export function recordTextBlock(convId: string, msgId: string, incrementalText: 
 export function recordThinkBlock(convId: string, msgId: string, id: string, content: string, status: 'thinking' | 'complete', startOffset: number): void {
     if (isChildConversation(convId)) return
     const timestamp = Date.now()
+    const agentState = useAgentStore.getState().convAgentStates[convId]
     accumulateBlockDelta(convId, msgId, {
         upsertBlocks: [{
             id, messageId: msgId, blockType: 'think',
             content, data: JSON.stringify({id, content, status, timestamp}), sequence: 0, timestamp,
+            turnIndex: agentState?.currentTurnIndex,
         }],
     })
 }
@@ -234,11 +237,13 @@ export function recordThinkBlock(convId: string, msgId: string, id: string, cont
 export function recordToolCallBlock(convId: string, msgId: string, tc: ToolCall): void {
     if (isChildConversation(convId)) return
     const {result: _result, ...persistable} = tc
+    const agentState = useAgentStore.getState().convAgentStates[convId]
     accumulateBlockDelta(convId, msgId, {
         upsertBlocks: [{
             id: `${msgId}-tc-${tc.id}`, messageId: msgId, blockType: 'tool_call',
             content: null, sequence: 0, timestamp: Date.now(),
             data: JSON.stringify(persistable),
+            turnIndex: agentState?.currentTurnIndex,
         }],
     })
 }
@@ -248,11 +253,13 @@ export function recordToolResultBlock(convId: string, msgId: string, tc: ToolCal
     if (isChildConversation(convId)) return
     if (tc.result === undefined) return
     const timestamp = Date.now()
+    const agentState = useAgentStore.getState().convAgentStates[convId]
     accumulateBlockDelta(convId, msgId, {
         upsertBlocks: [{
             id: `${msgId}-tr-${tc.id}`, messageId: msgId, blockType: 'tool_result',
             content: null, sequence: 0, timestamp,
             data: JSON.stringify({id: tc.id, result: tc.result}),
+            turnIndex: agentState?.currentTurnIndex,
         }],
     })
 }
@@ -574,6 +581,11 @@ async function switchActiveConversation(id: string | null) {
         }
         // 同步该会话的 agent 状态（确保输入框和按钮状态正确）
         const agentStore = useAgentStore.getState()
+        // ★ 渲染端补全（运行中会话）：切回时 DB/内存快照的 contentBlocks 滞后于流式进度
+        //   （非活跃期间 contentBlocks 冻结不重建；块级落库惰性使 DB 只有已 flush 的 think 块，
+        //   text/tool 块仍滞留 dirty 队列）→ 用 agentStore 的 streamBlocks/streamBuffer 重建
+        //   完整 contentBlocks，修复"切回运行中会话只渲染 thinking、无正文/工具调用"。
+        agentStore.reconcileStreamingContent?.(id)
         agentStore.updateConvData(id, agentStore.convAgentStates[id] ?? DEFAULT_AGENT_STATE)
     } else {
         useConversationStore.setState({ activeConversationId: null, loadedMessages: [] })

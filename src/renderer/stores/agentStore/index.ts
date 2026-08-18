@@ -30,7 +30,7 @@ import {flushAllThinkingBatches} from './batching/thinkingBatch'
 import {flushToolResultBatch, getToolResultBatchMap} from './batching/toolResultBatch'
 import {saveHmrContext, restoreFromHmr} from './helpers/hmrPersistence'
 import {syncConvToTopLevel} from './helpers/convHelpers'
-import {updateMessageContentBlocks} from './contentBlocks'
+import {updateMessageContentBlocks, reconcileStreamingContent} from './contentBlocks'
 import {startAgentImpl} from './handlers/startAgent'
 import {abortAgentImpl} from './handlers/abortAgent'
 import {handleStreamEventImpl} from './handlers/streamEvents'
@@ -280,9 +280,13 @@ export const useAgentStore = create<AgentStore>()(
             },
 
             // ── ContentBlocks 重建 ──────────────────────────────
-            updateMessageContentBlocks: (convId) => {
-                return updateMessageContentBlocks(convId)
-            },
+            updateMessageContentBlocks,
+
+            // ── 运行中会话切换补全 ──────────────────────────────
+            // 切回后台运行中的会话时，DB 快照的 contentBlocks 滞后于流式进度
+            // （非活跃期间冻结 + 块级落库惰性），用 agentStore 流式数据重建完整
+            // contentBlocks（见 contentBlocks.reconcileStreamingContent 注释）。
+            reconcileStreamingContent,
 
             // ── 刷新待处理批数据 ──────────────────────────────
             flushPendingStreamData: () => {

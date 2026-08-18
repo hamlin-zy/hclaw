@@ -58,6 +58,7 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
                 data: JSON.stringify(cb.thinkBlock),
                 sequence: sequence++,
                 timestamp: cb.thinkBlock.timestamp || baseTimestamp,
+                turnIndex: cb.turnIndex,
               })
             }
             break
@@ -71,12 +72,13 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
                 data: null,
                 sequence: sequence++,
                 timestamp: baseTimestamp,
+                turnIndex: cb.turnIndex,
               })
             }
             break
           case 'tool_use':
             if (cb.toolCall) {
-              blocks.push(toolCallToBlock(cb.toolCall, msg.id, sequence++, baseTimestamp))
+              blocks.push(toolCallToBlock(cb.toolCall, msg.id, sequence++, baseTimestamp, cb.turnIndex))
               if (cb.toolCall.result !== undefined) {
                 blocks.push({
                   id: `${msg.id}-tr-${cb.toolCall.id}`,
@@ -86,6 +88,7 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
                   data: JSON.stringify({ id: cb.toolCall.id, result: cb.toolCall.result }),
                   sequence: sequence++,
                   timestamp: baseTimestamp,
+                  turnIndex: cb.turnIndex,
                 })
               }
             }
@@ -196,7 +199,7 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
   return { messages: [messageRecord], blocks }
 }
 
-function toolCallToBlock(tc: ToolCall, messageId: string, seq: number, baseTimestamp: number): MessageBlock {
+function toolCallToBlock(tc: ToolCall, messageId: string, seq: number, baseTimestamp: number, turnIndex?: number): MessageBlock {
   return {
     id: `${messageId}-tc-${tc.id}`,
     messageId,
@@ -221,6 +224,7 @@ function toolCallToBlock(tc: ToolCall, messageId: string, seq: number, baseTimes
     }),
     sequence: seq,
     timestamp: tc.textOffset !== undefined ? baseTimestamp + tc.textOffset : baseTimestamp,
+    turnIndex,
   }
 }
 
@@ -251,11 +255,12 @@ export function blocksToMessage(messageRecord: Message, blocks: MessageBlock[]):
             id: block.id,
             type: 'think',
             thinkBlock: tb,
+            turnIndex: block.turnIndex,
           })
         }
         break
       case 'text':
-          if (block.content !== null && block.content !== undefined) {
+        if (block.content !== null && block.content !== undefined) {
           // 扁平字段后向兼容：拼接所有 text block 为完整文本
           content = content ? content + block.content : block.content
           // 只有非空文本才加入 contentBlocks，
@@ -265,6 +270,7 @@ export function blocksToMessage(messageRecord: Message, blocks: MessageBlock[]):
               id: block.id,
               type: 'text',
               text: block.content,
+              turnIndex: block.turnIndex,
             })
           }
         }
@@ -277,6 +283,7 @@ export function blocksToMessage(messageRecord: Message, blocks: MessageBlock[]):
             id: block.id,
             type: 'tool_use',
             toolCall: tc,
+            turnIndex: block.turnIndex,
           })
         }
         break
@@ -294,21 +301,29 @@ export function blocksToMessage(messageRecord: Message, blocks: MessageBlock[]):
             lastTc.result = result
           }
         }
-          break
-        case 'media':
-            if (block.data) {
-                const mediaBlock: import('../../../shared/types').MediaBlock = JSON.parse(block.data)
-                contentBlocks.push({
-                    id: block.id,
-                    type: 'media',
-                    media: mediaBlock,
-                })
-            }
+        break
+      case 'media':
+        if (block.data) {
+          const mediaBlock: import('../../../shared/types').MediaBlock = JSON.parse(block.data)
+          contentBlocks.push({
+            id: block.id,
+            type: 'media',
+            media: mediaBlock,
+          })
+        }
         break
       case 'end':
         if (block.data) {
           const { endedAt: ea } = JSON.parse(block.data)
           endedAt = ea
+          // end 块纳入 contentBlocks 有序流：保留块级时间序（收尾哨兵）。
+          // historyConverter 重建时会显式跳过它；仅当 textOffset 重排发生时
+          // 被移到末尾（end 语义恒为消息收尾，位置必须在所有内容块之后）。
+          contentBlocks.push({
+            id: block.id,
+            type: 'end',
+            endedAt: ea,
+          })
         }
         break
     }
@@ -330,12 +345,15 @@ export function blocksToMessage(messageRecord: Message, blocks: MessageBlock[]):
       cb => cb.type === 'tool_use' && (cb.toolCall?.textOffset ?? 0) > 0
     )
     if (hasTextOffset) {
-      // 收集非 text/tool_use 块（think, media 等）
+      // 收集非 text/tool_use 块（think, media 等）；end 块单独保留（收尾哨兵，
+      // 重排后追加到末尾——end 语义恒为消息收尾，位置必须在所有内容块之后）
       const prefix: typeof contentBlocks = []
       const tools: typeof contentBlocks = []
+      const endBlocks: typeof contentBlocks = []
       for (const cb of contentBlocks) {
         if (cb.type === 'think' || cb.type === 'media') prefix.push(cb)
         else if (cb.type === 'tool_use') tools.push(cb)
+        else if (cb.type === 'end') endBlocks.push(cb)
       }
 
       const sortedTools = [...tools].sort(
@@ -350,6 +368,8 @@ export function blocksToMessage(messageRecord: Message, blocks: MessageBlock[]):
           rebuilt.push(seg.item)
         }
       }
+      // end 恒在最后（若有）
+      rebuilt.push(...endBlocks)
 
       contentBlocks.length = 0
       contentBlocks.push(...rebuilt)

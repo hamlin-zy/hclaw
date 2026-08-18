@@ -67,7 +67,7 @@ beforeEach(() => {
     )`)
     db.exec(`CREATE TABLE IF NOT EXISTS message_blocks (
         id TEXT PRIMARY KEY, message_id TEXT NOT NULL, block_type TEXT NOT NULL,
-        content TEXT, data TEXT, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, ended_at INTEGER
+        content TEXT, data TEXT, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, ended_at INTEGER, turn_index INTEGER
     )`)
 })
 

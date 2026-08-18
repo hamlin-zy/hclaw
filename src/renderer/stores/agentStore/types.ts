@@ -41,6 +41,8 @@ export interface ConvAgentData {
     agentState: AgentState
     streamBuffer: string
     thinkingContent: string | null
+    /** 当前 LLM 调用轮次序号（agent_start 事件到达时递增；方案 2：落库 turnIndex 溯源） */
+    currentTurnIndex?: number
     /** 跟踪流式过程中的时间序内容块（仅流式期间存在，done 时重建为 contentBlocks） */
     streamBlocks: Array<{
         type: 'think' | 'tool_use'
@@ -212,6 +214,11 @@ export interface AgentStore {
 
     /** 在流式过程中从 streamBlocks 构建 contentBlocks，保持正确的交织渲染顺序 */
     updateMessageContentBlocks: (convId?: string) => void
+
+    /** 运行中会话切换/加载后的渲染端补全：用 agentStore 流式数据重建完整
+     *  contentBlocks，覆盖 DB 半成品快照（非活跃期间 contentBlocks 冻结 +
+     *  块级落库惰性导致切回时只渲染 thinking） */
+    reconcileStreamingContent: (convId: string) => void
 
     /** 刷新所有待处理的流式数据批次（文本 + 工具结果），切换会话前调用 */
     flushPendingStreamData: () => void

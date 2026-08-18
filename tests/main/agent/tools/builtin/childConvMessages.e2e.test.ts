@@ -100,7 +100,7 @@ beforeEach(() => {
     )`)
     db.exec(`CREATE TABLE IF NOT EXISTS message_blocks (
         id TEXT PRIMARY KEY, message_id TEXT NOT NULL, block_type TEXT NOT NULL,
-        content TEXT, data TEXT, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, ended_at INTEGER
+        content TEXT, data TEXT, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, ended_at INTEGER, turn_index INTEGER
     )`)
     repo.create(CONV_ID, {
         id: CONV_ID,
@@ -142,13 +142,15 @@ describe('子会话完整执行过程持久化（端到端 — 单条消息模�
         expect(assistant.content).toBe('最终回答：找到 1 处匹配')
         expect(assistant.endedAt).toBeDefined()
 
-        // contentBlocks 保留完整时序：think → tool_use → text
+        // contentBlocks 保留完整时序：think → tool_use → text → end（end 为收尾哨兵块）
         const types = assistant.contentBlocks!.map(b => b.type)
-        expect(types).toEqual(['think', 'tool_use', 'text'])
+        expect(types).toEqual(['think', 'tool_use', 'text', 'end'])
         expect(assistant.contentBlocks![0].thinkBlock?.content).toBe('分析任务')
         expect(assistant.contentBlocks![1].toolCall?.name).toBe('grep')
         expect(assistant.contentBlocks![1].toolCall?.result?.output).toBe('match1')
         expect(assistant.contentBlocks![2].text).toBe('最终回答：找到 1 处匹配')
+        expect(assistant.contentBlocks![3].type).toBe('end')
+        expect(assistant.contentBlocks![3].endedAt).toBe(assistant.endedAt)
     })
 
     it('多轮：全部累积到同一条消息，无重复气泡', () => {
@@ -170,9 +172,9 @@ describe('子会话完整执行过程持久化（端到端 — 单条消息模�
         expect(msgs).toHaveLength(2) // user + 1 条 assistant（多轮合并）
         const assistant = msgs[1]
         expect(assistant.content).toBe('目录中有两个文件完成') // 全文拼接（text 事件序）
-        // 时间序：think(轮1) → tool_use(轮1) → text(轮2) → think(轮3) → tool_use(轮3) → text(轮3)
+        // 时间序：think(轮1) → tool_use(轮1) → text(轮2) → think(轮3) → tool_use(轮3) → text(轮3) → end
         const types = assistant.contentBlocks!.map(b => b.type)
-        expect(types).toEqual(['think', 'tool_use', 'text', 'think', 'tool_use', 'text'])
+        expect(types).toEqual(['think', 'tool_use', 'text', 'think', 'tool_use', 'text', 'end'])
         // 两个工具调用都在同一条消息
         expect(assistant.toolCalls).toHaveLength(2)
         expect(assistant.contentBlocks!.filter(b => b.type === 'tool_use').every(b => b.toolCall?.result)).toBe(true)
@@ -204,7 +206,7 @@ describe('子会话完整执行过程持久化（端到端 — 单条消息模�
         const msgs = repo.readMessages(CONV_ID)
         expect(msgs).toHaveLength(2)
         const assistant = msgs[1]
-        expect(assistant.contentBlocks!.map(b => b.type)).toEqual(['think', 'text'])
+        expect(assistant.contentBlocks!.map(b => b.type)).toEqual(['think', 'text', 'end'])
         expect(assistant.content).toBe('直接回答结果')
     })
 
