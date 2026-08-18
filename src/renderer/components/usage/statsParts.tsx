@@ -54,3 +54,31 @@ export function ClientStatsNotice({centered = false}: {centered?: boolean}) {
         </div>
     )
 }
+
+/**
+ * 预估成本口径说明（价格差异提示）
+ * 成本按 OpenRouter 美元单价估算，与官方定价存在差异（缓存命中单价差异尤其显著），
+ * 所有显示预估价格的场景统一引用此文案。
+ */
+export const COST_DISCLAIMER =
+    '成本按 OpenRouter 美元单价估算，可能与您使用的服务商价格存在差异；人民币按固定汇率 7.2 折算，实际费用请以服务商账单为准。'
+
+/** 信息提示（圆圈问号 + hover tooltip），placement 控制展开方向（受限容器内用 top 向上展开） */
+export function InfoTip({text, placement = 'bottom'}: {text: string; placement?: 'bottom' | 'top'}) {
+    // 默认在触发点下方展开（top-full），top 模式改为上方展开（bottom-full）
+    const positionClass = placement === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+    return (
+        <div className="relative group shrink-0">
+            <span
+                role="img"
+                aria-label="成本口径说明"
+                className="w-4 h-4 rounded-full border border-[var(--border-emphasis)] text-[var(--text-muted)] flex items-center justify-center text-[10px] leading-none cursor-help select-none group-hover:text-[var(--text-secondary)] group-hover:border-[var(--text-secondary)] transition-colors"
+            >
+                ?
+            </span>
+            <div className={`absolute right-0 ${positionClass} w-72 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] shadow-elevated px-3 py-2.5 text-[11px] leading-relaxed text-[var(--text-secondary)] opacity-0 pointer-events-none translate-y-0.5 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-150 z-50`}>
+                {text}
+            </div>
+        </div>
+    )
+}
