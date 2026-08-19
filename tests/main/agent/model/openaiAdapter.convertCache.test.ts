@@ -16,8 +16,14 @@ function makeTool(id: string, result: string): ChatMessage {
   return {role: 'tool', toolCallId: id, content: result, toolResult: result}
 }
 
-function createAdapter(): OpenAIAdapter {
-  return new OpenAIAdapter({apiKey: 'test', model: 'gpt-4o', provider: 'openai', baseUrl: ''} as any)
+function createAdapter(config?: {features?: {supportsExplicitCaching?: boolean}}): OpenAIAdapter {
+  return new OpenAIAdapter({
+    apiKey: 'test',
+    model: 'gpt-4o',
+    provider: 'openai',
+    baseUrl: '',
+    features: config?.features,
+  } as any)
 }
 
 describe('OpenAIAdapter convertMessages 增量缓存', () => {
@@ -46,5 +52,69 @@ describe('OpenAIAdapter convertMessages 增量缓存', () => {
     const s: ChatMessage[] = [makeUser('hi')]
     const r1 = adapter.convertMessagesForTest(s)
     expect(r1).toEqual(adapter.convertMessagesForTestFull(s))
+  })
+})
+
+describe('OpenAIAdapter cache_control 显式缓存支持', () => {
+  it('supportsExplicitCaching=true 时 system 消息添加 cache_control', () => {
+    const adapter = createAdapter({features: {supportsExplicitCaching: true}})
+    const messages: ChatMessage[] = [
+      {role: 'system', content: 'system prompt'},
+      makeUser('hi'),
+    ]
+    const result = adapter.convertMessagesForTestFull(messages)
+    const systemMsg = result.find(m => m.role === 'system')
+    expect(systemMsg).toBeDefined()
+    expect((systemMsg as any).cache_control).toEqual({type: 'ephemeral'})
+  })
+
+  it('supportsExplicitCaching=false 时 system 消息不添加 cache_control', () => {
+    const adapter = createAdapter({features: {supportsExplicitCaching: false}})
+    const messages: ChatMessage[] = [
+      {role: 'system', content: 'system prompt'},
+      makeUser('hi'),
+    ]
+    const result = adapter.convertMessagesForTestFull(messages)
+    const systemMsg = result.find(m => m.role === 'system')
+    expect(systemMsg).toBeDefined()
+    expect((systemMsg as any).cache_control).toBeUndefined()
+  })
+
+  it('无 features 时 system 消息不添加 cache_control', () => {
+    const adapter = createAdapter({features: undefined})
+    const messages: ChatMessage[] = [
+      {role: 'system', content: 'system prompt'},
+      makeUser('hi'),
+    ]
+    const result = adapter.convertMessagesForTestFull(messages)
+    const systemMsg = result.find(m => m.role === 'system')
+    expect(systemMsg).toBeDefined()
+    expect((systemMsg as any).cache_control).toBeUndefined()
+  })
+
+  it('历史 system 消息也添加 cache_control', () => {
+    const adapter = createAdapter({features: {supportsExplicitCaching: true}})
+    const messages: ChatMessage[] = [
+      {role: 'system', content: 'system prompt'},
+      makeUser('hi'),
+    ]
+    const result = adapter.convertMessagesForTestFull(messages)
+    const systemMsg = result.find(m => m.role === 'system')
+    expect(systemMsg).toBeDefined()
+    expect((systemMsg as any).cache_control).toEqual({type: 'ephemeral'})
+  })
+
+  it('convertOneMessage 也为 system 消息添加 cache_control', () => {
+    const adapter = createAdapter({features: {supportsExplicitCaching: true}})
+    const systemMsg: ChatMessage = {role: 'system', content: 'system prompt'}
+    const result = (adapter as any).convertOneMessage(systemMsg)
+    expect(result.cache_control).toEqual({type: 'ephemeral'})
+  })
+
+  it('convertOneMessage 不为非 system 消息添加 cache_control', () => {
+    const adapter = createAdapter({features: {supportsExplicitCaching: true}})
+    const userMsg: ChatMessage = {role: 'user', content: 'hello'}
+    const result = (adapter as any).convertOneMessage(userMsg)
+    expect(result.cache_control).toBeUndefined()
   })
 })

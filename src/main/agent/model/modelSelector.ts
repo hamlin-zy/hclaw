@@ -156,6 +156,8 @@ export function resolveModelConfig(
         _providerName: provider.name || provider.id,
         // 透传服务商 API 协议形态（chat / responses），适配器按此分派
         apiStyle: provider.apiStyle || 'chat',
+        // 透传服务商扩展特性（如显式缓存支持）
+        features: provider.features,
     }
 
     // 同步推理强度

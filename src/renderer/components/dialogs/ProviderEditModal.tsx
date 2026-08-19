@@ -387,6 +387,10 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
     if (!name.trim()) return
     setSaving(true)
     try {
+      // 从预设获取 supportsExplicitCaching（用于显式提示词缓存）
+      const preset = recognizeProvider(baseUrl)
+      const supportsExplicitCaching = preset?.supportsExplicitCaching ?? false
+
       const data: any = {
         name: name.trim(),
         type: providerType,
@@ -394,7 +398,10 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
         apiStyle,
         email: email,
         baseUrl: providerType === 'google' ? GOOGLE_BASE_URL : (baseUrl.trim() || undefined),
-        features: providerType === 'anthropic' ? { systemContentBlocks: useSystemArray } : undefined,
+        features: {
+          ...(providerType === 'anthropic' ? { systemContentBlocks: useSystemArray } : {}),
+          ...(supportsExplicitCaching ? { supportsExplicitCaching: true } : {}),
+        },
         credentials: authType === 'google-oauth2' && oauthTokens ? {
           accessToken: oauthTokens.accessToken,
           refreshToken: oauthTokens.refreshToken,

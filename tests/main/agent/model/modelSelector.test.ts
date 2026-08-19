@@ -270,6 +270,45 @@ describe('resolveModelConfig', () => {
         expect(result!.apiKey).toBe('sk-abc')
         expect(mockGetById).not.toHaveBeenCalled()
     })
+
+    it('透传 features.supportsExplicitCaching 到 ModelConfig', () => {
+        const providers = [makeProvider({
+            id: 'prov-openrouter',
+            name: 'OpenRouter',
+            type: 'openai',
+            features: {supportsExplicitCaching: true},
+            models: [{id: 'model-or', name: 'openrouter-model', enabled: true}],
+        })]
+        const result = resolveModelConfig({endpointId: 'prov-openrouter', modelId: 'model-or', enabled: true}, providers)
+        expect(result).not.toBeNull()
+        expect(result!.features).toEqual({supportsExplicitCaching: true})
+    })
+
+    it('features 为 undefined 时 ModelConfig.features 为 undefined', () => {
+        const providers = [makeProvider({
+            id: 'prov-no-features',
+            name: 'No Features',
+            type: 'openai',
+            features: undefined,
+            models: [{id: 'model-nf', name: 'no-features-model', enabled: true}],
+        })]
+        const result = resolveModelConfig({endpointId: 'prov-no-features', modelId: 'model-nf', enabled: true}, providers)
+        expect(result).not.toBeNull()
+        expect(result!.features).toBeUndefined()
+    })
+
+    it('features 为空对象时 ModelConfig.features 为空对象', () => {
+        const providers = [makeProvider({
+            id: 'prov-empty-features',
+            name: 'Empty Features',
+            type: 'openai',
+            features: {},
+            models: [{id: 'model-ef', name: 'empty-features-model', enabled: true}],
+        })]
+        const result = resolveModelConfig({endpointId: 'prov-empty-features', modelId: 'model-ef', enabled: true}, providers)
+        expect(result).not.toBeNull()
+        expect(result!.features).toEqual({})
+    })
 })
 
 // ─── getExecutionModelConfig / shouldEnterPlanMode / selectModelForAgentType ──

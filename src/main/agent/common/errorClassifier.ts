@@ -401,7 +401,10 @@ function getRetryAfterForStatus(status: number): number {
 /**
  * 根据错误码分类
  */
-function classifyByErrorCode(code: string, _message: string): {type: ErrorType; retryable: boolean; retryAfter?: number} | null {
+function classifyByErrorCode(code: string | undefined, _message: string): {type: ErrorType; retryable: boolean; retryAfter?: number} | null {
+    if (!code) {
+        return null
+    }
     const codeUpper = code.toUpperCase()
 
     // Timeout 相关

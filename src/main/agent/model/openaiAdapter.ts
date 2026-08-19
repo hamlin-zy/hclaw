@@ -38,9 +38,12 @@ export class OpenAIAdapter implements ModelAdapter {
     /** 前缀结构指纹：缓存段每条消息的 role + tool 关联 id 的签名，命中时校验前缀未变 */
     prefixKey: string
   } | null = null
+  /** 保存配置以供 convertAll 等方法使用 features 等字段 */
+  private config: ModelConfig
 
     constructor(config: ModelConfig, injectedClient?: OpenAI) {
         this.apiStyle = config.apiStyle || 'chat'
+        this.config = config
         if (injectedClient) {
             this.client = injectedClient
         } else {
@@ -438,7 +441,15 @@ export class OpenAIAdapter implements ModelAdapter {
   ): OpenAI.ChatCompletionMessageParam[] {
     const result: OpenAI.ChatCompletionMessageParam[] = []
     if (systemPrompt) {
-      result.push({ role: 'system', content: systemPrompt })
+      const systemMsg: Record<string, any> = { role: 'system', content: systemPrompt }
+      // 为支持显式提示词缓存的服务商添加 cache_control
+      // 适用：OpenRouter（网关翻译）、阿里百炼/通义千问（原生支持）、Google Gemini（原生支持，仅最后一个断点生效）
+      // 通过 ModelConfig.features.supportsExplicitCaching 判断（由 modelSelector 从 ProviderPreset 透传）
+      const features = this.config.features
+      if (features?.supportsExplicitCaching) {
+        systemMsg.cache_control = { type: 'ephemeral' }
+      }
+      result.push(systemMsg as OpenAI.ChatCompletionMessageParam)
     }
     for (const msg of messages) {
       result.push(this.convertOneMessage(msg))
@@ -456,7 +467,13 @@ export class OpenAIAdapter implements ModelAdapter {
    */
   private convertOneMessage(msg: ChatMessage): OpenAI.ChatCompletionMessageParam {
     if (msg.role === 'system') {
-      return {role: 'system', content: typeof msg.content === 'string' ? msg.content : ''}
+      const systemMsg: Record<string, any> = { role: 'system', content: typeof msg.content === 'string' ? msg.content : '' }
+      // 为支持显式提示词缓存的服务商添加 cache_control
+      const features = this.config.features
+      if (features?.supportsExplicitCaching) {
+        systemMsg.cache_control = { type: 'ephemeral' }
+      }
+      return systemMsg as OpenAI.ChatCompletionMessageParam
     }
     if (msg.role === 'user') {
       return {role: 'user', content: this.convertUserContent(msg.content)}

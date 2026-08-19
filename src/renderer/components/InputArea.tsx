@@ -12,6 +12,7 @@ import InputToolbar from './InputToolbar'
 import {CommandPalette} from './plugin/CommandPalette'
 import {HandoffDialog, type HandoffChoice} from './HandoffDialog'
 import {buildHandoffMessage} from '../utils/handoff'
+import {deriveConversationTitle} from '../utils/conversationTitle'
 import {useSettingsStore} from '../stores/settingsStore'
 
 import ImagePreviewModal from './common/ImagePreviewModal'
@@ -211,14 +212,16 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                 metadata,
             })
 
-            // 自动重命名默认标题（用原始 text）
+            // 自动重命名默认标题：剥离 /能力 前缀与首尾空白，使标题只反映正文
             const wsPath = useConversationStore.getState().currentWorkspacePath
             const convList = wsPath ? useConversationStore.getState().workspaces[wsPath]?.conversations : []
             const currentConv = convList?.find(c => c.id === convId)
             if (currentConv?.title === '新对话') {
+                const derived = deriveConversationTitle(text)
+                const preview = derived.slice(0, 30)
                 updateConversationMeta(convId, {
-                    title: text.slice(0, 30) + (text.length > 30 ? '...' : ''),
-                    preview: text.slice(0, 30)
+                    title: derived.length > 30 ? `${preview}...` : derived,
+                    preview,
                 })
             }
 

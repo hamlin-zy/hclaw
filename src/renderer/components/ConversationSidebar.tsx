@@ -1131,6 +1131,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                     />
                 ) : (
                     <div
+                        title={title}
                         className={`truncate transition-colors text-[13px] ${isActive ? 'font-medium text-[var(--brand-primary)]' : 'text-gray-600 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100'}`}>
                         {title}
                     </div>

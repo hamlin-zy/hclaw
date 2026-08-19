@@ -76,28 +76,11 @@ const StatusLine = ({ children, className = '' }: { children: React.ReactNode; c
 )
 
 /**
- * 带倒计时的错误提示组件（模块级定义，避免每次渲染重建）
+ * 错误提示组件（常驻显示，需手动关闭）
+ * 设计决策：错误代表 Agent 停止/终止原因，自动消失会让用户不知道为何停止，
+ * 因此不做自动 dismiss，仅提供手动关闭按钮。
  */
 const ErrorIndicator = memo(function ErrorIndicator({ message, onDismiss }: { message: string; onDismiss: () => void }) {
-    const AUTO_DISMISS_SECONDS = 15
-    const [remaining, setRemaining] = useState(AUTO_DISMISS_SECONDS)
-    const onDismissRef = useRef(onDismiss)
-    onDismissRef.current = onDismiss
-
-    useEffect(() => {
-        const timer = setInterval(() => {
-            setRemaining(prev => {
-                if (prev <= 1) {
-                    clearInterval(timer)
-                    onDismissRef.current()
-                    return 0
-                }
-                return prev - 1
-            })
-        }, 1000)
-        return () => clearInterval(timer)
-    }, [])
-
     return (
         <motion.div
             initial={{opacity: 0, y: 10}}
@@ -112,7 +95,6 @@ const ErrorIndicator = memo(function ErrorIndicator({ message, onDismiss }: { me
             </svg>
             <span className="whitespace-pre-wrap break-words flex-1 min-w-0">{message}</span>
             <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
-                <span className="text-[10px] text-[var(--text-muted)] tabular-nums">{remaining}s</span>
                 <button
                     onClick={onDismiss}
                     className="p-0.5 rounded hover:bg-[var(--error)]/20 transition-colors"
