@@ -35,7 +35,7 @@ import {
   PENDING_MSG_MAX_BYTES,
 } from './manager.constants'
 import {createPendingMsg, normalizeToolResult, finalizePending, appendCappedPart} from './manager.accumulator'
-import {createForwardPayload} from './manager.streamForward'
+import {createForwardPayload, extractWorkerErrorMessage} from './manager.streamForward'
 import {recordLlmUsageEvent} from '../usageWrite'
 
 import {loadPluginAgents} from './manager.pluginAgents'
@@ -390,13 +390,17 @@ export class AgentManager {
           const childEvent = msg as unknown as { conversationId: string; event: AgentStreamEvent }
           this.forwardToRenderer(childEvent.conversationId, childEvent.event)
         } else if (msg.type === 'error') {
+          // ★ worker.ts 发送的错误结构为 { type:'error', conversationId, event:{type:'error', error: err.message} }
+          //   错误信息在 msg.event.error；顶层 msg.error 是旧格式兜底。
+          //   此前只读 msg.error → undefined → 回退 'Worker error'，真实错误被吞掉。
+          const workerErr = extractWorkerErrorMessage(msg as { event?: { error?: string }; error?: string })
           this.forwardToRenderer(msg.conversationId, {
             type: 'error',
-            error: msg.error || 'Worker error',
+            error: workerErr,
           })
           HookExecutor.getInstance().execute('StopFailure', {
             sessionId: msg.conversationId,
-            error: msg.error || 'Unknown error',
+            error: workerErr,
           }).catch((err) => logger.warn('[AgentManager] StopFailure hook failed', {error: err}))
         }
       } catch (err: unknown) {

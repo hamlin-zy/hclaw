@@ -199,8 +199,8 @@ export class LLMCaller {
      *   workModeRole 由意图分析按复杂度决定（simple→lightweight、complex→reasoning），
      *   必须单独检测角色变化才能路由到正确模型
      *
-     * 注：本类不再提供 withRetry —— execute.ts 自带完整重试逻辑
-     * （shouldRetryAttempt + 指数退避），避免双路径重试。
+     * 注：重试逻辑由 execute.ts 统一负责（executeLlmCallWithRetry：
+     * shouldRetryAttempt + 指数退避），本类不处理重试，避免双路径重试。
      */
     private needsAdapterRecreate(suggestedModel?: ModelRole, directKey?: string): boolean {
         if (!this.adapter) {

@@ -154,6 +154,11 @@ export interface ProviderModel {
 export interface ProviderFeatures {
   /** 使用 Anthropic 兼容 API 时，system 是否以内容块数组发送（含 cache_control: ephemeral） */
   systemContentBlocks?: boolean
+  /** 是否支持显式提示词缓存（Anthropic 兼容的 cache_control: { type: "ephemeral" }）。
+   * 为 true 时，OpenAI 适配器会在 system 消息上添加 cache_control，由网关/服务商翻译或原生支持。
+   * 适用：OpenRouter（网关翻译）、阿里百炼/通义千问（原生支持）、Google Gemini（原生支持，仅最后一个断点生效）。
+   * 不适用：OpenAI 直连（用 prompt_cache_breakpoint）、智谱/DeepSeek/Moonshot/Groq/xAI（全自动隐式缓存）。 */
+  supportsExplicitCaching?: boolean
 }
 
 /** LLM 供应商（统一配置） */

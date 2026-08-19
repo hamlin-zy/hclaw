@@ -83,15 +83,17 @@ export interface ExecuteLlmCallParams {
 
 /**
  * 判定本次 attempt 是否值得重试。
- * A1 修复：context-length 错误（上下文超限）是确定性失败——消息未截断则重试必再失败，
- * 与设计文档 v2 决策"超出模型上下文窗口即失败"一致，故一律不重试。
+ * 用户决策（2026-08-19）：LLM 报错无论什么原因都自动重试，直到成功或用户手动终止。
+ * 依据：错误重试不产生额外损失（LLM 按成功 token 计费，失败调用不计费），
+ * 错误分类器误判（如 OpenRouter worker error 被划为不可重试）只会白白放弃本可恢复的调用。
+ * 重试次数上限由 settings.agent.retryCount 控制，达到上限才报最终错误。
  */
 export function shouldRetryAttempt(
     _error: any,
-    isContextLengthError: boolean,
-    retryableFromClassifier: boolean,
+    _isContextLengthError: boolean,
+    _retryableFromClassifier: boolean,
 ): boolean {
-    return retryableFromClassifier && !isContextLengthError
+    return true
 }
 
 /**
@@ -452,13 +454,22 @@ export async function* executeLlmCallWithRetry(
         } catch (error: any) {
             lastError = error
             const hasContextLengthErr = checkContextLengthError(error)
-            const retryableFromClassifier = classifyErrorEnhanced(error).retryable
+
+            // ★ 分类器仅用于日志/提示，绝不能因分类器自身异常阻断重试流程。
+            //   用户决策（2026-08-19）：LLM 报错无论什么原因都自动重试。
+            //   分类器失败时按可重试处理（与 shouldRetryAttempt 恒 true 的语义一致）。
+            let retryableFromClassifier = true
+            try {
+                retryableFromClassifier = classifyErrorEnhanced(error).retryable
+            } catch (classifyErr: any) {
+                logger.warn(`[AgentLoop] error classifier failed (${classifyErr?.message || classifyErr}), treating as retryable`)
+            }
             const isRetryable = shouldRetryAttempt(error, hasContextLengthErr, retryableFromClassifier)
 
             if (isRetryable) {
-                logger.warn(`[AgentLoop] turn ${turns} attempt ${attempt} failed: ${error.message} retryable`)
+                logger.warn(`[AgentLoop] turn ${turns} attempt ${attempt} failed: ${error.message} retryable${hasContextLengthErr ? ' (context length exceeded, still retrying per user policy)' : ''}`)
             } else {
-                logger.error(`[AgentLoop] attempt ${attempt} failed: ${error.message} non-retryable${hasContextLengthErr ? ' (context length exceeded, not retrying)' : ''}`)
+                logger.error(`[AgentLoop] attempt ${attempt} failed: ${error.message} non-retryable`)
             }
 
             if (!isRetryable || attempt >= retryCount) break

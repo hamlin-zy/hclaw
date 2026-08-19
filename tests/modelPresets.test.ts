@@ -38,6 +38,77 @@ describe('recognizeProvider', () => {
   })
 })
 
+describe('supportsExplicitCaching', () => {
+  it('OpenRouter 支持显式缓存', () => {
+    const p = recognizeProvider('https://openrouter.ai/api/v1')!
+    expect(p.supportsExplicitCaching).toBe(true)
+  })
+  it('阿里百炼/通义千问支持显式缓存', () => {
+    const p = recognizeProvider('https://dashscope.aliyuncs.com/compatible-mode/v1')!
+    expect(p.supportsExplicitCaching).toBe(true)
+  })
+  it('阿里百炼 maas workspace 支持显式缓存', () => {
+    const p = recognizeProvider('https://llm-abc.cn-beijing.maas.aliyuncs.com/compatible-mode/v1')!
+    expect(p.supportsExplicitCaching).toBe(true)
+  })
+  it('Google 支持显式缓存', () => {
+    const p = recognizeProvider('https://generativelanguage.googleapis.com/v1beta')!
+    expect(p.supportsExplicitCaching).toBe(true)
+  })
+  it('Anthropic 支持显式缓存', () => {
+    const p = recognizeProvider('https://api.anthropic.com')!
+    expect(p.supportsExplicitCaching).toBe(true)
+  })
+  it('MiniMax 支持显式缓存', () => {
+    const p = recognizeProvider('https://api.minimaxi.com/anthropic')!
+    expect(p.supportsExplicitCaching).toBe(true)
+  })
+  it('OpenAI 直连不支持显式缓存（用 prompt_cache_breakpoint）', () => {
+    const p = recognizeProvider('https://api.openai.com/v1')!
+    expect(p.supportsExplicitCaching).toBe(false)
+  })
+  it('DeepSeek 不支持显式缓存（全自动隐式缓存）', () => {
+    const p = recognizeProvider('https://api.deepseek.com/v1')!
+    expect(p.supportsExplicitCaching).toBe(false)
+  })
+  it('Moonshot/Kimi 不支持显式缓存（全自动隐式缓存）', () => {
+    const p = recognizeProvider('https://api.moonshot.cn/v1')!
+    expect(p.supportsExplicitCaching).toBe(false)
+  })
+  it('智谱 不支持显式缓存（全自动隐式缓存）', () => {
+    const p = recognizeProvider('https://open.bigmodel.cn/api/paas/v4')!
+    expect(p.supportsExplicitCaching).toBe(false)
+  })
+  it('Groq 不支持显式缓存（全自动隐式缓存）', () => {
+    const p = recognizeProvider('https://api.groq.com/openai/v1')!
+    expect(p.supportsExplicitCaching).toBe(false)
+  })
+  it('xAI/Grok 不支持显式缓存（全自动隐式缓存）', () => {
+    const p = recognizeProvider('https://api.x.ai/v1')!
+    expect(p.supportsExplicitCaching).toBe(false)
+  })
+  it('硅基流动 不支持显式缓存（全自动隐式缓存）', () => {
+    const p = recognizeProvider('https://api.siliconflow.cn/v1')!
+    expect(p.supportsExplicitCaching).toBe(false)
+  })
+  it('Mistral 不支持显式缓存（全自动隐式缓存）', () => {
+    const p = recognizeProvider('https://api.mistral.ai/v1')!
+    expect(p.supportsExplicitCaching).toBe(false)
+  })
+  it('火山引擎 不支持显式缓存（全自动隐式缓存）', () => {
+    const p = recognizeProvider('https://maas.volcengine.com/v1')!
+    expect(p.supportsExplicitCaching).toBe(false)
+  })
+  it('智谱国际 不支持显式缓存（全自动隐式缓存）', () => {
+    const p = recognizeProvider('https://api.z.ai/api/paas/v4')!
+    expect(p.supportsExplicitCaching).toBe(false)
+  })
+  it('Ollama 不支持显式缓存', () => {
+    const p = recognizeProvider('http://localhost:11434')!
+    expect(p.supportsExplicitCaching).toBe(false)
+  })
+})
+
 describe('presetModelsFor', () => {
   it('使用服务商自己的预设', () => {
     const p = recognizeProvider('https://api.deepseek.com/v1')!
