@@ -28,7 +28,7 @@ import type {IConversationRepository} from '../../repositories/interfaces'
 import {createConversationRepository} from '../../repositories'
 
 import type {RunParams, MainLoopExitReason, ControllerState} from './types'
-import {createDefaultResult, endTurnCleanup} from './helpers'
+import {endTurnCleanup} from './helpers'
 import {initializeRunEnvironment, detectCommandContext, selectModelForTurn, filterTools, buildSystemPrompt} from './setup'
 import {executeLlmCallWithRetry, executeToolCalls, extractMediaFromToolResults} from './execute'
 import {PreprocessCache} from './preprocessCache'
@@ -334,12 +334,8 @@ export class AgentLoopController {
             // ── 获取最后一条用户消息 ──
             const lastUserMessage = getLastUserMessage(currentState)
 
-            // ── 意图分析 ──
-            const analysisText = lastUserMessage ? extractTextContent(lastUserMessage.content) : ''
-            const analysis = createDefaultResult(analysisText)
-
-            // ── 选择模型 ──
-            const selection = yield* selectModelForTurn(analysis, schemeConfig, sessionId, params.modelRole)
+            // ── 选择模型（显式 modelRole → 会话 override → 默认 primary）──
+            const selection = yield* selectModelForTurn(schemeConfig, sessionId, params.modelRole)
 
             // ── 过滤工具列表 ──
             const agentType = (agentTypeParam ?? params.agentType) || 'General'

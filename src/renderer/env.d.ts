@@ -134,7 +134,6 @@ declare global {
             success: boolean
             data: {
                 override: import('../shared/types/model').ModelOverride | null
-                lastSelected: import('../shared/types/model').ModelOverride | null
             }
         }>
         modelOverrideSet: (convId: string, override: import('../shared/types/model').ModelOverride | null) => Promise<{ success: boolean }>

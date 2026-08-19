@@ -1,11 +1,10 @@
 /**
  * Agent stream events, tool lifecycle events, and stream payload types.
  *
- * Layer 3 — depends on message (Task, ToolCallInfo) and model (IntentAnalysisResult).
+ * Layer 3 — depends on message (Task, ToolCallInfo).
  */
 
 import type { Task, ToolCallInfo } from './message'
-import type { IntentAnalysisResult } from './model'
 
 // ─── Agent start / progress / detail ──────────────────
 
@@ -74,10 +73,10 @@ export interface AgentStreamEvent {
     | 'ask_user' | 'permission_confirm'
     | 'subagent_start' | 'subagent_progress' | 'subagent_done'
     | 'tasks_update'
-    | 'skill_matched' | 'skill_start' | 'skill_phase' | 'skill_reference_loaded'
+    | 'skill_start' | 'skill_phase' | 'skill_reference_loaded'
     | 'skill_script_start' | 'skill_script_output' | 'skill_script_done'
     | 'skill_log' | 'skill_end'
-    | 'llm_call_done' | 'intent_analyzed' | 'mode_change'
+    | 'llm_call_done' | 'mode_change'
     | 'permission-rules-updated'
     | 'agent_start' | 'agent_progress' | 'tool_detail' | 'tool_use'
     | 'settings-updated' | 'app-restart'
@@ -123,8 +122,6 @@ export interface AgentStreamEvent {
   commandId?: string
   commandName?: string
   commandArgs?: string
-  // 意图分析字段
-  intentResult?: IntentAnalysisResult
   // 模式切换字段
   mode?: 'auto'
   // 上下文压缩

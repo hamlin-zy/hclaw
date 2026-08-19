@@ -3,6 +3,7 @@ import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useAgentStore} from '../stores/agentStore'
 import {useLLMStore} from '../stores/llmStore'
+import {useModelSchemeStore} from '../stores/modelSchemeStore'
 import type {ModelOverride} from '@shared/types'
 
 interface ModelSelectorProps {
@@ -22,7 +23,7 @@ const HOVER_DELAY = 120
 
 /**
  * 模型选择器 — 会话级模型覆盖（替代 WorkModeSelector）
- * - 默认 auto：意图分析 + fallback
+ * - 无 override：虚拟选中当前方案 primary（只读匹配，不写库）
  * - 用户选定具体模型：当前会话后续轮次直接使用（会话级 override，持久化）
  * - 位置：InputArea 下方统计栏（t/s 徽章旁），popover 向上展开
  * - 交互：popover 列服务商 → hover/点击服务商项 → 右侧级联子菜单列模型（点击即应用）
@@ -52,7 +53,6 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                 if (res?.success) {
                     useAgentStore.setState({
                         modelOverride: res.data.override ?? null,
-                        lastSelected: res.data.lastSelected ?? null,
                     })
                 }
             } catch { /* 静默 */ }
@@ -69,16 +69,31 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
     }, [conversationId])
 
     // 解析生效显示：与 selectModelForTurn 决策对齐（findEffectiveOverride 只认会话 override，
-    // 无记录=auto）。★ 不回退 lastSelected：老会话无 override 记录时显示「自动」而非上次选择，
-    //   否则显示与实际生效不一致。新会话已在 conversation-create 固化 override=lastSelected，
-    //   getOverride 返回固化值 → 显示正确。
+    // 无记录=默认 primary）。★ 不回退历史选择：老会话无 override 记录时显示 primary 模型名（虚拟选中），
+    //   否则显示与实际生效不一致。新会话无 override 记录 → 默认 primary，显示 primary 模型名。
     const active = modelOverride
+
+    // 当前方案 primary 角色（无 override 时作为虚拟选中目标；只读匹配，不写库）
+    const primaryRole = useMemo(() => {
+        const scheme = useModelSchemeStore.getState().getActiveScheme()
+        return scheme?.roles.find(r => r.role === 'primary' && r.enabled && r.endpointId && r.modelId) ?? null
+        // 依赖 scheme 变更：用 useModelSchemeStore 订阅（见下方依赖数组）
+    }, [useModelSchemeStore(s => s.schemes), useModelSchemeStore(s => s.activeSchemeId)])
+
     const activeLabel = useMemo(() => {
-        if (!active) return '自动'
-        const provider = providers.find(p => p.id === active.endpointId)
-        const model = provider?.models.find(m => m.id === active.modelId)
-        return provider && model ? model.name : (active.modelId || active.providerName || '')
-    }, [active, providers])
+        if (active) {
+            const provider = providers.find(p => p.id === active.endpointId)
+            const model = provider?.models.find(m => m.id === active.modelId)
+            return provider && model ? model.name : (active.modelId || active.providerName || '')
+        }
+        // 无 override → 显示当前方案 primary 模型名（虚拟选中语义）
+        if (primaryRole) {
+            const provider = providers.find(p => p.id === primaryRole.endpointId)
+            const model = provider?.models.find(m => m.id === primaryRole.modelId)
+            if (provider && model) return model.name
+        }
+        return '主力模型'  // primary 未配置/不可解析 → 兜底文案（原"自动"）
+    }, [active, primaryRole, providers])
 
     // popover 向上展开定位（基于按钮 rect；子菜单独立 fixed 定位，见下方 useLayoutEffect）
     useEffect(() => {
@@ -158,12 +173,6 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
         setSubmenuAnchor(null)
     }
 
-    const handleReset = () => {
-        setModelOverride(conversationId, null) // 切回 auto
-        setView('closed')
-        setSubmenuAnchor(null)
-    }
-
     /** 取消挂起的关闭定时器（悬停进入父项或子菜单时调用） */
     const cancelClose = () => {
         if (closeTimerRef.current) {
@@ -237,22 +246,14 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                         模型选择
                                     </div>
 
-                                    {/* 服务商列表：auto 固定首项 + 已启用服务商（hover/点击 → 右侧级联子菜单） */}
+                                    {/* 服务商列表：已启用服务商（hover/点击 → 右侧级联子菜单） */}
                                     <div className="flex-1 min-h-0 overflow-y-auto">
-                                        {/* auto 固定首项（点击切回自动） */}
-                                        <button
-                                            onClick={handleReset}
-                                            className={`w-full px-2.5 py-1.5 text-left text-xs rounded-lg transition-colors ${
-                                                !active ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'
-                                            }`}
-                                        >
-                                            自动
-                                        </button>
                                         {enabledProviders.length === 0 && (
                                             <div className="px-2.5 py-2 text-xs text-[var(--text-muted)]">暂无已启用服务商</div>
                                         )}
                                         {enabledProviders.map(p => {
                                             const isActive = active?.endpointId === p.id
+                                                || (!active && primaryRole?.endpointId === p.id)   // 虚拟选中：primary 所在服务商
                                             return (
                                                 <button
                                                     key={p.id}
@@ -306,7 +307,8 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                             <div className="px-2.5 py-2 text-xs text-[var(--text-muted)]">该服务商暂无可用模型</div>
                                         )}
                                         {selModels.map(m => {
-                                            const isSelected = active?.endpointId === selProviderId && active?.modelId === m.id
+                                            const isSelected = (active?.endpointId === selProviderId && active?.modelId === m.id)
+                                                || (!active && primaryRole?.endpointId === selProviderId && primaryRole.modelId === m.id)  // 虚拟选中：primary 模型项
                                             return (
                                                 <button
                                                     key={m.id}

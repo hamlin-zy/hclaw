@@ -13,7 +13,7 @@
  *   但 selectModelForTurn 不触碰它们，仅 import 链存在即可。
  */
 import {beforeEach, describe, expect, it} from 'vitest'
-import type {LLMProvider, ModelRole, ModelScheme, ModelSchemeRole} from '@shared/types'
+import type {LLMProvider, ModelScheme, ModelSchemeRole} from '@shared/types'
 import type {TurnModelSelection} from '@/main/agent/loop/types'
 import {runtimeConfigManager} from '@/main/agent/runtimeConfigManager'
 import {selectModelForTurn} from '@/main/agent/loop/setup'
@@ -63,11 +63,8 @@ const SCHEME = makeScheme([
 // ─── 辅助函数 ───────────────────────────────────────────────
 
 /** 迭代 selectModelForTurn 至完成，返回 TurnModelSelection（正常路径不 yield 事件） */
-async function runSelectModelForTurn(
-    analysis: {suggestedModel: ModelRole; complexity: string},
-    schemeConfig?: {scheme: ModelScheme; providers: LLMProvider[]},
-): Promise<TurnModelSelection> {
-    const gen = selectModelForTurn(analysis, schemeConfig)
+async function runSelectModelForTurn(sessionId?: string, modelRoleOverride?: any): Promise<TurnModelSelection> {
+    const gen = selectModelForTurn({scheme: SCHEME, providers: PROVIDERS}, sessionId, modelRoleOverride)
     const first = (await gen.next()).value
     // 仅模型 fallback 时会 yield warning 事件，需继续迭代取最终返回值
     if (first && typeof first === 'object' && 'type' in first) {
@@ -86,19 +83,14 @@ describe('selectModelForTurn 返回 providerName（服务商人类可读名）',
     })
 
     it('返回 providers.name 作为 providerName', async () => {
-        const selection = await runSelectModelForTurn(
-            {suggestedModel: 'primary', complexity: 'simple'},
-        )
+        const selection = await runSelectModelForTurn()
         expect(selection.providerName).toBe('OpenRouter')
         expect(selection.modelConfig._providerName).toBe('OpenRouter')
         expect(selection.modelConfig.provider).toBe('custom')
     })
 
     it('schemeConfig 分支同样携带 providerName', async () => {
-        const selection = await runSelectModelForTurn(
-            {suggestedModel: 'primary', complexity: 'moderate'},
-            {scheme: SCHEME, providers: PROVIDERS},
-        )
+        const selection = await runSelectModelForTurn()
         expect(selection.providerName).toBe('OpenRouter')
     })
 
@@ -106,9 +98,7 @@ describe('selectModelForTurn 返回 providerName（服务商人类可读名）',
         const providersNoName: LLMProvider[] = [{...PROVIDERS[0], name: ''}]
         runtimeConfigManager.updateScheme('scheme-1', SCHEME, providersNoName)
 
-        const selection = await runSelectModelForTurn(
-            {suggestedModel: 'primary', complexity: 'simple'},
-        )
+        const selection = await runSelectModelForTurn()
         expect(selection.providerName).toBe('prov-openrouter')
     })
 })

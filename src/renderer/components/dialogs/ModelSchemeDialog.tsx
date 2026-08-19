@@ -120,6 +120,7 @@ export default function ModelSchemeDialog() {
     const [selectedSchemeId, setSelectedSchemeId] = useState<string | null>(activeSchemeId)
     const [isEditingName, setIsEditingName] = useState(false)
     const [showPresetPicker, setShowPresetPicker] = useState(false)
+    const [saveError, setSaveError] = useState<string | null>(null)
 
     // 侧边栏宽度调节
     const [sidebarWidth, setSidebarWidth] = useState(220)
@@ -131,7 +132,7 @@ export default function ModelSchemeDialog() {
     const storeScheme = schemes.find((s) => s.id === selectedSchemeId) || null
 
     // 记录上一次选中的 ID，用于判断是否真的切换了方案
-    const lastSelectedId = useRef<string | null>(null)
+    const lastPickedSchemeId = useRef<string | null>(null)
 
     // 同步逻辑：仅在切换方案或 store 数据发生根本性变化时重置本地草稿
     useEffect(() => {
@@ -141,7 +142,7 @@ export default function ModelSchemeDialog() {
         }
 
         const shouldReset =
-            selectedSchemeId !== lastSelectedId.current || // 切换了方案
+            selectedSchemeId !== lastPickedSchemeId.current || // 切换了方案
             !localScheme ||                                // 初始加载
             (localScheme.id !== selectedSchemeId)          // 状态错位修复
 
@@ -173,7 +174,7 @@ export default function ModelSchemeDialog() {
                 ...JSON.parse(JSON.stringify(storeScheme)),
                 roles: rolesToFill,
             })
-            lastSelectedId.current = selectedSchemeId
+            lastPickedSchemeId.current = selectedSchemeId
         }
     }, [selectedSchemeId, storeScheme])
 
@@ -184,7 +185,12 @@ export default function ModelSchemeDialog() {
 
     const handleSave = () => {
         if (localScheme && selectedSchemeId) {
-            updateScheme(selectedSchemeId, localScheme)
+            const ok = updateScheme(selectedSchemeId, localScheme)
+            if (!ok) {
+                setSaveError('推理模型、主力模型、轻量模型不允许全部为空')
+                return
+            }
+            setSaveError(null)
         }
     }
 
@@ -473,6 +479,9 @@ export default function ModelSchemeDialog() {
                                         >
                                             保存更改
                                         </button>
+                                        {saveError && (
+                                            <div className="text-xs text-red-500 mt-1">{saveError}</div>
+                                        )}
                                     </motion.div>
                                 )}
                             </AnimatePresence>

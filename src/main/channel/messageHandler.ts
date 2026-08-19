@@ -513,7 +513,7 @@ async function processAgentMessage(
     const currentProviders = runtimeConfigManager.getProviders() as LLMProvider[] | undefined
     const meta = convRepo.readMeta(binding.conversationId) as { workspacePath?: string }
     const workingDir = meta?.workspacePath || ''
-    // 渠道会话模型：会话 override（创建时继承 lastSelected 固化）→ 直接解析；无 → auto（不预置）
+    // 渠道会话模型：会话 override → 直接解析；无 → 默认 primary（不预置）
     const convOverride = runtimeConfigManager.getOverride(binding.conversationId)
     const modelConfig = (currentProviders && currentProviders.length > 0)
         ? resolveChannelModelConfig(convOverride, currentProviders)
@@ -706,9 +706,6 @@ async function createNewSession(
 
     // Create conversation record (must await so FK constraint satisfied before upsertBinding)
     await createConversationRecord(convId, msg.channelId, msg.userId, workspacePath)
-
-    // 渠道会话无选择入口：固化继承 lastSelected（防 UI 侧 lastSelected 漂移污染）
-    runtimeConfigManager.setOverride(convId, runtimeConfigManager.getLastSelected())
 
     // Create binding
     channelRepo.upsertBinding(msg.channelId, msg.userId, convId)

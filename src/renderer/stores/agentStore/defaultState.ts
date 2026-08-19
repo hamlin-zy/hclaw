@@ -25,7 +25,6 @@ export function createDefaultConvData(): ConvAgentData {
         toolPopupData: null,
         pendingPermissionConfirm: null,
         tasks: [],
-        intentResult: null,
         errorMessage: null,
         executingToolsMessage: null,
         pendingMessages: [],
