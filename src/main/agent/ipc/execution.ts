@@ -55,6 +55,16 @@ export function registerHandlers(): void {
         messageMetadata?: Record<string, unknown>
     }) => {
         try {
+            // ★ 方案校验：三角色全空则拒绝启动（双重校验，见 spec 4.5）
+            const schemeForCheck = runtimeConfigManager.getScheme()
+            const hasValidRole = schemeForCheck?.roles.some(r =>
+                ['primary', 'lightweight', 'reasoning'].includes(r.role)
+                && r.enabled && r.endpointId && r.modelId
+            )
+            if (!hasValidRole) {
+                return {success: false, error: '推理模型、主力模型、轻量模型不允许全部为空'}
+            }
+
             // 从会话存储获取历史消息
             const {createConversationRepository} = await import('../../repositories')
             const conversationRepo = createConversationRepository() as any

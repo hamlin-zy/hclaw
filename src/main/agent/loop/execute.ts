@@ -139,10 +139,9 @@ export async function* executeLlmCallWithRetry(
         const collectedToolCalls: Array<{id: string; name: string; arguments: Record<string, unknown>}> = []
 
         try {
-            // ── 获取/重建适配器（收归 LLMCaller，含 schemeVersion + 角色/direct 检测） ──
+            // ── 获取/重建适配器（收归 LLMCaller，含 schemeVersion + provider:model/direct 检测） ──
             const adapterResult = await llmCaller.getAdapter(
                 'main',
-                workModeRole,
                 modelConfig,
                 params.schemeUpdatePromise,
                 abortSignal,

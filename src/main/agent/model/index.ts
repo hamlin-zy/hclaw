@@ -250,14 +250,12 @@ export async function createAdapterForRole(
  * - 明确的 fallback 链日志追踪
  *
  * @param context 任务上下文（main/subAgent/background/planning）
- * @param intentAnalysis 意图分析结果（可选）
  * @param fallbackConfig 兜底配置
  * @returns 适配器实例及完整元数据
  * @throws 如果无法创建适配器
  */
 export async function createAdapterForContext(
     context: 'main' | 'subAgent' | 'background' | 'planning',
-    intentAnalysis?: { suggestedModel?: ModelRole },
     fallbackConfig?: ModelConfig,
 ): Promise<{
     adapter: ModelAdapter
@@ -291,7 +289,7 @@ export async function createAdapterForContext(
         throw error
     }
 
-    const roleResult = selectModelForTaskWithRole(scheme, context, intentAnalysis as any)
+    const roleResult = selectModelForTaskWithRole(scheme, context)
     const roleType = roleResult.role as 'primary' | 'lightweight' | 'reasoning'
 
     const result = await createAdapterForRole(roleType, fallbackConfig)

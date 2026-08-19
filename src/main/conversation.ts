@@ -6,7 +6,6 @@ import {modelMetaRegistry} from './modelMetaRegistry'
 import {getMainWindow} from './window'
 import type {BlockDeltaPatch, ConversationMeta, ConversationSummary, Message, MessageBlock} from '@shared/types';
 import {collectDescendants} from '@shared/utils/conversationTree'
-import {runtimeConfigManager} from './agent/runtimeConfigManager';
 
 /** 注册会话管理相关 IPC handlers */
 export function initConversationIPC(): void {
@@ -17,10 +16,6 @@ export function initConversationIPC(): void {
     ipcMain.handle('conversation-create', (_e, convId: string, meta: Record<string, unknown>) => {
         try {
             const ok = convRepo().create(convId, meta as unknown as ConversationMeta);
-            if (ok) {
-                // 新会话继承用户最近一次手动选择（auto → null）
-                runtimeConfigManager.setOverride(convId, runtimeConfigManager.getLastSelected())
-            }
             return ok;
         } catch {
             return false;

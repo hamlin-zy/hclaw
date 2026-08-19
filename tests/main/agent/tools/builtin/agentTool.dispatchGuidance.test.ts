@@ -27,6 +27,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/main/agent/runtimeConfigManager', () => ({
     runtimeConfigManager: {
         getPrimaryProvider: mocks.getPrimaryProvider,
+        // agentTool 模块顶层 buildModelRoleSchema() 需要；测试仅涉 execute，方案为空即可
+        getScheme: () => null,
+        getProviders: () => [],
+        getConfig: () => ({workingDir: ''}),
     },
 }))
 

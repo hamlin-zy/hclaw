@@ -218,7 +218,7 @@ export interface ConversationMeta {
   sourceCapability?: { type: 'agent'; name: string }
   /** 标记为 agent tool 创建的子会话 */
   isChildSession?: boolean
-  /** 会话级模型覆盖：undefined=无记录（新建会话继承 lastSelected）、null=显式 auto、对象=指定模型 */
+  /** 会话级模型覆盖：undefined=无记录（默认 primary）、null=显式 auto、对象=指定模型 */
   modelOverride?: import('./model').ModelOverride | null
 }
 

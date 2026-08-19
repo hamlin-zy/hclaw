@@ -380,7 +380,7 @@ export class SubAgentScheduler {
                 settings,
                 conversationTitle: `Sub Agent: ${task.description.slice(0, 50)}`,
             })) {
-                if (event.type === 'intent_analyzed' || event.type === 'mode_change') {
+                if (event.type === 'mode_change') {
                     continue
                 }
 

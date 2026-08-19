@@ -5,7 +5,7 @@
  */
 
 import type {ToolResult} from './tools/types'
-import type {IntentAnalysisResult, ToolCallInfo} from '@shared/types'
+import type {ToolCallInfo} from '@shared/types'
 
 export type {ToolCallInfo} from '@shared/types'
 
@@ -34,7 +34,6 @@ export type AgentStreamEvent =
     toolCallId?: string
   }
   | { type: 'subagent_done'; taskId: string; success: boolean; output: string; error?: string; toolCallId?: string }
-  | { type: 'intent_analyzed'; result: IntentAnalysisResult }
   | {
     type: 'agent_progress';
     inputTokens: number;
@@ -57,7 +56,6 @@ export type AgentStreamEvent =
   }
   | { type: 'mode_change'; mode: 'auto' }
   | { type: 'plan_generated'; plan: string }
-  | { type: 'skill_matched'; skillId: string; skillName: string; score: number; reason: string }
   | { type: 'hook_result'; event: string; hookName: string; success: boolean; error?: string }
   | {
     type: 'llm_call_done';

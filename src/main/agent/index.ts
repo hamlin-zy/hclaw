@@ -11,7 +11,6 @@ import {agentManager} from './manager'
 import {registerBuiltinTools} from './tools/index'
 import {permissionEngine} from './tools/permission'
 import {powerManager} from './powerManager'
-import {runtimeConfigManager} from './runtimeConfigManager'
 
 import {registerHandlers as registerAgentHandlers} from './ipc/agents'
 import {registerHandlers as registerExecutionHandlers} from './ipc/execution'
@@ -24,9 +23,6 @@ import {registerHandlers as registerToolHandlers} from './ipc/tools'
 
 /** 初始化 Agent 系统（在 app.ready 时调用） */
 export async function initAgent(): Promise<void> {
-    // 启动时从 system_settings 恢复 lastSelected override（新建会话继承上次手动选择）
-    runtimeConfigManager.initOverrideState()
-
     // 注册内置工具
     registerBuiltinTools()
 

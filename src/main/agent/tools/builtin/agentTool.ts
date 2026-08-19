@@ -28,6 +28,7 @@ import {logger} from '../../logger'
 import {agentRegistry} from '../../agentRegistry'
 import {agentTemplateToDefinition} from '../../agentTemplateConverter'
 import type {AgentDefinition} from '@shared/agent'
+import type {ModelRole} from '@shared/types'
 import {runtimeConfigManager} from '../../runtimeConfigManager'
 import {systemSettingsRepo} from '../../../repositories/sqlite/systemSettingsRepository'
 import {permissionEngine} from '../permission'
@@ -74,17 +75,25 @@ function getRecursionDepth(convId: string): number {
 
 // ─── 输入 Schema ──────────────────────────────────────────
 
-const inputSchema = z.object({
-    task: z.string().describe('子任务的完整描述（包含目标 + 参考材料）'),
-    agent: z.string()
-        .describe('必填。要作为子 Agent 运行的 Agent 名称，从当前可用 Agent 列表中精确选择（如 "Implementer Agent"、"Code Reviewer Agent"）。根据任务类型选择最匹配的角色；不确定时用 "General Agent"。'),
-    tools: z.array(z.string()).optional()
-        .describe('允许使用的工具白名单（指定 agent 时覆盖 Agent 定义的白名单）'),
-    modelRole: z.enum(['primary', 'lightweight', 'reasoning']).optional()
-        .describe('指定子 Agent 使用的模型角色（可选）。按任务复杂度指定：简单任务→lightweight、复杂推理→reasoning、常规→primary。未指定时子会话继承父会话模型选择。'),
-})
+type AgentToolInput = { task: string; agent: string; tools?: string[]; modelRole?: ModelRole }
 
-type AgentToolInput = z.infer<typeof inputSchema>
+/** 动态构建 inputSchema：modelRole 枚举按当前方案已启用且已配置的角色生成 */
+function buildModelRoleSchema(): z.ZodType<AgentToolInput> {
+    const availableRoles = runtimeConfigManager.getScheme()?.roles
+        .filter(r => ['primary', 'lightweight', 'reasoning'].includes(r.role) && r.enabled && r.endpointId && r.modelId)
+        .map(r => r.role) ?? []
+    return z.object({
+        task: z.string().describe('子任务的完整描述（包含目标 + 参考材料）'),
+        agent: z.string()
+            .describe('必填。要作为子 Agent 运行的 Agent 名称，从当前可用 Agent 列表中精确选择（如 "Implementer Agent"、"Code Reviewer Agent"）。根据任务类型选择最匹配的角色；不确定时用 "General Agent"。'),
+        tools: z.array(z.string()).optional()
+            .describe('允许使用的工具白名单（指定 agent 时覆盖 Agent 定义的白名单）'),
+        modelRole: z.enum(availableRoles.length ? availableRoles as [string, ...string[]] : ['primary']).optional()
+            .describe(`指定子 Agent 使用的模型角色（可选）。当前可用：${availableRoles.join('、') || 'primary（仅默认）'}。按任务复杂度指定：简单任务→lightweight、复杂推理→reasoning、常规→primary。未指定时子会话继承父会话模型选择。`),
+    }) as z.ZodType<AgentToolInput>
+}
+
+let inputSchema: z.ZodType<AgentToolInput> = buildModelRoleSchema()
 
 // ─── 工具定义 ──────────────────────────────────────────────
 
@@ -105,10 +114,32 @@ export const agentTool: Tool<AgentToolInput, string> = {
         '而非只读分析（Explore）——除非改动范围不明确需要先调研。\n' +
         '4. 避免无意义派遣：仅"要求更深入/更全面"不构成派遣理由；简单任务自己做。\n' +
         '5. 派遣后只协调：子 Agent 工作时不要重复执行它们的任务，等待结果后汇总。',
-    inputSchema,
+    // getter 保持与 let inputSchema 实时同步：setAgentToolConfig 重建后立即生效
+    get inputSchema() { return inputSchema },
     isDestructive: false,
 
     async execute(args, context): Promise<ToolResult<string>> {
+        // ①.1 校验 modelRole（若指定）：必须是当前方案中已启用且已配置的角色
+        if (args.modelRole) {
+            const currentScheme = runtimeConfigManager.getScheme()
+            const currentProviders = runtimeConfigManager.getProviders()
+            if (currentScheme && currentProviders.length > 0) {
+                const {getRoleConfig} = await import('@shared/modelSchemeHelpers')
+                const roleConfig = getRoleConfig(currentScheme, args.modelRole as any)
+                const isValidRole = roleConfig?.enabled && roleConfig.endpointId && roleConfig.modelId
+                if (!isValidRole) {
+                    const availableRoles = currentScheme.roles
+                        .filter(r => ['primary', 'lightweight', 'reasoning'].includes(r.role) && r.enabled && r.endpointId && r.modelId)
+                        .map(r => r.role)
+                    return {
+                        success: false,
+                        output: '',
+                        error: `modelRole "${args.modelRole}" 不可用（未启用或未配置）。当前方案可用角色：${availableRoles.join(', ') || '无'}。请从可用角色中选择，或省略 modelRole 让子会话继承父会话模型。`,
+                    }
+                }
+            }
+        }
+
         // ① 检查模型配置
         const primary = runtimeConfigManager.getPrimaryProvider()
         if (!primary.isValid) {
@@ -293,7 +324,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
                 },
             })) {
                 // ── 跳过内部事件 ──
-                if (event.type === 'intent_analyzed' || event.type === 'mode_change') continue
+                if (event.type === 'mode_change') continue
 
                 // ── 累积文本输出（返回给主 Agent 的最终摘要） ──
                 if (event.type === 'text') {
@@ -486,4 +517,6 @@ export function setAgentToolConfig(): void {
     if (config.workingDir) {
         permissionEngine.setWorkingDir(config.workingDir)
     }
+    // ★ 方案变更时重建 modelRole 枚举（每轮 loop 启动调用，运行中 agent 实时感知）
+    inputSchema = buildModelRoleSchema()
 }

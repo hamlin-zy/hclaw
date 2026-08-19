@@ -195,14 +195,13 @@ function findEffectiveOverride(convId: string): ModelOverride | null {
 }
 
 /**
- * 根据「显式 modelRole → 会话 override → auto 意图分析」三级决策选择模型
+ * 根据「显式 modelRole → 会话 override → 默认 primary」三级决策选择模型
  * - 显式 modelRole（agentTool 子会话）：仅 3 文本角色且方案角色已启用配置才生效
- * - 会话 override：绕过角色直接解析该模型（directModel），失效则降级 auto + warning
- * - auto：意图分析为主，建议的模型未启用时 fallback 到 primary
- * - 图片消息：loop 始终使用工作模式模型，图片分析由 analyze_image 内置工具调用视觉理解模型处理
+ * - 会话 override：绕过角色直接解析该模型（directModel），失效则降级默认 primary + warning
+ * - 默认：primary 角色（fallback 链 primary→lightweight→reasoning，见 modelSelector）
+ * - 图片消息：loop 始终使用当前决策模型，图片分析由 analyze_image 内置工具调用视觉理解模型处理
  */
 export function* selectModelForTurn(
-    analysis: {suggestedModel: ModelRole; complexity: string},
     schemeConfig: RunParams['schemeConfig'],
     sessionId?: string,
     modelRoleOverride?: ModelRole,
@@ -248,23 +247,14 @@ export function* selectModelForTurn(
                 }
             }
         }
-        // override 失效（服务商/模型已删除或禁用）→ 降级 auto + warning
-        logger.warn(`[AgentLoop] 会话模型 override 失效（${override.endpointId}/${override.modelId}），降级 auto`)
-        yield {type: 'warning', message: '会话指定的模型已失效，已切换为自动模式'}
+        // override 失效（服务商/模型已删除或禁用）→ 降级默认 primary + warning
+        logger.warn(`[AgentLoop] 会话模型 override 失效（${override.endpointId}/${override.modelId}），降级默认 primary`)
+        yield {type: 'warning', message: '会话指定的模型已失效，已切换为主力模型'}
     }
 
-    // ── 2. auto 意图分析（移除手动分支，恒走 auto）──
-    let suggestedRole: ModelRole = analysis.suggestedModel
-    let modelSelectionReason = `auto模式·意图分析:${analysis.complexity}`
-
-    if (currentScheme) {
-        const roleConfig = getRoleConfig(currentScheme, analysis.suggestedModel)
-        if (!roleConfig?.enabled) {
-            logger.info(`[AgentLoop] auto模式：意图建议的${analysis.suggestedModel}模型未启用，fallback到primary`)
-            suggestedRole = 'primary'
-            modelSelectionReason += '(fallback→primary)'
-        }
-    }
+    // ── 2. 默认：直接使用 primary（fallback 链 primary→lightweight→reasoning）──
+    const suggestedRole: ModelRole = 'primary'
+    const modelSelectionReason = '默认主力模型(primary)'
 
     logger.info(`[AgentLoop] 模型选择：${modelSelectionReason} → ${suggestedRole}`)
 
@@ -280,7 +270,8 @@ export function* selectModelForTurn(
             schemeId = currentScheme.id
             schemeName = currentScheme.name
         } else {
-            logger.warn(`[AgentLoop] ${roleResult.role} 模型配置无法解析，fallback 到 primary`)
+            // selectModelForTaskWithRole 已含 fallback 链；此处兜底（provider 缺失等）
+            logger.warn(`[AgentLoop] ${roleResult.role} 模型配置无法解析，尝试 primary`)
             const primaryResolved = resolveModelConfig(
                 selectModelForTaskWithRole(currentScheme, 'main', {suggestedModel: 'primary'}).config,
                 providers,

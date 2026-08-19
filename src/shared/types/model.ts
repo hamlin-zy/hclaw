@@ -181,24 +181,6 @@ export interface LLMProvider {
   models: ProviderModel[]
 }
 
-// ─── Intent analysis ───────────────────────────────────
-
-/** 意图分析结果 */
-export interface IntentAnalysisResult {
-  /** 意图摘要 */
-  summary: string
-  /** 复杂程度 */
-  complexity: TaskComplexity
-  /** 预估步骤数 */
-  estimatedSteps: number
-  /** 是否需要 plan */
-  needsPlanning: boolean
-  /** 建议使用的模型角色（从分析数据） */
-  suggestedModel: ModelRole
-  /** 建议使用的 Agent 类型（可选） */
-  suggestedAgentType?: string
-}
-
 // ─── Command definition ──────────────────────────────────
 
 /** 命令定义（从文件系统加载） */

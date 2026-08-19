@@ -1,10 +1,9 @@
 // ── 技能相关事件处理器 ──────────────────────────────
-// skill_matched, skill_start, skill_phase, skill_reference_loaded,
+// skill_start, skill_phase, skill_reference_loaded,
 // skill_script_start, skill_script_output, skill_script_done, skill_log, skill_end
 
 import type {StreamCtx} from './streamContext'
 import {useConversationStore} from '../../conversationStore'
-import {useSkillStore} from '../../skillStore'
 
 /** 获取当前会话的 streaming message ID 和 message（若有） */
 function getStreamMsg(ctx: StreamCtx) {
@@ -13,30 +12,6 @@ function getStreamMsg(ctx: StreamCtx) {
     if (!msgId) return null
     const msgs = useConversationStore.getState().messagesMap[ctx.convId] || []
     return {msgId, msg: msgs.find(m => m.id === msgId)}
-}
-
-export function handleSkillMatched(ctx: StreamCtx) {
-    const {isAgentAborted, event} = ctx
-    if (isAgentAborted) return
-    const skillName = typeof event.skillName === 'string' ? event.skillName : ''
-    if (!event.skillId || !skillName) return
-    useSkillStore.getState().onSkillMatched(event.skillId, skillName, event.reason || '')
-    const result = getStreamMsg(ctx)
-    if (!result) return
-    useConversationStore.getState().updateMessageForConv(ctx.convId, result.msgId, {
-        skillExecution: {
-            executionId: `exec-${Date.now()}`,
-            skillId: event.skillId,
-            skillName,
-            status: 'matched',
-            startTime: Date.now(),
-            logs: [{
-                timestamp: Date.now(),
-                type: 'info',
-                message: `技能匹配: ${event.reason || '自动匹配'}`,
-            }],
-        },
-    })
 }
 
 export function handleSkillStart(ctx: StreamCtx) {

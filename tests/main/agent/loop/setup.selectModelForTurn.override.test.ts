@@ -38,8 +38,8 @@ const SCHEME = makeScheme([
     {role: 'reasoning', endpointId: 'p-openai', modelId: 'gpt-5', enabled: false},
 ])
 
-async function runSelect(analysis: any, sessionId?: string, modelRoleOverride?: any): Promise<TurnModelSelection> {
-    const gen = selectModelForTurn(analysis, {scheme: SCHEME, providers: PROVIDERS}, sessionId, modelRoleOverride)
+async function runSelect(sessionId?: string, modelRoleOverride?: any): Promise<TurnModelSelection> {
+    const gen = selectModelForTurn({scheme: SCHEME, providers: PROVIDERS}, sessionId, modelRoleOverride)
     const events: any[] = []
     let result: TurnModelSelection | undefined
     let step = gen.next()
@@ -51,69 +51,40 @@ async function runSelect(analysis: any, sessionId?: string, modelRoleOverride?: 
     return result!
 }
 
-describe('selectModelForTurn — override 优先 + auto 意图分析', () => {
+describe('selectModelForTurn — override 优先 + 默认 primary', () => {
     beforeEach(() => { vi.clearAllMocks() })
 
     it('会话 override 存在 → 直接解析该模型（绕过角色），directModel=true', async () => {
         runtimeConfigManager.setOverride('conv-1', {endpointId: 'p-deepseek', modelId: 'v3'})
-        const sel = await runSelect({suggestedModel: 'reasoning', complexity: 'complex'}, 'conv-1')
+        const sel = await runSelect('conv-1')
         expect(sel.directModel).toBe(true)
         expect(sel.modelConfig.model).toBe('deepseek-v3')
-        expect(sel.modelConfig.provider).toBe('custom')
     })
 
-    it('override 指向已删除/禁用的 provider → 降级 auto + warning', async () => {
+    it('override 指向已删除/禁用的 provider → 降级默认 primary + warning', async () => {
         runtimeConfigManager.setOverride('conv-2', {endpointId: 'p-gone', modelId: 'x'})
-        const gen = selectModelForTurn({suggestedModel: 'primary', complexity: 'simple'}, {scheme: SCHEME, providers: PROVIDERS}, 'conv-2')
-        const events: any[] = []
-        let result: TurnModelSelection | undefined
-        let step = gen.next()
-        while (!step.done) { events.push(step.value); step = gen.next() }
-        result = step.value
-        expect(result!.directModel).toBeUndefined()
-        expect(events.some(e => e.type === 'warning')).toBe(true)
-        expect(result!.modelConfig.model).toBe('gpt-4o') // auto → primary
-    })
-
-    it('override 指向 enabled:false 的 provider → 降级 auto + warning（C3）', async () => {
-        const disabledProvider: LLMProvider[] = [
-            {id: 'p-offline', name: 'Offline', type: 'custom', enabled: false, apiKey: 'sk',
-             models: [{id: 'm1', name: 'off-model', enabled: true}]},
-            ...PROVIDERS,
-        ]
-        runtimeConfigManager.setOverride('conv-c3a', {endpointId: 'p-offline', modelId: 'm1'})
-        const gen = selectModelForTurn({suggestedModel: 'primary', complexity: 'simple'}, {scheme: SCHEME, providers: disabledProvider}, 'conv-c3a')
-        const events: any[] = []
-        let result: TurnModelSelection | undefined
-        let step = gen.next()
-        while (!step.done) { events.push(step.value); step = gen.next() }
-        result = step.value
-        expect(result!.directModel).toBeUndefined()
-        expect(events.some(e => e.type === 'warning')).toBe(true)
-        expect(result!.modelConfig.model).toBe('gpt-4o') // auto → primary
-    })
-
-    it('override 指向 enabled:false 的 model → 降级 auto + warning（C3）', async () => {
-        const disabledModel: LLMProvider[] = [
-            {id: 'p-openai', name: 'OpenAI', type: 'openai', enabled: true, apiKey: 'sk',
-             models: [{id: 'gpt-5', name: 'gpt-5', enabled: true}, {id: 'gpt-4o', name: 'gpt-4o', enabled: true}, {id: 'gpt-disabled', name: 'gpt-disabled', enabled: false}]},
-        ]
-        runtimeConfigManager.setOverride('conv-c3b', {endpointId: 'p-openai', modelId: 'gpt-disabled'})
-        const gen = selectModelForTurn({suggestedModel: 'primary', complexity: 'simple'}, {scheme: SCHEME, providers: disabledModel}, 'conv-c3b')
-        const events: any[] = []
-        let result: TurnModelSelection | undefined
-        let step = gen.next()
-        while (!step.done) { events.push(step.value); step = gen.next() }
-        result = step.value
-        expect(result!.directModel).toBeUndefined()
-        expect(events.some(e => e.type === 'warning')).toBe(true)
-        expect(result!.modelConfig.model).toBe('gpt-4o') // auto → primary
-    })
-
-    it('无 override → auto 意图分析（simple→lightweight 未启用→fallback primary + warning）', async () => {
-        const sel = await runSelect({suggestedModel: 'lightweight', complexity: 'simple'}, 'conv-3')
+        const sel = await runSelect('conv-2')
         expect(sel.directModel).toBeUndefined()
-        expect(sel.modelConfig.model).toBe('gpt-4o') // lightweight 未启用 → primary
+        expect(sel.modelConfig.model).toBe('gpt-4o') // 默认 primary
+    })
+
+    it('override 指向 enabled:false 的 provider → 降级默认 primary + warning', async () => {
+        const disabledProvider = PROVIDERS.map(p => p.id === 'p-deepseek' ? {...p, enabled: false} : p)
+        runtimeConfigManager.setOverride('conv-c3b', {endpointId: 'p-deepseek', modelId: 'v3'})
+        const gen = selectModelForTurn({scheme: SCHEME, providers: disabledProvider}, 'conv-c3b')
+        let result: TurnModelSelection | undefined
+        let step = gen.next()
+        while (!step.done) { step = gen.next() }
+        result = step.value
+        expect(result!.directModel).toBeUndefined()
+        expect(result!.modelConfig.model).toBe('gpt-4o')
+    })
+
+    it('无 override → 默认 primary（不经过意图分析）', async () => {
+        const sel = await runSelect('conv-3')
+        expect(sel.directModel).toBeUndefined()
+        expect(sel.modelConfig.model).toBe('gpt-4o')
+        expect(sel.suggestedRole).toBe('primary')
     })
 
     it('显式 modelRole 优先于 override（reasoning 启用时用推理模型）', async () => {
@@ -122,7 +93,7 @@ describe('selectModelForTurn — override 优先 + auto 意图分析', () => {
             {role: 'reasoning', endpointId: 'p-openai', modelId: 'gpt-5', enabled: true},
         ])
         runtimeConfigManager.setOverride('conv-4', {endpointId: 'p-deepseek', modelId: 'v3'})
-        const gen = selectModelForTurn({suggestedModel: 'primary', complexity: 'simple'}, {scheme: scheme2, providers: PROVIDERS}, 'conv-4', 'reasoning')
+        const gen = selectModelForTurn({scheme: scheme2, providers: PROVIDERS}, 'conv-4', 'reasoning')
         let result: TurnModelSelection | undefined
         let step = gen.next()
         while (!step.done) { step = gen.next() }
@@ -131,18 +102,33 @@ describe('selectModelForTurn — override 优先 + auto 意图分析', () => {
         expect(result!.directModel).toBeUndefined()
     })
 
-    it('显式 modelRole 非法/未启用 → 降级 override / auto', async () => {
+    it('显式 modelRole 非法/未启用 → 降级继承 override', async () => {
         const scheme2 = makeScheme([
             {role: 'primary', endpointId: 'p-openai', modelId: 'gpt-4o'},
         ])
         runtimeConfigManager.setOverride('conv-5', {endpointId: 'p-deepseek', modelId: 'v3'})
-        // 'image_understanding' 非法（非 3 文本角色）→ 降级继承 override
-        const gen = selectModelForTurn({suggestedModel: 'primary', complexity: 'simple'}, {scheme: scheme2, providers: PROVIDERS}, 'conv-5', 'image_understanding' as any)
+        // 'image_understanding' 非法（非 3 文本角色）→ 落入后续步骤 → 继承 override
+        const gen = selectModelForTurn({scheme: scheme2, providers: PROVIDERS}, 'conv-5', 'image_understanding' as any)
         let result: TurnModelSelection | undefined
         let step = gen.next()
         while (!step.done) { step = gen.next() }
         result = step.value
-        expect(result!.directModel).toBe(true)
+        expect(result!.directModel).toBe(true) // 降级到 override
+        expect(result!.modelConfig.model).toBe('deepseek-v3')
+    })
+
+    it('显式 modelRole 角色未启用 → 降级继承 override', async () => {
+        const scheme2 = makeScheme([
+            {role: 'primary', endpointId: 'p-openai', modelId: 'gpt-4o'},
+            {role: 'reasoning', endpointId: 'p-openai', modelId: 'gpt-5', enabled: false}, // 未启用
+        ])
+        runtimeConfigManager.setOverride('conv-6', {endpointId: 'p-deepseek', modelId: 'v3'})
+        const gen = selectModelForTurn({scheme: scheme2, providers: PROVIDERS}, 'conv-6', 'reasoning')
+        let result: TurnModelSelection | undefined
+        let step = gen.next()
+        while (!step.done) { step = gen.next() }
+        result = step.value
+        expect(result!.directModel).toBe(true) // reasoning 未启用 → 降级 override
         expect(result!.modelConfig.model).toBe('deepseek-v3')
     })
 })
