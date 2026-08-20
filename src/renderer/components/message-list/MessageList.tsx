@@ -8,7 +8,7 @@ import {AnimatePresence, motion} from 'framer-motion'
 import {useConversationStore} from '../../stores/conversationStore'
 import {useAgentStore} from '../../stores/agentStore'
 import MessageBubble from './MessageBubble'
-import {ThinkingIndicator} from './StatusIndicators'
+import {ThinkingIndicator, getPhaseLabel} from './StatusIndicators'
 import {KbdCombo} from '../common/Kbd'
 
 // ─── 复制提示 Toast ────────────────────────────────────
@@ -205,6 +205,16 @@ export default function MessageList({conversationId}: { conversationId?: string 
         conversationId ? (s.loadingMoreMap[conversationId] ?? false) : false)
     // agent 状态
     const streamingMessageId = useAgentStore((s) => conversationId ? s.convAgentStates[conversationId]?.streamingMessageId ?? null : s.streamingMessageId)
+    // statusNote 数据源：重试进度（executingToolsMessage 的 retry 分支）+ 最终错误
+    const convExecMsg = useAgentStore((s) =>
+        conversationId ? (s.convAgentStates[conversationId]?.executingToolsMessage ?? null) : (s as any).executingToolsMessage)
+    const convErrorMsg = useAgentStore((s) =>
+        conversationId ? (s.convAgentStates[conversationId]?.errorMessage ?? null) : s.errorMessage)
+    // 阶段状态（思考中/响应中等）——同样搬入气泡 statusNote
+    const convAgentState = useAgentStore((s) =>
+        conversationId ? (s.convAgentStates[conversationId]?.agentState ?? null) : s.agentState)
+    const convIsThinkingAfterTools = useAgentStore((s) =>
+        conversationId ? (s.convAgentStates[conversationId]?.isThinkingAfterTools ?? false) : s.isThinkingAfterTools)
 
     const containerRef = useRef<HTMLDivElement>(null)
     const [showCopyToast, setShowCopyToast] = useState(false)
@@ -554,6 +564,78 @@ export default function MessageList({conversationId}: { conversationId?: string 
         useConversationStore.getState().loadMoreMessages(conversationId)
     }, [conversationId, loadingMore])
 
+    // ── 最后一条助手消息的状态注记（重试/错误提示） ─────────
+    // 只挂"当前最后一条助手消息"：用户滚动历史时干净，新消息成为最后一条后自动转移。
+    // 错误优先（handleError 已清 executingToolsMessage，两者互斥）。
+    const visibleMessages = useMemo(
+        () => messages
+            .map((message, origIdx) => ({message, origIdx}))
+            .filter(({message}) => message.role === 'user' || message.role === 'assistant'),
+        [messages],
+    )
+    const lastAssistantId = useMemo(() => {
+        for (let i = visibleMessages.length - 1; i >= 0; i--) {
+            if (visibleMessages[i].message.role === 'assistant') return visibleMessages[i].message.id
+        }
+        return null
+    }, [visibleMessages])
+    // ★ agentState 字段级解耦：流式事件（thinking/text chunk）频繁生成新
+    //   agentState 对象引用，但 status/phase/model 字段值不变。若 useMemo 依赖
+    //   整个 convAgentState，每次流式更新都会重算出新 statusNote 对象 → 传给
+    //   StatusNote 的引用变化 → memo 失效 → 气泡重渲染连带 statusNote 重渲染
+    //   （流式闪烁）。取字段做依赖：字段值不变则 statusNote 引用稳定。
+    const agentStatus = convAgentState?.status
+    const agentPhase = convAgentState?.phase
+    const agentModelProvider = convAgentState?.currentModelProvider
+    const agentModelName = convAgentState?.currentModelName
+    // 运行中标志（含 executing_tools：tool 阶段 status 为 'running'）：
+    // 传给最后一条助手气泡做行级 min-w 兜底，statusNote 暂时为 null 时行宽不回缩。
+    const isAgentRunning = agentStatus === 'running' || agentStatus === 'thinking'
+    const statusNote = useMemo<{type: 'retry' | 'error' | 'phase'; label: string; urgent?: boolean} | null>(() => {
+        if (lastAssistantId === null) return null
+        // 1. 错误（最终失败态；handleError 已清 executingToolsMessage，互斥）
+        if (convErrorMsg) return {type: 'error', label: convErrorMsg}
+        // 2. 重试进度（retry 对象/字符串）
+        if (typeof convExecMsg === 'string') {
+            if (convExecMsg.startsWith('重试')) return {type: 'retry', label: convExecMsg}
+        } else if (convExecMsg && typeof convExecMsg.label === 'string' && convExecMsg.label.startsWith('重试')) {
+            return {type: 'retry', label: convExecMsg.label, urgent: convExecMsg.urgent}
+        }
+        // 3. 阶段文案（思考中/响应中/等待响应中…），带当前模型名前缀
+        //    （合并原 InputToolbar 底部"模型 运行中..."显示）；执行工具中留左下角
+        //    （气泡内已有 tool 卡片显示进度，避免双份提示）
+        //    ★ thinking 状态（思考块流式期间，handleThinking 设 status='thinking'）
+        //    也必须显示：若仅认 running，思考块出现时 statusNote 消失 → 时间戳行
+        //    收缩 → 气泡宽度回缩，与思考块/文案交替出现形成高频闪烁。
+        //    （复用上方已算好的 isAgentRunning，避免 running||thinking 重复判断）
+        if (isAgentRunning && agentPhase && agentPhase !== 'idle' && agentPhase !== 'executing_tools') {
+            // 兜底 '思考中'：running/thinking 期间 statusNote 永不返回 null，
+            // 保证行宽稳定（min-w-[16rem]），仅文案切换不引起气泡伸缩
+            const phaseLabel = getPhaseLabel(agentPhase) || (convIsThinkingAfterTools ? '等待响应中...' : '思考中')
+            if (phaseLabel) {
+                const modelLabel = agentModelProvider
+                    ? `${agentModelProvider}/${agentModelName}`
+                    : agentModelName
+                return {type: 'phase', label: modelLabel ? `${modelLabel} ${phaseLabel}` : phaseLabel}
+            }
+        }
+        return null
+    }, [lastAssistantId, convErrorMsg, convExecMsg, agentStatus, agentPhase, agentModelProvider, agentModelName, convIsThinkingAfterTools])
+
+    // ── 触底跟随补丁：statusNote 无→有 / 类型切换时高度突变 ──
+    // 气泡底部插入提示无 scroll 事件、不走"新消息"effect（messages.length 不变），
+    // 用户停在底部时提示会被推出视口 → 主动跟随一次。
+    // 倒计时同类型文本变化（高度不变，单行 truncate）不重复滚动。
+    const prevStatusTypeRef = useRef<string | null>(null)
+    useEffect(() => {
+        const type = statusNote?.type ?? null
+        const prev = prevStatusTypeRef.current
+        prevStatusTypeRef.current = type
+        if (type && type !== prev && !userScrolledAwayRef.current) {
+            requestAnimationFrame(() => scrollToBottom('smooth'))
+        }
+    }, [statusNote, scrollToBottom])
+
     // ── 空状态 ────────────────────────────────────────────
     if (messages.length === 0) {
         return (
@@ -585,17 +667,18 @@ export default function MessageList({conversationId}: { conversationId?: string 
                     )}
                     {/* 只显示 role='user' 或 'assistant' 的消息 */}
                     {/* 这样可以隐藏 role='context' 等内部消息（如 hook additionalContext） */}
-                    {messages
-                        .map((message, origIdx) => ({message, origIdx}))
-                        .filter(({message}) => message.role === 'user' || message.role === 'assistant')
-                        .map(({message, origIdx}) => (
+                    {visibleMessages.map(({message, origIdx}) => (
                         <div
                             key={message.id}
                             data-msg-idx={origIdx}
                             data-name={`message-row-${message.role}`}
                             style={{contentVisibility: 'auto', containIntrinsicSize: 'auto 200px'}}
                         >
-                            <MessageBubble message={message}/>
+                            <MessageBubble
+                                message={message}
+                                isAgentRunning={message.id === lastAssistantId && isAgentRunning}
+                                statusNote={message.id === lastAssistantId ? statusNote : null}
+                            />
                         </div>
                     ))}
                 </div>

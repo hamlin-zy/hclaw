@@ -19,6 +19,7 @@ import {
 import {flushToolResultBatch} from '../batching/toolResultBatch'
 import {parseCommands} from '../helpers/misc'
 import {saveCurrentConversation} from '../helpers/convHelpers'
+import {ensureStreamingMessage} from './streamCore'
 
 /**
  * 冲刷并清空该会话残留的流式批数据（text + thinking）。
@@ -180,11 +181,8 @@ export function handleError(ctx: StreamCtx) {
     const errorMsgId = errorConvData.streamingMessageId
     flushPendingStreamBatches(convId, errorMsgId)
 
-    if (!errorMsgId) {
-        const newId = crypto.randomUUID()
-        useConversationStore.getState().addMessageToConv(convId, {id: newId, role: 'assistant', content: ''})
-        get().updateConvData(convId, {streamingMessageId: newId})
-    }
+    // 无流式消息时创建占位气泡，使错误提示有气泡可挂载（ensureStreamingMessage 内部幂等）
+    ensureStreamingMessage(get, convId)
 
     // 同时设置 per-conversation 和顶层 errorMessage，防御性 fallback
     get().updateConvData(convId, {
@@ -240,7 +238,7 @@ export function handleWarning(ctx: StreamCtx) {
     console.warn(`[Agent] 警告: ${msg}`)
 
     // ── 重试通知：来自 #retryBackoff 的重试进度消息 ──
-    // 显示在左下角状态指示器（带 spinner），不打断 agent 运行状态
+    // 显示在最后一条助手消息底部（气泡内 statusNote），不打断 agent 运行状态
     const retryMatch = msg.match(/^retry\s+(\d+)\/(\d+)[：:]\s*(.*)/)
     if (retryMatch) {
         const [, attempt, total, errorDetail] = retryMatch
@@ -252,9 +250,15 @@ export function handleWarning(ctx: StreamCtx) {
             })
             return
         }
+        // ★ 占位气泡：首次 LLM 调用即失败时（无 text/tool 事件），渲染端还没有
+        //   assistant 消息 → 创建空占位并写入 streamingMessageId，使重试提示有
+        //   气泡可挂载；后续 text/thinking/tool_start 复用该 ID（handleText 走
+        //   else 分支 accumulateTextBatch），避免重复建消息产生幽灵气泡。
+        //   （与 handleError 无 errorMsgId 时的占位逻辑对称）
+        ensureStreamingMessage(get, convId)
         get().updateConvData(convId, {
             executingToolsMessage: {label: `重试 ${attempt}/${total}：${errorDetail}`, urgent: false},
-            // 保持 agentState 不变（仍在 running），不清除 streamingMessageId
+            // 保持 agentState 不变（仍在 running）
         })
         return
     }

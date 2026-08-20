@@ -116,6 +116,10 @@ export class OpenAIAdapter implements ModelAdapter {
 
       // 累积 tool_calls（OpenAI 是增量式的，需要拼合）
       const toolCallAccumulator: Map<number, { id: string; name: string; args: string }> = new Map()
+      // ★ 累积完整 reasoning_content（用于流结束时提取 dots 格式工具调用）
+      let accumulatedReasoning = ''
+      // ★ 当前已注册的工具名集合（用于提取 dots 工具调用时的 name 校验）
+      const availableToolNames = new Set((tools || []).map(t => t.name))
 
         // 用于累积 usage 信息（某些 API 的 usage 在最后一个 chunk）
         const usage = {inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, reasoningTokens: 0}
@@ -168,6 +172,8 @@ export class OpenAIAdapter implements ModelAdapter {
         // 这些模型在流中返回推理内容，需要捕获并在后续请求中回传
         const reasoningContent = (delta as any).reasoning_content || (delta as any).reasoning
         if (reasoningContent) {
+            // ★ 累积完整 reasoning（用于流结束时提取 dots 格式工具调用）
+            accumulatedReasoning += reasoningContent
             yield { type: 'reasoning', content: reasoningContent }
         }
 
@@ -191,6 +197,17 @@ export class OpenAIAdapter implements ModelAdapter {
 
           // 结束处理
           if (choice.finish_reason) {
+              // ★ dots 模型（dots-3-note-preview:free）会把工具调用放在 reasoning_content 中
+              //   而非标准的 tool_calls 字段。vLLM DotsToolParser 确认其格式为：
+              //     <invoke name="toolName"><parameter name="key">value
+              //   只在流结束时做一次完整提取，避免跨 chunk 问题，不影响其他服务商。
+              if (accumulatedReasoning) {
+                  const extracted = extractDotsToolCalls(accumulatedReasoning, availableToolNames)
+                  for (const tc of extracted) {
+                      const idx = toolCallAccumulator.size
+                      toolCallAccumulator.set(idx, { id: tc.id, name: tc.name, args: tc.arguments })
+                  }
+              }
               const hasToolCalls = toolCallAccumulator.size > 0  // 必须在 flush 前检查
               yield* flushToolCalls()
               yield* sendUsage()
@@ -634,6 +651,60 @@ export class OpenAIAdapter implements ModelAdapter {
   convertMessagesForTestResponses(messages: readonly ChatMessage[]): any[] {
     return this.convertToResponsesInput(messages)
   }
+}
+
+/**
+ * 从 reasoning_content 中提取 dots 格式的工具调用。
+ *
+ * dots 模型格式（vLLM DotsToolParser 确认）：
+ *   <invoke name=toolName><parameter name=key>value
+ *   <parameter name=key2>value2
+ *
+ * 严谨判定策略：
+ * 1. 必须匹配完整的 <invoke> 开闭合标签
+ * 2. name 属性值必须匹配当前已注册的工具名
+ * 3. 参数以 JSON 字符串形式返回（供下游直接作为 arguments）
+ *
+ * @param text 完整的 reasoning_content 文本
+ * @param availableToolNames 当前已注册的工具名集合
+ * @returns 提取的工具调用列表
+ */
+function extractDotsToolCalls(
+    text: string,
+    availableToolNames: Set<string>,
+): Array<{ id: string; name: string; arguments: string }> {
+    const results: Array<{ id: string; name: string; arguments: string }> = []
+
+    // 匹配完整的 invoke 开闭合块
+    const invokeRegex = /<invoke\s+name\s*=\s*["\x27]?([^">\s]+)["\x27]?\s*>([\s\S]*?)<\/invoke>/g
+    let match: RegExpExecArray | null
+
+    while ((match = invokeRegex.exec(text)) !== null) {
+        const toolName = match[1].trim()
+        const body = match[2]
+
+        // 条件1：工具名必须在已注册集合中
+        if (!availableToolNames.has(toolName)) continue
+
+        // 提取参数: <parameter name=K>V
+        const params: Record<string, string> = {}
+        const paramRegex = /<parameter\s+name\s*=\s*["\x27]?([^">\s]+)["\x27]?\s*>([\s\S]*?)<\/parameter>/g
+        let paramMatch: RegExpExecArray | null
+        while ((paramMatch = paramRegex.exec(body)) !== null) {
+            params[paramMatch[1].trim()] = paramMatch[2].trim()
+        }
+
+        // 条件2：参数提取为 JSON 字符串（JSON.stringify 产物必然合法，无需再校验）
+        const argsJson = JSON.stringify(params)
+
+        results.push({
+            id: `dots-tc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            name: toolName,
+            arguments: argsJson,
+        })
+    }
+
+    return results
 }
 
 /** OpenAI usage 对象中的扩展细节类型 */

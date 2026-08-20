@@ -186,12 +186,15 @@ export function handleToolProgress(ctx: StreamCtx) {
     const convState = get().convAgentStates[convId] || createDefaultConvData()
     if (!convState.streamingMessageId && convState.agentState.status === 'idle') return
 
-    // ★ retryBackoff 每秒推送的剩余秒数 → 渲染为带紧迫态的倒计时对象
-    if (typeof (event as any).retryCountdown === 'number') {
+    // ★ retryBackoff 每秒推送的剩余秒数 → 渲染为带紧迫态的倒计时对象。
+    //   label 直接用主进程 progress（含"重试 次数：错误详情，剩余 Ns"完整上下文），
+    //   不再用固定文案"重试中，Ns 后重试..."覆盖 warning 携带的错误详情。
+    const {retryCountdown, progress} = event
+    if (typeof retryCountdown === 'number') {
         get().updateConvData(convId, {
             executingToolsMessage: {
-                label: `重试中，${(event as any).retryCountdown}s 后重试...`,
-                urgent: (event as any).retryCountdown <= 3,
+                label: progress || `重试中，${retryCountdown}s 后重试...`,
+                urgent: retryCountdown <= 3,
             },
         })
         return
