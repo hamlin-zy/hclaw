@@ -32,7 +32,6 @@ const BASE_PROPS = {
     compactInProgress: false,
     needsSession: false,
     needsModel: false,
-    agentState: {currentModelProvider: 'OpenRouter', currentModelName: 'deepseek-v3'},
     pendingMessagesCount: 2,
     canSend: true,
     onSubmit: vi.fn(),
@@ -58,12 +57,12 @@ describe('InputToolbar 窄窗口溢出保护契约', () => {
         expect(status!.className).toContain('min-w-0')
     })
 
-    it('运行态模型提示文字 truncate：溢出省略而非换行挤压', () => {
+    it('运行态模型文案已合并至气泡：isRunning 时不渲染运行文案', () => {
         const {container} = render(<InputToolbar {...BASE_PROPS} isRunning/>)
-        const status = container.querySelector<HTMLElement>('[data-name="input-toolbar-status"]')
-        const runningText = status!.querySelector('.truncate')
-        expect(runningText).not.toBeNull()
-        expect(runningText!.textContent).toContain('OpenRouter/deepseek-v3 运行中')
+        expect(screen.queryByText(/运行中/)).toBeNull()
+        expect(screen.queryByText(/思考中/)).toBeNull()
+        // 不包含模型名文案（"服务商/模型"字样）
+        expect(container.textContent).not.toContain('OpenRouter/deepseek-v3')
     })
 
     it('pendingMessages 待处理徽章 shrink-0 whitespace-nowrap：不被压缩换行', () => {

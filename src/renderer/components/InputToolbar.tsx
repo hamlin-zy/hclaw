@@ -12,7 +12,6 @@ interface InputToolbarProps {
     compactInProgress: boolean
     needsSession: boolean
     needsModel: boolean
-    agentState: {currentModelProvider?: string; currentModelName?: string}
     pendingMessagesCount: number
     canSend: boolean
     /** 当前会话 ID（ModelSelector 会话级 override 读取/写入；可选以兼容未传入的调用方） */
@@ -31,7 +30,6 @@ export default function InputToolbar({
     compactInProgress,
     needsSession,
     needsModel,
-    agentState,
     pendingMessagesCount,
     canSend,
     conversationId,
@@ -40,19 +38,12 @@ export default function InputToolbar({
     onUploadFile,
     onOpenCommandPalette,
 }: InputToolbarProps) {
-    // 运行态模型提示：{服务商名称}/{模型名称}（provider 缺失时仅显示模型名）
-    const runningModelLabel = agentState.currentModelProvider
-        ? `${agentState.currentModelProvider}/${agentState.currentModelName}`
-        : agentState.currentModelName
     return (
         <div data-name="input-toolbar" className="flex items-center justify-between px-2 py-1 border-t border-[var(--border)]" role="status" aria-live="polite">
             <div data-name="input-toolbar-status" className="flex items-center gap-2 text-xs text-[var(--text-muted)] flex-1 min-w-0">
-                {isRunning ? (
-                    <span className="flex items-center gap-1 text-[var(--info)] min-w-0">
-                        <StatusDot color="var(--info)"/>
-                        <span className="truncate min-w-0">{runningModelLabel} 运行中...</span>
-                    </span>
-                ) : compactInProgress ? (
+                {/* 模型 + 阶段状态（"模型 思考中/响应中"）已合并至消息气泡底部
+                    （MessageList statusNote），运行态不再于输入栏显示文案/脉冲点 */}
+                {compactInProgress ? (
                     <span className="flex items-center gap-1 text-[var(--warning)] min-w-0">
                         <StatusDot color="var(--warning)"/>
                         <span className="truncate min-w-0">正在压缩上下文以节省 token...</span>

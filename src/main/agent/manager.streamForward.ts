@@ -45,3 +45,16 @@ export function createForwardPayload(conversationId: string, event: AgentStreamE
     : event
   return {conversationId, event: forwardEvent}
 }
+
+/**
+ * 从 worker error 消息中提取真实错误信息。
+ *
+ * worker.ts 发送的错误结构为 { type:'error', conversationId, event:{type:'error', error: err.message} }，
+ * 错误信息在 msg.event.error；顶层 msg.error 是旧格式兜底。
+ * 此前只读 msg.error → undefined → 回退 'Worker error'，真实错误被吞掉。
+ *
+ * 三级回退：event.error → 顶层 error → 'Worker error'（最终兜底文案）
+ */
+export function extractWorkerErrorMessage(msg: { event?: { error?: string }; error?: string } | null | undefined): string {
+  return msg?.event?.error || msg?.error || 'Worker error'
+}

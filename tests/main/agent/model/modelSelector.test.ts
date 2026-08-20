@@ -2,20 +2,17 @@
  * modelSelector 单元测试
  *
  * 覆盖：
- * - selectModelForTask：roles 数组结构解析、planning/background 上下文、
- *   suggestedModel 优先、fallback 链式查找
- * - selectModelForTaskWithRole：返回实际角色、reasoning 配置不完整时 fallback、
- *   suggestedModel 即使未启用也使用、兜底选择
- * - complexityToRole：三档映射
+ * - selectModelForTaskWithRole：planning/background 上下文、suggestedModel 校验、
+ *   fallback 链（endpointId/modelId 校验）+ throw
  * - resolveModelConfig：provider/model 匹配、google-oauth2 token 处理、数据库兜底
- * - getExecutionModelConfig / shouldEnterPlanMode / selectModelForAgentType
+ * - selectModelForAgentType / getModelConfigForAgentType
  *
  * Mock 策略：
  * - SqliteProviderRepository 用 vi.mock 替换为内存 stub（getById），
  *   避免 modelSelector 顶层 `new SqliteProviderRepository()` 触碰真实 SQLite 数据库。
  */
 import {beforeEach, describe, expect, it, vi} from 'vitest'
-import type {IntentAnalysisResult, LLMProvider, ModelRoleConfig, ModelScheme, ModelSchemeRole} from '@shared/types'
+import type {LLMProvider, ModelRoleConfig, ModelScheme, ModelSchemeRole} from '@shared/types'
 
 // ─── hoisted mock 状态（必须在 vi.mock 之前提升）────────────────
 
@@ -35,14 +32,10 @@ vi.mock('@/main/repositories/sqlite/llmProviderRepository', () => ({
 // ─── 被测模块 ─────────────────────────────────────────────────
 
 import {
-    complexityToRole,
-    getExecutionModelConfig,
     getModelConfigForAgentType,
     resolveModelConfig,
     selectModelForAgentType,
-    selectModelForTask,
     selectModelForTaskWithRole,
-    shouldEnterPlanMode,
 } from '@/main/agent/model/modelSelector'
 
 // ─── 测试数据工具 ───────────────────────────────────────────────
@@ -83,64 +76,9 @@ function makeProvider(overrides: Partial<LLMProvider> = {}): LLMProvider {
     }
 }
 
-/** 构造带 suggestedModel 的 intent */
-function makeIntent(partial: Partial<IntentAnalysisResult> = {}): IntentAnalysisResult {
-    return {
-        summary: 'test',
-        complexity: 'moderate',
-        estimatedSteps: 5,
-        needsPlanning: false,
-        suggestedModel: 'primary',
-        ...partial,
-    }
-}
-
 beforeEach(() => {
     mockGetById.mockReset()
     mockGetById.mockReturnValue(null)
-})
-
-// ─── selectModelForTask ─────────────────────────────────────────
-
-describe('selectModelForTask', () => {
-    it('新结构（roles 数组）→ 兼容解析返回 primary', () => {
-        const result = selectModelForTask(makeRolesScheme(), 'main')
-        expect(result.endpointId).toBe('prov-primary')
-        expect(result.modelId).toBe('model-primary')
-    })
-
-    it('context=planning 且 reasoning 启用 → 返回 reasoning', () => {
-        const scheme = makeRolesScheme({reasoning: {enabled: true}})
-        const result = selectModelForTask(scheme, 'planning')
-        expect(result.endpointId).toBe('prov-reason')
-        expect(result.modelId).toBe('model-reason')
-    })
-
-    it('context=background 且 lightweight 启用 → 返回 lightweight', () => {
-        const scheme = makeRolesScheme({lightweight: {enabled: true}})
-        const result = selectModelForTask(scheme, 'background')
-        expect(result.endpointId).toBe('prov-light')
-        expect(result.modelId).toBe('model-light')
-    })
-
-    it('intent.suggestedModel=reasoning 且启用 → 返回 reasoning', () => {
-        const scheme = makeRolesScheme({reasoning: {enabled: true}})
-        const result = selectModelForTask(scheme, 'main', makeIntent({suggestedModel: 'reasoning'}))
-        expect(result.endpointId).toBe('prov-reason')
-        expect(result.modelId).toBe('model-reason')
-    })
-
-    it('fallback：background 无 lightweight → 回退 primary', () => {
-        const scheme = makeRolesScheme({lightweight: {enabled: false}})
-        const result = selectModelForTask(scheme, 'background')
-        expect(result.endpointId).toBe('prov-primary')
-    })
-
-    it('reasoning 未启用时 planning → 回退 primary', () => {
-        const scheme = makeRolesScheme({reasoning: {enabled: false}})
-        const result = selectModelForTask(scheme, 'planning')
-        expect(result.endpointId).toBe('prov-primary')
-    })
 })
 
 // ─── selectModelForTaskWithRole ──────────────────────────────────
@@ -162,28 +100,25 @@ describe('selectModelForTaskWithRole', () => {
         expect(result.config.modelId).toBe('model-primary')
     })
 
-    it('suggestedModel 配置完整时即使角色未启用也使用该角色', () => {
+    it('suggestedModel 角色未启用 → 不再使用，fallback primary', () => {
         const scheme = makeRolesScheme({reasoning: {enabled: false}})
         const result = selectModelForTaskWithRole(scheme, 'main', {suggestedModel: 'reasoning'})
-        expect(result.role).toBe('reasoning')
-        expect(result.config.endpointId).toBe('prov-reason')
-        expect(result.config.enabled).toBe(false)
+        expect(result.role).toBe('primary')
+        expect(result.config.endpointId).toBe('prov-primary')
     })
 
-    it('兜底：所有角色都未启用 → 返回第一个可用角色（role 标记 primary）', () => {
+    it('兜底：所有角色都未启用 → throw No valid model role configured', () => {
         const allDisabled = makeRolesScheme({
             primary: {enabled: false},
             lightweight: {enabled: false},
             reasoning: {enabled: false},
         })
-        const result = selectModelForTaskWithRole(allDisabled, 'main')
-        expect(result.role).toBe('primary')
-        expect(result.config.endpointId).toBe('prov-primary')
+        expect(() => selectModelForTaskWithRole(allDisabled, 'main')).toThrow('No valid model role configured')
     })
 
-    it('兜底：存在启用角色时选择第一个启用的角色', () => {
+    it('兜底：primary 未配置但 lightweight 有效 → 选 lightweight（role 仍标 primary）', () => {
         const scheme = makeRolesScheme({
-            primary: {enabled: false},
+            primary: {enabled: true, endpointId: ''},  // 未配置
             lightweight: {enabled: true},
         })
         const result = selectModelForTaskWithRole(scheme, 'main')
@@ -191,21 +126,14 @@ describe('selectModelForTaskWithRole', () => {
         expect(result.config.endpointId).toBe('prov-light')
         expect(result.config.modelId).toBe('model-light')
     })
-})
 
-// ─── complexityToRole ────────────────────────────────────────────
-
-describe('complexityToRole', () => {
-    it('simple → lightweight', () => {
-        expect(complexityToRole('simple')).toBe('lightweight')
-    })
-
-    it('complex → reasoning', () => {
-        expect(complexityToRole('complex')).toBe('reasoning')
-    })
-
-    it('moderate → primary', () => {
-        expect(complexityToRole('moderate')).toBe('primary')
+    it('兜底：primary→lightweight→reasoning 顺序 + 全部无效时 throw', () => {
+        const scheme = makeRolesScheme({
+            primary: {enabled: true, endpointId: ''},
+            lightweight: {enabled: true, endpointId: ''},
+            reasoning: {enabled: true, endpointId: ''},
+        })
+        expect(() => selectModelForTaskWithRole(scheme, 'main')).toThrow('No valid model role configured')
     })
 })
 
@@ -270,47 +198,48 @@ describe('resolveModelConfig', () => {
         expect(result!.apiKey).toBe('sk-abc')
         expect(mockGetById).not.toHaveBeenCalled()
     })
-})
 
-// ─── getExecutionModelConfig / shouldEnterPlanMode / selectModelForAgentType ──
-
-describe('getExecutionModelConfig', () => {
-    it('成功路径：解析 primary 配置', () => {
+    it('透传 features.supportsExplicitCaching 到 ModelConfig', () => {
         const providers = [makeProvider({
-            id: 'prov-primary',
-            name: 'Primary Provider',
-            type: 'anthropic',
-            models: [{id: 'model-primary', name: 'claude-model', enabled: true}],
+            id: 'prov-openrouter',
+            name: 'OpenRouter',
+            type: 'openai',
+            features: {supportsExplicitCaching: true},
+            models: [{id: 'model-or', name: 'openrouter-model', enabled: true}],
         })]
-        const result = getExecutionModelConfig(makeRolesScheme(), 'main', undefined, providers)
+        const result = resolveModelConfig({endpointId: 'prov-openrouter', modelId: 'model-or', enabled: true}, providers)
         expect(result).not.toBeNull()
-        expect(result!.roleConfig.endpointId).toBe('prov-primary')
-        expect(result!.roleConfig.modelId).toBe('model-primary')
-        expect(result!.modelConfig.apiKey).toBe('sk-abc')
+        expect(result!.features).toEqual({supportsExplicitCaching: true})
     })
 
-    it('provider 缺失 → 返回 null', () => {
-        expect(getExecutionModelConfig(makeRolesScheme(), 'main', undefined, [])).toBeNull()
+    it('features 为 undefined 时 ModelConfig.features 为 undefined', () => {
+        const providers = [makeProvider({
+            id: 'prov-no-features',
+            name: 'No Features',
+            type: 'openai',
+            features: undefined,
+            models: [{id: 'model-nf', name: 'no-features-model', enabled: true}],
+        })]
+        const result = resolveModelConfig({endpointId: 'prov-no-features', modelId: 'model-nf', enabled: true}, providers)
+        expect(result).not.toBeNull()
+        expect(result!.features).toBeUndefined()
+    })
+
+    it('features 为空对象时 ModelConfig.features 为空对象', () => {
+        const providers = [makeProvider({
+            id: 'prov-empty-features',
+            name: 'Empty Features',
+            type: 'openai',
+            features: {},
+            models: [{id: 'model-ef', name: 'empty-features-model', enabled: true}],
+        })]
+        const result = resolveModelConfig({endpointId: 'prov-empty-features', modelId: 'model-ef', enabled: true}, providers)
+        expect(result).not.toBeNull()
+        expect(result!.features).toEqual({})
     })
 })
 
-describe('shouldEnterPlanMode', () => {
-    it('needsPlanning=true → true', () => {
-        expect(shouldEnterPlanMode(makeIntent({needsPlanning: true}))).toBe(true)
-    })
-
-    it('complexity=complex → true', () => {
-        expect(shouldEnterPlanMode(makeIntent({complexity: 'complex'}))).toBe(true)
-    })
-
-    it('无 intent → false', () => {
-        expect(shouldEnterPlanMode(undefined)).toBe(false)
-    })
-
-    it('普通 intent → false', () => {
-        expect(shouldEnterPlanMode(makeIntent())).toBe(false)
-    })
-})
+// ─── selectModelForAgentType / getModelConfigForAgentType ────────
 
 describe('selectModelForAgentType / getModelConfigForAgentType', () => {
     it('Explore（lightweight 启用）→ 返回 lightweight', () => {

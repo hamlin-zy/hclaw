@@ -17,7 +17,7 @@ import type {AgentStreamEvent} from './stream'
 import {LLMCaller} from './loop/llmCaller'
 import {ToolExecutor} from './loop/toolExecutor'
 import {AgentLoopController} from './loop/controller'
-import type {HClawAgentType, IntentAnalysisResult, ModelRole} from '@shared/types'
+import type {HClawAgentType, ModelRole} from '@shared/types'
 import type {AgentDefinition} from '@shared/agent'
 import {permissionEngine} from './tools/permission'
 import {setAgentToolConfig} from './tools/builtin/agentTool'
@@ -76,12 +76,7 @@ export interface AgentLoopParams {
   pendingInjectedMessages?: ChatMessage[]
 }
 
-// ─── 意图分析事件 ────────────────────────────────────────
-
-export interface IntentAnalyzedEvent {
-    type: 'intent_analyzed'
-    result: IntentAnalysisResult
-}
+// ─── 模式切换事件 ────────────────────────────────────────
 
 export interface ModeChangeEvent {
     type: 'mode_change'
@@ -97,7 +92,7 @@ export interface ModeChangeEvent {
  */
 export async function* agentLoop(
   params: AgentLoopParams,
-): AsyncGenerator<AgentStreamEvent | IntentAnalyzedEvent | ModeChangeEvent> {
+): AsyncGenerator<AgentStreamEvent | ModeChangeEvent> {
   const {
     messages: initialMessages,
     modelConfig,

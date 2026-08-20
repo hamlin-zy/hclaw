@@ -13,11 +13,10 @@ import {broadcastToOtherWindows} from '../../utils/windowBroadcast'
 import type {ModelConfig} from '../model/types'
 
 export function registerHandlers(): void {
-    // 获取会话级模型 override（含全局 lastSelected）
+    // 获取会话级模型 override
     ipcMain.handle('model-override-get', async (_event, convId: string) => {
         const override = runtimeConfigManager.getOverride(convId)
-        const lastSelected = runtimeConfigManager.getLastSelected()
-        return {success: true, data: {override, lastSelected}}
+        return {success: true, data: {override}}
     })
 
     // 设置会话级模型 override（切回 auto 传 null）；广播多窗口 + 运行中 Worker（动态同步）

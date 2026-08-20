@@ -8,6 +8,12 @@ export interface ProviderPreset {
   baseUrl?: string
   expectedFormat?: string
   presetModels?: string[]
+  /** 是否支持显式提示词缓存（Anthropic 兼容的 cache_control: { type: "ephemeral" }）。
+   * 为 true 时，OpenAI 适配器会在 system 消息上添加 cache_control，由网关/服务商翻译或原生支持。
+   * 适用：OpenRouter（网关翻译）、阿里百炼/通义千问（原生支持）、Google Gemini（原生支持，仅最后一个断点生效）。
+   * 不适用：OpenAI 直连（用 prompt_cache_breakpoint）、智谱/DeepSeek/Moonshot/Groq/xAI（全自动隐式缓存）。
+   * 默认 false，避免向不支持的服务商发送未知字段。 */
+  supportsExplicitCaching?: boolean
 }
 
 export const GOOGLE_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
@@ -20,23 +26,23 @@ const TYPE_DEFAULT_MODELS: Partial<Record<ProviderType, string[]>> = {
 }
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
-  {hostIncludes: ['openai.com'], name: 'OpenAI', type: 'openai', baseUrl: 'https://api.openai.com/v1', presetModels: ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini']},
-  {hostIncludes: ['anthropic.com', 'claude.com'], name: 'Anthropic', type: 'anthropic', baseUrl: 'https://api.anthropic.com', presetModels: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-haiku-4-20250514']},
-  {hostIncludes: ['googleapis.com'], name: 'Google', type: 'google', baseUrl: GOOGLE_BASE_URL, presetModels: ['gemini-2.5-pro', 'gemini-2.5-flash']},
-  {hostIncludes: ['localhost'], name: 'Ollama', type: 'ollama', baseUrl: 'http://localhost:11434'},
-  {hostIncludes: ['deepseek.com'], name: 'DeepSeek', type: 'openai', baseUrl: 'https://api.deepseek.com/v1', expectedFormat: 'https://api.deepseek.com/v1', presetModels: ['deepseek-v4-pro', 'deepseek-v4-flash']},
-  {hostIncludes: ['moonshot.cn', 'kimi.com'], name: 'Moonshot/Kimi', type: 'openai', baseUrl: 'https://api.moonshot.cn/v1', presetModels: ['kimi-k3', 'kimi-k2.7-code', 'kimi-k2.6']},
-  {hostIncludes: ['bigmodel.cn'], name: '智谱', type: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', presetModels: ['glm-5.2', 'glm-5-turbo']},
-  {hostIncludes: ['dashscope.aliyuncs.com'], name: '通义/百炼', type: 'openai', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1'},
-  {hostIncludes: ['maas.aliyuncs.com'], name: '阿里百炼', type: 'openai', expectedFormat: 'https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'},
-  {hostIncludes: ['openrouter.ai'], name: 'OpenRouter', type: 'openai', baseUrl: 'https://openrouter.ai/api/v1'},
-  {hostIncludes: ['groq.com'], name: 'Groq', type: 'openai', baseUrl: 'https://api.groq.com/openai/v1', presetModels: ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile']},
-  {hostIncludes: ['siliconflow.cn'], name: '硅基流动', type: 'openai', baseUrl: 'https://api.siliconflow.cn/v1', presetModels: ['Qwen/Qwen2.5-72B-Instruct', 'deepseek-ai/DeepSeek-R1']},
-  {hostIncludes: ['mistral.ai'], name: 'Mistral', type: 'openai', baseUrl: 'https://api.mistral.ai/v1', presetModels: ['mistral-medium-3.5', 'mistral-small-4']},
-  {hostIncludes: ['x.ai'], name: 'xAI', type: 'openai', baseUrl: 'https://api.x.ai/v1', presetModels: ['grok-4.6']},
-  {hostIncludes: ['volces.com', 'volcengine.com'], name: '火山引擎', type: 'openai'},
-  {hostIncludes: ['minimaxi.com'], name: 'MiniMax', type: 'anthropic', baseUrl: 'https://api.minimaxi.com/anthropic', presetModels: ['MiniMax-M3', 'MiniMax-M2.7']},
-  {hostIncludes: ['z.ai'], name: '智谱国际', type: 'openai', baseUrl: 'https://api.z.ai/api/paas/v4', presetModels: ['glm-5.2', 'glm-5-turbo']},
+  {hostIncludes: ['openai.com'], name: 'OpenAI', type: 'openai', baseUrl: 'https://api.openai.com/v1', presetModels: ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini'], supportsExplicitCaching: false},
+  {hostIncludes: ['anthropic.com', 'claude.com'], name: 'Anthropic', type: 'anthropic', baseUrl: 'https://api.anthropic.com', presetModels: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-haiku-4-20250514'], supportsExplicitCaching: true},
+  {hostIncludes: ['googleapis.com'], name: 'Google', type: 'google', baseUrl: GOOGLE_BASE_URL, presetModels: ['gemini-2.5-pro', 'gemini-2.5-flash'], supportsExplicitCaching: true},
+  {hostIncludes: ['localhost'], name: 'Ollama', type: 'ollama', baseUrl: 'http://localhost:11434', supportsExplicitCaching: false},
+  {hostIncludes: ['deepseek.com'], name: 'DeepSeek', type: 'openai', baseUrl: 'https://api.deepseek.com/v1', expectedFormat: 'https://api.deepseek.com/v1', presetModels: ['deepseek-v4-pro', 'deepseek-v4-flash'], supportsExplicitCaching: false},
+  {hostIncludes: ['moonshot.cn', 'kimi.com'], name: 'Moonshot/Kimi', type: 'openai', baseUrl: 'https://api.moonshot.cn/v1', presetModels: ['kimi-k3', 'kimi-k2.7-code', 'kimi-k2.6'], supportsExplicitCaching: false},
+  {hostIncludes: ['bigmodel.cn'], name: '智谱', type: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', presetModels: ['glm-5.2', 'glm-5-turbo'], supportsExplicitCaching: false},
+  {hostIncludes: ['dashscope.aliyuncs.com'], name: '通义/百炼', type: 'openai', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', supportsExplicitCaching: true},
+  {hostIncludes: ['maas.aliyuncs.com'], name: '阿里百炼', type: 'openai', expectedFormat: 'https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', supportsExplicitCaching: true},
+  {hostIncludes: ['openrouter.ai'], name: 'OpenRouter', type: 'openai', baseUrl: 'https://openrouter.ai/api/v1', supportsExplicitCaching: true},
+  {hostIncludes: ['groq.com'], name: 'Groq', type: 'openai', baseUrl: 'https://api.groq.com/openai/v1', presetModels: ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile'], supportsExplicitCaching: false},
+  {hostIncludes: ['siliconflow.cn'], name: '硅基流动', type: 'openai', baseUrl: 'https://api.siliconflow.cn/v1', presetModels: ['Qwen/Qwen2.5-72B-Instruct', 'deepseek-ai/DeepSeek-R1'], supportsExplicitCaching: false},
+  {hostIncludes: ['mistral.ai'], name: 'Mistral', type: 'openai', baseUrl: 'https://api.mistral.ai/v1', presetModels: ['mistral-medium-3.5', 'mistral-small-4'], supportsExplicitCaching: false},
+  {hostIncludes: ['x.ai'], name: 'xAI', type: 'openai', baseUrl: 'https://api.x.ai/v1', presetModels: ['grok-4.6'], supportsExplicitCaching: false},
+  {hostIncludes: ['volces.com', 'volcengine.com'], name: '火山引擎', type: 'openai', supportsExplicitCaching: false},
+  {hostIncludes: ['minimaxi.com'], name: 'MiniMax', type: 'anthropic', baseUrl: 'https://api.minimaxi.com/anthropic', presetModels: ['MiniMax-M3', 'MiniMax-M2.7'], supportsExplicitCaching: true},
+  {hostIncludes: ['z.ai'], name: '智谱国际', type: 'openai', baseUrl: 'https://api.z.ai/api/paas/v4', presetModels: ['glm-5.2', 'glm-5-turbo'], supportsExplicitCaching: false},
 ]
 
 export function recognizeProvider(baseUrl: string): ProviderPreset | null {

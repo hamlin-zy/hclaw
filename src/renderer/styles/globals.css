@@ -301,6 +301,11 @@
     background-color: #ffffff !important;
 }
 
+/* 原生日期选择器：暗色主题下日历弹层使用暗色配色（color-scheme 影响原生控件渲染） */
+:is(.dark, .yuanshandai, .shiyangjin) input[type="date"] {
+    color-scheme: dark;
+}
+
 :is(.dark, .yuanshandai, .shiyangjin) .bg-gray-200 .rounded-full.bg-white {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
 }
@@ -1440,6 +1445,8 @@ html, body {
     font-size: 11px;
     font-weight: 500;
     letter-spacing: 0.2px;
+    /* 左侧 statusNote 存在时不被挤压/断行（flex 子项默认 shrink） */
+    white-space: nowrap;
 }
 
 /* ========================================

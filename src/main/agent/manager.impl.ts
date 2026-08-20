@@ -34,8 +34,8 @@ import {
   SKIP_LOG_EVENT_TYPES,
   PENDING_MSG_MAX_BYTES,
 } from './manager.constants'
-import {createPendingMsg, normalizeToolResult, finalizePending, appendCappedPart} from './manager.accumulator'
-import {createForwardPayload} from './manager.streamForward'
+import {createPendingMsg, normalizeToolResult, finalizePending, appendCappedPart, isRenderedCopyFingerprintMatch} from './manager.accumulator'
+import {createForwardPayload, extractWorkerErrorMessage} from './manager.streamForward'
 import {recordLlmUsageEvent} from '../usageWrite'
 
 import {loadPluginAgents} from './manager.pluginAgents'
@@ -59,6 +59,10 @@ export class AgentManager {
 
   /** 跨轮追踪：tool_result 完成后，下一次 text 事件需重置 pending，开启新回合 */
   private pendingNeedsTurnReset: Set<string> = new Set()
+
+  /** 会话 → 渲染端占位消息 id（ensureStreamingMessage 上报）。
+   *  主进程 pending 累积复用该 id，避免与渲染端流式消息双 id 双写（幽灵消息根因）。 */
+  private streamingMsgIds: Map<string, string> = new Map()
 
   constructor() {
     eventBus.on(MCPThemeEvents.TOOLS_REFRESHED, () => {
@@ -114,6 +118,21 @@ export class AgentManager {
         }
       }
     }
+  }
+
+  /**
+   * 渲染端占位消息 id 注册（ensureStreamingMessage 创建空占位后调用）。
+   *
+   * 目的：主进程 pending（createPendingMsg 随机 id）与渲染端占位（randomUUID）
+   * 双轨独立生成 id，done 时 #mergeAndPersist 全量写兜底会以 pending.id 插入
+   * 幽灵副本 → 重启加载后每条助手消息渲染 2 份。注册后 pending 一律复用
+   * 渲染端 id，兜底路径自然短路（该 id 已有 blocks）。
+   */
+  registerStreamingMessage(conversationId: string, msgId: string): void {
+    this.streamingMsgIds.set(conversationId, msgId)
+    // 竞态兜底：text 先于注册到达（pending 已创建）→ 立即对齐
+    const pending = this.pendingAssistantMsg.get(conversationId)
+    if (pending) pending.id = msgId
   }
 
   // ─── Worker 生命周期管理 ───────────────────────────────
@@ -390,13 +409,17 @@ export class AgentManager {
           const childEvent = msg as unknown as { conversationId: string; event: AgentStreamEvent }
           this.forwardToRenderer(childEvent.conversationId, childEvent.event)
         } else if (msg.type === 'error') {
+          // ★ worker.ts 发送的错误结构为 { type:'error', conversationId, event:{type:'error', error: err.message} }
+          //   错误信息在 msg.event.error；顶层 msg.error 是旧格式兜底。
+          //   此前只读 msg.error → undefined → 回退 'Worker error'，真实错误被吞掉。
+          const workerErr = extractWorkerErrorMessage(msg as { event?: { error?: string }; error?: string })
           this.forwardToRenderer(msg.conversationId, {
             type: 'error',
-            error: msg.error || 'Worker error',
+            error: workerErr,
           })
           HookExecutor.getInstance().execute('StopFailure', {
             sessionId: msg.conversationId,
-            error: msg.error || 'Unknown error',
+            error: workerErr,
           }).catch((err) => logger.warn('[AgentManager] StopFailure hook failed', {error: err}))
         }
       } catch (err: unknown) {
@@ -551,6 +574,17 @@ export class AgentManager {
       }
       return
     }
+
+    // ★ 幽灵消息双写防御（根因修复，见 tasks/03-duplicate-assistant-bubbles.md）：
+    //   内容指纹一致 → 渲染端已落库（注册机制生效前/竞态下 id 不一致的场景），
+    //   只补 endedAt，绝不 INSERT 幽灵副本；无匹配才是真·渲染进程崩溃（从未落库）。
+    const renderedCopyId = await this.#findRenderedCopy(conversationId, pending)
+    if (renderedCopyId) {
+      if (isFinal) {
+        convRepo.setMessageEnded(conversationId, renderedCopyId, now)
+      }
+      return
+    }
     // ↓ 以下为现状全量写路径（仅"无 blocks"消息——如渲染进程崩溃从未落库）
 
     const {messageToBlocks} = await import('../repositories/sqlite/messageBlockHelper')
@@ -648,6 +682,38 @@ export class AgentManager {
         conversationId,
       })
     }
+  }
+
+  /**
+   * 幽灵消息双写防御：查找 pending 创建时间附近"内容指纹一致"的 assistant 消息。
+   *
+   * pending.id 无 blocks ≠ 渲染端未落库——渲染端占位消息（ensureStreamingMessage
+   * 随机 id）与主进程 pending（createPendingMsg 随机 id）在注册机制生效前/竞态下
+   * 可能不一致，渲染端以占位 id 精细落库（含 turn_index）。此时若本会话 pending
+   * 创建时间附近存在内容指纹一致的 assistant 消息 → 判定渲染端已落库，调用方只补
+   * endedAt、绝不 INSERT 幽灵副本；不匹配 / 不存在 → null，走全量写兜底
+   * （渲染进程崩溃从未落库的场景）。
+   */
+  async #findRenderedCopy(
+    conversationId: string,
+    pending: PendingAssistantMsg,
+  ): Promise<string | null> {
+    const {getDatabase} = await import('../repositories/sqlite')
+    const db = getDatabase()
+    const nearbyRow = db.prepare(
+      `SELECT id FROM messages
+       WHERE conversation_id = ? AND role = 'assistant'
+         AND timestamp BETWEEN ? - 60000 AND ? + 1000
+       ORDER BY timestamp DESC LIMIT 1`
+    ).get(conversationId, pending.timestamp, pending.timestamp) as {id: string} | undefined
+    if (!nearbyRow) return null
+
+    const nearbyText = (db.prepare(
+      'SELECT content FROM message_blocks WHERE message_id = ? AND block_type = ? ORDER BY sequence'
+    ).all(nearbyRow.id, 'text') as Array<{content: string | null}>)
+      .map(b => b.content ?? '').join('').slice(0, 200)
+    if (!isRenderedCopyFingerprintMatch(nearbyText, pending.content)) return null
+    return nearbyRow.id
   }
 
   /** 处理渠道媒体文件发送 */
@@ -788,6 +854,8 @@ export class AgentManager {
   private accumulateEvent(conversationId: string, event: AgentStreamEvent): PendingAssistantMsg | null {
     let pending = this.pendingAssistantMsg.get(conversationId) ?? null
     const hasTurnReset = this.pendingNeedsTurnReset.has(conversationId)
+    // 渲染端占位消息 id：新建/重建 pending 时复用（消除双 id 双写）
+    const registeredMsgId = this.streamingMsgIds.get(conversationId)
 
     switch (event.type) {
       case 'agent_start': {
@@ -877,6 +945,12 @@ export class AgentManager {
         break
       }
       default:
+    }
+
+    // ★ id 对齐：新建 / turn reset 重建的 pending 一律复用渲染端占位 id
+    //   （幂等：已对齐时重设相同值无副作用）
+    if (pending && registeredMsgId) {
+      pending.id = registeredMsgId
     }
 
     return pending
@@ -1141,6 +1215,7 @@ export class AgentManager {
     this.workers.delete(conversationId)
     this.pendingAssistantMsg.delete(conversationId)
     this.pendingNeedsTurnReset.delete(conversationId)
+    this.streamingMsgIds.delete(conversationId)
     this.streamListeners.delete(conversationId)
   }
 

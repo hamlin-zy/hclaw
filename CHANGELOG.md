@@ -11,6 +11,21 @@
 
 ---
 
+## [v0.4.8] - 2026-08-21
+
+### 新增
+- **用量统计自定义时间范围与小时粒度趋势** — 用量窗口可选择任意时间范围查看消耗，并支持按小时查看用量趋势，各入口 KPI 口径统一（`UsageWindow.tsx` / `llmUsageRepository.ts`）
+- **默认主力模型 + 方案智能校验** — 不再先做意图识别再选模型，对话直接走默认主力模型，方案配置更精简；模型角色按需动态切换（`modelSelector.ts` / `agentTool.ts`）
+- **Agent 循环稳定性增强** — 重试逻辑加固、错误处理更完善、模型提示词缓存，长时间运行更可靠（`loop/execute.ts` / `llmCaller.ts`）
+
+### 修复
+- **修复助手消息偶发重复（幽灵双写）** — 某些交互场景下助手消息出现两次的问题（`streamCore.ts` / `messageHandler.ts`）
+- **修复实体命令与技能气泡重复展示** — 执行 skills/agents 命令时不再与技能气泡重复（`streamSkills.ts`）
+- **修复气泡状态注记、错误详情提取、工具调用解析等问题** — 对话气泡展示更准确（`MessageBubble.tsx` / `StatusIndicators.tsx`）
+- **用量成本支持实时汇率换算** — 成本按最新汇率实时折算 USD/CNY（`exchangeRateRegistry.ts`）
+
+---
+
 ## [v0.4.7] - 2026-08-19
 
 ### 新增

@@ -28,7 +28,6 @@ import type {LLMProvider, ModelRole, ModelScheme, RunMode, SystemSettings} from 
 import type {ModelOverride} from '@shared/types'
 import {setCurrentScheme as setModelScheme} from './model/modelSchemeManager'
 import {getConfigBridge, setConfigBridge} from './common/configBridge'
-import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
 // Task 5 override 状态机的会话仓库工厂：统一从 repositories barrel 导入，
 // 避免运行时双路径解析（mock 工厂优先 + 类兜底）带来的维护脆弱性。
 import {createConversationRepository} from '../repositories'
@@ -318,24 +317,6 @@ export class RuntimeConfigManager {
 
     /** 会话 → override 内存缓存（null=显式 auto；无 key=未加载） */
     private static sessionOverrides = new Map<string, ModelOverride | null>()
-    /** 全局记忆：最近一次用户手动选择（auto=null），新建会话继承 */
-    private static lastSelectedOverride: ModelOverride | null = null
-    private static overrideKey = 'model_override_last_selected'
-
-    /** 启动时从 system_settings 恢复 lastSelected（主进程调用；worker 不调用） */
-    static initOverrideState(): void {
-        try {
-            const raw = systemSettingsRepo.getJson<ModelOverride | null>(this.overrideKey)
-            this.lastSelectedOverride = raw && typeof raw === 'object' ? raw : null
-        } catch {
-            this.lastSelectedOverride = null
-        }
-    }
-
-    /** 全局最近一次手动选择（新建会话继承用） */
-    static getLastSelected(): ModelOverride | null {
-        return this.lastSelectedOverride
-    }
 
     /** 读取指定会话的 override：内存缓存 → 懒加载 DB（缺省 null=auto） */
     static getOverride(convId: string): ModelOverride | null {
@@ -353,15 +334,13 @@ export class RuntimeConfigManager {
     }
 
     /**
-     * 设置会话 override：更新会话 + 全局 lastSelected（切回 auto → lastSelected=null），落库。
+     * 设置会话 override：更新会话内存缓存 + 落库，通知变更。
      * 仅主进程（UI 会话 / 渠道 / worker 定时任务会话创建固化）调用。
      */
     static setOverride(convId: string, override: ModelOverride | null): void {
         this.sessionOverrides.set(convId, override)
-        this.lastSelectedOverride = override
         try {
             createConversationRepository().updateMeta(convId, {modelOverride: override ?? null} as any)
-            systemSettingsRepo.setJson(this.overrideKey, this.lastSelectedOverride)
         } catch (err) {
             logger.warn('[RuntimeConfigManager] setOverride 持久化失败', {error: String(err), convId})
         }
@@ -370,8 +349,7 @@ export class RuntimeConfigManager {
 
     /**
      * 主进程同步到 worker 的入口：仅更新内存 Map。
-     * 会话 override 已由主进程固化到 DB，worker 侧不得重复落库，
-     * 否则会覆盖主进程最新的 lastSelected。
+     * 会话 override 已由主进程固化到 DB，worker 侧不得重复落库。
      */
     static applyOverrideFromMain(convId: string, override: ModelOverride | null): void {
         this.sessionOverrides.set(convId, override)
