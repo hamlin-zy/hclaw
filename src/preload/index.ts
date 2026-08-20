@@ -461,7 +461,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // 全局用量统计窗口
     openUsageStatsWindow: () => ipcRenderer.invoke('open-usage-stats-window'),
-    usageStatsQuery: (params: {range: string; view: string}) =>
+    usageStatsQuery: (params: import('@shared/types').UsageStatsQueryParams) =>
         ipcRenderer.invoke('usage-stats:query', params),
     windowId,
     dialogType,

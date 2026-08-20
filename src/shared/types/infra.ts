@@ -314,15 +314,31 @@ export interface UsageBreakdown {
   ttftCount?: number
 }
 
-/** 时间趋势点（按天） */
+/** 时间趋势点；day 为分组键：按天 'YYYY-MM-DD'，按小时 'YYYY-MM-DD HH:00'（本地时区） */
 export interface TrendPoint {
-  day: string             // 'YYYY-MM-DD'
+  day: string             // 按天 'YYYY-MM-DD'；按小时 'YYYY-MM-DD HH:00'
   inputTokens: number
   outputTokens: number
   cacheReadTokens: number
 }
 
-export type TimeRange = 'today' | '7d' | '30d' | 'all'
+/** 时间范围；'custom' 配合 usage-stats:query 的 customStart/customEnd（YYYY-MM-DD，天级精度） */
+export type TimeRange = 'today' | '7d' | '30d' | 'all' | 'custom'
+
+/** 趋势分组粒度 */
+export type TrendGranularity = 'day' | 'hour'
+
+/** 全局用量统计 IPC 请求参数 */
+export interface UsageStatsQueryParams {
+  range: TimeRange
+  view: 'provider' | 'model'
+  /** 自定义范围起点（YYYY-MM-DD，仅 range='custom' 时生效） */
+  customStart?: string
+  /** 自定义范围终点（YYYY-MM-DD，仅 range='custom' 时生效） */
+  customEnd?: string
+  /** 趋势分组粒度：今天/自定义 ≤1 天 → 'hour'；其余 → 'day' */
+  granularity?: TrendGranularity
+}
 
 /** 全局用量统计 IPC 返回 */
 export interface GlobalUsageStats {
@@ -339,6 +355,10 @@ export interface GlobalUsageStats {
     totalTtftMs: number
     /** 携带首字延迟的调用数 */
     ttftCount: number
+    /** 平均吞吐 t/s（Σ输出 ÷ Σ解码时长，computeKpis 统一口径）；无有效样本 → null */
+    avgDecodeRate?: number | null
+    /** 平均首字秒（Σ首字 ÷ 样本数 ÷ 1000）；无样本 → null */
+    avgTtftSeconds?: number | null
   }
   trend: TrendPoint[]
   breakdown: UsageBreakdown[]

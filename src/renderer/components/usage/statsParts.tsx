@@ -1,6 +1,6 @@
 import {Info} from 'lucide-react'
 import type {ReactNode} from 'react'
-import {getUsdCnyRate} from '../../lib/format'
+import {getUsdCnyRate, type Currency} from '../../lib/format'
 
 /** 已知服务商类型的规范展示名（openai → OpenAI 等首字母缩写） */
 const PROVIDER_DISPLAY: Record<string, string> = {
@@ -15,10 +15,12 @@ export function providerDisplayName(key: string): string {
     return PROVIDER_DISPLAY[key] ?? (key.length > 0 ? key[0].toUpperCase() + key.slice(1) : key)
 }
 
-/** 统计行：标签左、数值右，等宽数字对齐 */
-export function StatRow({label, value, valueClass}: {label: string; value: string; valueClass?: string}) {
+/** 统计行：标签左、数值右，等宽数字对齐；bordered 时带边框底（KPI 卡风格） */
+export function StatRow({label, value, valueClass, bordered = false}: {label: string; value: string; valueClass?: string; bordered?: boolean}) {
     return (
-        <div className="flex items-center justify-between text-sm leading-6">
+        <div className={`flex items-center justify-between text-sm ${bordered
+            ? 'rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 leading-none'
+            : 'leading-6'}`}>
             <span className="text-[var(--text-secondary)]">{label}</span>
             <span className={`font-medium tabular-nums ${valueClass ?? 'text-[var(--text-primary)]'}`}>{value}</span>
         </div>
@@ -42,6 +44,29 @@ export function GroupTitle({children}: {children: ReactNode}) {
     return (
         <div className="pt-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] first:pt-0">
             {children}
+        </div>
+    )
+}
+
+/** 美元 / 人民币切换（弹窗与独立窗口共用，口径一致）；size='sm' 为紧凑布局（弹窗） */
+export function CurrencyToggle({currency, onChange, size = 'md'}: {
+    currency: Currency
+    onChange: (c: Currency) => void
+    size?: 'md' | 'sm'
+}) {
+    const btnBase = size === 'sm'
+        ? 'px-2 py-0.5 text-[11px] rounded-md transition-colors'
+        : 'px-2.5 py-1 text-xs rounded-md transition-colors'
+    const active = 'bg-[var(--surface-elevated)] shadow-sm text-[var(--text-primary)] font-medium'
+    const inactive = 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+    return (
+        <div className="flex gap-0.5 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
+            {(['USD', 'CNY'] as Currency[]).map(c => (
+                <button key={c} onClick={() => onChange(c)} data-testid={`currency-${c.toLowerCase()}`}
+                        className={`${btnBase} ${currency === c ? active : inactive}`}>
+                    {c === 'USD' ? '$ 美元' : '¥ 人民币'}
+                </button>
+            ))}
         </div>
     )
 }
