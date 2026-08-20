@@ -3,12 +3,13 @@
  * 包含思考中和流式暂停指示器
  */
 
-import {memo, useCallback, useEffect, useRef, useState} from 'react'
+import {memo, useEffect, useRef, useState} from 'react'
 import {motion} from 'framer-motion'
 import {useAgentStore} from '../../stores/agentStore'
 
 // ── 常量 ────────────────────────────────────────────────────────────────────
-const PHASE_LABELS: Record<string, string> = {
+/** 阶段文案（导出供 MessageList 气泡内 statusNote 复用） */
+export const PHASE_LABELS: Record<string, string> = {
     starting: '启动中...',
     streaming: '思考中',
     executing_tools: '执行工具中',
@@ -16,8 +17,8 @@ const PHASE_LABELS: Record<string, string> = {
     waiting_for_response: '等待响应中...',
 }
 
-// ── 辅助函数 ────────────────────────────────────────────────────────────────
-function getPhaseLabel(phase: string | undefined): string {
+/** 阶段 → 文案（导出供气泡 statusNote 复用） */
+export function getPhaseLabel(phase: string | undefined): string {
     if (!phase || phase === 'idle') return ''
     return PHASE_LABELS[phase] ?? '思考中'
 }
@@ -39,16 +40,13 @@ function useAgentData(conversationId?: string) {
         conversationId ? (s.convAgentStates[conversationId]?.runningToolCount ?? 0) : s.runningToolCount)
     const streamingMessageId = useAgentStore((s) =>
         conversationId ? (s.convAgentStates[conversationId]?.streamingMessageId ?? null) : s.streamingMessageId)
-    const errorMessage = useAgentStore((s) =>
-        conversationId ? (s.convAgentStates[conversationId]?.errorMessage ?? null) : s.errorMessage)
     const executingToolsMessage = useAgentStore((s) =>
-        conversationId ? (s.convAgentStates[conversationId] as any)?.executingToolsMessage : (s as any).executingToolsMessage)
+        conversationId ? (s.convAgentStates[conversationId]?.executingToolsMessage ?? null) : (s as any).executingToolsMessage)
     return {
         agentState,
         isThinkingAfterTools,
         runningToolCount,
         streamingMessageId,
-        errorMessage,
         executingToolsMessage,
     }
 }
@@ -76,70 +74,30 @@ const StatusLine = ({ children, className = '' }: { children: React.ReactNode; c
 )
 
 /**
- * 错误提示组件（常驻显示，需手动关闭）
- * 设计决策：错误代表 Agent 停止/终止原因，自动消失会让用户不知道为何停止，
- * 因此不做自动 dismiss，仅提供手动关闭按钮。
- */
-const ErrorIndicator = memo(function ErrorIndicator({ message, onDismiss }: { message: string; onDismiss: () => void }) {
-    return (
-        <motion.div
-            initial={{opacity: 0, y: 10}}
-            animate={{opacity: 1, y: 0}}
-            className="flex items-start gap-2 text-sm text-[var(--error)] max-w-full pointer-events-auto"
-            role="alert"
-        >
-            <svg className="w-4 h-4 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="12" y1="8" x2="12" y2="13"/>
-                <line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-            <span className="whitespace-pre-wrap break-words flex-1 min-w-0">{message}</span>
-            <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
-                <button
-                    onClick={onDismiss}
-                    className="p-0.5 rounded hover:bg-[var(--error)]/20 transition-colors"
-                    aria-label="关闭错误提示"
-                >
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <line x1="18" y1="6" x2="6" y2="18"/>
-                        <line x1="6" y1="6" x2="18" y2="18"/>
-                    </svg>
-                </button>
-            </div>
-        </motion.div>
-    )
-})
-
-/**
  * 思考中指示器
  */
 export const ThinkingIndicator = memo(function ThinkingIndicator({conversationId}: { conversationId?: string } = {}) {
-    const { agentState, isThinkingAfterTools, runningToolCount, streamingMessageId, errorMessage, executingToolsMessage } = useAgentData(conversationId)
+    const { agentState, isThinkingAfterTools, runningToolCount, streamingMessageId, executingToolsMessage } = useAgentData(conversationId)
     const status = agentState?.status ?? 'idle'
     const phase = agentState?.phase ?? 'idle'
-    const setErrorMsg = useCallback(() => useAgentStore.setState({errorMessage: null}), [])
 
-    // 优先级：工具执行提示 > 错误 > thinking 指示器 > 流式暂停
+    // 优先级：工具执行提示 > 流式暂停兜底
+    // 重试 / 错误 / 阶段文案（思考中/响应中等）已搬入"最后一条助手消息气泡底部"
+    // （statusNote），左下角不再展示，仅保留工具执行状态与流式暂停兜底
     if (executingToolsMessage) {
         if (typeof executingToolsMessage === 'string') {
+            // 遗留字符串分支：重试相关已由气泡承载，仅工具执行状态留此展示
+            if (executingToolsMessage.startsWith('重试')) return null
             return <StatusLine>{executingToolsMessage}</StatusLine>
         }
-        const {label, urgent} = executingToolsMessage
-        return (
-            <StatusLine className={urgent ? 'text-[var(--error)] font-medium' : undefined}>
-                {label}
-            </StatusLine>
-        )
+        // 对象分支均为重试相关（retry warning / 倒计时 / 已取消）→ 已由气泡承载
+        return null
     }
 
-    if (errorMessage) {
-        return <ErrorIndicator message={errorMessage} onDismiss={setErrorMsg}/>
-    }
-
+    // 阶段文案已搬入气泡 statusNote；此判断保留仅为防止 phase 有值时
+    // 误触发下方流式暂停指示器（如思考中不应显示"响应中..."）
     if (shouldShowIndicator(phase, status, isThinkingAfterTools, runningToolCount)) {
-        // isThinkingAfterTools 时优先按 phase 显示（responding → "响应中...", waiting_for_response → "等待响应中..."）
-        const label = getPhaseLabel(phase) || (isThinkingAfterTools ? '等待响应中...' : '')
-        return <StatusLine>{label}</StatusLine>
+        return null
     }
 
     if (status === 'running' && streamingMessageId) {

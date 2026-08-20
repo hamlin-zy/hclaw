@@ -294,17 +294,23 @@ export default function InterleavedContent({message, isUser}: InterleavedContent
         flushGroup()
 
         // Step 2: 按正文分段，每段内连续的 think + tool 合并为一个聚合组
+        //
+        // ★ 修复：空白 text（trim 后为空，如 '\n\n\n'）在紧凑模式下不作为分隔符，
+        //   避免把「无正文」的连续 think+tool 切成多个聚合组——
+        //   用户期望没有正文时整个消息合并为一个组。
         const result: Segment[] = []
         let i = 0
         while (i < grouped.length) {
             const seg = grouped[i]
-            // text 直接透传，作为分隔符
+            // text 作为分隔符；但空白文本不产生分隔（直接跳过）
             if (seg.type === 'text') {
-                result.push(seg)
+                if (seg.content.trim()) {
+                    result.push(seg)
+                }
                 i++
                 continue
             }
-            // 收集连续的 think-thread + tool-group（遇 text 即停）
+            // 收集连续的 think-thread + tool-group（遇实质 text 即停）
             if (seg.type === 'think-thread' || seg.type === 'tool-group') {
                 const items: CombinedItem[] = []
                 let thinkCount = 0
@@ -320,8 +326,11 @@ export default function InterleavedContent({message, isUser}: InterleavedContent
                         items.push({type: 'tools', toolCalls: s.toolCalls})
                         allToolCalls.push(...s.toolCalls)
                         i++
+                    } else if (s.type === 'text' && !s.content.trim()) {
+                        // 空白文本：跳过，不打断聚合
+                        i++
                     } else {
-                        // text 或其他 → 分段边界，停止收集
+                        // 有实质内容的 text 或其他 → 分段边界，停止收集
                         break
                     }
                 }
