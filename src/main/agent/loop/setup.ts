@@ -165,7 +165,18 @@ export async function detectCommandContext(params: RunParams): Promise<{
         // ★ 兜底：skill / agent 注册表（复用 entityCommandResolver，与 ipc.ts 一致）
         const entityResult = resolveEntityCommand(commandName)
         if (entityResult) {
-            return emitCommandStart(entityResult.commandId, entityResult.template, ' (entity)', false)
+            // 实体命令（skill/agent）不发 command_start 事件——它们的执行状态由
+            // skill_start/skill_end 事件驱动的 SkillBubble 展示，避免与 CommandBadge 重复。
+            logger.info(`[AgentLoop] command mode (entity): /${commandName} ${commandArgs || ''}`)
+            return {
+                commandContext: {
+                    commandId: entityResult.commandId,
+                    commandName,
+                    commandArgs,
+                    commandTemplate: entityResult.template,
+                },
+                isCompactCommand: false,
+            }
         }
     } catch (err) {
         logger.warn(`[AgentLoop] failed to resolve command /${commandName}:`, {error: String(err)})
