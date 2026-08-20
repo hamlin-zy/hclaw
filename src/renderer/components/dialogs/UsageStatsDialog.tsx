@@ -2,7 +2,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import type {ConversationUsageStats, UsageBreakdown} from '@shared/types'
 import {formatTokenCount, formatTokenCompact, formatTokensPerSecond, tokensPerSecond, formatCost, type Currency} from '../../lib/format'
-import {KpiCard, StatRow, GroupTitle, providerDisplayName, ClientStatsNotice, InfoTip, COST_DISCLAIMER} from '../usage/statsParts'
+import {KpiCard, StatRow, GroupTitle, providerDisplayName, ClientStatsNotice, InfoTip, getCostDisclaimer} from '../usage/statsParts'
 import {useDraggableDialog} from '../../hooks/useDraggableDialog'
 
 export interface UsageStatsOptions {
@@ -216,7 +216,7 @@ export default function UsageStatsDialog() {
                                     按模型
                                 </button>
                             </div>
-                            {/* 美元 / 人民币切换（与菜单栏用量统计同口径，固定汇率 7.2） */}
+                            {/* 美元 / 人民币切换（与菜单栏用量统计同口径，启动时同步实时汇率） */}
                             <div className="flex gap-0.5 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
                                 <button onClick={() => setCurrency('USD')}
                                         className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${currency === 'USD' ? 'bg-[var(--surface-elevated)] shadow-sm' : 'text-[var(--text-muted)]'}`}>
@@ -262,7 +262,7 @@ export default function UsageStatsDialog() {
                                                 <div>
                                                     <div className="flex items-center gap-0.5 text-[9px] text-[var(--text-muted)]">
                                                         成本
-                                                        <InfoTip text={COST_DISCLAIMER} placement="top"/>
+                                                        <InfoTip text={getCostDisclaimer()} placement="top"/>
                                                     </div>
                                                     <div className="text-xs tabular-nums text-[var(--brand-primary)]">{formatCost(b.costUsd, currency)}</div>
                                                 </div>

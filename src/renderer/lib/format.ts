@@ -3,6 +3,7 @@
  */
 
 import {MIN_DECODE_MS} from '@shared/types'
+import {DEFAULT_USD_CNY_RATE} from '@shared/exchangeRate'
 
 /** 相对时间格式化 */
 export function getRelativeTime(ts: number): string {
@@ -82,14 +83,26 @@ export function tokensPerSecond(outputTokens: number, durationMs: number): numbe
 /** 货币类型 */
 export type Currency = 'USD' | 'CNY'
 
-/** 美元→人民币固定汇率（本地展示口径，非实时行情） */
-export const USD_TO_CNY_RATE = 7.2
+// 兜底默认汇率（7.2）统一定义在 @shared/exchangeRate，主进程 / 渲染进程共用一份
+let currentUsdCnyRate = DEFAULT_USD_CNY_RATE
 
-/** 成本格式化：0 或负数 → '—'（未定价）；<0.01 → '<$0.01'；否则 $x.xx（四舍五入到分）。CNY 按固定汇率换算。 */
+/** 更新运行时汇率（主进程启动同步实时汇率后写入）；非法值忽略，保留当前值 */
+export function setUsdCnyRate(rate: unknown): void {
+  if (typeof rate === 'number' && Number.isFinite(rate) && rate > 0) {
+    currentUsdCnyRate = rate
+  }
+}
+
+/** 当前 USD→CNY 汇率：已同步用实时值，否则回退固定默认值 */
+export function getUsdCnyRate(): number {
+  return currentUsdCnyRate
+}
+
+/** 成本格式化：0 或负数 → '—'（未定价）；<0.01 → '<$0.01'；否则 $x.xx（四舍五入到分）。CNY 按实时汇率换算（未同步回退默认值）。 */
 export function formatCost(usd: number, currency: Currency = 'USD'): string {
   if (typeof usd !== 'number' || !Number.isFinite(usd) || usd <= 0) return '—'
   if (currency === 'CNY') {
-    const cny = usd * USD_TO_CNY_RATE
+    const cny = usd * getUsdCnyRate()
     // 加 1e-9 epsilon 规避 IEEE-754 浮点边界（如 10.715 存为 10.714999…，toFixed(2) 会得 10.71 而非 10.72）
     return `¥${(cny + 1e-9).toFixed(2)}`
   }

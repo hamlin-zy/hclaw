@@ -74,6 +74,7 @@ declare global {
           messageMetadata?: Record<string, unknown>
       }) => Promise<{ success: boolean; error?: string }>
       agentAbort: (conversationId: string) => Promise<{ success: boolean }>
+      agentRegisterStreamingMessage: (conversationId: string, messageId: string) => Promise<boolean>
       agentInjectMessage: (params: { conversationId: string; content: string; messageId?: string }) => Promise<{ success: boolean }>
       agentStatus: (conversationId?: string) => Promise<{
         running: boolean
@@ -477,6 +478,7 @@ declare global {
         providerFetchModels: (params: any) => Promise<any>
         providerTestModel: (params: any) => Promise<any>
         modelMetaGetWindow: (model: string) => Promise<{contextLength: number}>
+        exchangeRateGet: () => Promise<{rate: number; date: string | null}>
 
         // Model Scheme (模型方案) 管理
         modelScheme: {

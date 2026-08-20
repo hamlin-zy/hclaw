@@ -91,6 +91,17 @@ describe('UsageStatsDialog 分组用量', () => {
         expect(screen.getByText('MiniMax')).toBeTruthy()
     })
 
+    it('切换人民币 → 成本列按动态汇率换算（默认 7.2）', async () => {
+        render(<UsageStatsDialog />)
+        openDialog()
+        await waitFor(() => expect(screen.getByText('$12.88')).toBeTruthy())
+
+        fireEvent.click(screen.getByText('¥ 人民币'))
+        // Deepseek-ant 聚合成本 12.88 * 7.2 = 92.736 → ¥92.74
+        await waitFor(() => expect(screen.getByText('¥92.74')).toBeTruthy())
+        expect(screen.queryByText('$12.88')).toBeNull()
+    })
+
     it('空 breakdown → 不渲染分组区块', async () => {
         ;(window.electronAPI as any).conversationUsageStats.mockResolvedValue({
             ...mockData,

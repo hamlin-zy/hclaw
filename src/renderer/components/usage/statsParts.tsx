@@ -1,5 +1,6 @@
 import {Info} from 'lucide-react'
 import type {ReactNode} from 'react'
+import {getUsdCnyRate} from '../../lib/format'
 
 /** 已知服务商类型的规范展示名（openai → OpenAI 等首字母缩写） */
 const PROVIDER_DISPLAY: Record<string, string> = {
@@ -59,9 +60,11 @@ export function ClientStatsNotice({centered = false}: {centered?: boolean}) {
  * 预估成本口径说明（价格差异提示）
  * 成本按 OpenRouter 美元单价估算，与官方定价存在差异（缓存命中单价差异尤其显著），
  * 所有显示预估价格的场景统一引用此文案。
+ * 人民币汇率：启动时从主进程同步实时汇率（currency-api），未同步时回退固定默认值。
  */
-export const COST_DISCLAIMER =
-    '成本按 OpenRouter 美元单价估算，可能与您使用的服务商价格存在差异；人民币按固定汇率 7.2 折算，实际费用请以服务商账单为准。'
+export function getCostDisclaimer(): string {
+    return `成本按 OpenRouter 美元单价估算，可能与您使用的服务商价格存在差异；人民币按 1 USD ≈ ${getUsdCnyRate().toFixed(2)} CNY 实时汇率折算，实际费用请以服务商账单为准。`
+}
 
 /** 信息提示（圆圈问号 + hover tooltip），placement 控制展开方向（受限容器内用 top 向上展开） */
 export function InfoTip({text, placement = 'bottom'}: {text: string; placement?: 'bottom' | 'top'}) {

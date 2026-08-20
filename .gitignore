@@ -63,3 +63,7 @@ config/google-oauth.local.json
 
 # 自定义域名部署副本（本地构建用，不提交）
 website-h/
+
+# 本地任务跟踪（根因分析等，不提交）
+tasks/
+
