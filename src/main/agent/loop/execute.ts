@@ -139,20 +139,31 @@ export async function* executeLlmCallWithRetry(
         const collectedToolCalls: Array<{id: string; name: string; arguments: Record<string, unknown>}> = []
 
         try {
-            // ── 获取/重建适配器（收归 LLMCaller，含 schemeVersion + 角色/direct 检测） ──
+            // ── 获取/重建适配器（收归 LLMCaller，含 schemeVersion + provider:model/direct 检测） ──
             const adapterResult = await llmCaller.getAdapter(
                 'main',
-                workModeRole,
                 modelConfig,
                 params.schemeUpdatePromise,
                 abortSignal,
                 directModel,
+                // ★ modelRole 生效时（文本角色）：透传已解析角色，
+                //   否则 createAdapterForContext 按 context='main' 重新解析恒选 primary
+                workModeRole,
             )
             adapter = adapterResult.adapter
             currentProvider = adapterResult.providerType
             currentModel = adapterResult.modelId
             currentConfigSource = adapterResult.configSource
             currentSchemeName = adapterResult.schemeName ?? currentSchemeName
+
+            // ── 一致性防御：adapter 实际模型与 selectModelForTurn 解析结果不一致时告警 ──
+            //   防止未来回归出「agent_start 显示 A / 实际运行 B / llm_usage 落库 A+B」的错配
+            if (modelConfig.model && currentModel !== modelConfig.model) {
+                logger.warn(
+                    `[AgentLoop] adapter model mismatch: resolved=${modelConfig.model} (${modelConfig.provider}) actual=${currentModel} (${currentProvider})`,
+                    {configSource: currentConfigSource, workModeRole},
+                )
+            }
 
             // ── 归一化消息历史（增量缓存） ──
             const normalizedMessages = preprocessCache.process(state.messages || [])
@@ -484,7 +495,7 @@ export async function* executeLlmCallWithRetry(
         const isCtx = checkContextLengthError(lastError)
         const errorMessage = isCtx
             ? `上下文已超出模型窗口，本会话无法继续执行。请新建会话（原会话历史仍可查看）；可在设置中调整交接引导阈值，让后续会话更早收到交接提醒。`
-            : `LLM call failed after ${retryCount} retries: ${lastError?.message || 'Unknown error'}`
+            : `LLM call failed after ${retryCount} retries: ${extractErrorDetail(lastError)}`
         logger.info(`[AgentLoop] llm_call_failed: ${errorMessage}`)
         yield {type: 'error', error: errorMessage}
     }
@@ -550,6 +561,85 @@ export async function* checkPlannedCommandsPermission(
 // ─── 重试等待：指数退避 ────────────────────────────────────
 
 /**
+ * 提取用户可读的错误详情。
+ *
+ * SDK 抛错的 message 常是泛化文案（如 "400 Provider returned error"——
+ * 该文案通常来自服务端响应体，SDK 仅拼接状态码），接口真实报错在
+ * 响应体里（OpenAI 风格 {error:{message}} / {message} / 纯文本）。
+ * 回退链：
+ *   1. HTTP 响应体 detail（error.response.data.error.message → error.data.message → 原始 body）
+ *   2. OpenAI SDK v4 APIError 的 error 属性（无 response 包装）
+ *   3. cause 链上的 message（合并）
+ *   4. error.message（最终兜底）
+ * 命中响应体详情后，附加错误对象上的补充字段（type/code/param/request_id），
+ * 便于复制后向服务商/中转排查（request_id 是定位日志的关键）。
+ * 结果压缩为单行并截断（500 字符，兼顾 UI 单行展示与一键复制的内容完整性）。
+ */
+export function extractErrorDetail(error: any): string {
+    if (!error) return 'network_error'
+
+    const normalize = (s: string): string => s.replace(/\s+/g, ' ').trim()
+
+    // 1. HTTP 响应体（axios/SDK 风格）
+    const data = error.response?.data ?? error.data ?? error.body
+    if (data) {
+        let detail: string | undefined
+        if (typeof data === 'string') {
+            detail = data
+        } else if (data.error && typeof data.error === 'object' && typeof data.error.message === 'string') {
+            detail = data.error.message          // OpenAI 风格 {error: {message}}
+        } else if (typeof data.error === 'string') {
+            detail = data.error
+        } else if (typeof data.message === 'string') {
+            detail = data.message
+        }
+        if (detail) {
+            const normalized = normalize(detail)
+            if (normalized) return attachExtras(error, normalized)
+        }
+    }
+
+    // 2. OpenAI SDK v4 APIError：无 response 包装，error.error 直接是响应体 error 对象/文本
+    const sdkBody = error.error
+    if (typeof sdkBody === 'string' && sdkBody.trim()) {
+        return attachExtras(error, normalize(sdkBody))
+    }
+    if (sdkBody && typeof sdkBody === 'object' && typeof sdkBody.message === 'string' && sdkBody.message.trim()) {
+        return attachExtras(error, normalize(sdkBody.message))
+    }
+
+    // 3. cause 链合并
+    const parts: string[] = []
+    let current: any = error
+    let guard = 0
+    while (current && current.cause && current.cause !== current && guard < 5) {
+        current = current.cause
+        if (current?.message) parts.push(normalize(String(current.message)))
+        guard++
+    }
+    const msg = normalize(String(error.message || 'network_error'))
+    const combined = parts.length > 0 ? `${msg}; ${parts.join('; ')}` : msg
+    return combined.slice(0, 500)
+}
+
+/**
+ * 拼接状态码前缀 + 响应体详情 + 补充字段（type/code/param/request_id）。
+ * 补充字段仅取自错误对象顶层（SDK 会把响应体 error 字段拷贝到顶层）。
+ */
+function attachExtras(error: any, detail: string): string {
+    const status = error.response?.status ?? error.status ?? error.statusCode
+    const extras: string[] = []
+    for (const key of ['type', 'code', 'param', 'request_id']) {
+        const v = typeof error[key] === 'string' ? error[key].trim() : ''
+        if (v && v !== detail) {
+            extras.push(`${key}: ${v}`)
+        }
+    }
+    const base = `${status ? `${status} ` : ''}${detail}`
+    return extras.length > 0 ? `${base}（${extras.join('，')}）`.slice(0, 500) : base.slice(0, 500)
+}
+
+/**
  * 重试等待：指数退避 + 倒计时显示
  */
 export async function* retryBackoff(
@@ -559,7 +649,7 @@ export async function* retryBackoff(
     currentDelay: number,
     abortSignal: AbortSignal | undefined,
 ): AsyncGenerator<AgentStreamEvent, void> {
-    const errorMsg = error instanceof TimeoutError ? 'timeout' : (error.message || 'network_error')
+    const errorMsg = error instanceof TimeoutError ? 'timeout' : extractErrorDetail(error)
     const delaySeconds = Math.ceil(currentDelay / 1000)
 
     logger.warn(`[AgentLoop] retry ${attempt}/${retryCount}: ${errorMsg}, waiting ${delaySeconds}s`)
@@ -572,11 +662,13 @@ export async function* retryBackoff(
             yield {type: 'warning', message: `retry ${attempt}/${retryCount}：已取消重试`}
             return
         }
-        // ★ 每秒发一次剩余倒计时（渲染端 streamInteraction 已支持 tool_progress 显示）
+        // ★ 每秒发一次剩余倒计时（渲染端 streamInteraction 已支持 tool_progress 显示）。
+        //   progress 携带完整上下文（次数 + 错误详情 + 倒计时），防止渲染端
+        //   倒计时文案覆盖 warning 的错误详情导致"只看到倒计时、看不到错因"。
         yield {
             type: 'tool_progress',
             toolCallId: 'retry-backoff',
-            progress: `重试 ${attempt}/${retryCount} 剩余 ${s}s`,
+            progress: `重试 ${attempt}/${retryCount}：${errorMsg}，剩余 ${s}s`,
             retryCountdown: s,
         }
         await sleep(1000)

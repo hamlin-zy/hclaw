@@ -1,26 +1,9 @@
 // ── 系统/状态事件处理器 ────────────────────────────
-// intent_analyzed, mode_change, hook_result,
-// tasks_update, llm_call_done, command_start
+// mode_change, hook_result, tasks_update,
+// llm_call_done, command_start
 
 import type {StreamCtx} from './streamContext'
-import {createDefaultConvData} from '../defaultState'
 import {useConversationStore} from '../../conversationStore'
-
-export function handleIntentAnalyzed(ctx: StreamCtx) {
-    const {get, convId, isAgentAborted, event} = ctx
-    if (isAgentAborted) return
-    if (!event.result) return
-    const convState = get().convAgentStates[convId] || createDefaultConvData()
-    const convStore = useConversationStore.getState()
-    if (convState.streamingMessageId && event.result.summary) {
-        const intentText = `\n\n> 💡 ${event.result.summary}`
-        const intentContent = convState.streamBuffer + intentText
-        convStore.updateMessageForConv(convId, convState.streamingMessageId, {
-            content: intentContent,
-        })
-        get().updateConvData(convId, {streamBuffer: intentContent})
-    }
-}
 
 export function handleModeChange(ctx: StreamCtx) {
     const {set, event} = ctx

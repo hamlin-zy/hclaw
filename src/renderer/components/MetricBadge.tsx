@@ -8,29 +8,33 @@ import {memo, type ReactNode} from 'react'
  *   （<50 健康绿、50-80 提醒黄、>=80 危险红，复用主题 token 自动适配四主题）
  * - accent：边框颜色；覆盖分级规则。不传 pct 时渲染纯色静态边框（供吞吐等非百分比指标使用，
  *   填充 100% 即整环同色）
+ * - icon：可选前置图标（语义色着色，与环/文字同色系；如 Database/AppWindow/Gauge）
  *
  * 进度环实现：conic-gradient 按 pct 填充 + mask 只留 1.5px 边框环。
- * 文字层需保留足够垂直内边距（py-1），避免顶部进度弧压字（CJK 字形渲染上溢）。
+ * 文字层需保留足够垂直内边距（py-1.5），避免顶部进度弧压字（CJK 字形渲染上溢）。
+ * hover：整体上浮 1px + 进度环提亮（轻反馈，不打断 tooltip 联动）。
  */
 const MetricBadge = memo(function MetricBadge({
     children,
     pct,
     accent,
+    icon,
 }: {
     children: ReactNode
     pct?: number
     accent?: string
+    icon?: ReactNode
 }) {
     const resolvedAccent =
         accent ??
         (pct == null ? undefined : pct >= 80 ? 'var(--error)' : pct >= 50 ? 'var(--warning)' : 'var(--success)')
 
     return (
-        <span className="relative inline-flex items-center align-middle shrink-0 whitespace-nowrap">
+        <span className="group relative inline-flex items-center align-middle shrink-0 whitespace-nowrap transition-transform duration-150 hover:-translate-y-px">
             {/* 边框环层：pct 提供时按比例填充，否则 100% 纯色静态边框 */}
             <span
                 aria-hidden
-                className="absolute inset-0 rounded-full pointer-events-none"
+                className="absolute inset-0 rounded-full pointer-events-none transition-[filter] duration-150 group-hover:brightness-125"
                 style={{
                     padding: '1.5px',
                     background: `conic-gradient(${resolvedAccent ?? 'var(--border)'} ${pct ?? 100}%, var(--border) 0)`,
@@ -40,11 +44,16 @@ const MetricBadge = memo(function MetricBadge({
                     maskComposite: 'exclude',
                 }}
             />
-            {/* 文字层：py-1 保证顶部留白 ≥ 进度环宽度（1.5px）+ CJK 字形上溢，避免进度弧压字 */}
+            {/* 文字层：py-1.5 保证顶部留白 ≥ 进度环宽度（1.5px）+ CJK 字形上溢，避免进度弧压字 */}
             <span
-                className="relative px-2 py-1 text-sm tabular-nums leading-none"
+                className="relative px-2.5 py-1.5 text-xs tabular-nums leading-none inline-flex items-center gap-1"
                 style={pct == null && resolvedAccent ? {color: resolvedAccent} : undefined}
             >
+                {icon && (
+                    <span className="shrink-0 inline-flex" style={{color: resolvedAccent ?? undefined}} aria-hidden>
+                        {icon}
+                    </span>
+                )}
                 {children}
             </span>
         </span>

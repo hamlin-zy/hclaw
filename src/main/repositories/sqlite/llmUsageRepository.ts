@@ -1,18 +1,25 @@
 /**
- * llm_usage 表 Repository（token 用量唯一数据源）
+ * llm_usage 表 Repository（token 用量数据源；历史 llm_stats 列回填见 readLegacyLlmStats）
  *
  * - record：单条写入（INSERT OR IGNORE 幂等）
- * - queryAggregated：全局聚合。成本在模型粒度用注入的 getMeta 计算后，
- *   view='provider' 时按服务商合并（成本求和），保证成本按模型单价准确
- * - queryTrend：按天趋势
+ * - queryAggregated：全局聚合。成本在模型粒度统一 attachCosts（注入 getMeta），
+ *   view='provider' 时按服务商合并（shared mergeByProvider，成本求和）
+ * - queryTrend：按天趋势（含历史回填）
  * - queryByConversation：会话弹窗分组（WHERE conversation_id IN (...)）
  */
 import {getDatabase} from './index'
-import {timeRangeStartMs, computeUsageCost, type PriceSource} from '@shared/llmUsage'
-import type {LlmUsageRecord, UsageBreakdown, TrendPoint, TimeRange} from '@shared/types'
+import {timeRangeBounds, computeUsageCost, attachCosts, mergeByProvider, type PriceSource} from '@shared/llmUsage'
+import type {LlmUsageRecord, LlmStats, UsageBreakdown, TrendPoint, TimeRange, TrendGranularity} from '@shared/types'
 import {createQueryLogger} from './queryLogger'
 
 const logQuery = createQueryLogger('SQLite LlmUsageRepository')
+
+/** 查询的时间范围参数（全局聚合/趋势共用）；customStart/customEnd 仅 range='custom' 时生效 */
+export interface UsageQueryRange {
+  range: TimeRange
+  customStart?: string
+  customEnd?: string
+}
 
 interface ModelAggRow {
   provider_type: string
@@ -51,12 +58,12 @@ export class SqliteLlmUsageRepository {
     logQuery('record', start, record.id)
   }
 
-  /** 全局聚合（成本在模型粒度计算，view='provider' 时按服务商合并） */
-  queryAggregated(params: {range: TimeRange; view: 'provider' | 'model'}, getMeta: (model: string) => PriceSource): UsageBreakdown[] {
+  /** 全局聚合（成本统一 attachCosts；view='provider' 时按服务商合并） */
+  queryAggregated(params: UsageQueryRange & {view: 'provider' | 'model'}, getMeta: (model: string) => PriceSource): UsageBreakdown[] {
     const start = Date.now()
     try {
       const db = getDatabase()
-      const rangeStart = timeRangeStartMs(params.range)
+      const {startMs, endMs} = timeRangeBounds(params.range, Date.now(), toCustomRange(params))
       const rows = db.prepare(`
         SELECT provider_type, model,
                MAX(provider_name) AS provider_name,
@@ -71,46 +78,154 @@ export class SqliteLlmUsageRepository {
                COUNT(ttft_ms) AS ttft_count
         FROM llm_usage
         WHERE (? IS NULL OR created_at >= ?)
+          AND (? IS NULL OR created_at <= ?)
         GROUP BY provider_type, model
-      `).all(rangeStart, rangeStart) as ModelAggRow[]
+      `).all(startMs, startMs, endMs, endMs) as ModelAggRow[]
 
       const breakdowns = rows.map((r) => this.toModelBreakdown(r, getMeta))
-      breakdowns.sort((a, b) => b.totalTokens - a.totalTokens)
-      logQuery('queryAggregated', start, `${breakdowns.length} rows`)
-      return params.view === 'provider' ? this.mergeByProvider(breakdowns) : breakdowns
+
+      // 历史回填：messages.llm_stats 列历史数据（与 readUsageRaw 双源语义一致），
+      // 保证全局统计与右键弹窗数字一致（历史 llm_stats 全量 + llm_usage 全量，按消息共存）。
+      const merged = this.mergeLegacyIntoBreakdowns(breakdowns, this.readLegacyLlmStats(null, {startMs, endMs}))
+      merged.sort((a, b) => b.totalTokens - a.totalTokens)
+      // 成本统一重算（与 toModelBreakdown 同 computeUsageCost 口径，幂等；回填行由此获得成本）
+      const withCost = attachCosts(merged, getMeta)
+      logQuery('queryAggregated', start, `${withCost.length} rows`)
+      return params.view === 'provider' ? mergeByProvider(withCost) : withCost
     } catch (err) {
       console.error('[SqliteLlmUsageRepository] queryAggregated failed:', err)
       return []
     }
   }
 
-  /** 按天趋势 */
-  queryTrend(params: {range: TimeRange}): TrendPoint[] {
+  /** 趋势（按天 / 按小时，本地时区；含历史 llm_stats 回填，与 queryAggregated 同源） */
+  queryTrend(params: UsageQueryRange & {granularity?: TrendGranularity}): TrendPoint[] {
     const start = Date.now()
     try {
       const db = getDatabase()
-      const rangeStart = timeRangeStartMs(params.range)
+      const {startMs, endMs} = timeRangeBounds(params.range, Date.now(), toCustomRange(params))
+      const granularity = params.granularity === 'hour' ? 'hour' : 'day'
+      // 分组键：按天 date(...) / 按小时 strftime('%Y-%m-%d %H:00', ...)，均本地时区
+      const timeExpr = granularity === 'hour'
+        ? `strftime('%Y-%m-%d %H:00', created_at/1000, 'unixepoch', 'localtime')`
+        : `date(created_at/1000, 'unixepoch', 'localtime')`
       const rows = db.prepare(`
-        SELECT date(created_at/1000, 'unixepoch', 'localtime') AS day,
+        SELECT ${timeExpr} AS day,
                SUM(input_tokens) AS input_tokens,
                SUM(output_tokens) AS output_tokens,
                SUM(cache_read_tokens) AS cache_read_tokens
         FROM llm_usage
         WHERE (? IS NULL OR created_at >= ?)
+          AND (? IS NULL OR created_at <= ?)
         GROUP BY day
         ORDER BY day ASC
-      `).all(rangeStart, rangeStart) as Array<{day: string; input_tokens: number; output_tokens: number; cache_read_tokens: number}>
-      const trend = rows.map((r) => ({
-        day: r.day,
-        inputTokens: r.input_tokens,
-        outputTokens: r.output_tokens,
-        cacheReadTokens: r.cache_read_tokens,
-      }))
-      logQuery('queryTrend', start, `${trend.length} days`)
+      `).all(startMs, startMs, endMs, endMs) as Array<{day: string; input_tokens: number; output_tokens: number; cache_read_tokens: number}>
+      const trendMap = new Map<string, TrendPoint>()
+      for (const r of rows) {
+        trendMap.set(r.day, {day: r.day, inputTokens: r.input_tokens, outputTokens: r.output_tokens, cacheReadTokens: r.cache_read_tokens})
+      }
+
+      // 历史回填：桶键与 SQL 分组一致（本地时区），时间用消息 timestamp 近似
+      this.mergeLegacyIntoTrend(trendMap, this.readLegacyLlmStats(null, {startMs, endMs}), granularity)
+      const trend = [...trendMap.values()].sort((a, b) => a.day.localeCompare(b.day))
+      logQuery('queryTrend', start, `${trend.length} ${granularity}s`)
       return trend
     } catch (err) {
       console.error('[SqliteLlmUsageRepository] queryTrend failed:', err)
       return []
+    }
+  }
+
+  /**
+   * 历史回填：messages.llm_stats 列中未被 llm_usage 覆盖的 assistant 消息。
+   * 语义与 readUsageRaw / buildMessagesFromRows 双源一致（历史 llm_stats 全量 + llm_usage 全量，
+   * 按消息共存合并，不做排除），保证全局统计与右键弹窗数字一致。
+   * 时间过滤用消息 timestamp 近似（llm_stats 无独立调用时间戳）。
+   */
+  private readLegacyLlmStats(
+    convIds: string[] | null,
+    timeRange: {startMs: number | null; endMs: number | null},
+  ): Array<{ts: number; stats: LlmStats[]}> {
+    try {
+      const db = getDatabase()
+      const conds: string[] = ['m.llm_stats IS NOT NULL', "m.role = 'assistant'"]
+      const params: unknown[] = []
+      if (convIds && convIds.length > 0) {
+        conds.push(`m.conversation_id IN (${convIds.map(() => '?').join(',')})`)
+        params.push(...convIds)
+      }
+      if (timeRange.startMs != null) {
+        conds.push('m.timestamp >= ?')
+        params.push(timeRange.startMs)
+      }
+      if (timeRange.endMs != null) {
+        conds.push('m.timestamp <= ?')
+        params.push(timeRange.endMs)
+      }
+      const rows = db.prepare(
+        `SELECT m.timestamp AS ts, m.llm_stats FROM messages m WHERE ${conds.join(' AND ')}`
+      ).all(...params) as Array<{ts: number; llm_stats: string}>
+      const out: Array<{ts: number; stats: LlmStats[]}> = []
+      for (const row of rows) {
+        try {
+          const parsed = JSON.parse(row.llm_stats) as LlmStats[]
+          if (Array.isArray(parsed) && parsed.length > 0) out.push({ts: row.ts, stats: parsed})
+        } catch {
+          // 单条损坏的 llm_stats 忽略，不阻塞统计
+        }
+      }
+      return out
+    } catch (err) {
+      console.error('[SqliteLlmUsageRepository] readLegacyLlmStats failed:', err)
+      return []
+    }
+  }
+
+  /** 历史 llm_stats 合并进模型分组（键 provider\0model；与 llm_usage 行共存相加） */
+  private mergeLegacyIntoBreakdowns(breakdowns: UsageBreakdown[], legacy: Array<{ts: number; stats: LlmStats[]}>): UsageBreakdown[] {
+    if (legacy.length === 0) return breakdowns
+    const groupMap = new Map(breakdowns.map((b) => [`${b.providerType ?? 'unknown'}\u0000${b.key}`, b]))
+    for (const item of legacy) {
+      for (const s of item.stats) {
+        const provider = s.provider || 'unknown'
+        const model = s.model || 'unknown'
+        const mapKey = `${provider}\u0000${model}`
+        const g = groupMap.get(mapKey) ?? {
+          key: model, providerType: provider, providerName: s.providerName, requestCount: 0,
+          inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+          totalTokens: 0, costUsd: 0, decodeMs: 0, ttftMs: 0, ttftCount: 0,
+        }
+        // providerName 组内非 NULL 优先：历史行（无 name）不覆盖新值
+        if (!g.providerName && s.providerName) g.providerName = s.providerName
+        g.requestCount++
+        g.inputTokens += s.inputTokens || 0
+        g.outputTokens += s.outputTokens || 0
+        g.cacheReadTokens += s.cacheReadTokens || 0
+        g.cacheWriteTokens += s.cacheWriteTokens || 0
+        g.totalTokens = g.inputTokens + g.outputTokens + g.cacheReadTokens + g.cacheWriteTokens
+        g.decodeMs = (g.decodeMs ?? 0) + (s.decodeMs || 0)
+        g.ttftMs = (g.ttftMs ?? 0) + (s.ttftMs || 0)
+        g.ttftCount = (g.ttftCount ?? 0) + (typeof s.ttftMs === 'number' ? 1 : 0)
+        groupMap.set(mapKey, g)
+      }
+    }
+    return [...groupMap.values()]
+  }
+
+  /** 历史 llm_stats 合并进趋势桶（桶键与 SQL 分组一致：本地时区 'YYYY-MM-DD' / 'YYYY-MM-DD HH:00'） */
+  private mergeLegacyIntoTrend(trendMap: Map<string, TrendPoint>, legacy: Array<{ts: number; stats: LlmStats[]}>, granularity: 'day' | 'hour'): void {
+    for (const item of legacy) {
+      const d = new Date(item.ts)
+      const day = granularity === 'hour'
+        ? `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:00`
+        : `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+      const t = trendMap.get(day) ?? {day, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0}
+      for (const s of item.stats) {
+        t.inputTokens += s.inputTokens || 0
+        t.outputTokens += s.outputTokens || 0
+        t.cacheReadTokens += s.cacheReadTokens || 0
+      }
+      trendMap.set(day, t)
     }
   }
 
@@ -140,7 +255,7 @@ export class SqliteLlmUsageRepository {
 
       const breakdowns = rows.map((r) => this.toModelBreakdown(r, getMeta))
       logQuery('queryByConversation', start, `${breakdowns.length} rows`)
-      return view === 'provider' ? this.mergeByProvider(breakdowns) : breakdowns
+      return view === 'provider' ? mergeByProvider(breakdowns) : breakdowns
     } catch (err) {
       console.error('[SqliteLlmUsageRepository] queryByConversation failed:', err)
       return []
@@ -169,34 +284,17 @@ export class SqliteLlmUsageRepository {
       ttftCount: r.ttft_count,
     }
   }
-
-  /** 按服务商合并（成本求和，totalTokens 降序） */
-  private mergeByProvider(rows: UsageBreakdown[]): UsageBreakdown[] {
-    const map = new Map<string, UsageBreakdown>()
-    for (const r of rows) {
-      const key = r.providerType ?? 'unknown'
-      const existing = map.get(key)
-      if (existing) {
-        existing.requestCount += r.requestCount
-        existing.inputTokens += r.inputTokens
-        existing.outputTokens += r.outputTokens
-        existing.cacheReadTokens += r.cacheReadTokens
-        existing.cacheWriteTokens += r.cacheWriteTokens
-        existing.totalTokens += r.totalTokens
-        existing.costUsd += r.costUsd
-        // 时序字段按组累加（全组无时序数据时保持 undefined）
-        existing.decodeMs = (existing.decodeMs ?? 0) + (r.decodeMs ?? 0) || undefined
-        existing.ttftMs = (existing.ttftMs ?? 0) + (r.ttftMs ?? 0) || undefined
-        existing.ttftCount = (existing.ttftCount ?? 0) + (r.ttftCount ?? 0)
-        // providerName 合并时取第一个非 NULL（同 provider 不同 model 可能有 NULL/有值）
-        if (!existing.providerName && r.providerName) existing.providerName = r.providerName
-      } else {
-        map.set(key, {...r, key, providerType: undefined})
-      }
-    }
-    return [...map.values()].sort((a, b) => b.totalTokens - a.totalTokens)
-  }
 }
 
 /** 全局单例 */
 export const llmUsageRepo = new SqliteLlmUsageRepository()
+
+/** 提取自定义范围（customStart/customEnd 完整才生效，否则 undefined 回退语义） */
+function toCustomRange(params: UsageQueryRange): {start: string; end: string} | undefined {
+  return params.customStart && params.customEnd ? {start: params.customStart, end: params.customEnd} : undefined
+}
+
+/** 两位补零（本地时区日期/小时桶键用） */
+function pad2(n: number): string {
+  return String(n).padStart(2, '0')
+}

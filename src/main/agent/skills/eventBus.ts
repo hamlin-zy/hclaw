@@ -5,7 +5,6 @@
  */
 
 export type SkillEventType =
-    | 'skill_matched'
     | 'skill_progress'
 
 export interface SkillEvent {

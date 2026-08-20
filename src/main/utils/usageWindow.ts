@@ -6,8 +6,9 @@
 import {BrowserWindow, ipcMain} from 'electron'
 import {createAppWindow} from './windowFactory'
 import {llmUsageRepo} from '../repositories/sqlite/llmUsageRepository'
-import {modelMetaRegistry} from '../modelMetaRegistry'
-import type {GlobalUsageStats, TimeRange} from '@shared/types'
+import {modelMetaPriceSource} from '../modelMetaRegistry'
+import {computeKpis} from '@shared/llmUsage'
+import type {GlobalUsageStats, UsageStatsQueryParams} from '@shared/types'
 
 let usageWindow: BrowserWindow | null = null
 
@@ -38,30 +39,43 @@ export function initUsageStatsIPC(): void {
         openUsageWindow()
     })
 
-    ipcMain.handle('usage-stats:query', (_event, params: {range: TimeRange; view: 'provider' | 'model'}) => {
+    ipcMain.handle('usage-stats:query', (_event, params: UsageStatsQueryParams) => {
+        const {range, view, customStart, customEnd, granularity} = params
+        const aggParams = {range, view, customStart, customEnd}
         const breakdown = llmUsageRepo.queryAggregated(
-            {range: params.range, view: params.view},
-            (model) => modelMetaRegistry.getMeta(model),
+            aggParams,
+            modelMetaPriceSource,
         )
-        const trend = llmUsageRepo.queryTrend({range: params.range})
-        const allRows = llmUsageRepo.queryAggregated({range: params.range, view: 'model'}, (model) => modelMetaRegistry.getMeta(model))
+        const trend = llmUsageRepo.queryTrend({range, customStart, customEnd, granularity})
+        const allRows = llmUsageRepo.queryAggregated(
+            {range, view: 'model', customStart, customEnd},
+            modelMetaPriceSource,
+        )
 
-        const totalTokens = allRows.reduce((s, b) => s + b.totalTokens, 0)
-        const totalCostUsd = allRows.reduce((s, b) => s + b.costUsd, 0)
-        const requestCount = allRows.reduce((s, b) => s + b.requestCount, 0)
-        const inputTokens = allRows.reduce((s, b) => s + b.inputTokens, 0)
-        const cacheReadTokens = allRows.reduce((s, b) => s + b.cacheReadTokens, 0)
-        const cacheHitRate = inputTokens + cacheReadTokens > 0
-            ? Math.round(cacheReadTokens / (inputTokens + cacheReadTokens) * 100)
-            : null
-        // 时序 KPI：原始累加值（平均吞吐/首字由渲染层 tokensPerSecond 计算，口径与 tooltip 一致）
-        const totalOutputTokens = allRows.reduce((s, b) => s + b.outputTokens, 0)
-        const totalDecodeMs = allRows.reduce((s, b) => s + (b.decodeMs ?? 0), 0)
-        const totalTtftMs = allRows.reduce((s, b) => s + (b.ttftMs ?? 0), 0)
-        const ttftCount = allRows.reduce((s, b) => s + (b.ttftCount ?? 0), 0)
+        // KPI 原始累加值：单次遍历汇总（平均吞吐/首字由 computeKpis 统一口径，渲染层直接消费 kpi 字段）
+        const totals = {
+            totalTokens: 0, totalCostUsd: 0, requestCount: 0, inputTokens: 0,
+            cacheReadTokens: 0, totalOutputTokens: 0, totalDecodeMs: 0, totalTtftMs: 0, ttftCount: 0,
+        }
+        for (const b of allRows) {
+            totals.totalTokens += b.totalTokens
+            totals.totalCostUsd += b.costUsd
+            totals.requestCount += b.requestCount
+            totals.inputTokens += b.inputTokens
+            totals.cacheReadTokens += b.cacheReadTokens
+            totals.totalOutputTokens += b.outputTokens
+            totals.totalDecodeMs += b.decodeMs ?? 0
+            totals.totalTtftMs += b.ttftMs ?? 0
+            totals.ttftCount += b.ttftCount ?? 0
+        }
+        // KPI 统一口径（弹窗 / 窗口共用 computeKpis）：缓存命中率 + 平均吞吐 + 平均首字
+        const kpis = computeKpis({inputTokens: totals.inputTokens, outputTokens: totals.totalOutputTokens, cacheReadTokens: totals.cacheReadTokens, totalDecodeMs: totals.totalDecodeMs, totalTtftMs: totals.totalTtftMs, ttftCount: totals.ttftCount})
 
         const result: GlobalUsageStats = {
-            kpi: {totalTokens, totalCostUsd, requestCount, cacheHitRate, totalOutputTokens, totalDecodeMs, totalTtftMs, ttftCount},
+            kpi: {
+                ...totals, cacheHitRate: kpis.cacheHitRate,
+                avgDecodeRate: kpis.avgDecodeRate, avgTtftSeconds: kpis.avgTtftSeconds,
+            },
             trend, breakdown,
         }
         return result

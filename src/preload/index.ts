@@ -99,6 +99,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('agent-start', params),
   agentAbort: (conversationId: string) =>
     ipcRenderer.invoke('agent-abort', conversationId),
+  agentRegisterStreamingMessage: (conversationId: string, messageId: string) =>
+    ipcRenderer.invoke('agent-register-streaming-message', conversationId, messageId),
   agentInjectMessage: (params: { conversationId: string; content: string; messageId?: string }) =>
     ipcRenderer.invoke('agent-inject-message', params),
   agentStatus: (conversationId?: string) =>
@@ -226,6 +228,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   providerTestModel: (params: any) => ipcRenderer.invoke('provider:test-model', params),
   modelMetaGetWindow: (model: string) =>
     ipcRenderer.invoke('model-meta:get-window', {model}),
+  exchangeRateGet: () =>
+    ipcRenderer.invoke('exchange-rate:get'),
 
   // Conversation management
   conversationCreate: (convId: string, meta: Record<string, unknown>) =>
@@ -457,7 +461,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // 全局用量统计窗口
     openUsageStatsWindow: () => ipcRenderer.invoke('open-usage-stats-window'),
-    usageStatsQuery: (params: {range: string; view: string}) =>
+    usageStatsQuery: (params: import('@shared/types').UsageStatsQueryParams) =>
         ipcRenderer.invoke('usage-stats:query', params),
     windowId,
     dialogType,

@@ -250,7 +250,6 @@ export interface ScriptResult {
 
 /** 技能流事件 */
 export type SkillStreamEvent = 
-  | { type: 'skill_matched'; skillId: string; skillName: string; reason: string }
   | { type: 'skill_start'; executionId: string }
   | { type: 'phase_change'; phase: SkillPhase; message?: string; progress?: { current: number; total: number } }
   | { type: 'reference_load_start'; refName: string }

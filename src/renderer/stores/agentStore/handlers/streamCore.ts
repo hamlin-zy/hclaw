@@ -1,7 +1,7 @@
 // ── 核心流式事件处理器 ──────────────────────────────
 // begin, agent_start, text, thinking
 
-import type {StreamCtx} from './streamContext'
+import type {StreamCtx, GetFn} from './streamContext'
 import {STREAMING_STATE, makeAgentState, createDefaultConvData} from '../defaultState'
 import {useConversationStore, recordTextBlock} from '../../conversationStore'
 import {
@@ -26,17 +26,54 @@ export function isRetryMessage(msg: string | {label: string; urgent: boolean} | 
     return msg ? msg.label.startsWith('重试') : false
 }
 
+/**
+ * 确保会话存在可挂载流式内容的 assistant 占位消息。
+ * 无 streamingMessageId 时创建空消息并写入 ID，返回新 ID；已有则返回 null。
+ * 供 begin / 重试 warning / error 复用，使状态提示（思考中/重试/错误）有气泡可挂载，
+ * 后续 text/tool_use 复用该 ID，避免各处重复建消息产生幽灵气泡。
+ */
+export function ensureStreamingMessage(get: GetFn, convId: string): string | null {
+    const convState = get().convAgentStates[convId]
+    const existingId = convState?.streamingMessageId
+    if (existingId) {
+        // ★ 防御：已结束消息（endedAt 已写入）不复用。残留场景：abort 后 done
+        //   事件丢失/竞态延迟，streamingMessageId 指向已结束消息。若复用，
+        //   新一轮流式内容与 statusNote 会挂到历史消息上 → "已结束时间戳 +
+        //   左侧状态文案高频闪烁"的错乱现象。正常多轮 LLM（tool→begin 第二轮）
+        //   复用不触发：运行中消息无 endedAt。
+        const msgs = useConversationStore.getState().messagesMap[convId] || []
+        const existing = msgs.find(m => m.id === existingId)
+        if (existing?.endedAt) {
+            get().updateConvData(convId, {streamingMessageId: null})
+        } else {
+            return null
+        }
+    }
+    const placeholderId = crypto.randomUUID()
+    useConversationStore.getState().addMessageToConv(convId, {id: placeholderId, role: 'assistant', content: ''})
+    get().updateConvData(convId, {streamingMessageId: placeholderId})
+    // ★ 占位 id 注册到主进程：pending 累积复用同一 id（幂等，fire-and-forget）。
+    //   否则主进程 createPendingMsg 独立生成 id，done 时 #mergeAndPersist 全量写
+    //   兜底会以该 id 插入幽灵副本 → 重启加载后每条助手消息渲染 2 份。
+    window.electronAPI?.agentRegisterStreamingMessage?.(convId, placeholderId)
+    return placeholderId
+}
+
 export function handleBegin(ctx: StreamCtx) {
     const {get, convId} = ctx
     console.log('[handleStreamEvent] begin event, convId:', convId)
     const prevConvState = get().convAgentStates[convId] || createDefaultConvData()
+    // ★ 占位气泡：LLM 调用开始（思考中）时若还没有 assistant 消息，创建空占位
+    //   并写入 streamingMessageId，使运行状态提示（思考中/响应中）有气泡可挂载
+    //   （气泡内 statusNote）；后续 text/tool_use 复用该 ID，避免重复建消息。
+    const placeholderId = ensureStreamingMessage(get, convId)
     get().updateConvData(convId, {
         streamBuffer: prevConvState.streamBuffer,
         thinkingContent: prevConvState.thinkingContent,
         streamBlocks: prevConvState.streamBlocks,
-        // ★ 保留已有 streamingMessageId，防止多轮 LLM 调用（tool → begin 第二轮）
+        // ★ 保留已有 streamingMessageId（含占位），防止多轮 LLM 调用（tool → begin 第二轮）
         //   时清空 ID 导致后续 text 事件创建重复消息（幽灵气泡）
-        streamingMessageId: prevConvState.streamingMessageId,
+        streamingMessageId: placeholderId ?? prevConvState.streamingMessageId,
         isThinkingAfterTools: false,
         runningToolCount: 0,
         agentState: STREAMING_STATE,

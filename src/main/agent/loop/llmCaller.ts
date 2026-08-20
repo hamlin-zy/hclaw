@@ -3,16 +3,16 @@
  *
  * 职责：
  * - 创建和管理 adapter
- * - 重建判定（schemeVersion / suggestedModel 角色变化触发重建）
+ * - 重建判定（schemeVersion / provider:model 指纹变化触发重建）
  *
  * 注：重试逻辑已迁至 execute.ts（shouldRetryAttempt + 指数退避），本类不再处理。
  */
 
 import type {ModelConfig} from '../model/types'
-import type {ModelRole} from '@shared/types'
 import {createAdapterForContext, type ModelAdapter} from '../model/index'
 import {logger} from '../logger'
 import {getSchemeVersion} from '../model/modelSchemeManager'
+import type {ModelRole} from '@shared/types'
 
 export interface AdapterResult {
     adapter: ModelAdapter
@@ -34,8 +34,8 @@ function baseUrlOf(cfg: ModelConfig): string {
 export class LLMCaller {
     private adapter: ModelAdapter | null = null
     private lastVersion: number = -1
-    /** F1: 上次创建 adapter 时传入的 suggestedModel（角色）。auto 模式下逐 turn 由意图分析决定（simple→lightweight、complex→reasoning），变化需重建 */
-    private lastSuggestedModel: string = ''
+    /** F1 替代：当前 provider:model 指纹（角色路由维度），变化需重建 adapter */
+    private lastModelKey: string = ''
     /** D1/F3: 上次 direct 模型的完整指纹（provider:model:apiStyle:baseURL）；''=非 direct（角色路由）。
      *  重建判定含 apiStyle/baseURL —— direct→direct 切换端点（同 provider:model）必须触发重建，
      *  否则带指纹的 cache key 根本不被查询（早退复用旧端点 adapter）。 */
@@ -52,7 +52,7 @@ export class LLMCaller {
     private currentSchemeName: string | null = null
 
     /**
-     * 记录新建的 adapter 并同步重建判定所需的版本/建议角色/direct 指纹，
+     * 记录新建的 adapter 并同步重建判定所需的版本/provider:model 指纹/direct 指纹，
      * 返回统一的 AdapterResult。全局路径、direct 路径与 fallback 路径共用，
      * 避免任一路径漏同步导致后续重建判定失准。
      */
@@ -62,7 +62,6 @@ export class LLMCaller {
         model: string,
         configSource: AdapterResult['configSource'],
         schemeName: string | null,
-        suggestedModel?: ModelRole,
         directKey?: string,
     ): AdapterResult {
         this.adapter = adapter
@@ -71,7 +70,7 @@ export class LLMCaller {
         this.currentConfigSource = configSource
         this.currentSchemeName = schemeName
         this.lastVersion = getSchemeVersion().version
-        this.lastSuggestedModel = suggestedModel ?? ''
+        this.lastModelKey = `${provider}:${model}`
         this.lastDirectKey = directKey ?? ''
         return {
             adapter: this.adapter,
@@ -88,20 +87,25 @@ export class LLMCaller {
      */
     async getAdapter(
         context: 'main' | 'subAgent' | 'background' | 'planning',
-        suggestedModel?: ModelRole,
         fallbackConfig?: ModelConfig,
         schemeUpdatePromise?: () => Promise<void>,
-        // 注：createAdapterForContext 签名（model/index.ts:252）为 (context, intentAnalysis?, fallbackConfig?)
-        // 三参，无 abortSignal 支持。_abortSignal 暂仅接收不透传，留作未来扩展。
+        // 注：createAdapterForContext 签名（model/index.ts）为 (context, fallbackConfig?)
+        // 两参，无 abortSignal 支持。_abortSignal 暂仅接收不透传，留作未来扩展。
         _abortSignal?: AbortSignal,
         directModel?: boolean,
+        /**
+         * 已解析的模型角色（selectModelForTurn 的 suggestedRole 产物，agentTool 子会话
+         * modelRole 场景为文本角色）。透传给 createAdapterForContext，
+         * 使其按该角色解析客户端，避免 context='main' 重新解析覆盖角色选择。
+         */
+        preferredRole?: ModelRole,
     ): Promise<AdapterResult> {
         // D1/F3: 会话 override 直通模型完整指纹（provider:model:apiStyle:baseURL）。
         // baseURL/baseUrl 两种字段名均兼容；非 direct 传 undefined（'' 参与比较）
         const directKey = directModel && fallbackConfig
             ? `${fallbackConfig.provider}:${fallbackConfig.model}:${fallbackConfig.apiStyle || 'chat'}:${baseUrlOf(fallbackConfig)}`
             : undefined
-        const needsRecreate = this.needsAdapterRecreate(suggestedModel, directKey)
+        const needsRecreate = this.needsAdapterRecreate(directKey, fallbackConfig)
         // D2: direct 适配器缓存指纹（版本:provider:model:apiStyle:baseURL）。
         // 与 lastDirectKey（provider:model:apiStyle:baseURL 重建判定）解耦，仅 version 维度和 cache 查询：
         //   - schemeVersion 变化（用户改 API key/baseUrl）→ key 变化 → 新建，避免复用旧凭据
@@ -131,12 +135,12 @@ export class LLMCaller {
                         adapter = createModelAdapter(fallbackConfig)
                         this.directAdapterCache.set(directCacheKey!, adapter)
                     }
-                    return this.recordAdapter(adapter, fallbackConfig.provider, fallbackConfig.model, 'direct' as const, null, suggestedModel, directKey)
+                    return this.recordAdapter(adapter, fallbackConfig.provider, fallbackConfig.model, 'direct' as const, null, directKey)
                 }
                 const globalAdapterResult = await createAdapterForContext(
                     context,
-                    {suggestedModel},
-                    fallbackConfig
+                    fallbackConfig,
+                    preferredRole,
                 )
                 logger.debug('[LLMCaller]', {
                     action: 'using-global-adapter-result',
@@ -150,7 +154,6 @@ export class LLMCaller {
                     globalAdapterResult.modelId,
                     globalAdapterResult.configSource as AdapterResult['configSource'],
                     globalAdapterResult.schemeName || null,
-                    suggestedModel,
                 )
             } catch (error) {
                 // createAdapterForContext 会抛出异常如果没有可用配置
@@ -165,7 +168,7 @@ export class LLMCaller {
                 }
 
                 const {createModelAdapter} = await import('../model/index')
-                // F2: fallback 路径同样同步版本/工作模式/建议角色，
+                // F2: fallback 路径同样同步版本/模型指纹/direct 指纹，
                 // 避免后续全局路径恢复时被静默钉死在 fallback 配置上
                 return this.recordAdapter(
                     createModelAdapter(fallbackConfig),
@@ -173,7 +176,6 @@ export class LLMCaller {
                     fallbackConfig.model,
                     'fallback',
                     null,
-                    suggestedModel,
                 )
             }
         }
@@ -195,14 +197,12 @@ export class LLMCaller {
      * - 方案版本（schemeVersion）变更
      * - D1/F3: direct 完整指纹（provider:model:apiStyle:baseURL）变化
      *   （override 切换端点/模型 / direct↔auto 切换）→ 重建
-     * - F1: 逐 turn 的 suggestedModel（角色）变更——auto 模式下
-     *   workModeRole 由意图分析按复杂度决定（simple→lightweight、complex→reasoning），
-     *   必须单独检测角色变化才能路由到正确模型
+     * - F1 替代: 当前 provider:model 变化（角色路由到不同模型）→ 重建
      *
      * 注：重试逻辑由 execute.ts 统一负责（executeLlmCallWithRetry：
      * shouldRetryAttempt + 指数退避），本类不处理重试，避免双路径重试。
      */
-    private needsAdapterRecreate(suggestedModel?: ModelRole, directKey?: string): boolean {
+    private needsAdapterRecreate(directKey?: string, incomingConfig?: ModelConfig): boolean {
         if (!this.adapter) {
             return true
         }
@@ -212,11 +212,13 @@ export class LLMCaller {
         // D1/F3: direct 完整指纹变化（override 切换端点/模型 / direct↔auto 切换）→ 重建
         //    direct('x')→direct('x') 相等不复用；direct↔auto 因 '' 参与比较必然不等 → 重建
         if ((directKey ?? '') !== this.lastDirectKey) return true
-        // F1: 逐 turn 角色（suggestedModel）变化需重建。
-        // 首次调用（lastSuggestedModel 为空）沿用 '' 守卫模式：
-        // 此时 adapter 尚为 null，已在首个分支返回 true，无需在此特殊处理。
-        const currentSuggestedModel = suggestedModel ?? ''
-        return this.lastSuggestedModel !== '' && currentSuggestedModel !== this.lastSuggestedModel
+        // F1 替代：当前 provider:model 变化（角色路由到不同模型）→ 重建。
+        // 新设计下 fallbackConfig 即本轮 resolved 模型配置（selectModelForTurn 产物），
+        // 以「入参 provider:model vs 上次记录指纹」比较——若只比较 currentProvider/currentModel
+        // 二者恒等于 lastModelKey（recordAdapter 同写），无法感知入参模型切换。
+        const incomingModelKey = incomingConfig ? `${incomingConfig.provider}:${incomingConfig.model}` : ''
+        const currentModelKey = incomingModelKey || `${this.currentProvider}:${this.currentModel}`
+        return this.lastModelKey !== '' && currentModelKey !== this.lastModelKey
     }
 
     /**
@@ -225,7 +227,7 @@ export class LLMCaller {
     reset(): void {
         this.adapter = null
         this.lastVersion = -1
-        this.lastSuggestedModel = ''
+        this.lastModelKey = ''
         this.lastDirectKey = ''
         this.directAdapterCache.clear()
     }

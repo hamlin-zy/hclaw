@@ -12,7 +12,7 @@ const {mockAgentState} = vi.hoisted(() => ({
         runningToolCount: 0,
         streamingMessageId: null,
         errorMessage: null,
-        executingToolsMessage: null,
+        executingToolsMessage: null as string | {label: string; urgent: boolean} | null,
     },
 }))
 
@@ -48,11 +48,22 @@ describe('StatusIndicators hooks 稳定性（Task 8/9 修复条件 Hook 后的�
         expect(container.querySelector('[role="status"]')).toBeNull()
     })
 
-    it('status=streaming（phase=streaming）时显示思考中指示器', () => {
+    it('status=streaming（phase=streaming）时不显示思考中指示器（已搬入气泡 statusNote）', () => {
         mockAgentState.agentState = {status: 'running', phase: 'streaming', mode: 'auto'}
         mockAgentState.executingToolsMessage = null
         mockAgentState.errorMessage = null
+        mockAgentState.streamingMessageId = null
         render(<ThinkingIndicator />)
-        expect(screen.getByText('思考中')).toBeTruthy()
+        expect(screen.queryByText('思考中')).toBeNull()
+        // phase 有值时也不触发流式暂停指示器（防"思考中"误显示为"响应中..."）
+        expect(screen.queryByText(/响应中/)).toBeNull()
+    })
+
+    it('工具执行状态（字符串）仍由左下角指示器显示', () => {
+        mockAgentState.agentState = {status: 'running', phase: 'executing_tools', mode: 'auto'}
+        mockAgentState.executingToolsMessage = '2 个工具 执行中...'
+        mockAgentState.errorMessage = null
+        render(<ThinkingIndicator />)
+        expect(screen.getByText('2 个工具 执行中...')).toBeTruthy()
     })
 })

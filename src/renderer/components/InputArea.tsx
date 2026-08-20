@@ -665,7 +665,6 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                         compactInProgress={compactInProgress}
                         needsSession={needsSession}
                         needsModel={needsModel}
-                        agentState={agentState as {currentModelProvider?: string; currentModelName?: string}}
                         pendingMessagesCount={convData?.pendingMessages?.length ?? 0}
                         canSend={canSend}
                         conversationId={activeConversationId ?? ''}

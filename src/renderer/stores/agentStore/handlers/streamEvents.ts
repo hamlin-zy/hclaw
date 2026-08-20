@@ -9,8 +9,8 @@ import type {StreamCtx} from './streamContext'
 import {handleBegin, handleAgentStart, handleText, handleThinking} from './streamCore'
 import {handleToolUse, handleToolsStart, handleToolStart, handleToolProgress, handleToolDetail, handleToolResult, handleToolCompleted, handleToolDenied} from './streamTools'
 import {handleAgentProgress, handleSubagentProgress, handleSubagentStart, handleSubagentDone} from './streamSubAgents'
-import {handleSkillMatched, handleSkillStart, handleSkillPhase, handleSkillReferenceLoaded, handleSkillScriptStart, handleSkillScriptOutput, handleSkillScriptDone, handleSkillLog, handleSkillEnd} from './streamSkills'
-import {handleIntentAnalyzed, handleModeChange, handleHookResult, handleTasksUpdate, handleLlmCallDone, handleCommandStart} from './streamSystem'
+import {handleSkillStart, handleSkillPhase, handleSkillReferenceLoaded, handleSkillScriptStart, handleSkillScriptOutput, handleSkillScriptDone, handleSkillLog, handleSkillEnd} from './streamSkills'
+import {handleModeChange, handleHookResult, handleTasksUpdate, handleLlmCallDone, handleCommandStart} from './streamSystem'
 import {handleDone, handleError, handleAskUser, handleWarning, handlePermissionRulesUpdated, handlePermissionConfirm, handleUserMessageInjected} from './streamInteraction'
 
 const TEXTISH = new Set(['text', 'thinking'])
@@ -71,7 +71,6 @@ export async function handleStreamEventImpl(set: SetFn, get: GetFn, payload: Age
         case 'subagent_progress':      handleSubagentProgress(ctx);        break
         case 'subagent_start':         handleSubagentStart(ctx);           break
         case 'subagent_done':          handleSubagentDone(ctx);            break
-        case 'skill_matched':          handleSkillMatched(ctx);            break
         case 'skill_start':            handleSkillStart(ctx);              break
         case 'skill_phase':            handleSkillPhase(ctx);              break
         case 'skill_reference_loaded': handleSkillReferenceLoaded(ctx);    break
@@ -80,7 +79,6 @@ export async function handleStreamEventImpl(set: SetFn, get: GetFn, payload: Age
         case 'skill_script_done':      handleSkillScriptDone(ctx);         break
         case 'skill_log':              handleSkillLog(ctx);                break
         case 'skill_end':              handleSkillEnd(ctx);                break
-        case 'intent_analyzed':        handleIntentAnalyzed(ctx);          break
         case 'mode_change':            handleModeChange(ctx);              break
         case 'hook_result':            handleHookResult(ctx);              break
         case 'tasks_update':           handleTasksUpdate(ctx);             break

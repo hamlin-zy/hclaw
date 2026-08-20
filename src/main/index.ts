@@ -29,6 +29,7 @@ import {loadHooksFromDirectory} from './agent/hooks/loader';
 import {GoogleAuthService, initGoogleAuthIPC} from './auth/googleAuth';
 import {initProviderIPC} from './llmProviderIPC';
 import {modelMetaRegistry} from './modelMetaRegistry';
+import {exchangeRateRegistry} from './exchangeRateRegistry';
 import {initModelSchemeIPC} from './modelSchemeIPC';
 import {initPromptSchemeIPC} from './promptSchemeIPC';
 import {promptSchemeRepo} from './repositories/sqlite/promptSchemeRepository';
@@ -178,6 +179,7 @@ app.on('ready', async () => {
   ensureConfigLayout();
 
   void modelMetaRegistry.init();
+  void exchangeRateRegistry.init();
 
     // MIME 类型映射表（用于自定义协议返回正确的 Content-Type）
     const MIME_MAP: Record<string, string> = {
