@@ -122,13 +122,13 @@ describe('UsageWindow 全局用量窗口', () => {
         render(<UsageWindow />)
         await waitFor(() => expect(screen.getByText('$12.88')).toBeTruthy())
         // 默认美元计价，无 CNY 换算说明
-        expect(screen.queryByText('按 1 USD ≈ 7.2 CNY')).toBeNull()
+        expect(screen.queryByText('按 1 USD ≈ 7.20 CNY')).toBeNull()
 
         fireEvent.click(screen.getByTestId('currency-cny'))
         // 总成本：12.88 * 7.2 = 92.736 → ¥92.74
         await waitFor(() => expect(screen.getByText('¥92.74')).toBeTruthy())
         expect(screen.queryByText('$12.88')).toBeNull()
-        expect(screen.getByText('按 1 USD ≈ 7.2 CNY')).toBeTruthy()
+        expect(screen.getByText('按 1 USD ≈ 7.20 CNY')).toBeTruthy()
         // 明细成本列同样换算：10.71 → ¥77.11，2.17 → ¥15.62
         expect(screen.getByText('¥77.11')).toBeTruthy()
         expect(screen.getByText('¥15.62')).toBeTruthy()

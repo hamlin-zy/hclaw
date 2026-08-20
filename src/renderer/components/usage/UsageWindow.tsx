@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react'
-import {formatTokenCompact, formatCost, formatTokensPerSecond, tokensPerSecond, USD_TO_CNY_RATE, type Currency} from '../../lib/format'
+import {formatTokenCompact, formatCost, formatTokensPerSecond, tokensPerSecond, getUsdCnyRate, type Currency} from '../../lib/format'
 import {useThemeSync} from '../../lib/theme'
-import {ClientStatsNotice, InfoTip, COST_DISCLAIMER, providerDisplayName} from './statsParts'
+import {ClientStatsNotice, InfoTip, getCostDisclaimer, providerDisplayName} from './statsParts'
 import type {GlobalUsageStats, TimeRange} from '@shared/types'
 
 type View = 'provider' | 'model'
@@ -119,7 +119,7 @@ export default function UsageWindow() {
                         </button>
                     ))}
                 </div>
-                <InfoTip text={COST_DISCLAIMER} />
+                <InfoTip text={getCostDisclaimer()} />
             </div>
 
             {/* 主体 */}
@@ -143,13 +143,13 @@ export default function UsageWindow() {
                                 <div className="p-4">
                                     <div className="flex items-center gap-1 text-[11px] text-[var(--text-muted)]">
                                         总成本
-                                        <InfoTip text={COST_DISCLAIMER}/>
+                                        <InfoTip text={getCostDisclaimer()}/>
                                     </div>
                                     <div className="mt-1 text-2xl font-semibold tabular-nums leading-none text-[var(--brand-primary)]">
                                         {formatCost(data.kpi.totalCostUsd, currency)}
                                     </div>
                                     <div className="mt-1.5 text-[10px] text-[var(--text-muted)]">
-                                        {currency === 'USD' ? '美元计价' : `按 1 USD ≈ ${USD_TO_CNY_RATE} CNY`}
+                                        {currency === 'USD' ? '美元计价' : `按 1 USD ≈ ${getUsdCnyRate().toFixed(2)} CNY`}
                                     </div>
                                 </div>
                                 <div className="p-4 border-l border-[var(--border)]">
@@ -214,7 +214,7 @@ export default function UsageWindow() {
                                                     {h === '成本' ? (
                                                         <span className="inline-flex items-center justify-end gap-1">
                                                             成本
-                                                            <InfoTip text={COST_DISCLAIMER}/>
+                                                            <InfoTip text={getCostDisclaimer()}/>
                                                         </span>
                                                     ) : h}
                                                 </th>

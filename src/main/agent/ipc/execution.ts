@@ -353,6 +353,14 @@ export function registerHandlers(): void {
         return {success: true}
     })
 
+    // 注册渲染端占位消息 id（ensureStreamingMessage 创建空占位后上报）。
+    // 主进程 pending 累积复用该 id，消除双 id 双写（幽灵消息根因）
+    ipcMain.handle('agent-register-streaming-message', (_event, conversationId: string, messageId: string) => {
+        if (typeof conversationId !== 'string' || typeof messageId !== 'string' || !messageId) return false
+        agentManager.registerStreamingMessage(conversationId, messageId)
+        return true
+    })
+
     // 向运行中的 Agent 注入用户消息（不中断当前执行）
     ipcMain.handle('agent-inject-message', async (_event, params: {
         conversationId: string

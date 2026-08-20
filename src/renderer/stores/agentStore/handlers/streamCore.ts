@@ -52,6 +52,10 @@ export function ensureStreamingMessage(get: GetFn, convId: string): string | nul
     const placeholderId = crypto.randomUUID()
     useConversationStore.getState().addMessageToConv(convId, {id: placeholderId, role: 'assistant', content: ''})
     get().updateConvData(convId, {streamingMessageId: placeholderId})
+    // ★ 占位 id 注册到主进程：pending 累积复用同一 id（幂等，fire-and-forget）。
+    //   否则主进程 createPendingMsg 独立生成 id，done 时 #mergeAndPersist 全量写
+    //   兜底会以该 id 插入幽灵副本 → 重启加载后每条助手消息渲染 2 份。
+    window.electronAPI?.agentRegisterStreamingMessage?.(convId, placeholderId)
     return placeholderId
 }
 
