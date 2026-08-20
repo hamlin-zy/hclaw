@@ -3,6 +3,7 @@ import {persist, type PersistStorage} from 'zustand/middleware'
 import {sqliteStorage} from '../lib/sqliteStorage'
 import {useLLMStore} from './llmStore'
 import {useToolStore} from './toolStore'
+import {TEXT_MODEL_ROLES} from '@shared/types'
 import type {ModelRole, ModelScheme, ModelSchemeRole, ModelType} from '@shared/types'
 
 // Re-export for consumers
@@ -88,7 +89,7 @@ const createDefaultRole = (
 /** 校验方案是否至少有一个有效文本角色（enabled && endpointId && modelId） */
 export function hasValidTextRole(scheme: Pick<ModelScheme, 'roles'>): boolean {
     return scheme.roles.some(r =>
-        ['primary', 'lightweight', 'reasoning'].includes(r.role)
+        TEXT_MODEL_ROLES.includes(r.role as ModelRole)
         && r.enabled && r.endpointId && r.modelId
     )
 }

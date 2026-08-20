@@ -12,6 +12,7 @@ import type {ModelConfig} from '../model/types'
 import {createAdapterForContext, type ModelAdapter} from '../model/index'
 import {logger} from '../logger'
 import {getSchemeVersion} from '../model/modelSchemeManager'
+import type {ModelRole} from '@shared/types'
 
 export interface AdapterResult {
     adapter: ModelAdapter
@@ -92,6 +93,12 @@ export class LLMCaller {
         // 两参，无 abortSignal 支持。_abortSignal 暂仅接收不透传，留作未来扩展。
         _abortSignal?: AbortSignal,
         directModel?: boolean,
+        /**
+         * 已解析的模型角色（selectModelForTurn 的 suggestedRole 产物，agentTool 子会话
+         * modelRole 场景为文本角色）。透传给 createAdapterForContext，
+         * 使其按该角色解析客户端，避免 context='main' 重新解析覆盖角色选择。
+         */
+        preferredRole?: ModelRole,
     ): Promise<AdapterResult> {
         // D1/F3: 会话 override 直通模型完整指纹（provider:model:apiStyle:baseURL）。
         // baseURL/baseUrl 两种字段名均兼容；非 direct 传 undefined（'' 参与比较）
@@ -132,7 +139,8 @@ export class LLMCaller {
                 }
                 const globalAdapterResult = await createAdapterForContext(
                     context,
-                    fallbackConfig
+                    fallbackConfig,
+                    preferredRole,
                 )
                 logger.debug('[LLMCaller]', {
                     action: 'using-global-adapter-result',
