@@ -77,8 +77,8 @@ describe('CacheRateTooltip 真实渲染（无 mock 链路）', () => {
         expect(trigger).not.toBeNull()
         expect(trigger!.className).toContain('whitespace-nowrap')
 
-        // 每个 MetricBadge 胶囊都有 shrink-0 + whitespace-nowrap
-        const badges = [...container.querySelectorAll<HTMLElement>('span.relative.inline-flex')]
+        // 每个 MetricBadge 胶囊（外层 group）都有 shrink-0 + whitespace-nowrap
+        const badges = [...container.querySelectorAll<HTMLElement>('span.group.relative.inline-flex')]
         expect(badges.length).toBeGreaterThanOrEqual(3)
         for (const b of badges) {
             expect(b.className).toContain('shrink-0')
@@ -129,7 +129,7 @@ describe('CacheRateTooltip 真实渲染（无 mock 链路）', () => {
         // 末次窗口占用 = 200 + 800 = 1.0k
         expect(screen.getByText(/窗口/)).toBeTruthy()
 
-        const badges = [...container.querySelectorAll<HTMLElement>('span.relative.inline-flex')]
+        const badges = [...container.querySelectorAll<HTMLElement>('span.group.relative.inline-flex')]
         expect(badges.length).toBeGreaterThanOrEqual(2)
         for (const b of badges) {
             expect(b.className).toContain('shrink-0')

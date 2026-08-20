@@ -48,7 +48,72 @@ describe('UsageStatsDialog 分组用量', () => {
         expect(screen.getByText('平均首字')).toBeTruthy()
         expect(screen.getByText('1.2s')).toBeTruthy()
         expect(screen.getByText('LLM 请求')).toBeTruthy()
+        expect(screen.getByText('工具调用')).toBeTruthy()
+        expect(screen.getByText('267 次')).toBeTruthy()
         expect(screen.getByText('369 次')).toBeTruthy()
+    })
+
+    it('弹窗宽度 560px（加宽）', async () => {
+        render(<UsageStatsDialog />)
+        openDialog()
+        await waitFor(() => expect(screen.getByText('27.8M')).toBeTruthy())
+        expect(screen.getByRole('dialog').className).toContain('w-[560px]')
+    })
+
+    it('默认条件：按服务商 + 人民币', async () => {
+        render(<UsageStatsDialog />)
+        openDialog()
+        await waitFor(() => expect(screen.getByText('分组用量')).toBeTruthy())
+        // 默认人民币：Deepseek-ant 聚合成本 12.88 × 7.2 = ¥92.74
+        expect(screen.getByText('¥92.74')).toBeTruthy()
+        expect(screen.queryByText('$12.88')).toBeNull()
+        // 默认按服务商：Deepseek-ant 合并两行（anthropic）、MiniMax 一行（openai）
+        expect(screen.getByText('Deepseek-ant')).toBeTruthy()
+        expect(screen.getByText('MiniMax')).toBeTruthy()
+    })
+
+    it('LLM 请求与工具调用在一行显示（同一 grid 容器）', async () => {
+        render(<UsageStatsDialog />)
+        openDialog()
+        await waitFor(() => expect(screen.getByText('27.8M')).toBeTruthy())
+        const llmLabel = screen.getByText('LLM 请求')
+        const toolLabel = screen.getByText('工具调用')
+        // 两个 StatRow 的父级是同一个 grid（grid-cols-2 一行两列）
+        expect(llmLabel.closest('div.grid')).toBe(toolLabel.closest('div.grid'))
+        expect(llmLabel.closest('div.grid')!.className).toContain('grid-cols-2')
+    })
+
+    it('Token 明细 / 缓存 / 调用每一项均带边框', async () => {
+        render(<UsageStatsDialog />)
+        openDialog()
+        await waitFor(() => expect(screen.getByText('27.8M')).toBeTruthy())
+        // Token 明细：输入/输出两项（分组卡片中也有同名标签，取第一处 = 明细区）
+        for (const label of ['输入', '输出']) {
+            const row = screen.getAllByText(label)[0]!.closest('div.flex')
+            expect(row!.className).toContain('rounded-lg border')
+            expect(row!.className).toContain('bg-[var(--surface-muted)]')
+        }
+        // 缓存：缓存命中（分组卡片中也有同名标签，取第一处 = 缓存区）
+        const cacheRow = screen.getAllByText('缓存命中')[0]!.closest('div.flex')
+        expect(cacheRow!.className).toContain('rounded-lg border')
+        // 调用：LLM 请求 / 工具调用
+        const llmRow = screen.getByText('LLM 请求').closest('div.flex')
+        expect(llmRow!.className).toContain('rounded-lg border')
+        const toolRow = screen.getByText('工具调用').closest('div.flex')
+        expect(toolRow!.className).toContain('rounded-lg border')
+    })
+
+    it('缓存写入 > 0 → 显示缓存写入行（带边框）', async () => {
+        ;(window.electronAPI as any).conversationUsageStats.mockResolvedValue({
+            ...mockData,
+            totalCacheWriteTokens: 5000,
+        })
+        render(<UsageStatsDialog />)
+        openDialog()
+        await waitFor(() => expect(screen.getByText('缓存写入')).toBeTruthy())
+        const writeRow = screen.getByText('缓存写入').closest('div.flex')
+        expect(writeRow!.className).toContain('rounded-lg border')
+        expect(screen.getByText('5.0k')).toBeTruthy()
     })
 
     it('无时序数据 → 平均吞吐/首字显示 —', async () => {
@@ -69,11 +134,8 @@ describe('UsageStatsDialog 分组用量', () => {
         await waitFor(() => expect(screen.getByText('分组用量')).toBeTruthy())
         // 数据口径提示：客户端侧统计，非服务商账单
         expect(screen.getByText('统计数据为客户端侧记录，仅供对照，实际用量以服务商官网为准')).toBeTruthy()
-        // 服务商聚合：Deepseek-ant 合并两行（anthropic）、MiniMax 一行（openai）
-        expect(screen.getByText('Deepseek-ant')).toBeTruthy()
-        expect(screen.getByText('MiniMax')).toBeTruthy()
-        // 成本列（Deepseek-ant = 10.71 + 2.17）
-        expect(screen.getByText('$12.88')).toBeTruthy()
+        // 成本列（Deepseek-ant = 10.71 + 2.17，默认人民币）
+        expect(screen.getByText('¥92.74')).toBeTruthy()
         // 占比
         expect(screen.getByText('85%')).toBeTruthy()
     })
@@ -91,6 +153,22 @@ describe('UsageStatsDialog 分组用量', () => {
         expect(screen.getByText('MiniMax')).toBeTruthy()
     })
 
+    it('切换美元 → 成本列按美元显示；切回人民币按汇率换算', async () => {
+        render(<UsageStatsDialog />)
+        openDialog()
+        await waitFor(() => expect(screen.getByText('¥92.74')).toBeTruthy())
+
+        fireEvent.click(screen.getByText('$ 美元'))
+        // Deepseek-ant 聚合成本 12.88
+        await waitFor(() => expect(screen.getByText('$12.88')).toBeTruthy())
+        expect(screen.queryByText('¥92.74')).toBeNull()
+
+        fireEvent.click(screen.getByText('¥ 人民币'))
+        // 12.88 * 7.2 = 92.736 → ¥92.74
+        await waitFor(() => expect(screen.getByText('¥92.74')).toBeTruthy())
+        expect(screen.queryByText('$12.88')).toBeNull()
+    })
+
     it('空 breakdown → 不渲染分组区块', async () => {
         ;(window.electronAPI as any).conversationUsageStats.mockResolvedValue({
             ...mockData,
@@ -106,19 +184,18 @@ describe('UsageStatsDialog 分组用量', () => {
         render(<UsageStatsDialog />)
         openDialog()
         await waitFor(() => expect(screen.getByText('分组用量')).toBeTruthy())
-        // 默认美元：服务商聚合 Deepseek-ant = 10.71 + 2.17 = 12.88；MiniMax = 2.17
-        expect(screen.getByText('$12.88')).toBeTruthy()
-        expect(screen.getByText('$2.17')).toBeTruthy()
-
-        fireEvent.click(screen.getByText('¥ 人民币'))
-        // 12.88 * 7.2 = 92.736 → ¥92.74；2.17 * 7.2 = 15.624 → ¥15.62
-        await waitFor(() => expect(screen.queryByText('$12.88')).toBeNull())
+        // 默认人民币：服务商聚合 Deepseek-ant = 12.88 → ¥92.74；MiniMax = 2.17 → ¥15.62
         expect(screen.getByText('¥92.74')).toBeTruthy()
         expect(screen.getByText('¥15.62')).toBeTruthy()
 
         fireEvent.click(screen.getByText('$ 美元'))
         await waitFor(() => expect(screen.queryByText('¥92.74')).toBeNull())
         expect(screen.getByText('$12.88')).toBeTruthy()
+        expect(screen.getByText('$2.17')).toBeTruthy()
+
+        fireEvent.click(screen.getByText('¥ 人民币'))
+        await waitFor(() => expect(screen.queryByText('$12.88')).toBeNull())
+        expect(screen.getByText('¥92.74')).toBeTruthy()
     })
 
     it('按模型视图下切换货币 → 单模型成本换算', async () => {
@@ -127,13 +204,13 @@ describe('UsageStatsDialog 分组用量', () => {
         await waitFor(() => expect(screen.getByText('分组用量')).toBeTruthy())
         fireEvent.click(screen.getByText('按模型'))
         await waitFor(() => expect(screen.getByText('claude-sonnet-4')).toBeTruthy())
-        // 默认美元：claude-sonnet-4 = 10.71
-        expect(screen.getByText('$10.71')).toBeTruthy()
-
-        fireEvent.click(screen.getByText('¥ 人民币'))
-        // 10.71 * 7.2 = 77.112 → ¥77.11
-        await waitFor(() => expect(screen.queryByText('$10.71')).toBeNull())
+        // 默认人民币：claude-sonnet-4 = 10.71 → ¥77.11
         expect(screen.getByText('¥77.11')).toBeTruthy()
+
+        fireEvent.click(screen.getByText('$ 美元'))
+        // 10.71 * 7.2 = 77.112 → ¥77.11
+        await waitFor(() => expect(screen.queryByText('¥77.11')).toBeNull())
+        expect(screen.getByText('$10.71')).toBeTruthy()
     })
 
     it('拖动头部 → 弹窗位置跟随（可拖动）', async () => {

@@ -31,6 +31,7 @@ import {useMenuBarStore} from './stores/menuBarStore'
 import {useGlobalHotkeys} from './hooks/useGlobalHotkeys'
 import TooltipPortal from './components/common/TooltipPortal'
 import {createGcScheduler} from './lib/gcScheduler'
+import {syncExchangeRate} from './lib/format'
 import type {ModelType} from '@shared/types'
 
 interface ErrorBoundaryProps {
@@ -343,6 +344,9 @@ export default function App() {
         // 应用启动时同步主题设置
         const theme = useSettingsStore.getState().settings.ui.theme
         resolveAndApplyTheme(theme)
+
+        // 应用启动时同步实时汇率（后台拉取；失败/离线保留默认值，不阻塞启动）
+        void syncExchangeRate()
 
         // 等待 llmStore + modelSchemeStore rehydration 完成
         // 并行等待，50ms 细粒度轮询，5s 超时兜底

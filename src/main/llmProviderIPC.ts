@@ -10,6 +10,7 @@ import {createLogger} from './agent/logger'
 import {broadcastToOtherWindows} from './utils/windowBroadcast'
 import {fetchProviderModels, testProviderModel} from './providerModelFetcher'
 import {modelMetaRegistry} from './modelMetaRegistry'
+import {exchangeRateRegistry} from './exchangeRateRegistry'
 import {createModelAdapter} from './agent/model'
 import {GoogleAuthService} from './auth/googleAuth'
 
@@ -255,6 +256,16 @@ export function initProviderIPC(): void {
   ipcMain.handle('model-meta:get-window', async (_, params: {model: string}) => {
     await modelMetaRegistry.ensureLoaded()
     return { contextLength: modelMetaRegistry.getContextLength(params.model) }
+  })
+
+  // 汇率查询：USD→CNY 实时汇率（启动时同步；未同步/离线回退默认 7.2）
+  // ensureLoaded：首次无缓存时等待后台 refresh 完成，避免查询竞态拿到默认值
+  ipcMain.handle('exchange-rate:get', async () => {
+    await exchangeRateRegistry.ensureLoaded()
+    return {
+      rate: exchangeRateRegistry.getUsdCnyRate(),
+      date: exchangeRateRegistry.getDate(),
+    }
   })
 
   logger.info('init', {module: 'provider-ipc'})

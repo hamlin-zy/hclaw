@@ -51,7 +51,6 @@ export const useAgentStore = create<AgentStore>()(
             combinedPopupData: null,
             pendingPermissionConfirm: null,
             tasks: [],
-            intentResult: null,
             permissionRules: [],
             permissionMode: 'safe',
             messageDisplayMode: 'detailed',
@@ -59,7 +58,6 @@ export const useAgentStore = create<AgentStore>()(
             compactInProgress: false,
             errorMessage: null,
             modelOverride: null,
-            lastSelected: null,
             hookResults: [],
             convAgentStates: {},
 

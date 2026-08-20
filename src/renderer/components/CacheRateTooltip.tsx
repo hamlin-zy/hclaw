@@ -1,5 +1,6 @@
 import {memo, useRef, useState, useCallback, useEffect} from 'react'
 import {createPortal} from 'react-dom'
+import {AppWindow, Database, Gauge} from 'lucide-react'
 import {formatTokenCount, formatTokensPerSecond, tokensPerSecond} from '../lib/format'
 import {useMessageTokenStats} from '../hooks/useMessageTokenStats'
 import {useWindowUsage} from '../hooks/useWindowUsage'
@@ -197,15 +198,15 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
         onMouseEnter={scheduleShow}
         onMouseLeave={scheduleHide}
       >
-        {/* 缓存命中率徽章（进度环 = 末次请求命中率） */}
-        <MetricBadge pct={lastRate} accent={cacheRateAccent(lastRate)}>
+        {/* 缓存命中率徽章（进度环 = 末次请求命中率，图标 = 数据库） */}
+        <MetricBadge pct={lastRate} accent={cacheRateAccent(lastRate)} icon={<Database className="w-3 h-3"/>}>
           缓存 {lastRate}%
         </MetricBadge>
-        {/* 窗口占用徽章（进度环 = 窗口使用率，内置分级） */}
-        <MetricBadge pct={pct}>窗口 {formatTokenCount(currentTotalTokens)}</MetricBadge>
-        {/* 末次吞吐徽章（静态边框，无时序数据时隐藏） */}
+        {/* 窗口占用徽章（进度环 = 窗口使用率，图标 = 窗口方块，内置分级） */}
+        <MetricBadge pct={pct} icon={<AppWindow className="w-3 h-3"/>}>窗口 {formatTokenCount(currentTotalTokens)}</MetricBadge>
+        {/* 末次吞吐徽章（静态边框，图标 = 速度计，无时序数据时隐藏） */}
         {lastDecodeRate != null && (
-          <MetricBadge accent={throughputAccent(lastDecodeRate)}>
+          <MetricBadge accent={throughputAccent(lastDecodeRate)} icon={<Gauge className="w-3 h-3"/>}>
             {formatTokensPerSecond(lastDecodeRate)} t/s
           </MetricBadge>
         )}

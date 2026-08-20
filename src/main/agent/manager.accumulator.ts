@@ -62,14 +62,34 @@ export function finalizePending(pending: PendingAssistantMsg): PendingAssistantM
 }
 
 /**
+ * 幽灵消息双写防御：渲染端已落库消息的文本指纹与主进程 pending 内容是否一致。
+ *
+ * nearbyText 为渲染端消息 text blocks 拼接后的前 200 字符（调用方截断），
+ * pendingContent 为主进程累积的完整内容。判定规则：
+ * - nearbyText 为空（渲染端占位无内容）→ 不匹配（防误杀，避免把空占位当已落库）
+ * - 前 200 字符逐字一致 → 判定为同一消息的副本（渲染端已精细落库，主进程不得再 INSERT）
+ * 严格字符串比较（大小写敏感），与 #findRenderedCopy 历史行为一致。
+ */
+export function isRenderedCopyFingerprintMatch(nearbyText: string, pendingContent: string): boolean {
+  if (nearbyText.length === 0) return false
+  return nearbyText === pendingContent.slice(0, 200)
+}
+
+/**
  * 累积流事件到主进程消息缓存
  * 与渲染器的 handleStreamEvent 保持逻辑一致，但不依赖 UI 状态
+ *
+ * @param registeredMsgId 渲染端已创建的空占位消息 id（ensureStreamingMessage 上报）。
+ *   新建 pending（含 turn reset 重建）时复用该 id，确保主进程 pending 与渲染端
+ *   流式消息 id 一致——否则 #mergeAndPersist 全量写兜底会以独立 id 产生幽灵副本
+ *   （"所有助手消息渲染 2 份"根因，见 tasks/03-duplicate-assistant-bubbles.md）。
  */
 export function accumulateStreamEvent(
   pending: PendingAssistantMsg | null,
   conversationId: string,
   event: AgentStreamEvent,
   pendingNeedsTurnReset: Set<string>,
+  registeredMsgId?: string,
 ): PendingAssistantMsg | null {
   const hasTurnReset = pendingNeedsTurnReset.has(conversationId)
 
@@ -196,6 +216,12 @@ export function accumulateStreamEvent(
     }
 
     default:
+  }
+
+  // ★ id 对齐：无论新建还是 turn reset 重建，pending 一律复用渲染端占位 id
+  //   （幂等：pending 已存在时重设相同值无副作用）
+  if (pending && registeredMsgId) {
+    pending.id = registeredMsgId
   }
 
   return pending
