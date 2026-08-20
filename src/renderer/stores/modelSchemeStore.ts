@@ -3,6 +3,7 @@ import {persist, type PersistStorage} from 'zustand/middleware'
 import {sqliteStorage} from '../lib/sqliteStorage'
 import {useLLMStore} from './llmStore'
 import {useToolStore} from './toolStore'
+import {TEXT_MODEL_ROLES} from '@shared/types'
 import type {ModelRole, ModelScheme, ModelSchemeRole, ModelType} from '@shared/types'
 
 // Re-export for consumers
@@ -85,6 +86,14 @@ const createDefaultRole = (
     ...(role === 'reasoning' ? {thinkingEffort: 'auto' as const} : {}),
 })
 
+/** 校验方案是否至少有一个有效文本角色（enabled && endpointId && modelId） */
+export function hasValidTextRole(scheme: Pick<ModelScheme, 'roles'>): boolean {
+    return scheme.roles.some(r =>
+        TEXT_MODEL_ROLES.includes(r.role as ModelRole)
+        && r.enabled && r.endpointId && r.modelId
+    )
+}
+
 // ─── Store 类型定义 ─────────────────────────────────────────
 
 interface ModelSchemeStore {
@@ -101,8 +110,8 @@ interface ModelSchemeStore {
 
     /** 添加方案 */
     addScheme: (scheme: Omit<ModelScheme, 'id'>) => string
-    /** 更新方案 */
-    updateScheme: (id: string, updates: Partial<ModelScheme>) => void
+    /** 更新方案（合并后校验三角色非全空；成功返回 true，校验失败或方案不存在返回 false） */
+    updateScheme: (id: string, updates: Partial<ModelScheme>) => boolean
     /** 删除方案 */
     removeScheme: (id: string) => Promise<void>
     /** 复制方案 */
@@ -140,6 +149,9 @@ export const useModelSchemeStore = create<ModelSchemeStore>()(
             // ─── 方案 CRUD ─────────────────────────────────────
 
             addScheme: (scheme) => {
+                if (!hasValidTextRole(scheme)) {
+                    throw new Error('推理模型、主力模型、轻量模型不允许全部为空')
+                }
                 const id = crypto.randomUUID()
                 // Generate IDs for all roles that don't have them
                 const rolesWithIds = scheme.roles.map((r) => ({
@@ -155,6 +167,11 @@ export const useModelSchemeStore = create<ModelSchemeStore>()(
             },
 
             updateScheme: (id, updates) => {
+                // 合并后校验：基于当前方案 + updates
+                const current = get().schemes.find(s => s.id === id)
+                if (!current) return false
+                const merged = {...current, ...updates, roles: updates.roles ?? current.roles}
+                if (!hasValidTextRole(merged)) return false
                 set((state) => ({
                     schemes: state.schemes.map((s) => {
                         if (s.id !== id) return s
@@ -166,6 +183,7 @@ export const useModelSchemeStore = create<ModelSchemeStore>()(
                         return {...s, ...updates, roles: updatedRoles ?? s.roles}
                     }),
                 }))
+                return true
             },
 
             removeScheme: async (id) => {

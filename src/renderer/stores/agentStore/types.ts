@@ -1,4 +1,4 @@
-import type {AgentState, IntentAnalysisResult, RunMode, Task} from '@shared/types'
+import type {AgentState, RunMode, Task} from '@shared/types'
 import type {AgentStreamEvent} from '../../../main/agent/stream'
 
 /** Agent Stream Payload 类型 */
@@ -79,8 +79,6 @@ export interface ConvAgentData {
     pendingPermissionConfirm: { question: string; requestId?: string } | null
     /** 当前任务列表 */
     tasks: Task[]
-    /** 意图分析结果 */
-    intentResult: IntentAnalysisResult | null
     /** LLM 运行错误信息，显示在消息列表左下角而非消息气泡中 */
     errorMessage: string | null
     /** 工具执行开始时的临时提示消息（如"工具执行中..."），tool_start 后清除；
@@ -142,8 +140,6 @@ export interface AgentStore {
     pendingPermissionConfirm: { question: string; requestId?: string } | null
     /** 当前任务列表 */
     tasks: Task[]
-    /** 意图分析结果 */
-    intentResult: IntentAnalysisResult | null
     /** 当前权限规则列表 */
     permissionRules: any[]
     /** 当前权限模式 */
@@ -164,8 +160,6 @@ export interface AgentStore {
     errorMessage: string | null
     /** 当前会话的模型 override（null=auto） */
     modelOverride: import('@shared/types').ModelOverride | null
-    /** 全局最近一次手动选择（新建会话继承） */
-    lastSelected: import('@shared/types').ModelOverride | null
 
     // ── Actions ────────────────────────────────────
     clearCompactBanner: () => void

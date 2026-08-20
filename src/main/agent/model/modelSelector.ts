@@ -6,7 +6,6 @@
 
 import {logger} from '../logger'
 import type {
-    IntentAnalysisResult,
     LLMProvider,
     ModelConfig,
     ModelOverride,
@@ -22,52 +21,8 @@ const providerRepo = new SqliteProviderRepository()
 
 export type TaskContext = 'main' | 'subAgent' | 'background' | 'planning'
 
-/** 获取优先角色配置（fallback 链式查找） */
-function getPreferredRole(scheme: ModelScheme, context: TaskContext, intent?: IntentAnalysisResult): ModelRoleConfig {
-    const primary = getRoleConfig(scheme, 'primary')
-    const lightweight = getRoleConfig(scheme, 'lightweight')
-    const reasoning = getRoleConfig(scheme, 'reasoning')
-
-    if (context === 'planning') return reasoning?.enabled ? reasoning : (primary ?? lightweight!)
-    if (context === 'background') return lightweight?.enabled ? lightweight : (primary ?? reasoning!)
-
-    if (intent?.suggestedModel) {
-        const roleConfig = getRoleConfig(scheme, intent.suggestedModel)
-        if (roleConfig?.enabled) return roleConfig
-    }
-
-    return primary ?? lightweight!
-}
-
 /**
- * 为任务选择模型配置
- */
-export function selectModelForTask(
-    scheme: ModelScheme,
-    context: TaskContext,
-    intent?: IntentAnalysisResult,
-): ModelRoleConfig {
-    return getPreferredRole(scheme, context, intent)
-}
-
-/**
- * 复杂度到模型角色的映射
- */
-export function complexityToRole(
-    complexity: 'simple' | 'moderate' | 'complex',
-): ModelRole {
-    switch (complexity) {
-        case 'simple':
-            return 'lightweight'
-        case 'complex':
-            return 'reasoning'
-        default:
-            return 'primary'
-    }
-}
-
-/**
- * selectModelForTask 的返回值，包含实际选择的角色信息
+ * selectModelForTaskWithRole 的返回值，包含实际选择的角色信息
  */
 export interface ModelSelectionResult {
     config: ModelRoleConfig
@@ -79,36 +34,42 @@ export interface ModelSelectionResult {
  *
  * 与 selectModelForTask 的区别：
  * - 返回实际选中的角色名称（而非仅配置），让调用方能检测 fallback
+ * - fallback 链：primary → lightweight → reasoning（明确顺序，且要求 enabled && endpointId && modelId 均有效）
  */
 export function selectModelForTaskWithRole(
     scheme: ModelScheme,
     context: TaskContext,
-    intent?: Partial<IntentAnalysisResult> & { suggestedModel?: ModelRole },
+    intent?: { suggestedModel?: ModelRole },
 ): ModelSelectionResult {
     const primary = getRoleConfig(scheme, 'primary')
     const lightweight = getRoleConfig(scheme, 'lightweight')
     const reasoning = getRoleConfig(scheme, 'reasoning')
+    const isValid = (r?: ModelRoleConfig) => !!(r?.enabled && r.endpointId && r.modelId)
 
     if (context === 'planning') {
-        if (reasoning?.enabled && reasoning.endpointId && reasoning.modelId) return {config: reasoning, role: 'reasoning'}
-        return {config: (primary ?? lightweight!), role: 'primary'}
+        if (isValid(reasoning)) return {config: reasoning!, role: 'reasoning'}
+        if (isValid(primary)) return {config: primary!, role: 'primary'}
+        if (isValid(lightweight)) return {config: lightweight!, role: 'lightweight'}
+        throw new Error('No valid model role configured')
     }
 
     if (context === 'background') {
-        if (lightweight?.enabled) return {config: lightweight, role: 'lightweight'}
-        return {config: (primary ?? reasoning!), role: 'primary'}
+        if (isValid(lightweight)) return {config: lightweight!, role: 'lightweight'}
+        if (isValid(primary)) return {config: primary!, role: 'primary'}
+        if (isValid(reasoning)) return {config: reasoning!, role: 'reasoning'}
+        throw new Error('No valid model role configured')
     }
 
     if (intent?.suggestedModel) {
         const roleConfig = getRoleConfig(scheme, intent.suggestedModel)
-        // 当 suggestedModel 由用户通过工作模式显式选择时，即使角色未启用也使用该角色
-        // 只有角色缺少 endpointId 或 modelId（未配置）时才 fallback
-        if (roleConfig?.endpointId && roleConfig.modelId) return {config: roleConfig, role: intent.suggestedModel}
+        // 仅当角色已启用且已配置时才使用；否则落入 fallback 链（不再"未启用也使用"）
+        if (isValid(roleConfig)) return {config: roleConfig!, role: intent.suggestedModel}
     }
 
-    // 兜底：使用第一个已启用的角色
-    const enabledFallback = [primary, lightweight, reasoning].find(r => r?.enabled)
-    return {config: enabledFallback ?? primary ?? lightweight ?? reasoning!, role: 'primary'}
+    // 兜底：按 primary → lightweight → reasoning 顺序选第一个有效角色
+    const enabledFallback = [primary, lightweight, reasoning].find(isValid)
+    if (enabledFallback) return {config: enabledFallback!, role: 'primary'}
+    throw new Error('No valid model role configured')
 }
 
 /**
@@ -156,6 +117,8 @@ export function resolveModelConfig(
         _providerName: provider.name || provider.id,
         // 透传服务商 API 协议形态（chat / responses），适配器按此分派
         apiStyle: provider.apiStyle || 'chat',
+        // 透传服务商扩展特性（如显式缓存支持）
+        features: provider.features,
     }
 
     // 同步推理强度
@@ -178,27 +141,6 @@ function resolveWithFallback(roleConfig: ModelRoleConfig, scheme: ModelScheme, p
     if (!primaryConfig) return null
     const fallbackConfig = resolveModelConfig(primaryConfig, providers)
     return fallbackConfig ? {roleConfig: primaryConfig, modelConfig: fallbackConfig} : null
-}
-
-/**
- * 获取完整的执行模型配置
- */
-export function getExecutionModelConfig(
-    scheme: ModelScheme,
-    context: TaskContext,
-    intent: IntentAnalysisResult | undefined,
-    providers: LLMProvider[],
-): { roleConfig: ModelRoleConfig; modelConfig: ModelConfig } | null {
-    const roleConfig = selectModelForTask(scheme, context, intent)
-    return resolveWithFallback(roleConfig, scheme, providers)
-}
-
-/**
- * 判断是否需要自动进入 plan 模式
- */
-export function shouldEnterPlanMode(intent: IntentAnalysisResult | undefined): boolean {
-    if (!intent) return false
-    return intent.needsPlanning || intent.complexity === 'complex'
 }
 
 /**

@@ -531,7 +531,7 @@ function addSelfAndAncestors<T extends {parentConvId?: string}>(
     return set
 }
 
-function ConversationList() {
+export function ConversationList() {
   const currentWorkspacePath = useConversationStore((s) => s.currentWorkspacePath)
     const getFilteredConversations = useConversationStore((s) => s.getFilteredConversations)
     const workspaces = useConversationStore((s) => s.workspaces)
@@ -550,16 +550,20 @@ function ConversationList() {
     const listRef = useRef<HTMLDivElement>(null)
 
     // 监听全局点击以关闭菜单
+    // ★ 注意：不监听 window 的 scroll 事件。原因见 tasks/01-context-menu-close.md：
+    //   任何可滚动元素（包括 messageList 的消息列表容器）的自动滚动
+    //   （新消息到达、流式内容跟随、初始化滚动到底部）都会向 window
+    //   抛 scroll 事件。若在此处用捕获阶段监听 window scroll，
+    //   会导致 messageList 刷新/追加消息时右键菜单被意外关闭。
+    //   菜单关闭只由「点击外部」「右键」「Esc」触发，与消息数据更新解耦。
     useEffect(() => {
         if (!contextMenu) return
         const close = () => setContextMenu(null)
         window.addEventListener('click', close)
         window.addEventListener('contextmenu', close)
-        window.addEventListener('scroll', close, true)
         return () => {
             window.removeEventListener('click', close)
             window.removeEventListener('contextmenu', close)
-            window.removeEventListener('scroll', close, true)
     }
     }, [contextMenu])
 
@@ -1131,6 +1135,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                     />
                 ) : (
                     <div
+                        title={title}
                         className={`truncate transition-colors text-[13px] ${isActive ? 'font-medium text-[var(--brand-primary)]' : 'text-gray-600 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100'}`}>
                         {title}
                     </div>

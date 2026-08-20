@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {createForwardPayload, trimLlmCallDoneForRenderer} from '@/main/agent/manager.streamForward'
+import {createForwardPayload, trimLlmCallDoneForRenderer, extractWorkerErrorMessage} from '@/main/agent/manager.streamForward'
 import type {AgentStreamEvent} from '@/main/agent/stream'
 
 /** 构造完整 llm_call_done 事件（模拟 worker→主进程原始事件，含大字段） */
@@ -134,3 +134,37 @@ describe('trimLlmCallDoneForRenderer — 字段级瘦身契约', () => {
         expect(out.type).toBe('llm_call_done')
     })
 })
+
+describe('extractWorkerErrorMessage — worker error 真实错误提取（三级回退）', () => {
+    it('当前格式：错误在 event.error（worker.ts:630 实际发送结构）', () => {
+        // 模拟 worker.ts catch 分支的真实消息结构
+        const msg = {
+            type: 'error',
+            conversationId: 'conv-1',
+            event: {type: 'error', error: 'LLM call failed after 10 retries: 429 Too Many Requests'},
+        }
+        expect(extractWorkerErrorMessage(msg as any)).toBe('LLM call failed after 10 retries: 429 Too Many Requests')
+    })
+
+    it('旧格式：顶层 error 字段（老 worker 兼容）', () => {
+        expect(extractWorkerErrorMessage({error: 'connection refused'})).toBe('connection refused')
+    })
+
+    it('event.error 为空串时回退到顶层 error', () => {
+        expect(extractWorkerErrorMessage({event: {error: ''}, error: 'fallback'})).toBe('fallback')
+    })
+
+    it('两者都为空串时回退到兜底文案 Worker error', () => {
+        expect(extractWorkerErrorMessage({event: {error: ''}, error: ''})).toBe('Worker error')
+    })
+
+    it('两者都缺失时回退到兜底文案 Worker error（旧行为：真实错误被吞）', () => {
+        expect(extractWorkerErrorMessage({})).toBe('Worker error')
+        expect(extractWorkerErrorMessage(undefined as any)).toBe('Worker error')
+    })
+
+    it('event 存在但无 error 字段时回退到顶层 error', () => {
+        expect(extractWorkerErrorMessage({event: {type: 'error'} as any, error: 'top-level'})).toBe('top-level')
+    })
+})
+

@@ -5,7 +5,6 @@
  */
 
 import type {ChatMessage} from '../model/types'
-import type {IntentAnalysisResult} from '@shared/types'
 import type {ModelRole} from '@shared/types'
 import {MODEL_ROLE_INFO} from '@shared/modelSchemeHelpers'
 
@@ -89,40 +88,5 @@ export function endTurnCleanup(): void {
         }
     } catch {
         // GC 不可用或调用失败，静默跳过
-    }
-}
-
-// ─── 意图分析 ──────────────────────────────────────────────
-
-export function createDefaultResult(text: string): IntentAnalysisResult {
-    const msg = text.toLowerCase()
-    const messageLength = text.length
-
-    const isComplex = /重构|架构|设计|实现|优化|迁移|升级|refactor|architect|implement|optimize|migrate|upgrade/i.test(msg)
-    const isExploration = /查看|列出|搜索|查找|读取|分析|理解|探索|结构|describe|list|find|search|show|explain/i.test(msg)
-
-    const complexity: 'simple' | 'moderate' | 'complex' =
-        isComplex || messageLength > 400 ? 'complex'
-        : isExploration && messageLength < 150 ? 'simple'
-        : messageLength > 100 ? 'moderate'
-        : 'simple'
-
-    let estimatedSteps = 1
-    if (complexity === 'complex') estimatedSteps = 5
-    else if (complexity === 'moderate') estimatedSteps = 3
-
-    let suggestedModel: ModelRole = 'primary'
-    if (complexity === 'complex') {
-        suggestedModel = 'reasoning'
-    } else if (isExploration && complexity === 'simple') {
-        suggestedModel = 'lightweight'
-    }
-
-    return {
-        summary: text.slice(0, 200),
-        complexity,
-        estimatedSteps,
-        needsPlanning: complexity === 'complex',
-        suggestedModel,
     }
 }

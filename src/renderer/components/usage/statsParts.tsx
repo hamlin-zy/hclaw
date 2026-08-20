@@ -1,5 +1,6 @@
 import {Info} from 'lucide-react'
 import type {ReactNode} from 'react'
+import {getUsdCnyRate, type Currency} from '../../lib/format'
 
 /** 已知服务商类型的规范展示名（openai → OpenAI 等首字母缩写） */
 const PROVIDER_DISPLAY: Record<string, string> = {
@@ -14,10 +15,12 @@ export function providerDisplayName(key: string): string {
     return PROVIDER_DISPLAY[key] ?? (key.length > 0 ? key[0].toUpperCase() + key.slice(1) : key)
 }
 
-/** 统计行：标签左、数值右，等宽数字对齐 */
-export function StatRow({label, value, valueClass}: {label: string; value: string; valueClass?: string}) {
+/** 统计行：标签左、数值右，等宽数字对齐；bordered 时带边框底（KPI 卡风格） */
+export function StatRow({label, value, valueClass, bordered = false}: {label: string; value: string; valueClass?: string; bordered?: boolean}) {
     return (
-        <div className="flex items-center justify-between text-sm leading-6">
+        <div className={`flex items-center justify-between text-sm ${bordered
+            ? 'rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 leading-none'
+            : 'leading-6'}`}>
             <span className="text-[var(--text-secondary)]">{label}</span>
             <span className={`font-medium tabular-nums ${valueClass ?? 'text-[var(--text-primary)]'}`}>{value}</span>
         </div>
@@ -45,6 +48,29 @@ export function GroupTitle({children}: {children: ReactNode}) {
     )
 }
 
+/** 美元 / 人民币切换（弹窗与独立窗口共用，口径一致）；size='sm' 为紧凑布局（弹窗） */
+export function CurrencyToggle({currency, onChange, size = 'md'}: {
+    currency: Currency
+    onChange: (c: Currency) => void
+    size?: 'md' | 'sm'
+}) {
+    const btnBase = size === 'sm'
+        ? 'px-2 py-0.5 text-[11px] rounded-md transition-colors'
+        : 'px-2.5 py-1 text-xs rounded-md transition-colors'
+    const active = 'bg-[var(--surface-elevated)] shadow-sm text-[var(--text-primary)] font-medium'
+    const inactive = 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+    return (
+        <div className="flex gap-0.5 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
+            {(['USD', 'CNY'] as Currency[]).map(c => (
+                <button key={c} onClick={() => onChange(c)} data-testid={`currency-${c.toLowerCase()}`}
+                        className={`${btnBase} ${currency === c ? active : inactive}`}>
+                    {c === 'USD' ? '$ 美元' : '¥ 人民币'}
+                </button>
+            ))}
+        </div>
+    )
+}
+
 /** 客户端侧统计口径提示（非服务商账单），弹窗与用量窗口共用 */
 export function ClientStatsNotice({centered = false}: {centered?: boolean}) {
     return (
@@ -59,9 +85,11 @@ export function ClientStatsNotice({centered = false}: {centered?: boolean}) {
  * 预估成本口径说明（价格差异提示）
  * 成本按 OpenRouter 美元单价估算，与官方定价存在差异（缓存命中单价差异尤其显著），
  * 所有显示预估价格的场景统一引用此文案。
+ * 人民币汇率：启动时从主进程同步实时汇率（currency-api），未同步时回退固定默认值。
  */
-export const COST_DISCLAIMER =
-    '成本按 OpenRouter 美元单价估算，可能与您使用的服务商价格存在差异；人民币按固定汇率 7.2 折算，实际费用请以服务商账单为准。'
+export function getCostDisclaimer(): string {
+    return `成本按 OpenRouter 美元单价估算，可能与您使用的服务商价格存在差异；人民币按 1 USD ≈ ${getUsdCnyRate().toFixed(2)} CNY 实时汇率折算，实际费用请以服务商账单为准。`
+}
 
 /** 信息提示（圆圈问号 + hover tooltip），placement 控制展开方向（受限容器内用 top 向上展开） */
 export function InfoTip({text, placement = 'bottom'}: {text: string; placement?: 'bottom' | 'top'}) {

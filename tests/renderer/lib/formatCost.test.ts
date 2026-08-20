@@ -1,5 +1,6 @@
-import {describe, expect, it} from 'vitest'
-import {formatCost, formatPercent, USD_TO_CNY_RATE} from '../../../src/renderer/lib/format'
+import {describe, expect, it, afterEach} from 'vitest'
+import {formatCost, formatPercent, getUsdCnyRate, setUsdCnyRate} from '../../../src/renderer/lib/format'
+import {DEFAULT_USD_CNY_RATE} from '@shared/exchangeRate'
 
 describe('formatCost（成本格式化）', () => {
     it('0 → 破折号（未定价）', () => {
@@ -42,8 +43,8 @@ describe('formatCost（人民币计价）', () => {
         expect(formatCost(1, 'CNY')).toBe('¥7.20')
     })
 
-    it('汇率常量与实现一致（7.2）', () => {
-        expect(USD_TO_CNY_RATE).toBe(7.2)
+    it('未同步时兜底汇率与默认常量一致（7.2）', () => {
+        expect(getUsdCnyRate()).toBe(DEFAULT_USD_CNY_RATE)
     })
 
     it('0 / 负数 → 破折号（未定价，与币种无关）', () => {
@@ -58,6 +59,60 @@ describe('formatCost（人民币计价）', () => {
 
     it('默认参数仍是 USD（向后兼容）', () => {
         expect(formatCost(12.88)).toBe('$12.88')
+    })
+})
+
+describe('setUsdCnyRate（运行时汇率更新边界）', () => {
+    // 模块级全局状态：每个用例后恢复默认，避免污染其他用例（formatCost CNY 依赖当前汇率）
+    afterEach(() => {
+        setUsdCnyRate(DEFAULT_USD_CNY_RATE)
+    })
+
+    it('合法值更新：getUsdCnyRate 返回新值', () => {
+        setUsdCnyRate(7.15)
+        expect(getUsdCnyRate()).toBe(7.15)
+    })
+
+    it('NaN / Infinity → 忽略，保留当前值', () => {
+        setUsdCnyRate(7.1)
+        setUsdCnyRate(Number.NaN)
+        expect(getUsdCnyRate()).toBe(7.1)
+        setUsdCnyRate(Number.POSITIVE_INFINITY)
+        expect(getUsdCnyRate()).toBe(7.1)
+        setUsdCnyRate(Number.NEGATIVE_INFINITY)
+        expect(getUsdCnyRate()).toBe(7.1)
+    })
+
+    it('0 / 负数 → 忽略，保留当前值', () => {
+        setUsdCnyRate(7.1)
+        setUsdCnyRate(0)
+        expect(getUsdCnyRate()).toBe(7.1)
+        setUsdCnyRate(-3)
+        expect(getUsdCnyRate()).toBe(7.1)
+    })
+
+    it('非 number 类型（字符串 / 对象 / null / undefined）→ 忽略', () => {
+        setUsdCnyRate(7.1)
+        setUsdCnyRate('6.5' as unknown as number)
+        expect(getUsdCnyRate()).toBe(7.1)
+        setUsdCnyRate(null as unknown as number)
+        expect(getUsdCnyRate()).toBe(7.1)
+        setUsdCnyRate(undefined as unknown as number)
+        expect(getUsdCnyRate()).toBe(7.1)
+        setUsdCnyRate({rate: 6.5} as unknown as number)
+        expect(getUsdCnyRate()).toBe(7.1)
+    })
+
+    it('更新后 formatCost CNY 按新汇率换算', () => {
+        setUsdCnyRate(6.5)
+        // 12.88 * 6.5 = 83.72
+        expect(formatCost(12.88, 'CNY')).toBe('¥83.72')
+    })
+
+    it('非法值后 formatCost 仍用当前有效汇率（不回落默认）', () => {
+        setUsdCnyRate(6.5)
+        setUsdCnyRate(Number.NaN)
+        expect(formatCost(12.88, 'CNY')).toBe('¥83.72')
     })
 })
 

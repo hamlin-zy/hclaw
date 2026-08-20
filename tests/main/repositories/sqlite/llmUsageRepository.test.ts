@@ -56,6 +56,7 @@ beforeEach(() => {
     // 每个用例独立表结构：DROP 后重建（getDatabase 不跑迁移，手动建表）
     db.exec('DROP TABLE IF EXISTS llm_usage')
     db.exec('DROP TABLE IF EXISTS conversations')
+    db.exec('DROP TABLE IF EXISTS messages')
     db.exec(`CREATE TABLE IF NOT EXISTS conversations (
         id TEXT PRIMARY KEY, workspace_path TEXT NOT NULL DEFAULT '', meta TEXT NOT NULL,
         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
@@ -75,6 +76,12 @@ beforeEach(() => {
     db.exec('CREATE INDEX idx_llm_usage_message ON llm_usage(message_id)')
     db.exec('CREATE INDEX idx_llm_usage_provider_model ON llm_usage(provider_type, model)')
     db.exec('CREATE INDEX idx_llm_usage_created ON llm_usage(created_at)')
+    // messages 表：queryAggregated/queryTrend 历史回填（llm_stats 列）依赖
+    db.exec(`CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, role TEXT NOT NULL,
+        timestamp INTEGER NOT NULL, ended_at INTEGER, metadata TEXT, llm_stats TEXT,
+        is_partial INTEGER DEFAULT 0
+    )`)
 })
 
 afterEach(() => {
@@ -217,7 +224,7 @@ describe('queryAggregated（全局聚合 + 成本）', () => {
     })
 })
 
-describe('queryTrend（按天趋势）', () => {
+describe('queryTrend（按天/按小时趋势）', () => {
     it('按天分组正确（跨天分桶 + 时间过滤）', () => {
         const now = Date.now()
         const day1 = new Date()
@@ -232,6 +239,74 @@ describe('queryTrend（按天趋势）', () => {
         expect(trend).toHaveLength(2)
         expect(trend[1]!.inputTokens).toBe(100)  // 升序，最新一天在末尾
         expect(trend[0]!.day).not.toBe(trend[1]!.day)
+    })
+
+    it('granularity=hour：按小时分桶（YYYY-MM-DD HH:00 键 + 升序）', () => {
+        const now = Date.now()
+        db.prepare('INSERT INTO conversations (id, workspace_path, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+            .run('conv-3', '', '{}', now, now)
+        const h1 = new Date()
+        h1.setHours(9, 15, 0, 0)
+        const h2 = new Date()
+        h2.setHours(9, 45, 0, 0)   // 同小时 → 合并
+        const h3 = new Date()
+        h3.setHours(14, 0, 0, 0)   // 不同小时
+        repo.record(makeRecord({id: 'h1', conversationId: 'conv-3', createdAt: h1.getTime(), inputTokens: 100}))
+        repo.record(makeRecord({id: 'h2', conversationId: 'conv-3', createdAt: h2.getTime(), inputTokens: 50}))
+        repo.record(makeRecord({id: 'h3', conversationId: 'conv-3', createdAt: h3.getTime(), inputTokens: 200}))
+        const trend = repo.queryTrend({range: 'all', granularity: 'hour'})
+        expect(trend).toHaveLength(2)
+        expect(trend[0]!.day).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:00$/)
+        // 同一小时 9 点的两条合并
+        const h9 = trend.find(t => t.day.endsWith(' 09:00'))
+        expect(h9?.inputTokens).toBe(150)
+        const h14 = trend.find(t => t.day.endsWith(' 14:00'))
+        expect(h14?.inputTokens).toBe(200)
+        expect(trend[0]!.day < trend[1]!.day).toBe(true)  // 升序
+    })
+
+    it('自定义范围（闭区间）：仅统计 [start 0点, end 23:59:59.999] 内记录', () => {
+        const now = Date.now()
+        db.prepare('INSERT INTO conversations (id, workspace_path, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+            .run('conv-3', '', '{}', now, now)
+        // 2026-08-10 10:00 / 2026-08-11 20:00 / 2026-08-13 00:00（范围外）/ 2026-08-09 23:59（范围外）
+        repo.record(makeRecord({id: 'c1', conversationId: 'conv-3', createdAt: new Date(2026, 7, 10, 10, 0).getTime(), inputTokens: 100}))
+        repo.record(makeRecord({id: 'c2', conversationId: 'conv-3', createdAt: new Date(2026, 7, 11, 20, 0).getTime(), inputTokens: 200}))
+        repo.record(makeRecord({id: 'c3', conversationId: 'conv-3', createdAt: new Date(2026, 7, 13, 0, 0).getTime(), inputTokens: 400}))
+        repo.record(makeRecord({id: 'c4', conversationId: 'conv-3', createdAt: new Date(2026, 7, 9, 23, 59).getTime(), inputTokens: 800}))
+        const trend = repo.queryTrend({range: 'custom', customStart: '2026-08-10', customEnd: '2026-08-12'})
+        expect(trend).toHaveLength(2)
+        expect(trend.reduce((s, t) => s + t.inputTokens, 0)).toBe(300)
+        expect(trend[0]!.day).toBe('2026-08-10')
+        expect(trend[1]!.day).toBe('2026-08-11')
+    })
+})
+
+describe('queryAggregated（自定义范围）', () => {
+    beforeEach(() => {
+        db.prepare('INSERT INTO conversations (id, workspace_path, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+            .run('conv-3', '', '{}', Date.now(), Date.now())
+        // 固定时间轴：2026-08-08 / 08-10 / 08-12 各一条
+        repo.record(makeRecord({id: 'x1', conversationId: 'conv-3', createdAt: new Date(2026, 7, 8, 8, 0).getTime(), inputTokens: 1}))
+        repo.record(makeRecord({id: 'x2', conversationId: 'conv-3', createdAt: new Date(2026, 7, 10, 8, 0).getTime(), inputTokens: 2}))
+        repo.record(makeRecord({id: 'x3', conversationId: 'conv-3', createdAt: new Date(2026, 7, 12, 8, 0).getTime(), inputTokens: 4}))
+    })
+
+    it('自定义范围过滤聚合行（含边界日）', () => {
+        const rows = repo.queryAggregated({range: 'custom', customStart: '2026-08-10', customEnd: '2026-08-12', view: 'provider'}, mockGetMeta)
+        expect(rows).toHaveLength(1)
+        expect(rows[0]!.requestCount).toBe(2)      // x2 + x3（x1 在 08-10 之前被排除）
+        expect(rows[0]!.inputTokens).toBe(6)
+    })
+
+    it('自定义范围当日 23:59:59.999 边界：结束日末刻记录命中', () => {
+        db.prepare('INSERT INTO conversations (id, workspace_path, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+            .run('conv-4', '', '{}', Date.now(), Date.now())
+        repo.record(makeRecord({id: 'x4', conversationId: 'conv-4', createdAt: new Date(2026, 7, 12, 23, 59, 59, 999).getTime(), inputTokens: 8}))
+        const rows = repo.queryAggregated({range: 'custom', customStart: '2026-08-10', customEnd: '2026-08-12', view: 'provider'}, mockGetMeta)
+        const row = rows.find(r => r.key === 'anthropic')
+        expect(row?.requestCount).toBe(3)
+        expect(row?.inputTokens).toBe(14)
     })
 })
 
@@ -254,5 +329,57 @@ describe('queryByConversation（会话弹窗分组）', () => {
 
     it('空 convIds → 空数组', () => {
         expect(repo.queryByConversation([], 'provider', mockGetMeta)).toEqual([])
+    })
+})
+
+describe('queryAggregated/queryTrend — 历史 llm_stats 回填（与右键弹窗 readUsageRaw 双源语义一致）', () => {
+    /** 旧消息（llm_stats 列有值，llm_usage 无行）写入 messages 表 */
+    function seedLegacyMessage(overrides: {id?: string; convId?: string; ts?: number; model?: string} = {}) {
+        const stats = [{
+            inputTokens: 50, outputTokens: 10, provider: 'anthropic', model: overrides.model ?? 'claude-sonnet-4',
+            duration: 1000, ttftMs: 500, decodeMs: 2000,
+        }]
+        db.prepare('INSERT INTO messages (id, conversation_id, role, timestamp, llm_stats) VALUES (?, ?, ?, ?, ?)')
+            .run(overrides.id ?? 'm-2', overrides.convId ?? 'conv-1', 'assistant', overrides.ts ?? 2000, JSON.stringify(stats))
+    }
+
+    beforeEach(() => {
+        db.prepare('INSERT INTO conversations (id, workspace_path, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+            .run('conv-1', '', '{}', 1000, 1000)
+        // 新数据：llm_usage 一行（conv-1 / m-1），时间落在自定义范围测试的区间内（2026-08-11）
+        repo.record(makeRecord({id: 'usage_m-1_0', conversationId: 'conv-1', messageId: 'm-1',
+            model: 'claude-sonnet-4', inputTokens: 100, outputTokens: 20, cacheReadTokens: 300,
+            createdAt: new Date(2026, 7, 11).getTime()}))
+    })
+
+    it('llm_usage + 历史 llm_stats 合并聚合（请求数 / token / 时序 / 成本）', () => {
+        seedLegacyMessage()
+        const rows = repo.queryAggregated({range: 'all', view: 'model'}, mockGetMeta)
+        const b = rows.find(r => r.key === 'claude-sonnet-4')
+        expect(b?.requestCount).toBe(2)          // 1 usage 行 + 1 历史消息
+        expect(b?.inputTokens).toBe(150)         // 100 + 50
+        expect(b?.outputTokens).toBe(30)         // 20 + 10
+        expect(b?.cacheReadTokens).toBe(300)
+        expect(b?.decodeMs).toBe(7000)           // 5000 + 2000
+        expect(b?.ttftCount).toBe(2)             // 800ms 样本 + 500ms 样本
+        expect(b?.costUsd).toBeCloseTo(100*3e-6 + 20*15e-6 + 300*0.3e-6 + 50*3e-6 + 10*15e-6, 10)
+    })
+
+    it('时间范围过滤历史回填（消息 timestamp 近似）', () => {
+        seedLegacyMessage({ts: new Date(2026, 7, 15).getTime()})   // 范围外
+        seedLegacyMessage({id: 'm-3', ts: new Date(2026, 7, 11).getTime()})  // 范围内
+        const rows = repo.queryAggregated({range: 'custom', customStart: '2026-08-10', customEnd: '2026-08-12', view: 'model'}, mockGetMeta)
+        const b = rows.find(r => r.key === 'claude-sonnet-4')
+        expect(b?.requestCount).toBe(2)          // 1 usage 行 + m-3（范围内）
+        expect(b?.inputTokens).toBe(150)
+    })
+
+    it('趋势回填：历史 llm_stats 按消息 timestamp 归入对应日桶', () => {
+        seedLegacyMessage({ts: new Date(2026, 7, 11, 10, 30).getTime()})
+        const trend = repo.queryTrend({range: 'all', granularity: 'day'})
+        const day = trend.find(t => t.day === '2026-08-11')
+        // usage 行（createdAt 08-11，input 100）+ 历史回填（m-2，input 50）
+        expect(day?.inputTokens).toBe(150)
+        expect(day?.outputTokens).toBe(30)
     })
 })

@@ -13,7 +13,8 @@ import {runtimeConfigManager} from '../runtimeConfigManager'
 import {resolveAgentDefinitionFromCommandId} from '../agentTemplateConverter'
 import {logger} from '../logger'
 import {convertAssistantHistoryMessage, restoreSkillSystemMessages} from './historyConverter'
-import type {LlmStats, SystemSettings} from '@shared/types'
+import {TEXT_MODEL_ROLES} from '@shared/types'
+import type {LlmStats, ModelRole, SystemSettings} from '@shared/types'
 import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
 
 /**
@@ -55,6 +56,16 @@ export function registerHandlers(): void {
         messageMetadata?: Record<string, unknown>
     }) => {
         try {
+            // ★ 方案校验：三角色全空则拒绝启动（双重校验，见 spec 4.5）
+            const schemeForCheck = runtimeConfigManager.getScheme()
+            const hasValidRole = schemeForCheck?.roles.some(r =>
+                TEXT_MODEL_ROLES.includes(r.role as ModelRole)
+                && r.enabled && r.endpointId && r.modelId
+            )
+            if (!hasValidRole) {
+                return {success: false, error: '推理模型、主力模型、轻量模型不允许全部为空'}
+            }
+
             // 从会话存储获取历史消息
             const {createConversationRepository} = await import('../../repositories')
             const conversationRepo = createConversationRepository() as any
@@ -340,6 +351,14 @@ export function registerHandlers(): void {
     ipcMain.handle('agent-abort', async (_event, conversationId: string) => {
         await agentManager.abort(conversationId)
         return {success: true}
+    })
+
+    // 注册渲染端占位消息 id（ensureStreamingMessage 创建空占位后上报）。
+    // 主进程 pending 累积复用该 id，消除双 id 双写（幽灵消息根因）
+    ipcMain.handle('agent-register-streaming-message', (_event, conversationId: string, messageId: string) => {
+        if (typeof conversationId !== 'string' || typeof messageId !== 'string' || !messageId) return false
+        agentManager.registerStreamingMessage(conversationId, messageId)
+        return true
     })
 
     // 向运行中的 Agent 注入用户消息（不中断当前执行）

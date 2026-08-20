@@ -44,6 +44,9 @@ export type ModelRole =
   | 'audio_understanding'
   | 'video_understanding'
 
+/** 可作为 LLM 调用的文本模型角色（不含视觉/音频/视频等非文本角色） */
+export const TEXT_MODEL_ROLES: readonly ModelRole[] = ['primary', 'lightweight', 'reasoning']
+
 /** Task complexity level */
 export type TaskComplexity = 'simple' | 'moderate' | 'complex'
 
@@ -154,6 +157,11 @@ export interface ProviderModel {
 export interface ProviderFeatures {
   /** 使用 Anthropic 兼容 API 时，system 是否以内容块数组发送（含 cache_control: ephemeral） */
   systemContentBlocks?: boolean
+  /** 是否支持显式提示词缓存（Anthropic 兼容的 cache_control: { type: "ephemeral" }）。
+   * 为 true 时，OpenAI 适配器会在 system 消息上添加 cache_control，由网关/服务商翻译或原生支持。
+   * 适用：OpenRouter（网关翻译）、阿里百炼/通义千问（原生支持）、Google Gemini（原生支持，仅最后一个断点生效）。
+   * 不适用：OpenAI 直连（用 prompt_cache_breakpoint）、智谱/DeepSeek/Moonshot/Groq/xAI（全自动隐式缓存）。 */
+  supportsExplicitCaching?: boolean
 }
 
 /** LLM 供应商（统一配置） */
@@ -174,24 +182,6 @@ export interface LLMProvider {
   email?: string
   enabled: boolean
   models: ProviderModel[]
-}
-
-// ─── Intent analysis ───────────────────────────────────
-
-/** 意图分析结果 */
-export interface IntentAnalysisResult {
-  /** 意图摘要 */
-  summary: string
-  /** 复杂程度 */
-  complexity: TaskComplexity
-  /** 预估步骤数 */
-  estimatedSteps: number
-  /** 是否需要 plan */
-  needsPlanning: boolean
-  /** 建议使用的模型角色（从分析数据） */
-  suggestedModel: ModelRole
-  /** 建议使用的 Agent 类型（可选） */
-  suggestedAgentType?: string
 }
 
 // ─── Command definition ──────────────────────────────────

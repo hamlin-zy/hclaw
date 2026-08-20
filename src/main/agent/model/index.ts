@@ -11,6 +11,7 @@ import {OpenAIAdapter} from './openaiAdapter'
 import {GoogleAdapter} from './googleAdapter'
 import {OllamaAdapter} from './ollamaAdapter'
 import type {LLMProvider, ModelRole, ModelScheme} from '@shared/types'
+import {TEXT_MODEL_ROLES} from '@shared/types'
 import {logger} from '../logger'
 import crypto from 'crypto'
 import {
@@ -22,6 +23,7 @@ import {
     setCurrentScheme,
 } from './modelSchemeManager'
 import {selectModelForTaskWithRole} from './modelSelector'
+import {getRoleConfig} from '@shared/modelSchemeHelpers'
 
 // ─── 适配器缓存 ─────────────────────────────────────────
 
@@ -98,11 +100,11 @@ export function createModelAdapter(config: ModelConfig): ModelAdapter {
  * @throws 如果无法创建适配器（配置错误或无兜底）
  */
 export async function createAdapterForRole(
-    role: 'primary' | 'lightweight' | 'reasoning',
+    role: ModelRole,
     fallbackConfig?: ModelConfig,
 ): Promise<{
     adapter: ModelAdapter
-    role: 'primary' | 'lightweight' | 'reasoning'
+    role: ModelRole
     schemeId: string | null
     configSource: 'global-scheme' | 'scheme-param' | 'fallback'
     version: number
@@ -250,15 +252,17 @@ export async function createAdapterForRole(
  * - 明确的 fallback 链日志追踪
  *
  * @param context 任务上下文（main/subAgent/background/planning）
- * @param intentAnalysis 意图分析结果（可选）
  * @param fallbackConfig 兜底配置
+ * @param preferredRole 已解析的角色（selectModelForTurn 的 suggestedRole 产物）；
+ *   角色在方案中有效时以其解析客户端，避免 context='main' 重新解析覆盖
+ *   modelRole 导致子会话模型选择失效
  * @returns 适配器实例及完整元数据
  * @throws 如果无法创建适配器
  */
 export async function createAdapterForContext(
     context: 'main' | 'subAgent' | 'background' | 'planning',
-    intentAnalysis?: { suggestedModel?: ModelRole },
     fallbackConfig?: ModelConfig,
+    preferredRole?: ModelRole,
 ): Promise<{
     adapter: ModelAdapter
     role: ModelRole
@@ -291,8 +295,21 @@ export async function createAdapterForContext(
         throw error
     }
 
-    const roleResult = selectModelForTaskWithRole(scheme, context, intentAnalysis as any)
-    const roleType = roleResult.role as 'primary' | 'lightweight' | 'reasoning'
+    // ── 角色解析：preferredRole（selectModelForTurn 已解析）优先；失效/缺省按 context 路由 ──
+    let roleResult: { config: import('@shared/types').ModelRoleConfig; role: ModelRole }
+    if (preferredRole && TEXT_MODEL_ROLES.includes(preferredRole)) {
+        const roleConfig = getRoleConfig(scheme, preferredRole)
+        if (roleConfig?.enabled && roleConfig.endpointId && roleConfig.modelId) {
+            roleResult = {config: roleConfig, role: preferredRole}
+        } else {
+            // preferredRole 失效（未启用/未配置）→ 与 selectModelForTurn 降级语义一致，按 context 路由
+            logger.warn(`[createAdapterForContext] preferredRole "${preferredRole}" 未启用/未配置，按 context 路由降级`)
+            roleResult = selectModelForTaskWithRole(scheme, context)
+        }
+    } else {
+        roleResult = selectModelForTaskWithRole(scheme, context)
+    }
+    const roleType = roleResult.role
 
     const result = await createAdapterForRole(roleType, fallbackConfig)
 

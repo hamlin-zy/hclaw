@@ -1,8 +1,9 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import type {ConversationUsageStats, UsageBreakdown} from '@shared/types'
-import {formatTokenCount, formatTokenCompact, formatTokensPerSecond, tokensPerSecond, formatCost, type Currency} from '../../lib/format'
-import {KpiCard, StatRow, GroupTitle, providerDisplayName, ClientStatsNotice, InfoTip, COST_DISCLAIMER} from '../usage/statsParts'
+import {formatTokenCount, formatTokenCompact, formatTokensPerSecond, formatCost, type Currency} from '../../lib/format'
+import {computeKpis, mergeByProvider} from '@shared/llmUsage'
+import {KpiCard, StatRow, GroupTitle, providerDisplayName, ClientStatsNotice, InfoTip, getCostDisclaimer, CurrencyToggle} from '../usage/statsParts'
 import {useDraggableDialog} from '../../hooks/useDraggableDialog'
 
 export interface UsageStatsOptions {
@@ -32,7 +33,7 @@ export default function UsageStatsDialog() {
     const [options, setOptions] = useState<UsageStatsOptions | null>(null)
     const [load, setLoad] = useState<LoadState>({status: 'loading'})
     const [groupView, setGroupView] = useState<'provider' | 'model'>('provider')
-    const [currency, setCurrency] = useState<Currency>('USD')
+    const [currency, setCurrency] = useState<Currency>('CNY')
 
     // 弹窗可拖动：每次打开居中，拖动时边界约束（hook 管理 ARIA 角色与定位）
     // recenterSignal：数据加载完成后弹窗高度定型，重新居中一次（初始居中测量于 loading 态，高度偏小会偏下）
@@ -53,28 +54,11 @@ export default function UsageStatsDialog() {
 
     const requestSeqRef = useRef(0)
 
-    /** 分组卡片数据：按服务商聚合（成本求和、totalTokens 降序）或按模型展开 */
+    /** 分组卡片数据：按服务商聚合（shared mergeByProvider：成本求和、totalTokens 降序）或按模型展开 */
     const breakdownCards = useMemo<UsageBreakdown[]>(() => {
         if (load.status !== 'done' || load.data.breakdown.length === 0) return []
         const d = load.data
-        if (groupView === 'model') return d.breakdown
-        const map = new Map<string, UsageBreakdown>()
-        for (const b of d.breakdown) {
-            const key = b.providerType ?? 'unknown'
-            const g = map.get(key) ?? {
-                key, providerType: key, providerName: b.providerName, requestCount: 0, inputTokens: 0, outputTokens: 0,
-                cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0,
-            }
-            g.requestCount += b.requestCount
-            g.inputTokens += b.inputTokens
-            g.outputTokens += b.outputTokens
-            g.cacheReadTokens += b.cacheReadTokens
-            g.cacheWriteTokens += b.cacheWriteTokens
-            g.totalTokens += b.totalTokens
-            g.costUsd += b.costUsd
-            map.set(key, g)
-        }
-        return [...map.values()].sort((a, b) => b.totalTokens - a.totalTokens)
+        return groupView === 'model' ? d.breakdown : mergeByProvider(d.breakdown)
     }, [load, groupView])
 
     const loadData = useCallback(async (convId: string) => {
@@ -118,12 +102,6 @@ export default function UsageStatsDialog() {
     // 总 token = 输入 + 输出 + 缓存命中 + 缓存写入（含全部 token 流量）
     const totalTokens = (d: ConversationUsageStats) =>
         d.totalInputTokens + d.totalOutputTokens + d.totalCacheReadTokens + d.totalCacheWriteTokens
-    // 命中率口径与 CacheRateTooltip 一致：缓存命中 /（输入 + 缓存命中）；输出与缓存写入不计入分母
-    const cacheRate = (d: ConversationUsageStats): string | null => {
-        const denominator = d.totalInputTokens + d.totalCacheReadTokens
-        if (denominator <= 0) return null
-        return `${(d.totalCacheReadTokens / denominator * 100).toFixed(0)}%`
-    }
 
     const renderBody = () => {
         if (load.status === 'loading') {
@@ -148,10 +126,15 @@ export default function UsageStatsDialog() {
         }
         const d = load.data
         const scope = `${d.parentCount} 个父会话 + ${d.childCount} 个子会话`
-        const rate = cacheRate(d)
-        // 时序 KPI（口径与消息 tooltip 一致）：平均吞吐 = Σ输出 ÷ Σ解码时长；平均首字 = Σ首字 ÷ 样本数
-        const avgDecodeRate = tokensPerSecond(d.totalOutputTokens, d.totalDecodeMs)
-        const avgTtftSeconds = d.ttftCount > 0 ? d.totalTtftMs / d.ttftCount / 1000 : null
+        // KPI 统一口径（shared computeKpis，与独立窗口一致）：缓存命中率 / 平均吞吐 / 平均首字
+        const kpis = computeKpis({
+            inputTokens: d.totalInputTokens, outputTokens: d.totalOutputTokens,
+            cacheReadTokens: d.totalCacheReadTokens, totalDecodeMs: d.totalDecodeMs,
+            totalTtftMs: d.totalTtftMs, ttftCount: d.ttftCount,
+        })
+        const rate = kpis.cacheHitRate != null ? `${kpis.cacheHitRate}%` : null
+        const avgDecodeRate = kpis.avgDecodeRate
+        const avgTtftSeconds = kpis.avgTtftSeconds
         return (
             <div className="space-y-3">
                 {/* 数据口径提示：客户端侧统计，非服务商账单 */}
@@ -177,27 +160,27 @@ export default function UsageStatsDialog() {
                     <KpiCard label="平均首字" value={avgTtftSeconds != null ? `${avgTtftSeconds.toFixed(1)}s` : '—'}/>
                 </div>
 
-                {/* Token 明细（两列并排压缩纵向空间） */}
+                {/* Token 明细（两列并排压缩纵向空间，每项带边框） */}
                 <GroupTitle>Token 明细</GroupTitle>
                 <div className="grid grid-cols-2 gap-1.5">
-                    <StatRow label="输入" value={formatTokenCount(d.totalInputTokens)}/>
-                    <StatRow label="输出" value={formatTokenCount(d.totalOutputTokens)}/>
+                    <StatRow bordered label="输入" value={formatTokenCount(d.totalInputTokens)}/>
+                    <StatRow bordered label="输出" value={formatTokenCount(d.totalOutputTokens)}/>
                 </div>
 
-                {/* 缓存 */}
+                {/* 缓存（每项带边框） */}
                 <GroupTitle>缓存</GroupTitle>
                 <div className="space-y-1.5">
-                    <StatRow label="缓存命中" value={formatTokenCount(d.totalCacheReadTokens)}/>
+                    <StatRow bordered label="缓存命中" value={formatTokenCount(d.totalCacheReadTokens)}/>
                     {d.totalCacheWriteTokens > 0 && (
-                        <StatRow label="缓存写入" value={formatTokenCount(d.totalCacheWriteTokens)}/>
+                        <StatRow bordered label="缓存写入" value={formatTokenCount(d.totalCacheWriteTokens)}/>
                     )}
                 </div>
 
-                {/* 调用 */}
+                {/* 调用（一行两列，每项带边框） */}
                 <GroupTitle>调用</GroupTitle>
-                <div className="space-y-1.5">
-                    <StatRow label="LLM 请求" value={`${d.requestCount} 次`}/>
-                    <StatRow label="工具调用" value={`${d.toolCallCount} 次`}/>
+                <div className="grid grid-cols-2 gap-1.5">
+                    <StatRow bordered label="LLM 请求" value={`${d.requestCount} 次`}/>
+                    <StatRow bordered label="工具调用" value={`${d.toolCallCount} 次`}/>
                 </div>
 
                 {/* 分组用量（会话运行期间切换服务商/模型的用量下钻） */}
@@ -216,17 +199,8 @@ export default function UsageStatsDialog() {
                                     按模型
                                 </button>
                             </div>
-                            {/* 美元 / 人民币切换（与菜单栏用量统计同口径，固定汇率 7.2） */}
-                            <div className="flex gap-0.5 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
-                                <button onClick={() => setCurrency('USD')}
-                                        className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${currency === 'USD' ? 'bg-[var(--surface-elevated)] shadow-sm' : 'text-[var(--text-muted)]'}`}>
-                                    $ 美元
-                                </button>
-                                <button onClick={() => setCurrency('CNY')}
-                                        className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${currency === 'CNY' ? 'bg-[var(--surface-elevated)] shadow-sm' : 'text-[var(--text-muted)]'}`}>
-                                    ¥ 人民币
-                                </button>
-                            </div>
+                            {/* 美元 / 人民币切换（共享 CurrencyToggle，与独立窗口同口径，启动时同步实时汇率） */}
+                            <CurrencyToggle currency={currency} onChange={setCurrency} size="sm"/>
                         </div>
                         <div className="space-y-2">
                             {(() => {
@@ -262,7 +236,7 @@ export default function UsageStatsDialog() {
                                                 <div>
                                                     <div className="flex items-center gap-0.5 text-[9px] text-[var(--text-muted)]">
                                                         成本
-                                                        <InfoTip text={COST_DISCLAIMER} placement="top"/>
+                                                        <InfoTip text={getCostDisclaimer()} placement="top"/>
                                                     </div>
                                                     <div className="text-xs tabular-nums text-[var(--brand-primary)]">{formatCost(b.costUsd, currency)}</div>
                                                 </div>
@@ -302,7 +276,7 @@ export default function UsageStatsDialog() {
                             role="dialog"
                             aria-modal="true"
                             aria-labelledby="usage-stats-title"
-                            className={`absolute pointer-events-auto bg-[var(--surface)] rounded-xl border border-[var(--border)] overflow-hidden w-[448px] max-w-[calc(100vw-2rem)] transition-shadow duration-100 ${isDragging ? 'scale-[1.02]' : 'shadow-elevated'}`}
+                            className={`absolute pointer-events-auto bg-[var(--surface)] rounded-xl border border-[var(--border)] overflow-hidden w-[560px] max-w-[calc(100vw-2rem)] transition-shadow duration-100 ${isDragging ? 'scale-[1.02]' : 'shadow-elevated'}`}
                             style={{left: position.x, top: position.y}}
                             onClick={(e) => e.stopPropagation()}
                         >
