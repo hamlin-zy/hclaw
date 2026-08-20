@@ -44,6 +44,9 @@ export type ModelRole =
   | 'audio_understanding'
   | 'video_understanding'
 
+/** 可作为 LLM 调用的文本模型角色（不含视觉/音频/视频等非文本角色） */
+export const TEXT_MODEL_ROLES: readonly ModelRole[] = ['primary', 'lightweight', 'reasoning']
+
 /** Task complexity level */
 export type TaskComplexity = 'simple' | 'moderate' | 'complex'
 

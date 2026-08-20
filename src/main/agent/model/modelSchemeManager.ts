@@ -12,7 +12,7 @@
  */
 
 import {logger} from '../logger'
-import type {LLMProvider, ModelRoleConfig, ModelScheme, ProviderCredentials} from '@shared/types'
+import type {LLMProvider, ModelRole, ModelRoleConfig, ModelScheme, ProviderCredentials} from '@shared/types'
 import {getRoleConfig} from '@shared/modelSchemeHelpers'
 import {getConfigBridge} from '../common/configBridge'
 import {tokenManager} from '../../channel/TokenManager'
@@ -268,7 +268,7 @@ export function getSchemeVersion(): SchemeVersion {
  * @throws 如果无法获取客户端（provider 缺失、齮错误等）
  */
 export async function getClientForCurrentScheme(
-    role: 'primary' | 'lightweight' | 'reasoning',
+    role: ModelRole,
 ): Promise<{
     client: unknown;
     providerType: string;

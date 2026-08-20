@@ -13,7 +13,8 @@ import {runtimeConfigManager} from '../runtimeConfigManager'
 import {resolveAgentDefinitionFromCommandId} from '../agentTemplateConverter'
 import {logger} from '../logger'
 import {convertAssistantHistoryMessage, restoreSkillSystemMessages} from './historyConverter'
-import type {LlmStats, SystemSettings} from '@shared/types'
+import {TEXT_MODEL_ROLES} from '@shared/types'
+import type {LlmStats, ModelRole, SystemSettings} from '@shared/types'
 import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
 
 /**
@@ -58,7 +59,7 @@ export function registerHandlers(): void {
             // ★ 方案校验：三角色全空则拒绝启动（双重校验，见 spec 4.5）
             const schemeForCheck = runtimeConfigManager.getScheme()
             const hasValidRole = schemeForCheck?.roles.some(r =>
-                ['primary', 'lightweight', 'reasoning'].includes(r.role)
+                TEXT_MODEL_ROLES.includes(r.role as ModelRole)
                 && r.enabled && r.endpointId && r.modelId
             )
             if (!hasValidRole) {

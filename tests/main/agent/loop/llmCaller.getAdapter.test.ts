@@ -70,8 +70,18 @@ describe('LLMCaller.getAdapter (adapter 管理收归 + schemeVersion/provider:mo
         await caller.getAdapter('main', undefined, undefined, controller.signal)
         const callArgs = mockCreate.mock.calls[0]
         expect(callArgs[0]).toBe('main')
-        // createAdapterForContext only accepts 2 args (context, fallbackConfig?)
-        expect(callArgs.length).toBeLessThanOrEqual(2)
+        // createAdapterForContext 接收 (context, fallbackConfig?, preferredRole?) 三参
+        expect(callArgs.length).toBeLessThanOrEqual(3)
+    })
+
+    it('preferredRole 透传给 createAdapterForContext（modelRole 子会话角色路由）', async () => {
+        const caller = new LLMCaller()
+        const cfg = {provider: 'custom', model: 'light-model', apiKey: 'sk'} as any
+        await caller.getAdapter('main', cfg, undefined, undefined, false, 'lightweight')
+        const callArgs = mockCreate.mock.calls[0]
+        expect(callArgs[0]).toBe('main')
+        expect(callArgs[1]).toBe(cfg)
+        expect(callArgs[2]).toBe('lightweight')
     })
 
     it('F1替代: provider:model 变化触发重建', async () => {

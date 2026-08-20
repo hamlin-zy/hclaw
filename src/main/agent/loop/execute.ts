@@ -146,12 +146,24 @@ export async function* executeLlmCallWithRetry(
                 params.schemeUpdatePromise,
                 abortSignal,
                 directModel,
+                // ★ modelRole 生效时（文本角色）：透传已解析角色，
+                //   否则 createAdapterForContext 按 context='main' 重新解析恒选 primary
+                workModeRole,
             )
             adapter = adapterResult.adapter
             currentProvider = adapterResult.providerType
             currentModel = adapterResult.modelId
             currentConfigSource = adapterResult.configSource
             currentSchemeName = adapterResult.schemeName ?? currentSchemeName
+
+            // ── 一致性防御：adapter 实际模型与 selectModelForTurn 解析结果不一致时告警 ──
+            //   防止未来回归出「agent_start 显示 A / 实际运行 B / llm_usage 落库 A+B」的错配
+            if (modelConfig.model && currentModel !== modelConfig.model) {
+                logger.warn(
+                    `[AgentLoop] adapter model mismatch: resolved=${modelConfig.model} (${modelConfig.provider}) actual=${currentModel} (${currentProvider})`,
+                    {configSource: currentConfigSource, workModeRole},
+                )
+            }
 
             // ── 归一化消息历史（增量缓存） ──
             const normalizedMessages = preprocessCache.process(state.messages || [])

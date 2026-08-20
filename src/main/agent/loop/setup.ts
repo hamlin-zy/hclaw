@@ -15,6 +15,7 @@ import type {RunParams, TurnModelSelection} from './types'
 import type {LoopState as AgentLoopState} from '../state'
 import type {AgentDefinition} from '@shared/agent'
 import type {CommandExecutionContext, HClawAgentType} from '@shared/types'
+import {TEXT_MODEL_ROLES} from '@shared/types'
 import type {ModelRole, RunMode} from '@shared/types'
 import type {ModelOverride, ModelScheme, LLMProvider} from '@shared/types'
 import type {ToolRegistry} from '../tools/registry'
@@ -213,8 +214,8 @@ export function* selectModelForTurn(
         ? runtimeProviders
         : ((schemeConfig?.providers as LLMProvider[] | undefined) || [])
 
-    // ── 0. 显式 modelRole（agentTool 子会话）：仅 3 文本角色且方案角色已启用配置才生效 ──
-    if (modelRoleOverride && ['primary', 'lightweight', 'reasoning'].includes(modelRoleOverride)) {
+    // ── 0. 显式 modelRole（agentTool 子会话）：仅文本角色且方案角色已启用配置才生效 ──
+    if (modelRoleOverride && TEXT_MODEL_ROLES.includes(modelRoleOverride)) {
         const roleConfig = currentScheme && getRoleConfig(currentScheme, modelRoleOverride)
         if (roleConfig?.enabled && roleConfig.endpointId && roleConfig.modelId && providers.length > 0) {
             const resolved = resolveModelConfig(roleConfig, providers)
