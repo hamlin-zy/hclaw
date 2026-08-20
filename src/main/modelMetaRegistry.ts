@@ -18,6 +18,7 @@ import {
   type ModelMeta,
   type OpenRouterModelRaw,
 } from '@shared/modelMeta'
+import type {PriceSource} from '@shared/llmUsage'
 import {createLogger} from './agent/logger'
 
 const logger = createLogger('ModelMetaRegistry')
@@ -165,3 +166,6 @@ function toPrice(v?: string | number): number {
 
 /** 全局单例（消费方统一从此处获取，避免频繁读盘） */
 export const modelMetaRegistry = new ModelMetaRegistry()
+
+/** 共享价格源：模型元数据注册表（全部用量统计聚合点统一注入，防口径漂移） */
+export const modelMetaPriceSource: (model: string) => PriceSource = (model) => modelMetaRegistry.getMeta(model)

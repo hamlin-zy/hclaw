@@ -2,8 +2,9 @@
  * 渲染进程共享格式化工具函数
  */
 
-import {MIN_DECODE_MS} from '@shared/types'
 import {DEFAULT_USD_CNY_RATE} from '@shared/exchangeRate'
+// tokensPerSecond 已下沉到 shared（弹窗 / 独立窗口共用口径），此处 re-export 保持调用方兼容
+export {tokensPerSecond} from '@shared/llmUsage'
 
 /** 相对时间格式化 */
 export function getRelativeTime(ts: number): string {
@@ -70,16 +71,6 @@ export function formatTokensPerSecond(tps: number): string {
   return clamped >= 10 ? String(Math.round(clamped)) : String(Math.round(clamped * 10) / 10)
 }
 
-/** 速率：outputTokens ÷ (durationMs/1000)；非法输入返回 null。 */
-export function tokensPerSecond(outputTokens: number, durationMs: number): number | null {
-  if (typeof outputTokens !== 'number' || outputTokens <= 0) return null
-  if (typeof durationMs !== 'number' || durationMs <= 0) return null
-  // 防爆表：时长过短视为首 token 边界虚短的异常数据（历史坏数据/网关抖动），
-  // 按 MIN_DECODE_MS 保守下限计算，避免 190000 t/s 级异常值。
-  const effective = Math.max(MIN_DECODE_MS, durationMs)
-  return outputTokens / (effective / 1000)
-}
-
 /** 货币类型 */
 export type Currency = 'USD' | 'CNY'
 
@@ -96,6 +87,19 @@ export function setUsdCnyRate(rate: unknown): void {
 /** 当前 USD→CNY 汇率：已同步用实时值，否则回退固定默认值 */
 export function getUsdCnyRate(): number {
   return currentUsdCnyRate
+}
+
+/**
+ * 拉取并应用主进程实时汇率（主窗口启动 / 独立窗口挂载共用，防逻辑漂移）。
+ * 未暴露 API / 同步失败 → 保留当前值；返回应用后的汇率。
+ */
+export async function syncExchangeRate(): Promise<number> {
+  const res = await window.electronAPI?.exchangeRateGet?.()
+  if (typeof res?.rate === 'number' && Number.isFinite(res.rate) && res.rate > 0) {
+    setUsdCnyRate(res.rate)
+    return res.rate
+  }
+  return getUsdCnyRate()
 }
 
 /** 成本格式化：0 或负数 → '—'（未定价）；<0.01 → '<$0.01'；否则 $x.xx（四舍五入到分）。CNY 按实时汇率换算（未同步回退默认值）。 */

@@ -1,8 +1,8 @@
 import {ipcMain} from 'electron';
 import {createConversationRepository, createMessageBlockRepository} from './repositories';
 import {computeConversationUsageStats} from './usageStats'
-import {computeUsageCost} from '@shared/llmUsage'
-import {modelMetaRegistry} from './modelMetaRegistry'
+import {attachCosts} from '@shared/llmUsage'
+import {modelMetaPriceSource} from './modelMetaRegistry'
 import {getMainWindow} from './window'
 import type {BlockDeltaPatch, ConversationMeta, ConversationSummary, Message, MessageBlock} from '@shared/types';
 import {collectDescendants} from '@shared/utils/conversationTree'
@@ -192,20 +192,9 @@ export function initConversationIPC(): void {
                 convId,
             )
             // ★ 分组成本接线：computeConversationUsageStats 为纯函数（无价格依赖），
-            //   breakdown 的 costUsd 恒 0，此处按模型粒度补实时价格 × token。
-            //   UsageBreakdown.key = model（usageStats 的 groupMap key = model），按 model 查价格正确。
-            stats.breakdown = stats.breakdown.map((b) => ({
-                ...b,
-                costUsd: computeUsageCost(
-                    {
-                        model: b.key,
-                        inputTokens: b.inputTokens,
-                        outputTokens: b.outputTokens,
-                        cacheReadTokens: b.cacheReadTokens,
-                    },
-                    (model) => modelMetaRegistry.getMeta(model),
-                ),
-            }))
+            //   breakdown 的 costUsd 恒 0，此处按模型粒度补实时价格 × token
+            //   （attachCosts + modelMetaPriceSource 与独立窗口共用，防口径漂移）。
+            stats.breakdown = attachCosts(stats.breakdown, modelMetaPriceSource)
             return stats
         } catch (err) {
             console.error('[IPC] conversation-usage-stats failed:', err)

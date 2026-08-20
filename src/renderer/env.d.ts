@@ -313,7 +313,7 @@ declare global {
 
         // 全局用量统计窗口
         openUsageStatsWindow: () => Promise<void>
-        usageStatsQuery: (params: {range: string; view: string}) => Promise<import('../shared/types/infra').GlobalUsageStats>
+        usageStatsQuery: (params: import('../shared/types/infra').UsageStatsQueryParams) => Promise<import('../shared/types/infra').GlobalUsageStats>
         windowId: string
         /** 配置窗口类型（--hclaw-dialog；仅配置窗口有，主窗口为空字符串） */
         dialogType: string

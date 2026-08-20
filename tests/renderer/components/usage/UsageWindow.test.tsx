@@ -2,11 +2,13 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
 import {render, screen, fireEvent, waitFor, act} from '@testing-library/react'
 import UsageWindow from '../../../../src/renderer/components/usage/UsageWindow'
+import {setUsdCnyRate} from '../../../../src/renderer/lib/format'
+import {DEFAULT_USD_CNY_RATE} from '@shared/exchangeRate'
 import type {GlobalUsageStats} from '@shared/types'
 
 const mockStats: GlobalUsageStats = {
-    // 时序：350000 输出 / 3500000ms 解码 = 100 t/s；首字 2400ms ÷ 2 样本 = 1.2s
-    kpi: {totalTokens: 27790000, totalCostUsd: 12.88, requestCount: 267, cacheHitRate: 93, totalOutputTokens: 350000, totalDecodeMs: 3500000, totalTtftMs: 2400, ttftCount: 2},
+    // 时序：350000 输出 / 3500000ms 解码 = 100 t/s；首字 2400ms ÷ 2 样本 = 1.2s（主进程 computeKpis 已算好 avg 字段）
+    kpi: {totalTokens: 27790000, totalCostUsd: 12.88, requestCount: 267, cacheHitRate: 93, totalOutputTokens: 350000, totalDecodeMs: 3500000, totalTtftMs: 2400, ttftCount: 2, avgDecodeRate: 100, avgTtftSeconds: 1.2},
     trend: [
         {day: '2026-08-10', inputTokens: 1000000, outputTokens: 200000, cacheReadTokens: 5000000},
         {day: '2026-08-11', inputTokens: 1200000, outputTokens: 240000, cacheReadTokens: 6000000},
@@ -20,9 +22,17 @@ const mockStats: GlobalUsageStats = {
 /** 统一访问被 stub 的 electronAPI，消除测试体内重复的 `as any` 断言噪音 */
 const api = (): any => window.electronAPI
 
+/** 断言最近一次查询参数 */
+const lastQuery = (): any => api().usageStatsQuery.mock.calls.at(-1)[0]
+
 beforeEach(() => {
     vi.stubGlobal('electronAPI', {
         usageStatsQuery: vi.fn().mockResolvedValue(mockStats),
+        // 默认汇率 7.2 与 DEFAULT_USD_CNY_RATE 一致，保持既有 CNY 断言稳定；
+        // 用 macrotask 延迟 resolve：同步渲染用例（无 waitFor）在 cleanup 后被 hook 的
+        // cancelled 拦截，避免 "not wrapped in act" 警告；waitFor 用例仍会在轮询内 resolve
+        exchangeRateGet: vi.fn().mockImplementation(() =>
+            new Promise((resolve) => setTimeout(() => resolve({rate: 7.2, date: null}), 0))),
         initialTheme: 'dark',
         onThemeChanged: vi.fn(),
         // 通用窗口控制 API（独立窗口）
@@ -41,20 +51,60 @@ afterEach(() => {
     vi.unstubAllGlobals()
     // 恢复 vi.spyOn（如 console.error），防止断言失败提前退出时泄漏到后续用例
     vi.restoreAllMocks()
+    // 重置汇率模块变量：实时汇率同步用例会 setUsdCnyRate 污染全局，防泄漏到后续用例
+    setUsdCnyRate(DEFAULT_USD_CNY_RATE)
 })
 
 describe('UsageWindow 全局用量窗口', () => {
+    it('默认条件：今天 / 按服务商 / 人民币', async () => {
+        render(<UsageWindow />)
+        await waitFor(() => expect(api().usageStatsQuery).toHaveBeenCalled())
+        // 查询参数：today + provider + hour 粒度（今天按小时）
+        expect(lastQuery()).toEqual({range: 'today', view: 'provider', granularity: 'hour'})
+        // 默认人民币：总成本 12.88 USD × 7.2 = ¥92.74
+        expect(screen.getByText('¥92.74')).toBeTruthy()
+        expect(screen.queryByText('$12.88')).toBeNull()
+        // 默认选中"今天"（分段按钮激活态）
+        expect(screen.getByTestId('range-today').className).toContain('bg-[var(--surface-elevated)]')
+        // 趋势标题：按小时
+        expect(screen.getByText('按小时')).toBeTruthy()
+    })
+
+    it('同步主进程实时汇率：CNY 成本换算与口径文案跟随实时值（向右键菜单弹窗看齐）', async () => {
+        api().exchangeRateGet.mockResolvedValue({rate: 7.4, date: '2026-08-21'})
+        render(<UsageWindow />)
+        // 实时汇率驱动重渲染：12.88 USD × 7.4 = ¥95.31（非默认 7.2 的 ¥92.74）
+        await waitFor(() => expect(screen.getByText('¥95.31')).toBeTruthy())
+        // KPI 下方汇率标注
+        expect(screen.getByText('按 1 USD ≈ 7.40 CNY')).toBeTruthy()
+        // InfoTip 口径文案嵌入实时汇率（3 处：工具栏 / 总成本 / 分组表头）
+        expect(screen.getAllByText(/人民币按 1 USD ≈ 7\.40 CNY 实时汇率折算/).length).toBe(3)
+    })
+
+    it('时间按钮顺序：全部 → 今天 → 近7天 → 近30天 → 自定义', async () => {
+        render(<UsageWindow />)
+        // flush 汇率同步的异步 resolve（macrotask），避免 setState 落在 act 外产生警告
+        await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+        const labels = ['全部', '今天', '近 7 天', '近 30 天', '自定义']
+        const buttons = screen.getAllByRole('button')
+        const rangeButtons = labels.map(l => buttons.find(b => b.textContent === l))
+        const indexes = rangeButtons.map(b => buttons.indexOf(b!))
+        // 全部按钮排在今天之前，且顺序递增
+        expect(indexes).toEqual([...indexes].sort((a, b) => a - b))
+        expect(indexes[0]).toBeLessThan(indexes[1])
+        expect(indexes[4]).toBeGreaterThan(indexes[3])
+    })
+
     it('渲染 KPI + 趋势柱状条 + 分组表', async () => {
         render(<UsageWindow />)
         await waitFor(() => expect(screen.getByText('27.8M')).toBeTruthy())
         expect(screen.getByText('总成本')).toBeTruthy()
-        expect(screen.getByText('$12.88')).toBeTruthy()
         // 时序 KPI：平均吞吐 = Σ输出 ÷ Σ解码时长；平均首字 = Σ首字 ÷ 样本数
         expect(screen.getByText('平均吞吐')).toBeTruthy()
         expect(screen.getByText('100 t/s')).toBeTruthy()
         expect(screen.getByText('平均首字')).toBeTruthy()
         expect(screen.getByText('1.2s')).toBeTruthy()
-        // 趋势柱状条按天渲染
+        // 趋势柱状条按小时粒度渲染（mock 为 day 格式时兼容回退 MM-DD 标签）
         expect(screen.getAllByTestId('trend-bar')).toHaveLength(2)
         // 分组表按服务商
         // 服务商名优先 providers.name（Deepseek-ant），而非 providers.type 规范名（Anthropic）
@@ -70,7 +120,7 @@ describe('UsageWindow 全局用量窗口', () => {
     it('无时序数据 → 平均吞吐/首字显示 —', async () => {
         api().usageStatsQuery = vi.fn().mockResolvedValue({
             ...mockStats,
-            kpi: {...mockStats.kpi, totalOutputTokens: 0, totalDecodeMs: 0, totalTtftMs: 0, ttftCount: 0},
+            kpi: {...mockStats.kpi, totalOutputTokens: 0, totalDecodeMs: 0, totalTtftMs: 0, ttftCount: 0, avgDecodeRate: null, avgTtftSeconds: null},
         })
         render(<UsageWindow />)
         await waitFor(() => expect(screen.getByText('平均吞吐')).toBeTruthy())
@@ -83,17 +133,79 @@ describe('UsageWindow 全局用量窗口', () => {
         await waitFor(() => expect(api().usageStatsQuery).toHaveBeenCalled())
         fireEvent.click(screen.getByText('按模型'))
         await waitFor(() => {
-            expect(api().usageStatsQuery).toHaveBeenLastCalledWith({range: '7d', view: 'model'})
+            expect(lastQuery()).toEqual({range: 'today', view: 'model', granularity: 'hour'})
         })
     })
 
-    it('切换时间范围 → 重新查询', async () => {
+    it('切换时间范围（近 30 天）→ 按天粒度重新查询', async () => {
         render(<UsageWindow />)
         await waitFor(() => expect(api().usageStatsQuery).toHaveBeenCalled())
         fireEvent.click(screen.getByText('近 30 天'))
         await waitFor(() => {
-            expect(api().usageStatsQuery).toHaveBeenLastCalledWith({range: '30d', view: 'provider'})
+            expect(lastQuery()).toEqual({range: '30d', view: 'provider', granularity: 'day'})
         })
+        // 趋势标题切换为按天
+        expect(screen.getByText('按天')).toBeTruthy()
+    })
+
+    it('点击全部 → range=all + 按天粒度', async () => {
+        render(<UsageWindow />)
+        await waitFor(() => expect(api().usageStatsQuery).toHaveBeenCalled())
+        fireEvent.click(screen.getByText('全部'))
+        await waitFor(() => {
+            expect(lastQuery()).toEqual({range: 'all', view: 'provider', granularity: 'day'})
+        })
+    })
+
+    it('自定义范围：点击自定义 → 显示日期选择器；选择范围 → 带 customStart/customEnd 查询', async () => {
+        render(<UsageWindow />)
+        await waitFor(() => expect(api().usageStatsQuery).toHaveBeenCalled())
+        // 初始不显示日期选择器
+        expect(screen.queryByTestId('custom-range-picker')).toBeNull()
+        fireEvent.click(screen.getByText('自定义'))
+        // 显示开始/结束日期输入（默认最近 7 天）
+        expect(screen.getByTestId('custom-range-picker')).toBeTruthy()
+        const start = screen.getByTestId('custom-start') as HTMLInputElement
+        const end = screen.getByTestId('custom-end') as HTMLInputElement
+        expect(start.value).toBeTruthy()
+        expect(end.value).toBeTruthy()
+        // 修改开始日 2026-08-10：end 仍为默认（今天）→ 跨度 >1 天 → 按天
+        fireEvent.change(start, {target: {value: '2026-08-10'}})
+        await waitFor(() => {
+            expect(lastQuery()).toMatchObject({range: 'custom', customStart: '2026-08-10', granularity: 'day'})
+        })
+        // 修改结束日 2026-08-11：10 ~ 11 相邻两天（≤1 天）→ 按小时
+        fireEvent.change(end, {target: {value: '2026-08-11'}})
+        await waitFor(() => {
+            expect(lastQuery()).toMatchObject({range: 'custom', customStart: '2026-08-10', customEnd: '2026-08-11', granularity: 'hour'})
+        })
+        // 跨度 >1 天（10 ~ 13）→ 按天
+        fireEvent.change(end, {target: {value: '2026-08-13'}})
+        await waitFor(() => {
+            expect(lastQuery()).toMatchObject({range: 'custom', customStart: '2026-08-10', customEnd: '2026-08-13', granularity: 'day'})
+        })
+    })
+
+    it('自定义范围同日 → 按小时粒度', async () => {
+        render(<UsageWindow />)
+        await waitFor(() => expect(api().usageStatsQuery).toHaveBeenCalled())
+        fireEvent.click(screen.getByText('自定义'))
+        fireEvent.change(screen.getByTestId('custom-start'), {target: {value: '2026-08-10'}})
+        fireEvent.change(screen.getByTestId('custom-end'), {target: {value: '2026-08-10'}})
+        await waitFor(() => {
+            expect(lastQuery()).toMatchObject({range: 'custom', granularity: 'hour'})
+        })
+        expect(screen.getByText('按小时')).toBeTruthy()
+    })
+
+    it('刷新按钮 → 靠右显示并重新拉取数据', async () => {
+        render(<UsageWindow />)
+        await waitFor(() => expect(api().usageStatsQuery).toHaveBeenCalledTimes(1))
+        const refreshBtn = screen.getByRole('button', {name: '刷新'})
+        // 刷新按钮位于工具栏（存在即可；ml-auto 布局由 CSS 保证）
+        expect(refreshBtn).toBeTruthy()
+        fireEvent.click(refreshBtn)
+        await waitFor(() => expect(api().usageStatsQuery).toHaveBeenCalledTimes(2))
     })
 
     it('按模型视图：同名模型跨服务商时 React key 唯一，不产生重复 key 警告', async () => {
@@ -110,7 +222,7 @@ describe('UsageWindow 全局用量窗口', () => {
         render(<UsageWindow />)
         fireEvent.click(screen.getByText('按模型'))
         await waitFor(() => {
-            expect(api().usageStatsQuery).toHaveBeenLastCalledWith({range: '7d', view: 'model'})
+            expect(lastQuery()).toMatchObject({range: 'today', view: 'model'})
         })
         // 两行同名模型都应渲染，且不触发 React 重复 key 警告
         expect(screen.getAllByText('deepseek-v4-flash')).toHaveLength(2)
@@ -120,23 +232,23 @@ describe('UsageWindow 全局用量窗口', () => {
 
     it('切换货币 → 美元/人民币换算（KPI + 明细成本列）', async () => {
         render(<UsageWindow />)
-        await waitFor(() => expect(screen.getByText('$12.88')).toBeTruthy())
-        // 默认美元计价，无 CNY 换算说明
-        expect(screen.queryByText('按 1 USD ≈ 7.20 CNY')).toBeNull()
-
-        fireEvent.click(screen.getByTestId('currency-cny'))
-        // 总成本：12.88 * 7.2 = 92.736 → ¥92.74
         await waitFor(() => expect(screen.getByText('¥92.74')).toBeTruthy())
-        expect(screen.queryByText('$12.88')).toBeNull()
+        // 默认人民币计价，显示汇率说明
         expect(screen.getByText('按 1 USD ≈ 7.20 CNY')).toBeTruthy()
-        // 明细成本列同样换算：10.71 → ¥77.11，2.17 → ¥15.62
+        // 明细成本列人民币：10.71 → ¥77.11，2.17 → ¥15.62
         expect(screen.getByText('¥77.11')).toBeTruthy()
         expect(screen.getByText('¥15.62')).toBeTruthy()
+
+        fireEvent.click(screen.getByTestId('currency-usd'))
+        await waitFor(() => expect(screen.getByText('$12.88')).toBeTruthy())
+        expect(screen.queryByText('¥92.74')).toBeNull()
+        expect(screen.getByText('$10.71')).toBeTruthy()
+        expect(screen.getByText('$2.17')).toBeTruthy()
     })
 
     it('窗口控制按钮 → 触发对应 IPC', async () => {
         render(<UsageWindow />)
-        await waitFor(() => expect(screen.getByText('$12.88')).toBeTruthy())
+        await waitFor(() => expect(screen.getByText('¥92.74')).toBeTruthy())
         fireEvent.click(screen.getByLabelText('最小化'))
         fireEvent.click(screen.getByLabelText('最大化'))
         fireEvent.click(screen.getByLabelText('关闭'))
