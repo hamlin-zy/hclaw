@@ -20,7 +20,7 @@ message-list/
 ├── InterleavedContent.tsx      # 交错内容渲染 (134 行)
 ├── ToolCallRenderer.tsx        # 工具调用渲染 (246 行)
 ├── AttachmentPreview.tsx        # 附件预览 (94 行)
-├── StatusIndicators.tsx        # 状态指示器 (78 行)
+├── StatusIndicators.tsx        # 阶段文案常量 (20 行)
 ├── MarkdownRenderer.tsx        # Markdown 渲染 (109 行)
 ├── useScrollToBottom.ts        # 滚动管理 Hook (194 行)
 └── utils/
@@ -37,7 +37,7 @@ message-list/
 | **InterleavedContent.tsx** | 文本与工具调用的交错渲染               | stores, 子组件 |
 | **ToolCallRenderer.tsx**   | 工具调用的状态展示                  | utils       |
 | **AttachmentPreview.tsx**  | 附件预览（图片/文件）                | utils       |
-| **StatusIndicators.tsx**   | 思考中和暂停指示器                  | stores      |
+| **StatusIndicators.tsx**   | 阶段文案常量与工具函数（供气泡 statusNote 复用） | -           |
 | **MarkdownRenderer.tsx**   | Markdown 渲染器               | 外部库         |
 | **useScrollToBottom.ts**   | 滚动管理（自动跟随、用户检测）            | -           |
 | **utils/messageUtils.ts**  | 工具函数（toString, formatArgs） | -           |

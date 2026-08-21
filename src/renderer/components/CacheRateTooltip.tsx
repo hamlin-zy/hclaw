@@ -6,6 +6,28 @@ import {useMessageTokenStats} from '../hooks/useMessageTokenStats'
 import {useWindowUsage} from '../hooks/useWindowUsage'
 import MetricBadge from './MetricBadge'
 
+/** 公式 hover 提示 — 问号图标，hover 显示计算公式 */
+function FormulaTip({text}: {text: string}) {
+  return (
+    <span className="relative inline-flex group">
+      <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-current text-[9px] text-[var(--text-muted)] cursor-help leading-none">?</span>
+      <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 rounded bg-[var(--surface-overlay)] text-[10px] text-[var(--text-primary)] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg border border-[var(--border)]">
+        {text.split('\n').map((line, i) => (
+          <span key={i} style={{display: 'block'}}>{line}</span>
+        ))}
+      </span>
+    </span>
+  )
+}
+
+/** 指标行前的彩色圆点（带光晕） */
+function Dot({color, glow}: {color: string; glow: string}) {
+  return (
+    <span className="inline-block w-1.5 h-1.5 rounded-full mr-1"
+      style={{backgroundColor: color, boxShadow: `0 0 0 3px ${glow}`}}/>
+  )
+}
+
 /**
  * 缓存命中率徽章颜色：≥90 优秀绿 / 70~90 一般黄 / <70 警惕红。
  * 注意：与 MetricBadge 内置分级的阈值方向相反（命中率越高越健康，
@@ -40,7 +62,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
   const [pos, setPos] = useState({bottom: 0, right: 0})
 
   const stats = useMessageTokenStats()
-  const {contextLength, pct} = useWindowUsage(stats)
+  const {pct} = useWindowUsage(stats)
 
   const totalInput = stats.totalInputTokens
   const totalCacheRead = stats.totalCacheReadTokens
@@ -114,75 +136,75 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
       onMouseEnter={handleTooltipEnter}
       onMouseLeave={scheduleHide}
       className="fixed z-[9999] bg-[var(--surface-elevated)] border border-[var(--border)]
-                 rounded-lg shadow-overlay p-3 whitespace-nowrap min-w-[240px]"
+                 rounded-lg shadow-overlay p-3 min-w-[260px]"
       style={{bottom: pos.bottom, right: pos.right}}
     >
       <div className="text-[11px] leading-relaxed text-[var(--text-primary)]">
-        <div className="flex items-center gap-2 text-[var(--text-muted)] mb-1.5 pb-1.5 border-b border-[var(--border)]">
-          <span className="font-medium text-[var(--text-primary)]">缓存命中率 {rate}%</span>
-          <span>·</span>
-          <span>窗口占用 {formatTokenCount(currentTotalTokens)}</span>
-          <span>·</span>
-          <span>LLM {stats.requestCount}次</span>
-          <span>·</span>
-          <span>工具 {stats.toolCallCount}次</span>
+        {/* 分区 1：核心指标 5 行 */}
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center justify-between gap-8">
+            <span className="flex items-center gap-1">
+              缓存命中率
+              <FormulaTip text={`平均命中率 = ${formatTokenCount(totalCacheRead)} / (${formatTokenCount(totalInput)} + ${formatTokenCount(totalCacheRead)}) = ${rate}%\n末次命中率 = ${formatTokenCount(currentCacheRead)} / (${formatTokenCount(currentInput)} + ${formatTokenCount(currentCacheRead)}) = ${lastRate}%`}/>
+            </span>
+            <span className="tabular-nums" style={{color: 'var(--brand-primary)'}}>
+              <Dot color="var(--success)" glow="var(--success-muted)"/>
+              {rate}%
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-8">
+            <span>窗口使用率</span>
+            <span className="tabular-nums" style={{color: 'var(--brand-primary)'}}>
+              <Dot color="var(--info)" glow="var(--info-muted)"/>
+              {pct}%
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-8">
+            <span className="flex items-center gap-1">
+              窗口占用
+              <FormulaTip text={`窗口占用 = 输入 ${formatTokenCount(currentInput)} + 缓存命中 ${formatTokenCount(currentCacheRead)} = ${formatTokenCount(currentTotalTokens)}`}/>
+            </span>
+            <span className="tabular-nums" style={{color: 'var(--brand-primary)'}}>{formatTokenCount(currentTotalTokens)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-8">
+            <span>平均首字</span>
+            <span className="tabular-nums" style={{color: 'var(--brand-primary)'}}>
+              <Dot color="var(--warning)" glow="var(--warning-muted)"/>
+              {avgTtftSeconds != null ? `${avgTtftSeconds.toFixed(1)}s` : '—'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-8">
+            <span>平均吞吐</span>
+            <span className="tabular-nums" style={{color: 'var(--brand-primary)'}}>
+              <Dot color="var(--brand-primary)" glow="var(--brand-muted)"/>
+              {avgDecodeRate != null ? `${formatTokensPerSecond(avgDecodeRate)} t/s` : '—'}
+            </span>
+          </div>
         </div>
 
-        <div className="grid grid-cols-[3rem_1fr_1fr] gap-x-3 gap-y-1 text-[10px] text-[var(--text-muted)] mb-1">
-          <span/>
-          <span className="text-right">累计</span>
-          <span className="text-right">当前</span>
+        {/* 分区 2：Token 统计表 */}
+        <div className="border-t border-dashed border-[var(--border-emphasis)] mt-1.5 pt-1.5">
+          <div className="grid grid-cols-[3rem_1fr_1fr] gap-x-3 gap-y-0.5 text-[10px] text-[var(--text-muted)]">
+            <span/><span className="text-right">累计</span><span className="text-right">当前</span>
+          </div>
+          <div className="grid grid-cols-[3rem_1fr_1fr] gap-x-3 gap-y-0.5 text-[11px]">
+            <span className="text-[var(--text-muted)]">输入</span>
+            <span className="text-right tabular-nums">{formatTokenCount(totalInput)}</span>
+            <span className="text-right tabular-nums" style={{color: 'var(--info)'}}>{formatTokenCount(currentInput)}</span>
+            <span className="text-[var(--text-muted)]">缓存命中</span>
+            <span className="text-right tabular-nums">{formatTokenCount(totalCacheRead)}</span>
+            <span className="text-right tabular-nums" style={{color: 'var(--brand-primary)'}}>{formatTokenCount(currentCacheRead)}</span>
+            <span className="text-[var(--text-muted)]">输出</span>
+            <span className="text-right tabular-nums">{formatTokenCount(stats.totalOutputTokens)}</span>
+            <span className="text-right tabular-nums" style={{color: 'var(--info)'}}>{formatTokenCount(stats.currentOutputTokens)}</span>
+          </div>
         </div>
 
-        <div className="grid grid-cols-[3rem_1fr_1fr] gap-x-3 gap-y-1">
-          <span className="text-[var(--text-muted)]">输入</span>
-          <span className="text-right tabular-nums">{formatTokenCount(totalInput)}</span>
-          <span className="text-right tabular-nums">{formatTokenCount(currentInput)}</span>
-        </div>
-
-        <div className="grid grid-cols-[3rem_1fr_1fr] gap-x-3 gap-y-1">
-          <span className="text-[var(--text-muted)]">缓存命中</span>
-          <span className="text-right tabular-nums">{formatTokenCount(totalCacheRead)}</span>
-          <span className="text-right tabular-nums">{formatTokenCount(currentCacheRead)}</span>
-        </div>
-
-        <div className="grid grid-cols-[3rem_1fr_1fr] gap-x-3 gap-y-1">
-          <span className="text-[var(--text-muted)]">输出</span>
-          <span className="text-right tabular-nums">{formatTokenCount(stats.totalOutputTokens)}</span>
-          <span className="text-right tabular-nums">{formatTokenCount(stats.currentOutputTokens)}</span>
-        </div>
-
-        <div className="mt-2 pt-2 border-t border-[var(--border)] text-[10px] text-[var(--text-muted)] leading-relaxed">
-          <div>
-            命中率 = {formatTokenCount(totalCacheRead)} / ({formatTokenCount(totalInput)} + {formatTokenCount(totalCacheRead)}) = {rate}%
-          </div>
-          <div>
-            末次命中率 = {formatTokenCount(currentCacheRead)} / ({formatTokenCount(currentInput)} + {formatTokenCount(currentCacheRead)}) = {lastRate}%
-          </div>
-          <div>
-            窗口占用 = 输入 {formatTokenCount(currentInput)} + 缓存命中 {formatTokenCount(currentCacheRead)} = {formatTokenCount(currentTotalTokens)}
-          </div>
-          <div>
-            {contextLength > 0
-              ? `窗口使用率 = ${formatTokenCount(currentTotalTokens)} / ${formatTokenCount(contextLength)} = ${pct}%`
-              : '窗口大小未知'}
-          </div>
-          <div className="mt-1.5 pt-1.5 border-t border-[var(--border-dashed)] flex flex-col gap-1">
-            <div className="flex items-center justify-between gap-8">
-              <span>平均吞吐</span>
-              <span className="tabular-nums text-[var(--text-primary)]">
-                {avgDecodeRate != null ? `${formatTokensPerSecond(avgDecodeRate)} t/s` : '—'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-8">
-              <span>平均首字</span>
-              <span className="tabular-nums text-[var(--text-primary)]">
-                {avgTtftSeconds != null ? `${avgTtftSeconds.toFixed(1)}s` : '—'}
-              </span>
-            </div>
-          </div>
-          <div className="mt-1.5 pt-1.5 border-t border-[var(--border-dashed)] text-[var(--text-tertiary)]">
-            低价值上下文自动裁剪，上下文数值仅代表末次请求
+        {/* 分区 3：次级指标 */}
+        <div className="border-t border-dashed border-[var(--border-emphasis)] mt-1.5 pt-1.5">
+          <div className="grid grid-cols-[1fr_1fr] gap-x-6 gap-y-0.5 text-[11px]">
+            <div className="flex justify-between"><span>LLM 请求</span><b className="tabular-nums">{stats.requestCount} 次</b></div>
+            <div className="flex justify-between"><span>工具调用</span><b className="tabular-nums">{stats.toolCallCount} 次</b></div>
           </div>
         </div>
       </div>

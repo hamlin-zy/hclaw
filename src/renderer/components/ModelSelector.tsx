@@ -84,13 +84,14 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
         if (active) {
             const provider = providers.find(p => p.id === active.endpointId)
             const model = provider?.models.find(m => m.id === active.modelId)
-            return provider && model ? model.name : (active.modelId || active.providerName || '')
+            if (provider && model) return `${provider.name}: ${model.name}`
+            return active.modelId || active.providerName || ''
         }
         // 无 override → 显示当前方案 primary 模型名（虚拟选中语义）
         if (primaryRole) {
             const provider = providers.find(p => p.id === primaryRole.endpointId)
             const model = provider?.models.find(m => m.id === primaryRole.modelId)
-            if (provider && model) return model.name
+            if (provider && model) return `${provider.name}: ${model.name}`
         }
         return '主力模型'  // primary 未配置/不可解析 → 兜底文案（原"自动"）
     }, [active, primaryRole, providers])
@@ -213,7 +214,11 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
             <button
                 ref={buttonRef}
                 onClick={() => setView(view === 'closed' ? 'providers' : 'closed')}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-[var(--border)] text-[11px] transition-colors bg-[var(--surface)] hover:border-[var(--border-emphasis)] hover:bg-[var(--surface-muted)] active:bg-[var(--surface-overlay)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/60 focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface)]"
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/60 focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface)] ${
+                    view !== 'closed'
+                        ? 'border-[var(--brand-primary)] bg-[var(--brand-muted)] text-[var(--brand-primary)]'
+                        : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:border-[var(--border-emphasis)] hover:bg-[var(--surface-muted)] active:bg-[var(--surface-overlay)]'
+                }`}
                 aria-expanded={view !== 'closed'}
                 aria-haspopup="menu"
                 title="选择模型"
@@ -233,14 +238,14 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                             animate={{opacity: 1, y: 0, scale: 1}}
                             exit={{opacity: 0, y: 8, scale: 0.96}}
                             transition={{duration: 0.15}}
-                            style={{bottom: position.bottom, right: position.right, width: '260px'}}
-                            className="fixed z-[9999]"
+                            style={{bottom: position.bottom, right: position.right}}
+                            className="fixed z-[9999] w-max min-w-[168px] max-w-[340px]"
                             onMouseDown={(e) => e.stopPropagation()}
                             ref={panelRef}
                         >
                             {/* overflow-hidden 仅裁剪自身圆角；子菜单独立 portal 到 body，不受影响。
                                 max-h-[80vh]：弹窗最大高度 = 主窗口 80%；内容少时按需渲染，超出才滚动 */}
-                            <div className="bg-[var(--surface-elevated)]/92 backdrop-blur-lg border border-[var(--border)] rounded-2xl shadow-2xl shadow-black/20 overflow-hidden flex flex-col max-h-[80vh]">
+                            <div className="bg-[var(--surface-elevated)]/92 backdrop-blur-lg border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden flex flex-col max-h-[80vh]">
                                 <div className="p-2 flex flex-col flex-1 min-h-0">
                                     <div className="px-2 py-1.5 text-[10px] font-medium text-[var(--text-muted)] border-b border-[var(--border)] mb-1">
                                         模型选择
@@ -291,8 +296,8 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                             animate={{opacity: 1, x: 0, scale: 1}}
                             exit={{opacity: 0, x: -4, scale: 0.96}}
                             transition={{duration: 0.15}}
-                            style={{left: submenuPos.left, top: submenuPos.top, width: '220px'}}
-                            className="fixed z-[9999]"
+                            style={{left: submenuPos.left, top: submenuPos.top}}
+                            className="fixed z-[9999] w-max min-w-[148px] max-w-[340px]"
                             onMouseDown={(e) => e.stopPropagation()}
                             onMouseEnter={cancelClose}
                             onMouseLeave={scheduleClose}

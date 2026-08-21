@@ -6,17 +6,38 @@ import MessageList from '../../../../src/renderer/components/message-list/Messag
 // ── 依赖 mock：静态 store（selector 每次返回同一引用） ──
 const {mockConversationState, mockAgentState} = vi.hoisted(() => ({
     mockConversationState: {
-        messagesMap: {},
-        loadedMessages: [],
-        activeConversationId: null,
-        hasMoreMap: {},
-        loadingMoreMap: {},
+        messagesMap: {} as Record<string, any[]>,
+        loadedMessages: [] as any[],
+        activeConversationId: null as string | null,
+        hasMoreMap: {} as Record<string, boolean>,
+        loadingMoreMap: {} as Record<string, boolean>,
     },
     mockAgentState: {
-        convAgentStates: {},
-        streamingMessageId: null,
+        convAgentStates: {} as Record<string, any>,
+        streamingMessageId: null as string | null,
+        agentState: {status: 'idle', phase: 'idle', mode: 'auto'} as {status: string; phase: string; mode: string},
+        errorMessage: null as string | null,
+        isThinkingAfterTools: false,
     },
 }))
+
+// ── 辅助：注入一条 assistant 消息，使 lastAssistantId 非空（statusNote 有气泡可挂载） ──
+function seedAssistantMessage(convId: string, msgId = 'msg-1') {
+    mockConversationState.messagesMap[convId] = [
+        {id: msgId, role: 'assistant', content: ''},
+    ]
+    mockConversationState.loadedMessages = [
+        {id: msgId, role: 'assistant', content: ''},
+    ]
+    mockConversationState.activeConversationId = convId
+    mockAgentState.convAgentStates[convId] = {
+        streamingMessageId: msgId,
+        agentState: {status: 'running', phase: 'streaming', mode: 'auto'},
+        errorMessage: null,
+        executingToolsMessage: null,
+        isThinkingAfterTools: false,
+    }
+}
 
 vi.mock('../../../../src/renderer/stores/conversationStore', () => ({
     // MessageList 在 useEffect/回调中会调用 getState()（滚动加载/会话切换路径），
@@ -83,6 +104,28 @@ describe('MessageList hooks 稳定性（Task 8/9 修复条件 Hook 后的回归�
         render(<MessageList />)
         await waitFor(() => {
             expect(screen.getByText('欢迎使用 HClaw')).toBeTruthy()
+        })
+    })
+
+    // ── statusNote 文案覆盖（本次改动相关回归） ──
+
+    it('executing_tools 阶段：statusNote 显示「本地工具执行中...」', async () => {
+        seedAssistantMessage('conv-1')
+        mockAgentState.convAgentStates['conv-1'].agentState.phase = 'executing_tools'
+        render(<MessageList conversationId="conv-1" />)
+        await waitFor(() => {
+            expect(screen.getByText('本地工具执行中...')).toBeTruthy()
+        })
+    })
+
+    it('阶段文案：服务商与模型以冒号+空格分隔', async () => {
+        seedAssistantMessage('conv-1')
+        mockAgentState.convAgentStates['conv-1'].agentState.phase = 'streaming'
+        mockAgentState.convAgentStates['conv-1'].agentState.currentModelProvider = 'OpenRouter'
+        mockAgentState.convAgentStates['conv-1'].agentState.currentModelName = 'dots-3-note-preview:free'
+        render(<MessageList conversationId="conv-1" />)
+        await waitFor(() => {
+            expect(screen.getByText(/OpenRouter: dots-3-note-preview:free/)).toBeTruthy()
         })
     })
 })
