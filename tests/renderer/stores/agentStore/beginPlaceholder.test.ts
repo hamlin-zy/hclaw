@@ -153,4 +153,34 @@ describe('handleBegin 占位气泡（会话首轮思考中有气泡可挂）', (
 
         expect(registerSpy).not.toHaveBeenCalled()
     })
+
+    it('begin 携带 messageId（子会话 agentTool 累积器固定 id）：占位消息 id 对齐该 id 而非 UUID', () => {
+        seedConv()
+        handleBegin(makeCtx({type: 'begin', messageId: 'msg-1728000000000-abc123'}))
+
+        expect(mockConversationState.addMessageToConv).toHaveBeenCalledTimes(1)
+        const [convId, msg] = mockConversationState.addMessageToConv.mock.calls[0]
+        expect(convId).toBe('conv-1')
+        expect(msg.id).toBe('msg-1728000000000-abc123')
+        expect(msg.role).toBe('assistant')
+
+        // 后续流式事件复用该 id → 与主进程 SQLite 增量落库消息同 id，
+        // 首次打开子会话时 switchActiveConversation 按 id 去重合并两轨 → 单条气泡
+        expect(mockAgentState.convAgentStates['conv-1'].streamingMessageId).toBe('msg-1728000000000-abc123')
+    })
+
+    it('begin 携带 messageId：不注册主进程（子会话持久化走 agentTool 累积器路径，无 pending 机制可复用）', () => {
+        seedConv()
+        handleBegin(makeCtx({type: 'begin', messageId: 'msg-1728000000000-abc123'}))
+
+        expect(registerSpy).not.toHaveBeenCalled()
+    })
+
+    it('已有 streamingMessageId 且 begin 携带 messageId：复用原 ID，忽略事件 id', () => {
+        seedConv({streamingMessageId: 'msg-keep'})
+        handleBegin(makeCtx({type: 'begin', messageId: 'msg-1728000000000-abc123'}))
+
+        expect(mockConversationState.addMessageToConv).not.toHaveBeenCalled()
+        expect(mockAgentState.convAgentStates['conv-1'].streamingMessageId).toBe('msg-keep')
+    })
 })

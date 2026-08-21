@@ -150,7 +150,8 @@ describe('useWindowUsage', () => {
             agentState: {...useAgentStore.getState().agentState, currentModelName: 'deepseek-v3'},
         })
 
-        const {result} = renderHook(() => useWindowUsage(makeStats({currentInputTokens: 1000})))
+        // 仅断言查询目标，无需校验返回值
+        renderHook(() => useWindowUsage(makeStats({currentInputTokens: 1000})))
 
         await act(async () => {
             await Promise.resolve()
@@ -158,6 +159,33 @@ describe('useWindowUsage', () => {
 
         // 用运行态模型名查询（而非 primary 角色解析出的 claude-3.5-sonnet）
         expect((window.electronAPI as any).modelMetaGetWindow).toHaveBeenCalledWith('deepseek-v3')
+    })
+
+    it('显式 modelName 优先于运行态/primary 解析（徽章环分母 = 生效模型）', async () => {
+        // 运行态模型名 ≠ 生效模型（override 场景）：显式参数直接作为查询分母，不回落 primary
+        useAgentStore.setState({
+            agentState: {...useAgentStore.getState().agentState, currentModelName: 'other-running'},
+        })
+        useModelSchemeStore.setState({
+            activeSchemeId: 's1',
+            schemes: [makeScheme('s1', 'primary', 'ep1', 'm1')],
+        })
+        useLLMStore.setState({providers: [makeProvider('ep1', 'm1', 'claude-3.5-sonnet')]})
+
+        const stats = makeStats({currentInputTokens: 10000, currentCacheReadTokens: 5000})
+        const {result} = renderHook(() => useWindowUsage(stats, 'deepseek-v3'))
+
+        await act(async () => {
+            await Promise.resolve()
+        })
+
+        // 用显式传入的生效模型名查询（而非运行态/primary 解析结果）
+        expect((window.electronAPI as any).modelMetaGetWindow).toHaveBeenCalledWith('deepseek-v3')
+        expect((window.electronAPI as any).modelMetaGetWindow).not.toHaveBeenCalledWith('claude-3.5-sonnet')
+        expect((window.electronAPI as any).modelMetaGetWindow).not.toHaveBeenCalledWith('other-running')
+        // pct = (10000+5000)/200000 = 7.5% → 8
+        expect(result.current.contextLength).toBe(200000)
+        expect(result.current.pct).toBe(8)
     })
 
     it('窗口未知（contextLength 0）→ pct 0', async () => {
