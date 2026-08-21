@@ -25,6 +25,7 @@ vi.mock('../../../../src/main/config', () => {
 
 import {closeDatabase, getDatabase} from '../../../../src/main/repositories/sqlite'
 import {SqliteConversationRepository} from '../../../../src/main/repositories/sqlite/conversationRepository'
+import type {Message} from '@shared/types'
 
 let repo: SqliteConversationRepository
 let db: ReturnType<typeof getDatabase>
@@ -250,5 +251,58 @@ describe('readMessages — B1 消息加载组装 Message.llmStats', () => {
 
         const before = repo.readMessagesBefore('conv-1', 9999, 10)
         expect(before.messages[0]!.llmStats![0]!.provider).toBe('anthropic')
+    })
+})
+
+describe('writeMessagesDelta / writeMessages — B1 写侧剥离（llm_stats 不再随消息落库）', () => {
+    function seedConv() {
+        db.prepare('INSERT INTO conversations (id, workspace_path, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+            .run('conv-1', '', '{}', 1, 1)
+    }
+
+    /** 构造携带 llmStats 的消息（渲染层旧行为/读侧组装数据，模拟双写源头） */
+    function makeMsg(overrides: Partial<Message> = {}): Message {
+        return {
+            id: 'm-1', role: 'assistant', content: 'hello', timestamp: 1,
+            llmStats: [{inputTokens: 100, outputTokens: 20, provider: 'anthropic', model: 'deepseek-v4', duration: 500}],
+            ...overrides,
+        }
+    }
+
+    beforeEach(() => {
+        seedConv()
+    })
+
+    it('writeMessagesDelta：消息携带 llmStats → 不写入 llm_stats 列（llm_usage 唯一源）', () => {
+        repo.writeMessagesDelta('conv-1', makeMsg())
+        const row = db.prepare('SELECT llm_stats FROM messages WHERE id = ?').get('m-1') as {llm_stats: string | null} | undefined
+        expect(row?.llm_stats).toBeNull()
+    })
+
+    it('writeMessagesDelta：已有历史 llm_stats 列值 → 保留不被新 llmStats 覆盖', () => {
+        db.prepare('INSERT INTO messages (id, conversation_id, role, timestamp, llm_stats) VALUES (?, ?, ?, ?, ?)')
+            .run('m-1', 'conv-1', 'assistant', 1, JSON.stringify([{inputTokens: 1, outputTokens: 1, provider: 'p', model: 'm', duration: 1}]))
+        repo.writeMessagesDelta('conv-1', makeMsg())
+        const row = db.prepare('SELECT llm_stats FROM messages WHERE id = ?').get('m-1') as {llm_stats: string}
+        const parsed = JSON.parse(row.llm_stats)
+        expect(parsed).toHaveLength(1)
+        expect(parsed[0]!.provider).toBe('p')      // 历史值保留
+        expect(parsed[0]!.inputTokens).toBe(1)
+    })
+
+    it('writeMessages（批量）：消息携带 llmStats → 不写入 llm_stats 列', () => {
+        repo.writeMessages('conv-1', [makeMsg()])
+        const row = db.prepare('SELECT llm_stats FROM messages WHERE id = ?').get('m-1') as {llm_stats: string | null} | undefined
+        expect(row?.llm_stats).toBeNull()
+    })
+
+    it('writeMessages（批量）：已有历史 llm_stats 列值 → 保留不被覆盖', () => {
+        db.prepare('INSERT INTO messages (id, conversation_id, role, timestamp, llm_stats) VALUES (?, ?, ?, ?, ?)')
+            .run('m-1', 'conv-1', 'assistant', 1, JSON.stringify([{inputTokens: 7, outputTokens: 2, provider: 'p', model: 'm', duration: 1}]))
+        repo.writeMessages('conv-1', [makeMsg()])
+        const row = db.prepare('SELECT llm_stats FROM messages WHERE id = ?').get('m-1') as {llm_stats: string}
+        const parsed = JSON.parse(row.llm_stats)
+        expect(parsed).toHaveLength(1)
+        expect(parsed[0]!.inputTokens).toBe(7)     // 历史值保留
     })
 })
