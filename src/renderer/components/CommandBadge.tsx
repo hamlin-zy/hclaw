@@ -1,9 +1,16 @@
 /**
- * CommandBadge — 命令执行状态徽标
+ * CommandBadge — 命令激活状态徽标（卡片式重设计）
  *
- * 在消息列表中展示命令匹配和执行状态。
+ * 在消息列表中标记命令激活结果（⚡ 成功 / ⚡ 失败）。
+ * 仅表示命令是否被成功识别并激活，不反映任何后续执行进度或结果。
+ *
+ * 设计语言：
+ *  - 卡片化：surface-elevated 表面 + border + 微阴影，与应用卡片体系统一
+ *  - 命令名：JetBrains Mono 等宽字体，语义色高亮
+ *  - 状态标签：固定「已激活」，克制不刺眼
  */
 
+import {memo} from 'react'
 import {motion} from 'framer-motion'
 import type {CommandExecution} from '@shared/types'
 
@@ -14,93 +21,70 @@ interface CommandBadgeProps {
     commandId?: string
 }
 
-const statusConfig = {
-    loading: {
-        color: 'text-[var(--brand-primary)]',
-        bg: 'bg-[var(--brand-primary)]/12',
-        border: 'border-[var(--brand-primary)]/40',
-        icon: (
-            <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-            </svg>
-        ),
-        label: '已激活',
-    },
-    running: {
-        color: 'text-[var(--brand-primary)]',
-        bg: 'bg-[var(--brand-primary)]/12',
-        border: 'border-[var(--brand-primary)]/40',
-        icon: (
-            <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-            </svg>
-        ),
-        label: '执行中',
-    },
-    done: {
-        color: 'text-[var(--success)]',
-        bg: 'bg-[var(--success)]/12',
-        border: 'border-[var(--success)]/40',
-        icon: (
-            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="20 6 9 17 4 12"/>
-            </svg>
-        ),
-        label: '已完成',
-    },
-    error: {
-        color: 'text-[var(--error)]',
-        bg: 'bg-[var(--error)]/12',
-        border: 'border-[var(--error)]/40',
-        icon: (
-            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="15" y1="9" x2="9" y2="15"/>
-                <line x1="9" y1="9" x2="15" y2="15"/>
-            </svg>
-        ),
-        label: '失败',
-    },
-}
+/* ─── 状态配置 ───────────────────────────────────────────
+ * loading / running / done 均为同一终态（⚡ 已激活），仅 error 区分。
+ */
+const OK_COLOR = 'text-[var(--success)]'
+const ERROR_COLOR = 'text-[var(--error)]'
 
-export function CommandBadge({commandName, commandArgs, status, commandId}: CommandBadgeProps) {
-    const cfg = statusConfig[status]
+/**
+ * 命令徽标 — 单条命令状态卡片
+ */
+export const CommandBadge = memo(function CommandBadge({
+    commandName, commandArgs, status, commandId
+}: CommandBadgeProps) {
+    const isError = status === 'error'
+    const color = isError ? ERROR_COLOR : OK_COLOR
+    const label = isError ? '激活失败' : '已激活'
+
+    // 截断参数用于 tooltip 展示完整内容
+    const truncatedArgs = commandArgs && commandArgs.length > 30
+        ? `${commandArgs.slice(0, 30)}...`
+        : commandArgs
 
     return (
         <motion.div
-            initial={{opacity: 0, scale: 0.9}}
-            animate={{opacity: 1, scale: 1}}
-            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-medium border ${cfg.bg} ${cfg.color} ${cfg.border}`}
+            initial={{opacity: 0, y: 4, scale: 0.97}}
+            animate={{opacity: 1, y: 0, scale: 1}}
+            transition={{duration: 0.2, ease: 'easeOut'}}
+            className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border bg-[var(--surface-elevated)]
+                border-[var(--border)] shadow-[var(--shadow-card)]`}
             title={commandId ? `命令 ID: ${commandId}` : undefined}
         >
-            {cfg.icon}
-            <span className="truncate max-w-32">
-                {commandName}
-                {commandArgs && (
-                    <span className="opacity-60 ml-1 truncate max-w-48" title={commandArgs}>
-                        {commandArgs.length > 20 ? `${commandArgs.slice(0, 20)}...` : commandArgs}
+            {/* 图标 */}
+            <span className={`flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-md
+                bg-[var(--surface-muted)] ${color}`}>
+                ⚡
+            </span>
+
+            {/* 命令名 + 参数 — 等宽字体 */}
+            <span className="font-mono text-[11px] leading-tight truncate max-w-44">
+                <span className={`font-semibold ${color}`}>{commandName}</span>
+                {truncatedArgs && (
+                    <span className="text-[var(--text-muted)] ml-1" title={commandArgs}>
+                        {truncatedArgs}
                     </span>
                 )}
             </span>
-            <span className="opacity-60">{cfg.label}</span>
+
+            {/* 状态标签 — 克制的辅助文字 */}
+            <span className={`text-[10px] font-medium ${color} opacity-70 shrink-0`}>
+                {label}
+            </span>
         </motion.div>
     )
-}
+})
 
 /**
  * CommandBadges — 命令徽标组
  *
- * 展示多个命令的状态。
+ * 展示多个命令的状态，自动换行。
  */
-export function CommandBadges({commands}: { commands: CommandExecution[] }) {
+export const CommandBadges = memo(function CommandBadges({commands}: { commands: CommandExecution[] }) {
     if (commands.length === 0) return null
 
     return (
-        <div className="flex flex-wrap gap-1.5 my-2">
+        <div className="flex flex-wrap gap-2 my-2">
             {commands.map((cmd, index) => (
                 <CommandBadge
                     key={`${cmd.commandId}-${index}`}
@@ -112,4 +96,6 @@ export function CommandBadges({commands}: { commands: CommandExecution[] }) {
             ))}
         </div>
     )
-}
+})
+
+export default CommandBadge

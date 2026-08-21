@@ -33,6 +33,8 @@ export interface HookResultItem {
     conversationId: string // 所属会话
     /** 通用通知消息（非 hook 结果时使用，如 max_tokens 截断提示；优先级高于 hookName|状态） */
     message?: string
+    /** 是否常驻显示（true 时不随 TTL 自动消失，需用户手动关闭） */
+    pinned?: boolean
 }
 
 // ─── 多会话独立 Agent 状态 ────────────────────────────
@@ -229,6 +231,8 @@ export interface AgentStore {
 
     /** Hook 执行结果列表（用于 UI 反馈） */
     hookResults: HookResultItem[]
-    /** 添加 hook 执行结果（自动清理超 50 条的旧记录） */
+    /** 添加 hook 执行结果（自动清理超 50 条的旧记录；pinned 标记在 item 上） */
     addHookResult: (item: HookResultItem) => void
+    /** 移除一个 hook 结果（用户手动关闭通知时调用，从 store 中彻底删除） */
+    removeHookResult: (id: string) => void
 }
