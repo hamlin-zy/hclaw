@@ -31,8 +31,14 @@ export function isRetryMessage(msg: string | {label: string; urgent: boolean} | 
  * 无 streamingMessageId 时创建空消息并写入 ID，返回新 ID；已有则返回 null。
  * 供 begin / 重试 warning / error 复用，使状态提示（思考中/重试/错误）有气泡可挂载，
  * 后续 text/tool_use 复用该 ID，避免各处重复建消息产生幽灵气泡。
+ *
+ * @param preferredId 事件携带的目标消息 id（子会话 begin 事件由 agentTool 附带
+ *   msg-<ts>-<rand> 累积器固定 id）。存在时以其创建占位，保证渲染端内存流式消息
+ *   与主进程 SQLite 增量落库消息同 id —— 子会话首次打开时 switchActiveConversation
+ *   按 id 去重合并两轨才不会产生重复气泡。不注册主进程：子会话持久化走 agentTool
+ *   累积器路径（不经过主进程 pending 机制），注册了也无人消费。
  */
-export function ensureStreamingMessage(get: GetFn, convId: string): string | null {
+export function ensureStreamingMessage(get: GetFn, convId: string, preferredId?: string): string | null {
     const convState = get().convAgentStates[convId]
     const existingId = convState?.streamingMessageId
     if (existingId) {
@@ -49,24 +55,29 @@ export function ensureStreamingMessage(get: GetFn, convId: string): string | nul
             return null
         }
     }
-    const placeholderId = crypto.randomUUID()
+    const placeholderId = preferredId || crypto.randomUUID()
     useConversationStore.getState().addMessageToConv(convId, {id: placeholderId, role: 'assistant', content: ''})
     get().updateConvData(convId, {streamingMessageId: placeholderId})
     // ★ 占位 id 注册到主进程：pending 累积复用同一 id（幂等，fire-and-forget）。
     //   否则主进程 createPendingMsg 独立生成 id，done 时 #mergeAndPersist 全量写
     //   兜底会以该 id 插入幽灵副本 → 重启加载后每条助手消息渲染 2 份。
-    window.electronAPI?.agentRegisterStreamingMessage?.(convId, placeholderId)
+    //   事件携带 preferredId（子会话对齐主进程累积器 id）时无需注册。
+    if (!preferredId) {
+        window.electronAPI?.agentRegisterStreamingMessage?.(convId, placeholderId)
+    }
     return placeholderId
 }
 
 export function handleBegin(ctx: StreamCtx) {
-    const {get, convId} = ctx
+    const {get, convId, event} = ctx
     console.log('[handleStreamEvent] begin event, convId:', convId)
     const prevConvState = get().convAgentStates[convId] || createDefaultConvData()
     // ★ 占位气泡：LLM 调用开始（思考中）时若还没有 assistant 消息，创建空占位
     //   并写入 streamingMessageId，使运行状态提示（思考中/响应中）有气泡可挂载
     //   （气泡内 statusNote）；后续 text/tool_use 复用该 ID，避免重复建消息。
-    const placeholderId = ensureStreamingMessage(get, convId)
+    //   事件携带 messageId（子会话 agentTool 附带的 msg-<ts> 累积器固定 id）时
+    //   以其创建占位 → 与主进程 SQLite 增量落库消息同 id，切换会话去重合并不重复。
+    const placeholderId = ensureStreamingMessage(get, convId, event.messageId)
     get().updateConvData(convId, {
         streamBuffer: prevConvState.streamBuffer,
         thinkingContent: prevConvState.thinkingContent,

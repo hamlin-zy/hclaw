@@ -148,7 +148,10 @@ export class SqliteLlmUsageRepository {
   ): Array<{ts: number; stats: LlmStats[]}> {
     try {
       const db = getDatabase()
-      const conds: string[] = ['m.llm_stats IS NOT NULL', "m.role = 'assistant'"]
+      // B1 双源防重：llm_usage 为唯一数据源。排除 llm_usage 中已有记录的消息，
+      // 仅回填迁移前历史消息（llm_stats 列是它们的唯一源）；迁移后消息若列中残留
+      // 双写/膨胀数据（历史写侧剥离不彻底所致），不再参与统计，避免重复计数。
+      const conds: string[] = ['m.llm_stats IS NOT NULL', "m.role = 'assistant'", 'NOT EXISTS (SELECT 1 FROM llm_usage u WHERE u.message_id = m.id)']
       const params: unknown[] = []
       if (convIds && convIds.length > 0) {
         conds.push(`m.conversation_id IN (${convIds.map(() => '?').join(',')})`)

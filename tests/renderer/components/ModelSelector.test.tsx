@@ -52,13 +52,18 @@ const activeScheme = {
     ],
 }
 
+// usePrimaryRole 以 selector 订阅（schemes / activeSchemeId），mock 需对 selector 调用返回完整 state
+const mockSchemeState = () => ({
+    schemes: [activeScheme],
+    activeSchemeId: 'scheme-1',
+})
+
 vi.mock('../../../src/renderer/stores/modelSchemeStore', () => ({
     useModelSchemeStore: Object.assign(
-        vi.fn(() => null), // selector 订阅调用：返回 null（非关键路径）
+        vi.fn((selector: any) => (selector ? selector(mockSchemeState()) : null)),
         {
             getState: vi.fn(() => ({
-                schemes: [activeScheme],
-                activeSchemeId: 'scheme-1',
+                ...mockSchemeState(),
                 getActiveScheme: () => activeScheme,
             })),
         },

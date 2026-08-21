@@ -187,15 +187,19 @@ interface HookResultItem {
     hookName: string
     success: boolean
     error?: string
+    message?: string
     timestamp: number
     conversationId: string
+    pinned?: boolean
 }
 
 function filterVisibleResults(
     results: HookResultItem[],
     now: number,
 ): HookResultItem[] {
-    return results.filter((r) => now - r.timestamp < HOOK_RESULT_TTL)
+    return results.filter(
+        (r) => (r.pinned ?? false) || now - r.timestamp < HOOK_RESULT_TTL
+    )
 }
 
 describe('HookResultsBar filtering', () => {
@@ -336,6 +340,57 @@ describe('HookResultsBar filtering', () => {
             expect(visible[i].id).toBe(results[i].id)
         }
     })
+
+    // ── pinned（常驻）行为 ──
+    it('pinned items stay visible even after TTL expires', () => {
+        const now = Date.now()
+        const results: HookResultItem[] = [
+            {
+                id: 'pinned', event: 'warning', hookName: '响应截断',
+                success: false, pinned: true,
+                timestamp: now - 10_000, conversationId: 'conv-1',
+            },
+            {
+                id: 'expired', event: 'PostToolUse', hookName: 'Expired',
+                success: true, timestamp: now - 10_000, conversationId: 'conv-2',
+            },
+        ]
+
+        const visible = filterVisibleResults(results, now)
+        expect(visible).toHaveLength(1)
+        expect(visible[0].id).toBe('pinned')
+    })
+
+    it('pinned items remain alongside fresh items', () => {
+        const now = Date.now()
+        const results: HookResultItem[] = [
+            {
+                id: 'pinned', event: 'warning', hookName: '响应截断',
+                success: false, pinned: true,
+                timestamp: now - 60_000, conversationId: 'conv-1',
+            },
+            {
+                id: 'fresh', event: 'PostToolUse', hookName: 'Fresh',
+                success: true, timestamp: now - 500, conversationId: 'conv-2',
+            },
+        ]
+
+        const visible = filterVisibleResults(results, now)
+        expect(visible).toHaveLength(2)
+    })
+
+    it('items without pinned field are treated as unpinned', () => {
+        const now = Date.now()
+        const results: HookResultItem[] = [
+            {
+                id: 'old', event: 'PostToolUse', hookName: 'Old',
+                success: true, timestamp: now - 10_000, conversationId: 'conv-1',
+            },
+        ]
+
+        const visible = filterVisibleResults(results, now)
+        expect(visible).toHaveLength(0)
+    })
 })
 
 // ============================================================
@@ -368,5 +423,79 @@ describe('agentStore hookResults capacity', () => {
         expect(items).toHaveLength(CAPACITY)
         expect(items[0].id).toBe('item-50')
         expect(items[CAPACITY - 1].id).toBe('item-99')
+    })
+})
+
+// ============================================================
+// agentStore — hookResults 增删逻辑
+// ============================================================
+
+/**
+ * 复制自 src/renderer/stores/agentStore/index.ts 的 addHookResult /
+ * removeHookResult 核心逻辑，做纯函数测试。
+ */
+interface StoreState {
+    hookResults: HookResultItem[]
+}
+
+function createAddHookResult() {
+    return (prev: StoreState, item: HookResultItem): StoreState => {
+        const results = [...prev.hookResults, item]
+        if (results.length > 50) results.splice(0, results.length - 50)
+        return {hookResults: results}
+    }
+}
+
+function createRemoveHookResult() {
+    return (prev: StoreState, id: string): StoreState => ({
+        hookResults: prev.hookResults.filter((r) => r.id !== id),
+    })
+}
+
+describe('agentStore hookResults add/remove', () => {
+    let base: StoreState
+    const addHookResult = createAddHookResult()
+    const removeHookResult = createRemoveHookResult()
+
+    beforeEach(() => {
+        base = {hookResults: []}
+    })
+
+    it('removeHookResult deletes the item from hookResults', () => {
+        const item: HookResultItem = {
+            id: 'maxtokens-1', event: 'warning', hookName: '响应截断',
+            success: false, message: '达到最大 Token 数',
+            timestamp: Date.now(), conversationId: 'conv-1', pinned: true,
+        }
+        const s1 = addHookResult(base, item)
+        const s2 = removeHookResult(s1, 'maxtokens-1')
+        expect(s2.hookResults).toHaveLength(0)
+    })
+
+    it('removeHookResult only removes the targeted id', () => {
+        const itemA: HookResultItem = {
+            id: 'maxtokens-1', event: 'warning', hookName: '响应截断',
+            success: false, message: '达到最大 Token 数',
+            timestamp: Date.now(), conversationId: 'conv-1', pinned: true,
+        }
+        const itemB: HookResultItem = {
+            id: 'hook-2', event: 'PostToolUse', hookName: 'Hook 2',
+            success: true, timestamp: Date.now(), conversationId: 'conv-1',
+        }
+        const s1 = addHookResult(addHookResult(base, itemA), itemB)
+        const s2 = removeHookResult(s1, 'maxtokens-1')
+        expect(s2.hookResults).toHaveLength(1)
+        expect(s2.hookResults[0].id).toBe('hook-2')
+    })
+
+    it('removeHookResult on non-existent id is a no-op', () => {
+        const item: HookResultItem = {
+            id: 'maxtokens-1', event: 'warning', hookName: '响应截断',
+            success: false, message: '达到最大 Token 数',
+            timestamp: Date.now(), conversationId: 'conv-1', pinned: true,
+        }
+        const s1 = addHookResult(base, item)
+        const s2 = removeHookResult(s1, 'does-not-exist')
+        expect(s2.hookResults).toHaveLength(1)
     })
 })

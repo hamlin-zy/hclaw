@@ -124,13 +124,17 @@ export class SqliteConversationRepository implements IConversationRepository {
                 const msgStmt = db.prepare(
                     'INSERT OR REPLACE INTO messages (id, conversation_id, role, timestamp, ended_at, metadata, llm_stats) VALUES (?, ?, ?, ?, ?, ?, ?)'
                 )
+                const llmStatsStmt = db.prepare('SELECT llm_stats FROM messages WHERE id = ?')
                 const blockStmt = db.prepare(
                     'INSERT OR REPLACE INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at, turn_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
                 )
 
                 for (const msg of messages) {
                     const {messages: [msgRecord], blocks} = messageToBlocks(msg, convId)
-                    const llmStats = msg.llmStats ? JSON.stringify(msg.llmStats) : null
+                    // B1：llm_stats 不再随消息落库（llm_usage 唯一源）。仅保留已有列值（迁移前历史唯一源），
+                    // 忽略消息对象携带的 llmStats（读侧组装含 llm_usage 回读数据，写回会造成双源重复统计）
+                    const existingRow = llmStatsStmt.get(msgRecord.id) as {llm_stats: string | null} | undefined
+                    const llmStats = existingRow?.llm_stats ?? null
 
                     msgStmt.run(msgRecord.id, convId, msgRecord.role, msgRecord.timestamp, msgRecord.endedAt ?? null, JSON.stringify(msgRecord.metadata), llmStats)
 
@@ -164,11 +168,13 @@ export class SqliteConversationRepository implements IConversationRepository {
             db.transaction(() => {
                 // 1. 删除该消息的旧 blocks（INSERT OR REPLACE 不级联删除 blocks）
                 db.prepare('DELETE FROM message_blocks WHERE message_id = ?').run(message.id)
-                // 2. UPSERT 消息行（保留已有 llm_stats，避免流式中间态覆盖已写入的统计）
+                // 2. UPSERT 消息行（B1：llm_stats 不再随消息落库，llm_usage 唯一源。
+                //    忽略 message.llmStats——渲染层累积的 stats 含读侧组装回读数据，
+                //    写回 llm_stats 列会造成双源重复统计；仅保留迁移前历史唯一源列值）
                 const existingRow = db.prepare(
                     'SELECT llm_stats FROM messages WHERE id = ?'
                 ).get(message.id) as { llm_stats: string | null } | undefined
-                const llmStats = message.llmStats ? JSON.stringify(message.llmStats) : (existingRow?.llm_stats ?? null)
+                const llmStats = existingRow?.llm_stats ?? null
                 db.prepare(
                     'INSERT OR REPLACE INTO messages (id, conversation_id, role, timestamp, ended_at, metadata, llm_stats) VALUES (?, ?, ?, ?, ?, ?, ?)'
                 ).run(

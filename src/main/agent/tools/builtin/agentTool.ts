@@ -386,8 +386,13 @@ export const agentTool: Tool<AgentToolInput, string> = {
 
         activeChildSessions.add(childConvId)
 
-        // ★ 向渲染进程发送子会话 begin 事件，使侧边栏显示运行状态动画
-        sendChildAgentEvent(childConvId, {type: 'begin'})
+        // ★ 向渲染进程发送子会话 begin 事件，使侧边栏显示运行状态动画。
+        //   messageId 必须携带累积器固定消息 id（msg-<ts>-<rand>）：渲染端
+        //   ensureStreamingMessage 以此 id 创建占位，与主进程 SQLite 增量落库
+        //   消息同 id → 切换/首次打开时按 id 去重合并，不会出现
+        //   「内存占位(UUID) + SQLite 快照」双轨重复气泡（不带 messageId 则
+        //   begin 退化为 UUID 占位，后续事件带 id 也被忽略，双 id 并存）。
+        sendChildAgentEvent(childConvId, {type: 'begin', messageId: childAcc.assistantMsgId})
 
         try {
             for await (const event of agentLoop({

@@ -383,3 +383,54 @@ describe('queryAggregated/queryTrend — 历史 llm_stats 回填（与右键弹�
         expect(day?.outputTokens).toBe(30)
     })
 })
+
+describe('queryAggregated/queryTrend — 双源防重（llm_usage 已有记录的消息不回填 llm_stats）', () => {
+    /** 插入一条带 llm_stats 列的消息（模拟迁移前历史 / 双写残留数据源） */
+    function seedMessageWithStats(id: string, inputTokens: number, outputTokens: number, ts: number) {
+        const stats = [{inputTokens, outputTokens, provider: 'anthropic', model: 'claude-sonnet-4', duration: 1000, ttftMs: 500, decodeMs: 2000}]
+        db.prepare('INSERT INTO messages (id, conversation_id, role, timestamp, llm_stats) VALUES (?, ?, ?, ?, ?)')
+            .run(id, 'conv-1', 'assistant', ts, JSON.stringify(stats))
+    }
+    /** 同一条消息既写 llm_usage 又残留 llm_stats 列（历史写侧剥离前双写/膨胀场景） */
+    const seedDuplicatedMessage = () => seedMessageWithStats('m-1', 50, 10, new Date(2026, 7, 11, 10, 30).getTime())
+    /** 仅 llm_stats 列有值、llm_usage 无行（迁移前历史唯一源） */
+    const seedLegacyOnlyMessage = () => seedMessageWithStats('m-2', 60, 12, new Date(2026, 7, 11, 10, 31).getTime())
+
+    beforeEach(() => {
+        db.prepare('INSERT INTO conversations (id, workspace_path, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+            .run('conv-1', '', '{}', 1000, 1000)
+        // llm_usage 行：m-1 一次调用（真实唯一源）
+        repo.record(makeRecord({id: 'usage_m-1_0', conversationId: 'conv-1', messageId: 'm-1',
+            model: 'claude-sonnet-4', inputTokens: 100, outputTokens: 20, cacheReadTokens: 300,
+            createdAt: new Date(2026, 7, 11, 10, 30).getTime()}))
+    })
+
+    it('同一消息双写（llm_usage + llm_stats 列）→ 聚合只计 llm_usage 一次，不重复计数', () => {
+        seedDuplicatedMessage()
+        const rows = repo.queryAggregated({range: 'all', view: 'model'}, mockGetMeta)
+        const b = rows.find(r => r.key === 'claude-sonnet-4')
+        expect(b?.requestCount).toBe(1)      // 不叠加 llm_stats 的 1 条
+        expect(b?.inputTokens).toBe(100)     // 不叠加 50
+        expect(b?.outputTokens).toBe(20)     // 不叠加 10
+        expect(b?.cacheReadTokens).toBe(300)
+    })
+
+    it('llm_usage 无记录的历史消息 → 仍正常回填（历史唯一源不受影响）', () => {
+        seedLegacyOnlyMessage()
+        const rows = repo.queryAggregated({range: 'all', view: 'model'}, mockGetMeta)
+        const b = rows.find(r => r.key === 'claude-sonnet-4')
+        expect(b?.requestCount).toBe(2)      // usage 行 + m-2 历史
+        expect(b?.inputTokens).toBe(160)     // 100 + 60
+        expect(b?.outputTokens).toBe(32)     // 20 + 12
+    })
+
+    it('趋势查询同样防重：双写消息不回填、历史唯一源正常归桶', () => {
+        seedDuplicatedMessage()
+        seedLegacyOnlyMessage()
+        const trend = repo.queryTrend({range: 'all', granularity: 'day'})
+        const day = trend.find(t => t.day === '2026-08-11')
+        // 100(usage) + 60(m-2)；m-1 的 llm_stats 残留 50 不回填
+        expect(day?.inputTokens).toBe(160)
+        expect(day?.outputTokens).toBe(32)
+    })
+})

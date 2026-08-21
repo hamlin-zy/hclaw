@@ -60,6 +60,13 @@ export function handleTasksUpdate(ctx: StreamCtx) {
     }
 }
 
+/**
+ * llm_call_done 事件。
+ * B1：llm_usage 表为用量唯一数据源（主进程 llm_call_done 时写入）。
+ * 此处仅更新渲染层内存态 llmStats（供 UI 实时展示），不再通过任何路径
+ * 写回 messages.llm_stats 列——repository 写侧已剥离（writeMessages/writeMessagesDelta
+ * 忽略 message.llmStats），否则与 llm_usage 双源重复统计。
+ */
 export function handleLlmCallDone(ctx: StreamCtx) {
     const {get, convId, event} = ctx
     const convState = get().convAgentStates[convId]

@@ -274,6 +274,7 @@ export function handleWarning(ctx: StreamCtx) {
             message: msg,
             timestamp: Date.now(),
             conversationId: convId,
+            pinned: true, // 常驻显示，不随 TTL 自动消失，需用户手动关闭
         })
         return
     }

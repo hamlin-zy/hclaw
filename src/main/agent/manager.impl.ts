@@ -439,6 +439,13 @@ export class AgentManager {
         await this.#mergeAndPersist(conversationId, oldPending, true)
       }
       this.pendingAssistantMsg.set(conversationId, null)
+      // ★ 必须同步清除 streamingMsgIds，否则 accumulateEvent 中
+      //   registeredMsgId 仍指向旧消息 id，导致新 pending 复用旧 id，
+      //   下一个 text 事件携带旧 id 到渲染端 → handleText 用该 id
+      //   再建一条 assistant 消息 → 与已存在的旧消息 id 冲突
+      //   → React "two children with the same key" + 旧气泡数据刷新 +
+      //   新 user 下方出现空气泡 + 多份旧助手气泡。
+      this.streamingMsgIds.delete(conversationId)
       // 将旧 messageId 附带在事件上，让渲染进程知道哪个消息已完成
       if (oldPending?.id) {
         ;(event as Record<string, unknown>).messageId = oldPending.id
