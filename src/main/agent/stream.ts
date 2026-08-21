@@ -10,7 +10,7 @@ import type {ToolCallInfo} from '@shared/types'
 export type {ToolCallInfo} from '@shared/types'
 
 export type AgentStreamEvent =
-  | { type: 'begin' }
+  | { type: 'begin'; messageId?: string }
   | { type: 'text'; content: string }
   | { type: 'thinking'; content: string }
   | { type: 'tool_use'; toolCall: ToolCallInfo }

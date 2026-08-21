@@ -3,7 +3,8 @@ import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useAgentStore} from '../stores/agentStore'
 import {useLLMStore} from '../stores/llmStore'
-import {useModelSchemeStore} from '../stores/modelSchemeStore'
+import {usePrimaryRole} from '../hooks/usePrimaryRole'
+import {resolveActiveModel} from '../lib/modelResolution'
 import type {ModelOverride} from '@shared/types'
 
 interface ModelSelectorProps {
@@ -73,28 +74,18 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
     //   否则显示与实际生效不一致。新会话无 override 记录 → 默认 primary，显示 primary 模型名。
     const active = modelOverride
 
-    // 当前方案 primary 角色（无 override 时作为虚拟选中目标；只读匹配，不写库）
-    const primaryRole = useMemo(() => {
-        const scheme = useModelSchemeStore.getState().getActiveScheme()
-        return scheme?.roles.find(r => r.role === 'primary' && r.enabled && r.endpointId && r.modelId) ?? null
-        // 依赖 scheme 变更：用 useModelSchemeStore 订阅（见下方依赖数组）
-    }, [useModelSchemeStore(s => s.schemes), useModelSchemeStore(s => s.activeSchemeId)])
+    // 当前方案 primary 角色（无 override 时作为虚拟选中目标；只读匹配，不写库；
+    // 与 CacheRateTooltip 共用 usePrimaryRole，防口径漂移）
+    const primaryRole = usePrimaryRole()
 
-    const activeLabel = useMemo(() => {
-        if (active) {
-            const provider = providers.find(p => p.id === active.endpointId)
-            const model = provider?.models.find(m => m.id === active.modelId)
-            if (provider && model) return `${provider.name}: ${model.name}`
-            return active.modelId || active.providerName || ''
-        }
-        // 无 override → 显示当前方案 primary 模型名（虚拟选中语义）
-        if (primaryRole) {
-            const provider = providers.find(p => p.id === primaryRole.endpointId)
-            const model = provider?.models.find(m => m.id === primaryRole.modelId)
-            if (provider && model) return `${provider.name}: ${model.name}`
-        }
-        return '主力模型'  // primary 未配置/不可解析 → 兜底文案（原"自动"）
-    }, [active, primaryRole, providers])
+    // 生效模型解析（与 CacheRateTooltip 共用 resolveActiveModel，防口径漂移）
+    const activeResolution = useMemo(() => resolveActiveModel({
+        override: active,
+        providers,
+        primaryRole,
+    }), [active, providers, primaryRole])
+
+    const activeLabel = activeResolution.label
 
     // popover 向上展开定位（基于按钮 rect；子菜单独立 fixed 定位，见下方 useLayoutEffect）
     useEffect(() => {
