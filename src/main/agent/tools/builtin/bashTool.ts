@@ -297,10 +297,12 @@ export const bashTool: Tool<BashInput, string> = {
 - 平台: ${shellInfo.os}
 
 命令规范（必须严格遵循）:
+以下仅为 shell 命令语法示例（须作为本工具的 command 参数执行），
+不是独立工具；可用工具名以 API 工具列表为准，禁止直接以命令名调用工具。
 ${
   shellInfo.name === 'powershell' ? `PowerShell 语法:
 - 列出文件: \`Get-ChildItem\` (别名 \`ls\`/\`dir\`)
-- 查找文本: \`Select-String\`
+- 查找文本: \`Select-String -Path <file> -Pattern <regex>\`
 - 环境变量: \`$env:VARIABLE_NAME\` (如 \`$env:PATH\`)
 - 管道: \`|\`
 - 路径分隔符: \\\`\\\`

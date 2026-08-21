@@ -85,6 +85,8 @@ export function handleSubagentProgress(ctx: StreamCtx) {
         ensureAgentToolTaskId(convId, parentAgentTool.id, event.taskId)
     }
 
+    // B1：仅更新渲染层内存态 llmStats（UI 实时展示）；不再写回 messages.llm_stats 列
+    // （repository 写侧已剥离，否则与 llm_usage 双源重复统计）
     const subLlmEvent = (event as any).subAgentStreamEvent
     if (subLlmEvent?.type === 'llm_call_done' && subLlmEvent.inputTokens !== undefined) {
         if (!convState.streamingMessageId) return

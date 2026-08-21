@@ -157,15 +157,15 @@ describe('writeMessagesDelta — 增量落库', () => {
         expect(stats[0].model).toBe('claude')
     })
 
-    it('新消息携带 llmStats 时正常写入', () => {
+    it('新消息携带 llmStats 时不写入 llm_stats 列（B1：llm_usage 唯一源）', () => {
         const msg = makeAssistantMsg('m1', 'v1', {
             llmStats: [{inputTokens: 5, outputTokens: 3, provider: 'openai', model: 'gpt', duration: 200}],
         })
         repo.writeMessagesDelta('conv-1', msg)
 
         const row = db.prepare('SELECT llm_stats FROM messages WHERE id = ?').get('m1') as {llm_stats: string | null}
-        const stats = JSON.parse(row.llm_stats!)
-        expect(stats[0].model).toBe('gpt')
+        // 写侧剥离：message.llmStats 不再落库（否则与 llm_usage 双源重复统计）
+        expect(row.llm_stats).toBeNull()
     })
 
     it('写入 user 消息：无 blocks，仅 messages 行', () => {
@@ -228,17 +228,22 @@ describe('saveDatabase — 低频 WAL checkpoint', () => {
 })
 
 describe('readUsageRaw — 用量统计读取', () => {
-    it('按会话聚合 llm_stats 与 tool_call 块计数', () => {
-        // 写两条消息：一条带 llm_stats，一条带 toolCalls（落库为 tool_call 块）
-        repo.writeMessagesDelta('conv-usage-1', makeAssistantMsg('m1', 'hi', {
-            llmStats: [{inputTokens: 100, outputTokens: 20, provider: 'test', model: 'm', duration: 10, cacheReadTokens: 50}],
-        }))
+    it('按会话聚合 llm_stats（历史列 + llm_usage 双源）与 tool_call 块计数', () => {
+        // B1 数据源：llm_usage 表（新数据唯一源）
+        db.prepare('INSERT INTO llm_usage (id, conversation_id, message_id, provider_type, model, input_tokens, output_tokens, cache_read_tokens, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            .run('u1', 'conv-usage-1', 'm1', 'test', 'm', 100, 20, 50, 10, 1)
+        // 历史唯一源：llm_stats 列（迁移前消息）
+        db.prepare('INSERT INTO messages (id, conversation_id, role, timestamp, llm_stats) VALUES (?, ?, ?, ?, ?)')
+            .run('m-hist', 'conv-usage-1', 'assistant', 1, JSON.stringify([{inputTokens: 30, outputTokens: 5, provider: 'p', model: 'm2', duration: 10}]))
+        // tool_call 块消息（无 llm_stats）
         repo.writeMessagesDelta('conv-usage-1', makeToolMsg('m2', '', 'result'))
 
         const raw = repo.readUsageRaw(['conv-usage-1'])
 
-        expect(raw.llmStatsByConv.get('conv-usage-1')).toHaveLength(1)
-        expect(raw.llmStatsByConv.get('conv-usage-1')![0].inputTokens).toBe(100)
+        const stats = raw.llmStatsByConv.get('conv-usage-1')!
+        expect(stats).toHaveLength(2)           // 历史列 1 + llm_usage 1
+        expect(stats[0]!.inputTokens).toBe(30)  // 历史在前
+        expect(stats[1]!.inputTokens).toBe(100) // llm_usage 在后
         expect(raw.toolCallCountByConv.get('conv-usage-1')).toBe(1)
     })
 
@@ -335,8 +340,10 @@ describe('writeBlockDelta — 块级增量', () => {
         expect(cnt.c).toBe(1)
     })
 
-    it('messageFields 写入保留已有 llm_stats', () => {
-        repo.writeMessages('conv-1', [{id: 'm1', role: 'assistant', content: 'x', timestamp: 1, llmStats: [{inputTokens: 1, outputTokens: 1, provider: 'p', model: 'm', duration: 1}]} as Message])
+    it('messageFields 写入保留已有 llm_stats（B1：写侧剥离不影响历史列值）', () => {
+        // 迁移前历史消息：llm_stats 列是唯一源，直接落库（不走 writeMessages，写侧已剥离）
+        db.prepare('INSERT INTO messages (id, conversation_id, role, timestamp, llm_stats) VALUES (?, ?, ?, ?, ?)')
+            .run('m1', 'conv-1', 'assistant', 1, JSON.stringify([{inputTokens: 1, outputTokens: 1, provider: 'p', model: 'm', duration: 1}]))
         repo.writeBlockDelta('conv-1', 'm1', {messageFields: {role: 'assistant', timestamp: 1, metadata: {agentName: 'a'}}})
         const llm = db.prepare('SELECT llm_stats FROM messages WHERE id = ?').get('m1') as {llm_stats: string}
         expect(llm.llm_stats).toContain('inputTokens')
