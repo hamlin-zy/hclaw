@@ -668,7 +668,7 @@ export async function* retryBackoff(
         yield {
             type: 'tool_progress',
             toolCallId: 'retry-backoff',
-            progress: `重试 ${attempt}/${retryCount}：${errorMsg}，剩余 ${s}s`,
+            progress: `重试 ${attempt}/${retryCount}：${errorMsg}，重试中...`,
             retryCountdown: s,
         }
         await sleep(1000)

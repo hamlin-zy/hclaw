@@ -118,6 +118,8 @@ export class OpenAIAdapter implements ModelAdapter {
       const toolCallAccumulator: Map<number, { id: string; name: string; args: string }> = new Map()
       // ★ 累积完整 reasoning_content（用于流结束时提取 dots 格式工具调用）
       let accumulatedReasoning = ''
+      // ★ 累积完整正文 content（dots 模型有时把工具调用写在正文而非 reasoning_content）
+      let accumulatedText = ''
       // ★ 当前已注册的工具名集合（用于提取 dots 工具调用时的 name 校验）
       const availableToolNames = new Set((tools || []).map(t => t.name))
 
@@ -165,6 +167,7 @@ export class OpenAIAdapter implements ModelAdapter {
 
         // 文本内容
         if (delta?.content) {
+          accumulatedText += delta.content
           yield { type: 'text', content: delta.content }
         }
 
@@ -195,28 +198,36 @@ export class OpenAIAdapter implements ModelAdapter {
           }
         }
 
-          // 结束处理
-          if (choice.finish_reason) {
-              // ★ dots 模型（dots-3-note-preview:free）会把工具调用放在 reasoning_content 中
-              //   而非标准的 tool_calls 字段。vLLM DotsToolParser 确认其格式为：
-              //     <invoke name="toolName"><parameter name="key">value
-              //   只在流结束时做一次完整提取，避免跨 chunk 问题，不影响其他服务商。
-              if (accumulatedReasoning) {
-                  const extracted = extractDotsToolCalls(accumulatedReasoning, availableToolNames)
-                  for (const tc of extracted) {
-                      const idx = toolCallAccumulator.size
-                      toolCallAccumulator.set(idx, { id: tc.id, name: tc.name, args: tc.arguments })
-                  }
-              }
-              const hasToolCalls = toolCallAccumulator.size > 0  // 必须在 flush 前检查
-              yield* flushToolCalls()
-              yield* sendUsage()
-              const stopReason = choice.finish_reason === 'stop'
-                  ? (hasToolCalls ? 'tool_use' : 'end_turn')
-                  : choice.finish_reason === 'tool_calls' ? 'tool_use'
-                      : choice.finish_reason === 'length' ? 'max_tokens'
-                          : undefined
-              if (stopReason) yield {type: 'done', stopReason}
+        // 结束处理
+        if (choice.finish_reason) {
+            // ★ dots 模型（dots-3-note-preview:free）会把工具调用放在 reasoning_content 中
+            //   而非标准的 tool_calls 字段。vLLM DotsToolParser 确认其格式为：
+            //     <invoke name="toolName"><parameter name="key">value
+            //   只在流结束时做一次完整提取，避免跨 chunk 问题，不影响其他服务商。
+            //
+            //   同时也从正文 content 中提取：dots 有时把 <invoke> 写到正文而非 reasoning_content。
+            //   正文提取使用 strict 模式（剥离代码块 + 纯调用校验），防止模型在正文中
+            //   举例说明工具用法时被误判为真实调用而误执行。
+            //   正文中的 <invoke> 标签在提取后仍残留在 text 流中（与 reasoning 行为一致，
+            //   由渲染层在 think 块中显示；若需清理正文需额外处理，此处不改动 text 事件流）。
+            const registerDotsCalls = (text: string, strict = false) => {
+                for (const tc of extractDotsToolCalls(text, availableToolNames, strict)) {
+                    const idx = toolCallAccumulator.size
+                    toolCallAccumulator.set(idx, { id: tc.id, name: tc.name, args: tc.arguments })
+                }
+            }
+            // reasoning 宽松提取（思维过程出现 invoke 即真实意图）；正文 strict 提取
+            registerDotsCalls(accumulatedReasoning)
+            registerDotsCalls(accumulatedText, true)
+            const hasToolCalls = toolCallAccumulator.size > 0 // 必须在 flush 前检查
+            yield* flushToolCalls()
+            yield* sendUsage()
+            const stopReason = choice.finish_reason === 'stop'
+                ? (hasToolCalls ? 'tool_use' : 'end_turn')
+                : choice.finish_reason === 'tool_calls' ? 'tool_use'
+                    : choice.finish_reason === 'length' ? 'max_tokens'
+                        : undefined
+            if (stopReason) yield {type: 'done', stopReason}
         }
       }
 
@@ -654,7 +665,42 @@ export class OpenAIAdapter implements ModelAdapter {
 }
 
 /**
- * 从 reasoning_content 中提取 dots 格式的工具调用。
+ * dots 工具调用方言 → 真实工具映射。
+ *
+ * dots 模型会从 bash 工具描述中的命令示例（如 "查找文本: `Select-String`"）
+ * 幻觉出不存在的"工具名"并写入 <invoke>。映射到语义等价的真实工具，
+ * 避免调用被 availableToolNames 校验静默过滤。
+ */
+interface DotsToolAlias {
+    /** 映射到的真实工具名 */
+    name: string
+    /** 参数转换；返回 null 表示无法转换（调用被跳过，宁可漏报不可误报） */
+    convertParams: (params: Record<string, string>) => Record<string, string> | null
+}
+
+const DOTS_TOOL_ALIASES: Record<string, DotsToolAlias> = {
+    // PowerShell 只读搜索命令 → grep 工具（只读、语义等价）
+    'Select-String': {
+        name: 'grep',
+        // Select-String: { path: 文件或目录, pattern: 正则 } → grep: { pattern, directory, filePattern? }
+        //   - path 为文件（含扩展名）→ directory=父目录 + filePattern=文件名（grep 按文件过滤）
+        //   - path 为目录 → directory=path（grep 递归搜索）
+        convertParams: ({path, pattern}): Record<string, string> | null => {
+            if (!path || !pattern) return null
+            // 按最后一个路径段是否含扩展名区分文件/目录
+            const m = path.match(/^(.+)[\\/]([^\\/]+)$/)
+            if (m) {
+                const [, dir, base] = m
+                if (base.includes('.')) return {pattern, directory: dir, filePattern: base}
+                return {pattern, directory: path}
+            }
+            return {pattern, directory: '.'}
+        },
+    },
+}
+
+/**
+ * 从 reasoning_content 或正文 content 中提取 dots 格式的工具调用。
  *
  * dots 模型格式（vLLM DotsToolParser 确认）：
  *   <invoke name=toolName><parameter name=key>value
@@ -662,16 +708,25 @@ export class OpenAIAdapter implements ModelAdapter {
  *
  * 严谨判定策略：
  * 1. 必须匹配完整的 <invoke> 开闭合标签
- * 2. name 属性值必须匹配当前已注册的工具名
+ * 2. name 属性值必须匹配当前已注册的工具名（含别名映射）
  * 3. 参数以 JSON 字符串形式返回（供下游直接作为 arguments）
  *
- * @param text 完整的 reasoning_content 文本
+ * strict 模式（仅用于正文 content 提取）：
+ * reasoning_content 是思维过程，出现 invoke 即真实意图；正文是人类可读输出，
+ * 模型可能在正文中"举例说明"工具用法（代码块/口语示例），直接提取会造成误执行。
+ * 因此正文提取前先剥离代码块，并要求去除空白后正文必须完全由 invoke 块构成
+ * （与 dots 实际行为一致：真实调用即 3 回车 + 纯 invoke 块，无任何解释文字）。
+ * 宁可漏报（XML 显示但不执行），不可误报（执行用户没要求的命令）。
+ *
+ * @param text 完整的 reasoning_content 或正文 content 文本
  * @param availableToolNames 当前已注册的工具名集合
+ * @param strict 严格模式（正文提取专用）：剥离代码块 + 纯调用校验
  * @returns 提取的工具调用列表
  */
 function extractDotsToolCalls(
     text: string,
     availableToolNames: Set<string>,
+    strict = false,
 ): Array<{ id: string; name: string; arguments: string }> {
     const results: Array<{ id: string; name: string; arguments: string }> = []
 
@@ -679,12 +734,27 @@ function extractDotsToolCalls(
     const invokeRegex = /<invoke\s+name\s*=\s*["\x27]?([^">\s]+)["\x27]?\s*>([\s\S]*?)<\/invoke>/g
     let match: RegExpExecArray | null
 
+    if (strict) {
+        // 1. 剥离 ``` / ~~~ 包裹的代码块（示例通常放在代码块中）
+        const cleanText = text
+            .replace(/```[\s\S]*?```/g, '')
+            .replace(/~~~[\s\S]*?~~~/g, '')
+        // 2. 纯调用校验：剥离全部 invoke 块后，剩余内容（含空白）必须为空。
+        //    注意不能先压缩空白再匹配（<invoke name> 会变成 <invokename> 导致匹配失败）。
+        //    replace 会重置 lastIndex，可安全复用 invokeRegex。
+        const remaining = cleanText.replace(invokeRegex, '').trim()
+        if (remaining !== '') return []
+        text = cleanText
+    }
+
     while ((match = invokeRegex.exec(text)) !== null) {
-        const toolName = match[1].trim()
+        const rawName = match[1].trim()
         const body = match[2]
 
-        // 条件1：工具名必须在已注册集合中
-        if (!availableToolNames.has(toolName)) continue
+        // 条件1：工具名必须在已注册集合中（支持别名映射，如 Select-String → grep）
+        const alias = DOTS_TOOL_ALIASES[rawName]
+        const resolvedName = alias?.name ?? rawName
+        if (!availableToolNames.has(resolvedName)) continue
 
         // 提取参数: <parameter name=K>V
         const params: Record<string, string> = {}
@@ -694,12 +764,16 @@ function extractDotsToolCalls(
             params[paramMatch[1].trim()] = paramMatch[2].trim()
         }
 
+        // 别名参数归一化：无法转换的调用直接跳过（宁可漏报，不可误报）
+        const finalParams = alias ? alias.convertParams(params) : params
+        if (finalParams === null) continue
+
         // 条件2：参数提取为 JSON 字符串（JSON.stringify 产物必然合法，无需再校验）
-        const argsJson = JSON.stringify(params)
+        const argsJson = JSON.stringify(finalParams)
 
         results.push({
             id: `dots-tc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            name: toolName,
+            name: resolvedName,
             arguments: argsJson,
         })
     }

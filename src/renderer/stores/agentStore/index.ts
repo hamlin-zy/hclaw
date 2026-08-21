@@ -69,6 +69,11 @@ export const useAgentStore = create<AgentStore>()(
                     return {hookResults: results}
                 })
             },
+            removeHookResult: (id: string) => {
+                set((prev) => ({
+                    hookResults: prev.hookResults.filter((r) => r.id !== id),
+                }))
+            },
 
             // ── 压缩横幅 ──────────────────────────────
             clearCompactBanner: () => {

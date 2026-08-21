@@ -8,7 +8,7 @@ import {AnimatePresence, motion} from 'framer-motion'
 import {useConversationStore} from '../../stores/conversationStore'
 import {useAgentStore} from '../../stores/agentStore'
 import MessageBubble from './MessageBubble'
-import {ThinkingIndicator, getPhaseLabel} from './StatusIndicators'
+import {getPhaseLabel} from './StatusIndicators'
 import {KbdCombo} from '../common/Kbd'
 
 // ─── 复制提示 Toast ────────────────────────────────────
@@ -213,8 +213,6 @@ export default function MessageList({conversationId}: { conversationId?: string 
     // 阶段状态（思考中/响应中等）——同样搬入气泡 statusNote
     const convAgentState = useAgentStore((s) =>
         conversationId ? (s.convAgentStates[conversationId]?.agentState ?? null) : s.agentState)
-    const convIsThinkingAfterTools = useAgentStore((s) =>
-        conversationId ? (s.convAgentStates[conversationId]?.isThinkingAfterTools ?? false) : s.isThinkingAfterTools)
 
     const containerRef = useRef<HTMLDivElement>(null)
     const [showCopyToast, setShowCopyToast] = useState(false)
@@ -608,19 +606,21 @@ export default function MessageList({conversationId}: { conversationId?: string 
         //    也必须显示：若仅认 running，思考块出现时 statusNote 消失 → 时间戳行
         //    收缩 → 气泡宽度回缩，与思考块/文案交替出现形成高频闪烁。
         //    （复用上方已算好的 isAgentRunning，避免 running||thinking 重复判断）
-        if (isAgentRunning && agentPhase && agentPhase !== 'idle' && agentPhase !== 'executing_tools') {
+        if (isAgentRunning && agentPhase && agentPhase !== 'idle') {
             // 兜底 '思考中'：running/thinking 期间 statusNote 永不返回 null，
             // 保证行宽稳定（min-w-[16rem]），仅文案切换不引起气泡伸缩
-            const phaseLabel = getPhaseLabel(agentPhase) || (convIsThinkingAfterTools ? '等待响应中...' : '思考中')
-            if (phaseLabel) {
-                const modelLabel = agentModelProvider
-                    ? `${agentModelProvider}/${agentModelName}`
-                    : agentModelName
-                return {type: 'phase', label: modelLabel ? `${modelLabel} ${phaseLabel}` : phaseLabel}
+            if (agentPhase === 'executing_tools') {
+                return {type: 'phase', label: '本地工具执行中...'}
             }
+            // getPhaseLabel 对非空非 idle 的 phase 恒返回非空文案（未知 phase 兜底 '思考中'）
+            const phaseLabel = getPhaseLabel(agentPhase)
+            const modelLabel = agentModelProvider
+                ? `${agentModelProvider}: ${agentModelName}`
+                : agentModelName
+            return {type: 'phase', label: modelLabel ? `${modelLabel} ${phaseLabel}` : phaseLabel}
         }
         return null
-    }, [lastAssistantId, convErrorMsg, convExecMsg, agentStatus, agentPhase, agentModelProvider, agentModelName, convIsThinkingAfterTools])
+    }, [lastAssistantId, convErrorMsg, convExecMsg, agentStatus, agentPhase, agentModelProvider, agentModelName])
 
     // ── 触底跟随补丁：statusNote 无→有 / 类型切换时高度突变 ──
     // 气泡底部插入提示无 scroll 事件、不走"新消息"effect（messages.length 不变），
@@ -736,9 +736,6 @@ export default function MessageList({conversationId}: { conversationId?: string 
 
                 </div>
 
-                <div className="absolute left-4 bottom-4 z-10 pointer-events-none">
-                    <ThinkingIndicator conversationId={conversationId}/>
-                </div>
         </>
     )
 }
