@@ -7,6 +7,7 @@ import {useLLMStore} from '../stores/llmStore'
 import {useInputHistoryStore} from '../stores/inputHistoryStore'
 import ModelAlertDialog from './ModelAlertDialog'
 import AttachedFilesBar from './AttachedFilesBar'
+import TodoStrip from './TodoStrip'
 import PendingQuestionCard from './PendingQuestionCard'
 import InputToolbar from './InputToolbar'
 import {CommandPalette} from './plugin/CommandPalette'
@@ -634,6 +635,9 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                     onOpenFile={(path) => window.electronAPI?.openPath(path)}
                     onClearAll={clearAttachedFiles}
                 />
+
+                {/* 待办计划条 — 有待办项时显示于输入区上方 */}
+                <TodoStrip/>
 
                 {/* 用户提问条 - 用于 ask_user 工具（无 requestId） */}
                 <PendingQuestionCard
