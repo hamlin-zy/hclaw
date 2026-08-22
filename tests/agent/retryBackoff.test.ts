@@ -29,7 +29,7 @@ describe('retryBackoff', () => {
         const countdowns = events.filter(e => e.type === 'tool_progress')
         expect(countdowns.length).toBe(3)
         expect(countdowns.map(e => e.retryCountdown)).toEqual([3, 2, 1])
-        expect(countdowns[0].progress).toContain('重试中...')
+        expect(countdowns[0].progress).toContain('3s 后重试...')
     })
 
     it('abort 后立即停止，不再发倒计时，且 yield 已取消重试 warning', async () => {
@@ -110,9 +110,9 @@ describe('retryBackoff', () => {
             type: 'warning',
             message: 'retry 1/10：400 Invalid parameter: max_tokens must be <= 8192',
         })
-        // 每秒倒计时同样携带详情（渲染端直接展示 progress）
+        // 每秒倒计时同样携带详情（渲染端直接展示 progress），包含剩余秒数
         const countdowns = events.filter(e => e.type === 'tool_progress')
-        expect(countdowns[0].progress).toBe('重试 1/10：400 Invalid parameter: max_tokens must be <= 8192，重试中...')
+        expect(countdowns[0].progress).toBe('重试 1/10：400 Invalid parameter: max_tokens must be <= 8192，3s 后重试...')
     })
 })
 
