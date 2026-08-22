@@ -235,7 +235,7 @@ const MessageBubble = memo(function MessageBubble({message, statusNote, isAgentR
                     </div>
                 )}
 
-                {/* Note: Tasks block is now displayed in the TodoPanel on the right sidebar, not in message bubbles */}
+                {/* Note: Tasks block is now displayed in the TodoStrip above the input area, not in message bubbles */}
 
                 {/* Skill Execution block */}
                 {message.skillExecution && (
