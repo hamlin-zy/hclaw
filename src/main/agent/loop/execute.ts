@@ -42,8 +42,9 @@ const toolRegistry = getToolRegistry()
 // 不再硬编码 0.9（用户 2026-08-18 拍板：完全尊重用户配置）。
 
 /** mid-loop 专用交接指令（与发送前模板不同——无用户新输入，交接进行中的任务） */
-export const MID_LOOP_HANDOFF_PROMPT =
-    '当前任务执行中上下文接近窗口上限，请总结对话历史与任务进度，准备交接(session_handoff)到新会话继续执行当前任务。'
+export const MID_LOOP_HANDOFF_PROMPT = `当前任务执行中上下文接近窗口上限，请总结对话历史与任务进度，准备交接(session_handoff)到新会话继续执行当前任务。
+
+【重要】若希望新会话自动启动特定技能/代理，请在调用 session_handoff 时传入 capability 参数（值为技能/代理名，不带 / 前缀）。`
 
 export type HandoffGateAction = 'none' | 'inject' | 'stop'
 
@@ -709,7 +710,7 @@ export async function* retryBackoff(
         yield {
             type: 'tool_progress',
             toolCallId: 'retry-backoff',
-            progress: `重试 ${attempt}/${retryCount}：${errorMsg}，重试中...`,
+            progress: `重试 ${attempt}/${retryCount}：${errorMsg}，${s}s 后重试...`,
             retryCountdown: s,
         }
         await sleep(1000)
