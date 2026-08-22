@@ -1,6 +1,7 @@
 import {ipcMain} from 'electron'
 import {toolRepo} from './repositories/sqlite/toolRepository'
 import {toolRegistry} from './agent/tools/registry'
+import {ALWAYS_ON_TOOLS} from './agent/constants'
 import {broadcastToOtherWindows} from './utils/windowBroadcast'
 
 // ─── IPC 结果包装工具 ─────────────────────────────────
@@ -50,12 +51,18 @@ export function initToolIPC(): void {
     })
 
     ipcMain.handle('tool:setEnabled', async (event, id: string, enabled: boolean) => {
+        if (ALWAYS_ON_TOOLS.has(id)) {
+            return {success: false, error: `${id} 为能力驱动工具（图片/音频理解），不可手动禁用`}
+        }
         const result = wrapVoid(() => toolRepo.setEnabled(id, enabled))
         if (result.success) broadcastToOtherWindows(event, 'tools-changed')
         return result
     })
 
     ipcMain.handle('tool:setEnabledBatch', async (event, updates: Array<{ id: string; enabled: boolean }>) => {
+        if (updates.some(u => ALWAYS_ON_TOOLS.has(u.id))) {
+            return {success: false, error: '包含能力驱动工具（analyze_image / speech_to_text），拒绝批量修改'}
+        }
         const result = wrapVoid(() => toolRepo.setEnabledBatch(updates))
         if (result.success) broadcastToOtherWindows(event, 'tools-changed')
         return result

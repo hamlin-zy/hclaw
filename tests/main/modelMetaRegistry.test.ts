@@ -205,3 +205,46 @@ describe('ModelMetaRegistry', () => {
     expect(callCount).toBe(1)
   })
 })
+
+describe('getInputModalities', () => {
+  it('命中：architecture.input_modalities=["text","image"] → 返回数组', async () => {
+    const fetchFn = okFetch(orResponse([
+      {id: 'deepseek/deepseek-v4-flash-vision-exp', architecture: {input_modalities: ['text', 'image']}},
+    ])) as typeof fetch
+    const reg = new ModelMetaRegistry({cacheDir: tmpDir, fetchFn})
+    await reg.refresh()
+    expect(reg.getInputModalities('deepseek-v4-flash-vision-exp')).toEqual(['text', 'image'])
+  })
+
+  it('命中但无 architecture → null（触发回退）', async () => {
+    const fetchFn = okFetch(orResponse([{id: 'x/y'}])) as typeof fetch
+    const reg = new ModelMetaRegistry({cacheDir: tmpDir, fetchFn})
+    await reg.refresh()
+    expect(reg.getInputModalities('x/y')).toBeNull()
+  })
+
+  it('命中但 input_modalities 非数组（脏数据） → null', async () => {
+    const fetchFn = okFetch(orResponse([
+      {id: 'x/y', architecture: {input_modalities: 'image' as unknown as string[]}},
+    ])) as typeof fetch
+    const reg = new ModelMetaRegistry({cacheDir: tmpDir, fetchFn})
+    await reg.refresh()
+    expect(reg.getInputModalities('x/y')).toBeNull()
+  })
+
+  it('未匹配（模型不在清单） → null', async () => {
+    const fetchFn = okFetch(orResponse([{id: 'x/y'}])) as typeof fetch
+    const reg = new ModelMetaRegistry({cacheDir: tmpDir, fetchFn})
+    await reg.refresh()
+    expect(reg.getInputModalities('nonexistent/model')).toBeNull()
+  })
+
+  it('归一化匹配：直连 id 无 provider 前缀也能命中', async () => {
+    const fetchFn = okFetch(orResponse([
+      {id: 'deepseek/deepseek-v4-flash-vision-exp', architecture: {input_modalities: ['text', 'image']}},
+    ])) as typeof fetch
+    const reg = new ModelMetaRegistry({cacheDir: tmpDir, fetchFn})
+    await reg.refresh()
+    expect(reg.getInputModalities('DeepSeek.V4.Flash.Vision.Exp')).toEqual(['text', 'image'])
+  })
+})

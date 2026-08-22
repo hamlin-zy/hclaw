@@ -527,7 +527,7 @@ function convertUserContent(content: string | ContentPart[]): any[] {
                 })
             } else if (url.startsWith('http://') || url.startsWith('https://')) {
                 parts.push({
-                    inlineData: {mimeType: 'image/jpeg', data: url},
+                    fileData: {mimeType: 'image/jpeg', fileUri: url},
                 })
             }
         } else if (part.type === 'input_audio') {

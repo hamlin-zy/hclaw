@@ -575,6 +575,27 @@ export class OpenAIAdapter implements ModelAdapter {
         })
     }
 
+    /**
+     * 转换用户消息内容为 Responses API 格式。
+     * - text → input_text
+     * - image_url → input_image（image_url 为扁平字符串，与 chat 路径嵌套对象不同）
+     * - input_audio 暂不涉及（Responses 音频为 pcm 格式，超范围，原样透传由 API 报错）
+     */
+    private convertUserContentResponses(content: string | ContentPart[]): any[] {
+        if (typeof content === 'string') return content as any
+        return content.map(part => {
+            if (part.type === 'text') {
+                return {type: 'input_text', text: part.text}
+            }
+            if (part.type === 'image_url') {
+                const imgItem: Record<string, unknown> = {type: 'input_image', image_url: part.image_url.url}
+                if (part.image_url.detail) imgItem.detail = part.image_url.detail
+                return imgItem
+            }
+            return part
+        })
+    }
+
   private convertTools(tools: ToolDefinition[]): OpenAI.ChatCompletionTool[] {
     return tools.map((t) => ({
       type: 'function' as const,
@@ -600,7 +621,7 @@ export class OpenAIAdapter implements ModelAdapter {
     for (const msg of messages) {
       if (msg.role === 'system') continue // system 消息由 instructions 承载，跳过避免重复
       if (msg.role === 'user') {
-        input.push({ role: 'user', content: this.convertUserContent(msg.content) })
+        input.push({ role: 'user', content: this.convertUserContentResponses(msg.content) })
       } else if (msg.role === 'assistant') {
         const item: any = { role: 'assistant', content: typeof msg.content === 'string' ? msg.content : null }
         if (msg.toolCalls?.length) {

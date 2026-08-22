@@ -88,6 +88,17 @@ export class ModelMetaRegistry {
     return this.getMeta(modelId).contextLength
   }
 
+  /**
+   * 获取模型的输入模态列表（用于多模态能力判定）。
+   * null = 未匹配到元数据 / 无 architecture 字段 / 脏数据 → 调用方回退命名模式。
+   */
+  getInputModalities(modelId: string): string[] | null {
+    const raw = this.lookup(modelId)
+    if (!raw) return null
+    const mods = raw.architecture?.input_modalities
+    return Array.isArray(mods) ? mods : null
+  }
+
   /** 确保元数据已就绪：有数据直接返回；空则等待一次 refresh（防并发，失败保留空表） */
   async ensureLoaded(): Promise<void> {
     if (this.models.length > 0) return

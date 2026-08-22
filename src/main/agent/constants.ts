@@ -51,3 +51,5 @@ export const SQUIRREL_COMMANDS = [
     '--squirrel-uninstall',
     '--squirrel-obsolete',
 ] as const
+
+export {ALWAYS_ON_TOOLS} from '../../shared/alwaysOnTools'
