@@ -838,6 +838,38 @@ select:focus-visible {
 }
 
 /* ========================================
+   Find-in-Message (CSS ::highlight API)
+   ========================================
+   查找面板高亮：
+   - find-match（普通命中）：主题色 35% 透明底——足够醒目又不遮挡正文
+     （20% 在消息气泡/代码块背景上过于淡，不可辨认）
+   - find-current（当前命中）：主题色纯色底 + 固定深色文字——亮/暗主题下
+     均有足够对比度（比 50% 透明底清楚得多）
+   注：::highlight 伪元素仅支持有限属性（background-color / color /
+   text-decoration 等），不支持 border-radius / border / box-shadow */
+::highlight(find-match) {
+  background-color: color-mix(in srgb, var(--brand-primary) 35%, transparent);
+}
+
+::highlight(find-current) {
+  background-color: var(--brand-primary);
+  color: #052e23; /* 固定深青黑：与亮/暗主题的品牌绿底对比度均 > 7:1 */
+  text-decoration: underline;
+  text-decoration-color: rgba(5, 46, 35, 0.45);
+  text-decoration-thickness: 2px;
+}
+
+/* 查找输入框聚焦态：边框变色 + 低透明度 ring（贴身主题色但不过曝），
+   替代全局 2px 纯色 :focus-visible outline（过于刺眼）。
+   选择器特异性 (0,2,0) > :focus-visible (0,1,0)，可安全覆盖。 */
+.find-input:focus,
+.find-input:focus-visible {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 18%, transparent);
+}
+
+/* ========================================
    Title Bar — Windows 11 Style
    ======================================== */
 

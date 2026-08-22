@@ -90,6 +90,14 @@ protocol.registerSchemesAsPrivileged([
 // 注意：不设 max-old-space-size（64 位默认 ~2GB 足够），设大会推迟 GC 掩盖泄漏
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=2048 --max-semi-space-size=64 --gc-interval=2048 --expose-gc')
 
+// Enable remote debugging for renderer process (useful for debugging)
+// This allows connecting Chrome DevTools to the Electron renderer
+const remoteDebugPort = process.argv.find(arg => arg.startsWith('--remote-debugging-port='))?.split('=')[1]
+if (remoteDebugPort) {
+    app.commandLine.appendSwitch('remote-debugging-port', remoteDebugPort)
+    console.log('[Main] Remote debugging enabled on port:', remoteDebugPort)
+}
+
 // Handle Squirrel Windows installer events (inline to avoid module resolution issues)
 // Returns true if app should quit (installer is handling a setup event)
 function checkSquirrelStartup(): boolean {
