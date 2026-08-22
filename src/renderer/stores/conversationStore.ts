@@ -262,13 +262,27 @@ export function recordToolResultBlock(convId: string, msgId: string, tc: ToolCal
     if (tc.result === undefined) return
     const timestamp = Date.now()
     const agentState = useAgentStore.getState().convAgentStates[convId]
+    // ★ 终态修复：tool_call 块的 data（含 status）在 tool_use 时以 status:'running' 落库，
+    //   此前 tool_result 到达只写 {id, result} 块，tool_call 块 status 从未更新 →
+    //   重启后从 DB 恢复的历史消息全部显示"执行中"。
+    //   此处同 id upsert tool_call 块（writeBlockDelta 对非 text 块同 id 覆盖），
+    //   携带最终 status（success/error）；result 仍单独 tool_result 块承载。
+    const {result: _result, ...persistable} = tc
     accumulateBlockDelta(convId, msgId, {
-        upsertBlocks: [{
-            id: `${msgId}-tr-${tc.id}`, messageId: msgId, blockType: 'tool_result',
-            content: null, sequence: 0, timestamp,
-            data: JSON.stringify({id: tc.id, result: tc.result}),
-            turnIndex: agentState?.currentTurnIndex,
-        }],
+        upsertBlocks: [
+            {
+                id: `${msgId}-tc-${tc.id}`, messageId: msgId, blockType: 'tool_call',
+                content: null, sequence: 0, timestamp,
+                data: JSON.stringify(persistable),
+                turnIndex: agentState?.currentTurnIndex,
+            },
+            {
+                id: `${msgId}-tr-${tc.id}`, messageId: msgId, blockType: 'tool_result',
+                content: null, sequence: 0, timestamp,
+                data: JSON.stringify({id: tc.id, result: tc.result}),
+                turnIndex: agentState?.currentTurnIndex,
+            },
+        ],
     })
 }
 

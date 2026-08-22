@@ -453,6 +453,10 @@ export default function SettingsDialog() {
                         label: '粘贴剪贴板内容',
                         keys: (<KbdCombo keys={['Ctrl', 'V']}/>),
                     },
+                    {
+                        label: '查找消息',
+                        keys: (<KbdCombo keys={['Ctrl', 'F']}/>),
+                    },
                 ],
             },
             {
