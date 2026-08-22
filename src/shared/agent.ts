@@ -141,9 +141,6 @@ export interface AgentLoadResult {
  * 提示词渲染参数
  */
 export interface RenderPromptParams {
-  /** 可用工具列表（格式化后的字符串） */
-  availableTools: string[]
-
   /** 当前权限模式 */
   permissionMode: AgentPermissionMode
 

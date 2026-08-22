@@ -27,7 +27,8 @@ import {classifyErrorEnhanced} from '../common/errorClassifier'
 import {LLM_TIMEOUT_MS, sleep, TimeoutError, withTimeout} from '../../utils/retry'
 import {hookExecutor, type HookResult} from '../../plugin/hooks'
 import {attachMediaBlocksToMessage, extractMediaBlocksFromToolResults} from '../mediaExtractor'
-import {isVisionModel, sanitizeMessagesForModel, sanitizeThinkingForModel} from './helpers'
+import {supportsImageInput} from '../modelCapability'
+import {sanitizeMessagesForModel, sanitizeThinkingForModel} from './helpers'
 import {getToolRegistry} from '../tools/registry'
 import {computeTokenTiming, isTokenDelta} from './tokenTiming'
 import {estimateTotalContextTokens} from '../context'
@@ -68,6 +69,11 @@ export interface ExecuteLlmCallParams {
     /** skill/agent 命令模板，作为 system 独立块传递（Anthropic 多块缓存用） */
     commandTemplate?: string
     availableToolDefinitions: ToolDefinitionForLLM[]
+    /**
+     * ★ 能力过滤前、白名单过滤后的工具列表（400 降级恢复 analyze_image 时用，
+     *    保证注入定义经过 agent 白名单，不绕过约束）
+     */
+    preCapabilityToolDefinitions: ToolDefinitionForLLM[]
     modelConfig: ModelConfig
     workModeRole: ModelRole
     schemeName: string | null
@@ -111,7 +117,7 @@ export function shouldRetryAttempt(
 export async function* executeLlmCallWithRetry(
     ctx: ExecuteLlmCallParams,
 ): AsyncGenerator<AgentStreamEvent, LlmStreamResult | null> {
-    const {llmCaller, state, systemPrompt, commandTemplate, availableToolDefinitions, modelConfig,
+    const {llmCaller, state, systemPrompt, commandTemplate, availableToolDefinitions, preCapabilityToolDefinitions, modelConfig,
         workModeRole, schemeName, getSettings, params, isCompactCommand, turns, preprocessCache, directModel} = ctx
     const {abortSignal, requestConfirmation, sessionId} = params
 
@@ -126,6 +132,9 @@ export async function* executeLlmCallWithRetry(
     let currentConfigSource: string = 'fallback'
     let currentSchemeName = schemeName
     let lastError: any
+
+    /** ★ 400 误判降级：本 turn 内仅触发一次，后续 attempt 保持（图片不再尝试直达） */
+    let degraded = false
 
     let handoffGateEvaluated = false
     let handoffInjected = false
@@ -250,15 +259,24 @@ export async function* executeLlmCallWithRetry(
             const thinkingEffort = modelConfig.thinkingEffort
                 ?? (workModeRole === 'reasoning' ? 'auto' : undefined)
 
-            const compactTools = isCompactCommand ? [] : availableToolDefinitions
+            // ★ 400 降级（degraded=true）：恢复白名单后完整工具集（含 analyze_image）
+            const compactTools = isCompactCommand ? [] : (degraded
+                ? preCapabilityToolDefinitions
+                : availableToolDefinitions)
 
-            // ── 非视觉模型：过滤历史消息中的 image_url ──
-            if (!isVisionModel(currentModel)) {
+            // ── 非视觉模型/降级：过滤消息中的 image_url ──
+            // ★ 判定与工具侧同源（supportsImageInput）：元数据优先，命名模式回退
+            // ★ 400 降级后强制过滤（与工具侧恢复 analyze_image 同步，仅非 compact 命令）
+            const modelSupportsImages = supportsImageInput(currentModel)
+            const stripImages = !modelSupportsImages || (degraded && !isCompactCommand)
+            if (stripImages) {
                 const hasImageContent = messagesToSend.some(msg =>
                     Array.isArray(msg.content) && msg.content.some(p => p.type === 'image_url')
                 )
                 if (hasImageContent) {
-                    logger.info(`[AgentLoop] 当前模型 ${currentModel} 不支持视觉，过滤历史消息中的 image_url`)
+                    if (!modelSupportsImages) {
+                        logger.info(`[AgentLoop] 当前模型 ${currentModel} 不支持视觉，过滤历史消息中的 image_url`)
+                    }
                     messagesToSend = sanitizeMessagesForModel(messagesToSend)
                 }
             }
@@ -464,6 +482,16 @@ export async function* executeLlmCallWithRetry(
             }
         } catch (error: any) {
             lastError = error
+
+            // ★ 400 自愈：模型被误判为多模态 → 下次 attempt 清除 image_url 并恢复 analyze_image
+            if (!degraded && isImageUnsupportedError(error)) {
+                degraded = true
+                logger.warn(
+                    `[AgentLoop] 模型 ${currentModel} 返回图片不支持错误，降级为工具通道（清 image_url + 恢复 analyze_image）`,
+                    {turn: turns, attempt},
+                )
+            }
+
             const hasContextLengthErr = checkContextLengthError(error)
 
             // ★ 分类器仅用于日志/提示，绝不能因分类器自身异常阻断重试流程。
@@ -559,6 +587,19 @@ export async function* checkPlannedCommandsPermission(
 }
 
 // ─── 重试等待：指数退避 ────────────────────────────────────
+
+/**
+ * 判定错误是否为"模型不支持图片输入"（400 降级触发条件）。
+ *
+ * 来源：DeepSeek 官方文档 — 仅视觉模型接受图片，其他模型返回 400
+ * ("This model does not support image")。其他服务商变体："image data is not supported"。
+ * 兼容 OpenAI SDK 风格 response.data.error.message 结构。
+ */
+export function isImageUnsupportedError(error: any): boolean {
+    if (!error) return false
+    const msg = extractErrorDetail(error) || error.message || String(error)
+    return /does not support image|image.*not.*support/i.test(msg)
+}
 
 /**
  * 提取用户可读的错误详情。

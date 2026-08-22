@@ -664,9 +664,8 @@ export function convertUserContent(content: string | ContentPart[]): Anthropic.C
                 blocks.push({
                     type: 'image',
                     source: {
-                        type: 'base64',
-                        media_type: 'image/jpeg',
-                        data: url,
+                        type: 'url',
+                        url,
                     },
                 } as any)
             }

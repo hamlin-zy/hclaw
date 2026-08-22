@@ -18,14 +18,6 @@ export function renderSystemPrompt(
 
   let result = template
 
-  // 替换 {{availableTools}}
-  result = result.replace(/\{\{availableTools\}\}/gi, () => {
-    if (params.availableTools.length === 0) {
-      return '（无可用工具限制）'
-    }
-    return `可用工具：\n${params.availableTools.map(t => `- ${t}`).join('\n')}`
-  })
-
   // 替换 {{permissionMode}}
   result = result.replace(/\{\{permissionMode\}\}/gi, () => {
     const modeMap: Record<string, string> = {
@@ -50,12 +42,10 @@ export function renderSystemPrompt(
 export function renderAgentSystemPrompt(
   template: string,
   agentType: string,
-  availableTools: string[],
   permissionMode: 'auto' | 'safe',
   workingDir: string,
 ): string {
   return renderSystemPrompt(template, {
-    availableTools,
     permissionMode,
     workingDir,
     agentType,

@@ -29,7 +29,7 @@ import {createConversationRepository} from '../../repositories'
 
 import type {RunParams, MainLoopExitReason, ControllerState} from './types'
 import {endTurnCleanup} from './helpers'
-import {initializeRunEnvironment, detectCommandContext, selectModelForTurn, filterTools, buildSystemPrompt} from './setup'
+import {initializeRunEnvironment, detectCommandContext, selectModelForTurn, filterTools, filterToolsForDegrade, buildSystemPrompt} from './setup'
 import {executeLlmCallWithRetry, executeToolCalls, extractMediaFromToolResults} from './execute'
 import {PreprocessCache} from './preprocessCache'
 // ─── LLM 调用事件与工具方法（内联自历史 compress.ts） ───
@@ -331,15 +331,16 @@ export class AgentLoopController {
             this.turns = turnCount
             logger.info(`[AgentLoop] start turn ${turnCount}/${maxTurnsLimit}`)
 
-            // ── 获取最后一条用户消息 ──
-            const lastUserMessage = getLastUserMessage(currentState)
-
             // ── 选择模型（显式 modelRole → 会话 override → 默认 primary）──
             const selection = yield* selectModelForTurn(schemeConfig, sessionId, params.modelRole)
 
             // ── 过滤工具列表 ──
             const agentType = (agentTypeParam ?? params.agentType) || 'General'
-            const availableToolDefinitions = await filterTools(agentDefinition, agentType)
+            // ★ 400 降级恢复用：能力过滤前、白名单后的完整列表（含 analyze_image，已过 agent 白名单）
+            const preCapabilityToolDefinitions = await filterToolsForDegrade(agentDefinition, agentType)
+            const availableToolDefinitions = await filterTools(
+                agentDefinition, agentType, selection.modelConfig.model, preCapabilityToolDefinitions,
+            )
             logger.debug(
                 `[AgentLoop] setup model:${selection.modelConfig.model} provider:${selection.modelConfig.provider} tools:${availableToolDefinitions.length}`,
             )
@@ -399,6 +400,7 @@ export class AgentLoopController {
                 systemPrompt,
                 commandTemplate,
                 availableToolDefinitions,
+                preCapabilityToolDefinitions,
                 modelConfig: selection.modelConfig,
                 workModeRole: selection.suggestedRole,
                 schemeName: selection.schemeName,
