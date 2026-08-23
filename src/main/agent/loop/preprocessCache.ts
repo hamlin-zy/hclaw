@@ -40,7 +40,7 @@ export class PreprocessCache {
    * 处理消息集，返回 normalize 后的 ChatMessage[]。
    *
    * forceRebuild=true 时全量重建（调用方在消息中间插入内容时使用，
-   * 如 ContextRetrieval Hook 注入知识消息——中间插入会破坏「纯追加」假设）。
+   * 中间插入会破坏「纯追加」假设，导致前缀增量缓存失效）。
    *
    * 返回语义：可能返回输入数组本身（稳态零拷贝），调用方只读消费。
    */

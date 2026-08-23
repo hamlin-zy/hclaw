@@ -4,7 +4,6 @@ import TitleBar from './components/TitleBar'
 import MenuBar from './components/MenuBar'
 import ConversationSidebar from './components/ConversationSidebar'
 import MainWorkspace from './components/MainWorkspace'
-import SidePanels from './components/SidePanels'
 import MenuDialogRenderer from './components/MenuDialogRenderer'
 import DiffModal from './components/DiffModal'
 import AskUserModal from './components/AskUserModal'
@@ -263,7 +262,7 @@ async function syncModelSchemeToMain(llmState: ReturnType<typeof useLLMStore.get
 export default function App() {
   const registerStreamListener = useAgentStore((s) => s.registerStreamListener)
   const theme = useThemeStore((s) => s.theme)
-  const {leftCollapsed, rightCollapsed} = useSidebarStore()
+  const {leftCollapsed} = useSidebarStore()
   const background = useSettingsStore((s) => s.settings.ui.background)
 
   // 注册系统内快捷键（非全局快捷键）
@@ -698,12 +697,6 @@ export default function App() {
             data-name="main-column">
             <MainWorkspace/>
           </div>
-          {/* 右侧面板卡片 - 折叠时隐藏 */}
-          {!rightCollapsed && (
-            <div data-name="side-panels" className="app-surface-card w-sidebar flex-shrink-0 min-h-0 flex flex-col transition-all h-full">
-              <SidePanels/>
-            </div>
-          )}
         </main>
         <AnimatePresence>
           <MenuDialogRenderer key="menu-dialog" />

@@ -46,12 +46,13 @@ describe('ConfigDialogWindow 独立配置窗口入口', () => {
         expect(screen.getByText(/未知配置类型/)).toBeTruthy()
     })
 
-    it('DIALOG_CONFIG 覆盖 16 种迁移类型（无遗漏）', () => {
+    it('DIALOG_CONFIG 覆盖 18 种迁移类型（无遗漏）', () => {
         // 从测试文件读不到模块内部常量，改为断言各类型渲染不降级：
-        // 白名单 16 种逐一渲染 fallback 不出现
+        // 白名单 18 种逐一渲染 fallback 不出现
         const types = ['llm-config', 'scheme-config', 'mcp', 'tools', 'agents', 'skills',
             'plugins', 'commands', 'schedules', 'channels', 'prompt-config',
-            'settings', 'conversations', 'tool-list', 'system-prompt', 'about']
+            'settings', 'conversations', 'tool-list', 'system-prompt', 'about',
+            'llm-logs', 'usage']
         for (const t of types) {
             vi.unstubAllGlobals()
             stubApi(t)

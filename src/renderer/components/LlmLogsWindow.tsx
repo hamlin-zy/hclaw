@@ -1,22 +1,19 @@
 /**
- * LLM 调用日志窗口组件
+ * LLM 调用日志窗口组件（对话框形态，由 ConfigDialogWindow 统一壳提供标题栏与主题）
  *
  * 使用 LogsModal 显示日志列表和详情
  * 支持日志开关状态检测
  *
  * 视觉设计语言对齐用量统计窗口（src/renderer/components/usage/UsageWindow.tsx）：
- * 标题栏 + 紧凑工具栏（px-5 py-2.5 / --border 底边）、卡片式空态（rounded-lg border）、
+ * 紧凑工具栏（px-5 py-2.5 / --border 底边）、卡片式空态（rounded-lg border）、
  * 全部使用 globals.css 既有 CSS 变量与工具类，不引入新主题概念。
  */
 
 import {useCallback, useEffect, useState} from 'react'
 import {LogsModal} from './LogsModal'
 import {type LlmCallLog} from '@shared/types'
-import {useThemeSync} from '../lib/theme'
-import WindowTitleBar from './common/WindowTitleBar'
 
 export default function LlmLogsWindow() {
-    useThemeSync()
     const [logs, setLogs] = useState<LlmCallLog[]>([])
     const [selectedLogId, setSelectedLogId] = useState<string | null>(null)
     const [enabled, setEnabled] = useState(false)
@@ -84,8 +81,7 @@ export default function LlmLogsWindow() {
     // 日志开关关闭时显示提示
     if (!enabled) {
         return (
-            <div className="h-screen flex flex-col bg-[var(--surface)] text-[var(--text-primary)] font-['Inter',sans-serif]">
-                <WindowTitleBar title="LLM 调用日志"/>
+            <div className="h-full flex flex-col">
                 {/* 顶部工具栏 */}
                 <div className="flex items-center gap-3 px-5 py-2.5 border-b border-[var(--border)] shrink-0">
                     <div className="flex items-center gap-2.5">
@@ -120,8 +116,7 @@ export default function LlmLogsWindow() {
     }
 
     return (
-        <div className="h-screen flex flex-col bg-[var(--surface)] text-[var(--text-primary)] font-['Inter',sans-serif]">
-            <WindowTitleBar title="LLM 调用日志"/>
+        <div className="h-full flex flex-col">
             {/* 顶部工具栏 */}
             <div className="flex items-center gap-3 px-5 py-2.5 border-b border-[var(--border)] shrink-0 flex-wrap">
                 <div className="flex items-center gap-3">

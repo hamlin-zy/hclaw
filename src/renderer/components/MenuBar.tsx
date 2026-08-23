@@ -106,6 +106,13 @@ const menuItems: { type: string | null; icon: JSX.Element; label: string }[] = [
         </svg>
     },
     {
+        type: 'permission-rules',
+        label: '权限',
+        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+    },
+    {
         type: 'channels',
         label: '渠道',
         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -196,7 +203,7 @@ const menuItems: { type: string | null; icon: JSX.Element; label: string }[] = [
 
 export default function MenuBar() {
     const {theme, toggleTheme} = useThemeStore()
-    const {toggleLeft, toggleRight, leftCollapsed, rightCollapsed} = useSidebarStore()
+    const {toggleLeft, leftCollapsed} = useSidebarStore()
     const hasUpdate = useUpdaterStore((s) => s.result?.status === 'update-available')
     const pluginHasUpdate = usePluginUpdateStore((s) => s.hasUpdate)
     const [collapsedItems, setCollapsedItems] = useState<string[]>([])
@@ -511,15 +518,6 @@ export default function MenuBar() {
                       <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
                   </svg>
               )}
-          </button>
-
-          {/* 右侧面板折叠按钮 */}
-          <button
-              onClick={toggleRight}
-              aria-label={rightCollapsed ? '展开右侧面板' : '折叠右侧面板'}
-              className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-          >
-              <ChevronIcon direction={rightCollapsed ? 'left' : 'right'}/>
           </button>
       </nav>
   )

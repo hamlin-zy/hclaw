@@ -1,36 +1,17 @@
 /**
- * 用量统计独立窗口
- * 窗口创建、无边框、主题注入与窗口控制 IPC 统一由 windowFactory 处理；
- * 本模块只维护窗口单例与数据 IPC（usage-stats:query）。
+ * 用量统计窗口
+ * 窗口创建、无边框、主题注入与窗口控制 IPC 统一由 windowFactory + configWindow 注册表处理；
+ * 本模块只负责打开入口与数据 IPC（usage-stats:query）。
  */
-import {BrowserWindow, ipcMain} from 'electron'
-import {createAppWindow} from './windowFactory'
+import {ipcMain} from 'electron'
+import {openConfigWindow} from './configWindow'
 import {llmUsageRepo} from '../repositories/sqlite/llmUsageRepository'
 import {modelMetaPriceSource} from '../modelMetaRegistry'
 import {computeKpis} from '@shared/llmUsage'
 import type {GlobalUsageStats, UsageStatsQueryParams} from '@shared/types'
 
-let usageWindow: BrowserWindow | null = null
-
-export function createUsageWindow(): void {
-    usageWindow = createAppWindow({
-        id: 'usage-window',
-        title: '用量统计',
-        entryHtml: 'usage.html',
-        width: 1200,
-        height: 700,
-        minWidth: 800,
-        minHeight: 400,
-    })
-    usageWindow.on('closed', () => { usageWindow = null })
-}
-
 export function openUsageWindow(): void {
-    if (usageWindow && !usageWindow.isDestroyed()) {
-        usageWindow.focus()
-        return
-    }
-    createUsageWindow()
+    openConfigWindow('usage')
 }
 
 /** 注册 IPC（main/index.ts 调用） */
