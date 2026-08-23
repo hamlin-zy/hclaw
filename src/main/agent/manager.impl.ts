@@ -355,11 +355,14 @@ export class AgentManager {
           }
         } else if (msg.type === 'session_created') {
           // 独立会话创建事件 → 通知渲染进程刷新侧栏 + 自动切换
-          const sessionMsg = msg as unknown as { convId: string; title?: string; workspacePath?: string }
+          // ★ handoffFromConvId 必须透传：MessageList「←前会话」导航数据源，
+          //   丢失会导致交接后新会话不显示来源按钮（重启从 DB 加载才恢复）
+          const sessionMsg = msg as unknown as { convId: string; title?: string; workspacePath?: string; handoffFromConvId?: string }
           this.sendToMainWindow('session_created', {
             id: sessionMsg.convId,
             title: sessionMsg.title || '新会话',
             workspacePath: sessionMsg.workspacePath || '',
+            handoffFromConvId: sessionMsg.handoffFromConvId || undefined,
           })
         } else if (msg.type === 'session_handoff_start') {
           await this.startHandoffSession(msg as unknown as {
