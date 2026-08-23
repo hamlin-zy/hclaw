@@ -924,6 +924,9 @@ export default function MessageList({conversationId}: { conversationId?: string 
     // ── 最后一条助手消息的状态注记（重试/错误提示） ─────────
     // 只挂"当前最后一条助手消息"：用户滚动历史时干净，新消息成为最后一条后自动转移。
     // 错误优先（handleError 已清 executingToolsMessage，两者互斥）。
+    // 注意：visibleMessages 的 useMemo 依赖 [messages] 必须保留——流式更新单条消息时
+    // updateMessageForConv 生成新消息对象，visibleMessages 需重建才能反映到 UI。
+    // 此处的更新开销来自消息本身内容变化，属必要分配（React 调和）。
     const visibleMessages = useMemo(
         () => messages
             .map((message, origIdx) => ({message, origIdx}))
