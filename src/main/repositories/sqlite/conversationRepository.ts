@@ -318,6 +318,56 @@ export class SqliteConversationRepository implements IConversationRepository {
         }
     }
 
+    /**
+     * 崩溃落库缺口修补：以主进程累积的完整正文为基准，补齐 DB text 块缺失的尾部。
+     *
+     * 背景：流式落库主责在渲染进程（块级增量，最多滞后 30s），渲染进程崩溃时
+     * 未 flush 的增量永久丢失；主进程保险丝 #mergeAndPersist 发现 DB 已有 blocks
+     * 时只补 endedAt。本方法让保险丝在 isFinal 时能修复内容缺口：
+     * - DB text 总长 < fullText 长度 → 对 MAX(sequence) 的 text 块追加尾部
+     * - 无任何 text 块（如仅 think 块已落库）→ 插入完整 text 块（id 规范 text-${msgId}-${offset}）
+     * - 已完整 / DB 反超 → 不动（幂等 + 防覆盖，绝不 DELETE 已有块）
+     *
+     * @returns true = 处理成功（含无需修补）；false = 消息行不存在等不可修补场景
+     */
+    repairTextTail(msgId: string, fullText: string): boolean {
+        try {
+            const db = getDatabase()
+            const row = db.prepare(
+                "SELECT COALESCE(SUM(LENGTH(content)), 0) AS len FROM message_blocks WHERE message_id = ? AND block_type = 'text'"
+            ).get(msgId) as {len: number}
+            const dbTextLen = row?.len ?? 0
+            if (!fullText || fullText.length <= dbTextLen) return true
+
+            // 消息行必须存在（blocks 有外键引用；无行说明该消息从未落库，交给全量写路径）
+            const msgRow = db.prepare('SELECT id FROM messages WHERE id = ?').get(msgId)
+            if (!msgRow) return false
+
+            const tail = fullText.slice(dbTextLen)
+            const lastTextBlock = db.prepare(
+                "SELECT id FROM message_blocks WHERE message_id = ? AND block_type = 'text' ORDER BY sequence DESC LIMIT 1"
+            ).get(msgId) as {id: string} | undefined
+
+            if (lastTextBlock) {
+                // 追加语义与 writeBlockDelta 的 text 分支一致：COALESCE 防旧块 content 为 NULL
+                db.prepare("UPDATE message_blocks SET content = COALESCE(content, '') || ?, timestamp = ? WHERE id = ?")
+                    .run(tail, Date.now(), lastTextBlock.id)
+            } else {
+                const seq = (db.prepare('SELECT COALESCE(MAX(sequence), -1) + 1 AS s FROM message_blocks WHERE message_id = ?').get(msgId) as {s: number}).s
+                db.prepare(
+                    'INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp) VALUES (?, ?, ?, ?, NULL, ?, ?)'
+                ).run(`text-${msgId}-${dbTextLen}`, msgId, 'text', tail, seq, Date.now())
+            }
+            db.prepare('UPDATE conversations SET updated_at = ? WHERE id = (SELECT conversation_id FROM messages WHERE id = ?)')
+                .run(Date.now(), msgId)
+            saveDatabase()
+            return true
+        } catch (err) {
+            console.error('[SqliteConversationRepository] repairTextTail failed:', err)
+            return false
+        }
+    }
+
     setMessageEnded(convId: string, messageId: string, endedAt: number): boolean {
         try {
             const blocks = this.blockRepo.readBlocksByMessage(messageId)

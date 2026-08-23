@@ -385,6 +385,11 @@ export function registerHandlers(): void {
         }
     })
 
+    // 崩溃恢复流快照（P1）：渲染端 recoverSessions 拉取活跃流的权威状态
+    ipcMain.handle('agent-stream-snapshot', async (_event, conversationId: string) => {
+        return agentManager.getStreamSnapshot(conversationId)
+    })
+
     // 响应用户确认
     ipcMain.handle('agent-respond-confirmation', async (_event, params: {
         conversationId: string

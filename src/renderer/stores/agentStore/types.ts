@@ -45,6 +45,13 @@ export interface ConvAgentData {
     }>
     /** 当前正在流式输出的 assistant 消息 ID */
     streamingMessageId: string | null
+    /**
+     * 崩溃恢复基线（P1）：恢复时快照携带的 DB text 块数。
+     * recordTextBlock 派生块 id 时叠加此值，防止 streamBlocks 清空后
+     * seq 从 0 重计与旧块 id 碰撞（碰撞 → append 进旧块 → 正文错序）。
+     * 正常流式路径恒为 undefined。
+     */
+    recoveredTextBlockBase?: number
     /** 工具执行完毕后，等待 LLM 响应中 */
     isThinkingAfterTools: boolean
     /** 当前正在执行的工具数量 */

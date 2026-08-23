@@ -215,8 +215,10 @@ export function recordTextBlock(convId: string, msgId: string, incrementalText: 
     if (!incrementalText) return
     // ★ textSeq：streamBlocks 仅含非 text 块（think/tool_use），其长度即 text 段序号。
     //   无 think/tool 时 seq=0，每插入一个非 text 块后 seq 递增 → 各 text 段独立 id。
+    //   ★ 崩溃恢复基线：恢复后 streamBlocks 已清空但 DB 仍有旧 text 块，
+    //   加上快照携带的 recoveredTextBlockBase 防止块 id 碰撞（碰撞 → append 进旧块 → 错序）。
     const agentState = useAgentStore.getState().convAgentStates[convId]
-    const textSeq = agentState?.streamBlocks?.length ?? 0
+    const textSeq = (agentState?.streamBlocks?.length ?? 0) + (agentState?.recoveredTextBlockBase ?? 0)
     accumulateBlockDelta(convId, msgId, {
         upsertBlocks: [{
             id: `text-${msgId}-${textSeq}`, messageId: msgId, blockType: 'text',

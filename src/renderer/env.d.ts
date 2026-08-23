@@ -80,6 +80,8 @@ declare global {
         running: boolean
         allRunning: string[]
       }>
+      agentStreamSnapshot: (conversationId: string) =>
+        Promise<import('./stores/agentStore/helpers/recoverySeeding').StreamSnapshot | null>
         contextGetUsage: (conversationId: string) => Promise<{
           ratio: number
           windowTokens: number

@@ -105,6 +105,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('agent-inject-message', params),
   agentStatus: (conversationId?: string) =>
     ipcRenderer.invoke('agent-status', conversationId),
+  agentStreamSnapshot: (conversationId: string) =>
+    ipcRenderer.invoke('agent-stream-snapshot', conversationId),
   contextGetUsage: (conversationId: string) =>
     ipcRenderer.invoke('context:get-usage', conversationId),
     agentRespondConfirmation: (params: {

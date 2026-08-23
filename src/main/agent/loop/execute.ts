@@ -30,7 +30,7 @@ import {supportsImageInput} from '../modelCapability'
 import {sanitizeMessagesForModel, sanitizeThinkingForModel} from './helpers'
 import {getToolRegistry} from '../tools/registry'
 import {computeTokenTiming, isTokenDelta} from './tokenTiming'
-import {estimateTotalContextTokens} from '../context'
+import {resolveContextUsageTokens} from '../context'
 import {resolveMaxContextTokens} from './modelMaxContext'
 import {modelMetaRegistry} from '../../modelMetaRegistry'
 
@@ -188,7 +188,8 @@ export async function* executeLlmCallWithRetry(
                     modelMetaContextLength: modelMetaRegistry.getContextLength(currentModel),
                     adapterInfo: adapter?.getModelInfo?.() ?? null,
                 })
-                const usageTokens = estimateTotalContextTokens(messagesToSend, systemPrompt)
+                // 分子：优先最近一次请求的真实 usage（llmStats），字符估算仅兜底（中文失真）
+                const usageTokens = resolveContextUsageTokens(messagesToSend, systemPrompt)
                 const agentSettings = getSettings()?.agent
                 const action = evaluateHandoffGate(
                     usageTokens,
