@@ -99,14 +99,6 @@ interface PluginCapabilityDetails {
         allowedTools?: string[]
         userInvocable?: boolean
     }>
-    hooks?: Array<{
-        type: string
-        command?: string
-        prompt?: string
-        url?: string
-        matcher?: string
-        once?: boolean
-    }>
     agents?: Array<{
         name: string
         description: string
@@ -152,7 +144,7 @@ export default function PluginDialog() {
     const [categoryCollapsed, setCategoryCollapsed] = useState<Record<string, boolean>>({})
     // Real capability counts from authoritative registries (skillRegistry/agentRegistry/mcpService),
     // overriding PluginLoader's simplified scan which may miss skills/agents in non-standard paths.
-    const [realCounts, setRealCounts] = useState<Record<string, { skills: number; agents: number; mcps: number; hooks: number }>>({})
+    const [realCounts, setRealCounts] = useState<Record<string, { skills: number; agents: number; mcps: number }>>({})
     // Real capability details for expanded view (fetched from authoritative registries on demand)
     const [capabilityDetails, setCapabilityDetails] = useState<Record<string, {
         skills: Array<{ name: string; description?: string; userInvocable?: boolean; allowedTools?: string[] }>
@@ -735,12 +727,6 @@ export default function PluginDialog() {
                             {realCounts[plugin.name]?.mcps ?? plugin.mcpServers?.length ?? 0} MCP
                           </span>
                                       )}
-                                      {(realCounts[plugin.name]?.hooks ?? plugin.hooks?.length ?? 0) > 0 && (
-                                          <span
-                                              className="text-xs px-2 py-0.5 bg-[var(--danger)]/10 text-[var(--danger)] rounded">
-                            {realCounts[plugin.name]?.hooks ?? plugin.hooks?.length ?? 0} Hook
-                          </span>
-                                      )}
                                       <span
                                           className="text-xs px-2 py-0.5 bg-[var(--surface)] text-[var(--text-muted)] rounded">
                           {plugin.source}
@@ -889,47 +875,6 @@ export default function PluginDialog() {
                                               />
                                             )
                                           })()}
-                                          {/* Hooks */}
-                                          {plugin.hooks && plugin.hooks.length > 0 && (
-                                              <CollapsibleCategory
-                                                  title="钩子"
-                                                  icon={<svg className="w-3 h-3" fill="none" stroke="currentColor"
-                                                             strokeWidth="2" viewBox="0 0 24 24">
-                                                      <path d="M8 7h12M8 12h12M8 17h12M4 7h.01M4 12h.01M4 17h.01"/>
-                                                  </svg>}
-                                                  items={plugin.hooks}
-                                                  limit={CATEGORY_PREVIEW_LIMIT}
-                                                  isCollapsed={isCategoryCollapsed(plugin.name, 'hooks')}
-                                                  onToggle={() => toggleCategory(plugin.name, 'hooks')}
-                                                  renderItem={(item: unknown) => {
-                                                      const hook = item as typeof plugin.hooks[0]
-                                                      return (
-                                                          <div key={hook.type + hook.matcher || ''} className="text-sm">
-                                                              <div className="flex items-center gap-2">
-                                  <span
-                                      className="text-xs px-1.5 py-0.5 bg-[var(--warning)]/10 text-[var(--warning)] rounded">
-                                    {hook.type}
-                                  </span>
-                                                                  {hook.matcher && (
-                                                                      <code
-                                                                          className="text-xs text-[var(--text-muted)]">{hook.matcher}</code>
-                                                                  )}
-                                                              </div>
-                                                              {hook.command && (
-                                                                  <p className="mt-0.5 text-xs text-[var(--text-muted)] font-mono ml-0">{hook.command}</p>
-                                                              )}
-                                                              {hook.prompt && (
-                                                                  <p className="mt-0.5 text-xs text-[var(--text-muted)] line-clamp-2 ml-0">{hook.prompt}</p>
-                                                              )}
-                                                              {hook.url && (
-                                                                  <p className="mt-0.5 text-xs text-[var(--text-muted)] font-mono ml-0">{hook.url}</p>
-                                                              )}
-                                                          </div>
-                                                      )
-                                                  }}
-                                              />
-                                          )}
-
                                           {/* Agents (from authoritative registry) */}
                                           {(() => {
                                             const agents = capabilityDetails[plugin.name]?.agents || plugin.agents || []

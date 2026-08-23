@@ -768,43 +768,6 @@
   },
   {
     "type": "cycle",
-    "from": "src/main/config/hookConfig.ts",
-    "to": "src/main/plugin/hooks.ts",
-    "unresolvedTo": "../plugin/hooks",
-    "dependencyTypes": [
-      "local",
-      "dynamic-import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "no-circular"
-    },
-    "cycle": [
-      {
-        "name": "src/main/plugin/hooks.ts",
-        "dependencyTypes": [
-          "local",
-          "dynamic-import"
-        ]
-      },
-      {
-        "name": "src/main/plugin/hooks/executor.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "src/main/config/hookConfig.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      }
-    ]
-  },
-  {
-    "type": "cycle",
     "from": "src/main/repositories/index.ts",
     "to": "src/main/repositories/sqlite/accountRepository.ts",
     "unresolvedTo": "./sqlite/accountRepository",

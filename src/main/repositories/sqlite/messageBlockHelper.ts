@@ -290,15 +290,26 @@ export function blocksToMessage(messageRecord: Message, blocks: MessageBlock[]):
       case 'tool_result':
         if (block.data && toolCalls.length > 0) {
           const { id, result } = JSON.parse(block.data)
+          // ★ 终态修复（历史数据迁移）：tool_result 块与 tool_call 块分离存储，
+          //   旧数据中 tool_call 块 status 在 tool_use 时写死为 'running'，从未更新。
+          //   加载时若工具已有 result（必然已执行完毕）而 status 仍是 运行中/待执行，
+          //   按 result.success 推断终态（success/error），避免重启后全部显示"执行中"。
+          const applyTerminalStatus = (tc: ToolCall) => {
+            if (tc.status === 'running' || tc.status === 'pending') {
+              tc.status = (result as {success?: boolean})?.success ? 'success' : 'error'
+            }
+          }
           // 更新 contentBlocks 中对应的 tool_use block
           const cbMatch = contentBlocks.find(cb => cb.type === 'tool_use' && cb.toolCall?.id === id)
           if (cbMatch?.toolCall) {
             cbMatch.toolCall.result = result
+            applyTerminalStatus(cbMatch.toolCall)
           }
           // 扁平字段后向兼容
           const lastTc = toolCalls[toolCalls.length - 1]
           if (lastTc.id === id) {
             lastTc.result = result
+            applyTerminalStatus(lastTc)
           }
         }
         break

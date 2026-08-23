@@ -2,6 +2,7 @@ import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {type ReactNode, useRef, useState} from 'react'
 import {generateFileId} from '../lib/format'
+import {useConversationStore} from '../stores/conversationStore'
 
 interface MenuButtonProps {
     icon: ReactNode
@@ -118,6 +119,20 @@ export default function ToolMenu({onUploadFile, onOpenCommandPalette}: ToolMenuP
                                 <MenuButton icon={<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>} label="工具列表 + MCP" onClick={() => { closeMenu(); window.electronAPI?.openConfigWindow?.('tool-list') }}/>
                                 <MenuButton icon={<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>} label="系统提示词" onClick={() => { closeMenu(); window.electronAPI?.openConfigWindow?.('system-prompt') }}/>
                                 <MenuButton icon={<path d="M13 10V3L4 14h7v7l9-11h-7z"/>} label="技能命令" onClick={() => { closeMenu(); onOpenCommandPalette() }}/>
+                                <MenuButton
+                                    icon={<>
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </>}
+                                    label="任务历史"
+                                    onClick={() => {
+                                        closeMenu()
+                                        const convId = useConversationStore.getState().activeConversationId
+                                        // 当前会话作用域：经启动参数限定窗口内可见批次；无活跃会话时回退全量视图
+                                        window.electronAPI?.openConfigWindow?.('task-history-conv',
+                                            convId ? [`--hclaw-task-conv=${convId}`] : undefined)
+                                    }}
+                                />
                             </motion.div>,
                             document.body
                         )}

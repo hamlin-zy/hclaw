@@ -1,7 +1,6 @@
 import {useEffect, useRef, useState} from 'react'
 import {RefreshCw} from 'lucide-react'
 import {formatTokenCompact, formatCost, formatTokensPerSecond, type Currency} from '../../lib/format'
-import {useThemeSync} from '../../lib/theme'
 import {useExchangeRateSync} from '../../hooks/useExchangeRateSync'
 import {parseLocalDateStartMs} from '@shared/llmUsage'
 import {ClientStatsNotice, InfoTip, getCostDisclaimer, providerDisplayName, CurrencyToggle} from './statsParts'
@@ -77,7 +76,6 @@ function TrendBar({value, max, label, isToday}: {value: number; max: number; lab
 }
 
 export default function UsageWindow() {
-    useThemeSync()
     // 独立窗口为独立渲染进程：挂载时同步主进程实时汇率（与主窗口 App.tsx 同源），
     // 否则 CNY 成本换算 / InfoTip 口径文案恒为默认 7.2，与右键菜单用量统计弹窗不一致
     const usdCnyRate = useExchangeRateSync()
@@ -91,15 +89,6 @@ export default function UsageWindow() {
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const [data, setData] = useState<GlobalUsageStats | null>(null)
     const [error, setError] = useState(false)
-    const [isMaximized, setIsMaximized] = useState(false)
-
-    // 无边框窗口：最大化状态同步（更新最大化/还原按钮）
-    useEffect(() => {
-        const api = window.electronAPI
-        if (!api?.windowControls) return
-        void api.windowControls.isMaximized().then(setIsMaximized)
-        return api.windowControls.onMaximizedChange(setIsMaximized)
-    }, [])
 
     useEffect(() => {
         let cancelled = false
@@ -134,37 +123,7 @@ export default function UsageWindow() {
     const avgTtftSeconds = data ? (data.kpi.avgTtftSeconds ?? null) : null
 
     return (
-        <div className="h-screen flex flex-col bg-[var(--surface)] text-[var(--text-primary)] font-['Inter',sans-serif]">
-            {/* 自定义标题栏（无边框窗口拖拽 + 窗口控制） */}
-            <header className="titlebar shrink-0">
-                <div className="titlebar-content">
-                    <div className="titlebar-left no-drag">
-                        <div className="logo-container">
-                            <span className="logo-icon">
-                                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                                    <line x1="4" y1="20" x2="4" y2="14"/><line x1="10" y1="20" x2="10" y2="4"/><line x1="16" y1="20" x2="16" y2="10"/>
-                                </svg>
-                            </span>
-                            <span className="logo-text">用量统计</span>
-                        </div>
-                    </div>
-                    <div className="titlebar-center drag-region" />
-                    <div className="titlebar-right no-drag">
-                        <div className="window-controls">
-                            <button className="window-control-btn" onClick={() => window.electronAPI?.windowControls?.minimize?.()} aria-label="最小化">
-                                <MinimizeIcon/>
-                            </button>
-                            <button className="window-control-btn" onClick={() => window.electronAPI?.windowControls?.maximize?.()} aria-label={isMaximized ? '还原' : '最大化'}>
-                                {isMaximized ? <RestoreIcon/> : <MaximizeIcon/>}
-                            </button>
-                            <button className="window-control-btn window-control-btn--close" onClick={() => window.electronAPI?.windowControls?.close?.()} aria-label="关闭">
-                                <CloseIcon/>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </header>
-
+        <div className="h-full flex flex-col">
             {/* 工具栏：时间范围（含自定义日历）+ 分组视图 + 货币切换 + 刷新 */}
             <div className="flex items-center gap-3 px-5 py-2.5 border-b border-[var(--border)] shrink-0 flex-wrap">
                 <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
@@ -371,42 +330,5 @@ export default function UsageWindow() {
                 )}
             </div>
         </div>
-    )
-}
-
-// ========================================
-// 窗口控制 SVG 图标
-// ========================================
-
-function MinimizeIcon() {
-    return (
-        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M20 12H4"/>
-        </svg>
-    )
-}
-
-function MaximizeIcon() {
-    return (
-        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="4" y="4" width="16" height="16" rx="2"/>
-        </svg>
-    )
-}
-
-function RestoreIcon() {
-    return (
-        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="6" y="6" width="12" height="12" rx="1"/>
-            <path d="M8 6V5a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1h-1"/>
-        </svg>
-    )
-}
-
-function CloseIcon() {
-    return (
-        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M18 6L6 18M6 6l12 12"/>
-        </svg>
     )
 }

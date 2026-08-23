@@ -40,12 +40,6 @@ export interface AgentStartParams {
    * 主进程序列化后传递给 Worker，Worker 直接使用，无需重新加载
    */
   capabilities?: SerializableCapabilities
-  /**
-   * Hook 执行后注入的额外上下文
-   * 来自 SessionStart/UserPromptSubmit hook 的 additionalContext
-   * 会在 LLM 调用时注入到消息中（历史消息之后，用户消息之前）
-   */
-  hookAdditionalContext?: string
   /** Agent 定义（子 Agent 独立会话使用） */
   agentDefinition?: import('@shared/agent').AgentDefinition
 }

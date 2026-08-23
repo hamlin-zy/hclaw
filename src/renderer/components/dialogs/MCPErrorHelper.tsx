@@ -21,7 +21,7 @@ const ACTION_LABELS: Record<McpAction, string> = {
     test: '测试连接',
 }
 
-// ─── Hook ────────────────────────────────
+// ─── useMcpErrorDialog ───────────────────
 
 export function useMcpErrorDialog(opts?: {
     onNavigateHome?: () => void

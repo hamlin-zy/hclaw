@@ -7,7 +7,6 @@ import {
     AgentDefinition,
     ArgumentDef,
     CommandDef,
-    HookConfig,
     LoadedPlugin,
     McpServerConfig,
     PluginManifest,
@@ -18,7 +17,7 @@ import {
  * PluginLoader - Loads and parses plugin directories
  *
  * Design Rationale:
- * - Lazy loading: Commands/hooks are only parsed when needed
+ * - Lazy loading: Commands are only parsed when needed
  * - Validates plugin structure before attempting to parse
  * - Uses gray-matter for YAML frontmatter parsing in .md files
  * - Command IDs use plugin:command format for namespace isolation
@@ -33,7 +32,7 @@ export class PluginLoader {
   /**
    * Load a single plugin from a plugin path
    * @param pluginPath - Absolute path to the plugin directory
-   * @returns LoadedPlugin with commands, hooks, and mcpServers parsed
+   * @returns LoadedPlugin with commands and mcpServers parsed
    */
   async loadPlugin(pluginPath: string): Promise<LoadedPlugin> {
       // Support both .claude-plugin/plugin.json (HClaw convention) and root plugin.json (open source convention)
@@ -75,7 +74,7 @@ export class PluginLoader {
       const skills: SkillDefinition[] = [];
       const agents: AgentDefinition[] = [];
 
-    // Parse hooks configuration
+    // Hook 系统已移除，parseHooks 为兼容占位（恒返回 []）
     const hooks = await this.parseHooks(pluginPath, pluginName);
 
     // Parse MCP servers configuration
@@ -314,68 +313,11 @@ export class PluginLoader {
   }
 
   /**
-   * Parse hooks configuration from hooks.json
-   *
-   * 支持两种格式：
-   * 1. 数组格式: [{ type: "command", command: "...", events: [...], ... }]
-   * 2. Claude Code 格式: { hooks: { EventName: [{ matcher, hooks: [{type,command}], id, description }] } }
+   * Hook 系统已移除：插件自带 hooks/hooks.json 被静默忽略，
+   * skills/agents/commands/mcpServers 解析不受影响
    */
-  private async parseHooks(pluginPath: string, _pluginName: string): Promise<HookConfig[]> {
-    const hooksPath = path.join(pluginPath, 'hooks', 'hooks.json');
-
-    try {
-      await fsPromises.access(hooksPath)
-    } catch {
-      return [];
-    }
-
-    try {
-      const content = await fsPromises.readFile(hooksPath, 'utf-8');
-      const hooksData = jsYaml.load(content);
-
-      if (!hooksData || typeof hooksData !== 'object') {
-        return [];
-      }
-
-        // 格式1: 数组 [{ type, command, events, ... }]
-      if (Array.isArray(hooksData)) {
-        return hooksData as HookConfig[];
-      }
-
-        // 格式2: Claude Code 格式 { hooks: { EventName: [{ matcher, hooks, id, description }] } }
-        const rawHooks = (hooksData as Record<string, unknown>)?.hooks
-        if (rawHooks && typeof rawHooks === 'object' && !Array.isArray(rawHooks)) {
-            const result: HookConfig[] = []
-            const hooksByEvent = rawHooks as Record<string, {
-                matcher?: string;
-                hooks?: { type?: string; command?: string }[];
-                id?: string;
-                description?: string
-            }[]>
-            for (const [eventName, entries] of Object.entries(hooksByEvent)) {
-                if (!Array.isArray(entries)) continue
-                for (const entry of entries) {
-                    if (!entry?.hooks || !Array.isArray(entry.hooks)) continue
-                    for (const hook of entry.hooks) {
-                        result.push({
-                            type: hook.type || 'command',
-                            command: hook.command,
-                            id: entry.id || `${eventName}:${entry.matcher || 'default'}`,
-                            name: entry.description || entry.id || `${eventName} hook`,
-                            description: entry.description || '',
-                            matcher: entry.matcher,
-                            events: [eventName],
-                        } as HookConfig)
-                    }
-                }
-            }
-            return result
-        }
-
-      return [];
-    } catch {
-      return [];
-    }
+  private async parseHooks(_pluginPath: string, _pluginName: string): Promise<Record<string, unknown>[]> {
+    return []
   }
 
   /**

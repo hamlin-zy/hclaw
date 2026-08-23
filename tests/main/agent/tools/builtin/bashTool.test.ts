@@ -51,6 +51,20 @@ describe('bashTool — 基本命令执行', () => {
         expect(result.output).toBe('(no output)')
     })
 
+    it('PowerShell 对象表格输出不被静默丢弃（windowsHide 无控制台场景回归）', async () => {
+        // windowsHide(CREATE_NO_WINDOW) 下子进程无控制台句柄，
+        // pwsh 隐式 Table 格式化查询宽度失败会静默丢弃输出。
+        // 修复方式：命令包进 & { ... } 2>&1 | Out-String 强制走字符串路径。
+        const result = await bashTool.execute(
+            {command: "[pscustomobject]@{Name='abc';Value=123}"},
+            makeContext(tmpDir),
+        )
+
+        expect(result.success).toBe(true)
+        expect(result.output).toContain('abc')
+        expect(result.output).toContain('123')
+    })
+
     it('返回的工具元信息完整', () => {
         expect(bashTool.name).toBe('bash')
         expect(bashTool.requiredPermissions).toContain('bash:execute')

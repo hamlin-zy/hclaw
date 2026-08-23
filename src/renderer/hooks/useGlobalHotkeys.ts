@@ -74,13 +74,6 @@ export function useGlobalHotkeys() {
                 return
             }
 
-            // Ctrl+Shift+B → 切换右侧栏
-            if (ctrl && shift && key === 'b') {
-                e.preventDefault()
-                useSidebarStore.getState().toggleRight()
-                return
-            }
-
             // Ctrl+Shift+T → 切换主题
             if (ctrl && shift && key === 't') {
                 e.preventDefault()

@@ -23,7 +23,7 @@ export default function ToolCallResult({output, toolCallName}: ToolCallResultPro
 
     return (
         <div>
-            <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">
+            <span data-find-exclude className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">
                 {toolCallName === 'file_edit' ? '执行结果' : '输出'}
             </span>
             <div

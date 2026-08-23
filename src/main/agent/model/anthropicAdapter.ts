@@ -22,7 +22,7 @@ import type {
     StreamChunk,
     ToolDefinition,
 } from './types'
-import {injectAdditionalContext, isThirdPartyAnthropicAPI} from './utils'
+import {isThirdPartyAnthropicAPI} from './utils'
 
 export class AnthropicAdapter implements ModelAdapter {
   private client: Anthropic
@@ -46,7 +46,7 @@ export class AnthropicAdapter implements ModelAdapter {
   }
 
   async *chat(params: ChatParams): AsyncGenerator<StreamChunk> {
-    const { messages, systemPrompt, tools, maxTokens, thinkingEffort, abortSignal, additionalContext, commandTemplate } = params
+    const { messages, systemPrompt, tools, maxTokens, thinkingEffort, abortSignal, commandTemplate } = params
 
     const thinkingModeActive = !!thinkingEffort
     const needsCompatNormalization = this.isThirdPartyAPI()
@@ -55,12 +55,6 @@ export class AnthropicAdapter implements ModelAdapter {
     let apiMessages = converted.apiMessages
 
     const useContentBlocks = this.features?.systemContentBlocks
-
-    // 注入 additionalContext 到最后一条 user 消息（Claude Code 规范）
-    // 放在缓存点之后，最大化缓存命中
-    if (additionalContext) {
-      apiMessages = injectAdditionalContext(apiMessages, additionalContext)
-    }
 
     // ★ 构建多块 system 数组：core prompt + command template + 注入的 system 消息
     // type 和 cache_control 是精确字面量类型，push 到类型化数组时无需 as const
@@ -664,9 +658,8 @@ export function convertUserContent(content: string | ContentPart[]): Anthropic.C
                 blocks.push({
                     type: 'image',
                     source: {
-                        type: 'base64',
-                        media_type: 'image/jpeg',
-                        data: url,
+                        type: 'url',
+                        url,
                     },
                 } as any)
             }

@@ -21,6 +21,12 @@ export interface OpenRouterModelRaw {
   context_length?: number
   canonical_slug?: string
   hugging_face_id?: string
+  /** 模型架构信息（模态声明，OpenRouter 2026-08 起提供；缺失=旧数据，回退命名模式） */
+  architecture?: {
+    modality?: string
+    input_modalities?: string[]
+    output_modalities?: string[]
+  }
   pricing?: {
     prompt?: string | number
     completion?: string | number

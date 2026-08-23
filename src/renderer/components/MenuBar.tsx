@@ -106,8 +106,8 @@ const menuItems: { type: string | null; icon: JSX.Element; label: string }[] = [
         </svg>
     },
     {
-        type: 'hooks',
-        label: 'Hooks',
+        type: 'permission-rules',
+        label: '权限',
         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         </svg>
@@ -129,6 +129,14 @@ const menuItems: { type: string | null; icon: JSX.Element; label: string }[] = [
         label: '会话',
         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+    },
+    {
+        type: 'task-history',
+        label: '任务历史',
+        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
         </svg>
     },
     {
@@ -203,7 +211,7 @@ const menuItems: { type: string | null; icon: JSX.Element; label: string }[] = [
 
 export default function MenuBar() {
     const {theme, toggleTheme} = useThemeStore()
-    const {toggleLeft, toggleRight, leftCollapsed, rightCollapsed} = useSidebarStore()
+    const {toggleLeft, leftCollapsed} = useSidebarStore()
     const hasUpdate = useUpdaterStore((s) => s.result?.status === 'update-available')
     const pluginHasUpdate = usePluginUpdateStore((s) => s.hasUpdate)
     const [collapsedItems, setCollapsedItems] = useState<string[]>([])
@@ -518,15 +526,6 @@ export default function MenuBar() {
                       <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
                   </svg>
               )}
-          </button>
-
-          {/* 右侧面板折叠按钮 */}
-          <button
-              onClick={toggleRight}
-              aria-label={rightCollapsed ? '展开右侧面板' : '折叠右侧面板'}
-              className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-          >
-              <ChevronIcon direction={rightCollapsed ? 'left' : 'right'}/>
           </button>
       </nav>
   )

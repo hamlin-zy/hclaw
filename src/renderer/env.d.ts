@@ -80,6 +80,8 @@ declare global {
         running: boolean
         allRunning: string[]
       }>
+      agentStreamSnapshot: (conversationId: string) =>
+        Promise<import('./stores/agentStore/helpers/recoverySeeding').StreamSnapshot | null>
         contextGetUsage: (conversationId: string) => Promise<{
           ratio: number
           windowTokens: number
@@ -156,7 +158,7 @@ declare global {
         backgroundList: () => Promise<Array<{ path: string; name: string; size: number; mtime: number }>>
         backgroundRemove: (path: string) => Promise<boolean>
 
-      // Directory-level config (agents/skill/hooks)
+      // Directory-level config (agents/skills/logs)
       configDirRead: (dir: string, filename: string) => Promise<unknown>
       configDirWrite: (dir: string, filename: string, data: unknown) => Promise<boolean>
       configDirList: (dir: string) => Promise<unknown[]>
@@ -317,8 +319,10 @@ declare global {
         windowId: string
         /** 配置窗口类型（--hclaw-dialog；仅配置窗口有，主窗口为空字符串） */
         dialogType: string
-        /** 打开配置对话框独立窗口（主进程注册表按 dialogType 管理单例） */
-        openConfigWindow: (dialogType: string) => Promise<void>
+        /** 任务历史窗口限定的会话 id（--hclaw-task-conv；仅 task-history-conv 有，其余为空字符串） */
+        taskConvId: string
+        /** 打开配置对话框独立窗口（主进程注册表按 dialogType 管理单例；extraArgs 追加为窗口启动参数） */
+        openConfigWindow: (dialogType: string, extraArgs?: string[]) => Promise<void>
         /** 独立窗口通用控制（主窗口无 --hclaw-window-id，此值为 undefined） */
         windowControls?: {
             minimize: () => Promise<void>
@@ -509,17 +513,6 @@ declare global {
             error?: string
         }>
 
-        // Hooks API
-        hooks: {
-            list: () => Promise<any[]>
-            get: (id: string) => Promise<any | null>
-            save: (hook: any) => Promise<{ success: boolean; error?: string }>
-            delete: (id: string) => Promise<{ success: boolean; error?: string }>
-            setEnabled: (id: string, enabled: boolean) => Promise<{ success: boolean; error?: string }>
-            getEventDefinitions: () => Promise<any[]>
-            getPluginDefaults: (pluginName: string, hookId: string) => Promise<any | null>
-        }
-
         // Workspace 管理
         workspace: {
             list: () => Promise<Array<{ id: string; path: string; name: string; createdAt: number; updatedAt: number }>>
@@ -531,6 +524,19 @@ declare global {
             getCurrent: () => Promise<{ id: string; path: string; name: string; createdAt: number; updatedAt: number } | null>
             setCurrent: (id: string) => Promise<boolean>
         }
+
+        // 任务批次（历史任务组窗口数据源；类型复用主进程 taskBatchRepository）
+        taskBatches: {
+            getActive: (conversationId: string) => Promise<import('../../main/repositories/sqlite/taskBatchRepository').BatchWithTasks | null>
+            list: (opts?: { filter?: string; conversationId?: string; workspaceId?: string }) =>
+                Promise<import('../../main/repositories/sqlite/taskBatchRepository').BatchGroup[]>
+            getTasks: (batchId: string) =>
+                Promise<import('../../main/repositories/sqlite/taskBatchRepository').BatchWithTasks['tasks']>
+            remove: (ids: string[]) => Promise<{ deleted: number }>
+        }
+
+        /** 任务批次删除跨窗口广播（主窗口据此刷新 TodoStrip 残留批次态） */
+        onTaskBatchesChanged: (callback: (payload: {conversationIds: string[]}) => void) => () => void
 
         // Tool management
         tool?: {
@@ -673,7 +679,6 @@ interface PluginManifest {
     commands?: string | string[] | Record<string, string>
     agents?: string | string[]
     skills?: string | string[]
-    hooks?: string | string[] | Record<string, unknown>
     mcpServers?: string | Record<string, unknown>
     lspServers?: string | Record<string, unknown>
     settings?: Record<string, unknown>
@@ -703,7 +708,6 @@ interface LoadedPlugin {
     commands?: CommandDef[]
     skills?: SkillDefinition[]
     agents?: AgentDefinition[]
-    hooks?: HookConfig[]
     mcpServers?: McpServerConfig[]
     userConfig?: UserConfigSchema
 }
@@ -776,33 +780,12 @@ interface AgentDefinition {
     type?: string
 }
 
-interface HookConfig {
-    type: 'command' | 'prompt' | 'http' | 'agent'
-    command?: string
-    prompt?: string
-    url?: string
-    shell?: 'bash' | 'powershell'
-    timeout?: number
-    once?: boolean
-    async?: boolean
-    matcher?: string
-}
-
 interface McpServerConfig {
     command: string
     args?: string[]
     env?: Record<string, string>
     cwd?: string
 }
-
-type HookEvent =
-    | 'SessionStart' | 'SessionEnd'
-    | 'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure'
-    | 'Stop' | 'StopFailure'
-    | 'SubagentStart' | 'SubagentStop'
-    | 'PreCompact' | 'PostCompact'
-    | 'UserPromptSubmit' | 'PermissionRequest'
-    | 'Notification'
 
 type PluginError =
     | { type: 'git-clone-failed'; message: string }

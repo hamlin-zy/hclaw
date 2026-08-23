@@ -6,11 +6,12 @@
  */
 
 import {ipcMain} from 'electron'
-import {estimateTotalContextTokens} from '../context'
+import {resolveContextUsageTokens} from '../context'
 import {resolveMaxContextTokens} from '../loop/modelMaxContext'
 import {runtimeConfigManager} from '../runtimeConfigManager'
 import {modelMetaRegistry} from '../../modelMetaRegistry'
 import type {ChatMessage} from '../model/types'
+import type {LLMProvider, ModelScheme} from '@shared/types'
 import {createConversationRepository} from '../../repositories'
 
 export interface ContextUsageResult {
@@ -33,7 +34,7 @@ export interface ContextUsageResult {
  *   保持本函数纯函数可测。
  */
 export function computeContextUsage(params: {
-    history: Array<{role: string; content?: unknown; toolResult?: unknown; toolCalls?: unknown}>
+    history: Array<{role: string; content?: unknown; toolResult?: unknown; toolCalls?: unknown; llmStats?: ChatMessage['llmStats']}>
     cachedSystemPromptJson?: string | null
     scheme?: {maxContextTokens?: number} | null
     modelMetaContextLength?: number
@@ -64,9 +65,26 @@ export function computeContextUsage(params: {
         return {ratio: 0, windowTokens, estimatedTokens: 0}
     }
 
-    const estimatedTokens = estimateTotalContextTokens(history as ChatMessage[], systemPrompt)
+    // 分子：优先历史中最近一次请求的真实 usage（与 UI 徽章同口径），
+    // 无 llmStats 时回退 chars/4 字符估算（对中文严重失真，仅兜底）。
+    const estimatedTokens = resolveContextUsageTokens(history as ChatMessage[], systemPrompt)
     const ratio = windowTokens > 0 ? estimatedTokens / windowTokens : 0
     return {ratio, windowTokens, estimatedTokens}
+}
+
+/**
+ * 纯函数：primary role → 模型名。
+ * modelId 是 provider_models 的 UUID，直接传给 modelMetaRegistry 查不到（会跌落 128K 兜底），
+ * 必须先解析为模型名（与渲染端 useWindowUsage 同口径）。未命中返回空串。
+ */
+export function resolvePrimaryModelName(
+    scheme: Pick<ModelScheme, 'roles'> | null | undefined,
+    providers: LLMProvider[],
+): string {
+    const role = scheme?.roles.find((r) => r.role === 'primary')
+    if (!role) return ''
+    const provider = providers.find((p) => p.id === role.endpointId)
+    return provider?.models.find((m) => m.id === role.modelId)?.name || ''
 }
 
 export function registerHandlers(): void {
@@ -78,10 +96,11 @@ export function registerHandlers(): void {
         // ModelScheme 类型未声明 maxContextTokens（方案 JSON 可能携带额外字段），
         // 结构断言让 resolveMaxContextTokens 的 scheme 优先级生效；其余字段无关。
         const scheme = modelScheme as {maxContextTokens?: number} | null
-        // 取 primary role 的模型 → or-models.json 权威窗口；未命中返回 0 → 纯函数内回退
-        const primaryModelId = modelScheme?.roles.find((r) => r.role === 'primary')?.modelId
-        const modelMetaContextLength = primaryModelId
-            ? modelMetaRegistry.getContextLength(primaryModelId)
+        // primary role 的 UUID modelId → 解析为模型名 → or-models.json 权威窗口；
+        // 未命中返回 0 → 纯函数内回退默认 128K
+        const primaryModelName = resolvePrimaryModelName(modelScheme, runtimeConfigManager.getProviders())
+        const modelMetaContextLength = primaryModelName
+            ? modelMetaRegistry.getContextLength(primaryModelName)
             : 0
         return computeContextUsage({history, cachedSystemPromptJson, scheme, modelMetaContextLength})
     })

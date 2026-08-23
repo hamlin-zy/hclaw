@@ -9,18 +9,20 @@
 
 import {create} from 'zustand'
 import {persist} from 'zustand/middleware'
-import type {RunMode} from '@shared/types'
+import type {RunMode, Task} from '@shared/types'
 
 import type {AgentStore} from './types'
-import type {HookResultItem} from './types'
 
-// 保持类型导出兼容（HookResultsBar 等外部引用）
-export type {HookResultItem}
 import {IDLE_STATE, STREAMING_STATE, DEFAULT_TOP_LEVEL, createDefaultConvData} from './defaultState'
+
+// ★ 流式缓冲区大小限制（防活跃流式无界增长导致 OOM）
+// 完整内容已通过块级增量落库到 DB，内存只需保留最近窗口供渲染
+const STREAM_BUFFER_MAX_CHARS = 50000      // ~50KB 文本缓冲
+const STREAM_BLOCKS_MAX_COUNT = 200        // 最大块数
 
 // 保持与旧 import 路径兼容（conversationStore 等外部引用）
 export {createDefaultConvData}
-import {useConversationStore} from '../conversationStore'
+import {useConversationStore, flatString} from '../conversationStore'
 import {useToolCallsStore} from '../toolCallsStore'
 
 import {flushAllTextBatches} from './batching/textBatch'
@@ -28,6 +30,7 @@ import {flushAllThinkingBatches} from './batching/thinkingBatch'
 import {flushToolResultBatch, getToolResultBatchMap} from './batching/toolResultBatch'
 import {saveHmrContext, restoreFromHmr} from './helpers/hmrPersistence'
 import {syncConvToTopLevel} from './helpers/convHelpers'
+import {planRecovery} from './helpers/recoverySeeding'
 import {updateMessageContentBlocks, reconcileStreamingContent} from './contentBlocks'
 import {startAgentImpl} from './handlers/startAgent'
 import {abortAgentImpl} from './handlers/abortAgent'
@@ -58,22 +61,7 @@ export const useAgentStore = create<AgentStore>()(
             compactInProgress: false,
             errorMessage: null,
             modelOverride: null,
-            hookResults: [],
             convAgentStates: {},
-
-            // ── Hook 结果 ──────────────────────────────
-            addHookResult: (item: HookResultItem) => {
-                set((prev) => {
-                    const results = [...prev.hookResults, item]
-                    if (results.length > 50) results.splice(0, results.length - 50)
-                    return {hookResults: results}
-                })
-            },
-            removeHookResult: (id: string) => {
-                set((prev) => ({
-                    hookResults: prev.hookResults.filter((r) => r.id !== id),
-                }))
-            },
 
             // ── 压缩横幅 ──────────────────────────────
             clearCompactBanner: () => {
@@ -87,7 +75,24 @@ export const useAgentStore = create<AgentStore>()(
 
             updateConvData: (convId, updates) => {
                 const prev = get().convAgentStates[convId] || createDefaultConvData()
-                const newData = {...prev, ...updates}
+                let newData = {...prev, ...updates}
+
+                // ★ 流式缓冲区大小限制：防活跃流式无界增长导致 OOM
+                // 完整内容已通过块级增量落库到 DB，内存只保留最近窗口供渲染
+                if (updates.streamBuffer !== undefined) {
+                    const buf = updates.streamBuffer
+                    if (typeof buf === 'string' && buf.length > STREAM_BUFFER_MAX_CHARS) {
+                        // flatString 强制扁平复制：slice(-N) 产生 SlicedString 会钉住整个父串
+                        newData.streamBuffer = flatString(buf.slice(-STREAM_BUFFER_MAX_CHARS))
+                    }
+                }
+                if (updates.streamBlocks !== undefined) {
+                    const blocks = updates.streamBlocks
+                    if (Array.isArray(blocks) && blocks.length > STREAM_BLOCKS_MAX_COUNT) {
+                        newData.streamBlocks = blocks.slice(-STREAM_BLOCKS_MAX_COUNT)
+                    }
+                }
+
                 const newMap = {...get().convAgentStates, [convId]: newData}
                 const activeConvId = useConversationStore.getState().activeConversationId
                 set({
@@ -100,6 +105,68 @@ export const useAgentStore = create<AgentStore>()(
                 const newMap = {...get().convAgentStates}
                 delete newMap[convId]
                 set({convAgentStates: newMap})
+            },
+
+            // ── 任务批次水合（应用重启/刷新恢复） ──────────────────────
+            // 从主进程 DB 读取活跃批次快照写入 convData；TodoStrip 依赖此数据
+            // 在无实时事件时恢复显示。updateConvData 内部按 activeConversationId
+            // 同步顶层，激活会话水合后 UI 立即生效。
+            hydrateActiveBatch: async (conversationId) => {
+                try {
+                    const result = await window.electronAPI?.taskBatches?.getActive?.(conversationId)
+                    if (!result?.batch) return
+                    // ★ 竞态守卫：水合 await 期间若实时 tasks_update 已写入批次态，
+                    //   以内存中的实时数据为准，放弃覆盖
+                    if (get().convAgentStates[conversationId]?.currentBatch) return
+                    get().updateConvData(conversationId, {
+                        tasks: (result.tasks || []).map((t: {id: string; title: string; description?: string; status: string}) => ({
+                            id: t.id,
+                            title: t.title,
+                            description: t.description,
+                            status: t.status,
+                        })) as Task[],
+                        currentBatch: {
+                            id: result.batch.id,
+                            name: result.batch.name,
+                            status: result.batch.status === 'completed' ? 'completed' : 'active',
+                        },
+                    })
+                } catch (err) {
+                    // 水合失败不阻塞会话 UI，但需留排查线索
+                    console.warn('[agentStore] hydrateActiveBatch 失败:', err)
+                }
+            },
+
+            // ── 跨窗口批次删除同步（历史任务组窗口删除后广播触发） ──────────────
+            // 与 hydrateActiveBatch 同构但不做「实时优先」守卫：触发时机即 DB 已变化，
+            // 以 DB 为准。DB 无活跃批次时清空残留，防止 TodoStrip 显示已删数据。
+            refreshActiveBatch: async (conversationId) => {
+                try {
+                    const result = await window.electronAPI?.taskBatches?.getActive?.(conversationId)
+                    if (!result?.batch) {
+                        const existing = get().convAgentStates[conversationId]
+                        if (existing?.currentBatch || existing?.tasks.length) {
+                            get().updateConvData(conversationId, {currentBatch: undefined, tasks: []})
+                        }
+                        return
+                    }
+                    get().updateConvData(conversationId, {
+                        tasks: (result.tasks || []).map((t: {id: string; title: string; description?: string; status: string}) => ({
+                            id: t.id,
+                            title: t.title,
+                            description: t.description,
+                            status: t.status,
+                        })) as Task[],
+                        currentBatch: {
+                            id: result.batch.id,
+                            name: result.batch.name,
+                            status: result.batch.status === 'completed' ? 'completed' : 'active',
+                        },
+                    })
+                } catch (err) {
+                    // 同步失败不阻塞会话 UI，但需留排查线索
+                    console.warn('[agentStore] refreshActiveBatch 失败:', err)
+                }
             },
 
             // ── 简单状态设置 ──────────────────────────────
@@ -295,45 +362,82 @@ export const useAgentStore = create<AgentStore>()(
                             await convStore.loadMessagesInitial(convId)
                         }
 
-                        const msgs = convStore.messagesMap[convId] || convStore.loadedMessages
-                        if (!msgs?.length) continue
-
+                        const msgs = convStore.messagesMap[convId] || convStore.loadedMessages || []
                         const lastAssistantMsg = [...msgs].reverse().find((m) => m.role === 'assistant')
-                        if (!lastAssistantMsg) continue
 
-                        // 崩溃恢复：agent 已死亡，将其标记为 cancelled 而非保留旧状态
-                        const isStale = (tc: {status: string}) => tc.status === 'running' || tc.status === 'pending'
-                        const staleCalls = (lastAssistantMsg.toolCalls || []).filter(isStale)
-                        for (const tc of staleCalls) {
-                            toolCallsState.registerToolCall(tc.id, {
-                                status: 'cancelled',
-                                progress: tc.progress || '会话中断, 工具已取消',
-                            })
-                            if (tc.name === 'agent' && tc.taskId) {
-                                toolCallsState.registerToolCall(`sub-${tc.taskId}`, {
+                        // ★ 崩溃恢复播种（P1）：以主进程流快照为唯一事实源。
+                        //   旧实现取 DB 最后一条 assistant 消息的 metadata.content——assistant
+                        //   正文不存 metadata（只在 blocks）→ streamBuffer 恒空 → 空白幽灵气泡；
+                        //   当前轮消息行未落库时会错位选中旧消息。
+                        //   决策逻辑见 helpers/recoverySeeding.ts planRecovery。
+                        const snapshot = await window.electronAPI?.agentStreamSnapshot?.(convId) ?? null
+                        const plan = planRecovery(snapshot, msgs)
+
+                        // 崩溃窗口丢失结果的工具（DB running 但快照不含）：标记取消 + 同步消息级状态，
+                        // 避免 toolCallsStore 清空后回退到持久化的 running
+                        if (plan.staleToolIds.length > 0 && lastAssistantMsg) {
+                            const staleSet = new Set(plan.staleToolIds)
+                            for (const tc of lastAssistantMsg.toolCalls || []) {
+                                if (!staleSet.has(tc.id)) continue
+                                toolCallsState.registerToolCall(tc.id, {
                                     status: 'cancelled',
-                                    progress: '会话中断, 子 Agent 已取消',
+                                    progress: tc.progress || '会话中断, 工具已取消',
                                 })
+                                if (tc.name === 'agent' && tc.taskId) {
+                                    toolCallsState.registerToolCall(`sub-${tc.taskId}`, {
+                                        status: 'cancelled',
+                                        progress: '会话中断, 子 Agent 已取消',
+                                    })
+                                }
                             }
-                        }
-
-                        // 同步更新消息级别状态，避免 toolCallsStore 清空后回退到持久化的 running
-                        if (staleCalls.length > 0) {
                             convStore.updateMessageForConv(convId, lastAssistantMsg.id, {
                                 toolCalls: (lastAssistantMsg.toolCalls || []).map(tc =>
-                                    isStale(tc) ? {...tc, status: 'cancelled' as const} : tc
+                                    staleSet.has(tc.id) ? {...tc, status: 'cancelled' as const} : tc
                                 ),
                             })
                         }
 
-                        get().updateConvData(convId, {
-                            streamingMessageId: lastAssistantMsg.id,
-                            streamBuffer: lastAssistantMsg.content || '',
-                            agentState: STREAMING_STATE,
-                        })
+                        // 快照中真实在跑的工具：注册为 running，UI 保持执行态
+                        for (const tcId of plan.liveToolIds) {
+                            toolCallsState.registerToolCall(tcId, {status: 'running'})
+                        }
+
+                        if (plan.seed) {
+                            const seedId = plan.seed.streamingMessageId
+                            if (!msgs.some(m => m.id === seedId)) {
+                                // DB 行未建（首 flush 前崩溃）→ 用快照数据占位
+                                convStore.addMessageToConv(convId, {
+                                    id: seedId,
+                                    role: 'assistant',
+                                    content: plan.seed.streamBuffer,
+                                })
+                            } else {
+                                // 已有半成品行 → 快照全文覆盖内存 content
+                                convStore.updateMessageForConv(convId, seedId, {
+                                    content: plan.seed.streamBuffer,
+                                })
+                            }
+                            get().updateConvData(convId, {
+                                streamingMessageId: seedId,
+                                streamBuffer: plan.seed.streamBuffer,
+                                thinkingContent: plan.seed.thinkingContent,
+                                recoveredTextBlockBase: snapshot?.dbTextBlockCount ?? 0,
+                                // ★ 崩溃恢复标记：即使 DB 中 seedId 消息 endedAt 已写（崩溃前
+                                //   worker 落库），下一轮流式仍应复用该 id（与主进程 pending 对齐），
+                                //   否则 ensureStreamingMessage 因 endedAt 检测置 null 生成新 id
+                                //   → 渲染端内存出现第二条 assistant（幽灵气泡）。
+                                recoveredStreaming: true,
+                                agentState: STREAMING_STATE,
+                            })
+                        } else {
+                            // worker 在跑但尚无累积（首 token 前）：仅置运行态，
+                            // 不指向任何历史消息（防错位幽灵气泡）
+                            get().updateConvData(convId, {agentState: STREAMING_STATE})
+                        }
+
                         restored.add(convId)
                         syncConvToTopLevel(convId)
-                        console.log(`[agentStore] 已恢复 Agent 会话: ${convId}, 消息: ${lastAssistantMsg.id}`)
+                        console.log(`[agentStore] 已恢复 Agent 会话: ${convId}${plan.seed ? `, 消息: ${plan.seed.streamingMessageId}` : '（等待首个流事件）'}`)
                     }
 
                     get().recoverSessionsCleanup(restored)
@@ -373,6 +477,12 @@ export const useAgentStore = create<AgentStore>()(
                 const unsub = window.electronAPI?.onAgentStream?.((payload: any) => {
                     get().handleStreamEvent(payload)
                 }) || null
+                // 跨窗口批次删除同步：历史任务组窗口删了本窗口会话的批次 → 以 DB 为准刷新
+                const unsubBatches = window.electronAPI?.onTaskBatchesChanged?.((payload) => {
+                    for (const convId of payload?.conversationIds ?? []) {
+                        void get().refreshActiveBatch(convId)
+                    }
+                }) || null
                 streamUnsubscribe = unsub
                 return () => {
                     document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -380,6 +490,7 @@ export const useAgentStore = create<AgentStore>()(
                     flushAllThinkingBatches()
                     saveHmrContext()
                     streamUnsubscribe?.()
+                    unsubBatches?.()
                     streamUnsubscribe = null
                 }
             },

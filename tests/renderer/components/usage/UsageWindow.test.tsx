@@ -246,17 +246,6 @@ describe('UsageWindow 全局用量窗口', () => {
         expect(screen.getByText('$2.17')).toBeTruthy()
     })
 
-    it('窗口控制按钮 → 触发对应 IPC', async () => {
-        render(<UsageWindow />)
-        await waitFor(() => expect(screen.getByText('¥92.74')).toBeTruthy())
-        fireEvent.click(screen.getByLabelText('最小化'))
-        fireEvent.click(screen.getByLabelText('最大化'))
-        fireEvent.click(screen.getByLabelText('关闭'))
-        expect(api().windowControls.minimize).toHaveBeenCalledTimes(1)
-        expect(api().windowControls.maximize).toHaveBeenCalledTimes(1)
-        expect(api().windowControls.close).toHaveBeenCalledTimes(1)
-    })
-
     it('查询失败 → 显示错误提示', async () => {
         api().usageStatsQuery = vi.fn().mockRejectedValue(new Error('fail'))
         render(<UsageWindow />)
@@ -269,31 +258,12 @@ describe('UsageWindow 全局用量窗口', () => {
         await waitFor(() => expect(screen.getByText('暂无用量数据')).toBeTruthy())
     })
 
-    it('最大化状态 → 按钮在「最大化/还原」间切换', async () => {
-        // 捕获主进程广播的最大化状态变更回调
-        let maxChangedHandler: ((v: boolean) => void) | undefined
-        api().windowControls.onMaximizedChange = vi.fn((cb: (v: boolean) => void) => {
-            maxChangedHandler = cb
-            return () => {}
-        })
-        api().windowControls.isMaximized = vi.fn().mockResolvedValue(false)
-
+    it('自身不渲染窗口控制按钮（标题栏由 ConfigDialogWindow 统一壳提供）', async () => {
         render(<UsageWindow />)
-        await waitFor(() => expect(screen.getByLabelText('最大化')).toBeTruthy())
-        expect(screen.queryByLabelText('还原')).toBeNull()
-
-        // 模拟主进程推送 maximize 事件 → 图标切换为「还原」
-        await act(async () => {
-            maxChangedHandler!(true)
-        })
-        expect(screen.getByLabelText('还原')).toBeTruthy()
+        await waitFor(() => expect(screen.getByText('¥92.74')).toBeTruthy())
+        expect(screen.queryByLabelText('最小化')).toBeNull()
         expect(screen.queryByLabelText('最大化')).toBeNull()
-
-        // 模拟 unmaximize → 切回「最大化」
-        await act(async () => {
-            maxChangedHandler!(false)
-        })
-        expect(screen.getByLabelText('最大化')).toBeTruthy()
         expect(screen.queryByLabelText('还原')).toBeNull()
+        expect(screen.queryByLabelText('关闭')).toBeNull()
     })
 })

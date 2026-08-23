@@ -11,7 +11,6 @@ import {app, BrowserWindow, ipcMain} from 'electron'
 import {randomUUID} from 'crypto'
 import type {LlmCallLog} from '@shared/types'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
-import {createAppWindow} from './windowFactory'
 
 const CONFIG_KEY = 'llmLogEnabled'
 
@@ -138,27 +137,6 @@ export function clearLogs(): void {
     } catch {
         // 忽略删除错误
     }
-}
-
-/**
- * 创建 LLM 日志窗口
- */
-export function createLlmLogsWindow(): void {
-    logWindow = createAppWindow({
-        id: 'llm-logs',
-        title: 'LLM 调用日志',
-        entryHtml: 'llm-logs.html',
-        width: 1200,
-        height: 700,
-        minWidth: 800,
-        minHeight: 400,
-    })
-
-    logWindow.on('closed', () => {
-        logWindow = null
-    })
-
-    setLogWindow(logWindow)
 }
 
 /**

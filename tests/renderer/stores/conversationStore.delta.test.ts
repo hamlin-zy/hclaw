@@ -24,11 +24,15 @@ import {
     finalizeMessageDelta,
 } from '../../../src/renderer/stores/conversationStore'
 
-// mock agentStore（conversationStore 依赖它，但仅 action 内部惰性调用 getState）
+// mock agentStore（conversationStore 依赖它，但仅 action 内部惰性调用 getState）。
+// convAgentStates 用可变容器：恢复基线用例需注入 recoveredTextBlockBase。
+const agentStoreState = vi.hoisted(() => ({
+    convAgentStates: {} as Record<string, any>,
+}))
 vi.mock('../../../src/renderer/stores/agentStore', () => ({
     useAgentStore: {
         getState: () => ({
-            convAgentStates: {},
+            convAgentStates: agentStoreState.convAgentStates,
             updateConvData: () => {},
             removeConvData: () => {},
             flushPendingStreamData: () => {},
@@ -235,6 +239,23 @@ describe('块级增量记账', () => {
         expect(patch.upsertBlocks!.map(b => b.id)).toEqual(['text-m1-0'])
         expect(patch.upsertBlocks![0].content).toHaveLength(800)
         expect(patch.upsertBlocks![0].content).toBe('a'.repeat(500) + 'b'.repeat(300))
+    })
+
+    it('崩溃恢复基线：recoveredTextBlockBase 使新 text 块 seq 避开 DB 已有块（防 id 碰撞错序）', async () => {
+        // 崩溃恢复场景：DB 已有 text-m1-0 / text-m1-1 两块，渲染端 streamBlocks 已清空。
+        // 若 seq 从 0 重计，新块 id 碰撞 text-m1-0 → UPDATE-append 进旧块 → 正文错序。
+        // 快照携带 DB text 块数作为基线，新块应从 text-m1-2 起。
+        agentStoreState.convAgentStates['conv-1'] = {recoveredTextBlockBase: 2}
+        try {
+            recordTextBlock('conv-1', 'm1', '恢复后新增')
+            await flushConversationDirty('conv-1')
+            const {patch} = blockDeltaCalls[blockDeltaCalls.length - 1]
+            expect(patch.upsertBlocks).toHaveLength(1)
+            expect(patch.upsertBlocks![0].id).toBe('text-m1-2')
+            expect(patch.upsertBlocks![0].content).toBe('恢复后新增')
+        } finally {
+            delete agentStoreState.convAgentStates['conv-1']
+        }
     })
 
     it('recordThinkBlock 同 id 段内增长：二次记账同一 id', async () => {

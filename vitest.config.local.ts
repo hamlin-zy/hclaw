@@ -17,6 +17,13 @@ export default defineConfig({
             'tests/**/*.test.ts',
             'src/main/agent/loop/**/*.test.ts',
         ],
+        exclude: [
+            // 手动诊断脚本：连接真实用户 DB（HCLAW_DB/CONV_ID），非 CI 常规测试，不自动收集
+            '**/main/agent/ipc/*.diag.test.ts',
+            '**/main/agent/ipc/*.verify.test.ts',
+            '**/node_modules/**',
+            '**/dist/**',
+        ],
         coverage: {
             provider: 'v8',
             reporter: ['text', 'json', 'html'],

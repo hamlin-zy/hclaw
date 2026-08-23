@@ -60,13 +60,13 @@ export interface PromptScheme {
 // ─── Menu dialog ───────────────────────────────────────
 
 export type MenuDialogType =
+  | 'permission-rules'
   | 'llm-config'
   | 'scheme-config'
   | 'mcp'
   | 'tools'
   | 'agents'
   | 'skills'
-  | 'hooks'
   | 'plugins'
   | 'commands'
   | 'prompt-config'
@@ -75,6 +75,8 @@ export type MenuDialogType =
   | 'settings'
   | 'tool-list'
   | 'system-prompt'
+  | 'task-history'
+  | 'task-history-conv'
   | 'update-notice'
   | 'about'
   | null

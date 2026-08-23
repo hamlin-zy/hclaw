@@ -10,6 +10,7 @@ import {systemSettingsRepo} from './repositories/sqlite/systemSettingsRepository
 import * as updateChecker from './updater/updateChecker';
 import type {UpdateResult} from '../shared/types/updater';
 import {readThemeSetting} from './utils/theme';
+import {createAppWindow} from './utils/windowFactory';
 
 const logger = createLogger('window');
 
@@ -705,41 +706,21 @@ export function initWindowIPC(): void {
  * 创建内置浏览器窗口
  *
  * 特性:
- * - 标题「HClaw 内置浏览器」，去除原生菜单栏
- * - 平台差异化框架：
- *   - macOS: frame: true (原生框架自带交通灯按钮，可直接关闭/缩放)
- *   - Windows: frameless + titleBarOverlay 优化边框样式
- *   - Linux: frameless
+ * - 窗口创建收敛到 windowFactory（externalUrl 模式，主题自适应 titleBarOverlay）
  * - 新窗口链接也在内置浏览器中打开
+ * - 注入自定义滚动条样式（浏览器特有行为，保留在本模块）
  */
 function createBrowserWindow(url: string): BrowserWindow {
-    const isMac = process.platform === 'darwin';
-    const win = new BrowserWindow({
+    const win = createAppWindow({
+        id: `builtin-browser-${Date.now()}`,
+        title: 'HClaw 内置浏览器',
+        entryHtml: '', // externalUrl 模式下不使用
         width: 1200,
         height: 800,
         minWidth: 600,
         minHeight: 400,
-        title: 'HClaw 内置浏览器',
-        autoHideMenuBar: true,
-        ...(isMac
-            ? {frame: true}
-            : {
-                frame: false,
-                titleBarOverlay: {
-                    color: '#1e1e2e',
-                    symbolColor: '#cdd6f4',
-                    height: 36,
-                },
-            }
-        ),
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            sandbox: true,
-        },
+        externalUrl: url,
     });
-
-    win.loadURL(url);
 
     // 注入自定义滚动条样式（覆盖外部网站的系统原生滚动条）
     win.webContents.on('did-finish-load', () => {

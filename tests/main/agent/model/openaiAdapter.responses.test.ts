@@ -154,3 +154,52 @@ describe('OpenAIAdapter Responses API 路径', () => {
         expect(done.stopReason).toBe('end_turn')
     })
 })
+
+describe('Responses API 图片块（input_image 转换）', () => {
+  function adapterForInput(): OpenAIAdapter {
+    const client = makeMockClient([])
+    return new OpenAIAdapter({provider: 'openai', model: 'gpt-5', apiKey: 'sk-test', apiStyle: 'responses'} as any, client)
+  }
+
+  it('image_url (data:URI) → input_image 扁平字符串 + detail', () => {
+    const adapter = adapterForInput() as any
+    const input = adapter.convertMessagesForTestResponses([
+      {role: 'user', content: [
+        {type: 'text', text: '描述图'},
+        {type: 'image_url', image_url: {url: 'data:image/png;base64,AAA', detail: 'low'}},
+      ]},
+    ])
+    const userItem = input[0]
+    expect(userItem.content[0]).toEqual({type: 'input_text', text: '描述图'})
+    expect(userItem.content[1]).toEqual({type: 'input_image', image_url: 'data:image/png;base64,AAA', detail: 'low'})
+  })
+
+  it('image_url (网络 URL) → input_image（扁平字符串）', () => {
+    const adapter = adapterForInput() as any
+    const input = adapter.convertMessagesForTestResponses([
+      {role: 'user', content: [{type: 'image_url', image_url: {url: 'https://example.com/a.png'}}]},
+    ])
+    expect(input[0].content[0]).toEqual({type: 'input_image', image_url: 'https://example.com/a.png'})
+  })
+
+  it('image_url 无 detail → detail 缺省（不添加）', () => {
+    const adapter = adapterForInput() as any
+    const input = adapter.convertMessagesForTestResponses([
+      {role: 'user', content: [{type: 'image_url', image_url: {url: 'data:image/png;base64,AAA'}}]},
+    ])
+    const img = input[0].content[0]
+    expect(img.type).toBe('input_image')
+    expect(img.detail).toBeUndefined()
+  })
+
+  it('chat 路径回归：convertUserContent 仍输出嵌套对象结构', () => {
+    const client = makeMockClient([])
+    const adapter = new OpenAIAdapter({provider: 'openai', model: 'gpt-5', apiKey: 'sk-test', apiStyle: 'chat'} as any, client) as any
+    const msgs = adapter.convertMessagesForTest([
+      {role: 'user', content: [{type: 'image_url', image_url: {url: 'data:image/png;base64,AAA'}}]},
+    ])
+    const content = msgs[0].content
+    expect(content[0].image_url).toBeInstanceOf(Object)
+    expect(content[0].image_url.url).toBe('data:image/png;base64,AAA')
+  })
+})

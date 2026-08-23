@@ -263,21 +263,9 @@ export function handleWarning(ctx: StreamCtx) {
         return
     }
 
-    // ── max_tokens 截断提示：右上角全局通知（复用 HookResultsBar 机制，不打断流程） ──
-    if (msg.includes('达到最大 Token 数')) {
-        useAgentStore.getState().addHookResult({
-            id: `maxtokens-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            event: 'warning',
-            hookName: '响应截断',
-            success: false,
-            error: msg,
-            message: msg,
-            timestamp: Date.now(),
-            conversationId: convId,
-            pinned: true, // 常驻显示，不随 TTL 自动消失，需用户手动关闭
-        })
-        return
-    }
+    // 注：max_tokens 截断的 pinned toast 通知已随 hookResults 状态链移除
+    // （Task 1: feat/permission-window-hook-cleanup）。
+    // 截断提示回落至下方通用警告路径（写入 message metadata.warning）。
 
     // HTTP 非 200 响应（如 429 额度超限、401 认证失败、400 参数错误等）
     // 不写入消息内容，而是显示在左下角状态栏，避免干扰对话

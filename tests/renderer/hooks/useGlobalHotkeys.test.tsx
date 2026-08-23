@@ -3,7 +3,7 @@
  * useGlobalHotkeys hook 测试
  *
  * 保护：全局快捷键分发逻辑（Ctrl+N 新建会话 / Alt+↑↓ 切换会话 /
- * Ctrl+B 左右栏 / Ctrl+Shift+B / Ctrl+Shift+T 主题 / Esc 中断 Agent / Ctrl+K 命令面板）。
+ * Ctrl+B 左侧栏 / Ctrl+Shift+T 主题 / Esc 中断 Agent / Ctrl+K 命令面板）。
  *
  * 事件通过 document keydown 监听，store 为模块级 zustand 单例。
  * 注意：zustand setState 使用 Object.assign 生成新 state，vi.spyOn 的 mock 会被拷贝进新 state
@@ -50,9 +50,9 @@ function makeSummary(id: string, overrides: Partial<{parentConvId: string; title
 
 /** 原始 action 引用（beforeAll 捕获，afterEach 恢复，避免 zustand setState 拷贝导致 mock 污染） */
 let origActions: {
-    createConversation: typeof useConversationStore.getState.createConversation
-    setActiveConversation: typeof useConversationStore.getState.setActiveConversation
-    abortAgent: typeof useAgentStore.getState.abortAgent
+    createConversation: ReturnType<typeof useConversationStore.getState>['createConversation']
+    setActiveConversation: ReturnType<typeof useConversationStore.getState>['setActiveConversation']
+    abortAgent: ReturnType<typeof useAgentStore.getState>['abortAgent']
 }
 
 describe('useGlobalHotkeys', () => {
@@ -76,7 +76,7 @@ describe('useGlobalHotkeys', () => {
             createConversation: origActions.createConversation,
             setActiveConversation: origActions.setActiveConversation,
         })
-        useSidebarStore.setState({leftCollapsed: false, rightCollapsed: true})
+        useSidebarStore.setState({leftCollapsed: false})
         useMenuBarStore.setState({activeDialog: null})
         useAgentStore.setState({
             toolPopupData: null,
@@ -298,12 +298,12 @@ describe('useGlobalHotkeys', () => {
         expect(useSidebarStore.getState().leftCollapsed).toBe(true)
     })
 
-    it('Ctrl+Shift+B 切换右侧栏', () => {
+    it('Ctrl+Shift+B 无响应（右侧栏已移除）', () => {
         mountHook()
 
         pressKey({key: 'b', ctrlKey: true, shiftKey: true})
 
-        expect(useSidebarStore.getState().rightCollapsed).toBe(false)
+        expect(useSidebarStore.getState().leftCollapsed).toBe(false)
     })
 
     it('Ctrl+Shift+T 切换主题', async () => {

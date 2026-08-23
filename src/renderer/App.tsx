@@ -4,7 +4,6 @@ import TitleBar from './components/TitleBar'
 import MenuBar from './components/MenuBar'
 import ConversationSidebar from './components/ConversationSidebar'
 import MainWorkspace from './components/MainWorkspace'
-import SidePanels from './components/SidePanels'
 import MenuDialogRenderer from './components/MenuDialogRenderer'
 import DiffModal from './components/DiffModal'
 import AskUserModal from './components/AskUserModal'
@@ -21,7 +20,6 @@ import {useToolStore} from './stores/toolStore'
 import {usePromptSchemeStore} from './stores/promptSchemeStore'
 import {useSkillStore} from './stores/skillStore'
 import {useAgentTemplateStore} from './stores/agentTemplateStore'
-import {useHookStore} from './stores/hookStore'
 import {useThemeStore, resolveAndApplyTheme} from './stores/themeStore'
 import {useSettingsStore} from './stores/settingsStore'
 import {useSidebarStore} from './stores/sidebarStore'
@@ -264,7 +262,7 @@ async function syncModelSchemeToMain(llmState: ReturnType<typeof useLLMStore.get
 export default function App() {
   const registerStreamListener = useAgentStore((s) => s.registerStreamListener)
   const theme = useThemeStore((s) => s.theme)
-  const {leftCollapsed, rightCollapsed} = useSidebarStore()
+  const {leftCollapsed} = useSidebarStore()
   const background = useSettingsStore((s) => s.settings.ui.background)
 
   // 注册系统内快捷键（非全局快捷键）
@@ -334,7 +332,6 @@ export default function App() {
         await Promise.all([
           useConversationStore.getState().loadConversations(),
           useSettingsStore.getState().loadSettings(),
-          useHookStore.getState().fetchHooks(),
           useSkillStore.getState().refreshSkills(),
           // ★ 历史 /能力 消息降级渲染依赖 agent 能力名集合，
           //   缺失会导致重启后 agent 类命令（如 /code-simplifier）无法渲染徽章
@@ -540,7 +537,7 @@ export default function App() {
   useEffect(() => {
     const cleanup = window.electronAPI?.receive?.('session_created', (payload: any) => {
       if (!payload?.id) return
-      useConversationStore.getState().handleSessionCreated(payload.id, payload.title, payload.workspacePath || '')
+      useConversationStore.getState().handleSessionCreated(payload.id, payload.title, payload.workspacePath || '', payload.handoffFromConvId)
     })
 
     return () => {
@@ -662,8 +659,10 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      {/* macOS Tooltip Portal（突破 overflow: hidden 祖先容器裁剪） */}
-      {typeof document !== 'undefined' && document.documentElement.classList.contains('darwin') && <TooltipPortal />}
+      {/* Tooltip Portal（全平台挂载）：拦截 [title] 渲染主题化 tooltip，
+          突破 overflow: hidden 祖先容器裁剪；Windows 上默认 Chromium 原生
+          title tooltip 为白条黑字，不符合设计语言，需一并覆盖。 */}
+      {typeof document !== 'undefined' && <TooltipPortal />}
       <div className="window-container relative z-10">
         {/* 本地图片背景层 + 遮罩层：必须在 window-container 内部！
             backdrop-filter 只能采样同一 stacking context 中绘制在其后的内容，
@@ -700,12 +699,6 @@ export default function App() {
             data-name="main-column">
             <MainWorkspace/>
           </div>
-          {/* 右侧面板卡片 - 折叠时隐藏 */}
-          {!rightCollapsed && (
-            <div data-name="side-panels" className="app-surface-card w-sidebar flex-shrink-0 min-h-0 flex flex-col transition-all h-full">
-              <SidePanels/>
-            </div>
-          )}
         </main>
         <AnimatePresence>
           <MenuDialogRenderer key="menu-dialog" />

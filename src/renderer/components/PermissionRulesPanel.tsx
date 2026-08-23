@@ -1,11 +1,7 @@
 import {useEffect, useState} from 'react'
 import {useAgentStore} from '../stores/agentStore'
 
-interface PermissionRulesPanelProps {
-    height?: string
-}
-
-export default function PermissionRulesPanel({height}: PermissionRulesPanelProps) {
+export default function PermissionRulesPanel() {
     const {permissionRules, fetchPermissionRules, removePermissionRule, addPermissionRule} = useAgentStore()
     const [isRefreshing, setIsRefreshing] = useState(false)
     const [editingRule, setEditingRule] = useState<{ tool: string; action: string } | null>(null)
@@ -91,9 +87,9 @@ export default function PermissionRulesPanel({height}: PermissionRulesPanelProps
         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
 
     return (
-        <div className="relative flex shrink-0 min-h-0" style={{height: height || '50%'}}>
+        <div className="relative flex flex-col h-full min-h-0 overflow-y-auto">
             <div
-                className="permission-rules-card h-full bg-[var(--surface)] rounded-lg shadow-card border border-[var(--border)] flex flex-col overflow-hidden"
+                className="permission-rules-card flex-1 min-h-0 flex flex-col"
             >
                 {/* Header */}
                 <div className="px-3 py-2.5 border-b border-[var(--border)] flex items-center justify-between shrink-0">

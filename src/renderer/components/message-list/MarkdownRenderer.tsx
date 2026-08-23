@@ -88,6 +88,8 @@ const CopyButton = memo(function CopyButton({code}: { code: string }) {
     return (
         <button
             onClick={handleCopy}
+            // data-find-exclude：查找功能（MessageList.find）不搜此 UI 按钮文本（复制/已复制）
+            data-find-exclude
             className="absolute top-2 right-2 px-2 py-1 text-xs rounded transition-colors
                 bg-[var(--surface-muted)] hover:bg-[var(--surface-elevated)]
                 text-[var(--text-muted)] hover:text-[var(--text-primary)]

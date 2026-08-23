@@ -1,5 +1,5 @@
 /**
- * Infrastructure types: MCP servers/tools, Skills, Hooks, LLM call logs,
+ * Infrastructure types: MCP servers/tools, Skills, LLM call logs,
  * conversations, and workspace configuration.
  *
  * Layer 1 — depends only on skillTypes (external), not on other sub-files.
@@ -80,26 +80,6 @@ export interface Skill {
   /** 许可协议 */
   license?: string
 }
-
-// ─── Hook ──────────────────────────────────────────────
-
-export interface Hook {
-  id: string
-  name: string
-  event: HookEvent
-  enabled: boolean
-  config: Record<string, unknown>
-}
-
-export type HookEvent =
-  | 'beforeThink'
-  | 'afterThink'
-  | 'beforeToolCall'
-  | 'afterToolCall'
-  | 'beforeResponse'
-  | 'afterResponse'
-  | 'onError'
-  | 'onInterrupt'
 
 // ─── Audit log ─────────────────────────────────────────
 
@@ -194,6 +174,8 @@ export interface ConversationSummary {
   status?: 'active' | 'running' | 'archived'
   /** 父会话 ID（用于侧边栏缩进分组） */
   parentConvId?: string
+  /** 来源会话 ID（session_handoff 交接创建时记录的交接发起会话） */
+  handoffFromConvId?: string
 }
 
 export interface ConversationMeta {
@@ -212,6 +194,8 @@ export interface ConversationMeta {
   channel?: string
   /** 父会话 ID（子会话单向记录） */
   parentConvId?: string
+  /** 来源会话 ID（session_handoff 交接创建时记录的交接发起会话；区别于 parentConvId，交接新会话是独立顶层会话） */
+  handoffFromConvId?: string
   /** 创建时的任务描述 */
   sourceTask?: string
   /** 创建时指定的能力 */

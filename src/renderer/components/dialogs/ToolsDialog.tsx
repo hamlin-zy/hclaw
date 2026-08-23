@@ -2,6 +2,7 @@ import {useCallback, useState} from 'react'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
 import {type ToolState, useToolStore} from '../../stores/toolStore'
+import {ALWAYS_ON_TOOLS} from '@shared/alwaysOnTools'
 
 // 工具分类配置
 const TOOL_CATEGORIES = [
@@ -14,17 +15,8 @@ const TOOL_CATEGORIES = [
         id: 'system',
         name: '系统工具',
         tools: ['ask_user', 'agent', 'skill', 'task_create', 'task_update', 'task_list']
-    },
-    {
-        id: 'vision',
-        name: '视觉工具',
-        tools: ['analyze_image']
-    },
-    {
-        id: 'audio',
-        name: '听觉工具',
-        tools: ['speech_to_text']
     }
+    // vision/audio 分组已移除：analyze_image / speech_to_text 为能力驱动工具，永久常开
 ]
 
 // 工具中文描述映射
@@ -39,7 +31,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     ask_user: '向用户提问并等待回答',
     agent: '派生子 Agent 处理子任务',
     skill: '调用技能执行特定任务',
-    task_create: '创建新的待办事项任务',
+    task_create: '创建新的待办事项任务，支持任务组分批管理',
     task_update: '更新待办事项的状态',
     task_list: '列出所有待办事项',
     analyze_image: '使用独立视觉模型分析图片内容（需在模型方案中配置视觉模型）',
@@ -95,26 +87,27 @@ function parseTimeoutToMs(value: string): number | null {
 export default function ToolsDialog() {
     const {tools, hasRehydrated, toggleTool, isLoading} = useToolStore()
 
-    // 统计数据
-    const enabledCount = tools.filter(t => t.enabled).length
-    const totalCount = tools.length
+    // 统计数据（排除能力驱动工具：UI 不可见、不可手动开关）
+    const controllableTools = tools.filter(t => !ALWAYS_ON_TOOLS.has(t.id))
+    const enabledCount = controllableTools.filter(t => t.enabled).length
+    const totalCount = controllableTools.length
 
     // 按 ID 创建映射
     const toolMap = new Map(tools.map(t => [t.id, t]))
 
-    // 禁用所有工具
-    const handleDisableAll = useCallback(async () => {
-        const updates = tools.map(t => ({id: t.id, enabled: false}))
-        await window.electronAPI?.tool?.setEnabledBatch?.(updates)
-        useToolStore.getState().setTools(tools.map(t => ({...t, enabled: false})))
-    }, [tools])
-
-    // 启用所有工具
-    const handleEnableAll = useCallback(async () => {
-        const updates = tools.map(t => ({id: t.id, enabled: true}))
-        await window.electronAPI?.tool?.setEnabledBatch?.(updates)
-        useToolStore.getState().setTools(tools.map(t => ({...t, enabled: true})))
-    }, [tools])
+    // 批量切换所有可控制工具（能力驱动工具豁免，不参与批量切换）
+    const handleSetAll = useCallback(async (enabled: boolean) => {
+        const label = enabled ? '全部启用' : '全部禁用'
+        const updates = controllableTools.map(t => ({id: t.id, enabled}))
+        const result = await window.electronAPI?.tool?.setEnabledBatch?.(updates)
+        if (result?.success) {
+            useToolStore.getState().setTools(tools.map(t =>
+                ALWAYS_ON_TOOLS.has(t.id) ? t : {...t, enabled}
+            ))
+        } else {
+            console.error(`[ToolsDialog] ${label}失败:`, result?.error)
+        }
+    }, [tools, controllableTools])
 
     return (
         <div className="h-full overflow-y-auto p-4 space-y-4 custom-scrollbar">
@@ -128,7 +121,7 @@ export default function ToolsDialog() {
                 </div>
                 <div className="flex items-center gap-2">
                     <button
-                        onClick={handleDisableAll}
+                        onClick={() => handleSetAll(false)}
                         className="px-2 py-1 text-[10px] rounded transition-colors"
                         style={{
                             color: 'var(--text-muted)',
@@ -143,7 +136,7 @@ export default function ToolsDialog() {
                         全部禁用
                     </button>
                     <button
-                        onClick={handleEnableAll}
+                        onClick={() => handleSetAll(true)}
                         className="px-2 py-1 text-[10px] rounded transition-colors"
                         style={{
                             color: 'var(--brand-primary)',
