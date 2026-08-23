@@ -66,3 +66,33 @@ export function estimateTotalContextTokens(
     const sysTokens = systemPrompt ? estimateTokens(systemPrompt) : SYSTEM_PROMPT_ESTIMATE
     return msgTokens + sysTokens
 }
+
+/**
+ * 提取最近一次 LLM 请求的真实上下文占用（inputTokens + cacheReadTokens）。
+ * 与渲染端窗口徽章同口径（useWindowUsage: currentInputTokens + currentCacheReadTokens）。
+ * 无任何 llmStats（新会话/旧数据）→ 0，调用方回退字符估算。
+ */
+export function resolveLastRequestContextTokens(messages: ReadonlyArray<ChatMessage>): number {
+    let tokens = 0
+    for (const msg of messages) {
+        if (msg.role !== 'assistant') continue
+        const statsList = Array.isArray(msg.llmStats) ? msg.llmStats : []
+        if (statsList.length === 0) continue
+        const last = statsList[statsList.length - 1]
+        tokens = (last.inputTokens || 0) + (last.cacheReadTokens || 0)
+    }
+    return tokens
+}
+
+/**
+ * 上下文占用 token：优先真实 usage（chars/4 估算对中文严重失真，仅兜底），
+ * 无 llmStats 时回退 estimateTotalContextTokens。
+ */
+export function resolveContextUsageTokens(
+    messages: ReadonlyArray<ChatMessage> | ChatMessage[],
+    systemPrompt?: string,
+): number {
+    const real = resolveLastRequestContextTokens(messages)
+    if (real > 0) return real
+    return estimateTotalContextTokens(messages, systemPrompt)
+}

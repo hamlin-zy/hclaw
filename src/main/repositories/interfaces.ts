@@ -57,6 +57,12 @@ export interface IConversationRepository {
 
   setMessageEnded(convId: string, messageId: string, endedAt: number): boolean
 
+  /**
+   * 崩溃落库缺口修补：以主进程累积的完整正文为基准，补齐 DB text 块缺失尾部。
+   * @returns true = 处理成功（含无需修补）；false = 消息行不存在等不可修补场景
+   */
+  repairTextTail(msgId: string, fullText: string): boolean
+
   /** 更新消息的 LLM 统计信息 */
   updateMessageLlmStats(convId: string, messageId: string, llmStats: LlmStats[]): boolean
 

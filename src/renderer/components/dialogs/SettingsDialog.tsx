@@ -405,10 +405,6 @@ export default function SettingsDialog() {
                         keys: (<KbdCombo keys={['Ctrl', 'B']}/>),
                     },
                     {
-                        label: '切换右侧栏',
-                        keys: (<KbdCombo keys={['Ctrl', 'Shift', 'B']}/>),
-                    },
-                    {
                         label: '切换明暗主题',
                         keys: (<KbdCombo keys={['Ctrl', 'Shift', 'T']}/>),
                     },
