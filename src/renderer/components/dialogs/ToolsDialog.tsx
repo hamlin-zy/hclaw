@@ -31,7 +31,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     ask_user: '向用户提问并等待回答',
     agent: '派生子 Agent 处理子任务',
     skill: '调用技能执行特定任务',
-    task_create: '创建新的待办事项任务',
+    task_create: '创建新的待办事项任务，支持任务组分批管理',
     task_update: '更新待办事项的状态',
     task_list: '列出所有待办事项',
     analyze_image: '使用独立视觉模型分析图片内容（需在模型方案中配置视觉模型）',

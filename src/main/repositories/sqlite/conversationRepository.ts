@@ -1,4 +1,5 @@
 import {getDatabase, saveDatabase} from './index'
+import {deleteByConversation} from './taskBatchRepository'
 import {SqliteMessageBlockRepository} from './messageBlockRepository'
 import {blocksToMessage, messageToBlocks} from './messageBlockHelper'
 import type {IConversationRepository} from '../interfaces'
@@ -53,6 +54,8 @@ export class SqliteConversationRepository implements IConversationRepository {
     delete(convId: string): boolean {
         try {
             getDatabase().prepare('DELETE FROM conversations WHERE id = ?').run(convId)
+            // 级联清理该会话的任务批次与任务（task_batches / tasks）
+            deleteByConversation(convId)
             saveDatabase()
             return true
         } catch (err) {
@@ -726,6 +729,8 @@ export class SqliteConversationRepository implements IConversationRepository {
             db.transaction((ids: string[]) => {
                 for (const id of ids) stmt.run(id)
             })(ids)
+            // 级联清理各会话的任务批次与任务（task_batches / tasks）
+            for (const id of ids) deleteByConversation(id)
             saveDatabase()
             return true
         } catch (err) {

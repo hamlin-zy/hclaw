@@ -20,6 +20,7 @@ import {initLlmCallLogIPC} from './utils/llmCallLogStore';
 import {initLlmLogIPC} from './utils/llmCallBuffer';
 import {initUsageStatsIPC} from './utils/usageWindow';
 import {initConfigWindowIPC} from './utils/configWindow';
+import {initTaskBatchIPC} from './ipc/taskBatches';
 import {startConfigWatcher} from './config-watcher';
 import {initializePlugins, registerPluginIPC} from './plugin/ipc';
 import {registerCapabilityIPC} from './capability/ipc';
@@ -373,6 +374,9 @@ app.on('ready', async () => {
 
   // 配置对话框独立窗口注册表 + open-config-window IPC
   initConfigWindowIPC();
+
+  // 任务批次持久化查询/删除 IPC（历史任务组窗口数据源）
+  initTaskBatchIPC();
 
   // Scheduler system initialization (loads enabled schedules into worker)
   schedulerManager.init()

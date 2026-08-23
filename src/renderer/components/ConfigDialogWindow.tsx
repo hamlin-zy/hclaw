@@ -16,6 +16,7 @@ import SettingsDialog from './dialogs/SettingsDialog'
 import ToolListDialog from './dialogs/ToolListDialog'
 import SystemPromptDialog from './dialogs/SystemPromptDialog'
 import AboutDialog from './dialogs/AboutDialog'
+import TaskHistoryDialog from './dialogs/TaskHistoryDialog'
 import PermissionRulesPanel from './PermissionRulesPanel'
 import LlmLogsWindow from './LlmLogsWindow'
 import UsageWindow from './usage/UsageWindow'
@@ -49,6 +50,9 @@ const DIALOG_CONFIG: Record<string, DialogConfig> = {
     'about': {title: '关于 HClaw', Component: AboutDialog},
     'llm-logs': {title: 'LLM 调用日志', Component: LlmLogsWindow},
     'usage': {title: '用量统计', Component: UsageWindow},
+    // 双作用域共用同一组件（组件内部按 dialogType / taskConvId 区分全量与当前会话视图）
+    'task-history': {title: '任务历史', Component: TaskHistoryDialog},
+    'task-history-conv': {title: '任务历史', Component: TaskHistoryDialog},
 }
 
 export default function ConfigDialogWindow() {

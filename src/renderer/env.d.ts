@@ -319,8 +319,10 @@ declare global {
         windowId: string
         /** 配置窗口类型（--hclaw-dialog；仅配置窗口有，主窗口为空字符串） */
         dialogType: string
-        /** 打开配置对话框独立窗口（主进程注册表按 dialogType 管理单例） */
-        openConfigWindow: (dialogType: string) => Promise<void>
+        /** 任务历史窗口限定的会话 id（--hclaw-task-conv；仅 task-history-conv 有，其余为空字符串） */
+        taskConvId: string
+        /** 打开配置对话框独立窗口（主进程注册表按 dialogType 管理单例；extraArgs 追加为窗口启动参数） */
+        openConfigWindow: (dialogType: string, extraArgs?: string[]) => Promise<void>
         /** 独立窗口通用控制（主窗口无 --hclaw-window-id，此值为 undefined） */
         windowControls?: {
             minimize: () => Promise<void>
@@ -522,6 +524,19 @@ declare global {
             getCurrent: () => Promise<{ id: string; path: string; name: string; createdAt: number; updatedAt: number } | null>
             setCurrent: (id: string) => Promise<boolean>
         }
+
+        // 任务批次（历史任务组窗口数据源；类型复用主进程 taskBatchRepository）
+        taskBatches: {
+            getActive: (conversationId: string) => Promise<import('../../main/repositories/sqlite/taskBatchRepository').BatchWithTasks | null>
+            list: (opts?: { filter?: string; conversationId?: string; workspaceId?: string }) =>
+                Promise<import('../../main/repositories/sqlite/taskBatchRepository').BatchGroup[]>
+            getTasks: (batchId: string) =>
+                Promise<import('../../main/repositories/sqlite/taskBatchRepository').BatchWithTasks['tasks']>
+            remove: (ids: string[]) => Promise<{ deleted: number }>
+        }
+
+        /** 任务批次删除跨窗口广播（主窗口据此刷新 TodoStrip 残留批次态） */
+        onTaskBatchesChanged: (callback: (payload: {conversationIds: string[]}) => void) => () => void
 
         // Tool management
         tool?: {

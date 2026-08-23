@@ -57,13 +57,15 @@ beforeEach(async () => {
 })
 
 describe('configWindow 注册表', () => {
-    it('白名单含 19 种 dialogType', () => {
-        expect(CONFIG_DIALOG_TYPES.size).toBe(19)
+    it('白名单含 21 种 dialogType', () => {
+        expect(CONFIG_DIALOG_TYPES.size).toBe(21)
         expect(CONFIG_DIALOG_TYPES.has('llm-config')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('permission-rules')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('about')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('llm-logs')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('usage')).toBe(true)
+        expect(CONFIG_DIALOG_TYPES.has('task-history')).toBe(true)
+        expect(CONFIG_DIALOG_TYPES.has('task-history-conv')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('hooks')).toBe(false)
         expect(CONFIG_DIALOG_TYPES.has('update-notice')).toBe(false)
     })
@@ -137,6 +139,23 @@ describe('configWindow 注册表', () => {
         openConfigWindow('llm-config')
         expect(state.created[0].options.additionalArguments).toContain('--hclaw-dialog=llm-config')
         expect(state.created[0].options.devTools).toBe(false)
+    })
+
+    it('extraArgs 追加到 additionalArguments（task-history-conv 会话限定参数）', () => {
+        openConfigWindow('task-history-conv', undefined, ['--hclaw-task-conv=conv-1'])
+        const args = state.created[0].options.additionalArguments as string[]
+        expect(args).toContain('--hclaw-dialog=task-history-conv')
+        expect(args).toContain('--hclaw-task-conv=conv-1')
+    })
+
+    it('extraArgs 缺省时仅含 --hclaw-dialog；单例复用分支不追加', () => {
+        openConfigWindow('task-history')
+        expect(state.created[0].options.additionalArguments).toEqual(['--hclaw-dialog=task-history'])
+        // 复用已有窗口：不新建、additionalArguments 不变
+        openConfigWindow('task-history', undefined, ['--hclaw-task-conv=conv-x'])
+        expect(state.created).toHaveLength(1)
+        expect(state.focused).toEqual(['task-history'])
+        expect(state.created[0].options.additionalArguments).toEqual(['--hclaw-dialog=task-history'])
     })
 
     it('about 用专属尺寸 400x430，其他用 DIALOG_CONFIG initialWidth', () => {
