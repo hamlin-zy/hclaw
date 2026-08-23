@@ -537,7 +537,7 @@ export default function App() {
   useEffect(() => {
     const cleanup = window.electronAPI?.receive?.('session_created', (payload: any) => {
       if (!payload?.id) return
-      useConversationStore.getState().handleSessionCreated(payload.id, payload.title, payload.workspacePath || '')
+      useConversationStore.getState().handleSessionCreated(payload.id, payload.title, payload.workspacePath || '', payload.handoffFromConvId)
     })
 
     return () => {

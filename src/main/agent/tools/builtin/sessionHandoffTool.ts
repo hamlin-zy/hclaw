@@ -84,6 +84,9 @@ export const sessionHandoffTool: Tool<SessionHandoffInput, string> = {
             updatedAt: now,
             preview: '',
             status: 'active' as const,
+            // 记录交接发起会话（区别于 parentConvId：交接新会话是独立顶层会话，
+            // 此字段仅供 MessageList「←前会话」导航使用）
+            handoffFromConvId: parentConvId || undefined,
         }
         if (!conversationRepo.create(newConvId, meta)) {
             return {success: false, output: '', error: '创建新会话失败'}
@@ -120,8 +123,8 @@ export const sessionHandoffTool: Tool<SessionHandoffInput, string> = {
             return {success: false, output: '', error: '写入交接总结失败'}
         }
 
-        // ⑤ 通知渲染进程：侧栏新增会话 + 自动切换 activeConversationId
-        notifySessionCreated(newConvId, args.title, workspacePath)
+        // ⑤ 通知渲染进程：侧栏新增会话 + 自动切换 activeConversationId（携带来源会话，供「←前会话」导航）
+        notifySessionCreated(newConvId, args.title, workspacePath, parentConvId || undefined)
 
         // ⑥ 通知主进程为新会话启动独立 Agent Worker（交接首轮运行）
         //    工具立即返回，不等待首轮完成；新会话的运行由 AgentManager 管理，
@@ -166,13 +169,13 @@ function sendToRenderer(workerType: string, workerPayload: Record<string, unknow
     }
 }
 
-/** 通知渲染进程新增独立会话（自动切换） */
-function notifySessionCreated(convId: string, title: string, workspacePath: string): void {
+/** 通知渲染进程新增独立会话（自动切换；handoffFromConvId 供 MessageList「←前会话」导航） */
+function notifySessionCreated(convId: string, title: string, workspacePath: string, handoffFromConvId?: string): void {
     sendToRenderer(
         'session_created',
-        {convId, title, workspacePath},
+        {convId, title, workspacePath, handoffFromConvId},
         'session_created',
-        {id: convId, title, workspacePath},
+        {id: convId, title, workspacePath, handoffFromConvId},
     )
 }
 
