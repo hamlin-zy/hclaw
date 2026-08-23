@@ -16,6 +16,9 @@ import SettingsDialog from './dialogs/SettingsDialog'
 import ToolListDialog from './dialogs/ToolListDialog'
 import SystemPromptDialog from './dialogs/SystemPromptDialog'
 import AboutDialog from './dialogs/AboutDialog'
+import PermissionRulesPanel from './PermissionRulesPanel'
+import LlmLogsWindow from './LlmLogsWindow'
+import UsageWindow from './usage/UsageWindow'
 
 interface DialogConfig {
     title: string
@@ -27,6 +30,7 @@ interface DialogConfig {
  * 阶段 2 试点 3 个高频 Dialog；阶段 3（Task 3A）补全其余 14 种。
  */
 const DIALOG_CONFIG: Record<string, DialogConfig> = {
+    'permission-rules': {title: '权限规则', Component: PermissionRulesPanel},
     'llm-config': {title: '模型配置', Component: LLMConfigDialog},
     'mcp': {title: 'MCP 服务', Component: MCPDialog},
     'scheme-config': {title: '模型方案', Component: ModelSchemeDialog},
@@ -43,6 +47,8 @@ const DIALOG_CONFIG: Record<string, DialogConfig> = {
     'tool-list': {title: '工具列表预览', Component: ToolListDialog},
     'system-prompt': {title: '系统提示词预览', Component: SystemPromptDialog},
     'about': {title: '关于 HClaw', Component: AboutDialog},
+    'llm-logs': {title: 'LLM 调用日志', Component: LlmLogsWindow},
+    'usage': {title: '用量统计', Component: UsageWindow},
 }
 
 export default function ConfigDialogWindow() {

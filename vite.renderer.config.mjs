@@ -15,8 +15,6 @@ export default defineConfig({
       rollupOptions: {
           input: {
               main: path.resolve(__dirname, 'src/renderer/index.html'),
-              llmLogs: path.resolve(__dirname, 'src/renderer/llm-logs.html'),
-              usage: path.resolve(__dirname, 'src/renderer/usage.html'),
               dialogWindow: path.resolve(__dirname, 'src/renderer/dialogWindow.html'),
           },
           output: {
@@ -50,9 +48,6 @@ export default defineConfig({
                   }
                   if (id.includes('/components/dialogs/')) {
                       return 'components-dialogs'
-                  }
-                  if (id.includes('/components/SidePanels')) {
-                      return 'components-sidepanels'
                   }
                   if (id.includes('/components/message-list') || id.includes('/components/InputArea') || id.includes('/components/SessionStats')) {
                       return 'components-message'

@@ -57,12 +57,48 @@ beforeEach(async () => {
 })
 
 describe('configWindow 注册表', () => {
-    it('白名单含 16 种 dialogType', () => {
-        expect(CONFIG_DIALOG_TYPES.size).toBe(16)
+    it('白名单含 19 种 dialogType', () => {
+        expect(CONFIG_DIALOG_TYPES.size).toBe(19)
         expect(CONFIG_DIALOG_TYPES.has('llm-config')).toBe(true)
+        expect(CONFIG_DIALOG_TYPES.has('permission-rules')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('about')).toBe(true)
+        expect(CONFIG_DIALOG_TYPES.has('llm-logs')).toBe(true)
+        expect(CONFIG_DIALOG_TYPES.has('usage')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('hooks')).toBe(false)
         expect(CONFIG_DIALOG_TYPES.has('update-notice')).toBe(false)
+    })
+
+    it('llm-logs / usage 注册且使用 1200x700 尺寸', () => {
+        openConfigWindow('llm-logs')
+        openConfigWindow('usage')
+        expect(state.created.map(c => c.id)).toEqual(['llm-logs', 'usage'])
+        expect(state.created[0].options.title).toBe('LLM 调用日志')
+        expect(state.created[1].options.title).toBe('用量统计')
+        for (const w of state.created) {
+            expect(w.options.width).toBe(1200)
+            expect(w.options.height).toBe(700)
+            expect(w.options.minWidth).toBe(800)
+        }
+    })
+
+    it('onCreated 回调：新建与单例复用均回传窗口实例', () => {
+        // mock 窗口 id 为 dialogType 字符串，与 BrowserWindow.number 类型不符，故用 unknown 收集
+        const seen: Array<unknown> = []
+        openConfigWindow('mcp', (win) => seen.push(win.id))
+        openConfigWindow('mcp', (win) => seen.push(win.id))
+        expect(seen).toEqual(['mcp', 'mcp'])
+        // 单例：只创建一次
+        expect(state.created).toHaveLength(1)
+        expect(state.focused).toEqual(['mcp'])
+    })
+
+    it('权限规则窗口可打开且单例 focus', () => {
+        openConfigWindow('permission-rules')
+        openConfigWindow('permission-rules')
+        expect(state.created).toHaveLength(1)
+        expect(state.created[0].options.title).toBe('权限规则')
+        expect(state.created[0].options.width).toBe(680)
+        expect(state.focused).toEqual(['permission-rules'])
     })
 
     it('同类型重复 open → focus 不新建', () => {

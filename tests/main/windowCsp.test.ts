@@ -35,11 +35,12 @@ function getDirective(csp: string, name: string): string | null {
 const WINDOW_HTMLS = fs.readdirSync(RENDERER_DIR).filter(f => f.endsWith('.html'))
 
 describe('窗口 HTML — CSP 本地资源放行', () => {
-    it('应至少包含主窗口与独立窗口入口 html（dialogWindow / usage / llm-logs）', () => {
+    it('应至少包含主窗口与独立窗口入口 html（dialogWindow）', () => {
         expect(WINDOW_HTMLS).toContain('index.html')
         expect(WINDOW_HTMLS).toContain('dialogWindow.html')
-        expect(WINDOW_HTMLS).toContain('usage.html')
-        expect(WINDOW_HTMLS).toContain('llm-logs.html')
+        // llm-logs / usage 已迁入统一注册表（dialogWindow.html），不再有独立 html 入口
+        expect(WINDOW_HTMLS).not.toContain('usage.html')
+        expect(WINDOW_HTMLS).not.toContain('llm-logs.html')
     })
 
     it.each(WINDOW_HTMLS)('%s 的 img-src 含 file: 与 hclaw-media:', (file) => {

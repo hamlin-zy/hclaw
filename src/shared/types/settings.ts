@@ -60,6 +60,7 @@ export interface PromptScheme {
 // ─── Menu dialog ───────────────────────────────────────
 
 export type MenuDialogType =
+  | 'permission-rules'
   | 'llm-config'
   | 'scheme-config'
   | 'mcp'
