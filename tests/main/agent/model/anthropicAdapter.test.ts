@@ -190,9 +190,9 @@ describe('convertUserContent — 图片块（URL 图修复）', () => {
     const blocks = convertUserContent([
       {type: 'image_url', image_url: {url: 'data:image/gif;base64,R0lGOD'}},
     ])
-    expect(blocks[0].source.type).toBe('base64')
-    expect(blocks[0].source.media_type).toBe('image/gif')
-    expect(blocks[0].source.data).toBe('R0lGOD')
+    expect((blocks[0] as any).source.type).toBe('base64')
+    expect((blocks[0] as any).source.media_type).toBe('image/gif')
+    expect((blocks[0] as any).source.data).toBe('R0lGOD')
   })
 
   it('混合 [text, image_url, text] 顺序保持', () => {
@@ -209,6 +209,6 @@ describe('convertUserContent — 图片块（URL 图修复）', () => {
       {type: 'image_url', image_url: {url: 'data:image/png;base64'}},
     ])
     expect(blocks[0].type).toBe('image')
-    expect(blocks[0].source.type).toBe('base64')
+    expect((blocks[0] as any).source.type).toBe('base64')
   })
 })

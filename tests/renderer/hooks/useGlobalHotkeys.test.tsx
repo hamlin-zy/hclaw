@@ -50,9 +50,9 @@ function makeSummary(id: string, overrides: Partial<{parentConvId: string; title
 
 /** 原始 action 引用（beforeAll 捕获，afterEach 恢复，避免 zustand setState 拷贝导致 mock 污染） */
 let origActions: {
-    createConversation: typeof useConversationStore.getState.createConversation
-    setActiveConversation: typeof useConversationStore.getState.setActiveConversation
-    abortAgent: typeof useAgentStore.getState.abortAgent
+    createConversation: ReturnType<typeof useConversationStore.getState>['createConversation']
+    setActiveConversation: ReturnType<typeof useConversationStore.getState>['setActiveConversation']
+    abortAgent: ReturnType<typeof useAgentStore.getState>['abortAgent']
 }
 
 describe('useGlobalHotkeys', () => {

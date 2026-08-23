@@ -157,7 +157,7 @@ describe('PreprocessCache — 增长场景增量路径（方案 A）', () => {
     const s1 = [
       makeUser(0),
       makeAssistant(0, [{id: 'tc1', name: 'bash', arguments: {}}]),
-      {id: 't0', role: 'tool', toolCallId: 'tc1', content: 'stderr 输出', toolResult: '命令执行失败', isError: true},
+      {id: 't0', role: 'tool', toolCallId: 'tc1', content: 'stderr 输出', toolResult: '命令执行失败', isError: true} as ChatMessage,
     ]
     cache.process(s1)
     // 第二轮：追加消息，无取代交集 → 真实失败结果保留

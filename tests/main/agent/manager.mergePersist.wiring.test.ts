@@ -126,7 +126,7 @@ describe('#mergeAndPersist 接线 — blocks 已存在分支（经 handleDoneEve
         const pending = buildPending('m-1', '第一段', '第二段')
         ;(manager as any).pendingAssistantMsg.set('conv-1', pending)
 
-        await manager.handleDoneEvent('conv-1', {type: 'done', reason: 'completed'})
+        await (manager as any).handleDoneEvent('conv-1', {type: 'done', reason: 'completed'})
 
         expect(readDbText('m-1')).toBe(full)
         expect(readEndedAt('m-1')).not.toBeNull()
@@ -139,7 +139,7 @@ describe('#mergeAndPersist 接线 — blocks 已存在分支（经 handleDoneEve
         const pending = buildPending('m-1', '', '完整正文')
         ;(manager as any).pendingAssistantMsg.set('conv-1', pending)
 
-        await manager.handleDoneEvent('conv-1', {type: 'done', reason: 'completed'})
+        await (manager as any).handleDoneEvent('conv-1', {type: 'done', reason: 'completed'})
 
         expect(readDbText('m-1')).toBe('完整正文')
     })
@@ -153,7 +153,7 @@ describe('#mergeAndPersist 接线 — blocks 已存在分支（经 handleDoneEve
         const pending = buildPending('m-1', '第一段', '第二段')
         ;(manager as any).pendingAssistantMsg.set('conv-1', pending)
 
-        await manager.handleDoneEvent('conv-1', {type: 'done', reason: 'completed'})
+        await (manager as any).handleDoneEvent('conv-1', {type: 'done', reason: 'completed'})
 
         expect(readDbText('m-1')).toBe(full)
         const after = (db.prepare("SELECT COUNT(*) AS c FROM message_blocks WHERE message_id = 'm-1' AND block_type != 'end'").get() as {c: number}).c
@@ -173,7 +173,7 @@ describe('#mergeAndPersist 接线 — 指纹副本分支（渲染端占位 id �
         const pending = buildPending('m-1', '第一段', '第二段')
         ;(manager as any).pendingAssistantMsg.set('conv-1', pending)
 
-        await manager.handleDoneEvent('conv-1', {type: 'done', reason: 'completed'})
+        await (manager as any).handleDoneEvent('conv-1', {type: 'done', reason: 'completed'})
 
         // 不产生幽灵副本行，且副本消息被补齐
         const rows = db.prepare("SELECT COUNT(*) AS c FROM messages WHERE conversation_id = 'conv-1'").get() as {c: number}
@@ -190,7 +190,7 @@ describe('#mergeAndPersist 全量写兜底路径回归（无 blocks / 无指纹�
         const pending = buildPending('m-1', '第一段', '第二段')
         ;(manager as any).pendingAssistantMsg.set('conv-1', pending)
 
-        await manager.handleDoneEvent('conv-1', {type: 'done', reason: 'completed'})
+        await (manager as any).handleDoneEvent('conv-1', {type: 'done', reason: 'completed'})
 
         expect(readDbText('m-1')).toBe(full)
         expect(readEndedAt('m-1')).not.toBeNull()
@@ -205,7 +205,7 @@ describe('#mergeAndPersist — handleErrorEvent 对称收尾', () => {
         const pending = buildPending('m-1', '第一段', '第二段')
         ;(manager as any).pendingAssistantMsg.set('conv-1', pending)
 
-        await manager.handleErrorEvent('conv-1', '模拟错误')
+        await (manager as any).handleErrorEvent('conv-1', '模拟错误')
 
         expect(readDbText('m-1')).toBe(full)
         expect(readEndedAt('m-1')).not.toBeNull()

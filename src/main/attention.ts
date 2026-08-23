@@ -80,7 +80,7 @@ function startBlinking(): void {
 
   // ── macOS ──
   if (platform === 'darwin') {
-    try { app.dock.bounce('critical') } catch { /* ignore */ }
+    try { app.dock?.bounce('critical') } catch { /* ignore */ }
     return
   }
 

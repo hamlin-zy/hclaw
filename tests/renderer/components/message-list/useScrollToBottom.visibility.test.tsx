@@ -79,7 +79,7 @@ beforeEach(() => {
 
     // jsdom 未实现 Element.prototype.scrollIntoView
     scrollIntoViewMock = vi.fn()
-    Element.prototype.scrollIntoView = scrollIntoViewMock
+    Element.prototype.scrollIntoView = scrollIntoViewMock as unknown as (arg?: boolean | ScrollIntoViewOptions) => void
 
     Object.defineProperty(document, 'visibilityState', {value: 'visible', configurable: true})
 })
@@ -88,7 +88,7 @@ afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
     // 移除实例级 visibilityState 覆盖，恢复 jsdom 原型 getter
-    delete (document as Document & {visibilityState?: string}).visibilityState
+    Reflect.deleteProperty(document, 'visibilityState')
 })
 
 describe('useScrollToBottom 窗口恢复可见延迟滚动（Task 7）', () => {

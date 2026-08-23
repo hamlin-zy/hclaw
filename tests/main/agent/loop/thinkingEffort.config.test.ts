@@ -13,7 +13,7 @@
  *    （该字段全代码库零消费，思考能力由 thinking_effort 驱动）
  */
 import {describe, it, expect, beforeEach, afterEach} from 'vitest'
-import Database from 'better-sqlite3'
+import {DatabaseSync, type DatabaseSyncInstance} from '@photostructure/sqlite'
 import {resolveModelConfig} from '@/main/agent/model/modelSelector'
 
 describe('resolveModelConfig — thinkingEffort 从 role 配置正确解析', () => {
@@ -59,10 +59,10 @@ describe('resolveModelConfig — thinkingEffort 从 role 配置正确解析', ()
 })
 
 describe('migration 038 — 删除 provider_models.supports_thinking 死列', () => {
-    let db: InstanceType<typeof Database>
+    let db: DatabaseSyncInstance
 
     beforeEach(() => {
-        db = new Database(':memory:')
+        db = new DatabaseSync(':memory:')
         db.exec(`
             CREATE TABLE provider_models (
                 id TEXT PRIMARY KEY,

@@ -55,7 +55,7 @@ describe('useDraggableDialog', () => {
     it('visible 变 true → 按 offsetWidth 居中定位（带边界约束）', () => {
         const {result, rerender} = renderHook(
             ({visible}) => useDraggableDialog({visible}),
-            {initialProps: {visible: false}},
+            {initialProps: {visible: false} as {visible: boolean; storageKey?: string}},
         )
         result.current.dialogRef.current = makeDialogEl(200, 100)
 
@@ -94,7 +94,7 @@ describe('useDraggableDialog', () => {
         )
         // 非法 JSON 被忽略，挂载元素后走居中定位
         result.current.dialogRef.current = makeDialogEl(200, 100)
-        rerender({visible: true, storageKey: 'test-pos'})
+        rerender({visible: true})
         expect(result.current.position).toEqual({x: 412, y: 334})
     })
 

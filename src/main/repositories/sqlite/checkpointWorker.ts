@@ -41,10 +41,10 @@ if (parentPort && typeof workerData === 'object' && workerData && 'dbPath' in (w
             try {
                 const result = controller.check()
                 if (result.checkpointed) {
-                    parentPort.postMessage({type: 'checkpointed', ...result})
+                    parentPort?.postMessage({type: 'checkpointed', ...result})
                 }
             } catch (err) {
-                parentPort.postMessage({
+                parentPort?.postMessage({
                     type: 'error',
                     error: err instanceof Error ? err.message : String(err),
                 })
