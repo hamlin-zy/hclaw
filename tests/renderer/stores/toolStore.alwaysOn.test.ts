@@ -20,8 +20,8 @@ describe('toolStore 对 ALWAYS_ON_TOOLS 的 no-op', () => {
     // 构造含豁免工具的初始状态
     useToolStore.setState({
       tools: [
-        {id: 'analyze_image', name: 'analyze_image', description: '', enabled: false},
-        {id: 'bash', name: 'bash', description: '', enabled: true},
+        {id: 'analyze_image', name: 'analyze_image', description: '', enabled: false, timeout: null},
+        {id: 'bash', name: 'bash', description: '', enabled: true, timeout: null},
       ],
     })
     store.toggleTool('analyze_image')
@@ -33,7 +33,7 @@ describe('toolStore 对 ALWAYS_ON_TOOLS 的 no-op', () => {
 
   it('setToolEnabled 豁免工具 → 不调用 IPC', () => {
     const store = useToolStore.getState()
-    useToolStore.setState({tools: [{id: 'speech_to_text', name: 'speech_to_text', description: '', enabled: false}]})
+    useToolStore.setState({tools: [{id: 'speech_to_text', name: 'speech_to_text', description: '', enabled: false, timeout: null}]})
     store.setToolEnabled('speech_to_text', true)
     expect(setEnabled).not.toHaveBeenCalled()
   })

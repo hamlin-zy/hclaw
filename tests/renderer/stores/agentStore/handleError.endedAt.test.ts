@@ -19,7 +19,7 @@ const {mockConversationState, mockAgentState, mockFlushDirty} = vi.hoisted(() =>
         updateMessageForConv: vi.fn(),
     },
     mockAgentState: {
-        convAgentStates: {},
+        convAgentStates: {} as Record<string, any>,
         errorMessage: null,
         agentState: {status: 'running'},
     },
@@ -105,7 +105,7 @@ function makeCtx(event: any) {
 
 describe('handleError 收尾补 endedAt（防无 endedAt 快照覆盖主进程 final 写）', () => {
     beforeEach(() => {
-        mockAgentState.convAgentStates = {}
+        mockAgentState.convAgentStates = {} as Record<string, any>
         mockAgentState.errorMessage = null
         mockAgentState.agentState = {status: 'running'}
         mockConversationState.addMessageToConv.mockClear()

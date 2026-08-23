@@ -183,12 +183,12 @@ describe('convertUserContent — 图片块（URL 图修复）', () => {
 
     it('网络 URL → fileData.fileUri（不再塞进 inlineData.data）', () => {
         const {lastUserMsg} = convertMessages([imageMsg('https://example.com/a.png')])
-        expect(lastUserMsg[0]).toEqual({fileData: {mimeType: 'image/jpeg', fileUri: 'https://example.com/a.png'}})
+        expect(lastUserMsg![0]).toEqual({fileData: {mimeType: 'image/jpeg', fileUri: 'https://example.com/a.png'}})
     })
 
     it('base64 图回归：inlineData + mimeType（PNG）', () => {
         const {lastUserMsg} = convertMessages([imageMsg('data:image/png;base64,AAA')])
-        expect(lastUserMsg[0]).toEqual({inlineData: {mimeType: 'image/png', data: 'AAA'}})
+        expect(lastUserMsg![0]).toEqual({inlineData: {mimeType: 'image/png', data: 'AAA'}})
     })
 
     it('混合 [text, image_url, text] 顺序保持', () => {
@@ -200,6 +200,6 @@ describe('convertUserContent — 图片块（URL 图修复）', () => {
                 {type: 'text', text: 'b'},
             ],
         }])
-        expect(lastUserMsg.map(p => Object.keys(p)[0])).toEqual(['text', 'inlineData', 'text'])
+        expect(lastUserMsg!.map(p => Object.keys(p)[0])).toEqual(['text', 'inlineData', 'text'])
     })
 })

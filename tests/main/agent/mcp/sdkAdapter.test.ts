@@ -33,7 +33,7 @@ describe('toMcpToolDefinition', () => {
 
   it('inputSchema 原样保留（properties/required）', () => {
     const schema = {
-      type: 'object',
+      type: 'object' as const,
       properties: {url: {type: 'string'}, depth: {type: 'number'}},
       required: ['url'],
     }
@@ -73,7 +73,7 @@ describe('toMcpToolCallResult', () => {
   it('ResourceLink → 占位', () => {
     const r = toMcpToolCallResult({
       content: [{type: 'resourceLink', uri: 'file:///link.txt', mimeType: 'text/plain'}],
-    })
+    } as any)
     expect(r.content).toEqual([{type: 'text', text: ''}])
   })
 

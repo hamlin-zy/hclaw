@@ -205,6 +205,19 @@ function getPowerShellUtf8Init(): string {
   return '$PSDefaultParameterValues["Out-File:Encoding"]="utf8"; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::InputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8;'
 }
 
+/** Out-String 输出宽度上限，避免长行被默认宽度（通常 80）折断 */
+const POWERSHELL_OUT_STRING_WIDTH = 4096
+
+/**
+ * 构建传给 powershell -Command 的完整脚本
+ * 将用户命令包进脚本块并用 2>&1 | Out-String 强制走字符串路径：
+ * windowsHide(CREATE_NO_WINDOW) 下子进程无控制台句柄，pwsh 隐式 Table 格式化
+ * 查询控制台宽度会失败并静默丢弃输出（含缓冲区内后续输出）
+ */
+function buildPowerShellScript(command: string): string {
+  return `${getPowerShellUtf8Init()}\n& {\n${command}\n} 2>&1 | Out-String -Width ${POWERSHELL_OUT_STRING_WIDTH}\nexit`
+}
+
 // ─── 输出截断 ──────────────────────────────────
 
 const MAX_OUTPUT_SIZE = 2 * 1024 * 1024 // 2MB 硬性上限
@@ -407,7 +420,7 @@ ${
       const spawnOpts: SpawnOptions = { cwd: context.workingDir, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
       let proc: ReturnType<typeof spawn>
       if (shellInfo.os === 'windows' && shellInfo.name === 'powershell') {
-        proc = spawn(shellInfo.shell, ['-NoProfile', '-Command', `${getPowerShellUtf8Init()}\n${command}\nexit`], spawnOpts)
+        proc = spawn(shellInfo.shell, ['-NoProfile', '-Command', buildPowerShellScript(command)], spawnOpts)
       } else {
         proc = spawn(shellInfo.shell, shellInfo.shellArgs, spawnOpts)
       }

@@ -8,7 +8,7 @@
  * 模块顶层会执行 container.register(DI_TOKENS.SkillRegistry, skillRegistry)，
  * 这里 mock 掉 common/container 避免真实容器被污染。
  */
-import {beforeEach, describe, expect, it} from 'vitest'
+import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {SkillRegistryImpl, skillRegistry, getSkillRegistry} from '@/main/agent/skills/registry'
 import type {SkillDefinition} from '@/main/agent/skills/types'
 

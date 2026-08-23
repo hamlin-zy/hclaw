@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest'
 import fs from 'fs'
 import path from 'path'
-import Database from 'better-sqlite3'
+import {DatabaseSync} from '@photostructure/sqlite'
 
 /**
  * migration 037（只加列版本）
@@ -26,7 +26,7 @@ describe('migration 037 — 只加列不回填', () => {
     })
 
     it('在全新库上执行成功：加列且无任何 turn_index 值（不回填）', () => {
-        const db = new Database(':memory:')
+        const db = new DatabaseSync(':memory:')
         db.exec(`CREATE TABLE message_blocks (
             id TEXT PRIMARY KEY, message_id TEXT NOT NULL, block_type TEXT NOT NULL,
             content TEXT, data TEXT, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, ended_at INTEGER
@@ -48,7 +48,7 @@ describe('migration 037 — 只加列不回填', () => {
     })
 
     it('新写入块可携带 turn_index（新会话精确溯源）', () => {
-        const db = new Database(':memory:')
+        const db = new DatabaseSync(':memory:')
         db.exec(`CREATE TABLE message_blocks (
             id TEXT PRIMARY KEY, message_id TEXT NOT NULL, block_type TEXT NOT NULL,
             content TEXT, data TEXT, sequence INTEGER NOT NULL, timestamp INTEGER NOT NULL, ended_at INTEGER
