@@ -174,6 +174,8 @@ export interface ConversationSummary {
   status?: 'active' | 'running' | 'archived'
   /** 父会话 ID（用于侧边栏缩进分组） */
   parentConvId?: string
+  /** 来源会话 ID（session_handoff 交接创建时记录的交接发起会话） */
+  handoffFromConvId?: string
 }
 
 export interface ConversationMeta {
@@ -192,6 +194,8 @@ export interface ConversationMeta {
   channel?: string
   /** 父会话 ID（子会话单向记录） */
   parentConvId?: string
+  /** 来源会话 ID（session_handoff 交接创建时记录的交接发起会话；区别于 parentConvId，交接新会话是独立顶层会话） */
+  handoffFromConvId?: string
   /** 创建时的任务描述 */
   sourceTask?: string
   /** 创建时指定的能力 */

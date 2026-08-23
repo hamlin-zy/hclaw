@@ -33,7 +33,7 @@ interface ConversationStore {
 
     // Conversations
   createConversation: () => Promise<string>
-    handleSessionCreated: (convId: string, title: string, workspacePath: string) => void
+    handleSessionCreated: (convId: string, title: string, workspacePath: string, handoffFromConvId?: string) => void
     /** 子会话创建事件处理（agent 工具创建）：侧栏顶部插入，保留其他工作区 */
     handleChildConvCreated: (convId: string, title: string, parentConvId?: string) => void
   deleteConversation: (id: string) => Promise<void>
@@ -835,7 +835,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       },
 
       // 会话移交工具创建新会话时的处理：侧栏顶部插入 + 自动切换（复用 createConversation 的 state 更新逻辑）
-      handleSessionCreated: (convId, title, workspacePath) => {
+      handleSessionCreated: (convId, title, workspacePath, handoffFromConvId) => {
           const now = Date.now()
           const summary: ConversationSummary = {
               id: convId,
@@ -844,6 +844,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               createdAt: now,
               updatedAt: now,
               channel: undefined,
+              handoffFromConvId: handoffFromConvId || undefined,
           }
 
           set((state) => {
@@ -1244,6 +1245,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   channel: meta.channel,
                   status: meta.status,
                   parentConvId: meta.parentConvId,
+                  handoffFromConvId: meta.handoffFromConvId,
               }
               if (!workspaces[wsPath].conversations.find(c => c.id === summary.id)) {
                   workspaces[wsPath].conversations.push(summary)
@@ -1374,6 +1376,7 @@ if (typeof window !== 'undefined') {
             channel: conv.channel,
             status: conv.status,
             parentConvId: conv.parentConvId || undefined,
+            handoffFromConvId: conv.handoffFromConvId || undefined,
         }
 
         const wsInfo = workspaces[wsPath] || {lastOpenedAt: Date.now(), conversations: []}

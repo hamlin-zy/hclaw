@@ -541,6 +541,19 @@ export default function MessageList({conversationId}: { conversationId?: string 
     const [showCopyToast, setShowCopyToast] = useState(false)
     const [showScrollBtn, setShowScrollBtn] = useState(false)
     const [newMsgCount, setNewMsgCount] = useState(0)
+    // 会话来源导航（子会话 → 父会话；交接会话 → 前会话）
+    const originParentConvId = useConversationStore((s) => {
+        const id = conversationId || s.activeConversationId
+        const wsPath = s.currentWorkspacePath
+        if (!id || !wsPath) return undefined
+        return s.workspaces[wsPath]?.conversations.find(c => c.id === id)?.parentConvId || undefined
+    })
+    const originHandoffFromId = useConversationStore((s) => {
+        const id = conversationId || s.activeConversationId
+        const wsPath = s.currentWorkspacePath
+        if (!id || !wsPath) return undefined
+        return s.workspaces[wsPath]?.conversations.find(c => c.id === id)?.handoffFromConvId || undefined
+    })
     const userScrolledAwayRef = useRef(false)
     // 滚动初始化标记：防止消息异步加载时的竞态导致初始化被跳过
     const scrollInitDoneRef = useRef(false)
@@ -716,6 +729,12 @@ export default function MessageList({conversationId}: { conversationId?: string 
         }
         attempt()
     }, [messages.length])
+
+    // ── 会话来源导航（←父会话 / ←前会话） ────────────────────
+    const goToOriginConversation = useCallback((targetConvId: string) => {
+        if (!targetConvId) return
+        useConversationStore.getState().setActiveConversation(targetConvId)
+    }, [])
 
     // ── 切换会话时重置状态 ───────────────────────────────
     // 重置滚动相关状态并标记初始化未完成，等待后续初始化 effect。
@@ -1048,54 +1067,96 @@ export default function MessageList({conversationId}: { conversationId?: string 
                     ))}
                 </div>
 
-                {/* 消息导航按钮组件 */}
-                {showScrollBtn && (
-                    <div className="sticky bottom-4 right-8 z-10 flex items-center justify-end pointer-events-none">
-                        <div className="flex items-center gap-2 pointer-events-auto">
-                            <NavButton
-                                active={hasPrevUserMsg}
-                                onClick={goToPrevUserMessage}
-                                ariaLabel="上一条用户消息"
-                            >
-                                <polyline points="18 15 12 9 6 15"/>
-                            </NavButton>
-                            <NavButton
-                                active={hasNextUserMsg}
-                                onClick={goToNextUserMessage}
-                                ariaLabel="下一条用户消息"
-                            >
-                                <polyline points="6 9 12 15 18 9"/>
-                            </NavButton>
-                            <motion.button
-                                initial={{opacity: 0, scale: 0.8}}
-                                animate={{opacity: 1, scale: 1}}
-                                exit={{opacity: 0, scale: 0.8}}
-                                transition={{duration: 0.15}}
-                                onClick={goToBottom}
-                                aria-label="回到底部"
-                                className="w-12 h-12 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--brand-primary)] transition-all"
-                            >
-                                {newMsgCount > 0 ? (
-                                    <span className="relative flex items-center justify-center">
+                {/* 消息导航 + 会话来源按钮（纵向堆叠：圆形导航钮在上、来源胶囊在下，常驻不遮挡） */}
+                {(showScrollBtn || originParentConvId || originHandoffFromId) && (
+                    <div className="sticky bottom-4 right-8 z-10 flex flex-col items-end gap-2 pointer-events-none">
+                        {showScrollBtn && (
+                            <div className="flex items-center gap-2 pointer-events-auto">
+                                <NavButton
+                                    active={hasPrevUserMsg}
+                                    onClick={goToPrevUserMessage}
+                                    ariaLabel="上一条用户消息"
+                                >
+                                    <polyline points="18 15 12 9 6 15"/>
+                                </NavButton>
+                                <NavButton
+                                    active={hasNextUserMsg}
+                                    onClick={goToNextUserMessage}
+                                    ariaLabel="下一条用户消息"
+                                >
+                                    <polyline points="6 9 12 15 18 9"/>
+                                </NavButton>
+                                <motion.button
+                                    initial={{opacity: 0, scale: 0.8}}
+                                    animate={{opacity: 1, scale: 1}}
+                                    exit={{opacity: 0, scale: 0.8}}
+                                    transition={{duration: 0.15}}
+                                    onClick={goToBottom}
+                                    aria-label="回到底部"
+                                    className="w-12 h-12 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--brand-primary)] transition-all"
+                                >
+                                    {newMsgCount > 0 ? (
+                                        <span className="relative flex items-center justify-center">
+                                            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                 strokeWidth="2" aria-hidden="true">
+                                                <line x1="4" y1="19" x2="20" y2="19"/>
+                                                <polyline points="6 9 12 15 18 9"/>
+                                            </svg>
+                                            <span
+                                                className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-[var(--brand-primary)] text-white text-[10px] font-medium flex items-center justify-center">
+                                                {newMsgCount > 99 ? '99+' : newMsgCount}
+                                            </span>
+                                        </span>
+                                    ) : (
                                         <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                              strokeWidth="2" aria-hidden="true">
                                             <line x1="4" y1="19" x2="20" y2="19"/>
                                             <polyline points="6 9 12 15 18 9"/>
                                         </svg>
-                                        <span
-                                            className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-[var(--brand-primary)] text-white text-[10px] font-medium flex items-center justify-center">
-                                            {newMsgCount > 99 ? '99+' : newMsgCount}
-                                        </span>
-                                    </span>
-                                ) : (
-                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                         strokeWidth="2" aria-hidden="true">
-                                        <line x1="4" y1="19" x2="20" y2="19"/>
-                                        <polyline points="6 9 12 15 18 9"/>
-                                    </svg>
+                                    )}
+                                </motion.button>
+                            </div>
+                        )}
+                        {(originParentConvId || originHandoffFromId) && (
+                            <div className="flex items-center gap-2 pointer-events-auto">
+                                {originParentConvId && (
+                                    <motion.button
+                                        initial={{opacity: 0, scale: 0.9}}
+                                        animate={{opacity: 1, scale: 1}}
+                                        exit={{opacity: 0, scale: 0.9}}
+                                        transition={{duration: 0.15}}
+                                        onClick={() => goToOriginConversation(originParentConvId)}
+                                        aria-label="←父会话"
+                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:border-[var(--brand-primary)] transition-all cursor-pointer"
+                                    >
+                                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                             strokeWidth="2" aria-hidden="true">
+                                            <line x1="19" y1="12" x2="5" y2="12"/>
+                                            <polyline points="12 19 5 12 12 5"/>
+                                        </svg>
+                                        父会话
+                                    </motion.button>
                                 )}
-                            </motion.button>
-                        </div>
+                                {originHandoffFromId && (
+                                    <motion.button
+                                        initial={{opacity: 0, scale: 0.9}}
+                                        animate={{opacity: 1, scale: 1}}
+                                        exit={{opacity: 0, scale: 0.9}}
+                                        transition={{duration: 0.15}}
+                                        onClick={() => goToOriginConversation(originHandoffFromId)}
+                                        aria-label="←前会话"
+                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:border-[var(--brand-primary)] transition-all cursor-pointer"
+                                    >
+                                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                             strokeWidth="2" aria-hidden="true">
+                                            <line x1="19" y1="12" x2="5" y2="12"/>
+                                            <polyline points="12 19 5 12 12 5"/>
+                                        </svg>
+                                        前会话
+                                    </motion.button>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
 
