@@ -172,3 +172,43 @@ describe('convertMessages — 回归行为', () => {
         expect(assistantMsgs).toHaveLength(0)
     })
 })
+
+import {convertUserContent} from '../../../../src/main/agent/model/anthropicAdapter'
+
+describe('convertUserContent — 图片块（URL 图修复）', () => {
+  it('网络 URL → source.type=url（不再塞进 base64.data）', () => {
+    const blocks = convertUserContent([
+      {type: 'image_url', image_url: {url: 'https://example.com/a.png'}},
+    ])
+    expect(blocks[0]).toEqual({
+      type: 'image',
+      source: {type: 'url', url: 'https://example.com/a.png'},
+    })
+  })
+
+  it('base64 图回归：source.type=base64 + media_type + data', () => {
+    const blocks = convertUserContent([
+      {type: 'image_url', image_url: {url: 'data:image/gif;base64,R0lGOD'}},
+    ])
+    expect((blocks[0] as any).source.type).toBe('base64')
+    expect((blocks[0] as any).source.media_type).toBe('image/gif')
+    expect((blocks[0] as any).source.data).toBe('R0lGOD')
+  })
+
+  it('混合 [text, image_url, text] 顺序保持', () => {
+    const blocks = convertUserContent([
+      {type: 'text', text: 'a'},
+      {type: 'image_url', image_url: {url: 'data:image/png;base64,AAA'}},
+      {type: 'text', text: 'b'},
+    ])
+    expect(blocks.map(b => b.type)).toEqual(['text', 'image', 'text'])
+  })
+
+  it('data URI 非法 base64（无分隔符）→ 不抛异常', () => {
+    const blocks = convertUserContent([
+      {type: 'image_url', image_url: {url: 'data:image/png;base64'}},
+    ])
+    expect(blocks[0].type).toBe('image')
+    expect((blocks[0] as any).source.type).toBe('base64')
+  })
+})

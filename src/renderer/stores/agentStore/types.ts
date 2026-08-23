@@ -23,20 +23,6 @@ export interface LLMMessage {
     isError?: boolean
 }
 
-export interface HookResultItem {
-    id: string
-    event: string
-    hookName: string
-    success: boolean
-    error?: string
-    timestamp: number
-    conversationId: string // 所属会话
-    /** 通用通知消息（非 hook 结果时使用，如 max_tokens 截断提示；优先级高于 hookName|状态） */
-    message?: string
-    /** 是否常驻显示（true 时不随 TTL 自动消失，需用户手动关闭） */
-    pinned?: boolean
-}
-
 // ─── 多会话独立 Agent 状态 ────────────────────────────
 /** 每个会话独立的运行时数据，包括流式缓冲区、消息 ID、agent 状态等 */
 export interface ConvAgentData {
@@ -59,6 +45,23 @@ export interface ConvAgentData {
     }>
     /** 当前正在流式输出的 assistant 消息 ID */
     streamingMessageId: string | null
+    /**
+     * 崩溃恢复标记（P1）：recoverSessions 以快照播种后置 true。
+     * 恢复的 streamingMessageId（seedId）是主进程 pending 唯一对齐 id，
+     * 即使 DB 中该消息 endedAt 已写（崩溃前 worker 已落库），下一轮流式仍应
+     * 复用该 id —— 否则 ensureStreamingMessage 因 endedAt 检测而置 null 生成
+     * 全新 id，与主进程 pending 错位 → 渲染端内存出现第二条 assistant
+     * （幽灵气泡，重启后从 DB 只读一条故"恢复正常"）。
+     * 正常 abort 残留场景该标记为 undefined，沿用"已结束不复用"防御。
+     */
+    recoveredStreaming?: boolean
+    /**
+     * 崩溃恢复基线（P1）：恢复时快照携带的 DB text 块数。
+     * recordTextBlock 派生块 id 时叠加此值，防止 streamBlocks 清空后
+     * seq 从 0 重计与旧块 id 碰撞（碰撞 → append 进旧块 → 正文错序）。
+     * 正常流式路径恒为 undefined。
+     */
+    recoveredTextBlockBase?: number
     /** 工具执行完毕后，等待 LLM 响应中 */
     isThinkingAfterTools: boolean
     /** 当前正在执行的工具数量 */
@@ -77,10 +80,15 @@ export interface ConvAgentData {
         /** 当前展开的卡片 ID 列表（跨会话恢复） */
         expandedCardIds?: string[]
     } | null
-    /** Agent 需要用户确认权限的内容（核心权限系统触发） */
+    /** 当前权限确认的内容（核心权限系统触发） */
     pendingPermissionConfirm: { question: string; requestId?: string } | null
     /** 当前任务列表 */
     tasks: Task[]
+    /**
+     * 当前任务批次（tasks_update 事件携带 batchId/batchName/batchStatus 时写入；
+     * 字段缺失时保留原值。应用重启后由 hydrateActiveBatch 从主进程 DB 水合）
+     */
+    currentBatch?: { id: string; name: string; status: 'active' | 'completed' }
     /** LLM 运行错误信息，显示在消息列表左下角而非消息气泡中 */
     errorMessage: string | null
     /** 工具执行开始时的临时提示消息（如"工具执行中..."），tool_start 后清除；
@@ -224,15 +232,17 @@ export interface AgentStore {
     /** 页面刷新后：查询主进程中仍在运行的 agent，恢复流式渲染状态 */
     recoverSessions: () => Promise<void>
 
+    /** 应用重启/刷新后从主进程 DB 水合指定会话的活跃任务批次
+     *  （竞态守卫：实时 tasks_update 先写入 currentBatch 时放弃覆盖，实时数据优先） */
+    hydrateActiveBatch: (conversationId: string) => Promise<void>
+
+    /** 以主进程 DB 为准刷新指定会话的本地批次态（跨窗口同步用）：
+     *  历史任务组窗口删除批次后广播触发——DB 无活跃批次时清空残留
+     *  （防 TodoStrip 显示已删数据），有则按快照覆盖 */
+    refreshActiveBatch: (conversationId: string) => Promise<void>
+
     /** 清理残留的 running/thinking 状态（HMR 后 agent 已完成但状态卡住时使用） */
     recoverSessionsCleanup: (keepRunning?: Set<string>) => void
 
     registerStreamListener: () => () => void
-
-    /** Hook 执行结果列表（用于 UI 反馈） */
-    hookResults: HookResultItem[]
-    /** 添加 hook 执行结果（自动清理超 50 条的旧记录；pinned 标记在 item 上） */
-    addHookResult: (item: HookResultItem) => void
-    /** 移除一个 hook 结果（用户手动关闭通知时调用，从 store 中彻底删除） */
-    removeHookResult: (id: string) => void
 }

@@ -1,6 +1,7 @@
 import {create} from 'zustand'
 import {persist, type PersistStorage} from 'zustand/middleware'
 import {sqliteStorage} from '../lib/sqliteStorage'
+import {ALWAYS_ON_TOOLS} from '../../shared/alwaysOnTools'
 
 export interface ToolState {
     id: string
@@ -30,6 +31,8 @@ export const useToolStore = create<ToolStore>()(
             hasRehydrated: false,
             isLoading: false,
             toggleTool: (id: string) => {
+                // ★ 能力驱动工具：不可手动切换（no-op，UI 已移除开关，防御旧调用）
+                if (ALWAYS_ON_TOOLS.has(id)) return
                 set((state: Pick<ToolStore, 'tools'>) => ({
                     tools: state.tools.map((t: ToolState) => 
                         t.id === id ? {...t, enabled: !t.enabled} : t
@@ -41,6 +44,8 @@ export const useToolStore = create<ToolStore>()(
                 }
             },
             setToolEnabled: (id: string, enabled: boolean) => {
+                // ★ 能力驱动工具：不可手动切换（no-op，UI 已移除开关，防御旧调用）
+                if (ALWAYS_ON_TOOLS.has(id)) return
                 set((state: Pick<ToolStore, 'tools'>) => ({
                     tools: state.tools.map((t: ToolState) => 
                         t.id === id ? {...t, enabled} : t

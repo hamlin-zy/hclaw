@@ -138,7 +138,9 @@ export function ThrottledMarkdown({content, isUser, theme}: {
     }, [isStreaming])
 
     return (
-        <div className="min-w-0">
+        // data-find-scope：正文搜索范围标记（MessageList.find 的 buildHighlights 只搜此标记内文本，
+        // 避免命中 header/时间戳/工具卡片/聚合芯片等 UI 元信息）
+        <div className="min-w-0" data-find-scope>
             <MarkdownRenderer isUser={isUser} theme={theme}>{displayContent}</MarkdownRenderer>
         </div>
     )
@@ -355,7 +357,8 @@ export default function InterleavedContent({message, isUser}: InterleavedContent
     const renderSegment = (seg: Segment, i: number) => {
         switch (seg.type) {
             case 'think-thread':
-                return <div key={seg.blockId} className="mb-2"><ThinkBlockMemo thinkBlock={seg.thinkBlock}/></div>
+                // data-find-scope：think 内容属用户可见正文（展开时），纳入搜索范围
+                return <div key={seg.blockId} className="mb-2" data-find-scope><ThinkBlockMemo thinkBlock={seg.thinkBlock}/></div>
             case 'text':
                 return seg.content ?
                     <ThrottledMarkdownMemo key={`t-${i}`} content={seg.content} isUser={isUser} theme={theme}/> : null
@@ -364,7 +367,9 @@ export default function InterleavedContent({message, isUser}: InterleavedContent
             case 'tool-with-reason':
                 return (
                     <div key={`tcwr-${seg.toolCall.id}`} className="mb-2 mt-2">
+                        {/* data-find-scope：reason 是正文叙事的一部分（工具卡片的 arguments/result 不 scope） */}
                         <div
+                            data-find-scope
                             className="text-[var(--text-secondary)] mb-2 italic bg-[var(--surface-muted)]/50 p-2 rounded-lg border border-[var(--border-muted)]">{seg.reason}</div>
                         <ToolCallRenderer toolCall={seg.toolCall}/>
                     </div>

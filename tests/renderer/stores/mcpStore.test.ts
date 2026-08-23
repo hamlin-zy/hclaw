@@ -53,6 +53,7 @@ describe('addMCPServer', () => {
             name: 'My Server',
             transport: 'stdio',
             command: 'node',
+            enabled: true,
         })
         expect(server.id).toBe('my-server')
         expect(server.name).toBe('My Server')
@@ -72,16 +73,16 @@ describe('addMCPServer', () => {
 
     it('重名时 id 自动加序号后缀（my-server-1）', () => {
         const store = useMcpStore.getState()
-        store.addMCPServer({name: 'My Server', transport: 'stdio'})
-        store.addMCPServer({name: 'My Server', transport: 'stdio'})
+        store.addMCPServer({name: 'My Server', transport: 'stdio', enabled: true})
+        store.addMCPServer({name: 'My Server', transport: 'stdio', enabled: true})
         const ids = useMcpStore.getState().mcpServers.map(s => s.id)
         expect(ids).toEqual(['my-server', 'my-server-1'])
     })
 
     it('两个不同名字生成不同 id', () => {
         const store = useMcpStore.getState()
-        store.addMCPServer({name: 'Server A', transport: 'stdio'})
-        store.addMCPServer({name: 'Server B', transport: 'stdio'})
+        store.addMCPServer({name: 'Server A', transport: 'stdio', enabled: true})
+        store.addMCPServer({name: 'Server B', transport: 'stdio', enabled: true})
         expect(useMcpStore.getState().mcpServers.map(s => s.id)).toEqual(['server-a', 'server-b'])
     })
 
@@ -89,7 +90,7 @@ describe('addMCPServer', () => {
         const store = useMcpStore.getState()
         store.addMCPServer({
             name: 'Srv', transport: 'stdio', command: 'x',
-            timeout: 30000, autoApprove: ['read'], denyList: ['write'],
+            timeout: 30000, autoApprove: ['read'], denyList: ['write'], enabled: true,
         })
         const s = useMcpStore.getState().mcpServers[0]
         expect(s.timeout).toBe(30000)

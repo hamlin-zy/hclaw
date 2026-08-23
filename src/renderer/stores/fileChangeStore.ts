@@ -6,7 +6,6 @@ interface FileChangeStore {
   isPanelCollapsed: boolean
   selectedFileChange: FileChange | null
   diffModalOpen: boolean
-    isTodoPanelCollapsed: boolean
 
   addFileChangeGroup: (group: Omit<FileChangeGroup, 'id'>) => void
   addFileChange: (groupId: string, change: Omit<FileChange, 'id'>) => void
@@ -14,7 +13,6 @@ interface FileChangeStore {
   togglePanel: () => void
   openDiffModal: (change: FileChange) => void
   closeDiffModal: () => void
-    toggleTodoPanel: () => void
 }
 
 export const useFileChangeStore = create<FileChangeStore>((set) => ({
@@ -22,7 +20,6 @@ export const useFileChangeStore = create<FileChangeStore>((set) => ({
   isPanelCollapsed: false,
   selectedFileChange: null,
   diffModalOpen: false,
-    isTodoPanelCollapsed: false,
 
   addFileChangeGroup: (group) => {
     const newGroup: FileChangeGroup = { ...group, id: crypto.randomUUID() }
@@ -55,8 +52,4 @@ export const useFileChangeStore = create<FileChangeStore>((set) => ({
   closeDiffModal: () => {
     set({ diffModalOpen: false, selectedFileChange: null })
   },
-
-    toggleTodoPanel: () => {
-        set((state) => ({isTodoPanelCollapsed: !state.isTodoPanelCollapsed}))
-    },
 }))

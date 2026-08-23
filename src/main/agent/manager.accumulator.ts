@@ -42,8 +42,7 @@ export function appendCappedPart(
  * 若 finalize 后再 push 并二次 finalize，新段会覆盖旧的 content/thinkContent。
  *
  * 当前调用图保证该契约成立：finalize 仅在终态路径触发——
- * #mergeAndPersist（user_message_injected / done / error）与
- * extractLastLoopMessages（done-completed，且发生在 #mergeAndPersist 之后），
+ * #mergeAndPersist（user_message_injected / done / error），
  * 之后 pending 被置 null 或 worker 结束，不会再有后续 text/thinking 事件。
  *
  * 幂等性：parts 为空时原样返回，重复调用安全。contentLength 不重置——
@@ -65,14 +64,18 @@ export function finalizePending(pending: PendingAssistantMsg): PendingAssistantM
  * 幽灵消息双写防御：渲染端已落库消息的文本指纹与主进程 pending 内容是否一致。
  *
  * nearbyText 为渲染端消息 text blocks 拼接后的前 200 字符（调用方截断），
- * pendingContent 为主进程累积的完整内容。判定规则：
+ * pendingContent 为主进程累积的完整内容（P0 跨段累积后即全文）。
+ * 判定规则（前缀包含关系，任一方向）：
+ * - pendingContent 以 nearbyText 开头 → 渲染端部分落库（崩溃丢尾）→ 匹配，
+ *   调用方 repairTextTail 补齐缺口
+ * - nearbyText 以 pendingContent 开头 → DB 反超（容量截断等异常）→ 匹配，
+ *   调用方 repair 因 dbLen ≥ fullLen 幂等跳过
  * - nearbyText 为空（渲染端占位无内容）→ 不匹配（防误杀，避免把空占位当已落库）
- * - 前 200 字符逐字一致 → 判定为同一消息的副本（渲染端已精细落库，主进程不得再 INSERT）
- * 严格字符串比较（大小写敏感），与 #findRenderedCopy 历史行为一致。
+ * - pendingContent 为空 → 不匹配（防空前缀匹配一切）
  */
 export function isRenderedCopyFingerprintMatch(nearbyText: string, pendingContent: string): boolean {
-  if (nearbyText.length === 0) return false
-  return nearbyText === pendingContent.slice(0, 200)
+  if (nearbyText.length === 0 || pendingContent.length === 0) return false
+  return pendingContent.startsWith(nearbyText) || nearbyText.startsWith(pendingContent)
 }
 
 /**
@@ -88,22 +91,17 @@ export function accumulateStreamEvent(
   pending: PendingAssistantMsg | null,
   conversationId: string,
   event: AgentStreamEvent,
-  pendingNeedsTurnReset: Set<string>,
   registeredMsgId?: string,
 ): PendingAssistantMsg | null {
-  const hasTurnReset = pendingNeedsTurnReset.has(conversationId)
-
   switch (event.type) {
-    case 'agent_start': {
-      pendingNeedsTurnReset.delete(conversationId)
-      break
-    }
     case 'text': {
       const content = event.content || ''
 
-      if (hasTurnReset) {
-        pending = null
-      }
+      // ★ 崩溃落库修复：turn reset 不再丢弃已累积正文。旧逻辑在此置 pending=null，
+      //   导致主进程任何时刻只持有最后一段文本——渲染进程崩溃时保险丝
+      //   #mergeAndPersist 无法补齐 DB 缺口，未 flush 的增量永久丢失。
+      //   跨段累积后 pending.content 即全文基准，contentLength/toolCalls/thinkParts
+      //   均持续累计（toolCalls 按 id 去重；容量上限由 appendCappedPart 保证）。
 
       if (!content && !pending) {
         return null
@@ -188,8 +186,6 @@ export function accumulateStreamEvent(
           ? {taskId: result._meta.childConvId as string}
           : {}),
       }
-      // 本轮 tool result 已处理完毕，下一次 text 事件是新回合的开始
-      pendingNeedsTurnReset.add(conversationId)
       break
     }
 
@@ -238,6 +234,45 @@ export function createPendingMsg(): PendingAssistantMsg {
     toolCalls: [],
     thinkContent: null,
     timestamp: Date.now(),
+  }
+}
+
+// ─── 崩溃恢复流快照（P1） ──────────────────────────────────
+
+/** 渲染进程崩溃重载后的流式状态快照（只读，供 recoverSessions 播种） */
+export interface StreamSnapshot {
+  streamingMessageId: string
+  /** 跨段累积全文（与 #mergeAndPersist 保险丝同源） */
+  content: string
+  thinkContent: string | null
+  toolCalls: PendingAssistantMsg['toolCalls']
+  /**
+   * DB 中该消息已有的 text 块数。渲染端以此为 textSeq 基线派生新块 id，
+   * 防止恢复后 streamBlocks 清空导致 seq 从 0 重计、与旧块 id 碰撞
+   * （碰撞 → UPDATE-append 进旧块 → 正文错序，done 时修补也无法纠正顺序）。
+   */
+  dbTextBlockCount: number
+}
+
+/**
+ * 构建活跃 pending 的只读快照。
+ *
+ * ★ 绝不调用 finalizePending——那会清空 contentParts/thinkParts，
+ *   快照后到达的 text/thinking 事件将因 parts 被消费而丢段。
+ *   此处以 join 只读拼接，pending 保持可继续累积。
+ *
+ * @returns pending 为 null 时返回 null（worker 在跑但尚无任何累积的边界）
+ */
+export function buildStreamSnapshot(pending: PendingAssistantMsg | null, dbTextBlockCount = 0): StreamSnapshot | null {
+  if (!pending) return null
+  return {
+    streamingMessageId: pending.id,
+    content: pending.contentParts?.join('') || pending.content || '',
+    thinkContent: pending.thinkParts?.length
+      ? pending.thinkParts.join('')
+      : (pending.thinkContent ?? null),
+    toolCalls: [...pending.toolCalls],
+    dbTextBlockCount,
   }
 }
 

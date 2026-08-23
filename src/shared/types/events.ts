@@ -105,6 +105,10 @@ export interface AgentStreamEvent {
   output?: string
   // Tasks 字段
   tasks?: Task[]
+  /** 任务批次字段（tasks_update 事件，存在批次时携带） */
+  batchId?: string
+  batchName?: string
+  batchStatus?: 'active' | 'completed'
   // Skill 字段
   skillId?: string
   skillName?: string

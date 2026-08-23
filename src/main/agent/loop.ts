@@ -4,7 +4,7 @@
  * 入口文件，委托给 AgentLoopController 处理
  *
  * AsyncGenerator 流式输出，while(true) 循环调用 LLM + 执行工具。
- * Hook 系统在工具执行前后拦截，支持 beforeToolCall/afterToolCall。
+ * 工具执行前经权限引擎（permissionEngine）检查。
  *
  * 模型方案支持：
  * - 优先从全局模型方案管理器获取配置（支持运行时动态切换）
@@ -28,7 +28,7 @@ import {runtimeConfigManager} from './runtimeConfigManager'
 // ─── 参数 ──────────────────────────────────────────────
 
 export interface AgentLoopParams {
-  /** 会话 ID（用于 Hook 系统触发事件） */
+  /** 会话 ID */
   sessionId?: string
   messages: ChatMessage[]
   modelConfig: ModelConfig
@@ -63,12 +63,6 @@ export interface AgentLoopParams {
   messageMetadata?: Record<string, unknown>
   /** 显式指定模型角色（agentTool 子会话专用；primary/lightweight/reasoning） */
   modelRole?: ModelRole
-  /**
-   * Hook 执行后注入的额外上下文
-   * 来自 SessionStart/UserPromptSubmit hook 的 additionalContext
-   * 会注入到消息中（历史消息之后，用户消息之前），最大化缓存命中
-   */
-  hookAdditionalContext?: string
   /**
    * 运行中注入的用户消息队列（Worker 内共享引用）
    * 新消息会 push 到此数组，Controller 在每轮 LLM 调用前检查并注入到 currentState
@@ -114,7 +108,6 @@ export async function* agentLoop(
     askUserQuestion,
     channelSend,
     messageMetadata,
-    hookAdditionalContext,
     modelRole,
   } = params
 
@@ -179,8 +172,6 @@ export async function* agentLoop(
     runtimeConfig,
     // 将消息元数据传递给 controller
     messageMetadata,
-    // 传递 Hook additionalContext（SessionStart/UserPromptSubmit hook 返回）
-    hookAdditionalContext,
     // 传递运行中注入的用户消息队列
     pendingInjectedMessages: params.pendingInjectedMessages,
     modelRole,

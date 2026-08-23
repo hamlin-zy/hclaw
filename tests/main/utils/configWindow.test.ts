@@ -57,11 +57,50 @@ beforeEach(async () => {
 })
 
 describe('configWindow 注册表', () => {
-    it('白名单含 17 种 dialogType', () => {
-        expect(CONFIG_DIALOG_TYPES.size).toBe(17)
+    it('白名单含 21 种 dialogType', () => {
+        expect(CONFIG_DIALOG_TYPES.size).toBe(21)
         expect(CONFIG_DIALOG_TYPES.has('llm-config')).toBe(true)
+        expect(CONFIG_DIALOG_TYPES.has('permission-rules')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('about')).toBe(true)
+        expect(CONFIG_DIALOG_TYPES.has('llm-logs')).toBe(true)
+        expect(CONFIG_DIALOG_TYPES.has('usage')).toBe(true)
+        expect(CONFIG_DIALOG_TYPES.has('task-history')).toBe(true)
+        expect(CONFIG_DIALOG_TYPES.has('task-history-conv')).toBe(true)
+        expect(CONFIG_DIALOG_TYPES.has('hooks')).toBe(false)
         expect(CONFIG_DIALOG_TYPES.has('update-notice')).toBe(false)
+    })
+
+    it('llm-logs / usage 注册且使用 1200x700 尺寸', () => {
+        openConfigWindow('llm-logs')
+        openConfigWindow('usage')
+        expect(state.created.map(c => c.id)).toEqual(['llm-logs', 'usage'])
+        expect(state.created[0].options.title).toBe('LLM 调用日志')
+        expect(state.created[1].options.title).toBe('用量统计')
+        for (const w of state.created) {
+            expect(w.options.width).toBe(1200)
+            expect(w.options.height).toBe(700)
+            expect(w.options.minWidth).toBe(800)
+        }
+    })
+
+    it('onCreated 回调：新建与单例复用均回传窗口实例', () => {
+        // mock 窗口 id 为 dialogType 字符串，与 BrowserWindow.number 类型不符，故用 unknown 收集
+        const seen: Array<unknown> = []
+        openConfigWindow('mcp', (win) => seen.push(win.id))
+        openConfigWindow('mcp', (win) => seen.push(win.id))
+        expect(seen).toEqual(['mcp', 'mcp'])
+        // 单例：只创建一次
+        expect(state.created).toHaveLength(1)
+        expect(state.focused).toEqual(['mcp'])
+    })
+
+    it('权限规则窗口可打开且单例 focus', () => {
+        openConfigWindow('permission-rules')
+        openConfigWindow('permission-rules')
+        expect(state.created).toHaveLength(1)
+        expect(state.created[0].options.title).toBe('权限规则')
+        expect(state.created[0].options.width).toBe(680)
+        expect(state.focused).toEqual(['permission-rules'])
     })
 
     it('同类型重复 open → focus 不新建', () => {
@@ -100,6 +139,23 @@ describe('configWindow 注册表', () => {
         openConfigWindow('llm-config')
         expect(state.created[0].options.additionalArguments).toContain('--hclaw-dialog=llm-config')
         expect(state.created[0].options.devTools).toBe(false)
+    })
+
+    it('extraArgs 追加到 additionalArguments（task-history-conv 会话限定参数）', () => {
+        openConfigWindow('task-history-conv', undefined, ['--hclaw-task-conv=conv-1'])
+        const args = state.created[0].options.additionalArguments as string[]
+        expect(args).toContain('--hclaw-dialog=task-history-conv')
+        expect(args).toContain('--hclaw-task-conv=conv-1')
+    })
+
+    it('extraArgs 缺省时仅含 --hclaw-dialog；单例复用分支不追加', () => {
+        openConfigWindow('task-history')
+        expect(state.created[0].options.additionalArguments).toEqual(['--hclaw-dialog=task-history'])
+        // 复用已有窗口：不新建、additionalArguments 不变
+        openConfigWindow('task-history', undefined, ['--hclaw-task-conv=conv-x'])
+        expect(state.created).toHaveLength(1)
+        expect(state.focused).toEqual(['task-history'])
+        expect(state.created[0].options.additionalArguments).toEqual(['--hclaw-dialog=task-history'])
     })
 
     it('about 用专属尺寸 400x430，其他用 DIALOG_CONFIG initialWidth', () => {

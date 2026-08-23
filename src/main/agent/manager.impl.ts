@@ -13,11 +13,11 @@ import type {ChatMessage, ModelConfig} from './model/types'
 import {permissionEngine} from './tools/permission'
 import {addLlmCallLog} from '../utils/llmCallLogStore'
 import {gracefulRestart} from '../utils/restart'
-import {HookExecutor, type HookResult} from '../plugin/hooks'
 import {capabilityManager} from './capabilityManager'
 import {logger} from './logger'
 import {mcpWorkerManager, setAgentManagerRef} from './mcp/mcpWorkerManager'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
+import {upsertSnapshot} from '../repositories/sqlite/taskBatchRepository'
 import {runtimeConfigManager} from './runtimeConfigManager'
 import {eventBus, MCPThemeEvents} from '../common/eventBus'
 import {notifyUserAttention, stopUserAttention} from '../attention'
@@ -34,12 +34,11 @@ import {
   SKIP_LOG_EVENT_TYPES,
   PENDING_MSG_MAX_BYTES,
 } from './manager.constants'
-import {createPendingMsg, normalizeToolResult, finalizePending, appendCappedPart, isRenderedCopyFingerprintMatch} from './manager.accumulator'
+import {createPendingMsg, normalizeToolResult, finalizePending, appendCappedPart, isRenderedCopyFingerprintMatch, buildStreamSnapshot} from './manager.accumulator'
 import {createForwardPayload, extractWorkerErrorMessage} from './manager.streamForward'
 import {recordLlmUsageEvent} from '../usageWrite'
 
 import {loadPluginAgents} from './manager.pluginAgents'
-import {createConversationRepository} from '../repositories'
 
 // ─── AgentManager ──────────────────────────────────────
 
@@ -56,9 +55,6 @@ export class AgentManager {
 
   /** 当前正在流式构建的 assistant 消息（每个会话最多一条） */
   private pendingAssistantMsg: Map<string, PendingAssistantMsg | null> = new Map()
-
-  /** 跨轮追踪：tool_result 完成后，下一次 text 事件需重置 pending，开启新回合 */
-  private pendingNeedsTurnReset: Set<string> = new Set()
 
   /** 会话 → 渲染端占位消息 id（ensureStreamingMessage 上报）。
    *  主进程 pending 累积复用该 id，避免与渲染端流式消息双 id 双写（幽灵消息根因）。 */
@@ -77,19 +73,6 @@ export class AgentManager {
     setAgentManagerRef({
       workers: this.workers as Map<string, { worker: Worker }>,
     } as Parameters<typeof setAgentManagerRef>[0])
-
-    if (win) {
-      const hookExecutor = HookExecutor.getInstance()
-      hookExecutor.onResult((event: string, hookName: string, result: HookResult) => {
-        this.forwardToRenderer('__hooks__', {
-          type: 'hook_result',
-          event,
-          hookName,
-          success: (result.allowed ?? result.decision !== 'block') && !result.error,
-          error: result.error || undefined,
-        })
-      })
-    }
   }
 
   /**
@@ -202,11 +185,6 @@ export class AgentManager {
     worker.on('exit', (code) => this.onWorkerExit(params.conversationId, worker, code))
 
     this.workers.set(params.conversationId, entry)
-
-    // 触发 SessionStart Hook
-    HookExecutor.getInstance().execute('SessionStart', {
-      sessionId: params.conversationId,
-    }).catch(() => {})
   }
 
   /**
@@ -351,19 +329,6 @@ export class AgentManager {
           return
         }
 
-        // Worker 线程的 hook 执行结果：转发到渲染进程
-        if (msg.type === 'hook_result') {
-          const hr = msg as unknown as { hookEvent: string; hookName: string; success: boolean; error?: string }
-          this.forwardToRenderer('__hooks__', {
-            type: 'hook_result',
-            event: hr.hookEvent,
-            hookName: hr.hookName,
-            success: hr.success,
-            error: hr.error,
-          })
-          return
-        }
-
         // 流事件处理
         // ★ 使用 msg.conversationId（若存在）而非闭包固定的 Worker 主会话 ID：
         //   taskStore 发出的 tasks_update 事件携带任务归属会话 ID（子会话任务 → 子会话 ID，
@@ -390,11 +355,14 @@ export class AgentManager {
           }
         } else if (msg.type === 'session_created') {
           // 独立会话创建事件 → 通知渲染进程刷新侧栏 + 自动切换
-          const sessionMsg = msg as unknown as { convId: string; title?: string; workspacePath?: string }
+          // ★ handoffFromConvId 必须透传：MessageList「←前会话」导航数据源，
+          //   丢失会导致交接后新会话不显示来源按钮（重启从 DB 加载才恢复）
+          const sessionMsg = msg as unknown as { convId: string; title?: string; workspacePath?: string; handoffFromConvId?: string }
           this.sendToMainWindow('session_created', {
             id: sessionMsg.convId,
             title: sessionMsg.title || '新会话',
             workspacePath: sessionMsg.workspacePath || '',
+            handoffFromConvId: sessionMsg.handoffFromConvId || undefined,
           })
         } else if (msg.type === 'session_handoff_start') {
           await this.startHandoffSession(msg as unknown as {
@@ -417,10 +385,6 @@ export class AgentManager {
             type: 'error',
             error: workerErr,
           })
-          HookExecutor.getInstance().execute('StopFailure', {
-            sessionId: msg.conversationId,
-            error: workerErr,
-          }).catch((err) => logger.warn('[AgentManager] StopFailure hook failed', {error: err}))
         }
       } catch (err: unknown) {
         logger.error('[AgentManager] messageHandlerFailed', {
@@ -452,6 +416,29 @@ export class AgentManager {
       }
       this.forwardToRenderer(conversationId, event)
       return
+    }
+
+    // ── 任务批次持久化旁路：所有 tasks_update（含 supersede 收尾事件）统一落库 ──
+    // 持久化失败不阻断事件流转，仅记录告警
+    if (event.type === 'tasks_update' && event.batchId) {
+      // 显式守卫：批次名称/状态任一缺失时跳过落库并告警。
+      // 不做守卫的话，undefined 绑定异常会被下方 catch 吞掉，问题难以排查。
+      if (event.batchName == null || event.batchStatus == null) {
+        logger.warn('[AgentManager] task batch persist skipped: missing batchName/batchStatus', {
+          conversationId,
+          batchId: event.batchId,
+        })
+      } else {
+        try {
+          upsertSnapshot(
+            conversationId,
+            {id: event.batchId, name: event.batchName, status: event.batchStatus},
+            event.tasks,
+          )
+        } catch (err) {
+          logger.warn('[AgentManager] task batch persist failed', {error: err})
+        }
+      }
     }
 
     // 通知外部流事件监听器
@@ -571,12 +558,16 @@ export class AgentManager {
     const now = Date.now()
 
     // ★ 块级增量模型保险丝：渲染端已在段边界精细落库（有 blocks）。
-    //   此时只补 endedAt/缺失字段（setMessageEnded 原语），绝不 DELETE+全量 INSERT 覆盖精细块。
+    //   此时只补内容缺口 + endedAt（repairTextTail / setMessageEnded 原语），
+    //   绝不 DELETE+全量 INSERT 覆盖精细块。
+    //   ★ repairTextTail（崩溃落库修复）：渲染进程崩溃时未 flush 的 text 增量
+    //   随 dirty map 丢失，DB 只剩前缀；此处以主进程跨段累积的全文为基准补齐尾部。
     const {createConversationRepository} = await import('../repositories')
     const convRepo = createConversationRepository()
     const existingBlocks = db.prepare('SELECT COUNT(*) AS c FROM message_blocks WHERE message_id = ?').get(pending.id) as {c: number}
     if ((existingBlocks?.c ?? 0) > 0) {
       if (isFinal) {
+        convRepo.repairTextTail(pending.id, pending.content)
         convRepo.setMessageEnded(conversationId, pending.id, now)
       }
       return
@@ -584,10 +575,11 @@ export class AgentManager {
 
     // ★ 幽灵消息双写防御（根因修复，见 tasks/03-duplicate-assistant-bubbles.md）：
     //   内容指纹一致 → 渲染端已落库（注册机制生效前/竞态下 id 不一致的场景），
-    //   只补 endedAt，绝不 INSERT 幽灵副本；无匹配才是真·渲染进程崩溃（从未落库）。
+    //   只补缺口 + endedAt，绝不 INSERT 幽灵副本；无匹配才是真·渲染进程崩溃（从未落库）。
     const renderedCopyId = await this.#findRenderedCopy(conversationId, pending)
     if (renderedCopyId) {
       if (isFinal) {
+        convRepo.repairTextTail(renderedCopyId, pending.content)
         convRepo.setMessageEnded(conversationId, renderedCopyId, now)
       }
       return
@@ -707,10 +699,12 @@ export class AgentManager {
   ): Promise<string | null> {
     const {getDatabase} = await import('../repositories/sqlite')
     const db = getDatabase()
+    // ★ 时间窗收紧（-15s ~ +5s）：pending.timestamp 即响应起点，渲染端占位行几乎同时创建；
+    //   相邻两条 assistant 消息通常间隔远大于此。配合前缀包含指纹，降低跨消息误判风险。
     const nearbyRow = db.prepare(
       `SELECT id FROM messages
        WHERE conversation_id = ? AND role = 'assistant'
-         AND timestamp BETWEEN ? - 60000 AND ? + 1000
+         AND timestamp BETWEEN ? - 15000 AND ? + 5000
        ORDER BY timestamp DESC LIMIT 1`
     ).get(conversationId, pending.timestamp, pending.timestamp) as {id: string} | undefined
     if (!nearbyRow) return null
@@ -752,21 +746,6 @@ export class AgentManager {
     }
 
     this.forwardToRenderer(conversationId, event)
-
-    if (event.reason === 'completed') {
-      const lastMsgs = this.extractLastLoopMessages(conversationId)
-      HookExecutor.getInstance().execute('Stop', {
-        sessionId: conversationId,
-        lastMessages: lastMsgs,
-        reason: 'completed',
-      }).catch((err) => logger.warn('[AgentManager] Stop hook failed', {error: err}))
-    } else if (event.reason === 'error') {
-      HookExecutor.getInstance().execute('StopFailure', {
-        sessionId: conversationId,
-        error: 'Agent loop ended with error',
-        reason: 'error',
-      }).catch((err) => logger.warn('[AgentManager] StopFailure hook failed', {error: err}))
-    }
   }
 
   /** 处理 error 事件 */
@@ -778,12 +757,6 @@ export class AgentManager {
     }
 
     this.forwardToRenderer(conversationId, {type: 'error', error: errorMsg})
-
-    HookExecutor.getInstance().execute('StopFailure', {
-      sessionId: conversationId,
-      error: errorMsg,
-      reason: 'error',
-    }).catch((err) => logger.warn('[AgentManager] StopFailure hook failed', {error: err}))
   }
 
   /** 处理 Agent 结束后残留的注入消息 */
@@ -860,22 +833,15 @@ export class AgentManager {
   /** 累积流事件 */
   private accumulateEvent(conversationId: string, event: AgentStreamEvent): PendingAssistantMsg | null {
     let pending = this.pendingAssistantMsg.get(conversationId) ?? null
-    const hasTurnReset = this.pendingNeedsTurnReset.has(conversationId)
     // 渲染端占位消息 id：新建/重建 pending 时复用（消除双 id 双写）
     const registeredMsgId = this.streamingMsgIds.get(conversationId)
 
     switch (event.type) {
-      case 'agent_start': {
-        // 新 LLM 调用轮次开始，清理上一轮的 turn reset 标志
-        // 避免残留标志导致 text 事件丢弃已累积的 think/tool_call 信息
-        this.pendingNeedsTurnReset.delete(conversationId)
-        break
-      }
       case 'text': {
         const content = (event as {type: 'text'; content?: string}).content || ''
-        if (hasTurnReset) {
-          pending = null
-        }
+        // ★ 崩溃落库修复：turn reset 不再丢弃已累积正文（与 manager.accumulator.ts 双轨同步）。
+        //   旧逻辑 pending=null 使主进程只持有最后一段文本，渲染进程崩溃时
+        //   #mergeAndPersist 无法以全文为基准补齐 DB 缺口。
         if (!content && !pending) break
         if (!pending) pending = createPendingMsg()
         // ★ 方案 C：段内数组 + contentLength（镜像 accumulator.ts，复用 appendCappedPart）
@@ -930,7 +896,6 @@ export class AgentManager {
             ? {taskId: normalized._meta.childConvId as string}
             : {}),
         }
-        this.pendingNeedsTurnReset.add(conversationId)
         break
       }
       case 'tool_denied': {
@@ -1101,6 +1066,26 @@ export class AgentManager {
     return Array.from(this.workers.keys())
   }
 
+  /**
+   * 崩溃恢复流快照（P1）：返回活跃 pending 的只读快照，供渲染端
+   * recoverSessions 以主进程为唯一事实源重建流式状态。
+   * pending 为 null（首 token 前崩溃窗口）时返回 null。
+   */
+  async getStreamSnapshot(conversationId: string) {
+    const pending = this.pendingAssistantMsg.get(conversationId) ?? null
+    if (!pending) return null
+    let dbTextBlockCount = 0
+    try {
+      const {getDatabase} = await import('../repositories/sqlite')
+      dbTextBlockCount = (getDatabase().prepare(
+        "SELECT COUNT(*) AS c FROM message_blocks WHERE message_id = ? AND block_type = 'text'"
+      ).get(pending.id) as {c: number} | undefined)?.c ?? 0
+    } catch {
+      // DB 未就绪等极端情况：基线退化为 0（最坏情况是块 id 碰撞，不阻塞恢复）
+    }
+    return buildStreamSnapshot(pending, dbTextBlockCount)
+  }
+
   // ─── Agent 模板加载 ──────────────────────────────────
 
   /** 从插件加载 Agent 模板 */
@@ -1131,35 +1116,6 @@ export class AgentManager {
       messages: event.messages as LlmCallLog['messages'],
       systemPrompt: event.systemPrompt,
     })
-  }
-
-  /** 提取本次 loop 的最后一条用户/助手消息（供 Stop hook 使用） */
-  private extractLastLoopMessages(conversationId: string): Array<{role: string; content: string}> {
-    const result: Array<{role: string; content: string}> = []
-
-    try {
-      const repo = createConversationRepository()
-      const {messages: convMsgs} = repo.readMessagesTail(conversationId, 10)
-      const lastUserMsg = [...convMsgs].reverse().find(m => m.role === 'user')
-
-      if (lastUserMsg) {
-        result.push({role: 'user', content: typeof lastUserMsg.content === 'string' ? lastUserMsg.content : ''})
-      }
-
-      // 从 pendingAssistantMsg 读取当前循环的 assistant 响应
-      const pending = this.pendingAssistantMsg.get(conversationId)
-      if (pending) {
-        // ★ 方案 C：读取 content 前 finalize（惰性 join）
-        finalizePending(pending)
-        if (pending.content) {
-          result.push({role: 'assistant', content: pending.content})
-        }
-      }
-    } catch (err) {
-      logger.warn('[AgentManager] extractLastLoopMessages failed', {error: err})
-    }
-
-    return result
   }
 
   /** 向主窗口发送消息（自动检查窗口有效性） */
@@ -1213,15 +1169,8 @@ export class AgentManager {
     }
     this.parentToChildren.delete(conversationId)
 
-    // 触发 SessionEnd Hook
-    HookExecutor.getInstance().execute('SessionEnd', {
-      sessionId: conversationId,
-      reason: 'cleanup',
-    }).catch(() => {})
-
     this.workers.delete(conversationId)
     this.pendingAssistantMsg.delete(conversationId)
-    this.pendingNeedsTurnReset.delete(conversationId)
     this.streamingMsgIds.delete(conversationId)
     this.streamListeners.delete(conversationId)
   }

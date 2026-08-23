@@ -27,5 +27,13 @@
     ]
   },
   "include": ["src/**/*", "tests/**/*"],
+  "exclude": [
+    // 手动诊断脚本：连接真实用户 DB（HCLAW_DB/CONV_ID），非 CI 常规测试；
+    // 不参与 tsc 检查，避免依赖未安装的 better-sqlite3 报错
+    "tests/main/agent/ipc/cacheReplay.verify.test.ts",
+    "tests/main/agent/ipc/finalReplay.diag.test.ts",
+    "tests/main/agent/ipc/preciseDelta.diag.test.ts",
+    "tests/main/agent/ipc/serializeForm.diag.test.ts"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

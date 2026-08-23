@@ -1,13 +1,13 @@
 import {describe, expect, it} from 'vitest'
 import fs from 'fs'
 import path from 'path'
-import Database from 'better-sqlite3'
+import {DatabaseSync, type DatabaseSyncInstance} from '@photostructure/sqlite'
 
 const MIGRATION = path.join(__dirname, '../../../../src/main/repositories/sqlite/migrations/039_model_scheme_fixed_roles.sql')
 
 /** 构造老库：model_scheme_roles（含自定义/死角色 + 自定义 displayName）+ providers（无 api_style） */
-function makeLegacyDb(): Database.Database {
-    const db = new Database(':memory:')
+function makeLegacyDb(): DatabaseSyncInstance {
+    const db = new DatabaseSync(':memory:')
     db.exec(`
         CREATE TABLE model_scheme_roles (
             id TEXT PRIMARY KEY, scheme_id TEXT NOT NULL, role TEXT NOT NULL,

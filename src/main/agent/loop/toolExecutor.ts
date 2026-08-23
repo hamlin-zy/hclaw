@@ -6,7 +6,6 @@
  * - 沙箱检查
  * - 执行工具
  * - 格式化结果
- * - 触发 Hook（beforeToolCall/afterToolCall + PreToolUse/PostToolUse）
  */
 
 import {executeTool, type ExecuteToolCall, type ExecuteToolResult, resolveToolTimeoutMs} from '../tools/executor'
@@ -14,9 +13,8 @@ import {permissionEngine} from '../tools/permission'
 import type {ToolContext} from '../tools/types'
 
 import type {AgentStreamEvent} from '../stream'
-import {hookExecutor} from '../../plugin/hooks'
-import {logger} from '../logger'
 import {createToolResultMessage, addMessage} from '../state'
+import {taskStore} from '../tasks/taskStore'
 import type {ChatMessage, LoopState} from '../state'
 
 export interface ToolExecutionContext {
@@ -41,54 +39,6 @@ export class ToolExecutor {
         context: ToolContext,
     ): Promise<ToolExecutionResult> {
         const events: AgentStreamEvent[] = []
-        // 从 sendMessage 中提取 sessionId（如果有）
-        const sessionId = (toolCall as any).conversationId || 'unknown'
-
-        // ── 触发 PreToolUse hook ──
-        try {
-            const preToolResult = await hookExecutor.execute('PreToolUse', {
-                sessionId,
-                toolName: toolCall.name,
-                args: toolCall.arguments,
-            })
-
-            // 如果 PreToolUse hook 阻止
-            if (!preToolResult.allowed) {
-                const denyReason = preToolResult.error || 'Blocked by PreToolUse hook'
-                const deniedResult = {success: false, output: null, error: denyReason}
-                events.push({
-                    type: 'tool_denied',
-                    toolCallId: toolCall.id,
-                    reason: denyReason
-                })
-                // ★ 即时推送 tool_completed（拒绝场景同样停止倒计时）
-                context.onEvent?.({
-                    type: 'tool_completed',
-                    toolCallId: toolCall.id,
-                    result: deniedResult,
-                })
-                return {
-                    result: {
-                        toolCallId: toolCall.id,
-                        toolName: toolCall.name,
-                        denied: true,
-                        denyReason,
-                        result: deniedResult,
-                    },
-                    events
-                }
-            }
-
-            // 如果 hook 修改了参数，使用修改后的参数
-            if (preToolResult.modified?.args) {
-                toolCall = {
-                    ...toolCall,
-                    arguments: preToolResult.modified.args as Record<string, unknown>
-                }
-            }
-        } catch (err) {
-            logger.warn('[ToolExecutor] PreToolUse hook failed', { error: err })
-        }
 
         // 通知工具开始
         // ★ 注入超时时间：UI 依据 timeoutMs 展示执行倒计时（agent/ask_user 无展示意义，不注入）
@@ -103,40 +53,12 @@ export class ToolExecutor {
         //   events 数组仍保留 tool_start（主进程累积器落库路径），两处不冲突。
         context.onEvent?.(toolStartEvent)
 
-        // ── 触发 PermissionRequest Hook ──
-        hookExecutor.execute('PermissionRequest', {
-            sessionId,
-            toolName: toolCall.name,
-            args: toolCall.arguments,
-        }).catch(() => {})
-
         // 执行工具
         const execResult = await executeTool({
             id: toolCall.id,
             name: toolCall.name,
             arguments: toolCall.arguments
         }, context)
-
-        // ── 触发 PermissionDenied Hook（如果被拒绝）──
-        if (execResult.denied) {
-            hookExecutor.execute('PermissionDenied', {
-                sessionId,
-                toolName: toolCall.name,
-                args: toolCall.arguments,
-                error: execResult.denyReason || 'Permission denied',
-            }).catch(() => {})
-        }
-
-        // ── 触发 PostToolUse hook ──
-        const postHookResult = await this.triggerPostToolUse(sessionId, toolCall, execResult)
-
-        // 如果 hook 返回了 updatedToolOutput，覆盖原始结果
-        if (postHookResult?.updatedToolOutput) {
-            execResult.result = {
-                ...execResult.result,
-                ...postHookResult.updatedToolOutput,
-            }
-        }
 
         // ★ 即时推送 tool_completed：并行场景下 Promise.all 会阻塞正式 tool_result，
         //   此处先通知 UI 更新状态/停止倒计时，与 tool_start 的即时推送对称。
@@ -150,55 +72,15 @@ export class ToolExecutor {
     }
 
     /**
-     * 触发 PostToolUse hook
-     * @returns PostToolUse 的 HookResult（含 updatedToolOutput），失败时返回 null
-     */
-    private async triggerPostToolUse(
-        sessionId: string,
-        toolCall: ExecuteToolCall,
-        execResult: ExecuteToolResult
-    ): Promise<any | null> {
-        const hookContext = {
-            sessionId,
-            toolName: toolCall.name,
-            args: toolCall.arguments,
-            result: execResult.result,
-            error: execResult.denied ? (execResult as any).denyReason : undefined,
-        }
-
-        if (execResult.denied || execResult.result.error) {
-            // 工具执行失败，触发 PostToolUseFailure
-            await hookExecutor.execute('PostToolUseFailure', hookContext)
-            return null
-        } else {
-            // 工具执行成功，触发 PostToolUse
-            const result = await hookExecutor.execute('PostToolUse', hookContext)
-
-            // ── 触发 FileChanged（文件写入类工具）──
-            const fileWriteTools = ['Write', 'Edit', 'MultiEdit', 'file_edit', 'file_write', 'file_patch']
-            if (fileWriteTools.includes(toolCall.name)) {
-                const filePath = (toolCall.arguments as any)?.filePath
-                if (filePath) {
-                    hookExecutor.execute('FileChanged', {
-                        sessionId,
-                        toolName: toolCall.name,
-                        filePath,
-                    }).catch(() => {})
-                }
-            }
-
-            return result
-        }
-    }
-
-    /**
      * 处理工具执行结果（不可变操作）
-     * @returns 新的 state 和事件数组
+     * @param conversationId 当前会话 ID（用于从 TaskStore 取当前批次，补齐直发 tasks_update 的批次字段）
+     * @returns 新的 state 和事件数组；injectedMessage
      */
     processResult(
         execResult: ExecuteToolResult,
         toolCall: ExecuteToolCall,
         state: LoopState,
+        conversationId?: string,
     ): { state: LoopState; events: AgentStreamEvent[]; injectedMessage?: ChatMessage } {
         const events: AgentStreamEvent[] = []
         let newState = state
@@ -246,8 +128,18 @@ export class ToolExecutor {
         }
 
         // 处理任务列表更新
+        // ★ 补齐批次字段：task_update 等工具结果的直发 tasks_update 原先不含批次信息，
+        //   会导致批次状态变化（如重开、supersede）不反映到渲染端 currentBatch。
+        //   从 TaskStore 统一取当前批次；该事件同样会经 handleStreamEvent 持久化旁路落库。
+        // ★ 批次作用域：tasks 取当前批次的任务快照（getCurrentBatchTasks）而非工具结果里的
+        //   会话全量列表——否则 upsertSnapshot 会把旧批次任务重挂到新 batch_id（历史明细吞并）。
         if (execResult.result.tasks && execResult.result.tasks.length > 0) {
-            events.push({type: 'tasks_update', tasks: execResult.result.tasks})
+            const batch = taskStore.getActiveBatch(conversationId)
+            events.push({
+                type: 'tasks_update',
+                tasks: taskStore.getCurrentBatchTasks(conversationId),
+                ...(batch ? {batchId: batch.id, batchName: batch.name, batchStatus: batch.status} : {}),
+            })
         }
 
         return { state: newState, events, injectedMessage }

@@ -22,7 +22,6 @@ import type {
     StreamChunk,
     ToolDefinition,
 } from './types'
-import {injectAdditionalContext} from './utils'
 import {isSyntheticToolResult} from '../state'
 
 export class OpenAIAdapter implements ModelAdapter {
@@ -71,7 +70,7 @@ export class OpenAIAdapter implements ModelAdapter {
   }
 
   async *chat(params: ChatParams): AsyncGenerator<StreamChunk> {
-    const { messages, systemPrompt, tools, maxTokens, temperature, thinkingEffort, abortSignal, additionalContext } = params
+    const { messages, systemPrompt, tools, maxTokens, temperature, thinkingEffort, abortSignal } = params
 
     if (this.apiStyle === 'responses') {
       yield* this.chatResponses(params)
@@ -79,12 +78,6 @@ export class OpenAIAdapter implements ModelAdapter {
     }
 
     let apiMessages = this.convertMessages(messages, systemPrompt)
-
-    // 注入 additionalContext 到最后一条 user 消息（Claude Code 规范）
-    // 放在缓存点之后，最大化缓存命中
-    if (additionalContext) {
-      apiMessages = injectAdditionalContext(apiMessages, additionalContext)
-    }
 
       // MiniMax 不支持 stream_options: { include_usage: true }，会导致无法获取 usage
       const providerName = this.providerName?.toLowerCase()
@@ -251,17 +244,9 @@ export class OpenAIAdapter implements ModelAdapter {
    * - 推理强度：reasoning: {effort}
    */
   private async *chatResponses(params: ChatParams): AsyncGenerator<StreamChunk> {
-    const { messages, systemPrompt, tools, maxTokens, thinkingEffort, abortSignal, additionalContext } = params
+    const { messages, systemPrompt, tools, maxTokens, thinkingEffort, abortSignal } = params
 
     let input = this.convertToResponsesInput(messages)
-
-    if (additionalContext) {
-      // 注入 additionalContext 到最后一条 user 输入（与 chat 路径一致）
-      const last = input[input.length - 1]
-      if (last && last.role === 'user' && typeof last.content === 'string') {
-        input = [...input.slice(0, -1), { ...last, content: last.content + '\n\n' + additionalContext }]
-      }
-    }
 
     const requestParams: any = {
       model: this.model,
@@ -575,6 +560,27 @@ export class OpenAIAdapter implements ModelAdapter {
         })
     }
 
+    /**
+     * 转换用户消息内容为 Responses API 格式。
+     * - text → input_text
+     * - image_url → input_image（image_url 为扁平字符串，与 chat 路径嵌套对象不同）
+     * - input_audio 暂不涉及（Responses 音频为 pcm 格式，超范围，原样透传由 API 报错）
+     */
+    private convertUserContentResponses(content: string | ContentPart[]): any[] {
+        if (typeof content === 'string') return content as any
+        return content.map(part => {
+            if (part.type === 'text') {
+                return {type: 'input_text', text: part.text}
+            }
+            if (part.type === 'image_url') {
+                const imgItem: Record<string, unknown> = {type: 'input_image', image_url: part.image_url.url}
+                if (part.image_url.detail) imgItem.detail = part.image_url.detail
+                return imgItem
+            }
+            return part
+        })
+    }
+
   private convertTools(tools: ToolDefinition[]): OpenAI.ChatCompletionTool[] {
     return tools.map((t) => ({
       type: 'function' as const,
@@ -600,7 +606,7 @@ export class OpenAIAdapter implements ModelAdapter {
     for (const msg of messages) {
       if (msg.role === 'system') continue // system 消息由 instructions 承载，跳过避免重复
       if (msg.role === 'user') {
-        input.push({ role: 'user', content: this.convertUserContent(msg.content) })
+        input.push({ role: 'user', content: this.convertUserContentResponses(msg.content) })
       } else if (msg.role === 'assistant') {
         const item: any = { role: 'assistant', content: typeof msg.content === 'string' ? msg.content : null }
         if (msg.toolCalls?.length) {

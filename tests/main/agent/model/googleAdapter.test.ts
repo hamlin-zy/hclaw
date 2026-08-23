@@ -123,7 +123,7 @@ describe('convertMessages — 回归行为', () => {
         })
     })
 
-    it('context 角色消息转为 user 角色（Hook additionalContext）', () => {
+    it('context 角色消息转为 user 角色', () => {
         const messages: ChatMessage[] = [
             makeUserMsg('q'),
             {role: 'context', content: '背景信息'},
@@ -169,5 +169,37 @@ describe('convertMessages — 回归行为', () => {
         expect(lastUserMsg).toEqual([
             {inlineData: {mimeType: 'audio/mpeg', data: 'AAAA'}},
         ])
+    })
+})
+
+// ─── 图片块转换：URL 图修复（Task 10） ───────────────────────
+// convertUserContent 为模块内部函数（未导出），沿用既有测试访问模式：
+// 通过 convertMessages 的 lastUserMsg 获取转换结果
+
+describe('convertUserContent — 图片块（URL 图修复）', () => {
+    function imageMsg(url: string): ChatMessage {
+        return {role: 'user', content: [{type: 'image_url', image_url: {url}}]}
+    }
+
+    it('网络 URL → fileData.fileUri（不再塞进 inlineData.data）', () => {
+        const {lastUserMsg} = convertMessages([imageMsg('https://example.com/a.png')])
+        expect(lastUserMsg![0]).toEqual({fileData: {mimeType: 'image/jpeg', fileUri: 'https://example.com/a.png'}})
+    })
+
+    it('base64 图回归：inlineData + mimeType（PNG）', () => {
+        const {lastUserMsg} = convertMessages([imageMsg('data:image/png;base64,AAA')])
+        expect(lastUserMsg![0]).toEqual({inlineData: {mimeType: 'image/png', data: 'AAA'}})
+    })
+
+    it('混合 [text, image_url, text] 顺序保持', () => {
+        const {lastUserMsg} = convertMessages([{
+            role: 'user',
+            content: [
+                {type: 'text', text: 'a'},
+                {type: 'image_url', image_url: {url: 'data:image/gif;base64,R0lGOD'}},
+                {type: 'text', text: 'b'},
+            ],
+        }])
+        expect(lastUserMsg!.map(p => Object.keys(p)[0])).toEqual(['text', 'inlineData', 'text'])
     })
 })

@@ -216,7 +216,6 @@ export async function loadUserAgents(): Promise<{
       if (agent) {
         // 渲染系统提示词（使用默认值）
         agent.renderedSystemPrompt = renderSystemPrompt(agent.systemPromptTemplate, {
-          availableTools: [],
           permissionMode: 'auto',
           workingDir: process.cwd(),
         })

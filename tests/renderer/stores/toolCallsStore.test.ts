@@ -25,7 +25,7 @@ function thinkingEntry(content: string, timestamp = 0): SubAgentStreamEntry {
 }
 
 function toolUseEntry(id = 't1', timestamp = 0): SubAgentStreamEntry {
-    return {type: 'tool_use', toolName: 'bash', toolArgs: {cmd: 'echo hi'}, timestamp}
+    return {type: 'tool_use', toolName: 'bash', toolArgs: {cmd: 'echo hi'}, timestamp} as unknown as SubAgentStreamEntry
 }
 
 /** 读取指定 toolCall 的 subAgentStream（不存在则返回 undefined） */

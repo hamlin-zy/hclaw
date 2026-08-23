@@ -33,7 +33,7 @@ interface ConversationStore {
 
     // Conversations
   createConversation: () => Promise<string>
-    handleSessionCreated: (convId: string, title: string, workspacePath: string) => void
+    handleSessionCreated: (convId: string, title: string, workspacePath: string, handoffFromConvId?: string) => void
     /** 子会话创建事件处理（agent 工具创建）：侧栏顶部插入，保留其他工作区 */
     handleChildConvCreated: (convId: string, title: string, parentConvId?: string) => void
   deleteConversation: (id: string) => Promise<void>
@@ -215,8 +215,10 @@ export function recordTextBlock(convId: string, msgId: string, incrementalText: 
     if (!incrementalText) return
     // ★ textSeq：streamBlocks 仅含非 text 块（think/tool_use），其长度即 text 段序号。
     //   无 think/tool 时 seq=0，每插入一个非 text 块后 seq 递增 → 各 text 段独立 id。
+    //   ★ 崩溃恢复基线：恢复后 streamBlocks 已清空但 DB 仍有旧 text 块，
+    //   加上快照携带的 recoveredTextBlockBase 防止块 id 碰撞（碰撞 → append 进旧块 → 错序）。
     const agentState = useAgentStore.getState().convAgentStates[convId]
-    const textSeq = agentState?.streamBlocks?.length ?? 0
+    const textSeq = (agentState?.streamBlocks?.length ?? 0) + (agentState?.recoveredTextBlockBase ?? 0)
     accumulateBlockDelta(convId, msgId, {
         upsertBlocks: [{
             id: `text-${msgId}-${textSeq}`, messageId: msgId, blockType: 'text',
@@ -262,13 +264,27 @@ export function recordToolResultBlock(convId: string, msgId: string, tc: ToolCal
     if (tc.result === undefined) return
     const timestamp = Date.now()
     const agentState = useAgentStore.getState().convAgentStates[convId]
+    // ★ 终态修复：tool_call 块的 data（含 status）在 tool_use 时以 status:'running' 落库，
+    //   此前 tool_result 到达只写 {id, result} 块，tool_call 块 status 从未更新 →
+    //   重启后从 DB 恢复的历史消息全部显示"执行中"。
+    //   此处同 id upsert tool_call 块（writeBlockDelta 对非 text 块同 id 覆盖），
+    //   携带最终 status（success/error）；result 仍单独 tool_result 块承载。
+    const {result: _result, ...persistable} = tc
     accumulateBlockDelta(convId, msgId, {
-        upsertBlocks: [{
-            id: `${msgId}-tr-${tc.id}`, messageId: msgId, blockType: 'tool_result',
-            content: null, sequence: 0, timestamp,
-            data: JSON.stringify({id: tc.id, result: tc.result}),
-            turnIndex: agentState?.currentTurnIndex,
-        }],
+        upsertBlocks: [
+            {
+                id: `${msgId}-tc-${tc.id}`, messageId: msgId, blockType: 'tool_call',
+                content: null, sequence: 0, timestamp,
+                data: JSON.stringify(persistable),
+                turnIndex: agentState?.currentTurnIndex,
+            },
+            {
+                id: `${msgId}-tr-${tc.id}`, messageId: msgId, blockType: 'tool_result',
+                content: null, sequence: 0, timestamp,
+                data: JSON.stringify({id: tc.id, result: tc.result}),
+                turnIndex: agentState?.currentTurnIndex,
+            },
+        ],
     })
 }
 
@@ -411,31 +427,104 @@ function truncatePersistedMessages(convId: string, pendingIds: Set<string>): voi
     })
 }
 
-const TOOL_RESULT_MEMORY_CAP = 5000
+const TOOL_RESULT_MEMORY_CAP = 2000
+
+/** 生成扁平字符串副本。V8 的 slice/substring 对长串返回 SlicedString（引用整个父串，
+ *  Chromium Issue 2869），截断大字符串后若不强制复制，被截掉的父串无法被 GC 释放。 */
+export function flatString(s: string): string {
+    return s.split('').join('')
+}
+
+/** 截断提示后缀（output 与 toolResult 共用） */
+const TRUNCATE_SUFFIX = '\n\n*(输出过长，已截断。展开加载完整内容)*'
 
 /** 截断 message 中大型工具结果的内存副本，完整内容已通过块级增量落库。
- *  幂等短路由 _fullOutputStored 标记承担：已截断过则跳过，避免双重截断提示。 */
+ *  幂等短路由 _fullOutputStored 标记承担：已截断过则跳过，避免双重截断提示。
+ *  ★ 同时截断 output 与 toolResult 两个字段：normalizeToolResult 会为每个工具结果
+ *    生成两份全文（output + formatToolResult 副本），只截 output 会导致 toolResult
+ *    中的数 MB 原文永久驻留（堆快照实测 175MB）。 */
 function truncateLargeResults(message: Message): Message {
     if (!message.toolCalls || message.toolCalls.length === 0) return message
+    // ★ 快速扫描（零分配）：先确认确有需截断的项才重建数组。水合/翻页常对大量消息调用，
+    //   绝大多数消息无需截断，此前无条件 map 会为每条消息新建 toolCalls 数组（虽被 GC 但
+    //   属无谓分配）。扫描命中才走 map 重建，未命中直接返回原引用。
+    const needsTruncate = message.toolCalls.some(tc => {
+        const result = tc.result as {output?: unknown; toolResult?: string; _fullOutputStored?: boolean} | undefined
+        if (!result || typeof result.output !== 'string') return false
+        if (result._fullOutputStored) return false
+        return result.output.length > TOOL_RESULT_MEMORY_CAP
+            || (typeof result.toolResult === 'string' && result.toolResult.length > TOOL_RESULT_MEMORY_CAP)
+    })
+    if (!needsTruncate) return message
     let modified = false
     const truncated = message.toolCalls.map(tc => {
-        if (!tc.result || typeof tc.result.output !== 'string') return tc
-        if (tc.result.output.length <= TOOL_RESULT_MEMORY_CAP) return tc
-        const result = tc.result as {output?: string; _fullOutputStored?: boolean}
+        const result = tc.result as {output?: unknown; toolResult?: string; _fullOutputStored?: boolean} | undefined
+        if (!result || typeof result.output !== 'string') return tc
         if (result._fullOutputStored) return tc
+        const outputTooLong = result.output.length > TOOL_RESULT_MEMORY_CAP
+        const toolResultTooLong = typeof result.toolResult === 'string' && result.toolResult.length > TOOL_RESULT_MEMORY_CAP
+        if (!outputTooLong && !toolResultTooLong) return tc
         modified = true
         return {
             ...tc,
             result: {
-                ...tc.result,
+                ...result,
+                output: outputTooLong
+                    ? flatString(result.output.slice(0, TOOL_RESULT_MEMORY_CAP)) + TRUNCATE_SUFFIX
+                    : result.output,
+                ...(toolResultTooLong ? {
+                    toolResult: flatString(result.toolResult!.slice(0, TOOL_RESULT_MEMORY_CAP)) + TRUNCATE_SUFFIX,
+                } : {}),
                 _fullOutputStored: true,
-                _outputTruncatedLength: tc.result.output.length,
-                output: tc.result.output.slice(0, TOOL_RESULT_MEMORY_CAP)
-                    + '\n\n*(输出过长，已截断。展开加载完整内容)*',
-            },
+                _outputTruncatedLength: result.output.length,
+            } as typeof tc.result,
         }
     })
     return modified ? { ...message, toolCalls: truncated } : message
+}
+
+/** 主动截断活跃会话的大工具结果（不等待 flushDirtyMessages）。
+ *  每 30 秒执行一次，防止活跃会话工具结果在内存无界增长。 */
+let activeTruncateTimer: ReturnType<typeof setTimeout> | null = null
+let activeTruncateConvId: string | null = null
+
+function scheduleActiveTruncate(convId: string) {
+    // 如果已经在为同一会话调度，跳过
+    if (activeTruncateTimer && activeTruncateConvId === convId) return
+    // 取消之前的定时器（如果是不同会话）
+    if (activeTruncateTimer) {
+        clearTimeout(activeTruncateTimer)
+        activeTruncateTimer = null
+    }
+    activeTruncateConvId = convId
+    activeTruncateTimer = setTimeout(() => {
+        activeTruncateTimer = null
+        const store = useConversationStore.getState()
+        const msgs = store.messagesMap[convId]
+        if (!msgs) return
+        let modified = false
+        const newMsgs = msgs.map(m => {
+            const truncated = truncateLargeResults(m)
+            if (truncated !== m) modified = true
+            return truncated
+        })
+        if (modified) {
+            useConversationStore.setState({
+                messagesMap: {...store.messagesMap, [convId]: newMsgs},
+                loadedMessages: convId === store.activeConversationId ? newMsgs : store.loadedMessages,
+            })
+        }
+        // 重新调度
+        scheduleActiveTruncate(convId)
+    }, 30000)
+}
+
+function clearActiveTruncate() {
+    if (activeTruncateTimer) {
+        clearTimeout(activeTruncateTimer)
+        activeTruncateTimer = null
+        activeTruncateConvId = null
+    }
 }
 
 // ─── 单会话内存权重上限（兜底）──────────────────────────
@@ -482,9 +571,19 @@ async function maybeTrimConversation(convId: string): Promise<void> {
     // 用 flush 前的旧快照 setState 会把截断回滚并覆盖并发写入，故重读最新状态再 evict
     const currentMsgs = useConversationStore.getState().messagesMap[convId]
     if (!currentMsgs) return
+    // ★ 截断保留消息的大工具结果（在 evict 前）。非活跃会话里残留的超大 toolResult
+    //   （如数 MB ANSI 文本）若不截断会一直驻留内存；这些结果完整内容已通过块级增量落库，
+    //   内存截断安全且幂等（_fullOutputStored 短路）。只对引用变化的消息落 setState。
+    const truncatedMsgs = currentMsgs.map(m => truncateLargeResults(m))
+    if (truncatedMsgs.some((m, i) => m !== currentMsgs[i])) {
+        useConversationStore.setState(state => ({
+            messagesMap: { ...state.messagesMap, [convId]: truncatedMsgs },
+            loadedMessages: convId === state.activeConversationId ? truncatedMsgs : state.loadedMessages,
+        }))
+    }
     const evictCount = Math.max(1, Math.floor(currentMsgs.length * 0.3))
-    const evicted = currentMsgs.slice(0, evictCount)
-    const kept = currentMsgs.slice(evictCount)
+    const evicted = truncatedMsgs.slice(0, evictCount)
+    const kept = truncatedMsgs.slice(evictCount)
 
     useConversationStore.setState(state => ({
         messagesMap: { ...state.messagesMap, [convId]: kept },
@@ -559,6 +658,9 @@ async function switchActiveConversation(id: string | null) {
     const store = useConversationStore.getState()
     if (id === store.activeConversationId) return
 
+    // 切换前先清理旧活跃会话的定时截断
+    clearActiveTruncate()
+
     if (id) {
         store.markConversationRendered(id)
         const targetMsgs = store.messagesMap[id]
@@ -597,6 +699,10 @@ async function switchActiveConversation(id: string | null) {
         agentStore.updateConvData(id, agentStore.convAgentStates[id] ?? DEFAULT_AGENT_STATE)
     } else {
         useConversationStore.setState({ activeConversationId: null, loadedMessages: [] })
+    }
+    // 为新活跃会话启动定时截断
+    if (id) {
+        scheduleActiveTruncate(id)
     }
 }
 
@@ -729,7 +835,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       },
 
       // 会话移交工具创建新会话时的处理：侧栏顶部插入 + 自动切换（复用 createConversation 的 state 更新逻辑）
-      handleSessionCreated: (convId, title, workspacePath) => {
+      handleSessionCreated: (convId, title, workspacePath, handoffFromConvId) => {
           const now = Date.now()
           const summary: ConversationSummary = {
               id: convId,
@@ -738,6 +844,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               createdAt: now,
               updatedAt: now,
               channel: undefined,
+              handoffFromConvId: handoffFromConvId || undefined,
           }
 
           set((state) => {
@@ -946,6 +1053,17 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const convMsgs = get().messagesMap[convId] || []
           const idx = convMsgs.findIndex(m => m.id === id)
           if (idx === -1) return
+          const current = convMsgs[idx]
+          // ★ 短路优化：updates 字段与当前值完全一致时不触发 setState / 落库 / 权重检查。
+          //   流式高频路径（textBatch 每 24ms flush）常以相同 patch 重复调用（如 thinking
+          //   状态切换、batch flush 到无增量内容），此时不必要的数组 whole-copy + markDirty
+          //   + scheduleDeltaSave + setTimeout(maybeTrim) 会重复触发订阅链与分配。
+          //   仅当确有变化（浅比较 updates 各字段）才走更新。
+          let changed = false
+          for (const key of Object.keys(updates) as Array<keyof Message>) {
+              if ((updates as any)[key] !== (current as any)[key]) { changed = true; break }
+          }
+          if (!changed) return
           const newConvMsgs = [...convMsgs]
           newConvMsgs[idx] = {...newConvMsgs[idx], ...updates}
           set(state => ({
@@ -1005,7 +1123,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       loadMessages: async (convId) => {
           // 从磁盘加载消息，存入 messagesMap
           const msgs = await window.electronAPI?.conversationReadMessages?.(convId) || []
-          const msgsTyped = msgs as Message[]
+          // ★ 内存泄漏修复：全量读回（启动/压缩/渠道 reload）的大工具结果同样在进
+          //   messagesMap 前截断。DB 仍存完整 result 供主进程 LLM 上下文，此处只截内存副本。
+          const msgsTyped = (msgs as Message[]).map(m => truncateLargeResults(m))
           set(state => ({
               messagesMap: {...state.messagesMap, [convId]: msgsTyped},
               loadedMessages: convId === state.activeConversationId ? msgsTyped : state.loadedMessages,
@@ -1018,7 +1138,11 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               messages: [],
               totalCount: 0
           }
-          const msgs = result.messages as Message[]
+          // ★ 内存泄漏修复：从 DB 水合的大工具结果必须在进 messagesMap 前截断。
+          //   DB（message_blocks.tool_result.data）存的是完整 result，供主进程 LLM 上下文
+          //   完整复原（execution.ts:72 readMessages）与缓存命中率——此处只在渲染内存副本上
+          //   截断，绝不动 DB，故不影响 LLM 通路。_fullOutputStored 幂等短路避免重复截断。
+          const msgs = (result.messages as Message[]).map(m => truncateLargeResults(m))
           const totalCount = result.totalCount
           set(state => ({
               messagesMap: {...state.messagesMap, [convId]: msgs},
@@ -1040,7 +1164,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   messages: [],
                   totalCount: 0
               }
-              const olderMsgs = result.messages as Message[]
+              const olderMsgs = (result.messages as Message[]).map(m => truncateLargeResults(m))
               const totalCount = result.totalCount
               if (olderMsgs.length === 0) {
                   // 没有更多了
@@ -1121,6 +1245,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   channel: meta.channel,
                   status: meta.status,
                   parentConvId: meta.parentConvId,
+                  handoffFromConvId: meta.handoffFromConvId,
               }
               if (!workspaces[wsPath].conversations.find(c => c.id === summary.id)) {
                   workspaces[wsPath].conversations.push(summary)
@@ -1251,6 +1376,7 @@ if (typeof window !== 'undefined') {
             channel: conv.channel,
             status: conv.status,
             parentConvId: conv.parentConvId || undefined,
+            handoffFromConvId: conv.handoffFromConvId || undefined,
         }
 
         const wsInfo = workspaces[wsPath] || {lastOpenedAt: Date.now(), conversations: []}

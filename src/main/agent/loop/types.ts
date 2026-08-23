@@ -67,7 +67,7 @@ export type ControllerState = 'idle' | 'thinking' | 'running' | 'done'
 // ─── RunParams ─────────────────────────────────────────
 
 export interface RunParams {
-    /** 会话 ID（用于 Hook 系统触发事件） */
+    /** 会话 ID */
     sessionId?: string
     messages: ChatMessage[]
     modelConfig: ModelConfig
@@ -100,12 +100,6 @@ export interface RunParams {
     messageMetadata?: Record<string, unknown>
     /** 显式指定模型角色（agentTool 子会话专用；primary/lightweight/reasoning） */
     modelRole?: ModelRole
-    /**
-     * Hook 执行后注入的额外上下文
-     * 来自 SessionStart/UserPromptSubmit hook 的 additionalContext
-     * 会注入到消息中（历史消息之后，用户消息之前），最大化缓存命中
-     */
-    hookAdditionalContext?: string
     /**
      * 运行中注入的用户消息队列（Worker 内共享引用）
      * 新消息会 push 到此数组，每次 LLM 调用前检查并注入到 currentState

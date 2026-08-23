@@ -37,7 +37,7 @@ vi.mock('../../../src/renderer/lib/search', () => ({
 
 import {useConversationStore, recordToolResultBlock, flushConversationDirty} from '../../../src/renderer/stores/conversationStore'
 
-const MEMORY_CAP = 5000
+const MEMORY_CAP = 2000
 const TRUNC_PROMPT = '\n\n*(输出过长，已截断。展开加载完整内容)*'
 const BIG_LEN = 10 * 1024
 const BIG_OUTPUT = 'X'.repeat(BIG_LEN)
@@ -104,7 +104,7 @@ describe('truncateLargeResults — 大型工具结果截断（内存副本）', 
 
         // 内存副本确实被截断：前 5000 字符 + 提示 + 标记
         const inMem = useConversationStore.getState().messagesMap['conv-1'][0]
-        const out = inMem.toolCalls![0].result!.output
+        const out = inMem.toolCalls![0].result!.output as string
         expect(out).toBe(BIG_OUTPUT.slice(0, MEMORY_CAP) + TRUNC_PROMPT)
         expect(out.length).toBe(MEMORY_CAP + TRUNC_PROMPT.length)
         expect((inMem.toolCalls![0].result as any)._fullOutputStored).toBe(true)
@@ -183,7 +183,52 @@ describe('truncateLargeResults — 大型工具结果截断（内存副本）', 
 
         const inMem = useConversationStore.getState().messagesMap['conv-1'][0]
         expect(inMem.toolCalls![0].result!.output).toContain('已截断')
-        expect(inMem.toolCalls![0].result!.output.length).toBeLessThan(BIG_LEN)
+        expect((inMem.toolCalls![0].result!.output as string).length).toBeLessThan(BIG_LEN)
+    })
+
+    it('★ toolResult 字段同样被截断（双副本泄露修复）：output 小但 toolResult 巨大时也触发截断', async () => {
+        vi.useFakeTimers()
+        const store = useConversationStore.getState()
+        const msg = makePlainMsg('m-tr', '正文')
+        ;(msg as any).toolCalls = [{
+            id: 'tc-tr-0',
+            name: 'bash',
+            arguments: {cmd: 'echo'},
+            status: 'success',
+            result: {output: SMALL_OUTPUT, toolResult: BIG_OUTPUT},
+        }]
+        store.addMessageToConv('conv-1', msg)
+        await vi.advanceTimersByTimeAsync(1200)
+
+        const inMem = useConversationStore.getState().messagesMap['conv-1'][0]
+        // output 本来就不超限，保持原样
+        expect(inMem.toolCalls![0].result!.output).toBe(SMALL_OUTPUT)
+        // toolResult 超限被截断
+        const tr = (inMem.toolCalls![0].result as any).toolResult
+        expect(tr).toBe(BIG_OUTPUT.slice(0, MEMORY_CAP) + TRUNC_PROMPT)
+        expect(tr.length).toBeLessThan(BIG_LEN)
+        expect((inMem.toolCalls![0].result as any)._fullOutputStored).toBe(true)
+    })
+
+    it('★ output 与 toolResult 都超限时双双截断，且互不污染', async () => {
+        vi.useFakeTimers()
+        const store = useConversationStore.getState()
+        const msg = makePlainMsg('m-both', '正文')
+        ;(msg as any).toolCalls = [{
+            id: 'tc-both-0',
+            name: 'bash',
+            arguments: {cmd: 'echo'},
+            status: 'success',
+            result: {output: BIG_OUTPUT, toolResult: BIG_OUTPUT},
+        }]
+        store.addMessageToConv('conv-1', msg)
+        await vi.advanceTimersByTimeAsync(1200)
+
+        const inMem = useConversationStore.getState().messagesMap['conv-1'][0]
+        const r = inMem.toolCalls![0].result!
+        expect(r.output).toBe(BIG_OUTPUT.slice(0, MEMORY_CAP) + TRUNC_PROMPT)
+        expect((r as any).toolResult).toBe(BIG_OUTPUT.slice(0, MEMORY_CAP) + TRUNC_PROMPT)
+        expect((r as any)._outputTruncatedLength).toBe(BIG_LEN)
     })
 })
 

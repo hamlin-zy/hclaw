@@ -32,6 +32,7 @@ import {setAgentToolConfig} from '../tools/builtin/agentTool'
 import {setSkillToolConfig} from '../tools/builtin/skillTool'
 import {filterToolsForAgent} from '../tools/filter'
 import {filterToolsByAgentType, getAgentToolRestrictions} from '../agentTypes/configs'
+import {supportsImageInput} from '../modelCapability'
 import {buildSystemPrompt as buildSystemPromptBase} from '../systemPrompt'
 import {renderSystemPrompt} from '../utils/promptRenderer'
 import {resolveModelConfig, resolveDirectModelConfig, selectModelForTaskWithRole} from '../model/modelSelector'
@@ -303,11 +304,10 @@ export function* selectModelForTurn(
 // ─── 工具过滤 ──────────────────────────────────────────────
 
 /**
- * 获取并过滤工具列表
- * - agentDefinition 模式：按 agent 工具配置过滤
- * - 普通模式：按 agentType 限制过滤
+ * ★ 400 降级专用：能力过滤前、白名单后的完整工具列表。
+ * 封装 filterTools 的 agent/type 过滤（不含能力过滤），供降级恢复。
  */
-export async function filterTools(
+export async function filterToolsForDegrade(
     agentDefinition: AgentDefinition | undefined,
     agentType: string,
 ): Promise<ToolDefinitionForLLM[]> {
@@ -324,6 +324,30 @@ export async function filterTools(
     }
 
     return availableToolDefinitions
+}
+
+/**
+ * 获取并过滤工具列表
+ * - agentDefinition 模式：按 agent 工具配置过滤
+ * - 普通模式：按 agentType 限制过滤
+ * - ★ 能力驱动过滤：主模型支持图片输入时，analyze_image 无需暴露（图片直达主模型）
+ * @param baseTools 已完成的 agent/type 过滤结果（filterToolsForDegrade 输出），
+ *   传入可避免重复获取工具定义与过滤（controller 同时需要两版列表）
+ */
+export async function filterTools(
+    agentDefinition: AgentDefinition | undefined,
+    agentType: string,
+    modelId: string,
+    baseTools?: ToolDefinitionForLLM[],
+): Promise<ToolDefinitionForLLM[]> {
+    const preCapability = baseTools ?? await filterToolsForDegrade(agentDefinition, agentType)
+
+    // ★ 能力驱动过滤（精确名匹配，不误伤 MCP 前缀工具）
+    if (supportsImageInput(modelId)) {
+        return preCapability.filter(d => d.name !== 'analyze_image')
+    }
+
+    return preCapability
 }
 
 // ─── 系统提示词构建 ────────────────────────────────────────
@@ -356,8 +380,6 @@ export async function buildSystemPrompt(params: BuildSystemPromptParams): Promis
         cachedSystemPrompt,
     } = params
 
-    const availToolNames = availableToolDefinitions.map(def => def.name)
-
     // ★ 缓存命中：无新命令且 DB 有缓存 → 跳过整个构建
     if (!commandContext && !isCompactCommand && cachedSystemPrompt) {
         logger.info('[AgentLoop] cache hit: reusing cached system prompt')
@@ -376,7 +398,6 @@ export async function buildSystemPrompt(params: BuildSystemPromptParams): Promis
                 '## 环境信息',
                 `- **工作目录**: ${workingDir}`,
                 `- **权限模式**: ${currentPermissionMode}`,
-                ...(availToolNames.length > 0 ? [`- **可用工具**: ${availToolNames.join(', ')}`] : []),
             ].join('\n')
             const prompt = `${commandContext.commandTemplate}\n\n${envInfo}`
             logger.info('[AgentLoop] agent command + minimal context')
@@ -398,7 +419,6 @@ export async function buildSystemPrompt(params: BuildSystemPromptParams): Promis
 
     if (agentDefinition) {
         const prompt = renderSystemPrompt(agentDefinition.systemPromptTemplate, {
-            availableTools: availToolNames,
             permissionMode: currentPermissionMode,
             workingDir,
             agentType: agentDefinition.agentType,

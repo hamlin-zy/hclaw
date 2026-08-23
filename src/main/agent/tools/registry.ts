@@ -5,6 +5,7 @@
  */
 
 import {logger} from '../logger'
+import {ALWAYS_ON_TOOLS} from '../constants'
 import type {Tool, ToolDefinitionForLLM} from './types'
 import {toolToDefinition} from './types'
 
@@ -62,6 +63,8 @@ export class ToolRegistry {
         const toolEnabledMap = repo.toolRepo.getAllToolEnabledMap()
         return this.getAll()
             .filter(tool => {
+                // ★ 豁免：能力驱动工具恒启用，不查 DB
+                if (ALWAYS_ON_TOOLS.has(tool.name)) return true
                 const dbEnabled = toolEnabledMap.get(tool.name)
                 // 数据库中有记录：使用数据库的 enabled 状态
                 if (dbEnabled !== undefined) {
@@ -90,7 +93,9 @@ export class ToolRegistry {
         try {
             const repo = await getToolRepo()
             const enabledIds = repo.toolRepo.getEnabledToolIds()
-            return this.getAll().filter(tool => enabledIds.has(tool.name))
+            return this.getAll().filter(tool =>
+                ALWAYS_ON_TOOLS.has(tool.name) || enabledIds.has(tool.name),
+            )
         } catch (err) {
             logger.error('[ToolRegistry] getEnabledTools failed', {error: err})
             return this.getAll()

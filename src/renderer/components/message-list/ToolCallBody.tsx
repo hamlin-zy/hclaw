@@ -44,12 +44,16 @@ export default function ToolCallBody({
     isRunning,
 }: ToolCallBodyProps) {
     return (
+        // data-find-scope：工具卡片【展开时】的可见详情纳入搜索范围（MessageList.find）。
+        // 折叠时本组件不在 DOM（ToolCallRenderer {expanded && ...} 条件渲染）→ 不命中，
+        // 即「详情模式：搜索展开的工具卡片」语义。内部 UI 标签用 data-find-exclude 排除。
         <div
+            data-find-scope
             className="border-t border-[rgba(255,255,255,0.03)] px-3 py-2.5 bg-[var(--surface-elevated)]/30 space-y-2">
             {/* Command (for bash) */}
             {command && (
                 <div>
-                    <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">命令</span>
+                    <span data-find-exclude className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">命令</span>
                     <pre
                         className="text-[11px] text-[var(--text-primary)] overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed mt-1 p-2 bg-[var(--surface)]/40 border border-[rgba(255,255,255,0.03)] rounded-md">
                         {command}
@@ -60,7 +64,7 @@ export default function ToolCallBody({
             {/* Arguments (for file_edit) — 显示修改前后对比 */}
             {toolCall.name === 'file_edit' && (toolCall.arguments as any).oldString && (
                 <div>
-                    <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">修改内容</span>
+                    <span data-find-exclude className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">修改内容</span>
                     <div className="mt-1 space-y-1">
                         <div className="flex items-start gap-1">
                             <span
@@ -84,7 +88,7 @@ export default function ToolCallBody({
             {/* Written content (for file_write) */}
             {toolCall.name === 'file_write' && toolCall.result?.artifacts?.[0]?.content && (
                 <div>
-                    <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">写入内容</span>
+                    <span data-find-exclude className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">写入内容</span>
                     <pre
                         className="text-[11px] text-[var(--text-secondary)] max-h-48 overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed p-2 mt-1 bg-[var(--success-muted)]/20 border border-[rgba(16,185,129,0.12)] rounded-md">
                         {truncate(String(toolCall.result.artifacts[0].content), 2000)}
@@ -95,7 +99,7 @@ export default function ToolCallBody({
             {/* ── MCP Tools: show full arguments ── */}
             {isMcpToolName(toolCall.name) && Object.keys(toolCall.arguments).length > 0 && (
                 <div>
-                    <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">请求参数</span>
+                    <span data-find-exclude className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">请求参数</span>
                     <pre
                         className="text-[11px] text-[var(--text-primary)] overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed mt-1 p-2 bg-[var(--surface)]/40 border border-[rgba(255,255,255,0.03)] rounded-md">
                         {formatToolArgs(toolCall.arguments)}
@@ -111,7 +115,7 @@ export default function ToolCallBody({
                 toolCall.name !== 'file_read' &&
                 Object.keys(toolCall.arguments).length > 0 && (
                     <div>
-                        <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">
+                        <span data-find-exclude className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">
                             请求参数
                         </span>
                         <pre
@@ -131,7 +135,7 @@ export default function ToolCallBody({
                 const lastTime = getLastActiveTime(effectiveProgressLog, effectiveSubAgentStream)
                 return (
                     <div>
-                        <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-1 block">
+                        <span data-find-exclude className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-1 block">
                             执行过程
                         </span>
                         <div className="space-y-0.5">
@@ -182,7 +186,7 @@ export default function ToolCallBody({
 
             {/* Running indicator */}
             {isRunning && !effectiveResult && (
-                <div className="flex items-center gap-2 text-[var(--info)] text-[11px]" role="status"
+                <div data-find-exclude className="flex items-center gap-2 text-[var(--info)] text-[11px]" role="status"
                      aria-live="polite">
                     <span className="inline-block w-1.5 h-1.5 bg-[var(--info)] rounded-full animate-bounce"
                           style={{animationDelay: '0ms'}}/>
@@ -200,7 +204,7 @@ export default function ToolCallBody({
 
             {/* Token 用量（仅 agent 工具） */}
             {toolCall.name === 'agent' && effectiveTokenUsage && (
-                <div className="text-[10px] text-[var(--text-muted)] flex items-center gap-2">
+                <div data-find-exclude className="text-[10px] text-[var(--text-muted)] flex items-center gap-2">
                     <span>Token 消耗:</span>
                     <span>{effectiveTokenUsage.inputTokens.toLocaleString()} → {effectiveTokenUsage.outputTokens.toLocaleString()}</span>
                     <span>(总计 {effectiveTokenUsage.totalTokens.toLocaleString()})</span>

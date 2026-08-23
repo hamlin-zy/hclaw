@@ -3,8 +3,6 @@
  * 参考 CC 的 AgentDefinition，适配 HClaw 需求
  */
 
-import type {HooksSettings} from './hooks'
-
 /**
  * Agent 来源类型
  */
@@ -70,9 +68,6 @@ export interface BaseAgentDefinition {
 
   /** 是否为后台任务 */
   background?: boolean
-
-  /** Hooks 配置 */
-  hooks?: HooksSettings
 
   /** 必需的 MCP 服务器模式 */
   requiredMcpServers?: string[]
@@ -141,9 +136,6 @@ export interface AgentLoadResult {
  * 提示词渲染参数
  */
 export interface RenderPromptParams {
-  /** 可用工具列表（格式化后的字符串） */
-  availableTools: string[]
-
   /** 当前权限模式 */
   permissionMode: AgentPermissionMode
 

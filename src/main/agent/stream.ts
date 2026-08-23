@@ -56,7 +56,6 @@ export type AgentStreamEvent =
   }
   | { type: 'mode_change'; mode: 'auto' }
   | { type: 'plan_generated'; plan: string }
-  | { type: 'hook_result'; event: string; hookName: string; success: boolean; error?: string }
   | {
     type: 'llm_call_done';
     conversationTitle: string;
@@ -97,7 +96,7 @@ export type AgentStreamEvent =
     systemPrompt?: string;
   }
   | { type: 'permission-rules-updated' }
-  | { type: 'tasks_update'; tasks: import('../../shared/types').Task[] }
+  | { type: 'tasks_update'; tasks: import('../../shared/types').Task[]; batchId?: string; batchName?: string; batchStatus?: 'active' | 'completed' }
     | {
     type: 'agent_start';
     agentType: string;

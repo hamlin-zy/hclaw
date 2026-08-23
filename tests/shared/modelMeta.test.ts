@@ -144,3 +144,30 @@ describe('matchOpenRouterModel 优先级冲突', () => {
     expect(r?.id).toBe('x/some-model')
   })
 })
+
+describe('parseOpenRouterModels — architecture 字段提取', () => {
+  it('提取 architecture.input_modalities（deepseek-v4-flash-vision-exp 样例）', () => {
+    const text = JSON.stringify({
+      data: [{
+        id: 'deepseek/deepseek-v4-flash-vision-exp',
+        architecture: {modality: 'text+image->text', input_modalities: ['text', 'image'], output_modalities: ['text']},
+      }],
+    })
+    const models = parseOpenRouterModels(text)
+    expect(models[0].architecture?.input_modalities).toEqual(['text', 'image'])
+    expect(models[0].architecture?.modality).toBe('text+image->text')
+  })
+
+  it('architecture 缺失 → 字段为 undefined，条目仍有效', () => {
+    const text = JSON.stringify({data: [{id: 'x/y'}]})
+    const models = parseOpenRouterModels(text)
+    expect(models).toHaveLength(1)
+    expect(models[0].architecture).toBeUndefined()
+  })
+
+  it('architecture 存在但 input_modalities 缺失 → undefined', () => {
+    const text = JSON.stringify({data: [{id: 'x/y', architecture: {modality: 'text->text'}}]})
+    const models = parseOpenRouterModels(text)
+    expect(models[0].architecture?.input_modalities).toBeUndefined()
+  })
+})

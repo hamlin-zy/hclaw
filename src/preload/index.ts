@@ -22,6 +22,10 @@ const windowId = windowIdArg ? windowIdArg.split('=')[1] : ''
 const dialogArg = process.argv.find(arg => arg.startsWith('--hclaw-dialog='))
 const dialogType = dialogArg ? dialogArg.split('=')[1] : ''
 
+// 从 additionalArguments 读取任务历史窗口的限定会话 id（仅 task-history-conv 窗口有）
+const taskConvArg = process.argv.find(arg => arg.startsWith('--hclaw-task-conv='))
+const taskConvId = taskConvArg ? taskConvArg.split('=')[1] : ''
+
 contextBridge.exposeInMainWorld('electronAPI', {
     initialTheme: initialThemeValue,
     isWin11,
@@ -105,6 +109,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('agent-inject-message', params),
   agentStatus: (conversationId?: string) =>
     ipcRenderer.invoke('agent-status', conversationId),
+  agentStreamSnapshot: (conversationId: string) =>
+    ipcRenderer.invoke('agent-stream-snapshot', conversationId),
   contextGetUsage: (conversationId: string) =>
     ipcRenderer.invoke('context:get-usage', conversationId),
     agentRespondConfirmation: (params: {
@@ -207,7 +213,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFolderDialog: () => ipcRenderer.invoke('open-folder-dialog'),
   selectFilePath: () => ipcRenderer.invoke('select-file-path'),
 
-  // Directory-level config (agents/skill/hooks)
+  // Directory-level config (agents/skills/logs)
   configDirRead: (dir: string, filename: string) =>
     ipcRenderer.invoke('config-dir-read', dir, filename),
   configDirWrite: (dir: string, filename: string, data: unknown) =>
@@ -465,7 +471,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('usage-stats:query', params),
     windowId,
     dialogType,
-    openConfigWindow: (type: string) => ipcRenderer.invoke('open-config-window', type),
+    /** 任务历史窗口限定的会话 id（--hclaw-task-conv；仅 task-history-conv 有，其余为空串） */
+    taskConvId,
+    openConfigWindow: (type: string, extraArgs?: string[]) =>
+        ipcRenderer.invoke('open-config-window', type, extraArgs),
     // 通用独立窗口控制（仅独立窗口注入：主窗口无 --hclaw-window-id）
     ...(windowId
         ? {
@@ -616,17 +625,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
         deleteOverride: (pluginCommandId: string) => ipcRenderer.invoke('plugin-command:delete-override', pluginCommandId),
     },
 
-    // Hooks API
-    hooks: {
-        list: () => ipcRenderer.invoke('hooks:list'),
-        get: (id: string) => ipcRenderer.invoke('hooks:get', id),
-        save: (hook: any) => ipcRenderer.invoke('hooks:save', hook),
-        delete: (id: string) => ipcRenderer.invoke('hooks:delete', id),
-        setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('hooks:set-enabled', id, enabled),
-        getEventDefinitions: () => ipcRenderer.invoke('hooks:get-event-definitions'),
-        getPluginDefaults: (pluginName: string, hookId: string) => ipcRenderer.invoke('hooks:get-plugin-defaults', pluginName, hookId),
-    },
-
     // Provider (LLM 服务商) 管理
     provider: {
         list: () => ipcRenderer.invoke('provider:list'),
@@ -697,6 +695,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
         getPluginGroups: (type?: string) => ipcRenderer.invoke('capability:plugin-groups', type),
         getStats: () => ipcRenderer.invoke('capability:stats'),
         get: (id: string) => ipcRenderer.invoke('capability:get', id),
+    },
+
+    // 任务批次（历史任务组窗口数据源）
+    taskBatches: {
+        getActive: (conversationId: string) => ipcRenderer.invoke('task-batches:get-active', conversationId),
+        list: (opts?: {filter?: string; conversationId?: string; workspaceId?: string}) =>
+            ipcRenderer.invoke('task-batches:list', opts),
+        getTasks: (batchId: string) => ipcRenderer.invoke('task-batches:get-tasks', batchId),
+        remove: (ids: string[]) => ipcRenderer.invoke('task-batches:delete', ids),
+    },
+
+    // 任务批次删除跨窗口广播（主窗口据此刷新 TodoStrip 残留批次态）
+    onTaskBatchesChanged: (callback: (payload: {conversationIds: string[]}) => void) => {
+        const handler = (_: unknown, payload: unknown) => callback(payload as {conversationIds: string[]})
+        ipcRenderer.on('task-batches-changed', handler)
+        return () => ipcRenderer.removeListener('task-batches-changed', handler)
     },
 
 },)

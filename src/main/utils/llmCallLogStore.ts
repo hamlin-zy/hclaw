@@ -9,13 +9,11 @@ import type {LlmCallLog} from '@shared/types'
 import {
     addToBuffer,
     clearLogs,
-    createLlmLogsWindow as createWindow,
     flush,
     loadRecentLogs,
     setLogWindow
 } from './llmCallBuffer'
-
-let logWindow: BrowserWindow | null = null
+import {openConfigWindow} from './configWindow'
 
 /**
  * 添加 LLM 调用日志
@@ -39,10 +37,9 @@ export function clearLlmCallLogs(): void {
 }
 
 /**
- * 设置日志窗口引用
+ * 设置日志窗口引用（窗口创建/复用时由 openConfigWindow onCreated 回传）
  */
 export function setLogWindowRef(win: BrowserWindow | null): void {
-    logWindow = win
     setLogWindow(win)
 }
 
@@ -60,18 +57,16 @@ export function initLlmCallLogIPC(): void {
     })
 
     ipcMain.handle('open-llm-logs-window', () => {
-        if (logWindow && !logWindow.isDestroyed()) {
-            logWindow.focus()
-            return
-        }
-        createWindow()
+        openConfigWindow('llm-logs', (win) => {
+            setLogWindowRef(win)
+            // 窗口关闭时置空缓冲模块的推送引用，避免向已销毁窗口发送
+            // 窗口复用时本回调会重复执行，仅在尚无 closed 监听时挂载，避免监听器累积
+            if (win.listenerCount('closed') === 0) {
+                win.once('closed', () => setLogWindow(null))
+            }
+        })
     })
 }
-
-/**
- * 创建 LLM 日志窗口
- */
-export {createLlmLogsWindow} from './llmCallBuffer'
 
 /**
  * 刷新缓冲区到磁盘
