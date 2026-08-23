@@ -659,8 +659,10 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      {/* macOS Tooltip Portal（突破 overflow: hidden 祖先容器裁剪） */}
-      {typeof document !== 'undefined' && document.documentElement.classList.contains('darwin') && <TooltipPortal />}
+      {/* Tooltip Portal（全平台挂载）：拦截 [title] 渲染主题化 tooltip，
+          突破 overflow: hidden 祖先容器裁剪；Windows 上默认 Chromium 原生
+          title tooltip 为白条黑字，不符合设计语言，需一并覆盖。 */}
+      {typeof document !== 'undefined' && <TooltipPortal />}
       <div className="window-container relative z-10">
         {/* 本地图片背景层 + 遮罩层：必须在 window-container 内部！
             backdrop-filter 只能采样同一 stacking context 中绘制在其后的内容，
