@@ -70,10 +70,15 @@ export interface ConvAgentData {
         /** 当前展开的卡片 ID 列表（跨会话恢复） */
         expandedCardIds?: string[]
     } | null
-    /** Agent 需要用户确认权限的内容（核心权限系统触发） */
+    /** 当前权限确认的内容（核心权限系统触发） */
     pendingPermissionConfirm: { question: string; requestId?: string } | null
     /** 当前任务列表 */
     tasks: Task[]
+    /**
+     * 当前任务批次（tasks_update 事件携带 batchId/batchName/batchStatus 时写入；
+     * 字段缺失时保留原值。应用重启后由 hydrateActiveBatch 从主进程 DB 水合）
+     */
+    currentBatch?: { id: string; name: string; status: 'active' | 'completed' }
     /** LLM 运行错误信息，显示在消息列表左下角而非消息气泡中 */
     errorMessage: string | null
     /** 工具执行开始时的临时提示消息（如"工具执行中..."），tool_start 后清除；
@@ -216,6 +221,15 @@ export interface AgentStore {
 
     /** 页面刷新后：查询主进程中仍在运行的 agent，恢复流式渲染状态 */
     recoverSessions: () => Promise<void>
+
+    /** 应用重启/刷新后从主进程 DB 水合指定会话的活跃任务批次
+     *  （竞态守卫：实时 tasks_update 先写入 currentBatch 时放弃覆盖，实时数据优先） */
+    hydrateActiveBatch: (conversationId: string) => Promise<void>
+
+    /** 以主进程 DB 为准刷新指定会话的本地批次态（跨窗口同步用）：
+     *  历史任务组窗口删除批次后广播触发——DB 无活跃批次时清空残留
+     *  （防 TodoStrip 显示已删数据），有则按快照覆盖 */
+    refreshActiveBatch: (conversationId: string) => Promise<void>
 
     /** 清理残留的 running/thinking 状态（HMR 后 agent 已完成但状态卡住时使用） */
     recoverSessionsCleanup: (keepRunning?: Set<string>) => void

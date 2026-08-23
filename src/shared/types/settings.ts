@@ -75,6 +75,8 @@ export type MenuDialogType =
   | 'settings'
   | 'tool-list'
   | 'system-prompt'
+  | 'task-history'
+  | 'task-history-conv'
   | 'update-notice'
   | 'about'
   | null

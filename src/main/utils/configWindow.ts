@@ -15,6 +15,7 @@ export const CONFIG_DIALOG_TYPES = new Set([
     'prompt-config', 'settings', 'conversations',
     'tool-list', 'system-prompt', 'about',
     'llm-logs', 'usage',
+    'task-history', 'task-history-conv',
 ])
 
 /** 窗口标题（与 MenuDialogRenderer DIALOG_CONFIG 的 title 对齐） */
@@ -38,6 +39,8 @@ const DIALOG_TITLES: Record<string, string> = {
     'about': '关于 HClaw',
     'llm-logs': 'LLM 调用日志',
     'usage': '用量统计',
+    'task-history': '任务历史',
+    'task-history-conv': '任务历史',
 }
 
 /** 窗口尺寸：沿用 MenuDialogRenderer DIALOG_CONFIG 的 initialWidth/minWidth/initialHeight */
@@ -61,12 +64,19 @@ const DIALOG_SIZES: Record<string, {width: number; minWidth?: number; height?: n
     'about': {width: 400, minWidth: 360, height: 430},
     'llm-logs': {width: 1200, height: 700, minWidth: 800},
     'usage': {width: 1200, height: 700, minWidth: 800},
+    'task-history': {width: 780},
+    'task-history-conv': {width: 720},
 }
 const DEFAULT_DIALOG_SIZE = {width: 680, height: 700, minWidth: 420, minHeight: 400}
 
 const configWindows = new Map<string, BrowserWindow>()
 
-export function openConfigWindow(dialogType: string, onCreated?: (win: BrowserWindow) => void): void {
+export function openConfigWindow(
+    dialogType: string,
+    onCreated?: (win: BrowserWindow) => void,
+    /** 追加到窗口 additionalArguments 的启动参数（如 --hclaw-task-conv=<id>）；仅创建分支生效 */
+    extraArgs?: string[],
+): void {
     if (!CONFIG_DIALOG_TYPES.has(dialogType)) return
 
     const existing = configWindows.get(dialogType)
@@ -86,7 +96,7 @@ export function openConfigWindow(dialogType: string, onCreated?: (win: BrowserWi
         height: size.height ?? DEFAULT_DIALOG_SIZE.height,
         minWidth: size.minWidth ?? DEFAULT_DIALOG_SIZE.minWidth,
         minHeight: DEFAULT_DIALOG_SIZE.minHeight,
-        additionalArguments: [`--hclaw-dialog=${dialogType}`],
+        additionalArguments: [`--hclaw-dialog=${dialogType}`, ...(extraArgs ?? [])],
         devTools: false,
     })
 
@@ -104,7 +114,7 @@ export function closeConfigWindow(dialogType: string): void {
 
 /** 注册 IPC（main/index.ts 调用） */
 export function initConfigWindowIPC(): void {
-    ipcMain.handle('open-config-window', (_event, dialogType: string) => {
-        openConfigWindow(dialogType)
+    ipcMain.handle('open-config-window', (_event, dialogType: string, extraArgs?: string[]) => {
+        openConfigWindow(dialogType, undefined, extraArgs)
     })
 }

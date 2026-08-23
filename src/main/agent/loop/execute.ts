@@ -753,7 +753,7 @@ export async function* executeToolCalls(
         if (abortSignal?.aborted) break
         const {result: execResult, events: execEvents} = results[i]
         for (const event of execEvents) events.push(event)
-        const result = toolExecutor.processResult(execResult, collectedToolCalls[i] as any, newState)
+        const result = toolExecutor.processResult(execResult, collectedToolCalls[i] as any, newState, sessionId)
         newState = result.state
         for (const event of result.events) events.push(event)
         if (result.injectedMessage) {

@@ -19,7 +19,7 @@ import type {AgentStartParams} from './manager'
 import {updateGlobalScheme} from './model/index'
 import {runtimeConfigManager} from './runtimeConfigManager'
 import {modelMetaRegistry} from '../modelMetaRegistry'
-import {taskStore} from './tasks/taskStore'
+import {buildTasksUpdateEventPayload, taskStore} from './tasks/taskStore'
 import {logger} from './logger'
 import {getMessagePreview} from './utils/contentUtils'
 import {createStreamBatchAccumulator} from './streamBatch'
@@ -496,7 +496,9 @@ async function main(): Promise<void> {
             parentPort?.postMessage({
                 type: 'stream',
                 conversationId: msg.conversationId || params.conversationId,
-                event: {type: msg.type, tasks: msg.tasks},
+                // 批次字段（batchId/batchName/batchStatus）必须透传，
+                // 否则主进程持久化旁路会跳过落库（supersede 收尾事件滞留 active）
+                event: buildTasksUpdateEventPayload(msg),
             })
         })
 

@@ -17,6 +17,7 @@ import {capabilityManager} from './capabilityManager'
 import {logger} from './logger'
 import {mcpWorkerManager, setAgentManagerRef} from './mcp/mcpWorkerManager'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
+import {upsertSnapshot} from '../repositories/sqlite/taskBatchRepository'
 import {runtimeConfigManager} from './runtimeConfigManager'
 import {eventBus, MCPThemeEvents} from '../common/eventBus'
 import {notifyUserAttention, stopUserAttention} from '../attention'
@@ -412,6 +413,29 @@ export class AgentManager {
       }
       this.forwardToRenderer(conversationId, event)
       return
+    }
+
+    // ── 任务批次持久化旁路：所有 tasks_update（含 supersede 收尾事件）统一落库 ──
+    // 持久化失败不阻断事件流转，仅记录告警
+    if (event.type === 'tasks_update' && event.batchId) {
+      // 显式守卫：批次名称/状态任一缺失时跳过落库并告警。
+      // 不做守卫的话，undefined 绑定异常会被下方 catch 吞掉，问题难以排查。
+      if (event.batchName == null || event.batchStatus == null) {
+        logger.warn('[AgentManager] task batch persist skipped: missing batchName/batchStatus', {
+          conversationId,
+          batchId: event.batchId,
+        })
+      } else {
+        try {
+          upsertSnapshot(
+            conversationId,
+            {id: event.batchId, name: event.batchName, status: event.batchStatus},
+            event.tasks,
+          )
+        } catch (err) {
+          logger.warn('[AgentManager] task batch persist failed', {error: err})
+        }
+      }
     }
 
     // 通知外部流事件监听器

@@ -14,6 +14,7 @@ import type {ToolContext} from '../tools/types'
 
 import type {AgentStreamEvent} from '../stream'
 import {createToolResultMessage, addMessage} from '../state'
+import {taskStore} from '../tasks/taskStore'
 import type {ChatMessage, LoopState} from '../state'
 
 export interface ToolExecutionContext {
@@ -72,12 +73,14 @@ export class ToolExecutor {
 
     /**
      * 处理工具执行结果（不可变操作）
-     * @returns 新的 state 和事件数组
+     * @param conversationId 当前会话 ID（用于从 TaskStore 取当前批次，补齐直发 tasks_update 的批次字段）
+     * @returns 新的 state 和事件数组；injectedMessage
      */
     processResult(
         execResult: ExecuteToolResult,
         toolCall: ExecuteToolCall,
         state: LoopState,
+        conversationId?: string,
     ): { state: LoopState; events: AgentStreamEvent[]; injectedMessage?: ChatMessage } {
         const events: AgentStreamEvent[] = []
         let newState = state
@@ -125,8 +128,18 @@ export class ToolExecutor {
         }
 
         // 处理任务列表更新
+        // ★ 补齐批次字段：task_update 等工具结果的直发 tasks_update 原先不含批次信息，
+        //   会导致批次状态变化（如重开、supersede）不反映到渲染端 currentBatch。
+        //   从 TaskStore 统一取当前批次；该事件同样会经 handleStreamEvent 持久化旁路落库。
+        // ★ 批次作用域：tasks 取当前批次的任务快照（getCurrentBatchTasks）而非工具结果里的
+        //   会话全量列表——否则 upsertSnapshot 会把旧批次任务重挂到新 batch_id（历史明细吞并）。
         if (execResult.result.tasks && execResult.result.tasks.length > 0) {
-            events.push({type: 'tasks_update', tasks: execResult.result.tasks})
+            const batch = taskStore.getActiveBatch(conversationId)
+            events.push({
+                type: 'tasks_update',
+                tasks: taskStore.getCurrentBatchTasks(conversationId),
+                ...(batch ? {batchId: batch.id, batchName: batch.name, batchStatus: batch.status} : {}),
+            })
         }
 
         return { state: newState, events, injectedMessage }

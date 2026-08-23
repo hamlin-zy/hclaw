@@ -96,7 +96,7 @@ export type AgentStreamEvent =
     systemPrompt?: string;
   }
   | { type: 'permission-rules-updated' }
-  | { type: 'tasks_update'; tasks: import('../../shared/types').Task[] }
+  | { type: 'tasks_update'; tasks: import('../../shared/types').Task[]; batchId?: string; batchName?: string; batchStatus?: 'active' | 'completed' }
     | {
     type: 'agent_start';
     agentType: string;

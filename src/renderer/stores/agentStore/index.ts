@@ -9,7 +9,7 @@
 
 import {create} from 'zustand'
 import {persist} from 'zustand/middleware'
-import type {RunMode} from '@shared/types'
+import type {RunMode, Task} from '@shared/types'
 
 import type {AgentStore} from './types'
 
@@ -83,6 +83,68 @@ export const useAgentStore = create<AgentStore>()(
                 const newMap = {...get().convAgentStates}
                 delete newMap[convId]
                 set({convAgentStates: newMap})
+            },
+
+            // ── 任务批次水合（应用重启/刷新恢复） ──────────────────────
+            // 从主进程 DB 读取活跃批次快照写入 convData；TodoStrip 依赖此数据
+            // 在无实时事件时恢复显示。updateConvData 内部按 activeConversationId
+            // 同步顶层，激活会话水合后 UI 立即生效。
+            hydrateActiveBatch: async (conversationId) => {
+                try {
+                    const result = await window.electronAPI?.taskBatches?.getActive?.(conversationId)
+                    if (!result?.batch) return
+                    // ★ 竞态守卫：水合 await 期间若实时 tasks_update 已写入批次态，
+                    //   以内存中的实时数据为准，放弃覆盖
+                    if (get().convAgentStates[conversationId]?.currentBatch) return
+                    get().updateConvData(conversationId, {
+                        tasks: (result.tasks || []).map((t: {id: string; title: string; description?: string; status: string}) => ({
+                            id: t.id,
+                            title: t.title,
+                            description: t.description,
+                            status: t.status,
+                        })) as Task[],
+                        currentBatch: {
+                            id: result.batch.id,
+                            name: result.batch.name,
+                            status: result.batch.status === 'completed' ? 'completed' : 'active',
+                        },
+                    })
+                } catch (err) {
+                    // 水合失败不阻塞会话 UI，但需留排查线索
+                    console.warn('[agentStore] hydrateActiveBatch 失败:', err)
+                }
+            },
+
+            // ── 跨窗口批次删除同步（历史任务组窗口删除后广播触发） ──────────────
+            // 与 hydrateActiveBatch 同构但不做「实时优先」守卫：触发时机即 DB 已变化，
+            // 以 DB 为准。DB 无活跃批次时清空残留，防止 TodoStrip 显示已删数据。
+            refreshActiveBatch: async (conversationId) => {
+                try {
+                    const result = await window.electronAPI?.taskBatches?.getActive?.(conversationId)
+                    if (!result?.batch) {
+                        const existing = get().convAgentStates[conversationId]
+                        if (existing?.currentBatch || existing?.tasks.length) {
+                            get().updateConvData(conversationId, {currentBatch: undefined, tasks: []})
+                        }
+                        return
+                    }
+                    get().updateConvData(conversationId, {
+                        tasks: (result.tasks || []).map((t: {id: string; title: string; description?: string; status: string}) => ({
+                            id: t.id,
+                            title: t.title,
+                            description: t.description,
+                            status: t.status,
+                        })) as Task[],
+                        currentBatch: {
+                            id: result.batch.id,
+                            name: result.batch.name,
+                            status: result.batch.status === 'completed' ? 'completed' : 'active',
+                        },
+                    })
+                } catch (err) {
+                    // 同步失败不阻塞会话 UI，但需留排查线索
+                    console.warn('[agentStore] refreshActiveBatch 失败:', err)
+                }
             },
 
             // ── 简单状态设置 ──────────────────────────────
@@ -388,6 +450,12 @@ export const useAgentStore = create<AgentStore>()(
                 const unsub = window.electronAPI?.onAgentStream?.((payload: any) => {
                     get().handleStreamEvent(payload)
                 }) || null
+                // 跨窗口批次删除同步：历史任务组窗口删了本窗口会话的批次 → 以 DB 为准刷新
+                const unsubBatches = window.electronAPI?.onTaskBatchesChanged?.((payload) => {
+                    for (const convId of payload?.conversationIds ?? []) {
+                        void get().refreshActiveBatch(convId)
+                    }
+                }) || null
                 streamUnsubscribe = unsub
                 return () => {
                     document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -395,6 +463,7 @@ export const useAgentStore = create<AgentStore>()(
                     flushAllThinkingBatches()
                     saveHmrContext()
                     streamUnsubscribe?.()
+                    unsubBatches?.()
                     streamUnsubscribe = null
                 }
             },

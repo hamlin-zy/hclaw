@@ -1,7 +1,13 @@
-import {useId, useState} from 'react'
+import {useEffect, useId, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useAgentStore} from '../stores/agentStore'
+import {useConversationStore} from '../stores/conversationStore'
 import type {Task, TaskStatus} from '@shared/types'
+
+// ─── 可见性判定 ──────────────────────────────────────
+
+/** 任务终态集合：批次内全部任务到达终态即视为完成，TodoStrip 隐藏 */
+const TERMINAL_STATUSES = new Set<TaskStatus>(['completed', 'failed', 'error', 'success'])
 
 // ─── 图标 ────────────────────────────────────────────
 
@@ -128,15 +134,33 @@ function TodoItem({task}: { task: Task }) {
 /**
  * 待办计划条 — 参考 deepseek-harness ui-conversation TodoPanel 样式。
  * 渲染于 InputArea 卡片内部顶端（附件栏之下、输入区之上）：
- * - 有待办项时才显示，无待办时整块隐藏（返回 null）
+ * - 三分支可见性：仅「存在活跃批次（currentBatch.status === 'active'）
+ *   且批次内有非终态任务」时显示，否则整块隐藏（返回 null）
+ * - 无实时批次态时（应用重启/刷新后），挂载时经 hydrateActiveBatch 从主进程 DB 水合
  * - 默认折叠为一行表头（图标 + 标题 + 各状态计数 + chevron），点击展开滚动列表
  * - 列表 max-height 180px 内部滚动，条目单行省略，悬停经 title 显示完整描述
  */
 export default function TodoStrip() {
-    const tasks = useAgentStore(s => s.tasks)
+    const activeConversationId = useConversationStore((s) => s.activeConversationId)
+    const convData = useAgentStore((s) => activeConversationId ? s.convAgentStates[activeConversationId] : undefined)
+    const hydrateActiveBatch = useAgentStore((s) => s.hydrateActiveBatch)
+    // tasks 即当前批次的全部可见任务（水合/事件均按批次快照写入）
+    const tasks = convData?.tasks ?? []
+    const currentBatch = convData?.currentBatch
     const [collapsed, setCollapsed] = useState(true)
 
-    if (tasks.length === 0) return null
+    // 重启水合：无批次态且无任务时从主进程 DB 拉取活跃批次
+    // （已有实时数据则跳过；无活跃批次时查询返回 null，不产生副作用）
+    useEffect(() => {
+        if (!currentBatch && tasks.length === 0 && activeConversationId) {
+            void hydrateActiveBatch(activeConversationId)
+        }
+    }, [activeConversationId, currentBatch, tasks.length, hydrateActiveBatch])
+
+    const visible = !!currentBatch && currentBatch.status === 'active'
+        && tasks.some(t => !TERMINAL_STATUSES.has(t.status))
+
+    if (!visible || tasks.length === 0) return null
 
     return (
         <div data-name="todo-strip">

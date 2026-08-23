@@ -22,7 +22,7 @@ type TaskUpdateInput = z.infer<typeof inputSchema>
 
 export const taskUpdateTool: Tool<TaskUpdateInput, { updated: number; cleared: number; status?: TaskStatus }> = {
     name: 'task_update',
-    description: '更新或清理待办事项。taskId 支持数组批量操作；status 指定新状态；clear=true 清空指定的已完成任务（无 taskId 则清空所有已完成）。',
+    description: '更新或清理待办事项。taskId 支持数组批量操作；status 指定新状态；clear=true 清空指定的已完成任务（无 taskId 则清空所有已完成）。将已完成任务改回进行中会重新激活其所属任务组。',
     inputSchema,
     requiredPermissions: [],
     isDestructive: false,
