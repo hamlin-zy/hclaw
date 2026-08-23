@@ -85,8 +85,14 @@ protocol.registerSchemesAsPrivileged([
 
 // ── V8 堆参数优化 ──
 // 影响渲染进程 ChildProcess；main process 已在 dev.js 的 --js-flags 中配置
-// 注意：不设 max-old-space-size（64 位默认 ~2GB 足够），设大会推迟 GC 掩盖泄漏
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=2048 --max-semi-space-size=64 --gc-interval=2048 --expose-gc')
+// ★ 2026-08 实测修正：流式渲染高频分配（textBatch 每 24ms 拼接字符串 + 消息数组复制）
+//   产生大量短期垃圾。原参数 --max-semi-space-size=64 + --gc-interval=2048 让新老生代
+//   都囤积垃圾不回收，堆膨胀到 2GB 上限才触发 GC → 提交内存峰值、页面文件打满、
+//   Chrome/WebStorm 连带崩溃。实测强制 gc() 后渲染进程 Private 1623MB → 604MB，
+//   证明是"GC 太懒"而非硬泄漏。
+//   修正：半空间回到默认 16MB（短命对象及时 scavenge）；移除非标准 --gc-interval=2048
+//   （推迟 GC 掩盖泄漏）；保留 max-old-space-size 作安全上限与 expose-gc 供主动回收。
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=2048 --max-semi-space-size=16 --expose-gc')
 
 // Enable remote debugging for renderer process (useful for debugging)
 // This allows connecting Chrome DevTools to the Electron renderer

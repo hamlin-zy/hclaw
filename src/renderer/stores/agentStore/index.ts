@@ -15,9 +15,14 @@ import type {AgentStore} from './types'
 
 import {IDLE_STATE, STREAMING_STATE, DEFAULT_TOP_LEVEL, createDefaultConvData} from './defaultState'
 
+// ★ 流式缓冲区大小限制（防活跃流式无界增长导致 OOM）
+// 完整内容已通过块级增量落库到 DB，内存只需保留最近窗口供渲染
+const STREAM_BUFFER_MAX_CHARS = 50000      // ~50KB 文本缓冲
+const STREAM_BLOCKS_MAX_COUNT = 200        // 最大块数
+
 // 保持与旧 import 路径兼容（conversationStore 等外部引用）
 export {createDefaultConvData}
-import {useConversationStore} from '../conversationStore'
+import {useConversationStore, flatString} from '../conversationStore'
 import {useToolCallsStore} from '../toolCallsStore'
 
 import {flushAllTextBatches} from './batching/textBatch'
@@ -70,7 +75,24 @@ export const useAgentStore = create<AgentStore>()(
 
             updateConvData: (convId, updates) => {
                 const prev = get().convAgentStates[convId] || createDefaultConvData()
-                const newData = {...prev, ...updates}
+                let newData = {...prev, ...updates}
+
+                // ★ 流式缓冲区大小限制：防活跃流式无界增长导致 OOM
+                // 完整内容已通过块级增量落库到 DB，内存只保留最近窗口供渲染
+                if (updates.streamBuffer !== undefined) {
+                    const buf = updates.streamBuffer
+                    if (typeof buf === 'string' && buf.length > STREAM_BUFFER_MAX_CHARS) {
+                        // flatString 强制扁平复制：slice(-N) 产生 SlicedString 会钉住整个父串
+                        newData.streamBuffer = flatString(buf.slice(-STREAM_BUFFER_MAX_CHARS))
+                    }
+                }
+                if (updates.streamBlocks !== undefined) {
+                    const blocks = updates.streamBlocks
+                    if (Array.isArray(blocks) && blocks.length > STREAM_BLOCKS_MAX_COUNT) {
+                        newData.streamBlocks = blocks.slice(-STREAM_BLOCKS_MAX_COUNT)
+                    }
+                }
+
                 const newMap = {...get().convAgentStates, [convId]: newData}
                 const activeConvId = useConversationStore.getState().activeConversationId
                 set({
@@ -400,6 +422,11 @@ export const useAgentStore = create<AgentStore>()(
                                 streamBuffer: plan.seed.streamBuffer,
                                 thinkingContent: plan.seed.thinkingContent,
                                 recoveredTextBlockBase: snapshot?.dbTextBlockCount ?? 0,
+                                // ★ 崩溃恢复标记：即使 DB 中 seedId 消息 endedAt 已写（崩溃前
+                                //   worker 落库），下一轮流式仍应复用该 id（与主进程 pending 对齐），
+                                //   否则 ensureStreamingMessage 因 endedAt 检测置 null 生成新 id
+                                //   → 渲染端内存出现第二条 assistant（幽灵气泡）。
+                                recoveredStreaming: true,
                                 agentState: STREAMING_STATE,
                             })
                         } else {

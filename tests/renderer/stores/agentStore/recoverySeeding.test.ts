@@ -18,8 +18,12 @@ function runningTool(id: string): ToolCall {
     return {id, name: 'bash', arguments: {}, status: 'running'}
 }
 
-function assistantMsg(id: string, toolCalls?: ToolCall[]): Message {
-    return {id, role: 'assistant', content: '', timestamp: 1000, ...(toolCalls ? {toolCalls} : {})} as Message
+function assistantMsg(id: string, toolCalls?: ToolCall[], endedAt?: number): Message {
+    return {
+        id, role: 'assistant', content: '', timestamp: 1000,
+        ...(toolCalls ? {toolCalls} : {}),
+        ...(endedAt != null ? {endedAt} : {}),
+    } as Message
 }
 
 const SNAP = (id: string, content = '', opts: {think?: string; tools?: ToolCall[]; dbTextBlockCount?: number} = {}) => ({
@@ -72,9 +76,20 @@ describe('planRecovery — 快照存在（worker 存活，权威事实源）', (
     })
 })
 
-describe('planRecovery — 快照不存在（pending 未建：仅置运行态）', () => {
-    it('seed 为 null，不指向任何历史消息（防错位幽灵气泡）', () => {
-        const plan = planRecovery(null, [assistantMsg('msg-old')])
+describe('planRecovery — 快照不存在（pending 未建）', () => {
+    it('DB 中仍有进行中（endedAt 为空）的 assistant 残留消息 → 复用其 id 作为恢复载体（防幽灵）', () => {
+        // ★ 修复：首 token 前崩溃 + DB 已落库残留消息（块级增量在流式期间写库），
+        //   应复用该消息 id，而非丢弃让下一轮生成新 id（幽灵双写）。
+        const plan = planRecovery(null, [assistantMsg('msg-inflight', undefined, undefined)])
+        expect(plan.seed).toEqual({
+            streamingMessageId: 'msg-inflight',
+            streamBuffer: '',
+            thinkingContent: null,
+        })
+    })
+
+    it('全为已结束（endedAt 已写）历史消息 → seed 为 null（不指向历史，防错位）', () => {
+        const plan = planRecovery(null, [assistantMsg('msg-old', undefined, 1000)])
         expect(plan.seed).toBeNull()
     })
 

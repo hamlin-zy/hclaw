@@ -63,6 +63,26 @@ export function planRecovery(snapshot: StreamSnapshot | null, msgs: Message[]): 
         for (const tc of snapshot.toolCalls) {
             if (isStale(tc)) plan.liveToolIds.push(tc.id)
         }
+    } else {
+        // ★ 快照为 null（主进程 pending 未建立：首 token 前崩溃窗口）时的修复：
+        //   不能简单地只置运行态不设 streamingMessageId。若 DB 中存在"进行中"
+        //   （endedAt 为空）的最后一条 assistant 消息 —— 它标志着 worker 已开始
+        //   流式/落库但崩溃窗口内未收到 done —— 应复用该消息 id 作为恢复载体。
+        //   否则下一轮 LLM 的 ensureStreamingMessage 会生成全新 id，与该残留消息
+        //   coexisting → 渲染端内存出现第二条 assistant（幽灵气泡，
+        //   重启后从 DB 只读该残留消息 → "恢复正常"）。
+        //   复用后 recoveredStreaming 标记由调用方设置，ensureStreamingMessage
+        //   不会因该消息可能存在 endedAt 而置 null 生成新 id。
+        const inFlight = [...(msgs || [])]
+            .reverse()
+            .find(m => m.role === 'assistant' && m.endedAt == null)
+        if (inFlight) {
+            plan.seed = {
+                streamingMessageId: inFlight.id,
+                streamBuffer: (inFlight.content ?? ''),
+                thinkingContent: (inFlight as any).contentBlocks?.find((b: any) => b.type === 'think')?.thinkBlock?.content ?? null,
+            }
+        }
     }
 
     for (const tc of dbTools) {

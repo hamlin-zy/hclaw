@@ -50,6 +50,26 @@ export function ensureStreamingMessage(get: GetFn, convId: string, preferredId?:
         const msgs = useConversationStore.getState().messagesMap[convId] || []
         const existing = msgs.find(m => m.id === existingId)
         if (existing?.endedAt) {
+            // ★ 崩溃恢复例外：recoveredStreaming 标记表明该 id 是 recoverSessions
+            //   以主进程快照播种的流式载体。即使 DB 中它 endedAt 已写（崩溃前 worker
+            //   已落库），下一轮流式仍必须复用——否则置 null 生成全新 id 会与主进程
+            //   pending 错位 → 渲染端内存出现第二条 assistant（幽灵气泡）。
+            //   复用而非新建，避免幽灵双写。
+            if (convState?.recoveredStreaming) {
+                // 复用播种 id：清掉内存中的 endedAt 标记，让它重新成为流式载体。
+                // 注意不要新增消息（messagesMap 已存在该 id），只要 streamingMessageId 保持指向它。
+                get().updateConvData(convId, {
+                    streamingMessageId: existingId,
+                    recoveredStreaming: false,  // 已消费一次性标记，后续正常 turn 不再特殊处理
+                })
+                // 内存中该消息若是 endedAt 已写（崩溃前落库），清掉以恢复为流式载体，
+                // 避免 switchActiveConversation 等以 endedAt 判定其为历史消息。
+                const convMsg = useConversationStore.getState().messagesMap[convId]?.find(m => m.id === existingId)
+                if (convMsg?.endedAt) {
+                    useConversationStore.getState().updateMessageForConv(convId, existingId, {endedAt: undefined})
+                }
+                return null
+            }
             get().updateConvData(convId, {streamingMessageId: null})
         } else {
             return null
