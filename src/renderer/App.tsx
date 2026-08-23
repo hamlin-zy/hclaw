@@ -21,7 +21,6 @@ import {useToolStore} from './stores/toolStore'
 import {usePromptSchemeStore} from './stores/promptSchemeStore'
 import {useSkillStore} from './stores/skillStore'
 import {useAgentTemplateStore} from './stores/agentTemplateStore'
-import {useHookStore} from './stores/hookStore'
 import {useThemeStore, resolveAndApplyTheme} from './stores/themeStore'
 import {useSettingsStore} from './stores/settingsStore'
 import {useSidebarStore} from './stores/sidebarStore'
@@ -334,7 +333,6 @@ export default function App() {
         await Promise.all([
           useConversationStore.getState().loadConversations(),
           useSettingsStore.getState().loadSettings(),
-          useHookStore.getState().fetchHooks(),
           useSkillStore.getState().refreshSkills(),
           // ★ 历史 /能力 消息降级渲染依赖 agent 能力名集合，
           //   缺失会导致重启后 agent 类命令（如 /code-simplifier）无法渲染徽章

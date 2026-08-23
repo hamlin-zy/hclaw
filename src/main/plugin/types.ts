@@ -15,7 +15,6 @@ export interface PluginManifest {
   commands?: string | string[] | Record<string, string>;
   agents?: string | string[];
   skills?: string | string[];
-  hooks?: string | string[] | Record<string, unknown>;
   mcpServers?: string | Record<string, unknown>;
   lspServers?: string | Record<string, unknown>;
   settings?: Record<string, unknown>;
@@ -52,7 +51,8 @@ export interface LoadedPlugin {
   commands?: CommandDef[];
   skills?: SkillDefinition[];
   agents?: AgentDefinition[];
-  hooks?: HookConfig[];
+  /** 兼容保留：Hook 系统已移除，parseHooks 恒返回 [] */
+  hooks?: Record<string, unknown>[];
   mcpServers?: McpServerConfig[];
   userConfig?: UserConfigSchema;
 }
@@ -88,41 +88,12 @@ export interface AgentDefinition {
   type?: string;
 }
 
-export interface HookConfig {
-  id?: string;
-  name?: string;
-  description?: string;
-  events?: string[];
-  type: 'command' | 'function' | 'prompt' | 'http' | 'agent';
-  command?: string;
-  handler?: (context: any) => any;  // function 类型 hook 的处理函数
-  prompt?: string;
-  url?: string;
-  method?: 'GET' | 'POST' | 'PUT';
-  headers?: Record<string, string>;
-  body?: string;
-  shell?: 'bash' | 'powershell';
-  timeout?: number;
-  once?: boolean;
-  async?: boolean;
-  matcher?: string;
-}
-
 export interface McpServerConfig {
   command: string;
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
 }
-
-export type HookEvent =
-  | 'SessionStart' | 'SessionEnd'
-  | 'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure'
-  | 'Stop' | 'StopFailure'
-  | 'SubagentStart' | 'SubagentStop'
-  | 'PreCompact' | 'PostCompact'
-  | 'UserPromptSubmit' | 'PermissionRequest'
-  | 'Notification';
 
 export type PluginError =
   | { type: 'git-clone-failed'; message: string }

@@ -123,7 +123,7 @@ describe('convertMessages — 回归行为', () => {
         })
     })
 
-    it('context 角色消息转为 user 角色（Hook additionalContext）', () => {
+    it('context 角色消息转为 user 角色', () => {
         const messages: ChatMessage[] = [
             makeUserMsg('q'),
             {role: 'context', content: '背景信息'},

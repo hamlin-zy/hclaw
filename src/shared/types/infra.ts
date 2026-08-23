@@ -1,5 +1,5 @@
 /**
- * Infrastructure types: MCP servers/tools, Skills, Hooks, LLM call logs,
+ * Infrastructure types: MCP servers/tools, Skills, LLM call logs,
  * conversations, and workspace configuration.
  *
  * Layer 1 — depends only on skillTypes (external), not on other sub-files.
@@ -80,26 +80,6 @@ export interface Skill {
   /** 许可协议 */
   license?: string
 }
-
-// ─── Hook ──────────────────────────────────────────────
-
-export interface Hook {
-  id: string
-  name: string
-  event: HookEvent
-  enabled: boolean
-  config: Record<string, unknown>
-}
-
-export type HookEvent =
-  | 'beforeThink'
-  | 'afterThink'
-  | 'beforeToolCall'
-  | 'afterToolCall'
-  | 'beforeResponse'
-  | 'afterResponse'
-  | 'onError'
-  | 'onInterrupt'
 
 // ─── Audit log ─────────────────────────────────────────
 

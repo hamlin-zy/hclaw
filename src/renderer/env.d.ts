@@ -156,7 +156,7 @@ declare global {
         backgroundList: () => Promise<Array<{ path: string; name: string; size: number; mtime: number }>>
         backgroundRemove: (path: string) => Promise<boolean>
 
-      // Directory-level config (agents/skill/hooks)
+      // Directory-level config (agents/skills/logs)
       configDirRead: (dir: string, filename: string) => Promise<unknown>
       configDirWrite: (dir: string, filename: string, data: unknown) => Promise<boolean>
       configDirList: (dir: string) => Promise<unknown[]>
@@ -509,17 +509,6 @@ declare global {
             error?: string
         }>
 
-        // Hooks API
-        hooks: {
-            list: () => Promise<any[]>
-            get: (id: string) => Promise<any | null>
-            save: (hook: any) => Promise<{ success: boolean; error?: string }>
-            delete: (id: string) => Promise<{ success: boolean; error?: string }>
-            setEnabled: (id: string, enabled: boolean) => Promise<{ success: boolean; error?: string }>
-            getEventDefinitions: () => Promise<any[]>
-            getPluginDefaults: (pluginName: string, hookId: string) => Promise<any | null>
-        }
-
         // Workspace 管理
         workspace: {
             list: () => Promise<Array<{ id: string; path: string; name: string; createdAt: number; updatedAt: number }>>
@@ -673,7 +662,6 @@ interface PluginManifest {
     commands?: string | string[] | Record<string, string>
     agents?: string | string[]
     skills?: string | string[]
-    hooks?: string | string[] | Record<string, unknown>
     mcpServers?: string | Record<string, unknown>
     lspServers?: string | Record<string, unknown>
     settings?: Record<string, unknown>
@@ -703,7 +691,6 @@ interface LoadedPlugin {
     commands?: CommandDef[]
     skills?: SkillDefinition[]
     agents?: AgentDefinition[]
-    hooks?: HookConfig[]
     mcpServers?: McpServerConfig[]
     userConfig?: UserConfigSchema
 }
@@ -776,33 +763,12 @@ interface AgentDefinition {
     type?: string
 }
 
-interface HookConfig {
-    type: 'command' | 'prompt' | 'http' | 'agent'
-    command?: string
-    prompt?: string
-    url?: string
-    shell?: 'bash' | 'powershell'
-    timeout?: number
-    once?: boolean
-    async?: boolean
-    matcher?: string
-}
-
 interface McpServerConfig {
     command: string
     args?: string[]
     env?: Record<string, string>
     cwd?: string
 }
-
-type HookEvent =
-    | 'SessionStart' | 'SessionEnd'
-    | 'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure'
-    | 'Stop' | 'StopFailure'
-    | 'SubagentStart' | 'SubagentStop'
-    | 'PreCompact' | 'PostCompact'
-    | 'UserPromptSubmit' | 'PermissionRequest'
-    | 'Notification'
 
 type PluginError =
     | { type: 'git-clone-failed'; message: string }

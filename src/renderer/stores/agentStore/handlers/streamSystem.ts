@@ -1,5 +1,5 @@
 // ── 系统/状态事件处理器 ────────────────────────────
-// mode_change, hook_result, tasks_update,
+// mode_change, tasks_update,
 // llm_call_done, command_start
 
 import type {StreamCtx} from './streamContext'
@@ -11,23 +11,6 @@ export function handleModeChange(ctx: StreamCtx) {
     set((prev: any) => ({
         agentState: {...prev.agentState, mode: event.mode as 'auto'},
     }))
-}
-
-export function handleHookResult(ctx: StreamCtx) {
-    const {get, isAgentAborted, event} = ctx
-    if (isAgentAborted) return
-    const hr = event as {type: 'hook_result'; event: string; hookName: string; success: boolean; error?: string}
-    const convId = useConversationStore.getState().activeConversationId
-    if (!convId) return
-    get().addHookResult({
-        id: `${hr.event}:${hr.hookName}:${Date.now()}`,
-        event: hr.event,
-        hookName: hr.hookName,
-        success: hr.success,
-        error: hr.error,
-        timestamp: Date.now(),
-        conversationId: convId,
-    })
 }
 
 export function handleTasksUpdate(ctx: StreamCtx) {

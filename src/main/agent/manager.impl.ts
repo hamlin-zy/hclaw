@@ -13,7 +13,6 @@ import type {ChatMessage, ModelConfig} from './model/types'
 import {permissionEngine} from './tools/permission'
 import {addLlmCallLog} from '../utils/llmCallLogStore'
 import {gracefulRestart} from '../utils/restart'
-import {HookExecutor, type HookResult} from '../plugin/hooks'
 import {capabilityManager} from './capabilityManager'
 import {logger} from './logger'
 import {mcpWorkerManager, setAgentManagerRef} from './mcp/mcpWorkerManager'
@@ -39,7 +38,6 @@ import {createForwardPayload, extractWorkerErrorMessage} from './manager.streamF
 import {recordLlmUsageEvent} from '../usageWrite'
 
 import {loadPluginAgents} from './manager.pluginAgents'
-import {createConversationRepository} from '../repositories'
 
 // ─── AgentManager ──────────────────────────────────────
 
@@ -77,19 +75,6 @@ export class AgentManager {
     setAgentManagerRef({
       workers: this.workers as Map<string, { worker: Worker }>,
     } as Parameters<typeof setAgentManagerRef>[0])
-
-    if (win) {
-      const hookExecutor = HookExecutor.getInstance()
-      hookExecutor.onResult((event: string, hookName: string, result: HookResult) => {
-        this.forwardToRenderer('__hooks__', {
-          type: 'hook_result',
-          event,
-          hookName,
-          success: (result.allowed ?? result.decision !== 'block') && !result.error,
-          error: result.error || undefined,
-        })
-      })
-    }
   }
 
   /**
@@ -202,11 +187,6 @@ export class AgentManager {
     worker.on('exit', (code) => this.onWorkerExit(params.conversationId, worker, code))
 
     this.workers.set(params.conversationId, entry)
-
-    // 触发 SessionStart Hook
-    HookExecutor.getInstance().execute('SessionStart', {
-      sessionId: params.conversationId,
-    }).catch(() => {})
   }
 
   /**
@@ -351,19 +331,6 @@ export class AgentManager {
           return
         }
 
-        // Worker 线程的 hook 执行结果：转发到渲染进程
-        if (msg.type === 'hook_result') {
-          const hr = msg as unknown as { hookEvent: string; hookName: string; success: boolean; error?: string }
-          this.forwardToRenderer('__hooks__', {
-            type: 'hook_result',
-            event: hr.hookEvent,
-            hookName: hr.hookName,
-            success: hr.success,
-            error: hr.error,
-          })
-          return
-        }
-
         // 流事件处理
         // ★ 使用 msg.conversationId（若存在）而非闭包固定的 Worker 主会话 ID：
         //   taskStore 发出的 tasks_update 事件携带任务归属会话 ID（子会话任务 → 子会话 ID，
@@ -417,10 +384,6 @@ export class AgentManager {
             type: 'error',
             error: workerErr,
           })
-          HookExecutor.getInstance().execute('StopFailure', {
-            sessionId: msg.conversationId,
-            error: workerErr,
-          }).catch((err) => logger.warn('[AgentManager] StopFailure hook failed', {error: err}))
         }
       } catch (err: unknown) {
         logger.error('[AgentManager] messageHandlerFailed', {
@@ -752,21 +715,6 @@ export class AgentManager {
     }
 
     this.forwardToRenderer(conversationId, event)
-
-    if (event.reason === 'completed') {
-      const lastMsgs = this.extractLastLoopMessages(conversationId)
-      HookExecutor.getInstance().execute('Stop', {
-        sessionId: conversationId,
-        lastMessages: lastMsgs,
-        reason: 'completed',
-      }).catch((err) => logger.warn('[AgentManager] Stop hook failed', {error: err}))
-    } else if (event.reason === 'error') {
-      HookExecutor.getInstance().execute('StopFailure', {
-        sessionId: conversationId,
-        error: 'Agent loop ended with error',
-        reason: 'error',
-      }).catch((err) => logger.warn('[AgentManager] StopFailure hook failed', {error: err}))
-    }
   }
 
   /** 处理 error 事件 */
@@ -778,12 +726,6 @@ export class AgentManager {
     }
 
     this.forwardToRenderer(conversationId, {type: 'error', error: errorMsg})
-
-    HookExecutor.getInstance().execute('StopFailure', {
-      sessionId: conversationId,
-      error: errorMsg,
-      reason: 'error',
-    }).catch((err) => logger.warn('[AgentManager] StopFailure hook failed', {error: err}))
   }
 
   /** 处理 Agent 结束后残留的注入消息 */
@@ -1133,35 +1075,6 @@ export class AgentManager {
     })
   }
 
-  /** 提取本次 loop 的最后一条用户/助手消息（供 Stop hook 使用） */
-  private extractLastLoopMessages(conversationId: string): Array<{role: string; content: string}> {
-    const result: Array<{role: string; content: string}> = []
-
-    try {
-      const repo = createConversationRepository()
-      const {messages: convMsgs} = repo.readMessagesTail(conversationId, 10)
-      const lastUserMsg = [...convMsgs].reverse().find(m => m.role === 'user')
-
-      if (lastUserMsg) {
-        result.push({role: 'user', content: typeof lastUserMsg.content === 'string' ? lastUserMsg.content : ''})
-      }
-
-      // 从 pendingAssistantMsg 读取当前循环的 assistant 响应
-      const pending = this.pendingAssistantMsg.get(conversationId)
-      if (pending) {
-        // ★ 方案 C：读取 content 前 finalize（惰性 join）
-        finalizePending(pending)
-        if (pending.content) {
-          result.push({role: 'assistant', content: pending.content})
-        }
-      }
-    } catch (err) {
-      logger.warn('[AgentManager] extractLastLoopMessages failed', {error: err})
-    }
-
-    return result
-  }
-
   /** 向主窗口发送消息（自动检查窗口有效性） */
   private sendToMainWindow(channel: string, ...args: any[]): void {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
@@ -1212,12 +1125,6 @@ export class AgentManager {
       this.parentToChildren.delete(childConvId)
     }
     this.parentToChildren.delete(conversationId)
-
-    // 触发 SessionEnd Hook
-    HookExecutor.getInstance().execute('SessionEnd', {
-      sessionId: conversationId,
-      reason: 'cleanup',
-    }).catch(() => {})
 
     this.workers.delete(conversationId)
     this.pendingAssistantMsg.delete(conversationId)

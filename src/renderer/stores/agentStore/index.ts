@@ -12,10 +12,7 @@ import {persist} from 'zustand/middleware'
 import type {RunMode} from '@shared/types'
 
 import type {AgentStore} from './types'
-import type {HookResultItem} from './types'
 
-// 保持类型导出兼容（HookResultsBar 等外部引用）
-export type {HookResultItem}
 import {IDLE_STATE, STREAMING_STATE, DEFAULT_TOP_LEVEL, createDefaultConvData} from './defaultState'
 
 // 保持与旧 import 路径兼容（conversationStore 等外部引用）
@@ -58,22 +55,7 @@ export const useAgentStore = create<AgentStore>()(
             compactInProgress: false,
             errorMessage: null,
             modelOverride: null,
-            hookResults: [],
             convAgentStates: {},
-
-            // ── Hook 结果 ──────────────────────────────
-            addHookResult: (item: HookResultItem) => {
-                set((prev) => {
-                    const results = [...prev.hookResults, item]
-                    if (results.length > 50) results.splice(0, results.length - 50)
-                    return {hookResults: results}
-                })
-            },
-            removeHookResult: (id: string) => {
-                set((prev) => ({
-                    hookResults: prev.hookResults.filter((r) => r.id !== id),
-                }))
-            },
 
             // ── 压缩横幅 ──────────────────────────────
             clearCompactBanner: () => {

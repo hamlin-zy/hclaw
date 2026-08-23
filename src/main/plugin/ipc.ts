@@ -37,7 +37,6 @@ import {getUserCommandStore, UpsertPluginOverrideInput, UserCommandData} from '.
 import {getPresetCommand, getPresetCommandMarkdownFiles, commandToMarkdown} from '../command/presetCommands';
 import {loadCommands, getCommandsDir} from '../agent/commandLoader';
 import type {CommandDefinition} from '@shared/types';
-import {readHookConfig, writeHookConfig} from '../config/hookConfig';
 import {versionManager} from './versionManager';
 import type {VersionInfo, SwitchResult} from './versionManager';
 import {broadcastToOtherWindows} from '../utils/windowBroadcast';
@@ -397,8 +396,8 @@ function buildAgentPrefixCandidates(pluginName: string, dirName: string): Set<st
  */
 async function handleGetRealCounts(
     _event: IpcMainInvokeEvent
-): Promise<Record<string, { skills: number; agents: number; mcps: number; hooks: number }>> {
-    const result: Record<string, { skills: number; agents: number; mcps: number; hooks: number }> = {}
+): Promise<Record<string, { skills: number; agents: number; mcps: number }>> {
+    const result: Record<string, { skills: number; agents: number; mcps: number }> = {}
 
     try {
         const registry = PluginRegistry.getInstance()
@@ -413,9 +412,6 @@ async function handleGetRealCounts(
 
         // 从 mcpService 按 id 前缀聚合
         const allMcps = mcpService.list()
-
-        // 从 PluginRegistry 获取所有插件的 hooks（keyed by pluginName）
-        const allPluginHooks = registry.getHooks()
 
         for (const plugin of allPlugins) {
             const pluginName = plugin.name
@@ -436,10 +432,7 @@ async function handleGetRealCounts(
             // MCPs: id 以 plugin:pluginName: 开头（由 tagPluginServer 生成）
             const mcps = allMcps.filter(m => (m.id as string)?.startsWith(`plugin:${pluginName}:`)).length
 
-            // Hooks: 从 PluginRegistry 按 pluginName 直接获取
-            const hooks = allPluginHooks.get(pluginName)?.length ?? 0
-
-            result[pluginName] = { skills, agents, mcps, hooks }
+            result[pluginName] = { skills, agents, mcps }
         }
 
         logger.debug('[getRealCounts] done', {result})
@@ -571,10 +564,6 @@ async function handleUpdate(
     const result = await installer.update(name, options ?? {});
 
     if (result.success && result.path) {
-      // Save hook enabled states before unregister (which triggers deletePluginHooks)
-      const oldHooks = readHookConfig().filter(h => h.pluginName === name);
-      const oldEnabledMap = new Map(oldHooks.map(h => [h.id, h.enabled]));
-
       // Re-register the plugin from disk (unregister first to avoid duplicates)
       registry.unregister(name);
       await loader.loadPlugin(result.path);
@@ -582,19 +571,6 @@ async function handleUpdate(
       // Re-apply enabled/disabled state from persisted config
       const shouldBeEnabled = isPluginEnabled(name, pluginsConfig);
       registry.updateEnabled(name, shouldBeEnabled);
-
-      // Restore hook enabled states that were reset by unregister→deletePluginHooks→syncPluginHooks
-      const allHooks = readHookConfig();
-      let restoredCount = 0;
-      for (const hook of allHooks) {
-        if (oldEnabledMap.has(hook.id)) {
-          hook.enabled = oldEnabledMap.get(hook.id)!;
-          restoredCount++;
-        }
-      }
-      if (restoredCount > 0) {
-        writeHookConfig(allHooks);
-      }
 
       // Refresh powerManager to reload capabilities (skills/agents/mcp)
       powerManager.resetInitialized();

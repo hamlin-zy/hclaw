@@ -28,12 +28,6 @@ vi.mock('../../../../src/main/agent/tools/permission', () => ({
     },
 }))
 
-vi.mock('../../../../src/main/plugin/hooks', () => ({
-    hookExecutor: {
-        execute: vi.fn(async () => ({allowed: true})),
-    },
-}))
-
 vi.mock('../../../../src/main/agent/state', () => ({
     createToolResultMessage: vi.fn((id: string, name: string, result: any) => ({id, name, result})),
     addMessage: vi.fn((s: any, m: any) => ({...s, messages: [...(s.messages || []), m]})),
@@ -180,30 +174,5 @@ describe('ToolExecutor.execute tool_start 即时推送', () => {
 
         expect(events.some(e => e.type === 'tool_completed')).toBe(false)
         expect(events.some(e => e.type === 'tool_start')).toBe(true)
-    })
-
-    it('PreToolUse 拒绝场景同样即时推送 tool_completed（停止倒计时）', async () => {
-        const onEvent = vi.fn()
-        const executor = new ToolExecutor()
-        const context = {
-            workingDir: 'E:\\workspace',
-            abortSignal: new AbortController().signal,
-            sendMessage: vi.fn(),
-            onEvent,
-        }
-
-        const {hookExecutor} = await import('../../../../src/main/plugin/hooks')
-        ;(hookExecutor.execute as any).mockResolvedValueOnce({allowed: false, error: 'blocked'})
-
-        await executor.execute(
-            {id: 'tc-1', name: 'bash', arguments: {command: 'sleep 10'}},
-            context as any,
-        )
-
-        const completedCalls = onEvent.mock.calls.filter(c => c[0].type === 'tool_completed')
-        expect(completedCalls.length).toBe(1)
-        expect(completedCalls[0][0].toolCallId).toBe('tc-1')
-        expect(completedCalls[0][0].result.success).toBe(false)
-        expect(completedCalls[0][0].result.error).toBe('blocked')
     })
 })

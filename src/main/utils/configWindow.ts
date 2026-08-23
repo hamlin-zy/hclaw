@@ -7,10 +7,10 @@
 import {BrowserWindow, ipcMain} from 'electron'
 import {createAppWindow} from './windowFactory'
 
-/** 迁移到独立窗口的 dialogType 白名单（17 种，来自 MenuDialogRenderer DIALOG_CONFIG 减去 update-notice） */
+/** 迁移到独立窗口的 dialogType 白名单（16 种，来自 MenuDialogRenderer DIALOG_CONFIG 减去 update-notice） */
 export const CONFIG_DIALOG_TYPES = new Set([
     'llm-config', 'scheme-config', 'mcp', 'tools', 'agents', 'skills',
-    'hooks', 'plugins', 'commands', 'schedules', 'channels',
+    'plugins', 'commands', 'schedules', 'channels',
     'prompt-config', 'settings', 'conversations',
     'tool-list', 'system-prompt', 'about',
 ])
@@ -23,7 +23,6 @@ const DIALOG_TITLES: Record<string, string> = {
     'tools': '工具管理',
     'agents': 'Agents',
     'skills': 'Skills',
-    'hooks': 'Hooks',
     'plugins': '插件管理',
     'commands': '命令管理',
     'schedules': '定时任务',
@@ -44,7 +43,6 @@ const DIALOG_SIZES: Record<string, {width: number; minWidth?: number; height?: n
     'tools': {width: 580},
     'agents': {width: 600},
     'skills': {width: 580},
-    'hooks': {width: 693},
     'plugins': {width: 640},
     'commands': {width: 580},
     'schedules': {width: 680},
