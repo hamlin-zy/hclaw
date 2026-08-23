@@ -23,20 +23,6 @@ export interface LLMMessage {
     isError?: boolean
 }
 
-export interface HookResultItem {
-    id: string
-    event: string
-    hookName: string
-    success: boolean
-    error?: string
-    timestamp: number
-    conversationId: string // 所属会话
-    /** 通用通知消息（非 hook 结果时使用，如 max_tokens 截断提示；优先级高于 hookName|状态） */
-    message?: string
-    /** 是否常驻显示（true 时不随 TTL 自动消失，需用户手动关闭） */
-    pinned?: boolean
-}
-
 // ─── 多会话独立 Agent 状态 ────────────────────────────
 /** 每个会话独立的运行时数据，包括流式缓冲区、消息 ID、agent 状态等 */
 export interface ConvAgentData {
@@ -228,11 +214,4 @@ export interface AgentStore {
     recoverSessionsCleanup: (keepRunning?: Set<string>) => void
 
     registerStreamListener: () => () => void
-
-    /** Hook 执行结果列表（用于 UI 反馈） */
-    hookResults: HookResultItem[]
-    /** 添加 hook 执行结果（自动清理超 50 条的旧记录；pinned 标记在 item 上） */
-    addHookResult: (item: HookResultItem) => void
-    /** 移除一个 hook 结果（用户手动关闭通知时调用，从 store 中彻底删除） */
-    removeHookResult: (id: string) => void
 }

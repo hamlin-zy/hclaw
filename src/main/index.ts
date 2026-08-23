@@ -14,7 +14,7 @@ import {createAppMenu} from './menu';
 import {initConversationIPC} from './conversation';
 import {agentManager, initAgent, registerAgentIPC} from './agent';
 import {registerMCPEventForwarding, registerMCPIPC} from './agent/mcp/ipc';
-import {migrateHooksFromSqlite, migrateMcpFromSqlite} from './config/migrateMcpHookFromSqlite';
+import {migrateMcpFromSqlite} from './config/migrateMcpHookFromSqlite';
 import {mcpService} from './services/mcpService';
 import {initLlmCallLogIPC} from './utils/llmCallLogStore';
 import {initLlmLogIPC} from './utils/llmCallBuffer';
@@ -23,9 +23,6 @@ import {initConfigWindowIPC} from './utils/configWindow';
 import {startConfigWatcher} from './config-watcher';
 import {initializePlugins, registerPluginIPC} from './plugin/ipc';
 import {registerCapabilityIPC} from './capability/ipc';
-import {registerHookIPC} from './plugin/hooks/ipc';
-import {hookExecutor, registerBuiltinHandlers} from './plugin/hooks';
-import {loadHooksFromDirectory} from './agent/hooks/loader';
 import {GoogleAuthService, initGoogleAuthIPC} from './auth/googleAuth';
 import {initProviderIPC} from './llmProviderIPC';
 import {modelMetaRegistry} from './modelMetaRegistry';
@@ -170,7 +167,6 @@ initConversationIPC();
 
 registerPluginIPC();
 registerCapabilityIPC();
-registerHookIPC();
 registerAgentIPC();
 initGoogleAuthIPC();
 initProviderIPC();
@@ -303,7 +299,6 @@ app.on('ready', async () => {
 
     // 一次性迁移：SQLite → JSON（仅在首次运行时执行）
     migrateMcpFromSqlite();
-    migrateHooksFromSqlite();
 
   // MCP IPC handlers must be registered before createWindow
   // because renderer process rehydration calls mcp:list IPC
@@ -338,7 +333,7 @@ app.on('ready', async () => {
   // 因此 MCP Worker 必须在 Agent 初始化之后才能启动，
   // 以确保 collectConfigs() 能读到全部配置。
 
-  // Step 2: Plugin system - discover plugins only (not internal agents/skills/mcps/hooks/commands)
+  // Step 2: Plugin system - discover plugins only (not internal agents/skills/mcps/commands)
   await initializePlugins();
 
   // Plugin version check (fire-and-forget) - fetches latest tags for all git plugins
@@ -355,10 +350,6 @@ app.on('ready', async () => {
     logger.warn('plugin-version-check-failed', {error: String(err)});
   });
 
-  // Hook system: initialize builtin handlers + load legacy user scripts (via compat layer)
-  registerBuiltinHandlers(hookExecutor);
-  loadHooksFromDirectory().catch(() => {});
-
   // Step 3: Agent + Skills 初始化（含插件 MCP 配置加载 + 缓存回写）
   await initAgent();
 
@@ -367,7 +358,7 @@ app.on('ready', async () => {
     logger.info('[MCP] MCP Worker init failed:', err.message);
   });
 
-  // Step 5b: Start config file watchers (mcp.json, hooks.json)
+  // Step 5b: Start config file watcher (mcp.json)
   startConfigWatcher();
 
   // Agent system: register built-in tools + IPC handlers

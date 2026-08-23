@@ -57,10 +57,11 @@ beforeEach(async () => {
 })
 
 describe('configWindow 注册表', () => {
-    it('白名单含 17 种 dialogType', () => {
-        expect(CONFIG_DIALOG_TYPES.size).toBe(17)
+    it('白名单含 16 种 dialogType', () => {
+        expect(CONFIG_DIALOG_TYPES.size).toBe(16)
         expect(CONFIG_DIALOG_TYPES.has('llm-config')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('about')).toBe(true)
+        expect(CONFIG_DIALOG_TYPES.has('hooks')).toBe(false)
         expect(CONFIG_DIALOG_TYPES.has('update-notice')).toBe(false)
     })
 

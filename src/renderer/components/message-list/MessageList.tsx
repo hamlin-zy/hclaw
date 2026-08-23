@@ -1028,7 +1028,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                         />
                     )}
                     {/* 只显示 role='user' 或 'assistant' 的消息 */}
-                    {/* 这样可以隐藏 role='context' 等内部消息（如 hook additionalContext） */}
+                    {/* 这样可以隐藏 role='context' 等内部消息 */}
                     {visibleMessages.map(({message, origIdx}) => (
                         <div
                             key={message.id}

@@ -2,7 +2,7 @@
  * Agent 循环 — LLM 调用执行与工具执行
  *
  * 包含：
- * - LLM 调用（含重试、适配器管理、ContextRetrieval、plannedCommands 权限、指数退避）
+ * - LLM 调用（含重试、适配器管理、plannedCommands 权限、指数退避）
  * - 工具执行（串行/并行、结果处理、媒体提取）
  */
 
@@ -25,7 +25,6 @@ import {permissionEngine} from '../tools/permission'
 import {isThirdPartyAnthropicAPI} from '../model/utils'
 import {classifyErrorEnhanced} from '../common/errorClassifier'
 import {LLM_TIMEOUT_MS, sleep, TimeoutError, withTimeout} from '../../utils/retry'
-import {hookExecutor, type HookResult} from '../../plugin/hooks'
 import {attachMediaBlocksToMessage, extractMediaBlocksFromToolResults} from '../mediaExtractor'
 import {supportsImageInput} from '../modelCapability'
 import {sanitizeMessagesForModel, sanitizeThinkingForModel} from './helpers'
@@ -108,7 +107,6 @@ export function shouldRetryAttempt(
  *
  * 职责：
  * - 适配器创建/重建
- * - ContextRetrieval Hook
  * - 流式响应处理
  * - plannedCommands 解析与权限检查
  * - 错误重试（指数退避）
@@ -120,7 +118,7 @@ export async function* executeLlmCallWithRetry(
 ): AsyncGenerator<AgentStreamEvent, LlmStreamResult | null> {
     const {llmCaller, state, systemPrompt, commandTemplate, availableToolDefinitions, preCapabilityToolDefinitions, modelConfig,
         workModeRole, schemeName, getSettings, params, isCompactCommand, turns, preprocessCache, directModel} = ctx
-    const {abortSignal, requestConfirmation, sessionId} = params
+    const {abortSignal, requestConfirmation} = params
 
     const retryCount = getSettings()?.agent.retryCount ?? 10
     const maxDelay = getSettings()?.agent.maxRetryDelay ?? 120_000
@@ -229,25 +227,6 @@ export async function* executeLlmCallWithRetry(
                 adapter?.invalidateConvertCache?.()
             }
 
-            // ── ContextRetrieval ──
-            if (!isCompactCommand) {
-                // 触发 UserPromptSubmit Hook
-                const lastMsg = messagesToSend.length > 0 ? messagesToSend[messagesToSend.length - 1] : null
-                if (lastMsg?.role === 'user') {
-                    hookExecutor.execute('UserPromptSubmit', {
-                        sessionId, prompt: String(lastMsg.content ?? ''),
-                    }).catch(() => {})
-                }
-
-                const retrievalMessages = yield* executeContextRetrieval(messagesToSend, sessionId)
-                if (retrievalMessages) {
-                    // ContextRetrieval 在消息中间插入知识 → 增量假设被破坏，失效缓存
-                    preprocessCache.reset()
-                    adapter?.invalidateConvertCache?.()
-                    messagesToSend = retrievalMessages
-                }
-            }
-
             // ── 执行 LLM 调用 ──
             if (!adapter) throw new Error('Adapter not initialized')
 
@@ -340,7 +319,6 @@ export async function* executeLlmCallWithRetry(
                 maxTokens,
                 temperature: getSettings()?.model.defaultTemperature ?? 0,
                 ...(effectiveThinkingEffort ? {thinkingEffort: effectiveThinkingEffort} : {}),
-                ...(params.hookAdditionalContext && {additionalContext: params.hookAdditionalContext}),
             })
 
             const stream = withTimeout(
@@ -359,8 +337,6 @@ export async function* executeLlmCallWithRetry(
             let cacheWriteTokens = 0
             let reasoningTokens = 0
             let assistantThinkingSignature = ''
-            let producedThinking = false
-            let thinkStarted = false
 
             for await (const chunk of stream) {
                 if (abortSignal?.aborted) break
@@ -377,19 +353,9 @@ export async function* executeLlmCallWithRetry(
                     contentParts.push(chunk.content)
                     yield {type: 'text', content: chunk.content}
                 } else if (chunk.type === 'thinking') {
-                    if (!thinkStarted) {
-                        thinkStarted = true
-                        producedThinking = true
-                        hookExecutor.execute('ThinkStart', {sessionId}).catch(() => {})
-                    }
                     thinkingParts.push(chunk.content)
                     yield {type: 'thinking', content: chunk.content}
                 } else if (chunk.type === 'reasoning') {
-                    if (!thinkStarted) {
-                        thinkStarted = true
-                        producedThinking = true
-                        hookExecutor.execute('ThinkStart', {sessionId}).catch(() => {})
-                    }
                     reasoningParts.push(chunk.content)
                     yield {type: 'thinking', content: chunk.content}
                 } else if (chunk.type === 'tool_use') {
@@ -432,11 +398,6 @@ export async function* executeLlmCallWithRetry(
             const assistantContent = contentParts.join('')
             const assistantThinking = thinkingParts.join('')
             const assistantReasoningContent = reasoningParts.join('')
-
-            // ── 触发 ThinkEnd Hook（仅实际产生思考内容时） ──
-            if (producedThinking) {
-                hookExecutor.execute('ThinkEnd', {sessionId}).catch(() => {})
-            }
 
             // ── 解析 plannedCommands ──
             let plannedCommands: string[] | undefined
@@ -527,32 +488,6 @@ export async function* executeLlmCallWithRetry(
             : `LLM call failed after ${retryCount} retries: ${extractErrorDetail(lastError)}`
         logger.info(`[AgentLoop] llm_call_failed: ${errorMessage}`)
         yield {type: 'error', error: errorMessage}
-    }
-    return null
-}
-
-// ─── ContextRetrieval Hook ──────────────────────────────────
-
-/**
- * 执行 ContextRetrieval Hook
- */
-export async function* executeContextRetrieval(
-    messages: ChatMessage[],
-    sessionId: string | undefined,
-): AsyncGenerator<AgentStreamEvent, ChatMessage[] | null> {
-    const lastMsg = messages[messages.length - 1]
-    if (lastMsg?.role !== 'user') return null
-
-    const retrievalResult = await hookExecutor
-        .execute('ContextRetrieval', {sessionId, prompt: String(lastMsg.content ?? '')})
-        .catch((): HookResult => ({decision: 'allow', allowed: true}))
-
-    if (retrievalResult?.output) {
-        return [
-            ...messages.slice(0, -1),
-            {role: 'user', content: `📚 相关知识:\n${retrievalResult.output}`},
-            lastMsg,
-        ] as ChatMessage[]
     }
     return null
 }

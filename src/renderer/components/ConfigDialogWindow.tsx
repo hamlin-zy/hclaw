@@ -6,7 +6,6 @@ import ModelSchemeDialog from './dialogs/ModelSchemeDialog'
 import ToolsDialog from './dialogs/ToolsDialog'
 import AgentsDialog from './dialogs/AgentsDialog'
 import SkillsDialog from './dialogs/SkillsDialog'
-import HooksDialog from './dialogs/HooksDialog'
 import PluginDialog from './dialogs/PluginDialog'
 import CommandsDialog from './dialogs/CommandsDialog'
 import ScheduleDialog from './dialogs/ScheduleDialog'
@@ -34,7 +33,6 @@ const DIALOG_CONFIG: Record<string, DialogConfig> = {
     'tools': {title: '工具管理', Component: ToolsDialog},
     'agents': {title: 'Agents', Component: AgentsDialog},
     'skills': {title: 'Skills', Component: SkillsDialog},
-    'hooks': {title: 'Hooks', Component: HooksDialog},
     'plugins': {title: '插件管理', Component: PluginDialog},
     'commands': {title: '命令管理', Component: CommandsDialog},
     'schedules': {title: '定时任务', Component: ScheduleDialog},

@@ -66,7 +66,6 @@ export type MenuDialogType =
   | 'tools'
   | 'agents'
   | 'skills'
-  | 'hooks'
   | 'plugins'
   | 'commands'
   | 'prompt-config'

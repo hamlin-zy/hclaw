@@ -13,7 +13,7 @@ import {gracefulRestart} from './utils/restart';
 export const HCLAW_DIR = path.join(os.homedir(), '.hclaw');
 
 /** 配置文件顶层子目录 */
-const SUBDIRS = ['agents', 'skills', 'hooks', 'logs'];
+const SUBDIRS = ['agents', 'skills', 'logs'];
 
 /**
  * 数据目录子路径
@@ -365,7 +365,7 @@ export function initConfigIPC(): void {
             : configRepo.write(name, data)
     });
 
-    // Directory-level config (agents/skill/hooks)
+    // Directory-level config (agents/skills/logs)
 
     ipcMain.handle('config-dir-read', async (_event: any, dir: string, filename: string) => {
         return configRepo.readDir(dir, filename)

@@ -22,7 +22,6 @@ import type {
     StreamChunk,
     ToolDefinition,
 } from './types'
-import {injectAdditionalContext} from './utils'
 import {isSyntheticToolResult} from '../state'
 
 export class OpenAIAdapter implements ModelAdapter {
@@ -71,7 +70,7 @@ export class OpenAIAdapter implements ModelAdapter {
   }
 
   async *chat(params: ChatParams): AsyncGenerator<StreamChunk> {
-    const { messages, systemPrompt, tools, maxTokens, temperature, thinkingEffort, abortSignal, additionalContext } = params
+    const { messages, systemPrompt, tools, maxTokens, temperature, thinkingEffort, abortSignal } = params
 
     if (this.apiStyle === 'responses') {
       yield* this.chatResponses(params)
@@ -79,12 +78,6 @@ export class OpenAIAdapter implements ModelAdapter {
     }
 
     let apiMessages = this.convertMessages(messages, systemPrompt)
-
-    // 注入 additionalContext 到最后一条 user 消息（Claude Code 规范）
-    // 放在缓存点之后，最大化缓存命中
-    if (additionalContext) {
-      apiMessages = injectAdditionalContext(apiMessages, additionalContext)
-    }
 
       // MiniMax 不支持 stream_options: { include_usage: true }，会导致无法获取 usage
       const providerName = this.providerName?.toLowerCase()
@@ -251,17 +244,9 @@ export class OpenAIAdapter implements ModelAdapter {
    * - 推理强度：reasoning: {effort}
    */
   private async *chatResponses(params: ChatParams): AsyncGenerator<StreamChunk> {
-    const { messages, systemPrompt, tools, maxTokens, thinkingEffort, abortSignal, additionalContext } = params
+    const { messages, systemPrompt, tools, maxTokens, thinkingEffort, abortSignal } = params
 
     let input = this.convertToResponsesInput(messages)
-
-    if (additionalContext) {
-      // 注入 additionalContext 到最后一条 user 输入（与 chat 路径一致）
-      const last = input[input.length - 1]
-      if (last && last.role === 'user' && typeof last.content === 'string') {
-        input = [...input.slice(0, -1), { ...last, content: last.content + '\n\n' + additionalContext }]
-      }
-    }
 
     const requestParams: any = {
       model: this.model,

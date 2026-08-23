@@ -27,16 +27,6 @@ export const taskCreateTool: Tool<TaskCreateInput, { taskId: string; title: stri
             const convId = context.conversationId
             const task = taskStore.createTask(convId, args.title, args.description)
 
-            // 触发 TaskCreated Hook
-            import('../../../plugin/hooks').then(({hookExecutor}) => {
-                hookExecutor.execute('TaskCreated', {
-                    sessionId: convId || '',
-                    taskId: task.id,
-                    taskName: task.title,
-                }).catch(() => {})
-            }).catch(() => {})
-
-            
             return {
                 success: true,
                 output: {

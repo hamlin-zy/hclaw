@@ -1,4 +1,4 @@
-import {CommandDef, HookConfig, LoadedPlugin} from './types';
+import {CommandDef, LoadedPlugin} from './types';
 import {eventBus, PluginEvents} from '../common/eventBus';
 
 /**
@@ -7,7 +7,7 @@ import {eventBus, PluginEvents} from '../common/eventBus';
  * Design Rationale:
  * - Singleton pattern ensures a single source of truth for plugin state
  * - Uses Map for O(1) lookups by plugin name
- * - Commands and hooks are extracted on registration for fast access
+ * - Commands are extracted on registration for fast access
  * - Enables/disabled state is tracked separately from plugin data
  * - Plugin state changes are published via EventBus to notify capability managers
  */
@@ -15,7 +15,6 @@ export class PluginRegistry {
   private static instance: PluginRegistry;
   private plugins: Map<string, LoadedPlugin> = new Map();
   private commands: Map<string, CommandDef[]> = new Map();
-  private hooks: Map<string, HookConfig[]> = new Map();
 
   private constructor() {}
 
@@ -30,16 +29,15 @@ export class PluginRegistry {
   }
 
   /**
-   * Clear the registry - removes all plugins, commands, and hooks
+   * Clear the registry - removes all plugins and commands
    */
   clear(): void {
     this.plugins.clear();
     this.commands.clear();
-    this.hooks.clear();
   }
 
   /**
-   * Register a plugin and extract its commands and hooks
+   * Register a plugin and extract its commands
    * 发布插件安装事件
    */
   register(plugin: LoadedPlugin): void {
@@ -48,11 +46,6 @@ export class PluginRegistry {
     // Extract commands from plugin
     if (plugin.commands && plugin.commands.length > 0) {
       this.commands.set(plugin.name, plugin.commands);
-    }
-
-    // Extract hooks from plugin
-    if (plugin.hooks && plugin.hooks.length > 0) {
-      this.hooks.set(plugin.name, plugin.hooks);
     }
 
       // 发布插件安装事件
@@ -66,7 +59,6 @@ export class PluginRegistry {
   unregister(name: string): void {
     this.plugins.delete(name);
     this.commands.delete(name);
-    this.hooks.delete(name);
 
       // 发布插件卸载事件
       eventBus.emit(PluginEvents.UNINSTALLED, name);
@@ -142,13 +134,5 @@ export class PluginRegistry {
    */
   getCommands(): Map<string, CommandDef[]> {
     return new Map(this.commands);
-  }
-
-  /**
-   * Get all hooks from all plugins
-   * @returns Map<pluginName, HookConfig[]>
-   */
-  getHooks(): Map<string, HookConfig[]> {
-    return new Map(this.hooks);
   }
 }

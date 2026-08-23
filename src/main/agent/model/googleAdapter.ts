@@ -58,7 +58,7 @@ export class GoogleAdapter implements ModelAdapter {
     }
 
     async *chat(params: ChatParams): AsyncGenerator<StreamChunk> {
-        const {messages, systemPrompt, tools, maxTokens, abortSignal, additionalContext} = params
+        const {messages, systemPrompt, tools, maxTokens, abortSignal} = params
 
         const converted = convertMessagesIncremental(messages, this.convertCache)
         this.convertCache = converted.cache
@@ -73,10 +73,6 @@ export class GoogleAdapter implements ModelAdapter {
         const effectiveSystemPrompt = converted.systemText
             ? (systemPrompt ? `${systemPrompt}\n\n${converted.systemText}` : converted.systemText)
             : systemPrompt
-
-        if (additionalContext && lastUserMsg) {
-            lastUserMsg.push({text: `\n\n📎 背景信息:\n${additionalContext}`})
-        }
 
         while (history.length > 0 && history[0].role !== 'user') {
             history.shift()
@@ -394,7 +390,7 @@ export function convertMessages(messages: readonly ChatMessage[]): ConvertedMess
             }
             history.push({ role: 'model', parts })
         } else if (msg.role === 'context') {
-            // Hook additionalContext 注入的消息：转为 user 角色，让 LLM 能看到
+            // context 角色注入的消息：转为 user 角色，让 LLM 能看到
             const text = textOf(msg.content)
             if (text) {
                 history.push({role: 'user', parts: [{text}]})
@@ -478,7 +474,7 @@ export function convertMessagesIncremental(
             }
             history.push({ role: 'model', parts })
         } else if (msg.role === 'context') {
-            // Hook additionalContext 注入的消息：转为 user 角色，让 LLM 能看到
+            // context 角色注入的消息：转为 user 角色，让 LLM 能看到
             const text = textOf(msg.content)
             if (text) {
                 history.push({role: 'user', parts: [{text}]})

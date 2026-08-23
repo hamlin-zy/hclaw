@@ -207,7 +207,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFolderDialog: () => ipcRenderer.invoke('open-folder-dialog'),
   selectFilePath: () => ipcRenderer.invoke('select-file-path'),
 
-  // Directory-level config (agents/skill/hooks)
+  // Directory-level config (agents/skills/logs)
   configDirRead: (dir: string, filename: string) =>
     ipcRenderer.invoke('config-dir-read', dir, filename),
   configDirWrite: (dir: string, filename: string, data: unknown) =>
@@ -614,17 +614,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
         getOverrides: () => ipcRenderer.invoke('plugin-command:get-overrides'),
         upsertOverride: (input: any) => ipcRenderer.invoke('plugin-command:upsert-override', input),
         deleteOverride: (pluginCommandId: string) => ipcRenderer.invoke('plugin-command:delete-override', pluginCommandId),
-    },
-
-    // Hooks API
-    hooks: {
-        list: () => ipcRenderer.invoke('hooks:list'),
-        get: (id: string) => ipcRenderer.invoke('hooks:get', id),
-        save: (hook: any) => ipcRenderer.invoke('hooks:save', hook),
-        delete: (id: string) => ipcRenderer.invoke('hooks:delete', id),
-        setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('hooks:set-enabled', id, enabled),
-        getEventDefinitions: () => ipcRenderer.invoke('hooks:get-event-definitions'),
-        getPluginDefaults: (pluginName: string, hookId: string) => ipcRenderer.invoke('hooks:get-plugin-defaults', pluginName, hookId),
     },
 
     // Provider (LLM 服务商) 管理

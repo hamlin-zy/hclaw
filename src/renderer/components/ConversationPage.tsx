@@ -4,7 +4,6 @@ import {useConversationStore} from '../stores/conversationStore'
 import MessageList from './message-list'
 import InputArea from './InputArea'
 import CompactWarningBanner from './CompactWarningBanner'
-import HookResultsBar from './HookResultsBar'
 
 interface ConversationPageProps {
     conversationId: string
@@ -46,9 +45,6 @@ const ConversationPage = memo(function ConversationPage({conversationId}: Conver
                     <MessageList conversationId={conversationId}/>
                 </div>
             )}
-
-            {/* Hook 执行结果悬浮通知 — 全局 fixed 定位，独立于消息列表容器 */}
-            <HookResultsBar/>
 
             {/* 输入框卡片 — 始终挂载，保持输入状态 */}
             <div

@@ -150,13 +150,6 @@ export interface ChatParams {
   thinkingEffort?: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   abortSignal?: AbortSignal
   /**
-   * Hook 额外上下文
-   * 来自 SessionStart/UserPromptSubmit hook 的 additionalContext
-   * 会注入到最后一条 user 消息的 content 末尾（Claude Code 规范）
-   * 不会作为消息持久化，仅在本次 LLM 调用中生效
-   */
-  additionalContext?: string
-  /**
    * skill/agent 命令模板
    * 作为 system 参数的独立 TextBlock 发送（Anthropic 多块缓存用）
    * 非 Anthropic 适配器会将此拼接回 systemPrompt

@@ -142,7 +142,6 @@ export const SYSTEM_PROMPT_NODES: PromptNodeMeta[] = [
 | \`agents/\` | Agent 定义文件（另有插件内 \`plugins/<name>/agents/\`、\`plugins/<name>/.agents/\`） |
 | \`skills/\` | 技能：\`public/\` 社区安装、\`custom/\` 自定义、\`~/.agents/skills/\`（Claude Code 风格） |
 | \`plugins/<name>/\` | 插件目录（技能在 \`skills/\` 或 \`.agents/skills/\` 下，Agent 在 \`agents/\` 或 \`.agents/\` 下） |
-| \`hooks/\` | Hook 脚本 |
 | \`logs/\` | 运行日志 |
 
 ### 数据目录 (data/)

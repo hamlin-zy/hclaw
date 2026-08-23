@@ -42,8 +42,7 @@ export function appendCappedPart(
  * 若 finalize 后再 push 并二次 finalize，新段会覆盖旧的 content/thinkContent。
  *
  * 当前调用图保证该契约成立：finalize 仅在终态路径触发——
- * #mergeAndPersist（user_message_injected / done / error）与
- * extractLastLoopMessages（done-completed，且发生在 #mergeAndPersist 之后），
+ * #mergeAndPersist（user_message_injected / done / error），
  * 之后 pending 被置 null 或 worker 结束，不会再有后续 text/thinking 事件。
  *
  * 幂等性：parts 为空时原样返回，重复调用安全。contentLength 不重置——

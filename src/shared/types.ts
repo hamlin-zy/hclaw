@@ -32,6 +32,5 @@ export type {
   SkillFrontmatter,
 } from './skillTypes'
 
-// ─── Agent & Hooks (pre-existing modules) ──────────────
+// ─── Agent (pre-existing module) ────────────────────────
 export * from './agent'
-export * from './hooks'

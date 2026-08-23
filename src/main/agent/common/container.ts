@@ -7,7 +7,6 @@
 export const DI_TOKENS = {
     SkillRegistry: Symbol('SkillRegistry'),
     ToolRegistry: Symbol('ToolRegistry'),
-    HookEngine: Symbol('HookEngine'),
     RuntimeConfig: Symbol('RuntimeConfig'),
     ConfigBridge: Symbol('ConfigBridge'),
 } as const

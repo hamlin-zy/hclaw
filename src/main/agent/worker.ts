@@ -274,53 +274,6 @@ async function main(): Promise<void> {
         }
     })
 
-    // Phase 3: Hook 系统初始化（迁入 Worker 执行）
-    // 收集 SessionStart/UserPromptSubmit hook 返回的 additionalContext
-    let hookAdditionalContext = ''
-    try {
-        const {registerBuiltinHandlers: regHooks, hookExecutor: wkHookExe} = await import('../plugin/hooks')
-        regHooks(wkHookExe)
-
-        const {loadHooksFromDirectory: loadHooks} = await import('./hooks/loader')
-        loadHooks().catch(() =>
-            {}
-        )
-
-        // 收集所有 hook 的 additionalContext
-        async function collectHookContext(
-            events: Array<{name: string; context: Record<string, unknown>}>,
-        ): Promise<string> {
-            const parts: string[] = []
-            for (const {name, context} of events) {
-                try {
-                    const result = await wkHookExe.execute(name as any, context)
-                    if (result?.additionalContext) {
-                        parts.push(result.additionalContext)
-                    }
-                } catch {
-                    
-                }
-            }
-            return parts.join('\n\n---\n\n')
-        }
-
-        const firstMsg = params.messages?.[0]
-        const userPrompt = firstMsg?.role === 'user'
-            ? (typeof firstMsg.content === 'string' ? firstMsg.content : '')
-            : undefined
-
-        hookAdditionalContext = await collectHookContext([
-            {name: 'SessionStart', context: {sessionId: params.conversationId}},
-            {name: 'UserPromptSubmit', context: {sessionId: params.conversationId, prompt: userPrompt}},
-        ])
-
-        if (hookAdditionalContext) {
-            params.hookAdditionalContext = hookAdditionalContext
-        }
-    } catch {
-        
-    }
-
     // ★ 方案 C：流式事件批量累积器（32ms 窗口内容级合并）
     //   声明在 try 外，使 finally 可访问 dispose() 兜底清理定时器。
     //   两处 postMessage（onEvent 回调 + 循环体）必须统一走累积器，否则工具事件
@@ -575,8 +528,6 @@ async function main(): Promise<void> {
             // 将消息元数据传递给 Loop，供识别命令模式
             // 注意：messageMetadata 需要从 ChatMessage 中提取，agentLoop 需要处理这个
             messageMetadata: params.messageMetadata,
-            // 传递 Hook 收集的 additionalContext（SessionStart/UserPromptSubmit hook 返回）
-            hookAdditionalContext: params.hookAdditionalContext,
             // 传递 agentDefinition（子 Agent 独立会话使用）
             agentDefinition: params.agentDefinition,
             // 传递运行中注入的用户消息队列引用
