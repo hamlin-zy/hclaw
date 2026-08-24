@@ -453,17 +453,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.invoke('tool:setTimeout', id, timeout),
     },
 
-    // LLM call logs
-    getLlmCallLogs: () => ipcRenderer.invoke('llm-call-logs:get'),
-    clearLlmCallLogs: () => ipcRenderer.invoke('llm-call-logs:clear'),
+    // LLM 调用轨迹（llm-trace:*，Task 5 IPC；取代旧 llm-call-logs 管线）
     openLlmLogsWindow: () => ipcRenderer.invoke('open-llm-logs-window'),
-    onLlmCallLog: (callback: (log: any) => void) => {
-        const handler = (_: unknown, log: any) => callback(log)
-        ipcRenderer.on('llm-call-log', handler)
-        return () => ipcRenderer.removeListener('llm-call-log', handler)
+    getLlmTraceProjection: (convIds?: string[]) => ipcRenderer.invoke('llm-trace:get-projection', convIds),
+    getLlmTraceFile: (convId: string, file: string) => ipcRenderer.invoke('llm-trace:get-file', convId, file),
+    listLlmTraceConversations: () => ipcRenderer.invoke('llm-trace:list-conversations'),
+    toggleLlmTrace: (enabled: boolean) => ipcRenderer.invoke('llm-trace:toggle', enabled),
+    clearLlmTrace: () => ipcRenderer.invoke('llm-trace:clear'),
+    onLlmTraceRecord: (cb: (r: any) => void) => {
+        const h = (_e: unknown, r: any) => cb(r)
+        ipcRenderer.on('llm-trace-record', h)
+        return () => ipcRenderer.removeListener('llm-trace-record', h)
     },
-    getLlmLogEnabled: () => ipcRenderer.invoke('llm-log:enabled'),
-    toggleLlmLog: (enabled: boolean) => ipcRenderer.invoke('llm-log:toggle', enabled),
+    onLlmTraceEvent: (cb: (e: {type: 'paused'; reason: string}) => void) => {
+        const h = (_e: unknown, ev: any) => cb(ev)
+        ipcRenderer.on('llm-trace-event', h)
+        return () => ipcRenderer.removeListener('llm-trace-event', h)
+    },
 
     // 全局用量统计窗口
     openUsageStatsWindow: () => ipcRenderer.invoke('open-usage-stats-window'),

@@ -240,6 +240,23 @@ class TaskStore {
         return this.getConvTasks(convId).get(taskId)
     }
 
+    /**
+     * Worker 启动时从主进程下发的持久化快照恢复活跃批次（跨轮任务状态恢复）。
+     * 幂等：仅当该会话尚无批次/任务数据时恢复；恢复本身不触发事件
+     * （渲染端已有实时数据或水合路径，无事件也不会产生 UI 闪烁）。
+     */
+    seedActiveBatch(convId: string | undefined, snapshot: {id: string; name: string; status: 'active' | 'completed'}, tasks: Task[]): void {
+        const key = convId || 'default'
+        if (this.batchesByConv.has(key) || (this.tasksByConv.get(key)?.size ?? 0) > 0) return
+        this.batchesByConv.set(key, {
+            id: snapshot.id,
+            name: snapshot.name,
+            status: snapshot.status,
+            taskIds: tasks.map(t => t.id),
+        })
+        this.tasksByConv.set(key, new Map(tasks.map(t => [t.id, {...t}])))
+    }
+
     /** 删除任务 */
     deleteTask(convId: string | undefined, taskId: string): boolean {
         const deleted = this.getConvTasks(convId).delete(taskId)

@@ -92,62 +92,6 @@ export interface AuditLog {
   details?: string
 }
 
-// ─── LLM call log ─────────────────────────────────────
-
-/** LLM 调用日志 */
-export interface LlmCallLog {
-  id: string
-  timestamp: number
-  /** 会话标题 */
-  conversationTitle: string
-  /** 服务商显示名称（如 openrouter），用于日志 */
-  provider: string
-  /** 模型名称 */
-  model: string
-  /** 耗时（秒） */
-  duration: number
-  /** 输入 token 数 */
-  inputTokens: number
-  /** 输出 token 数 */
-  outputTokens: number
-  /** 缓存命中的 token 数 */
-  cacheReadTokens?: number
-  /** 缓存创建的 token 数 */
-  cacheWriteTokens?: number
-  /** 推理/思考 token 数 */
-  reasoningTokens?: number
-  /** 输入内容（用户消息） */
-  inputContent: string
-  /** 输出内容（AI回复） */
-  outputContent: string
-  /** 系统提示词 token 预估 */
-  systemPromptTokens?: number
-  /** 用户输入 token 预估 */
-  inputTokensEstimated?: number
-  /** AI 输出 token 预估 */
-  outputTokensEstimated?: number
-  /** 历史信息 token 预估 */
-  messagesTokens?: number
-  /** 工具调用列表 */
-  toolCalls?: Array<{
-    id: string
-    name: string
-    input: Record<string, any>
-    output?: string
-    success?: boolean
-  }>
-  /** 附带的历史消息列表（用于展示） */
-  messages?: Array<{
-    role: string
-    content: string
-    toolCalls?: Array<{ id: string; name: string; arguments: Record<string, any> }>
-    toolCallId?: string
-    toolResult?: string
-  }>
-  /** 系统提示词 */
-  systemPrompt?: string
-}
-
 // ─── Conversation & workspace ─────────────────────────
 
 export interface Conversation {

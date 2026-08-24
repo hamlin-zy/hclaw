@@ -6,8 +6,8 @@
  * - llm_call_done 瘦身：渲染端 handleLlmCallDone 只用 stats 字段，
  *   messages/systemPrompt/inputContent/outputContent/toolCalls 等大字段
  *   每轮经 worker→主进程→渲染进程全链 IPC 传输是纯浪费（sdd 长任务几十上百轮持续放大）。
- * - 注意：LLM 日志窗口消费的是 worker→主进程原始事件（logLlmCall 在 handleStreamEvent
- *   中直接取走，走独立 llm-call-log 通道），不受此处瘦身影响。
+ * - 注意：LLM 日志窗口消费的是 llm-trace 落盘记录（llmTraceRecorder），
+ *   不受此处瘦身影响。
  */
 
 import type {AgentStreamEvent} from './stream'

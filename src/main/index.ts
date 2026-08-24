@@ -16,8 +16,7 @@ import {agentManager, initAgent, registerAgentIPC} from './agent';
 import {registerMCPEventForwarding, registerMCPIPC} from './agent/mcp/ipc';
 import {migrateMcpFromSqlite} from './config/migrateMcpHookFromSqlite';
 import {mcpService} from './services/mcpService';
-import {initLlmCallLogIPC} from './utils/llmCallLogStore';
-import {initLlmLogIPC} from './utils/llmCallBuffer';
+import {initLlmTraceIPC} from './utils/llmCallLogStore';
 import {initUsageStatsIPC} from './utils/usageWindow';
 import {initConfigWindowIPC} from './utils/configWindow';
 import {initTaskBatchIPC} from './ipc/taskBatches';
@@ -372,8 +371,7 @@ app.on('ready', async () => {
   agentManager.setMainWindow(getMainWindow());
 
   // LLM call log IPC handlers
-  initLlmCallLogIPC();
-  initLlmLogIPC();
+  initLlmTraceIPC();
 
   // 全局用量统计窗口 + IPC
   initUsageStatsIPC();

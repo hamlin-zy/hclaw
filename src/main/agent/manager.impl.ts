@@ -7,17 +7,18 @@ import {BrowserWindow} from 'electron'
 import * as path from 'path'
 import {WORKER_MESSAGE_TYPES} from './constants'
 import type {AgentStreamEvent} from './stream'
-import type {AgentTemplate, LlmCallLog, Message, SystemSettings} from '@shared/types'
+import type {AgentTemplate, Message, SystemSettings} from '@shared/types'
 import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import type {ChatMessage, ModelConfig} from './model/types'
 import {permissionEngine} from './tools/permission'
-import {addLlmCallLog} from '../utils/llmCallLogStore'
+import {isRecordingEnabled, getLlmTraceRootDir} from '../utils/llmTraceRecorder'
+import type {LlmCallRecord} from '@shared/types/llmTrace'
 import {gracefulRestart} from '../utils/restart'
 import {capabilityManager} from './capabilityManager'
 import {logger} from './logger'
 import {mcpWorkerManager, setAgentManagerRef} from './mcp/mcpWorkerManager'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
-import {upsertSnapshot} from '../repositories/sqlite/taskBatchRepository'
+import {upsertSnapshot, getActiveBatch} from '../repositories/sqlite/taskBatchRepository'
 import {runtimeConfigManager} from './runtimeConfigManager'
 import {eventBus, MCPThemeEvents} from '../common/eventBus'
 import {notifyUserAttention, stopUserAttention} from '../attention'
@@ -35,6 +36,23 @@ import {
   PENDING_MSG_MAX_BYTES,
 } from './manager.constants'
 import {createPendingMsg, normalizeToolResult, finalizePending, appendCappedPart, isRenderedCopyFingerprintMatch, buildStreamSnapshot} from './manager.accumulator'
+
+// ─── 快照 v2 辅助（与 manager.accumulator.ts 双轨一致）──────────
+const PROGRESS_LOG_MAX_IMPL = 200
+const SUB_AGENT_STREAM_MAX_IMPL = 500
+
+type SubAgentEntry = NonNullable<PendingAssistantMsg['subAgentStream']>[string][number]
+
+function appendProgressEntryImpl(pending: PendingAssistantMsg, toolCallId: string, text: string): void {
+  const log = (pending.progressLog ??= {})
+  const arr = (log[toolCallId] ??= [])
+  arr.push({time: Date.now(), text})
+  if (arr.length > PROGRESS_LOG_MAX_IMPL) arr.splice(0, arr.length - PROGRESS_LOG_MAX_IMPL)
+}
+
+function capSubAgentBucketImpl(bucket: SubAgentEntry[]): void {
+  if (bucket.length > SUB_AGENT_STREAM_MAX_IMPL) bucket.splice(0, bucket.length - SUB_AGENT_STREAM_MAX_IMPL)
+}
 import {createForwardPayload, extractWorkerErrorMessage} from './manager.streamForward'
 import {recordLlmUsageEvent} from '../usageWrite'
 
@@ -120,6 +138,18 @@ export class AgentManager {
 
   // ─── Worker 生命周期管理 ───────────────────────────────
 
+  /**
+   * 广播消息到所有活跃 Agent Worker（llm-trace 录制开关等跨线程同步）。
+   * 已退出/销毁的 Worker 忽略 postMessage 异常。
+   */
+  broadcastToWorkers(msg: unknown): void {
+    for (const entry of this.workers.values()) {
+      try {
+        entry.worker.postMessage(msg)
+      } catch { /* Worker 已退出时忽略 */ }
+    }
+  }
+
   /** 启动 Agent Worker Thread */
   async start(params: AgentStartParams): Promise<void> {
     if (this.workers.has(params.conversationId)) {
@@ -158,11 +188,24 @@ export class AgentManager {
     // 初始化 pending
     this.pendingAssistantMsg.set(params.conversationId, null)
 
+    // ★ 跨轮任务恢复：Worker 进程内存态（taskStore）每次运行全新重建，若无恢复，
+    //   新一轮对话中 task_update 找不到上一轮创建的任务（updated=0 静默失败 → UI 不更新）。
+    //   从 DB 读取该会话活跃批次快照下发，Worker 启动时 seed 回 taskStore。
+    //   恢复失败不阻断启动（退化为"仅同轮任务可见"的旧行为）。
+    const taskBatchSnapshot = this.buildTaskBatchSnapshot(params.conversationId)
+
     const workerParams = {
       ...params,
       modelOverride: runtimeConfigManager.getOverride(params.conversationId),
       settings: initialSettings,
       capabilities,
+      // llm-trace 录制初态（Worker 侧模块单例无法读到主线程内存开关，spawn 时随 workerData 下发；
+      // 运行中变更靠 broadcastToWorkers 广播）
+      llmTraceEnabled: isRecordingEnabled(),
+      // llm-trace 根目录：Worker 内 electron 不可用，若自行解析会回退 ~/.hclaw 导致与
+      // 主线程读盘（userData）分叉——窗口读不到录制的数据。主进程解析后下发，保证写读同源。
+      llmTraceRootDir: getLlmTraceRootDir(),
+      ...(taskBatchSnapshot ? {taskBatchSnapshot} : {}),
     }
 
     const worker = new Worker(workerPath, {
@@ -329,6 +372,18 @@ export class AgentManager {
           return
         }
 
+        // llm-trace 实时记录/暂停：Worker 无法直推日志窗口，经此转发主进程。
+        // 动态 import 打破与 llmCallLogStore（其顶部 import agentManager）的循环依赖。
+        if (msg.type === 'llm-trace-record' || msg.type === 'llm-trace-paused') {
+            const {pushToLogsWindow} = await import('../utils/llmCallLogStore')
+            pushToLogsWindow(
+                msg.type === 'llm-trace-record'
+                    ? (msg as unknown as {record: LlmCallRecord}).record
+                    : {type: 'paused', reason: (msg as unknown as {reason?: string}).reason || '未知原因'},
+            )
+            return
+        }
+
         // 流事件处理
         // ★ 使用 msg.conversationId（若存在）而非闭包固定的 Worker 主会话 ID：
         //   taskStore 发出的 tasks_update 事件携带任务归属会话 ID（子会话任务 → 子会话 ID，
@@ -391,6 +446,25 @@ export class AgentManager {
           error: err instanceof Error ? err.message : String(err),
         })
       }
+    }
+  }
+
+  /** 读取会话活跃批次快照（跨轮任务恢复用；无活跃批次返回 null） */
+  private buildTaskBatchSnapshot(conversationId: string): AgentStartParams['taskBatchSnapshot'] {
+    try {
+      const active = getActiveBatch(conversationId)
+      if (!active) return null
+      return {
+        batch: {
+          id: active.batch.id,
+          name: active.batch.name,
+          status: active.batch.status === 'completed' ? 'completed' : 'active',
+        },
+        tasks: active.tasks as import('@shared/types').Task[],
+      }
+    } catch (err) {
+      logger.warn('[AgentManager] task batch snapshot load failed', {error: err})
+      return null
     }
   }
 
@@ -475,14 +549,9 @@ export class AgentManager {
       return
     }
 
-    // llm_call_done 事件
+    // llm_call_done 事件（usageWrite → llm_usage 统计轨）
     if (event.type === 'llm_call_done') {
-      this.logLlmCall(event)
       recordLlmUsageEvent(conversationId, event)
-    } else if (event.type === 'subagent_progress') {
-      // 该分支仅 JSONL 日志（logLlmCall），不写 llm_usage：内联子 Agent 的用量由路径 2 在 worker 内记录
-      const subEvent = event.subAgentStreamEvent
-      if (subEvent?.type === 'llm_call_done') this.logLlmCall(subEvent)
     }
 
     // done 事件
@@ -916,6 +985,84 @@ export class AgentManager {
         }
         break
       }
+
+      // ─── 快照 v2（统一恢复路径）：与 manager.accumulator.ts 双轨同步 ───
+
+      case 'tool_progress': {
+        const tp = event as {toolCallId?: string; progress?: string}
+        if (!pending || !tp.toolCallId || !tp.progress) break
+        const states = (pending.toolStates ??= {})
+        states[tp.toolCallId] = {...states[tp.toolCallId], progress: tp.progress}
+        appendProgressEntryImpl(pending, tp.toolCallId, tp.progress)
+        break
+      }
+
+      case 'tool_detail': {
+        const td = event as {toolCallId?: string; status?: string; progress?: number; eta?: number}
+        if (!pending || !td.toolCallId) break
+        const states = (pending.toolStates ??= {})
+        states[td.toolCallId] = {
+          ...states[td.toolCallId],
+          ...(td.progress !== undefined ? {progressPercent: td.progress} : {}),
+          ...(td.eta !== undefined ? {eta: td.eta} : {}),
+          ...(td.status ? {detailStatus: td.status as 'queued' | 'running' | 'completed' | 'failed'} : {}),
+        }
+        break
+      }
+
+      case 'subagent_start': {
+        const ss = event as {taskId?: string; description?: string}
+        if (!ss.taskId) break
+        if (!pending) pending = createPendingMsg()
+        const streams = (pending.subAgentStream ??= {})
+        const bucket = (streams[ss.taskId] ??= [])
+        bucket.push({type: 'start', text: ss.description ?? '', ts: Date.now()})
+        capSubAgentBucketImpl(bucket)
+        break
+      }
+
+      case 'subagent_progress': {
+        const sp = event as {taskId?: string; subAgentEvent?: string; progress?: string}
+        if (!sp.taskId) break
+        if (!pending) pending = createPendingMsg()
+        const streams = (pending.subAgentStream ??= {})
+        const bucket = (streams[sp.taskId] ??= [])
+        bucket.push({type: sp.subAgentEvent ?? 'progress', text: sp.progress ?? '', ts: Date.now()})
+        capSubAgentBucketImpl(bucket)
+        break
+      }
+
+      case 'ask_user': {
+        const au = event as {question?: string; options?: string[]; multiSelect?: boolean; requestId?: string}
+        if (!au.question) break
+        if (!pending) pending = createPendingMsg()
+        pending.pendingQuestion = {
+          question: au.question,
+          options: au.options,
+          multiSelect: au.multiSelect,
+          requestId: au.requestId,
+        }
+        break
+      }
+
+      case 'permission_confirm': {
+        const pc = event as {question?: string; requestId?: string}
+        if (!pc.question) break
+        if (!pending) pending = createPendingMsg()
+        pending.pendingPermissionConfirm = {question: pc.question, requestId: pc.requestId}
+        break
+      }
+
+      case 'done':
+      case 'error': {
+        // 终态清空阻塞态（兜底防陈旧阻塞态复活，与 accumulator.ts 双轨一致）
+        if (pending) {
+          pending.pendingQuestion = null
+          pending.pendingPermissionConfirm = null
+        }
+        break
+      }
+
       default:
     }
 
@@ -1095,29 +1242,6 @@ export class AgentManager {
 
   // ─── 内部工具方法 ───────────────────────────────────
 
-  /** 记录 LLM 调用日志 */
-  private logLlmCall(event: Extract<AgentStreamEvent, {type: 'llm_call_done'}>): void {
-    addLlmCallLog({
-      conversationTitle: event.conversationTitle,
-      provider: event.provider,
-      model: event.model,
-      duration: event.duration,
-      inputTokens: event.inputTokens,
-      outputTokens: event.outputTokens,
-      cacheReadTokens: event.cacheReadTokens,
-      cacheWriteTokens: event.cacheWriteTokens,
-      reasoningTokens: event.reasoningTokens,
-      // inputContent/outputContent 在事件类型中已声明可选（渲染端转发载荷不含），
-      // 日志消费的是 worker→主进程原始事件，worker 侧 controller.ts 总是填充；
-      // 防御性默认值兜底（空串）。
-      inputContent: event.inputContent ?? '',
-      outputContent: event.outputContent ?? '',
-      toolCalls: event.toolCalls as LlmCallLog['toolCalls'],
-      messages: event.messages as LlmCallLog['messages'],
-      systemPrompt: event.systemPrompt,
-    })
-  }
-
   /** 向主窗口发送消息（自动检查窗口有效性） */
   private sendToMainWindow(channel: string, ...args: any[]): void {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
@@ -1125,21 +1249,25 @@ export class AgentManager {
     }
   }
 
-  /** 转发事件到渲染进程 */
+  /** 转发事件到渲染进程（全窗口广播，spec §4.2 多窗口投递） */
   private forwardToRenderer(conversationId: string, event: AgentStreamEvent): void {
-    if (!this.mainWindow || this.mainWindow.isDestroyed()) {
+    const windows = BrowserWindow.getAllWindows()
+    if (windows.length === 0) {
       if (!SKIP_LOG_EVENT_TYPES.has(event.type)) {
         logger.info('forwardToRenderer', {skipType: event.type})
       }
       return
     }
 
-    try {
-      // ★ llm_call_done 瘦身逻辑见 manager.streamForward.ts（渲染端只用 stats 字段，
-      //   大字段不再经 IPC 全链传输；LLM 日志走独立通道不受影响）
-      this.mainWindow.webContents.send('agent-stream', createForwardPayload(conversationId, event))
-    } catch (err: unknown) {
-      logger.error('forwardToRenderer', {error: err instanceof Error ? err.message : String(err)})
+    const payload = createForwardPayload(conversationId, event)
+    for (const win of windows) {
+      if (!win.isDestroyed()) {
+        try {
+          win.webContents.send('agent-stream', payload)
+        } catch (err: unknown) {
+          logger.error('forwardToRenderer', {error: err instanceof Error ? err.message : String(err)})
+        }
+      }
     }
   }
 

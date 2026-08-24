@@ -31,7 +31,9 @@ vi.mock('@/main/config', () => {
 
 // ── electron 空壳：manager.impl 仅用 BrowserWindow 类型/null 检查 ──
 vi.mock('electron', () => ({
-    BrowserWindow: class {},
+    BrowserWindow: class {
+        static getAllWindows() { return [] }
+    },
     app: {getPath: () => '/tmp', isReady: () => true},
     dialog: {showErrorBox: vi.fn()},
     ipcMain: {handle: vi.fn(), on: vi.fn()},

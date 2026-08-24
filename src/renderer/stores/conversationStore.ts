@@ -848,20 +848,13 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           }
 
           set((state) => {
-              if (!workspacePath) return {
-                  activeConversationId: convId,
-                  loadedMessages: [],
-                  messagesMap: {...state.messagesMap, [convId]: []},
-              }
-              const wsInfo = state.workspaces[workspacePath] || {lastOpenedAt: now, conversations: []}
-              // 去重守卫：会话已存在（双投递）则只切换激活，不重复插入侧栏条目
-              if (wsInfo.conversations.some(c => c.id === convId)) {
-                  return {...state, activeConversationId: convId}
-              }
+              // 仅插入侧栏条目；activeConversationId 由下方 switchActiveConversation 统一设置
+              const wsInfo = workspacePath
+                  ? (state.workspaces[workspacePath] || {lastOpenedAt: now, conversations: []})
+                  : undefined
+              // 去重守卫：会话已存在（双投递）则不重复插入侧栏条目
+              if (!wsInfo || wsInfo.conversations.some(c => c.id === convId)) return state
               return {
-                  activeConversationId: convId,
-                  loadedMessages: [],
-                  messagesMap: {...state.messagesMap, [convId]: []},
                   workspaces: {
                       ...state.workspaces,
                       [workspacePath]: {...wsInfo, conversations: [summary, ...wsInfo.conversations]},
@@ -869,9 +862,17 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               }
           })
           // 用默认值初始化新会话的 agent 状态，确保待办列表不会残留旧会话数据
+          // ★ 时序保证：session_created 必然先于 session_handoff_start 被处理（同一
+          //   worker→main 消息队列顺序投递），此重置发生在任何交接流事件之前，不会误伤。
           useAgentStore.getState().updateConvData(convId, createDefaultConvData())
-          // 交接总结已由主进程写入 SQLite，加载为可见消息（非阻塞）
-          get().loadMessagesInitial(convId).catch?.(() => {})
+          // ★ 激活切换复用手动切换链路 switchActiveConversation（而非裸 set）：
+          //   含持久化消息加载 + 运行中会话内存流式消息合并 + reconcileStreamingContent
+          //   重建 contentBlocks + 定时截断调度。此前裸 set + 异步 loadMessagesInitial
+          //   整体覆盖 messagesMap 且无重建兜底，会冲掉已到达的流式占位消息，导致
+          //   交接后新会话无运行态、助手气泡不渲染，必须手动切换会话才恢复。
+          switchActiveConversation(convId).catch((err) => {
+              console.error('[handleSessionCreated] switch failed:', err)
+          })
       },
 
       // 子 Agent 独立会话创建事件处理：侧栏顶部插入 + 自动归属当前工作区

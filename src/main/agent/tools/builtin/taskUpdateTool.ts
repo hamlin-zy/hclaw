@@ -66,6 +66,16 @@ export const taskUpdateTool: Tool<TaskUpdateInput, { updated: number; cleared: n
                     const result = taskStore.updateTaskStatus(convId, t.id, args.status)
                     if (result) updated++
                 }
+                // ★ 明确失败语义：指定了 taskId 却一个都没更新 → 目标任务不存在。
+                //   跨轮场景（worker 重建后内存态为空）曾静默返回 success:true + updated:0，
+                //   LLM 误以为更新成功，UI 待办列表保持旧状态。
+                if (ids && updated === 0) {
+                    return {
+                        success: false,
+                        output: {updated: 0, cleared: 0},
+                        error: `未找到指定任务（${ids.join(', ')}）：任务不存在或不属于当前会话`,
+                    }
+                }
                 return {
                     success: true,
                     output: {updated, cleared: 0, status: args.status},
