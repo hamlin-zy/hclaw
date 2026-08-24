@@ -305,13 +305,15 @@ declare global {
             error?: string
         }>
 
-        // LLM call logs
-        getLlmCallLogs: () => Promise<any[]>
-        clearLlmCallLogs: () => Promise<boolean>
+        // LLM 调用轨迹（llm-trace:*；取代旧 llm-call-logs 管线）
         openLlmLogsWindow: () => Promise<void>
-        onLlmCallLog: (callback: (log: any) => void) => () => void
-        getLlmLogEnabled: () => Promise<boolean>
-        toggleLlmLog: (enabled: boolean) => Promise<boolean>
+        getLlmTraceProjection: (convIds?: string[]) => Promise<import('./components/llmTrace/types').LlmTraceProjection>
+        getLlmTraceFile: (convId: string, file: string) => Promise<string | null>
+        listLlmTraceConversations: () => Promise<string[]>
+        toggleLlmTrace: (enabled: boolean) => Promise<boolean>
+        clearLlmTrace: () => Promise<boolean>
+        onLlmTraceRecord: (callback: (record: import('../shared/types/llmTrace').LlmCallRecord) => void) => () => void
+        onLlmTraceEvent: (callback: (ev: {type: 'paused'; reason: string}) => void) => () => void
 
         // 全局用量统计窗口
         openUsageStatsWindow: () => Promise<void>

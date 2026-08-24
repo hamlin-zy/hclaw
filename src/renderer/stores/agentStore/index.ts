@@ -28,9 +28,9 @@ import {useToolCallsStore} from '../toolCallsStore'
 import {flushAllTextBatches} from './batching/textBatch'
 import {flushAllThinkingBatches} from './batching/thinkingBatch'
 import {flushToolResultBatch, getToolResultBatchMap} from './batching/toolResultBatch'
-import {saveHmrContext, restoreFromHmr} from './helpers/hmrPersistence'
 import {syncConvToTopLevel} from './helpers/convHelpers'
 import {planRecovery} from './helpers/recoverySeeding'
+import {buildSeedInstruction, applySeedInstruction} from './helpers/seedApplication'
 import {updateMessageContentBlocks, reconcileStreamingContent} from './contentBlocks'
 import {startAgentImpl} from './handlers/startAgent'
 import {abortAgentImpl} from './handlers/abortAgent'
@@ -344,115 +344,42 @@ export const useAgentStore = create<AgentStore>()(
             // ── 会话恢复 ──────────────────────────────
             recoverSessions: async () => {
                 try {
-                    const restored = await restoreFromHmr()
-
                     const status = await window.electronAPI?.agentStatus?.()
                     if (!status?.allRunning?.length) {
-                        get().recoverSessionsCleanup(restored)
+                        get().recoverSessionsCleanup()
                         return
                     }
 
                     const convStore = useConversationStore.getState()
-                    const toolCallsState = useToolCallsStore.getState()
 
                     for (const convId of status.allRunning) {
-                        if (restored.has(convId)) continue
-
                         if (!convStore.messagesMap[convId]?.length) {
                             await convStore.loadMessagesInitial(convId)
                         }
 
                         const msgs = convStore.messagesMap[convId] || convStore.loadedMessages || []
-                        const lastAssistantMsg = [...msgs].reverse().find((m) => m.role === 'assistant')
-
-                        // ★ 崩溃恢复播种（P1）：以主进程流快照为唯一事实源。
-                        //   旧实现取 DB 最后一条 assistant 消息的 metadata.content——assistant
-                        //   正文不存 metadata（只在 blocks）→ streamBuffer 恒空 → 空白幽灵气泡；
-                        //   当前轮消息行未落库时会错位选中旧消息。
-                        //   决策逻辑见 helpers/recoverySeeding.ts planRecovery。
                         const snapshot = await window.electronAPI?.agentStreamSnapshot?.(convId) ?? null
-                        const plan = planRecovery(snapshot, msgs)
 
-                        // 崩溃窗口丢失结果的工具（DB running 但快照不含）：标记取消 + 同步消息级状态，
-                        // 避免 toolCallsStore 清空后回退到持久化的 running
-                        if (plan.staleToolIds.length > 0 && lastAssistantMsg) {
-                            const staleSet = new Set(plan.staleToolIds)
-                            for (const tc of lastAssistantMsg.toolCalls || []) {
-                                if (!staleSet.has(tc.id)) continue
-                                toolCallsState.registerToolCall(tc.id, {
-                                    status: 'cancelled',
-                                    progress: tc.progress || '会话中断, 工具已取消',
-                                })
-                                if (tc.name === 'agent' && tc.taskId) {
-                                    toolCallsState.registerToolCall(`sub-${tc.taskId}`, {
-                                        status: 'cancelled',
-                                        progress: '会话中断, 子 Agent 已取消',
-                                    })
-                                }
-                            }
-                            convStore.updateMessageForConv(convId, lastAssistantMsg.id, {
-                                toolCalls: (lastAssistantMsg.toolCalls || []).map(tc =>
-                                    staleSet.has(tc.id) ? {...tc, status: 'cancelled' as const} : tc
-                                ),
-                            })
-                        }
+                        // 统一播种：快照 v2 → 声明式指令 → 执行
+                        const instruction = buildSeedInstruction(snapshot, msgs)
+                        applySeedInstruction(convId, instruction)
 
-                        // 快照中真实在跑的工具：注册为 running，UI 保持执行态
-                        for (const tcId of plan.liveToolIds) {
-                            toolCallsState.registerToolCall(tcId, {status: 'running'})
-                        }
-
-                        if (plan.seed) {
-                            const seedId = plan.seed.streamingMessageId
-                            if (!msgs.some(m => m.id === seedId)) {
-                                // DB 行未建（首 flush 前崩溃）→ 用快照数据占位
-                                convStore.addMessageToConv(convId, {
-                                    id: seedId,
-                                    role: 'assistant',
-                                    content: plan.seed.streamBuffer,
-                                })
-                            } else {
-                                // 已有半成品行 → 快照全文覆盖内存 content
-                                convStore.updateMessageForConv(convId, seedId, {
-                                    content: plan.seed.streamBuffer,
-                                })
-                            }
-                            get().updateConvData(convId, {
-                                streamingMessageId: seedId,
-                                streamBuffer: plan.seed.streamBuffer,
-                                thinkingContent: plan.seed.thinkingContent,
-                                recoveredTextBlockBase: snapshot?.dbTextBlockCount ?? 0,
-                                // ★ 崩溃恢复标记：即使 DB 中 seedId 消息 endedAt 已写（崩溃前
-                                //   worker 落库），下一轮流式仍应复用该 id（与主进程 pending 对齐），
-                                //   否则 ensureStreamingMessage 因 endedAt 检测置 null 生成新 id
-                                //   → 渲染端内存出现第二条 assistant（幽灵气泡）。
-                                recoveredStreaming: true,
-                                agentState: STREAMING_STATE,
-                            })
-                        } else {
-                            // worker 在跑但尚无累积（首 token 前）：仅置运行态，
-                            // 不指向任何历史消息（防错位幽灵气泡）
-                            get().updateConvData(convId, {agentState: STREAMING_STATE})
-                        }
-
-                        restored.add(convId)
                         syncConvToTopLevel(convId)
-                        console.log(`[agentStore] 已恢复 Agent 会话: ${convId}${plan.seed ? `, 消息: ${plan.seed.streamingMessageId}` : '（等待首个流事件）'}`)
+                        console.log(`[agentStore] 已恢复 Agent 会话: ${convId}${snapshot ? `, 消息: ${snapshot.streamingMessageId}` : '（等待首个流事件）'}`)
                     }
 
-                    get().recoverSessionsCleanup(restored)
+                    get().recoverSessionsCleanup()
                 } catch (err) {
                     console.error('[agentStore] recoverSessions 失败:', err)
                 }
             },
 
-            recoverSessionsCleanup: (keepRunning?: Set<string>) => {
+            recoverSessionsCleanup: () => {
                 const convStates = get().convAgentStates
                 const convStore = useConversationStore.getState()
                 for (const [convId, data] of Object.entries(convStates)) {
                     const isBusy = data.agentState.status === 'running' || data.agentState.status === 'thinking'
                     if (!isBusy) continue
-                    if (keepRunning?.has(convId)) continue
 
                     get().updateConvData(convId, createDefaultConvData())
                     if (convId === convStore.activeConversationId) {
@@ -488,7 +415,6 @@ export const useAgentStore = create<AgentStore>()(
                     document.removeEventListener('visibilitychange', onVisibilityChange)
                     flushAllTextBatches()
                     flushAllThinkingBatches()
-                    saveHmrContext()
                     streamUnsubscribe?.()
                     unsubBatches?.()
                     streamUnsubscribe = null

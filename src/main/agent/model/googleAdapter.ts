@@ -12,6 +12,7 @@
  */
 
 import {GoogleGenerativeAI} from '@google/generative-ai'
+import {recordingFetch} from '../../utils/llmTraceRecorder'
 import type {
     ChatMessage,
     ChatParams,
@@ -24,6 +25,8 @@ import type {
 } from './types'
 
 export class GoogleAdapter implements ModelAdapter {
+    /** API 协议形态：轨迹日志按 google 解析器归因 usage（与 llmUsageParser PARSERS 键对齐） */
+    readonly apiStyle = 'google' as const
     private genAI: GoogleGenerativeAI
     private model: string
     private apiKey: string
@@ -235,7 +238,7 @@ export class GoogleAdapter implements ModelAdapter {
                 maxOutputTokens: maxTokens || 8192,
             },
             ...(tools?.length ? {tools: this.convertTools(tools)} : {}),
-        })
+        }, {fetchFn: recordingFetch} as any)
 
         try {
             const chat = model.startChat({history})
