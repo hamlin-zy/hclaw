@@ -23,8 +23,11 @@ import type {
     ToolDefinition,
 } from './types'
 import {isThirdPartyAnthropicAPI} from './utils'
+import {recordingFetch} from '../../utils/llmTraceRecorder'
 
 export class AnthropicAdapter implements ModelAdapter {
+  /** API 协议形态：轨迹日志按 anthropic 解析器归因 usage（与 llmUsageParser PARSERS 键对齐） */
+  readonly apiStyle = 'anthropic' as const
   private client: Anthropic
   private model: string
   private features: ModelConfig['features'] = undefined
@@ -40,6 +43,7 @@ export class AnthropicAdapter implements ModelAdapter {
             this.client = new Anthropic({
                 apiKey: config.apiKey || '',
                 baseURL: config.baseUrl || undefined,
+                fetch: recordingFetch,
             })
         }
     this.model = config.model

@@ -14,6 +14,7 @@ import {execFile} from 'child_process'
 const execFileAsync = promisify(execFile)
 import * as path from 'path'
 import * as fs from 'fs/promises'
+import {withLlmTraceStream, type LlmTraceCallContext} from '../../utils/llmTraceRecorder'
 
 export function registerHandlers(): void {
     // 工具列表 + MCP 服务器列表（用于测试）
@@ -112,7 +113,15 @@ export function registerHandlers(): void {
                 }]
 
                 const textParts: string[] = []
-                const stream = adapter.chat({messages, maxTokens: 4096})
+                // ── LLM 出口：语音转文字 IPC（前端录音转写，无关联会话）──
+                const traceCtx: LlmTraceCallContext = {
+                    conversationId: 'unknown', turn: 0, step: 0, attempt: 0,
+                    provider: modelConfig.provider, model: modelConfig.model,
+                    apiStyle: adapter.apiStyle ?? 'chat',
+                    context: 'background',
+                }
+                                // withLlmTraceStream：流消费时刻可能已离开创建作用域，代理每次 next() 重入 ctx
+                const stream = withLlmTraceStream(traceCtx, adapter.chat({messages, maxTokens: 4096}))
                 for await (const chunk of stream) {
                     if (chunk.type === 'text') {
                         textParts.push(chunk.content)

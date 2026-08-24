@@ -10,7 +10,12 @@ import {logger} from './logger'
 import {PENDING_MSG_MAX_BYTES} from './manager.constants'
 import {formatToolResult} from '@shared/utils/toolResult'
 import type {AgentStreamEvent} from './stream'
-import type {PendingAssistantMsg} from './manager.types'
+import type {
+    PendingAssistantMsg,
+    ProgressEntry,
+    SubAgentStreamEntry,
+    ToolProgressState,
+} from './manager.types'
 
 /**
  * 方案 C：段内数组追加 + O(1) 长度计数；超限时截断末段。
@@ -189,6 +194,20 @@ export function accumulateStreamEvent(
       break
     }
 
+    case 'tool_completed': {
+      // 与 tool_result 同构（stream.ts 中两者并存；completed 由工具执行器主动上报）
+      if (!pending || !event.toolCallId) break
+      const idx = pending.toolCalls.findIndex(t => t.id === event.toolCallId)
+      if (idx === -1) break
+      const normalized = normalizeToolResult(event.result)
+      pending.toolCalls[idx] = {
+        ...pending.toolCalls[idx],
+        status: normalized.success ? 'success' : 'error',
+        result: normalized,
+      }
+      break
+    }
+
     case 'tool_denied': {
       if (!pending || !event.toolCallId) {
         break
@@ -207,6 +226,74 @@ export function accumulateStreamEvent(
           error: deniedReason,
           toolResult: `[ERROR] ${deniedReason}`,
         },
+      }
+      break
+    }
+
+    // ─── 快照 v2（统一恢复路径）：以下状态原为渲染层独占内存态，主进程同步累积 ───
+
+    case 'tool_progress': {
+      if (!pending || !event.toolCallId) break
+      const states = (pending.toolStates ??= {})
+      states[event.toolCallId] = {...states[event.toolCallId], progress: event.progress}
+      appendProgressEntry(pending, event.toolCallId, event.progress)
+      break
+    }
+
+    case 'tool_detail': {
+      if (!pending || !event.toolCallId) break
+      const states = (pending.toolStates ??= {})
+      states[event.toolCallId] = {
+        ...states[event.toolCallId],
+        ...(event.progress !== undefined ? {progressPercent: event.progress} : {}),
+        ...(event.eta !== undefined ? {eta: event.eta} : {}),
+        detailStatus: event.status,
+      }
+      break
+    }
+
+    case 'subagent_start': {
+      if (!pending) pending = createPendingMsg()
+      const streams = (pending.subAgentStream ??= {})
+      const bucket = (streams[event.taskId] ??= [])
+      bucket.push({type: 'start', text: event.description, ts: Date.now()})
+      capSubAgentBucket(bucket)
+      break
+    }
+
+    case 'subagent_progress': {
+      if (!pending) pending = createPendingMsg()
+      const streams = (pending.subAgentStream ??= {})
+      const bucket = (streams[event.taskId] ??= [])
+      bucket.push({type: event.subAgentEvent, text: event.progress ?? '', ts: Date.now()})
+      capSubAgentBucket(bucket)
+      break
+    }
+
+    case 'ask_user': {
+      // 阻塞态入快照：崩溃恢复后若丢失会导致 agent 永久等待用户输入（spec §4.2）
+      if (!pending) pending = createPendingMsg()
+      pending.pendingQuestion = {
+        question: event.question,
+        options: event.options,
+        multiSelect: event.multiSelect,
+        requestId: event.requestId,
+      }
+      break
+    }
+
+    case 'permission_confirm': {
+      if (!pending) pending = createPendingMsg()
+      pending.pendingPermissionConfirm = {question: event.question, requestId: event.requestId}
+      break
+    }
+
+    case 'done':
+    case 'error': {
+      // 终态清空阻塞态（正常路径由用户应答后的后续事件覆盖，此处为兜底防陈旧阻塞态复活）
+      if (pending) {
+        pending.pendingQuestion = null
+        pending.pendingPermissionConfirm = null
       }
       break
     }
@@ -234,7 +321,29 @@ export function createPendingMsg(): PendingAssistantMsg {
     toolCalls: [],
     thinkContent: null,
     timestamp: Date.now(),
+    // 快照 v2 状态的安全默认值（渲染端免判空）
+    toolStates: {},
+    progressLog: {},
+    subAgentStream: {},
+    pendingQuestion: null,
+    pendingPermissionConfirm: null,
   }
+}
+
+// ─── 快照 v2 辅助：进度时间轴 / 子 Agent 流缓冲 ──────────────
+
+const PROGRESS_LOG_MAX = 200   // 对齐渲染端 progressLog 时间轴的合理驻留上限
+const SUB_AGENT_STREAM_MAX = 500  // 对齐渲染端 toolCallsStore 上限（toolCallsStore.ts:153）
+
+function appendProgressEntry(pending: PendingAssistantMsg, toolCallId: string, text: string): void {
+  const log = (pending.progressLog ??= {})
+  const arr = (log[toolCallId] ??= [])
+  arr.push({time: Date.now(), text})
+  if (arr.length > PROGRESS_LOG_MAX) arr.splice(0, arr.length - PROGRESS_LOG_MAX)
+}
+
+function capSubAgentBucket(bucket: SubAgentStreamEntry[]): void {
+  if (bucket.length > SUB_AGENT_STREAM_MAX) bucket.splice(0, bucket.length - SUB_AGENT_STREAM_MAX)
 }
 
 // ─── 崩溃恢复流快照（P1） ──────────────────────────────────
@@ -252,6 +361,25 @@ export interface StreamSnapshot {
    * （碰撞 → UPDATE-append 进旧块 → 正文错序，done 时修补也无法纠正顺序）。
    */
   dbTextBlockCount: number
+
+  // ─── 快照 v2（统一恢复路径，spec §4.2 状态覆盖面扩展）──────────
+  /** toolCall 进度态（progress/percent/eta/detailStatus），键为 toolCallId */
+  toolStates: Record<string, ToolProgressState>
+  /** 工具进度时间轴，键为 toolCallId */
+  progressLog: Record<string, ProgressEntry[]>
+  /** 子 Agent 流缓冲，键为 taskId */
+  subAgentStream: Record<string, SubAgentStreamEntry[]>
+  /** ask_user 阻塞态（null = 无） */
+  pendingQuestion: PendingAssistantMsg['pendingQuestion']
+  /** permission_confirm 阻塞态（null = 无） */
+  pendingPermissionConfirm: PendingAssistantMsg['pendingPermissionConfirm']
+  /** 运行中工具数（由 toolCalls.status 派生，保证与列表自洽） */
+  runningToolCount: number
+  /**
+   * 工具执行区提示文案。主进程不生成 UI 文案，恒为 null；
+   * 渲染端 applySeed 时按 toolCalls 派生，字段保留以稳定快照契约
+   */
+  executingToolsMessage: null
 }
 
 /**
@@ -273,6 +401,19 @@ export function buildStreamSnapshot(pending: PendingAssistantMsg | null, dbTextB
       : (pending.thinkContent ?? null),
     toolCalls: [...pending.toolCalls],
     dbTextBlockCount,
+    // v2：浅拷贝防外部改写 pending 内部状态（保持只读契约）
+    toolStates: {...(pending.toolStates ?? {})},
+    progressLog: Object.fromEntries(
+      Object.entries(pending.progressLog ?? {}).map(([k, v]) => [k, [...v]]),
+    ),
+    subAgentStream: Object.fromEntries(
+      Object.entries(pending.subAgentStream ?? {}).map(([k, v]) => [k, [...v]]),
+    ),
+    pendingQuestion: pending.pendingQuestion ?? null,
+    pendingPermissionConfirm: pending.pendingPermissionConfirm ?? null,
+    // 由 toolCalls 状态派生，保证与列表永远自洽
+    runningToolCount: pending.toolCalls.filter(t => t.status === 'running').length,
+    executingToolsMessage: null,
   }
 }
 

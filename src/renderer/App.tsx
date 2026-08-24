@@ -30,6 +30,8 @@ import {useGlobalHotkeys} from './hooks/useGlobalHotkeys'
 import TooltipPortal from './components/common/TooltipPortal'
 import {createGcScheduler} from './lib/gcScheduler'
 import {syncExchangeRate} from './lib/format'
+import {registerStoreMemorySources} from './utils/memorySources'
+import {startWatermarkTimer} from './utils/memoryWatermark'
 import type {ModelType} from '@shared/types'
 
 interface ErrorBoundaryProps {
@@ -580,6 +582,13 @@ export default function App() {
   useEffect(() => {
     useAgentStore.getState().recoverSessions()
   }, [registerStreamListener])
+
+  // ── dev-only：内存水位监控（spec §3.1，泄漏诊断基础设施）──
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    registerStoreMemorySources()
+    startWatermarkTimer()
+  }, [])
 
   // 注册退出时刷盘监听
   useEffect(() => {

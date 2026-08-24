@@ -1,7 +1,7 @@
 /**
  * 通用独立窗口工厂
  *
- * 收敛 usageWindow / llmCallBuffer / 配置窗口三处复制粘贴：
+ * 收敛 usageWindow / 配置窗口等独立窗口创建的复制粘贴：
  * 无边框创建、主题三参数注入、窗口控制 IPC 注册、加载入口统一在此实现。
  * 数据 IPC 留在各窗口模块，不并入工厂。
  * 职责边界：工厂只负责「窗口创建 + 窗口控制 IPC + 加载」；单例/注册表由调用方维护。
@@ -11,6 +11,9 @@ import path from 'path'
 import os from 'os'
 import {getAppIconPath} from './icon'
 import {readThemeSetting} from './theme'
+import {createLogger} from '../agent/logger'
+
+const logger = createLogger('windowFactory')
 
 export interface AppWindowOptions {
     /** 窗口 id：IPC 命名空间 + 渲染进程身份（--hclaw-window-id） */
@@ -139,6 +142,17 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
     // 最大化状态广播给渲染进程（更新最大化/还原按钮）
     win.on('maximize', () => win.webContents.send(`${id}-maximized-changed`, true))
     win.on('unmaximize', () => win.webContents.send(`${id}-maximized-changed`, false))
+
+    // dev-only：转发渲染进程内存水位日志到主进程 logger 落盘（spec §3.1 泄漏诊断链路）
+    // Electron 43 WebContents 新签名：单对象参数 Event<WebContentsConsoleMessageEventParams>
+    if (process.env.NODE_ENV === 'development' || process.argv.includes('--inspect')) {
+        win.webContents.on('console-message', (details) => {
+            const {message} = details
+            if (typeof message === 'string' && message.startsWith('[mem-watermark]')) {
+                logger.info('watermark', {payload: message.slice('[mem-watermark]'.length).trim()})
+            }
+        })
+    }
 
     // 窗口控制 IPC：闭包引用当前 win 实例（同 id 重开时 safeHandle 幂等替换）
     safeHandle(`${id}:minimize`, () => {

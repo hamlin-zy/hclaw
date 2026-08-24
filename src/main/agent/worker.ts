@@ -24,6 +24,7 @@ import {logger} from './logger'
 import {getMessagePreview} from './utils/contentUtils'
 import {createStreamBatchAccumulator} from './streamBatch'
 import type {AgentStreamEvent} from './stream'
+import {setRecordingEnabled} from '../utils/llmTraceRecorder'
 
 /** Phase 2: 通过 MessagePort 从 MCP Worker 获取已连接的工具列表 */
 async function listMcpServersFromWorker(port: MessagePort): Promise<Array<{
@@ -252,10 +253,17 @@ async function main(): Promise<void> {
         }
     })
 
+    // ── llm-trace 录制开关同步 ──
+    // 初态：spawn 时主进程经 workerData.params.llmTraceEnabled 下发；
+    // 运行中：主进程 AgentManager.broadcastToWorkers 广播变更。
+    setRecordingEnabled((workerData as {params?: {llmTraceEnabled?: boolean}}).params?.llmTraceEnabled === true)
+    parentPort?.on('message', (msg: any) => {
+        if (msg?.type === 'llm-trace-recording') setRecordingEnabled(!!msg.enabled)
+    })
+
     // 处理主进程消息（MCP Worker 不可用/恢复通知）
     parentPort?.on('message', async (msg: any) => {
         if (msg.type === 'mcp_worker_unavailable') {
-            
             setMcpMessagePort(null)
             if (mcpPort) {
                 try {
@@ -501,6 +509,13 @@ async function main(): Promise<void> {
                 event: buildTasksUpdateEventPayload(msg),
             })
         })
+
+        // ★ 跨轮任务恢复：Worker 进程内存态每次运行全新，从主进程下发的快照
+        //   恢复活跃批次，否则新一轮对话中 task_update 找不到上一轮创建的任务
+        //   （updated=0 静默失败 → UI 待办列表不更新）。无快照时保持空态即可。
+        if (params.taskBatchSnapshot?.batch) {
+            taskStore.seedActiveBatch(params.conversationId, params.taskBatchSnapshot.batch, params.taskBatchSnapshot.tasks || [])
+        }
 
     // 注册清理函数（进程退出时）
     

@@ -17,6 +17,7 @@ import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import type {RunParams, LlmStreamResult, ToolExecutionResult} from './types'
 
 import {LLMCaller, isContextLengthError as checkContextLengthError, parsePlannedCommands} from './llmCaller'
+import {selectModelForTurn} from './setup'
 import {ToolExecutor} from './toolExecutor'
 import {addMessage} from '../state'
 import {PreprocessCache} from './preprocessCache'
@@ -33,6 +34,7 @@ import {computeTokenTiming, isTokenDelta} from './tokenTiming'
 import {resolveContextUsageTokens} from '../context'
 import {resolveMaxContextTokens} from './modelMaxContext'
 import {modelMetaRegistry} from '../../modelMetaRegistry'
+import {withLlmTraceStream, type LlmTraceCallContext} from '../../utils/llmTraceRecorder'
 
 const toolRegistry = getToolRegistry()
 
@@ -116,9 +118,15 @@ export function shouldRetryAttempt(
 export async function* executeLlmCallWithRetry(
     ctx: ExecuteLlmCallParams,
 ): AsyncGenerator<AgentStreamEvent, LlmStreamResult | null> {
-    const {llmCaller, state, systemPrompt, commandTemplate, availableToolDefinitions, preCapabilityToolDefinitions, modelConfig,
-        workModeRole, schemeName, getSettings, params, isCompactCommand, turns, preprocessCache, directModel} = ctx
+    const {llmCaller, state, systemPrompt, commandTemplate, availableToolDefinitions, preCapabilityToolDefinitions,
+        schemeName, getSettings, params, isCompactCommand, turns, preprocessCache} = ctx
     const {abortSignal, requestConfirmation} = params
+
+    // ★ modelConfig/directModel/workModeRole 用 let：重试倒计时期间用户可能已切换模型
+    //   （会话 override / 全局方案），每次 attempt 重新解析后用最新配置重试，避免旧模型空转重试。
+    let modelConfig = ctx.modelConfig
+    let directModel = ctx.directModel ?? false
+    let workModeRole = ctx.workModeRole
 
     const retryCount = getSettings()?.agent.retryCount ?? 10
     const maxDelay = getSettings()?.agent.maxRetryDelay ?? 120_000
@@ -140,6 +148,33 @@ export async function* executeLlmCallWithRetry(
 
     for (let attempt = 1; attempt <= retryCount; attempt++) {
         if (abortSignal?.aborted) return null
+
+        // ★ 重试前（attempt ≥ 2）重新解析当前模型配置：重试倒计时期间用户可能已切换
+        //   模型服务商/模型（会话 override 仅同步内存、不 bump schemeVersion，getAdapter 指纹无法感知），
+        //   每次 attempt 基于最新选择重试，及时切换到用户新选的模型。
+        if (attempt > 1) {
+            const fresh = yield* selectModelForTurn(params.schemeConfig, params.sessionId, params.modelRole)
+            const freshModel = fresh.modelConfig
+            const freshDirect = fresh.directModel ?? false
+            // 守卫：无可用方案时 selectModelForTurn 返回空占位（{provider:'custom', model:''}），
+            // 此时保留原配置继续重试，避免空配置覆盖。
+            const hasValidModel = !!freshModel.provider && !!freshModel.model
+            if (hasValidModel) {
+                const changed =
+                    freshModel.provider !== modelConfig.provider ||
+                    freshModel.model !== modelConfig.model ||
+                    freshDirect !== directModel
+                if (changed) {
+                    logger.info(
+                        `[AgentLoop] 重试前检测到模型切换：${modelConfig.provider}/${modelConfig.model}` +
+                        ` → ${freshModel.provider}/${freshModel.model}（direct=${freshDirect}）`,
+                    )
+                }
+                modelConfig = freshModel
+                directModel = freshDirect
+                workModeRole = fresh.suggestedRole
+            }
+        }
 
         const contentParts: string[] = []
         const thinkingParts: string[] = []
@@ -312,7 +347,20 @@ export async function* executeLlmCallWithRetry(
                 : systemPrompt
 
             const maxTokens = getSettings()?.model.defaultMaxTokens ?? DEFAULT_MAX_TOKENS
-            const rawStream = adapter.chat({
+            // ── LLM 出口：agent 主循环 chat 调用 ──
+            // withLlmTraceStream 包裹生成器：recordingFetch 在流消费时刻仍能读到归因上下文
+            const traceCtx: LlmTraceCallContext = {
+                conversationId: params.sessionId ?? 'unknown',
+                turn: turns,
+                step: 1,
+                attempt: attempt - 1,          // 循环变量从 1 起，轨迹记录从 0 起
+                provider: currentProvider,
+                model: currentModel,
+                apiStyle: adapter.apiStyle ?? 'chat',
+                // agentTool 子会话携带 agentType，归类为 subAgent；否则为 main
+                context: params.agentType ? 'subAgent' : 'main',
+            }
+            const rawStream = withLlmTraceStream(traceCtx, adapter!.chat({
                 systemPrompt: effectiveSystemPrompt,
                 ...(isAnthropic && commandTemplate ? {commandTemplate} : {}),
                 messages: messagesToSend,
@@ -320,7 +368,7 @@ export async function* executeLlmCallWithRetry(
                 maxTokens,
                 temperature: getSettings()?.model.defaultTemperature ?? 0,
                 ...(effectiveThinkingEffort ? {thinkingEffort: effectiveThinkingEffort} : {}),
-            })
+            }))
 
             const stream = withTimeout(
                 rawStream,
@@ -399,6 +447,14 @@ export async function* executeLlmCallWithRetry(
             const assistantContent = contentParts.join('')
             const assistantThinking = thinkingParts.join('')
             const assistantReasoningContent = reasoningParts.join('')
+
+            // ── 检测空/blank 响应：若 LLM 既无文本内容也无工具调用，视为可重试错误 ──
+            //   覆盖 ""、仅空白字符、或流式传输中无有效内容的情况。纯工具调用（仅
+            //   tool_use 事件、无 text 事件）是合法响应，text 为空但 collectedToolCalls
+            //   非空时不能误判为空响应。此处避免在空内容上解析 plannedCommands。
+            if (!assistantContent.trim() && collectedToolCalls.length === 0) {
+                throw new Error('LLM 返回了空响应')
+            }
 
             // ── 解析 plannedCommands ──
             let plannedCommands: string[] | undefined

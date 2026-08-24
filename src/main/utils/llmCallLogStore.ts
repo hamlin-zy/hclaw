@@ -1,74 +1,127 @@
 /**
- * LLM 调用日志存储
+ * LLM 调用轨迹 IPC（llm-trace:*）
  *
- * 基于 llmCallBuffer 模块的缓冲写入，减少同步 I/O 阻塞
+ * 取代旧 llm-calls.jsonl 管线的 IPC 面：
+ * - toggle/get-projection/get-file/clear/list-conversations
+ * - llm-logs 窗口打开时打标记（recorder 据此推送实时 record），
+ *   窗口关闭自动停录并广播 Worker。
  */
 
-import {BrowserWindow, ipcMain} from 'electron'
-import type {LlmCallLog} from '@shared/types'
-import {
-    addToBuffer,
-    clearLogs,
-    flush,
-    loadRecentLogs,
-    setLogWindow
-} from './llmCallBuffer'
+import {ipcMain} from 'electron'
+import fs from 'fs'
+import path from 'path'
+import type {BrowserWindow} from 'electron'
 import {openConfigWindow} from './configWindow'
+import {
+    setRecordingEnabled,
+    clearTraceLogs,
+    isRecordingEnabled,
+    onTracePaused,
+    getTraceIndexLines,
+    getLlmTraceRootDir,
+} from './llmTraceRecorder'
+import {foldRecords, computeTokens} from './llmLogProjection'
+import {agentManager} from '../agent/manager.impl'
+import type {LlmCallRecord} from '@shared/types/llmTrace'
 
-/**
- * 添加 LLM 调用日志
- */
-export function addLlmCallLog(log: Omit<LlmCallLog, 'id' | 'timestamp'>): LlmCallLog | null {
-    return addToBuffer(log)
-}
+/** trace 落盘文件名白名单：<uuid>.req.json / <uuid>.res.raw */
+const TRACE_FILE_RE = /^[0-9a-f-]{36}\.(req\.json|res\.raw)$/
 
-/**
- * 获取所有 LLM 调用日志
- */
-export function getLlmCallLogs(): LlmCallLog[] {
-    return loadRecentLogs(500)
-}
-
-/**
- * 清空所有 LLM 调用日志
- */
-export function clearLlmCallLogs(): void {
-    clearLogs()
-}
-
-/**
- * 设置日志窗口引用（窗口创建/复用时由 openConfigWindow onCreated 回传）
- */
-export function setLogWindowRef(win: BrowserWindow | null): void {
-    setLogWindow(win)
-}
-
-/**
- * 注册 IPC handlers
- */
-export function initLlmCallLogIPC(): void {
-    ipcMain.handle('llm-call-logs:get', () => {
-        return getLlmCallLogs()
+export function initLlmTraceIPC(): void {
+    ipcMain.handle('llm-trace:toggle', (_e, enabled: boolean) => {
+        setRecordingEnabled(enabled)
+        agentManager.broadcastToWorkers({type: 'llm-trace-recording', enabled})
+        return isRecordingEnabled()
     })
 
-    ipcMain.handle('llm-call-logs:clear', () => {
-        clearLlmCallLogs()
+    ipcMain.handle('llm-trace:get-projection', async (_e, conversationIds?: string[]) => {
+        // 未指定会话（或空数组）时投影全部会话目录；目录名是清洗后 safeId，getTraceIndexLines 可直接接受
+        const ids = conversationIds && conversationIds.length > 0 ? conversationIds : listConversationDirs()
+        const records: LlmCallRecord[] = []
+        for (const id of ids) records.push(...await getTraceIndexLines(id))
+        const {timeline, summary} = foldRecords(records)
+        const summaryTokens = await computeTokens(records, loadResRaw)
+        return {timeline, summary, summaryTokens}
+    })
+
+    ipcMain.handle('llm-trace:get-file', (_e, convId: string, file: string) => {
+        return readTraceFile(convId, file)
+    })
+
+    ipcMain.handle('llm-trace:clear', async () => {
+        // 安全顺序：先停录（主线程 + 所有 Worker），等在途写排空后再删目录
+        setRecordingEnabled(false)
+        agentManager.broadcastToWorkers({type: 'llm-trace-recording', enabled: false})
+        await clearTraceLogs()
         return true
     })
 
+    ipcMain.handle('llm-trace:list-conversations', () => {
+        // 读 logs/llm-calls 下一级目录名列表（清洗后的 id 反查会话标题由 renderer 从会话库匹配）
+        return listConversationDirs()
+    })
+
+    // 暂停事件（磁盘失败 failPause 等）推送到日志窗口
+    onTracePaused(reason => pushToLogsWindow({type: 'paused', reason}))
+
+    // 打开日志窗口（renderer 经 preload openLlmLogsWindow 调用；Task 7 前保持可用）
     ipcMain.handle('open-llm-logs-window', () => {
         openConfigWindow('llm-logs', (win) => {
-            setLogWindowRef(win)
-            // 窗口关闭时置空缓冲模块的推送引用，避免向已销毁窗口发送
-            // 窗口复用时本回调会重复执行，仅在尚无 closed 监听时挂载，避免监听器累积
-            if (win.listenerCount('closed') === 0) {
-                win.once('closed', () => setLogWindow(null))
-            }
+            markLlmLogsWindow(win)
         })
     })
 }
 
-/**
- * 刷新缓冲区到磁盘
- */
-export {flush}
+/** 窗口标记 + 关闭自动停录（窗口单例复用时回调重复执行，标记幂等、closed 监听防累积） */
+function markLlmLogsWindow(win: BrowserWindow): void {
+    ;(win as BrowserWindow & {__isLlmLogsWindow?: boolean}).__isLlmLogsWindow = true
+    if (win.listenerCount('closed') === 0) {
+        win.once('closed', () => {
+            setRecordingEnabled(false)
+            agentManager.broadcastToWorkers({type: 'llm-trace-recording', enabled: false})
+        })
+    }
+}
+
+/** 按 conversationId + resFile 在 logs/llm-calls/<safeConv>/<day>/ 下读取 res.raw 文本 */
+function loadResRaw(record: LlmCallRecord): Promise<string | null> {
+    if (!record.resFile) return Promise.resolve(null)
+    return Promise.resolve(readTraceFile(record.conversationId, record.resFile))
+}
+
+/** 白名单校验后遍历日期目录取文件（文件名含 uuid 全局唯一，取第一个命中） */
+function readTraceFile(convId: string, file: string): string | null {
+    if (!TRACE_FILE_RE.test(file)) return null
+    const safeConv = convId.replace(/[^a-zA-Z0-9_-]/g, '_') || 'unknown'
+    const root = path.join(getLlmTraceRootDir(), safeConv)
+    if (!fs.existsSync(root)) return null
+    for (const day of fs.readdirSync(root)) {
+        const p = path.join(root, day, file)
+        if (fs.existsSync(p)) {
+            try {
+                return fs.readFileSync(p, 'utf8')
+            } catch {
+                return null
+            }
+        }
+    }
+    return null
+}
+
+function listConversationDirs(): string[] {
+    const root = getLlmTraceRootDir()
+    return fs.existsSync(root) ? fs.readdirSync(root) : []
+}
+
+/** 推送消息到 LLM 日志窗口（主线程专用：Worker 侧经 parentPort 转发后由这里落窗） */
+export function pushToLogsWindow(msg: unknown): void {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- 单测/无 electron 环境需防御式 require
+        const {BrowserWindow} = require('electron')
+        for (const w of BrowserWindow.getAllWindows()) {
+            if (!w.isDestroyed() && (w as BrowserWindow & {__isLlmLogsWindow?: boolean}).__isLlmLogsWindow) {
+                w.webContents.send('llm-trace-event', msg)
+            }
+        }
+    } catch { /* electron 不可用（单测环境）时忽略 */ }
+}

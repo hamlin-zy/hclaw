@@ -26,7 +26,9 @@ vi.mock('@/main/config', () => {
 })
 
 vi.mock('electron', () => ({
-    BrowserWindow: class {},
+    BrowserWindow: class {
+        static getAllWindows() { return [] }
+    },
     app: {getPath: () => '/tmp', isReady: () => true},
     dialog: {showErrorBox: vi.fn()},
     ipcMain: {handle: vi.fn(), on: vi.fn()},
