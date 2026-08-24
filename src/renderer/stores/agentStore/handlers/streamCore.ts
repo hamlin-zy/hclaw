@@ -27,10 +27,20 @@ export function isRetryMessage(msg: string | {label: string; urgent: boolean} | 
 }
 
 /**
- * 确保会话存在可挂载流式内容的 assistant 占位消息。
- * 无 streamingMessageId 时创建空消息并写入 ID，返回新 ID；已有则返回 null。
- * 供 begin / 重试 warning / error 复用，使状态提示（思考中/重试/错误）有气泡可挂载，
- * 后续 text/tool_use 复用该 ID，避免各处重复建消息产生幽灵气泡。
+ * 确保会话存在可挂载流式内容的 assistant 占位消息，返回流式载体消息 id。
+ *
+ * 统一恢复路径（spec §4.2）：正常路径与崩溃恢复后增量叠加共用此唯一入口，
+ * 语义分三步：
+ * ① 已有活跃流式消息（无 endedAt）→ 直接复用其 id；
+ * ② 吸收原 D5 竞态守卫：内存/DB 中存在未终结的 assistant 消息（首 token 前
+ *    崩溃残留，endedAt 为空）→ 收养其 id 作为载体。recoverSessions 播种时
+ *    亦已清除 seed 消息的内存 endedAt，故播种 id 同样经由此路径自然复用，
+ *    无需 recoveredStreaming 特判标记；
+ * ③ 全新占位（preferredId 优先）。
+ *
+ * abort 残留防御保留：streamingMessageId 指向已结束（endedAt 已写）且内存中
+ * 不存在其他未终结 assistant 时，不复用该历史消息，生成新占位——避免新一轮
+ * 流式内容挂到带结束时间戳的历史气泡上。
  *
  * @param preferredId 事件携带的目标消息 id（子会话 begin 事件由 agentTool 附带
  *   msg-<ts>-<rand> 累积器固定 id）。存在时以其创建占位，保证渲染端内存流式消息
@@ -40,42 +50,34 @@ export function isRetryMessage(msg: string | {label: string; urgent: boolean} | 
  */
 export function ensureStreamingMessage(get: GetFn, convId: string, preferredId?: string): string | null {
     const convState = get().convAgentStates[convId]
-    const existingId = convState?.streamingMessageId
-    if (existingId) {
-        // ★ 防御：已结束消息（endedAt 已写入）不复用。残留场景：abort 后 done
-        //   事件丢失/竞态延迟，streamingMessageId 指向已结束消息。若复用，
-        //   新一轮流式内容与 statusNote 会挂到历史消息上 → "已结束时间戳 +
-        //   左侧状态文案高频闪烁"的错乱现象。正常多轮 LLM（tool→begin 第二轮）
-        //   复用不触发：运行中消息无 endedAt。
-        const msgs = useConversationStore.getState().messagesMap[convId] || []
-        const existing = msgs.find(m => m.id === existingId)
-        if (existing?.endedAt) {
-            // ★ 崩溃恢复例外：recoveredStreaming 标记表明该 id 是 recoverSessions
-            //   以主进程快照播种的流式载体。即使 DB 中它 endedAt 已写（崩溃前 worker
-            //   已落库），下一轮流式仍必须复用——否则置 null 生成全新 id 会与主进程
-            //   pending 错位 → 渲染端内存出现第二条 assistant（幽灵气泡）。
-            //   复用而非新建，避免幽灵双写。
-            if (convState?.recoveredStreaming) {
-                // 复用播种 id：清掉内存中的 endedAt 标记，让它重新成为流式载体。
-                // 注意不要新增消息（messagesMap 已存在该 id），只要 streamingMessageId 保持指向它。
-                get().updateConvData(convId, {
-                    streamingMessageId: existingId,
-                    recoveredStreaming: false,  // 已消费一次性标记，后续正常 turn 不再特殊处理
-                })
-                // 内存中该消息若是 endedAt 已写（崩溃前落库），清掉以恢复为流式载体，
-                // 避免 switchActiveConversation 等以 endedAt 判定其为历史消息。
-                const convMsg = useConversationStore.getState().messagesMap[convId]?.find(m => m.id === existingId)
-                if (convMsg?.endedAt) {
-                    useConversationStore.getState().updateMessageForConv(convId, existingId, {endedAt: undefined})
-                }
-                return null
-            }
-            get().updateConvData(convId, {streamingMessageId: null})
-        } else {
-            return null
-        }
+    const msgs = useConversationStore.getState().messagesMap[convId] || []
+    if (convState?.streamingMessageId) {
+        const existing = msgs.find(m => m.id === convState.streamingMessageId)
+        // ① 活跃载体（未终结）直接复用；endedAt 已写（abort 后 done 丢失/竞态延迟
+        //    残留）→ 失效，走下方重选，防止内容挂到历史消息上错乱
+        if (!existing?.endedAt) return convState.streamingMessageId
+        get().updateConvData(convId, {streamingMessageId: null})
     }
-    const placeholderId = preferredId || crypto.randomUUID()
+    // ② 事件显式携带目标 id（子会话累积器固定 id）时优先——子会话持久化走
+    //    agentTool 累积器路径，必须与其 id 对齐，不做孤儿收养
+    if (preferredId) {
+        const placeholderId = preferredId
+        useConversationStore.getState().addMessageToConv(convId, {id: placeholderId, role: 'assistant', content: ''})
+        get().updateConvData(convId, {streamingMessageId: placeholderId})
+        return placeholderId
+    }
+    // ③ 孤儿收养（吸收原 D5 竞态守卫）：内存/DB 中存在未终结的 assistant 消息
+    //    （首 token 前崩溃残留）→ 复用其 id 作为载体并注册主进程（主进程 pending
+    //   复用同一 id，done 合并不产生副本）。recoverSessions 播种已清除 seed 消息的
+    //    内存 endedAt，播种 id 同样经由此路径自然复用，无需 recoveredStreaming 标记。
+    const orphan = msgs.find(m => m.role === 'assistant' && !m.endedAt)
+    if (orphan) {
+        get().updateConvData(convId, {streamingMessageId: orphan.id})
+        window.electronAPI?.agentRegisterStreamingMessage?.(convId, orphan.id)
+        return orphan.id
+    }
+    // ④ 全新占位
+    const placeholderId = crypto.randomUUID()
     useConversationStore.getState().addMessageToConv(convId, {id: placeholderId, role: 'assistant', content: ''})
     get().updateConvData(convId, {streamingMessageId: placeholderId})
     // ★ 占位 id 注册到主进程：pending 累积复用同一 id（幂等，fire-and-forget）。

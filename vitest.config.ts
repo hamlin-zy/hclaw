@@ -8,8 +8,10 @@ export default defineConfig({
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     exclude: [
       // 手动诊断脚本：连接真实用户 DB（HCLAW_DB/CONV_ID），非 CI 常规测试，不自动收集
+      // 注：只排除 *.diag.test.ts，同目录的 growthDetector 单测需入 CI
       '**/main/agent/ipc/*.diag.test.ts',
       '**/main/agent/ipc/*.verify.test.ts',
+      '**/tests/diag/*.diag.test.ts',
       '**/node_modules/**',
       '**/dist/**',
     ],

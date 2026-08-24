@@ -19,6 +19,7 @@ import {tokenManager} from '../../channel/TokenManager'
 import Anthropic from '@anthropic-ai/sdk'
 import {GoogleGenerativeAI} from '@google/generative-ai'
 import OpenAI from 'openai'
+import {recordingFetch} from '../../utils/llmTraceRecorder'
 
 // ─── 类型导出（从 shared 统一导出）──────────────────────────────────────────
 
@@ -47,32 +48,41 @@ function findProvider(endpointId: string): LLMProvider | undefined {
 
 /**
  * 创建 OpenAI 客户端
+ *
+ * export 仅为注入点探针测试（tests/main/llmTrace/injectionPoints.test.ts）可见，
+ * 运行时行为不变。
  */
-function createOpenAIClient(provider: LLMProvider): OpenAI {
+export function createOpenAIClient(provider: LLMProvider): OpenAI {
     if (!provider.apiKey || provider.apiKey.trim() === '') {
         throw new Error(`API Key is required for provider: ${provider.name}`)
     }
     return new OpenAI({
         apiKey: provider.apiKey,
         baseURL: provider.baseUrl || undefined,
+        fetch: recordingFetch,
     })
 }
 
 /**
  * 创建 Ollama 客户端（本地服务，不需要真实 API Key）
+ *
+ * export 仅为注入点探针测试可见，运行时行为不变。
  */
-function createOllamaClient(provider: LLMProvider): OpenAI {
+export function createOllamaClient(provider: LLMProvider): OpenAI {
     // Ollama 是本地服务，使用占位符 key 或用户配置的 key
     return new OpenAI({
         apiKey: provider.apiKey || 'ollama',
         baseURL: provider.baseUrl || 'http://localhost:11434/v1',
+        fetch: recordingFetch,
     })
 }
 
 /**
  * 创建 Anthropic 客户端
+ *
+ * export 仅为注入点探针测试可见，运行时行为不变。
  */
-function createAnthropicClient(provider: LLMProvider): Anthropic {
+export function createAnthropicClient(provider: LLMProvider): Anthropic {
 
     if (!provider.apiKey || provider.apiKey.trim() === '') {
         throw new Error(`API Key is required for provider: ${provider.name}`)
@@ -80,6 +90,7 @@ function createAnthropicClient(provider: LLMProvider): Anthropic {
     return new Anthropic({
         apiKey: provider.apiKey,
         baseURL: provider.baseUrl || undefined,
+        fetch: recordingFetch,
     })
 }
 

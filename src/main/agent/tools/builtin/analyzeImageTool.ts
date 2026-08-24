@@ -17,6 +17,7 @@ import {resolveModelConfig} from '../../model/modelSelector'
 import {createModelAdapter} from '../../model/index'
 import type {ChatMessage, ContentPart} from '../../model/types'
 import {logger} from '../../logger'
+import {withLlmTraceStream, type LlmTraceCallContext} from '../../../utils/llmTraceRecorder'
 
 const inputSchema = z.object({
     imagePath: z.string().describe('【必须使用完整路径】图片的完整文件路径（绝对路径，如 /home/user/screenshot.png 或 C:\\Users\\...\\screenshot.png）。不要只传文件名！如果你不确定路径，查看用户消息中 "【图片文件路径】" 标注的完整路径。也支持 data: URI（base64图片数据）或 http/https 网络图片URL。'),
@@ -150,11 +151,20 @@ export const analyzeImageTool: Tool<Input, string> = {
             const adapter = createModelAdapter(modelConfig)
             logger.info('[analyzeImage] 适配器创建完成，开始调用视觉模型', {adapterType: adapter.constructor?.name})
 
-            const stream = adapter.chat({
+            // ── LLM 出口：analyze_image 工具（视觉理解模型，agent loop 内辅助调用）──
+            const traceCtx: LlmTraceCallContext = {
+                conversationId: context.conversationId ?? 'unknown',
+                turn: 0, step: 0, attempt: 0,
+                provider: modelConfig.provider, model: modelConfig.model,
+                apiStyle: adapter.apiStyle ?? 'chat',
+                context: 'background',
+            }
+                        // withLlmTraceStream：流消费时刻可能已离开创建作用域，代理每次 next() 重入 ctx
+            const stream = withLlmTraceStream(traceCtx, adapter.chat({
                 messages,
                 maxTokens: 4096,
                 abortSignal: context.abortSignal,
-            })
+            }))
 
             // ── 7. 收集流式响应 ──
             const textParts: string[] = []

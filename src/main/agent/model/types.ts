@@ -177,6 +177,14 @@ export type {ModelConfig} from '@shared/types'
 // ─── 适配器接口 ────────────────────────────────────────
 
 export interface ModelAdapter {
+  /**
+   * API 协议形态，用于轨迹日志 usage 解析器归因。
+   * 取值必须与 @shared/utils/llmUsageParser 的 PARSERS 键对齐：
+   * 'chat'（OpenAI 兼容，默认）| 'responses'（OpenAI Responses API）
+   * | 'anthropic' | 'google'。缺省视为 'chat'。
+   */
+  readonly apiStyle?: string
+
   /** 流式调用 LLM */
   chat(params: ChatParams): AsyncGenerator<StreamChunk>
 

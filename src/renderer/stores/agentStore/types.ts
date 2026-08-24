@@ -46,16 +46,6 @@ export interface ConvAgentData {
     /** 当前正在流式输出的 assistant 消息 ID */
     streamingMessageId: string | null
     /**
-     * 崩溃恢复标记（P1）：recoverSessions 以快照播种后置 true。
-     * 恢复的 streamingMessageId（seedId）是主进程 pending 唯一对齐 id，
-     * 即使 DB 中该消息 endedAt 已写（崩溃前 worker 已落库），下一轮流式仍应
-     * 复用该 id —— 否则 ensureStreamingMessage 因 endedAt 检测而置 null 生成
-     * 全新 id，与主进程 pending 错位 → 渲染端内存出现第二条 assistant
-     * （幽灵气泡，重启后从 DB 只读一条故"恢复正常"）。
-     * 正常 abort 残留场景该标记为 undefined，沿用"已结束不复用"防御。
-     */
-    recoveredStreaming?: boolean
-    /**
      * 崩溃恢复基线（P1）：恢复时快照携带的 DB text 块数。
      * recordTextBlock 派生块 id 时叠加此值，防止 streamBlocks 清空后
      * seq 从 0 重计与旧块 id 碰撞（碰撞 → append 进旧块 → 正文错序）。

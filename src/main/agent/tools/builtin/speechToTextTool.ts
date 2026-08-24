@@ -21,6 +21,7 @@ import {runtimeConfigManager} from '../../runtimeConfigManager'
 import {resolveModelConfig} from '../../model/modelSelector'
 import {createModelAdapter} from '../../model/index'
 import type {ChatMessage, ContentPart} from '../../model/types'
+import {withLlmTraceStream, type LlmTraceCallContext} from '../../../utils/llmTraceRecorder'
 
 const execFile = promisify(childProcess.execFile)
 
@@ -148,11 +149,20 @@ export const speechToTextTool: Tool<Input, string> = {
 
             // ── 7. 创建适配器并调用音频理解模型 ──
             const adapter = createModelAdapter(modelConfig)
-            const stream = adapter.chat({
+            // ── LLM 出口：speech_to_text 工具（音频理解模型，agent loop 内辅助调用）──
+            const traceCtx: LlmTraceCallContext = {
+                conversationId: context.conversationId ?? 'unknown',
+                turn: 0, step: 0, attempt: 0,
+                provider: modelConfig.provider, model: modelConfig.model,
+                apiStyle: adapter.apiStyle ?? 'chat',
+                context: 'background',
+            }
+                        // withLlmTraceStream：流消费时刻可能已离开创建作用域，代理每次 next() 重入 ctx
+            const stream = withLlmTraceStream(traceCtx, adapter.chat({
                 messages,
                 maxTokens: 4096,
                 abortSignal: context.abortSignal,
-            })
+            }))
 
             // ── 8. 收集流式响应 ──
             const textParts: string[] = []

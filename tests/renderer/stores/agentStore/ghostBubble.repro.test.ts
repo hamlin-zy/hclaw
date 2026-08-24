@@ -6,13 +6,18 @@
  * 关键线索：重启后幽灵消失 → 幽灵只存在于渲染端内存，DB 无重复行 → 是
  * 渲染端在 messagesMap 里创建了第二条 assistant 消息（messageId 不同）。
  *
- * 触发链路：
- * 1. 崩溃前，主进程已用 'seedId' 落库一条 assistant（endedAt 已写）。
- * 2. 崩溃恢复后 recoverSessions 播种 streamingMessageId='seedId'（或置运行态）。
- * 3. 新流式事件到达：若 ensureStreamingMessage / handleBegin 判定旧消息
- *    endedAt 已写 → 置 null → 生成新 randomUUID 占位 → addMessageToConv 加入。
- *    → messagesMap 里现有一条旧 assistant('seedId') + 一条新占位('newId')
- *    → 渲染两条 = 幽灵。重启后从 DB 只读到 'seedId' 一条 → 正常。
+ * 统一恢复路径（spec §4.2）：
+ * 1. recoverSessions 以主进程快照 v2 为唯一事实源
+ * 2. buildSeedInstruction + applySeedInstruction 统一播种：
+ *    - upsert seed 消息（DB 无行 → 新增；有行 → 覆盖 content 并清除内存 endedAt）
+ *    - stale 工具标记取消
+ *    - convAgentStates 置运行态 + streamingMessageId 指向 seedId
+ * 3. 后续流式事件走统一 ensureStreamingMessage 入口：
+ *    - ① 活跃载体（无 endedAt）直接复用
+ *    - ② preferredId（子会话）优先创建占位
+ *    - ③ 孤儿收养：内存中存在未终结 assistant → 复用并注册主进程
+ *    - ④ 全新占位
+ * 无 recoveredStreaming 特判标记，无 D5 竞态守卫分支。
  */
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
 import {ensureStreamingMessage} from '../../../../src/renderer/stores/agentStore/handlers/streamCore'
@@ -103,7 +108,7 @@ function seedConv(overrides: any = {}) {
     }
 }
 
-describe('崩溃恢复后 — 旧 assistant 消息 endedAt 已写但流式未重开', () => {
+describe('崩溃恢复后 — 统一恢复路径（无 recoveredStreaming 标记）', () => {
     beforeEach(() => {
         mockAgentState.convAgentStates = {}
         mockAgentState.errorMessage = null
@@ -118,13 +123,14 @@ describe('崩溃恢复后 — 旧 assistant 消息 endedAt 已写但流式未重
         vi.unstubAllGlobals()
     })
 
-    it('崩溃恢复播种（recoveredStreaming）遇到 endedAt 已写的 seed 消息 → 复用不新增第二条', () => {
-        // 崩溃恢复后：DB/内存已加载 seedId 消息（endedAt 已写，崩溃前 worker 已 done 落库）
+    it('applySeedInstruction 已清除 seed 消息内存 endedAt → ensureStreamingMessage 孤儿收养复用 seedId', () => {
+        // 模拟 applySeedInstruction 执行后的状态：
+        // - DB/内存已有 seedId 消息（applySeedInstruction upsert 时已清除内存 endedAt）
+        // - convAgentStates.streamingMessageId 指向 seedId
         mockConversationState.messagesMap['conv-1'] = [
-            {id: 'seedId', role: 'assistant', content: '崩溃前的部分内容', endedAt: Date.now(), timestamp: Date.now()},
+            {id: 'seedId', role: 'assistant', content: '崩溃前的部分内容', timestamp: Date.now()}, // 无 endedAt（已被 applySeedInstruction 清除）
         ]
-        // recoverSessions 播种后 streamingMessageId 指向 seedId 且 recoveredStreaming=true（index.ts:402）
-        seedConv({streamingMessageId: 'seedId', recoveredStreaming: true})
+        seedConv({streamingMessageId: 'seedId'})
 
         const result = ensureStreamingMessage(
             () => mockAgentState as any,
@@ -132,23 +138,21 @@ describe('崩溃恢复后 — 旧 assistant 消息 endedAt 已写但流式未重
             undefined,
         )
 
-        // ★ 幽灵断言：崩溃恢复后旧消息 endedAt 已写，新一轮流式开始时应复用该 id，
+        // ★ 幽灵断言：旧消息无 endedAt（孤儿），新一轮流式开始时应复用该 id，
         //   绝不因"复用防御"而额外 addMessageToConv 一条新占位（内存出现第二条 assistant）
         const msgs = mockConversationState.messagesMap['conv-1']
         expect(msgs.filter(m => m.role === 'assistant')).toHaveLength(1)
         // streamingMessageId 保持复用 seedId，而非生成新 id
         expect(mockAgentState.convAgentStates['conv-1'].streamingMessageId).toBe('seedId')
-        // 内存 endedAt 被清掉，恢复为流式载体
-        expect(msgs[0].endedAt).toBeUndefined()
         // 不重复注册（复用 id 无需再注册主进程）
         expect(registerSpy).not.toHaveBeenCalled()
     })
 
-    it('非崩溃恢复场景（recoveredStreaming 未设置）endedAt 已写 → 依旧置 null 生成新 id（正常 abort 残留防御保留）', () => {
+    it('无孤儿（endedAt 已写）且无 streamingMessageId → 生成新占位（正常 abort 残留防御保留）', () => {
         mockConversationState.messagesMap['conv-1'] = [
             {id: 'old-ended', role: 'assistant', content: '被 abort 的旧消息', endedAt: Date.now(), timestamp: Date.now()},
         ]
-        seedConv({streamingMessageId: 'old-ended'}) // 无 recoveredStreaming
+        seedConv({streamingMessageId: null})
 
         ensureStreamingMessage(() => mockAgentState as any, 'conv-1', undefined)
 
@@ -157,18 +161,21 @@ describe('崩溃恢复后 — 旧 assistant 消息 endedAt 已写但流式未重
         expect(msgs.filter(m => m.role === 'assistant')).toHaveLength(2)
     })
 
-    it('首 token 前崩溃 + DB 残留进行中消息（recoveredStreaming 播种）→ 复用不新增第二条（用户场景）', () => {
+    it('首 token 前崩溃 + DB 残留进行中消息（无 endedAt）→ 孤儿收养复用', () => {
         // 快照无累积（seed=null）但 DB 已有残留"进行中"assistant（endedAt 为空）。
-        // recoverSessions 经 planRecovery 的 null 分支复用该 id 播种 recoveredStreaming。
+        // recoverSessions 仅置运行态，不指向历史消息；后续首个流事件到达时，
+        // ensureStreamingMessage 孤儿收养复用该 id。
         mockConversationState.messagesMap['conv-1'] = [
             {id: 'residual-inflight', role: 'assistant', content: '已落库残留', timestamp: Date.now()}, // 无 endedAt
         ]
-        seedConv({streamingMessageId: 'residual-inflight', recoveredStreaming: true})
+        seedConv({streamingMessageId: null})
 
         ensureStreamingMessage(() => mockAgentState as any, 'conv-1', undefined)
 
         const msgs = mockConversationState.messagesMap['conv-1']
         expect(msgs.filter(m => m.role === 'assistant')).toHaveLength(1)
         expect(mockAgentState.convAgentStates['conv-1'].streamingMessageId).toBe('residual-inflight')
+        // 孤儿收养需注册主进程（主进程 pending 复用同一 id）
+        expect(registerSpy).toHaveBeenCalledWith('conv-1', 'residual-inflight')
     })
 })

@@ -23,13 +23,14 @@ import type {
     ToolDefinition,
 } from './types'
 import {isSyntheticToolResult} from '../state'
+import {recordingFetch} from '../../utils/llmTraceRecorder'
 
 export class OpenAIAdapter implements ModelAdapter {
   private client: OpenAI
   private model: string
   private providerName: string
     /** API 协议形态：chat（默认）/ responses */
-    private apiStyle: 'chat' | 'responses'
+    readonly apiStyle: 'chat' | 'responses'
   /** AdapterConvertCache — 增量 API 消息转换缓存（随 adapter 实例，重建自动清空） */
   private convertCache: {
     count: number
@@ -63,6 +64,7 @@ export class OpenAIAdapter implements ModelAdapter {
             this.client = new OpenAI({
                 apiKey: config.apiKey,
                 baseURL: normalizedUrl || undefined,
+                fetch: recordingFetch,
             })
         }
     this.model = config.model

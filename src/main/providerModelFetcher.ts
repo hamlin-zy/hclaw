@@ -10,6 +10,7 @@ import {
   parseModelsResponse,
   type FetchErrorCode,
 } from '@shared/modelPresets'
+import {withLlmTraceStream, type LlmTraceCallContext} from './utils/llmTraceRecorder'
 
 const FETCH_TIMEOUT_MS = 15000
 
@@ -222,11 +223,18 @@ export async function testProviderModel(params: ModelTestParams, deps: FetcherDe
       features: params.features,
     })
     // 最小验证请求：消费完整流至 done / error，不写任何数据
-    for await (const chunk of adapter.chat({
+    // ── LLM 出口：服务商连通性测试（设置页手动触发，无关联会话）──
+    const traceCtx: LlmTraceCallContext = {
+      conversationId: 'unknown', turn: 0, step: 0, attempt: 0,
+      provider: type, model,
+      apiStyle: adapter.apiStyle ?? 'chat',
+      context: 'unknown',
+    }
+        for await (const chunk of withLlmTraceStream(traceCtx, adapter.chat({
       messages: [{role: 'user', content: 'ping'}],
       maxTokens: 8,
       abortSignal: controller.signal,
-    })) {
+    }))) {
       if (chunk.type === 'error') throw chunk.error
       if (chunk.type === 'done') {
         return {success: true, latencyMs: Date.now() - start, oauthTokens}
