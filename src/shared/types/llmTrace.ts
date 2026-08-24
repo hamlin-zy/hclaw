@@ -33,3 +33,11 @@ export function sanitizeHeaders(headers: Record<string, string>): Record<string,
     for (const [k, v] of Object.entries(headers)) out[k] = SENSITIVE.test(k) ? '***REDACTED***' : v
     return out
 }
+
+/** 类型守卫：LlmCallRecord 最小形状判定（id/ts/status），paused 等事件对象不会误判 */
+export function isLlmCallRecord(x: unknown): x is LlmCallRecord {
+    return typeof x === 'object' && x !== null
+        && typeof (x as {id?: unknown}).id === 'string'
+        && typeof (x as {ts?: unknown}).ts === 'number'
+        && typeof (x as {status?: unknown}).status === 'string'
+}

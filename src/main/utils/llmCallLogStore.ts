@@ -22,10 +22,13 @@ import {
 } from './llmTraceRecorder'
 import {foldRecords, computeTokens} from './llmLogProjection'
 import {agentManager} from '../agent/manager.impl'
-import type {LlmCallRecord} from '@shared/types/llmTrace'
+import {isLlmCallRecord, type LlmCallRecord} from '@shared/types/llmTrace'
 
 /** trace 落盘文件名白名单：<uuid>.req.json / <uuid>.res.raw */
 const TRACE_FILE_RE = /^[0-9a-f-]{36}\.(req\.json|res\.raw)$/
+
+/** LLM 日志窗口类型：主进程侧打标（__isLlmLogsWindow）用于定向推送 */
+type LlmLogsWindow = BrowserWindow & {__isLlmLogsWindow?: boolean}
 
 export function initLlmTraceIPC(): void {
     ipcMain.handle('llm-trace:toggle', (_e, enabled: boolean) => {
@@ -74,7 +77,7 @@ export function initLlmTraceIPC(): void {
 
 /** 窗口标记 + 关闭自动停录（窗口单例复用时回调重复执行，标记幂等、closed 监听防累积） */
 function markLlmLogsWindow(win: BrowserWindow): void {
-    ;(win as BrowserWindow & {__isLlmLogsWindow?: boolean}).__isLlmLogsWindow = true
+    ;(win as LlmLogsWindow).__isLlmLogsWindow = true
     if (win.listenerCount('closed') === 0) {
         win.once('closed', () => {
             setRecordingEnabled(false)
@@ -113,14 +116,18 @@ function listConversationDirs(): string[] {
     return fs.existsSync(root) ? fs.readdirSync(root) : []
 }
 
-/** 推送消息到 LLM 日志窗口（主线程专用：Worker 侧经 parentPort 转发后由这里落窗） */
+/** 推送消息到 LLM 日志窗口（主线程专用：Worker 侧经 parentPort 转发后由这里落窗）
+ *  - LlmCallRecord → 'llm-trace-record' 通道：时间线实时上屏（preload onLlmTraceRecord）
+ *  - 其余事件（{type:'paused'} 等）→ 'llm-trace-event' 通道：状态事件处理（preload onLlmTraceEvent）
+ *  修复说明：此前一律发 'llm-trace-event'，Worker 转发的实时 record 被 paused-only 分支
+ *  静默丢弃 → 录制中窗口看不到记录，重开窗口（磁盘投影）才能看到。 */
 export function pushToLogsWindow(msg: unknown): void {
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- 单测/无 electron 环境需防御式 require
         const {BrowserWindow} = require('electron')
         for (const w of BrowserWindow.getAllWindows()) {
-            if (!w.isDestroyed() && (w as BrowserWindow & {__isLlmLogsWindow?: boolean}).__isLlmLogsWindow) {
-                w.webContents.send('llm-trace-event', msg)
+            if (!w.isDestroyed() && (w as LlmLogsWindow).__isLlmLogsWindow) {
+                w.webContents.send(isLlmCallRecord(msg) ? 'llm-trace-record' : 'llm-trace-event', msg)
             }
         }
     } catch { /* electron 不可用（单测环境）时忽略 */ }
