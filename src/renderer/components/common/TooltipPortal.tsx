@@ -56,7 +56,12 @@ export default function TooltipPortal() {
         const handleMouseOver = (e: MouseEvent) => {
             const el = (e.target as HTMLElement).closest<HTMLElement>(TOOLTIP_SELECTOR)
             if (!el) {
-                // 延迟隐藏，防止移动到子元素时闪烁
+                // 延迟隐藏，防止移动到子元素时闪烁。
+                // 必须先清除旧的 hideTimer：快速移动时鼠标连续扫过多个无 title
+                // 元素会产生多个 mouseover，直接覆盖引用会让先前 timer 泄漏，
+                // 在进入元素显示 tooltip 后仍到期 setTooltip(null) ——
+                // 表现为"从右侧快速进入时 tooltip 闪现即消失"的竞态根因。
+                if (hideTimer.current) clearTimeout(hideTimer.current)
                 hideTimer.current = window.setTimeout(() => setTooltip(null), 100)
                 return
             }

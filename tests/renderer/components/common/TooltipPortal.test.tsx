@@ -10,7 +10,7 @@
  * 修复方案：引入 mouseenter/mouseleave 语义（relatedTarget 判断）——
  * 鼠标在元素内部（含子元素）移动不隐藏、不重置；只有真正离开元素才隐藏。
  */
-import {describe, it, expect, beforeEach, afterEach} from 'vitest'
+import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
 import {render, fireEvent, cleanup} from '@testing-library/react'
 import TooltipPortal from '../../../../src/renderer/components/common/TooltipPortal'
 
@@ -97,5 +97,35 @@ describe('TooltipPortal hover 语义', () => {
         // 右侧锚定：垂直居中（translateY(-50%)），水平不居中、左对齐向右延伸，
         // 窄条（36px）下长文本不会向左溢出窗口边缘
         expect(tipEl.getAttribute('style')).toContain('translateY(-50%)')
+    })
+
+    it('快速扫过多个无 title 元素后进入 icon：旧隐藏定时器不泄漏（闪现消失竞态）', () => {
+        vi.useFakeTimers()
+        try {
+            const {container} = render(
+                <>
+                    <TooltipPortal/>
+                    <button title="完整提示文本" data-testid="target">
+                        <span data-testid="child">子元素</span>
+                    </button>
+                </>,
+            )
+            const btn = container.querySelector('[data-testid="target"]')!
+            // 模拟从右侧快速进入：连续扫过两个无 title 元素（每个都设置 hideTimer）
+            const blank1 = document.createElement('div')
+            const blank2 = document.createElement('div')
+            document.body.append(blank1, blank2)
+            fireEvent.mouseOver(blank1)
+            fireEvent.mouseOver(blank2)
+            // 进入带 title 的图标：显示 tooltip，只清除最后一个 hideTimer
+            fireEvent.mouseOver(btn)
+            const tip = () => document.querySelector('.tooltip-portal')!
+            expect(tip().textContent).toContain('完整提示文本')
+            // 100ms 后旧 timer 若泄漏会 setTooltip(null) → tooltip 消失（闪一下根因）
+            vi.advanceTimersByTime(150)
+            expect(tip().textContent).toContain('完整提示文本')
+        } finally {
+            vi.useRealTimers()
+        }
     })
 })
