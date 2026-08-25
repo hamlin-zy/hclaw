@@ -198,6 +198,22 @@ export const useAgentStore = create<AgentStore>()(
                 } catch { /* 静默处理 */ }
             },
 
+            // ── 会话级权限模式（方案B：安全模式会话级，写 meta + 广播目标 worker） ──
+            setConvPermissionMode: async (convId, mode) => {
+                try {
+                    await window.electronAPI?.agentSetConvPermissionMode?.(convId, mode)
+                    set({permissionMode: mode})
+                } catch { /* 静默处理 */ }
+            },
+
+            // ── 会话级显示模式（纯渲染层，写 meta + 更新顶层渲染开关） ──
+            setConvDisplayMode: async (convId, mode) => {
+                set({messageDisplayMode: mode})
+                try {
+                    await window.electronAPI?.conversationUpdateMeta?.(convId, {displayMode: mode})
+                } catch { /* 静默处理 */ }
+            },
+
             // ── 权限确认 ──────────────────────────────
             respondQuestion: async (result) => {
                 const {pendingPermissionConfirm, agentState, streamingMessageId} = get()
@@ -428,11 +444,19 @@ export const useAgentStore = create<AgentStore>()(
                 messageDisplayMode: state.messageDisplayMode,
             }),
             onRehydrateStorage: () => (state) => {
+                if (!state) return
+                // 会话级模式：重水合后先回退全局默认（激活会话时由
+                // applyConvModesToAgentStore 用 meta 覆盖），避免 persist
+                // 残留最后会话的模式被误用为启动默认。
+                window.electronAPI?.agentGetPermissionMode?.().then((mode: any) => {
+                    if (mode === 'safe' || mode === 'auto') state.permissionMode = mode
+                }).catch(() => { /* 静默 */ })
                 window.electronAPI?.configRead('message-display-mode').then((data: any) => {
-                    if (data?.mode && state) {
-                        state.messageDisplayMode = data.mode
+                    const mode = data?.mode
+                    if (mode === 'detailed' || mode === 'compact' || mode === 'ultra-compact') {
+                        state.messageDisplayMode = mode
                     }
-                }).catch(() => { /* 静默处理读取错误 */ })
+                }).catch(() => { /* 静默 */ })
             },
         },
     ),

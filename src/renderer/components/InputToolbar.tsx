@@ -16,6 +16,8 @@ interface InputToolbarProps {
     canSend: boolean
     /** 当前会话 ID（ModelSelector 会话级 override 读取/写入；可选以兼容未传入的调用方） */
     conversationId?: string
+    /** ★ 新增：action 插槽，渲染于 input-toolbar-actions 最左侧（会话级控件注入点） */
+    extraActions?: React.ReactNode
     onSubmit: () => void
     onAbort: () => void
     onUploadFile: (files: any[]) => void
@@ -33,6 +35,7 @@ export default function InputToolbar({
     pendingMessagesCount,
     canSend,
     conversationId,
+    extraActions,
     onSubmit,
     onAbort,
     onUploadFile,
@@ -64,6 +67,8 @@ export default function InputToolbar({
             </div>
 
             <div data-name="input-toolbar-actions" className="flex items-center gap-1 shrink-0">
+                {/* ★ 会话级控件插槽（安全模式/显示模式），保持原有元素顺序与样式零改动 */}
+                {extraActions && <>{extraActions}</>}
                 {/* 缓存命中率 + 窗口占用 + 平均吞吐 */}
                 <CacheRateTooltip/>
 

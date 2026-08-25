@@ -2485,3 +2485,19 @@ html.bg-enabled,
     transition: none !important;
 }
 
+
+/* ── 会话级 segmented control（InputArea 工具行插槽）── ── */
+.seg {
+  display:flex; background:var(--surface-muted); border-radius:99px; padding:2px;
+}
+.seg button {
+  padding:3px 10px; border-radius:99px; font-size:11px; color:var(--text-muted);
+  line-height:1.4; white-space:nowrap; transition:all .15s; border:none; cursor:pointer;
+}
+.seg button.active {
+  background:var(--surface-elevated); color:var(--text-primary); font-weight:600;
+  box-shadow:0 1px 3px rgba(0,0,0,.12);
+}
+.seg.perm button.active[data-v="auto"] { color:var(--warning); }
+.seg.perm button.active[data-v="safe"] { color:var(--success); }
+.tb-sep { width:1px; height:14px; background:var(--border); margin:0 6px; flex-shrink:0; }

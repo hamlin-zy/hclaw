@@ -31,6 +31,7 @@ import {getConfigBridge, setConfigBridge} from './common/configBridge'
 // Task 5 override 状态机的会话仓库工厂：统一从 repositories barrel 导入，
 // 避免运行时双路径解析（mock 工厂优先 + 类兜底）带来的维护脆弱性。
 import {createConversationRepository} from '../repositories'
+import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
 
 // ─── 类型定义 ─────────────────────────────────────────────
 
@@ -353,6 +354,64 @@ export class RuntimeConfigManager {
      */
     static applyOverrideFromMain(convId: string, override: ModelOverride | null): void {
         this.sessionOverrides.set(convId, override)
+    }
+
+    // ─── 会话级权限模式（与会话级 model override 同构） ───────────────
+
+    /** 会话 → 权限模式内存缓存（无 key=未加载） */
+    private static sessionPermissionModes = new Map<string, RunMode>()
+
+    /**
+     * 读取指定会话的权限模式：内存缓存 → 懒加载 meta.permissionMode
+     * → 回退全局 system_settings.permission_mode → 'safe'。
+     */
+    static getConvPermissionMode(convId: string): RunMode {
+        const cached = this.sessionPermissionModes.get(convId)
+        if (cached !== undefined) return cached
+        let stored: RunMode | null = null
+        try {
+            const meta = createConversationRepository().readMeta(convId) as { permissionMode?: RunMode | null } | null
+            stored = meta?.permissionMode ?? null
+        } catch {
+            stored = null
+        }
+        if (stored) {
+            this.sessionPermissionModes.set(convId, stored)
+            return stored
+        }
+        // 回退全局默认（system_settings.permission_mode 是全局权威）
+        let globalMode: RunMode = 'safe'
+        try {
+            const raw = systemSettingsRepo.get('permission_mode')
+            if (raw === 'auto' || raw === 'safe') globalMode = raw
+        } catch {
+            // 读取失败保持 'safe'
+        }
+        this.sessionPermissionModes.set(convId, globalMode)
+        return globalMode
+    }
+
+    /**
+     * 设置会话权限模式：更新内存缓存 + 落库 meta，通知变更。
+     * 仅主进程（UI 会话切换 / 渠道会话创建固化）调用。
+     * 注意：不写 system_settings.permission_mode（全局默认保持权威）。
+     */
+    static setConvPermissionMode(convId: string, mode: RunMode): void {
+        this.sessionPermissionModes.set(convId, mode)
+        try {
+            createConversationRepository().updateMeta(convId, {permissionMode: mode} as any)
+        } catch (err) {
+            logger.warn('[RuntimeConfigManager] setConvPermissionMode 持久化失败', {error: String(err), convId})
+        }
+        notifyChange()
+    }
+
+    /**
+     * 主进程同步到 worker 的入口：仅更新内存 Map。
+     * 会话模式已由主进程固化到 DB，worker 侧不得重复落库。
+     */
+    static applyConvPermissionModeFromMain(convId: string, mode: RunMode): void {
+        this.sessionPermissionModes.set(convId, mode)
     }
 
     /**

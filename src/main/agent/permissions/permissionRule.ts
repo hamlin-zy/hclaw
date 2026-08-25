@@ -100,6 +100,37 @@ export class PermissionRulesManager {
     }
 
     /**
+     * 应用权限更新（仅内存，不落库）
+     *
+     * 用途：会话级权限模式切换（主进程 → worker 下发）。worker 侧单例引擎
+     * 只更新本会话内存 context，避免把会话模式写进全局 system_settings.permission_mode
+     * （该 key 是「全局默认值」的唯一权威，被会话切换覆盖即污染后续新会话的默认）。
+     * 与 applyUpdate 的差异：跳过 saveToDatabase。
+     */
+    async applyUpdateNoPersist(update: PermissionUpdate): Promise<ToolPermissionContext> {
+        await this.ensureInit()
+        let result = this.context
+
+        switch (update.type) {
+            case 'setMode':
+                result = this.transitionMode(update.mode)
+                break
+            case 'addRule':
+                result = this.addRule(update.rule)
+                break
+            case 'removeRule':
+                result = this.removeRule(update.tool)
+                break
+            case 'setRules':
+                result = this.setRules(update.rules)
+                break
+        }
+
+        this.context = result
+        return this.getContext()
+    }
+
+    /**
      * 模式转换（参考CC的transitionPermissionMode，但简化）
      *
      * 状态转换逻辑：

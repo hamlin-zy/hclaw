@@ -223,6 +223,20 @@ export class PermissionEngine {
     this.rules = newContext.rules
   }
 
+    /**
+     * 会话级模式下发（主进程 → worker）：仅更新内存，不落库。
+     *
+     * 与 setMode 的差异：委托 permissionRulesManager.applyUpdateNoPersist（跳过
+     * saveToDatabase），确保会话级切换不覆盖全局 system_settings.permission_mode
+     * （全局默认值权威）。worker 每实例服务单一会话，单实例引擎即会话级。
+     */
+    async applyModeFromMain(mode: RunMode): Promise<void> {
+        await this.ensureInit()
+        const newContext = await permissionRulesManager.applyUpdateNoPersist({type: 'setMode', mode})
+        this.mode = newContext.mode
+        this.rules = newContext.rules
+    }
+
     async getMode(): Promise<RunMode> {
     await this.ensureInit()
     return this.mode

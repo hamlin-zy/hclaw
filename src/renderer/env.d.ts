@@ -88,6 +88,8 @@ declare global {
           estimatedTokens: number
         }>
         agentSetPermissionMode: (mode: 'safe' | 'auto') => Promise<boolean>
+        agentSetConvPermissionMode: (convId: string, mode: 'safe' | 'auto') => Promise<{ success: boolean; error?: string }>
+        agentGetPermissionMode: () => Promise<'safe' | 'auto'>
         agentGetPermissionRules: () => Promise<any[]>
         agentCleanPermissionRules: () => Promise<{ success: boolean }>
         agentRemovePermissionRule: (toolName: string) => Promise<boolean>
