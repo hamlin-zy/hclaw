@@ -78,7 +78,7 @@ export default function MessageDisplayModeSelector() {
         },
         {
             id: 'ultra-compact' as const,
-            name: '紧凑模式',
+            name: '极简模式',
             icon: (
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <polyline points="4 14 10 14 10 20"/>

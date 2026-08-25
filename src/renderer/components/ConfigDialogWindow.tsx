@@ -32,7 +32,7 @@ interface DialogConfig {
  */
 const DIALOG_CONFIG: Record<string, DialogConfig> = {
     'permission-rules': {title: '权限规则', Component: PermissionRulesPanel},
-    'llm-config': {title: '模型配置', Component: LLMConfigDialog},
+    'llm-config': {title: '服务商配置', Component: LLMConfigDialog},
     'mcp': {title: 'MCP 服务', Component: MCPDialog},
     'scheme-config': {title: '模型方案', Component: ModelSchemeDialog},
     'tools': {title: '工具管理', Component: ToolsDialog},

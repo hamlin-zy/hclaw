@@ -11,7 +11,7 @@ const PERM_MODES: Array<{id: RunMode; label: string}> = [
 const DISP_MODES: Array<{id: DisplayMode; label: string}> = [
     {id: 'detailed', label: '详细'},
     {id: 'compact', label: '简洁'},
-    {id: 'ultra-compact', label: '紧凑'},
+    {id: 'ultra-compact', label: '极简'},
 ]
 
 /**
@@ -49,7 +49,7 @@ export default function ConvModeSegs() {
                         key={m.id}
                         className={messageDisplayMode === m.id ? 'active' : ''}
                         onClick={() => setConvDisplayMode(activeConversationId, m.id)}
-                        title={m.id === 'detailed' ? '详细模式' : m.id === 'compact' ? '简洁模式：思考块折叠' : '紧凑模式：工具汇总行'}
+                        title={m.id === 'detailed' ? '详细模式' : m.id === 'compact' ? '简洁模式：思考块折叠' : '极简模式：工具汇总行'}
                     >
                         {m.label}
                     </button>
