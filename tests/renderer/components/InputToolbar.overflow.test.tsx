@@ -42,11 +42,22 @@ const BASE_PROPS = {
 }
 
 describe('InputToolbar 窄窗口溢出保护契约', () => {
-    it('右区操作区 shrink-0：统计徽章/按钮不被 flex 压缩', () => {
-        const {container} = render(<InputToolbar {...BASE_PROPS}/>)
+    it('右区操作区：宽度不足时从左侧裁剪，发送/停止按钮 shrink-0 严格保留', () => {
+        const {container} = render(<InputToolbar {...BASE_PROPS} isRunning/>)
         const actions = container.querySelector<HTMLElement>('[data-name="input-toolbar-actions"]')
         expect(actions).not.toBeNull()
-        expect(actions!.className).toContain('shrink-0')
+        // 右区整体可收缩 + 溢出裁剪：窄窗口下被硬撑（shrink-0）会导致整个右区
+        // 溢出到卡片外被父容器裁掉，右侧停止按钮随之消失
+        expect(actions!.className).toContain('min-w-0')
+        expect(actions!.className).toContain('overflow-hidden')
+        // 左侧可变控件（模式段/缓存/模型/工具）包在 variable 区，从左侧开始隐藏
+        expect(container.querySelector('[data-name="input-toolbar-actions-variable"]')).not.toBeNull()
+        // 右侧发送/停止按钮严格不压缩
+        for (const name of ['input-toolbar-send', 'input-toolbar-abort']) {
+            const btn = container.querySelector<HTMLElement>(`[data-name="${name}"]`)
+            expect(btn).not.toBeNull()
+            expect(btn!.className).toContain('shrink-0')
+        }
     })
 
     it('左区状态区 flex-1 min-w-0：允许收缩且内容可截断', () => {

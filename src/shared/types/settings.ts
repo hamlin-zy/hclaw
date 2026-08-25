@@ -113,6 +113,10 @@ export interface SystemSettings {
     handoffThresholdRatio: number
     /** loop 内接近窗口上限时的行为。默认 'auto-handoff' */
     midLoopOverflowMode: 'auto-handoff' | 'graceful-stop'
+    /** 新会话默认安全模式（会话级 fallback 的全局默认；保存时同步 system_settings.permission_mode） */
+    defaultPermissionMode?: 'safe' | 'auto'
+    /** 新会话默认显示模式（会话级 fallback 的全局默认；保存时同步 message-display-mode 配置） */
+    defaultDisplayMode?: 'detailed' | 'compact' | 'ultra-compact'
   }
   model: {
     defaultMaxTokens: number

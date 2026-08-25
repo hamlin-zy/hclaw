@@ -37,16 +37,25 @@ function FixedDropdown({
     onSwitch: (schemeId: string) => void
     onOpenConfig: () => void
 }) {
-    const [position, setPosition] = useState({top: 0, right: 0})
+    const [position, setPosition] = useState<{top?: number; bottom?: number; right: number}>({right: 0})
     const dropdownRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         if (open && buttonRef.current) {
             const rect = buttonRef.current.getBoundingClientRect()
-            setPosition({
-                top: rect.bottom + 6,
-                right: window.innerWidth - rect.right,
-            })
+            // 空间检测：按钮位于 footer（窗口底部），向下弹出会超出视口底边被裁剪，
+            // 下方剩余空间不足时改为向上弹出（bottom 定位），保证面板完整可见。
+            if (window.innerHeight - rect.bottom < 320) {
+                setPosition({
+                    bottom: window.innerHeight - rect.top + 6,
+                    right: window.innerWidth - rect.right,
+                })
+            } else {
+                setPosition({
+                    top: rect.bottom + 6,
+                    right: window.innerWidth - rect.right,
+                })
+            }
         }
     }, [open, buttonRef])
 
@@ -69,6 +78,9 @@ function FixedDropdown({
 
     if (!open) return null
 
+    // 向上弹出时从下方滑入（y 方向反转），与弹出方向一致
+    const dropUp = position.bottom !== undefined
+
     // createPortal 挂到 body：脱离菜单栏 stacking context
     //（bg-enabled 下 .menubar 有 backdrop-filter，会困住内部 fixed 元素的 z-index，
     //  面板会被消息列表卡片盖住）
@@ -78,11 +90,11 @@ function FixedDropdown({
     return createPortal(
         <motion.div
             ref={dropdownRef}
-            initial={{opacity: 0, y: -8, scale: 0.96}}
+            initial={{opacity: 0, y: dropUp ? 8 : -8, scale: 0.96}}
             animate={{opacity: 1, y: 0, scale: 1}}
-            exit={{opacity: 0, y: -8, scale: 0.96}}
+            exit={{opacity: 0, y: dropUp ? 8 : -8, scale: 0.96}}
             transition={{duration: 0.15, ease: [0.4, 0, 0.2, 1]}}
-            style={{top: position.top, right: position.right}}
+            style={{top: position.top, bottom: position.bottom, right: position.right}}
             onMouseDown={(e) => e.stopPropagation()}
             className="fixed z-[9999] min-w-[200px] max-w-[280px]"
         >
@@ -248,7 +260,7 @@ export default function SchemeSelector() {
                     onClick={() => setIsOpen(!isOpen)}
                     disabled={isSwitching}
                     className={`
-                        menubar-selector-btn relative flex items-center gap-2 px-3 py-1.5 rounded-md
+                        menubar-selector-btn relative flex items-center gap-2 px-3 py-1.5 rounded-md max-w-full
                         border border-transparent hover:border-[var(--border)]
                         transition-all duration-200
                         disabled:opacity-50 disabled:cursor-not-allowed
@@ -259,12 +271,13 @@ export default function SchemeSelector() {
                     `}
                     aria-expanded={isOpen}
                     aria-label="选择模型方案"
+                    title={isSwitching ? '切换中...' : activeScheme?.name || '选择方案'}
                 >
                     {/* 状态指示灯 */}
                     <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-[var(--brand-primary)]' : 'bg-[var(--text-muted)]'}`}/>
 
                     {/* 方案名称 */}
-                    <span className={`text-xs font-medium ${isActive ? 'text-[var(--brand-primary)]' : 'text-[var(--text-secondary)]'}`}>
+                    <span className={`truncate whitespace-nowrap min-w-0 text-xs font-medium ${isActive ? 'text-[var(--brand-primary)]' : 'text-[var(--text-secondary)]'}`}>
                         {isSwitching ? '切换中...' : activeScheme?.name || '选择方案'}
                     </span>
 

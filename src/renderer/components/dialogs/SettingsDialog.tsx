@@ -290,6 +290,37 @@ export default function SettingsDialog() {
                     </select>
                 </label>
             </div>
+            <div className="grid grid-cols-2 gap-4">
+                <label className="flex items-center justify-between text-sm">
+                    <span>
+                        新会话默认安全模式
+                        <span className="ml-1 text-xs text-[var(--text-secondary)]">无会话级覆盖时回退此值</span>
+                    </span>
+                    <select
+                        className="rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2 py-1 text-sm"
+                        value={current.agent.defaultPermissionMode ?? 'safe'}
+                        onChange={(e) => updatePending('agent', {defaultPermissionMode: e.target.value as 'safe' | 'auto'})}
+                    >
+                        <option value="auto">自动模式（全程自动执行）</option>
+                        <option value="safe">安全模式（破坏性操作需确认）</option>
+                    </select>
+                </label>
+                <label className="flex items-center justify-between text-sm">
+                    <span>
+                        新会话默认显示模式
+                        <span className="ml-1 text-xs text-[var(--text-secondary)]">无会话级覆盖时回退此值</span>
+                    </span>
+                    <select
+                        className="rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2 py-1 text-sm"
+                        value={current.agent.defaultDisplayMode ?? 'detailed'}
+                        onChange={(e) => updatePending('agent', {defaultDisplayMode: e.target.value as 'detailed' | 'compact' | 'ultra-compact'})}
+                    >
+                        <option value="detailed">详细模式</option>
+                        <option value="compact">简洁模式</option>
+                        <option value="ultra-compact">紧凑模式</option>
+                    </select>
+                </label>
+            </div>
         </div>
     )
 

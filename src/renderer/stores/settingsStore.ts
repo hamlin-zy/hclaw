@@ -32,6 +32,8 @@ export const DEFAULT_SETTINGS: SystemSettings = {
         llmTimeout: 600000,
         handoffThresholdRatio: 0.5,
         midLoopOverflowMode: 'auto-handoff',
+        defaultPermissionMode: 'safe',
+        defaultDisplayMode: 'detailed',
     },
     model: {
         defaultMaxTokens: DEFAULT_MAX_TOKENS,
@@ -122,6 +124,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         const {pendingSettings} = get()
         if (!pendingSettings) return
 
+        // ★ 捕获保存前的默认值（须在 set({settings}) 之前——之后 get().settings 已是新值）
+        const prevPermDefault = get().settings?.agent?.defaultPermissionMode
+        const prevDispDefault = get().settings?.agent?.defaultDisplayMode
+
         try {
             // 1. 先写入数据库，成功后才更新本地状态
             const ok = await window.electronAPI?.configWrite('settings', pendingSettings as any)
@@ -130,26 +136,38 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             }
             // 在 set({settings}) 之前捕获旧阈值（spec 3.2：仅阈值变更时恢复"不再提醒"抑制标记）
             const oldThresholdRatio = get().settings?.agent?.handoffThresholdRatio ?? 0.5
+
+            // 2. 广播到运行中的 Agent
+            const broadcastResult = await window.electronAPI?.settingsUpdate?.(pendingSettings as any)
+            if (broadcastResult && !(broadcastResult as any).success) {
+                console.warn('[Settings] Agent 同步警告:', (broadcastResult as any).error)
+            }
+
+            // 3. 新会话默认值变更 → 同步全局权威键（permission_mode / message-display-mode）
+            //    同步须在 set({settings}) 之前——否则失败重试时 prev===new 被守卫跳过，全局权威键与 UI 静默脱节
+            const newPermDefault = pendingSettings.agent?.defaultPermissionMode
+            if (newPermDefault && prevPermDefault !== newPermDefault) {
+                await window.electronAPI?.agentSetPermissionMode?.(newPermDefault)
+            }
+            const newDispDefault = pendingSettings.agent?.defaultDisplayMode
+            if (newDispDefault && prevDispDefault !== newDispDefault) {
+                await window.electronAPI?.configWrite?.('message-display-mode', {mode: newDispDefault})
+            }
+
             set({settings: pendingSettings})
 
-            // 2. 同步主题到 themeStore（须放在 set({settings}) 之后：
+            // 4. 同步主题到 themeStore（须放在 set({settings}) 之后：
             //    resolveAndApplyTheme 读取的 settings 是本次 pending（含背景启用状态），
             //    修正 "system + 本次启用背景" 被解析为 light 的角例）
             const prevTheme = useThemeStore.getState().theme
             resolveAndApplyTheme(pendingSettings.ui.theme)
 
-            // 3. 广播主题变更：走既有 set-window-theme 权威通道（titleBarOverlay + 广播 theme-changed 给所有窗口）
+            // 5. 广播主题变更：走既有 set-window-theme 权威通道（titleBarOverlay + 广播 theme-changed 给所有窗口）
             //    传 themeStore 解析后的值（上面 resolveAndApplyTheme 已把 'system' 解析为具体主题），
             //    避免 'system' 原值导致 titleBarOverlay 走浅色兜底、独立窗口 applyThemeClass 不解析。
             //    主题未变（resolve 前后同值）时跳过重广播。
             if (useThemeStore.getState().theme !== prevTheme) {
                 window.electronAPI?.setWindowTheme?.(useThemeStore.getState().theme)?.catch(() => {})
-            }
-
-            // 4. 广播到运行中的 Agent
-            const broadcastResult = await window.electronAPI?.settingsUpdate?.(pendingSettings as any)
-            if (broadcastResult && !(broadcastResult as any).success) {
-                console.warn('[Settings] Agent 同步警告:', (broadcastResult as any).error)
             }
 
             // 阈值调整后恢复各会话的"不再提醒"抑制标记（spec 3.2：仅阈值变更时恢复）
