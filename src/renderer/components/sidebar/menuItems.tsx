@@ -13,14 +13,14 @@ export const SIDEBAR_MENU_GROUPS: Array<{group: string; items: SidebarMenuItem[]
         group: '配置基础',
         items: [
             {
-                type: 'scheme-config', label: '方案',
+                type: 'scheme-config', label: '模型方案',
                 icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                     <path d="M12 8v4M12 16h.01"/>
                 </svg>,
             },
             {
-                type: 'llm-config', label: '模型',
+                type: 'llm-config', label: '服务商',
                 icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <rect x="4" y="4" width="16" height="16" rx="2"/>
                     <rect x="9" y="9" width="6" height="6"/>
@@ -73,7 +73,7 @@ export const SIDEBAR_MENU_GROUPS: Array<{group: string; items: SidebarMenuItem[]
                 </svg>,
             },
             {
-                type: 'mcp', label: 'MCP',
+                type: 'mcp', label: 'MCP 服务',
                 icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
                     <line x1="8" y1="21" x2="16" y2="21"/>

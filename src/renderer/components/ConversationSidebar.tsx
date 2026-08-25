@@ -315,6 +315,7 @@ export default function ConversationSidebar() {
                                             }}
                                             title={item.label}
                                             aria-label={item.label}
+                                            data-tooltip-placement="right"
                                             className="relative flex items-center justify-center w-7 h-7 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
                                         >
                                             <svg className="w-3.5 h-3.5" {...item.icon.props}>{item.icon.props.children}</svg>

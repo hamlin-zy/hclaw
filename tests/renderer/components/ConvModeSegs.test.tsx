@@ -39,7 +39,7 @@ describe('ConvModeSegs 会话级分段控件', () => {
         expect(screen.getByText('安全')).toBeTruthy()
         expect(screen.getByText('详细')).toBeTruthy()
         expect(screen.getByText('简洁')).toBeTruthy()
-        expect(screen.getByText('紧凑')).toBeTruthy()
+        expect(screen.getByText('极简')).toBeTruthy()
     })
 
     it('点击「自动」→ setConvPermissionMode(convId, auto)', () => {
