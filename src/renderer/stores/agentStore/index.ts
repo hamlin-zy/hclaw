@@ -28,7 +28,7 @@ import {useToolCallsStore} from '../toolCallsStore'
 import {flushAllTextBatches} from './batching/textBatch'
 import {flushAllThinkingBatches} from './batching/thinkingBatch'
 import {flushToolResultBatch, getToolResultBatchMap} from './batching/toolResultBatch'
-import {syncConvToTopLevel} from './helpers/convHelpers'
+import {syncConvToTopLevel, clearConversationRuntimeState} from './helpers/convHelpers'
 import {planRecovery} from './helpers/recoverySeeding'
 import {buildSeedInstruction, applySeedInstruction} from './helpers/seedApplication'
 import {updateMessageContentBlocks, reconcileStreamingContent} from './contentBlocks'
@@ -105,6 +105,9 @@ export const useAgentStore = create<AgentStore>()(
                 const newMap = {...get().convAgentStates}
                 delete newMap[convId]
                 set({convAgentStates: newMap})
+                // ★ 兜底清理：会话删除/不活跃回收时清掉该会话的运行时工具状态与段边界状态
+                //   （常规路径工具完成时已即时清理，此处兜底异常残留）
+                clearConversationRuntimeState(convId)
             },
 
             // ── 任务批次水合（应用重启/刷新恢复） ──────────────────────

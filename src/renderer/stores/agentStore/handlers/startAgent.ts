@@ -23,8 +23,9 @@ export async function startAgentImpl(
     clearAllBatches(conversationId)
 
     // ⚠️ 注意：不要清空 toolCallsStore！
-    // 保留运行时状态（progress、tokenUsage 等）用于终止后卡片展示
-    // 状态会随着用户开始新的对话自然清空
+    // 运行时状态（progress、tokenUsage 等）在工具完成时已即时清理（handleToolResult），
+    // 此处无需清空；仅保留极少数跨轮次展示场景（如 pending 结果），
+    // 渲染层回退到消息内静态 toolCall 数据。
 
     // 修复：检查上一轮是否有未完成的 toolCalls（如用户强制杀死进程导致）
     // 如果有，自动补充为用户终止的 error 结果，防止工具调用对不匹配

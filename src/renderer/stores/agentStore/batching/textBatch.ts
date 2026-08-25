@@ -24,11 +24,12 @@ export function accumulateTextBatch(convId: string, text: string) {
 export function flushTextBatch(convId: string, streamingMessageId: string | null) {
     const parts = textBatches[convId]
     if (!parts || parts.length === 0 || !streamingMessageId) {
-        if (parts) textBatches[convId] = []
+        // 即时清理：无论是空批还是无流式载体，flush 后即删除该会话 key（防残留累积）
+        delete textBatches[convId]
         return
     }
     const batch = parts.join('')
-    textBatches[convId] = []
+    delete textBatches[convId]
 
     const convState = useAgentStore.getState().convAgentStates[convId]
     if (!convState) return
@@ -60,7 +61,7 @@ export function scheduleImmediateTextFlush(convId: string, streamingMessageId: s
 }
 
 export function clearTextBatch(convId: string) {
-    textBatches[convId] = []
+    delete textBatches[convId]
 }
 
 /** 同步刷新全部待刷文本批次（done/error/abort/visibilitychange 兜底路径） */
