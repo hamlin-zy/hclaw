@@ -62,6 +62,24 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     },
 }
 
+/** 同步全局权限模式权威键（system_settings.permission_mode）；失败仅告警，不阻断保存流程 */
+async function syncGlobalPermissionMode(mode: string): Promise<void> {
+    try {
+        await window.electronAPI?.agentSetPermissionMode?.(mode as 'safe' | 'auto')
+    } catch (err) {
+        console.warn('[Settings] 同步 permission_mode 失败:', err)
+    }
+}
+
+/** 同步全局显示模式权威键（message-display-mode）；失败仅告警，不阻断保存流程 */
+async function syncGlobalDisplayMode(mode: string): Promise<void> {
+    try {
+        await window.electronAPI?.configWrite?.('message-display-mode', {mode})
+    } catch (err) {
+        console.warn('[Settings] 同步 message-display-mode 失败:', err)
+    }
+}
+
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
     settings: DEFAULT_SETTINGS,
     pendingSettings: null,
@@ -164,21 +182,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             //    跳过修复，导致新建会话固化默认时读到陈旧全局值（安全模式）。
             //    settings 保存即用户显式确认权威值，全局键应始终跟随。
             const newPermDefault = pendingSettings.agent?.defaultPermissionMode
-            if (newPermDefault) {
-                try {
-                    await window.electronAPI?.agentSetPermissionMode?.(newPermDefault)
-                } catch (err) {
-                    console.warn('[Settings] 同步 permission_mode 失败:', err)
-                }
-            }
+            if (newPermDefault) await syncGlobalPermissionMode(newPermDefault)
             const newDispDefault = pendingSettings.agent?.defaultDisplayMode
-            if (newDispDefault) {
-                try {
-                    await window.electronAPI?.configWrite?.('message-display-mode', {mode: newDispDefault})
-                } catch (err) {
-                    console.warn('[Settings] 同步 message-display-mode 失败:', err)
-                }
-            }
+            if (newDispDefault) await syncGlobalDisplayMode(newDispDefault)
 
             set({settings: pendingSettings})
 

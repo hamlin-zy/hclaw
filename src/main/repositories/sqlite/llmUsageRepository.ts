@@ -65,8 +65,7 @@ export class SqliteLlmUsageRepository {
       const db = getDatabase()
       const {startMs, endMs} = timeRangeBounds(params.range, Date.now(), toCustomRange(params))
       const rows = db.prepare(`
-        SELECT provider_type, model,
-               MAX(provider_name) AS provider_name,
+        SELECT provider_type, model, provider_name,
                COUNT(*) AS request_count,
                SUM(input_tokens) AS input_tokens,
                SUM(output_tokens) AS output_tokens,
@@ -79,7 +78,7 @@ export class SqliteLlmUsageRepository {
         FROM llm_usage
         WHERE (? IS NULL OR created_at >= ?)
           AND (? IS NULL OR created_at <= ?)
-        GROUP BY provider_type, model
+        GROUP BY provider_name, provider_type, model
       `).all(startMs, startMs, endMs, endMs) as ModelAggRow[]
 
       const breakdowns = rows.map((r) => this.toModelBreakdown(r, getMeta))
@@ -184,15 +183,18 @@ export class SqliteLlmUsageRepository {
     }
   }
 
-  /** 历史 llm_stats 合并进模型分组（键 provider\0model；与 llm_usage 行共存相加） */
+  /** 历史 llm_stats 合并进模型分组（键 providerName\0provider\0model；与 llm_usage 行共存相加） */
   private mergeLegacyIntoBreakdowns(breakdowns: UsageBreakdown[], legacy: Array<{ts: number; stats: LlmStats[]}>): UsageBreakdown[] {
     if (legacy.length === 0) return breakdowns
-    const groupMap = new Map(breakdowns.map((b) => [`${b.providerType ?? 'unknown'}\u0000${b.key}`, b]))
+    // SQL 按 provider_name/provider_type/model 分组后，同 (provider_type, model) 可有多行
+    // （同名模型跨服务商 / NULL 匿名行），键必须含 providerName 防止 Map 覆盖丢行；
+    // 历史回填行无 providerName 时查找匿名组（''前缀），无法归属的独立成组。
+    const groupMap = new Map(breakdowns.map((b) => [`${b.providerName ?? ''}\u0000${b.providerType ?? 'unknown'}\u0000${b.key}`, b]))
     for (const item of legacy) {
       for (const s of item.stats) {
         const provider = s.provider || 'unknown'
         const model = s.model || 'unknown'
-        const mapKey = `${provider}\u0000${model}`
+        const mapKey = `${s.providerName ?? ''}\u0000${provider}\u0000${model}`
         const g = groupMap.get(mapKey) ?? {
           key: model, providerType: provider, providerName: s.providerName, requestCount: 0,
           inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
@@ -240,8 +242,7 @@ export class SqliteLlmUsageRepository {
       const db = getDatabase()
       const placeholders = convIds.map(() => '?').join(',')
       const rows = db.prepare(`
-        SELECT provider_type, model,
-               MAX(provider_name) AS provider_name,
+        SELECT provider_type, model, provider_name,
                COUNT(*) AS request_count,
                SUM(input_tokens) AS input_tokens,
                SUM(output_tokens) AS output_tokens,
@@ -253,7 +254,7 @@ export class SqliteLlmUsageRepository {
                COUNT(ttft_ms) AS ttft_count
         FROM llm_usage
         WHERE conversation_id IN (${placeholders})
-        GROUP BY provider_type, model
+        GROUP BY provider_name, provider_type, model
       `).all(...convIds) as ModelAggRow[]
 
       const breakdowns = rows.map((r) => this.toModelBreakdown(r, getMeta))

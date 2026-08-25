@@ -651,6 +651,16 @@ function getFirstRootConversationId(): string | null {
     return convs.find(c => isRootConversation(c, idSet))?.id ?? null
 }
 
+/** 权限模式合法值（会话级 UI 仅暴露 safe/auto 两档，与 IPC 校验一致） */
+function isPermissionMode(v: unknown): v is 'safe' | 'auto' {
+    return v === 'safe' || v === 'auto'
+}
+
+/** 显示模式合法值 */
+function isDisplayMode(v: unknown): v is 'detailed' | 'compact' | 'ultra-compact' {
+    return v === 'detailed' || v === 'compact' || v === 'ultra-compact'
+}
+
 /**
  * 会话级模式初始化（会话激活时调用）：读取 conv.meta 的
  * permissionMode/displayMode，回退全局默认后写入 agentStore 顶层字段。
@@ -664,25 +674,24 @@ export async function applyConvModesToAgentStore(convId: string): Promise<void> 
         meta = null
     }
     const perm = meta?.permissionMode
-    if (perm === 'auto' || perm === 'safe') {
+    if (isPermissionMode(perm)) {
         useAgentStore.setState({permissionMode: perm})
     } else {
         try {
             const globalPerm = await window.electronAPI?.agentGetPermissionMode?.()
-            if (globalPerm === 'auto' || globalPerm === 'safe') {
+            if (isPermissionMode(globalPerm)) {
                 useAgentStore.setState({permissionMode: globalPerm})
             }
         } catch { /* 保持现有值 */ }
     }
     const disp = meta?.displayMode
-    if (disp === 'detailed' || disp === 'compact' || disp === 'ultra-compact') {
+    if (isDisplayMode(disp)) {
         useAgentStore.setState({messageDisplayMode: disp})
     } else {
         try {
             const cfg: any = await window.electronAPI?.configRead?.('message-display-mode')
-            const mode = cfg?.mode
-            if (mode === 'detailed' || mode === 'compact' || mode === 'ultra-compact') {
-                useAgentStore.setState({messageDisplayMode: mode})
+            if (isDisplayMode(cfg?.mode)) {
+                useAgentStore.setState({messageDisplayMode: cfg.mode})
             }
         } catch { /* 保持现有值 */ }
     }
@@ -835,13 +844,11 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           let defaultDisp: 'detailed' | 'compact' | 'ultra-compact' = 'detailed'
           try {
               const gp = await window.electronAPI?.agentGetPermissionMode?.()
-              if (gp === 'auto' || gp === 'safe') defaultPerm = gp
+              if (isPermissionMode(gp)) defaultPerm = gp
           } catch { /* 静默：保持 'safe' */ }
           try {
               const cfg: any = await window.electronAPI?.configRead?.('message-display-mode')
-              if (cfg?.mode === 'compact' || cfg?.mode === 'ultra-compact' || cfg?.mode === 'detailed') {
-                  defaultDisp = cfg.mode
-              }
+              if (isDisplayMode(cfg?.mode)) defaultDisp = cfg.mode
           } catch { /* 静默：保持 'detailed' */ }
           const meta = {
               id,
@@ -886,8 +893,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           // 用默认值初始化新会话的 agent 状态，确保待办列表不会残留旧会话数据
           useAgentStore.getState().updateConvData(id, createDefaultConvData())
           // ★ 会话级模式：createConversation 不走 switchActiveConversation（直接 set 激活），
-          //   顶层 seg 值会残留上一会话——此处显式初始化（meta 已固化全局默认，读即得正确值）
-          void applyConvModesToAgentStore(id)
+          //   顶层 seg 值会残留上一会话——此处显式写入刚固化的全局默认（meta 已含同值，
+          //   无需经 applyConvModesToAgentStore 再读一次）
+          useAgentStore.setState({permissionMode: defaultPerm, messageDisplayMode: defaultDisp})
           return id
       },
 

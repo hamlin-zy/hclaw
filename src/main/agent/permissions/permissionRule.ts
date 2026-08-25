@@ -73,9 +73,9 @@ export class PermissionRulesManager {
     }
 
     /**
-     * 应用权限更新
+     * 应用权限更新（仅更新内存上下文，不落库）
      */
-    async applyUpdate(update: PermissionUpdate): Promise<ToolPermissionContext> {
+    private async applyUpdateToContext(update: PermissionUpdate): Promise<ToolPermissionContext> {
         await this.ensureInit()
         let result = this.context
 
@@ -95,8 +95,14 @@ export class PermissionRulesManager {
         }
 
         this.context = result
-        await this.saveToDatabase(update)
         return this.getContext()
+    }
+
+    /** 应用权限更新（内存 + 落库） */
+    async applyUpdate(update: PermissionUpdate): Promise<ToolPermissionContext> {
+        const context = await this.applyUpdateToContext(update)
+        await this.saveToDatabase(update)
+        return context
     }
 
     /**
@@ -108,26 +114,7 @@ export class PermissionRulesManager {
      * 与 applyUpdate 的差异：跳过 saveToDatabase。
      */
     async applyUpdateNoPersist(update: PermissionUpdate): Promise<ToolPermissionContext> {
-        await this.ensureInit()
-        let result = this.context
-
-        switch (update.type) {
-            case 'setMode':
-                result = this.transitionMode(update.mode)
-                break
-            case 'addRule':
-                result = this.addRule(update.rule)
-                break
-            case 'removeRule':
-                result = this.removeRule(update.tool)
-                break
-            case 'setRules':
-                result = this.setRules(update.rules)
-                break
-        }
-
-        this.context = result
-        return this.getContext()
+        return this.applyUpdateToContext(update)
     }
 
     /**

@@ -64,7 +64,7 @@ describe('ConversationSidebar footer / 折叠态', () => {
         ).map((el) => el.getAttribute('aria-label'))
         expect(collapsedLabels).toEqual([
             '模型方案', '服务商', 'Agents', 'Skills', '命令', '内置工具', 'MCP 服务', '权限配置', '三方渠道',
-            '历史会话', '任务历史', '系统提示词', '三方插件', '定时任务', '系统设置', 'LLM日志调试', 'LLM用量统计', '关于',
+            '历史会话', '任务历史', '系统提示词', '三方插件', '定时任务', '系统设置', 'LLM调用日志', 'LLM用量统计', '关于',
         ])
     })
 })
