@@ -28,10 +28,10 @@ afterEach(() => {
 })
 
 describe('ConfigDialogWindow 独立配置窗口入口', () => {
-    it('按 --hclaw-dialog=llm-config 渲染模型配置', () => {
+    it('按 --hclaw-dialog=llm-config 渲染服务商配置', () => {
         stubApi('llm-config')
         render(<ConfigDialogWindow/>)
-        expect(screen.getByText('模型配置')).toBeTruthy()
+        expect(screen.getByText('服务商配置')).toBeTruthy()
     })
 
     it('按 --hclaw-dialog=mcp 渲染 MCP 服务', () => {

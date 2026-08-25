@@ -2,9 +2,11 @@
 
 import {useAgentStore} from '..'
 import {useConversationStore} from '../../conversationStore'
+import {useToolCallsStore} from '../../toolCallsStore'
 import {clearTextBatch} from '../batching/textBatch'
 import {clearThinkingBatch} from '../batching/thinkingBatch'
 import {clearToolResultBatchData} from '../batching/toolResultBatch'
+import {clearLastStreamType} from '../handlers/streamType'
 
 /** 保存当前活跃对话消息 */
 export async function saveCurrentConversation() {
@@ -32,4 +34,10 @@ export function clearAllBatches(convId: string) {
     clearTextBatch(convId)
     clearThinkingBatch(convId)
     clearToolResultBatchData(convId)
+}
+
+/** 清空会话的运行时状态（段边界 + 工具运行时 key）：done/error 收尾与会话删除兜底共用 */
+export function clearConversationRuntimeState(convId: string) {
+    clearLastStreamType(convId)
+    useToolCallsStore.getState().clearConversationToolCalls(convId)
 }

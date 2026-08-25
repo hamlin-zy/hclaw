@@ -150,6 +150,14 @@ async function main(): Promise<void> {
         runtimeConfigManager.applyOverrideFromMain(params.conversationId, params.modelOverride ?? null)
     }
 
+    // 会话级权限模式（主进程已固化到 DB/内存；worker 侧仅应用内存，不落库；
+    // 同时同步 runtimeConfigManager.currentMode，避免 getMode() 调用方读到陈旧全局值）
+    if (params.permissionMode) {
+        const convMode = params.permissionMode as import('@shared/types').RunMode
+        await permissionEngine.applyModeFromMain(convMode)
+        runtimeConfigManager.syncFromMain({mode: convMode})
+    }
+
 // 加载提示词配置
     // 创建 AbortController 用于接收主进程的终止信号
     const abortController = new AbortController()
@@ -428,6 +436,13 @@ async function main(): Promise<void> {
                 if (msg.convId && msg.override !== undefined) {
                     // 仅同步内存（主进程已固化到 DB）
                     runtimeConfigManager.applyOverrideFromMain(msg.convId, msg.override ?? null)
+                }
+            } else if (msg.type === WORKER_MESSAGE_TYPES.UPDATE_CONV_PERMISSION_MODE) {
+                // 会话级模式：permissionEngine 是 per-worker 单例，仅目标会话 worker 应用
+                if (msg.convId === params.conversationId && msg.mode) {
+                    await permissionEngine.applyModeFromMain(msg.mode)
+                    // 与全局 UPDATE_PERMISSION_MODE 分支一致：同步 runtimeConfigManager.currentMode
+                    runtimeConfigManager.syncFromMain({mode: msg.mode})
                 }
             } else if (msg.type === WORKER_MESSAGE_TYPES.USER_CONFIRMATION_RESULT) {
                 const resolve = confirmationRequests.get(msg.requestId)

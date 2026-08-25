@@ -11,6 +11,23 @@
 
 ---
 
+## [v0.4.12] - 2026-08-25
+
+### 新增
+- **会话级权限与显示模式** — 每个会话可独立设置权限模式和显示模式，输入栏新增分段切换控件，不同会话互不干扰（`ConvModeSegs.tsx` / `runtimeConfigManager.ts`）
+- **侧边栏全新重构** — 常用工具入口移至侧边栏底部工具行，设置入口改为齿轮菜单，折叠状态下菜单图标完整可见，文案更清晰（`ConversationSidebar.tsx` / `menuItems.tsx`）
+
+### 变更
+- **新会话默认模式移至通用设置** — 全局默认权限/显示模式统一在设置中配置，显示模式文案精简更易读（`settingsStore.ts`）
+- **用量统计按服务商分组显示** — 不同服务商用量正确分组，同名模型带服务商徽章，历史消耗一目了然（`llmUsageRepository.ts` / `UsageWindow.tsx`）
+
+### 修复
+- **长对话与长时间运行体验优化** — 修复长对话流式输出时界面响应变慢、长时间运行后占用升高的问题，整体运行更平稳（`InterleavedContent.tsx` / `toolCallsStore.ts`）
+- **界面交互细节优化** — 提示气泡不再闪烁错位、方案选择器弹出与文本截断修复、四套主题恢复专属图标（`TooltipPortal.tsx` / `SchemeSelector.tsx`）
+- **危险操作确认框统一** — 删除等操作的确认提示迁移至统一组件，操作更安全清晰（`ConfigDialogWindow.tsx` / `UsageStatsDialog.tsx`）
+
+---
+
 ## [v0.4.11] - 2026-08-25
 
 ### 新增

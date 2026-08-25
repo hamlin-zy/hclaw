@@ -2,7 +2,7 @@ import {useEffect, useRef, useState} from 'react'
 import {RefreshCw} from 'lucide-react'
 import {formatTokenCompact, formatCost, formatTokensPerSecond, type Currency} from '../../lib/format'
 import {useExchangeRateSync} from '../../hooks/useExchangeRateSync'
-import {parseLocalDateStartMs} from '@shared/llmUsage'
+import {duplicatedModelKeys, parseLocalDateStartMs} from '@shared/llmUsage'
 import {ClientStatsNotice, InfoTip, getCostDisclaimer, providerDisplayName, CurrencyToggle} from './statsParts'
 import type {GlobalUsageStats, TimeRange, TrendGranularity, UsageStatsQueryParams} from '@shared/types'
 
@@ -118,6 +118,10 @@ export default function UsageWindow() {
     const granularity = computeGranularity(range, customRange)
     const maxTrend = data ? Math.max(...data.trend.map(t => t.inputTokens + t.outputTokens + t.cacheReadTokens), 1) : 1
     const grandTotal = data ? data.breakdown.reduce((s, b) => s + b.totalTokens, 0) : 0
+    // 同名模型跨服务商检测：模型视图出现重复模型名（不同服务商提供同名模型）时增强展示，
+    // 让用户明确两行同名数据的差异来源是服务商（价格/延迟可能不同）
+    const dupModels = duplicatedModelKeys(data?.breakdown ?? [])
+    const isDupModel = (key: string) => dupModels.has(key)
     // 时序 KPI 直接消费主进程 computeKpis 结果（口径与消息 tooltip 一致，主进程统一计算）
     const avgDecodeRate = data ? (data.kpi.avgDecodeRate ?? null) : null
     const avgTtftSeconds = data ? (data.kpi.avgTtftSeconds ?? null) : null
@@ -285,19 +289,31 @@ export default function UsageWindow() {
                                     <tbody>
                                         {data.breakdown.map(b => {
                                             const pct = grandTotal > 0 ? Math.round(b.totalTokens / grandTotal * 100) : 0
-                                            // 唯一 React key：provider 视图 key 已是 providerType（唯一）；
+                                            // 唯一 React key：provider 视图 key 是服务商名（唯一）；
                                             // model 视图 key 是模型名，同名模型可能跨服务商出现（如 deepseek-v4-flash），
-                                            // 需组合 providerType 避免 key 冲突导致 reconciliation 错乱、数据叠加。
-                                            const rowKey = b.providerType ? `${b.providerType}\u0000${b.key}` : b.key
+                                            // 需组合服务商名/类型避免 key 冲突导致 reconciliation 错乱、数据叠加。
+                                            const rowKey = (b.providerName || b.providerType) ? `${b.providerName ?? b.providerType}\u0000${b.key}` : b.key
+                                            // 同名模型跨服务商：小字 via 高亮 + 「同名」徽章，明确两行同名数据的差异来源
+                                            const dupModel = view === 'model' && isDupModel(b.key)
                                             return (
                                                 <tr key={rowKey} className="border-t border-[var(--border-muted)] tabular-nums hover:bg-[var(--surface-muted)] transition-colors">
                                                     <td className="px-4 py-2.5 font-medium text-left">
                                                         <div className="flex items-center gap-2">
                                                             <span className="w-1.5 h-1.5 rounded-full bg-[var(--brand-primary)] shrink-0"/>
                                                             <div>
-                                                                <div>{view === 'provider' ? (b.providerName || providerDisplayName(b.key)) : b.key}</div>
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span>{view === 'provider' ? (b.providerName || providerDisplayName(b.key)) : b.key}</span>
+                                                                    {dupModel && (
+                                                                        <span title="同名模型由不同服务商提供，价格/延迟可能不同"
+                                                                              className="rounded border border-[var(--border)] bg-[var(--surface-muted)] px-1 py-px text-[9px] font-medium text-[var(--brand-primary)]">
+                                                                            同名
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                                 {view === 'model' && b.providerType && (
-                                                                    <div className="text-[10px] font-normal text-[var(--text-muted)]">{b.providerName || b.providerType}</div>
+                                                                    <div className={`text-[10px] font-normal ${dupModel ? 'font-medium text-[var(--brand-primary)]' : 'text-[var(--text-muted)]'}`}>
+                                                                        {dupModel ? `via ${b.providerName || b.providerType}` : (b.providerName || b.providerType)}
+                                                                    </div>
                                                                 )}
                                                             </div>
                                                         </div>

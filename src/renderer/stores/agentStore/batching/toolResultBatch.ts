@@ -34,7 +34,8 @@ export function flushToolResultBatch(convId: string) {
     const batch = toolResultBatches[convId]
     if (!batch || batch.size === 0) return
 
-    toolResultBatches[convId] = new Map()
+    // 即时清理：flush 后即删除会话 batch（新结果经 getToolResultBatch 重建）
+    delete toolResultBatches[convId]
 
     const convState = useAgentStore.getState().convAgentStates[convId]
     const msgId = convState?.streamingMessageId
@@ -130,9 +131,8 @@ export function scheduleToolResultUpdate(convId: string, msgId: string, toolCall
 }
 
 export function clearToolResultBatchData(convId: string) {
-    if (toolResultBatches[convId]) {
-        toolResultBatches[convId]!.clear()
-    }
+    // 即时清理：删除整条会话 batch（原 clear() 只清 Map 内容，convId key 永久残留）
+    delete toolResultBatches[convId]
 }
 
 export function getToolResultBatchMap(): Record<string, Map<string, PendingToolResultUpdate>> {

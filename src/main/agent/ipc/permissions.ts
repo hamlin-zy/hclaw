@@ -5,6 +5,7 @@
 import {ipcMain} from 'electron'
 import {permissionEngine} from '../tools/permission'
 import {agentManager} from '../manager'
+import {runtimeConfigManager} from '../runtimeConfigManager'
 
 export function registerHandlers(): void {
     // 获取权限模式
@@ -12,11 +13,19 @@ export function registerHandlers(): void {
         return permissionEngine.getMode()
     })
 
-    // 设置权限模式
+    // 设置全局权限模式（默认值）。注意：不再广播运行中 Worker——
+    // 会话级模式下 worker 模式在会话启动/切换时确定，全局默认变更
+    // 不得覆盖已有会话级覆盖（否则 A 会话 meta=safe 会被全局 auto 改写）。
     ipcMain.handle('agent-set-permission-mode', async (_event, mode: string) => {
         await permissionEngine.setMode(mode as any)
-        // 广播到所有运行中的 Worker
-        agentManager.broadcastPermissionModeUpdate(mode as any)
+        return {success: true}
+    })
+
+    // 设置会话级权限模式（方案B：安全模式会话级；写 meta + 广播目标 worker）
+    ipcMain.handle('agent-set-conv-permission-mode', async (_event, convId: string, mode: string) => {
+        if (mode !== 'safe' && mode !== 'auto') return {success: false, error: 'invalid mode'}
+        runtimeConfigManager.setConvPermissionMode(convId, mode as any)
+        agentManager.broadcastConvPermissionMode(convId, mode as any)
         return {success: true}
     })
 

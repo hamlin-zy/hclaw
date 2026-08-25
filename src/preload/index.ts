@@ -504,6 +504,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     agentAddPermissionRule: (rule: any) => ipcRenderer.invoke('agent-add-permission-rule', rule),
     agentRemovePermissionRule: (toolName: string) => ipcRenderer.invoke('agent-remove-permission-rule', toolName),
     agentSetPermissionMode: (mode: string) => ipcRenderer.invoke('agent-set-permission-mode', mode),
+    agentSetConvPermissionMode: (convId: string, mode: 'safe' | 'auto') =>
+        ipcRenderer.invoke('agent-set-conv-permission-mode', convId, mode),
+    agentGetPermissionMode: () => ipcRenderer.invoke('agent-get-permission-mode'),
 
     // Skills management
     skillsRefresh: (forceRefresh?: boolean) => ipcRenderer.invoke('skills-refresh', forceRefresh),

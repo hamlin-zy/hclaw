@@ -73,9 +73,9 @@ export class PermissionRulesManager {
     }
 
     /**
-     * 应用权限更新
+     * 应用权限更新（仅更新内存上下文，不落库）
      */
-    async applyUpdate(update: PermissionUpdate): Promise<ToolPermissionContext> {
+    private async applyUpdateToContext(update: PermissionUpdate): Promise<ToolPermissionContext> {
         await this.ensureInit()
         let result = this.context
 
@@ -95,8 +95,26 @@ export class PermissionRulesManager {
         }
 
         this.context = result
-        await this.saveToDatabase(update)
         return this.getContext()
+    }
+
+    /** 应用权限更新（内存 + 落库） */
+    async applyUpdate(update: PermissionUpdate): Promise<ToolPermissionContext> {
+        const context = await this.applyUpdateToContext(update)
+        await this.saveToDatabase(update)
+        return context
+    }
+
+    /**
+     * 应用权限更新（仅内存，不落库）
+     *
+     * 用途：会话级权限模式切换（主进程 → worker 下发）。worker 侧单例引擎
+     * 只更新本会话内存 context，避免把会话模式写进全局 system_settings.permission_mode
+     * （该 key 是「全局默认值」的唯一权威，被会话切换覆盖即污染后续新会话的默认）。
+     * 与 applyUpdate 的差异：跳过 saveToDatabase。
+     */
+    async applyUpdateNoPersist(update: PermissionUpdate): Promise<ToolPermissionContext> {
+        return this.applyUpdateToContext(update)
     }
 
     /**

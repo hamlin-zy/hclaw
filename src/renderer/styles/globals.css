@@ -2360,8 +2360,10 @@ html.bg-enabled,
 /* ── 菜单栏选择器按钮（运行模式/工作模式/消息显示/模型方案）半透明 ──
  * 四个按钮带 menubar-selector-btn 语义类。
  * 用户确认：非激活态也全透明（与激活态按钮1一致，靠文字/图标显示），
- * 去掉 55% 半透明黑底和 blur。 */
-.bg-enabled .menubar .menubar-selector-btn:not([class*="brand-primary"]) {
+ * 去掉 55% 半透明黑底和 blur。
+ * 注：SchemeSelector 已移入侧边栏 footer，选择器不再依赖 .menubar
+ * 祖先（body 内同背景容器 .window-container 覆盖菜单栏/侧栏两处实例）。 */
+.bg-enabled .window-container .menubar-selector-btn:not([class*="brand-primary"]) {
     background-color: transparent !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -2484,4 +2486,26 @@ html.bg-enabled,
 .layout-settling [data-name='side-panels'] {
     transition: none !important;
 }
+
+
+/* ── 会话级 segmented control（InputArea 工具行插槽）── ── */
+.seg {
+  display:flex; background:var(--surface-muted); border-radius:99px; padding:2px;
+}
+.seg button {
+  padding:3px 10px; border-radius:99px; font-size:11px; color:var(--text-muted);
+  line-height:1.4; white-space:nowrap; transition:all .15s; border:none; cursor:pointer;
+}
+.seg button.active {
+  background:var(--surface-elevated); color:var(--text-primary); font-weight:600;
+  box-shadow:0 1px 3px rgba(0,0,0,.12);
+}
+.seg.perm button.active[data-v="auto"] { color:var(--warning); }
+.seg.perm button.active[data-v="safe"] { color:var(--success); }
+.tb-sep { width:1px; height:14px; background:var(--border); margin:0 6px; flex-shrink:0; }
+
+/* ── 侧边栏 footer 工具行 ── */
+.tools-row { display:flex; align-items:center; gap:6px; }
+.icon-btn  { width:26px; height:26px; border-radius:7px; position:relative; }
+.status-row .mini-toggle { margin-left:auto; }
 
