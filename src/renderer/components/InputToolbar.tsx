@@ -43,7 +43,7 @@ export default function InputToolbar({
 }: InputToolbarProps) {
     return (
         <div data-name="input-toolbar" className="flex items-center justify-between px-2 py-1 border-t border-[var(--border)]" role="status" aria-live="polite">
-            <div data-name="input-toolbar-status" className="flex items-center gap-2 text-xs text-[var(--text-muted)] flex-1 min-w-0">
+            <div data-name="input-toolbar-status" className="flex items-center gap-2 text-xs text-[var(--text-muted)] flex-1 min-w-0 overflow-hidden">
                 {/* 模型 + 阶段状态（"模型 思考中/响应中"）已合并至消息气泡底部
                     （MessageList statusNote），运行态不再于输入栏显示文案/脉冲点 */}
                 {compactInProgress ? (
@@ -66,27 +66,32 @@ export default function InputToolbar({
                 )}
             </div>
 
-            <div data-name="input-toolbar-actions" className="flex items-center gap-1 shrink-0">
-                {/* ★ 会话级控件插槽（安全模式/显示模式），保持原有元素顺序与样式零改动 */}
-                {extraActions && <>{extraActions}</>}
-                {/* 缓存命中率 + 窗口占用 + 平均吞吐 */}
-                <CacheRateTooltip/>
+            {/* 操作区：min-w-0 + justify-end + overflow-hidden → 宽度不足时从左侧开始
+                裁剪（模式段/缓存徽章/模型选择等次要控件先隐藏），右侧发送/停止按钮
+                shrink-0 严格保留，杜绝停止按钮被裁掉的回归 */}
+            <div data-name="input-toolbar-actions" className="flex items-center justify-end gap-1 min-w-0 overflow-hidden">
+                <div data-name="input-toolbar-actions-variable" className="flex items-center gap-1 shrink-0">
+                    {/* ★ 会话级控件插槽（安全模式/显示模式），保持原有元素顺序与样式零改动 */}
+                    {extraActions && <>{extraActions}</>}
+                    {/* 缓存命中率 + 窗口占用 + 平均吞吐 */}
+                    <CacheRateTooltip/>
 
-                {/* 会话级模型选择器（auto 默认），ms-2 与徽章组形成 8px 分组间隔 */}
-                <ModelSelector conversationId={conversationId ?? ''}/>
+                    {/* 会话级模型选择器（auto 默认），ms-2 与徽章组形成 8px 分组间隔 */}
+                    <ModelSelector conversationId={conversationId ?? ''}/>
 
-                {/* + 展开按钮 */}
-                <ToolMenu
-                    onUploadFile={onUploadFile}
-                    onOpenCommandPalette={onOpenCommandPalette}
-                />
+                    {/* + 展开按钮 */}
+                    <ToolMenu
+                        onUploadFile={onUploadFile}
+                        onOpenCommandPalette={onOpenCommandPalette}
+                    />
+                </div>
 
                 {/* 发送按钮 */}
                 <button
                     data-name="input-toolbar-send"
                     onClick={onSubmit}
                     disabled={!canSend}
-                    className={`p-1 rounded-md transition-all ${
+                    className={`shrink-0 p-1 rounded-md transition-all ${
                         canSend
                             ? 'bg-[var(--brand-primary)] text-white hover:bg-[var(--brand-primary)]/80'
                             : 'text-[var(--text-muted)] cursor-not-allowed'
@@ -103,7 +108,7 @@ export default function InputToolbar({
                     <button
                         data-name="input-toolbar-abort"
                         onClick={onAbort}
-                        className="p-1.5 rounded-md bg-red-500 text-white hover:bg-red-600 transition-all"
+                        className="shrink-0 p-1.5 rounded-md bg-red-500 text-white hover:bg-red-600 transition-all"
                         title="点击终止"
                     >
                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

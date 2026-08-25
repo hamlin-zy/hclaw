@@ -20,15 +20,17 @@ const BASE_PROPS = {
 }
 
 describe('InputToolbar extraActions 插槽', () => {
-    it('传入 extraActions：渲染在 input-toolbar-actions 最左侧', () => {
+    it('传入 extraActions：渲染在 input-toolbar-actions 可变区最左侧', () => {
         const {container} = render(
             <InputToolbar {...BASE_PROPS} extraActions={<div data-testid="extra">EXTRA</div>}/>,
         )
         const actions = container.querySelector<HTMLElement>('[data-name="input-toolbar-actions"]')!
+        const variable = container.querySelector<HTMLElement>('[data-name="input-toolbar-actions-variable"]')!
         const extra = container.querySelector('[data-testid="extra"]')!
         expect(actions.contains(extra)).toBe(true)
-        // 最左侧：extra 是 actions 的第一个子元素
-        expect(actions.firstElementChild).toBe(extra)
+        // 最左侧：extra 是可变区的第一个子元素（窄窗口时从最左开始隐藏）
+        expect(variable.contains(extra)).toBe(true)
+        expect(variable.firstElementChild).toBe(extra)
     })
 
     it('不传 extraActions：行为与旧版完全一致（不渲染插槽）', () => {

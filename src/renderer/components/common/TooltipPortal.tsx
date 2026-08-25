@@ -34,7 +34,11 @@ const TOOLTIP_STYLE: React.CSSProperties = {
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
 }
 
-type TooltipState = {text: string; x: number; y: number} | null
+type TooltipState = {text: string; x: number; y: number; placeAbove: boolean} | null
+
+/** tooltip 自身高度估算（11px 字体 + 8px 垂直 padding + 2px 边框 ≈ 21px），
+ *  用于空间检测：下方剩余空间不足时翻转到元素上方 */
+const TOOLTIP_HEIGHT_ESTIMATE = 30
 
 export default function TooltipPortal() {
     const [tooltip, setTooltip] = useState<TooltipState>(null)
@@ -49,7 +53,9 @@ export default function TooltipPortal() {
                 return
             }
 
-            // 替换原生 title，避免两者同时显示
+            // 替换原生 title，避免两者同时显示。
+            // 注意：title 已被本组件移除时（getAttribute 为 null）不能覆盖
+            // dataset.titleOriginal，否则残留值会被覆盖成 "null"
             if (el.getAttribute('title')) {
                 el.dataset.titleOriginal = el.getAttribute('title')!
                 el.removeAttribute('title')
@@ -62,7 +68,15 @@ export default function TooltipPortal() {
             hideTimer.current = null
 
             const rect = el.getBoundingClientRect()
-            setTooltip({text, x: rect.left + rect.width / 2, y: rect.bottom + 6})
+            // 空间检测：默认显示在元素下方；下方剩余空间不足时（footer /
+            // 窗口底部附近），翻转到元素上方，避免 tooltip 超出视口底边不可见。
+            const placeAbove = window.innerHeight - rect.bottom < TOOLTIP_HEIGHT_ESTIMATE + 12
+            setTooltip({
+                text,
+                x: rect.left + rect.width / 2,
+                y: placeAbove ? rect.top - 6 : rect.bottom + 6,
+                placeAbove,
+            })
         }
 
         const handleMouseOut = (e: MouseEvent) => {
@@ -97,7 +111,7 @@ export default function TooltipPortal() {
                 opacity: tooltip ? 1 : 0,
                 top: tooltip?.y ?? -9999,
                 left: tooltip?.x ?? -9999,
-                transform: 'translateX(-50%)',
+                transform: tooltip?.placeAbove ? 'translate(-50%, -100%)' : 'translateX(-50%)',
             }}
         >
             {tooltip?.text ?? ''}
