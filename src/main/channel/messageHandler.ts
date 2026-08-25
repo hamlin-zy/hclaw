@@ -13,6 +13,7 @@ import * as fs from 'fs'
 
 import {channelRepo} from './ChannelRepository'
 import {workspaceRepo} from '../repositories/sqlite/workspaceRepository'
+import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
 import {agentManager} from '../agent/manager'
 import {channelCommandManager} from './CommandManager'
 import {buildUserContent, hasAudioAttachment, isAttachmentOnlyMarker} from './utils'
@@ -747,6 +748,9 @@ async function createConversationRecord(
             preview: '',
             status: 'active',
             channel: channelId,
+            // 渠道新会话固化全局默认权限模式（会话级；显示模式为渲染层概念，
+            // 打开会话时由 applyConvModesToAgentStore 回退全局，无需在此固化）
+            permissionMode: systemSettingsRepo.get('permission_mode') === 'auto' ? 'auto' : 'safe',
         }
 
         db.prepare(

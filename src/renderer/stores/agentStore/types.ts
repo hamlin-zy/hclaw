@@ -187,6 +187,10 @@ export interface AgentStore {
     setMessageDisplayMode: (mode: 'detailed' | 'compact' | 'ultra-compact') => void
     /** 设置会话 override（写主进程 + 本地） */
     setModelOverride: (convId: string, override: import('@shared/types').ModelOverride | null) => Promise<void>
+    /** 设置会话级权限模式（写 meta + 主进程广播；更新顶层渲染值） */
+    setConvPermissionMode: (convId: string, mode: RunMode) => Promise<void>
+    /** 设置会话级显示模式（写 meta + 更新顶层渲染值） */
+    setConvDisplayMode: (convId: string, mode: 'detailed' | 'compact' | 'ultra-compact') => Promise<void>
     respondQuestion: (result: 'allow' | 'always' | 'deny') => Promise<void>
     answerQuestion: (answer: string) => Promise<void>
     clearPendingQuestion: () => void
