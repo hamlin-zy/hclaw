@@ -59,23 +59,6 @@ function FixedDropdown({
         }
     }, [open, buttonRef])
 
-    useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {
-            if (
-                dropdownRef.current &&
-                buttonRef.current &&
-                !dropdownRef.current.contains(e.target as Node) &&
-                !buttonRef.current.contains(e.target as Node)
-            ) {
-                // Close will be handled by parent
-            }
-        }
-        if (open) {
-            document.addEventListener('mousedown', handleClickOutside)
-        }
-        return () => document.removeEventListener('mousedown', handleClickOutside)
-    }, [open, buttonRef])
-
     if (!open) return null
 
     // 向上弹出时从下方滑入（y 方向反转），与弹出方向一致

@@ -380,9 +380,9 @@ export class RuntimeConfigManager {
             this.sessionPermissionModes.set(convId, stored)
             return stored
         }
-        // 回退全局默认（system_settings.permission_mode 是全局权威）
-        // 回退值不缓存：全局默认是「活」值，缓存会固化为快照，使无覆盖会话在 worker
-        // 重启后永不跟随全局默认变更（与「全局默认=启动时快照来源」的设计语义矛盾）
+        // 回退全局默认（system_settings.permission_mode 是全局权威）。
+        // 回退值不缓存——全局默认是「活」值，缓存会固化为快照，使无覆盖会话在 worker
+        // 重启后永不跟随全局默认变更（字段注释中的设计语义）。
         let globalMode: RunMode = 'safe'
         try {
             const raw = systemSettingsRepo.get('permission_mode')

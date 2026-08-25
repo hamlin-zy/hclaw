@@ -14,6 +14,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {JsonTree} from './llmTrace/JsonTree'
 import {TimelineView, collectRecords, applyTraceFilter} from './llmTrace/TimelineView'
 import {extractUsage, type TokenUsage} from '@shared/utils/llmUsageParser'
+import {confirm} from './ConfirmDialog'
 import type {LlmCallRecord, LlmTraceProjection, TraceFilter} from './llmTrace/types'
 
 type DetailTab = 'request' | 'response' | 'usage'
@@ -113,7 +114,13 @@ export default function LlmLogsWindow() {
     }, [enabled, filter.conversationId, loadProjection, loadConversations])
 
     const handleClear = useCallback(async () => {
-        if (!window.confirm('清空所有调用日志文件？录制将同时停止。')) return
+        const ok = await confirm({
+            title: '清空调用日志',
+            message: '清空所有调用日志文件？录制将同时停止。',
+            confirmText: '清空',
+            confirmVariant: 'danger',
+        })
+        if (!ok) return
         try {
             await window.electronAPI?.clearLlmTrace?.()
             setEnabled(false)
