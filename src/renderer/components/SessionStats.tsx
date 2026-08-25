@@ -1,6 +1,5 @@
 import {useMemo} from 'react'
 import {useConversationStore} from '../stores/conversationStore'
-import {useToolCallsStore} from '../stores/toolCallsStore'
 
 /**
  * 会话统计信息
@@ -21,7 +20,6 @@ interface SessionStats {
  */
 export default function SessionStats() {
     const loadedMessages = useConversationStore(s => s.loadedMessages)
-    const toolCallStates = useToolCallsStore(s => s.states)
 
     const sessionStats = useMemo<SessionStats>(() => {
         let requestCount = 0
@@ -44,13 +42,14 @@ export default function SessionStats() {
                 if (msg.toolCalls && msg.toolCalls.length > 0) {
                     toolCallCount += msg.toolCalls.length
                 }
-            }
-        }
-
-        for (const [, state] of Object.entries(toolCallStates)) {
-            if (state?.tokenUsage) {
-                subAgentCount++
-                subAgentTokens += state.tokenUsage.totalTokens || 0
+                // ★ 子 Agent 统计从消息 toolCalls 读取（tokenUsage 已在工具完成时固化进消息，
+                //   不依赖 toolCallsStore 运行时状态——其状态在完成后即时清理）
+                for (const tc of msg.toolCalls || []) {
+                    if (tc.name === 'agent' && tc.tokenUsage) {
+                        subAgentCount++
+                        subAgentTokens += tc.tokenUsage.totalTokens || 0
+                    }
+                }
             }
         }
 
@@ -63,7 +62,7 @@ export default function SessionStats() {
             subAgentCount,
             subAgentTokens
         }
-    }, [loadedMessages, toolCallStates])
+    }, [loadedMessages])
 
     const formatTokenK = (count: number): string =>
         count >= 1000 ? `${(count / 1000).toFixed(1)}k` : `${count}`

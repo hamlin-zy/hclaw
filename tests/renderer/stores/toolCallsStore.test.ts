@@ -126,3 +126,37 @@ describe('appendSubAgentStream — 500 条滑动窗口', () => {
         expect(stream[2]).toMatchObject({type: 'text', content: '继续输出'})
     })
 })
+
+describe('clearConversationToolCalls — 会话级即时清理', () => {
+    it('按注册时的 convId 批量删除，仅命中该会话的 key', () => {
+        const store = useToolCallsStore.getState()
+        store.registerToolCall('tc-conv-a', {status: 'running'}, 'conv-A')
+        store.registerToolCall('tc-conv-b', {status: 'running'}, 'conv-B')
+        store.registerToolCall('tc-no-conv', {status: 'running'})
+
+        useToolCallsStore.getState().clearConversationToolCalls('conv-A')
+
+        const states = useToolCallsStore.getState().states
+        expect(states['tc-conv-a']).toBeUndefined()
+        // 其他会话及未标注 convId 的 key 不受影响
+        expect(states['tc-conv-b']).toBeDefined()
+        expect(states['tc-no-conv']).toBeDefined()
+    })
+
+    it('无匹配时返回原状态（不触发更新/不改变引用）', () => {
+        const store = useToolCallsStore.getState()
+        store.registerToolCall('tc-X', {status: 'running'}, 'conv-X')
+        const before = useToolCallsStore.getState().states
+
+        useToolCallsStore.getState().clearConversationToolCalls('conv-none')
+
+        expect(useToolCallsStore.getState().states).toBe(before)
+    })
+
+    it('清空后 states 为不带旧 key 的新对象', () => {
+        const store = useToolCallsStore.getState()
+        store.registerToolCall('tc-Y', {status: 'running'}, 'conv-Y')
+        useToolCallsStore.getState().clearConversationToolCalls('conv-Y')
+        expect(useToolCallsStore.getState().states).toEqual({})
+    })
+})

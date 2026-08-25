@@ -155,7 +155,7 @@ export function handleToolStart(ctx: StreamCtx) {
     }
 
     // ★ 倒计时起点：tool_start 到达时刻（已存在则更新，否则注册）
-    registerRunningTool(tc.id, tc.timeoutMs)
+    registerRunningTool(tc.id, tc.timeoutMs, convId)
 
     get().updateConvData(convId, {
         streamingMessageId: msgId,
@@ -165,7 +165,7 @@ export function handleToolStart(ctx: StreamCtx) {
 }
 
 /** 注册运行中工具的倒计时数据（tool_start 到达时刻为起点） */
-function registerRunningTool(toolCallId: string, timeoutMs?: number) {
+function registerRunningTool(toolCallId: string, timeoutMs?: number, convId?: string) {
     const updates = {
         status: 'running' as const,
         startedAt: Date.now(),
@@ -175,7 +175,7 @@ function registerRunningTool(toolCallId: string, timeoutMs?: number) {
     if (store.states[toolCallId]) {
         store.updateToolCall(toolCallId, updates)
     } else {
-        store.registerToolCall(toolCallId, updates)
+        store.registerToolCall(toolCallId, updates, convId)
     }
 }
 
@@ -203,7 +203,7 @@ export function handleToolProgress(ctx: StreamCtx) {
     // 状态缺失时同步注册（确保 UI 立即可见），已存在时走批量队列（防抖高频更新）
     const existingState = useToolCallsStore.getState().states[event.toolCallId]
     if (!existingState || existingState.status === 'pending') {
-        useToolCallsStore.getState().registerToolCall(event.toolCallId, {status: 'running', progress: event.progress})
+        useToolCallsStore.getState().registerToolCall(event.toolCallId, {status: 'running', progress: event.progress}, convId)
     } else {
         useToolCallsStore.getState().updateToolCall(event.toolCallId, {progress: event.progress})
     }
@@ -249,10 +249,18 @@ export function handleToolResult(ctx: StreamCtx) {
         if (event.skillName && tc) {
             useToolCallsStore.getState().updateToolCall(event.toolCallId, {skillName: event.skillName} as any)
         }
-        // ★ 内存释放：agent 工具完成态不再需要过程数据（思考/工具执行流），
-        //   只保留最终输出（result）与 token 用量，避免长会话中大量子 Agent 的过程数据常驻内存。
-        //   clearAgentProcessData 内部对非 agent / 无过程数据的工具自动短路
-        useToolCallsStore.getState().clearAgentProcessData(event.toolCallId)
+        // ★ 即时清理：工具完成后运行时 key 立即删除（不再等会话结束），
+        //   long loop 期间每个工具完成即释放。渲染层回退到消息内静态 toolCall
+        //   （status/result/taskId 均已落库；result 完整内容已由 tool_result 块落库，
+        //   消息内只留 2000 字摘要——与截断策略一致）。tokenUsage 仅存于运行时 →
+        //   先固化到消息再删除，否则 SessionStats/弹窗丢失统计。
+        const runtimeState = useToolCallsStore.getState().states[event.toolCallId]
+        if (runtimeState?.tokenUsage && tc && !tc.tokenUsage) {
+            useConversationStore.getState().updateMessageForConv(convId, msgId, {
+                toolCalls: msg.toolCalls.map(t => t.id === event.toolCallId ? {...t, tokenUsage: runtimeState.tokenUsage} : t),
+            })
+        }
+        useToolCallsStore.getState().clearToolCall(event.toolCallId)
         scheduleToolResultUpdate(convId, msgId, event.toolCallId, result)
     }
 

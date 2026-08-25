@@ -169,6 +169,6 @@ export function applySeedInstruction(convId: string, ins: SeedInstruction): void
     }
 
     for (const r of ins.toolRegistrations) {
-        toolCallsState.registerToolCall(r.toolCallId, r.initial)
+        toolCallsState.registerToolCall(r.toolCallId, r.initial, convId)
     }
 }

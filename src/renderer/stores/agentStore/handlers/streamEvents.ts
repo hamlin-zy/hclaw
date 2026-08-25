@@ -6,6 +6,7 @@ import {useConversationStore} from '../../conversationStore'
 import {flushConversationDirty} from '../../conversationStore'
 
 import type {StreamCtx} from './streamContext'
+import {getLastStreamType, setLastStreamType} from './streamType'
 import {handleBegin, handleAgentStart, handleText, handleThinking} from './streamCore'
 import {handleToolUse, handleToolsStart, handleToolStart, handleToolProgress, handleToolDetail, handleToolResult, handleToolCompleted, handleToolDenied} from './streamTools'
 import {handleAgentProgress, handleSubagentProgress, handleSubagentStart, handleSubagentDone} from './streamSubAgents'
@@ -14,8 +15,6 @@ import {handleModeChange, handleTasksUpdate, handleLlmCallDone, handleCommandSta
 import {handleDone, handleError, handleAskUser, handleWarning, handlePermissionRulesUpdated, handlePermissionConfirm, handleUserMessageInjected} from './streamInteraction'
 
 const TEXTISH = new Set(['text', 'thinking'])
-/** 本会话上一事件类型（段边界检测） */
-const lastStreamType = new Map<string, string>()
 
 export function shouldFlushOnBoundary(prev: string | undefined, curr: string): boolean {
     if (!prev) return false
@@ -48,11 +47,11 @@ export async function handleStreamEventImpl(set: SetFn, get: GetFn, payload: Age
     // ★ 段边界落库：thinking→text / text→tool 等类型切换即段结束 → 立即刷 dirty。
     //   done/error/user_message_injected 不在此触发（shouldFlushOnBoundary 返回 false），
     //   由各自 handler 收尾后统一 flush，避免无 endedAt 快照覆盖主进程 final 写。
-    const prevType = lastStreamType.get(convId)
+    const prevType = getLastStreamType(convId)
     if (shouldFlushOnBoundary(prevType, event.type)) {
         void flushConversationDirty(convId)
     }
-    lastStreamType.set(convId, event.type)
+    setLastStreamType(convId, event.type)
 
     switch (event.type) {
         case 'begin':                  handleBegin(ctx);                   break

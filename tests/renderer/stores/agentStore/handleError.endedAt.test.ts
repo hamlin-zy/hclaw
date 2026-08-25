@@ -62,6 +62,7 @@ vi.mock('../../../../src/renderer/stores/agentStore/helpers/misc', () => ({
 
 vi.mock('../../../../src/renderer/stores/agentStore/helpers/convHelpers', () => ({
     saveCurrentConversation: vi.fn(),
+    clearConversationRuntimeState: vi.fn(),
 }))
 
 Object.assign(mockAgentState, {
