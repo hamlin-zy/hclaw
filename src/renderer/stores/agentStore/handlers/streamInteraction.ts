@@ -18,7 +18,7 @@ import {
 } from '../batching/thinkingBatch'
 import {flushToolResultBatch} from '../batching/toolResultBatch'
 import {parseCommands} from '../helpers/misc'
-import {saveCurrentConversation} from '../helpers/convHelpers'
+import {saveCurrentConversation, clearConversationRuntimeState} from '../helpers/convHelpers'
 import {ensureStreamingMessage} from './streamCore'
 
 /**
@@ -169,6 +169,10 @@ export async function handleDone(ctx: StreamCtx) {
             })
         }
     }
+
+    // ★ 即时清理：本轮结束即释放段边界状态与残留的运行时工具状态
+    //   （正常工具已完成时已逐个 clearToolCall；此处兜底异常残留，如断连/漏事件）
+    clearConversationRuntimeState(convId)
 }
 
 export function handleError(ctx: StreamCtx) {
@@ -211,6 +215,8 @@ export function handleError(ctx: StreamCtx) {
         finalizeMessageDelta(convId, errorMsgId, Date.now())
     }
     void flushConversationDirty(convId)
+    // ★ 即时清理：error 收尾即清（与 handleDone 对称）
+    clearConversationRuntimeState(convId)
 }
 
 export async function handleAskUser(ctx: StreamCtx) {

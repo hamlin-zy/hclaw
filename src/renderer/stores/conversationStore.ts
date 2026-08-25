@@ -651,6 +651,52 @@ function getFirstRootConversationId(): string | null {
     return convs.find(c => isRootConversation(c, idSet))?.id ?? null
 }
 
+/** 权限模式合法值（会话级 UI 仅暴露 safe/auto 两档，与 IPC 校验一致） */
+function isPermissionMode(v: unknown): v is 'safe' | 'auto' {
+    return v === 'safe' || v === 'auto'
+}
+
+/** 显示模式合法值 */
+function isDisplayMode(v: unknown): v is 'detailed' | 'compact' | 'ultra-compact' {
+    return v === 'detailed' || v === 'compact' || v === 'ultra-compact'
+}
+
+/**
+ * 会话级模式初始化（会话激活时调用）：读取 conv.meta 的
+ * permissionMode/displayMode，回退全局默认后写入 agentStore 顶层字段。
+ * 渲染层 4 处消费点统一读顶层，无需改动。
+ */
+export async function applyConvModesToAgentStore(convId: string): Promise<void> {
+    let meta: Record<string, unknown> | null = null
+    try {
+        meta = (await window.electronAPI?.conversationReadMeta?.(convId)) ?? null
+    } catch {
+        meta = null
+    }
+    const perm = meta?.permissionMode
+    if (isPermissionMode(perm)) {
+        useAgentStore.setState({permissionMode: perm})
+    } else {
+        try {
+            const globalPerm = await window.electronAPI?.agentGetPermissionMode?.()
+            if (isPermissionMode(globalPerm)) {
+                useAgentStore.setState({permissionMode: globalPerm})
+            }
+        } catch { /* 保持现有值 */ }
+    }
+    const disp = meta?.displayMode
+    if (isDisplayMode(disp)) {
+        useAgentStore.setState({messageDisplayMode: disp})
+    } else {
+        try {
+            const cfg: any = await window.electronAPI?.configRead?.('message-display-mode')
+            if (isDisplayMode(cfg?.mode)) {
+                useAgentStore.setState({messageDisplayMode: cfg.mode})
+            }
+        } catch { /* 保持现有值 */ }
+    }
+}
+
 /** 切换会话状态核心逻辑：同步 loadedMessages、agent 状态、IPC 通知
  *  （不含 flushMessages，调用方决定是否需要先 flush）
  *  用于 setActiveConversation / deleteConversation / deleteConversations 共享路径 */
@@ -697,6 +743,8 @@ async function switchActiveConversation(id: string | null) {
         //   完整 contentBlocks，修复"切回运行中会话只渲染 thinking、无正文/工具调用"。
         agentStore.reconcileStreamingContent?.(id)
         agentStore.updateConvData(id, agentStore.convAgentStates[id] ?? DEFAULT_AGENT_STATE)
+        // 会话级模式初始化（meta → 全局默认回退）
+        void applyConvModesToAgentStore(id)
     } else {
         useConversationStore.setState({ activeConversationId: null, loadedMessages: [] })
     }
@@ -791,6 +839,17 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const id = `conv-${crypto.randomUUID()}`
           const now = Date.now()
           const wsPath = get().currentWorkspacePath || ''
+          // 新会话固化全局默认（session 级 mode 从创建那一刻生效；旧会话回退仍走全局）
+          let defaultPerm: 'safe' | 'auto' = 'safe'
+          let defaultDisp: 'detailed' | 'compact' | 'ultra-compact' = 'detailed'
+          try {
+              const gp = await window.electronAPI?.agentGetPermissionMode?.()
+              if (isPermissionMode(gp)) defaultPerm = gp
+          } catch { /* 静默：保持 'safe' */ }
+          try {
+              const cfg: any = await window.electronAPI?.configRead?.('message-display-mode')
+              if (isDisplayMode(cfg?.mode)) defaultDisp = cfg.mode
+          } catch { /* 静默：保持 'detailed' */ }
           const meta = {
               id,
               title: '新对话',
@@ -798,7 +857,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               createdAt: now,
               updatedAt: now,
               preview: '',
-              status: 'active' as const
+              status: 'active' as const,
+              permissionMode: defaultPerm,
+              displayMode: defaultDisp,
           }
 
           await window.electronAPI?.conversationCreate?.(id, meta)
@@ -831,6 +892,10 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           })
           // 用默认值初始化新会话的 agent 状态，确保待办列表不会残留旧会话数据
           useAgentStore.getState().updateConvData(id, createDefaultConvData())
+          // ★ 会话级模式：createConversation 不走 switchActiveConversation（直接 set 激活），
+          //   顶层 seg 值会残留上一会话——此处显式写入刚固化的全局默认（meta 已含同值，
+          //   无需经 applyConvModesToAgentStore 再读一次）
+          useAgentStore.setState({permissionMode: defaultPerm, messageDisplayMode: defaultDisp})
           return id
       },
 

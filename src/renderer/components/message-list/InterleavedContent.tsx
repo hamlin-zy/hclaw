@@ -91,13 +91,25 @@ export function ThrottledMarkdown({content, isUser, theme}: {
     const [displayContent, setDisplayContent] = useState(content)
     const contentRef = useRef(content)
     contentRef.current = content
+    // ★ 内存修复：displayContent 的 ref 镜像。tick 在 rAF 回调闭包中运行，
+    //   若读取组件闭包里的 displayContent 会因闭包陈旧而误判；
+    //   ref 镜像保证读到「当前已提交」的值，用于「值不等才提交」判定。
+    const displayContentRef = useRef(displayContent)
+    displayContentRef.current = displayContent
 
     // 只在 isStreaming 翻转时重启 rAF 循环；content 变更通过 ref 自动跟随。
     // content 刻意不入依赖：rAF 回调通过 contentRef 读取最新值，避免流式期间每帧重挂 effect。
     useEffect(() => {
-        // 统一提交入口：函数式更新读取最新 displayContent，等值时返回原引用（React bail out）
+        // ★ 统一提交入口：**值形式** setState —— 函数式 updater 无法走 React
+        //   的 eagerState 快路径（每次 dispatch 都会 enqueue update 对象，
+        //   历史块 bail out 后 updateQueue 永不消费 → 运行期堆线性堆积，
+        //   实测 +0.5~1MB/s，是渲染进程运行期增长的直接根因）。
+        //   值形式 + 前置比对：等值时直接返回（React bail out，零 enqueue）。
         const syncLatest = () => {
-            setDisplayContent((prev) => (prev === contentRef.current ? prev : contentRef.current))
+            const latest = contentRef.current
+            if (latest !== displayContentRef.current) {
+                setDisplayContent(latest)
+            }
         }
 
         // 空闲时同步提交最新内容，无需节流

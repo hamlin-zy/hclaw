@@ -35,6 +35,8 @@ export interface AgentStartParams {
   conversationTitle?: string
   /** 会话级模型 override（由主进程解析后传给 Worker；null=显式 auto） */
   modelOverride?: import('@shared/types').ModelOverride | null
+  /** 会话级权限模式（主进程按 meta 固化 / 全局默认回退解析后下发；worker 仅应用内存，不落库） */
+  permissionMode?: import('@shared/types').RunMode
   /**
    * 序列化的能力列表
    * 主进程序列化后传递给 Worker，Worker 直接使用，无需重新加载

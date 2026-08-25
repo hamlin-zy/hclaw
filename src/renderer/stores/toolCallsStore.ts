@@ -69,6 +69,8 @@ export interface ToolCallState {
     progressLog?: ProgressEntry[]
     /** 子 Agent 流式事件（完整的思考/工具调用/正文事件序列） */
     subAgentStream?: SubAgentStreamEntry[]
+    /** 所属会话 ID（注册时写入，供会话清理时整批清除） */
+    convId?: string
 }
 
 interface ToolCallsStore {
@@ -76,7 +78,7 @@ interface ToolCallsStore {
     states: Record<string, ToolCallState>
     
     /** 注册一个新的工具调用（初始化状态） */
-    registerToolCall: (toolCallId: string, initial?: Partial<ToolCallState>) => void
+    registerToolCall: (toolCallId: string, initial?: Partial<ToolCallState>, convId?: string) => void
     
     /** 更新工具状态（progress、status 等） */
     updateToolCall: (toolCallId: string, updates: Partial<ToolCallState>) => void
@@ -105,8 +107,8 @@ interface ToolCallsStore {
     /** 向子 Agent 流追加事件条目（立即更新，不走批处理队列） */
     appendSubAgentStream: (toolCallId: string, entry: SubAgentStreamEntry) => void
 
-    /** 清理 Agent 过程数据（progressLog / subAgentStream）——完成态不再需要，释放内存 */
-    clearAgentProcessData: (toolCallId: string) => void
+    /** 批量清除某会话的全部工具运行时状态（会话删除/收尾兜底；正常路径由 tool_result 完成时逐个 clearToolCall） */
+    clearConversationToolCalls: (convId: string) => void
 }
 
 // ─── 批量更新队列 ───────────────────────────────────────
@@ -155,13 +157,14 @@ const MAX_SUBAGENT_STREAM_ENTRIES = 500
 export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
     states: {},
     
-    registerToolCall: (toolCallId, initial) => {
+    registerToolCall: (toolCallId, initial, convId) => {
         set((state) => ({
             states: {
                 ...state.states,
                 [toolCallId]: {
                     status: 'running' as const,
                     ...initial,
+                    ...(convId !== undefined ? {convId} : {}),
                 },
             },
         }))
@@ -329,19 +332,17 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
         })
     },
 
-    clearAgentProcessData: (toolCallId) => {
+    clearConversationToolCalls: (convId) => {
         set((state) => {
-            const existing = state.states[toolCallId]
-            if (!existing) return {}
-            // 仅当过程数据非空时才触发更新，避免无谓的 set
-            if (!existing.subAgentStream?.length && !existing.progressLog?.length) return {}
-            const {subAgentStream: _s, progressLog: _p, ...rest} = existing
-            return {
-                states: {
-                    ...state.states,
-                    [toolCallId]: {...rest},
-                },
+            const newStates = {...state.states}
+            let removed = false
+            for (const [toolCallId, s] of Object.entries(newStates)) {
+                if (s.convId === convId) {
+                    delete newStates[toolCallId]
+                    removed = true
+                }
             }
+            return removed ? {states: newStates} : {}
         })
     },
 }))

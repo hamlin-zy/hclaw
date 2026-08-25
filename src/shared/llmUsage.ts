@@ -163,11 +163,27 @@ export function computeKpis(raw: UsageKpiInput): UsageKpis {
 
 // ─── 分组合并与成本（主进程 / 渲染层共用，防重复实现） ─────────────
 
+/**
+ * 同名模型跨服务商检测：返回出现次数 > 1 的模型名集合。
+ * 分组键含 providerName 后，同名模型在不同服务商下会拆成多行，
+ * UI 据此显示「同名」徽章并高亮 via 服务商信息（价格/延迟可能不同）。
+ */
+export function duplicatedModelKeys(rows: UsageBreakdown[]): Set<string> {
+  const count = new Map<string, number>()
+  for (const r of rows) count.set(r.key, (count.get(r.key) ?? 0) + 1)
+  const dup = new Set<string>()
+  for (const [key, n] of count) if (n > 1) dup.add(key)
+  return dup
+}
+
 /** 按服务商合并（成本求和、totalTokens 降序、providerName 非 NULL 优先、时序字段累加） */
 export function mergeByProvider(rows: UsageBreakdown[]): UsageBreakdown[] {
   const map = new Map<string, UsageBreakdown>()
   for (const r of rows) {
-    const key = r.providerType ?? 'unknown'
+    // 合并键 = 真实服务商名（providers.name）优先，缺失（历史数据）回退 providerType。
+    // providerType（anthropic/openai/...）只是 API 兼容风格，同一风格可挂多个服务商
+    // （如 anthropic 下的 Deepseek-ant/dsh/xiaomimimo），绝不能作为合并键，否则会被并为一组。
+    const key = r.providerName ?? r.providerType ?? 'unknown'
     const existing = map.get(key)
     if (existing) {
       existing.requestCount += r.requestCount

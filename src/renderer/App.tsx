@@ -1,7 +1,6 @@
 import {Component, type ReactNode, useEffect} from 'react'
 import {AnimatePresence} from 'framer-motion'
 import TitleBar from './components/TitleBar'
-import MenuBar from './components/MenuBar'
 import ConversationSidebar from './components/ConversationSidebar'
 import MainWorkspace from './components/MainWorkspace'
 import MenuDialogRenderer from './components/MenuDialogRenderer'
@@ -690,18 +689,19 @@ export default function App() {
           </>
         )}
         <TitleBar />
-        <MenuBar />
-        <main className="flex-1 flex overflow-hidden px-2 py-2 gap-2"
+        <main className={`flex-1 flex overflow-hidden py-2 gap-2 ${leftCollapsed ? 'pl-0 pr-2' : 'px-2'}`}
               style={{minHeight: 0, marginTop: 0, marginBottom: 0}}>
-          {/* 左侧边栏卡片 - 折叠时隐藏 */}
-          {!leftCollapsed && (
-            <div
-              className="app-surface-card bg-[var(--surface)] rounded-lg shadow-card border border-[var(--border)] overflow-hidden flex flex-col transition-all"
-              data-name="left-sidebar-card"
-              style={{width: 'var(--sidebar-width)'}}>
-              <ConversationSidebar/>
-            </div>
-          )}
+          {/* 左侧边栏卡片 - 折叠时保留 36px 窄条（含全部菜单项图标 + 展开入口）：
+              折叠态紧贴窗口左缘无缝隙（main 去 pl），左上/左下圆角改直角；
+              若整个卸载则折叠后只剩 Ctrl+B 可展开（Bug3 根因） */}
+          <div
+            className={`app-surface-card bg-[var(--surface)] rounded-lg shadow-card border border-[var(--border)] transition-all ${
+                leftCollapsed ? 'overflow-visible rounded-l-none' : 'overflow-hidden'
+            } flex flex-col`}
+            data-name="left-sidebar-card"
+            style={{width: leftCollapsed ? 'var(--sidebar-collapsed-width, 36px)' : 'var(--sidebar-width)'}}>
+            <ConversationSidebar/>
+          </div>
           {/* 中间主内容卡片 */}
           <div
             className="app-surface-card flex-1 flex flex-col min-w-0 transition-all overflow-hidden"

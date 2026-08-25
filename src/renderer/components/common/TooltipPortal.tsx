@@ -12,8 +12,14 @@ import {createPortal} from 'react-dom'
  * 主题化 tooltip，突破所有 overflow 容器限制，并覆盖原生 tooltip。
  */
 
-/** 触发 tooltip 的元素选择器（单一真源，mouseover/mouseout 共用） */
-const TOOLTIP_SELECTOR = '[title], [data-tooltip]'
+/**
+ * 触发 tooltip 的元素选择器（单一真源，mouseover/mouseout 共用）。
+ * data-tooltip-active 是接管标记：mouseover 进入时原生 title 会被移除，
+ * 元素失配 [title] 后后续的 mouseover/mouseout 将无法命中（closest 返回
+ * null → 走进 !el 分支 → 100ms 后 tooltip 被隐藏，表现为"悬停闪现一下"），
+ * 因此接管时必须打上标记保证选择器持续命中。
+ */
+const TOOLTIP_SELECTOR = '[title], [data-tooltip], [data-tooltip-active]'
 
 const TOOLTIP_STYLE: React.CSSProperties = {
     position: 'fixed',
@@ -34,7 +40,13 @@ const TOOLTIP_STYLE: React.CSSProperties = {
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
 }
 
-type TooltipState = {text: string; x: number; y: number} | null
+type TooltipPlacement = 'above' | 'below' | 'right'
+
+type TooltipState = {text: string; x: number; y: number; placement: TooltipPlacement} | null
+
+/** tooltip 自身高度估算（11px 字体 + 8px 垂直 padding + 2px 边框 ≈ 21px），
+ *  用于空间检测：下方剩余空间不足时翻转到元素上方 */
+const TOOLTIP_HEIGHT_ESTIMATE = 30
 
 export default function TooltipPortal() {
     const [tooltip, setTooltip] = useState<TooltipState>(null)
@@ -44,15 +56,30 @@ export default function TooltipPortal() {
         const handleMouseOver = (e: MouseEvent) => {
             const el = (e.target as HTMLElement).closest<HTMLElement>(TOOLTIP_SELECTOR)
             if (!el) {
-                // 延迟隐藏，防止移动到子元素时闪烁
+                // 延迟隐藏，防止移动到子元素时闪烁。
+                // 必须先清除旧的 hideTimer：快速移动时鼠标连续扫过多个无 title
+                // 元素会产生多个 mouseover，直接覆盖引用会让先前 timer 泄漏，
+                // 在进入元素显示 tooltip 后仍到期 setTooltip(null) ——
+                // 表现为"从右侧快速进入时 tooltip 闪现即消失"的竞态根因。
+                if (hideTimer.current) clearTimeout(hideTimer.current)
                 hideTimer.current = window.setTimeout(() => setTooltip(null), 100)
                 return
             }
 
-            // 替换原生 title，避免两者同时显示
+            // mouseenter 语义：鼠标在元素内部（含子元素）移动时也会触发 mouseover，
+            // 若 relatedTarget 仍在 el 内则视为内部移动——不重置/不重新触发，
+            // 避免 tooltip 在子元素边界处反复显隐（"闪一下消失"的根因）
+            const related = e.relatedTarget as HTMLElement | null
+            if (related && el.contains(related)) return
+
+            // 替换原生 title，避免两者同时显示。
+            // 注意：title 已被本组件移除时（getAttribute 为 null）不能覆盖
+            // dataset.titleOriginal，否则残留值会被覆盖成 "null"
             if (el.getAttribute('title')) {
                 el.dataset.titleOriginal = el.getAttribute('title')!
                 el.removeAttribute('title')
+                // 接管标记：title 移除后 closest 依赖它继续命中该元素
+                el.dataset.tooltipActive = '1'
             }
 
             const text = el.dataset.tooltip || el.dataset.titleOriginal
@@ -62,12 +89,36 @@ export default function TooltipPortal() {
             hideTimer.current = null
 
             const rect = el.getBoundingClientRect()
-            setTooltip({text, x: rect.left + rect.width / 2, y: rect.bottom + 6})
+            // 放置方向：data-tooltip-placement="right" 显式指定（折叠侧边栏图标：
+            // 窄条居中锚定会让长文本向左溢出窗口左缘，右侧锚定单行向右延伸最稳妥）；
+            // 否则空间检测——默认显示在元素下方，下方剩余空间不足时（footer /
+            // 窗口底部附近）翻转到元素上方，避免 tooltip 超出视口底边不可见。
+            const spaceBelow = window.innerHeight - rect.bottom
+            let placement: TooltipPlacement = 'above'
+            if (el.dataset.tooltipPlacement === 'right') {
+                placement = 'right'
+            } else {
+                placement = spaceBelow < TOOLTIP_HEIGHT_ESTIMATE + 12 ? 'above' : 'below'
+            }
+            const x = placement === 'right'
+                ? rect.right + 8
+                : rect.left + rect.width / 2
+            const y = placement === 'right'
+                ? rect.top + rect.height / 2
+                : placement === 'above'
+                    ? rect.top - 6
+                    : rect.bottom + 6
+            setTooltip({text, x, y, placement})
         }
 
         const handleMouseOut = (e: MouseEvent) => {
             const el = (e.target as HTMLElement).closest<HTMLElement>(TOOLTIP_SELECTOR)
             if (!el) return
+
+            // mouseleave 语义：鼠标移到元素内部子元素（relatedTarget 仍在 el 内）
+            // 不算离开——不隐藏 tooltip，也不恢复 title，保证 hover 期间持续显示
+            const related = e.relatedTarget as HTMLElement | null
+            if (related && el.contains(related)) return
 
             clearTimeout(hideTimer.current!)
             hideTimer.current = null
@@ -76,6 +127,7 @@ export default function TooltipPortal() {
             if (el.dataset.titleOriginal) {
                 el.setAttribute('title', el.dataset.titleOriginal)
                 delete el.dataset.titleOriginal
+                delete el.dataset.tooltipActive
             }
         }
 
@@ -97,7 +149,11 @@ export default function TooltipPortal() {
                 opacity: tooltip ? 1 : 0,
                 top: tooltip?.y ?? -9999,
                 left: tooltip?.x ?? -9999,
-                transform: 'translateX(-50%)',
+                transform: tooltip?.placement === 'right'
+                    ? 'translateY(-50%)'
+                    : tooltip?.placement === 'above'
+                        ? 'translate(-50%, -100%)'
+                        : 'translateX(-50%)',
             }}
         >
             {tooltip?.text ?? ''}

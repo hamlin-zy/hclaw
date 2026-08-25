@@ -147,32 +147,64 @@ describe('tokensPerSecond（与消息 tooltip 同口径，含 MIN_DECODE_MS 防�
 describe('mergeByProvider（按服务商合并）', () => {
   const rows = [
     {key: 'claude-sonnet-4', providerType: 'anthropic', providerName: 'Deepseek-ant', requestCount: 2, inputTokens: 100, outputTokens: 20, cacheReadTokens: 300, cacheWriteTokens: 0, totalTokens: 420, costUsd: 0.01, decodeMs: 5000, ttftMs: 800, ttftCount: 1},
-    {key: 'claude-opus-4', providerType: 'anthropic', providerName: undefined, requestCount: 1, inputTokens: 50, outputTokens: 10, cacheReadTokens: 100, cacheWriteTokens: 0, totalTokens: 160, costUsd: 0.02, decodeMs: 2000, ttftMs: undefined, ttftCount: 0},
+    {key: 'claude-opus-4', providerType: 'anthropic', providerName: 'Deepseek-ant', requestCount: 1, inputTokens: 50, outputTokens: 10, cacheReadTokens: 100, cacheWriteTokens: 0, totalTokens: 160, costUsd: 0.02, decodeMs: 2000, ttftMs: undefined, ttftCount: 0},
+    // 历史数据无 providerName → 回退 providerType 独立成组，不得并入 Deepseek-ant
+    {key: 'legacy-model', providerType: 'anthropic', providerName: undefined, requestCount: 1, inputTokens: 30, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 35, costUsd: 0.01},
     {key: 'gpt-4o', providerType: 'openai', providerName: 'OpenAI', requestCount: 3, inputTokens: 500, outputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 600, costUsd: 0.03},
   ]
 
   it('同服务商合并：token/成本/时序累加，providerName 非 NULL 优先，totalTokens 降序', () => {
     const merged = mergeByProvider(rows)
-    expect(merged).toHaveLength(2)
-    // totalTokens 降序：openai 600 > anthropic 580
-    expect(merged[0].key).toBe('openai')
+    // 服务商 = providers.name（非 NULL 优先）：Deepseek-ant（2 模型合并）、OpenAI、历史行回退 anthropic → 3 组
+    expect(merged).toHaveLength(3)
+    // totalTokens 降序：OpenAI 600 > Deepseek-ant 580 > anthropic(历史) 35
+    expect(merged[0].key).toBe('OpenAI')
     expect(merged[0].requestCount).toBe(3)
-    const anthropic = merged[1]
-    expect(anthropic.key).toBe('anthropic')
-    expect(anthropic.requestCount).toBe(3)
-    expect(anthropic.inputTokens).toBe(150)
-    expect(anthropic.outputTokens).toBe(30)
-    expect(anthropic.cacheReadTokens).toBe(400)
-    expect(anthropic.totalTokens).toBe(580)
-    expect(anthropic.costUsd).toBeCloseTo(0.03, 10)
-    expect(anthropic.decodeMs).toBe(7000)
-    expect(anthropic.ttftMs).toBe(800)
-    expect(anthropic.ttftCount).toBe(1)
-    expect(anthropic.providerName).toBe('Deepseek-ant')
+    const deepseek = merged[1]
+    expect(deepseek.key).toBe('Deepseek-ant')
+    expect(deepseek.requestCount).toBe(3)
+    expect(deepseek.inputTokens).toBe(150)
+    expect(deepseek.outputTokens).toBe(30)
+    expect(deepseek.cacheReadTokens).toBe(400)
+    expect(deepseek.totalTokens).toBe(580)
+    expect(deepseek.costUsd).toBeCloseTo(0.03, 10)
+    expect(deepseek.decodeMs).toBe(7000)
+    expect(deepseek.ttftMs).toBe(800)
+    expect(deepseek.ttftCount).toBe(1)
+    expect(deepseek.providerName).toBe('Deepseek-ant')
+    const legacy = merged[2]
+    expect(legacy.key).toBe('anthropic')
+    expect(legacy.requestCount).toBe(1)
+    expect(legacy.totalTokens).toBe(35)
   })
 
   it('空数组 → 空数组', () => {
     expect(mergeByProvider([])).toEqual([])
+  })
+
+  // 回归测试：同 provider_type 下多个服务商（providers.name 不同）必须分开统计，
+  // 仅 API 风格相同（如 anthropic 类型下的 Deepseek-ant/dsh/xiaomimimo）不得合并为一组。
+  // 复现现场：2026-08-25 今天数据 4 个服务商 → 按服务商视图只显示 2 个（anthropic/openai 各一组）。
+  it('同 providerType 不同 providerName → 按服务商分开（不合并）', () => {
+    const rows = [
+      // 今天 DB 实际数据：provider_type=anthropic 的 3 个服务商
+      {key: 'deepseek-v4-flash-vision-exp', providerType: 'anthropic', providerName: 'Deepseek-ant', requestCount: 2, inputTokens: 100, outputTokens: 20, cacheReadTokens: 300, cacheWriteTokens: 0, totalTokens: 420, costUsd: 0.01, decodeMs: 5000, ttftMs: 800, ttftCount: 1},
+      {key: 'deepseek-v4-flash', providerType: 'anthropic', providerName: 'dsh', requestCount: 1, inputTokens: 50, outputTokens: 10, cacheReadTokens: 100, cacheWriteTokens: 0, totalTokens: 160, costUsd: 0.02, decodeMs: 2000, ttftMs: undefined, ttftCount: 0},
+      {key: 'mimo-v2.5', providerType: 'anthropic', providerName: 'xiaomimimo', requestCount: 3, inputTokens: 200, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 240, costUsd: 0.03},
+      // openai 风格的服务商
+      {key: 'stealth/ox-alpha', providerType: 'openai', providerName: 'OpenRouter', requestCount: 4, inputTokens: 300, outputTokens: 60, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 360, costUsd: 0.04},
+    ]
+    const merged = mergeByProvider(rows)
+    // 4 个服务商（providerName 均不同）→ 必须 4 组，而非按 providerType 合并成 2 组
+    expect(merged).toHaveLength(4)
+    expect(merged.map(b => b.key).sort()).toEqual(['Deepseek-ant', 'OpenRouter', 'dsh', 'xiaomimimo'])
+    // 每组的计量只含本服务商数据
+    const deepseekAnt = merged.find(b => b.key === 'Deepseek-ant')!
+    expect(deepseekAnt.requestCount).toBe(2)
+    expect(deepseekAnt.totalTokens).toBe(420)
+    const xiaomi = merged.find(b => b.key === 'xiaomimimo')!
+    expect(xiaomi.requestCount).toBe(3)
+    expect(xiaomi.totalTokens).toBe(240)
   })
 })
 

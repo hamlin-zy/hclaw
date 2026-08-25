@@ -2,7 +2,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import type {ConversationUsageStats, UsageBreakdown} from '@shared/types'
 import {formatTokenCount, formatTokenCompact, formatTokensPerSecond, formatCost, type Currency} from '../../lib/format'
-import {computeKpis, mergeByProvider} from '@shared/llmUsage'
+import {computeKpis, duplicatedModelKeys, mergeByProvider} from '@shared/llmUsage'
 import {KpiCard, StatRow, GroupTitle, providerDisplayName, ClientStatsNotice, InfoTip, getCostDisclaimer, CurrencyToggle} from '../usage/statsParts'
 import {useDraggableDialog} from '../../hooks/useDraggableDialog'
 
@@ -205,21 +205,31 @@ export default function UsageStatsDialog() {
                         <div className="space-y-2">
                             {(() => {
                                 const grand = breakdownCards.reduce((s, b) => s + b.totalTokens, 0)
+                                // 同名模型跨服务商检测：模型视图下同名模型多行 → 小字 via 高亮 + 「同名」徽章
+                                const dupModels = duplicatedModelKeys(breakdownCards)
+                                const isDupModel = (key: string) => dupModels.has(key)
                                 return breakdownCards.map((b) => {
                                     const pct = grand > 0 ? Math.round(b.totalTokens / grand * 100) : 0
                                     const modelCount = groupView === 'provider'
-                                        ? load.data.breakdown.filter(x => (x.providerType ?? 'unknown') === b.key).length
+                                        ? load.data.breakdown.filter(x => (x.providerName ?? x.providerType ?? 'unknown') === b.key).length
                                         : 1
                                     const title = groupView === 'provider'
                                         ? (b.providerName || providerDisplayName(b.key))
                                         : b.key
+                                    const dupModel = groupView === 'model' && isDupModel(b.key)
                                     return (
-                                        <div key={`${b.providerType}-${b.key}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
+                                        <div key={`${b.providerName ?? b.providerType ?? 'unknown'}-${b.key}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
                                             <div className="flex items-center gap-2">
                                                 <span className="w-2 h-2 rounded-full bg-[var(--brand-primary)] shrink-0"/>
                                                 <span className="text-xs font-medium text-[var(--text-primary)]">{title}</span>
-                                                <span className="text-[10px] text-[var(--text-tertiary)]">
-                                                    {groupView === 'provider' ? `${modelCount} 个模型` : (b.providerName || b.providerType)}
+                                                {dupModel && (
+                                                    <span title="同名模型由不同服务商提供，价格/延迟可能不同"
+                                                          className="rounded border border-[var(--border)] bg-[var(--surface-muted)] px-1 py-px text-[9px] font-medium text-[var(--brand-primary)]">
+                                                        同名
+                                                    </span>
+                                                )}
+                                                <span className={`text-[10px] ${dupModel ? 'font-medium text-[var(--brand-primary)]' : 'text-[var(--text-tertiary)]'}`}>
+                                                    {groupView === 'provider' ? `${modelCount} 个模型` : (dupModel ? `via ${b.providerName || b.providerType}` : (b.providerName || b.providerType))}
                                                 </span>
                                                 <span className="ml-auto text-xs font-semibold tabular-nums text-[var(--brand-primary)]">{pct}%</span>
                                             </div>

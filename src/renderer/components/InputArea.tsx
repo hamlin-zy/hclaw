@@ -10,6 +10,7 @@ import AttachedFilesBar from './AttachedFilesBar'
 import TodoStrip from './TodoStrip'
 import PendingQuestionCard from './PendingQuestionCard'
 import InputToolbar from './InputToolbar'
+import ConvModeSegs from './ConvModeSegs'
 import {CommandPalette} from './plugin/CommandPalette'
 import {HandoffDialog, type HandoffChoice} from './HandoffDialog'
 import {buildHandoffMessage} from '../utils/handoff'
@@ -676,6 +677,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                         onAbort={handleAbort}
                         onUploadFile={(files) => setAttachedFiles(prev => [...prev, ...files])}
                         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+                        extraActions={<ConvModeSegs/>}
                     />
                 </div>
             </div>

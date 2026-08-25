@@ -28,7 +28,7 @@ import {useToolCallsStore} from '../toolCallsStore'
 import {flushAllTextBatches} from './batching/textBatch'
 import {flushAllThinkingBatches} from './batching/thinkingBatch'
 import {flushToolResultBatch, getToolResultBatchMap} from './batching/toolResultBatch'
-import {syncConvToTopLevel} from './helpers/convHelpers'
+import {syncConvToTopLevel, clearConversationRuntimeState} from './helpers/convHelpers'
 import {planRecovery} from './helpers/recoverySeeding'
 import {buildSeedInstruction, applySeedInstruction} from './helpers/seedApplication'
 import {updateMessageContentBlocks, reconcileStreamingContent} from './contentBlocks'
@@ -105,6 +105,9 @@ export const useAgentStore = create<AgentStore>()(
                 const newMap = {...get().convAgentStates}
                 delete newMap[convId]
                 set({convAgentStates: newMap})
+                // ★ 兜底清理：会话删除/不活跃回收时清掉该会话的运行时工具状态与段边界状态
+                //   （常规路径工具完成时已即时清理，此处兜底异常残留）
+                clearConversationRuntimeState(convId)
             },
 
             // ── 任务批次水合（应用重启/刷新恢复） ──────────────────────
@@ -195,6 +198,22 @@ export const useAgentStore = create<AgentStore>()(
                 try {
                     await window.electronAPI?.modelOverrideSet?.(convId, override)
                     set({modelOverride: override})
+                } catch { /* 静默处理 */ }
+            },
+
+            // ── 会话级权限模式（方案B：安全模式会话级，写 meta + 广播目标 worker） ──
+            setConvPermissionMode: async (convId, mode) => {
+                try {
+                    await window.electronAPI?.agentSetConvPermissionMode?.(convId, mode)
+                    set({permissionMode: mode})
+                } catch { /* 静默处理 */ }
+            },
+
+            // ── 会话级显示模式（纯渲染层，写 meta + 更新顶层渲染开关） ──
+            setConvDisplayMode: async (convId, mode) => {
+                set({messageDisplayMode: mode})
+                try {
+                    await window.electronAPI?.conversationUpdateMeta?.(convId, {displayMode: mode})
                 } catch { /* 静默处理 */ }
             },
 
@@ -428,11 +447,19 @@ export const useAgentStore = create<AgentStore>()(
                 messageDisplayMode: state.messageDisplayMode,
             }),
             onRehydrateStorage: () => (state) => {
+                if (!state) return
+                // 会话级模式：重水合后先回退全局默认（激活会话时由
+                // applyConvModesToAgentStore 用 meta 覆盖），避免 persist
+                // 残留最后会话的模式被误用为启动默认。
+                window.electronAPI?.agentGetPermissionMode?.().then((mode: any) => {
+                    if (mode === 'safe' || mode === 'auto') state.permissionMode = mode
+                }).catch(() => { /* 静默 */ })
                 window.electronAPI?.configRead('message-display-mode').then((data: any) => {
-                    if (data?.mode && state) {
-                        state.messageDisplayMode = data.mode
+                    const mode = data?.mode
+                    if (mode === 'detailed' || mode === 'compact' || mode === 'ultra-compact') {
+                        state.messageDisplayMode = mode
                     }
-                }).catch(() => { /* 静默处理读取错误 */ })
+                }).catch(() => { /* 静默 */ })
             },
         },
     ),

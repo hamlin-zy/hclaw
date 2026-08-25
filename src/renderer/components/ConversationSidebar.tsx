@@ -11,6 +11,11 @@ import {fuzzyFilter} from '../lib/search'
 import {confirm} from './ConfirmDialog'
 import {showUsageStats} from './dialogs/UsageStatsDialog'
 import {collectDescendants} from '../stores/conversationTree'
+import {useThemeStore} from '../stores/themeStore'
+import {useUpdaterStore} from '../stores/updaterStore'
+import {usePluginUpdateStore} from '../stores/pluginUpdateStore'
+import SchemeSelector from './SchemeSelector'
+import {SIDEBAR_MENU_GROUPS, type SidebarMenuItem} from './sidebar/menuItems'
 
 type SystemStatus =
     'initializing'
@@ -105,15 +110,178 @@ function SystemStatusIndicator() {
     )
 }
 
+/** 打开侧边栏菜单项对应的窗口（齿轮菜单与折叠态图标共用） */
+function openMenuItem(type: string): void {
+    if (type === 'llm-call-logs') {
+        window.electronAPI?.openLlmLogsWindow?.()
+    } else if (type === 'usage-stats') {
+        window.electronAPI?.openUsageStatsWindow?.()
+    } else {
+        window.electronAPI?.openConfigWindow?.(type)
+    }
+}
+
+/** 渲染菜单项图标（复用 item.icon 的属性与子元素，仅调整尺寸） */
+function MenuItemIcon({item, className}: {item: SidebarMenuItem; className: string}) {
+    return <svg className={className} {...item.icon.props}>{item.icon.props.children}</svg>
+}
+
+type ThemeName = 'light' | 'dark' | 'yuanshandai' | 'shiyangjin'
+
+/** 主题按钮 aria-label（展示下一档主题名，与图标联动） */
+function themeNextLabel(theme: ThemeName): string {
+    if (theme === 'yuanshandai') return '切换到十样锦模式'
+    if (theme === 'shiyangjin') return '切换到浅色模式'
+    if (theme === 'dark') return '切换到远山黛模式'
+    return '切换到深色模式'
+}
+
+/** 主题专属图标（与旧 MenuBar 四档映射一致） */
+function ThemeIcon({theme}: {theme: ThemeName}) {
+    if (theme === 'shiyangjin') {
+        return (
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                {/* 十样锦图标 — 锦花 */}
+                <path d="M12 3L21 12l-9 9-9-9z" opacity="0.6"/>
+                <circle cx="12" cy="12" r="3"/>
+            </svg>
+        )
+    }
+    if (theme === 'yuanshandai') {
+        return (
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                {/* 远山黛图标 — 双峰山 */}
+                <path d="M3 20L9 8l4 8 4-6 4 10h1"/>
+            </svg>
+        )
+    }
+    if (theme === 'dark') {
+        return (
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                {/* 深色主题 — 月亮 */}
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+        )
+    }
+    return (
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            {/* 浅色主题 — 太阳 */}
+            <circle cx="12" cy="12" r="5"/>
+            <line x1="12" y1="1" x2="12" y2="3"/>
+            <line x1="12" y1="21" x2="12" y2="23"/>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+            <line x1="1" y1="12" x2="3" y2="12"/>
+            <line x1="21" y1="12" x2="23" y2="12"/>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+    )
+}
+
+/** 齿轮分组功能菜单（原 MenuBar 功能项，分组展示） */
+function SidebarGearMenu({anchorRef}: {anchorRef: RefObject<HTMLDivElement | null>}) {
+    const [isOpen, setIsOpen] = useState(false)
+    const menuRef = useRef<HTMLDivElement>(null)
+    const hasUpdate = useUpdaterStore((s) => s.result?.status === 'update-available')
+    const pluginHasUpdate = usePluginUpdateStore((s) => s.hasUpdate)
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as Node
+            if (anchorRef.current?.contains(target)) return
+            if (menuRef.current && !menuRef.current.contains(target)) setIsOpen(false)
+        }
+        if (isOpen) {
+            document.addEventListener('mousedown', handleClickOutside)
+            return () => document.removeEventListener('mousedown', handleClickOutside)
+        }
+    }, [isOpen, anchorRef])
+
+    const handleItemClick = (type: string) => {
+        openMenuItem(type)
+        setIsOpen(false)
+    }
+
+    const showUpdateDot = hasUpdate || pluginHasUpdate
+
+    // 空间检测：齿轮按钮位于 footer（窗口底部），向下弹出会被视口底边裁剪。
+    // 下方剩余空间不足时改为向上弹出（bottom 定位），保证菜单完整可见。
+    const gearMenuPortal = (() => {
+        if (!isOpen) return null
+        const anchorRect = anchorRef.current?.getBoundingClientRect()
+        const spaceBelow = anchorRect ? window.innerHeight - anchorRect.bottom : 0
+        const dropUp = spaceBelow < 320
+        const menuStyle = anchorRect
+            ? {
+                left: anchorRect.left,
+                ...(dropUp
+                    ? {bottom: window.innerHeight - anchorRect.top + 4}
+                    : {top: anchorRect.bottom + 4}),
+            }
+            : {left: 0, top: 4}
+        return createPortal(
+            <div ref={menuRef} className="fixed z-[9999] py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md shadow-lg min-w-[160px] max-h-[70vh] overflow-y-auto"
+                 style={menuStyle}
+                 onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                {SIDEBAR_MENU_GROUPS.map((g) => (
+                    <div key={g.group}>
+                        <div className="px-3 pt-2 pb-1 text-[10px] font-medium text-[var(--text-muted)]">{g.group}</div>
+                        {g.items.map((item) => (
+                            <button key={item.type} onClick={() => handleItemClick(item.type!)}
+                                    className="relative w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors">
+                                <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center">
+                                    <MenuItemIcon item={item} className="w-3.5 h-3.5"/>
+                                </span>
+                                <span>{item.label}</span>
+                                {((item.type === 'about' && hasUpdate) || (item.type === 'plugins' && pluginHasUpdate)) && (
+                                    <span className="ml-auto w-1.5 h-1.5 rounded-full bg-red-500" aria-label="有新版本"/>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                ))}
+            </div>,
+            document.body,
+        )
+    })()
+
+    return (
+        <>
+            <div ref={anchorRef} className="relative">
+                <button
+                    onClick={() => setIsOpen((v) => !v)}
+                    aria-label="功能菜单"
+                    aria-expanded={isOpen}
+                    className="icon-btn flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
+                >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                        {/* 三横线菜单图标（hamburger）：功能菜单语义，比齿轮更符合大众习惯 */}
+                        <line x1="3" y1="6" x2="21" y2="6"/>
+                        <line x1="3" y1="12" x2="21" y2="12"/>
+                        <line x1="3" y1="18" x2="21" y2="18"/>
+                    </svg>
+                    {showUpdateDot && (
+                        <span className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-red-500" aria-label="有新版本" />
+                    )}
+                </button>
+            </div>
+            {gearMenuPortal}
+        </>
+    )
+}
+
 export default function ConversationSidebar() {
-    const {leftCollapsed, setLeftCollapsed} = useSidebarStore()
+    const {leftCollapsed, setLeftCollapsed, toggleLeft} = useSidebarStore()
+    const {theme, toggleTheme} = useThemeStore()
+    const gearRef = useRef<HTMLDivElement>(null)
 
   return (
       <div className="relative h-full flex shrink-0">
           {/* 侧边栏主体 */}
           <motion.div
               initial={false}
-              animate={{width: leftCollapsed ? 'var(--sidebar-collapsed-width, 52px)' : 'var(--sidebar-width)'}}
+              animate={{width: leftCollapsed ? 'var(--sidebar-collapsed-width, 36px)' : 'var(--sidebar-width)'}}
               transition={{duration: 0.2, ease: [0.4, 0, 0.2, 1]}}
               className="h-full flex flex-col overflow-hidden sidebar-shadow"
               role="navigation"
@@ -136,20 +304,68 @@ export default function ConversationSidebar() {
                       {/* Conversation list */}
                       <ConversationList/>
 
-                      {/* Footer */}
-                      <footer
-                          className="px-[var(--space-relaxed)] py-[var(--space-snug)] border-t border-[var(--border)] mt-auto">
-                          <SystemStatusIndicator/>
-            </footer>
+                      {/* Footer：状态行 + 全局控件行 */}
+                      <footer className="px-[var(--space-relaxed)] py-[var(--space-snug)] border-t border-[var(--border)] mt-auto">
+                          <div className="status-row flex items-center justify-between gap-2">
+                              <SystemStatusIndicator/>
+                              <button
+                                  onClick={toggleLeft}
+                                  aria-label="折叠侧边栏"
+                                  className="mini-toggle flex items-center justify-center w-[30px] h-[30px] rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
+                              >
+                                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                      <polyline points="15 18 9 12 15 6"/>
+                                  </svg>
+                              </button>
+                          </div>
+                          <div className="tools-row flex items-center gap-[6px] mt-[var(--space-snug)]">
+                              <SidebarGearMenu anchorRef={gearRef}/>
+                              <div className="flex-1 min-w-0">
+                                  <SchemeSelector/>
+                              </div>
+                              <button
+                                  onClick={toggleTheme}
+                                  aria-label={themeNextLabel(theme)}
+                                  className="icon-btn flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
+                              >
+                                  <ThemeIcon theme={theme}/>
+                              </button>
+                          </div>
+                      </footer>
                   </>
               )}
 
-              {/* 折叠状态显示工作区图标 */}
-              {leftCollapsed && (
-                  <div className="flex flex-col items-center pt-[var(--space-relaxed)] gap-[var(--space-snug)]">
-                      <WorkspaceIcon/>
-                  </div>
-              )}
+                    {/* 折叠状态：全部菜单项（与齿轮菜单同源，从底部向上紧凑排列）+ 底部展开按钮
+                        用户要求：18 个选项全显示、从底部往上排；不显示「打开新项目」按钮 */}
+                    {leftCollapsed && (
+                        <div className="flex flex-col items-center h-full overflow-hidden">
+                            <div data-name="sidebar-collapsed-icons" className="flex flex-col items-center justify-end gap-[var(--space-tight)] flex-1 min-h-0 overflow-y-auto w-full pt-[var(--space-tight)] pb-[8px]">
+                                {SIDEBAR_MENU_GROUPS.flatMap((g) => g.items)
+                                    .map((item) => (
+                                        <button
+                                            key={item.type}
+                                            data-name="collapsed-item"
+                                            onClick={() => openMenuItem(item.type!)}
+                                            title={item.label}
+                                            aria-label={item.label}
+                                            data-tooltip-placement="right"
+                                            className="relative flex items-center justify-center w-7 h-7 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
+                                        >
+                                            <MenuItemIcon item={item} className="w-3.5 h-3.5"/>
+                                        </button>
+                                    ))}
+                            </div>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setLeftCollapsed(false) }}
+                                aria-label="展开侧边栏"
+                                className="flex items-center justify-center w-[26px] h-[26px] mb-[8px] mt-[4px] rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors z-10"
+                            >
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                    <polyline points="9 18 15 12 9 6"/>
+                                </svg>
+                            </button>
+                        </div>
+                    )}
           </motion.div>
 
           {/* 右侧边缘展开按钮（仅折叠状态显示） */}
@@ -428,26 +644,6 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
           </motion.div>,
           document.body,
         )
-}
-
-function WorkspaceIcon() {
-  const { currentWorkspacePath, setWorkspace } = useConversationStore()
-  return (
-    <button
-      onClick={async () => {
-        const result = await window.electronAPI?.openFolderDialog?.()
-        if (result) setWorkspace(result)
-      }}
-      aria-label={currentWorkspacePath || '选择工作目录'}
-      title={currentWorkspacePath || '选择工作目录'}
-      className="w-7 h-7 rounded flex items-center justify-center text-[var(--text-muted)] hover:bg-[var(--surface-elevated)] transition-colors"
-    >
-        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-             aria-hidden="true">
-        <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-      </svg>
-    </button>
-  )
 }
 
 /* ─── New Chat Button ─── */

@@ -197,6 +197,7 @@ export class AgentManager {
     const workerParams = {
       ...params,
       modelOverride: runtimeConfigManager.getOverride(params.conversationId),
+      permissionMode: runtimeConfigManager.getConvPermissionMode(params.conversationId),
       settings: initialSettings,
       capabilities,
       // llm-trace 录制初态（Worker 侧模块单例无法读到主线程内存开关，spawn 时随 workerData 下发；
@@ -1176,6 +1177,20 @@ export class AgentManager {
       const entry = this.workers.get(id)
       if (entry) {
         entry.worker.postMessage({type: WORKER_MESSAGE_TYPES.UPDATE_MODEL_OVERRIDE, convId, override})
+      }
+    }
+  }
+
+  /**
+   * 广播会话级权限模式（主进程 → Worker）。postMessage 携带 convId，
+   * 由 worker 侧按 params.conversationId 过滤——permissionEngine 是 per-worker
+   * 单例，只允许目标会话的 worker 应用，避免串扰。
+   */
+  broadcastConvPermissionMode(convId: string, mode: import('@shared/types').RunMode): void {
+    for (const id of this.getRunningConversations()) {
+      const entry = this.workers.get(id)
+      if (entry) {
+        entry.worker.postMessage({type: WORKER_MESSAGE_TYPES.UPDATE_CONV_PERMISSION_MODE, convId, mode})
       }
     }
   }

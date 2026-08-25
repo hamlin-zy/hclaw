@@ -586,6 +586,34 @@ export default function SettingsDialog() {
                     <p className="text-[10px] text-[var(--warning)]">图片背景开启时使用浅色系主题，保存后将自动切换为深色模式</p>
                 )}
             </div>
+            {/* 新会话默认模式：label 与 select 分行（w-full），文案不换行避免布局挤压变形；
+               数据仍存 agent 分类（SystemSettings.agent.defaultPermissionMode 等，
+               agent 分类的 reset 按钮不再重置此项） */}
+            <div className="space-y-1">
+                <label className="text-xs text-[var(--text-muted)] whitespace-nowrap">新会话默认安全模式</label>
+                <select
+                    className="w-full whitespace-nowrap bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded px-3 py-1.5 text-sm outline-none focus:border-[var(--brand)]"
+                    value={current.agent.defaultPermissionMode ?? 'safe'}
+                    onChange={(e) => updatePending('agent', {defaultPermissionMode: e.target.value as 'safe' | 'auto'})}
+                >
+                    <option value="auto">自动模式（全程自动执行）</option>
+                    <option value="safe">安全模式（破坏性操作需确认）</option>
+                </select>
+                <p className="text-[10px] text-[var(--text-muted)]">无会话级覆盖时回退此值</p>
+            </div>
+            <div className="space-y-1">
+                <label className="text-xs text-[var(--text-muted)] whitespace-nowrap">新会话默认显示模式</label>
+                <select
+                    className="w-full whitespace-nowrap bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded px-3 py-1.5 text-sm outline-none focus:border-[var(--brand)]"
+                    value={current.agent.defaultDisplayMode ?? 'detailed'}
+                    onChange={(e) => updatePending('agent', {defaultDisplayMode: e.target.value as 'detailed' | 'compact' | 'ultra-compact'})}
+                >
+                    <option value="detailed">详细模式</option>
+                    <option value="compact">简洁模式</option>
+                    <option value="ultra-compact">极简模式</option>
+                </select>
+                <p className="text-[10px] text-[var(--text-muted)]">无会话级覆盖时回退此值</p>
+            </div>
             <div className="space-y-3 border-t border-[var(--border-muted)] pt-3">
                 <div className="flex items-center justify-between">
                     <div>

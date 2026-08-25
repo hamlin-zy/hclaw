@@ -143,10 +143,11 @@ describe('queryAggregated（全局聚合 + 成本）', () => {
         repo.record(makeRecord({id: 'b', model: 'claude-opus-4', inputTokens: 50, outputTokens: 10, cacheReadTokens: 100}))
     })
 
-    it('按服务商聚合（成本求和、totalTokens 降序）', () => {
+    it('按服务商聚合（成本求和、totalTokens 降序、key = providerName）', () => {
         const rows = repo.queryAggregated({range: 'all', view: 'provider'}, mockGetMeta)
         expect(rows).toHaveLength(1)
-        expect(rows[0]!.key).toBe('anthropic')
+        // 合并键 = 真实服务商名（providers.name），而非 providerType（API 风格）
+        expect(rows[0]!.key).toBe('Deepseek-ant')
         expect(rows[0]!.providerName).toBe('Deepseek-ant')
         expect(rows[0]!.requestCount).toBe(2)
         expect(rows[0]!.inputTokens).toBe(150)
@@ -170,17 +171,38 @@ describe('queryAggregated（全局聚合 + 成本）', () => {
         expect(rows[0]!.costUsd).toBeCloseTo(0.00069, 10)
     })
 
-    it('同 model 组内 provider_name 用 MAX 取非 NULL（历史 NULL + 新值 → 新值）', () => {
-        // 同 model+provider_type：一条历史 NULL + 一条新数据 'Deepseek-ant' → 组内应取非 NULL 值
+    it('同 model 跨服务商分行：NULL 匿名行与 named 行各自成组（不再 MAX 合并）', () => {
+        // 同 model+provider_type：一条历史 NULL + 一条新数据 'Deepseek-ant' → SQL 分组含 provider_name，分行
         db.prepare('INSERT INTO conversations (id, workspace_path, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
             .run('conv-9', '', '{}', 1000, 1000)
         repo.record(makeRecord({id: 'n1', conversationId: 'conv-9', model: 'deepseek-v4-flash', providerName: undefined}))
         repo.record(makeRecord({id: 'n2', conversationId: 'conv-9', model: 'deepseek-v4-flash', providerName: 'Deepseek-ant'}))
         const rows = repo.queryAggregated({range: 'all', view: 'model'}, mockGetMeta)
-        const row = rows.find(r => r.key === 'deepseek-v4-flash')
-        expect(row).toBeDefined()
-        expect(row!.providerName).toBe('Deepseek-ant')
-        expect(row!.requestCount).toBe(2)
+        const named = rows.find(r => r.key === 'deepseek-v4-flash' && r.providerName === 'Deepseek-ant')
+        expect(named).toBeDefined()
+        expect(named!.requestCount).toBe(1)
+        const anon = rows.find(r => r.key === 'deepseek-v4-flash' && !r.providerName)
+        expect(anon).toBeDefined()
+        expect(anon!.requestCount).toBe(1)
+    })
+
+    it('跨服务商同名模型 → model 视图分行（各自 providerName），provider 视图分组', () => {
+        db.prepare('INSERT INTO conversations (id, workspace_path, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+            .run('conv-9', '', '{}', 1000, 1000)
+        // 两个不同服务商提供同名模型 gpt-4o（均 openai 风格）→ SQL 不得合并
+        repo.record(makeRecord({id: 'd1', conversationId: 'conv-9', model: 'gpt-4o', providerType: 'openai', providerName: 'OpenRouter', inputTokens: 100}))
+        repo.record(makeRecord({id: 'd2', conversationId: 'conv-9', model: 'gpt-4o', providerType: 'openai', providerName: 'aliyun', inputTokens: 200}))
+        const modelRows = repo.queryAggregated({range: 'all', view: 'model'}, mockGetMeta)
+        const gptRows = modelRows.filter(r => r.key === 'gpt-4o')
+        expect(gptRows).toHaveLength(2)
+        expect(gptRows.map(r => r.providerName).sort()).toEqual(['OpenRouter', 'aliyun'])
+        // provider 视图：同名模型跨服务商 → 按服务商分成 2 组
+        const providerRows = repo.queryAggregated({range: 'all', view: 'provider'}, mockGetMeta)
+        const targeted = providerRows.filter(r => r.key === 'OpenRouter' || r.key === 'aliyun')
+        expect(targeted).toHaveLength(2)
+        const aliyun = targeted.find(r => r.key === 'aliyun')!
+        expect(aliyun.requestCount).toBe(1)
+        expect(aliyun.totalTokens).toBe(520)   // 200 input + 20 output + 300 cacheRead（makeRecord 默认）
     })
 
     it('空表 → 空数组', () => {
@@ -304,7 +326,7 @@ describe('queryAggregated（自定义范围）', () => {
             .run('conv-4', '', '{}', Date.now(), Date.now())
         repo.record(makeRecord({id: 'x4', conversationId: 'conv-4', createdAt: new Date(2026, 7, 12, 23, 59, 59, 999).getTime(), inputTokens: 8}))
         const rows = repo.queryAggregated({range: 'custom', customStart: '2026-08-10', customEnd: '2026-08-12', view: 'provider'}, mockGetMeta)
-        const row = rows.find(r => r.key === 'anthropic')
+        const row = rows.find(r => r.key === 'Deepseek-ant')
         expect(row?.requestCount).toBe(3)
         expect(row?.inputTokens).toBe(14)
     })
@@ -355,23 +377,35 @@ describe('queryAggregated/queryTrend — 历史 llm_stats 回填（与右键弹�
     it('llm_usage + 历史 llm_stats 合并聚合（请求数 / token / 时序 / 成本）', () => {
         seedLegacyMessage()
         const rows = repo.queryAggregated({range: 'all', view: 'model'}, mockGetMeta)
-        const b = rows.find(r => r.key === 'claude-sonnet-4')
-        expect(b?.requestCount).toBe(2)          // 1 usage 行 + 1 历史消息
-        expect(b?.inputTokens).toBe(150)         // 100 + 50
-        expect(b?.outputTokens).toBe(30)         // 20 + 10
-        expect(b?.cacheReadTokens).toBe(300)
-        expect(b?.decodeMs).toBe(7000)           // 5000 + 2000
-        expect(b?.ttftCount).toBe(2)             // 800ms 样本 + 500ms 样本
-        expect(b?.costUsd).toBeCloseTo(100*3e-6 + 20*15e-6 + 300*0.3e-6 + 50*3e-6 + 10*15e-6, 10)
+        // llm_usage 行带 providerName（Deepseek-ant）；历史回填行无 providerName → 匿名组独立成组
+        const usage = rows.find(r => r.key === 'claude-sonnet-4' && r.providerName === 'Deepseek-ant')
+        expect(usage?.requestCount).toBe(1)          // 1 usage 行
+        expect(usage?.inputTokens).toBe(100)
+        expect(usage?.outputTokens).toBe(20)
+        expect(usage?.cacheReadTokens).toBe(300)
+        expect(usage?.decodeMs).toBe(5000)
+        expect(usage?.costUsd).toBeCloseTo(100*3e-6 + 20*15e-6 + 300*0.3e-6, 10)
+        const legacy = rows.find(r => r.key === 'claude-sonnet-4' && !r.providerName)
+        expect(legacy?.requestCount).toBe(1)         // 1 历史消息
+        expect(legacy?.inputTokens).toBe(50)
+        expect(legacy?.outputTokens).toBe(10)
+        expect(legacy?.decodeMs).toBe(2000)
+        expect(legacy?.ttftCount).toBe(1)            // 500ms 样本
+        // 合计口径不丢：两组合计 2 请求
+        const total = rows.filter(r => r.key === 'claude-sonnet-4').reduce((s, r) => s + r.requestCount, 0)
+        expect(total).toBe(2)
     })
 
     it('时间范围过滤历史回填（消息 timestamp 近似）', () => {
         seedLegacyMessage({ts: new Date(2026, 7, 15).getTime()})   // 范围外
         seedLegacyMessage({id: 'm-3', ts: new Date(2026, 7, 11).getTime()})  // 范围内
         const rows = repo.queryAggregated({range: 'custom', customStart: '2026-08-10', customEnd: '2026-08-12', view: 'model'}, mockGetMeta)
-        const b = rows.find(r => r.key === 'claude-sonnet-4')
-        expect(b?.requestCount).toBe(2)          // 1 usage 行 + m-3（范围内）
-        expect(b?.inputTokens).toBe(150)
+        // 范围内：1 usage 行（named）+ m-3 回填（匿名）→ 2 组；m-2 在范围外
+        const usage = rows.find(r => r.key === 'claude-sonnet-4' && r.providerName === 'Deepseek-ant')
+        expect(usage?.requestCount).toBe(1)
+        const legacy = rows.find(r => r.key === 'claude-sonnet-4' && !r.providerName)
+        expect(legacy?.requestCount).toBe(1)          // 仅 m-3（范围内）
+        expect(legacy?.inputTokens).toBe(50)
     })
 
     it('趋势回填：历史 llm_stats 按消息 timestamp 归入对应日桶', () => {
@@ -418,10 +452,14 @@ describe('queryAggregated/queryTrend — 双源防重（llm_usage 已有记录�
     it('llm_usage 无记录的历史消息 → 仍正常回填（历史唯一源不受影响）', () => {
         seedLegacyOnlyMessage()
         const rows = repo.queryAggregated({range: 'all', view: 'model'}, mockGetMeta)
-        const b = rows.find(r => r.key === 'claude-sonnet-4')
-        expect(b?.requestCount).toBe(2)      // usage 行 + m-2 历史
-        expect(b?.inputTokens).toBe(160)     // 100 + 60
-        expect(b?.outputTokens).toBe(32)     // 20 + 12
+        // usage 行（named）+ m-2 回填（匿名，无 providerName）→ 2 组
+        const usage = rows.find(r => r.key === 'claude-sonnet-4' && r.providerName === 'Deepseek-ant')
+        expect(usage?.requestCount).toBe(1)
+        expect(usage?.inputTokens).toBe(100)
+        const legacy = rows.find(r => r.key === 'claude-sonnet-4' && !r.providerName)
+        expect(legacy?.requestCount).toBe(1)      // m-2 历史
+        expect(legacy?.inputTokens).toBe(60)      // 100 + 60
+        expect(legacy?.outputTokens).toBe(12)
     })
 
     it('趋势查询同样防重：双写消息不回填、历史唯一源正常归桶', () => {

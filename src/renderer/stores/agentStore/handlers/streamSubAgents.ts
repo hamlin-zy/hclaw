@@ -163,7 +163,7 @@ export function handleSubagentStart(ctx: StreamCtx) {
             useToolCallsStore.getState().registerToolCall(subToolCallId, {
                 status: 'running',
                 progress: '子 Agent 启动中...',
-            })
+            }, convId)
             useToolCallsStore.getState().appendProgressLog(subToolCallId, '启动中...')
             if (agentTool.id !== subToolCallId) {
                 useToolCallsStore.getState().appendProgressLog(agentTool.id, `启动子 Agent: ${event.description.slice(0, 60)}`)
@@ -199,12 +199,16 @@ export function handleSubagentDone(ctx: StreamCtx) {
     const msg = convMsgs.find(m => m.id === convState.streamingMessageId)
     const subTool = msg?.toolCalls?.find(tc => tc.name === 'agent' && tc.taskId === event.taskId)
     if (subTool) {
-        useToolCallsStore.getState().updateToolCall(subTool.id, {
-            status: event.success ? 'success' : 'error',
+        // ★ 即时清理：子 Agent 完成瞬间即删运行时 key。状态/tokenUsage 先固化到消息
+        //   （消息是持久化源，渲染层回退读取），long loop 期间不积压已完成子 Agent 数据。
+        const nextStatus = event.success ? 'success' : 'error'
+        const runtimeSub = useToolCallsStore.getState().states[subTool.id]
+        useConversationStore.getState().updateMessageForConv(convId, msg!.id, {
+            toolCalls: (msg!.toolCalls || []).map(t => t.id === subTool.id
+                ? {...t, status: nextStatus, ...(runtimeSub?.tokenUsage ? {tokenUsage: runtimeSub.tokenUsage} : {})}
+                : t),
         })
-        // ★ 内存释放：内联子 Agent 完成态不再需要过程数据（思考/工具执行流），
-        //   只保留最终输出（result，由 tool_result 事件落库）与 token 用量
-        useToolCallsStore.getState().clearAgentProcessData(subTool.id)
+        useToolCallsStore.getState().clearToolCall(subTool.id)
         const parentTool = findAgentCall(msg?.toolCalls, (event as any).toolCallId, true)
         if (parentTool) {
             const doneText = event.success

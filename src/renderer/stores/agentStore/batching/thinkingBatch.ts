@@ -24,7 +24,7 @@ export function accumulateThinkingBatch(convId: string, chunk: string) {
 
 /** 清空某会话的思考批处理（如中止/错误时丢弃残留） */
 export function clearThinkingBatch(convId: string) {
-    thinkingBatches[convId] = []
+    delete thinkingBatches[convId]
 }
 
 /**
@@ -38,7 +38,7 @@ export function flushThinkingBatch(convId: string) {
     const parts = thinkingBatches[convId]
     if (!parts || parts.length === 0) return
     const batch = parts.join('')
-    thinkingBatches[convId] = []
+    delete thinkingBatches[convId]
 
     const agentStore = useAgentStore.getState()
     const convState = agentStore.convAgentStates[convId] || createDefaultConvData()
