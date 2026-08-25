@@ -82,6 +82,25 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
                 }
                 set({settings: mergedSettings})
 
+                // 对账：全局权威键（system_settings.permission_mode / message-display-mode）
+                // 必须与 settings 默认值一致——存量数据可能因旧版本保存守卫
+                // （prev===new 时跳过同步）而未同步，新建会话固化默认时会读到陈旧值。
+                try {
+                    const gp = await window.electronAPI?.agentGetPermissionMode?.()
+                    const targetPerm = mergedSettings.agent.defaultPermissionMode ?? 'safe'
+                    if (gp && gp !== targetPerm) {
+                        await window.electronAPI?.agentSetPermissionMode?.(targetPerm)
+                    }
+                } catch { /* 静默：对账失败不阻断加载 */ }
+                try {
+                    const cfg: any = await window.electronAPI?.configRead?.('message-display-mode')
+                    const mode = cfg?.mode
+                    const targetDisp = mergedSettings.agent.defaultDisplayMode ?? 'detailed'
+                    if (mode && mode !== targetDisp) {
+                        await window.electronAPI?.configWrite?.('message-display-mode', {mode: targetDisp})
+                    }
+                } catch { /* 静默：对账失败不阻断加载 */ }
+
                 // 自动同步主题到 themeStore
                 resolveAndApplyTheme(mergedSettings.ui.theme)
             }
@@ -124,10 +143,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         const {pendingSettings} = get()
         if (!pendingSettings) return
 
-        // ★ 捕获保存前的默认值（须在 set({settings}) 之前——之后 get().settings 已是新值）
-        const prevPermDefault = get().settings?.agent?.defaultPermissionMode
-        const prevDispDefault = get().settings?.agent?.defaultDisplayMode
-
         try {
             // 1. 先写入数据库，成功后才更新本地状态
             const ok = await window.electronAPI?.configWrite('settings', pendingSettings as any)
@@ -143,15 +158,26 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
                 console.warn('[Settings] Agent 同步警告:', (broadcastResult as any).error)
             }
 
-            // 3. 新会话默认值变更 → 同步全局权威键（permission_mode / message-display-mode）
-            //    同步须在 set({settings}) 之前——否则失败重试时 prev===new 被守卫跳过，全局权威键与 UI 静默脱节
+            // 3. 新会话默认值同步全局权威键（permission_mode / message-display-mode）。
+            //    无条件同步：不做 prev!==new 比较守卫——存量数据可能已达成
+            //    prev===new（旧版本首次保存成功写库但同步链断裂），守卫将永久
+            //    跳过修复，导致新建会话固化默认时读到陈旧全局值（安全模式）。
+            //    settings 保存即用户显式确认权威值，全局键应始终跟随。
             const newPermDefault = pendingSettings.agent?.defaultPermissionMode
-            if (newPermDefault && prevPermDefault !== newPermDefault) {
-                await window.electronAPI?.agentSetPermissionMode?.(newPermDefault)
+            if (newPermDefault) {
+                try {
+                    await window.electronAPI?.agentSetPermissionMode?.(newPermDefault)
+                } catch (err) {
+                    console.warn('[Settings] 同步 permission_mode 失败:', err)
+                }
             }
             const newDispDefault = pendingSettings.agent?.defaultDisplayMode
-            if (newDispDefault && prevDispDefault !== newDispDefault) {
-                await window.electronAPI?.configWrite?.('message-display-mode', {mode: newDispDefault})
+            if (newDispDefault) {
+                try {
+                    await window.electronAPI?.configWrite?.('message-display-mode', {mode: newDispDefault})
+                } catch (err) {
+                    console.warn('[Settings] 同步 message-display-mode 失败:', err)
+                }
             }
 
             set({settings: pendingSettings})
