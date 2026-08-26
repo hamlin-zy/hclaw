@@ -598,16 +598,6 @@ declare global {
         }) => void) => () => void
         onGoogleAuthError: (callback: (info: {error: string}) => void) => () => void
 
-        // Context compaction
-        compact?: {
-            request: (conversationId: string) => Promise<{ success: boolean; error?: string }>
-            compact: (conversationId: string, customInstructions?: string) => Promise<{
-                success: boolean;
-                error?: string
-            }>
-            getWarningState: () => Promise<{ shouldWarn: boolean; lastPromptTime?: number }>
-        }
-
         // Generic IPC (fallback)
         invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
         receive: (channel: string, callback: (...args: unknown[]) => void) => () => void

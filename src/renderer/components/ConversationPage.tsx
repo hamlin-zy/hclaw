@@ -1,9 +1,7 @@
 import {memo} from 'react'
-import {useAgentStore} from '../stores/agentStore'
 import {useConversationStore} from '../stores/conversationStore'
 import MessageList from './message-list'
 import InputArea from './InputArea'
-import CompactWarningBanner from './CompactWarningBanner'
 
 interface ConversationPageProps {
     conversationId: string
@@ -23,8 +21,6 @@ interface ConversationPageProps {
 const ConversationPage = memo(function ConversationPage({conversationId}: ConversationPageProps) {
     const isActive = useConversationStore((s) => s.activeConversationId === conversationId)
     const wasRendered = useConversationStore((s) => s.renderedConversationIds.includes(conversationId))
-    const compactStats = useAgentStore((s) => s.compactStats)
-    const clearCompactBanner = useAgentStore((s) => s.clearCompactBanner)
 
     return (
         <>
@@ -33,15 +29,6 @@ const ConversationPage = memo(function ConversationPage({conversationId}: Conver
                 <div
                     data-name="message-list-card"
                     className="app-surface-card relative flex-1 bg-[var(--surface)] rounded-xl shadow-sm overflow-hidden flex flex-col min-h-0">
-                    {compactStats?.showBanner && (
-                        <CompactWarningBanner
-                            beforeTokens={compactStats.beforeTokens}
-                            afterTokens={compactStats.afterTokens}
-                            savedTokens={compactStats.savedTokens}
-                            compactedMessages={compactStats.compactedMessages}
-                            onHide={clearCompactBanner}
-                        />
-                    )}
                     <MessageList conversationId={conversationId}/>
                 </div>
             )}

@@ -614,6 +614,18 @@ export default function SettingsDialog() {
                 </select>
                 <p className="text-[10px] text-[var(--text-muted)]">无会话级覆盖时回退此值</p>
             </div>
+            <div className="flex items-center justify-between py-2 border-t border-[var(--border-muted)]">
+                <div>
+                    <label className="text-xs text-[var(--text-muted)]">技能目录详细描述</label>
+                    <p className="text-[10px] text-[var(--text-muted)]">开启=完整描述，关闭=仅名称索引，省 token</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                    <Switch checked={current.fullSkillDescriptions ?? false} onChange={(checked) => updatePending('fullSkillDescriptions', checked as any)} />
+                    <span className={`ml-2 text-xs font-medium ${current.fullSkillDescriptions ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)]'}`}>
+                        {current.fullSkillDescriptions ? '已启用' : '已禁用'}
+                    </span>
+                </div>
+            </div>
             <div className="space-y-3 border-t border-[var(--border-muted)] pt-3">
                 <div className="flex items-center justify-between">
                     <div>

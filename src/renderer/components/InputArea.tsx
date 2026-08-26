@@ -513,7 +513,6 @@ export default function InputArea({isActive = true}: InputAreaProps) {
     const isPaused = agentState.status === 'paused'
     // ★ 改造：从 convData 读取当前会话的 pendingQuestion
     const pendingQuestion = convData?.pendingQuestion ?? null
-    const compactInProgress = useAgentStore((s) => s.compactInProgress)
 
     // 有文本 或 附件 或 [文件名] 徽章时允许发送
     const hasBadgeContent = /\[[^\]]+\]/.test(input.trim())
@@ -667,7 +666,6 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                     {/* 底部工具栏 */}
                     <InputToolbar
                         isRunning={isRunning}
-                        compactInProgress={compactInProgress}
                         needsSession={needsSession}
                         needsModel={needsModel}
                         pendingMessagesCount={convData?.pendingMessages?.length ?? 0}

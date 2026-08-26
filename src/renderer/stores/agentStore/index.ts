@@ -13,7 +13,7 @@ import type {RunMode, Task} from '@shared/types'
 
 import type {AgentStore} from './types'
 
-import {IDLE_STATE, STREAMING_STATE, DEFAULT_TOP_LEVEL, createDefaultConvData} from './defaultState'
+import {IDLE_STATE, DEFAULT_TOP_LEVEL, createDefaultConvData} from './defaultState'
 
 // ★ 流式缓冲区大小限制（防活跃流式无界增长导致 OOM）
 // 完整内容已通过块级增量落库到 DB，内存只需保留最近窗口供渲染
@@ -23,13 +23,11 @@ const STREAM_BLOCKS_MAX_COUNT = 200        // 最大块数
 // 保持与旧 import 路径兼容（conversationStore 等外部引用）
 export {createDefaultConvData}
 import {useConversationStore, flatString} from '../conversationStore'
-import {useToolCallsStore} from '../toolCallsStore'
 
 import {flushAllTextBatches} from './batching/textBatch'
 import {flushAllThinkingBatches} from './batching/thinkingBatch'
 import {flushToolResultBatch, getToolResultBatchMap} from './batching/toolResultBatch'
 import {syncConvToTopLevel, clearConversationRuntimeState} from './helpers/convHelpers'
-import {planRecovery} from './helpers/recoverySeeding'
 import {buildSeedInstruction, applySeedInstruction} from './helpers/seedApplication'
 import {updateMessageContentBlocks, reconcileStreamingContent} from './contentBlocks'
 import {startAgentImpl} from './handlers/startAgent'
@@ -57,16 +55,9 @@ export const useAgentStore = create<AgentStore>()(
             permissionRules: [],
             permissionMode: 'safe',
             messageDisplayMode: 'detailed',
-            compactStats: null,
-            compactInProgress: false,
             errorMessage: null,
             modelOverride: null,
             convAgentStates: {},
-
-            // ── 压缩横幅 ──────────────────────────────
-            clearCompactBanner: () => {
-                set({compactStats: null})
-            },
 
             // ── 多会话状态管理 ──────────────────────────────
             getConvData: (convId) => {

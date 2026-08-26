@@ -309,8 +309,7 @@ const SIZE_TRUNCATE_THRESHOLD = 15000 // 字符数截断阈值
  * agent 工具同理：output 是子 Agent 的完整工作报告（主 Agent 汇总的依据），
  * 截断会直接导致工作报告总结不完整，因此豁免通用 15KB 截断。
  *
- * skill 工具同理：output 是 buildGuidance 原文（injectMessage.content 同源），
- * 落库后 restoreSkillSystemMessages 从 result.output 逐字节重建 system 消息，
+ * skill 工具同理：output 是 buildGuidance 原文（能力目录尾部注入的内容源），
  * 任何截断或"[警告] 结果较大"尾巴都会破坏三端一致性（运行时 toolResult /
  * DB tool_result / 历史重建），故豁免（阈值 Infinity 同时跳过截断与警告）。
  *
