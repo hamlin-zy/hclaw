@@ -203,3 +203,35 @@ describe('Responses API 图片块（input_image 转换）', () => {
     expect(content[0].image_url.url).toBe('data:image/png;base64,AAA')
   })
 })
+
+describe('convertToResponsesInput — 注入 system 消息原位保留（R3）', () => {
+  function adapterForInput(): OpenAIAdapter {
+    return new OpenAIAdapter({apiKey: 'test', model: 'gpt-test'} as any)
+  }
+
+  it('mid-stream system 注入（skill injectMessage）转为 user 项，保留在序列尾部', () => {
+    const adapter = adapterForInput() as any
+    const input = adapter.convertMessagesForTestResponses([
+      {role: 'user', content: '加载技能'},
+      {role: 'assistant', content: '', toolCalls: [{id: 'tc1', name: 'skill', arguments: {}}]},
+      {role: 'tool', toolCallId: 'tc1', toolResult: 'preview'},
+      {role: 'system', content: '# skill guide 完整指导'},
+    ] as any)
+
+    expect(input.length).toBeGreaterThan(0)
+    const last = input[input.length - 1]
+    expect(last.role).toBe('user')
+    expect(JSON.stringify(last)).toContain('# skill guide')
+    // 不再被静默丢弃
+    expect(JSON.stringify(input)).toContain('完整指导')
+  })
+
+  it('首条 system 消息仍由 instructions 承载（跳过不转 user）', () => {
+    const adapter = adapterForInput() as any
+    const input = adapter.convertMessagesForTestResponses([
+      {role: 'system', content: 'leading'},
+      {role: 'user', content: 'hi'},
+    ] as any)
+    expect(input).toEqual([{role: 'user', content: 'hi'}])
+  })
+})

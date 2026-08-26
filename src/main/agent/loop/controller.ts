@@ -32,6 +32,7 @@ import {endTurnCleanup} from './helpers'
 import {initializeRunEnvironment, detectCommandContext, selectModelForTurn, filterTools, filterToolsForDegrade, buildSystemPrompt} from './setup'
 import {executeLlmCallWithRetry, executeToolCalls, extractMediaFromToolResults} from './execute'
 import {PreprocessCache} from './preprocessCache'
+import {restoreCatalogState, runCatalogPreStep, type CatalogState} from './catalogPublish'
 // ─── LLM 调用事件与工具方法（内联自历史 compress.ts） ───
 import type {ChatMessage} from '../model/types'
 
@@ -176,6 +177,18 @@ function getLastUserMessage(state: AgentLoopState): ChatMessage | null {
         : null
 }
 
+/**
+ * 解析本轮生效的命令模板（R2 残留修复）。
+ * 仅当轮有新命令（commandContext）时返回其模板；不从 DB 缓存回退——
+ * 回退会让普通轮永久携带上一轮模板，尾随注入消息残留导致缓存/语义污染。
+ */
+export function resolveCommandTemplate(
+    commandContext: {commandTemplate: string} | null | undefined,
+    _cached: CachePayload | null | undefined,
+): string {
+    return commandContext?.commandTemplate ?? ''
+}
+
 // ─── 缓存载荷类型 ────────────────────────────────────────
 
 interface CachePayload {
@@ -239,14 +252,14 @@ export class AgentLoopController {
         const {state, getSettings, workingDir} = yield* initializeRunEnvironment(params)
 
         // ── 阶段 2：检测命令执行上下文 ──
-        const {commandContext, isCompactCommand} = await detectCommandContext(params)
+        const {commandContext} = await detectCommandContext(params)
 
         // ── 阶段 3：计算最大轮数 ──
         const maxTurnsLimit = getSettings()?.agent?.maxTurns ?? params.agentDefinition?.maxTurns ?? params.maxTurns ?? 500
 
         // ── 阶段 4：主循环 ──
         const loopResult = yield* this.#mainLoop(
-            params, state, commandContext, isCompactCommand, getSettings, workingDir, maxTurnsLimit,
+            params, state, commandContext, getSettings, workingDir, maxTurnsLimit,
         )
 
         // ── 阶段 5：收尾（仅 max_turns_reached 路径需要额外处理） ──
@@ -263,13 +276,12 @@ export class AgentLoopController {
     // ═══════════════════════════════════════════════════════
 
     /**
-     * Agent 主循环：每轮执行模型选择 → 系统提示词 → LLM 调用 → 工具执行 → 自动压缩
+     * Agent 主循环：每轮执行模型选择 → 系统提示词 → LLM 调用 → 工具执行
      */
     async *#mainLoop(
         params: RunParams,
         state: AgentLoopState,
         commandContext: CommandExecutionContext | null,
-        isCompactCommand: boolean,
         getSettings: () => import('@shared/types').SystemSettings | undefined,
         workingDir: string,
         maxTurnsLimit: number,
@@ -300,6 +312,9 @@ export class AgentLoopController {
                 logger.debug('[AgentLoop] failed to load cached system prompt from DB', {error: String(err)})
             }
         }
+
+        // ★ 能力目录状态：循环外初始化；从既有会话消息流还原（恢复会话零重复发布）
+        let catalogState: CatalogState = restoreCatalogState(currentState.messages)
 
         while (turnCount < maxTurnsLimit) {
             // ── 检查中止信号 ──
@@ -356,6 +371,14 @@ export class AgentLoopController {
                 tools: availableToolDefinitions.map(t => t.name),
             }
 
+            // ── 能力目录发布（pre-step）：digest 变化时发布/原地替换 catalog 消息 ──
+            {
+                const fullDescriptions = getSettings()?.fullSkillDescriptions ?? false
+                const r = runCatalogPreStep(currentState, catalogState, conversationRepo, sessionId, fullDescriptions)
+                currentState = r.state
+                catalogState = r.catalogState
+            }
+
             // ── 构建系统提示词 ──
             const sysPromptContext = await permissionRulesManager.getContext()
             const currentPermissionMode = sysPromptContext.mode
@@ -377,12 +400,13 @@ export class AgentLoopController {
                 customInstructions,
                 agentType,
                 agentTemplates,
-                isCompactCommand,
                 cachedSystemPrompt: cacheStale ? null : cachedCore,
             })
 
-            // ★ 提取 commandTemplate：新命令优先，其次回退到缓存值
-            const commandTemplate = commandContext?.commandTemplate ?? cached?.commandTemplate ?? ''
+            // ★ 提取 commandTemplate：仅当轮有新命令时传模板（R2 残留修复）
+            // 不再回退 DB 缓存值——回退会让普通轮永久携带上一轮的模板（尾随注入残留）。
+            // 旧缓存载荷中的 commandTemplate 键保留不迁移，读取端不再消费。
+            const commandTemplate = resolveCommandTemplate(commandContext, cached)
 
             // ★ 构建新的缓存载荷（JSON 格式）
             const newCachePayload = JSON.stringify({core: systemPrompt, commandTemplate, buildDate: today})
@@ -406,7 +430,6 @@ export class AgentLoopController {
                 schemeName: selection.schemeName,
                 getSettings,
                 params,
-                isCompactCommand,
                 turns: turnCount,
                 preprocessCache,
                 directModel: selection.directModel,

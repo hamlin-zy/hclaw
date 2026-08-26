@@ -14,6 +14,11 @@ function makeAssistantMsg(text: string, toolCalls?: Array<{id: string; name: str
 }
 function makeToolMsg(toolCallId: string, result: string): ChatMessage {
   return {role: 'tool', toolCallId, content: result, toolResult: result}
+
+}
+
+function makeSystemMsg(text: string): ChatMessage {
+  return {role: 'system', content: text}
 }
 
 describe('convertMessagesIncremental — 增量与全量输出一致', () => {
@@ -26,14 +31,12 @@ describe('convertMessagesIncremental — 增量与全量输出一致', () => {
     const inc1 = convertMessagesIncremental(s1, false, false, null)
     const full1 = convertMessages(s1, false, false)
     expect(inc1.apiMessages).toEqual(full1.apiMessages)
-    expect(inc1.systemText).toBe(full1.systemText)
     expect(inc1.cache).not.toBeNull()
 
     const s2: ChatMessage[] = [...s1, makeUserMsg('继续'), makeAssistantMsg('结果如下')]
     const inc2 = convertMessagesIncremental(s2, false, false, inc1.cache)
     const full2 = convertMessages(s2, false, false)
     expect(inc2.apiMessages).toEqual(full2.apiMessages)
-    expect(inc2.systemText).toBe(full2.systemText)
   })
 
   it('跨边界 tool 消息合并：新增段以 tool 开头时与全量一致', () => {
@@ -58,5 +61,24 @@ describe('convertMessagesIncremental — 增量与全量输出一致', () => {
     const inc = convertMessagesIncremental(s, true, false, null)
     const full = convertMessages(s, true, false)
     expect(inc.apiMessages).toEqual(full.apiMessages)
+  })
+})
+
+describe('convertMessagesIncremental — 注入 system 消息原位保留一致性', () => {
+  it('新增段以 injectMessage（system）结尾：增量输出 === 全量输出', () => {
+    const s1: ChatMessage[] = [
+      makeUserMsg('hi'),
+      makeAssistantMsg('', [{id: 'tc1', name: 'skill', arguments: {}}]),
+      makeToolMsg('tc1', 'preview'),
+    ]
+    const inc1 = convertMessagesIncremental(s1, false, false, null)
+    const s2: ChatMessage[] = [...s1, makeSystemMsg('完整指导')]
+    const inc2 = convertMessagesIncremental(s2, false, false, inc1.cache)
+    const full2 = convertMessages(s2, false, false)
+    expect(inc2.apiMessages).toEqual(full2.apiMessages)
+    // 注入文本原位出现在末尾 user 消息中
+    const last = full2.apiMessages[full2.apiMessages.length - 1]
+    expect(last.role).toBe('user')
+    expect(JSON.stringify(last.content)).toContain('完整指导')
   })
 })

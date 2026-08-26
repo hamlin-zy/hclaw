@@ -23,6 +23,7 @@ import type {
     ToolDefinition,
 } from './types'
 import {isSyntheticToolResult} from '../state'
+import {logger} from '../logger'
 import {recordingFetch} from '../../utils/llmTraceRecorder'
 
 export class OpenAIAdapter implements ModelAdapter {
@@ -96,8 +97,7 @@ export class OpenAIAdapter implements ModelAdapter {
 
     // 推理/思考模式：使用 thinkingEffort 控制强度（undefined=禁用）
     if (thinkingEffort) {
-        // OpenAI 标准只支持 low/medium/high，auto/xhigh/max 降级为 high
-        const finalEffort: string = ['auto', 'xhigh', 'max'].includes(thinkingEffort) ? 'high' : thinkingEffort
+        const finalEffort = this.resolveThinkingEffort(thinkingEffort)
         ;(requestParams as any).reasoning_effort = finalEffort
 
         // 推理模型不支持 temperature 参数，移除
@@ -263,7 +263,7 @@ export class OpenAIAdapter implements ModelAdapter {
 
     // 推理强度：Responses API 使用 reasoning: {effort}（low/medium/high）
     if (thinkingEffort) {
-      const finalEffort: string = ['auto', 'xhigh', 'max'].includes(thinkingEffort) ? 'high' : thinkingEffort
+      const finalEffort = this.resolveThinkingEffort(thinkingEffort)
       requestParams.reasoning = { effort: finalEffort }
     }
 
@@ -363,6 +363,37 @@ export class OpenAIAdapter implements ModelAdapter {
   /** 失效增量转换缓存（normalize 注入/取代后由调用方触发，下次全量重建） */
   invalidateConvertCache(): void {
     this.convertCache = null
+  }
+
+  /**
+   * 判定端点是否为 OpenAI 官方端点：
+   * baseUrl 为空（SDK 默认 api.openai.com）或包含 api.openai.com → 官方；
+   * 其余视为第三方兼容网关（含 Ollama/vLLM/OpenRouter 等）。
+   */
+  private isOfficialOpenAIEndpoint(): boolean {
+    const baseUrl = (this.config as ModelConfig).baseUrl
+    return !baseUrl || baseUrl.includes('api.openai.com')
+  }
+
+  /**
+   * 按端点来源解析 thinkingEffort 的实际发送值：
+   * - 官方端点：'auto' → 'medium'（OpenAI 官方默认）；'xhigh'/'max' 原样透传（新模型原生支持）
+   * - 第三方兼容网关：'auto' → 'high'；'xhigh'/'max' → 'high'（多数网关不认识新档位）
+   * - 其他档位（none/minimal/low/medium/high）原样透传。
+   * 发生映射/降级时记录日志（模型名 + 原值 + 实际发送值）。
+   */
+  private resolveThinkingEffort(effort: string): string {
+    const official = this.isOfficialOpenAIEndpoint()
+    let finalEffort = effort
+    if (effort === 'auto') {
+      finalEffort = official ? 'medium' : 'high'
+    } else if ((effort === 'xhigh' || effort === 'max') && !official) {
+      finalEffort = 'high'
+    }
+    if (finalEffort !== effort) {
+      logger.info('[OpenAIAdapter] thinkingEffort 映射', {model: this.model, original: effort, sent: finalEffort})
+    }
+    return finalEffort
   }
 
   // ─── 内部方法 ──────────────────────────────────────
@@ -596,7 +627,8 @@ export class OpenAIAdapter implements ModelAdapter {
 
   /**
    * 将 ChatMessage[] 转换为 Responses API 的 input 数组
-   * - system/系统提示：并入 instructions（由调用方处理 systemPrompt 参数），此处跳过
+   * - 首条 system：并入 instructions（由调用方处理 systemPrompt 参数），此处跳过；
+   *   mid-stream system 转为 user 项原位保留（Responses input 不接受 system 角色）
    * - user：{role: 'user', content: string | ContentPart[]}
    * - assistant 含工具调用：{role: 'assistant', content, ...} + function_call 项
    * - tool 结果：{type: 'function_call_output', call_id, output}
@@ -605,8 +637,17 @@ export class OpenAIAdapter implements ModelAdapter {
     messages: readonly ChatMessage[],
   ): any[] {
     const input: any[] = []
-    for (const msg of messages) {
-      if (msg.role === 'system') continue // system 消息由 instructions 承载，跳过避免重复
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i]
+      if (msg.role === 'system') {
+        // 首条 system 由 instructions 承载（调用方处理 systemPrompt），跳过避免重复；
+        // mid-stream system（如 skill 工具的 injectMessage）Responses input 不接受
+        // system 角色，转为 user 项原位保留，保证指导内容可达模型（R3 修复）
+        if (i === 0) continue
+        const text = typeof msg.content === 'string' ? msg.content : ''
+        if (text) input.push({role: 'user', content: text})
+        continue
+      }
       if (msg.role === 'user') {
         input.push({ role: 'user', content: this.convertUserContentResponses(msg.content) })
       } else if (msg.role === 'assistant') {

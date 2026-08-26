@@ -55,8 +55,7 @@ describe('checkResultSize', () => {
     })
 
     it('skill 工具输出超过警告阈值时不追加警告（buildGuidance 三端一致性豁免）', () => {
-        // 10KB > 5KB 警告阈值，但 skill output 是 buildGuidance 原文，
-        // 落库后 restoreSkillSystemMessages 逐字节重建 system 消息，警告尾巴会破坏一致性
+        // 10KB > 5KB 警告阈值，但 skill output 是 buildGuidance 原文，警告尾巴会破坏一致性
         const big = 'g'.repeat(10 * 1024)
         const result = checkResultSize('skill', okResult(big))
         expect(result.output).toBe(big) // 完整内容保留，无尾巴

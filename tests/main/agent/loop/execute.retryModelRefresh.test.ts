@@ -93,8 +93,7 @@ describe('executeLlmCallWithRetry 重试前重新解析模型配置（倒计时�
                 sessionId: 'conv-1',
                 schemeConfig: undefined,
             } as never,
-            isCompactCommand: false,
-            turns: 1,
+                  turns: 1,
             preprocessCache: new PreprocessCache(),
             directModel: false,
         }

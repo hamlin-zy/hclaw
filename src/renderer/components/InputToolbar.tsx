@@ -1,6 +1,7 @@
 import CacheRateTooltip from './CacheRateTooltip'
 import ToolMenu from './ToolMenu'
 import ModelSelector from './ModelSelector'
+import ThinkingEffortSelector from './ThinkingEffortSelector'
 
 /** 状态栏脉冲圆点 */
 const StatusDot = ({color = 'var(--info)'}: {color?: string}) => (
@@ -9,7 +10,6 @@ const StatusDot = ({color = 'var(--info)'}: {color?: string}) => (
 
 interface InputToolbarProps {
     isRunning: boolean
-    compactInProgress: boolean
     needsSession: boolean
     needsModel: boolean
     pendingMessagesCount: number
@@ -29,7 +29,6 @@ interface InputToolbarProps {
  */
 export default function InputToolbar({
     isRunning,
-    compactInProgress,
     needsSession,
     needsModel,
     pendingMessagesCount,
@@ -46,12 +45,7 @@ export default function InputToolbar({
             <div data-name="input-toolbar-status" className="flex items-center gap-2 text-xs text-[var(--text-muted)] flex-1 min-w-0 overflow-hidden">
                 {/* 模型 + 阶段状态（"模型 思考中/响应中"）已合并至消息气泡底部
                     （MessageList statusNote），运行态不再于输入栏显示文案/脉冲点 */}
-                {compactInProgress ? (
-                    <span className="flex items-center gap-1 text-[var(--warning)] min-w-0">
-                        <StatusDot color="var(--warning)"/>
-                        <span className="truncate min-w-0">正在压缩上下文以节省 token...</span>
-                    </span>
-                ) : needsSession ? (
+                {needsSession ? (
                     <span className="truncate min-w-0">请先选择工作目录和会话</span>
                 ) : needsModel ? (
                     <span className="truncate min-w-0">请先在右上角选择 LLM 服务商</span>
@@ -78,6 +72,9 @@ export default function InputToolbar({
 
                     {/* 会话级模型选择器（auto 默认），ms-2 与徽章组形成 8px 分组间隔 */}
                     <ModelSelector conversationId={conversationId ?? ''}/>
+
+                    {/* 会话级思考强度选择器（档位按当前模型协议动态渲染） */}
+                    <ThinkingEffortSelector conversationId={conversationId ?? ''}/>
 
                     {/* + 展开按钮 */}
                     <ToolMenu

@@ -22,6 +22,8 @@ import {webFetchTool} from './builtin/webFetchTool'
 import {askUserTool} from './builtin/askUserTool'
 import {agentTool} from './builtin/agentTool'
 import {skillTool} from './builtin/skillTool'
+import {describeSkillsTool} from './builtin/describeSkillsTool'
+import {listAgentsTool} from './builtin/listAgentsTool'
 
 import {taskCreateTool} from './builtin/taskCreateTool'
 import {taskUpdateTool} from './builtin/taskUpdateTool'
@@ -35,11 +37,8 @@ import {systemManageTool} from './builtin/systemManageTool'
 import {sessionHandoffTool} from './builtin/sessionHandoffTool'
 
 import {loadSkillsFromDirectory} from '../skills'
-import {skillRegistry} from '../skills/registry'
 
 export { setAgentToolConfig } from './builtin/agentTool'
-
-export {formatSkillListForPrompt} from './builtin/skillTool'
 
 /** 注册所有内置工具到全局 registry */
 export function registerBuiltinTools(): void {
@@ -56,6 +55,8 @@ export function registerBuiltinTools(): void {
     askUserTool,
     agentTool,
       skillTool,
+      describeSkillsTool,
+      listAgentsTool,
 
       taskCreateTool,
       taskUpdateTool,
@@ -77,13 +78,5 @@ export function registerBuiltinTools(): void {
 export async function initSkills(): Promise<number> {
     const loadedBuiltin = await loadSkillsFromDirectory()
     // 插件技能已由 PowerManager.initialize() 加载，此处不再重复加载
-    const allSkills = skillRegistry.getAll()
-    if (allSkills.length > 0) {
-        const _skillList = allSkills.map(s => {
-            const icon = s.enabled ? '✅' : '⏸️'
-            const sourceTag = s.source === 'builtin' ? '[public]' : s.source === 'plugin' ? '[plugin]' : '[custom]'
-            return `  ${icon} ${sourceTag} ${s.name} (${s.id}) v${s.version || '1.0.0'}`
-        }).join('\n')
-    }
     return loadedBuiltin
 }

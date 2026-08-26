@@ -10,17 +10,9 @@ import {
 } from '../../stores/modelSchemeStore'
 import {useLLMStore} from '../../stores/llmStore'
 import {createDefaultRoles, MODEL_ROLE_INFO, resolveRoleDisplay} from '@shared/modelSchemeHelpers'
+import {getEffortOptions} from '@shared/thinkingEffort'
 
 // ─── 共享常量 ─────────────────────────────────────────────────
-
-const EFFORT_OPTIONS = [
-    {value: '', label: '禁用'},
-    {value: 'low', label: '低'},
-    {value: 'medium', label: '中'},
-    {value: 'high', label: '高'},
-    {value: 'xhigh', label: '极高'},
-    {value: 'max', label: '最大'},
-] as const
 
 const EFFORT_LABELS: Record<string, string> = {
     auto: '自动', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大',
@@ -633,6 +625,13 @@ function RoleConfigEditor({
     const selectedProvider = providers.find((p) => p.id === config.endpointId)
     const availableModels = selectedProvider?.models.filter((m) => m.enabled) || []
 
+    // 思考强度档位：与 InputArea 思考强度选择器共用同一档位表（shared），
+    // 按角色当前服务商协议动态渲染；前置「禁用」空值项
+    const effortOptions = [
+        {value: '' as const, label: '禁用'},
+        ...getEffortOptions(selectedProvider?.type),
+    ]
+
     // 验证：启用但未选择模型
     const showWarning = config.enabled && (!config.endpointId || !config.modelId)
     // 错误：必填但未配置
@@ -757,8 +756,10 @@ function RoleConfigEditor({
                             disabled={!config.enabled}
                             className="flex-1 px-2 py-1 text-[11px] bg-[var(--surface)] border border-gray-200 rounded text-gray-700 focus:outline-none focus:border-brand-300 disabled:opacity-50"
                         >
-                            {EFFORT_OPTIONS.map(opt => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            {effortOptions.map(opt => (
+                                <option key={opt.value || 'disabled'} value={opt.value} title={'hint' in opt ? opt.hint : undefined}>
+                                    {opt.label}
+                                </option>
                             ))}
                         </select>
                         <span className={`text-[11px] font-medium whitespace-nowrap ${effortColor}`}>

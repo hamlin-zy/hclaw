@@ -6,7 +6,6 @@
  * - 统一任务路由（精简）
  * - 核心规则 + 记忆指南（去重）
  * - 环境信息
- * - 统一能力索引（Skill / Agent / Command 统一展示）
  */
 
 import type {AgentTemplate, HClawAgentType} from '@shared/types'
@@ -15,10 +14,7 @@ import {getShellInfo, getTerminalDisplayName} from './tools/builtin/bashTool'
 import {isMcpToolName} from '@shared/utils/mcpShortId'
 import {promptResolver, type PromptResolver} from './prompts/resolver'
 import {getAgentTemplate} from './prompts/agentTemplates'
-import {agentRegistry} from './agentRegistry'
-import {skillRegistry} from './skills'
 import {getHclawDir} from '../config'
-import {CommandDispatcher} from '../plugin/commands'
 import {formatYmd} from './utils/dateUtils'
 
 
@@ -83,10 +79,6 @@ export async function buildSystemPrompt(
 ${ctx.userHints.map(h => `- ${h}`).join('\n')}`)
   }
 
-    // 统一能力索引（取代独立的 skill 列表 + agent 列表 + MCP 准则）
-  const capabilitySection = buildCapabilityIndex(ctx)
-  if (capabilitySection) sections.push(capabilitySection)
-
   if (ctx.customInstructions) {
     sections.push(`## 自定义指令
 
@@ -97,141 +89,8 @@ ${ctx.customInstructions}`)
 }
 
 function buildRoutingSection(_ctx: SystemPromptContext, r: PromptResolver): string {
-    const hasCapabilities =
-        skillRegistry.getEnabled().length > 0 ||
-        agentRegistry.getEnabled().length > 0
-
-    if (!hasCapabilities) return ''
-
+    // routing 段落无条件常驻（能力索引已迁出，段落字节恒定利于 prompt cache）
     return r.resolve('system.routing')
-}
-
-/** 缩短插件名称（superpowers@github → superpowers） */
-function shortPluginName(name: string): string {
-  return name.split('@')[0]
-}
-
-/** 从 Agent 的 id/tags 推断插件来源名称（无则返回空字符串） */
-function getAgentPluginName(agent: {id: string; tags?: string[]}): string | undefined {
-  const fromTags = agent.tags?.find(t => t.startsWith('plugin:'))
-  if (fromTags) return fromTags.slice('plugin:'.length)
-  const idColon = agent.id.indexOf(':')
-  if (idColon > 0) return agent.id.slice(0, idColon)
-  return undefined
-}
-
-function buildCapabilityIndex(_ctx: SystemPromptContext): string {
-  const seen = new Set<string>()
-  const entries: Array<{
-    name: string
-    type: '技能' | '代理' | '命令'
-    description: string
-    trigger: string
-    sortOrder: number
-  }> = []
-
-  // Skills
-  for (const skill of skillRegistry.getEnabled()) {
-    if (!skill.enabled) continue
-    const desc = skill.userDescription || skill.description || ''
-    const trigger = skill.whenToUse || ''
-    if (!desc.trim() && !trigger.trim()) continue
-    const key = `skill:${skill.name}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    entries.push({
-      name: skill.name + (skill.pluginName ? ` (${shortPluginName(skill.pluginName)})` : ''),
-      type: '技能' as const,
-      description: desc,
-      trigger,
-      sortOrder: 0,
-    })
-  }
-
-  // Agent Templates（跳过命令注册的 cmd: 条目，由下面 Commands 节处理）
-  for (const agent of agentRegistry.getEnabled()) {
-    if (!agent.enabled) continue
-    if (agent.id.startsWith('cmd:')) continue  // 跳过命令伪 Agent
-    const desc = agent.userDescription || agent.description || ''
-    const trigger = agent.whenToUse || ''
-    if (!desc.trim() && !trigger.trim()) continue
-    const key = `agent:${agent.name}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    const pluginName = getAgentPluginName(agent)
-    entries.push({
-      name: agent.name + (pluginName ? ` (${shortPluginName(pluginName)})` : ''),
-      type: '代理' as const,
-      description: desc,
-      trigger,
-      sortOrder: 1,
-    })
-  }
-
-  // Commands
-  try {
-    const dispatcher = CommandDispatcher.getInstance()
-    const {pluginGroups, userCommands} = dispatcher.getAllCommands()
-    for (const cmd of userCommands) {
-      const desc = cmd.description || ''
-      if (!desc.trim()) continue
-      const cmdName = cmd.name || cmd.id
-      if (!cmdName) continue
-      const key = `cmd:${cmd.id}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      entries.push({
-        name: cmdName,
-        type: '命令' as const,
-        description: desc,
-        trigger: '',
-        sortOrder: 2,
-      })
-    }
-    for (const [, commands] of pluginGroups) {
-      for (const cmd of commands) {
-        const desc = cmd.description || ''
-        if (!desc.trim()) continue
-        const cmdName = cmd.name || cmd.id.split(':').pop() || cmd.id
-        const key = `pcmd:${cmd.id}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        entries.push({
-          name: cmdName,
-          type: '命令' as const,
-          description: desc,
-          trigger: '',
-          sortOrder: 2,
-        })
-      }
-    }
-  } catch { /* 命令系统尚未就绪，跳过 */ }
-
-  if (entries.length === 0) return ''
-
-  // 按类型分组后按名称排序
-  entries.sort((a, b) => {
-    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
-    return a.name.localeCompare(b.name)
-  })
-
-  // 渲染表格
-  const rows = entries.map(e => {
-    const desc = e.description.replace(/\n/g, ' ')
-    return `| ${e.name} | ${e.type} | ${desc} | ${e.trigger} |`
-  })
-
-  return `## 可用能力
-
-以下列出当前所有可用的技能、代理和命令。
-- 匹配**名称**和**触发条件**列，优先委派给匹配的能力
-- 触发条件为空时，参考**描述**列
-
-| 名称 | 类型 | 描述 | 触发条件 |
-|------|------|------|----------|
-${rows.join('\n')}
-
-`
 }
 
 function buildImageHandlingSection(ctx: SystemPromptContext, r: PromptResolver): string {

@@ -179,7 +179,8 @@ function buildAgentToolDescription(): string {
         '名称不含插件后缀，可选项之外的名称会报错重试。\n' +
         '【编排】① 先规划再派遣：识别关键路径上的阻塞任务与可并行旁路任务，' +
         '不把阻塞自己的任务派出去空等；② 独立步骤尽量一次并行派遣；' +
-        '③ 编码优先派 Implementer（可落地）、调研才派 Explore，简单任务自己做。'
+        '③ 编码优先派 Implementer（可落地）、调研才派 Explore，简单任务自己做。' +
+        ' If unsure which agent fits the task, call list_agents first.'
     )
 }
 

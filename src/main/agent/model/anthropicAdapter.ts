@@ -50,7 +50,7 @@ export class AnthropicAdapter implements ModelAdapter {
   }
 
   async *chat(params: ChatParams): AsyncGenerator<StreamChunk> {
-    const { messages, systemPrompt, tools, maxTokens, thinkingEffort, abortSignal, commandTemplate } = params
+    const { messages, systemPrompt, tools, maxTokens, thinkingEffort, abortSignal } = params
 
     const thinkingModeActive = !!thinkingEffort
     const needsCompatNormalization = this.isThirdPartyAPI()
@@ -60,19 +60,13 @@ export class AnthropicAdapter implements ModelAdapter {
 
     const useContentBlocks = this.features?.systemContentBlocks
 
-    // ★ 构建多块 system 数组：core prompt + command template + 注入的 system 消息
-    // type 和 cache_control 是精确字面量类型，push 到类型化数组时无需 as const
+    // ★ 多块 system 数组：仅 core prompt（带缓存断点）。
+    // 命令模板与注入的 system 消息不再提升为独立 system 块——
+    // 提升块会改变 system 参数内容，破坏供应商前缀缓存命中；
+    // 注入消息已由 convertMessages 原位保留在 apiMessages 中。
     const systemBlocks: Anthropic.TextBlockParam[] = []
     if (systemPrompt) {
         systemBlocks.push({ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } })
-    }
-    if (commandTemplate) {
-        systemBlocks.push({ type: 'text', text: commandTemplate, cache_control: { type: 'ephemeral' } })
-    }
-    // 工具注入的 system 消息（如 skill 工具的完整指导）——之前被 convertMessages 直接丢弃，
-    // 导致 LLM 只能看到 buildPreview 的 500 字截断内容。现在收集后放入 system 块，与 OpenAI adapter 行为对齐。
-    if (converted.systemText) {
-        systemBlocks.push({ type: 'text', text: converted.systemText })
     }
 
     // system 参数：多块数组（缓存友好）或降级纯字符串
@@ -272,14 +266,29 @@ function textOf(content: unknown): string {
 
 export interface ConvertedMessages {
     apiMessages: Anthropic.MessageParam[]
-    systemText: string
 }
 
 /**
- * 将内部 ChatMessage[] 转换为 Anthropic API 消息 + 收集注入的 system 文本。
+ * 将注入的 system 消息文本（如 skill 工具的 injectMessage）原位追加到 apiMessages：
+ * - 若上一条输出是 user 且 content 为块数组（含 tool_result 批），合并为追加 text 块
+ *   （Anthropic 允许 tool_result 后跟 text 块，且避免产生连续 user 消息）
+ * - 否则新建一条 user text 消息
+ */
+function pushInjectedUserText(result: Anthropic.MessageParam[], text: string): void {
+    const last = result[result.length - 1]
+    if (last && last.role === 'user' && Array.isArray(last.content)) {
+        ;(last.content as Anthropic.ContentBlockParam[]).push({type: 'text', text})
+    } else {
+        result.push({role: 'user', content: [{type: 'text', text}]})
+    }
+}
+
+/**
+ * 将内部 ChatMessage[] 转换为 Anthropic API 消息。
  *
- * system 角色消息（如 skill 工具的 injectMessage 完整指导）不会被丢弃，
- * 而是收集到 systemText 中，由 chat() 通过 system 参数送达 LLM。
+ * 注入的 system 消息（如 skill 工具的 injectMessage 完整指导）不再提升为
+ * system 参数块，而是原位保留在 apiMessages 中（user 角色 text block），
+ * 与 OpenAI Chat 路径行为对齐，保证前缀缓存可命中。
  */
 export function convertMessages(
     messages: readonly ChatMessage[],
@@ -287,8 +296,6 @@ export function convertMessages(
     needsCompatNormalization?: boolean,
 ): ConvertedMessages {
     const result: Anthropic.MessageParam[] = []
-    // 收集注入的 system 消息文本（如 skill 工具的 injectMessage），通过 system 参数送达
-    const systemParts: string[] = []
 
     const validToolUseIds = new Set<string>()
     const presentToolResultIds = new Set<string>()
@@ -306,7 +313,7 @@ export function convertMessages(
         const msg = messages[i]
         if (msg.role === 'system') {
             const text = textOf(msg.content)
-            if (text) systemParts.push(text)
+            if (text) pushInjectedUserText(result, text)
             continue
         }
 
@@ -416,18 +423,10 @@ export function convertMessages(
         } else if (msg.role === 'tool') {
             // 批处理：将所有连续的 tool 消息合并为单个 user 消息中的多个 tool_result 块
             // Anthropic API 要求所有 tool_use 的 tool_result 必须在同一条 user 消息中
-            // system 消息（如 skill 工具的 injectMessage）会被跳过，不打断 tool 消息的合并
+            // system 消息（如 skill 工具的 injectMessage）会打断合并，由外层循环原位处理
             const toolBlocks: Anthropic.ToolResultBlockParam[] = []
-            while (i < messages.length && (messages[i].role === 'tool' || messages[i].role === 'system')) {
+            while (i < messages.length && messages[i].role === 'tool') {
                 const toolMsg = messages[i]
-                // system 消息在外部循环中已被跳过，但会打断 tool 消息的连续合并；此处一并跳过
-                // 同时收集其文本（injectMessage 恰好追加在所有 tool 消息之后，会被此 while 循环吞掉）
-                if (toolMsg.role === 'system') {
-                    const text = textOf(toolMsg.content)
-                    if (text) systemParts.push(text)
-                    i++
-                    continue
-                }
                 const toolUseId = toolMsg.toolCallId || ''
                 if (toolUseId && !validToolUseIds.has(toolUseId)) {
                     i++
@@ -448,14 +447,13 @@ export function convertMessages(
         }
     }
 
-    return { apiMessages: result, systemText: systemParts.join('\n\n') }
+    return { apiMessages: result }
 }
 
 /** 增量转换缓存状态 */
 export interface ConvertCache {
     inputCount: number
     apiMessages: Anthropic.MessageParam[]
-    systemText: string
 }
 
 /**
@@ -478,10 +476,10 @@ export function convertMessagesIncremental(
     thinkingModeActive: boolean | undefined,
     needsCompatNormalization: boolean | undefined,
     cache: ConvertCache | null,
-): { apiMessages: Anthropic.MessageParam[]; systemText: string; cache: ConvertCache } {
+): { apiMessages: Anthropic.MessageParam[]; cache: ConvertCache } {
     // 命中：消息数相同 → 直接返回缓存（同 turn 重试零成本）
     if (cache && cache.inputCount === messages.length) {
-        return {apiMessages: cache.apiMessages, systemText: cache.systemText, cache}
+        return {apiMessages: cache.apiMessages, cache}
     }
 
     // 全量重建（共享路径）：复杂场景 / 缓存失效 / 跨批次不稳定时回退全量
@@ -489,8 +487,7 @@ export function convertMessagesIncremental(
         const full = convertMessages(messages, thinkingModeActive, needsCompatNormalization)
         return {
             apiMessages: full.apiMessages,
-            systemText: full.systemText,
-            cache: {inputCount: messages.length, apiMessages: full.apiMessages, systemText: full.systemText},
+            cache: {inputCount: messages.length, apiMessages: full.apiMessages},
         }
     }
 
@@ -530,7 +527,6 @@ export function convertMessagesIncremental(
     }
 
     const apiMessages: Anthropic.MessageParam[] = [...cache.apiMessages]
-    const systemParts: string[] = cache.systemText ? [cache.systemText] : []
 
     // 跨边界：检查缓存末尾是否未闭合的 tool_result 批
     const lastApi = apiMessages[apiMessages.length - 1]
@@ -561,17 +557,11 @@ export function convertMessagesIncremental(
     while (i < newSection.length) {
         const msg = newSection[i]
         if (msg.role === 'tool') {
-            // 与全量版一致：将连续的 tool 消息（含穿插的 system 消息）合并为单个 tool_result 批
+            // 与全量版一致：将连续的 tool 消息合并为单个 tool_result 批
+            // （system 消息会打断合并，落到下方原位处理分支）
             const toolBlocks: Anthropic.ToolResultBlockParam[] = []
-            while (i < newSection.length) {
+            while (i < newSection.length && newSection[i].role === 'tool') {
                 const m = newSection[i]
-                if (m.role === 'system') {
-                    const text = textOf(m.content)
-                    if (text) systemParts.push(text)
-                    i++
-                    continue
-                }
-                if (m.role !== 'tool') break
                 const toolUseId = m.toolCallId || ''
                 if (toolUseId && !validToolUseIds.has(toolUseId)) {
                     i++
@@ -623,7 +613,7 @@ export function convertMessagesIncremental(
             }
         } else if (msg.role === 'system') {
             const text = textOf(msg.content)
-            if (text) systemParts.push(text)
+            if (text) pushInjectedUserText(apiMessages, text)
         }
         i++
     }
@@ -633,8 +623,7 @@ export function convertMessagesIncremental(
         apiMessages.push({role: 'user', content: openBatch})
     }
 
-    const systemText = systemParts.join('\n\n')
-    return {apiMessages, systemText, cache: {inputCount: messages.length, apiMessages, systemText}}
+    return {apiMessages, cache: {inputCount: messages.length, apiMessages}}
 }
 
 /** 将内部 user 消息内容（文本或多模态块）转换为 Anthropic content blocks */

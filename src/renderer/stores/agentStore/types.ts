@@ -146,23 +146,12 @@ export interface AgentStore {
     permissionMode: 'auto' | 'safe'
     /** 消息显示模式：详细模式（detailed）、精简模式（compact）、紧凑模式（ultra-compact） */
     messageDisplayMode: 'detailed' | 'compact' | 'ultra-compact'
-    /** 压缩结果统计，用于展示 CompactWarningBanner */
-    compactStats: {
-        beforeTokens: number
-        afterTokens: number
-        savedTokens: number
-        compactedMessages: number
-        showBanner: boolean
-    } | null
-    /** 压缩是否正在进行中 */
-    compactInProgress: boolean
     /** LLM 运行错误信息，显示在消息列表左下角而非消息气泡中 */
     errorMessage: string | null
     /** 当前会话的模型 override（null=auto） */
     modelOverride: import('@shared/types').ModelOverride | null
 
     // ── Actions ────────────────────────────────────
-    clearCompactBanner: () => void
     openToolPopup: (data: NonNullable<AgentStore['toolPopupData']>) => void
     closeToolPopup: () => void
     updateToolPopupExpanded: (expandedCardIds: string[]) => void

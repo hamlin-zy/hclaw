@@ -517,7 +517,7 @@ async function processAgentMessage(
     // 渠道会话模型：会话 override → 直接解析；无 → 默认 primary（不预置）
     const convOverride = runtimeConfigManager.getOverride(binding.conversationId)
     const modelConfig = (currentProviders && currentProviders.length > 0)
-        ? resolveChannelModelConfig(convOverride, currentProviders)
+        ? resolveChannelModelConfig(convOverride, currentProviders, currentScheme)
         : undefined
 
     // 5. Run agent and get response (with progress notifications every 5 minutes)
