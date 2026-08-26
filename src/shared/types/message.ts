@@ -413,6 +413,28 @@ export const HCLAW_VERSION = '0.1.0'
 /** 当前 messages.json 的 schema 版本 */
 export const MESSAGES_SCHEMA_VERSION = '2.0'
 
+// ─── Capability catalog types ──────────────────────────
+
+export type CapabilityType = 'skill' | 'agent' | 'command'
+
+export interface CatalogEntry {
+  name: string
+  type: CapabilityType
+  description: string
+  trigger?: string
+  /** 来源层级，用于 rank 排序（缺失视为 250） */
+  source?: 'builtin' | 'user' | 'plugin'
+}
+
+export const SOURCE_KIND_CATALOG = 'capability-catalog' as const
+
+export interface CatalogMetadata {
+  sourceKind: typeof SOURCE_KIND_CATALOG
+  catalogEntries: CatalogEntry[]
+  /** 上次发布的 digest，恢复会话时读回 */
+  catalogDigest?: string
+}
+
 // ─── Message (top-level) ──────────────────────────────
 
 export interface Message {

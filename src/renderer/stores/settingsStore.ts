@@ -97,6 +97,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
                     subagent: {...DEFAULT_SETTINGS.subagent, ...(data.subagent || {})},
                     channels: {...DEFAULT_SETTINGS.channels, ...(data.channels || {})},
                     linkOpening: {...DEFAULT_SETTINGS.linkOpening, ...(data.linkOpening || {})},
+                    fullSkillDescriptions: data.fullSkillDescriptions ?? false,
                 }
                 set({settings: mergedSettings})
 
@@ -130,9 +131,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     updatePending: (category, values) => {
         const {pendingSettings, settings} = get()
         const base = pendingSettings || settings
+        // 标量类顶层字段（如 fullSkillDescriptions）不能走对象展开：{...true} 会得到 {}
+        const prevValue = base[category]
+        const merged = (prevValue !== null && typeof prevValue === 'object')
+            ? {...prevValue as object, ...values}
+            : values
         const updated = {
             ...base,
-            [category]: {...base[category], ...values}
+            [category]: merged
         }
         set({pendingSettings: updated, isDirty: true})
     },

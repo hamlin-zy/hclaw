@@ -1,9 +1,9 @@
 /**
  * AnthropicAdapter convertMessages 单元测试
  *
- * 覆盖本次修复（方案 A）：
- * - system 角色消息（skill 工具的 injectMessage 完整指导）不再被丢弃
- * - 收集到 systemText，由 chat() 通过 system 参数送达 LLM
+ * 覆盖 R4 修复：
+ * - system 角色消息（skill 工具的 injectMessage 完整指导）原位保留为 user text block，
+ *   不再提升为 system 参数第三块（提升会破坏前缀缓存命中）
  * - 不打断 tool_use/tool_result 配对（injectMessage 追加在 tool 消息之后）
  * - 回归：普通消息转换、多模态内容、thinking 块回传保持原行为
  */
@@ -27,10 +27,10 @@ function makeSystemMsg(text: string): ChatMessage {
     return {role: 'system', content: text}
 }
 
-// ─── 核心修复：system 消息收集 ────────────────────────────
+// ─── R4：注入 system 消息原位保留 ────────────────────────
 
-describe('convertMessages — system 消息收集（方案 A 修复）', () => {
-    it('skill 工具的 injectMessage（system）被收集到 systemText，不再丢弃', () => {
+describe('convertMessages — 注入 system 消息原位保留（R4）', () => {
+    it('skill 工具的 injectMessage（system）原位转为 user text block，不提升为 system 块', () => {
         const messages: ChatMessage[] = [
             makeUserMsg('请加载 writing-plans 技能'),
             makeAssistantMsg('', [{id: 'tc1', name: 'skill', arguments: {skill: 'writing-plans'}}]),
@@ -38,64 +38,44 @@ describe('convertMessages — system 消息收集（方案 A 修复）', () => {
             makeSystemMsg('# writing-plans\n\n## 技能指导\n\n## Overview\n...完整指导内容...'),
         ]
 
-        const {apiMessages, systemText} = convertMessages(messages)
+        const {apiMessages} = convertMessages(messages)
 
-        // system 消息被收集
-        expect(systemText).toContain('# writing-plans')
-        expect(systemText).toContain('完整指导内容')
-        // 且不混入 apiMessages
-        expect(apiMessages.some(m => (m as any).role === 'system')).toBe(false)
+        // 注入文本出现在消息序列末尾的 user 消息中
+        const last = apiMessages[apiMessages.length - 1]
+        expect(last.role).toBe('user')
+        const blocks = last.content as Array<{type: string; text?: string; tool_use_id?: string}>
+        expect(blocks.some(b => b.type === 'text' && b.text!.includes('完整指导内容'))).toBe(true)
+        // 且与 tool_result 合并进同一条 user 消息（原位、不产生连续独立注入块）
+        expect(blocks.some(b => b.type === 'tool_result' && b.tool_use_id === 'tc1')).toBe(true)
     })
 
-    it('多条 system 消息按顺序拼接（\n\n 分隔）', () => {
+    it('多条 system 消息各自在原位置输出为 user text block', () => {
         const messages: ChatMessage[] = [
             makeSystemMsg('第一段'),
             makeUserMsg('hi'),
             makeSystemMsg('第二段'),
         ]
 
-        const {systemText} = convertMessages(messages)
-        expect(systemText).toBe('第一段\n\n第二段')
+        const {apiMessages} = convertMessages(messages)
+        expect(apiMessages).toEqual([
+            {role: 'user', content: [{type: 'text', text: '第一段'}]},
+            {role: 'user', content: [{type: 'text', text: 'hi'}, {type: 'text', text: '第二段'}]},
+        ])
     })
 
-    it('无 system 消息时 systemText 为空串', () => {
-        const messages: ChatMessage[] = [makeUserMsg('hi')]
-        const {systemText} = convertMessages(messages)
-        expect(systemText).toBe('')
-    })
-
-    it('system 消息 content 非字符串时安全降级为空', () => {
+    it('system 消息 content 非字符串时安全降级为空（不产出空 user 消息）', () => {
         const messages: ChatMessage[] = [
             {role: 'system', content: [{type: 'text', text: '不应出现'}] as any},
             makeUserMsg('hi'),
         ]
-        const {systemText} = convertMessages(messages)
-        expect(systemText).toBe('')
+        const {apiMessages} = convertMessages(messages)
+        expect(apiMessages).toEqual([{role: 'user', content: [{type: 'text', text: 'hi'}]}])
     })
 
-    it('injectMessage 追加在 tool 消息之后时不破坏 tool_use/tool_result 配对', () => {
-        const messages: ChatMessage[] = [
-            makeUserMsg('q1'),
-            makeAssistantMsg('', [{id: 'tc1', name: 'skill', arguments: {skill: 'x'}}]),
-            makeToolMsg('tc1', 'preview'),
-            makeSystemMsg('完整指导'),
-        ]
-
-        const {apiMessages, systemText} = convertMessages(messages)
-
-        // tool_result 正常合并进单条 user 消息（含 tool_result 块的 user 消息）
-        const toolResultMsg = apiMessages.find(m =>
-            m.role === 'user' &&
-            Array.isArray(m.content) &&
-            (m.content as Array<{type: string}>).some(b => b.type === 'tool_result'),
-        )
-        expect(toolResultMsg).toBeDefined()
-        const blocks = toolResultMsg!.content as Array<{type: string; tool_use_id?: string}>
-        expect(blocks.some(b => b.type === 'tool_result' && b.tool_use_id === 'tc1')).toBe(true)
-
-        // system 内容在 systemText 中，不在 apiMessages 里
-        expect(systemText).toBe('完整指导')
-        expect(apiMessages.some(m => (m as any).role === 'system')).toBe(false)
+    it('无 system 消息时输出不含注入块', () => {
+        const messages: ChatMessage[] = [makeUserMsg('hi')]
+        const {apiMessages} = convertMessages(messages)
+        expect(apiMessages).toEqual([{role: 'user', content: [{type: 'text', text: 'hi'}]}])
     })
 })
 
@@ -109,14 +89,13 @@ describe('convertMessages — 回归行为', () => {
             makeUserMsg('again'),
         ]
 
-        const {apiMessages, systemText} = convertMessages(messages)
+        const {apiMessages} = convertMessages(messages)
 
         expect(apiMessages).toEqual([
             {role: 'user', content: [{type: 'text', text: 'hello'}]},
             {role: 'assistant', content: 'hi there'},
             {role: 'user', content: [{type: 'text', text: 'again'}]},
         ])
-        expect(systemText).toBe('')
     })
 
     it('带 thinking 的 assistant 消息保留 thinking 块回传', () => {

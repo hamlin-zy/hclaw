@@ -37,6 +37,7 @@ import {buildSystemPrompt as buildSystemPromptBase} from '../systemPrompt'
 import {renderSystemPrompt} from '../utils/promptRenderer'
 import {resolveModelConfig, resolveDirectModelConfig, selectModelForTaskWithRole} from '../model/modelSelector'
 import {getRoleConfig} from '@shared/modelSchemeHelpers'
+import {resolveOverrideThinkingEffort} from '@shared/thinkingEffort'
 import {getRoleDisplayName} from './helpers'
 import {resolveEntityCommand} from '../entityCommandResolver'
 import {createConversationRepository} from '../../repositories'
@@ -94,16 +95,15 @@ export async function* initializeRunEnvironment(
  * - 截取 / 到第一个空格之间的内容作为命令名
  * - 匹配现有的 agent/skill/command
  *
- * 注：/compact 命令已移除（决策：完全移除所有压缩功能），isCompactCommand 始终为 false。
+ * 注：/compact 命令及所有上下文压缩功能已移除（决策 2026-08，压缩相关代码已清理）。
  */
 export async function detectCommandContext(params: RunParams): Promise<{
     commandContext: CommandExecutionContext | null
-    isCompactCommand: boolean
 }> {
     const {messages: initialMessages, onEvent} = params
 
     if (!initialMessages || initialMessages.length === 0) {
-        return {commandContext: null, isCompactCommand: false}
+        return {commandContext: null}
     }
 
     // 从后往前找最后一条 user 消息
@@ -116,14 +116,14 @@ export async function detectCommandContext(params: RunParams): Promise<{
     }
 
     if (!lastUserMessage) {
-        return {commandContext: null, isCompactCommand: false}
+        return {commandContext: null}
     }
 
     const messageContent = extractTextContent(lastUserMessage.content)
 
     // 解析命令文本（纯函数，见 commandTextParser.ts；支持换行/空格两种分隔）
     const parsed = parseCommandText(messageContent)
-    if (!parsed) return {commandContext: null, isCompactCommand: false}
+    if (!parsed) return {commandContext: null}
     const {commandName, commandArgs} = parsed
 
     // 辅助：统一构建 CommandExecutionContext + 日志 + 事件
@@ -131,8 +131,7 @@ export async function detectCommandContext(params: RunParams): Promise<{
         commandId: string,
         template: string,
         logSuffix: string,
-        isCompactCommand: boolean,
-    ): { commandContext: CommandExecutionContext; isCompactCommand: boolean } => {
+    ): { commandContext: CommandExecutionContext } => {
         const commandContext: CommandExecutionContext = {
             commandId,
             commandName,
@@ -148,7 +147,7 @@ export async function detectCommandContext(params: RunParams): Promise<{
                 commandArgs,
             })
         }
-        return {commandContext, isCompactCommand}
+        return {commandContext}
     }
 
     // 直接调用 CommandDispatcher 解析命令（不需要 IPC）
@@ -160,7 +159,7 @@ export async function detectCommandContext(params: RunParams): Promise<{
         const result = dispatcher.prepareMessageByName(commandName, commandArgs)
 
         if (result && result.template && result.commandId) {
-            return emitCommandStart(result.commandId, result.template, '', false)
+            return emitCommandStart(result.commandId, result.template, '')
         }
 
         // ★ 兜底：skill / agent 注册表（复用 entityCommandResolver，与 ipc.ts 一致）
@@ -176,14 +175,13 @@ export async function detectCommandContext(params: RunParams): Promise<{
                     commandArgs,
                     commandTemplate: entityResult.template,
                 },
-                isCompactCommand: false,
             }
         }
     } catch (err) {
         logger.warn(`[AgentLoop] failed to resolve command /${commandName}:`, {error: String(err)})
     }
 
-    return {commandContext: null, isCompactCommand: false}
+    return {commandContext: null}
 }
 
 // ─── 模型选择 ──────────────────────────────────────────────
@@ -248,7 +246,9 @@ export function* selectModelForTurn(
     const override = sessionId ? findEffectiveOverride(sessionId) : null
     if (override) {
         if (providers.length > 0) {
-            const direct = resolveDirectModelConfig(override.endpointId, override.modelId, providers)
+            // 会话级思考强度：override 显式值 → 方案角色匹配继承 → auto 兜底
+            const effort = resolveOverrideThinkingEffort(override, currentScheme)
+            const direct = resolveDirectModelConfig(override.endpointId, override.modelId, providers, effort)
             if (direct) {
                 return {
                     modelConfig: direct,
@@ -361,7 +361,6 @@ export interface BuildSystemPromptParams {
     customInstructions: string | undefined
     agentType: string
     agentTemplates: import('@shared/types').AgentTemplate[] | undefined
-    isCompactCommand: boolean
     /** 数据库缓存的系统提示词，无新指令时直接复用，跳过完整构建 */
     cachedSystemPrompt?: string | null
 }
@@ -376,19 +375,13 @@ export async function buildSystemPrompt(params: BuildSystemPromptParams): Promis
         customInstructions,
         agentType,
         agentTemplates,
-        isCompactCommand,
         cachedSystemPrompt,
     } = params
 
     // ★ 缓存命中：无新命令且 DB 有缓存 → 跳过整个构建
-    if (!commandContext && !isCompactCommand && cachedSystemPrompt) {
+    if (!commandContext && cachedSystemPrompt) {
         logger.info('[AgentLoop] cache hit: reusing cached system prompt')
         return cachedSystemPrompt
-    }
-
-    if (isCompactCommand && commandContext) {
-        logger.info('[AgentLoop] compact command: overrode systemPrompt with compact template only')
-        return commandContext.commandTemplate
     }
 
     if (commandContext) {

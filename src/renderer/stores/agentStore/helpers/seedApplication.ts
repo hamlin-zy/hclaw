@@ -13,8 +13,6 @@ import type {ConvAgentData} from '../types'
 import {STREAMING_STATE} from '../defaultState'
 import {
     planRecovery,
-    type ConvPendingPermission,
-    type ConvPendingQuestion,
     type StreamSnapshot,
 } from './recoverySeeding'
 

@@ -11,6 +11,22 @@
 
 ---
 
+## [v0.4.13] - 2026-08-27
+
+### 新增
+- **技能能力目录** — 技能索引从系统提示词中移出，改为对话内按需展示的"能力目录"，减少提示词常驻占用，可通过目录快速查看和检索可用能力；新增 `describe_skills`、`list_agents` 两个查询工具（`catalogInjector.ts` / `catalogPublish.ts`）
+- **会话级思考强度 override** — 每个会话可独立设置模型思考强度档位，输入栏新增选择器，非法档位自动校验回退（`ThinkingEffortSelector.tsx` / `thinkingEffort.ts`）
+
+### 变更
+- **思考强度透传策略细化** — 不同模型端点来源区分处理思考强度参数的透传方式（`openaiAdapter.ts`）
+- **全量技能描述开关** — 设置中可切换目录展示完整技能描述或精简摘要（`settingsStore.ts`）
+
+### 修复
+- **命令模板注入方式优化** — 命令模板改为尾部注入而非拼接进系统消息，保留流式中途注入的系统消息位置不漂移（`controller.ts` / `anthropicAdapter.ts`）
+- **稳定性与性能改进** — 能力目录发布/替换链路的健壮性加固与若干回归测试补齐（`execute.ts` / `catalogPublish.ts`）
+
+---
+
 ## [v0.4.12] - 2026-08-25
 
 ### 新增

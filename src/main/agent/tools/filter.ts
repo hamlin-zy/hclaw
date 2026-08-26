@@ -21,6 +21,7 @@ const GLOBAL_DISALLOWED_TOOLS = new Set<string>([
  */
 const BUILTIN_AGENT_DISALLOWED_TOOLS = new Set<string>([
   'agent',        // Built-in Agent 不能使用 Agent 工具（防止无限递归）
+  'list_agents',  // F1：built-in 子代理不能委派，发现工具亦无意义
 ])
 
 /**

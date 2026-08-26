@@ -68,27 +68,6 @@ export function initializeSkillSystem(operatedFiles?: string[]): void {
 
 // ─── 辅助函数 ─────────────────────────────────────────
 
-const MAX_DESC_CHARS = 200
-
-/** 格式化技能列表（用于系统提示词） */
-export function formatSkillListForPrompt(skills: SkillDefinition[]): string {
-  const entries = skills
-    .filter(s => s.enabled)
-    .map(skill => {
-      let desc = skill.userDescription || skill.description || ''
-      if (skill.whenToUse) desc = desc ? `${desc} - ${skill.whenToUse}` : skill.whenToUse
-      if (desc.length > MAX_DESC_CHARS) desc = desc.slice(0, MAX_DESC_CHARS - 1) + '…'
-
-      let extInfo = ''
-      if (skill.extensions) {
-        if (skill.extensions.scripts?.length) extInfo += ' [脚本]'
-        if (skill.extensions.references?.length) extInfo += ` [${skill.extensions.references.length}个引用]`
-      }
-      return `- ${skill.name}: ${desc}${extInfo}`
-    })
-  return entries.join('\n')
-}
-
 /** 查找技能（支持模糊匹配） */
 function findSkill(nameOrId: string): SkillDefinition | undefined {
   const skills = skillRegistry.getAll()
@@ -109,7 +88,7 @@ function findSkill(nameOrId: string): SkillDefinition | undefined {
 
 export const skillTool: Tool<SkillToolInput, SkillToolOutput> = {
   name: SKILL_TOOL_NAME,
-  description: '调用技能来执行特定任务。当用户请求匹配技能时使用此工具。',
+  description: '调用技能来执行特定任务。当用户请求匹配技能时使用此工具。Names shown in the session catalog are an index only; call describe_skills when you need details before invoking.',
   inputSchema,
 
   async execute(args: SkillToolInput, _context: ToolContext): Promise<ToolResult<SkillToolOutput>> {
@@ -126,11 +105,9 @@ export const skillTool: Tool<SkillToolInput, SkillToolOutput> = {
     return {
       success: true,
       // 完整指导放入 output（而非 500 字预览），避免 LLM 看到截断标记后误判技能内容不完整。
-      // 同时保留 injectMessage 双保险（anthropic/google adapter 已修复 system 消息送达）。
       output: guidance,
       // 结构化数据保留给 tool_result 事件使用（skillName 等）
       _skillMeta: { skillName: skill.name, skillDir: skill.skillDir, guidancePreview: buildPreview(skill), extensions },
-      injectMessage: { role: 'system', content: guidance },
     } as any
   },
 }
