@@ -142,6 +142,8 @@ export interface SystemSettings {
     /** 连接超时时间（秒） */
     connectionTimeout: number
   }
+  /** 技能目录详细描述开关（true=完整描述格式，false/undefined=仅名称索引，缺省关闭） */
+  fullSkillDescriptions?: boolean
 }
 
 // ─── Channel types ─────────────────────────────────────

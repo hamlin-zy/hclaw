@@ -103,6 +103,11 @@ export interface ModelOverride {
   modelId: string
   /** 服务商显示名（providers.name），供 UI 展示 */
   providerName?: string
+  /**
+   * 会话级思考强度覆盖（思考强度选择器写入）
+   * undefined = 未显式指定 → 解析时按「方案角色匹配继承 → auto」兜底
+   */
+  thinkingEffort?: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 }
 
 /** 模型方案角色新结构 */

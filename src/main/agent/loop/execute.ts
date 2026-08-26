@@ -81,7 +81,6 @@ export interface ExecuteLlmCallParams {
     schemeName: string | null
     getSettings: () => import('@shared/types').SystemSettings | undefined
     params: RunParams
-    isCompactCommand: boolean
     turns: number
     /** LLM 调用前 normalize 增量缓存（source-count 判失效） */
     preprocessCache: PreprocessCache
@@ -119,7 +118,7 @@ export async function* executeLlmCallWithRetry(
     ctx: ExecuteLlmCallParams,
 ): AsyncGenerator<AgentStreamEvent, LlmStreamResult | null> {
     const {llmCaller, state, systemPrompt, commandTemplate, availableToolDefinitions, preCapabilityToolDefinitions,
-        schemeName, getSettings, params, isCompactCommand, turns, preprocessCache} = ctx
+        schemeName, getSettings, params, turns, preprocessCache} = ctx
     const {abortSignal, requestConfirmation} = params
 
     // ★ modelConfig/directModel/workModeRole 用 let：重试倒计时期间用户可能已切换模型
@@ -276,15 +275,13 @@ export async function* executeLlmCallWithRetry(
                 ?? (workModeRole === 'reasoning' ? 'auto' : undefined)
 
             // ★ 400 降级（degraded=true）：恢复白名单后完整工具集（含 analyze_image）
-            const compactTools = isCompactCommand ? [] : (degraded
-                ? preCapabilityToolDefinitions
-                : availableToolDefinitions)
+            const toolsToSend = degraded ? preCapabilityToolDefinitions : availableToolDefinitions
 
             // ── 非视觉模型/降级：过滤消息中的 image_url ──
             // ★ 判定与工具侧同源（supportsImageInput）：元数据优先，命名模式回退
-            // ★ 400 降级后强制过滤（与工具侧恢复 analyze_image 同步，仅非 compact 命令）
+            // ★ 400 降级后强制过滤（与工具侧恢复 analyze_image 同步）
             const modelSupportsImages = supportsImageInput(currentModel)
-            const stripImages = !modelSupportsImages || (degraded && !isCompactCommand)
+            const stripImages = !modelSupportsImages || degraded
             if (stripImages) {
                 const hasImageContent = messagesToSend.some(msg =>
                     Array.isArray(msg.content) && msg.content.some(p => p.type === 'image_url')
@@ -340,11 +337,20 @@ export async function* executeLlmCallWithRetry(
                 }
             }
 
-            // ── 非 Anthropic 模型：将 commandTemplate 拼接回 systemPrompt ──
-            const isAnthropic = modelConfig.provider === 'anthropic'
-            const effectiveSystemPrompt = (!isAnthropic && commandTemplate)
-                ? `${systemPrompt}\n\n## 当前命令任务\n\n${commandTemplate}`
-                : systemPrompt
+            // ── 命令模板尾随注入（R1 缓存修复）──
+            // 模板不拼接进 systemPrompt（会破坏前缀缓存：命令轮 system 与普通轮不一致
+            // 导致 cached_tokens 归零），而是作为末尾 user 消息追加，所有 adapter 一致。
+            let effectiveMessages = messagesToSend
+            if (commandTemplate) {
+                effectiveMessages = [
+                    ...messagesToSend,
+                    {
+                        role: 'user',
+                        content: `<command-task>\n${commandTemplate}\n</command-task>`,
+                        id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    } as ChatMessage,
+                ]
+            }
 
             const maxTokens = getSettings()?.model.defaultMaxTokens ?? DEFAULT_MAX_TOKENS
             // ── LLM 出口：agent 主循环 chat 调用 ──
@@ -361,10 +367,9 @@ export async function* executeLlmCallWithRetry(
                 context: params.agentType ? 'subAgent' : 'main',
             }
             const rawStream = withLlmTraceStream(traceCtx, adapter!.chat({
-                systemPrompt: effectiveSystemPrompt,
-                ...(isAnthropic && commandTemplate ? {commandTemplate} : {}),
-                messages: messagesToSend,
-                tools: compactTools,
+                systemPrompt,
+                messages: effectiveMessages,
+                tools: toolsToSend,
                 maxTokens,
                 temperature: getSettings()?.model.defaultTemperature ?? 0,
                 ...(effectiveThinkingEffort ? {thinkingEffort: effectiveThinkingEffort} : {}),

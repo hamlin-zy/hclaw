@@ -87,7 +87,7 @@ describe('skillTool — output 携带完整指导（方案 B 修复）', () => {
         expect(output.startsWith('# writing-plans')).toBe(true)
     })
 
-    it('injectMessage 携带完整指导（双保险，供 adapter 的 system 通道送达）', async () => {
+    it('不再产出 system 注入（injectMessage 已移除）', async () => {
         registerTestSkill('test:writing-plans', 'writing-plans')
 
         const result = await skillTool.execute(
@@ -95,10 +95,7 @@ describe('skillTool — output 携带完整指导（方案 B 修复）', () => {
             {} as any,
         )
 
-        const injected = (result as any).injectMessage as {role: string; content: string}
-        expect(injected.role).toBe('system')
-        expect(injected.content).toContain('END_OF_GUIDANCE')
-        expect(injected.content).toContain('## 技能指导')
+        expect((result as any).injectMessage).toBeUndefined()
     })
 })
 

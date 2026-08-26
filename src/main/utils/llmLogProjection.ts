@@ -3,7 +3,6 @@ import {extractUsage} from '@shared/utils/llmUsageParser'
 
 export {extractUsage} from '@shared/utils/llmUsageParser'
 export type {TokenUsage} from '@shared/utils/llmUsageParser'
-import type {TokenUsage} from '@shared/utils/llmUsageParser'
 
 export interface TimelineNode {
     kind: 'conversation' | 'turn' | 'call'

@@ -15,6 +15,8 @@ import type {
 } from '@shared/types'
 import {getRoleConfig} from '@shared/modelSchemeHelpers'
 import {getAgentTypeConfig} from '../agentTypes/configs'
+import {resolveOverrideThinkingEffort} from '@shared/thinkingEffort'
+import type {ThinkingEffort} from '@shared/thinkingEffort'
 import {SqliteProviderRepository} from '../../repositories/sqlite/llmProviderRepository'
 
 const providerRepo = new SqliteProviderRepository()
@@ -183,29 +185,35 @@ export function getModelConfigForAgentType(
  * 直接解析 provider+model 为 ModelConfig（绕过角色，会话 override 专用）
  * - provider 不存在/禁用 / model 不存在/禁用 → null（调用方降级 auto + warning）
  * - 复用 resolveModelConfig 的 OAuth2 token 解析与 apiStyle 透传
+ * - thinkingEffort：override 携带的会话级思考强度，经 resolveOverrideThinkingEffort
+ *   （角色匹配继承 → auto 兜底）解析后传入，写入 ModelConfig 供 agentLoop 执行层使用
  */
 export function resolveDirectModelConfig(
     endpointId: string,
     modelId: string,
     providers: LLMProvider[],
+    thinkingEffort?: ThinkingEffort,
 ): ModelConfig | null {
     const provider = providers.find((p) => p.id === endpointId)
     if (!provider || !provider.enabled) return null
     const model = provider.models.find((m) => m.id === modelId)
     if (!model || !model.enabled) return null
-    return resolveModelConfig({endpointId, modelId, enabled: true}, providers)
+    return resolveModelConfig({endpointId, modelId, enabled: true, thinkingEffort}, providers)
 }
 
 /**
  * 渠道会话初始 modelConfig：会话 override → 直接解析；无 override → undefined（auto）
+ * 思考强度按 resolveOverrideThinkingEffort 规则解析（显式 → 方案角色匹配继承 → auto）
  * 提取为纯函数便于单测（messageHandler 依赖面大，不直接测）
  */
 export function resolveChannelModelConfig(
     convOverride: ModelOverride | null,
     providers: LLMProvider[],
+    scheme?: ModelScheme | null,
 ): ModelConfig | undefined {
     if (!convOverride || providers.length === 0) return undefined
-    return resolveDirectModelConfig(convOverride.endpointId, convOverride.modelId, providers) || undefined
+    const effort = resolveOverrideThinkingEffort(convOverride, scheme)
+    return resolveDirectModelConfig(convOverride.endpointId, convOverride.modelId, providers, effort) || undefined
 }
 
 // 获取模型角色的显示信息 — 委托给共享模块

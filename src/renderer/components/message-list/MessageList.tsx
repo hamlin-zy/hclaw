@@ -8,7 +8,23 @@ import {AnimatePresence, motion} from 'framer-motion'
 import {useConversationStore} from '../../stores/conversationStore'
 import {useAgentStore} from '../../stores/agentStore'
 import MessageBubble from './MessageBubble'
+import {CatalogStatusLine, parseCatalogEntriesFromContent} from './CatalogStatusLine'
 import {getPhaseLabel} from './StatusIndicators'
+import {SOURCE_KIND_CATALOG} from '@shared/types/message'
+import type {CatalogEntry} from '@shared/types/message'
+
+/**
+ * 能力目录注入消息：仅用于派生状态行，不渲染为气泡、不参与用户消息导航。
+ * ★ DB 读回时 metadata 展开到顶层（buildMessagesFromRows），内存消息则保留
+ *   metadata 子对象——两处形态都要兼容，否则重启后目录气泡会重复渲染。
+ */
+function getCatalogMeta(msg: {metadata?: unknown; sourceKind?: unknown}): Record<string, unknown> | undefined {
+    return (msg.metadata as Record<string, unknown>) ??
+        (msg.sourceKind !== undefined ? (msg as unknown as Record<string, unknown>) : undefined)
+}
+function isCatalogMessage(msg: {metadata?: unknown; sourceKind?: unknown}): boolean {
+    return getCatalogMeta(msg)?.sourceKind === SOURCE_KIND_CATALOG
+}
 import {KbdCombo} from '../common/Kbd'
 
 // ─── useFind Hook (CSS Highlight API) ─────────────────────
@@ -577,9 +593,10 @@ export default function MessageList({conversationId}: { conversationId?: string 
     }
 
     // ── 用户消息索引（用于导航按钮） ──────────────────────
+    // 跳过能力目录注入的 user 消息（sourceKind='capability-catalog'）
     const userMessageIndices = useMemo(() => {
         return messages.reduce<number[]>((acc, msg, index) => {
-            if (msg.role === 'user') acc.push(index)
+            if (msg.role === 'user' && !isCatalogMessage(msg)) acc.push(index)
             return acc
         }, [])
     }, [messages])
@@ -947,9 +964,33 @@ export default function MessageList({conversationId}: { conversationId?: string 
     // updateMessageForConv 生成新消息对象，visibleMessages 需重建才能反映到 UI。
     // 此处的更新开销来自消息本身内容变化，属必要分配（React 调和）。
     const visibleMessages = useMemo(
-        () => messages
-            .map((message, origIdx) => ({message, origIdx}))
-            .filter(({message}) => message.role === 'user' || message.role === 'assistant'),
+        () => {
+            const rows: Array<{message: typeof messages[number]; origIdx: number; catalogEntries: CatalogEntry[] | null}> = []
+            // 被过滤的 catalog 消息条目：挂到其后相邻 assistant 上方；
+            // 若直到列表末尾都没有后续消息（或下一个是 user），则不挂载
+            let pendingEntries: CatalogEntry[] | null = null
+            messages.forEach((message, origIdx) => {
+                if (isCatalogMessage(message)) {
+                    // 新目录消息 metadata.catalogEntries 为空数组，fallback 从 content 解析
+                    const metaEntries = getCatalogMeta(message)?.catalogEntries as CatalogEntry[] | undefined
+                    const entries = metaEntries && metaEntries.length > 0
+                        ? metaEntries
+                        : parseCatalogEntriesFromContent(message.content)
+                    pendingEntries = (pendingEntries ?? []).concat(entries ?? [])
+                    return
+                }
+                if (message.role !== 'user' && message.role !== 'assistant') {
+                    return
+                }
+                if (message.role === 'assistant' && pendingEntries && pendingEntries.length > 0) {
+                    rows.push({message, origIdx, catalogEntries: pendingEntries})
+                    pendingEntries = null
+                    return
+                }
+                rows.push({message, origIdx, catalogEntries: null})
+            })
+            return rows
+        },
         [messages],
     )
     const lastAssistantId = useMemo(() => {
@@ -1051,13 +1092,15 @@ export default function MessageList({conversationId}: { conversationId?: string 
                     )}
                     {/* 只显示 role='user' 或 'assistant' 的消息 */}
                     {/* 这样可以隐藏 role='context' 等内部消息 */}
-                    {visibleMessages.map(({message, origIdx}) => (
+                    {visibleMessages.map(({message, origIdx, catalogEntries}) => (
                         <div
                             key={message.id}
                             data-msg-idx={origIdx}
                             data-name={`message-row-${message.role}`}
                             style={{contentVisibility: 'auto', containIntrinsicSize: 'auto 200px'}}
                         >
+                            {/* 能力目录状态行：挂在被过滤 catalog 消息之后相邻 assistant 上方 */}
+                            {catalogEntries && <CatalogStatusLine entries={catalogEntries}/>}
                             <MessageBubble
                                 message={message}
                                 isAgentRunning={message.id === lastAssistantId && isAgentRunning}

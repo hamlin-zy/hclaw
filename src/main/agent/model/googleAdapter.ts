@@ -71,11 +71,9 @@ export class GoogleAdapter implements ModelAdapter {
             return
         }
 
-        // 注入的 system 消息（如 skill 工具的完整指导）拼入 systemInstruction，
-        // 与 OpenAI adapter 的 system 消息保留行为对齐
-        const effectiveSystemPrompt = converted.systemText
-            ? (systemPrompt ? `${systemPrompt}\n\n${converted.systemText}` : converted.systemText)
-            : systemPrompt
+        // 注入的 system 消息已由 convertMessages 原位保留在 history 中（R4 修复），
+        // systemInstruction 仅承载 core prompt，保证前缀缓存可命中
+        const effectiveSystemPrompt = systemPrompt
 
         while (history.length > 0 && history[0].role !== 'user') {
             history.shift()
@@ -335,11 +333,10 @@ export class GoogleAdapter implements ModelAdapter {
 
 // ─── 内部方法 ──────────────────────────────────────
 
-/** 转换结果：history + 最后一条 user 消息 + 收集的注入 system 文本 */
+/** 转换结果：history + 最后一条 user 消息 */
 export interface ConvertedMessages {
     history: any[]
     lastUserMsg: any[] | null
-    systemText: string
 }
 
 /** 将可能为 string 的消息内容规范化为字符串（非字符串内容视为空） */
@@ -348,14 +345,26 @@ function textOf(content: unknown): string {
 }
 
 /**
- * 将内部 ChatMessage[] 转换为 Gemini history + lastUserMsg，
- * 并收集注入的 system 消息文本（如 skill 工具的 injectMessage）。
- * system 消息不再被丢弃，由 chat() 拼入 systemInstruction 送达 LLM。
+ * 将注入的 system 消息文本（如 skill 工具的 injectMessage）原位追加到 history：
+ * 若上一条是 user 条目则合并 parts，否则新建 user 条目。
+ */
+function pushInjectedUserParts(history: any[], text: string): void {
+    const last = history[history.length - 1]
+    if (last && last.role === 'user') {
+        last.parts.push({text})
+    } else {
+        history.push({role: 'user', parts: [{text}]})
+    }
+}
+
+/**
+ * 将内部 ChatMessage[] 转换为 Gemini history + lastUserMsg。
+ * 注入的 system 消息不再拼入 systemInstruction，而是原位保留在 history 中
+ * （user 角色 text part），与 OpenAI Chat 路径行为对齐，保证前缀缓存可命中。
  */
 export function convertMessages(messages: readonly ChatMessage[]): ConvertedMessages {
     const history: any[] = []
     let lastUserMsg: any[] | null = null
-    const systemParts: string[] = []
 
     // 分离最后一条用户消息（Gemini 要求 sendMessage 传入最新的用户消息）
     const msgs = [...messages]
@@ -371,7 +380,7 @@ export function convertMessages(messages: readonly ChatMessage[]): ConvertedMess
     for (const msg of msgs) {
         if (msg.role === 'system') {
             const text = textOf(msg.content)
-            if (text) systemParts.push(text)
+            if (text) pushInjectedUserParts(history, text)
             continue
         }
 
@@ -414,14 +423,13 @@ export function convertMessages(messages: readonly ChatMessage[]): ConvertedMess
         }
     }
 
-    return { history, lastUserMsg, systemText: systemParts.join('\n\n') }
+    return { history, lastUserMsg }
 }
 
 export interface GoogleConvertCache {
     inputCount: number
     history: any[]
     lastUserMsg: any[] | null
-    systemText: string
 }
 
 /**
@@ -433,10 +441,10 @@ export interface GoogleConvertCache {
 export function convertMessagesIncremental(
     messages: readonly ChatMessage[],
     cache: GoogleConvertCache | null,
-): { history: any[]; lastUserMsg: any[] | null; systemText: string; cache: GoogleConvertCache } {
+): { history: any[]; lastUserMsg: any[] | null; cache: GoogleConvertCache } {
     // 命中：消息数相同 → 返回缓存
     if (cache && cache.inputCount === messages.length) {
-        return {history: cache.history, lastUserMsg: cache.lastUserMsg, systemText: cache.systemText, cache}
+        return {history: cache.history, lastUserMsg: cache.lastUserMsg, cache}
     }
 
     // 缓存无效 / 消息减少 / 新增段含 user → 全量
@@ -447,18 +455,16 @@ export function convertMessagesIncremental(
         return {
             history: full.history,
             lastUserMsg: full.lastUserMsg,
-            systemText: full.systemText,
-            cache: {inputCount: messages.length, history: full.history, lastUserMsg: full.lastUserMsg, systemText: full.systemText},
+            cache: {inputCount: messages.length, history: full.history, lastUserMsg: full.lastUserMsg},
         }
     }
 
     // 增量：追加新增段到 history（新增段只含 assistant/tool/context/system）
     const history = [...cache.history]
-    const systemParts: string[] = cache.systemText ? [cache.systemText] : []
     for (const msg of newSection) {
         if (msg.role === 'system') {
             const text = textOf(msg.content)
-            if (text) systemParts.push(text)
+            if (text) pushInjectedUserParts(history, text)
             continue
         }
 
@@ -497,12 +503,10 @@ export function convertMessagesIncremental(
             })
         }
     }
-    const systemText = systemParts.join('\n\n')
     return {
         history,
         lastUserMsg: cache.lastUserMsg,
-        systemText,
-        cache: {inputCount: messages.length, history, lastUserMsg: cache.lastUserMsg, systemText},
+        cache: {inputCount: messages.length, history, lastUserMsg: cache.lastUserMsg},
     }
 }
 

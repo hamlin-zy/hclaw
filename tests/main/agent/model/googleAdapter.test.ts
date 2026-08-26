@@ -1,9 +1,9 @@
 /**
  * GoogleAdapter convertMessages 单元测试
  *
- * 覆盖本次修复（方案 A）：
- * - system 角色消息（skill 工具的 injectMessage 完整指导）不再被丢弃
- * - 收集到 systemText，由 chat() 拼入 systemInstruction 送达 LLM
+ * 覆盖 R4 修复：
+ * - system 角色消息（skill 工具的 injectMessage 完整指导）原位保留为 history 中的
+ *   user 条目 text part，不再拼入 systemInstruction（提升会破坏前缀缓存命中）
  * - 回归：history 结构、最后一条 user 消息分离、多模态/音频转换保持原行为
  */
 import {describe, expect, it} from 'vitest'
@@ -26,10 +26,10 @@ function makeSystemMsg(text: string): ChatMessage {
     return {role: 'system', content: text}
 }
 
-// ─── 核心修复：system 消息收集 ────────────────────────────
+// ─── R4：注入 system 消息原位保留 ────────────────────────
 
-describe('convertMessages — system 消息收集（方案 A 修复）', () => {
-    it('skill 工具的 injectMessage（system）被收集到 systemText，不再丢弃', () => {
+describe('convertMessages — 注入 system 消息原位保留（R4）', () => {
+    it('skill 工具的 injectMessage（system）原位转为 history 尾部 user text part，不拼入 systemInstruction', () => {
         const messages: ChatMessage[] = [
             makeUserMsg('请加载技能'),
             makeAssistantMsg('', [{id: 'tc1', name: 'skill', arguments: {skill: 'writing-plans'}}]),
@@ -37,29 +37,26 @@ describe('convertMessages — system 消息收集（方案 A 修复）', () => {
             makeSystemMsg('# writing-plans\n\n## 技能指导\n\n完整指导内容'),
         ]
 
-        const {history, systemText} = convertMessages(messages)
+        const {history} = convertMessages(messages)
 
-        expect(systemText).toContain('# writing-plans')
-        expect(systemText).toContain('完整指导内容')
-        // system 内容不混入 history
-        expect(history.some(m => m.role === 'system')).toBe(false)
+        // 注入文本出现在 history 末尾的 user 条目中
+        const last = history[history.length - 1]
+        expect(last.role).toBe('user')
+        expect(last.parts.some((p: any) => p.text?.includes('完整指导内容'))).toBe(true)
     })
 
-    it('多条 system 消息按顺序拼接（\n\n 分隔）', () => {
+    it('多条 system 消息各自在原位置输出为 user text part', () => {
         const messages: ChatMessage[] = [
             makeSystemMsg('第一段'),
             makeUserMsg('hi'),
             makeSystemMsg('第二段'),
         ]
 
-        const {systemText} = convertMessages(messages)
-        expect(systemText).toBe('第一段\n\n第二段')
-    })
-
-    it('无 system 消息时 systemText 为空串', () => {
-        const messages: ChatMessage[] = [makeUserMsg('hi')]
-        const {systemText} = convertMessages(messages)
-        expect(systemText).toBe('')
+        const {history, lastUserMsg} = convertMessages(messages)
+        expect(history).toEqual([
+            {role: 'user', parts: [{text: '第一段'}, {text: '第二段'}]},
+        ])
+        expect(lastUserMsg).toEqual([{text: 'hi'}])
     })
 
     it('system 消息 content 非字符串时安全降级为空', () => {
@@ -67,8 +64,9 @@ describe('convertMessages — system 消息收集（方案 A 修复）', () => {
             {role: 'system', content: [{type: 'text', text: 'x'}] as any},
             makeUserMsg('hi'),
         ]
-        const {systemText} = convertMessages(messages)
-        expect(systemText).toBe('')
+        const {history, lastUserMsg} = convertMessages(messages)
+        expect(history).toEqual([])
+        expect(lastUserMsg).toEqual([{text: 'hi'}])
     })
 })
 

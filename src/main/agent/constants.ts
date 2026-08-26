@@ -31,7 +31,6 @@ export const WORKER_MESSAGE_TYPES = {
     /** 终止 Agent (Main -> Worker) */
     ABORT: 'abort',
     /** 请求压缩 (Main -> Worker) */
-    REQUEST_COMPACT: 'request-compact',
     /** 刷新 MCP 工具 (Main -> Worker) */
     REFRESH_MCP_TOOLS: 'refresh-mcp-tools',
     /** 注入用户消息到运行中的 Agent 循环 (Main -> Worker) */

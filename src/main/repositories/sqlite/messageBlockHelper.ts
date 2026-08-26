@@ -180,6 +180,10 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
     endedAt: msg.endedAt,
     llmStats: msg.llmStats,
     metadata: {
+      // ★ 透传全部自定义 metadata（如 capability-catalog 的 sourceKind/catalogDigest/
+      //   catalogEntries）：白名单式逐字段拷贝会静默丢失扩展字段，导致落库→读回后
+      //   目录恢复（restoreCatalogState）失效。下方具名字段保持优先（向后兼容）。
+      ...(msg.metadata ?? {}),
       agentName: msg.agentName,
       agentType: msg.agentType,
       model: msg.model,

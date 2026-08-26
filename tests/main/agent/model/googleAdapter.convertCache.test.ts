@@ -14,6 +14,11 @@ function makeAssistant(text: string): ChatMessage {
 }
 function makeTool(id: string, result: string): ChatMessage {
   return {id: 't1', role: 'tool', toolCallId: id, content: result, toolResult: result}
+
+}
+
+function makeSystem(text: string): ChatMessage {
+  return {role: 'system', content: text}
 }
 
 describe('convertMessagesIncremental — 受限增量一致性', () => {
@@ -23,7 +28,6 @@ describe('convertMessagesIncremental — 受限增量一致性', () => {
     const full1 = convertMessages(base)
     expect(inc1.history).toEqual(full1.history)
     expect(inc1.lastUserMsg).toEqual(full1.lastUserMsg)
-    expect(inc1.systemText).toBe(full1.systemText)
 
     const s2: ChatMessage[] = [...base, makeAssistant('结果')]
     const inc2 = convertMessagesIncremental(s2, inc1.cache)
@@ -53,5 +57,19 @@ describe('convertMessagesIncremental — 受限增量一致性', () => {
     const inc1 = convertMessagesIncremental(s, null)
     const inc2 = convertMessagesIncremental(s, inc1.cache)
     expect(inc2.history).toBe(inc1.history)
+  })
+})
+
+describe('convertMessagesIncremental — 注入 system 消息原位保留一致性', () => {
+  it('新增段以 injectMessage（system）结尾：增量输出 === 全量输出', () => {
+    const base: ChatMessage[] = [makeUser('hi'), makeAssistant('a'), makeTool('tc1', 'out')]
+    const inc1 = convertMessagesIncremental(base, null)
+    const s2: ChatMessage[] = [...base, makeSystem('完整指导')]
+    const inc2 = convertMessagesIncremental(s2, inc1.cache)
+    const full2 = convertMessages(s2)
+    expect(inc2.history).toEqual(full2.history)
+    const last = full2.history[full2.history.length - 1]
+    expect(last.role).toBe('user')
+    expect(JSON.stringify(last.parts)).toContain('完整指导')
   })
 })

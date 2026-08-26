@@ -115,7 +115,6 @@ describe('executeLlmCallWithRetry 400 降级自愈（生成器级，mock adapter
         sessionId: 'test-session',
         schemeUpdatePromise: undefined,
       } as never,
-      isCompactCommand: false,
       turns: 1,
       preprocessCache: new PreprocessCache(),
       directModel: false,
