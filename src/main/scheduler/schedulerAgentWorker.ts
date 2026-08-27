@@ -90,6 +90,7 @@ async function runTask(task: TaskConfig): Promise<void> {
 
         let loopCount = 0
         for await (const event of agentLoop({
+            traceContext: 'background',
             sessionId: task.scheduleId,
             messages: task.messages,
             modelConfig: task.modelConfig,

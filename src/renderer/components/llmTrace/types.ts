@@ -30,6 +30,8 @@ export interface TokenSummary {
     provider: string; model: string
     inputTokens: number; outputTokens: number
     cacheReadTokens: number; cacheWriteTokens: number
+    /** 本次响应中解析出的工具调用次数（解析失败/无 resFile 记 0） */
+    toolsCount: number
 }
 
 /** llm-trace:get-projection 返回结构 */

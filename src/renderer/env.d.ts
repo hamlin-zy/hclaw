@@ -311,7 +311,7 @@ declare global {
         openLlmLogsWindow: () => Promise<void>
         getLlmTraceProjection: (convIds?: string[]) => Promise<import('./components/llmTrace/types').LlmTraceProjection>
         getLlmTraceFile: (convId: string, file: string) => Promise<string | null>
-        listLlmTraceConversations: () => Promise<string[]>
+        listLlmTraceConversations: () => Promise<Array<{id: string; title: string}>>
         toggleLlmTrace: (enabled: boolean) => Promise<boolean>
         clearLlmTrace: () => Promise<boolean>
         onLlmTraceRecord: (callback: (record: import('../shared/types/llmTrace').LlmCallRecord) => void) => () => void
@@ -487,6 +487,10 @@ declare global {
         providerTestModel: (params: any) => Promise<any>
         modelMetaGetWindow: (model: string) => Promise<{contextLength: number}>
         exchangeRateGet: () => Promise<{rate: number; date: string | null}>
+        // 汇率手动刷新
+        exchangeRateRefresh: () => Promise<{rate: number; date: string | null}>
+        // 模型价目表手动刷新
+        modelMetaRefresh: () => Promise<{count: number; fetchedAt: number}>
 
         // Model Scheme (模型方案) 管理
         modelScheme: {

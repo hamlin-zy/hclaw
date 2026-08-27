@@ -1,6 +1,6 @@
 // tests/main/llmTrace/recorder.test.ts
 import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest'
-import {mkdtempSync, rmSync, readFileSync, existsSync, readdirSync, promises as fsPromises} from 'fs'
+import {mkdtempSync, rmSync, readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync, promises as fsPromises} from 'fs'
 import {tmpdir} from 'os'
 import path from 'path'
 import {
@@ -8,6 +8,7 @@ import {
     waitForIdleWriters, clearTraceLogs, __setDepsForTest, getTraceIndexLines,
     isRecordingPaused, onTracePaused,
 } from '../../../src/main/utils/llmTraceRecorder'
+import {foldRecords} from '../../../src/main/utils/llmLogProjection'
 
 let dir: string
 function sseResponse(chunks: string[], delayMs = 0): Response {
@@ -202,5 +203,75 @@ describe('recordingFetch', () => {
         // res.raw 未产生
         const dayDir = path.join(dir, 'conv-1', new Date().toISOString().slice(0, 10))
         expect(readdirSync(dayDir).some(f => f.endsWith('.res.raw'))).toBe(false)
+    })
+
+    // ── statusCode 落盘（2026-08-27 设计：客观记录 HTTP 状态码，不改写 status 语义）──
+    it('成功路径记录正确的 statusCode', async () => {
+        setRecordingEnabled(true)
+        __setDepsForTest({rootDir: () => dir, upstreamFetch: async () =>
+            new Response('{"ok":1}', {status: 200, headers: {'content-type': 'application/json'}})})
+        const res = await runWithLlmTraceContext(CTX, () =>
+            recordingFetch('https://api.example.com/v1/chat/completions', {method: 'POST', body: '{}'}))
+        await res.text()
+        await waitForIdleWriters()
+        const lines = await readIndex()
+        expect(lines[0].statusCode).toBe(200)
+        expect(lines[0].status).toBe('ok')
+    })
+
+    it('HTTP 非 2xx（500）：statusCode 落盘且 status 仍记 error（语义不变）', async () => {
+        setRecordingEnabled(true)
+        __setDepsForTest({rootDir: () => dir, upstreamFetch: async () =>
+            new Response('{"error":"boom"}', {status: 500, headers: {'content-type': 'application/json'}})})
+        const res = await runWithLlmTraceContext(CTX, () =>
+            recordingFetch('https://api.example.com/v1/chat/completions', {method: 'POST', body: '{}'}))
+        await res.text()
+        await waitForIdleWriters()
+        const lines = await readIndex()
+        expect(lines[0].statusCode).toBe(500)
+        expect(lines[0].status).toBe('error')
+    })
+
+    it('连接失败路径 statusCode === undefined 且 status 为 error', async () => {
+        setRecordingEnabled(true)
+        __setDepsForTest({rootDir: () => dir,
+            upstreamFetch: async () => { throw new Error('ECONNREFUSED') }})
+        await expect(runWithLlmTraceContext(CTX, () =>
+            recordingFetch('https://api.example.com/v1/chat/completions', {method: 'POST', body: '{}'}),
+        )).rejects.toThrow('ECONNREFUSED')
+        await waitForIdleWriters()
+        const lines = await readIndex()
+        expect(lines[0].statusCode).toBeUndefined()
+        expect(lines[0].status).toBe('error')
+    })
+
+    it('旧格式 index 行（无 statusCode）可正常读取', async () => {
+        setRecordingEnabled(true)
+        const dayDir = path.join(dir, 'conv-1', new Date().toISOString().slice(0, 10))
+        const oldRecord = {
+            id: 'legacy-1', ts: Date.now(), conversationId: 'conv-1', turn: 1, step: 1, attempt: 0,
+            context: 'main', provider: 'p', model: 'm', apiStyle: 'chat',
+            status: 'ok', firstByteMs: 10, totalMs: 20, reqFile: 'legacy-1.req.json',
+        }
+        mkdirSync(dayDir, {recursive: true})
+        appendFileSync(path.join(dayDir, 'index.jsonl'), JSON.stringify(oldRecord) + '\n', 'utf8')
+        const lines = await readIndex()
+        expect(lines[0].id).toBe('legacy-1')
+        expect(lines[0].statusCode).toBeUndefined()
+    })
+
+    it('投影（foldRecords）透传 statusCode 到 renderer 可见结构', async () => {
+        setRecordingEnabled(true)
+        __setDepsForTest({rootDir: () => dir, upstreamFetch: async () =>
+            new Response('{}', {status: 201})})
+        const res = await runWithLlmTraceContext(CTX, () =>
+            recordingFetch('https://api.example.com/v1/chat/completions', {method: 'POST', body: '{}'}))
+        await res.text()
+        await waitForIdleWriters()
+        const records = await readIndex()
+        const {timeline} = foldRecords(records)
+        const conv = timeline.find(n => n.kind === 'conversation')!
+        const call = conv.children![0].children!.find(n => n.kind === 'call')!
+        expect(call.record!.statusCode).toBe(201)
     })
 })

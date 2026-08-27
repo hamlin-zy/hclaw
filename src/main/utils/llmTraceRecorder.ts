@@ -172,9 +172,13 @@ function handleFsError(err: unknown, phase: string): void {
     failPause(String(err))
 }
 
+/** conversationId → 落盘目录名：仅保留安全字符，其余映射为 _（写盘与读盘共用） */
+export function sanitizeConvId(id: string): string {
+    return id.replace(/[^a-zA-Z0-9_-]/g, '_') || 'unknown'
+}
+
 function dayDirOf(root: string, ctx: LlmTraceCallContext, ts: number): string {
-    // conversationId 清洗：仅保留安全字符，其余映射为 _
-    const safeId = ctx.conversationId.replace(/[^a-zA-Z0-9_-]/g, '_') || 'unknown'
+    const safeId = sanitizeConvId(ctx.conversationId)
     const day = new Date(ts).toISOString().slice(0, 10)
     return path.join(root, safeId, day)
 }
@@ -236,6 +240,8 @@ export const recordingFetch: typeof globalThis.fetch = async (input, init) => {
     }
 
     record.firstByteMs = firstByteMs
+    // 客观记录 HTTP 状态码；status 语义不变（非 2xx 仍记 error，见 finalize）
+    record.statusCode = response.status
     record.resEncoding = response.headers.get('content-encoding') ?? undefined
 
     if (!response.body) { // 204 等 null-body 响应
@@ -395,8 +401,7 @@ function notifyWindow(r: LlmCallRecord): void {
 // ── 读取辅助（投影/IPC 用）──
 export async function getTraceIndexLines(conversationId: string): Promise<LlmCallRecord[]> {
     const root = deps.rootDir()
-    const safeId = conversationId.replace(/[^a-zA-Z0-9_-]/g, '_') || 'unknown'
-    const convRoot = path.join(root, safeId)
+    const convRoot = path.join(root, sanitizeConvId(conversationId))
     if (!fs.existsSync(convRoot)) return []
     const out: LlmCallRecord[] = []
     for (const day of fs.readdirSync(convRoot)) {

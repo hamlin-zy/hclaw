@@ -51,20 +51,11 @@ export class OpenAIAdapter implements ModelAdapter {
             if (!config.apiKey || config.apiKey.trim() === '') {
                 throw new Error('API Key is required for OpenAI adapter')
             }
-            // 规范化 baseURL：确保包含 /v1 后缀
-            // OpenAI SDK 将路径拼接为 {baseURL}/chat/completions
-            // 若用户配置了 https://openrouter.ai/api 缺少 /v1，
-            // 实际请求会变成 /api/chat/completions（错误）而非 /api/v1/chat/completions（正确）
-            let normalizedUrl = config.baseUrl
-            if (normalizedUrl) {
-                normalizedUrl = normalizedUrl.replace(/\/+$/, '') // 移除尾部斜杠
-                if (!normalizedUrl.endsWith('/v1')) {
-                    normalizedUrl += '/v1'
-                }
-            }
+            // 不做 /v1 自动补全：各厂商路径不同（智谱为 …/api/paas/v4），
+            // OpenAI SDK 只拼 {baseURL}/chat/completions，由用户保证 baseUrl 完整
             this.client = new OpenAI({
                 apiKey: config.apiKey,
-                baseURL: normalizedUrl || undefined,
+                baseURL: config.baseUrl || undefined,
                 fetch: recordingFetch,
             })
         }

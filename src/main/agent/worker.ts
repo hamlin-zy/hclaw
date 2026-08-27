@@ -538,6 +538,7 @@ async function main(): Promise<void> {
     // 运行 Agent Loop，传递 abortSignal 和 askUserQuestion
         let lastRuleCount = (await permissionEngine.getRules()).length
         for await (const event of agentLoop({
+            traceContext: 'main',
             sessionId: params.conversationId,
             messages: params.messages,
             modelConfig: params.modelConfig,

@@ -64,9 +64,9 @@ describe('UsageStatsDialog 分组用量', () => {
         render(<UsageStatsDialog />)
         openDialog()
         await waitFor(() => expect(screen.getByText('分组用量')).toBeTruthy())
-        // 默认人民币：Deepseek-ant 聚合成本 12.88 × 7.2 = ¥92.74
-        expect(screen.getByText('¥92.74')).toBeTruthy()
-        expect(screen.queryByText('$12.88')).toBeNull()
+        // 默认人民币：Deepseek-ant 聚合成本 12.88 × 7.2 = ¥92.736
+        expect(screen.getByText('¥92.73600')).toBeTruthy()
+        expect(screen.queryByText('$12.88000')).toBeNull()
         // 默认按服务商：Deepseek-ant 合并两行（anthropic）、MiniMax 一行（openai）
         expect(screen.getByText('Deepseek-ant')).toBeTruthy()
         expect(screen.getByText('MiniMax')).toBeTruthy()
@@ -135,7 +135,7 @@ describe('UsageStatsDialog 分组用量', () => {
         // 数据口径提示：客户端侧统计，非服务商账单
         expect(screen.getByText('统计数据为客户端侧记录，仅供对照，实际用量以服务商官网为准')).toBeTruthy()
         // 成本列（Deepseek-ant = 10.71 + 2.17，默认人民币）
-        expect(screen.getByText('¥92.74')).toBeTruthy()
+        expect(screen.getByText('¥92.73600')).toBeTruthy()
         // 占比
         expect(screen.getByText('85%')).toBeTruthy()
     })
@@ -156,17 +156,17 @@ describe('UsageStatsDialog 分组用量', () => {
     it('切换美元 → 成本列按美元显示；切回人民币按汇率换算', async () => {
         render(<UsageStatsDialog />)
         openDialog()
-        await waitFor(() => expect(screen.getByText('¥92.74')).toBeTruthy())
+        await waitFor(() => expect(screen.getByText('¥92.73600')).toBeTruthy())
 
         fireEvent.click(screen.getByText('$ 美元'))
         // Deepseek-ant 聚合成本 12.88
-        await waitFor(() => expect(screen.getByText('$12.88')).toBeTruthy())
-        expect(screen.queryByText('¥92.74')).toBeNull()
+        await waitFor(() => expect(screen.getByText('$12.88000')).toBeTruthy())
+        expect(screen.queryByText('¥92.73600')).toBeNull()
 
         fireEvent.click(screen.getByText('¥ 人民币'))
-        // 12.88 * 7.2 = 92.736 → ¥92.74
-        await waitFor(() => expect(screen.getByText('¥92.74')).toBeTruthy())
-        expect(screen.queryByText('$12.88')).toBeNull()
+        // 12.88 * 7.2 = 92.736 → ¥92.73600
+        await waitFor(() => expect(screen.getByText('¥92.73600')).toBeTruthy())
+        expect(screen.queryByText('$12.88000')).toBeNull()
     })
 
     it('空 breakdown → 不渲染分组区块', async () => {
@@ -184,18 +184,18 @@ describe('UsageStatsDialog 分组用量', () => {
         render(<UsageStatsDialog />)
         openDialog()
         await waitFor(() => expect(screen.getByText('分组用量')).toBeTruthy())
-        // 默认人民币：服务商聚合 Deepseek-ant = 12.88 → ¥92.74；MiniMax = 2.17 → ¥15.62
-        expect(screen.getByText('¥92.74')).toBeTruthy()
-        expect(screen.getByText('¥15.62')).toBeTruthy()
+        // 默认人民币：服务商聚合 Deepseek-ant = 12.88 → ¥92.736；MiniMax = 2.17 → ¥15.624
+        expect(screen.getByText('¥92.73600')).toBeTruthy()
+        expect(screen.getByText('¥15.62400')).toBeTruthy()
 
         fireEvent.click(screen.getByText('$ 美元'))
-        await waitFor(() => expect(screen.queryByText('¥92.74')).toBeNull())
-        expect(screen.getByText('$12.88')).toBeTruthy()
-        expect(screen.getByText('$2.17')).toBeTruthy()
+        await waitFor(() => expect(screen.queryByText('¥92.73600')).toBeNull())
+        expect(screen.getByText('$12.88000')).toBeTruthy()
+        expect(screen.getByText('$2.17000')).toBeTruthy()
 
         fireEvent.click(screen.getByText('¥ 人民币'))
-        await waitFor(() => expect(screen.queryByText('$12.88')).toBeNull())
-        expect(screen.getByText('¥92.74')).toBeTruthy()
+        await waitFor(() => expect(screen.queryByText('$12.88000')).toBeNull())
+        expect(screen.getByText('¥92.73600')).toBeTruthy()
     })
 
     it('按模型视图下切换货币 → 单模型成本换算', async () => {
@@ -204,13 +204,13 @@ describe('UsageStatsDialog 分组用量', () => {
         await waitFor(() => expect(screen.getByText('分组用量')).toBeTruthy())
         fireEvent.click(screen.getByText('按模型'))
         await waitFor(() => expect(screen.getByText('claude-sonnet-4')).toBeTruthy())
-        // 默认人民币：claude-sonnet-4 = 10.71 → ¥77.11
-        expect(screen.getByText('¥77.11')).toBeTruthy()
+        // 默认人民币：claude-sonnet-4 = 10.71 → ¥77.112
+        expect(screen.getByText('¥77.11200')).toBeTruthy()
 
         fireEvent.click(screen.getByText('$ 美元'))
-        // 10.71 * 7.2 = 77.112 → ¥77.11
-        await waitFor(() => expect(screen.queryByText('¥77.11')).toBeNull())
-        expect(screen.getByText('$10.71')).toBeTruthy()
+        // 10.71 * 7.2 = 77.112 → ¥77.11200
+        await waitFor(() => expect(screen.queryByText('¥77.11200')).toBeNull())
+        expect(screen.getByText('$10.71000')).toBeTruthy()
     })
 
     it('拖动头部 → 弹窗位置跟随（可拖动）', async () => {

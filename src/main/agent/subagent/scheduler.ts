@@ -361,6 +361,7 @@ export class SubAgentScheduler {
             const maxTurnsLimit = settings?.agent?.maxTurns ?? agentDefinition?.maxTurns ?? 500
             
             for await (const event of agentLoop({
+                traceContext: 'subAgent',
                 messages,
                 modelConfig,
                 workingDir,
