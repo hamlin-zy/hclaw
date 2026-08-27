@@ -236,6 +236,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('model-meta:get-window', {model}),
   exchangeRateGet: () =>
     ipcRenderer.invoke('exchange-rate:get'),
+  // 汇率手动刷新
+  exchangeRateRefresh: () =>
+    ipcRenderer.invoke('exchange-rate:refresh'),
+  // 模型价目表手动刷新
+  modelMetaRefresh: () =>
+    ipcRenderer.invoke('model-meta:refresh'),
 
   // Conversation management
   conversationCreate: (convId: string, meta: Record<string, unknown>) =>

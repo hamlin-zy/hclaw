@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest'
 import {toLlmUsageRecord, timeRangeStartMs, timeRangeBounds, parseLocalDateStartMs, parseLocalDateEndMs, computeKpis, tokensPerSecond, mergeByProvider, attachCosts} from '@shared/llmUsage'
+import {extractToolCallCount, extractToolCalls, extractTextContent} from '@shared/utils/llmUsageParser'
 
 describe('toLlmUsageRecord', () => {
   it('字段映射正确（精确 providerType、seq、全部 token 列）', () => {
@@ -221,5 +222,115 @@ describe('attachCosts（批量补成本）', () => {
     expect(out[0].costUsd).toBeCloseTo(1000*3e-6 + 100*15e-6 + 5000*0.3e-6, 10)
     expect(out[1].costUsd).toBe(0)
     expect(out[0].inputTokens).toBe(1000)  // 其余字段原样保留
+  })
+})
+
+describe('extractToolCallCount / extractToolCalls（工具调用解析）', () => {
+  it('chat 流式：按 index 合并增量 tool_calls', () => {
+    const raw = [
+      'data: ' + JSON.stringify({choices: [{delta: {tool_calls: [{index: 0, function: {name: 'get_weather'}}]}}]}),
+      'data: ' + JSON.stringify({choices: [{delta: {tool_calls: [{index: 0, function: {arguments: '{"city"'}}]}}]}),
+      'data: ' + JSON.stringify({choices: [{delta: {tool_calls: [{index: 1, function: {name: 'read_file', arguments: '{"p":1}'}}]}}]}),
+      'data: ' + JSON.stringify({choices: [{delta: {tool_calls: [{index: 0, function: {arguments: ': "BJ"}'}}]}}]}),
+      'data: [DONE]',
+    ].join('\n')
+    const calls = extractToolCalls('chat', raw)!
+    expect(calls).toHaveLength(2)
+    expect(calls[0].name).toBe('get_weather')
+    expect(JSON.parse(calls[0].args)).toEqual({city: 'BJ'})
+    expect(extractToolCallCount('chat', raw)).toBe(2)
+  })
+
+  it('anthropic：content_block_start(tool_use) + input_json_delta 拼参数', () => {
+    const raw = [
+      'data: ' + JSON.stringify({type: 'content_block_start', index: 1, content_block: {type: 'tool_use', name: 'search'}}),
+      'data: ' + JSON.stringify({type: 'content_block_delta', index: 1, delta: {type: 'input_json_delta', partial_json: '{"q":'}}),
+      'data: ' + JSON.stringify({type: 'content_block_delta', index: 1, delta: {type: 'input_json_delta', partial_json: '"llm"}'}}),
+      'data: ' + JSON.stringify({type: 'content_block_stop', index: 1}),
+      // 非 tool_use 块不计入
+      'data: ' + JSON.stringify({type: 'content_block_start', index: 2, content_block: {type: 'text'}}),
+    ].join('\n')
+    const calls = extractToolCalls('anthropic', raw)!
+    expect(calls).toHaveLength(1)
+    expect(JSON.parse(calls[0].args)).toEqual({q: 'llm'})
+    expect(extractToolCallCount('anthropic', raw)).toBe(1)
+  })
+
+  it('google：数 functionCall 出现次数（含流式数组）', () => {
+    const chunk = (fc: unknown) => ({candidates: [{content: {parts: [{functionCall: fc}]}}]})
+    const raw = JSON.stringify([chunk({name: 'a', args: {x: 1}}), chunk({name: 'b'})])
+    const calls = extractToolCalls('google', raw)!
+    expect(calls.map(c => c.name)).toEqual(['a', 'b'])
+    expect(extractToolCallCount('google', raw)).toBe(2)
+  })
+
+  it('responses：response.output 中 type 含 function_call 的项，按 id 去重', () => {
+    const item = {id: 'fc_1', type: 'function_call', name: 'calc', arguments: '{"n":2}'}
+    const raw = [
+      'data: ' + JSON.stringify({type: 'response.output_item.done', item}),
+      'data: ' + JSON.stringify({type: 'response.completed', response: {output: [item]}}),
+    ].join('\n')
+    const calls = extractToolCalls('responses', raw)!
+    expect(calls).toHaveLength(1)
+    expect(extractToolCallCount('responses', raw)).toBe(1)
+  })
+
+  it('解析失败/无工具调用 → null，绝不抛错', () => {
+    expect(extractToolCalls('chat', 'not json at all')).toBeNull()
+    expect(extractToolCallCount('responses', '')).toBeNull()
+    expect(extractToolCallCount('unknown-style', '{}')).toBeNull()
+  })
+})
+
+describe('extractTextContent（正文连贯文本提取）', () => {
+  it('chat 流式：顺序拼接 delta.content', () => {
+    const raw = [
+      'data: ' + JSON.stringify({choices: [{delta: {role: 'assistant'}}]}),
+      'data: ' + JSON.stringify({choices: [{delta: {content: '你好'}}]}),
+      'data: ' + JSON.stringify({choices: [{delta: {content: '，世界'}}]}),
+      'data: [DONE]',
+    ].join('\n')
+    expect(extractTextContent('chat', raw)).toBe('你好，世界')
+  })
+
+  it('chat 非流式：message.content 兜底', () => {
+    const raw = JSON.stringify({choices: [{message: {content: 'hello'}}]})
+    expect(extractTextContent('chat', raw)).toBe('hello')
+  })
+
+  it('anthropic：text 块 + text_delta 拼接；混合 tool_use 块只取 text', () => {
+    const raw = [
+      'data: ' + JSON.stringify({type: 'content_block_start', index: 0, content_block: {type: 'text', text: ''}}),
+      'data: ' + JSON.stringify({type: 'content_block_delta', index: 0, delta: {type: 'text_delta', text: '段一'}}),
+      'data: ' + JSON.stringify({type: 'content_block_start', index: 1, content_block: {type: 'tool_use', name: 'f'}}),
+      'data: ' + JSON.stringify({type: 'content_block_delta', index: 1, delta: {type: 'input_json_delta', partial_json: '{}'}}),
+      'data: ' + JSON.stringify({type: 'content_block_start', index: 2, content_block: {type: 'text', text: '段二'}}),
+    ].join('\n')
+    expect(extractTextContent('anthropic', raw)).toBe('段一段二')
+  })
+
+  it('responses：output 中 message 的 output_text 拼接（流式 delta 增量）', () => {
+    const raw = [
+      'data: ' + JSON.stringify({type: 'response.output_text.delta', delta: 'ab'}),
+      'data: ' + JSON.stringify({type: 'response.output_text.delta', delta: 'cd'}),
+    ].join('\n')
+    expect(extractTextContent('responses', raw)).toBe('abcd')
+    const raw2 = JSON.stringify({response: {output: [
+      {type: 'message', content: [{type: 'output_text', text: 'x'}, {type: 'output_text', text: 'y'}]},
+      {type: 'function_call', name: 'f'},
+    ]}})
+    expect(extractTextContent('responses', raw2)).toBe('xy')
+  })
+
+  it('google：candidates[0].content.parts 的 text 拼接', () => {
+    const raw = JSON.stringify({candidates: [{content: {parts: [{text: 'a'}, {text: 'b'}]}}]})
+    expect(extractTextContent('google', raw)).toBe('ab')
+  })
+
+  it('空/坏输入 → null，绝不抛错', () => {
+    expect(extractTextContent('chat', '')).toBeNull()
+    expect(extractTextContent('chat', 'not json at all')).toBeNull()
+    expect(extractTextContent('unknown-style', 'data: {}')).toBeNull()
+    expect(extractTextContent('anthropic', 'data: ' + JSON.stringify({type: 'content_block_delta'}))).toBeNull()
   })
 })

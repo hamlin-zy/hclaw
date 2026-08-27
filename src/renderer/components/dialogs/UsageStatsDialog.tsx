@@ -3,7 +3,7 @@ import {AnimatePresence, motion} from 'framer-motion'
 import type {ConversationUsageStats, UsageBreakdown} from '@shared/types'
 import {formatTokenCount, formatTokenCompact, formatTokensPerSecond, formatCost, type Currency} from '../../lib/format'
 import {computeKpis, duplicatedModelKeys, mergeByProvider} from '@shared/llmUsage'
-import {KpiCard, StatRow, GroupTitle, providerDisplayName, ClientStatsNotice, InfoTip, getCostDisclaimer, CurrencyToggle} from '../usage/statsParts'
+import {KpiCard, StatRow, GroupTitle, providerDisplayName, ClientStatsNotice, InfoTip, getCostDisclaimer, CurrencyToggle, formatPricePerMillionTokens} from '../usage/statsParts'
 import {useDraggableDialog} from '../../hooks/useDraggableDialog'
 
 export interface UsageStatsOptions {
@@ -239,10 +239,16 @@ export default function UsageStatsDialog() {
                                             <div className="mt-2 text-[11px] text-[var(--text-secondary)] tabular-nums">
                                                 请求 <b className="text-[var(--text-primary)]">{b.requestCount}</b> 次 · 合计 <b className="text-[var(--text-primary)]">{formatTokenCount(b.totalTokens)}</b>
                                             </div>
-                                            <div className="grid grid-cols-4 gap-2 mt-2 pt-2 border-t border-[var(--border-muted)]">
+                                            <div className="grid grid-cols-5 gap-2 mt-2 pt-2 border-t border-[var(--border-muted)]">
                                                 <div><div className="text-[9px] text-[var(--text-muted)]">输入</div><div className="text-xs tabular-nums">{formatTokenCount(b.inputTokens)}</div></div>
                                                 <div><div className="text-[9px] text-[var(--text-muted)]">输出</div><div className="text-xs tabular-nums">{formatTokenCount(b.outputTokens)}</div></div>
                                                 <div><div className="text-[9px] text-[var(--text-muted)]">缓存命中</div><div className="text-xs tabular-nums">{b.cacheReadTokens > 0 ? formatTokenCount(b.cacheReadTokens) : '—'}</div></div>
+                                                <div>
+                                                    <div className="text-[9px] text-[var(--text-muted)]">综合价格/M</div>
+                                                    <div className="text-xs tabular-nums text-[var(--brand-primary)]">
+                                                        {formatPricePerMillionTokens(b.costUsd, b.inputTokens, b.outputTokens, b.cacheReadTokens, b.cacheWriteTokens, currency)}
+                                                    </div>
+                                                </div>
                                                 <div>
                                                     <div className="flex items-center gap-0.5 text-[9px] text-[var(--text-muted)]">
                                                         成本

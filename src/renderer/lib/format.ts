@@ -102,16 +102,16 @@ export async function syncExchangeRate(): Promise<number> {
   return getUsdCnyRate()
 }
 
-/** 成本格式化：0 或负数 → '—'（未定价）；<0.01 → '<$0.01'；否则 $x.xx（四舍五入到分）。CNY 按实时汇率换算（未同步回退默认值）。 */
+/** 成本格式化：0 或负数 → '—'（未定价）；<0.00001 → '<$0.00001'；否则 $x.xxxxx（保留 5 位小数）。CNY 按实时汇率换算（未同步回退默认值）。 */
 export function formatCost(usd: number, currency: Currency = 'USD'): string {
   if (typeof usd !== 'number' || !Number.isFinite(usd) || usd <= 0) return '—'
   if (currency === 'CNY') {
     const cny = usd * getUsdCnyRate()
-    // 加 1e-9 epsilon 规避 IEEE-754 浮点边界（如 10.715 存为 10.714999…，toFixed(2) 会得 10.71 而非 10.72）
-    return `¥${(cny + 1e-9).toFixed(2)}`
+    // 加 1e-9 epsilon 规避 IEEE-754 浮点边界（如 10.715 存为 10.714999…，toFixed 会舍错末位）
+    return `¥${(cny + 1e-9).toFixed(5)}`
   }
-  if (usd < 0.01) return '<$0.01'
-  return `$${(usd + 1e-9).toFixed(2)}`
+  if (usd < 0.00001) return '<$0.00001'
+  return `$${(usd + 1e-9).toFixed(5)}`
 }
 
 /** 占比格式化：0-100 整数百分比；负数/NaN → '0' */

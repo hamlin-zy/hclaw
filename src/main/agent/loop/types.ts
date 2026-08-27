@@ -12,6 +12,7 @@ import type {
 } from '@shared/types'
 import type {ModelRole} from '@shared/types'
 import type {AgentDefinition} from '@shared/agent'
+import type {LlmTraceContextKind} from '@shared/types/llmTrace'
 
 // ─── 控制器内部类型 ────────────────────────────────────
 
@@ -82,6 +83,8 @@ export interface RunParams {
         providers: any[]
     }
     agentType?: HClawAgentType
+    /** LLM 归因来源（显式声明，缺省回退 'main'） */
+    traceContext?: LlmTraceContextKind
     mcpServers?: MCPServer[]
     agentTemplates?: AgentTemplate[]
     requestConfirmation?: (message: string) => Promise<'allow' | 'always' | 'deny'>

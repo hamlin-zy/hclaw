@@ -1,9 +1,17 @@
 import {useEffect, useRef, useState} from 'react'
-import {RefreshCw} from 'lucide-react'
+import {RefreshCw, RotateCcw, Database} from 'lucide-react'
 import {formatTokenCompact, formatCost, formatTokensPerSecond, type Currency} from '../../lib/format'
 import {useExchangeRateSync} from '../../hooks/useExchangeRateSync'
 import {duplicatedModelKeys, parseLocalDateStartMs} from '@shared/llmUsage'
-import {ClientStatsNotice, InfoTip, getCostDisclaimer, providerDisplayName, CurrencyToggle} from './statsParts'
+import {
+    ClientStatsNotice,
+    InfoTip,
+    getCostDisclaimer,
+    providerDisplayName,
+    CurrencyToggle,
+    formatPricePerMillionTokens,
+    Toast,
+} from './statsParts'
 import type {GlobalUsageStats, TimeRange, TrendGranularity, UsageStatsQueryParams} from '@shared/types'
 
 type View = 'provider' | 'model'
@@ -58,6 +66,9 @@ function trendLabel(day: string, granularity: TrendGranularity): string {
     return day.slice(5)
 }
 
+/** 工具栏图标按钮（更新汇率 / 更新价目表）共享样式 */
+const REFRESH_ICON_BTN_CLS = 'px-2 py-1 text-xs rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+
 /** 趋势柱状条（纯 CSS，零图表库） */
 function TrendBar({value, max, label, isToday}: {value: number; max: number; label: string; isToday: boolean}) {
     const h = Math.max(2, Math.round(value / max * 100))
@@ -78,7 +89,8 @@ function TrendBar({value, max, label, isToday}: {value: number; max: number; lab
 export default function UsageWindow() {
     // 独立窗口为独立渲染进程：挂载时同步主进程实时汇率（与主窗口 App.tsx 同源），
     // 否则 CNY 成本换算 / InfoTip 口径文案恒为默认 7.2，与右键菜单用量统计弹窗不一致
-    const usdCnyRate = useExchangeRateSync()
+    const syncedUsdCnyRate = useExchangeRateSync()
+    const [usdCnyRate, setUsdCnyRate] = useState(syncedUsdCnyRate)
     const [range, setRange] = useState<TimeRange>('today')
     const [view, setView] = useState<View>('provider')
     const [currency, setCurrency] = useState<Currency>('CNY')
@@ -86,9 +98,24 @@ export default function UsageWindow() {
     const [customRange, setCustomRange] = useState<{start: string; end: string}>(() => ({start: daysAgoLocal(6), end: todayLocal()}))
     const [refreshSeq, setRefreshSeq] = useState(0)
     const [refreshing, setRefreshing] = useState(false)
+    const [refreshingExchangeRate, setRefreshingExchangeRate] = useState(false)
+    const [refreshingModelMeta, setRefreshingModelMeta] = useState(false)
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const [data, setData] = useState<GlobalUsageStats | null>(null)
     const [error, setError] = useState(false)
+    const [toast, setToast] = useState<{message: string; type: 'success' | 'error'} | null>(null)
+    const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    // 同步外部汇率变化（主进程推送或其他窗口修改）
+    useEffect(() => {
+        setUsdCnyRate(syncedUsdCnyRate)
+    }, [syncedUsdCnyRate])
+
+    const showToast = (message: string, type: 'success' | 'error') => {
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+        setToast({message, type})
+        toastTimerRef.current = setTimeout(() => setToast(null), 3000)
+    }
 
     useEffect(() => {
         let cancelled = false
@@ -111,8 +138,47 @@ export default function UsageWindow() {
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
         refreshTimerRef.current = setTimeout(() => setRefreshing(false), 600)
     }
+
+    // 手动刷新（汇率 / 价目表）共用流程：busy 状态 + 结果 Toast；
+    // successOf 返回成功文案，res 缺字段或异常时显示 failText
+    const runRefresh = async (
+        setBusy: (busy: boolean) => void,
+        invoke: () => Promise<{rate?: number} | {count?: number} | null | undefined> | undefined,
+        successOf: (res: {rate?: number; count?: number}) => string | null,
+        failText: string,
+    ) => {
+        setBusy(true)
+        try {
+            const res = await invoke()
+            const msg = res != null ? successOf(res) : null
+            if (msg !== null) showToast(msg, 'success')
+            else showToast(failText, 'error')
+        } catch {
+            showToast(failText, 'error')
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    // 更新汇率：调用主进程刷新汇率，成功后更新本地状态触发 UI 重渲染
+    const handleExchangeRateRefresh = () => runRefresh(
+        setRefreshingExchangeRate,
+        () => window.electronAPI?.exchangeRateRefresh?.(),
+        res => res.rate != null ? `汇率已更新: 1 USD ≈ ${res.rate.toFixed(4)} CNY` : null,
+        '汇率更新失败',
+    )
+
+    // 更新价目表：调用主进程刷新模型元数据，成功后 Toast 提示
+    const handleModelMetaRefresh = () => runRefresh(
+        setRefreshingModelMeta,
+        () => window.electronAPI?.modelMetaRefresh?.(),
+        res => res.count != null ? `价目表已更新: ${res.count} 个模型` : null,
+        '价目表更新失败',
+    )
+
     useEffect(() => () => {
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     }, [])
 
     const granularity = computeGranularity(range, customRange)
@@ -176,6 +242,27 @@ export default function UsageWindow() {
                 {/* 美元 / 人民币切换（共享 CurrencyToggle，与右键弹窗同口径）+ 成本口径说明 */}
                 <CurrencyToggle currency={currency} onChange={setCurrency}/>
                 <InfoTip text={getCostDisclaimer()} />
+                {/* 更新汇率 / 更新价目表（刷新按钮左侧） */}
+                <div className="flex gap-1 ml-2">
+                    <button
+                        onClick={handleExchangeRateRefresh}
+                        disabled={refreshingExchangeRate}
+                        aria-label="更新汇率"
+                        title="更新汇率（从 currency-api 拉取最新 USD→CNY 汇率）"
+                        className={REFRESH_ICON_BTN_CLS}
+                    >
+                        <RotateCcw className={`w-3.5 h-3.5 ${refreshingExchangeRate ? 'animate-spin' : ''}`}/>
+                    </button>
+                    <button
+                        onClick={handleModelMetaRefresh}
+                        disabled={refreshingModelMeta}
+                        aria-label="更新价目表"
+                        title="更新价目表（从 OpenRouter 拉取最新模型定价）"
+                        className={REFRESH_ICON_BTN_CLS}
+                    >
+                        <Database className={`w-3.5 h-3.5 ${refreshingModelMeta ? 'animate-spin' : ''}`}/>
+                    </button>
+                </div>
                 {/* 刷新按钮（靠右） */}
                 <button
                     onClick={handleRefresh}
@@ -261,7 +348,7 @@ export default function UsageWindow() {
                         </section>
 
                         {/* 分组明细表 */}
-                        <section className="rounded-lg border border-[var(--border)] overflow-hidden">
+                        <section className="rounded-lg border border-[var(--border)]">
                             <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border)] bg-[var(--surface-muted)]">
                                 <div className="text-xs font-semibold text-[var(--text-primary)]">
                                     {view === 'provider' ? '服务商明细' : '模型明细'}
@@ -274,12 +361,20 @@ export default function UsageWindow() {
                                 <table className="w-full text-xs">
                                     <thead>
                                         <tr className="bg-[var(--surface-muted)] text-[var(--text-muted)] border-b border-[var(--border)]">
-                                            {['名称', '请求', '输入', '输出', '缓存命中', '合计', '成本', '占比'].map(h => (
+                                            {['名称', '请求', '输入', '输出', '缓存命中', '合计', '综合价格/M', '成本', '占比'].map(h => (
                                                 <th key={h} className="text-right font-medium px-3 py-2.5 first:text-left first:px-4">
                                                     {h === '成本' ? (
                                                         <span className="inline-flex items-center justify-end gap-1">
                                                             成本
                                                             <InfoTip text={getCostDisclaimer()}/>
+                                                        </span>
+                                                    ) : h === '综合价格/M' ? (
+                                                        <span className="inline-flex items-center justify-end gap-1">
+                                                            综合价格/M
+                                                            <InfoTip
+                                                                text="总成本 USD ÷ (综合总 tokens / 1,000,000)，综合总 tokens = 输入 + 输出 + 缓存读取 + 缓存写入"
+                                                                placement="top"
+                                                            />
                                                         </span>
                                                     ) : h}
                                                 </th>
@@ -295,6 +390,17 @@ export default function UsageWindow() {
                                             const rowKey = (b.providerName || b.providerType) ? `${b.providerName ?? b.providerType}\u0000${b.key}` : b.key
                                             // 同名模型跨服务商：小字 via 高亮 + 「同名」徽章，明确两行同名数据的差异来源
                                             const dupModel = view === 'model' && isDupModel(b.key)
+                                            // 综合百万 Tokens 价格：总成本 / (综合总 tokens / 1_000_000)
+                                            // 综合总 tokens = input + output + cacheRead + cacheWrite (即 totalTokens)
+                                            // 单位随 currency 切换（USD 显示 $，CNY 显示 ¥，按实时汇率换算）
+                                            const pricePerMillion = formatPricePerMillionTokens(
+                                                b.costUsd,
+                                                b.inputTokens,
+                                                b.outputTokens,
+                                                b.cacheReadTokens,
+                                                b.cacheWriteTokens,
+                                                currency
+                                            )
                                             return (
                                                 <tr key={rowKey} className="border-t border-[var(--border-muted)] tabular-nums hover:bg-[var(--surface-muted)] transition-colors">
                                                     <td className="px-4 py-2.5 font-medium text-left">
@@ -323,6 +429,7 @@ export default function UsageWindow() {
                                                     <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{formatTokenCompact(b.outputTokens)}</td>
                                                     <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{b.cacheReadTokens > 0 ? formatTokenCompact(b.cacheReadTokens) : '—'}</td>
                                                     <td className="px-3 py-2.5 text-right font-medium">{formatTokenCompact(b.totalTokens)}</td>
+                                                    <td className="px-3 py-2.5 text-right text-[var(--text-primary)] font-medium tabular-nums">{pricePerMillion}</td>
                                                     <td className="px-3 py-2.5 text-right text-[var(--brand-primary)] font-medium">{b.costUsd > 0 ? formatCost(b.costUsd, currency) : '—'}</td>
                                                     <td className="px-3 py-2.5 text-right">
                                                         <div className="flex items-center justify-end gap-2">
@@ -345,6 +452,7 @@ export default function UsageWindow() {
                     </>
                 )}
             </div>
+            {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)}/>}
         </div>
     )
 }

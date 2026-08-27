@@ -105,6 +105,16 @@ export class ModelMetaRegistry {
     await this.refresh()
   }
 
+  /** 获取当前模型列表（用于 IPC 返回模型数量） */
+  getModels(): OpenRouterModelRaw[] {
+    return this.models
+  }
+
+  /** 获取上次获取时间（用于 IPC 返回 fetchedAt） */
+  getFetchedAt(): number {
+    return this.fetchedAt
+  }
+
   private lookup(modelId: string): OpenRouterModelRaw | null {
     if (typeof modelId !== 'string') return null
     const q = normalizeModelId(modelId)

@@ -103,6 +103,12 @@ export function shouldRetryAttempt(
     return true
 }
 
+/** ★ 每会话 chat 调用序号（跨请求持久）：
+ *  turn 计数每轮 run 归零，若 step 硬编码/跟随归零，跨请求的记录会在
+ *  (conv,turn,step) 上碰撞，被时间线误判为重试链、摘要 retries/errors 失真。
+ *  首个 attempt 时 +1；同一次调用的重试 attempt 共享同一 step。 */
+const chatStepCounters = new Map<string, number>()
+
 /**
  * 执行 LLM 调用，包含完整的重试逻辑
  *
@@ -355,16 +361,22 @@ export async function* executeLlmCallWithRetry(
             const maxTokens = getSettings()?.model.defaultMaxTokens ?? DEFAULT_MAX_TOKENS
             // ── LLM 出口：agent 主循环 chat 调用 ──
             // withLlmTraceStream 包裹生成器：recordingFetch 在流消费时刻仍能读到归因上下文
+            // 真实 step：本次调用的首个 attempt 递增计数器，重试 attempt 复用同一值
+            const stepKey = params.sessionId ?? 'unknown'
+            if (attempt === 1) {
+                chatStepCounters.set(stepKey, (chatStepCounters.get(stepKey) ?? 0) + 1)
+            }
+            const chatStep = chatStepCounters.get(stepKey) ?? 1
             const traceCtx: LlmTraceCallContext = {
                 conversationId: params.sessionId ?? 'unknown',
                 turn: turns,
-                step: 1,
+                step: chatStep,
                 attempt: attempt - 1,          // 循环变量从 1 起，轨迹记录从 0 起
                 provider: currentProvider,
                 model: currentModel,
                 apiStyle: adapter.apiStyle ?? 'chat',
-                // agentTool 子会话携带 agentType，归类为 subAgent；否则为 main
-                context: params.agentType ? 'subAgent' : 'main',
+                // 入口显式声明的归因来源（traceContext），缺省回退 main
+                context: params.traceContext ?? 'main',
             }
             const rawStream = withLlmTraceStream(traceCtx, adapter!.chat({
                 systemPrompt,
