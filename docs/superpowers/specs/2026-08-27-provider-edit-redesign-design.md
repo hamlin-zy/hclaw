@@ -8,7 +8,7 @@
 
 1. 内容紧凑且局促：配置窗口默认宽 620px（`configWindow.ts` DIALOG_SIZES），弹窗固定 `max-w-lg`(512px)，无法利用窗口空间。
 2. 自动获取模型列表后渲染结果**默认全选**，误操作风险高（`ProviderEditModal.tsx` handleFetchModels 中 setSelectedIds 预填充）。
-3. 模型列表一行一个模型，没有空间为每个模型配置价格（输入/输出/缓存命中/缓存写入）。
+3. 模型列表一行一个模型，没有空间为每个模型配置价格（输入/输出/缓存读/缓存写）。
 4. 部分弹窗/提示仍使用浏览器原生 `window.confirm` / `alert`，与项目自研 `ConfirmDialog` 组件不一致（详见第五节）。
 
 ## 二、设计原则
@@ -56,7 +56,7 @@
    - **模型 ID 参考价填充（按钮触发）**：列标题为「模型 ID」；每行新增 ↧ 填充按钮，点击后按该行模型 ID 查询 OpenRouter 元数据并回填**空缺的**价格列与类型徽标。**不做输入自动联动**——价格配置的数据源是用户为成本校准维护的值（官方价与 OR 价不一致时的校正项），实时联动会让已填价格与配置脱节。覆盖规则：已有价格一律不覆盖；未匹配到元数据时红字提示、无副作用
 6. **拉取列表默认不勾选**：`handleFetchModels` 中 `setSelectedIds` 初始改为空集，面板增加「全选 / 清空」快捷操作；拉取结果面板显示在模型列表上方（工具栏与表格之间）。
 7. **空列表占位**：模型表为空时显示占位行「暂无模型 · 点击手动添加或从服务商拉取开始」，不再空白无引导。
-8. 可交互 HTML Demo（v3，含类型切换、货币换算、按钮触发参考价填充演示）：`tmp/provider-edit-demo.html`
+8. 可交互 HTML Demo（v3，含类型切换、货币换算、按钮触发参考价填充演示）：`docs/superpowers/demos/provider-edit-redesign-demo.html`（随文档入库）
 
 ### C. 数据层与价格链路
 
@@ -79,6 +79,7 @@ UI 录入单位为 `$ / 1M tokens`，存储时 ÷1e6 转为 USD/token —— 与
    - **现状缺口**：`llm_usage` 记录已有 `providerType` 与 `providerName` 维度（`src/shared/types/infra.ts:205`），但 `providerName` 是用户可改的显示名且历史行可空——不足以精确定位服务商
    - **本期补充**：用量写入链路（`toLlmUsageRecord` / `LlmUsageEventSource`）增加稳定 `providerId`，`llm_usage` 表加可空列（ALTER TABLE 小迁移）；取价合并优先按 `(providerId, model)` 精确匹配该服务商自定义定价
    - **降级链**：历史行无 `provider_id` → 按 `providerName` 匹配（重名/改名场景取确定性首命中，注释声明局限）→ 均未命中自定义定价 → 回退 OpenRouter 全局价目表
+   - **重算粒度约束**：成本重算必须在 `(provider, model)` 粒度分组执行、各自独立取价后再汇总——严禁先按 model 聚合跨服务商 token 再取单一价格，否则归属机制失效
 
 ## 四、测试与验证
 
@@ -114,7 +115,7 @@ vitest 单测：
 
 ## 六、明确不做
 
-- 不接入新的实时成本计算功能（沿用现有用量统计链路；provider 归属仅让既有重算更精确）
+- 不新增实时计费/预算/配额等功能模块——provider 归属只是让**既有**用量重算链路的取价更精确，不改变触发时机与计算公式
 - 不做弹窗拖拽 resize、不做单类型窗口尺寸持久化
 - 不大规模拆分 ProviderEditModal 文件（仅抽取模型表格子组件）
 
