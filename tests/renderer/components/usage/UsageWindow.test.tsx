@@ -61,8 +61,8 @@ describe('UsageWindow 全局用量窗口', () => {
         await waitFor(() => expect(api().usageStatsQuery).toHaveBeenCalled())
         // 查询参数：today + provider + hour 粒度（今天按小时）
         expect(lastQuery()).toEqual({range: 'today', view: 'provider', granularity: 'hour'})
-        // 默认人民币：总成本 12.88 USD × 7.2 = ¥92.74
-        expect(screen.getByText('¥92.74')).toBeTruthy()
+        // 默认人民币：总成本 12.88 USD × 7.2 = ¥92.736（formatCost 保留 5 位小数）
+        expect(screen.getByText('¥92.73600')).toBeTruthy()
         expect(screen.queryByText('$12.88')).toBeNull()
         // 默认选中"今天"（分段按钮激活态）
         expect(screen.getByTestId('range-today').className).toContain('bg-[var(--surface-elevated)]')
@@ -73,10 +73,10 @@ describe('UsageWindow 全局用量窗口', () => {
     it('同步主进程实时汇率：CNY 成本换算与口径文案跟随实时值（向右键菜单弹窗看齐）', async () => {
         api().exchangeRateGet.mockResolvedValue({rate: 7.4, date: '2026-08-21'})
         render(<UsageWindow />)
-        // 实时汇率驱动重渲染：12.88 USD × 7.4 = ¥95.31（非默认 7.2 的 ¥92.74）
-        await waitFor(() => expect(screen.getByText('¥95.31')).toBeTruthy())
-        // KPI 下方汇率标注
-        expect(screen.getByText('按 1 USD ≈ 7.40 CNY')).toBeTruthy()
+        // 实时汇率驱动重渲染：12.88 USD × 7.4 = ¥95.312（非默认 7.2 的 ¥92.736）
+        await waitFor(() => expect(screen.getByText('¥95.31200')).toBeTruthy())
+        // KPI 下方汇率标注（usdCnyRate state 更新可能在下一帧，用 waitFor 等待）
+        await waitFor(() => expect(screen.getByText('按 1 USD ≈ 7.40 CNY')).toBeTruthy())
         // InfoTip 口径文案嵌入实时汇率（3 处：工具栏 / 总成本 / 分组表头）
         expect(screen.getAllByText(/人民币按 1 USD ≈ 7\.40 CNY 实时汇率折算/).length).toBe(3)
     })
@@ -232,18 +232,18 @@ describe('UsageWindow 全局用量窗口', () => {
 
     it('切换货币 → 美元/人民币换算（KPI + 明细成本列）', async () => {
         render(<UsageWindow />)
-        await waitFor(() => expect(screen.getByText('¥92.74')).toBeTruthy())
+        await waitFor(() => expect(screen.getByText('¥92.73600')).toBeTruthy())
         // 默认人民币计价，显示汇率说明
         expect(screen.getByText('按 1 USD ≈ 7.20 CNY')).toBeTruthy()
-        // 明细成本列人民币：10.71 → ¥77.11，2.17 → ¥15.62
-        expect(screen.getByText('¥77.11')).toBeTruthy()
-        expect(screen.getByText('¥15.62')).toBeTruthy()
+        // 明细成本列人民币：10.71 → ¥77.112，2.17 → ¥15.624
+        expect(screen.getByText('¥77.11200')).toBeTruthy()
+        expect(screen.getByText('¥15.62400')).toBeTruthy()
 
         fireEvent.click(screen.getByTestId('currency-usd'))
-        await waitFor(() => expect(screen.getByText('$12.88')).toBeTruthy())
-        expect(screen.queryByText('¥92.74')).toBeNull()
-        expect(screen.getByText('$10.71')).toBeTruthy()
-        expect(screen.getByText('$2.17')).toBeTruthy()
+        await waitFor(() => expect(screen.getByText('$12.88000')).toBeTruthy())
+        expect(screen.queryByText('¥92.73600')).toBeNull()
+        expect(screen.getByText('$10.71000')).toBeTruthy()
+        expect(screen.getByText('$2.17000')).toBeTruthy()
     })
 
     it('查询失败 → 显示错误提示', async () => {
@@ -260,7 +260,7 @@ describe('UsageWindow 全局用量窗口', () => {
 
     it('自身不渲染窗口控制按钮（标题栏由 ConfigDialogWindow 统一壳提供）', async () => {
         render(<UsageWindow />)
-        await waitFor(() => expect(screen.getByText('¥92.74')).toBeTruthy())
+        await waitFor(() => expect(screen.getByText('¥92.73600')).toBeTruthy())
         expect(screen.queryByLabelText('最小化')).toBeNull()
         expect(screen.queryByLabelText('最大化')).toBeNull()
         expect(screen.queryByLabelText('还原')).toBeNull()

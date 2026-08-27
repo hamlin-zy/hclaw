@@ -18,6 +18,7 @@ import {LLMCaller} from './loop/llmCaller'
 import {ToolExecutor} from './loop/toolExecutor'
 import {AgentLoopController} from './loop/controller'
 import type {HClawAgentType, ModelRole} from '@shared/types'
+import type {LlmTraceContextKind} from '@shared/types/llmTrace'
 import type {AgentDefinition} from '@shared/agent'
 import {permissionEngine} from './tools/permission'
 import {setAgentToolConfig} from './tools/builtin/agentTool'
@@ -43,6 +44,8 @@ export interface AgentLoopParams {
     providers: any[]
   }
   agentType?: HClawAgentType
+  /** LLM 归因来源（显式声明：main/subAgent/background；缺省回退 'main'） */
+  traceContext?: LlmTraceContextKind
   mcpServers?: import('@shared/types').MCPServer[]
   agentTemplates?: import('@shared/types').AgentTemplate[]
   requestConfirmation?: (message: string) => Promise<'allow' | 'always' | 'deny'>
@@ -109,6 +112,7 @@ export async function* agentLoop(
     channelSend,
     messageMetadata,
     modelRole,
+    traceContext,
   } = params
 
   // 使用动态更新的 settings（而非解构时捕获的静态引用）
@@ -175,5 +179,6 @@ export async function* agentLoop(
     // 传递运行中注入的用户消息队列
     pendingInjectedMessages: params.pendingInjectedMessages,
     modelRole,
+    traceContext,
   })
 }

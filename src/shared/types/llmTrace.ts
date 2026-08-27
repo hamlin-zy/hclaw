@@ -17,6 +17,8 @@ export interface LlmCallRecord {
     model: string
     apiStyle: string
     status: LlmTraceStatus
+    /** HTTP 响应状态码（旧版录制无此字段 → undefined，UI 显示 "—"） */
+    statusCode?: number
     firstByteMs: number
     totalMs: number
     truncated?: boolean

@@ -7,21 +7,23 @@ describe('formatCost（成本格式化）', () => {
         expect(formatCost(0)).toBe('—')
     })
 
-    it('低于 0.01 阈值 → <$0.01', () => {
-        expect(formatCost(0.005)).toBe('<$0.01')
+    it('低于 0.00001 阈值 → <$0.00001', () => {
+        expect(formatCost(0.000001)).toBe('<$0.00001')
     })
 
-    it('0.01 边界 → $0.01', () => {
-        expect(formatCost(0.01)).toBe('$0.01')
+    it('低于旧阈值但仍可显示的金额 → 实际数字（5 位小数）', () => {
+        expect(formatCost(0.005)).toBe('$0.00500')
+        expect(formatCost(0.00001)).toBe('$0.00001')
     })
 
-    it('四舍五入到分', () => {
-        expect(formatCost(10.715)).toBe('$10.72')
-        expect(formatCost(10.714)).toBe('$10.71')
+    it('保留 5 位小数', () => {
+        expect(formatCost(10.715)).toBe('$10.71500')
+        expect(formatCost(10.714)).toBe('$10.71400')
+        expect(formatCost(0.01)).toBe('$0.01000')
     })
 
-    it('整数 → 补两位小数', () => {
-        expect(formatCost(1000.5)).toBe('$1000.50')
+    it('整数 → 补足 5 位小数', () => {
+        expect(formatCost(1000.5)).toBe('$1000.50000')
     })
 
     it('负数（异常）→ 破折号', () => {
@@ -30,17 +32,17 @@ describe('formatCost（成本格式化）', () => {
 })
 
 describe('formatCost（人民币计价）', () => {
-    it('CNY 按固定汇率换算并四舍五入到分', () => {
-        // 12.88 * 7.2 = 92.736 → 92.74
-        expect(formatCost(12.88, 'CNY')).toBe('¥92.74')
-        // 10.71 * 7.2 = 77.112 → 77.11
-        expect(formatCost(10.71, 'CNY')).toBe('¥77.11')
-        // 2.17 * 7.2 = 15.624 → 15.62
-        expect(formatCost(2.17, 'CNY')).toBe('¥15.62')
+    it('CNY 按固定汇率换算并保留 5 位小数', () => {
+        // 12.88 * 7.2 = 92.736
+        expect(formatCost(12.88, 'CNY')).toBe('¥92.73600')
+        // 10.71 * 7.2 = 77.112
+        expect(formatCost(10.71, 'CNY')).toBe('¥77.11200')
+        // 2.17 * 7.2 = 15.624
+        expect(formatCost(2.17, 'CNY')).toBe('¥15.62400')
     })
 
-    it('整数 → 补两位小数', () => {
-        expect(formatCost(1, 'CNY')).toBe('¥7.20')
+    it('整数 → 补足 5 位小数', () => {
+        expect(formatCost(1, 'CNY')).toBe('¥7.20000')
     })
 
     it('未同步时兜底汇率与默认常量一致（7.2）', () => {
@@ -52,13 +54,13 @@ describe('formatCost（人民币计价）', () => {
         expect(formatCost(-5, 'CNY')).toBe('—')
     })
 
-    it('低于 USD 0.01 阈值的金额，CNY 不套用该阈值（直接换算）', () => {
-        // 0.005 USD 在 USD 口径下是 <$0.01，但 CNY 下应换算为 ¥0.04
-        expect(formatCost(0.005, 'CNY')).toBe('¥0.04')
+    it('小额金额 CNY 不套用 USD 阈值（直接换算，5 位小数）', () => {
+        // 0.005 USD 换算为 ¥0.036（< 阈值但不折叠）
+        expect(formatCost(0.005, 'CNY')).toBe('¥0.03600')
     })
 
     it('默认参数仍是 USD（向后兼容）', () => {
-        expect(formatCost(12.88)).toBe('$12.88')
+        expect(formatCost(12.88)).toBe('$12.88000')
     })
 })
 
@@ -106,13 +108,13 @@ describe('setUsdCnyRate（运行时汇率更新边界）', () => {
     it('更新后 formatCost CNY 按新汇率换算', () => {
         setUsdCnyRate(6.5)
         // 12.88 * 6.5 = 83.72
-        expect(formatCost(12.88, 'CNY')).toBe('¥83.72')
+        expect(formatCost(12.88, 'CNY')).toBe('¥83.72000')
     })
 
     it('非法值后 formatCost 仍用当前有效汇率（不回落默认）', () => {
         setUsdCnyRate(6.5)
         setUsdCnyRate(Number.NaN)
-        expect(formatCost(12.88, 'CNY')).toBe('¥83.72')
+        expect(formatCost(12.88, 'CNY')).toBe('¥83.72000')
     })
 })
 

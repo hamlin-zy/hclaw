@@ -56,8 +56,9 @@ describe('foldRecords', () => {
         const conv = t.timeline[0]
         expect(conv.kind).toBe('conversation')
         const turns = conv.children!
-        expect(turns.map(n => n.turn)).toEqual([1, 2])
-        expect(turns[1].children!.map(c => c.record!.attempt)).toEqual([0, 1])
+        // turn 降序：最新 turn 在前
+        expect(turns.map(n => n.turn)).toEqual([2, 1])
+        expect(turns[0].children!.map(c => c.record!.attempt)).toEqual([0, 1])
     })
     it('summary 按 provider×model 聚合，含 p95', () => {
         const s = foldRecords([
@@ -66,6 +67,20 @@ describe('foldRecords', () => {
         ]).summary
         expect(s[0]).toMatchObject({provider: 'A', model: 'm1', calls: 2, errors: 1})
         expect(s[0].avgTotalMs).toBe(500)
+    })
+    it('重试口径：同 (conv,turn,step) 多 attempt 计入 retries，不同 step 是独立步骤不计入', () => {
+        // 真实 step 修复后的形状：同一调用重试共享 step 且 attempt 递增；
+        // 工具循环的下一次调用是不同 step（attempt 均为 0）
+        const {timeline, summary} = foldRecords([
+            rec({id: 'r1a', turn: 3, step: 2, attempt: 0, status: 'error'}),
+            rec({id: 'r1b', turn: 3, step: 2, attempt: 1}),
+            rec({id: 'r2a', turn: 3, step: 3, attempt: 0}),
+            rec({id: 'r3a', turn: 4, step: 4, attempt: 0}),
+        ])
+        // turn=3 含 3 条 record（step2 两条 attempt + step3 一条）；重试口径看 summary.retries
+        const turn3 = timeline[0].children!.find(n => n.turn === 3)!
+        expect(turn3.children!.length).toBe(3)
+        expect(summary[0]).toMatchObject({calls: 4, retries: 1, errors: 1})
     })
 })
 
@@ -77,6 +92,38 @@ describe('computeTokens', () => {
             async r => r.id === '1' ? sse : null,
         )
         expect(tokens).toEqual([{provider: 'p', model: 'm',
-            inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0}])
+            inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, toolsCount: 0}])
+    })
+    it('缓存命中 tokens 与工具调用次数：从 res.raw 累加，解析失败记 0', async () => {
+        const sseWithCacheAndTool = 'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"bash","arguments":"{}"}}]}}]}\n\n'
+            + 'data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":5,"prompt_cache_hit_tokens":80,"prompt_cache_miss_tokens":20}}\n\n'
+            + 'data: [DONE]\n\n'
+        const tokens = await computeTokens(
+            [
+                rec({id: '1', resFile: '1.res.raw'}),
+                rec({id: '2', resFile: '2.res.raw', provider: 'q'}),
+                rec({id: '3', status: 'error'}),          // 非 ok：不计入
+                rec({id: '4', resFile: undefined}),       // 无 resFile：不计入
+            ],
+            async r => r.id === '1' ? sseWithCacheAndTool : r.id === '2' ? 'garbage !!' : null,
+        )
+        expect(tokens.find(t => t.provider === 'p')).toMatchObject({
+            inputTokens: 100, outputTokens: 5,
+            cacheReadTokens: 80, cacheWriteTokens: 20, toolsCount: 1,
+        })
+        // 解析失败（garbage）→ 该组不出现/为 0
+        const q = tokens.find(t => t.provider === 'q')
+        expect(q === undefined || (q.inputTokens === 0 && q.toolsCount === 0)).toBe(true)
+    })
+})
+
+describe('execute.ts step 计数器（源码形状，防回归硬编码）', () => {
+    it('traceCtx 的 step 不再硬编码 1，而来自每会话持久计数器', () => {
+        const fs = require('node:fs')
+        const path = require('node:path')
+        const src = fs.readFileSync(
+            path.resolve(process.cwd(), 'src/main/agent/loop/execute.ts'), 'utf-8')
+        expect(src).not.toMatch(/step:\s*1,\s*\/\/?/)
+        expect(src).toContain('chatStepCounters')
     })
 })

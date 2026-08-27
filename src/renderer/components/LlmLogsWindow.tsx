@@ -13,11 +13,16 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {JsonTree} from './llmTrace/JsonTree'
 import {TimelineView, collectRecords, applyTraceFilter} from './llmTrace/TimelineView'
-import {extractUsage, type TokenUsage} from '@shared/utils/llmUsageParser'
+import {extractUsage, extractToolCalls, extractTextContent, type TokenUsage} from '@shared/utils/llmUsageParser'
+import {tokensPerSecond} from '@shared/llmUsage'
 import {confirm} from './ConfirmDialog'
+import {CopyButton} from './common/CopyButton'
 import type {LlmCallRecord, LlmTraceProjection, TraceFilter} from './llmTrace/types'
 
-type DetailTab = 'request' | 'response' | 'usage'
+type DetailTab = 'request' | 'response' | 'usage' | 'tools'
+type RequestSubTab = 'overview' | 'body'
+
+interface LlmConversationRef { id: string; title: string }
 
 interface DetailState {
     record: LlmCallRecord
@@ -36,7 +41,7 @@ export default function LlmLogsWindow() {
     const [enabled, setEnabled] = useState(false)
     const [pausedReason, setPausedReason] = useState<string | null>(null)
     const [projection, setProjection] = useState<LlmTraceProjection>({timeline: [], summary: [], summaryTokens: []})
-    const [conversations, setConversations] = useState<string[]>([])
+    const [conversations, setConversations] = useState<LlmConversationRef[]>([])
     const [filter, setFilter] = useState<TraceFilter>({status: 'all', model: '', conversationId: ''})
     const [detail, setDetail] = useState<DetailState | null>(null)
     const [detailTab, setDetailTab] = useState<DetailTab>('request')
@@ -179,13 +184,24 @@ export default function LlmLogsWindow() {
         const totalMs = s.reduce((a, g) => a + g.avgTotalMs * g.calls, 0)
         const avgMs = calls > 0 ? Math.round(totalMs / calls) : 0
         const inputTokens = projection.summaryTokens.reduce((a, t) => a + t.inputTokens + t.cacheReadTokens + t.cacheWriteTokens, 0)
+        const cacheTokens = projection.summaryTokens.reduce((a, t) => a + t.cacheReadTokens + t.cacheWriteTokens, 0)
         const outputTokens = projection.summaryTokens.reduce((a, t) => a + t.outputTokens, 0)
-        return {calls, errors, aborts, retries, avgMs, inputTokens, outputTokens}
+        const toolsCount = projection.summaryTokens.reduce((a, t) => a + t.toolsCount, 0)
+        // 首字耗时按 calls 加权平均；无数据（0）显示 "—"
+        const firstByteMs = calls > 0
+            ? Math.round(s.reduce((a, g) => a + g.avgFirstByteMs * g.calls, 0) / calls)
+            : 0
+        return {calls, errors, aborts, retries, avgMs, inputTokens, cacheTokens, outputTokens, toolsCount, firstByteMs}
     }, [projection])
 
     const models = useMemo(
         () => [...new Set(projection.summary.map(g => g.model))].sort(),
         [projection],
+    )
+
+    const conversationTitlesMap = useMemo(
+        () => new Map(conversations.map(c => [c.id, c.title])),
+        [conversations],
     )
 
     return (
@@ -244,7 +260,9 @@ export default function LlmLogsWindow() {
                     className="bg-[var(--surface-elevated)] text-[var(--text-primary)] text-xs border border-[var(--border)] rounded-md px-2 py-1 outline-none max-w-52"
                 >
                     <option value="">全部会话</option>
-                    {conversations.map(c => <option key={c} value={c}>{c}</option>)}
+                    {conversations.map(c => (
+                        <option key={c.id} value={c.id}>{c.title.length > 30 ? `${c.title.slice(0, 30)}…` : c.title}</option>
+                    ))}
                 </select>
             </div>
 
@@ -254,12 +272,16 @@ export default function LlmLogsWindow() {
                 <StatCard value={String(stats.errors + stats.aborts)} label="失败 / 中断" tone={stats.errors + stats.aborts > 0 ? 'err' : 'ok'} />
                 <StatCard value={fmtCompact(stats.inputTokens)} label="输入 tokens" />
                 <StatCard value={fmtCompact(stats.outputTokens)} label="输出 tokens" />
+                <StatCard value={fmtCompact(stats.cacheTokens)} label="缓存命中 tokens" />
                 <StatCard value={stats.avgMs ? fmtMs(stats.avgMs) : '-'} label="平均耗时" />
+                <StatCard value={stats.firstByteMs ? fmtMs(stats.firstByteMs) : '—'} label="平均首字耗时" />
                 <StatCard value={String(stats.retries)} label="重试次数" />
+                <StatCard value={String(stats.toolsCount)} label="工具调用次数" />
             </div>
 
             {/* ── 时间线主区 ── */}
-            <TimelineView projection={projection} filter={filter} onOpenDetail={openDetail} />
+            <TimelineView projection={projection} filter={filter} onOpenDetail={openDetail}
+                conversationTitles={conversationTitlesMap} />
 
             {/* ── 详情面板（三 tab）── */}
             {detail && (
@@ -287,7 +309,7 @@ function insertRecord(timeline: LlmTraceProjection['timeline'], record: LlmCallR
     if (!turn) {
         turn = {kind: 'turn', turn: record.turn, children: []}
         conv.children.push(turn)
-        conv.children.sort((a, b) => (a.turn ?? 0) - (b.turn ?? 0))
+        conv.children.sort((a, b) => (b.turn ?? 0) - (a.turn ?? 0))
     }
     turn.children = turn.children ?? []
     turn.children.unshift({kind: 'call', record})
@@ -310,7 +332,30 @@ function fmtMs(ms: number): string {
     return ms >= 10000 ? `${(ms / 1000).toFixed(1)}s` : ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`
 }
 
-/** 详情面板：请求 wire JSON / 响应原文 / 解析 usage 三 tab */
+/** 修复式解析截断 JSON：补齐未闭合的 { / [ 后再 parse；不可修复返回 undefined */
+function parseRepairedJson(text: string): unknown {
+    const stack: Array<'{' | '['> = []
+    let inStr = false
+    let esc = false
+    for (const ch of text) {
+        if (inStr) {
+            if (esc) esc = false
+            else if (ch === '\\') esc = true
+            else if (ch === '"') inStr = false
+            continue
+        }
+        if (ch === '"') inStr = true
+        else if (ch === '{' || ch === '[') stack.push(ch)
+        else if (ch === '}' || ch === ']') stack.pop()
+    }
+    // 字符串中截断或无未闭合括号：修复无意义，交回 raw 兜底
+    if (inStr || stack.length === 0) return undefined
+    let out = text.replace(/[\s,:]+$/, '')
+    for (let i = stack.length - 1; i >= 0; i--) out += stack[i] === '{' ? '}' : ']'
+    try { return JSON.parse(out) } catch { return undefined }
+}
+
+/** 详情面板：请求 wire JSON / 响应原文 / 解析 usage / 工具调用 四 tab */
 function DetailView({state, tab, onTab, onClose}: {
     state: DetailState
     tab: DetailTab
@@ -319,10 +364,48 @@ function DetailView({state, tab, onTab, onClose}: {
 }) {
     const {record: r, reqText, resText, loading} = state
 
+    // 面板固定高度：受控像素，切换 tab 时不随内容变化；顶部把手可拖拽调整
+    const [height, setHeight] = useState(() => Math.round(window.innerHeight * 0.45))
+    const dragRef = useRef<{startY: number; startH: number} | null>(null)
+
+    const MIN_H = 120
+    const clampHeight = useCallback((h: number) => {
+        return Math.min(Math.max(h, MIN_H), Math.round(window.innerHeight * 0.8))
+    }, [])
+
+    const onResizeStart = useCallback((e: React.PointerEvent) => {
+        e.preventDefault()
+        dragRef.current = {startY: e.clientY, startH: height}
+        document.body.style.userSelect = 'none'
+    }, [height])
+
+    // pointermove / pointerup 挂 window：拖出把手区域也能继续拖动；松开或卸载时清理
+    useEffect(() => {
+        const onMove = (e: PointerEvent) => {
+            if (!dragRef.current) return
+            // 向上拖（dy<0）增大高度
+            setHeight(clampHeight(dragRef.current.startH + (dragRef.current.startY - e.clientY)))
+        }
+        const onUp = () => {
+            dragRef.current = null
+            document.body.style.userSelect = ''
+        }
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp)
+        return () => {
+            window.removeEventListener('pointermove', onMove)
+            window.removeEventListener('pointerup', onUp)
+            document.body.style.userSelect = ''
+        }
+    }, [clampHeight])
+
     const reqBody = useMemo<{kind: 'json'; data: unknown} | {kind: 'raw'; text: string} | {kind: 'missing'}>(() => {
         if (loading) return {kind: 'missing'}
         if (reqText == null) return {kind: 'missing'}
-        try { return {kind: 'json', data: JSON.parse(reqText)} } catch { return {kind: 'raw', text: reqText} }
+        try { return {kind: 'json', data: JSON.parse(reqText)} } catch {
+            const repaired = parseRepairedJson(reqText)
+            return repaired !== undefined ? {kind: 'json', data: repaired} : {kind: 'raw', text: reqText}
+        }
     }, [reqText, loading])
 
     const usage = useMemo<TokenUsage | null>(
@@ -330,11 +413,24 @@ function DetailView({state, tab, onTab, onClose}: {
         [resText, r.apiStyle, loading],
     )
 
-    const TABS: Array<[DetailTab, string]> = [['request', '请求 wire JSON'], ['response', '响应原文'], ['usage', '解析 usage']]
+    const toolCalls = useMemo(
+        () => (resText && !loading) ? extractToolCalls(r.apiStyle, resText) : null,
+        [resText, r.apiStyle, loading],
+    )
+
+    const TABS: Array<[DetailTab, string]> =
+        [['request', '请求'], ['response', '响应原文'], ['usage', '解析 usage'], ['tools', '工具调用']]
 
     return (
-        <div className="shrink-0 border-t border-[var(--border)] bg-[var(--surface-muted)]" style={{maxHeight: '45vh'}}>
-            <div className="flex items-center gap-0.5 px-3 pt-1.5 border-b border-[var(--border)]">
+        <div className="shrink-0 border-t border-[var(--border)] bg-[var(--surface-muted)] flex flex-col" style={{height}}>
+            {/* 顶部拖拽把手：上下拖调整面板高度，双击恢复默认 */}
+            <div
+                className="shrink-0 h-1.5 cursor-row-resize hover:bg-[var(--border)]/60 transition-colors"
+                title="拖动调整高度，双击恢复默认"
+                onPointerDown={onResizeStart}
+                onDoubleClick={() => setHeight(Math.round(window.innerHeight * 0.45))}
+            />
+            <div className="flex items-center gap-0.5 px-3 pt-1.5 border-b border-[var(--border)] shrink-0">
                 {TABS.map(([key, label]) => (
                     <button
                         key={key}
@@ -354,17 +450,16 @@ function DetailView({state, tab, onTab, onClose}: {
                 >✕</button>
             </div>
 
-            <div className="overflow-auto p-3 font-mono text-xs leading-relaxed" style={{maxHeight: 'calc(45vh - 40px)'}}>
+            <div className="flex-1 min-h-0 overflow-auto p-3 font-mono text-xs leading-relaxed">
                 {loading && <div className="text-center text-[var(--text-muted)] py-6">加载原始文件…</div>}
                 {!loading && tab === 'request' && (
-                    reqBody.kind === 'missing' ? <MissingNote /> :
-                    reqBody.kind === 'json' ? <JsonTree data={reqBody.data} /> :
-                    <pre className="whitespace-pre-wrap break-all text-[var(--text-primary)]">{reqBody.text}</pre>
+                    reqBody.kind === 'missing' ? <MissingNote /> : <RequestTab record={r} reqBody={reqBody} />
                 )}
                 {!loading && tab === 'response' && (
                     r.resFile
                         ? (resText != null
-                            ? <pre className="whitespace-pre-wrap break-all text-[var(--text-primary)]">{resText}</pre>
+                            // key 重挂载：切换记录时正文/原文视图重置回原文
+                            ? <ResponseView key={r.id} apiStyle={r.apiStyle} resText={resText} />
                             : <MissingNote />)
                         : <div className="text-center text-[var(--text-muted)] py-6">本次调用无响应文件（连接未建立或用户中断）</div>
                 )}
@@ -386,6 +481,18 @@ function DetailView({state, tab, onTab, onClose}: {
                                             <UsageRow label="缓存读取" value={usage.cacheReadTokens} />
                                             <UsageRow label="缓存写入" value={usage.cacheWriteTokens} />
                                             <UsageRow label="推理 tokens" value={usage.reasoningTokens} />
+                                            {usage.reasoningTokens != null && usage.reasoningTokens > 0 && usage.outputTokens != null && (
+                                                <UsageRow label="正文 tokens" value={usage.outputTokens - usage.reasoningTokens} />
+                                            )}
+                                            <UsageRow label="首字耗时" value={r.firstByteMs} format={fmtMs} />
+                                            <UsageRow label="请求耗时" value={r.totalMs} format={fmtMs} />
+                                            <tr>
+                                                <td className="pr-4 py-0.5 text-[var(--text-secondary)]">吞吐速度</td>
+                                                <td className="py-0.5 font-mono text-[var(--text-primary)] tabular-nums">
+                                                    {tokensPerSecond(usage.outputTokens ?? 0, r.totalMs)?.toFixed(1) ?? '-'} tok/s
+                                                </td>
+                                            </tr>
+                                            <UsageRow label="工具调用次数" value={toolCalls?.length} />
                                         </tbody>
                                     </table>
                                 </div>
@@ -393,16 +500,170 @@ function DetailView({state, tab, onTab, onClose}: {
                             : <div className="text-center text-[var(--text-muted)] py-6">未能从响应原文解析出 usage（格式不匹配或字段缺失）</div>)
                         : <MissingNote />
                 )}
+                {!loading && tab === 'tools' && renderToolsTab(r, toolCalls)}
             </div>
         </div>
     )
 }
 
-function UsageRow({label, value}: {label: string; value?: number}) {
+/** 请求 tab：拆为「概览 / 请求体」两个子 tab（Chrome DevTools Headers/Payload 布局） */
+function RequestTab({record: r, reqBody}: {
+    record: LlmCallRecord
+    reqBody: {kind: 'json'; data: unknown} | {kind: 'raw'; text: string} | {kind: 'missing'}
+}) {
+    const [subTab, setSubTab] = useState<RequestSubTab>('overview')
+
+    // reqJson = req.json 的字段提取（url/headers/bodyRaw）；raw 形态或缺字段时概览显示 "—"
+    const reqJson = useMemo(() => {
+        if (reqBody.kind !== 'json' || typeof reqBody.data !== 'object' || reqBody.data === null) return undefined
+        const d = reqBody.data as {url?: unknown; headers?: unknown; bodyRaw?: unknown}
+        return {
+            url: typeof d.url === 'string' ? d.url : '',
+            headers: (typeof d.headers === 'object' && d.headers !== null && !Array.isArray(d.headers))
+                ? d.headers as Record<string, string> : undefined,
+            bodyRaw: typeof d.bodyRaw === 'string' ? d.bodyRaw : '',
+        }
+    }, [reqBody])
+
+    const SUB_TABS: Array<[RequestSubTab, string]> = [['overview', '概览'], ['body', '请求体']]
+
+    return (
+        <div>
+            <div className="flex gap-0.5 mb-2">
+                {SUB_TABS.map(([key, label]) => (
+                    <button
+                        key={key}
+                        onClick={() => setSubTab(key)}
+                        className={`py-0.5 px-2.5 text-[11px] rounded-full border-none cursor-pointer select-none transition-colors ${
+                            subTab === key
+                                ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)]'
+                                : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                        }`}
+                    >{label}</button>
+                ))}
+            </div>
+            {subTab === 'overview'
+                ? <RequestOverview record={r} url={reqJson?.url} headers={reqJson?.headers} />
+                : <RequestBodyView text={reqJson?.bodyRaw ?? (reqBody.kind === 'raw' ? reqBody.text : '')} />}
+        </div>
+    )
+}
+
+/** 概览：URL 单行 + 复制、HTTP 状态码徽章、请求头名值两列表格（DevTools Headers 风格） */
+function RequestOverview({record: r, url, headers}: {
+    record: LlmCallRecord
+    url?: string
+    headers?: Record<string, string>
+}) {
+    return (
+        <div className="space-y-2">
+            {/* URL 行 */}
+            <div className="flex items-start gap-2">
+                <span className="text-[11px] text-[var(--text-muted)] shrink-0 mt-px">URL</span>
+                <span className="flex-1 break-all text-[var(--text-primary)]">{url || '—'}</span>
+                {url ? <CopyButton name={url} size="sm" /> : null}
+            </div>
+            {/* HTTP 状态码徽章：statusCode 客观着色；error 记录附错误信息 */}
+            <div className="flex items-center gap-2">
+                <span className="text-[11px] text-[var(--text-muted)] shrink-0">状态</span>
+                {r.statusCode != null ? (
+                    <span
+                        className={`font-mono text-[10.5px] py-px px-1.5 rounded border ${
+                            r.statusCode >= 200 && r.statusCode < 300
+                                ? 'border-[var(--success)]/45 text-[var(--success)]'
+                                : 'border-[var(--error)]/45 text-[var(--error)]'
+                        }`}
+                    >
+                        HTTP {r.statusCode}
+                    </span>
+                ) : <span className="font-mono text-[var(--text-primary)]">—</span>}
+                {r.error && (
+                    <span className="break-all" title={r.error.message}>
+                        <span className="text-[10.5px] px-1.5 py-px rounded bg-[var(--error-muted)] text-[var(--error)]">{r.status}</span>
+                    </span>
+                )}
+            </div>
+            {/* 请求头表格 */}
+            {headers && Object.keys(headers).length > 0 ? (
+                <table className="w-full border-separate" style={{borderSpacing: '0 1px'}}>
+                    <tbody>
+                        {Object.entries(headers).map(([k, v]) => (
+                            <tr key={k} className="odd:bg-[var(--surface-elevated)]">
+                                <td className="py-1 px-2 w-56 align-top font-semibold text-[var(--text-secondary)] break-all">{k}</td>
+                                <td className="py-1 px-2 align-top break-all whitespace-pre-wrap text-[var(--text-primary)]">{String(v)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            ) : <div className="text-[var(--text-muted)]">请求头 —</div>}
+        </div>
+    )
+}
+
+/** 请求体：bodyRaw 解析 JSON 树（截断修复）/ 原文；空字符串显示提示 */
+function RequestBodyView({text}: {text: string}) {
+    if (!text) return <div className="text-center text-[var(--text-muted)] py-6">无请求体（body 为空）</div>
+    try { return <JsonTree data={JSON.parse(text)} /> } catch {
+        const repaired = parseRepairedJson(text)
+        if (repaired !== undefined) return <JsonTree data={repaired} />
+        return <pre className="whitespace-pre-wrap break-all text-[var(--text-primary)]">{text}</pre>
+    }
+}
+
+/** 响应 tab：原文 / 连贯正文 双视图切换（软胶囊按钮 + CopyButton） */
+function ResponseView({apiStyle, resText}: {apiStyle: string; resText: string}) {
+    const [showText, setShowText] = useState(false)
+    const text = useMemo(() => extractTextContent(apiStyle, resText), [apiStyle, resText])
+    return (
+        <div className="space-y-1.5">
+            {text != null && (
+                <button
+                    onClick={() => setShowText(s => !s)}
+                    className="py-0.5 px-2 text-[11px] rounded-full border-none bg-[var(--surface-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer transition-colors"
+                >{showText ? '查看原文' : '查看正文'}</button>
+            )}
+            <div className="relative">
+                {!showText || text == null ? (
+                    <pre className="whitespace-pre-wrap break-all text-[var(--text-primary)]">{resText}</pre>
+                ) : (
+                    <div>
+                        <span className="absolute top-0 right-0"><CopyButton name={text} size="sm" /></span>
+                        <pre className="whitespace-pre-wrap break-all text-[var(--text-primary)]">{text}</pre>
+                    </div>
+                )}
+            </div>
+        </div>
+    )
+}
+
+/** 工具调用 tab：本次响应新增的工具调用明细（名称 + 参数 JSON 树） */
+function renderToolsTab(r: LlmCallRecord, toolCalls: Array<{name: string; args: string}> | null) {
+    if (!r.resFile) return <MissingNote />
+    if (!toolCalls || toolCalls.length === 0) {
+        return <div className="text-center text-[var(--text-muted)] py-6">未解析到工具调用</div>
+    }
+    return (
+        <div className="space-y-2">
+            {toolCalls.map((tc, i) => (
+                <div key={i} className="rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-2">
+                    <div className="text-[11.5px] font-semibold text-[var(--brand-primary)] mb-1">🔧 {tc.name}</div>
+                    {(() => {
+                        try { return <JsonTree data={JSON.parse(tc.args)} /> }
+                        catch { return <pre className="whitespace-pre-wrap break-all text-[var(--text-primary)]">{tc.args}</pre> }
+                    })()}
+                </div>
+            ))}
+        </div>
+    )
+}
+
+function UsageRow({label, value, format}: {label: string; value?: number; format?: (n: number) => string}) {
     return (
         <tr>
             <td className="pr-4 py-0.5 text-[var(--text-secondary)]">{label}</td>
-            <td className="py-0.5 font-mono text-[var(--text-primary)] tabular-nums">{typeof value === 'number' ? value.toLocaleString() : '-'}</td>
+            <td className="py-0.5 font-mono text-[var(--text-primary)] tabular-nums">
+                {typeof value === 'number' ? (format ? format(value) : value.toLocaleString()) : '-'}
+            </td>
         </tr>
     )
 }
