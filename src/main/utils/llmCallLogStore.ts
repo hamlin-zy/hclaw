@@ -19,6 +19,7 @@ import {
     onTracePaused,
     getTraceIndexLines,
     getLlmTraceRootDir,
+    sanitizeConvId,
 } from './llmTraceRecorder'
 import {foldRecords, computeTokens} from './llmLogProjection'
 import {agentManager} from '../agent/manager.impl'
@@ -59,9 +60,19 @@ export function initLlmTraceIPC(): void {
         return true
     })
 
-    ipcMain.handle('llm-trace:list-conversations', () => {
-        // 读 logs/llm-calls 下一级目录名列表（清洗后的 id 反查会话标题由 renderer 从会话库匹配）
-        return listConversationDirs()
+    ipcMain.handle('llm-trace:list-conversations', async () => {
+        // 目录 safeId 列表 + 会话库标题映射（sanitize(id) → title，规则同 getTraceIndexLines）
+        const dirs = listConversationDirs()
+        try {
+            const {createConversationRepository} = await import('../repositories')
+            const titleById = new Map<string, string>()
+            for (const meta of createConversationRepository().list()) {
+                titleById.set(sanitizeConvId(meta.id), meta.title)
+            }
+            return dirs.map(id => ({id, title: titleById.get(id) ?? id}))
+        } catch {
+            return dirs.map(id => ({id, title: id}))
+        }
     })
 
     // 暂停事件（磁盘失败 failPause 等）推送到日志窗口

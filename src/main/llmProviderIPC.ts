@@ -268,5 +268,23 @@ export function initProviderIPC(): void {
     }
   })
 
+  // 汇率刷新：手动触发拉取最新汇率（返回更新后的汇率和日期）
+  ipcMain.handle('exchange-rate:refresh', async () => {
+    await exchangeRateRegistry.refresh()
+    return {
+      rate: exchangeRateRegistry.getUsdCnyRate(),
+      date: exchangeRateRegistry.getDate(),
+    }
+  })
+
+  // 模型价目表刷新：手动触发拉取 OpenRouter 模型元数据（返回模型数量和获取时间）
+  ipcMain.handle('model-meta:refresh', async () => {
+    await modelMetaRegistry.refresh()
+    return {
+      count: modelMetaRegistry.getModels().length,
+      fetchedAt: modelMetaRegistry.getFetchedAt(),
+    }
+  })
+
   logger.info('init', {module: 'provider-ipc'})
 }

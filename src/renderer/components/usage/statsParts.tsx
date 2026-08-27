@@ -2,6 +2,48 @@ import {Info} from 'lucide-react'
 import type {ReactNode} from 'react'
 import {getUsdCnyRate, type Currency} from '../../lib/format'
 
+/** 综合百万 Tokens 价格：总成本 / (综合总 tokens / 1_000_000)
+ *  综合总 tokens = input + output + cacheRead + cacheWrite
+ *  无数据 / 除零 → '—'
+ *  单位随 currency 切换（USD 显示 $，CNY 显示 ¥，按实时汇率换算） */
+export function formatPricePerMillionTokens(
+    totalCostUsd: number,
+    inputTokens: number,
+    outputTokens: number,
+    cacheReadTokens: number,
+    cacheWriteTokens: number,
+    currency: Currency = 'USD'
+): string {
+    const totalTokens = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens
+    if (totalTokens === 0 || totalCostUsd <= 0) return '—'
+    const priceUsd = totalCostUsd / (totalTokens / 1_000_000)
+    const price = currency === 'CNY' ? priceUsd * getUsdCnyRate() : priceUsd
+    const symbol = currency === 'CNY' ? '¥' : '$'
+    return price < 0.00001 ? `<${symbol}0.00001` : `${symbol}${price.toFixed(5)}`
+}
+
+/** 简易 Toast 组件（成功/错误） */
+export function Toast({message, type, onClose}: {message: string; type: 'success' | 'error'; onClose: () => void}) {
+    return (
+        <div
+            className={`fixed bottom-4 right-4 z-50 flex items-center gap-2 px-3 py-2 rounded-lg shadow-lg text-sm font-medium transition-all animate-slide-up
+                ${type === 'success'
+                    ? 'bg-[var(--success)] text-white'
+                    : 'bg-[var(--error)] text-white'}`}
+            role="alert"
+        >
+            {message}
+            <button
+                onClick={onClose}
+                className="ml-2 p-0.5 rounded text-white/80 hover:text-white transition-opacity"
+                aria-label="关闭"
+            >
+                ×
+            </button>
+        </div>
+    )
+}
+
 /** 已知服务商类型的规范展示名（openai → OpenAI 等首字母缩写） */
 const PROVIDER_DISPLAY: Record<string, string> = {
     anthropic: 'Anthropic',

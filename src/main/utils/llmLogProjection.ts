@@ -1,5 +1,5 @@
 import type {LlmCallRecord} from '@shared/types/llmTrace'
-import {extractUsage} from '@shared/utils/llmUsageParser'
+import {extractUsage, extractToolCallCount} from '@shared/utils/llmUsageParser'
 
 export {extractUsage} from '@shared/utils/llmUsageParser'
 export type {TokenUsage} from '@shared/utils/llmUsageParser'
@@ -18,6 +18,8 @@ export interface TokenSummary {
     provider: string; model: string
     inputTokens: number; outputTokens: number
     cacheReadTokens: number; cacheWriteTokens: number
+    /** 本次响应中解析出的工具调用次数（解析失败/无 resFile 记 0） */
+    toolsCount: number
 }
 
 
@@ -36,8 +38,12 @@ export function foldRecords(records: LlmCallRecord[]): {timeline: TimelineNode[]
             turns.get(r.turn)!.children!.push({kind: 'call', record: r})
         }
         timeline.push({kind: 'conversation', title: convId,
-            children: [...turns.values()].sort((a, b) => a.turn! - b.turn!)})
+            children: [...turns.values()].sort((a, b) => b.turn! - a.turn!)})
     }
+    // 会话按组内最新记录 ts 降序（最新会话在前）
+    const lastTs = new Map<string, number>()
+    for (const [convId, list] of byConv) lastTs.set(convId, Math.max(...list.map(r => r.ts)))
+    timeline.sort((a, b) => (lastTs.get(b.title ?? '') ?? 0) - (lastTs.get(a.title ?? '') ?? 0))
 
     const groups = new Map<string, LlmCallRecord[]>()
     for (const r of records) {
@@ -67,18 +73,20 @@ export async function computeTokens(
     records: LlmCallRecord[],
     loadResRaw: (r: LlmCallRecord) => Promise<string | null>,
 ): Promise<TokenSummary[]> {
-    const acc = new Map<string, Required<Pick<TokenSummary, 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens'>>>()
+    const acc = new Map<string, Required<Pick<TokenSummary, 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'toolsCount'>>>()
     for (const r of records) {
         if (r.status !== 'ok' || !r.resFile) continue
         const raw = await loadResRaw(r)
         const u = raw ? extractUsage(r.apiStyle, raw) : null
-        if (!u) continue
+        const toolCount = raw ? (extractToolCallCount(r.apiStyle, raw) ?? 0) : 0
+        if (!u && toolCount === 0) continue
         const k = `${r.provider}||${r.model}`
-        const cur = acc.get(k) ?? {inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0}
-        cur.inputTokens += u.inputTokens ?? 0
-        cur.outputTokens += u.outputTokens ?? 0
-        cur.cacheReadTokens += u.cacheReadTokens ?? 0
-        cur.cacheWriteTokens += u.cacheWriteTokens ?? 0
+        const cur = acc.get(k) ?? {inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, toolsCount: 0}
+        cur.inputTokens += u?.inputTokens ?? 0
+        cur.outputTokens += u?.outputTokens ?? 0
+        cur.cacheReadTokens += u?.cacheReadTokens ?? 0
+        cur.cacheWriteTokens += u?.cacheWriteTokens ?? 0
+        cur.toolsCount += toolCount
         acc.set(k, cur)
     }
     return [...acc.entries()].map(([k, v]) => {
