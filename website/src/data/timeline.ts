@@ -8,7 +8,12 @@ export interface TimelineItem {
 
 export const timelineItems: TimelineItem[] = [
   {
-    version: 'v0.4.13', date: '2026-08-27', tag: '最新',
+    version: 'v0.4.14', date: '2026-08-27', tag: '最新',
+    title: 'LLM 日志窗口增强与成本精度提升',
+    items: ['LLM 日志窗口：工具调用明细页签、响应原文/正文双视图、重试链合并可展开', '成本显示提升至 5 位小数，新增综合价格/M 列', '汇率与价目表支持手动刷新，模型调用来源归因更准确', '自定义 API 地址兼容智谱等非标准路径，不再强制补全 /v1'],
+  },
+  {
+    version: 'v0.4.13', date: '2026-08-27',
     title: '技能能力目录与会话级思考强度',
     items: ['新增技能能力目录：索引移出系统提示词，对话内按需展示，新增 describe_skills / list_agents 查询工具', '会话级思考强度 override：每个会话独立设置，输入栏选择器直达', '思考强度透传策略按端点来源细化', '命令模板尾部注入优化，流式中途注入的系统消息位置不再漂移'],
   },
