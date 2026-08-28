@@ -18,6 +18,7 @@ import { app } from 'electron'
 import {
   GITHUB_API_BASE,
   GITHUB_REPO,
+  GITEE_RAW_PACKAGE_URL,
   BAIDU_PAN_URL,
   CACHE_TTL_MS,
   REQUEST_TIMEOUT_MS,
@@ -119,6 +120,14 @@ async function doCheck(currentVersion: string): Promise<UpdateResult> {
     cache.cachedAt = now
     return result
   } catch (err) {
+    // GitHub 不可达（国内网络/限流）→ 尝试 Gitee raw package.json 兜底
+    const fallback = await checkGiteeFallback(currentVersion, now)
+    if (fallback) {
+      cache.result = fallback
+      cache.cachedAt = now
+      return fallback
+    }
+
     const error = classifyError(err)
     const result: UpdateResult = {
       status: 'error',
@@ -130,6 +139,40 @@ async function doCheck(currentVersion: string): Promise<UpdateResult> {
     cache.result = result
     cache.cachedAt = now
     return result
+  }
+}
+
+/**
+ * Gitee 兜底：从 Gitee raw 的 package.json 读取最新版本号。
+ * 成功返回 UpdateResult（update-available 或 up-to-date），失败返回 null 交回外层错误处理。
+ */
+async function checkGiteeFallback(
+  currentVersion: string,
+  now: number
+): Promise<UpdateResult | null> {
+  try {
+    const response = await axios.get(GITEE_RAW_PACKAGE_URL, {
+      timeout: REQUEST_TIMEOUT_MS,
+      headers: {
+        'User-Agent': `HClaw-Updater/${currentVersion}`,
+      },
+    })
+    const latestVersion: string = response.data?.version ?? ''
+    const cmp = compareVersions(latestVersion, currentVersion)
+    if (cmp === null || cmp <= 0) {
+      return buildUpToDateResult(currentVersion, now)
+    }
+    return {
+      status: 'update-available',
+      currentVersion,
+      latestVersion,
+      releaseNotes: '',
+      publishedAt: '',
+      downloads: { github: '', baiduPan: BAIDU_PAN_URL },
+      checkedAt: now,
+    }
+  } catch {
+    return null
   }
 }
 

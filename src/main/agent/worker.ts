@@ -96,6 +96,7 @@ async function main(): Promise<void> {
             llmTimeout: 600000,
             handoffThresholdRatio: 0.5,
             midLoopOverflowMode: 'auto-handoff',
+            loopDetection: { mode: 'notify', threshold: 3 },
         },
         model: {defaultMaxTokens: DEFAULT_MAX_TOKENS, defaultTemperature: 0},
         mcp: {mcpTestTimeout: 15000},
@@ -407,6 +408,9 @@ async function main(): Promise<void> {
         // Controller 在每轮 LLM 调用前检查并注入到 currentState
         const pendingInjectedMessages: import('./model/types').ChatMessage[] = []
 
+        // ★ LLM 循环检测静默指纹队列（Task 5：主进程 LOOP_SILENCE 消息 push 到此数组） ★
+        const pendingSilences: string[] = []
+
         // 监听来自主进程的消息（如配置更新、用户确认结果、用户回答和终止信号）
         parentPort?.on('message', async (msg) => {
             if (msg.type === WORKER_MESSAGE_TYPES.UPDATE_CONFIG) {
@@ -487,6 +491,17 @@ async function main(): Promise<void> {
                 } catch (err: any) {
                     logger.info('[MCP] MCP tools refresh failed:', err.message)
                 }
+            } else if (msg.type === WORKER_MESSAGE_TYPES.CAPABILITIES_REFRESH) {
+                // 能力快照刷新：主进程技能/插件启停后广播最新能力，替换式重建本地 registry。
+                // 重建后下一轮能力目录 digest 变化，catalogInjector 会自动推送 replacement 目录。
+                if (msg.capabilities) {
+                    try {
+                        const {refreshSerializedCapabilitiesInWorker} = await import('./capabilityManager')
+                        await refreshSerializedCapabilitiesInWorker(msg.capabilities)
+                    } catch (err: any) {
+                        logger.warn('[Worker] capabilities refresh failed:', err?.message)
+                    }
+                }
             } else if (msg.type === WORKER_MESSAGE_TYPES.INJECT_USER_MESSAGE) {
                 // 接收主进程转发的新用户消息，存入队列供 Controller 读取
                 if (msg.message) {
@@ -497,6 +512,11 @@ async function main(): Promise<void> {
                     }
                     pendingInjectedMessages.push(userMsg)
                     
+                }
+            } else if (msg.type === WORKER_MESSAGE_TYPES.LOOP_SILENCE) {
+                // 渲染端"这是误判"：指纹入队，Controller 检测门每轮 shift 消费（detector.silence）
+                if (msg.fingerprint) {
+                    pendingSilences.push(msg.fingerprint)
                 }
             } else if (msg.type === WORKER_MESSAGE_TYPES.ABORT) {
                 // 接收到终止信号，触发 AbortController
@@ -565,6 +585,7 @@ async function main(): Promise<void> {
             agentDefinition: params.agentDefinition,
             // 传递运行中注入的用户消息队列引用
             pendingInjectedMessages,
+            pendingSilences,
             onEvent: (e) => {
                 streamBatch.push(e as AgentStreamEvent)
             }

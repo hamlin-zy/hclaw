@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
         llmTimeout: 600000,
         handoffThresholdRatio: 0.5,
         midLoopOverflowMode: 'auto-handoff',
+        loopDetection: { mode: 'notify', threshold: 3 },
         defaultPermissionMode: 'safe',
         defaultDisplayMode: 'detailed',
     },

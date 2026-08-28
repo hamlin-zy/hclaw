@@ -408,7 +408,7 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
         // 普通 pre（非代码块中的 pre，react-markdown 会为无语言标注的代码块生成 <pre><code>）
         pre({children}: any) {
             return (
-                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--surface-muted)]/50 p-3 my-2 text-sm font-mono leading-relaxed border border-[var(--border-muted)]">
+                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--surface-muted)]/50 p-3 my-3.5 text-sm font-mono leading-[1.6] border border-[var(--border-muted)]">
                     {children}
                 </pre>
             )
@@ -434,10 +434,10 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
                 </div>
             ) : (
                 <code
-                    className={`px-1.5 py-0.5 rounded text-sm font-mono ${
+                    className={`px-1.5 py-0.5 rounded font-mono text-xs whitespace-nowrap ${
                         isUser
                             ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
-                            : 'bg-[var(--surface-muted)] text-[var(--text-primary)]'
+                            : 'bg-[var(--surface-muted)]/60 text-[var(--text-secondary)]'
                     }`}
                     {...props}
                 >
@@ -445,15 +445,15 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
                 </code>
             )
         },
-        // 行内代码
+        // 行内代码（次级色 + 缩小一号，降低对正文的视觉干扰）
         inlineCode({children}: any) {
             const codeString = Array.isArray(children) ? children.join('') : String(children ?? '')
             return (
                 <code
-                    className={`px-1.5 py-0.5 rounded text-sm font-mono ${
+                    className={`px-1.5 py-0.5 rounded font-mono text-xs whitespace-nowrap ${
                         isUser
                             ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
-                            : 'bg-[var(--surface-muted)] text-[var(--text-primary)]'
+                            : 'bg-[var(--surface-muted)]/60 text-[var(--text-secondary)]'
                     }`}
                 >
                     {codeString}
@@ -483,28 +483,32 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
                 </a>
             )
         },
-        // 段落
+        // 段落（1.8 行距 + 段距，降低长文阅读疲劳）
         p({children}: any) {
-            return <p className="my-2 leading-relaxed">{children}</p>
+            return <p className="my-3 leading-[1.8] text-[var(--text-primary)] [text-wrap:pretty]">{children}</p>
         },
-        // 标题
+        // 加粗（在次级色正文中保持高对比，形成扫读锚点）
+        strong({children}: any) {
+            return <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>
+        },
+        // 标题（标题上方留白拉开分区节奏，h2 加分隔线）
         h1({children}: any) {
-            return <h1 className="text-2xl font-bold text-[var(--text-primary)] mt-4 mb-2">{children}</h1>
+            return <h1 className="text-2xl font-bold text-[var(--text-primary)] mt-6 mb-2.5">{children}</h1>
         },
         h2({children}: any) {
-            return <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-4 mb-2">{children}</h2>
+            return <h2 className="text-xl font-semibold text-[var(--text-primary)] mt-7 mb-2.5 pb-1.5 border-b border-[var(--border-muted)]">{children}</h2>
         },
         h3({children}: any) {
-            return <h3 className="text-lg font-semibold text-[var(--text-primary)] mt-3 mb-2">{children}</h3>
+            return <h3 className="text-lg font-semibold text-[var(--text-primary)] mt-5 mb-2">{children}</h3>
         },
         h4({children}: any) {
-            return <h4 className="text-base font-medium text-[var(--text-primary)] mt-2 mb-1">{children}</h4>
+            return <h4 className="text-base font-medium text-[var(--text-primary)] mt-4 mb-1.5">{children}</h4>
         },
         h5({children}: any) {
-            return <h5 className="text-sm font-medium text-[var(--text-secondary)] mt-2 mb-1">{children}</h5>
+            return <h5 className="text-sm font-medium text-[var(--text-secondary)] mt-4 mb-1.5">{children}</h5>
         },
         h6({children}: any) {
-            return <h6 className="text-xs font-medium text-[var(--text-muted)] mt-2 mb-1">{children}</h6>
+            return <h6 className="text-xs font-medium text-[var(--text-muted)] mt-4 mb-1.5">{children}</h6>
         },
         // 水平线
         hr({}: any) {
@@ -519,19 +523,19 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
         del({children}: any) {
             return <del className="text-[var(--text-muted)] line-through">{children}</del>
         },
-        // 列表
+        // 列表（次级色正文 + 品牌色序号）
         ul({children}: any) {
-            return <ul className="my-2 ml-4 list-disc space-y-1">{children}</ul>
+            return <ul className="my-2.5 ml-4 list-disc space-y-1 text-[var(--text-primary)] marker:text-[var(--brand-primary)]/70">{children}</ul>
         },
         ol({children}: any) {
-            return <ol className="my-2 ml-4 list-decimal space-y-1">{children}</ol>
+            return <ol className="my-2.5 ml-4 list-decimal space-y-1 text-[var(--text-primary)] marker:text-[var(--brand-primary)]/70">{children}</ol>
         },
         // 列表项
         li({children, checked, ref: _ref, ...props}: any) {
             // 任务列表项 (GFM extension)
             if (checked !== null && checked !== undefined) {
                 return (
-                    <li className="flex items-start gap-2 py-1" {...props}>
+                    <li className="flex items-start gap-2 py-1 leading-[1.75]" {...props}>
                         <input
                             type="checkbox"
                             checked={checked}
@@ -545,16 +549,16 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
                 )
             }
             return (
-                <li className="py-1 break-words" {...props}>
+                <li className="py-[3px] leading-[1.75] break-words" {...props}>
                     {children}
                 </li>
             )
         },
-        // 引用
+        // 引用（次级信息弱化：更小字号、更弱对比）
         blockquote({children}: any) {
             return (
                 <blockquote
-                    className="border-l-4 border-[var(--border-muted)] pl-4 py-1 my-2 bg-[var(--surface-muted)]/50 italic text-[var(--text-secondary)]">
+                    className="border-l-4 border-[var(--border-muted)] pl-3.5 py-1.5 my-3 bg-[var(--surface-muted)]/50 italic text-[13px] text-[var(--text-muted)] rounded-r-md">
                     {children}
                 </blockquote>
             )
@@ -562,7 +566,7 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
         // 表格
         table({children}: any) {
             return (
-                <div className="my-3 overflow-x-auto rounded-lg border border-[var(--border)]">
+                <div className="my-3.5 overflow-x-auto rounded-lg border border-[var(--border)]">
                     <table className="min-w-full divide-y divide-[var(--border)]">{children}</table>
                 </div>
             )

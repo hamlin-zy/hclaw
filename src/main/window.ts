@@ -321,6 +321,10 @@ export const createWindow = (): void => {
         mainWindow.loadFile(
             path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
         );
+        // 调试用：打包版带 --devtools 参数启动时打开 DevTools（HClaw.exe --devtools）
+        if (process.argv.includes('--devtools')) {
+            mainWindow.webContents.openDevTools({mode: 'detach'});
+        }
     }
 
     // ---- 事件监听 ----

@@ -17,7 +17,9 @@ const PARSERS: Record<string, (raw: string) => TokenUsage | null> = {
         return {
             inputTokens: usage.prompt_tokens,
             outputTokens: usage.completion_tokens,
-            cacheReadTokens: usage.prompt_cache_hit_tokens,
+            // 智谱新版返回 prompt_tokens_details.cached_tokens（prompt_tokens 的子集），
+            // 旧版字段 prompt_cache_hit_tokens 做兜底
+            cacheReadTokens: usage.prompt_tokens_details?.cached_tokens ?? usage.prompt_cache_hit_tokens,
             cacheWriteTokens: usage.prompt_cache_miss_tokens,
             reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
         }

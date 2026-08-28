@@ -20,7 +20,7 @@ import {mcpWorkerManager, setAgentManagerRef} from './mcp/mcpWorkerManager'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
 import {upsertSnapshot, getActiveBatch} from '../repositories/sqlite/taskBatchRepository'
 import {runtimeConfigManager} from './runtimeConfigManager'
-import {eventBus, MCPThemeEvents} from '../common/eventBus'
+import {eventBus, CapabilityEvents, MCPThemeEvents} from '../common/eventBus'
 import {notifyUserAttention, stopUserAttention} from '../attention'
 
 // 导入拆分模块
@@ -82,6 +82,23 @@ export class AgentManager {
     eventBus.on(MCPThemeEvents.TOOLS_REFRESHED, () => {
       this.broadcastMcpToolsRefresh()
     })
+    // 能力刷新（技能/插件启停等）→ 广播最新序列化能力，运行中 Worker 重建本地 registry
+    eventBus.on(CapabilityEvents.REFRESHED, () => {
+      void this.broadcastCapabilitiesRefresh()
+    })
+  }
+
+  /**
+   * 序列化当前能力并广播到所有活跃 Worker（CAPABILITIES_REFRESH）。
+   * 序列化失败仅告警，不影响主流程（Worker 保持旧快照）。
+   */
+  private async broadcastCapabilitiesRefresh(): Promise<void> {
+    try {
+      const capabilities = await capabilityManager.serializeForWorker()
+      this.broadcastToWorkers({type: WORKER_MESSAGE_TYPES.CAPABILITIES_REFRESH, capabilities})
+    } catch (err) {
+      logger.warn('[AgentManager] broadcastCapabilitiesRefreshFailed', {error: err})
+    }
   }
 
   /** 设置主窗口引用 */
@@ -161,7 +178,7 @@ export class AgentManager {
 
     // 加载配置
     const defaultSettings: SystemSettings = {
-      agent: {maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000, llmTimeout: 600000, handoffThresholdRatio: 0.5, midLoopOverflowMode: 'auto-handoff'},
+      agent: {maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000, llmTimeout: 600000, handoffThresholdRatio: 0.5, midLoopOverflowMode: 'auto-handoff', loopDetection: { mode: 'notify', threshold: 3 }},
       model: {defaultMaxTokens: DEFAULT_MAX_TOKENS, defaultTemperature: 0},
       mcp: {mcpTestTimeout: 15000},
       ui: {theme: 'system'},
@@ -1128,6 +1145,14 @@ export class AgentManager {
     }
   }
 
+  /** 静默指定会话的循环检测指纹（渲染端"这是误判"，经 worker 转发给 Controller 检测门） */
+  silenceLoopPattern(conversationId: string, fingerprint: string): void {
+    const entry = this.workers.get(conversationId)
+    if (entry) {
+      entry.worker.postMessage({type: WORKER_MESSAGE_TYPES.LOOP_SILENCE, fingerprint})
+    }
+  }
+
   /** 更新运行中 Agent 的配置 */
   updateConfig(conversationId: string, modelConfig: ModelConfig): void {
     const entry = this.workers.get(conversationId)
@@ -1275,6 +1300,12 @@ export class AgentManager {
     }
 
     const payload = createForwardPayload(conversationId, event)
+
+    // 循环检测警告：任务栏/托盘闪烁提醒（fire-and-forget，不阻塞转发）
+    if (event.type === 'loop_suspected' || event.type === 'loop_escalated') {
+      notifyUserAttention({force: true})
+    }
+
     for (const win of windows) {
       if (!win.isDestroyed()) {
         try {

@@ -34,6 +34,7 @@ export default function SkillsDialog() {
         skill: null,
         mode: 'preview'
     })
+    const enabledCount = useMemo(() => skills.filter(s => s.enabled).length, [skills])
     const [refreshing, setRefreshing] = useState(false)
     const [installing, setInstalling] = useState(false)
     const [installMessage, setInstallMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -102,7 +103,7 @@ export default function SkillsDialog() {
           <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
               <h3 className="text-sm font-semibold text-[var(--text-primary)]">Skills 管理</h3>
               <div className="flex items-center gap-2">
-                  <span className="text-xs text-[var(--text-muted)]">{skills.length} 个技能</span>
+                  <span className="text-xs text-[var(--text-muted)]">{skills.length} 个技能 · {enabledCount} 个已启用</span>
                   <button
                       onClick={openCreateSkill}
                       className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20 transition-colors"

@@ -64,7 +64,7 @@ export interface ToolExecutionResult {
 }
 
 /** #mainLoop 的退出原因 */
-export type MainLoopExitReason = 'max_turns' | 'early_exit'
+export type MainLoopExitReason = 'max_turns' | 'early_exit' | 'loop_detected'
 
 /** 控制器自身状态 */
 export type ControllerState = 'idle' | 'thinking' | 'running' | 'done'
@@ -112,4 +112,6 @@ export interface RunParams {
      * 新消息会 push 到此数组，每次 LLM 调用前检查并注入到 currentState
      */
     pendingInjectedMessages?: ChatMessage[]
+    /** LLM 循环检测静默指纹队列（渲染端"这是误判"经 worker 传入；gate 逐轮 shift 消费） */
+    pendingSilences?: string[]
 }

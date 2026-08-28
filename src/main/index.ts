@@ -314,6 +314,7 @@ app.on('ready', async () => {
   // 注意：此时 pluginMcpServers 可能不完整，插件 MCP 的完整配置
   // 稍后由 powerManager.initialize() → loadMcpServersFromPlugin() 回写
   await mcpService.initialize();
+  logger.info('init-checkpoint', {step: 'mcpService-done'})
 
     // 初始化提示词方案（首次运行时创建默认方案）
     promptSchemeRepo.initializeDefaults();
@@ -340,7 +341,9 @@ app.on('ready', async () => {
   // 以确保 collectConfigs() 能读到全部配置。
 
   // Step 2: Plugin system - discover plugins only (not internal agents/skills/mcps/commands)
+  logger.info('init-checkpoint', {step: 'initializePlugins-start'})
   await initializePlugins();
+  logger.info('init-checkpoint', {step: 'initializePlugins-done'})
 
   // Plugin version check (fire-and-forget) - fetches latest tags for all git plugins
   // Results are pushed to renderer via plugin:status-update event
@@ -357,7 +360,9 @@ app.on('ready', async () => {
   });
 
   // Step 3: Agent + Skills 初始化（含插件 MCP 配置加载 + 缓存回写）
+  logger.info('init-checkpoint', {step: 'initAgent-start'})
   await initAgent();
+  logger.info('init-checkpoint', {step: 'initAgent-done'})
 
   // Step 4: MCP Worker 初始化（此时 mcpService 缓存已包含所有 MCP 配置）
   mcpWorkerManager.init().catch((err: any) => {

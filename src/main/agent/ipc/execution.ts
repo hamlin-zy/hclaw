@@ -377,6 +377,13 @@ export function registerHandlers(): void {
         return {success: injected}
     })
 
+    // 渲染端"这是误判"：静默指定会话的循环检测指纹
+    ipcMain.handle('agent-loop-silence', (_event, conversationId: string, fingerprint: string) => {
+        if (typeof conversationId !== 'string' || typeof fingerprint !== 'string' || !fingerprint) return {success: false}
+        agentManager.silenceLoopPattern(conversationId, fingerprint)
+        return {success: true}
+    })
+
     // 查询运行状态
     ipcMain.handle('agent-status', async (_event, conversationId?: string) => {
         if (conversationId) {
