@@ -7,6 +7,7 @@
  * - mergeByProvider / attachCosts：分组合并与成本（主进程 / 渲染层共用）
  */
 import type {LlmUsageRecord, TimeRange, UsageBreakdown} from './types'
+import {resolveCustomPrice, pricingToPriceSource, type CustomPriceEntry} from './usagePriceResolver'
 import {MIN_DECODE_MS} from './types'
 
 /** llm_call_done 事件的用量字段（结构化子集，避免 shared → main 依赖） */
@@ -14,6 +15,8 @@ export interface LlmUsageEventSource {
   providerType: string
   /** providers 表服务商名（providers.name），历史数据可空 */
   providerName?: string
+  /** providers.id（稳定服务商维度），历史数据可空 */
+  providerId?: string
   model: string
   inputTokens: number
   outputTokens: number
@@ -35,6 +38,7 @@ export function toLlmUsageRecord(
     messageId: ctx.messageId,
     providerType: event.providerType,
     providerName: event.providerName,
+    providerId: event.providerId,
     model: event.model,
     inputTokens: event.inputTokens,
     outputTokens: event.outputTokens,
@@ -102,17 +106,20 @@ export interface PriceSource {
   inputPrice: number
   outputPrice: number
   cacheReadPrice: number
+  /** 缓存写价格（USD/token）；缺省视为 0（向后兼容旧 PriceSource 构造方） */
+  cacheWritePrice?: number
 }
 
 /** 成本 = 实时价格 × token（美元）；未定价（价格 0）→ 0 */
 export function computeUsageCost(
-  row: {model: string; inputTokens: number; outputTokens: number; cacheReadTokens: number},
+  row: {model: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens?: number},
   getMeta: (model: string) => PriceSource,
 ): number {
   const p = getMeta(row.model)
   return row.inputTokens * p.inputPrice
        + row.outputTokens * p.outputPrice
        + row.cacheReadTokens * p.cacheReadPrice
+       + (row.cacheWriteTokens ?? 0) * (p.cacheWritePrice ?? 0)
 }
 
 // ─── 速率与 KPI 口径（弹窗 / 独立窗口共用，防漂移） ───────────────
@@ -187,6 +194,8 @@ export function mergeByProvider(rows: UsageBreakdown[]): UsageBreakdown[] {
     const existing = map.get(key)
     if (existing) {
       existing.requestCount += r.requestCount
+      // 会话数近似累加：跨模型合并时同会话会被重复计数（展示用近似值，精确值见按模型视图）
+      existing.conversationCount = (existing.conversationCount ?? 0) + (r.conversationCount ?? 0)
       existing.inputTokens += r.inputTokens
       existing.outputTokens += r.outputTokens
       existing.cacheReadTokens += r.cacheReadTokens
@@ -206,13 +215,19 @@ export function mergeByProvider(rows: UsageBreakdown[]): UsageBreakdown[] {
   return [...map.values()].sort((a, b) => b.totalTokens - a.totalTokens)
 }
 
-/** 批量补成本：按 key(model) 查价重算 costUsd（与 computeUsageCost 同口径；未定价 → 0） */
-export function attachCosts(rows: UsageBreakdown[], getMeta: (model: string) => PriceSource): UsageBreakdown[] {
+/** 批量补成本：每行独立 provider-aware 取价（自定义 (providerId, model) → providerName → getMeta 兜底；未定价 → 0） */
+export function attachCosts(rows: UsageBreakdown[], getMeta: (model: string) => PriceSource, customPrices?: CustomPriceEntry[]): UsageBreakdown[] {
   return rows.map((b) => ({
     ...b,
     costUsd: computeUsageCost(
-      {model: b.key, inputTokens: b.inputTokens, outputTokens: b.outputTokens, cacheReadTokens: b.cacheReadTokens},
-      getMeta,
+      {model: b.key, inputTokens: b.inputTokens, outputTokens: b.outputTokens, cacheReadTokens: b.cacheReadTokens, cacheWriteTokens: b.cacheWriteTokens},
+      () => {
+        if (customPrices && customPrices.length > 0) {
+          const custom = resolveCustomPrice(customPrices, {model: b.key, providerId: b.providerId ?? null, providerName: b.providerName ?? null})
+          if (custom) return pricingToPriceSource(custom)
+        }
+        return getMeta(b.key)
+      },
     ),
   }))
 }

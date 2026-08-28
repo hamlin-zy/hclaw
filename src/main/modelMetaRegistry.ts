@@ -81,6 +81,31 @@ export class ModelMetaRegistry {
       inputPrice: toPrice(raw.pricing?.prompt),
       outputPrice: toPrice(raw.pricing?.completion),
       cacheReadPrice: toPrice(raw.pricing?.input_cache_read),
+      cacheWritePrice: toPriceOrUndefined(raw.pricing?.input_cache_write),
+    }
+  }
+
+  /**
+   * 单模型查询：价格（USD/token）+ 窗口 + 输入模态 + 实际命中的 OR 条目 id。
+   * 未命中 / 空表 → 全 0 + matchedKey null + inputModalities null（调用方降级）。
+   */
+  lookupMeta(modelId: string): {
+    contextLength: number
+    inputPrice: number
+    outputPrice: number
+    cacheReadPrice: number
+    cacheWritePrice?: number
+    inputModalities: string[] | null
+    matchedKey: string | null
+  } {
+    const raw = this.lookup(modelId)
+    if (!raw) {
+      return {contextLength: 0, inputPrice: 0, outputPrice: 0, cacheReadPrice: 0, inputModalities: null, matchedKey: null}
+    }
+    return {
+      ...this.getMeta(modelId),
+      inputModalities: this.getInputModalities(modelId),
+      matchedKey: raw.id,
     }
   }
 
@@ -183,6 +208,12 @@ export class ModelMetaRegistry {
 function toPrice(v?: string | number): number {
   const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
   return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+/** 价格字段转 number | undefined：非法 / NaN / 0 → undefined（区分「未配置」，§七 3） */
+function toPriceOrUndefined(v?: string | number): number | undefined {
+  const n = toPrice(v)
+  return n > 0 ? n : undefined
 }
 
 /** 全局单例（消费方统一从此处获取，避免频繁读盘） */

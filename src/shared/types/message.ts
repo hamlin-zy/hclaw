@@ -266,6 +266,8 @@ export interface LlmStats {
   duration: number
   /** providers 表服务商名（providers.name），历史数据可空 */
   providerName?: string
+  /** providers.id（稳定服务商维度），历史数据可空 */
+  providerId?: string
   /** 缓存命中的 token 数 */
   cacheReadTokens?: number
   /** 缓存创建的 token 数 */

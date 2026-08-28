@@ -7,6 +7,7 @@ import {ipcMain} from 'electron'
 import {openConfigWindow} from './configWindow'
 import {llmUsageRepo} from '../repositories/sqlite/llmUsageRepository'
 import {modelMetaPriceSource} from '../modelMetaRegistry'
+import {buildCustomPriceEntries} from './customPriceEntries'
 import {computeKpis} from '@shared/llmUsage'
 import type {GlobalUsageStats, UsageStatsQueryParams} from '@shared/types'
 
@@ -23,14 +24,18 @@ export function initUsageStatsIPC(): void {
     ipcMain.handle('usage-stats:query', (_event, params: UsageStatsQueryParams) => {
         const {range, view, customStart, customEnd, granularity} = params
         const aggParams = {range, view, customStart, customEnd}
+        // 自定义定价 entries（providers × models，仅含已配置 pricing 的模型）；行级 provider-aware 取价
+        const customPrices = buildCustomPriceEntries()
         const breakdown = llmUsageRepo.queryAggregated(
             aggParams,
             modelMetaPriceSource,
+            customPrices,
         )
         const trend = llmUsageRepo.queryTrend({range, customStart, customEnd, granularity})
         const allRows = llmUsageRepo.queryAggregated(
             {range, view: 'model', customStart, customEnd},
             modelMetaPriceSource,
+            customPrices,
         )
 
         // KPI 原始累加值：单次遍历汇总（平均吞吐/首字由 computeKpis 统一口径，渲染层直接消费 kpi 字段）

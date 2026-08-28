@@ -248,3 +248,105 @@ describe('getInputModalities', () => {
     expect(reg.getInputModalities('DeepSeek.V4.Flash.Vision.Exp')).toEqual(['text', 'image'])
   })
 })
+
+describe('lookupMeta', () => {
+  /** 构造已加载 registry 的快捷方式 */
+  async function makeRegistry(models: unknown[]): Promise<ModelMetaRegistry> {
+    const reg = new ModelMetaRegistry({cacheDir: tmpDir, fetchFn: okFetch(orResponse(models))})
+    await reg.refresh()
+    return reg
+  }
+
+  it('精确命中：返回价格 + cacheWritePrice + inputModalities + matchedKey=or.id', async () => {
+    const reg = await makeRegistry([
+      {
+        id: 'openai/gpt-4o',
+        context_length: 128000,
+        architecture: {input_modalities: ['text', 'image']},
+        pricing: {
+          prompt: '0.0000025',
+          completion: '0.00001',
+          input_cache_read: '0.00000125',
+          input_cache_write: '0.00000275',
+        },
+      },
+    ])
+
+    const r = reg.lookupMeta('openai/gpt-4o')
+    expect(r.matchedKey).toBe('openai/gpt-4o')
+    expect(r.inputPrice).toBe(0.0000025)
+    expect(r.outputPrice).toBe(0.00001)
+    expect(r.cacheReadPrice).toBe(0.00000125)
+    expect(r.cacheWritePrice).toBe(0.00000275)
+    expect(r.contextLength).toBe(128000)
+    expect(r.inputModalities).toEqual(['text', 'image'])
+  })
+
+  it('前缀/模糊命中：matchedKey 为实际命中的 OR 条目 id（≠ 入参）', async () => {
+    const reg = await makeRegistry([
+      {id: 'deepseek/deepseek-chat', context_length: 1000, pricing: {prompt: '0.1', completion: '0.2'}},
+    ])
+
+    const r = reg.lookupMeta('DeepSeek.Chat')  // slug 模型段归一化命中
+    expect(r.matchedKey).toBe('deepseek/deepseek-chat')
+    expect(r.inputPrice).toBe(0.1)
+  })
+
+  it('未命中：全 0 + matchedKey null + inputModalities null，无副作用', async () => {
+    const reg = await makeRegistry([{id: 'a/b', context_length: 100}])
+
+    const r = reg.lookupMeta('nonexistent/model')
+    expect(r).toEqual({
+      contextLength: 0,
+      inputPrice: 0,
+      outputPrice: 0,
+      cacheReadPrice: 0,
+      inputModalities: null,
+      matchedKey: null,
+    })
+    // 无副作用：再查正常条目仍可用
+    expect(reg.lookupMeta('a/b').matchedKey).toBe('a/b')
+  })
+
+  it('空表降级：同未命中', async () => {
+    const reg = await makeRegistry([])
+
+    const r = reg.lookupMeta('any/model')
+    expect(r).toEqual({
+      contextLength: 0,
+      inputPrice: 0,
+      outputPrice: 0,
+      cacheReadPrice: 0,
+      inputModalities: null,
+      matchedKey: null,
+    })
+  })
+})
+
+describe('getMeta cacheWritePrice', () => {
+  /** 构造已加载 registry 的快捷方式 */
+  async function makeRegistry(models: unknown[]): Promise<ModelMetaRegistry> {
+    const reg = new ModelMetaRegistry({cacheDir: tmpDir, fetchFn: okFetch(orResponse(models))})
+    await reg.refresh()
+    return reg
+  }
+
+  it('无 input_cache_write → cacheWritePrice undefined（缺失即未配置）', async () => {
+    const reg = await makeRegistry([
+      {id: 'x/y', context_length: 100, pricing: {prompt: '0.1', completion: '0.2'}},
+    ])
+
+    const meta = reg.getMeta('x/y')
+    expect(meta.cacheWritePrice).toBeUndefined()
+  })
+
+  it('input_cache_write 非法/0 → cacheWritePrice undefined（未配置）', async () => {
+    const reg = await makeRegistry([
+      {id: 'x/y', pricing: {prompt: '0.1', completion: '0.2', input_cache_write: 'abc'}},
+      {id: 'z/w', pricing: {prompt: '0.1', completion: '0.2', input_cache_write: 0}},
+    ])
+
+    expect(reg.getMeta('x/y').cacheWritePrice).toBeUndefined()
+    expect(reg.getMeta('z/w').cacheWritePrice).toBeUndefined()
+  })
+})

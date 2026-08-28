@@ -222,6 +222,7 @@ export function handleChildEvent(acc: ChildConvAccumulator, event: AgentStreamEv
                 provider: event.providerType,   // 精确服务商类型（替代脏的 event.provider）
                 model: event.model,
                 providerName: event.providerName,   // providers 表服务商名（人类可读）
+                providerId: event.providerId,   // providers.id（稳定维度，llm_usage 精确归因）
                 duration: event.duration,
                 cacheReadTokens: event.cacheReadTokens,
                 cacheWriteTokens: event.cacheWriteTokens,

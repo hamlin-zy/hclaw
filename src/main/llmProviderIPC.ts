@@ -49,6 +49,11 @@ export function initProviderIPC(): void {
   // 保存 Provider（新增或更新）
   ipcMain.handle('provider:save', async (event, provider: LLMProvider) => {
     try {
+      // 名称唯一预检（DB 有 UNIQUE 约束，这里提前拦截并给出明确文案，避免静默失败）
+      const nameOwner = providerRepo.getByName(provider.name?.trim() ?? '')
+      if (nameOwner && nameOwner.id !== provider.id) {
+        return {success: false, error: `服务商名称「${provider.name}」已存在`}
+      }
       // 如果有 apiKey，需要加密（检查是否已加密，避免重复加密）
       let processedProvider = { ...provider }
       if (processedProvider.credentials?.apiKey) {
@@ -256,6 +261,12 @@ export function initProviderIPC(): void {
   ipcMain.handle('model-meta:get-window', async (_, params: {model: string}) => {
     await modelMetaRegistry.ensureLoaded()
     return { contextLength: modelMetaRegistry.getContextLength(params.model) }
+  })
+
+  // 模型元数据：单模型查询（价格 + 窗口 + 模态 + matchedKey；未命中全 0）
+  ipcMain.handle('model-meta:lookup', async (_, params: {model: string}) => {
+    await modelMetaRegistry.ensureLoaded()
+    return modelMetaRegistry.lookupMeta(params.model)
   })
 
   // 汇率查询：USD→CNY 实时汇率（启动时同步；未同步/离线回退默认 7.2）
