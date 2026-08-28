@@ -2,7 +2,7 @@
  * UserCommandBubble — 用户命令消息徽章气泡
  *
  * 当用户消息以 /能力 开头（Ctrl+K 选择或手动输入）时，
- * 将命令名渲染为带类型图标的能力徽章，任务内容以普通文本展示。
+ * 将命令名渲染为带类型图标的能力徽章，任务内容以 markdown 渲染。
  *
  * 设计要点：
  *  - 纯渲染层组件，不修改消息内容，不影响 Agent Loop 的命令识别（detectCommandContext）
@@ -13,6 +13,7 @@
 
 import {memo} from 'react'
 import type {UserCommandContext} from '../../lib/userCommandParse'
+import MarkdownRenderer from './MarkdownRenderer'
 
 // re-export 供 MessageBubble 使用（保持单一实现源）
 export {parseUserCommandContext} from '../../lib/userCommandParse'
@@ -52,11 +53,9 @@ export const UserCommandBubble = memo(function UserCommandBubble({ctx}: UserComm
                     {style.label}
                 </span>
             </div>
-            {/* 任务内容 */}
+            {/* 任务内容（markdown 渲染，与普通消息正文一致） */}
             {ctx.commandArgs && (
-                <div className="text-sm leading-relaxed text-[var(--text-primary)] whitespace-pre-wrap break-words">
-                    {ctx.commandArgs}
-                </div>
+                <MarkdownRenderer isUser>{ctx.commandArgs}</MarkdownRenderer>
             )}
         </div>
     )

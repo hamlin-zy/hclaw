@@ -21,7 +21,7 @@ export type AgentStreamEvent =
   | { type: 'tool_completed'; toolCallId: string; result: ToolResult }
   | { type: 'tool_denied'; toolCallId: string; reason: string }
   | { type: 'permission_confirm'; question: string; requestId?: string }
-  | { type: 'done'; reason: 'completed' | 'aborted' | 'error' }
+  | { type: 'done'; reason: 'completed' | 'aborted' | 'error' | 'loop_detected' }
   | { type: 'error'; error: string }
   | { type: 'ask_user'; question: string; options?: string[]; multiSelect?: boolean; requestId?: string }
   | { type: 'subagent_start'; taskId: string; description: string; toolCallId?: string }
@@ -131,6 +131,15 @@ export type AgentStreamEvent =
   | { type: 'schedules-changed' }
   // 应用重启事件
   | { type: 'app-restart' }
+  /** 循环检测：疑似循环（notify 档警告条 / pause 档弹窗数据源） */
+  | {
+    type: 'loop_suspected' | 'loop_escalated'
+    fingerprint: string
+    kind: 'consecutive' | 'period2'
+    repeatCount: number
+    threshold: number
+    detail: Array<{ toolName: string; argsPreview: string; turnNo: number }>
+  }
   /** 用户消息注入完成，需结束当前 assistant 消息并开启新消息 */
   | { type: 'user_message_injected' }
   /** Agent 结束后残留的注入消息，由主进程保存到会话并通知渲染层启动新 Agent */

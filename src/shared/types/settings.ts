@@ -113,6 +113,12 @@ export interface SystemSettings {
     handoffThresholdRatio: number
     /** loop 内接近窗口上限时的行为。默认 'auto-handoff' */
     midLoopOverflowMode: 'auto-handoff' | 'graceful-stop'
+    /** LLM 循环检测档位。默认 'notify'；'off' 时零开销 */
+    loopDetection?: {
+        mode: 'notify' | 'pause' | 'off'
+        /** 连续相同签名轮数阈值，下限 2，默认 3 */
+        threshold: number
+    }
     /** 新会话默认安全模式（会话级 fallback 的全局默认；保存时同步 system_settings.permission_mode） */
     defaultPermissionMode?: 'safe' | 'auto'
     /** 新会话默认显示模式（会话级 fallback 的全局默认；保存时同步 message-display-mode 配置） */

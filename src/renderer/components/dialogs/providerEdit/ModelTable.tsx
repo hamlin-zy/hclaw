@@ -101,7 +101,7 @@ export default function ModelTable({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <label className="text-xs font-medium text-gray-500">模型列表</label>
+        <label className="text-xs font-medium text-gray-500">模型列表<span className="ml-1.5 text-[10px] font-normal text-gray-400">价格允许为空</span></label>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-gray-400">{models.length} 个模型</span>
           {/* 汇率参考：date 为 null 表示主进程未同步（使用兜底汇率） */}

@@ -88,6 +88,21 @@ export async function executeTool(
     }
   }
 
+  // Agent 白名单运行时校验：LLM 幻觉调用了未注入工具定义的已注册工具时直接拒绝，
+  // 与 filterToolsForAgent 的过滤结果保持一致（allowedToolNames 缺省 = 不限制，主 Agent 路径）。
+  if (context.allowedToolNames && !context.allowedToolNames.has(toolCall.name)) {
+    return {
+      toolCallId: toolCall.id,
+      toolName: toolCall.name,
+      denied: true,
+      denyReason: `工具 ${toolCall.name} 不在当前 Agent 的可用工具列表中`,
+      result: errorResult(
+        `工具 "${toolCall.name}" 不在当前 Agent 的可用工具列表中，调用已被拒绝。` +
+        `请仅使用本轮 tools 列表中提供的工具。`
+      ),
+    }
+  }
+
       const permResult = permissionEngine.check(tool, toolCall.arguments)
     
     let userApproved = false

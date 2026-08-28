@@ -289,6 +289,43 @@ export default function SettingsDialog() {
                         <option value="graceful-stop">优雅停止</option>
                     </select>
                 </label>
+                <label className="flex items-center justify-between text-sm">
+                    <span>
+                        LLM循环检测
+                        <span className="ml-1 text-xs text-[var(--text-secondary)]">
+                            检测到 Agent 陷入重复循环时提醒您，避免无意义的 token 消耗。提示：显示警告条不打断任务；暂停：暂停循环等待您选择；关闭：停用此功能。
+                        </span>
+                    </span>
+                    <select
+                        className="rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2 py-1 text-sm"
+                        value={current.agent.loopDetection?.mode ?? 'notify'}
+                        onChange={(e) => updatePending('agent', {
+                            loopDetection: {
+                                mode: e.target.value as 'notify' | 'pause' | 'off',
+                                threshold: current.agent.loopDetection?.threshold ?? 3,
+                            },
+                        })}
+                    >
+                        <option value="notify">提示（推荐）</option>
+                        <option value="pause">暂停</option>
+                        <option value="off">关闭</option>
+                    </select>
+                </label>
+                {current.agent.loopDetection?.mode !== 'off' && (
+                    <NumberField
+                        label="循环检测阈值 (轮)"
+                        description="连续相同工具调用的轮数达到该值时触发。低于 3 易误判，不推荐。"
+                        value={current.agent.loopDetection?.threshold ?? 3}
+                        onChange={(v) => updatePending('agent', {
+                            loopDetection: {
+                                mode: current.agent.loopDetection?.mode ?? 'notify',
+                                threshold: Math.max(2, Math.round(v) || 3),
+                            },
+                        })}
+                        min={2}
+                        fallback={3}
+                    />
+                )}
             </div>
         </div>
     )
@@ -403,6 +440,10 @@ export default function SettingsDialog() {
                     {
                         label: '切换左侧栏',
                         keys: (<KbdCombo keys={['Ctrl', 'B']}/>),
+                    },
+                    {
+                        label: '功能菜单（左下角三横线）',
+                        keys: (<Kbd>Alt</Kbd>),
                     },
                     {
                         label: '切换明暗主题',

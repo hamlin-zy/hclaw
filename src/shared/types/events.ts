@@ -80,6 +80,7 @@ export interface AgentStreamEvent {
     | 'permission-rules-updated'
     | 'agent_start' | 'agent_progress' | 'tool_detail' | 'tool_use'
     | 'settings-updated' | 'app-restart'
+    | 'loop_suspected' | 'loop_escalated' | 'loop_silenced'
   content?: string
   /** settings-updated 事件的配置数据 */
   settings?: Record<string, any>
@@ -89,7 +90,12 @@ export interface AgentStreamEvent {
   /** tool_progress 事件的重试倒计时剩余秒数（retryCountdown） */
   retryCountdown?: number
   result?: { success: boolean; output: unknown; error?: string }
-  reason?: 'completed' | 'aborted' | 'error'
+  reason?: 'completed' | 'aborted' | 'error' | 'loop_detected'
+  /** loop_suspected/loop_escalated 事件字段 */
+  fingerprint?: string
+  loopKind?: 'consecutive' | 'period2'
+  repeatCount?: number
+  loopDetail?: Array<{ toolName: string; argsPreview: string; turnNo: number }>
   error?: string
   question?: string
   options?: string[]

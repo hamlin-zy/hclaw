@@ -271,6 +271,10 @@ export const useAgentStore = create<AgentStore>()(
                 if (convId) get().updateConvData(convId, {pendingQuestion: null})
             },
 
+            clearLoopWarning: (convId) => {
+                get().updateConvData(convId, {loopWarning: undefined})
+            },
+
             // ── 弹窗管理 ──────────────────────────────
             openToolPopup: (data) => {
                 set({toolPopupData: data})

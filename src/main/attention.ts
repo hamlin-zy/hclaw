@@ -33,6 +33,9 @@ let highlightImage: Electron.NativeImage | null = null
 /** Linux 通知是否已发送（单次） */
 let notificationSent = false
 
+/** 窗口获焦即停止提醒（win.once('focus') 句柄，stopBlinking 时移除） */
+let focusHandler: (() => void) | null = null
+
 // ── 高亮图标生成（Windows 托盘闪烁用） ──
 
 function buildHighlightIcon(): Electron.NativeImage | null {
@@ -72,9 +75,13 @@ function buildHighlightIcon(): Electron.NativeImage | null {
 
 let _flashFrameCalled = false
 
-function startBlinking(): void {
+function startBlinking(opts?: {force?: boolean}): void {
   const win = getMainWindow()
   if (!win || win.isDestroyed()) return
+
+  // 窗口获焦 → 立即停止提醒（循环检测警告条可点击窗口触发）
+  focusHandler = () => clearUserAttention()
+  win.once('focus', focusHandler)
 
   const platform = process.platform
 
@@ -98,7 +105,12 @@ function startBlinking(): void {
 
   // ── Windows ──
   try {
-    if (win.isVisible()) return // 可见不提醒
+    // Windows：默认可见不提醒；force（循环检测警告）时始终任务栏闪烁
+    if (win.isVisible()) {
+      if (!opts?.force) return
+      try { win.flashFrame(true); _flashFrameCalled = true } catch { /* ignore */ }
+      return
+    }
 
     if (win.isMinimized()) {
       win.flashFrame(true)
@@ -150,6 +162,14 @@ function stopBlinking(): void {
     if (win && !win.isDestroyed()) win.flashFrame(false)
   } catch { /* ignore */ }
 
+  if (focusHandler) {
+    try {
+      const win = getMainWindow()
+      if (win && !win.isDestroyed()) win.removeListener('focus', focusHandler)
+    } catch { /* ignore */ }
+    focusHandler = null
+  }
+
   originalTrayImage = null
   highlightImage = null
   notificationSent = false
@@ -157,8 +177,8 @@ function stopBlinking(): void {
 
 // ── 公开 API ──
 
-export function notifyUserAttention(): void {
-  if (attentionCount === 0) startBlinking()
+export function notifyUserAttention(opts?: {force?: boolean}): void {
+  if (attentionCount === 0) startBlinking(opts)
   attentionCount++
 }
 

@@ -23,15 +23,67 @@ import {UserCommandBubble, parseUserCommandContext} from './UserCommandBubble'
  * 订阅三个 store，任意一方加载即可为旧消息补全能力名。
  * 派生集合用 useMemo 缓存，仅在 store 原始数据变化时重建，避免每次 render 产生新数组。
  */
+/**
+ * 徽章降级路径的能力名兜底：通过 command:get-skill-commands / get-agent-commands /
+ * get-user-commands IPC 直接读主进程注册表（不经过 powerManager.refresh，
+ * 与 Ctrl+K 命令面板同款数据源）。模块级缓存 + 单飞请求，避免每条气泡重复发起 IPC。
+ */
+interface KnownCapabilityNames {
+    skills: string[]
+    agents: string[]
+    userCommands: string[]
+}
+
+let knownCapsCache: KnownCapabilityNames | null = null
+let knownCapsPromise: Promise<KnownCapabilityNames> | null = null
+
+function fetchKnownCapabilityNames(): Promise<KnownCapabilityNames> {
+    if (knownCapsCache) return Promise.resolve(knownCapsCache)
+    if (!knownCapsPromise) {
+        const pickNames = (list: Array<{ name?: string }> | undefined | null) =>
+            (list ?? []).map(s => s.name).filter((n): n is string => !!n)
+        knownCapsPromise = Promise.all([
+            window.electronAPI?.command?.getSkillCommands?.().catch(() => []),
+            window.electronAPI?.command?.getAgentCommands?.().catch(() => []),
+            window.electronAPI?.command?.getUserCommands?.().catch(() => null) as Promise<Array<{ name: string }> | null | undefined>,
+        ]).then(([skills, agents, userCmds]) => {
+            const result: KnownCapabilityNames = {
+                skills: pickNames(skills as Array<{ name?: string }>),
+                agents: pickNames(agents as Array<{ name?: string }>),
+                userCommands: Array.isArray(userCmds)
+                    ? pickNames(userCmds.filter((c: any) => c?.enabled))
+                    : [],
+            }
+            knownCapsCache = result
+            return result
+        }).catch(() => {
+            knownCapsPromise = null  // 失败允许重试
+            return {skills: [], agents: [], userCommands: []}
+        })
+    }
+    return knownCapsPromise
+}
+
 function useKnownCapabilities() {
     const skills = useSkillStore((s) => s.skills)
     const agents = useAgentTemplateStore((s) => s.templates)
     const commands = useUserCommandStore((s) => s.commands)
+    // store 均为空时的兜底（打包版启动时 skills-refresh 可能被主进程挂起阻塞）
+    const [fallbackCaps, setFallbackCaps] = useState<KnownCapabilityNames>({skills: [], agents: [], userCommands: []})
+    useEffect(() => {
+        if (knownCapsCache) return
+        if (skills.length > 0 && agents.length > 0 && commands.length > 0) return
+        let cancelled = false
+        fetchKnownCapabilityNames().then(names => {
+            if (!cancelled) setFallbackCaps(names)
+        })
+        return () => { cancelled = true }
+    }, [skills.length, agents.length, commands.length])
     return useMemo(() => ({
-        skills: skills.map(skill => skill.name),
-        agents: agents.map(t => t.name),
-        userCommands: commands.map(c => c.name),
-    }), [skills, agents, commands])
+        skills: skills.length > 0 ? skills.map(skill => skill.name) : fallbackCaps.skills,
+        agents: agents.length > 0 ? agents.map(t => t.name) : fallbackCaps.agents,
+        userCommands: commands.length > 0 ? commands.map(c => c.name) : fallbackCaps.userCommands,
+    }), [skills, agents, commands, fallbackCaps])
 }
 
 interface MessageBubbleProps {

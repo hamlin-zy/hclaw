@@ -81,6 +81,15 @@ export interface ConvAgentData {
     currentBatch?: { id: string; name: string; status: 'active' | 'completed' }
     /** LLM 运行错误信息，显示在消息列表左下角而非消息气泡中 */
     errorMessage: string | null
+    /** LLM 循环检测警告条数据（loop_suspected/loop_escalated 事件写入，done 收尾清除） */
+    loopWarning?: {
+        fingerprint: string
+        kind: 'consecutive' | 'period2'
+        repeatCount: number
+        threshold: number
+        detail: Array<{ toolName: string; argsPreview: string; turnNo: number }>
+        escalated: boolean
+    }
     /** 工具执行开始时的临时提示消息（如"工具执行中..."），tool_start 后清除；
      *  重试等待时对象结构（label + urgent 紧迫态），字符串分支保留兼容 */
     executingToolsMessage: string | { label: string; urgent: boolean } | null
@@ -183,6 +192,8 @@ export interface AgentStore {
     respondQuestion: (result: 'allow' | 'always' | 'deny') => Promise<void>
     answerQuestion: (answer: string) => Promise<void>
     clearPendingQuestion: () => void
+    /** 清除指定会话的循环检测警告条（done 收尾 / 警告条关闭时调用） */
+    clearLoopWarning: (convId: string) => void
 
     setPendingPermissionConfirm: (confirm: { question: string; requestId?: string } | null) => void
 
