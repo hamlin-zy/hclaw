@@ -49,6 +49,7 @@ function* emitLlmCallDone(
     provider: string,
     providerType: string,   // 新增：精确服务商类型
     providerName: string,   // 新增：providers 表服务商名（人类可读）
+    providerId: string | undefined,   // providers.id（稳定维度，llm_usage 精确归因）
     model: string,
     inputTokens: number,
     outputTokens: number,
@@ -133,6 +134,7 @@ function* emitLlmCallDone(
         provider,
         providerType,   // 新增
         providerName,   // 新增
+        providerId,   // providers.id（稳定维度）
         model,
         duration: llmDuration,
         inputTokens,
@@ -368,6 +370,7 @@ export class AgentLoopController {
                 model: selection.modelConfig.model,
                 provider: selection.modelConfig.provider,
                 providerName: selection.providerName,
+                providerId: selection.providerId,
                 tools: availableToolDefinitions.map(t => t.name),
             }
 
@@ -444,7 +447,7 @@ export class AgentLoopController {
                 inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
                 reasoningTokens, llmDuration,
                 ttftMs, decodeMs, tokensPerSecond,
-                currentProvider, currentModel, currentSchemeName, providerName,
+                currentProvider, currentModel, currentSchemeName, providerName, providerId,
                 handoffRequested,
             } = llmResult
 
@@ -453,7 +456,7 @@ export class AgentLoopController {
                 turnCount, currentState, lastLoggedMsgCount,
                 assistantContent, collectedToolCalls,
                 conversationTitle ?? '',
-                currentSchemeName || currentProvider, currentProvider, providerName, currentModel,
+                currentSchemeName || currentProvider, currentProvider, providerName, providerId, currentModel,
                 inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
                 reasoningTokens, ttftMs, decodeMs, tokensPerSecond, llmDuration, systemPrompt,
             )

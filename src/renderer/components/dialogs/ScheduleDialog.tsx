@@ -8,6 +8,7 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 import {ScheduleUI, useScheduleStore} from '../../stores/scheduleStore'
 import {confirm} from '../ConfirmDialog'
+import {Toast} from '../usage/statsParts'
 import {ScheduleEditModal, ScheduleFormData} from './ScheduleEditModal'
 import {Switch} from '../common/Switch'
 import {fuzzyFilter} from '../../lib/search'
@@ -125,6 +126,7 @@ export default function ScheduleDialog() {
 
     // 展开的记录面板
     const [expandedConversations, setExpandedConversations] = useState<Set<string>>(new Set())
+    const [launchError, setLaunchError] = useState<string | null>(null)
 
     // 加载数据
     useEffect(() => {
@@ -223,10 +225,10 @@ export default function ScheduleDialog() {
         try {
             const result: any = await runNow(schedule.id)
             if (result && !result.success) {
-                alert(`启动失败: ${result.error || '未知错误'}`)
+                setLaunchError(`启动失败: ${result.error || '未知错误'}`)
             }
         } catch (err: any) {
-            alert(`启动异常: ${err?.message || String(err)}`)
+            setLaunchError(`启动异常: ${err?.message || String(err)}`)
         } finally {
             setTimeout(() => {
                 setRunningTasks(prev => {
@@ -397,6 +399,9 @@ export default function ScheduleDialog() {
                     }}
                     penetrable={true}
                 />
+            )}
+            {launchError && (
+                <Toast message={launchError} type="error" onClose={() => setLaunchError(null)} />
             )}
         </div>
     )

@@ -234,6 +234,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   providerTestModel: (params: any) => ipcRenderer.invoke('provider:test-model', params),
   modelMetaGetWindow: (model: string) =>
     ipcRenderer.invoke('model-meta:get-window', {model}),
+  modelMetaLookup: (model: string) =>
+    ipcRenderer.invoke('model-meta:lookup', {model}),
   exchangeRateGet: () =>
     ipcRenderer.invoke('exchange-rate:get'),
   // 汇率手动刷新

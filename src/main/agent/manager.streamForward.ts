@@ -22,6 +22,7 @@ export function trimLlmCallDoneForRenderer(
     provider: event.provider,
     providerType: event.providerType,   // 新增
     providerName: event.providerName,   // 新增：providers 表服务商名
+    providerId: event.providerId,   // providers.id（稳定维度，用量归因）
     model: event.model,
     duration: event.duration,
     inputTokens: event.inputTokens,

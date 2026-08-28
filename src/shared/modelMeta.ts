@@ -12,6 +12,8 @@ export interface ModelMeta {
   inputPrice: number
   outputPrice: number
   cacheReadPrice: number
+  /** 缓存写价（USD/token）；undefined = 未配置（缺失 / 非法 / 0，§七 3） */
+  cacheWritePrice?: number
 }
 
 /** OpenRouter /api/v1/models 原始条目（只提取需要的字段） */
@@ -31,6 +33,7 @@ export interface OpenRouterModelRaw {
     prompt?: string | number
     completion?: string | number
     input_cache_read?: string | number
+    input_cache_write?: string | number
   }
   top_provider?: { context_length?: number }
 }

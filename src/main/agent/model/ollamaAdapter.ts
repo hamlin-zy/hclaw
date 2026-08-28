@@ -17,6 +17,7 @@ export class OllamaAdapter extends OpenAIAdapter {
         apiKey: config.apiKey || 'ollama', // Ollama 不需要真实 key
         baseUrl: config.baseUrl || 'http://localhost:11434/v1',
           _providerName: 'ollama',
+          _providerId: 'ollama',
       },
         injectedClient,
     )

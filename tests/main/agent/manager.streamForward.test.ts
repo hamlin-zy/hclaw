@@ -10,6 +10,7 @@ function makeFullLlmCallDone(): Extract<AgentStreamEvent, {type: 'llm_call_done'
         provider: 'anthropic',
         providerType: 'anthropic',   // 新增：精确服务商类型
         providerName: 'Deepseek-ant', // 新增：providers 表服务商名（人类可读）
+        providerId: 'prov-ant-1',     // T4：providers.id（稳定服务商维度）
         model: 'claude-sonnet-4-5',
         duration: 12345,
         inputTokens: 1000,
@@ -45,6 +46,7 @@ describe('createForwardPayload — 转发载荷构造', () => {
         expect(e.provider).toBe('anthropic')
         expect(e.providerType).toBe('anthropic')   // 新增
         expect(e.providerName).toBe('Deepseek-ant') // 新增
+        expect(e.providerId).toBe('prov-ant-1')     // T4
         expect(e.model).toBe('claude-sonnet-4-5')
         expect(e.duration).toBe(12345)
         expect(e.inputTokens).toBe(1000)
@@ -100,6 +102,7 @@ describe('trimLlmCallDoneForRenderer — 字段级瘦身契约', () => {
             'model',
             'outputTokens',
             'provider',
+            'providerId',
             'providerName',
             'providerType',
             'reasoningTokens',

@@ -97,3 +97,60 @@ describe('recordLlmUsageEvent（路径 1 主循环写入）', () => {
     expect(repo.record).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * llm_usage.provider_id（T4 DB 集成：全新临时库走生产迁移建表/加列，
+ * 隔离方式参照 runtimeConfigManager.convPermissionMode.db.test.ts：
+ * vi.mock config → getHclawDir() 重定向临时目录，绝不触碰真实 ~/.hclaw）。
+ */
+describe('llm_usage.provider_id（DB 集成：新库迁移 + 写入 + 聚合透出）', () => {
+  it('fresh DB（走迁移建表）写入带 providerId 的 record → 聚合按 (provider, model) 分组并透出 providerId', async () => {
+    vi.doMock('@/main/config', () => {
+      const os = require('os')
+      const path = require('path')
+      const testDir = path.join(os.tmpdir(), 'hclaw-test-usagewrite-' + Date.now())
+      return {
+        getHclawDir: () => testDir,
+        HCLAW_DIR: testDir,
+        getHclawDataDir: () => path.join(testDir, 'data'),
+        isSafePath: (p: string) => p.startsWith(testDir),
+      }
+    })
+    vi.resetModules()
+    const {getDatabase, initDatabaseSync, closeDatabase} = await import('@/main/repositories/sqlite')
+    const {llmUsageRepo} = await import('@/main/repositories/sqlite/llmUsageRepository')
+    initDatabaseSync()   // 全新临时库：035 建表 + 038 加列迁移路径均被执行
+    const db = getDatabase()
+    // 外键约束：llm_usage.conversation_id → conversations(id)
+    db.prepare(`INSERT OR IGNORE INTO conversations (id, workspace_path, meta, created_at, updated_at) VALUES ('c1', '', '{}', 0, 0)`).run()
+    const noMeta = () => ({inputPrice: 0, outputPrice: 0, cacheReadPrice: 0})
+
+    const baseRec = {
+      conversationId: 'c1', messageId: 'm1',
+      providerType: 'openai',
+      model: 'gpt-4o',
+      outputTokens: 5,
+      cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0,
+      durationMs: 100, createdAt: Date.now(),
+    }
+    llmUsageRepo.record({...baseRec, id: 'usage_pv_0', providerId: 'prov-alpha', providerName: 'Alpha', inputTokens: 10})
+    // 同 provider 同 model 第二次调用 → 聚合为一组
+    llmUsageRepo.record({...baseRec, id: 'usage_pv_1', providerId: 'prov-alpha', providerName: 'Alpha', inputTokens: 20})
+    // 另一服务商同名模型 → 独立分组（分组粒度保持 provider, model，不跨服务商合并）
+    llmUsageRepo.record({...baseRec, id: 'usage_pv_2', providerId: 'prov-beta', providerName: 'Beta', inputTokens: 1})
+
+    const rows = llmUsageRepo.queryAggregated({range: 'all', view: 'model'}, noMeta)
+    const alpha = rows.find(r => r.providerId === 'prov-alpha')
+    const beta = rows.find(r => r.providerId === 'prov-beta')
+    expect(alpha).toBeDefined()
+    expect(alpha!.requestCount).toBe(2)
+    expect(alpha!.inputTokens).toBe(30)
+    expect(beta).toBeDefined()
+    expect(beta!.requestCount).toBe(1)
+
+    // 迁移生效：provider_id 列存在且持久化
+    const row = db.prepare(`SELECT provider_id FROM llm_usage WHERE id = 'usage_pv_0'`).get() as {provider_id: string | null}
+    expect(row.provider_id).toBe('prov-alpha')
+    try { closeDatabase() } catch { /* ignore */ }
+  })
+})

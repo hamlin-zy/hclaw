@@ -62,6 +62,7 @@ export type AgentStreamEvent =
     provider: string;
     providerType: string;   // 精确服务商类型（anthropic/openai/google/ollama/custom）
     providerName: string;   // providers 表服务商名（providers.name），供用量统计人类可读展示
+    providerId?: string;    // providers.id（稳定服务商维度），供 llm_usage 精确价格归因
     model: string;
     duration: number;
     inputTokens: number;
@@ -105,6 +106,8 @@ export type AgentStreamEvent =
     provider?: string;
     /** providers 表服务商名（providers.name，人类可读），供输入框底部展示 */
     providerName?: string;
+    /** providers.id（稳定服务商维度），供用量归因 */
+    providerId?: string;
     tools: string[];
     isolation?: string
 }

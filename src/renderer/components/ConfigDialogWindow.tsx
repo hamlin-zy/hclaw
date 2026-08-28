@@ -1,5 +1,6 @@
 import {useThemeSync} from '../lib/theme'
 import WindowTitleBar from './common/WindowTitleBar'
+import TooltipPortal from './common/TooltipPortal'
 import ConfirmDialog from './ConfirmDialog'
 import LLMConfigDialog from './dialogs/LLMConfigDialog'
 import MCPDialog from './dialogs/MCPDialog'
@@ -65,6 +66,8 @@ export default function ConfigDialogWindow() {
         <div className="h-screen flex flex-col bg-[var(--surface)] text-[var(--text-primary)] font-['Inter',sans-serif]">
             {/* 独立窗口级确认弹窗：日志窗口/用量窗口及各 dialog 的 confirm() 依赖（主窗口由 App.tsx 挂载） */}
             <ConfirmDialog/>
+            {/* 独立窗口缺省无主题 tooltip：挂载全局 TooltipPortal 接管弹窗内所有原生 title */}
+            <TooltipPortal/>
             <WindowTitleBar title={config?.title ?? '配置'}/>
             <div className="flex-1 min-h-0 overflow-hidden">
                 {config

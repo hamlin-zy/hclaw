@@ -23,6 +23,8 @@ export interface TurnModelSelection {
     suggestedRole: ModelRole
     /** providers 表服务商名（providers.name，人类可读），用于 agent_start 事件展示 */
     providerName?: string
+    /** providers.id（稳定服务商维度），供用量归因 */
+    providerId?: string
     /** 模型由会话 override 直接指定（绕过角色路由），适配器直接以该 config 创建 */
     directModel?: boolean
 }
@@ -50,6 +52,8 @@ export interface LlmStreamResult {
     currentSchemeName: string | null
     /** providers 表服务商名（providers.name），供用量统计按服务商展示人类可读名 */
     providerName: string
+    /** providers.id（稳定服务商维度），供 llm_usage 精确价格归因 */
+    providerId?: string
     /** mid-loop 交接门已注入交接指令（auto-handoff）；controller 应在工具执行后强制结束本轮 */
     handoffRequested?: boolean
 }

@@ -513,6 +513,7 @@ export async function* executeLlmCallWithRetry(
                 currentConfigSource,
                 currentSchemeName,
                 providerName: modelConfig._providerName || currentProvider,
+                providerId: modelConfig._providerId,
                 handoffRequested: handoffInjected,
                 ...(timing === null ? {} : timing),
             }
