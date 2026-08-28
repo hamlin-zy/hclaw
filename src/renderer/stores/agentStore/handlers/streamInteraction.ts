@@ -151,12 +151,15 @@ export async function handleDone(ctx: StreamCtx) {
         // 如果刚发生过 error，保留 errorMessage 不清理
         ...(doneConvData.agentState.status !== 'error' ? {errorMessage: null} : {}),
         executingToolsMessage: null,
+        // ★ 收尾即清循环警告条（含 loop_detected 路径，与 aborted 同款收尾）
+        loopWarning: undefined,
     })
 
     // ★ 段边界语义：done 收尾完成后统一落库（endedAt/contentBlocks/tool_result 已合并）
     void flushConversationDirty(convId)
 
-    if (event.reason !== 'aborted') {
+    // loop_detected 与 aborted 走同款收尾（不触发 pendingMessages 续跑）；UI 文案 Task 5 完善
+    if (event.reason !== 'aborted' && event.reason !== 'loop_detected') {
         const pendingMsgs = get().convAgentStates[convId]?.pendingMessages
         if (pendingMsgs && pendingMsgs.length > 0) {
             const [firstMsg, ...remainingMsgs] = pendingMsgs
@@ -237,6 +240,29 @@ export async function handleAskUser(ctx: StreamCtx) {
             convStore.updateMessageForConv(convId, convState.streamingMessageId!, updateContent(convState)),
     })
 }
+
+// ── LLM 循环检测警告条（loop_suspected / loop_escalated） ──
+// notify 档：主进程检测门报告疑似循环，写入 convAgentStates[convId].loopWarning
+// 供 LoopWarningBanner 渲染；任务继续运行（pause 档走 ask_user 路径，不经此 handler）
+export function handleLoopSuspected(ctx: StreamCtx) {
+    const {get, convId, event} = ctx
+    const e = event as any
+    if (!e.fingerprint) return
+    get().updateConvData(convId, {
+        loopWarning: {
+            fingerprint: e.fingerprint,
+            // shared events.ts 用 loopKind 命名，main stream.ts 用 kind——双读兼容
+            kind: e.loopKind ?? e.kind,
+            repeatCount: e.repeatCount ?? 0,
+            threshold: e.threshold ?? 0,
+            detail: e.loopDetail ?? e.detail ?? [],
+            escalated: event.type === 'loop_escalated',
+        },
+    })
+}
+
+/** 升级轮次与首次报告同构（escalated=true 仅换文案），共用 handler */
+export const handleLoopEscalated = handleLoopSuspected
 
 export function handleWarning(ctx: StreamCtx) {
     const {get, set, convId, event} = ctx

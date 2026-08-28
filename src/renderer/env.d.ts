@@ -74,6 +74,7 @@ declare global {
           messageMetadata?: Record<string, unknown>
       }) => Promise<{ success: boolean; error?: string }>
       agentAbort: (conversationId: string) => Promise<{ success: boolean }>
+      agentLoopSilence: (conversationId: string, fingerprint: string) => Promise<{ success: boolean }>
       agentRegisterStreamingMessage: (conversationId: string, messageId: string) => Promise<boolean>
       agentInjectMessage: (params: { conversationId: string; content: string; messageId?: string }) => Promise<{ success: boolean }>
       agentStatus: (conversationId?: string) => Promise<{

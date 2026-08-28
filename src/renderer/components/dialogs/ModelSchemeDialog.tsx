@@ -11,6 +11,7 @@ import {
 import {useLLMStore} from '../../stores/llmStore'
 import {createDefaultRoles, MODEL_ROLE_INFO, resolveRoleDisplay} from '@shared/modelSchemeHelpers'
 import {getEffortOptions} from '@shared/thinkingEffort'
+import ThemedSelect, {type ThemedSelectOption} from '../ThemedSelect'
 
 // ─── 共享常量 ─────────────────────────────────────────────────
 
@@ -625,20 +626,36 @@ function RoleConfigEditor({
     const selectedProvider = providers.find((p) => p.id === config.endpointId)
     const availableModels = selectedProvider?.models.filter((m) => m.enabled) || []
 
+    // 下拉选项（ThemedSelect）：与 SchemeSelector 同风格的毛玻璃弹层
+    const providerOptions: ThemedSelectOption[] = [
+        {value: '', label: '服务商'},
+        ...providers.filter((p) => p.enabled).map((p) => ({value: p.id, label: p.name})),
+        {value: 'open-llm-config', label: 'LLM 配置', divider: true},
+    ]
+    const modelOptions: ThemedSelectOption[] = [
+        {value: '', label: '模型'},
+        ...availableModels.map((m) => ({value: m.id, label: m.name})),
+        {value: 'open-llm-config', label: 'LLM 配置', divider: true},
+    ]
+
     // 思考强度档位：与 InputArea 思考强度选择器共用同一档位表（shared），
     // 按角色当前服务商协议动态渲染；前置「禁用」空值项
     const effortOptions = [
         {value: '' as const, label: '禁用'},
         ...getEffortOptions(selectedProvider?.type),
     ]
+    const effortSelectOptions: ThemedSelectOption[] = effortOptions.map((opt) => ({
+        value: opt.value,
+        label: opt.label,
+        hint: 'hint' in opt ? opt.hint : undefined,
+    }))
 
     // 验证：启用但未选择模型
     const showWarning = config.enabled && (!config.endpointId || !config.modelId)
     // 错误：必填但未配置
     const showError = (config.enabled && !isBuiltin) && (!config.endpointId || !config.modelId)
 
-    const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const val = e.target.value
+    const handleProviderChange = (val: string) => {
         if (val === 'open-llm-config') {
             window.electronAPI?.openConfigWindow?.('llm-config')
             window.electronAPI?.windowControls?.close?.()
@@ -651,8 +668,7 @@ function RoleConfigEditor({
         })
     }
 
-    const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const val = e.target.value
+    const handleModelChange = (val: string) => {
         if (val === 'open-llm-config') {
             window.electronAPI?.openConfigWindow?.('llm-config')
             window.electronAPI?.windowControls?.close?.()
@@ -702,43 +718,25 @@ function RoleConfigEditor({
             {/* 服务商 + 模型选择 */}
             <div className="mt-3 flex flex-col gap-1.5">
                 <div className="grid grid-cols-2 gap-2">
-                    <select
+                    <ThemedSelect
                         value={config.endpointId}
+                        options={providerOptions}
                         onChange={handleProviderChange}
                         disabled={!config.enabled}
-                        className={`w-full px-2 py-1.5 text-[11px] bg-[var(--surface)] border rounded text-gray-700 focus:outline-none disabled:opacity-50 ${
-                            showError ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-brand-300'
-                        }`}
-                    >
-                        <option value="">服务商</option>
-                        {providers
-                            .filter((p) => p.enabled)
-                            .map((p) => (
-                                <option key={p.id} value={p.id}>
-                                    {p.name}
-                                </option>
-                            ))}
-                        <option disabled>───────</option>
-                        <option value="open-llm-config" className="text-brand-500 font-medium">⚙️ LLM 配置</option>
-                    </select>
+                        placeholder="服务商"
+                        error={showError}
+                        ariaLabel="选择服务商"
+                    />
 
-                    <select
+                    <ThemedSelect
                         value={config.modelId}
+                        options={modelOptions}
                         onChange={handleModelChange}
                         disabled={!config.enabled || !config.endpointId}
-                        className={`w-full px-2 py-1.5 text-[11px] bg-[var(--surface)] border rounded text-gray-700 focus:outline-none disabled:opacity-50 ${
-                            showError ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-brand-300'
-                        }`}
-                    >
-                        <option value="">模型</option>
-                        {availableModels.map((m) => (
-                            <option key={m.id} value={m.id}>
-                                {m.name}
-                            </option>
-                        ))}
-                        <option disabled>───────</option>
-                        <option value="open-llm-config" className="text-brand-500 font-medium">⚙️ LLM 配置</option>
-                    </select>
+                        placeholder="模型"
+                        error={showError}
+                        ariaLabel="选择模型"
+                    />
                 </div>
             </div>
 
@@ -747,21 +745,19 @@ function RoleConfigEditor({
                 <div className="mt-2 pt-2 border-t border-gray-100">
                     <div className="flex items-center gap-2">
                         <label className="text-[11px] text-gray-500 whitespace-nowrap">思考强度</label>
-                        <select
-                            value={effortValue || ''}
-                            onChange={(e) => onChange({
-                                ...config,
-                                thinkingEffort: (e.target.value || undefined) as ModelSchemeRole['thinkingEffort'],
-                            })}
-                            disabled={!config.enabled}
-                            className="flex-1 px-2 py-1 text-[11px] bg-[var(--surface)] border border-gray-200 rounded text-gray-700 focus:outline-none focus:border-brand-300 disabled:opacity-50"
-                        >
-                            {effortOptions.map(opt => (
-                                <option key={opt.value || 'disabled'} value={opt.value} title={'hint' in opt ? opt.hint : undefined}>
-                                    {opt.label}
-                                </option>
-                            ))}
-                        </select>
+                        <div className="flex-1">
+                            <ThemedSelect
+                                value={effortValue || ''}
+                                options={effortSelectOptions}
+                                onChange={(val) => onChange({
+                                    ...config,
+                                    thinkingEffort: (val || undefined) as ModelSchemeRole['thinkingEffort'],
+                                })}
+                                disabled={!config.enabled}
+                                placeholder="禁用"
+                                ariaLabel="思考强度"
+                            />
+                        </div>
                         <span className={`text-[11px] font-medium whitespace-nowrap ${effortColor}`}>
                             {isEffortDisabled ? '禁用' : effortLabel}
                         </span>

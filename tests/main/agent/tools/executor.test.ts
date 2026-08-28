@@ -117,3 +117,38 @@ describe('resolveToolTimeoutMs（工具执行超时解析，倒计时数据源�
         expect(result).toBe(60000)
     })
 })
+
+// ── Agent 白名单运行时校验 ──────────────────────────────
+import {executeTool} from '../../../../src/main/agent/tools/executor'
+import {toolRegistry} from '../../../../src/main/agent/tools/registry'
+import {makeTool} from './testHelpers'
+
+const baseContext = {
+    workingDir: '',
+    abortSignal: new AbortController().signal,
+    sendMessage: () => {},
+} as any
+
+describe('executeTool 白名单校验（allowedToolNames）', () => {
+    const probe = 'whitelist_probe_tool'
+    toolRegistry.register(makeTool(probe))
+    const call = {id: 'tc-1', name: probe, arguments: {}}
+
+    it('白名单外的已注册工具被拒绝（幻觉调用拦截）', async () => {
+        const result = await executeTool(call, {...baseContext, allowedToolNames: new Set(['other_tool'])})
+        expect(result.denied).toBe(true)
+        expect(result.result.success).toBe(false)
+        expect(result.result.error).toContain('不在当前 Agent 的可用工具列表中')
+    })
+
+    it('白名单内的工具正常执行', async () => {
+        const result = await executeTool(call, {...baseContext, allowedToolNames: new Set([probe])})
+        expect(result.result.success).toBe(true)
+        expect(result.denied).toBeUndefined()
+    })
+
+    it('未传 allowedToolNames 时不限制（主 Agent 路径向后兼容）', async () => {
+        const result = await executeTool(call, baseContext)
+        expect(result.result.success).toBe(true)
+    })
+})

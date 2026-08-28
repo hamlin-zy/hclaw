@@ -133,3 +133,28 @@ export async function applySerializedCapabilitiesInWorker(
     })
 
 }
+
+/**
+ * 在 Worker 中刷新序列化后的能力（替换式重建，用于运行中能力启停同步）
+ *
+ * 与 applySerializedCapabilitiesInWorker 的区别：先清空本地 registry 再注册，
+ * 保证主进程侧已禁用/移除的能力在 Worker 中同步消失（否则残留陈旧条目，
+ * skillTool 仍能调用已停用的技能、新启用的技能却查不到）。
+ */
+export async function refreshSerializedCapabilitiesInWorker(
+    capabilities: SerializableCapabilities
+): Promise<void> {
+    const {agentRegistry} = await import('./agentRegistry')
+    const {skillRegistry} = await import('./skills')
+
+    agentRegistry.clear()
+    skillRegistry.clear()
+
+    await applySerializedCapabilitiesInWorker(capabilities)
+
+    logger.debug('[CapabilityManager]', {
+        action: 'refreshSerializedCapabilitiesInWorker',
+        agents: capabilities.agents.length,
+        skills: capabilities.skills.length
+    })
+}

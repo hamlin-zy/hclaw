@@ -23,6 +23,16 @@ describe('resolveToolName', () => {
         expect(resolveToolName('NotebookEdit', ['notebook_edit'])).toBe('notebook_edit')
     })
 
+    it('别名表：TodoWrite/TodoRead/TodoUpdate → task_*（agent.md 兼容）', () => {
+        expect(resolveToolName('TodoWrite', ['task_create'])).toBe('task_create')
+        expect(resolveToolName('TodoRead', ['task_list'])).toBe('task_list')
+        expect(resolveToolName('TodoUpdate', ['task_update'])).toBe('task_update')
+    })
+
+    it('别名表：Task → agent（Claude Code 子代理派发语义）', () => {
+        expect(resolveToolName('Task', ['agent'])).toBe('agent')
+    })
+
     it('忽略大小写模糊匹配', () => {
         expect(resolveToolName('READ', ['file_read'])).toBe('file_read')
     })

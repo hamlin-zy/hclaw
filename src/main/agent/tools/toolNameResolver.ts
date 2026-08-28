@@ -18,6 +18,10 @@ export const TOOL_NAME_ALIASES: Record<string, string> = {
   'write': 'file_write',
   'edit': 'file_edit',
   'notebookedit': 'notebook_edit',
+  'todowrite': 'task_create',
+  'todoread': 'task_list',
+  'todoupdate': 'task_update',
+  'task': 'agent',
 }
 
 /**

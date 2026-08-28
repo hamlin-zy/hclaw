@@ -4,7 +4,7 @@ import {makeTool} from './testHelpers'
 import type {AgentDefinition} from '@shared/agent'
 
 // 测试工具池：全局黑名单 Skill 在内，验证第 1 层过滤
-const TOOL_POOL = ['Skill', 'agent', 'file_read', 'file_write', 'file_edit', 'bash', 'glob', 'grep', 'notebook_edit', 'browser_tool']
+const TOOL_POOL = ['skill', 'agent', 'file_read', 'file_write', 'file_edit', 'bash', 'glob', 'grep', 'notebook_edit', 'browser_tool']
     .map(t => makeTool(t))
 
 function agent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
@@ -20,9 +20,9 @@ function agent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
 }
 
 describe('filterToolsForAgent', () => {
-    it('第 1 层：全局黑名单 Skill 永远被移除', () => {
+    it('第 1 层：全局黑名单 skill 永远被移除', () => {
         const result = filterToolsForAgent(agent(), TOOL_POOL)
-        expect(result.some(t => t.name === 'Skill')).toBe(false)
+        expect(result.some(t => t.name === 'skill')).toBe(false)
     })
 
     it('第 2 层：built-in 来源移除 agent 工具', () => {
@@ -72,7 +72,7 @@ describe('filterToolsForAgent', () => {
 
     it('第 4 层：通配符 * 返回全部（除 1-3 层已移除）', () => {
         const result = filterToolsForAgent(agent({tools: ['*']}), TOOL_POOL)
-        expect(result.some(t => t.name === 'Skill')).toBe(false)
+        expect(result.some(t => t.name === 'skill')).toBe(false)
         expect(result.some(t => t.name === 'file_edit')).toBe(true)
         expect(result.some(t => t.name === 'file_read')).toBe(true)
     })

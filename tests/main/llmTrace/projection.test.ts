@@ -17,6 +17,23 @@ describe('extractUsage', () => {
             inputTokens: 100, outputTokens: 20, cacheReadTokens: 80,
         })
     })
+    it('chat: 新版 prompt_tokens_details.cached_tokens 优先（智谱 GLM 真实格式）', () => {
+        const sse = 'data: {"choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":""}}],'
+            + '"usage":{"prompt_tokens":35487,"completion_tokens":845,"total_tokens":36332,'
+            + '"prompt_tokens_details":{"cached_tokens":30912},'
+            + '"completion_tokens_details":{"reasoning_tokens":441}}}\n\ndata: [DONE]\n\n'
+        expect(extractUsage('chat', sse)).toEqual({
+            inputTokens: 35487, outputTokens: 845,
+            cacheReadTokens: 30912, reasoningTokens: 441,
+        })
+    })
+    it('chat: 新版字段缺失时回退旧版 prompt_cache_hit_tokens', () => {
+        const sse = 'data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":20,'
+            + '"prompt_cache_hit_tokens":60,"prompt_cache_miss_tokens":40}}\n\ndata: [DONE]\n\n'
+        expect(extractUsage('chat', sse)).toEqual({
+            inputTokens: 100, outputTokens: 20, cacheReadTokens: 60, cacheWriteTokens: 40,
+        })
+    })
     it('responses: 取 response.completed 事件 usage', () => {
         const sse = 'data: {"type":"response.completed","response":{"usage":{"input_tokens":50,"output_tokens":10}}}'
         expect(extractUsage('responses', sse)).toEqual({inputTokens: 50, outputTokens: 10})

@@ -186,6 +186,13 @@ function SidebarGearMenu({anchorRef}: {anchorRef: RefObject<HTMLDivElement | nul
     const hasUpdate = useUpdaterStore((s) => s.result?.status === 'update-available')
     const pluginHasUpdate = usePluginUpdateStore((s) => s.hasUpdate)
 
+    // 监听全局快捷键：单独按 Alt → 切换本菜单（见 useGlobalHotkeys.ts）
+    useEffect(() => {
+        const toggle = () => setIsOpen((v) => !v)
+        window.addEventListener('hclaw:toggle-gear-menu', toggle)
+        return () => window.removeEventListener('hclaw:toggle-gear-menu', toggle)
+    }, [])
+
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
             const target = e.target as Node

@@ -43,6 +43,7 @@ function setupWindow(opts: {visible: boolean; minimized: boolean; destroyed?: bo
     isMinimized: () => opts.minimized,
     isDestroyed: () => !!opts.destroyed,
     flashFrame: mockFlashFrame,
+    once: vi.fn(),
   }
   mockGetMainWindow.mockReturnValue(win)
   return mockFlashFrame
