@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
 import {render, screen, fireEvent, waitFor, act} from '@testing-library/react'
 import UsageWindow from '../../../../src/renderer/components/usage/UsageWindow'
@@ -100,9 +100,10 @@ describe('UsageWindow 全局用量窗口', () => {
         await waitFor(() => expect(screen.getByText('27.8M')).toBeTruthy())
         expect(screen.getByText('总成本')).toBeTruthy()
         // 时序 KPI：平均吞吐 = Σ输出 ÷ Σ解码时长；平均首字 = Σ首字 ÷ 样本数
-        expect(screen.getByText('平均吞吐')).toBeTruthy()
+        // （明细表新增同名列头，getByText 会多匹配，故取首个即 KPI 区域）
+        expect(screen.getAllByText('平均吞吐')[0]).toBeTruthy()
         expect(screen.getByText('100 t/s')).toBeTruthy()
-        expect(screen.getByText('平均首字')).toBeTruthy()
+        expect(screen.getAllByText('平均首字')[0]).toBeTruthy()
         expect(screen.getByText('1.2s')).toBeTruthy()
         // 趋势柱状条按小时粒度渲染（mock 为 day 格式时兼容回退 MM-DD 标签）
         expect(screen.getAllByTestId('trend-bar')).toHaveLength(2)
@@ -123,9 +124,9 @@ describe('UsageWindow 全局用量窗口', () => {
             kpi: {...mockStats.kpi, totalOutputTokens: 0, totalDecodeMs: 0, totalTtftMs: 0, ttftCount: 0, avgDecodeRate: null, avgTtftSeconds: null},
         })
         render(<UsageWindow />)
-        await waitFor(() => expect(screen.getByText('平均吞吐')).toBeTruthy())
-        // 平均吞吐、平均首字两个 KPI 均为占位符（缓存命中率仍为 93%）
-        expect(screen.getAllByText('—')).toHaveLength(2)
+        await waitFor(() => expect(screen.getAllByText('平均吞吐').length).toBeGreaterThan(0))
+        // KPI 平均吞吐、平均首字为占位符；明细表每行新增 会话/平均首字/平均吞吐 三列占位符（2 行 × 3 = 6），共 8 处 —
+        expect(screen.getAllByText('—')).toHaveLength(8)
     })
 
     it('切换视图（按模型）→ 重新查询', async () => {
@@ -265,5 +266,49 @@ describe('UsageWindow 全局用量窗口', () => {
         expect(screen.queryByLabelText('最大化')).toBeNull()
         expect(screen.queryByLabelText('还原')).toBeNull()
         expect(screen.queryByLabelText('关闭')).toBeNull()
+    })
+})
+
+describe('明细表：服务商列 / 模型ID 表头 / 全列排序', () => {
+    const modelBreakdown = [
+        {key: 'deepseek-v4-flash', providerType: 'anthropic', providerName: 'Deepseek-ant', requestCount: 332, inputTokens: 1000, outputTokens: 200, cacheReadTokens: 300, cacheWriteTokens: 0, totalTokens: 1500, costUsd: 1},
+        {key: 'glm-5.3-flash', providerType: 'openai', providerName: 'OpenRouter', requestCount: 3, inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 120, costUsd: 0.5},
+    ]
+
+    it('模型视图：首列表头为「模型ID」，新增独立「服务商」列显示 providerName', async () => {
+        api().usageStatsQuery = vi.fn().mockResolvedValue({...mockStats, breakdown: modelBreakdown})
+        render(<UsageWindow />)
+        fireEvent.click(screen.getByText('按模型'))
+        await waitFor(() => expect(screen.getAllByText('deepseek-v4-flash')).toHaveLength(1))
+        // 表头：模型ID（替代原「名称」）+ 服务商
+        expect(screen.getByText('模型ID')).toBeTruthy()
+        expect(screen.getByText('服务商')).toBeTruthy()
+        // 服务商列独立展示（不再走 via 小字），旧「via」文案不再出现
+        expect(screen.getByText('OpenRouter')).toBeTruthy()
+        expect(screen.queryByText(/via /)).toBeNull()
+        // 服务商视图表头仍为「服务商」（首列即服务商名）
+        fireEvent.click(screen.getByText('按服务商'))
+        await waitFor(() => expect(screen.getByText('Deepseek-ant')).toBeTruthy())
+    })
+
+    it('全列排序：数值列首次点击降序、再点升序；文本列升序', async () => {
+        render(<UsageWindow />)
+        await waitFor(() => expect(screen.getByText('Deepseek-ant')).toBeTruthy())
+        const firstRowText = () =>
+            screen.getByText('Deepseek-ant').closest('tbody')!.querySelectorAll('tr')[0].textContent!
+        // 默认（服务端顺序）Deepseek-ant（23.7M tokens）在前
+        expect(firstRowText()).toContain('Deepseek-ant')
+        // 合计列首次点击 → 降序 → 顺序不变
+        fireEvent.click(screen.getByText('合计'))
+        expect(firstRowText()).toContain('Deepseek-ant')
+        // 再点 → 升序 → OpenAI（4.1M）在前
+        fireEvent.click(screen.getByText('合计'))
+        expect(firstRowText()).toContain('OpenAI')
+        // 首列（服务商，文本列）点击 → 升序（D < O）→ Deepseek-ant 在前
+        fireEvent.click(screen.getByText('服务商'))
+        expect(firstRowText()).toContain('Deepseek-ant')
+        // 再点 → 降序 → OpenAI 在前
+        fireEvent.click(screen.getByText('服务商'))
+        expect(firstRowText()).toContain('OpenAI')
     })
 })

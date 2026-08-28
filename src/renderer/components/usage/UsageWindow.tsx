@@ -1,8 +1,8 @@
-import {useEffect, useRef, useState} from 'react'
+import {useEffect, useMemo, useRef, useState} from 'react'
 import {RefreshCw, RotateCcw, Database} from 'lucide-react'
 import {formatTokenCompact, formatCost, formatTokensPerSecond, type Currency} from '../../lib/format'
 import {useExchangeRateSync} from '../../hooks/useExchangeRateSync'
-import {duplicatedModelKeys, parseLocalDateStartMs} from '@shared/llmUsage'
+import {parseLocalDateStartMs} from '@shared/llmUsage'
 import {
     ClientStatsNotice,
     InfoTip,
@@ -12,9 +12,29 @@ import {
     formatPricePerMillionTokens,
     Toast,
 } from './statsParts'
-import type {GlobalUsageStats, TimeRange, TrendGranularity, UsageStatsQueryParams} from '@shared/types'
+import type {GlobalUsageStats, TimeRange, TrendGranularity, UsageStatsQueryParams, UsageBreakdown} from '@shared/types'
 
 type View = 'provider' | 'model'
+
+/** 明细表排序键（name/provider 为文本列，其余数值列） */
+type SortCol = 'name' | 'provider' | 'conversations' | 'request' | 'avgTtft' | 'avgThroughput' | 'avgCacheHit' | 'input' | 'output' | 'cache' | 'total' | 'price' | 'cost' | 'pct'
+/** 首次点击列头的默认方向：文本列升序、数值列降序（用量场景最常用） */
+const SORT_DEFAULT_DIR: Record<SortCol, 1 | -1> = {
+    name: 1, provider: 1, conversations: -1, request: -1, avgTtft: -1, avgThroughput: -1, avgCacheHit: -1,
+    input: -1, output: -1, cache: -1, total: -1, price: -1, cost: -1, pct: -1,
+}
+const TEXT_SORT_COLS = new Set<SortCol>(['name', 'provider'])
+
+// ─── 行级指标（排序键与单元格展示共用同口径） ───
+/** 平均首字延迟（秒）；无样本返回 0 */
+const avgTtftSecondsOf = (b: UsageBreakdown): number => (b.ttftCount ?? 0) > 0 ? (b.ttftMs ?? 0) / (b.ttftCount ?? 1) / 1000 : 0
+/** 平均吞吐（t/s）；无解码时长返回 0 */
+const avgThroughputOf = (b: UsageBreakdown): number => (b.decodeMs ?? 0) > 0 ? b.outputTokens / ((b.decodeMs ?? 0) / 1000) : 0
+/** 平均缓存命中率（%）；输入 + 缓存命中为 0 时返回 null（无法计算，展示为 —） */
+const cacheHitPctOf = (b: UsageBreakdown): number | null => {
+    const denom = b.inputTokens + b.cacheReadTokens
+    return denom > 0 ? b.cacheReadTokens / denom * 100 : null
+}
 
 /** 分段控件按钮统一样式（时间范围 / 分组视图 / 货币切换三处复用） */
 const SEGMENT_BTN = 'px-2.5 py-1 text-xs rounded-md transition-colors'
@@ -184,13 +204,74 @@ export default function UsageWindow() {
     const granularity = computeGranularity(range, customRange)
     const maxTrend = data ? Math.max(...data.trend.map(t => t.inputTokens + t.outputTokens + t.cacheReadTokens), 1) : 1
     const grandTotal = data ? data.breakdown.reduce((s, b) => s + b.totalTokens, 0) : 0
-    // 同名模型跨服务商检测：模型视图出现重复模型名（不同服务商提供同名模型）时增强展示，
-    // 让用户明确两行同名数据的差异来源是服务商（价格/延迟可能不同）
-    const dupModels = duplicatedModelKeys(data?.breakdown ?? [])
-    const isDupModel = (key: string) => dupModels.has(key)
     // 时序 KPI 直接消费主进程 computeKpis 结果（口径与消息 tooltip 一致，主进程统一计算）
     const avgDecodeRate = data ? (data.kpi.avgDecodeRate ?? null) : null
     const avgTtftSeconds = data ? (data.kpi.avgTtftSeconds ?? null) : null
+
+    // ── 明细表排序：全列可点，本地 state（不持久化）；视图切换时重置（两视图列集不同）──
+    const [sort, setSort] = useState<{col: SortCol; dir: 1 | -1} | null>(null)
+    useEffect(() => { setSort(null) }, [view])
+
+    const toggleSort = (col: SortCol) => {
+        setSort(s => s?.col === col ? {col, dir: (s.dir * -1) as 1 | -1} : {col, dir: SORT_DEFAULT_DIR[col]})
+    }
+
+/** 明细表共有列（两视图共用）；会话列 tip 因两视图数据口径不同而异 */
+const detailColumns = (view: View): Array<{col: SortCol; label: string; tip?: string}> => [
+    {col: 'conversations', label: '会话', tip: view === 'provider'
+        ? '按「会话 × 模型」组合计数后跨模型累加：同一会话切换过多个模型或服务商时，会在每个模型/服务商下各计一次（非去重会话数）'
+        : '组内去重会话数（同一会话切换模型会分别计入其他模型；历史 llm_stats 回填数据不含会话维度）'},
+    {col: 'request', label: '请求'},
+    {col: 'avgTtft', label: '平均首字', tip: 'Σ首字延迟 ÷ 携带首字延迟的调用数（秒）'},
+    {col: 'avgThroughput', label: '平均吞吐', tip: 'Σ输出 tokens ÷ Σ解码时长（t/s）'},
+    {col: 'avgCacheHit', label: '平均缓存命中率', tip: '缓存命中 ÷ (输入 + 缓存命中)，与 KPI 口径一致'},
+    {col: 'input', label: '输入'},
+    {col: 'output', label: '输出'},
+    {col: 'cache', label: '缓存命中'},
+    {col: 'total', label: '合计'},
+    {col: 'price', label: '综合价格/M', tip: '总成本 USD ÷ (综合总 tokens / 1,000,000)，综合总 tokens = 输入 + 输出 + 缓存读取 + 缓存写入'},
+    {col: 'cost', label: '成本', tip: getCostDisclaimer()},
+    {col: 'pct', label: '占比'},
+]
+
+// 分组明细列定义：首列（及模型视图的第二列）按视图切换，其余列两视图共用
+const columns: Array<{col: SortCol; label: string; tip?: string}> = [
+    ...(view === 'provider'
+        ? [{col: 'name' as SortCol, label: '服务商'}]
+        : [{col: 'provider' as SortCol, label: '服务商'}, {col: 'name' as SortCol, label: '模型ID'}]),
+    ...detailColumns(view),
+]
+
+    const breakdown = data?.breakdown ?? []
+    const sortedBreakdown = useMemo(() => {
+        if (!sort) return breakdown
+        const {col, dir} = sort
+        const text = (b: UsageBreakdown): string =>
+            col === 'provider' ? (b.providerName || b.providerType || '')
+                : col === 'name' ? (view === 'provider' ? (b.providerName || providerDisplayName(b.key)) : b.key)
+                    : (b.providerName || b.providerType || '')
+        // 行级均值列的排序键（与单元格展示同口径；无法计算时按 0 处理）
+        const num = (b: UsageBreakdown): number => {
+            switch (col) {
+                case 'conversations': return b.conversationCount ?? 0
+                case 'request': return b.requestCount
+                case 'avgTtft': return avgTtftSecondsOf(b)
+                case 'avgThroughput': return avgThroughputOf(b)
+                case 'avgCacheHit': return cacheHitPctOf(b) ?? 0
+                case 'input': return b.inputTokens
+                case 'output': return b.outputTokens
+                case 'cache': return b.cacheReadTokens
+                case 'total': case 'pct': return b.totalTokens // 占比 ∝ 合计 tokens，同一排序键
+                case 'price': return b.totalTokens > 0 ? b.costUsd / (b.totalTokens / 1_000_000) : 0 // USD 基准，与展示值同序
+                case 'cost': return b.costUsd
+                default: return 0
+            }
+        }
+        const cmp = TEXT_SORT_COLS.has(col)
+            ? (a: UsageBreakdown, b: UsageBreakdown) => text(a).localeCompare(text(b)) * dir
+            : (a: UsageBreakdown, b: UsageBreakdown) => (num(a) - num(b)) * dir
+        return [...breakdown].sort(cmp)
+    }, [breakdown, sort, view])
 
     return (
         <div className="h-full flex flex-col">
@@ -361,35 +442,29 @@ export default function UsageWindow() {
                                 <table className="w-full text-xs">
                                     <thead>
                                         <tr className="bg-[var(--surface-muted)] text-[var(--text-muted)] border-b border-[var(--border)]">
-                                            {['名称', '请求', '输入', '输出', '缓存命中', '合计', '综合价格/M', '成本', '占比'].map(h => (
-                                                <th key={h} className="text-right font-medium px-3 py-2.5 first:text-left first:px-4">
-                                                    {h === '成本' ? (
-                                                        <span className="inline-flex items-center justify-end gap-1">
-                                                            成本
-                                                            <InfoTip text={getCostDisclaimer()}/>
-                                                        </span>
-                                                    ) : h === '综合价格/M' ? (
-                                                        <span className="inline-flex items-center justify-end gap-1">
-                                                            综合价格/M
-                                                            <InfoTip
-                                                                text="总成本 USD ÷ (综合总 tokens / 1,000,000)，综合总 tokens = 输入 + 输出 + 缓存读取 + 缓存写入"
-                                                                placement="top"
-                                                            />
-                                                        </span>
-                                                    ) : h}
+                                            {columns.map(({col, label, tip}, idx) => (
+                                                <th key={col}
+                                                    onClick={() => toggleSort(col)}
+                                                    title="点击排序"
+                                                    className={`font-medium px-3 py-2.5 select-none cursor-pointer hover:text-[var(--text-primary)] transition-colors text-center ${idx === 0 ? 'px-4' : ''}`}>
+                                                    <span className="inline-flex items-center justify-center gap-1">
+                                                        {label}
+                                                        {tip && <InfoTip text={tip} placement="top"/>}
+                                                        {sort?.col === col && (
+                                                            <span className="text-[9px] text-[var(--brand-primary)]">{sort.dir === 1 ? '▲' : '▼'}</span>
+                                                        )}
+                                                    </span>
                                                 </th>
                                             ))}
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {data.breakdown.map(b => {
+                                        {sortedBreakdown.map(b => {
                                             const pct = grandTotal > 0 ? Math.round(b.totalTokens / grandTotal * 100) : 0
-                                            // 唯一 React key：provider 视图 key 是服务商名（唯一）；
-                                            // model 视图 key 是模型名，同名模型可能跨服务商出现（如 deepseek-v4-flash），
-                                            // 需组合服务商名/类型避免 key 冲突导致 reconciliation 错乱、数据叠加。
-                                            const rowKey = (b.providerName || b.providerType) ? `${b.providerName ?? b.providerType}\u0000${b.key}` : b.key
-                                            // 同名模型跨服务商：小字 via 高亮 + 「同名」徽章，明确两行同名数据的差异来源
-                                            const dupModel = view === 'model' && isDupModel(b.key)
+                                            // 唯一 React key：SQL GROUP BY 维度 = (provider_id, provider_name, provider_type, model)。
+                                            // key 必须含 providerId：同一服务商删除重建后 provider_id 不同、provider_name 相同，
+                                            // 仅按 name+model 组键会撞 key → React reconciliation 视图切换时累积重复行。
+                                            const rowKey = `${b.providerId ?? ''}\u0000${b.providerName ?? b.providerType ?? ''}\u0000${b.key}`
                                             // 综合百万 Tokens 价格：总成本 / (综合总 tokens / 1_000_000)
                                             // 综合总 tokens = input + output + cacheRead + cacheWrite (即 totalTokens)
                                             // 单位随 currency 切换（USD 显示 $，CNY 显示 ¥，按实时汇率换算）
@@ -403,28 +478,37 @@ export default function UsageWindow() {
                                             )
                                             return (
                                                 <tr key={rowKey} className="border-t border-[var(--border-muted)] tabular-nums hover:bg-[var(--surface-muted)] transition-colors">
-                                                    <td className="px-4 py-2.5 font-medium text-left">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="w-1.5 h-1.5 rounded-full bg-[var(--brand-primary)] shrink-0"/>
-                                                            <div>
-                                                                <div className="flex items-center gap-1.5">
-                                                                    <span>{view === 'provider' ? (b.providerName || providerDisplayName(b.key)) : b.key}</span>
-                                                                    {dupModel && (
-                                                                        <span title="同名模型由不同服务商提供，价格/延迟可能不同"
-                                                                              className="rounded border border-[var(--border)] bg-[var(--surface-muted)] px-1 py-px text-[9px] font-medium text-[var(--brand-primary)]">
-                                                                            同名
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                {view === 'model' && b.providerType && (
-                                                                    <div className={`text-[10px] font-normal ${dupModel ? 'font-medium text-[var(--brand-primary)]' : 'text-[var(--text-muted)]'}`}>
-                                                                        {dupModel ? `via ${b.providerName || b.providerType}` : (b.providerName || b.providerType)}
-                                                                    </div>
-                                                                )}
+                                                    {view === 'provider' ? (
+                                                        <td className="px-4 py-2.5 font-medium text-left">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-[var(--brand-primary)] shrink-0"/>
+                                                                <span className="break-all">{b.providerName || providerDisplayName(b.key)}</span>
                                                             </div>
-                                                        </div>
-                                                    </td>
+                                                        </td>
+                                                    ) : (
+                                                        <>
+                                                            <td className="px-4 py-2.5 text-left text-[var(--text-secondary)] max-w-[140px] truncate" title={b.providerName || b.providerType || ''}>
+                                                                {b.providerName || providerDisplayName(b.providerType || '')}
+                                                            </td>
+                                                            <td className="px-3 py-2.5 font-medium text-left">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--brand-primary)] shrink-0"/>
+                                                                    <span className="break-all">{b.key}</span>
+                                                                </div>
+                                                            </td>
+                                                        </>
+                                                    )}
+                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{(b.conversationCount ?? 0) > 0 ? b.conversationCount : '—'}</td>
                                                     <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{b.requestCount}</td>
+                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">
+                                                        {(b.ttftCount ?? 0) > 0 ? `${avgTtftSecondsOf(b).toFixed(1)}s` : '—'}
+                                                    </td>
+                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">
+                                                        {(b.decodeMs ?? 0) > 0 ? `${formatTokensPerSecond(avgThroughputOf(b))} t/s` : '—'}
+                                                    </td>
+                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">
+                                                        {cacheHitPctOf(b) != null ? `${Math.round(cacheHitPctOf(b)!)}%` : '—'}
+                                                    </td>
                                                     <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{formatTokenCompact(b.inputTokens)}</td>
                                                     <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{formatTokenCompact(b.outputTokens)}</td>
                                                     <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{b.cacheReadTokens > 0 ? formatTokenCompact(b.cacheReadTokens) : '—'}</td>

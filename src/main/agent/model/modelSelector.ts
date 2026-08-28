@@ -117,6 +117,8 @@ export function resolveModelConfig(
         projectId: provider.projectId,
         // 保存 provider 名称用于日志显示
         _providerName: provider.name || provider.id,
+        // 稳定服务商维度（providers.id），用于 llm_usage 精确价格归因
+        _providerId: provider.id,
         // 透传服务商 API 协议形态（chat / responses），适配器按此分派
         apiStyle: provider.apiStyle || 'chat',
         // 透传服务商扩展特性（如显式缓存支持）

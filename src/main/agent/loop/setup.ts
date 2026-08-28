@@ -236,6 +236,7 @@ export function* selectModelForTurn(
                     schemeName: currentScheme?.name || null,
                     suggestedRole: modelRoleOverride,
                     providerName: resolved._providerName,
+                    providerId: resolved._providerId,
                 }
             }
         }
@@ -257,6 +258,7 @@ export function* selectModelForTurn(
                     suggestedRole: 'primary' as ModelRole, // 占位：override 不经角色
                     directModel: true,
                     providerName: direct._providerName,
+                    providerId: direct._providerId,
                 }
             }
         }
@@ -298,7 +300,7 @@ export function* selectModelForTurn(
         }
     }
 
-    return {modelConfig, schemeId, schemeName, suggestedRole, providerName: modelConfig._providerName}
+    return {modelConfig, schemeId, schemeName, suggestedRole, providerName: modelConfig._providerName, providerId: modelConfig._providerId}
 }
 
 // ─── 工具过滤 ──────────────────────────────────────────────

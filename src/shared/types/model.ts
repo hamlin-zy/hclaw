@@ -7,6 +7,7 @@
 import type { Attachment } from './message'
 import type { RunMode } from './permissions'
 import type { MCPServer } from './infra'
+import type { ModelPricing } from '../pricing'
 
 // ─── Model config ──────────────────────────────────────
 
@@ -24,6 +25,8 @@ export interface ModelConfig {
   projectId?: string
   /** 服务商显示名称（如 openrouter），用于日志 */
   _providerName?: string
+  /** providers.id（稳定服务商维度），用于用量统计价格归因 */
+  _providerId?: string
   /**
    * 推理/思考强度（undefined=禁用，auto=默认高强度）
    * - low / medium / high: 基础强度
@@ -156,6 +159,8 @@ export interface ProviderModel {
   name: string
   modelType?: ModelType
   enabled: boolean
+  /** 4 维价格（USD/token）；缺省 = 未配置 */
+  pricing?: ModelPricing
 }
 
 /** 服务商扩展特性 */

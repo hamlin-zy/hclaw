@@ -46,7 +46,7 @@ const DIALOG_TITLES: Record<string, string> = {
 /** 窗口尺寸：沿用 MenuDialogRenderer DIALOG_CONFIG 的 initialWidth/minWidth/initialHeight */
 const DIALOG_SIZES: Record<string, {width: number; minWidth?: number; height?: number}> = {
     'permission-rules': {width: 680},
-    'llm-config': {width: 620},
+    'llm-config': {width: 840, height: 760, minWidth: 680},
     'scheme-config': {width: 770},
     'mcp': {width: 680},
     'tools': {width: 580},
