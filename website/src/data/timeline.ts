@@ -8,7 +8,12 @@ export interface TimelineItem {
 
 export const timelineItems: TimelineItem[] = [
   {
-    version: 'v0.4.15', date: '2026-08-28', tag: '最新',
+    version: 'v0.4.16', date: '2026-08-29', tag: '最新',
+    title: 'Agent 循环检测与更新源兜底',
+    items: ['自动识别 Agent 卡死循环，弹窗提醒或自动暂停，可配置阈值与模式', '循环警告任务栏闪烁，最小化也不会错过提醒', 'GitHub 检查失败时自动兜底 Gitee 更新源，国内网络更可靠', '技能工具白名单修改后即时生效，兼容智谱用量解析'],
+  },
+  {
+    version: 'v0.4.15', date: '2026-08-28',
     title: '服务商编辑窗口改版与模型价格管理',
     items: ['服务商编辑窗口三段式改版，Google 双认证独立布局', '新增模型价格管理表格，支持 OpenRouter 一键拉取与逐格编辑', '价格多币种切换，用量按服务商精确计价', '应用内确认弹窗替换原生对话框，暗色主题修正'],
   },
