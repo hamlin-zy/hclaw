@@ -486,6 +486,15 @@ declare global {
         providerFetchModels: (params: any) => Promise<any>
         providerTestModel: (params: any) => Promise<any>
         modelMetaGetWindow: (model: string) => Promise<{contextLength: number}>
+        modelMetaLookup: (model: string) => Promise<{
+          contextLength: number
+          inputPrice: number
+          outputPrice: number
+          cacheReadPrice: number
+          cacheWritePrice?: number
+          inputModalities: string[] | null
+          matchedKey: string | null
+        }>
         exchangeRateGet: () => Promise<{rate: number; date: string | null}>
         // 汇率手动刷新
         exchangeRateRefresh: () => Promise<{rate: number; date: string | null}>

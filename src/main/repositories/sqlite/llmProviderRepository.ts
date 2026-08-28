@@ -1,4 +1,5 @@
 import {getDatabase, saveDatabase} from './index'
+import type {ModelPricing} from '@shared/pricing'
 import type {AuthType, LLMProvider, ModelType, ProviderCredentials, ProviderModel, ProviderType} from '@shared/types'
 
 // Re-export for consumers
@@ -11,6 +12,8 @@ export interface SqlProviderModel {
   modelName: string
   modelType: ModelType
   enabled: boolean
+  /** 4 维价格（USD/token）；undefined = 未配置 */
+  pricing?: ModelPricing
 }
 
 export interface LLMProviderWithModels extends LLMProvider {
@@ -304,7 +307,18 @@ export class SqliteProviderRepository {
 
 // ─── 辅助函数 ─────────────────────────────────────────────
 
-const SQL_MODEL_COLUMNS = 'id, provider_id, model_name, model_type, enabled'
+/** 解析 pricing JSON（空/非法 → undefined） */
+const parsePricing = (raw: string | null | undefined): ModelPricing | undefined => {
+    if (!raw) return undefined
+    try {
+        const p = JSON.parse(raw)
+        return p && typeof p === 'object' ? (p as ModelPricing) : undefined
+    } catch {
+        return undefined
+    }
+}
+
+const SQL_MODEL_COLUMNS = 'id, provider_id, model_name, model_type, enabled, pricing'
 
 /** 将数据库行映射为 SqlProviderModel 对象 */
 const mapRowToSqlProviderModel = (row: Record<string, unknown>): SqlProviderModel => ({
@@ -313,6 +327,7 @@ const mapRowToSqlProviderModel = (row: Record<string, unknown>): SqlProviderMode
     modelName: row.model_name as string,
     modelType: row.model_type as ModelType,
     enabled: row.enabled === 1,
+    pricing: parsePricing(row.pricing as string),
 })
 
 export class SqliteProviderModelRepository {
@@ -376,8 +391,17 @@ export class SqliteProviderModelRepository {
         modelName: string;
         modelType: string;
         enabled: boolean;
+        pricing?: ModelPricing;
     }, now: number): unknown[] {
-        return [model.id, model.providerId, model.modelName, model.modelType, model.enabled ? 1 : 0, now]
+        return [
+            model.id,
+            model.providerId,
+            model.modelName,
+            model.modelType,
+            model.enabled ? 1 : 0,
+            model.pricing ? JSON.stringify(model.pricing) : '',
+            now,
+        ]
     }
 
   /**
@@ -393,14 +417,14 @@ export class SqliteProviderModelRepository {
         if (this.getById(model.id)) {
             db.prepare(`
           UPDATE provider_models SET provider_id=?, model_name=?, model_type=?, enabled=?,
-            updated_at=?
+            pricing=?, updated_at=?
           WHERE id=?
         `).run(...params.slice(1).concat(params[0]))
       } else {
             db.prepare(`
-          INSERT INTO provider_models (id,provider_id,model_name,model_type,enabled,
+          INSERT INTO provider_models (id,provider_id,model_name,model_type,enabled,pricing,
             created_at,updated_at)
-          VALUES (?,?,?,?,?,?,?)
+          VALUES (?,?,?,?,?,?,?,?)
         `).run(...params, now)
       }
 
@@ -425,9 +449,9 @@ export class SqliteProviderModelRepository {
       db.prepare('DELETE FROM provider_models WHERE provider_id = ?').run(providerId)
 
       const stmt = db.prepare(`
-        INSERT INTO provider_models (id,provider_id,model_name,model_type,enabled,
+        INSERT INTO provider_models (id,provider_id,model_name,model_type,enabled,pricing,
           created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?)
       `)
 
       for (const model of models) {

@@ -32,7 +32,7 @@ const TOOLTIP_STYLE: React.CSSProperties = {
     boxShadow: 'var(--shadow-overlay)',
     fontSize: '11px',
     fontWeight: 400,
-    whiteSpace: 'nowrap',
+    whiteSpace: 'pre-line',
     borderRadius: '4px',
     pointerEvents: 'none',
     zIndex: 2147483647,

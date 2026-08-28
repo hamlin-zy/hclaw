@@ -210,6 +210,8 @@ export interface LlmUsageRecord {
   model: string
   /** providers 表服务商名（providers.name），历史数据可空 */
   providerName?: string
+  /** providers.id（稳定服务商维度，价格归因精确键；迁移前历史行可空） */
+  providerId?: string
   inputTokens: number
   outputTokens: number
   cacheReadTokens: number
@@ -227,7 +229,11 @@ export interface UsageBreakdown {
   providerType?: string   // 按模型分组时附所属服务商（UI 小字标注）
   /** providers 表服务商名（providers.name），按服务商分组时展示用，历史数据可空 */
   providerName?: string
+  /** providers.id（稳定服务商维度；迁移前历史行可空，供价格归因精确匹配） */
+  providerId?: string
   requestCount: number
+  /** 组内去重会话数（COUNT(DISTINCT conversation_id)；历史 llm_stats 回填组无会话维度，为 0/缺省） */
+  conversationCount?: number
   inputTokens: number
   outputTokens: number
   cacheReadTokens: number

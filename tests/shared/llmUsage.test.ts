@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {toLlmUsageRecord, timeRangeStartMs, timeRangeBounds, parseLocalDateStartMs, parseLocalDateEndMs, computeKpis, tokensPerSecond, mergeByProvider, attachCosts} from '@shared/llmUsage'
+import {toLlmUsageRecord, timeRangeStartMs, timeRangeBounds, parseLocalDateStartMs, parseLocalDateEndMs, computeKpis, tokensPerSecond, mergeByProvider, attachCosts, computeUsageCost} from '@shared/llmUsage'
 import {extractToolCallCount, extractToolCalls, extractTextContent} from '@shared/utils/llmUsageParser'
 
 describe('toLlmUsageRecord', () => {
@@ -33,6 +33,15 @@ describe('toLlmUsageRecord', () => {
     expect(rec.decodeMs).toBe(5000)
     expect(rec.durationMs).toBe(12345)
     expect(rec.createdAt).toBe(1000)
+  })
+
+  it('toLlmUsageRecord 透传 providerId', () => {
+    const rec = toLlmUsageRecord(
+      {providerType: 'openai', providerId: 'p1', providerName: 'Alpha', model: 'gpt-4o',
+       inputTokens: 1, outputTokens: 1, duration: 10},
+      {conversationId: 'c', messageId: 'm', seq: 0},
+    )
+    expect(rec.providerId).toBe('p1')
   })
 
   it('可选字段缺失 → 默认 0；createdAt 默认 Date.now()', () => {
@@ -332,5 +341,17 @@ describe('extractTextContent（正文连贯文本提取）', () => {
     expect(extractTextContent('chat', 'not json at all')).toBeNull()
     expect(extractTextContent('unknown-style', 'data: {}')).toBeNull()
     expect(extractTextContent('anthropic', 'data: ' + JSON.stringify({type: 'content_block_delta'}))).toBeNull()
+  })
+})
+
+describe('cacheWritePrice', () => {
+  const row = {model: 'm', inputTokens: 1000, outputTokens: 1000, cacheReadTokens: 0, cacheWriteTokens: 2000}
+  it('缺省 cacheWritePrice → 成本计 0（向后兼容）', () => {
+    const cost = computeUsageCost(row as any, () => ({inputPrice: 1e-6, outputPrice: 2e-6, cacheReadPrice: 0}))
+    expect(cost).toBeCloseTo(1000 * 1e-6 + 1000 * 2e-6, 12)
+  })
+  it('显式 cacheWritePrice 计入成本', () => {
+    const cost = computeUsageCost(row as any, () => ({inputPrice: 1e-6, outputPrice: 2e-6, cacheReadPrice: 0, cacheWritePrice: 5e-6} as any))
+    expect(cost).toBeCloseTo(1000 * 1e-6 + 1000 * 2e-6 + 2000 * 5e-6, 12)
   })
 })

@@ -41,6 +41,7 @@ const STORE_HANDLERS: Record<string, {
                     name: m.modelName,
                     modelType: m.modelType || 'text',
                     enabled: m.enabled,
+                    pricing: m.pricing || undefined,
                 })),
             }))
             const activeProviderId = providers.find((p: any) => p.enabled)?.id || null
@@ -62,6 +63,7 @@ const STORE_HANDLERS: Record<string, {
                 const models = (provider.models || []).map((m: any) => ({
                     id: m.id, providerId: provider.id, modelName: m.name,
                     modelType: m.modelType || 'text', enabled: m.enabled,
+                    pricing: m.pricing || undefined,
                 }))
                 await window.electronAPI?.providerModel?.saveByProvider?.(provider.id, models)
             }

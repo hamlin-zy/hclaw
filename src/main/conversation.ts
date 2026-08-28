@@ -3,6 +3,7 @@ import {createConversationRepository, createMessageBlockRepository} from './repo
 import {computeConversationUsageStats} from './usageStats'
 import {attachCosts} from '@shared/llmUsage'
 import {modelMetaPriceSource} from './modelMetaRegistry'
+import {buildCustomPriceEntries} from './utils/customPriceEntries'
 import {getMainWindow} from './window'
 import type {BlockDeltaPatch, ConversationMeta, ConversationSummary, Message, MessageBlock} from '@shared/types';
 import {collectDescendants} from '@shared/utils/conversationTree'
@@ -192,9 +193,9 @@ export function initConversationIPC(): void {
                 convId,
             )
             // ★ 分组成本接线：computeConversationUsageStats 为纯函数（无价格依赖），
-            //   breakdown 的 costUsd 恒 0，此处按模型粒度补实时价格 × token
-            //   （attachCosts + modelMetaPriceSource 与独立窗口共用，防口径漂移）。
-            stats.breakdown = attachCosts(stats.breakdown, modelMetaPriceSource)
+            //   breakdown 的 costUsd 恒 0，此处按行粒度补价：自定义 (providerId, model) →
+            //   providerName → 实时价（modelMetaPriceSource 兜底），与独立窗口共用口径。
+            stats.breakdown = attachCosts(stats.breakdown, modelMetaPriceSource, buildCustomPriceEntries())
             return stats
         } catch (err) {
             console.error('[IPC] conversation-usage-stats failed:', err)

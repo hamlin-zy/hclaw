@@ -17,6 +17,7 @@ vi.mock('../../../../src/main/config', () => {
 
 import {closeDatabase, getDatabase} from '../../../../src/main/repositories/sqlite'
 import {SqliteLlmUsageRepository} from '../../../../src/main/repositories/sqlite/llmUsageRepository'
+import type {CustomPriceEntry} from '@shared/usagePriceResolver'
 import type {LlmUsageRecord} from '@shared/types'
 
 let repo: SqliteLlmUsageRepository
@@ -64,7 +65,7 @@ beforeEach(() => {
     db.exec(`CREATE TABLE IF NOT EXISTS llm_usage (
         id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
         provider_type TEXT NOT NULL, model TEXT NOT NULL,
-        provider_name TEXT,
+        provider_name TEXT, provider_id TEXT,
         input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
         cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0,
         reasoning_tokens INTEGER NOT NULL DEFAULT 0,
@@ -356,10 +357,10 @@ describe('queryByConversation（会话弹窗分组）', () => {
 
 describe('queryAggregated/queryTrend — 历史 llm_stats 回填（与右键弹窗 readUsageRaw 双源语义一致）', () => {
     /** 旧消息（llm_stats 列有值，llm_usage 无行）写入 messages 表 */
-    function seedLegacyMessage(overrides: {id?: string; convId?: string; ts?: number; model?: string} = {}) {
+    function seedLegacyMessage(overrides: {id?: string; convId?: string; ts?: number; model?: string; providerName?: string} = {}) {
         const stats = [{
             inputTokens: 50, outputTokens: 10, provider: 'anthropic', model: overrides.model ?? 'claude-sonnet-4',
-            duration: 1000, ttftMs: 500, decodeMs: 2000,
+            duration: 1000, ttftMs: 500, decodeMs: 2000, providerName: overrides.providerName,
         }]
         db.prepare('INSERT INTO messages (id, conversation_id, role, timestamp, llm_stats) VALUES (?, ?, ?, ?, ?)')
             .run(overrides.id ?? 'm-2', overrides.convId ?? 'conv-1', 'assistant', overrides.ts ?? 2000, JSON.stringify(stats))
@@ -394,6 +395,29 @@ describe('queryAggregated/queryTrend — 历史 llm_stats 回填（与右键弹�
         // 合计口径不丢：两组合计 2 请求
         const total = rows.filter(r => r.key === 'claude-sonnet-4').reduce((s, r) => s + r.requestCount, 0)
         expect(total).toBe(2)
+    })
+
+    it('回归：同名同 model 的 NULL-id 历史行 + 带 provider_id 新行 → 两组共存不丢行', () => {
+        // 真实升级场景常态：同一 provider+model 既有迁移前 provider_id=NULL 行，又有迁移后带 id 行
+        // （provider_name/provider_type/model 全同）。合并键必须含 providerId，否则 Map 覆盖丢一组成本。
+        repo.record(makeRecord({id: 'usage_legacy', conversationId: 'conv-1', messageId: 'm-null',
+            providerName: 'MergeAnt', providerId: undefined, inputTokens: 100, outputTokens: 20,
+            createdAt: new Date(2026, 7, 11).getTime()}))
+        repo.record(makeRecord({id: 'usage_new', conversationId: 'conv-1', messageId: 'm-p1',
+            providerName: 'MergeAnt', providerId: 'p1', inputTokens: 200, outputTokens: 40,
+            createdAt: new Date(2026, 7, 11).getTime()}))
+        seedLegacyMessage({providerName: 'MergeAnt'})   // 历史行（无 providerId）→ 并入 NULL-id 组
+        const rows = repo.queryAggregated({range: 'all', view: 'model'}, mockGetMeta)
+        const groups = rows.filter(r => r.key === 'claude-sonnet-4' && r.providerName === 'MergeAnt')
+        expect(groups).toHaveLength(2)
+        const nullGroup = groups.find(g => !g.providerId)
+        const idGroup = groups.find(g => g.providerId === 'p1')
+        expect(nullGroup?.requestCount).toBe(2)             // 1 usage 行 + 1 历史回填
+        expect(nullGroup?.inputTokens).toBe(150)            // 100 + 50（历史）
+        expect(nullGroup?.outputTokens).toBe(30)            // 20 + 10（历史）
+        expect(idGroup?.requestCount).toBe(1)
+        expect(idGroup?.inputTokens).toBe(200)
+        expect(idGroup?.costUsd).toBeCloseTo(200*3e-6 + 40*15e-6 + 300*0.3e-6, 10)
     })
 
     it('时间范围过滤历史回填（消息 timestamp 近似）', () => {
@@ -470,5 +494,78 @@ describe('queryAggregated/queryTrend — 双源防重（llm_usage 已有记录�
         // 100(usage) + 60(m-2)；m-1 的 llm_stats 残留 50 不回填
         expect(day?.inputTokens).toBe(160)
         expect(day?.outputTokens).toBe(32)
+    })
+})
+
+describe('自定义定价取价（provider-aware cost merge）', () => {
+    /** OpenRouter 兜底价：input/output 1e-5，cacheRead 0 */
+    const orGetMeta = (model: string): {inputPrice: number; outputPrice: number; cacheReadPrice: number} => {
+        if (model === 'deepseek-x') return {inputPrice: 1e-5, outputPrice: 1e-5, cacheReadPrice: 0}
+        return {inputPrice: 0, outputPrice: 0, cacheReadPrice: 0}
+    }
+
+    beforeEach(() => {
+        db.prepare('INSERT INTO conversations (id, workspace_path, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+            .run('conv-1', '', '{}', 1000, 1000)
+    })
+
+    it('自定义定价按 (providerId, model) 精确归属，未命中回退 OpenRouter', () => {
+        // 同 model 两行，不同 provider_id（SQL 已分行）→ 每行独立取价后汇总
+        repo.record(makeRecord({id: 'p1', providerId: 'p1', providerName: 'PA', model: 'deepseek-x'}))
+        repo.record(makeRecord({id: 'p2', providerId: 'p2', providerName: 'PB', model: 'deepseek-x'}))
+        const customPrices: CustomPriceEntry[] = [
+            {providerId: 'p1', model: 'deepseek-x', pricing: {input: 2e-6}},
+        ]
+        const rows = repo.queryAggregated({range: 'all', view: 'model'}, orGetMeta, customPrices)
+        expect(rows).toHaveLength(2)
+        const p1 = rows.find(r => r.providerId === 'p1')!
+        // 自定义命中：input 100×2e-6；output/cacheRead 维度缺省 → 0（pricingToPriceSource 补零）
+        expect(p1.costUsd).toBeCloseTo(100 * 2e-6, 12)
+        const p2 = rows.find(r => r.providerId === 'p2')!
+        // 未命中：回退 getMeta → (100 input + 20 output)×1e-5
+        expect(p2.costUsd).toBeCloseTo(120 * 1e-5, 12)
+    })
+
+    it('provider 视图：同服务商多行各自取价后求和（不合并取价）', () => {
+        // 两行同 provider p1：一行命中自定义价、一行同名模型不同 model 未命中 → 逐行取价再合并
+        repo.record(makeRecord({id: 'q1', providerId: 'p1', providerName: 'PA', model: 'deepseek-x'}))
+        repo.record(makeRecord({id: 'q2', providerId: 'p1', providerName: 'PA', model: 'other-m', inputTokens: 10, outputTokens: 0, cacheReadTokens: 0}))
+        const customPrices: CustomPriceEntry[] = [
+            {providerId: 'p1', model: 'deepseek-x', pricing: {input: 2e-6}},
+        ]
+        const rows = repo.queryAggregated({range: 'all', view: 'provider'}, orGetMeta, customPrices)
+        expect(rows).toHaveLength(1)
+        const pa = rows.find(r => r.key === 'PA')!
+        // deepseek-x: 100×2e-6 = 0.0002；other-m 未命中且无 OpenRouter 价（getMeta 返回 0）→ 0
+        expect(pa.costUsd).toBeCloseTo(0.0002, 12)
+    })
+
+    it('历史行 provider_id 为 NULL → 按 providerName 匹配', () => {
+        repo.record(makeRecord({id: 'h1', providerId: undefined, providerName: 'Deepseek-ant', model: 'deepseek-x'}))
+        const customPrices: CustomPriceEntry[] = [
+            {providerName: 'Deepseek-ant', model: 'deepseek-x', pricing: {input: 2e-6}},
+        ]
+        const rows = repo.queryAggregated({range: 'all', view: 'model'}, orGetMeta, customPrices)
+        expect(rows).toHaveLength(1)
+        // providerName 兜底命中 → 自定义价 100×2e-6（非 OpenRouter 的 120×1e-5）
+        expect(rows[0]!.costUsd).toBeCloseTo(100 * 2e-6, 12)
+    })
+
+    it('无自定义定价 → 全部回退 OpenRouter > 0', () => {
+        repo.record(makeRecord({id: 'f1', providerId: 'p1', providerName: 'PA', model: 'deepseek-x'}))
+        const rows = repo.queryAggregated({range: 'all', view: 'model'}, orGetMeta)
+        expect(rows).toHaveLength(1)
+        expect(rows[0]!.costUsd).toBeCloseTo(120 * 1e-5, 12)
+        expect(rows[0]!.costUsd).toBeGreaterThan(0)
+    })
+
+    it('queryByConversation 同样支持自定义定价', () => {
+        repo.record(makeRecord({id: 'c1', providerId: 'p1', providerName: 'PA', model: 'deepseek-x'}))
+        const customPrices: CustomPriceEntry[] = [
+            {providerId: 'p1', model: 'deepseek-x', pricing: {input: 2e-6}},
+        ]
+        const rows = repo.queryByConversation(['conv-1'], 'model', orGetMeta, customPrices)
+        expect(rows).toHaveLength(1)
+        expect(rows[0]!.costUsd).toBeCloseTo(100 * 2e-6, 12)
     })
 })
