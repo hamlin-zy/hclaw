@@ -103,6 +103,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('agent-start', params),
   agentAbort: (conversationId: string) =>
     ipcRenderer.invoke('agent-abort', conversationId),
+  agentLoopSilence: (conversationId: string, fingerprint: string) =>
+    ipcRenderer.invoke('agent-loop-silence', conversationId, fingerprint),
   agentRegisterStreamingMessage: (conversationId: string, messageId: string) =>
     ipcRenderer.invoke('agent-register-streaming-message', conversationId, messageId),
   agentInjectMessage: (params: { conversationId: string; content: string; messageId?: string }) =>

@@ -743,6 +743,8 @@ export interface ExecuteToolCallsParams {
     onEvent: ((event: any) => void) | undefined
     /** 当前会话 ID（用于子 Agent 创建等场景） */
     sessionId?: string
+    /** 当前 Agent 允许使用的工具名集合（运行时白名单校验，undefined = 不限制） */
+    allowedToolNames?: ReadonlySet<string>
 }
 
 /**
@@ -755,7 +757,7 @@ export async function* executeToolCalls(
     ctx: ExecuteToolCallsParams,
 ): AsyncGenerator<AgentStreamEvent, ToolExecutionResult> {
     const {toolExecutor, collectedToolCalls, state, workingDir, abortSignal,
-        requestConfirmation, askUserQuestion, channelSend, onEvent, sessionId} = ctx
+        requestConfirmation, askUserQuestion, channelSend, onEvent, sessionId, allowedToolNames} = ctx
 
     // 通知 UI 工具执行即将开始（停止 thinking 动画 + 显示执行状态）
     yield {type: 'tools_start', toolCount: collectedToolCalls.length}
@@ -768,6 +770,7 @@ export async function* executeToolCalls(
         channelSend,
         onEvent,
         conversationId: sessionId,
+        allowedToolNames,
         sendMessage: (msg: any) => {
             if (!onEvent) return
             switch (msg.type) {

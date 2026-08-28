@@ -12,6 +12,12 @@ export const GITHUB_REPO = 'hamlin-zy/hclaw'
 /** GitHub REST API 根地址 */
 export const GITHUB_API_BASE = 'https://api.github.com'
 
+/** Gitee 仓库路径（GitHub 检查失败时的兜底版本源） */
+export const GITEE_REPO = 'sunshao/hclaw'
+
+/** Gitee raw 上的 package.json — 以 main 分支的 version 作为最新版本号 */
+export const GITEE_RAW_PACKAGE_URL = `https://gitee.com/${GITEE_REPO}/raw/main/package.json`
+
 /** 百度网盘分享链接（含提取码）—— 与 README.md 保持一致 */
 export const BAIDU_PAN_URL = 'https://pan.baidu.com/s/1EIlDiU-EiEEiF-oXrHhFdQ?pwd=nmhb'
 

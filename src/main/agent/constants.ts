@@ -28,6 +28,8 @@ export const WORKER_MESSAGE_TYPES = {
     USER_ANSWER_RESULT: 'user-answer-result',
     /** 权限规则变更同步 (Worker -> Main) */
     SYNC_PERMISSION_RULES: 'sync-permission-rules',
+    /** 静默循环检测指纹（渲染端"这是误判" → worker pendingSilences） (Main -> Worker) */
+    LOOP_SILENCE: 'loop-silence',
     /** 终止 Agent (Main -> Worker) */
     ABORT: 'abort',
     /** 请求压缩 (Main -> Worker) */
@@ -35,6 +37,8 @@ export const WORKER_MESSAGE_TYPES = {
     REFRESH_MCP_TOOLS: 'refresh-mcp-tools',
     /** 注入用户消息到运行中的 Agent 循环 (Main -> Worker) */
     INJECT_USER_MESSAGE: 'inject-user-message',
+    /** 能力快照刷新：技能/插件启停后广播最新序列化能力，运行中 Worker 重建本地 registry (Main -> Worker) */
+    CAPABILITIES_REFRESH: 'capabilities-refresh',
     /** 渠道消息发送请求 (Worker -> Main) */
     CHANNEL_SEND: 'channel-send',
     /** 渠道媒体文件发送请求 (Worker -> Main) */

@@ -12,7 +12,7 @@ import {handleToolUse, handleToolsStart, handleToolStart, handleToolProgress, ha
 import {handleAgentProgress, handleSubagentProgress, handleSubagentStart, handleSubagentDone} from './streamSubAgents'
 import {handleSkillStart, handleSkillPhase, handleSkillReferenceLoaded, handleSkillScriptStart, handleSkillScriptOutput, handleSkillScriptDone, handleSkillLog, handleSkillEnd} from './streamSkills'
 import {handleModeChange, handleTasksUpdate, handleLlmCallDone, handleCommandStart} from './streamSystem'
-import {handleDone, handleError, handleAskUser, handleWarning, handlePermissionRulesUpdated, handlePermissionConfirm, handleUserMessageInjected} from './streamInteraction'
+import {handleDone, handleError, handleAskUser, handleWarning, handlePermissionRulesUpdated, handlePermissionConfirm, handleUserMessageInjected, handleLoopSuspected, handleLoopEscalated} from './streamInteraction'
 
 const TEXTISH = new Set(['text', 'thinking'])
 
@@ -86,6 +86,8 @@ export async function handleStreamEventImpl(set: SetFn, get: GetFn, payload: Age
         case 'error':                  handleError(ctx);                   break
         case 'ask_user':               await handleAskUser(ctx);           break
         case 'warning':                handleWarning(ctx);                 break
+        case 'loop_suspected':         handleLoopSuspected(ctx);           break
+        case 'loop_escalated':         handleLoopEscalated(ctx);           break
         case 'permission-rules-updated': await handlePermissionRulesUpdated(ctx); break
         case 'permission_confirm':     await handlePermissionConfirm(ctx); break
         case 'user_message_injected':  handleUserMessageInjected(ctx);    break

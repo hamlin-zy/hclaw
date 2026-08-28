@@ -39,20 +39,37 @@ function tryCachedSkills(forceRefresh?: boolean): {
 let skillRefreshLock: Promise<void> | null = null
 
 /**
+ * refresh 超时兜底（ms）：powerManager.refresh() 若因个别能力加载挂死（如某个
+ * MCP server 连接不返回），超过该时长后不再等待，直接用注册表现有数据响应，
+ * 保证渲染层 skillStore 不会被一条永不 resolve 的 IPC 卡成空列表。
+ */
+const SKILL_REFRESH_TIMEOUT_MS = 15000
+
+/**
+ * 在 timeoutMs 内等待 promise；超时后不再等待（promise 继续在后台跑），返回 void。
+ * 用于 refresh 超时兜底：不因个别能力加载挂死而卡住 IPC 响应。
+ */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | void> {
+    return Promise.race([promise, new Promise<void>(resolve => setTimeout(resolve, timeoutMs))])
+}
+
+/**
  * 执行技能刷新的互斥操作
  * 如果已有刷新在进行，等待其完成后再执行新请求
  */
 async function doSkillRefresh<T>(fn: () => Promise<T>): Promise<T> {
-    // 等待当前刷新完成（如果存在）
+    // 等待当前刷新完成（如果存在），同样受超时保护
     if (skillRefreshLock !== null) {
-        await skillRefreshLock
+        await withTimeout(skillRefreshLock, SKILL_REFRESH_TIMEOUT_MS)
     }
 
     // 创建新的刷新任务 - 通过 powerManager.refresh() 统一刷新所有能力
-    skillRefreshLock = powerManager.refresh()
+    skillRefreshLock = powerManager.refresh().catch(err => {
+        logger.error('[SkillsRefresh] powerManager.refresh failed', {error: String(err)})
+    })
 
     try {
-        await skillRefreshLock
+        await withTimeout(skillRefreshLock, SKILL_REFRESH_TIMEOUT_MS)
     } finally {
         skillRefreshLock = null
     }

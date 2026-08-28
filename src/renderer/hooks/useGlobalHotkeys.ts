@@ -16,11 +16,25 @@ import {useMenuBarStore} from '../stores/menuBarStore'
  */
 export function useGlobalHotkeys() {
     useEffect(() => {
+        // 纯 Alt 快捷键检测：按住 Alt 期间若按过任何其他键（含 Ctrl/Shift/Meta），
+        // 则视为组合键（如 Alt+Tab、Alt+数字），keyup 时不触发
+        let altUsed = false
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (e.key === 'Alt' && !altUsed && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+                // 单独按 Alt → 切换侧边栏左下角功能菜单（三横线按钮，由 SidebarGearMenu 监听）
+                window.dispatchEvent(new CustomEvent('hclaw:toggle-gear-menu'))
+            }
+            altUsed = false
+        }
+
         const handleKeyDown = (e: KeyboardEvent) => {
             const ctrl = e.ctrlKey || e.metaKey
             const shift = e.shiftKey
             const alt = e.altKey
             const key = e.key.toLowerCase()
+
+            if (alt && key !== 'alt') altUsed = true
+            if (ctrl || shift || e.metaKey) altUsed = true
 
             // Ctrl+N → 新建会话
             if (ctrl && !shift && key === 'n') {
@@ -107,6 +121,10 @@ export function useGlobalHotkeys() {
         }
 
         document.addEventListener('keydown', handleKeyDown)
-        return () => document.removeEventListener('keydown', handleKeyDown)
+        document.addEventListener('keyup', handleKeyUp)
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown)
+            document.removeEventListener('keyup', handleKeyUp)
+        }
     }, [])
 }

@@ -4,7 +4,7 @@
  * 同类型单例（重复打开 focus 已有窗口），不同类型并行。
  * 窗口创建走 windowFactory；数据层复用渲染进程 store + sqliteStorage，无需新 IPC 数据通道。
  */
-import {BrowserWindow, ipcMain} from 'electron'
+import {BrowserWindow, ipcMain, screen} from 'electron'
 import {createAppWindow} from './windowFactory'
 
 /** 迁移到独立窗口的 dialogType 白名单（17 种，来自 MenuDialogRenderer DIALOG_CONFIG 减去 update-notice） */
@@ -43,11 +43,15 @@ const DIALOG_TITLES: Record<string, string> = {
     'task-history-conv': '任务历史',
 }
 
-/** 窗口尺寸：沿用 MenuDialogRenderer DIALOG_CONFIG 的 initialWidth/minWidth/initialHeight */
-const DIALOG_SIZES: Record<string, {width: number; minWidth?: number; height?: number}> = {
+/**
+ * 窗口尺寸：沿用 MenuDialogRenderer DIALOG_CONFIG 的 initialWidth/minWidth/initialHeight
+ * widthRatio 自适应：width = clamp(minWidth, 当前屏工作区宽度 × widthRatio, maxWidth)，
+ * 小屏不超界、大屏不无限拉伸。未配置 widthRatio 的走固定 width。
+ */
+const DIALOG_SIZES: Record<string, {width?: number; widthRatio?: number; maxWidth?: number; minWidth?: number; height?: number}> = {
     'permission-rules': {width: 680},
-    'llm-config': {width: 840, height: 760, minWidth: 680},
-    'scheme-config': {width: 770},
+    'llm-config': {widthRatio: 0.58, maxWidth: 1120, minWidth: 680, height: 760},
+    'scheme-config': {widthRatio: 0.53, maxWidth: 1026, minWidth: 620},
     'mcp': {width: 680},
     'tools': {width: 580},
     'agents': {width: 600},
@@ -68,6 +72,18 @@ const DIALOG_SIZES: Record<string, {width: number; minWidth?: number; height?: n
     'task-history-conv': {width: 720},
 }
 const DEFAULT_DIALOG_SIZE = {width: 680, height: 700, minWidth: 420, minHeight: 400}
+
+/** 按窗口目标位置所在屏幕的工作区宽度计算自适应宽度（多显示器时按最近屏取值） */
+function resolveDialogWidth(size: NonNullable<typeof DIALOG_SIZES[string]>): number {
+    if (!size.widthRatio) return size.width ?? DEFAULT_DIALOG_SIZE.width
+    const cursor = screen.getCursorScreenPoint()
+    const display = screen.getDisplayNearestPoint(cursor)
+    const area = display.workArea.width
+    const base = Math.round(area * size.widthRatio)
+    const minW = size.minWidth ?? DEFAULT_DIALOG_SIZE.minWidth
+    const maxW = size.maxWidth ?? base
+    return Math.max(minW, Math.min(area, base, maxW))
+}
 
 const configWindows = new Map<string, BrowserWindow>()
 
@@ -92,7 +108,7 @@ export function openConfigWindow(
         id: dialogType,
         title: DIALOG_TITLES[dialogType] ?? dialogType,
         entryHtml: 'dialogWindow.html',
-        width: size.width,
+        width: resolveDialogWidth(size),
         height: size.height ?? DEFAULT_DIALOG_SIZE.height,
         minWidth: size.minWidth ?? DEFAULT_DIALOG_SIZE.minWidth,
         minHeight: DEFAULT_DIALOG_SIZE.minHeight,

@@ -46,9 +46,18 @@ function AgentCard({template, onEdit, onDelete, onToggle, onPreview, readOnly}: 
 
     return (
         <div
+            role="button"
+            tabIndex={0}
+            aria-label={`查看 Agent ${template.name} 详情`}
             onClick={() => onPreview?.()}
+            onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onPreview?.()
+                }
+            }}
             className={clsx(
-                "group relative flex flex-col gap-4 rounded-xl border p-5 transition-all duration-200 cursor-pointer",
+                "group relative flex flex-col gap-4 rounded-xl border p-5 transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/50",
                 template.enabled
                     ? "bg-[var(--surface)] border-[var(--border)] hover:border-[var(--border-muted)] hover:shadow-sm"
                     : "bg-[var(--surface-muted)]/20 border-[var(--border)] opacity-60"
@@ -89,6 +98,7 @@ function AgentCard({template, onEdit, onDelete, onToggle, onPreview, readOnly}: 
                                             : "text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10"
                                     )}
                                     title="编辑"
+                                    aria-label="编辑"
                                 >
                                     <Edit2 className="w-4 h-4"/>
                                 </button>
@@ -102,6 +112,7 @@ function AgentCard({template, onEdit, onDelete, onToggle, onPreview, readOnly}: 
                                             : "text-[var(--text-muted)] hover:text-[var(--error)] hover:bg-[var(--error)]/10"
                                     )}
                                     title="删除"
+                                    aria-label="删除"
                                 >
                                     <Trash2 className="w-4 h-4"/>
                                 </button>
@@ -136,10 +147,22 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
     onEdit?: () => void
     readOnly?: boolean
 }) {
+    // Esc 关闭（对齐 SkillDetailModal 的键盘交互契约）
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose()
+        }
+        document.addEventListener('keydown', handler)
+        return () => document.removeEventListener('keydown', handler)
+    }, [onClose])
+
     return (
         <div
             className="fixed inset-0 z-[100] flex items-center justify-center"
             onClick={() => onClose()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Agent 详情：${agent.name}`}
         >
             <div className="absolute inset-0 bg-black/50"/>
             <div
@@ -167,6 +190,7 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                     </div>
                     <button
                         onClick={() => onClose()}
+                        aria-label="关闭"
                         className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded transition-colors"
                     >
                         <X className="w-4 h-4"/>
@@ -209,6 +233,40 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                             </div>
                         </div>
                     )}
+                    <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">工具约束</label>
+                        {((agent.allowedTools?.length ?? 0) > 0 || (agent.disallowedTools?.length ?? 0) > 0) ? (
+                            <>
+                                {agent.allowedTools && agent.allowedTools.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="text-[10px] text-[var(--text-muted)] w-14 shrink-0">允许</span>
+                                        {agent.allowedTools.map(tool => (
+                                            <span key={tool} className="inline-flex items-center rounded px-2 py-1 text-[10px] font-medium bg-[var(--surface-muted)] text-[var(--text-secondary)] border border-[var(--border)]">{tool}</span>
+                                        ))}
+                                    </div>
+                                )}
+                                {agent.disallowedTools && agent.disallowedTools.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="text-[10px] text-[var(--text-muted)] w-14 shrink-0">禁止</span>
+                                        {agent.disallowedTools.map(tool => (
+                                            <span
+                                                key={tool}
+                                                aria-label={`禁止使用 ${tool}`}
+                                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium bg-[var(--surface-muted)] text-[var(--text-secondary)] border border-[var(--error)]/40"
+                                            >
+                                                <X className="w-3 h-3 text-[var(--error)]" aria-hidden="true"/>
+                                                {tool}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                            </>
+                        ) : (
+                            <div>
+                                <span className="inline-flex items-center rounded px-2 py-1 text-[10px] font-medium bg-[var(--surface-muted)] text-[var(--text-muted)] border border-[var(--border)]">未限制（继承全部可用工具）</span>
+                            </div>
+                        )}
+                    </div>
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">状态</label>
                         <span className={clsx(
@@ -283,6 +341,7 @@ export default function AgentsDialog() {
 
     const localTemplates = templates.filter(t => !t.tags?.some(tag => tag.startsWith('plugin:')))
     const pluginTemplates = templates.filter(t => t.tags?.some(tag => tag.startsWith('plugin:')))
+    const enabledCount = templates.filter(t => t.enabled).length
     const filteredByTab = activeTab === 'local' ? localTemplates : pluginTemplates
     const displayTemplates = fuzzyFilter(filteredByTab, searchQuery, ['name'])
     const isReadOnly = activeTab === 'plugin'
@@ -350,7 +409,7 @@ export default function AgentsDialog() {
                             Agent 管理
                         </h2>
                         <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                            预设或自定义专用 Agent 工作流
+                            预设或自定义专用 Agent 工作流 · {templates.length} 个 Agent · {enabledCount} 个已启用
                         </p>
                     </div>
 

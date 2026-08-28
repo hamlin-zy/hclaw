@@ -22,7 +22,7 @@ import type {McpServer} from '../../shared/types/mcp'
 import {getMcpPluginOverride, mergePluginOverride, setMcpPluginOverride} from '../config/mcpConfig'
 import type {PluginMcpOverride} from '../config/mcpConfig'
 import {loadMcpServersFromPlugin} from './mcp/bootstrap'
-import {eventBus, MCPThemeEvents, PluginEvents} from '../common/eventBus'
+import {eventBus, CapabilityEvents, MCPThemeEvents, PluginEvents} from '../common/eventBus'
 import {capabilityMapper} from '../common/capabilityMapper'
 import {PluginRegistry} from '../plugin/registry'
 import {CommandDispatcher} from '../plugin/commands'
@@ -162,6 +162,12 @@ class PowerManagerImpl {
                 this.syncToCapabilityHub()
                 const stats = await this.getStats()
                 logger.debug('refresh', {status: 'completed', stats})
+                // 通知运行中的 Worker 重建本地能力 registry（技能/插件启停后保持一致）
+                // ★ 必须 fire-and-forget：emit 会触发 serializeForWorker → getAllEnabledPower，
+                //   若此刻尚未初始化会触发 initialize() → 再次进入 serialized() 队列，
+                //   排在当前 refresh() 之后 → await 它会造成自死锁（打包版启动时序下必现，
+                //   导致 initAgent 挂起、后续 IPC handler 全部不注册）
+                void eventBus.emit(CapabilityEvents.REFRESHED, undefined)
             } catch (error) {
                 logger.error('refresh', {status: 'failed', error: String(error)})
             }

@@ -209,6 +209,67 @@ describe('updateChecker — 错误分类', () => {
   })
 })
 
+describe('updateChecker — Gitee 兜底', () => {
+  it('GitHub 失败 + Gitee 返回更高版本 → update-available（notes/publishedAt 为空）', async () => {
+    mockedAxiosGet
+      .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
+      .mockResolvedValueOnce({ data: { version: '0.2.90' } })
+
+    const result = await checkForUpdate()
+
+    expect(result.status).toBe('update-available')
+    expect(result.latestVersion).toBe('0.2.90')
+    expect(result.currentVersion).toBe('0.2.87')
+    expect(result.releaseNotes).toBe('')
+    expect(result.publishedAt).toBe('')
+    expect(result.downloads.baiduPan).toContain('pan.baidu.com')
+    // 第 2 次调用是 Gitee raw package.json
+    expect(mockedAxiosGet).toHaveBeenLastCalledWith(
+      'https://gitee.com/sunshao/hclaw/raw/main/package.json',
+      expect.objectContaining({ timeout: 5000 })
+    )
+  })
+
+  it('GitHub 失败 + Gitee 版本 ≤ 当前版本 → up-to-date', async () => {
+    mockedAxiosGet
+      .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
+      .mockResolvedValueOnce({ data: { version: '0.2.87' } })
+
+    const result = await checkForUpdate()
+    expect(result.status).toBe('up-to-date')
+  })
+
+  it('GitHub 失败 + Gitee 返回非 semver 版本 → graceful up-to-date', async () => {
+    mockedAxiosGet
+      .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
+      .mockResolvedValueOnce({ data: { version: 'garbage' } })
+
+    const result = await checkForUpdate()
+    expect(result.status).toBe('up-to-date')
+  })
+
+  it('GitHub 失败 + Gitee 也失败 → 返回原 error 分类', async () => {
+    mockedAxiosGet
+      .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
+      .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
+
+    const result = await checkForUpdate()
+    expect(result.status).toBe('error')
+    expect(result.error?.code).toBe('network')
+  })
+
+  it('GitHub 失败 + Gitee 兜底成功 → 结果写入缓存', async () => {
+    mockedAxiosGet
+      .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
+      .mockResolvedValueOnce({ data: { version: '0.2.90' } })
+
+    await checkForUpdate()
+    const cached = await getStatus()
+    expect(cached?.status).toBe('update-available')
+    expect(cached?.latestVersion).toBe('0.2.90')
+  })
+})
+
 describe('updateChecker — 缓存行为', () => {
   it('init() 触发首次检查并填充缓存', async () => {
     mockedAxiosGet.mockResolvedValueOnce({

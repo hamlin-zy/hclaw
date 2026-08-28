@@ -2,6 +2,8 @@ import {memo} from 'react'
 import {useConversationStore} from '../stores/conversationStore'
 import MessageList from './message-list'
 import InputArea from './InputArea'
+import LoopWarningBanner from './LoopWarningBanner'
+import {useAgentStore} from '../stores/agentStore'
 
 interface ConversationPageProps {
     conversationId: string
@@ -21,6 +23,8 @@ interface ConversationPageProps {
 const ConversationPage = memo(function ConversationPage({conversationId}: ConversationPageProps) {
     const isActive = useConversationStore((s) => s.activeConversationId === conversationId)
     const wasRendered = useConversationStore((s) => s.renderedConversationIds.includes(conversationId))
+    // 循环检测警告条：仅该会话存在 loopWarning 时渲染（InputArea 上方）
+    const hasLoopWarning = useAgentStore((s) => !!s.convAgentStates[conversationId]?.loopWarning)
 
     return (
         <>
@@ -32,6 +36,9 @@ const ConversationPage = memo(function ConversationPage({conversationId}: Conver
                     <MessageList conversationId={conversationId}/>
                 </div>
             )}
+
+            {/* 循环检测警告条 — 仅存在未消除的 loopWarning 时渲染 */}
+            {hasLoopWarning && <LoopWarningBanner conversationId={conversationId}/>}
 
             {/* 输入框卡片 — 始终挂载，保持输入状态 */}
             <div

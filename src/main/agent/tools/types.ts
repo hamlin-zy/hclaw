@@ -58,6 +58,8 @@ export interface ToolContext {
     channelSend?: (channelId: string, toUser: string, text: string, contextToken?: string, fileType?: string) => Promise<{ success: boolean; error?: string }>
     /** 推送事件到渲染进程 */
     onEvent?: (event: any) => void
+    /** 当前 Agent 允许使用的工具名集合（运行时白名单校验，防止模型幻觉调用未注入的工具） */
+    allowedToolNames?: ReadonlySet<string>
 }
 
 // ─── 工具执行结果 ──────────────────────────────────────

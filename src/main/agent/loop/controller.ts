@@ -32,6 +32,7 @@ import {endTurnCleanup} from './helpers'
 import {initializeRunEnvironment, detectCommandContext, selectModelForTurn, filterTools, filterToolsForDegrade, buildSystemPrompt} from './setup'
 import {executeLlmCallWithRetry, executeToolCalls, extractMediaFromToolResults} from './execute'
 import {PreprocessCache} from './preprocessCache'
+import {LoopDetector, buildTurnToolCalls, isLoopPatternSilenced, type LoopVerdict} from './loopDetector'
 import {restoreCatalogState, runCatalogPreStep, type CatalogState} from './catalogPublish'
 // ─── LLM 调用事件与工具方法（内联自历史 compress.ts） ───
 import type {ChatMessage} from '../model/types'
@@ -264,7 +265,13 @@ export class AgentLoopController {
             params, state, commandContext, getSettings, workingDir, maxTurnsLimit,
         )
 
-        // ── 阶段 5：收尾（仅 max_turns_reached 路径需要额外处理） ──
+        // ── 阶段 5：收尾（仅 max_turns_reached / loop_detected 路径需要额外处理） ──
+        if (loopResult === 'loop_detected') {
+            // done(loop_detected) 已在 #mainLoop 检测门内发出，此处不重复 yield
+            logger.info(`[AgentLoop] loop finish turns:${this.turns} reason:loop_detected`)
+            this.ctrlState = 'done'
+            return
+        }
         if (loopResult === 'max_turns') {
             logger.info(`[AgentLoop] loop finish turns:${this.turns} reason:max_turns_reached`)
             this.ctrlState = 'done'
@@ -318,12 +325,80 @@ export class AgentLoopController {
         // ★ 能力目录状态：循环外初始化；从既有会话消息流还原（恢复会话零重复发布）
         let catalogState: CatalogState = restoreCatalogState(currentState.messages)
 
+        // ── LLM 循环检测：按档位初始化（off / 子 Agent 运行 → 不检测）──
+        // 子 Agent 运行标识：modelRole 为 agentTool 子会话专用字段（grep agentTool.ts 确认，
+        // 仅子 Agent 的 agentLoop 调用传入）；traceContext === 'subAgent' 同理。
+        const ldMode = getSettings()?.agent?.loopDetection?.mode ?? 'notify'
+        const isSubagentRun = params.modelRole !== undefined || params.traceContext === 'subAgent'
+        let detector: LoopDetector | null =
+            (ldMode === 'off' || isSubagentRun)
+                ? null
+                : new LoopDetector(Math.max(2, getSettings()?.agent?.loopDetection?.threshold ?? 3))
+        let lastVerdict: LoopVerdict | null = null
+        let lastReportedFingerprint: string | null = null
+        let lastEscalationReported = false
+        let lastVerdictSilenced = false
+
         while (turnCount < maxTurnsLimit) {
             // ── 检查中止信号 ──
             if (abortSignal?.aborted) {
                 logger.info(`[AgentLoop] loop done turns:${turnCount} reason:aborted`)
                 yield {type: 'done', reason: 'aborted'}
                 return 'early_exit'
+            }
+
+            // ── LLM 循环检测门：上一轮记录的签名达到触发条件时按档位处理 ──
+            if (detector && lastVerdict) {
+                // 消费主进程经 worker 传入的静默指纹（渲染端"这是误判"）
+                let fp: string | undefined
+                while (params.pendingSilences && params.pendingSilences.length > 0 && (fp = params.pendingSilences.shift()) !== undefined) {
+                    detector.silence(fp)
+                }
+                const mode = getSettings()?.agent?.loopDetection?.mode ?? 'notify'
+                // 渠道等无 askUserQuestion 回调时 pause 降级 notify
+                const canPause = mode === 'pause' && typeof params.askUserQuestion === 'function'
+                const silenced = lastVerdictSilenced || detector.isSilenced(lastVerdict.fingerprint)
+                if (!silenced && mode !== 'off') {
+                    if (canPause) {
+                        const isEscalation = lastReportedFingerprint === lastVerdict.fingerprint
+                            && detector.isEscalationReached(lastVerdict.fingerprint)
+                        if (!lastReportedFingerprint || isEscalation) {
+                            const answer = await params.askUserQuestion?.(
+                                `检测到 Agent 可能陷入重复循环（${lastVerdict.kind === 'consecutive' ? '连续' : '周期'} ${lastVerdict.repeatCount} 轮执行了相同的工具调用并得到相同结果）。为避免打扰，任务已暂停。如果这是误判，抱歉打扰了您——您可以在 系统设置 → LLM循环检测 中调整档位或关闭此功能。`,
+                                ['继续一轮', '终止 loop', '本会话不再提示'],
+                            )
+                            if (answer === '终止 loop') {
+                                logger.info(`[AgentLoop] loop terminated by user via loop detection, turns:${turnCount}`)
+                                yield {type: 'done', reason: 'loop_detected'} as AgentStreamEvent
+                                endTurnCleanup()
+                                return 'loop_detected'
+                            }
+                            if (answer === '本会话不再提示') {
+                                detector.silence(lastVerdict.fingerprint)   // worker 内模块状态，本 worker 存续期内有效
+                            }
+                            lastReportedFingerprint = lastVerdict.fingerprint
+                        }
+                    } else {
+                        // notify 档（含 pause 无 askUserQuestion 的降级路径）
+                        const threshold = Math.max(2, getSettings()?.agent?.loopDetection?.threshold ?? 3)
+                        if (lastReportedFingerprint !== lastVerdict.fingerprint) lastEscalationReported = false   // 新模式重置升级标记
+                        const escalated = lastReportedFingerprint === lastVerdict.fingerprint
+                            && detector.isEscalationReached(lastVerdict.fingerprint) && !lastEscalationReported
+                        if (!lastReportedFingerprint || escalated) {
+                            yield {
+                                type: escalated ? 'loop_escalated' : 'loop_suspected',
+                                fingerprint: lastVerdict.fingerprint,
+                                kind: lastVerdict.kind,
+                                repeatCount: lastVerdict.repeatCount,
+                                threshold,
+                                detail: lastVerdict.detail,
+                            } as AgentStreamEvent
+                            if (escalated) lastEscalationReported = true
+                            lastReportedFingerprint = lastVerdict.fingerprint
+                        }
+                    }
+                }
+                lastVerdict = null; lastVerdictSilenced = false
             }
 
             // ── 注入运行中新收到的用户消息 ──
@@ -506,12 +581,29 @@ export class AgentLoopController {
                 channelSend,
                 onEvent,
                 sessionId,
+                // 运行时白名单：与发送给 LLM 的 tools 定义一致，拦截幻觉调用。
+                // 并入 preCapabilityToolDefinitions：400 降级重试时 LLM 实际收到的是
+                // 该列表（多出 analyze_image），降级后的合法调用不应被误拦。
+                allowedToolNames: new Set([
+                    ...availableToolDefinitions.map(t => t.name),
+                    ...preCapabilityToolDefinitions.map(t => t.name),
+                ]),
             })
             currentState = toolResult.state
             for (const event of toolResult.events) yield event
 
             // ── 从 tool result 提取媒体文件 ──
             currentState = extractMediaFromToolResults(currentState)
+
+            // ── LLM 循环检测：记录本轮工具签名 ──
+            if (detector) {
+                const v = detector.recordTurn(buildTurnToolCalls(currentState.messages as any))
+                if (v && !isLoopPatternSilenced(sessionId ?? '', v.fingerprint)) {
+                    lastVerdict = v; lastVerdictSilenced = false
+                } else if (v) {
+                    lastVerdict = v; lastVerdictSilenced = true
+                }
+            }
 
             // ── mid-loop 交接门：auto-handoff 注入后，工具执行完成即强制结束本轮 ──
             // 无论模型是否成功调用 session_handoff，都不进入下一轮，防止交接门反复命中导致重复注入死循环。
