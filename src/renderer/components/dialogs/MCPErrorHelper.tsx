@@ -1,27 +1,19 @@
 import {useCallback, useEffect, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
-import type {MCPServer} from '@shared/types'
 import {useConversationStore} from '../../stores/conversationStore'
 import {useAgentStore} from '../../stores/agentStore'
+import {MCP_ACTION_LABELS, buildMcpDiagMessage, type McpDiagAction} from '../../utils/mcpErrorPrompt'
+import type {MCPServer} from '@shared/types'
 
-// ─── 类型 ───────────────────────────────
-
-type McpAction = 'enable' | 'reconnect' | 'test'
+// ─── useMcpErrorDialog ───────────────────
+// ACTION_LABELS / 消息构建逻辑见 utils/mcpErrorPrompt.ts
 
 interface ErrorState {
     isOpen: boolean
     server: MCPServer | null
     errorMessage: string
-    action: McpAction | null
+    action: McpDiagAction | null
 }
-
-const ACTION_LABELS: Record<McpAction, string> = {
-    enable: '启用',
-    reconnect: '重新连接',
-    test: '测试连接',
-}
-
-// ─── useMcpErrorDialog ───────────────────
 
 export function useMcpErrorDialog(opts?: {
     onNavigateHome?: () => void
@@ -37,7 +29,7 @@ export function useMcpErrorDialog(opts?: {
     const showError = useCallback((params: {
         server: MCPServer
         errorMessage: string
-        action: McpAction
+        action: McpDiagAction
     }) => {
         setState({
             isOpen: true,
@@ -58,31 +50,12 @@ export function useMcpErrorDialog(opts?: {
         // 1. 关闭弹框
         close()
 
-        // 2. 构建 MCP 配置 JSON（纯配置字段，不含 runtime 状态）
-        const configObj: Record<string, unknown> = {
-            name: server.name,
-            transport: server.transport,
-        }
-        if (server.command) configObj.command = server.command
-        if (server.args && server.args.length > 0) configObj.args = server.args
-        if (server.env && Object.keys(server.env).length > 0) configObj.env = server.env
-        if (server.url) configObj.url = server.url
-        if (server.headers && Object.keys(server.headers).length > 0) configObj.headers = server.headers
-        if (server.cwd) configObj.cwd = server.cwd
-        if (server.timeout) configObj.timeout = server.timeout
-        if (server.autoApprove && server.autoApprove.length > 0) configObj.autoApprove = server.autoApprove
-        if (server.denyList && server.denyList.length > 0) configObj.denyList = server.denyList
-        if (server.userDescription) configObj.userDescription = server.userDescription
-
-        const configJson = JSON.stringify(configObj, null, 2)
-
-        // 3. 组织消息文本
-        const actionLabel = ACTION_LABELS[action || 'enable']
-        const msg = `MCP连接失败了，帮我检查一下：\n\n\`\`\`json\n${configJson}\n\`\`\`\n\n操作: ${actionLabel}\n报错信息：${errorMessage}`
+        // 2. 组织消息文本（标准 mcpServers JSON 格式，见 utils/mcpErrorPrompt.ts）
+        const msg = buildMcpDiagMessage(server, action || 'enable', errorMessage)
 
         try {
-            // 4-7. 创建会话 → 跳转 → 添加消息 → 启动 Agent
-            const convId = await useConversationStore.getState().createConversation()
+            // 3-6. 创建会话（指定诊断标题）→ 跳转 → 添加消息 → 启动 Agent
+            const convId = await useConversationStore.getState().createConversation(`MCP 检查 - ${server.name}`)
             useConversationStore.getState().setActiveConversation(convId)
             useConversationStore.getState().addMessage({role: 'user', content: msg})
             await useAgentStore.getState().startAgent({conversationId: convId, message: msg})
@@ -92,7 +65,6 @@ export function useMcpErrorDialog(opts?: {
             console.error('[MCPErrorHelper] 帮我检查失败:', err)
         }
     }, [state, close, onNavigateHome])
-
     // 按 ESC 关闭
     useEffect(() => {
         const handleEsc = (e: KeyboardEvent) => {
@@ -158,7 +130,7 @@ export function useMcpErrorDialog(opts?: {
                             {/* Content */}
                             <div className="px-5 py-4">
                                 <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                                    「{state.server.name}」{ACTION_LABELS[state.action || 'enable']}时出错
+                                    「{state.server.name}」{MCP_ACTION_LABELS[state.action || 'enable']}时出错
                                 </p>
                             </div>
 

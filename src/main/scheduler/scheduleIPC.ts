@@ -1,5 +1,5 @@
 // src/main/scheduler/scheduleIPC.ts
-import {ipcMain} from 'electron'
+import {ipcMain, BrowserWindow} from 'electron'
 import path from 'path'
 import fs from 'fs'
 import {schedulerManager} from './index'
@@ -7,6 +7,13 @@ import {scheduleRepo} from './ScheduleRepository'
 import {createConversationRepository} from '../repositories'
 import crypto from 'crypto'
 import {getHclawDir} from '../config'
+
+/** 向所有窗口广播定时任务变更（schedules 配置窗口内增删改时，主窗口列表需刷新） */
+function broadcastSchedulesChanged(): void {
+    for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('schedules-changed')
+    }
+}
 
 export function initScheduleIPC() {
   ipcMain.handle('scheduler-list', () => scheduleRepo.list())
@@ -29,6 +36,7 @@ export function initScheduleIPC() {
     if (success) {
       const record = scheduleRepo.get(id)
       if (record) schedulerManager.upsertWorkerSchedule(record)
+      broadcastSchedulesChanged()
     }
     return {success, id}
   })
@@ -40,6 +48,7 @@ export function initScheduleIPC() {
       const record = scheduleRepo.get(id)
       if (record && record.enabled) schedulerManager.upsertWorkerSchedule(record)
       else schedulerManager.deleteWorkerSchedule(id)
+      broadcastSchedulesChanged()
     }
     return {success}
   })
@@ -49,7 +58,9 @@ export function initScheduleIPC() {
     if (!existing) return {success: false, error: `未找到ID为 "${id}" 的定时任务。`}
     schedulerManager.stop(id)
     schedulerManager.deleteWorkerSchedule(id)
-    return {success: scheduleRepo.delete(id)}
+    const success = scheduleRepo.delete(id)
+    if (success) broadcastSchedulesChanged()
+    return {success}
   })
 
   ipcMain.handle('scheduler-stop', (_e, scheduleId: string) => (schedulerManager.stop(scheduleId), {success: true}))

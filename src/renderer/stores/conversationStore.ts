@@ -32,8 +32,8 @@ interface ConversationStore {
   removeWorkspace: (path: string) => void
 
     // Conversations
-  createConversation: () => Promise<string>
-    handleSessionCreated: (convId: string, title: string, workspacePath: string, handoffFromConvId?: string) => void
+  createConversation: (title?: string) => Promise<string>
+    handleSessionCreated: (convId: string, title: string, workspacePath: string, handoffFromConvId?: string, createdAt?: number, updatedAt?: number) => void
     /** 子会话创建事件处理（agent 工具创建）：侧栏顶部插入，保留其他工作区 */
     handleChildConvCreated: (convId: string, title: string, parentConvId?: string) => void
   deleteConversation: (id: string) => Promise<void>
@@ -835,7 +835,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
 
       // ── Conversations ──────────────────────────────────
 
-      createConversation: async () => {
+      createConversation: async (title?: string) => {
           const id = `conv-${crypto.randomUUID()}`
           const now = Date.now()
           const wsPath = get().currentWorkspacePath || ''
@@ -850,9 +850,10 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               const cfg: any = await window.electronAPI?.configRead?.('message-display-mode')
               if (isDisplayMode(cfg?.mode)) defaultDisp = cfg.mode
           } catch { /* 静默：保持 'detailed' */ }
+          const convTitle = title || '新对话'
           const meta = {
               id,
-              title: '新对话',
+              title: convTitle,
               workspacePath: wsPath,
               createdAt: now,
               updatedAt: now,
@@ -866,7 +867,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
 
           const summary: ConversationSummary = {
               id,
-              title: '新对话',
+              title: convTitle,
               preview: '',
               createdAt: now,
               updatedAt: now,
@@ -900,14 +901,17 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       },
 
       // 会话移交工具创建新会话时的处理：侧栏顶部插入 + 自动切换（复用 createConversation 的 state 更新逻辑）
-      handleSessionCreated: (convId, title, workspacePath, handoffFromConvId) => {
+      handleSessionCreated: (convId, title, workspacePath, handoffFromConvId, createdAt, updatedAt) => {
           const now = Date.now()
+          // 时间戳来自事件 payload（创建方 meta），缺省时兜底为当前时间，避免 Invalid Date
+          const cAt = createdAt || now
+          const uAt = updatedAt || cAt
           const summary: ConversationSummary = {
               id: convId,
               title,
               preview: '',
-              createdAt: now,
-              updatedAt: now,
+              createdAt: cAt,
+              updatedAt: uAt,
               channel: undefined,
               handoffFromConvId: handoffFromConvId || undefined,
           }
@@ -1544,5 +1548,29 @@ if (typeof window !== 'undefined') {
         // 只更新元数据标题/预览，不重新加载消息列表（默认行为）
         // 防止 loadMessages 覆盖 messagesMap 中尚未持久化的新消息（如新会话首条 Ctrl+K 消息）
         // 非活跃会话的消息加载由用户切换会话时的 setActiveConversation → loadMessagesInitial 触发
+    })
+
+    // 监听主进程推送的会话删除（任意窗口删除后，其他窗口从侧栏同步移除）
+    window.electronAPI?.onConversationDeleted?.(({ids}) => {
+        const idSet = new Set(ids)
+        const state = useConversationStore.getState()
+        const workspaces = {...state.workspaces}
+        for (const [wsPath, wsInfo] of Object.entries(workspaces) as any[]) {
+            const remaining = (wsInfo.conversations || []).filter((c: any) => !idSet.has(c.id))
+            if (remaining.length !== (wsInfo.conversations || []).length) {
+                workspaces[wsPath] = {...wsInfo, conversations: remaining}
+            }
+        }
+
+        const updates: any = {workspaces}
+
+        // 激活会话被删除：清理激活态与消息缓存（由 UI 回退到空会话页）
+        if (state.activeConversationId && idSet.has(state.activeConversationId)) {
+            updates.activeConversationId = null
+            const newMap = {...state.messagesMap}
+            for (const id of ids) delete newMap[id]
+            updates.messagesMap = newMap
+        }
+        useConversationStore.setState(updates)
     })
 }

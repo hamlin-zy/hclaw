@@ -246,6 +246,9 @@ declare global {
             updatedAt?: number
         }) => void) => () => void
 
+        // 监听主进程推送的会话删除（任意窗口删除后其他窗口同步移除侧栏条目）
+        onConversationDeleted: (callback: (data: { ids: string[] }) => void) => () => void
+
       // Block operations (incremental write)
       blocksWrite: (convId: string, block: unknown) => Promise<boolean>
       blocksUpdate: (blockId: string, updates: unknown) => Promise<boolean>
