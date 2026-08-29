@@ -297,6 +297,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
         return () => ipcRenderer.removeListener('conversation-updated', handler)
     },
 
+    // 监听主进程推送的会话删除（任意窗口删除后其他窗口同步移除侧栏条目）
+    onConversationDeleted: (callback: (data: { ids: string[] }) => void) => {
+        const handler = (_: unknown, data: any) => callback(data)
+        ipcRenderer.on('conversation-deleted', handler)
+        return () => ipcRenderer.removeListener('conversation-deleted', handler)
+    },
+
   // Message LLM stats update
   message: {
     updateLlmStats: (params: {

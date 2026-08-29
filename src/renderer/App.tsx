@@ -546,6 +546,18 @@ export default function App() {
     }
   }, [])
 
+  // ── 监听渲染端跨窗口创建的会话（如 MCP「帮我检查」独立窗口），刷新主窗口侧栏 ──
+  useEffect(() => {
+    const cleanup = window.electronAPI?.receive?.('conversation-created', (payload: any) => {
+      if (!payload?.id || payload?.source !== 'renderer-create') return
+      useConversationStore.getState().handleSessionCreated(payload.id, payload.title || '新对话', payload.workspacePath || '', undefined, payload.createdAt, payload.updatedAt)
+    })
+
+    return () => {
+      cleanup?.()
+    }
+  }, [])
+
     // ── 监听服务商配置变更，同步到主进程全局管理器 ──
     useEffect(() => {
       const buildSignature = (providers: ReturnType<typeof useLLMStore.getState>['providers']) =>

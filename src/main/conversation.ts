@@ -1,4 +1,4 @@
-import {ipcMain} from 'electron';
+import {ipcMain, BrowserWindow} from 'electron';
 import {createConversationRepository, createMessageBlockRepository} from './repositories';
 import {computeConversationUsageStats} from './usageStats'
 import {attachCosts} from '@shared/llmUsage'
@@ -7,6 +7,14 @@ import {buildCustomPriceEntries} from './utils/customPriceEntries'
 import {getMainWindow} from './window'
 import type {BlockDeltaPatch, ConversationMeta, ConversationSummary, Message, MessageBlock} from '@shared/types';
 import {collectDescendants} from '@shared/utils/conversationTree'
+
+/** 向除发送方外的所有窗口广播事件（跨窗口同步共用） */
+function broadcastToOtherWindows(sender: Electron.WebContents, channel: string, payload: unknown): void {
+    for (const win of BrowserWindow.getAllWindows()) {
+        if (win.isDestroyed() || win.webContents === sender) continue;
+        win.webContents.send(channel, payload);
+    }
+}
 
 /** 注册会话管理相关 IPC handlers */
 export function initConversationIPC(): void {
@@ -17,6 +25,19 @@ export function initConversationIPC(): void {
     ipcMain.handle('conversation-create', (_e, convId: string, meta: Record<string, unknown>) => {
         try {
             const ok = convRepo().create(convId, meta as unknown as ConversationMeta);
+            // 跨窗口同步：渲染端（含 MCP「帮我检查」等独立 dialog 窗口）建会话后，
+            // 主窗口需感知并刷新侧栏。发送方自身排除，避免重复插入。
+            if (ok && _e.sender) {
+                const m = meta as Partial<ConversationMeta>;
+                broadcastToOtherWindows(_e.sender, 'conversation-created', {
+                    id: convId,
+                    title: m.title ?? '新对话',
+                    workspacePath: m.workspacePath ?? '',
+                    createdAt: m.createdAt,
+                    updatedAt: m.updatedAt,
+                    source: 'renderer-create',
+                });
+            }
             return ok;
         } catch {
             return false;
@@ -95,7 +116,13 @@ export function initConversationIPC(): void {
 
     ipcMain.handle('conversation-delete', (_e, convId: string) => {
         try {
-            return convRepo().delete(convId);
+            const ok = convRepo().delete(convId);
+            // 跨窗口同步：任意窗口（含 conversations 配置窗口）删除会话后，
+            // 通知其他窗口从侧栏移除该条目，避免残留已删除会话
+            if (ok && _e.sender) {
+                broadcastToOtherWindows(_e.sender, 'conversation-deleted', {ids: [convId]});
+            }
+            return ok;
         } catch {
             return false;
         }
@@ -169,7 +196,12 @@ export function initConversationIPC(): void {
 
     ipcMain.handle('conversation-delete-batch', (_e, ids: string[]) => {
         try {
-            return Array.isArray(ids) && ids.length > 0 && convRepo().deleteBatch(ids);
+            const ok = Array.isArray(ids) && ids.length > 0 && convRepo().deleteBatch(ids);
+            // 跨窗口同步：批量删除同样通知其他窗口移除条目
+            if (ok && _e.sender) {
+                broadcastToOtherWindows(_e.sender, 'conversation-deleted', {ids});
+            }
+            return ok;
         } catch (err) {
             console.error('[IPC] conversation-delete-batch failed:', err);
             return false;
