@@ -26,6 +26,22 @@ const dialogType = dialogArg ? dialogArg.split('=')[1] : ''
 const taskConvArg = process.argv.find(arg => arg.startsWith('--hclaw-task-conv='))
 const taskConvId = taskConvArg ? taskConvArg.split('=')[1] : ''
 
+// 从 additionalArguments 读取备忘录编辑窗口参数（仅 memo-edit 窗口有）
+// --hclaw-memo-id=<id>：编辑既有备忘录；--hclaw-memo-workspace=<path>：新建（作用于该工作区）
+// 值经渲染端 encodeURIComponent 编码：workspacePath 含空格/`=` 时不会被 argv 切断
+const memoArg = (prefix: string): string => {
+    const arg = process.argv.find(a => a.startsWith(prefix))
+    if (!arg) return ''
+    const raw = arg.slice(prefix.length)
+    try {
+        return decodeURIComponent(raw)
+    } catch {
+        return raw
+    }
+}
+const memoId = memoArg('--hclaw-memo-id=')
+const memoWorkspace = memoArg('--hclaw-memo-workspace=')
+
 contextBridge.exposeInMainWorld('electronAPI', {
     initialTheme: initialThemeValue,
     isWin11,
@@ -297,6 +313,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
         return () => ipcRenderer.removeListener('conversation-updated', handler)
     },
 
+    // 监听主进程推送的会话删除（任意窗口删除后其他窗口同步移除侧栏条目）
+    onConversationDeleted: (callback: (data: { ids: string[] }) => void) => {
+        const handler = (_: unknown, data: any) => callback(data)
+        ipcRenderer.on('conversation-deleted', handler)
+        return () => ipcRenderer.removeListener('conversation-deleted', handler)
+    },
+
   // Message LLM stats update
   message: {
     updateLlmStats: (params: {
@@ -327,6 +350,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('save-dropped-file', data),
     // 通过 webUtils 获取拖拽文件的完整路径（sandbox 模式下 file.path 不可用）
     getDroppedFilePath: (file: File) => webUtils.getPathForFile(file),
+
+    // 备忘录（memo）IPC：所有通道返回 {ok, data} | {ok, error}
+    memo: {
+        list: (workspacePath: string) => ipcRenderer.invoke('memo:list', workspacePath),
+        getById: (id: string) => ipcRenderer.invoke('memo:getById', id),
+        create: (input: unknown) => ipcRenderer.invoke('memo:create', input),
+        update: (id: string, patch: unknown) => ipcRenderer.invoke('memo:update', {id, patch}),
+        remove: (id: string) => ipcRenderer.invoke('memo:delete', id),
+        uploadAttachment: (input: unknown) => ipcRenderer.invoke('memo:uploadAttachment', input),
+        // 渲染层 File 对象无绝对路径，需在 preload 侧用 webUtils 解析
+        uploadFile: (file: File) => ipcRenderer.invoke('memo:uploadAttachment', {fileName: file.name, srcPath: webUtils.getPathForFile(file), mime: file.type}),
+        discardPending: (ids: string[]) => ipcRenderer.invoke('memo:discardPending', ids),
+        createSession: (id: string) => ipcRenderer.invoke('memo:createSession', id),
+    },
+    onMemoChanged: (handler: (payload: {workspacePath: string}) => void) => {
+        const listener = (_e: unknown, payload: {workspacePath: string}) => handler(payload)
+        ipcRenderer.on('memo_changed', listener)
+        return () => ipcRenderer.removeListener('memo_changed', listener)
+    },
     clipboardWriteImage: (data: { buffer: number[] }) =>
         ipcRenderer.invoke('clipboard-write-image', data),
   openPath: (filePath: string) =>
@@ -489,6 +531,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     dialogType,
     /** 任务历史窗口限定的会话 id（--hclaw-task-conv；仅 task-history-conv 有，其余为空串） */
     taskConvId,
+    /** 备忘录编辑窗口：编辑态的 memo id（--hclaw-memo-id；新建窗口为空串） */
+    memoId,
+    /** 备忘录编辑窗口：新建态的目标工作区路径（--hclaw-memo-workspace；编辑窗口为空串） */
+    memoWorkspace,
     openConfigWindow: (type: string, extraArgs?: string[]) =>
         ipcRenderer.invoke('open-config-window', type, extraArgs),
     // 通用独立窗口控制（仅独立窗口注入：主窗口无 --hclaw-window-id）

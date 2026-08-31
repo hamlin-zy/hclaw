@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from 'react'
+import {useEffect, useLayoutEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 
 /**
@@ -42,7 +42,7 @@ const TOOLTIP_STYLE: React.CSSProperties = {
 
 type TooltipPlacement = 'above' | 'below' | 'right'
 
-type TooltipState = {text: string; x: number; y: number; placement: TooltipPlacement} | null
+type TooltipState = {text: string; x: number; y: number; placement: TooltipPlacement; minX: number} | null
 
 /** tooltip 自身高度估算（11px 字体 + 8px 垂直 padding + 2px 边框 ≈ 21px），
  *  用于空间检测：下方剩余空间不足时翻转到元素上方 */
@@ -51,6 +51,20 @@ const TOOLTIP_HEIGHT_ESTIMATE = 30
 export default function TooltipPortal() {
     const [tooltip, setTooltip] = useState<TooltipState>(null)
     const hideTimer = useRef<number | null>(null)
+    const tipRef = useRef<HTMLDivElement | null>(null)
+    // 左缘钳制：居中放置时 tooltip 半宽可能越过触发元素左缘（会话列表
+    // 靠窗口左侧时会溢出窗口）。渲染后测量实际宽度，若越界则改为与触发元素
+    // 左缘对齐（取消 X 方向位移）。useLayoutEffect 在绘制前同步修正，无闪烁。
+    const [clamped, setClamped] = useState(false)
+
+    useLayoutEffect(() => {
+        const el = tipRef.current
+        if (!tooltip || !el || tooltip.placement === 'right') {
+            setClamped(false)
+            return
+        }
+        setClamped(tooltip.x - el.offsetWidth / 2 < tooltip.minX)
+    }, [tooltip])
 
     useEffect(() => {
         const handleMouseOver = (e: MouseEvent) => {
@@ -83,7 +97,19 @@ export default function TooltipPortal() {
             }
 
             const text = el.dataset.tooltip || el.dataset.titleOriginal
-            if (!text) return
+            if (!text) {
+                // 命中选择器但无文本（如重渲染后残留 data-tooltip-active 标记的元素）：
+                // 不能提前 return——否则旧 tooltip 既不排隐藏 timer 也不清除，永久滞留。
+                // 与 !el 分支同语义：清除旧 timer 后延迟隐藏。
+                if (hideTimer.current) clearTimeout(hideTimer.current)
+                hideTimer.current = window.setTimeout(() => setTooltip(null), 100)
+                // 残留标记清理：标记存在但 titleOriginal 已丢失 → 恢复不了 title，
+                // 只删标记让该元素退出选择器命中范围
+                if (el.dataset.tooltipActive && !el.dataset.titleOriginal) {
+                    delete el.dataset.tooltipActive
+                }
+                return
+            }
 
             clearTimeout(hideTimer.current!)
             hideTimer.current = null
@@ -108,7 +134,7 @@ export default function TooltipPortal() {
                 : placement === 'above'
                     ? rect.top - 6
                     : rect.bottom + 6
-            setTooltip({text, x, y, placement})
+            setTooltip({text, x, y, placement, minX: rect.left})
         }
 
         const handleMouseOut = (e: MouseEvent) => {
@@ -143,17 +169,21 @@ export default function TooltipPortal() {
 
     return createPortal(
         <div
+            ref={tipRef}
             className="tooltip-portal"
             style={{
                 ...TOOLTIP_STYLE,
                 opacity: tooltip ? 1 : 0,
                 top: tooltip?.y ?? -9999,
-                left: tooltip?.x ?? -9999,
-                transform: tooltip?.placement === 'right'
-                    ? 'translateY(-50%)'
-                    : tooltip?.placement === 'above'
-                        ? 'translate(-50%, -100%)'
-                        : 'translateX(-50%)',
+                // 钳制时：左缘与触发元素对齐，取消 X 位移（Y 位移保留）
+                left: clamped && tooltip ? tooltip.minX : (tooltip?.x ?? -9999),
+                transform: clamped && tooltip
+                    ? (tooltip.placement === 'above' ? 'translateY(-100%)' : 'none')
+                    : (tooltip?.placement === 'right'
+                        ? 'translateY(-50%)'
+                        : tooltip?.placement === 'above'
+                            ? 'translate(-50%, -100%)'
+                            : 'translateX(-50%)'),
             }}
         >
             {tooltip?.text ?? ''}

@@ -16,14 +16,11 @@ import {workspaceRepo} from '../repositories/sqlite/workspaceRepository'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
 import {agentManager} from '../agent/manager'
 import {channelCommandManager} from './CommandManager'
-import {buildUserContent, hasAudioAttachment, isAttachmentOnlyMarker} from './utils'
+import {hasAudioAttachment, isAttachmentOnlyMarker} from './utils'
 import {mcpService} from '../services/mcpService'
 import {getMainWindow} from '../window'
-import {runtimeConfigManager} from '../agent/runtimeConfigManager'
-import {resolveChannelModelConfig} from '../agent/model/modelSelector'
+import {startAgentCore} from '../agent/startAgentCore'
 import type {ChannelBindingRecord, CommandResult, IncomingMessage, ResourceRef} from './types'
-import type {ChatMessage, ModelConfig} from '../agent/model/types'
-import type {LLMProvider, ModelScheme} from '@shared/types'
 import {logger} from '../agent/logger'
 
 /** 统一的结构化错误日志，避免 (err as Error)?.message || err 重复书写 */
@@ -490,35 +487,10 @@ async function processAgentMessage(
         return
     }
 
-    // 2. Build chat messages for agent
-    const allMsgs = (convRepo.readMessages(binding.conversationId) as Array<{
-        id: string; role: string; content: string; timestamp?: number; attachments?: Array<{ path: string; name: string }>
-    }>) || []
-
-    // 修正后在 map 中保留 timestamp、metadata 等字段，确保 compact_persist 回写时数据完整
-    // ★ 对于含结构化附件的用户消息，用 buildUserContent 重建 LLM 输入（含附件描述文本）
-    const chatMessages: ChatMessage[] = allMsgs.map((m) => {
-        const mAny = m as any
-        const hasStructuredAttachments = m.role === 'user' && mAny.attachments?.length > 0
-        return {
-            role: m.role as 'user' | 'assistant' | 'system' | 'tool',
-            content: hasStructuredAttachments
-                ? buildUserContent(m.content, mAny.attachments)
-                : m.content,
-            id: m.id,
-            timestamp: m.timestamp,
-        }
-    })
-    // 4. Get runtime config
-    const currentScheme = runtimeConfigManager.getScheme() as ModelScheme | undefined
-    const currentProviders = runtimeConfigManager.getProviders() as LLMProvider[] | undefined
+    // 2. 上下文重建由 startAgentCore 从 DB 历史完成（含附件 metadata 重建），
+    //    此处仅获取工作目录（用于日志与响应中媒体文件解析）
     const meta = convRepo.readMeta(binding.conversationId) as { workspacePath?: string }
     const workingDir = meta?.workspacePath || ''
-    // 渠道会话模型：会话 override → 直接解析；无 → 默认 primary（不预置）
-    const convOverride = runtimeConfigManager.getOverride(binding.conversationId)
-    const modelConfig = (currentProviders && currentProviders.length > 0)
-        ? resolveChannelModelConfig(convOverride, currentProviders, currentScheme)
-        : undefined
 
     // 5. Run agent and get response (with progress notifications every 5 minutes)
     let responseText: string
@@ -527,12 +499,9 @@ async function processAgentMessage(
         deps.onAgentStateChange?.(binding.conversationId, true)
         responseText = await runAgent({
             conversationId: binding.conversationId,
-            messages: chatMessages,
+            message: msg.text,
             messageAttachments: msg.attachments,
             workingDir,
-            currentScheme,
-            currentProviders,
-            modelConfig,
             onProgress: (minutes: number) => {
                 sendViaWorker(
                     msg.channelId,
@@ -586,25 +555,20 @@ async function processAgentMessage(
 
 interface RunAgentOptions {
     conversationId: string
-    messages: ChatMessage[]
+    /** 渠道 user 消息文本（已由 processAgentMessage 落库，suppress 场景仅用于去重比对） */
+    message: string
     messageAttachments?: Array<{ path: string; name: string }>
     workingDir: string
-    currentScheme?: ModelScheme
-    currentProviders?: LLMProvider[]
-    modelConfig?: ModelConfig
     /** 可选：进度通知回调，参数为已运行分钟数 */
     onProgress?: (minutes: number) => void
 }
 
-async function runAgent(options: RunAgentOptions): Promise<string> {
+/** 导出仅供测试（runAgent.core.test.ts 直调锁定 core 启动契约） */
+export async function runAgent(options: RunAgentOptions): Promise<string> {
     const {
         conversationId,
-        messages,
+        message,
         messageAttachments,
-        workingDir,
-        currentScheme,
-        currentProviders,
-        modelConfig,
         onProgress,
     } = options
 
@@ -624,7 +588,8 @@ async function runAgent(options: RunAgentOptions): Promise<string> {
         progressTimer = setInterval(sendProgressNotification, PROGRESS_INTERVAL_MS)
     }
 
-    return new Promise<string>((resolve, reject) => {
+    // executor 标记 async：await startAgentCore 的失败在 try/catch 内转为 reject
+    return new Promise<string>(async (resolve, reject) => {
         let accumulatedText = ''
 
         const removeListener = agentManager.addStreamListener(conversationId, (event) => {
@@ -649,24 +614,23 @@ async function runAgent(options: RunAgentOptions): Promise<string> {
             }
         })
 
-        // Start agent (no timeout - agent can run for hours)
-        agentManager
-            .start({
+        // Start agent via unified core entry (no timeout - agent can run for hours)
+        try {
+            await startAgentCore({
                 conversationId,
-                messages,
+                message,
+                // 仅用于 isDuplicatePendingUserMessage 的附件数比对
                 messageAttachments,
-                modelConfig: modelConfig || {provider: 'anthropic' as const, model: ''},
-                workingDir,
-                // maxTurns 由 agentManager.start() 内部从系统设置读取，此处不传
-                schemeConfig: currentScheme && currentProviders
-                    ? {scheme: currentScheme, providers: currentProviders}
-                    : undefined,
-            })
-            .catch((err) => {
-                removeListener()
-                if (progressTimer) clearInterval(progressTimer)
-                reject(err)
-            })
+                // user 已落库（processAgentMessage persistMessage），由 core 从 DB 历史重建
+                //（附件随 metadata.attachments 带上），避免 [user, user] 重复
+                suppressUserMessage: true,
+            }, 'channel')
+        } catch (err) {
+            removeListener()
+            if (progressTimer) clearInterval(progressTimer)
+            reject(err)
+            return
+        }
     })
 }
 

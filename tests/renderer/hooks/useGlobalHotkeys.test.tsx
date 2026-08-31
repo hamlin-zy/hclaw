@@ -298,11 +298,14 @@ describe('useGlobalHotkeys', () => {
         expect(useSidebarStore.getState().leftCollapsed).toBe(true)
     })
 
-    it('Ctrl+Shift+B 无响应（右侧栏已移除）', () => {
+    it('Ctrl+Shift+B → toggleRight（右侧栏）', () => {
+        useSidebarStore.setState({rightCollapsed: false})
         mountHook()
 
         pressKey({key: 'b', ctrlKey: true, shiftKey: true})
 
+        expect(useSidebarStore.getState().rightCollapsed).toBe(true)
+        // Ctrl+B（左侧栏）不受 Ctrl+Shift+B 影响
         expect(useSidebarStore.getState().leftCollapsed).toBe(false)
     })
 
@@ -410,5 +413,54 @@ describe('useGlobalHotkeys', () => {
         pressKey({key: 'Escape'})
 
         expect(abortMock).not.toHaveBeenCalled()
+    })
+
+    describe('纯 Alt 检测（keyup）', () => {
+        /** 派发 keyup 事件 */
+        function releaseKey(init: KeyboardEventInit) {
+            const evt = new KeyboardEvent('keyup', init)
+            act(() => {
+                document.dispatchEvent(evt)
+            })
+            return evt
+        }
+
+        it('单独按 Alt（无组合键）→ 派发 hclaw:toggle-gear-menu', () => {
+            const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+            mountHook()
+
+            pressKey({key: 'Alt'})
+            releaseKey({key: 'Alt'})
+
+            expect(dispatchSpy.mock.calls.some(([e]) =>
+                (e as CustomEvent).type === 'hclaw:toggle-gear-menu')).toBe(true)
+        })
+
+        it('Alt+↑ 切换会话后松开 Alt → 不触发 gear-menu（组合键 keyup 提前于 Alt keyup）', () => {
+            const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+            mountHook()
+
+            // 完整时序：按住 Alt → 按下 ↑ → 松开 ↑ → 松开 Alt
+            pressKey({key: 'Alt'})
+            pressKey({key: 'ArrowUp', altKey: true})
+            releaseKey({key: 'ArrowUp', altKey: true})
+            releaseKey({key: 'Alt'})
+
+            expect(dispatchSpy.mock.calls.some(([e]) =>
+                (e as CustomEvent).type === 'hclaw:toggle-gear-menu')).toBe(false)
+        })
+
+        it('Alt+数字 组合后松开 Alt → 不触发 gear-menu', () => {
+            const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+            mountHook()
+
+            pressKey({key: 'Alt'})
+            pressKey({key: '1', altKey: true})
+            releaseKey({key: '1', altKey: true})
+            releaseKey({key: 'Alt'})
+
+            expect(dispatchSpy.mock.calls.some(([e]) =>
+                (e as CustomEvent).type === 'hclaw:toggle-gear-menu')).toBe(false)
+        })
     })
 })

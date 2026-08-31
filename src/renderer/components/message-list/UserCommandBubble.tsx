@@ -20,7 +20,7 @@ export {parseUserCommandContext} from '../../lib/userCommandParse'
 
 // ─── 类型配置 ──────────────────────────────────────────
 
-const TYPE_STYLE = {
+export const TYPE_STYLE = {
     skill: {icon: '🛠️', color: 'text-[#8b5cf6]', bg: 'bg-[#8b5cf6]/10', label: '技能'},
     agent: {icon: '🤖', color: 'text-[#0ea5e9]', bg: 'bg-[#0ea5e9]/10', label: '代理'},
     user: {icon: '⚡', color: 'text-[#f97316]', bg: 'bg-[#f97316]/10', label: '命令'},

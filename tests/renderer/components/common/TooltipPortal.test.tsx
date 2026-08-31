@@ -11,7 +11,7 @@
  * 鼠标在元素内部（含子元素）移动不隐藏、不重置；只有真正离开元素才隐藏。
  */
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
-import {render, fireEvent, cleanup} from '@testing-library/react'
+import {render, fireEvent, cleanup, act} from '@testing-library/react'
 import TooltipPortal from '../../../../src/renderer/components/common/TooltipPortal'
 
 /** 渲染 portal + 一个带 title 的按钮（内含子元素，模拟方案选择器按钮结构） */
@@ -81,6 +81,36 @@ describe('TooltipPortal hover 语义', () => {
         blank.remove()
     })
 
+    it('移到命中选择器但无文本的元素：旧 tooltip 必须被隐藏（滞留回归）', () => {
+        vi.useFakeTimers()
+        try {
+            const {container} = render(
+                <>
+                    <TooltipPortal/>
+                    <button title="提示A" data-testid="a">A</button>
+                    <span data-tooltip-active="1" data-testid="b">B</span>
+                </>,
+            )
+            const a = container.querySelector('[data-testid="a"]')!
+            const b = container.querySelector('[data-testid="b"]')!
+            fireEvent.mouseOver(a)
+            expect(document.querySelector('.tooltip-portal')!.textContent).toContain('提示A')
+            // 悬停到命中选择器但无 tooltip 文本的元素（如重渲染后残留的
+            // data-tooltip-active 标记）：修复前 handleMouseOver 走 !text 提前
+            // return，既不排隐藏 timer 也不清 tooltip → 旧 tooltip 永久滞留
+            fireEvent.mouseOver(b)
+            // setTooltip(null) 在 timer 回调中触发，需 act 包裹让 React 刷新 DOM
+            act(() => {
+                vi.advanceTimersByTime(150)
+            })
+            expect(document.querySelector('.tooltip-portal')!.textContent).toBe('')
+            // 残留标记被清理：元素退出选择器命中范围
+            expect(b.getAttribute('data-tooltip-active')).toBeNull()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
     it('data-tooltip-placement="right"：tooltip 锚定元素右侧（折叠态图标场景）', () => {
         const {container} = render(
             <>
@@ -97,6 +127,32 @@ describe('TooltipPortal hover 语义', () => {
         // 右侧锚定：垂直居中（translateY(-50%)），水平不居中、左对齐向右延伸，
         // 窄条（36px）下长文本不会向左溢出窗口边缘
         expect(tipEl.getAttribute('style')).toContain('translateY(-50%)')
+    })
+
+    it('居中放置会越过元素左缘时：tooltip 左缘钳制对齐元素左缘（会话列表左溢出回归）', () => {
+        const {container} = render(
+            <>
+                <TooltipPortal/>
+                <button title="完整提示文本" data-testid="target">
+                    <span>子元素</span>
+                </button>
+            </>,
+        )
+        const btn = container.querySelector('[data-testid="target"]')!
+        // 模拟贴近窗口左缘的会话列表项：left=10, width=40 → 居中锚点 x=30，
+        // tooltip 宽 200 → 居中时左缘 -70 < 10，必须钳制到元素左缘
+        vi.spyOn(btn, 'getBoundingClientRect').mockReturnValue({
+            left: 10, top: 100, right: 50, bottom: 130, width: 40, height: 30,
+            x: 10, y: 100, toJSON: () => ({}),
+        } as DOMRect)
+        fireEvent.mouseOver(btn)
+        const tipEl = document.querySelector('.tooltip-portal') as HTMLElement
+        expect(tipEl.textContent).toContain('完整提示文本')
+        Object.defineProperty(tipEl, 'offsetWidth', {value: 200, configurable: true})
+        // 触发重渲染以执行 useLayoutEffect 钳制
+        fireEvent.mouseOver(btn)
+        expect(tipEl.style.left).toBe('10px')
+        expect(tipEl.style.transform).not.toContain('-50%')
     })
 
     it('快速扫过多个无 title 元素后进入 icon：旧隐藏定时器不泄漏（闪现消失竞态）', () => {

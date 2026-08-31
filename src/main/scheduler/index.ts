@@ -377,7 +377,7 @@ class SchedulerManager {
         logger.info('execute.scriptResult', {source: msg.source, scheduleId: msg.scheduleId, success: String(result.success), error: result.error || '(none)'})
         succeeded = result.success
       } else {
-        // Agent/Skill/Command 类型：创建会话 → 写入消息 → agentManager.start
+        // Agent/Skill/Command 类型：创建会话 → 写入消息 → startAgentCore
         convId = crypto.randomUUID()
         this.createSchedulerConversation(convId, msg.scheduleId, schedule?.name || '', startTime, schedule?.workspaceId)
         logger.debug('execute.conversationCreated', {source: msg.source, convId, scheduleId: msg.scheduleId})
@@ -386,26 +386,11 @@ class SchedulerManager {
         this.writeUserMessage(convId, userContent)
         logger.debug('execute.userMessageWritten', {source: msg.source, convId, content: userContent})
 
-        const {agentManager} = await import('../agent/manager')
-        const currentScheme = runtimeConfigManager.getScheme()
-        const currentProviders = runtimeConfigManager.getProviders()
-        const convMeta = this.convRepo.readMeta(convId) as any
-        const workingDir = convMeta?.workspacePath || getHclawDir()
-
-        await agentManager.start({
+        const {startAgentCore} = await import('../agent/startAgentCore')
+        await startAgentCore({
           conversationId: convId,
-          messages: [{
-            role: 'user',
-            content: userContent,
-            id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          }],
-          modelConfig: {} as any,
-          workingDir,
-          schemeConfig: currentScheme ? {
-            scheme: currentScheme,
-            providers: currentProviders as any,
-          } : undefined,
-        })
+          message: userContent,
+        }, 'scheduler')
 
         logger.info('execute.agentDone', {source: msg.source, scheduleId: msg.scheduleId, convId})
         succeeded = true

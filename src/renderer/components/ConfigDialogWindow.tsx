@@ -19,6 +19,7 @@ import ToolListDialog from './dialogs/ToolListDialog'
 import SystemPromptDialog from './dialogs/SystemPromptDialog'
 import AboutDialog from './dialogs/AboutDialog'
 import TaskHistoryDialog from './dialogs/TaskHistoryDialog'
+import MemoEditDialog from './dialogs/MemoEditDialog'
 import PermissionRulesPanel from './PermissionRulesPanel'
 import LlmLogsWindow from './LlmLogsWindow'
 import UsageWindow from './usage/UsageWindow'
@@ -55,6 +56,7 @@ const DIALOG_CONFIG: Record<string, DialogConfig> = {
     // 双作用域共用同一组件（组件内部按 dialogType / taskConvId 区分全量与当前会话视图）
     'task-history': {title: '任务历史', Component: TaskHistoryDialog},
     'task-history-conv': {title: '任务历史', Component: TaskHistoryDialog},
+    'memo-edit': {title: '备忘录编辑', Component: MemoEditDialog},
 }
 
 export default function ConfigDialogWindow() {

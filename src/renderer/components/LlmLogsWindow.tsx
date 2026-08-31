@@ -16,6 +16,7 @@ import {TimelineView, collectRecords, applyTraceFilter} from './llmTrace/Timelin
 import {extractUsage, extractToolCalls, extractTextContent, type TokenUsage} from '@shared/utils/llmUsageParser'
 import {tokensPerSecond} from '@shared/llmUsage'
 import {confirm} from './ConfirmDialog'
+import ThemedSelect from './ThemedSelect'
 import {CopyButton} from './common/CopyButton'
 import type {LlmCallRecord, LlmTraceProjection, TraceFilter} from './llmTrace/types'
 
@@ -246,24 +247,18 @@ export default function LlmLogsWindow() {
                         }`}
                     >{label}</button>
                 ))}
-                <select
+                <ThemedSelect
                     value={filter.model}
-                    onChange={e => setFilter(f => ({...f, model: e.target.value}))}
-                    className="bg-[var(--surface-elevated)] text-[var(--text-primary)] text-xs border border-[var(--border)] rounded-md px-2 py-1 outline-none"
-                >
-                    <option value="">全部模型</option>
-                    {models.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-                <select
+                    onChange={model => setFilter(f => ({...f, model}))}
+                    options={[{value: '', label: '全部模型'}, ...models.map(m => ({value: m, label: m}))]}
+                    ariaLabel="按模型过滤"
+                />
+                <ThemedSelect
                     value={filter.conversationId}
-                    onChange={e => setFilter(f => ({...f, conversationId: e.target.value}))}
-                    className="bg-[var(--surface-elevated)] text-[var(--text-primary)] text-xs border border-[var(--border)] rounded-md px-2 py-1 outline-none max-w-52"
-                >
-                    <option value="">全部会话</option>
-                    {conversations.map(c => (
-                        <option key={c.id} value={c.id}>{c.title.length > 30 ? `${c.title.slice(0, 30)}…` : c.title}</option>
-                    ))}
-                </select>
+                    onChange={conversationId => setFilter(f => ({...f, conversationId}))}
+                    options={[{value: '', label: '全部会话'}, ...conversations.map(c => ({value: c.id, label: c.title}))]}
+                    ariaLabel="按会话过滤"
+                />
             </div>
 
             {/* ── 摘要条 ── */}

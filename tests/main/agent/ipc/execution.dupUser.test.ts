@@ -8,7 +8,7 @@
  * （实测 conv-08fd8ff2 首调 input=17 恰好=第二个重复 user 的 token）。
  */
 import {describe, it, expect} from 'vitest'
-import {isDuplicatePendingUserMessage} from '@/main/agent/ipc/execution'
+import {isDuplicatePendingUserMessage} from '@/main/agent/startAgentCore'
 
 describe('isDuplicatePendingUserMessage — 末条 user 与待发送消息去重判定', () => {
     it('history 末条 user 与 params.message 一致 → 判定为重复（应跳过）', () => {

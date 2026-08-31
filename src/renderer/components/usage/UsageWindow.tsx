@@ -12,6 +12,8 @@ import {
     formatPricePerMillionTokens,
     Toast,
 } from './statsParts'
+import {UsageFilterBar} from './UsageFilterBar'
+import {EMPTY_USAGE_FILTER, filterBreakdown, type UsageFilterState} from './usageFilter'
 import type {GlobalUsageStats, TimeRange, TrendGranularity, UsageStatsQueryParams, UsageBreakdown} from '@shared/types'
 
 type View = 'provider' | 'model'
@@ -41,10 +43,10 @@ const SEGMENT_BTN = 'px-2.5 py-1 text-xs rounded-md transition-colors'
 const SEGMENT_ACTIVE = 'bg-[var(--surface-elevated)] shadow-sm text-[var(--text-primary)] font-medium'
 const SEGMENT_INACTIVE = 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
 
-/** 时间范围按钮顺序（任务 03a：全部 → 今天 → 7天 → 30天 → 自定义，默认今天） */
+/** 时间范围按钮顺序：今天 → 昨天 → 7天 → 30天 → 自定义，默认今天 */
 const RANGE_OPTIONS: Array<{range: TimeRange; label: string}> = [
-    {range: 'all', label: '全部'},
     {range: 'today', label: '今天'},
+    {range: 'yesterday', label: '昨天'},
     {range: '7d', label: '近 7 天'},
     {range: '30d', label: '近 30 天'},
     {range: 'custom', label: '自定义'},
@@ -68,11 +70,11 @@ function daysAgoLocal(n: number): string {
 }
 
 /**
- * 趋势分组粒度：今天 → 按小时；自定义 ≤1 天（同日或相邻两天）→ 按小时；
+ * 趋势分组粒度：今天/昨天 → 按小时；自定义 ≤1 天（同日或相邻两天）→ 按小时；
  * 7天/30天/全部 → 按天；自定义 >1 天 → 按天
  */
 function computeGranularity(range: TimeRange, custom: {start: string; end: string}): TrendGranularity {
-    if (range === 'today') return 'hour'
+    if (range === 'today' || range === 'yesterday') return 'hour'
     if (range === 'custom') {
         const dayDiff = Math.round((parseLocalDateStartMs(custom.end) - parseLocalDateStartMs(custom.start)) / 86400000)
         return dayDiff <= 1 ? 'hour' : 'day'
@@ -210,7 +212,12 @@ export default function UsageWindow() {
 
     // ── 明细表排序：全列可点，本地 state（不持久化）；视图切换时重置（两视图列集不同）──
     const [sort, setSort] = useState<{col: SortCol; dir: 1 | -1} | null>(null)
-    useEffect(() => { setSort(null) }, [view])
+    // ── 明细表过滤：服务商/模型下拉 + 合计 token 范围（M），仅作用于明细表行，视图切换时重置 ──
+    const [filter, setFilter] = useState<UsageFilterState>(EMPTY_USAGE_FILTER)
+    useEffect(() => {
+        setSort(null)
+        setFilter(EMPTY_USAGE_FILTER)
+    }, [view])
 
     const toggleSort = (col: SortCol) => {
         setSort(s => s?.col === col ? {col, dir: (s.dir * -1) as 1 | -1} : {col, dir: SORT_DEFAULT_DIR[col]})
@@ -243,8 +250,10 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
 ]
 
     const breakdown = data?.breakdown ?? []
+    // 明细表过滤（纯前端，仅影响明细行；KPI/趋势保持全量口径）
+    const filteredBreakdown = useMemo(() => filterBreakdown(breakdown, filter), [breakdown, filter])
     const sortedBreakdown = useMemo(() => {
-        if (!sort) return breakdown
+        if (!sort) return filteredBreakdown
         const {col, dir} = sort
         const text = (b: UsageBreakdown): string =>
             col === 'provider' ? (b.providerName || b.providerType || '')
@@ -270,8 +279,8 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
         const cmp = TEXT_SORT_COLS.has(col)
             ? (a: UsageBreakdown, b: UsageBreakdown) => text(a).localeCompare(text(b)) * dir
             : (a: UsageBreakdown, b: UsageBreakdown) => (num(a) - num(b)) * dir
-        return [...breakdown].sort(cmp)
-    }, [breakdown, sort, view])
+        return [...filteredBreakdown].sort(cmp)
+    }, [filteredBreakdown, sort, view])
 
     return (
         <div className="h-full flex flex-col">
@@ -430,14 +439,21 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
 
                         {/* 分组明细表 */}
                         <section className="rounded-lg border border-[var(--border)]">
-                            <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border)] bg-[var(--surface-muted)]">
+                            <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-[var(--border)] bg-[var(--surface-muted)] flex-wrap">
                                 <div className="text-xs font-semibold text-[var(--text-primary)]">
                                     {view === 'provider' ? '服务商明细' : '模型明细'}
                                 </div>
-                                <div className="text-[11px] text-[var(--text-muted)]">{data.breakdown.length} 项</div>
+                                <UsageFilterBar view={view} rows={breakdown} filter={filter} onChange={setFilter}/>
+                                <div className="text-[11px] text-[var(--text-muted)]">
+                                    {filteredBreakdown.length !== breakdown.length
+                                        ? `${filteredBreakdown.length} / ${breakdown.length} 项`
+                                        : `${breakdown.length} 项`}
+                                </div>
                             </div>
                             {data.breakdown.length === 0 ? (
                                 <div className="py-12 text-center text-sm text-[var(--text-muted)]">暂无用量数据</div>
+                            ) : filteredBreakdown.length === 0 ? (
+                                <div className="py-12 text-center text-sm text-[var(--text-muted)]">无符合过滤条件的数据</div>
                             ) : (
                                 <table className="w-full text-xs">
                                     <thead>
