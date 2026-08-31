@@ -62,16 +62,18 @@ export function initLlmTraceIPC(): void {
 
     ipcMain.handle('llm-trace:list-conversations', async () => {
         // 目录 safeId 列表 + 会话库标题映射（sanitize(id) → title，规则同 getTraceIndexLines）
+        // dirPath：该会话日志落盘目录的运行时完整路径（根目录按 getLlmTraceRootDir() 实际解析）
         const dirs = listConversationDirs()
+        const root = getLlmTraceRootDir()
         try {
             const {createConversationRepository} = await import('../repositories')
             const titleById = new Map<string, string>()
             for (const meta of createConversationRepository().list()) {
                 titleById.set(sanitizeConvId(meta.id), meta.title)
             }
-            return dirs.map(id => ({id, title: titleById.get(id) ?? id}))
+            return dirs.map(id => ({id, title: titleById.get(id) ?? id, dirPath: path.join(root, id)}))
         } catch {
-            return dirs.map(id => ({id, title: id}))
+            return dirs.map(id => ({id, title: id, dirPath: path.join(root, id)}))
         }
     })
 

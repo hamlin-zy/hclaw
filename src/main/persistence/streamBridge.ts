@@ -17,6 +17,33 @@ import type {ConversationPersistence, ToolCallPersistable} from './conversationP
 const thinkSegByMsg = new Map<string, number>()          // msgId → 当前段号
 const lastWasThinking = new Set<string>()                // msgId → 上一事件是否 thinking
 
+// ── 方案 2 根治：LLM 调用轮次标注（turnIndex）────────────────────────────
+// 契约：一次 LLM 调用 = 一个 turnIndex。tool_result/tool_denied 必然是一次
+// 调用的收尾，其后首个 thinking/text 块开启下一轮；同轮内 think→text→think
+// 交错不递增。此前 turnIndex 由 manager 传入且仅在 user_message_injected 时
+// 递增，容器消息内多次 LLM 调用全部 undefined → DB turn_index 全 NULL →
+// historyConverter 恒走 think 边界切段 fallback，单轮多段 think 被过度拆分
+// 为 stub assistant → 重建序列 ≠ loop 内存态 → KV cache 断裂。
+const turnSeqByMsg = new Map<string, number>()           // msgId → 当前轮次
+const contentAfterToolByMsg = new Set<string>()          // msgId → tool_result 后已有内容块
+
+/** 当前轮次（tool_use 等不开启新轮的块） */
+function currentTurn(msgId: string): number {
+  return turnSeqByMsg.get(msgId) ?? 0
+}
+/** 内容块（thinking/text）的轮次：若处于 tool_result 之后则开启下一轮 */
+function turnForContent(msgId: string): number {
+  if (contentAfterToolByMsg.has(msgId)) {
+    contentAfterToolByMsg.delete(msgId)
+    turnSeqByMsg.set(msgId, currentTurn(msgId) + 1)
+  }
+  return currentTurn(msgId)
+}
+/** tool_result/tool_denied 收尾 = 一次 LLM 调用结束，标记下一内容块开启新轮 */
+function closeTurn(msgId: string): void {
+  contentAfterToolByMsg.add(msgId)
+}
+
 // ── P4 修正：子会话排除（与渲染端 isChildConversation 守卫等价）──────────
 // 子会话落库由 agentTool 独立累积器 childAcc 负责（agentTool.ts），桥接若不排除 =
 // 流式块增量 + childAcc 全量写 + manager 保险丝三写方。
@@ -32,14 +59,13 @@ export function persistStreamEvent(
   msgId: string,
   pending: PendingAssistantMsg,
   event: AgentStreamEvent,
-  turnIndex: number | undefined,
 ): void {
   if (isChildConv(convId)) return   // ★P4：子会话由 childAcc 唯一负责
   const thinkSeq = () => thinkSegByMsg.get(msgId) ?? 0
   switch (event.type) {
     case 'text': {
       const chunk = (event as {type: 'text'; content?: string}).content || ''
-      if (chunk) p.recordTextChunk(convId, msgId, thinkSeq() + pending.toolCalls.length, chunk, turnIndex)
+      if (chunk) p.recordTextChunk(convId, msgId, thinkSeq() + pending.toolCalls.length, chunk, turnForContent(msgId))
       lastWasThinking.delete(msgId)
       break
     }
@@ -50,7 +76,7 @@ export function persistStreamEvent(
       }
       lastWasThinking.add(msgId)
       const content = pending.thinkParts?.length ? pending.thinkParts.join('') : ((event as {content?: string}).content || '')
-      if (content) p.recordThinkBlock(convId, msgId, `think-${msgId}-${thinkSeq()}`, content, 'thinking', turnIndex)
+      if (content) p.recordThinkBlock(convId, msgId, `think-${msgId}-${thinkSeq()}`, content, 'thinking', turnForContent(msgId))
       break
     }
     case 'tool_use':
@@ -58,7 +84,7 @@ export function persistStreamEvent(
       const tc = (event as {toolCall?: ToolCallPersistable}).toolCall
       if (!tc) break
       lastWasThinking.delete(msgId)
-      p.recordToolCallBlock(convId, msgId, {...tc, status: tc.status ?? 'running'}, turnIndex)
+      p.recordToolCallBlock(convId, msgId, {...tc, status: tc.status ?? 'running'}, currentTurn(msgId))
       break
     }
     case 'tool_result':
@@ -75,7 +101,8 @@ export function persistStreamEvent(
       const status = tc.status === 'running' || tc.status === undefined
         ? ((result as {success?: boolean}).success === false ? 'error' : 'success')
         : tc.status
-      p.recordToolResultBlock(convId, msgId, {...tc, status, result} as ToolCallPersistable, turnIndex)
+      p.recordToolResultBlock(convId, msgId, {...tc, status, result} as ToolCallPersistable, currentTurn(msgId))
+      closeTurn(msgId)
       break
     }
     case 'tool_denied': {
@@ -83,14 +110,13 @@ export function persistStreamEvent(
       const tc = pending.toolCalls.find(t => t.id === ev.toolCallId)
       if (!tc) break
       lastWasThinking.delete(msgId)
-      // 与 manager.accumulator.ts tool_denied 分支逐字节一致（含 [ERROR] 前缀）
       const deniedReason = `[PERMISSION_DENIED] ${ev.reason || '权限被拒绝'}`
       p.recordToolResultBlock(convId, msgId, {
         ...tc,
         status: 'error',
-        // 与 manager.accumulator.ts tool_denied 分支逐字节一致（不含 success 字段）
         result: {output: '', error: deniedReason, toolResult: `[ERROR] ${deniedReason}`},
-      }, turnIndex)
+      }, currentTurn(msgId))
+      closeTurn(msgId)
       break
     }
     default:
@@ -103,6 +129,8 @@ export function persistStreamEvent(
 export function resetBridgeMsgState(msgId: string): void {
   thinkSegByMsg.delete(msgId)
   lastWasThinking.delete(msgId)
+  turnSeqByMsg.delete(msgId)
+  contentAfterToolByMsg.delete(msgId)
 }
 
 /** text 段序号 = 已出现的非 text 块数(对齐 conversationStore.ts:216-221 语义)。

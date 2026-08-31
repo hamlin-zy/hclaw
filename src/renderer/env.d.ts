@@ -328,7 +328,7 @@ declare global {
         openLlmLogsWindow: () => Promise<void>
         getLlmTraceProjection: (convIds?: string[]) => Promise<import('./components/llmTrace/types').LlmTraceProjection>
         getLlmTraceFile: (convId: string, file: string) => Promise<string | null>
-        listLlmTraceConversations: () => Promise<Array<{id: string; title: string}>>
+        listLlmTraceConversations: () => Promise<Array<{id: string; title: string; dirPath?: string}>>
         toggleLlmTrace: (enabled: boolean) => Promise<boolean>
         clearLlmTrace: () => Promise<boolean>
         onLlmTraceRecord: (callback: (record: import('../shared/types/llmTrace').LlmCallRecord) => void) => () => void

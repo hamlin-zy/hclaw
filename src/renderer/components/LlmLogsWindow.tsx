@@ -24,7 +24,7 @@ import type {LlmCallRecord, LlmTraceProjection, TraceFilter} from './llmTrace/ty
 type DetailTab = 'request' | 'response' | 'usage' | 'tools'
 type RequestSubTab = 'overview' | 'body'
 
-interface LlmConversationRef { id: string; title: string }
+interface LlmConversationRef { id: string; title: string; dirPath?: string }
 
 interface DetailState {
     record: LlmCallRecord
@@ -202,6 +202,12 @@ export default function LlmLogsWindow() {
         [conversations],
     )
 
+    // conversationId → 日志落盘目录路径（主进程运行时解析；会话分组头部复制按钮用）
+    const conversationPathsMap = useMemo(
+        () => new Map(conversations.filter(c => c.dirPath).map(c => [c.id, c.dirPath as string])),
+        [conversations],
+    )
+
     return (
         <div className="h-full flex flex-col">
             {/* ── 顶栏 ── */}
@@ -273,7 +279,7 @@ export default function LlmLogsWindow() {
 
             {/* ── 时间线主区 ── */}
             <TimelineView projection={projection} filter={filter} onOpenDetail={openDetail}
-                conversationTitles={conversationTitlesMap} />
+                conversationTitles={conversationTitlesMap} conversationPaths={conversationPathsMap} />
 
             {/* ── 详情面板（三 tab）── */}
             {detail && (
