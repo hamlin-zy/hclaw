@@ -191,11 +191,11 @@ describe('streamBridge.persistStreamEvent（渲染端 record* 平移验证）', 
     const p = new ConversationPersistence(repo as never)
     const pending = mkPending()
     // text 段 0
-    persistStreamEvent(p, 'c1', 'm1', pending, {type: 'text', content: 'a'} as never, 0)
+    persistStreamEvent(p, 'c1', 'm1', pending, {type: 'text', content: 'a'} as never)
     vi.advanceTimersByTime(30000)
     // thinking 首块 → textSeq 递增
-    persistStreamEvent(p, 'c1', 'm1', pending, {type: 'thinking', content: '想'} as never, 0)
-    persistStreamEvent(p, 'c1', 'm1', pending, {type: 'text', content: 'b'} as never, 0)
+    persistStreamEvent(p, 'c1', 'm1', pending, {type: 'thinking', content: '想'} as never)
+    persistStreamEvent(p, 'c1', 'm1', pending, {type: 'text', content: 'b'} as never)
     vi.advanceTimersByTime(30000)
     const calls = repo.writeBlockDelta.mock.calls as Array<[string, string, BlockDeltaPatch]>
     expect(calls[0][2].upsertBlocks![0].id).toBe('text-m1-0')
@@ -210,8 +210,8 @@ describe('streamBridge.persistStreamEvent（渲染端 record* 平移验证）', 
     const p = new ConversationPersistence(repo as never)
     const pending = mkPending()
     pending.toolCalls = [{id: 't1', name: 'bash', arguments: {cmd: 'ls'}}] as never
-    persistStreamEvent(p, 'c1', 'm1', pending, {type: 'tool_use', toolCall: {id: 't1', name: 'bash', arguments: {cmd: 'ls'}}} as never, 0)
-    persistStreamEvent(p, 'c1', 'm1', pending, {type: 'tool_result', toolCallId: 't1', result: {success: true, output: 'ok'}} as never, 0)
+    persistStreamEvent(p, 'c1', 'm1', pending, {type: 'tool_use', toolCall: {id: 't1', name: 'bash', arguments: {cmd: 'ls'}}} as never)
+    persistStreamEvent(p, 'c1', 'm1', pending, {type: 'tool_result', toolCallId: 't1', result: {success: true, output: 'ok'}} as never)
     vi.advanceTimersByTime(30000)
     const sent = (repo.writeBlockDelta.mock.calls[0] as [string, string, BlockDeltaPatch])[2]
     const blocks = sent.upsertBlocks!
@@ -227,7 +227,7 @@ describe('streamBridge.persistStreamEvent（渲染端 record* 平移验证）', 
     const p = new ConversationPersistence(repo as never)
     const pending = mkPending()
     pending.toolCalls = [{id: 't1', name: 'bash', arguments: {}}] as never
-    persistStreamEvent(p, 'c1', 'm1', pending, {type: 'tool_denied', toolCallId: 't1', reason: '危险'} as never, 0)
+    persistStreamEvent(p, 'c1', 'm1', pending, {type: 'tool_denied', toolCallId: 't1', reason: '危险'} as never)
     vi.advanceTimersByTime(30000)
     const sent = (repo.writeBlockDelta.mock.calls[0] as [string, string, BlockDeltaPatch])[2]
     const tcData = JSON.parse(sent.upsertBlocks!.find(b => b.blockType === 'tool_call')!.data!)
@@ -246,8 +246,8 @@ describe('streamBridge.persistStreamEvent（渲染端 record* 平移验证）', 
     const p = new ConversationPersistence(repo as never)
     const pending = mkPending()
     setChildConvChecker((convId) => convId === 'child-1')
-    persistStreamEvent(p, 'child-1', 'm1', pending, {type: 'text', content: 'x'} as never, 0)
-    persistStreamEvent(p, 'main-1', 'm1', pending, {type: 'text', content: 'y'} as never, 0)
+    persistStreamEvent(p, 'child-1', 'm1', pending, {type: 'text', content: 'x'} as never)
+    persistStreamEvent(p, 'main-1', 'm1', pending, {type: 'text', content: 'y'} as never)
     vi.advanceTimersByTime(30000)
     expect(repo.writeBlockDelta).toHaveBeenCalledTimes(1)
     setChildConvChecker(() => false)   // 还原默认，避免污染其他用例
