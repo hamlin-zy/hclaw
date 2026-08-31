@@ -46,7 +46,7 @@ export default function ChannelEditModal({channel, onClose, onSave}: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
       <div className="bg-[var(--bg-primary)] rounded-lg shadow-xl border border-[var(--border)]
         w-96 max-h-[80vh] overflow-y-auto p-4 space-y-3"
-        onClick={e => e.stopPropagation()}>
+        onClick={e => e.stopPropagation()} data-name="channel-edit-modal-div">
 
         <div className="font-medium text-sm">{channel.name} 配置</div>
 
@@ -67,7 +67,7 @@ export default function ChannelEditModal({channel, onClose, onSave}: Props) {
                 placeholder={f.placeholder}
                 onChange={e => setConfig({...config, [f.key]: e.target.value})}
                 className="w-full px-2 py-1.5 text-xs rounded border border-[var(--border)]
-                  bg-[var(--bg-primary)] text-[var(--text-primary)]"/>
+                  bg-[var(--bg-primary)] text-[var(--text-primary)]" data-name="channel-edit-modal-input"/>
             )}
           </div>
         ))}
@@ -75,12 +75,12 @@ export default function ChannelEditModal({channel, onClose, onSave}: Props) {
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose}
             className="px-3 py-1.5 text-xs rounded border border-[var(--border)]
-              hover:bg-[var(--bg-secondary)]">
+              hover:bg-[var(--bg-secondary)]" data-name="channel-edit-modal-button">
             取消
           </button>
           <button onClick={handleSave} disabled={saving}
             className="px-3 py-1.5 text-xs rounded bg-[var(--accent)] text-white
-              hover:opacity-90 disabled:opacity-50">
+              hover:opacity-90 disabled:opacity-50" data-name="channel-edit-modal-save-button">
             {saving ? '保存中...' : '保存配置'}
           </button>
         </div>

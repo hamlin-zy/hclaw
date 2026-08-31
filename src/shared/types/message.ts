@@ -455,6 +455,8 @@ export interface Message {
   plannedCommands?: string[]
   /** 消息结束时间 */
   endedAt?: number
+  /** 崩溃恢复标记（§4.2）：finalizeAbnormal 写入 metadata，readMessages 平铺到顶层 */
+  abnormalTermination?: boolean
   /** 消息 schema minor 版本，用于格式迁移 */
   _v?: number
   /** 预留扩展字段，未使用，非核心字段 */

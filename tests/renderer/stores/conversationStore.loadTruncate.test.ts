@@ -87,8 +87,6 @@ beforeEach(() => {
                 readMessagesCalls.push(convId)
                 return dbReadMessagesReturn
             }),
-            conversationWriteMessages: vi.fn(async () => true),
-            conversationWriteMessagesDelta: vi.fn(async () => true),
         },
     }
     useConversationStore.setState({
@@ -104,7 +102,6 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.useRealTimers()
-    useConversationStore.getState().cancelPendingSave()
 })
 
 describe('loadMessagesInitial — 从 DB 水合的内存截断', () => {

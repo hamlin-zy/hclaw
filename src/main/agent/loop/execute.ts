@@ -17,7 +17,7 @@ import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import type {RunParams, LlmStreamResult, ToolExecutionResult} from './types'
 
 import {LLMCaller, isContextLengthError as checkContextLengthError, parsePlannedCommands} from './llmCaller'
-import {selectModelForTurn} from './setup'
+import {selectModelForTurn, defaultRoleForTrace} from './setup'
 import {ToolExecutor} from './toolExecutor'
 import {addMessage} from '../state'
 import {PreprocessCache} from './preprocessCache'
@@ -49,6 +49,15 @@ export const MID_LOOP_HANDOFF_PROMPT = `当前任务执行中上下文接近窗�
 【重要】若希望新会话自动启动特定技能/代理，请在调用 session_handoff 时传入 capability 参数（值为技能/代理名，不带 / 前缀）。`
 
 export type HandoffGateAction = 'none' | 'inject' | 'stop'
+
+/**
+ * 每会话最近一次 LLM 请求的真实上下文占用（inputTokens + cacheReadTokens）。
+ * B1 重构后 loop 内存态 assistant 消息不再携带 llmStats（llm_usage 唯一源），
+ * resolveContextUsageTokens 的真实 usage 路径恒回退 chars/4 估算（中文低估约 4 倍），
+ * 导致 mid-loop 交接门永不触发。此处按 sessionId 记录成功请求的真实 usage，
+ * 交接门分子优先消费；Worker 与会话一一对应，Map 仅在长生命周期 Worker 内多会话时增长。
+ */
+const lastRequestUsageBySession = new Map<string, {inputTokens: number; cacheReadTokens: number}>()
 
 export function evaluateHandoffGate(
     usageTokens: number,
@@ -159,7 +168,7 @@ export async function* executeLlmCallWithRetry(
         //   模型服务商/模型（会话 override 仅同步内存、不 bump schemeVersion，getAdapter 指纹无法感知），
         //   每次 attempt 基于最新选择重试，及时切换到用户新选的模型。
         if (attempt > 1) {
-            const fresh = yield* selectModelForTurn(params.schemeConfig, params.sessionId, params.modelRole)
+            const fresh = yield* selectModelForTurn(params.schemeConfig, params.sessionId, params.modelRole, defaultRoleForTrace(params.traceContext))
             const freshModel = fresh.modelConfig
             const freshDirect = fresh.directModel ?? false
             // 守卫：无可用方案时 selectModelForTurn 返回空占位（{provider:'custom', model:''}），
@@ -229,8 +238,12 @@ export async function* executeLlmCallWithRetry(
                     modelMetaContextLength: modelMetaRegistry.getContextLength(currentModel),
                     adapterInfo: adapter?.getModelInfo?.() ?? null,
                 })
-                // 分子：优先最近一次请求的真实 usage（llmStats），字符估算仅兜底（中文失真）
-                const usageTokens = resolveContextUsageTokens(messagesToSend, systemPrompt)
+                // 分子：优先上一轮请求的真实 usage（B1 后消息不再携带 llmStats，须走本模块记录），
+                // 无记录时回退 chars/4 字符估算（中文失真，仅首次调用兜底）
+                const recordedUsage = params.sessionId ? lastRequestUsageBySession.get(params.sessionId) : undefined
+                const usageTokens = recordedUsage
+                    ? recordedUsage.inputTokens + recordedUsage.cacheReadTokens
+                    : resolveContextUsageTokens(messagesToSend, systemPrompt)
                 const agentSettings = getSettings()?.agent
                 const action = evaluateHandoffGate(
                     usageTokens,
@@ -496,6 +509,15 @@ export async function* executeLlmCallWithRetry(
             }
 
             const llmDuration = Date.now() - llmStartTime
+
+            // ★ 记录本轮真实上下文占用（inputTokens + cacheReadTokens，与渲染端窗口徽章同口径），
+            //   供下一轮 mid-loop 交接门作为分子（B1 后消息不携带 llmStats，见 lastRequestUsageBySession）
+            if (params.sessionId) {
+                lastRequestUsageBySession.set(params.sessionId, {
+                    inputTokens: inputTokens || 0,
+                    cacheReadTokens: cacheReadTokens || 0,
+                })
+            }
 
             return {
                 assistantContent,

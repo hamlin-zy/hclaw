@@ -93,7 +93,7 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                             {!isAgent && !isSkill && <span className="text-[10px] text-[var(--text-muted)] font-normal shrink-0">{toolCalls.length} 个调用</span>}
                         </h4>
                         <button onClick={closeToolPopup}
-                            className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-primary)] transition-colors cursor-pointer">✕</button>
+                            className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-primary)] transition-colors cursor-pointer" data-name="compact-popup-button">✕</button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto px-3 py-3">
@@ -133,7 +133,7 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                                         className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium hover:bg-[var(--surface-muted)] border border-[var(--border)] shrink-0"
                                                         style={{color: 'var(--brand-primary)'}}
                                                         title="跳转到子会话"
-                                                    >
+                                                     data-name="compact-popup-jump-to-session-button">
                                                         <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
                                                             <polyline points="15 3 21 3 21 9"/>
@@ -214,7 +214,7 @@ const CompactToolPopup = memo(function CompactToolPopup() {
 
                     <div className="flex justify-end px-3 py-2 border-t border-[var(--border)] shrink-0">
                         <button onClick={closeToolPopup}
-                            className="px-3 py-1 text-[10px] rounded-md bg-[var(--surface-muted)] text-[var(--text-muted)] hover:bg-[var(--surface-elevated)] transition-colors cursor-pointer">关闭</button>
+                            className="px-3 py-1 text-[10px] rounded-md bg-[var(--surface-muted)] text-[var(--text-muted)] hover:bg-[var(--surface-elevated)] transition-colors cursor-pointer" data-name="compact-popup-close-button">关闭</button>
                     </div>
                 </motion.div>
             </motion.div>

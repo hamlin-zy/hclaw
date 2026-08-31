@@ -209,7 +209,7 @@ export default function MemoEditDialog() {
                     data-testid={`memo-attachment-remove-${a.id}`}
                     onClick={() => removeAttachment(a.id)}
                     className="absolute top-0.5 right-0.5 w-4 h-4 leading-none rounded-full text-[10px] bg-[var(--surface-overlay)] text-[var(--text-muted)] hover:text-red-500"
-                >×</button>
+                 data-name="memo-edit-dialog-button">×</button>
             </div>
         )
     }
@@ -224,7 +224,7 @@ export default function MemoEditDialog() {
                 <button
                     onClick={() => window.electronAPI?.closeWindow()}
                     className="px-3 py-1.5 text-xs rounded bg-[var(--surface-muted)] border border-[var(--border)] hover:bg-[var(--surface-hover)]"
-                >
+                 data-name="memo-edit-dialog-close-window-button">
                     关闭
                 </button>
             </div>
@@ -249,7 +249,7 @@ export default function MemoEditDialog() {
                         placeholder="备忘录标题"
                         autoFocus
                         className="w-full px-2 py-1.5 text-sm bg-[var(--surface-muted)] rounded border border-[var(--border)] focus:outline-none focus:border-[var(--border-emphasis)] placeholder-[var(--text-muted)]"
-                    />
+                    data-name="memo-edit-dialog-input"/>
                 </div>
                 {/* 附件缩略图区：位于标题与正文之间（修订 2 Task D） */}
                 {attachments.length > 0 && (
@@ -271,7 +271,7 @@ export default function MemoEditDialog() {
                         placeholder="记录备忘..."
                         rows={8}
                         className="w-full px-2 py-1.5 text-xs bg-[var(--surface-muted)] rounded border border-[var(--border)] focus:outline-none focus:border-[var(--border-emphasis)] resize-y placeholder-[var(--text-muted)]"
-                    />
+                    data-name="memo-edit-dialog-textarea"/>
                 </div>
                 {/* 添加附件：正文下方、能力选择上方（修订 2 Task D）。
                     注意 hidden input 不能用 display:none（Electron 沙箱窗口下原生文件选择器可能静默失败），
@@ -282,7 +282,7 @@ export default function MemoEditDialog() {
                         data-testid="memo-add-attachment"
                         onClick={() => fileRef.current?.click()}
                         className="px-2 py-1 rounded text-xs border border-dashed border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:border-[var(--border-emphasis)]"
-                    >
+                     data-name="memo-edit-dialog-add-attachment-button">
                         + 添加附件
                     </button>
                     <input
@@ -295,7 +295,7 @@ export default function MemoEditDialog() {
                             void addFiles(e.target.files)
                             e.target.value = ''
                         }}
-                    />
+                    data-name="memo-edit-dialog-attachment-input"/>
                 </div>
                 <CapabilityPicker
                     selected={capability?.name ?? ''}
@@ -310,7 +310,7 @@ export default function MemoEditDialog() {
                 <button
                     onClick={() => void discardAndClose()}
                     className="px-3 py-1.5 text-xs rounded bg-[var(--surface-muted)] border border-[var(--border)] hover:bg-[var(--surface-hover)]"
-                >
+                 data-name="memo-edit-dialog-discard-button">
                     取消
                 </button>
                 {isEdit && status === 'processed' && (
@@ -318,7 +318,7 @@ export default function MemoEditDialog() {
                         data-testid="memo-reopen"
                         onClick={() => void handleReopen()}
                         className="px-3 py-1.5 text-xs rounded bg-[var(--surface-muted)] border border-[var(--border)] hover:bg-[var(--surface-hover)]"
-                    >
+                     data-name="memo-edit-dialog-reopen-button">
                         重新打开
                     </button>
                 )}
@@ -326,7 +326,7 @@ export default function MemoEditDialog() {
                     onClick={() => void handleSave()}
                     disabled={saving}
                     className="px-4 py-1.5 text-xs rounded bg-[var(--brand-primary)] text-white hover:opacity-90 disabled:opacity-50"
-                >
+                 data-name="memo-edit-dialog-save-button">
                     保存
                 </button>
             </div>

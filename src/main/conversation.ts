@@ -5,6 +5,7 @@ import {attachCosts} from '@shared/llmUsage'
 import {modelMetaPriceSource} from './modelMetaRegistry'
 import {buildCustomPriceEntries} from './utils/customPriceEntries'
 import {getMainWindow} from './window'
+import {getConversationPersistence} from './persistence/conversationPersistence'
 import type {BlockDeltaPatch, ConversationMeta, ConversationSummary, Message, MessageBlock} from '@shared/types';
 import {collectDescendants} from '@shared/utils/conversationTree'
 
@@ -61,30 +62,8 @@ export function initConversationIPC(): void {
         }
   });
 
-    ipcMain.handle('conversation-write-messages', (_e, convId: string, messages: unknown[]) => {
-        try {
-            return convRepo().writeMessages(convId, messages as Message[]);
-        } catch {
-            return false;
-        }
-  });
-
-    // ── 增量落库：流式期间只写单条变化消息（性能优化，避免全量重写 + IPC 传输） ──
-    ipcMain.handle('conversation-write-messages-delta', (_e, convId: string, message: unknown) => {
-        try {
-            return convRepo().writeMessagesDelta(convId, message as Message);
-        } catch {
-            return false;
-        }
-  });
-
-    ipcMain.handle('conversation-write-block-delta', (_e, convId: string, msgId: string, patch: unknown) => {
-        try {
-            return convRepo().writeBlockDelta(convId, msgId, patch as BlockDeltaPatch);
-        } catch {
-            return false;
-        }
-  });
+    // Phase 3（不变式 3）：渲染端三条写入通道（conversation-write-messages / -delta / block-delta）
+    // 已删除，主进程是唯一持久化写方（streamBridge + ConversationPersistence）。
 
     ipcMain.handle('conversation-update-meta', (_e, convId: string, updates: Record<string, unknown>) => {
         try {
@@ -116,6 +95,9 @@ export function initConversationIPC(): void {
 
     ipcMain.handle('conversation-delete', (_e, convId: string) => {
         try {
+            // §4.3 删除竞态：先 flush 未落库增量，再整组清队列（防 dirty flush 复活已删消息）
+            getConversationPersistence().flush(convId);
+            getConversationPersistence().clearConversation(convId);
             const ok = convRepo().delete(convId);
             // 跨窗口同步：任意窗口（含 conversations 配置窗口）删除会话后，
             // 通知其他窗口从侧栏移除该条目，避免残留已删除会话
@@ -196,6 +178,14 @@ export function initConversationIPC(): void {
 
     ipcMain.handle('conversation-delete-batch', (_e, ids: string[]) => {
         try {
+            // §4.3：批量删除同单删——每个会话先 flush 后清队列，再删库
+            if (Array.isArray(ids)) {
+                const persistence = getConversationPersistence();
+                for (const id of ids) {
+                    persistence.flush(id);
+                    persistence.clearConversation(id);
+                }
+            }
             const ok = Array.isArray(ids) && ids.length > 0 && convRepo().deleteBatch(ids);
             // 跨窗口同步：批量删除同样通知其他窗口移除条目
             if (ok && _e.sender) {

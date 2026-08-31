@@ -102,6 +102,7 @@ export default function ThinkingEffortSelector({conversationId}: ThinkingEffortS
         <div className="relative">
             <button
                 ref={buttonRef}
+                data-name="thinking-effort-trigger"
                 onClick={() => setOpen(v => !v)}
                 className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/60 focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface)] ${
                     open
@@ -139,6 +140,7 @@ export default function ThinkingEffortSelector({conversationId}: ThinkingEffortS
                                     {options.map(o => (
                                         <button
                                             key={o.value}
+                                            data-name={`thinking-effort-option-${o.value}`}
                                             onClick={() => handleSelect(o.value)}
                                             title={o.hint}
                                             className={`w-full flex items-center justify-between gap-3 px-2.5 py-1.5 text-left text-xs rounded-lg transition-colors ${

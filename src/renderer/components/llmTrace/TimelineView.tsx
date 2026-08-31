@@ -184,7 +184,7 @@ function RetryCard({attempts, onOpenDetail}: {
             <div
                 className={`flex items-center gap-2.5 py-2 px-3 rounded-lg bg-[var(--surface-elevated)] border cursor-pointer select-none transition-colors hover:border-[var(--text-muted)] ${open ? 'border-[var(--brand-primary)]' : 'border-[var(--border)]'}`}
                 onClick={() => setOpen(o => !o)}
-            >
+             data-name="timeline-view-div">
                 <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[last.status]}`} title={STATUS_TXT[last.status]} />
                 <span className="font-mono text-[11px] text-[var(--text-muted)] w-16 shrink-0 tabular-nums">{fmtTime(last.ts)}</span>
                 <span className="font-mono text-[11px] py-0.5 px-2 rounded bg-[var(--brand-muted)] text-[var(--brand-primary)] whitespace-nowrap">{last.model}</span>
@@ -207,7 +207,7 @@ function RetryCard({attempts, onOpenDetail}: {
                             key={r.id}
                             onClick={() => onOpenDetail(r)}
                             className="flex items-center gap-2 w-full py-1 pl-2 pr-3 mt-0.5 rounded-md text-left cursor-pointer select-none hover:bg-[var(--surface-elevated)] transition-colors"
-                        >
+                         data-name="timeline-view-button">
                             <span className="font-mono text-[10.5px] text-[var(--text-muted)] w-7 shrink-0">#{r.attempt}</span>
                             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[r.status]}`} title={STATUS_TXT[r.status]} />
                             <span className="text-[10.5px] text-[var(--text-secondary)]">{STATUS_TXT[r.status]}</span>
@@ -234,7 +234,7 @@ function CallRow({record: r, selected, onClick}: {
             <div
                 className={`flex items-center gap-2.5 py-2 px-3 my-1.5 rounded-lg bg-[var(--surface-elevated)] border cursor-pointer select-none transition-colors hover:border-[var(--text-muted)] ${selected ? 'border-[var(--brand-primary)]' : 'border-[var(--border)]'}`}
                 onClick={onClick}
-            >
+             data-name="timeline-view-call-row">
                 <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[r.status]}`} title={STATUS_TXT[r.status]} />
                 <span className="font-mono text-[11px] text-[var(--text-muted)] w-16 shrink-0 tabular-nums">{fmtTime(r.ts)}</span>
                 <span className="font-mono text-[11px] py-0.5 px-2 rounded bg-[var(--brand-muted)] text-[var(--brand-primary)] whitespace-nowrap">{r.model}</span>

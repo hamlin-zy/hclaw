@@ -31,7 +31,7 @@ export default function AttachedFilesBar({files, onRemove, onPreview, onOpenFile
                                 }}
                                 className="cursor-pointer w-10 h-10 rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--brand-primary)] transition-colors"
                                 title={file.isImage ? '点击预览图片' : `打开文件: ${file.path || file.name}`}
-                            >
+                             data-name="attached-files-bar-div">
                                 {file.isImage && file.previewUrl ? (
                                     <img src={file.previewUrl} alt={file.name}
                                          className="w-full h-full object-cover"/>
@@ -49,7 +49,7 @@ export default function AttachedFilesBar({files, onRemove, onPreview, onOpenFile
                                 onClick={() => onRemove(file.id)}
                                 className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
                                 title="移除"
-                            >
+                             data-name="attached-files-bar-button">
                                 <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
                                     <path d="M18 6L6 18M6 6l12 12"/>
                                 </svg>
@@ -69,7 +69,7 @@ export default function AttachedFilesBar({files, onRemove, onPreview, onOpenFile
                         onClick={onClearAll}
                         className="shrink-0 px-2 py-1 text-[10px] text-[var(--text-muted)] hover:text-red-500 hover:bg-red-50 rounded border border-[var(--border)] transition-colors"
                         title="清除全部附件"
-                    >
+                     data-name="attached-files-clear-all-button">
                         清除全部
                     </button>
                 )}

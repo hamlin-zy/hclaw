@@ -109,7 +109,7 @@ export default function ToolCallHeader({
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium hover:bg-[var(--surface-muted)] border border-[var(--border)]"
             style={{color: 'var(--text-secondary)'}}
             title="查看子 Agent 详细输出"
-        >
+         data-name="tool-call-header-button">
             <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                 <circle cx="12" cy="12" r="3"/>
@@ -142,7 +142,7 @@ export default function ToolCallHeader({
                     className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium hover:bg-[var(--surface-muted)] border border-[var(--border)]"
                     style={{color: 'var(--brand-primary)'}}
                     title="跳转到子会话"
-                >
+                 data-name="tool-call-header-jump-to-session-button">
                     <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
                         <polyline points="15 3 21 3 21 9"/>
@@ -267,7 +267,7 @@ export default function ToolCallHeader({
         <button
             onClick={onToggleExpanded}
             className="w-full flex items-center gap-2 px-3 py-2 hover:bg-white/[0.02] transition-colors text-left"
-        >
+         data-name="tool-call-header-toggle-expanded-button">
             {statusIndicator}
             {toolDisplayName}
             {countdownBadge}

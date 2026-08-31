@@ -123,7 +123,8 @@ export function resolveChildConvOverride(
         }
     }
 
-    // ③ 无 override 可固化 → 默认 primary
+    // ③ 无 override 可固化 → 不固化，每轮按实时角色解析（默认轻量模型，链 L→P→R），
+    //    保证运行中方案变更（如 lightweight 启用/禁用）下一轮即感知
     return null
 }
 
@@ -157,7 +158,7 @@ function buildInputSchema(): z.ZodType<AgentToolInput> {
         tools: z.array(z.string()).optional()
             .describe('允许使用的工具白名单（指定 agent 时覆盖 Agent 定义的白名单）'),
         modelRole: z.enum(availableRoles.length ? availableRoles as [string, ...string[]] : ['primary']).optional()
-            .describe(`指定子 Agent 使用的模型角色（可选）。当前可用：${availableRoles.join('、') || 'primary（仅默认）'}。按任务复杂度指定：简单任务→lightweight、复杂推理→reasoning、常规→primary。未指定时子会话继承父会话模型选择。`),
+            .describe(`指定子 Agent 使用的模型角色（可选）。当前可用：${availableRoles.join('、') || 'primary（仅默认）'}。按任务复杂度指定：简单任务→lightweight、复杂推理→reasoning、常规→primary。未指定时子会话默认使用轻量模型（未启用则升级主力、再升级推理）。`),
     }) as z.ZodType<AgentToolInput>
 }
 
@@ -407,6 +408,8 @@ export const agentTool: Tool<AgentToolInput, string> = {
                 settings: settings || undefined,
                 maxTurns: maxTurnsLimit,
                 agentType: agentName,
+                // 子会话标识：loop 内 selectModelForTurn 据此在未显式 modelRole 时默认轻量模型
+                traceContext: 'subAgent' as const,
                 agentDefinition: effectiveAgentDef,
                 conversationTitle: `子 Agent: ${args.task.slice(0, 50)}`,
                 abortSignal: context.abortSignal,

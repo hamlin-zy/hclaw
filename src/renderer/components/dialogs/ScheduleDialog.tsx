@@ -277,7 +277,7 @@ export default function ScheduleDialog() {
                                 ? 'bg-[var(--brand-primary)]/20 text-[var(--brand-primary)] font-medium'
                                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                         }`}
-                    >
+                     data-name="schedule-dialog-button">
                         {tab.label}
                     </button>
                 ))}
@@ -287,7 +287,7 @@ export default function ScheduleDialog() {
                     className="px-3 py-1.5 text-xs font-medium rounded-md
                              bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]
                              hover:bg-[var(--brand-primary)]/20 transition-colors"
-                >
+                 data-name="schedule-dialog-new-button">
                     新建
                 </button>
             </div>
@@ -310,7 +310,7 @@ export default function ScheduleDialog() {
                         className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md
                                  text-[var(--text-primary)] placeholder-[var(--text-muted)]
                                  focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"
-                    />
+                    data-name="schedule-dialog-input"/>
                 </div>
             </div>
 
@@ -548,7 +548,7 @@ function ScheduleCard({
                                 : 'text-emerald-400 hover:bg-emerald-500/10'
                         }`}
                         title={isRunning ? '停止' : '立即执行'}
-                    >
+                     data-name="schedule-dialog-toggle-run-button">
                         {isRunning ? (
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
                                 <rect x="6" y="6" width="12" height="12"/>
@@ -569,7 +569,7 @@ function ScheduleCard({
                                 : 'text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10'
                         }`}
                         title="执行记录"
-                    >
+                     data-name="schedule-dialog-history-button">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                              strokeWidth="2">
                             <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
@@ -581,7 +581,7 @@ function ScheduleCard({
                         onClick={onEdit}
                         className="p-1.5 text-[var(--text-muted)] hover:text-[var(--brand-primary)] rounded hover:bg-[var(--brand-primary)]/10 transition-colors"
                         title="编辑"
-                    >
+                     data-name="schedule-dialog-edit-button">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                              strokeWidth="2">
                             <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
@@ -593,7 +593,7 @@ function ScheduleCard({
                         onClick={onDelete}
                         className="p-1.5 text-[var(--text-muted)] hover:text-red-400 rounded hover:bg-red-500/10 transition-colors"
                         title="删除"
-                    >
+                     data-name="schedule-dialog-delete-button">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                              strokeWidth="2">
                             <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m8 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
@@ -762,7 +762,7 @@ function ScriptLogPanel({scheduleId}: { scheduleId: string }) {
                                                 ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
                                                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                         }`}
-                                    >
+                                     data-name="schedule-dialog-toggle-runs-button">
                                         {loadingContent === log.path ? (
                                             <span className="inline-block w-3 h-3 border border-current border-t-transparent rounded-full animate-spin"/>
                                         ) : isExpanded ? '收起' : '查看'}

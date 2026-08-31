@@ -148,17 +148,18 @@ describe('崩溃恢复后 — 统一恢复路径（无 recoveredStreaming 标记
         expect(registerSpy).not.toHaveBeenCalled()
     })
 
-    it('无孤儿（endedAt 已写）且无 streamingMessageId → 生成新占位（正常 abort 残留防御保留）', () => {
+    it('无孤儿（endedAt 已写）且无 streamingMessageId → 不建占位（id 单源：不自建 UUID，事件未到不建占位）', () => {
         mockConversationState.messagesMap['conv-1'] = [
             {id: 'old-ended', role: 'assistant', content: '被 abort 的旧消息', endedAt: Date.now(), timestamp: Date.now()},
         ]
         seedConv({streamingMessageId: null})
 
-        ensureStreamingMessage(() => mockAgentState as any, 'conv-1', undefined)
+        const result = ensureStreamingMessage(() => mockAgentState as any, 'conv-1', undefined)
 
-        // 原防御保留：产生新占位（不与历史消息冲突），符合 abort 残留语义
+        // abort 残留防御保留：不挂到历史消息（返回 null 等待主进程 messageId 下发）
+        expect(result).toBeNull()
         const msgs = mockConversationState.messagesMap['conv-1']
-        expect(msgs.filter(m => m.role === 'assistant')).toHaveLength(2)
+        expect(msgs.filter(m => m.role === 'assistant')).toHaveLength(1)
     })
 
     it('首 token 前崩溃 + DB 残留进行中消息（无 endedAt）→ 孤儿收养复用', () => {
@@ -175,7 +176,7 @@ describe('崩溃恢复后 — 统一恢复路径（无 recoveredStreaming 标记
         const msgs = mockConversationState.messagesMap['conv-1']
         expect(msgs.filter(m => m.role === 'assistant')).toHaveLength(1)
         expect(mockAgentState.convAgentStates['conv-1'].streamingMessageId).toBe('residual-inflight')
-        // 孤儿收养需注册主进程（主进程 pending 复用同一 id）
-        expect(registerSpy).toHaveBeenCalledWith('conv-1', 'residual-inflight')
+        // 孤儿收养不注册主进程（id 单源：收养 id 本就来自主进程快照，注册链路已删除）
+        expect(registerSpy).not.toHaveBeenCalled()
     })
 })

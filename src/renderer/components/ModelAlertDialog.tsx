@@ -42,13 +42,13 @@ export default function ModelAlertDialog({open, onClose, onConfigure}: ModelAler
                             <button
                                 onClick={onClose}
                                 className="px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] rounded-lg transition-colors border border-transparent hover:border-[var(--border)]"
-                            >
+                             data-name="model-alert-dialog-button">
                                 取消
                             </button>
                             <button
                                 onClick={onConfigure}
                                 className="px-4 py-2 text-sm text-white bg-[var(--brand-primary)] hover:bg-[var(--brand-hover)] rounded-lg transition-colors shadow-sm"
-                            >
+                             data-name="model-alert-dialog-configure-button">
                                 去配置
                             </button>
                         </div>

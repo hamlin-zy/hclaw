@@ -96,7 +96,7 @@ function WindowControlButton({icon, onClick, ariaLabel, isClose}: WindowControlB
             onClick={onClick}
             aria-label={ariaLabel}
             className={`window-control-btn ${isClose ? 'window-control-btn--close' : ''}`}
-        >
+         data-name="title-bar-button">
             {icon}
         </button>
     )

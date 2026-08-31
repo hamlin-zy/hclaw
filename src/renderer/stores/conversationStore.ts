@@ -1,5 +1,5 @@
 import {createWithEqualityFn} from 'zustand/traditional'
-import type {ConversationSummary, Message, ContentBlock, BlockDeltaPatch, MessageBlock, ToolCall} from '@shared/types'
+import type {ConversationSummary, Message, ContentBlock} from '@shared/types'
 
 import {useAgentStore, createDefaultConvData} from './agentStore'
 import {fuzzyFilter} from '../lib/search'
@@ -40,6 +40,8 @@ interface ConversationStore {
     deleteConversations: (ids: string[]) => Promise<void>
   setActiveConversation: (id: string | null) => void
   updateConversationMeta: (convId: string, updates: { title?: string; preview?: string }) => void
+    /** 会话元数据事件消费（§3.4）：message-finalized → 更新 updatedAt 并按侧栏规则重排 */
+    touchConversation: (convId: string, updatedAt: number) => void
     togglePinConversation: (id: string) => void
 
   // Search
@@ -69,10 +71,6 @@ interface ConversationStore {
     loadMoreMessages: (convId: string, pageSize?: number) => Promise<void>
     /** 预加载（侧栏 hover 触发） */
     preloadConversation: (convId: string) => Promise<void>
-  saveMessages: () => Promise<void>
-  flushMessages: () => void
-    /** 取消未执行的持久化定时器（用于压缩等场景，防止 stale 数据覆盖 SQLite） */
-    cancelPendingSave: () => void
   getMessages: () => Message[]
   truncateMessagesAfter: (id: string) => void
 
@@ -86,346 +84,7 @@ interface ConversationStore {
   clearHandoffDismissals: () => void
 }
 
-// ─── Persistence: delta-first (增量优先) ───────────────────────
-// 性能优化：流式期间高频落库只写"变化的那一条消息"（conversation-write-messages-delta），
-// 不做全量重写，IPC 传输和 SQLite 写入量都小 1~2 个数量级。
-// 断电保留粒度：单条消息级，且事务原子（该消息要么完整要么不存在）。
-// 持久化由块级增量唯一负责。
-
-let saveTimer: ReturnType<typeof setTimeout> | null = null
-
-/** 每会话的 dirty 块级增量 Map（messageId → 累积 patch），flush 后清空 */
-const dirtyBlockDeltas: Record<string, Map<string, BlockDeltaPatch>> = {}
-
-/** Throttle state per conversation for delta save */
-interface DeltaThrottleState {
-    lastFlush: number
-    timer: ReturnType<typeof setTimeout> | null
-}
-const deltaThrottle: Record<string, DeltaThrottleState> = {}
-
-function getBlockDeltaMap(convId: string): Map<string, BlockDeltaPatch> {
-    if (!dirtyBlockDeltas[convId]) dirtyBlockDeltas[convId] = new Map()
-    return dirtyBlockDeltas[convId]
-}
-
-/** 合并 upsertBlocks：块 id 主键幂等——同 id 后写覆盖（内容/状态更新），异 id 追加，保持首见顺序。
- *  think 段内增长、tool_call 状态更新等场景复用同一 id → 同一次 flush 内只发最新版本。
- *  text 块特殊处理：同 id（同 textSeq）的 content 增量拼接，因为 recordTextBlock 传入的是增量文本。 */
-function mergeBlocksById(prev: MessageBlock[] | undefined, next: MessageBlock[]): MessageBlock[] {
-    const byId = new Map<string, MessageBlock>()
-    for (const b of prev ?? []) byId.set(b.id, b)
-    for (const b of next) {
-        const existing = byId.get(b.id)
-        if (existing && b.blockType === 'text') {
-            // text 块增量拼接：同 id text 块（相同 textSeq）的 content 累加
-            byId.set(b.id, {...b, content: (existing.content || '') + (b.content || '')})
-        } else {
-            byId.set(b.id, b)
-        }
-    }
-    return [...byId.values()]
-}
-
-/** 追加/合并某消息的块级增量 */
-export function accumulateBlockDelta(convId: string, msgId: string, patch: Partial<BlockDeltaPatch>): void {
-    if (isChildConversation(convId)) return
-    const map = getBlockDeltaMap(convId)
-    const cur = map.get(msgId) ?? {upsertBlocks: []}
-    map.set(msgId, {
-        upsertBlocks: mergeBlocksById(cur.upsertBlocks, patch.upsertBlocks ?? []),
-        // 字段级合并而非整体替换：finalize 只传 {endedAt}，必须与已累积的
-        // role/timestamp/metadata 合并，否则首写前仅有 finalize 的补丁会丢行级字段
-        // （主进程 writeBlockDelta 以 typeof role === 'string' 判行，缺 role 则建行被跳过）。
-        messageFields: {...cur.messageFields, ...(patch.messageFields ?? {})},
-        finalize: patch.finalize ?? cur.finalize,
-    })
-}
-
-// ─── 子会话判定缓存 ─────────────────────────────────────
-// isChildConversation 在流式落库路径（markMessageDirty/scheduleDeltaSave/...）高频调用，
-// 每次 find 全量扫描 conversations。缓存父→子关系：只关心「某 id 是否在 conversations 中
-// 且带 parentConvId」。通过 zustand subscribe 在 workspaces/currentWorkspacePath 变化时
-// 重建缓存（缓存键 = 所有子会话 id 集合），避免每次 find。
-
-/** 子会话 id 缓存（含 currentWorkspacePath 版本号，防止工作区切换后误命中） */
-let childConvIdsCache = new Set<string>()
-let childConvCacheKey = ''
-
-/** 校验缓存并重建（写路径高频调用，开销 O(conversations)，远小于多次 find） */
-function ensureChildConvCache(): void {
-    const state = useConversationStore.getState()
-    const wsPath = state.currentWorkspacePath || ''
-    const convs = wsPath ? state.workspaces[wsPath]?.conversations ?? [] : []
-    // 会话列表按工作区隔离；指纹 = 工作区 + 所有会话的 id:parentConvId 摘要，
-    // 任一会话增删/父级变化/工作区切换都会改变指纹，从而触发重建。
-    let fingerprint = wsPath
-    for (const c of convs) {
-        fingerprint += `|${c.id}:${c.parentConvId || ''}`
-    }
-    if (fingerprint === childConvCacheKey) return
-    childConvCacheKey = fingerprint
-    const childIds = new Set<string>()
-    for (const c of convs) {
-        if (c.parentConvId) childIds.add(c.id)
-    }
-    childConvIdsCache = childIds
-}
-
-/**
- * 判断是否为子会话（agent 工具创建）。
- * 子会话的持久化由主进程 agentTool 负责（写入 user 任务消息 + 最终 assistant 结果），
- * 渲染端不得落库子会话消息，否则流式期间写入的 UUID 消息会与 agentTool 写入的
- * msg-<timestamp> 消息重复（幽灵重复气泡）。
- */
-function isChildConversation(convId: string): boolean {
-    if (!convId) return false
-    ensureChildConvCache()
-    return childConvIdsCache.has(convId)
-}
-
-/** 从消息提取瘦身 messageFields（assistant 只含非块字段；user/system 含 content） */
-function extractMessageFields(message: Message): NonNullable<BlockDeltaPatch['messageFields']> {
-    const metadata: Record<string, unknown> = {
-        agentName: message.agentName,
-        agentType: message.agentType,
-        model: message.model,
-        skillExecution: message.skillExecution,
-        attachments: message.attachments,
-        plannedCommands: message.plannedCommands,
-        commandId: (message as {commandId?: string}).commandId,
-        commandArgs: (message as {commandArgs?: string}).commandArgs,
-        commandTemplate: message.metadata?.commandTemplate,
-    }
-    if (message.role !== 'assistant') metadata.content = message.content
-    return {role: message.role, timestamp: message.timestamp, endedAt: message.endedAt, metadata}
-}
-
-/** 标记一条消息为 dirty（行级字段变更；内容块由 accumulateBlockDelta 记账） */
-function markMessageDirty(convId: string, message: Message) {
-    if (isChildConversation(convId)) return
-    accumulateBlockDelta(convId, message.id, {messageFields: extractMessageFields(message)})
-}
-
-/** 按 text 段序号累积 text 块（增量文本，同 textSeq 的块在 mergeBlocksById 中拼接）。
- *  textSeq = streamBlocks.length（非 text 块数即 text 段序号）。
- *  增量文本独立存储，不持有完整 streamBuffer（避免 SlicedString 父引用 O(n²) 内存放大）。 */
-export function recordTextBlock(convId: string, msgId: string, incrementalText: string): void {
-    if (isChildConversation(convId)) return
-    if (!incrementalText) return
-    // ★ textSeq：streamBlocks 仅含非 text 块（think/tool_use），其长度即 text 段序号。
-    //   无 think/tool 时 seq=0，每插入一个非 text 块后 seq 递增 → 各 text 段独立 id。
-    //   ★ 崩溃恢复基线：恢复后 streamBlocks 已清空但 DB 仍有旧 text 块，
-    //   加上快照携带的 recoveredTextBlockBase 防止块 id 碰撞（碰撞 → append 进旧块 → 错序）。
-    const agentState = useAgentStore.getState().convAgentStates[convId]
-    const textSeq = (agentState?.streamBlocks?.length ?? 0) + (agentState?.recoveredTextBlockBase ?? 0)
-    accumulateBlockDelta(convId, msgId, {
-        upsertBlocks: [{
-            id: `text-${msgId}-${textSeq}`, messageId: msgId, blockType: 'text',
-            content: incrementalText, data: null, sequence: 0, timestamp: Date.now(),
-            turnIndex: agentState?.currentTurnIndex,
-        }],
-    })
-}
-
-/** think 块（段内增长同 id → 主进程 UPDATE 内容） */
-export function recordThinkBlock(convId: string, msgId: string, id: string, content: string, status: 'thinking' | 'complete', _startOffset: number): void {
-    if (isChildConversation(convId)) return
-    const timestamp = Date.now()
-    const agentState = useAgentStore.getState().convAgentStates[convId]
-    accumulateBlockDelta(convId, msgId, {
-        upsertBlocks: [{
-            id, messageId: msgId, blockType: 'think',
-            content, data: JSON.stringify({id, content, status, timestamp}), sequence: 0, timestamp,
-            turnIndex: agentState?.currentTurnIndex,
-        }],
-    })
-}
-
-/** tool_call 块（tool_use 事件到达）。序列化 ToolCall 除 result 外的所有字段，
- *  确保类型新增字段时自动覆盖（无需逐一罗列 14 字段）。 */
-export function recordToolCallBlock(convId: string, msgId: string, tc: ToolCall): void {
-    if (isChildConversation(convId)) return
-    const {result: _result, ...persistable} = tc
-    const agentState = useAgentStore.getState().convAgentStates[convId]
-    accumulateBlockDelta(convId, msgId, {
-        upsertBlocks: [{
-            id: `${msgId}-tc-${tc.id}`, messageId: msgId, blockType: 'tool_call',
-            content: null, sequence: 0, timestamp: Date.now(),
-            data: JSON.stringify(persistable),
-            turnIndex: agentState?.currentTurnIndex,
-        }],
-    })
-}
-
-/** tool_result 块（tool_result 到达，含完整 result） */
-export function recordToolResultBlock(convId: string, msgId: string, tc: ToolCall): void {
-    if (isChildConversation(convId)) return
-    if (tc.result === undefined) return
-    const timestamp = Date.now()
-    const agentState = useAgentStore.getState().convAgentStates[convId]
-    // ★ 终态修复：tool_call 块的 data（含 status）在 tool_use 时以 status:'running' 落库，
-    //   此前 tool_result 到达只写 {id, result} 块，tool_call 块 status 从未更新 →
-    //   重启后从 DB 恢复的历史消息全部显示"执行中"。
-    //   此处同 id upsert tool_call 块（writeBlockDelta 对非 text 块同 id 覆盖），
-    //   携带最终 status（success/error）；result 仍单独 tool_result 块承载。
-    const {result: _result, ...persistable} = tc
-    accumulateBlockDelta(convId, msgId, {
-        upsertBlocks: [
-            {
-                id: `${msgId}-tc-${tc.id}`, messageId: msgId, blockType: 'tool_call',
-                content: null, sequence: 0, timestamp,
-                data: JSON.stringify(persistable),
-                turnIndex: agentState?.currentTurnIndex,
-            },
-            {
-                id: `${msgId}-tr-${tc.id}`, messageId: msgId, blockType: 'tool_result',
-                content: null, sequence: 0, timestamp,
-                data: JSON.stringify({id: tc.id, result: tc.result}),
-                turnIndex: agentState?.currentTurnIndex,
-            },
-        ],
-    })
-}
-
-/** done/error 收尾：finalize patch（主进程补 ended_at + end 块） */
-export function finalizeMessageDelta(convId: string, msgId: string, endedAt: number): void {
-    if (isChildConversation(convId)) return
-    accumulateBlockDelta(convId, msgId, {finalize: true, messageFields: {endedAt}})
-}
-
-const THROTTLE_MS = 30000
-
-/** 立即写并重置 throttle 记账（立即写与兜底 timer 两条路径共用） */
-function flushAndReset(convId: string, state: DeltaThrottleState): void {
-    if (state.timer) {
-        clearTimeout(state.timer)
-        state.timer = null
-    }
-    void flushDirtyMessages(convId)
-    state.lastFlush = Date.now()
-}
-
-/** throttle 调度：距上次写入 ≥30s 立即写，否则挂 30s 兜底 timer */
-function scheduleDeltaSave(convId: string): void {
-    if (isChildConversation(convId)) return
-    let state = deltaThrottle[convId]
-    if (!state) {
-        state = { lastFlush: 0, timer: null }
-        deltaThrottle[convId] = state
-    }
-
-    const elapsed = Date.now() - state.lastFlush
-    // 首次（lastFlush=0）立即写；此后仅 30s 兜底 timer 触发（段边界由 Task 2 显式 flush）
-    if (elapsed >= THROTTLE_MS) {
-        flushAndReset(convId, state)
-    } else if (!state.timer) {
-        state.timer = setTimeout(() => flushAndReset(convId, state), THROTTLE_MS - elapsed)
-    }
-}
-
-/** 立即把某会话的 dirty 块级增量写入 SQLite */
-async function flushDirtyMessages(convId: string): Promise<void> {
-    // ★ 子会话不落库（主进程 agentTool 负责持久化）
-    if (isChildConversation(convId)) {
-        // 清理可能残留的 dirty 标记（修复前标记的旧条目）
-        dirtyBlockDeltas[convId]?.clear()
-        return
-    }
-    // 清理 throttle 状态：清掉兜底 timer 但保留 state（throttle 语义依赖 state 跨 flush 存活，
-    // 供 scheduleDeltaSave 的 lastFlush 更新生效）
-    const throttleState = deltaThrottle[convId]
-    if (throttleState?.timer) {
-        clearTimeout(throttleState.timer)
-        throttleState.timer = null
-    }
-    const dirtyMap = dirtyBlockDeltas[convId]
-    if (!dirtyMap || dirtyMap.size === 0) return
-
-    // ★ 失败重试语义（设计 §8：IPC invoke 失败 → dirty 块保留，30s 兜底 timer 重试）。
-    //   先同步快照并清空 map（保持 throttle 语义：flush 期间新累积重新入 map，下次 flush 再写），
-    //   逐条 invoke 成功才确认落库；失败条目在循环后按需恢复（与 flush 期间新累积按块 id 合并，
-    //   任何一端都不丢）。recordTextBlock 传增量文本，重试重发的就是首次构建好的增量 patch。
-    const pending = [...dirtyMap.entries()]
-    dirtyMap.clear()
-    const succeeded: Array<[string, BlockDeltaPatch]> = []
-    try {
-        // 逐条块级增量写入（串行 invoke，避免 IPC 并发顺序错乱）
-        for (const [msgId, patch] of pending) {
-            const ok = await window.electronAPI?.conversationWriteBlockDelta?.(convId, msgId, patch) ?? true
-            if (!ok) {
-                // 主进程返回 false（SQLite 写失败/事务回滚）：恢复该消息 patch 待兜底重试
-                console.warn(`[conversationStore] writeBlockDelta 失败，恢复 dirty 待兜底重试: conv=${convId} msg=${msgId}`)
-                restoreDirtyPatch(dirtyMap, msgId, patch)
-                continue
-            }
-            succeeded.push([msgId, patch])
-        }
-    } catch (err) {
-        // 意外异常（IPC 层 reject 等）：未成功条目全部恢复，供 30s 兜底 timer 重试
-        console.warn('[conversationStore] flushDirtyMessages 意外异常，恢复 dirty 待兜底重试:', err)
-        const succeededIds = new Set(succeeded.map(([id]) => id))
-        for (const [msgId, patch] of pending) {
-            if (!succeededIds.has(msgId)) restoreDirtyPatch(dirtyMap, msgId, patch)
-        }
-    }
-    // 仍有失败/新累积条目 → 挂 30s 兜底 timer 重试（本函数顶部已清掉旧 timer）
-    if (dirtyMap.size > 0) {
-        let ts = deltaThrottle[convId]
-        if (!ts) { ts = { lastFlush: 0, timer: null }; deltaThrottle[convId] = ts }
-        if (!ts.timer) {
-            ts.timer = setTimeout(() => flushAndReset(convId, ts), THROTTLE_MS)
-        }
-    }
-
-    // ★ 内存截断保留（防大工具结果无界增长——上轮修复成果，不可回归）：
-    //   tool_result 块 flush 时已带完整 result 落库，此处截断内存副本安全。
-    //   patch 无完整 Message → 从 messagesMap 取已落库消息再截断。
-    //   仅截断成功落库的消息（失败消息保留内存副本，待重试成功后随截断生效）。
-    if (succeeded.length > 0) {
-        truncatePersistedMessages(convId, new Set(succeeded.map(([id]) => id)))
-    }
-}
-
-/** 恢复一次失败 flush 的消息 patch 到 dirty map（与 flush 期间新累积按块 id 合并，新块优先）。
- *  旧 patch 的同 id 块不得覆盖新块，但旧块若无新对应必须保留（增量 patch 内容独立，
- *  丢失即永久内容缺口）。 */
-function restoreDirtyPatch(dirtyMap: Map<string, BlockDeltaPatch>, msgId: string, patch: BlockDeltaPatch): void {
-    const cur = dirtyMap.get(msgId)
-    if (!cur) {
-        dirtyMap.set(msgId, patch)
-        return
-    }
-    dirtyMap.set(msgId, {
-        upsertBlocks: mergeBlocksById(patch.upsertBlocks ?? [], cur.upsertBlocks ?? []),
-        messageFields: {...patch.messageFields, ...cur.messageFields},
-        finalize: cur.finalize ?? patch.finalize,
-    })
-}
-
-/** 按会话立即刷 dirty（段边界 / done / error / injected 收尾路径调用） */
-export function flushConversationDirty(convId: string): Promise<void> {
-    return flushDirtyMessages(convId)
-}
-
-/** 截断本轮已落库消息中大型工具结果的内存副本（完整内容已在 DB）。 */
-function truncatePersistedMessages(convId: string, pendingIds: Set<string>): void {
-    const store = useConversationStore.getState()
-    const msgs = store.messagesMap[convId]
-    if (!msgs) return
-    let needsUpdate = false
-    const newMsgs = msgs.map(m => {
-        if (!pendingIds.has(m.id)) return m
-        const truncated = truncateLargeResults(m)
-        if (truncated !== m) needsUpdate = true
-        return truncated
-    })
-    if (!needsUpdate) return
-    useConversationStore.setState({
-        messagesMap: { ...store.messagesMap, [convId]: newMsgs },
-        loadedMessages: convId === store.activeConversationId ? newMsgs : store.loadedMessages,
-    })
-}
+/** 默认 agent 空闲状态（切换会话时后备） */
 
 const TOOL_RESULT_MEMORY_CAP = 2000
 
@@ -560,15 +219,7 @@ async function maybeTrimConversation(convId: string): Promise<void> {
     const totalWeight = msgs.reduce((sum, m) => sum + computeMessageWeight(m), 0)
     if (totalWeight <= CONVERSATION_WEIGHT_CAP) return
 
-    // 先 flush dirty（await 完成后再 evict：确保脏数据先落库；flush 期间 truncatePersistedMessages
-    // 会更新 messagesMap，若先 evict 再异步 flush 会互相覆盖）
-    const dirtyMap = dirtyBlockDeltas[convId]
-    if (dirtyMap?.size) {
-        await flushDirtyMessages(convId)
-    }
-
-    // flush 期间 truncatePersistedMessages 会更新 messagesMap（截断大工具结果）——
-    // 用 flush 前的旧快照 setState 会把截断回滚并覆盖并发写入，故重读最新状态再 evict
+    // flush dirty 已随渲染端落库退出（Phase 3）而删除；直接截断 + evict
     const currentMsgs = useConversationStore.getState().messagesMap[convId]
     if (!currentMsgs) return
     // ★ 截断保留消息的大工具结果（在 evict 前）。非活跃会话里残留的超大 toolResult
@@ -582,49 +233,12 @@ async function maybeTrimConversation(convId: string): Promise<void> {
         }))
     }
     const evictCount = Math.max(1, Math.floor(currentMsgs.length * 0.3))
-    const evicted = truncatedMsgs.slice(0, evictCount)
     const kept = truncatedMsgs.slice(evictCount)
 
     useConversationStore.setState(state => ({
         messagesMap: { ...state.messagesMap, [convId]: kept },
         hasMoreMap: { ...state.hasMoreMap, [convId]: true },
     }))
-
-    // 清理被 evict 消息的 dirty 标记
-    if (dirtyMap) {
-        for (const evictedMsg of evicted) {
-            dirtyMap.delete(evictedMsg.id)
-        }
-    }
-}
-
-function forceFlush() {
-  if (saveTimer) {
-    clearTimeout(saveTimer)
-    saveTimer = null
-  }
-    // 刷所有会话的 dirty 消息（全量写兜底已移除）
-    const convIds = Object.keys(dirtyBlockDeltas)
-    for (const convId of convIds) {
-        void flushDirtyMessages(convId)
-    }
-}
-
-/** 仅取消保存定时器，不触发写入（用于压缩等场景，压缩后会重新写入完整数据） */
-function cancelPendingSave() {
-    if (saveTimer) {
-        clearTimeout(saveTimer)
-        saveTimer = null
-    }
-    // 清空全部 delta throttle 与 dirty 状态
-    for (const convId of Object.keys(deltaThrottle)) {
-        const ts = deltaThrottle[convId]
-        if (ts?.timer) clearTimeout(ts.timer)
-        delete deltaThrottle[convId]
-    }
-    for (const convId of Object.keys(dirtyBlockDeltas)) {
-        dirtyBlockDeltas[convId].clear()
-    }
 }
 
 /** 默认 agent 空闲状态（切换会话时后备） */
@@ -698,7 +312,7 @@ export async function applyConvModesToAgentStore(convId: string): Promise<void> 
 }
 
 /** 切换会话状态核心逻辑：同步 loadedMessages、agent 状态、IPC 通知
- *  （不含 flushMessages，调用方决定是否需要先 flush）
+ *  （落库已收敛至主进程，渲染端切换会话无需 flush）
  *  用于 setActiveConversation / deleteConversation / deleteConversations 共享路径 */
 async function switchActiveConversation(id: string | null) {
     const store = useConversationStore.getState()
@@ -1040,7 +654,6 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           if (id === get().activeConversationId) return
           // 刷新待处理的批次数据（文本 + 工具结果），防止切换后丢失正在流式的内容
           useAgentStore.getState().flushPendingStreamData()
-          get().flushMessages()
           await switchActiveConversation(id)
       },
 
@@ -1062,6 +675,28 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               }
           })
           window.electronAPI?.conversationUpdateMeta?.(id, {...updates, updatedAt: Date.now()})
+      },
+
+      /** 会话元数据事件消费（§3.4）：message-finalized → 更新 updatedAt 并重排。
+       *  纯内存操作：updatedAt 持久化由主进程 flush 时承担，渲染端不回写。
+       *  排序规则与 getFilteredConversations 一致（置顶优先，updatedAt 倒序）。 */
+      touchConversation: (convId, updatedAt) => {
+          set((state) => {
+              const wsPath = state.currentWorkspacePath
+              if (!wsPath || !state.workspaces[wsPath]) return state
+              const conversations = state.workspaces[wsPath].conversations.map(c =>
+                  c.id === convId ? {...c, updatedAt: Math.max(c.updatedAt || 0, updatedAt)} : c
+              )
+              // 复用侧栏排序规则重排（置顶优先，updatedAt 倒序）
+              conversations.sort((a, b) => {
+                  if (a.pinned && !b.pinned) return -1
+                  if (!a.pinned && b.pinned) return 1
+                  return b.updatedAt - a.updatedAt
+              })
+              return {
+                  workspaces: {...state.workspaces, [wsPath]: {...state.workspaces[wsPath], conversations}},
+              }
+          })
       },
 
       togglePinConversation: (id) => {
@@ -1120,9 +755,6 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               messagesMap: {...state.messagesMap, [convId]: newConvMsgs},
               loadedMessages: convId === state.activeConversationId ? newConvMsgs : state.loadedMessages,
           }))
-          // 增量落库：用户消息/新 assistant 消息立即持久化（断电保留进度关键路径）
-          markMessageDirty(convId, newMessage)
-          scheduleDeltaSave(convId)
           // 异步检查内存权重上限（不阻塞当前操作）
           setTimeout(() => maybeTrimConversation(convId), 0)
       },
@@ -1133,10 +765,10 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const idx = convMsgs.findIndex(m => m.id === id)
           if (idx === -1) return
           const current = convMsgs[idx]
-          // ★ 短路优化：updates 字段与当前值完全一致时不触发 setState / 落库 / 权重检查。
+          // ★ 短路优化：updates 字段与当前值完全一致时不触发 setState / 权重检查。
           //   流式高频路径（textBatch 每 24ms flush）常以相同 patch 重复调用（如 thinking
-          //   状态切换、batch flush 到无增量内容），此时不必要的数组 whole-copy + markDirty
-          //   + scheduleDeltaSave + setTimeout(maybeTrim) 会重复触发订阅链与分配。
+          //   状态切换、batch flush 到无增量内容），此时不必要的数组 whole-copy
+          //   + setTimeout(maybeTrim) 会重复触发订阅链与分配。
           //   仅当确有变化（浅比较 updates 各字段）才走更新。
           let changed = false
           for (const key of Object.keys(updates) as Array<keyof Message>) {
@@ -1149,9 +781,6 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               messagesMap: {...state.messagesMap, [convId]: newConvMsgs},
               loadedMessages: convId === state.activeConversationId ? newConvMsgs : state.loadedMessages,
           }))
-          // 增量落库：只写这一条变化的消息
-          markMessageDirty(convId, newConvMsgs[idx])
-          scheduleDeltaSave(convId)
           // 异步检查内存权重上限（不阻塞当前操作）
           setTimeout(() => maybeTrimConversation(convId), 0)
       },
@@ -1167,7 +796,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const newBlocks = bIdx === -1
               ? [...blocks, blockPatch]
               : blocks.map((b, i) => (i === bIdx ? blockPatch : b))
-          // 复用 updateMessageForConv 的 set + 落库联动，消除重复
+          // 复用 updateMessageForConv 的 set（纯内存更新，落库由主进程流式通路承担），消除重复
           get().updateMessageForConv(convId, id, {contentBlocks: newBlocks})
       },
 
@@ -1195,8 +824,6 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           if (convId) {
               window.electronAPI?.conversationDeleteMessage?.(convId, id)
           }
-          // 删除是结构性变更，delta 无法表达，清除该消息的 dirty 标记
-          dirtyBlockDeltas[convId]?.delete(id)
       },
 
       loadMessages: async (convId) => {
@@ -1268,19 +895,6 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           await get().loadMessagesInitial(convId)
       },
 
-      saveMessages: async () => {
-          const {activeConversationId} = get()
-          // 刷 dirty（块级增量已覆盖所有持久化字段，全量写兜底已移除）
-          if (activeConversationId && !isChildConversation(activeConversationId)) {
-              const dirtyCount = dirtyBlockDeltas[activeConversationId]?.size ?? 0
-              if (dirtyCount > 0) {
-                  await flushDirtyMessages(activeConversationId)
-              }
-          }
-      },
-
-      flushMessages: forceFlush,
-      cancelPendingSave,
       getMessages: () => get().loadedMessages,
 
       truncateMessagesAfter: (id) => {
@@ -1296,7 +910,6 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                 loadedMessages: convId === state.activeConversationId ? newConvMsgs : state.loadedMessages,
             }
         })
-        get().saveMessages()
       },
 
       // ── Init ───────────────────────────────────────────

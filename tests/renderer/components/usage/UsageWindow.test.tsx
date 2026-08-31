@@ -128,8 +128,8 @@ describe('UsageWindow 全局用量窗口', () => {
         })
         render(<UsageWindow />)
         await waitFor(() => expect(screen.getAllByText('平均吞吐').length).toBeGreaterThan(0))
-        // KPI 平均吞吐、平均首字为占位符；明细表每行新增 会话/平均首字/平均吞吐 三列占位符（2 行 × 3 = 6），共 8 处 —
-        expect(screen.getAllByText('—')).toHaveLength(8)
+        // KPI 平均吞吐、平均首字为占位符；明细表每行新增 会话/平均会话成本/平均首字/平均吞吐 四列占位符（2 行 × 4 = 8），共 10 处 —
+        expect(screen.getAllByText('—')).toHaveLength(10)
     })
 
     it('切换视图（按模型）→ 重新查询', async () => {
@@ -249,6 +249,27 @@ describe('UsageWindow 全局用量窗口', () => {
         expect(screen.queryByText('¥92.73600')).toBeNull()
         expect(screen.getByText('$10.71000')).toBeTruthy()
         expect(screen.getByText('$2.17000')).toBeTruthy()
+    })
+
+    it('平均会话成本列：成本 ÷ 会话数；会话数为 0 显示 —，且可按该列排序', async () => {
+        const stats: GlobalUsageStats = {
+            ...mockStats,
+            breakdown: [
+                {key: 'anthropic', providerType: 'anthropic', providerName: 'Deepseek-ant', requestCount: 196, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2, costUsd: 10.71, conversationCount: 2},
+                {key: 'openai', providerType: 'openai', providerName: 'OpenAI', requestCount: 71, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2, costUsd: 2.17, conversationCount: 0},
+            ],
+        }
+        api().usageStatsQuery = vi.fn().mockResolvedValue(stats)
+        render(<UsageWindow />)
+        // 10.71 / 2 = 5.355 USD → 人民币 38.556
+        await waitFor(() => expect(screen.getByText('¥38.55600')).toBeTruthy())
+        // 会话数为 0 → 平均会话成本占位符（成本列仍有 ¥15.62400）
+        const tbody = screen.getByText('OpenAI').closest('tbody')!
+        const openAiRow = Array.from(tbody.querySelectorAll('tr')).find(tr => tr.textContent!.includes('OpenAI'))!
+        expect(openAiRow.textContent).toContain('—')
+        // 排序：首次点击降序 → 均值高者（Deepseek-ant）在前
+        fireEvent.click(screen.getByText('平均会话成本'))
+        expect(tbody.querySelectorAll('tr')[0].textContent).toContain('Deepseek-ant')
     })
 
     it('查询失败 → 显示错误提示', async () => {

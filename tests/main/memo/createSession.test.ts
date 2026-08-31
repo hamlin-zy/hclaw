@@ -55,10 +55,14 @@ describe('createSessionFromMemo', () => {
         const startArg0 = mocks.startCore.mock.calls[0]![0] as {conversationTitle?: string; message: string}
         expect(startArg0.conversationTitle).toBe('T')
         expect(mocks.startCore.mock.calls[0]![1]).toBe('memo')
-        const msgArg = mocks.writeMessages.mock.calls[0]![1][0]
-        expect(msgArg.content).toBe('/brainstorming\nfix the bug')
-        expect(msgArg.metadata?.commandId).toBe('cmd-123')
+        // 首条消息内容/命令元数据经 startAgentCore 落库（message + messageMetadata 透传）
+        expect(startArg0.message).toBe('/brainstorming\nfix the bug')
+        expect((startArg0 as {messageMetadata?: {commandId?: string}}).messageMetadata?.commandId).toBe('cmd-123')
         expect(mocks.startCore).toHaveBeenCalledOnce()
+        // ★ 落库统一由 startAgentCore 处理（Phase 2 收敛）：调用方不自行 writeMessages，
+        //   也不传 suppressUserMessage（否则 user 消息不落库，会话丢失首条消息）
+        expect(mocks.writeMessages).not.toHaveBeenCalled()
+        expect((mocks.startCore.mock.calls[0]![0] as {suppressUserMessage?: boolean}).suppressUserMessage).toBeUndefined()
         // 状态标记
         const after = store.findById(item.id)!
         expect(after.status).toBe('processed')
@@ -69,8 +73,8 @@ describe('createSessionFromMemo', () => {
         const store = await freshStore()
         const item = store.create({workspacePath: 'E:\\p', content: 'plain task', title: 'T'})
         await store.createSessionFromMemo(item.id)
-        expect(mocks.writeMessages.mock.calls[0][1][0].content).toBe('plain task')
-        expect(mocks.writeMessages.mock.calls[0][1][0].metadata).toBeUndefined()
+        expect((mocks.startCore.mock.calls[0]![0] as {message?: string}).message).toBe('plain task')
+        expect((mocks.startCore.mock.calls[0]![0] as {messageMetadata?: unknown}).messageMetadata).toBeUndefined()
         // 旧数据 title 为空时归一化 ''，会话 title 回退到 content 前 50 字符
         const hashDir = fs.readdirSync(path.join(dir, 'data', 'memo'))[0]
         const file = path.join(dir, 'data', 'memo', hashDir, 'memos.json')
@@ -94,22 +98,18 @@ describe('createSessionFromMemo', () => {
         const item = store.create({workspacePath: 'E:\\p', content: 't', title: 'T',
             capability: {type: 'skill', name: 'gone-skill'}})
         await store.createSessionFromMemo(item.id)
-        expect(mocks.writeMessages.mock.calls[0][1][0].content).toBe('t')
+        expect((mocks.startCore.mock.calls[0]![0] as {message?: string}).message).toBe('t')
     })
 
-    it('附件 → 落库 metadata.attachments + 首轮 content 多模态构建（同 handoff）', async () => {
+    it('附件 → 落库顶层 attachments + 首轮 content 多模态构建（同 handoff，R6 单形态）', async () => {
         const store = await freshStore()
         const src = path.join(dir, 'img.png')
         fs.writeFileSync(src, 'x')
         const att = await store.uploadAttachment({fileName: 'img.png', srcPath: src, mime: 'image/png'})
         const item = store.create({workspacePath: 'E:\\p', content: 'see image', title: 'T', attachments: [att]})
         await store.createSessionFromMemo(item.id)
-        // 气泡渲染：metadata.attachments 结构化存储（MessageList 附件卡片来源）
-        const msgArg = mocks.writeMessages.mock.calls[0]![1][0] as {metadata?: {attachments?: Array<{path: string; isImage: boolean}>}, content: unknown}
-        expect(msgArg.metadata?.attachments).toHaveLength(1)
-        expect(msgArg.metadata?.attachments?.[0]).toMatchObject({name: 'img.png', isImage: true, path: item.attachments[0].storedPath})
-        // agent 首轮：message 传纯文本（与落库 content 同构 → core 去重生效），
-        // 多模态组装由 core 经 messageAttachments 构建
+        // 附件：messageAttachments 透传 startAgentCore（顶层结构化存储 + 多模态首轮 content
+        // 均由 core 统一构建/落库）
         const startArg = mocks.startCore.mock.calls[0]![0] as {
             message: string
             messageAttachments?: Array<{path: string; name: string}>

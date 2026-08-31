@@ -260,7 +260,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
         <div ref={switcherRef} className="relative mb-1.5">
           <button
             type="button"
-            data-name="cache-rate-model-switcher"
+           data-name="cache-rate-model-switcher"
             onClick={() => setSwitcherOpen(o => !o)}
             className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded-md border border-[var(--border)] bg-[var(--surface)] text-[11px] text-[var(--text-primary)] hover:border-[var(--border-emphasis)] transition-colors focus:outline-none"
             title="切换模型查看统计"
@@ -284,7 +284,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                         ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]'
                         : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'
                     }`}
-                  >
+                   data-name="cache-rate-tooltip-button">
                     <span className="truncate min-w-0">{formatModelLabel(item.providerName, item.model)}</span>
                     {isActive && (
                       <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -379,7 +379,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
   return (
     <>
       <span
-        data-name="input-toolbar-cache-rate"
+       data-name="input-toolbar-cache-rate"
         ref={triggerRef}
         className="flex items-center gap-1 text-sm text-[var(--text-muted)] cursor-help tabular-nums leading-none whitespace-nowrap"
         onMouseEnter={scheduleShow}

@@ -139,7 +139,7 @@ export default function ConfirmDialog() {
                             aria-modal="true"
                             aria-labelledby="confirm-dialog-title"
                             onClick={(e) => e.stopPropagation()}
-                        >
+                         data-name="confirm-dialog-div">
                             {/* Header */}
                             <div className="px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)]">
                                 <div className="flex items-center gap-3">
@@ -194,14 +194,14 @@ export default function ConfirmDialog() {
                                     onClick={handleCancel}
                                     disabled={isLoading}
                                     className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-muted)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                >
+                                 data-name="confirm-dialog-button">
                                     {options.cancelText || '取消'}
                                 </button>
                                 <button
                                     onClick={handleConfirm}
                                     disabled={isLoading}
                                     className={`px-4 py-2 text-sm font-medium rounded-lg ${confirmClassName} disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2`}
-                                >
+                                 data-name="confirm-dialog-confirm-button">
                                     {isLoading ? (
                                         <>
                                             <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"/>

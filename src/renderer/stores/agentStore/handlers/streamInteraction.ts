@@ -4,8 +4,7 @@
 import type {StreamCtx} from './streamContext'
 import type {ConvAgentData} from '../types'
 import {IDLE_STATE, makeAgentState, createDefaultConvData} from '../defaultState'
-import {useConversationStore, recordThinkBlock, finalizeMessageDelta} from '../../conversationStore'
-import {flushConversationDirty} from '../../conversationStore'
+import {useConversationStore} from '../../conversationStore'
 import {textBlockId} from '../contentBlocks'
 import {useAgentStore} from '..'
 import {
@@ -18,7 +17,7 @@ import {
 } from '../batching/thinkingBatch'
 import {flushToolResultBatch} from '../batching/toolResultBatch'
 import {parseCommands} from '../helpers/misc'
-import {saveCurrentConversation, clearConversationRuntimeState} from '../helpers/convHelpers'
+import {clearConversationRuntimeState} from '../helpers/convHelpers'
 import {ensureStreamingMessage} from './streamCore'
 
 /**
@@ -118,19 +117,7 @@ export async function handleDone(ctx: StreamCtx) {
             })
         }
 
-        // ★ ledger 补充：DB 中所有 think 块 status 置 complete
-        //   （flushThinkingBatch 记的是 'thinking'；上方内存 thinkBlock complete 更新不进 DB）。
-        //   必须用 streamBlocks 里 think 块的 id（think-${msgId}-${thinkSeq}），
-        //   绝不能从扁平字段 think-${streamingMessageId} 派生，否则会 INSERT 重复 think 块。
-        //   多 think 段（think→tool→think）逐段置 complete，避免早前段 reload 后仍显示 'thinking'。
-        for (const sb of doneConvData.streamBlocks) {
-            if (sb.type === 'think') {
-                recordThinkBlock(convId, doneConvData.streamingMessageId, sb.id, sb.thinkContent ?? '', 'complete', sb.textOffset)
-            }
-        }
-
-        // ★ 块级增量收尾：finalize patch（主进程补 ended_at + end 块，崩溃恢复比消息行更可靠）
-        finalizeMessageDelta(convId, doneConvData.streamingMessageId, endedAt)
+        // ★ ledger 补充：think 块 status 置 complete 的落库职责已由主进程承担（Phase 3）。
     }
 
     get().updateConvData(convId, {
@@ -155,8 +142,7 @@ export async function handleDone(ctx: StreamCtx) {
         loopWarning: undefined,
     })
 
-    // ★ 段边界语义：done 收尾完成后统一落库（endedAt/contentBlocks/tool_result 已合并）
-    void flushConversationDirty(convId)
+    // ★ 段边界落库（done 收尾 flush）已随渲染端落库退出（Phase 3）删除。
 
     // loop_detected 与 aborted 走同款收尾（不触发 pendingMessages 续跑）；UI 文案 Task 5 完善
     if (event.reason !== 'aborted' && event.reason !== 'loop_detected') {
@@ -214,10 +200,8 @@ export function handleError(ctx: StreamCtx) {
         // ★ 收尾前同步冲刷 rAF tool_result 批（与 handleDone 同因：确保
         //   tool_result 先于 end 进入 dirty map 同批落库）
         flushToolResultBatch(convId)
-        // ★ 块级增量收尾：error 收尾同样 finalize（endedAt 判空同域，无流式消息的 error 跳过）
-        finalizeMessageDelta(convId, errorMsgId, Date.now())
+        // ★ 块级增量收尾（error finalize）已随渲染端落库退出（Phase 3）删除。
     }
-    void flushConversationDirty(convId)
     // ★ 即时清理：error 收尾即清（与 handleDone 对称）
     clearConversationRuntimeState(convId)
 }
@@ -438,9 +422,7 @@ export function handleUserMessageInjected(ctx: StreamCtx) {
         useConversationStore.getState().updateMessageForConv(convId, convState.streamingMessageId, {
             endedAt: Date.now(),
         })
-        // ★ 块级增量收尾：injected 收尾同样 finalize（旧消息流强制结束，补 end 块）
-        finalizeMessageDelta(convId, convState.streamingMessageId, Date.now())
-        void flushConversationDirty(convId)
+        // ★ 块级增量收尾（injected finalize）已随渲染端落库退出（Phase 3）删除。
     }
 
     // 重置流式状态——清除累加器，避免新消息带入旧内容
@@ -477,5 +459,5 @@ async function handleConvEvent(params: ConvEventHandlerParams) {
         }
     }
 
-    if (isActiveConv) await saveCurrentConversation()
+    // 渲染端落库已收敛至主进程（Phase 3），原 saveCurrentConversation 调用删除
 }

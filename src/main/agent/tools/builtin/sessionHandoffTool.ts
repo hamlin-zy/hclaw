@@ -22,7 +22,7 @@ import {parentPort} from 'worker_threads'
 import type {Tool, ToolResult} from '../types'
 import type {ChatMessage} from '../../model/types'
 import {logger} from '../../logger'
-import {toMessageAttachments, buildUserHistoryContent} from '../../utils/userContentBuilder'
+import {buildUserHistoryContent} from '../../utils/userContentBuilder'
 
 const inputSchema = z.object({
     title: z.string()
@@ -129,21 +129,18 @@ export const sessionHandoffTool: Tool<SessionHandoffInput, string> = {
         // 1) 落库：content 保持纯文本；metadata.attachments 结构化存储 → MessageList 附件卡片渲染
         // 2) 首轮：session_handoff_start 消息 content 用 buildUserHistoryContent 构建（图片 base64 块）
         const rawAttachments = (args.attachments || []).filter(a => a.path?.trim())
-        const messageAttachments = toMessageAttachments(rawAttachments)
         const startContent = await buildUserHistoryContent(firstMessageContent, rawAttachments)
 
-        const userMsg = {
+        // ★ 落库消息经唯一构建者 buildUserMessage（R5：预置 userMsgId——
+        //   requestHandoffStart 依赖同一 id；附件单形态：顶层 attachments，metadata 仅 commandId）
+        const {buildUserMessage} = await import('../../messageBuilder')
+        const userMsg = await buildUserMessage({
+            convId: newConvId,
             id: userMsgId,
-            role: 'user' as const,
-            content: firstMessageContent,
-            timestamp: now,
-            ...(commandId || messageAttachments.length
-                ? {metadata: {
-                    ...(commandId ? {commandId} : {}),
-                    ...(messageAttachments.length ? {attachments: messageAttachments} : {}),
-                }}
-                : {}),
-        }
+            text: firstMessageContent,
+            attachments: rawAttachments,
+            metadata: commandId ? {commandId} : undefined,
+        })
         if (!conversationRepo.writeMessages(newConvId, [userMsg])) {
             return {success: false, output: '', error: '写入交接总结失败'}
         }

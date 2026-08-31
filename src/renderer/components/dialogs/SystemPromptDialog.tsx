@@ -80,7 +80,7 @@ export default function SystemPromptDialog() {
                 <button
                     onClick={handleCopy}
                     className="px-3 py-1 text-xs text-[var(--brand-primary)] hover:bg-[var(--brand-muted)] rounded transition-colors"
-                >
+                 data-name="system-prompt-dialog-button">
                     复制
                 </button>
             </div>

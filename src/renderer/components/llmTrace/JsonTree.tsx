@@ -22,7 +22,7 @@ export function JsonTree({data}: {data: unknown}) {
             <button
                 onClick={() => setAllCollapsed(c => !c)}
                 className="mb-1 py-0.5 px-2 text-[11px] rounded border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] cursor-pointer transition-colors"
-            >{allCollapsed ? '全部展开' : '全部折叠'}</button>
+             data-name="json-tree-button">{allCollapsed ? '全部展开' : '全部折叠'}</button>
             <CollapseContext.Provider value={allCollapsed}>
                 {/* key 重挂载：折叠态变化时按新默认值重建所有节点的内部 state */}
                 <TreeNode key={String(allCollapsed)} value={data} />
@@ -62,7 +62,7 @@ function TreeNode({fieldKey, value}: {fieldKey?: string; value: unknown}) {
             <div
                 className="cursor-pointer rounded hover:bg-[var(--surface-muted)] -mx-1 px-1"
                 onClick={() => setCollapsed(c => !c)}
-            >
+             data-name="json-tree-div">
                 <KeyLabel fieldKey={fieldKey} />
                 <span className="text-[var(--text-muted)]">{collapsed ? '▸ ' : '▾ '}</span>
                 {collapsed ? (
@@ -125,7 +125,7 @@ function PrimitiveRow({fieldKey, value}: {fieldKey?: string; value: unknown}) {
                     onClick={() => setJsonExpanded(e => !e)}
                     className="ml-1 py-0 px-1.5 text-[11px] rounded-full border-none text-[var(--text-secondary)] bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] cursor-pointer transition-colors"
                     title="展开/收起内嵌 JSON"
-                >{jsonExpanded ? '收起' : '展开'}</button>
+                 data-name="json-tree-toggle-button">{jsonExpanded ? '收起' : '展开'}</button>
             )}
             {isLongStr && <CopyButton name={value as string} size="sm" />}
             {parsedJson && jsonExpanded && (

@@ -106,8 +106,6 @@ beforeEach(() => {
                 }
                 return {messages: [], totalCount: 0}
             }),
-            conversationWriteMessagesDelta: vi.fn(async () => true),
-            conversationWriteMessages: vi.fn(async () => true),
         },
     }
     setupWorkspace()

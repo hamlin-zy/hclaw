@@ -35,7 +35,7 @@ const RetryButton = memo(function RetryButton({message}: { message: Message }) {
             className="mb-[22px] flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-sm text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:border-[var(--brand-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex-shrink-0"
             title="重试"
             aria-label="重试此消息"
-        >
+         data-name="message-actions-button">
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M1 4v6h6"/>
                 <path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>
@@ -73,7 +73,7 @@ const DeleteButton = memo(function DeleteButton({message, bottomMargin = 'mb-[22
             className={`${bottomMargin} flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-sm text-[var(--text-muted)] hover:text-red-500 hover:border-red-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex-shrink-0`}
             title="删除"
             aria-label="删除此消息"
-        >
+         data-name="message-actions-delete-button">
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M3 6h18"/>
                 <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
@@ -194,7 +194,7 @@ const CopyButton = memo(function CopyButton({message}: { message: Message }) {
             className="flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-sm text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:border-[var(--brand-primary)] transition-all flex-shrink-0"
             title={copied ? '已复制' : '复制'}
             aria-label={copied ? '已复制' : '复制此消息'}
-        >
+         data-name="message-actions-copy-button">
             {copied ? (
                 <svg className="w-4 h-4 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M20 6L9 17l-5-5"/>

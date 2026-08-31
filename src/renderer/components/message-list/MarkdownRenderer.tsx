@@ -95,7 +95,7 @@ const CopyButton = memo(function CopyButton({code}: { code: string }) {
                 text-[var(--text-muted)] hover:text-[var(--text-primary)]
                 border border-[var(--border)]"
             title="复制代码"
-        >
+         data-name="markdown-renderer-button">
             {copied ? '已复制' : '复制'}
         </button>
     )
@@ -206,7 +206,7 @@ function LocalImage({src, alt}: {src: string; alt: string}) {
                     className="max-w-full h-auto rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
                     loading="lazy"
                     onClick={() => setShowPreview(true)}
-                />
+                data-name="markdown-renderer-img"/>
             </span>
             {showPreview && (
                 <ImagePreviewModal
@@ -258,7 +258,7 @@ function normalizeMarkdownPaths(markdown: string): string {
 /**
  * 转义非 HTML 标签的尖括号，防止 rehypeRaw 将 TypeScript 泛型（如 Promise<string>）当成 HTML 标签
  * allowHtml=true（助手消息）：仅保留白名单内的合法 HTML 标签，其他 <...> 模式打断
- * allowHtml=false（用户消息）：用户输入不应被解析为 HTML（如 "<select>具体问题" 会渲染成下拉框），全部打断
+ * allowHtml=false（用户消息）：用户输入不应被解析为 HTML（如 "<select >具体问题" 会渲染成下拉框），全部打断
  */
 function escapeNonHtmlTags(markdown: string, allowHtml: boolean): string {
     if (typeof markdown !== 'string') return ''
@@ -370,7 +370,7 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
                         onClick={handleClick}
                         className="text-[var(--brand-primary)] hover:underline cursor-pointer"
                         {...props}
-                    >
+                     data-name="markdown-renderer-a">
                         {children}
                     </a>
                 )
@@ -488,7 +488,7 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
                     onClick={handleClick}
                     className="text-[var(--brand-primary)] hover:underline cursor-pointer"
                     {...props}
-                >
+                 data-name="markdown-renderer-a-2">
                     {children}
                 </a>
             )
@@ -551,7 +551,7 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
                             checked={checked}
                             disabled
                             className="mt-1 h-4 w-4 rounded border-[var(--border)] text-[var(--brand-primary)] accent-[var(--brand-primary)]"
-                        />
+                        data-name="markdown-renderer-input"/>
                         <span className={checked ? 'line-through text-[var(--text-muted)]' : ''}>
                             {children}
                         </span>

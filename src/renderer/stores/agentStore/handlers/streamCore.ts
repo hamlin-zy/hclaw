@@ -3,7 +3,7 @@
 
 import type {StreamCtx, GetFn} from './streamContext'
 import {STREAMING_STATE, makeAgentState, createDefaultConvData} from '../defaultState'
-import {useConversationStore, recordTextBlock} from '../../conversationStore'
+import {useConversationStore} from '../../conversationStore'
 import {
     accumulateTextBatch,
     scheduleImmediateTextFlush,
@@ -67,9 +67,10 @@ export function ensureStreamingMessage(get: GetFn, convId: string, preferredId?:
         return placeholderId
     }
     // ③ 孤儿收养（吸收原 D5 竞态守卫）：内存/DB 中存在未终结的 assistant 消息
-    //    （首 token 前崩溃残留）→ 复用其 id 作为载体并注册主进程（主进程 pending
-    //   复用同一 id，done 合并不产生副本）。recoverSessions 播种已清除 seed 消息的
-    //    内存 endedAt，播种 id 同样经由此路径自然复用，无需 recoveredStreaming 标记。
+    //    （首 token 前崩溃残留）→ 复用其 id 作为载体，与主进程 pending 共用同一 id
+    //   （done 合并不产生副本；注册链已随 Phase 3 渲染端停写删除）。recoverSessions
+    //    播种已清除 seed 消息的内存 endedAt，播种 id 同样经由此路径自然复用，
+    //    无需 recoveredStreaming 标记。
     // ★ 守卫：仅收养会话"最后一条消息"。若其后已出现新消息（尤其用户消息），
     //   说明该未终结 assistant 是历史异常残留（如 abort 终态丢失）——收养会把
     //   新响应合并进旧气泡，必须新建占位。
@@ -77,21 +78,12 @@ export function ensureStreamingMessage(get: GetFn, convId: string, preferredId?:
     const orphan = lastMsg && lastMsg.role === 'assistant' && !lastMsg.endedAt ? lastMsg : undefined
     if (orphan) {
         get().updateConvData(convId, {streamingMessageId: orphan.id})
-        window.electronAPI?.agentRegisterStreamingMessage?.(convId, orphan.id)
         return orphan.id
     }
-    // ④ 全新占位
-    const placeholderId = crypto.randomUUID()
-    useConversationStore.getState().addMessageToConv(convId, {id: placeholderId, role: 'assistant', content: ''})
-    get().updateConvData(convId, {streamingMessageId: placeholderId})
-    // ★ 占位 id 注册到主进程：pending 累积复用同一 id（幂等，fire-and-forget）。
-    //   否则主进程 createPendingMsg 独立生成 id，done 时 #mergeAndPersist 全量写
-    //   兜底会以该 id 插入幽灵副本 → 重启加载后每条助手消息渲染 2 份。
-    //   事件携带 preferredId（子会话对齐主进程累积器 id）时无需注册。
-    if (!preferredId) {
-        window.electronAPI?.agentRegisterStreamingMessage?.(convId, placeholderId)
-    }
-    return placeholderId
+    // ④ 消息 id 单源（§3.6-1）：主进程 messageId 未到达时不自建占位 id（事件未到
+    //    不建占位——begin 与首个内容事件间隔为毫秒级，无感知差异）。孤儿收养的
+    //    seed id 来自主进程流快照（pending.id），天然对齐，注册链已随 Phase 3 删除。
+    return null
 }
 
 export function handleBegin(ctx: StreamCtx) {
@@ -182,7 +174,10 @@ export function handleText(ctx: StreamCtx) {
     }
 
     if (!convState.streamingMessageId) {
-        const id = (event.messageId as string | undefined) || crypto.randomUUID()
+        // ★ id 单源（§3.6-1）：只使用事件 payload 的 messageId（主进程对所有内容事件
+        //   注入 pending.id）；缺失时不自建 id，跳过建消息（正常流程 begin 已下发）
+        const id = event.messageId as string | undefined
+        if (!id) return
         convStore.addMessageToConv(convId, {
             id,
             role: 'assistant',
@@ -193,9 +188,6 @@ export function handleText(ctx: StreamCtx) {
             streamBuffer: textContent,
             agentState: {...convState.agentState, status: 'running', phase: 'responding'},
         })
-        // ★ 块级增量：第一条 text 也需切块落库（纯文本回复/无工具调用的首个段永远不走 else 分支）。
-        //   后续 text 经 textBatch → flushTextBatch → recordTextBlock 切块，此处直接为第一条切块。
-        recordTextBlock(convId, id, textContent)
     } else {
         // ★ queueMicrotask 批处理：每个文本块累积到批处理缓冲区，
         // 同微任务内多个块合并为一次 store 更新，防止高频 IPC 触发
@@ -232,7 +224,9 @@ export function handleThinking(ctx: StreamCtx) {
     //   全量重建链，思考模式下高频 chunk 会持续占用渲染主线程导致 UI 卡死。
     let msgId = convState.streamingMessageId
     if (!msgId) {
-        msgId = (event.messageId as string | undefined) || crypto.randomUUID()
+        // ★ id 单源（§3.6-1）：只使用事件 payload 的 messageId，缺失时不自建
+        msgId = (event.messageId as string | undefined) || null
+        if (!msgId) return
         convStore.addMessageToConv(convId, {
             id: msgId,
             role: 'assistant',

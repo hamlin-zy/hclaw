@@ -95,7 +95,7 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
                 : 'border-[var(--border)] bg-[var(--surface-muted)]'
         }`}>
             <button onClick={() => onToggle(toolCall.id)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.03] transition-colors">
+                className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.03] transition-colors" data-name="popup-tool-card-button">
                 <span className="text-[10px] text-[var(--text-muted)] w-5 shrink-0 text-right font-mono">#{index + 1}</span>
                 <span className={`text-xs w-4 text-center shrink-0 ${cfg.color}`}>{cfg.icon}</span>
                 <span className="font-semibold text-[var(--text-primary)] text-[11px] shrink-0">

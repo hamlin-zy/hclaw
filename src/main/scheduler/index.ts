@@ -424,20 +424,12 @@ class SchedulerManager {
   }
 
   /**
-   * 向会话写入用户消息，更新预览并推送 UI 刷新事件
+   * 更新会话预览并推送 UI 刷新事件。
+   * ★ user 消息落库统一由 startAgentCore 处理（Phase 2 收敛），此处不再自行写入
+   *   （此前双写导致会话中出现两条相同 user 消息，与 memo 链路同源）。
    */
   private writeUserMessage(convId: string, content: string): void {
     const now = Date.now()
-    try {
-      this.convRepo.writeMessages(convId, [{
-        id: crypto.randomUUID(),
-        role: 'user',
-        content,
-        timestamp: now,
-      }])
-    } catch {
-      // 静默失败 — 不影响主流程
-    }
     try {
       this.convRepo.updateMeta(convId, {preview: content.slice(0, 200), updatedAt: now})
     } catch {

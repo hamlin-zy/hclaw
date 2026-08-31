@@ -86,7 +86,7 @@ const StepsBlock = memo(function StepsBlock({stepsBlock}: { stepsBlock: StepsBlo
           onClick={() => setIsUltraExpanded(!isUltraExpanded)}
           aria-expanded={isUltraExpanded}
           className="flex items-center gap-[var(--space-snug)] text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-        >
+         data-name="steps-block-button">
           <svg
             className={`w-2.5 h-2.5 transition-transform duration-200 ${isUltraExpanded ? 'rotate-90' : ''}`}
             viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"

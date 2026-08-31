@@ -218,14 +218,14 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
             className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/95 backdrop-blur-sm"
             onClick={(e) => { handleBackdropClick(e); closeContextMenu() }}
             onContextMenu={handleContextMenu}
-        >
+         data-name="image-preview-modal-div">
             {/* 顶部工具栏 */}
             <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 px-4 py-2 rounded-full bg-black/60 backdrop-blur-sm z-10">
                 <button
                     onClick={() => zoom(-0.25)}
                     className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors active:scale-95"
                     title="缩小 (-)"
-                >
+                 data-name="image-preview-modal-button">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
                     </svg>
@@ -235,7 +235,7 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                     onClick={() => zoom(0.25)}
                     className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors active:scale-95"
                     title="放大 (+)"
-                >
+                 data-name="image-preview-modal-zoom-in-button">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
@@ -245,7 +245,7 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                     onClick={() => rotate(-90)}
                     className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors active:scale-95"
                     title="逆时针旋转 (R)"
-                >
+                 data-name="image-preview-modal-rotate-left-button">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
@@ -254,7 +254,7 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                     onClick={() => rotate(90)}
                     className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors active:scale-95"
                     title="顺时针旋转 (r)"
-                >
+                 data-name="image-preview-modal-rotate-right-button">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" transform="scale(-1, 1) translate(-24, 0)" />
                     </svg>
@@ -264,7 +264,7 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                     onClick={resetTransform}
                     className="px-3 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white text-sm transition-colors active:scale-95 font-medium"
                     title="重置 (0)"
-                >
+                 data-name="image-preview-modal-reset-button">
                     重置
                 </button>
             </div>
@@ -274,7 +274,7 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                 onClick={onClose}
                 className="absolute top-4 right-4 w-12 h-12 flex items-center justify-center rounded-full bg-black/40 hover:bg-black/60 text-white text-3xl font-light transition-colors z-10 active:scale-95"
                 title="关闭 (ESC)"
-            >
+             data-name="image-preview-modal-close-button">
                 ×
             </button>
 
@@ -320,7 +320,7 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
             {contextMenu.visible && (
                 <>
                     {/* 透明遮罩用于关闭菜单 */}
-                    <div className="fixed inset-0 z-[10000]" onClick={closeContextMenu} />
+                    <div className="fixed inset-0 z-[10000]" onClick={closeContextMenu} data-name="image-preview-modal-context-menu-backdrop"/>
                     <div
                         className="fixed z-[10001] bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl py-1 min-w-[160px] overflow-hidden"
                         style={{left: contextMenu.x, top: contextMenu.y}}
@@ -328,7 +328,7 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                         <button
                             onClick={copyImageToClipboard}
                             className="w-full px-4 py-2.5 text-sm text-left text-[var(--text-primary)] hover:bg-[var(--brand-primary)]/10 flex items-center gap-2.5 transition-colors"
-                        >
+                         data-name="image-preview-modal-copy-image-button">
                             <svg className="w-4 h-4 text-[var(--brand-primary)] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                             </svg>
@@ -337,7 +337,7 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                         <button
                             onClick={() => { navigator.clipboard.writeText(src); closeContextMenu(); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
                             className="w-full px-4 py-2.5 text-sm text-left text-[var(--text-muted)] hover:bg-[var(--surface-muted)] flex items-center gap-2.5 transition-colors"
-                        >
+                         data-name="image-preview-modal-copy-image-path-button">
                             <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                             </svg>

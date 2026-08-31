@@ -212,10 +212,19 @@ function findEffectiveOverride(convId: string): ModelOverride | null {
  * - 默认：primary 角色（fallback 链 primary→lightweight→reasoning，见 modelSelector）
  * - 图片消息：loop 始终使用当前决策模型，图片分析由 analyze_image 内置工具调用视觉理解模型处理
  */
+/**
+ * 未显式指定 modelRole 时的默认起始角色：
+ * 主会话 primary；agentTool 子会话（traceContext='subAgent'）lightweight。
+ */
+export function defaultRoleForTrace(traceContext?: string): ModelRole {
+    return traceContext === 'subAgent' ? 'lightweight' : 'primary'
+}
+
 export function* selectModelForTurn(
     schemeConfig: RunParams['schemeConfig'],
     sessionId?: string,
     modelRoleOverride?: ModelRole,
+    defaultRole: ModelRole = 'primary',
 ): Generator<AgentStreamEvent, TurnModelSelection> {
     const currentScheme = runtimeConfigManager.getScheme() || (schemeConfig?.scheme as ModelScheme | undefined) || null
     // 单次调用缓存（避免重复 getProviders()）：runtime 优先、schemeConfig 兜底（与原实现双路径等价）
@@ -267,9 +276,14 @@ export function* selectModelForTurn(
         yield {type: 'warning', message: '会话指定的模型已失效，已切换为主力模型'}
     }
 
-    // ── 2. 默认：直接使用 primary（fallback 链 primary→lightweight→reasoning）──
-    const suggestedRole: ModelRole = 'primary'
-    const modelSelectionReason = '默认主力模型(primary)'
+    // ── 2. 默认：按 defaultRole 起始的降级链选择 ──
+    // - 主会话默认 primary（P→L→R）；agentTool 子会话（未显式 modelRole）默认 lightweight（L→P→R）
+    // - 显式 modelRole 未生效（角色未启用/未配置）时同样按其起始角色降级（如 R→P→L）
+    const requestedRole: ModelRole = modelRoleOverride ?? defaultRole
+    let suggestedRole: ModelRole = requestedRole
+    const modelSelectionReason = modelRoleOverride
+        ? `显式角色 ${suggestedRole} 未生效，按其降级链选择`
+        : `默认 ${defaultRole === 'lightweight' ? '轻量模型(lightweight)' : '主力模型(primary)'}（降级链起始）`
 
     logger.info(`[AgentLoop] 模型选择：${modelSelectionReason} → ${suggestedRole}`)
 
@@ -284,6 +298,8 @@ export function* selectModelForTurn(
             modelConfig = resolved
             schemeId = currentScheme.id
             schemeName = currentScheme.name
+            // suggestedRole 标注实际生效角色（降级后与请求角色不同）
+            suggestedRole = roleResult.role
         } else {
             // selectModelForTaskWithRole 已含 fallback 链；此处兜底（provider 缺失等）
             logger.warn(`[AgentLoop] ${roleResult.role} 模型配置无法解析，尝试 primary`)

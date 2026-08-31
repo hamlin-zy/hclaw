@@ -85,7 +85,7 @@ const AudioPreviewPlayer = memo(function AudioPreviewPlayer({url, fileName}: Aud
 
             <div className="flex items-center gap-3">
                 <button onClick={togglePlay}
-                        className="w-10 h-10 rounded-full bg-pink-500 hover:bg-pink-600 text-white flex items-center justify-center transition-colors shrink-0">
+                        className="w-10 h-10 rounded-full bg-pink-500 hover:bg-pink-600 text-white flex items-center justify-center transition-colors shrink-0" data-name="audio-preview-player-button">
                     {playing ? (
                         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                             <path d="M6 4h4v12H6V4zm6 0h4v12h-4V4z"/>
@@ -105,14 +105,14 @@ const AudioPreviewPlayer = memo(function AudioPreviewPlayer({url, fileName}: Aud
                        className="flex-1 h-1.5 rounded-full appearance-none bg-[var(--border)] cursor-pointer
                         [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 
                         [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-pink-500"
-                       style={{background: duration ? `linear-gradient(to right, #ec4899 ${progressPercent}%, var(--border) ${progressPercent}%)` : undefined}}/>
+                       style={{background: duration ? `linear-gradient(to right, #ec4899 ${progressPercent}%, var(--border) ${progressPercent}%)` : undefined}} data-name="audio-preview-player-input"/>
 
                 <span
                     className="text-[11px] text-[var(--text-muted)] font-mono w-10 shrink-0 text-right">{formatTime(duration)}</span>
 
                 <div className="flex items-center gap-1 shrink-0">
                     <button onClick={toggleMute}
-                            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+                            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" data-name="audio-preview-player-mute-button">
                         {volume > 0 ? (
                             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                                 <path
@@ -128,7 +128,7 @@ const AudioPreviewPlayer = memo(function AudioPreviewPlayer({url, fileName}: Aud
                     <input type="range" min="0" max="1" step="0.1" value={volume} onChange={changeVolume}
                            className="w-16 h-1.5 rounded-full appearance-none bg-[var(--border)] cursor-pointer
                             [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 
-                            [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-pink-500"/>
+                            [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-pink-500" data-name="audio-preview-player-volume-input"/>
                 </div>
             </div>
         </div>

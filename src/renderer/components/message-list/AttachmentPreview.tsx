@@ -75,7 +75,7 @@ const ImagePreviewCard = memo(function ImagePreviewCard({att}: { att: Attachment
                     !hasImage ? config.bgColor : 'bg-black/10'
                 } ${hasImage ? 'cursor-pointer' : ''}`}
                 onClick={hasImage ? () => setShowModal(true) : undefined}
-            >
+             data-name="attachment-preview-div">
                 {hasImage ? (
                     <img src={dataUrl!} alt={att.name}
                          className="max-w-[200px] max-h-[150px] object-cover"
@@ -125,7 +125,7 @@ const FileTypeCard = memo(function FileTypeCard({att}: { att: Attachment }) {
             onClick={handleOpenFile}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg ${config.bgColor} border border-[var(--border)]/30 cursor-pointer hover:border-[var(--border)]/50 transition-colors`}
             title={`打开文件: ${att.path || att.name}`}
-        >
+         data-name="attachment-preview-file-card">
             {/* 首字母 */}
             <span className={`text-sm font-bold ${config.textColor}`}>{config.letter}</span>
             <div className="flex flex-col">
