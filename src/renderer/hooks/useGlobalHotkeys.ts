@@ -20,11 +20,15 @@ export function useGlobalHotkeys() {
         // 则视为组合键（如 Alt+Tab、Alt+数字），keyup 时不触发
         let altUsed = false
         const handleKeyUp = (e: KeyboardEvent) => {
-            if (e.key === 'Alt' && !altUsed && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+            if (e.key === 'Alt') {
                 // 单独按 Alt → 切换侧边栏左下角功能菜单（三横线按钮，由 SidebarGearMenu 监听）
-                window.dispatchEvent(new CustomEvent('hclaw:toggle-gear-menu'))
+                if (!altUsed && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+                    window.dispatchEvent(new CustomEvent('hclaw:toggle-gear-menu'))
+                }
+                // 只在松开 Alt 时重置标志：组合键（如 Alt+↑）中方向键的 keyup 先于 Alt 的 keyup，
+                // 若在任意 keyup 重置，会把组合键标志提前清零，导致松开 Alt 被误判为单独按 Alt
+                altUsed = false
             }
-            altUsed = false
         }
 
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -85,6 +89,13 @@ export function useGlobalHotkeys() {
             if (ctrl && !shift && key === 'b') {
                 e.preventDefault()
                 useSidebarStore.getState().toggleLeft()
+                return
+            }
+
+            // Ctrl+Shift+B → 切换右侧备忘录面板
+            if (ctrl && shift && key === 'b') {
+                e.preventDefault()
+                useSidebarStore.getState().toggleRight()
                 return
             }
 

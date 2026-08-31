@@ -755,6 +755,7 @@ function RoleConfigEditor({
                                 })}
                                 disabled={!config.enabled}
                                 placeholder="禁用"
+                                fullWidth
                                 ariaLabel="思考强度"
                             />
                         </div>

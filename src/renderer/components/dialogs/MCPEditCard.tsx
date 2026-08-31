@@ -1,5 +1,6 @@
 import {useState} from 'react'
 import type {MCPServer} from '@shared/types'
+import ThemedSelect from '../ThemedSelect'
 
 // ─── Helpers ──────────────────────────────
 
@@ -298,14 +299,19 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                         </div>
                         <div>
                             <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">传输协议</label>
-                            <select value={transport} onChange={(e) => setTransport(e.target.value as any)}
-                                    className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:border-brand-500 outline-none bg-white">
-                                <option value="stdio">STDIO (本地命令)</option>
-                                <option value="sse">SSE (远程服务 - 已废弃)</option>
-                                <option value="http">HTTP (纯 HTTP)</option>
-                                <option value="websocket">WebSocket (双向通信)</option>
-                                <option value="streamable-http">Streamable HTTP (MCP 推荐)</option>
-                            </select>
+                            <ThemedSelect
+                                fullWidth
+                                value={transport}
+                                onChange={(v) => setTransport(v as any)}
+                                options={[
+                                    {value: 'stdio', label: 'STDIO (本地命令)'},
+                                    {value: 'sse', label: 'SSE (远程服务 - 已废弃)'},
+                                    {value: 'http', label: 'HTTP (纯 HTTP)'},
+                                    {value: 'websocket', label: 'WebSocket (双向通信)'},
+                                    {value: 'streamable-http', label: 'Streamable HTTP (MCP 推荐)'},
+                                ]}
+                                ariaLabel="传输协议"
+                            />
                         </div>
                     </div>
 

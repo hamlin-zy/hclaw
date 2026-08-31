@@ -174,7 +174,7 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
     })
 
     // 加载页面
-    const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--inspect')
+    const isDev = process.env.NODE_ENV === 'development' || process.env.HCLAW_DEV_MODE === 'true' || process.argv.includes('--inspect')
     if (isDev) {
         win.loadURL(`http://localhost:5173/${entryHtml}`)
         if (devTools) win.webContents.openDevTools({mode: 'detach'})

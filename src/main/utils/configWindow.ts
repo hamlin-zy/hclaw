@@ -16,6 +16,7 @@ export const CONFIG_DIALOG_TYPES = new Set([
     'tool-list', 'system-prompt', 'about',
     'llm-logs', 'usage',
     'task-history', 'task-history-conv',
+    'memo-edit',
 ])
 
 /** 窗口标题（与 MenuDialogRenderer DIALOG_CONFIG 的 title 对齐） */
@@ -41,6 +42,7 @@ const DIALOG_TITLES: Record<string, string> = {
     'usage': '用量统计',
     'task-history': '任务历史',
     'task-history-conv': '任务历史',
+    'memo-edit': '备忘录编辑',
 }
 
 /**
@@ -70,6 +72,7 @@ const DIALOG_SIZES: Record<string, {width?: number; widthRatio?: number; maxWidt
     'usage': {width: 1200, height: 700, minWidth: 800},
     'task-history': {width: 780},
     'task-history-conv': {width: 720},
+    'memo-edit': {width: 560},
 }
 const DEFAULT_DIALOG_SIZE = {width: 680, height: 700, minWidth: 420, minHeight: 400}
 

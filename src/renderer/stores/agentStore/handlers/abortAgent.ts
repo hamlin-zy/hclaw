@@ -2,7 +2,7 @@
 
 import type {AgentStore} from '../types'
 import {IDLE_STATE, createDefaultConvData} from '../defaultState'
-import {useConversationStore} from '../../conversationStore'
+import {useConversationStore, finalizeMessageDelta} from '../../conversationStore'
 import {textBlockId} from '../contentBlocks'
 import {useToolCallsStore} from '../../toolCallsStore'
 import {clearAllBatches} from '../helpers/convHelpers'
@@ -125,6 +125,13 @@ export async function abortAgentImpl(
                     useConversationStore.getState().flushMessages()
                 }
             }
+
+            // ★ 与 done/error 收尾对称：补 endedAt + finalize（主进程写 ended_at + end 块）。
+            //   此前 abort 不落终态 → DB 无 end 块、消息永远"未终结"，
+            //   ensureStreamingMessage 孤儿收养会把下一条新响应合并进本气泡。
+            const endedAt = Date.now()
+            useConversationStore.getState().updateMessageForConv(conversationId, streamingMsgId, {endedAt})
+            finalizeMessageDelta(conversationId, streamingMsgId, endedAt)
         }
     }
 

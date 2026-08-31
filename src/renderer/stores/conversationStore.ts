@@ -933,7 +933,16 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           // 用默认值初始化新会话的 agent 状态，确保待办列表不会残留旧会话数据
           // ★ 时序保证：session_created 必然先于 session_handoff_start 被处理（同一
           //   worker→main 消息队列顺序投递），此重置发生在任何交接流事件之前，不会误伤。
-          useAgentStore.getState().updateConvData(convId, createDefaultConvData())
+          // ★ 防御：仅当该会话尚无活跃流状态（streamingMessageId）时才重置。
+          //   memo/scheduler 等创建方若在 start() 之后才广播 session_created，
+          //   begin/text 流事件已先到达并建立了占位消息——盲目重置会抹掉
+          //   streamingMessageId，切换会话时 DB 覆盖内存占位且合并被跳过，
+          //   产生孤儿空白助手气泡。
+          const existingConvData = useAgentStore.getState().convAgentStates[convId]
+          const hasLiveStream = Boolean(existingConvData?.streamingMessageId)
+          if (!hasLiveStream) {
+              useAgentStore.getState().updateConvData(convId, createDefaultConvData())
+          }
           // ★ 激活切换复用手动切换链路 switchActiveConversation（而非裸 set）：
           //   含持久化消息加载 + 运行中会话内存流式消息合并 + reconcileStreamingContent
           //   重建 contentBlocks + 定时截断调度。此前裸 set + 异步 loadMessagesInitial

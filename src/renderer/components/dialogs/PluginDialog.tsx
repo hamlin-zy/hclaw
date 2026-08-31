@@ -20,6 +20,7 @@ import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
 import {usePluginUpdateStore} from '../../stores/pluginUpdateStore'
 import {useSettingsStore} from '../../stores/settingsStore'
 import {confirm} from '../ConfirmDialog'
+import ThemedSelect from '../ThemedSelect'
 
 // 可折叠类别子组件
 interface CollapsibleCategoryProps {
@@ -602,42 +603,33 @@ export default function PluginDialog() {
                                             })()}
                                           <CopyButton name={plugin.manifest.name || plugin.name} size="sm" />
                                           {plugin.manifest.version && (
-                                              <div className="relative inline-flex items-center">
-                                                <select
+                                              <div className="relative inline-flex items-center"
+                                                   onClickCapture={() => {
+                                                       // Lazy-load version data on first click
+                                                       if (!versionData[plugin.name]) {
+                                                           setVersionData(prev => ({...prev, [plugin.name]: {tags: [], branches: [], current: plugin.manifest.version || '', latest: '', loading: true}}))
+                                                           loadVersionInfo(plugin.name)
+                                                       }
+                                                   }}
+                                              >
+                                                <ThemedSelect
                                                   value={versionData[plugin.name]?.current || plugin.manifest.version || ''}
-                                                  onChange={(e) => handleVersionSwitch(plugin.name, e.target.value)}
+                                                  onChange={(v) => handleVersionSwitch(plugin.name, v)}
                                                   disabled={switchingVersion === plugin.name}
-                                                  className="text-xs px-1.5 py-0.5 bg-[var(--surface)] rounded
-                                                    text-[var(--text-muted)] border border-[var(--border-muted)]
-                                                    focus:outline-none focus:border-[var(--brand-primary)]/50
-                                                    disabled:opacity-50 disabled:cursor-not-allowed max-w-[120px]"
-                                                  onClick={() => {
-                                                    // Lazy-load version data on first click
-                                                    if (!versionData[plugin.name]) {
-                                                      setVersionData(prev => ({...prev, [plugin.name]: {tags: [], branches: [], current: plugin.manifest.version || '', latest: '', loading: true}}))
-                                                      loadVersionInfo(plugin.name)
-                                                    }
-                                                  }}
-                                                >
-                                                  {(() => {
-                                                    const vd = versionData[plugin.name]
-                                                    const sel = vd?.current || plugin.manifest.version || ''
-                                                    const allOpts = [...(vd?.tags || []), ...(vd?.branches || [])]
-                                                    const selInList = allOpts.includes(sel)
-                                                    return <>
-                                                      {/* 当前版本不在 tag/branch 列表中时，兜底显示 */}
-                                                      {!selInList && (
-                                                        <option value={sel}>{sel || ''}</option>
-                                                      )}
-                                                      {vd?.tags?.map(t => (
-                                                        <option key={`tag-${t}`} value={t}>{t}</option>
-                                                      ))}
-                                                      {vd?.branches?.map(b => (
-                                                        <option key={`branch-${b}`} value={b}>{b}</option>
-                                                      ))}
-                                                    </>
+                                                  ariaLabel="插件版本"
+                                                  options={(() => {
+                                                      const vd = versionData[plugin.name]
+                                                      const sel = vd?.current || plugin.manifest.version || ''
+                                                      const allOpts = [...(vd?.tags || []), ...(vd?.branches || [])]
+                                                      const selInList = allOpts.includes(sel)
+                                                      return [
+                                                          // 当前版本不在 tag/branch 列表中时，兜底显示
+                                                          ...(selInList ? [] : [{value: sel, label: sel || ''}]),
+                                                          ...(vd?.tags || []).map(t => ({value: t, label: t})),
+                                                          ...(vd?.branches || []).map(b => ({value: b, label: b})),
+                                                      ]
                                                   })()}
-                                                </select>
+                                                />
                                                 {/* 更新红点 */}
                                                 {pluginUpdateMap[plugin.name] && (
                                                   <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-red-500" />

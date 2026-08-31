@@ -55,3 +55,34 @@ export function resolveAgentDefinitionFromCommandId(
     if (!template || !template.enabled) return undefined
     return agentTemplateToDefinition(template)
 }
+
+/**
+ * 解析本轮应生效的 agentDefinition（优先本轮命令，其次缓存载荷跨轮携带的 commandId）。
+ *
+ * KV cache 一致性：agent: 命令轮的 agentDefinition 会收窄工具集；后续普通轮若退回
+ * General 全量工具，tools 数组与前缀不一致 → prompt cache 在 tools 段断裂，cached_tokens
+ * 归零（症状：命令轮后的第一条纯文本指令 0% 命中）。system prompt 缓存载荷记录了命令轮
+ * commandId（controller 写入并跨轮携带），无新命令时从缓存恢复，使 tools 与命令轮一致——
+ * 与 system 复用命令轮 prompt（cachedSystemPrompt core）的语义保持一致。
+ *
+ * @param messageCommandId 本轮消息携带的 commandId（Ctrl+K / /agent 命令），无则 undefined
+ * @param cachedSystemPromptRaw DB system prompt 缓存原始 JSON（含 commandId），可能为 null
+ */
+export function resolveAgentDefinitionForTurn(
+    messageCommandId: string | undefined,
+    cachedSystemPromptRaw: string | null | undefined,
+): AgentDefinition | undefined {
+    const direct = resolveAgentDefinitionFromCommandId(messageCommandId)
+    if (direct) return direct
+    if (!cachedSystemPromptRaw) return undefined
+    try {
+        const cached = JSON.parse(cachedSystemPromptRaw)
+        const commandId = cached?.commandId
+        if (typeof commandId === 'string' && commandId.length > 0) {
+            return resolveAgentDefinitionFromCommandId(commandId)
+        }
+    } catch {
+        // 旧格式纯字符串缓存：无 commandId，保持 undefined
+    }
+    return undefined
+}

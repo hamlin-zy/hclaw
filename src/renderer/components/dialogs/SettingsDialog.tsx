@@ -7,6 +7,7 @@ import {useThemeStore} from '../../stores/themeStore'
 import {applyThemeClass} from '../../lib/theme'
 import {SystemSettings} from '@shared/types'
 import {confirm} from '../ConfirmDialog'
+import ThemedSelect from '../ThemedSelect'
 
 type Category = keyof SystemSettings | 'shortcuts'
 
@@ -280,14 +281,12 @@ export default function SettingsDialog() {
                             单次任务执行中上下文接近窗口上限时的处理。自动交接：自动总结并交接到新会话继续执行；优雅停止：停止本轮并提示手动处理。
                         </span>
                     </span>
-                    <select
-                        className="rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2 py-1 text-sm"
+                    <ThemedSelect
                         value={current.agent.midLoopOverflowMode ?? 'auto-handoff'}
-                        onChange={(e) => updatePending('agent', {midLoopOverflowMode: e.target.value as 'auto-handoff' | 'graceful-stop'})}
-                    >
-                        <option value="auto-handoff">自动交接（推荐）</option>
-                        <option value="graceful-stop">优雅停止</option>
-                    </select>
+                        onChange={(v) => updatePending('agent', {midLoopOverflowMode: v as 'auto-handoff' | 'graceful-stop'})}
+                        options={[{value: 'auto-handoff', label: '自动交接（推荐）'}, {value: 'graceful-stop', label: '优雅停止'}]}
+                        ariaLabel="单轮内溢出处理"
+                    />
                 </label>
                 <label className="flex items-center justify-between text-sm">
                     <span>
@@ -296,20 +295,17 @@ export default function SettingsDialog() {
                             检测到 Agent 陷入重复循环时提醒您，避免无意义的 token 消耗。提示：显示警告条不打断任务；暂停：暂停循环等待您选择；关闭：停用此功能。
                         </span>
                     </span>
-                    <select
-                        className="rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2 py-1 text-sm"
+                    <ThemedSelect
                         value={current.agent.loopDetection?.mode ?? 'notify'}
-                        onChange={(e) => updatePending('agent', {
+                        onChange={(v) => updatePending('agent', {
                             loopDetection: {
-                                mode: e.target.value as 'notify' | 'pause' | 'off',
+                                mode: v as 'notify' | 'pause' | 'off',
                                 threshold: current.agent.loopDetection?.threshold ?? 3,
                             },
                         })}
-                    >
-                        <option value="notify">提示（推荐）</option>
-                        <option value="pause">暂停</option>
-                        <option value="off">关闭</option>
-                    </select>
+                        options={[{value: 'notify', label: '提示（推荐）'}, {value: 'pause', label: '暂停'}, {value: 'off', label: '关闭'}]}
+                        ariaLabel="LLM循环检测"
+                    />
                 </label>
                 {current.agent.loopDetection?.mode !== 'off' && (
                     <NumberField
@@ -608,21 +604,19 @@ export default function SettingsDialog() {
             </div>
             <div className="space-y-1">
                 <label className="text-xs text-[var(--text-muted)]">外观</label>
-                <select
-                    className="w-full bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded px-3 py-1.5 text-sm outline-none focus:border-[var(--brand)]"
+                <ThemedSelect
+                    fullWidth
                     value={current.ui.theme}
-                    onChange={(e) => updatePending('ui', {theme: e.target.value as 'light' | 'dark' | 'yuanshandai' | 'shiyangjin' | 'system'})}
-                >
-                    <option value="system">跟随系统</option>
-                    <option value="light" disabled={!!current.ui.background?.enabled}>
-                        浅色模式{current.ui.background?.enabled ? '（背景开启时不可用）' : ''}
-                    </option>
-                    <option value="dark">深色模式</option>
-                    <option value="yuanshandai">远山黛</option>
-                    <option value="shiyangjin" disabled={!!current.ui.background?.enabled}>
-                        十样锦{current.ui.background?.enabled ? '（背景开启时不可用）' : ''}
-                    </option>
-                </select>
+                    onChange={(v) => updatePending('ui', {theme: v as 'light' | 'dark' | 'yuanshandai' | 'shiyangjin' | 'system'})}
+                    options={[
+                        {value: 'system', label: '跟随系统'},
+                        {value: 'light', label: `浅色模式${current.ui.background?.enabled ? '（背景开启时不可用）' : ''}`, disabled: !!current.ui.background?.enabled},
+                        {value: 'dark', label: '深色模式'},
+                        {value: 'yuanshandai', label: '远山黛'},
+                        {value: 'shiyangjin', label: `十样锦${current.ui.background?.enabled ? '（背景开启时不可用）' : ''}`, disabled: !!current.ui.background?.enabled},
+                    ]}
+                    ariaLabel="外观主题"
+                />
                 {current.ui.background?.enabled && (current.ui.theme === 'light' || current.ui.theme === 'shiyangjin') && (
                     <p className="text-[10px] text-[var(--warning)]">图片背景开启时使用浅色系主题，保存后将自动切换为深色模式</p>
                 )}
@@ -632,27 +626,24 @@ export default function SettingsDialog() {
                agent 分类的 reset 按钮不再重置此项） */}
             <div className="space-y-1">
                 <label className="text-xs text-[var(--text-muted)] whitespace-nowrap">新会话默认安全模式</label>
-                <select
-                    className="w-full whitespace-nowrap bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded px-3 py-1.5 text-sm outline-none focus:border-[var(--brand)]"
+                <ThemedSelect
+                    fullWidth
                     value={current.agent.defaultPermissionMode ?? 'safe'}
-                    onChange={(e) => updatePending('agent', {defaultPermissionMode: e.target.value as 'safe' | 'auto'})}
-                >
-                    <option value="auto">自动模式（全程自动执行）</option>
-                    <option value="safe">安全模式（破坏性操作需确认）</option>
-                </select>
+                    onChange={(v) => updatePending('agent', {defaultPermissionMode: v as 'safe' | 'auto'})}
+                    options={[{value: 'auto', label: '自动模式（全程自动执行）'}, {value: 'safe', label: '安全模式（破坏性操作需确认）'}]}
+                    ariaLabel="新会话默认安全模式"
+                />
                 <p className="text-[10px] text-[var(--text-muted)]">无会话级覆盖时回退此值</p>
             </div>
             <div className="space-y-1">
                 <label className="text-xs text-[var(--text-muted)] whitespace-nowrap">新会话默认显示模式</label>
-                <select
-                    className="w-full whitespace-nowrap bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded px-3 py-1.5 text-sm outline-none focus:border-[var(--brand)]"
+                <ThemedSelect
+                    fullWidth
                     value={current.agent.defaultDisplayMode ?? 'detailed'}
-                    onChange={(e) => updatePending('agent', {defaultDisplayMode: e.target.value as 'detailed' | 'compact' | 'ultra-compact'})}
-                >
-                    <option value="detailed">详细模式</option>
-                    <option value="compact">简洁模式</option>
-                    <option value="ultra-compact">极简模式</option>
-                </select>
+                    onChange={(v) => updatePending('agent', {defaultDisplayMode: v as 'detailed' | 'compact' | 'ultra-compact'})}
+                    options={[{value: 'detailed', label: '详细模式'}, {value: 'compact', label: '简洁模式'}, {value: 'ultra-compact', label: '极简模式'}]}
+                    ariaLabel="新会话默认显示模式"
+                />
                 <p className="text-[10px] text-[var(--text-muted)]">无会话级覆盖时回退此值</p>
             </div>
             <div className="flex items-center justify-between py-2 border-t border-[var(--border-muted)]">
@@ -842,15 +833,13 @@ export default function SettingsDialog() {
             </div>
             <div className="space-y-1">
                 <label className="text-xs text-[var(--text-muted)]">链接打开方式</label>
-                <select
-                    className="w-full bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded px-3 py-1.5 text-sm outline-none focus:border-[var(--brand)]"
+                <ThemedSelect
+                    fullWidth
                     value={current.linkOpening?.mode ?? 'ask'}
-                    onChange={(e) => updatePending('linkOpening', {mode: e.target.value as 'builtin' | 'system' | 'ask'})}
-                >
-                    <option value="ask">每次询问</option>
-                    <option value="builtin">内置浏览器</option>
-                    <option value="system">系统浏览器</option>
-                </select>
+                    onChange={(v) => updatePending('linkOpening', {mode: v as 'builtin' | 'system' | 'ask'})}
+                    options={[{value: 'ask', label: '每次询问'}, {value: 'builtin', label: '内置浏览器'}, {value: 'system', label: '系统浏览器'}]}
+                    ariaLabel="链接打开方式"
+                />
             </div>
         </div>
     )

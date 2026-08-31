@@ -22,6 +22,7 @@ import {parentPort} from 'worker_threads'
 import type {Tool, ToolResult} from '../types'
 import type {ChatMessage} from '../../model/types'
 import {logger} from '../../logger'
+import {toMessageAttachments, buildUserHistoryContent} from '../../utils/userContentBuilder'
 
 const inputSchema = z.object({
     title: z.string()
@@ -40,6 +41,17 @@ const inputSchema = z.object({
     capability: z.string()
         .optional()
         .describe('可选：新会话要触发的技能/代理名（如 brainstorming），不带 / 前缀；留空时不拼接命令前缀'),
+    attachments: z.array(z.object({
+        path: z.string().min(1).describe('附件文件的绝对路径'),
+        name: z.string().describe('附件文件名（含扩展名）'),
+        mimeType: z.string().optional().describe('可选：MIME 类型（如 image/png）'),
+    }))
+        .optional()
+        .describe(
+            '可选：需带到新会话的附件（当前会话用户提交的附件中挑选，由你自主决定）。'
+            + '附件会作为新会话首条用户消息的附件展示并进入首轮模型上下文（图片可直接被视觉模型查看）。'
+            + '仅传仍然有效的本地文件路径；无需携带附件时省略此字段',
+        ),
 })
 
 type SessionHandoffInput = z.infer<typeof inputSchema>
@@ -112,12 +124,25 @@ export const sessionHandoffTool: Tool<SessionHandoffInput, string> = {
                 logger.debug('[SessionHandoffTool] resolveEntityCommand failed', {error: String(err)})
             }
         }
+        // 附件 → 双用途构建（共享函数，与 execution.ts 跨 turn 历史重建同源，
+        // 保证首轮直传与第二轮重建输出逐字节一致 → KV cache 前缀不断裂）：
+        // 1) 落库：content 保持纯文本；metadata.attachments 结构化存储 → MessageList 附件卡片渲染
+        // 2) 首轮：session_handoff_start 消息 content 用 buildUserHistoryContent 构建（图片 base64 块）
+        const rawAttachments = (args.attachments || []).filter(a => a.path?.trim())
+        const messageAttachments = toMessageAttachments(rawAttachments)
+        const startContent = await buildUserHistoryContent(firstMessageContent, rawAttachments)
+
         const userMsg = {
             id: userMsgId,
             role: 'user' as const,
             content: firstMessageContent,
             timestamp: now,
-            ...(commandId ? {metadata: {commandId}} : {}),
+            ...(commandId || messageAttachments.length
+                ? {metadata: {
+                    ...(commandId ? {commandId} : {}),
+                    ...(messageAttachments.length ? {attachments: messageAttachments} : {}),
+                }}
+                : {}),
         }
         if (!conversationRepo.writeMessages(newConvId, [userMsg])) {
             return {success: false, output: '', error: '写入交接总结失败'}
@@ -129,7 +154,13 @@ export const sessionHandoffTool: Tool<SessionHandoffInput, string> = {
         // ⑥ 通知主进程为新会话启动独立 Agent Worker（交接首轮运行）
         //    工具立即返回，不等待首轮完成；新会话的运行由 AgentManager 管理，
         //    模型配置由主进程从 runtimeConfigManager 组装（含 API key 的完整方案）。
-        const startRequested = requestHandoffStart(newConvId, args.title, userMsg, workspacePath)
+        //    首轮消息 content 为附件多模态构建版（与后续跨 turn 历史重建同源）
+        const startRequested = requestHandoffStart(
+            newConvId,
+            args.title,
+            {...userMsg, content: startContent},
+            workspacePath,
+        )
 
         logger.info('[SessionHandoffTool]', {
             action: 'handoffCreated',
