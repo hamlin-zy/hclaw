@@ -237,6 +237,7 @@ export default function AskUserModal() {
                                     return (
                                         <button
                                             key={index}
+                                            data-name={`ask-user-option-${index}`}
                                             onClick={() => !isSubmitting && toggleOption(option)}
                                             disabled={isSubmitting}
                                             className={`w-full text-left px-4 py-3 rounded-lg border transition-all text-sm ${
@@ -275,6 +276,7 @@ export default function AskUserModal() {
                         <div>
                             <textarea
                                 ref={inputRef}
+                                data-name="ask-user-input"
                                 value={inputValue}
                                 onChange={handleInputChange}
                                 onKeyDown={handleKeyDown}
@@ -287,6 +289,7 @@ export default function AskUserModal() {
 
                         <div className="flex justify-end">
                             <button
+                                data-name="ask-user-submit"
                                 onClick={handleSubmit}
                                 disabled={!canSubmit || isSubmitting}
                                 className={`px-6 py-2 text-sm font-medium rounded-lg transition-all ${

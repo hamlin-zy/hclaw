@@ -57,7 +57,7 @@ const CollapsibleSection = memo(function CollapsibleSection({
         aria-expanded={isExpanded}
         aria-label={`${ariaLabel ?? title} ${isExpanded ? '收起' : '展开'}`}
         className={`flex items-center gap-[var(--space-snug)] text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/20 ${buttonClassName}`}
-      >
+       data-name="collapsible-section-button">
         <svg
           className={`w-3 h-3 transition-transform duration-200 ease-out ${isExpanded ? 'rotate-90' : ''}`}
           viewBox="0 0 24 24"

@@ -224,7 +224,7 @@ export default function PermissionConfirmModal() {
                   bg-red-500 text-white
                   hover:bg-red-600"
                                 title="终止任务"
-                            >
+                             data-name="permission-confirm-modal-button">
                                 终止
                             </button>
                             <button
@@ -233,7 +233,7 @@ export default function PermissionConfirmModal() {
                                 className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
                   bg-[var(--surface-muted)] text-[var(--text-muted)]
                   hover:bg-[var(--surface-hover)] border border-[var(--border)]"
-                            >
+                             data-name="permission-confirm-modal-deny-button">
                                 拒绝
                             </button>
                             <button
@@ -241,7 +241,7 @@ export default function PermissionConfirmModal() {
                                 className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
                   bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]
                   hover:bg-[var(--brand-primary)]/20 border border-[var(--brand-primary)]/20"
-                            >
+                             data-name="permission-confirm-modal-always-allow-button">
                                 始终允许
                             </button>
                             <button
@@ -249,7 +249,7 @@ export default function PermissionConfirmModal() {
                                 className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
                   bg-[var(--brand-primary)] text-white
                   hover:bg-[var(--brand-primary)]/80"
-                            >
+                             data-name="permission-confirm-modal-allow-button">
                                 允许
                             </button>
                         </div>

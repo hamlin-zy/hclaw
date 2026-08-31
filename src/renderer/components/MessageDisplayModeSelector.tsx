@@ -109,7 +109,7 @@ export default function MessageDisplayModeSelector() {
                 `}
                 aria-expanded={isOpen}
                 title={activeMode.name}
-            >
+             data-name="message-display-mode-selector-button">
                 {/* 链接/列表图标 */}
                 <span className="text-[var(--text-secondary)]">{activeMode.icon}</span>
 
@@ -149,7 +149,7 @@ export default function MessageDisplayModeSelector() {
                                     消息显示
                                 </div>
 
-                                {modes.map((m) => {
+                                {modes.map((m, i) => {
                                     const isActive = messageDisplayMode === m.id
 
                                     return (
@@ -167,7 +167,7 @@ export default function MessageDisplayModeSelector() {
                                                     : `text-[var(--text-muted)] hover:bg-[var(--surface-muted)] ${m.hoverColor}`
                                                 }
                                             `}
-                                        >
+                                         data-name={`message-display-mode-selector-mode-${i}`}>
                                             {/* 左侧图标 */}
                                             <span className={isActive ? '' : 'opacity-70'}>{m.icon}</span>
 

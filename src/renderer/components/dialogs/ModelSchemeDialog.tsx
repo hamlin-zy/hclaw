@@ -298,13 +298,13 @@ export default function ModelSchemeDialog() {
                             setIsEditingName(true)
                         }}
                         className="w-full px-2 py-1.5 text-xs text-brand-500 hover:bg-brand-50 rounded transition-colors"
-                    >
+                     data-name="model-scheme-dialog-button">
                         + 新建方案
                     </button>
                     <button
                         onClick={() => setShowPresetPicker(!showPresetPicker)}
                         className="w-full px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-50 rounded transition-colors flex items-center justify-center gap-1"
-                    >
+                     data-name="model-scheme-dialog-toggle-preset-picker-button">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                              strokeWidth="2">
                             <path
@@ -323,12 +323,12 @@ export default function ModelSchemeDialog() {
                                 className="overflow-hidden"
                             >
                                 <div className="py-1 space-y-0.5">
-                                    {presetTemplates.map((preset) => (
+                                    {presetTemplates.map((preset, i) => (
                                         <button
                                             key={preset.id}
                                             onClick={() => handleCreateFromPreset(preset.id)}
                                             className="w-full px-2 py-1.5 text-left text-xs rounded hover:bg-gray-50 transition-colors"
-                                        >
+                                         data-name={`model-scheme-dialog-preset-${i}`}>
                                             <div className="flex items-center gap-1.5">
                                                 <span>{preset.icon}</span>
                                                 <div>
@@ -371,7 +371,7 @@ export default function ModelSchemeDialog() {
                                         }}
                                         className="text-sm font-medium text-gray-700 bg-transparent border-b-2 border-gray-300 outline-none"
                                         autoFocus
-                                    />
+                                    data-name="model-scheme-dialog-input"/>
                                 ) : (
                                     <h4
                                         className="text-sm font-medium text-gray-700 cursor-text select-none"
@@ -386,7 +386,7 @@ export default function ModelSchemeDialog() {
                                         onClick={() => setIsEditingName(true)}
                                         className="p-0.5 text-gray-300 hover:text-brand-500 transition-colors"
                                         title="重命名"
-                                    >
+                                     data-name="model-scheme-dialog-rename-button">
                                         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                             <path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
                                         </svg>
@@ -407,7 +407,7 @@ export default function ModelSchemeDialog() {
                                     }
                                     placeholder="可选的方案描述..."
                                     className="w-full px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-md text-gray-700 placeholder-gray-300 focus:border-brand-300 focus:outline-none"
-                                />
+                                data-name="model-scheme-dialog-description-input"/>
                             </div>
 
                             {/* 角色配置 - 按模型类型分组 */}
@@ -463,13 +463,13 @@ export default function ModelSchemeDialog() {
                                         <button
                                             onClick={handleCancel}
                                             className="px-3 py-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
-                                        >
+                                         data-name="model-scheme-dialog-cancel-button">
                                             取消
                                         </button>
                                         <button
                                             onClick={handleSave}
                                             className="px-3 py-1 text-xs bg-brand-500 text-white rounded-md hover:bg-brand-600 transition-colors"
-                                        >
+                                         data-name="model-scheme-dialog-save-button">
                                             保存更改
                                         </button>
                                         {saveError && (
@@ -483,7 +483,7 @@ export default function ModelSchemeDialog() {
                                 <button
                                     onClick={() => switchActiveScheme(displayScheme.id)}
                                     className="px-3 py-1 text-xs bg-brand-500 text-white rounded-md hover:bg-brand-600 transition-colors"
-                                >
+                                 data-name="model-scheme-dialog-activate-button">
                                     激活方案
                                 </button>
                             )}
@@ -540,7 +540,7 @@ function SchemeListItem({
                     ? 'bg-[var(--brand-muted)] text-[var(--brand-primary)]'
                     : 'text-gray-700 hover:bg-gray-50'
             }`}
-        >
+         data-name="model-scheme-dialog-div">
             <div className="flex items-center gap-1.5 min-w-0">
                 <div
                     className={`shrink-0 w-1.5 h-1.5 rounded-full ${
@@ -560,7 +560,7 @@ function SchemeListItem({
                     className={`shrink-0 w-6 h-3.5 rounded-full relative transition-colors ${
                         scheme.enabled ? 'bg-brand-500' : 'bg-gray-200'
                     }`}
-                >
+                 data-name="model-scheme-dialog-scheme-toggle-button">
                     <div
                         className={`absolute top-0.5 w-2.5 h-2.5 bg-white rounded-full transition-all ${
                             scheme.enabled ? 'left-3' : 'left-0.5'
@@ -576,7 +576,7 @@ function SchemeListItem({
                     }}
                     className="p-0.5 text-gray-300 hover:text-brand-500 transition-colors"
                     title="克隆此方案"
-                >
+                 data-name="model-scheme-dialog-clone-button">
                     <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                         <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
@@ -588,7 +588,7 @@ function SchemeListItem({
                     <button
                         onClick={handleDelete}
                         className="p-0.5 text-[9px] text-white bg-red-500 rounded hover:bg-red-600 transition-colors"
-                    >
+                     data-name="model-scheme-dialog-confirm-delete-button">
                         确认
                     </button>
                 ) : (
@@ -596,7 +596,7 @@ function SchemeListItem({
                         onClick={handleDelete}
                         className="p-0.5 text-gray-300 hover:text-red-400 transition-colors"
                         title="删除"
-                    >
+                     data-name="model-scheme-dialog-delete-button">
                         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
                         </svg>
@@ -711,7 +711,7 @@ function RoleConfigEditor({
                         checked={config.enabled}
                         onChange={(e) => onChange({...config, enabled: e.target.checked})}
                         className="w-3.5 h-3.5 rounded border-gray-300 text-brand-500"
-                    />
+                    data-name="model-scheme-dialog-role-enabled-checkbox"/>
                 </label>
             </div>
 

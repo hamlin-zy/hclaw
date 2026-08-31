@@ -100,7 +100,7 @@ function FixedDropdown({
                                         ? `bg-[var(--brand-primary)]/15`
                                         : 'hover:bg-[var(--surface-muted)]'
                                 }`}
-                            >
+                             data-name="scheme-selector-button">
                                 <div className="flex items-center gap-2.5">
                                     {/* 彩色圆点 */}
                                     <div className={`w-2 h-2 rounded-full ${colors.dot} ${isActive ? '' : 'opacity-60'}`}/>
@@ -139,7 +139,7 @@ function FixedDropdown({
                     <button
                         onClick={onOpenConfig}
                         className="w-full px-3 py-2.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded-xl flex items-center gap-2.5 transition-colors"
-                    >
+                     data-name="scheme-selector-open-config-button">
                         <svg
                             className="w-3.5 h-3.5"
                             viewBox="0 0 24 24"
@@ -255,7 +255,7 @@ export default function SchemeSelector() {
                     aria-expanded={isOpen}
                     aria-label="选择模型方案"
                     title={isSwitching ? '切换中...' : activeScheme?.name || '选择方案'}
-                >
+                 data-name="scheme-selector-select-button">
                     {/* 状态指示灯 */}
                     <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-[var(--brand-primary)]' : 'bg-[var(--text-muted)]'}`}/>
 

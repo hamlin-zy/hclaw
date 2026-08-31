@@ -19,10 +19,10 @@ import type {GlobalUsageStats, TimeRange, TrendGranularity, UsageStatsQueryParam
 type View = 'provider' | 'model'
 
 /** 明细表排序键（name/provider 为文本列，其余数值列） */
-type SortCol = 'name' | 'provider' | 'conversations' | 'request' | 'avgTtft' | 'avgThroughput' | 'avgCacheHit' | 'input' | 'output' | 'cache' | 'total' | 'price' | 'cost' | 'pct'
+type SortCol = 'name' | 'provider' | 'conversations' | 'avgSessionCost' | 'request' | 'avgTtft' | 'avgThroughput' | 'avgCacheHit' | 'input' | 'output' | 'cache' | 'total' | 'price' | 'cost' | 'pct'
 /** 首次点击列头的默认方向：文本列升序、数值列降序（用量场景最常用） */
 const SORT_DEFAULT_DIR: Record<SortCol, 1 | -1> = {
-    name: 1, provider: 1, conversations: -1, request: -1, avgTtft: -1, avgThroughput: -1, avgCacheHit: -1,
+    name: 1, provider: 1, conversations: -1, avgSessionCost: -1, request: -1, avgTtft: -1, avgThroughput: -1, avgCacheHit: -1,
     input: -1, output: -1, cache: -1, total: -1, price: -1, cost: -1, pct: -1,
 }
 const TEXT_SORT_COLS = new Set<SortCol>(['name', 'provider'])
@@ -228,6 +228,7 @@ const detailColumns = (view: View): Array<{col: SortCol; label: string; tip?: st
     {col: 'conversations', label: '会话', tip: view === 'provider'
         ? '按「会话 × 模型」组合计数后跨模型累加：同一会话切换过多个模型或服务商时，会在每个模型/服务商下各计一次（非去重会话数）'
         : '组内去重会话数（同一会话切换模型会分别计入其他模型；历史 llm_stats 回填数据不含会话维度）'},
+    {col: 'avgSessionCost', label: '平均会话成本', tip: '成本 ÷ 会话数（当前维度行的合计成本 ÷ 该行会话数）；会话数为 0 或无成本时不计'},
     {col: 'request', label: '请求'},
     {col: 'avgTtft', label: '平均首字', tip: 'Σ首字延迟 ÷ 携带首字延迟的调用数（秒）'},
     {col: 'avgThroughput', label: '平均吞吐', tip: 'Σ输出 tokens ÷ Σ解码时长（t/s）'},
@@ -263,6 +264,7 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
         const num = (b: UsageBreakdown): number => {
             switch (col) {
                 case 'conversations': return b.conversationCount ?? 0
+                case 'avgSessionCost': return (b.conversationCount ?? 0) > 0 ? b.costUsd / (b.conversationCount ?? 1) : 0 // USD 基准，与展示值同序
                 case 'request': return b.requestCount
                 case 'avgTtft': return avgTtftSecondsOf(b)
                 case 'avgThroughput': return avgThroughputOf(b)
@@ -289,7 +291,7 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                 <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
                     {RANGE_OPTIONS.map(({range: r, label}) => (
                         <button key={r} data-testid={`range-${r}`} onClick={() => setRange(r)}
-                                className={`${SEGMENT_BTN} ${range === r ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}>
+                                className={`${SEGMENT_BTN} ${range === r ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`} data-name="usage-window-button">
                             {label}
                         </button>
                     ))}
@@ -306,7 +308,7 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                                 if (e.target.value) setCustomRange(c => ({...c, start: e.target.value}))
                             }}
                             className="rounded-md border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-xs text-[var(--text-primary)] tabular-nums outline-none focus:border-[var(--brand-border)] transition-colors"
-                        />
+                        data-name="usage-window-input"/>
                         <span className="text-xs text-[var(--text-muted)]">至</span>
                         <input
                             type="date"
@@ -318,13 +320,13 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                                 if (e.target.value) setCustomRange(c => ({...c, end: e.target.value}))
                             }}
                             className="rounded-md border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-xs text-[var(--text-primary)] tabular-nums outline-none focus:border-[var(--brand-border)] transition-colors"
-                        />
+                        data-name="usage-window-range-end-input"/>
                     </div>
                 )}
                 <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
-                    {(['provider', 'model'] as View[]).map(v => (
+                    {(['provider', 'model'] as View[]).map((v, i) => (
                         <button key={v} onClick={() => setView(v)}
-                                className={`${SEGMENT_BTN} ${view === v ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`}>
+                                className={`${SEGMENT_BTN} ${view === v ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`} data-name={`usage-window-view-${i}`}>
                             {v === 'provider' ? '按服务商' : '按模型'}
                         </button>
                     ))}
@@ -340,7 +342,7 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                         aria-label="更新汇率"
                         title="更新汇率（从 currency-api 拉取最新 USD→CNY 汇率）"
                         className={REFRESH_ICON_BTN_CLS}
-                    >
+                     data-name="usage-window-refresh-rate-button">
                         <RotateCcw className={`w-3.5 h-3.5 ${refreshingExchangeRate ? 'animate-spin' : ''}`}/>
                     </button>
                     <button
@@ -349,7 +351,7 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                         aria-label="更新价目表"
                         title="更新价目表（从 OpenRouter 拉取最新模型定价）"
                         className={REFRESH_ICON_BTN_CLS}
-                    >
+                     data-name="usage-window-refresh-model-meta-button">
                         <Database className={`w-3.5 h-3.5 ${refreshingModelMeta ? 'animate-spin' : ''}`}/>
                     </button>
                 </div>
@@ -359,7 +361,7 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                     aria-label="刷新"
                     title="刷新统计"
                     className="ml-auto p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                >
+                 data-name="usage-window-refresh-button">
                     <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`}/>
                 </button>
             </div>
@@ -462,7 +464,7 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                                                 <th key={col}
                                                     onClick={() => toggleSort(col)}
                                                     title="点击排序"
-                                                    className={`font-medium px-3 py-2.5 select-none cursor-pointer hover:text-[var(--text-primary)] transition-colors text-center ${idx === 0 ? 'px-4' : ''}`}>
+                                                    className={`font-medium px-3 py-2.5 select-none cursor-pointer hover:text-[var(--text-primary)] transition-colors text-center ${idx === 0 ? 'px-4' : ''}`} data-name="usage-window-th">
                                                     <span className="inline-flex items-center justify-center gap-1">
                                                         {label}
                                                         {tip && <InfoTip text={tip} placement="top"/>}
@@ -515,6 +517,9 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                                                         </>
                                                     )}
                                                     <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{(b.conversationCount ?? 0) > 0 ? b.conversationCount : '—'}</td>
+                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">
+                                                        {(b.conversationCount ?? 0) > 0 && b.costUsd > 0 ? formatCost(b.costUsd / (b.conversationCount ?? 1), currency) : '—'}
+                                                    </td>
                                                     <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{b.requestCount}</td>
                                                     <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">
                                                         {(b.ttftCount ?? 0) > 0 ? `${avgTtftSecondsOf(b).toFixed(1)}s` : '—'}

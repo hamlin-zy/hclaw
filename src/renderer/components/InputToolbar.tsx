@@ -88,6 +88,7 @@ export default function InputToolbar({
                     data-name="input-toolbar-send"
                     onClick={onSubmit}
                     disabled={!canSend}
+                    title={canSend ? '发送 (Enter)' : undefined}
                     className={`shrink-0 p-1 rounded-md transition-all ${
                         canSend
                             ? 'bg-[var(--brand-primary)] text-white hover:bg-[var(--brand-primary)]/80'

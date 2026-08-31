@@ -63,7 +63,7 @@ export default function PendingQuestionCard({isPaused, pendingQuestion, onSelect
                                     key={index}
                                     onClick={() => handleOptionClick(option)}
                                     className="px-3 py-1.5 text-xs text-left bg-[var(--surface-muted)] hover:bg-[var(--brand-muted)] border border-[var(--border)] rounded-md transition-colors"
-                                >
+                                 data-name="pending-question-card-button">
                                     {option}
                                 </button>
                             ))}

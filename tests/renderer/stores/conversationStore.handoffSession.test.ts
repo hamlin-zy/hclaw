@@ -89,8 +89,6 @@ beforeEach(() => {
                 return {messages: [makeMsg(`msg-summary-${convId}`, 'handoff summary', 'user')], totalCount: 1}
             }),
             conversationReadMessages: vi.fn(async () => []),
-            conversationWriteBlockDelta: vi.fn(async () => true),
-            conversationWriteMessages: vi.fn(async () => true),
             conversationUpdateMeta: vi.fn(async () => true),
         },
     }
@@ -99,7 +97,6 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.useRealTimers()
-    useConversationStore.getState().cancelPendingSave()
 })
 
 describe('handleSessionCreated（会话交接自动切换激活链路）', () => {

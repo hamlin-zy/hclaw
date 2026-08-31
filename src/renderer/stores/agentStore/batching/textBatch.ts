@@ -6,7 +6,7 @@
 //   快速流一窗内合并为一次 flush。store 层不能用 rAF（慢速流被帧调度推迟 → 积压涌出）。
 
 import {useAgentStore} from '..'
-import {useConversationStore, recordTextBlock} from '../../conversationStore'
+import {useConversationStore} from '../../conversationStore'
 
 const FLUSH_WINDOW_MS = 24   // spec §4.2：60fps 半帧，上限 ≈42 次/s
 
@@ -36,8 +36,6 @@ export function flushTextBatch(convId: string, streamingMessageId: string | null
     const updated = (convState.streamBuffer || '') + batch
     // 写入该会话的消息（使用按会话的方法，防止写入错误会话）
     useConversationStore.getState().updateMessageForConv(convId, streamingMessageId, {content: updated})
-    // ★ 块级增量：传增量 batch（独立短字符串，不持有完整 streamBuffer）
-    recordTextBlock(convId, streamingMessageId, batch)
     // 更新该会话的 agent 状态
     useAgentStore.getState().updateConvData(convId, {
         streamBuffer: updated,

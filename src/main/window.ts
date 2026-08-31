@@ -10,6 +10,7 @@ import {systemSettingsRepo} from './repositories/sqlite/systemSettingsRepository
 import * as updateChecker from './updater/updateChecker';
 import type {UpdateResult} from '../shared/types/updater';
 import {readThemeSetting} from './utils/theme';
+import {isDevMode} from './utils/devMode';
 import {createAppWindow} from './utils/windowFactory';
 
 const logger = createLogger('window');
@@ -282,6 +283,7 @@ export const createWindow = (): void => {
                 `--hclaw-theme=${rawThemeForRenderer}`,
                 `--hclaw-win11=${isWin11 ? '1' : '0'}`,
                 `--hclaw-darwin=${isMac ? '1' : '0'}`,
+                `--hclaw-dev=${isDevMode() ? '1' : '0'}`,
             ],
             // 允许渲染进程加载本地文件（file://），用于 Markdown 图片渲染
             // 注意：contextIsolation: true 已将主进程 Node.js 与渲染进程隔离，风险可控

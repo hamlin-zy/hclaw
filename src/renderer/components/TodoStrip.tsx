@@ -167,6 +167,7 @@ export default function TodoStrip() {
             <section aria-label="待办列表" className="px-[18px] py-1.5">
                 <button
                     type="button"
+                    data-name="todo-strip-toggle"
                     aria-expanded={!collapsed}
                     onClick={() => setCollapsed(v => !v)}
                     className="flex items-center gap-2.5 w-full h-[30px] p-0 border-none bg-transparent text-left cursor-pointer"

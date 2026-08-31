@@ -28,6 +28,14 @@ export function initModelSchemeIPC(): void {
 
   ipcMain.handle('model-scheme:save', async (event, scheme: any) => {
     try {
+      // 校验：三个文本角色不可同时禁用（模型选择降级链的兜底前提）
+      const textRoles = ['primary', 'lightweight', 'reasoning']
+      const anyTextEnabled = (scheme?.roles as any[] | undefined)?.some(
+        (r) => textRoles.includes(r.role) && r.enabled,
+      )
+      if (scheme?.roles?.length && !anyTextEnabled) {
+        return { success: false, error: '方案校验失败：primary / lightweight / reasoning 至少启用一个' }
+      }
       const success = modelSchemeRepo.save(scheme)
       broadcastToOtherWindows(event, 'model-schemes-changed')
       return { success }

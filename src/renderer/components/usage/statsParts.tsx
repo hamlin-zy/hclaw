@@ -37,7 +37,7 @@ export function Toast({message, type, onClose}: {message: string; type: 'success
                 onClick={onClose}
                 className="ml-2 p-0.5 rounded text-white/80 hover:text-white transition-opacity"
                 aria-label="关闭"
-            >
+             data-name="stats-parts-button">
                 ×
             </button>
         </div>
@@ -103,9 +103,9 @@ export function CurrencyToggle({currency, onChange, size = 'md'}: {
     const inactive = 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
     return (
         <div className="flex gap-0.5 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
-            {(['USD', 'CNY'] as Currency[]).map(c => (
+            {(['USD', 'CNY'] as Currency[]).map((c, i) => (
                 <button key={c} onClick={() => onChange(c)} data-testid={`currency-${c.toLowerCase()}`}
-                        className={`${btnBase} ${currency === c ? active : inactive}`}>
+                        className={`${btnBase} ${currency === c ? active : inactive}`} data-name={`stats-parts-currency-${i}`}>
                     {c === 'USD' ? '$ 美元' : '¥ 人民币'}
                 </button>
             ))}

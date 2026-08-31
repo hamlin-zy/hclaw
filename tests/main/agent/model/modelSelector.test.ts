@@ -107,6 +107,62 @@ describe('selectModelForTaskWithRole', () => {
         expect(result.config.endpointId).toBe('prov-primary')
     })
 
+    // ── 按起始角色的降级链：L→P→R / P→L→R / R→P→L ──
+
+    it('suggestedModel=lightweight 未启用 → 升级 primary（L→P）', () => {
+        const scheme = makeRolesScheme({lightweight: {enabled: true, endpointId: ''}})
+        const result = selectModelForTaskWithRole(scheme, 'main', {suggestedModel: 'lightweight'})
+        expect(result.role).toBe('primary')
+        expect(result.config.endpointId).toBe('prov-primary')
+    })
+
+    it('suggestedModel=lightweight + primary 均无效 → 升级 reasoning（L→P→R）', () => {
+        const scheme = makeRolesScheme({
+            lightweight: {enabled: true, endpointId: ''},
+            primary: {enabled: true, endpointId: ''},
+            reasoning: {enabled: true},
+        })
+        const result = selectModelForTaskWithRole(scheme, 'main', {suggestedModel: 'lightweight'})
+        expect(result.role).toBe('reasoning')
+        expect(result.config.endpointId).toBe('prov-reason')
+    })
+
+    it('suggestedModel=reasoning 未启用 → 降级 primary（R→P）', () => {
+        const scheme = makeRolesScheme({reasoning: {enabled: true, endpointId: ''}})
+        const result = selectModelForTaskWithRole(scheme, 'main', {suggestedModel: 'reasoning'})
+        expect(result.role).toBe('primary')
+        expect(result.config.endpointId).toBe('prov-primary')
+    })
+
+    it('suggestedModel=reasoning + primary 均无效 → 降级 lightweight（R→P→L）', () => {
+        const scheme = makeRolesScheme({
+            reasoning: {enabled: true, endpointId: ''},
+            primary: {enabled: true, endpointId: ''},
+            lightweight: {enabled: true},
+        })
+        const result = selectModelForTaskWithRole(scheme, 'main', {suggestedModel: 'reasoning'})
+        expect(result.role).toBe('lightweight')
+        expect(result.config.endpointId).toBe('prov-light')
+    })
+
+    it('suggestedModel=primary 未启用 → 降级 lightweight（P→L）', () => {
+        const scheme = makeRolesScheme({primary: {enabled: true, endpointId: ''}, lightweight: {enabled: true}})
+        const result = selectModelForTaskWithRole(scheme, 'main', {suggestedModel: 'primary'})
+        expect(result.role).toBe('lightweight')
+        expect(result.config.endpointId).toBe('prov-light')
+    })
+
+    it('suggestedModel=primary + lightweight 均无效 → 升级 reasoning（P→L→R）', () => {
+        const scheme = makeRolesScheme({
+            primary: {enabled: true, endpointId: ''},
+            lightweight: {enabled: true, endpointId: ''},
+            reasoning: {enabled: true},
+        })
+        const result = selectModelForTaskWithRole(scheme, 'main', {suggestedModel: 'primary'})
+        expect(result.role).toBe('reasoning')
+        expect(result.config.endpointId).toBe('prov-reason')
+    })
+
     it('兜底：所有角色都未启用 → throw No valid model role configured', () => {
         const allDisabled = makeRolesScheme({
             primary: {enabled: false},
@@ -116,13 +172,14 @@ describe('selectModelForTaskWithRole', () => {
         expect(() => selectModelForTaskWithRole(allDisabled, 'main')).toThrow('No valid model role configured')
     })
 
-    it('兜底：primary 未配置但 lightweight 有效 → 选 lightweight（role 仍标 primary）', () => {
+    // role 标注实际选中的角色（原实现恒标 primary，修复后按实际角色标注）
+    it('兜底：primary 未配置但 lightweight 有效 → 选 lightweight（role 标注 lightweight）', () => {
         const scheme = makeRolesScheme({
             primary: {enabled: true, endpointId: ''},  // 未配置
             lightweight: {enabled: true},
         })
         const result = selectModelForTaskWithRole(scheme, 'main')
-        expect(result.role).toBe('primary')
+        expect(result.role).toBe('lightweight')
         expect(result.config.endpointId).toBe('prov-light')
         expect(result.config.modelId).toBe('model-light')
     })

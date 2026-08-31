@@ -257,18 +257,6 @@ class MemoStore {
         const rawAttachments = item.attachments.map(a => ({path: a.storedPath, name: a.fileName}))
         const messageAttachments = toMessageAttachments(rawAttachments)
         const now = Date.now()
-        const userMsg = {
-            id: `msg-${now}-${Math.random().toString(36).slice(2, 8)}`,
-            role: 'user' as const,
-            content,
-            timestamp: now,
-            ...(commandId || messageAttachments.length
-                ? {metadata: {
-                    ...(commandId ? {commandId} : {}),
-                    ...(messageAttachments.length ? {attachments: messageAttachments} : {}),
-                }}
-                : {}),
-        }
 
         // ③ 创建会话 meta（无 handoffFromConvId：备忘录来源为独立顶层会话）
         const {createConversationRepository} = await import('../repositories')
@@ -285,9 +273,9 @@ class MemoStore {
         })) {
             throw new Error('创建会话失败')
         }
-        if (!repo.writeMessages(convId, [userMsg])) {
-            throw new Error('写入消息失败')
-        }
+        // ★ 落库统一由 startAgentCore 处理（Phase 2 收敛后 user 消息唯一写入方）；
+        //   此处不再自行 writeMessages，否则 startAgentCore 会再落一条 → 会话出现两条重复。
+        //   metadata（commandId）经 messageMetadata 透传，落库时随消息写入。
 
         // ④ 通知渲染进程（复用 session_created 通道，字段对齐 sessionHandoffTool）
         // ★ 必须在 agentManager.start 之前发送：start() 会立即向渲染进程转发 begin
@@ -319,7 +307,7 @@ class MemoStore {
                 conversationId: convId,
                 message: content,
                 ...(messageAttachments.length ? {messageAttachments} : {}),
-                ...(userMsg.metadata ? {messageMetadata: userMsg.metadata} : {}),
+                ...(commandId ? {messageMetadata: {commandId}} : {}),
                 conversationTitle: title,
             }, 'memo')
         } catch (err) {

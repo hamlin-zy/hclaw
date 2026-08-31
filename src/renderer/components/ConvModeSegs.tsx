@@ -35,6 +35,7 @@ export default function ConvModeSegs() {
                     <button
                         key={m.id}
                         data-v={m.id}
+                        data-name={`conv-mode-perm-${m.id}`}
                         className={permissionMode === m.id ? 'active' : ''}
                         onClick={() => setConvPermissionMode(activeConversationId, m.id)}
                         title={m.id === 'auto' ? '自动模式：全程自动执行' : '安全模式：破坏性操作需确认'}
@@ -47,6 +48,7 @@ export default function ConvModeSegs() {
                 {DISP_MODES.map((m) => (
                     <button
                         key={m.id}
+                        data-name={`conv-mode-disp-${m.id}`}
                         className={messageDisplayMode === m.id ? 'active' : ''}
                         onClick={() => setConvDisplayMode(activeConversationId, m.id)}
                         title={m.id === 'detailed' ? '详细模式' : m.id === 'compact' ? '简洁模式：思考块折叠' : '极简模式：工具汇总行'}

@@ -115,20 +115,20 @@ export default function ModelTable({
                 title={rateLoading ? '汇率加载中…' : undefined}
                 className={`px-1.5 py-0.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                   currency === cur ? 'bg-brand-50 text-brand-600 font-medium' : 'bg-white text-gray-400 hover:text-gray-600'
-                }`}>
+                }`} data-name="model-table-button">
                 {cur === 'USD' ? '$ 美元' : '￥ 人民币'}
               </button>
             ))}
           </div>
           {batchTesting ? (
             <button onClick={onCancelBatch}
-              className="flex items-center gap-1 text-[10px] font-medium text-orange-500 hover:text-orange-600 transition-colors">
+              className="flex items-center gap-1 text-[10px] font-medium text-orange-500 hover:text-orange-600 transition-colors" data-name="model-table-cancel-batch-button">
               {batchProgress ? `测试中 ${batchProgress.done}/${batchProgress.total} · 取消` : '测试中...'}
             </button>
           ) : (
             <button onClick={onTestAll} disabled={models.filter(m => m.name.trim()).length === 0 || !canTest}
               title={!canTest ? credentialBlockReason : '测试全部模型'}
-              className="flex items-center gap-1 text-[10px] font-medium text-brand-500 hover:text-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+              className="flex items-center gap-1 text-[10px] font-medium text-brand-500 hover:text-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors" data-name="model-table-test-all-button">
               <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
               测试全部
             </button>
@@ -152,7 +152,7 @@ export default function ModelTable({
               <th className="px-1 py-1.5 font-medium text-gray-400 text-[10px] whitespace-nowrap w-[40px]">
                 <button onClick={() => { void onFillAll() }} disabled={batchTesting}
                   title="逐行按模型 ID 查询 OpenRouter 元数据，回填空缺的价格列（已有价格不覆盖）"
-                  className="inline-flex items-center gap-0.5 text-gray-300 hover:text-brand-500 disabled:opacity-30 transition-colors">
+                  className="inline-flex items-center gap-0.5 text-gray-300 hover:text-brand-500 disabled:opacity-30 transition-colors" data-name="model-table-fill-all-prices-button">
                   <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M12 5v14M19 12l-7 7-7-7"/>
                   </svg>
@@ -183,7 +183,7 @@ export default function ModelTable({
                       onChange={(e) => onNameChange(model.id, e.target.value)}
                       className={`w-full px-2 py-1 text-[11px] font-mono bg-white border rounded text-gray-700 focus:outline-none placeholder-gray-400 ${
                         isEmpty || isDuplicate ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-brand-300'
-                      }`} />
+                      }`} data-name="model-table-input"/>
                   </td>
                   {/* 类型徽标（hover 显示识别来源说明） */}
                   <td className="px-1 py-1">
@@ -193,7 +193,7 @@ export default function ModelTable({
                     >{TYPE_LABEL[model.modelType || 'text'] || model.modelType || 'text'}</span>
                   </td>
                   {/* 4 价格输入框：货币符号随 currency；值 = 编辑串或存储价折算展示；下方 ≈ 反向参考值 */}
-                  {PRICE_COLUMNS.map(({field}) => {
+                  {PRICE_COLUMNS.map(({field}, ci) => {
                     const raw = edits[model.id]?.[field]
                     const hasRaw = raw !== undefined && raw.trim() !== ''
                     // 反向参考基准（USD/token）：有用户输入按当前货币解析；否则用存储原值
@@ -209,7 +209,7 @@ export default function ModelTable({
                           disabled={rateLoading}
                           placeholder="—"
                           title={rateLoading ? '汇率加载中…' : undefined}
-                          className="w-full min-w-0 px-1 py-1 text-[11px] text-right bg-white border border-gray-200 rounded text-gray-700 placeholder-gray-300 focus:outline-none focus:border-brand-300 disabled:opacity-40 disabled:cursor-not-allowed" />
+                          className="w-full min-w-0 px-1 py-1 text-[11px] text-right bg-white border border-gray-200 rounded text-gray-700 placeholder-gray-300 focus:outline-none focus:border-brand-300 disabled:opacity-40 disabled:cursor-not-allowed" data-name={`model-table-price-input-${ci}`}/>
                         {hint && (
                           <div className="text-[9px] text-gray-300 text-right leading-tight select-none">
                             ≈ {currency === 'USD' ? '￥' : '$'}{hint}
@@ -223,7 +223,7 @@ export default function ModelTable({
                     <button onClick={() => { void onFillRow(model.id) }}
                       disabled={batchTesting}
                       title="按模型 ID 查询 OpenRouter 元数据，回填空缺的价格列（已有价格不覆盖）"
-                      className="p-1 text-gray-300 hover:text-brand-500 disabled:opacity-30 transition-colors">
+                      className="p-1 text-gray-300 hover:text-brand-500 disabled:opacity-30 transition-colors" data-name="model-table-fill-row-button">
                       <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M12 5v14M19 12l-7 7-7-7"/>
                       </svg>
@@ -248,7 +248,7 @@ export default function ModelTable({
                               <b className="block text-red-300 mb-1">测试失败</b>
                               <span className="block max-h-24 overflow-y-auto break-all bg-white/10 rounded p-1 mb-1.5 font-mono text-gray-200">{errTip.error || '未知错误'}</span>
                               <button onClick={() => { void copyError(errTip.error) }}
-                                className="border border-white/25 rounded px-1.5 py-0.5 text-[9px] hover:bg-white/10">复制错误信息</button>
+                                className="border border-white/25 rounded px-1.5 py-0.5 text-[9px] hover:bg-white/10" data-name="model-table-copy-error-button">复制错误信息</button>
                             </span>
                           </span>
                         )}
@@ -258,7 +258,7 @@ export default function ModelTable({
                         onClick={(e) => { e.stopPropagation(); onTest(model.id, model.name) }}
                         disabled={batchTesting || !canTest || !model.name.trim()}
                         title={!model.name.trim() ? '请先填写模型名称' : !canTest ? credentialBlockReason : '测试此模型'}
-                        className="p-1 text-gray-300 hover:text-brand-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                        className="p-1 text-gray-300 hover:text-brand-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors" data-name="model-table-test-model-button">
                         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
                       </button>
                     )}
@@ -266,7 +266,7 @@ export default function ModelTable({
                   {/* 删除 */}
                   <td className="px-1 py-1 text-center">
                     <button onClick={() => onDelete(model.id)}
-                      className="p-1 text-gray-300 hover:text-red-400 transition-colors" title="删除">
+                      className="p-1 text-gray-300 hover:text-red-400 transition-colors" title="删除" data-name="model-table-delete-model-button">
                       <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M18 6L6 18M6 6l12 12"/>
                       </svg>
@@ -290,7 +290,7 @@ export default function ModelTable({
 
       {/* "+" button to add model（新增行固定 enabled: true） */}
       <button onClick={() => onAdd()}
-        className="flex items-center gap-1 text-[10px] font-medium text-brand-500 hover:text-brand-600 transition-colors">
+        className="flex items-center gap-1 text-[10px] font-medium text-brand-500 hover:text-brand-600 transition-colors" data-name="model-table-add-model-button">
         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
           <path d="M12 5v14M5 12h14"/>
         </svg>

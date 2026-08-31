@@ -142,8 +142,6 @@ export type AgentStreamEvent =
   }
   /** 用户消息注入完成，需结束当前 assistant 消息并开启新消息 */
   | { type: 'user_message_injected' }
-  /** Agent 结束后残留的注入消息，由主进程保存到会话并通知渲染层启动新 Agent */
-  | { type: 'user_message_injected_after_exit'; messages: Array<{ content: string; id: string }> }
 
 /** 终端环境信息（用于传递给前端渲染） */
 export interface TerminalInfo {

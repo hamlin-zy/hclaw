@@ -2,7 +2,7 @@
 
 import type {AgentStore} from '../types'
 import {IDLE_STATE, makeAgentState} from '../defaultState'
-import {useConversationStore, finalizeMessageDelta} from '../../conversationStore'
+import {useConversationStore} from '../../conversationStore'
 import type {ContentBlock} from '@shared/types'
 import {clearAllBatches} from '../helpers/convHelpers'
 
@@ -76,7 +76,6 @@ export async function startAgentImpl(
                 patch.contentBlocks = [...blocks, {id: `end-${msg.id}`, type: 'end' as const, endedAt}]
             }
             useConversationStore.getState().updateMessageForConv(conversationId, msg.id, patch)
-            finalizeMessageDelta(conversationId, msg.id, endedAt)
         }
     }
 

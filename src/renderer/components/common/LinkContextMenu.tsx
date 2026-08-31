@@ -62,7 +62,7 @@ export default function LinkContextMenu({visible, x, y, url, onClose}: LinkConte
             <div
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--surface-muted)] cursor-pointer transition-colors"
                 onClick={() => handleOpen('builtin')}
-            >
+             data-name="link-context-menu-div">
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none">
                     <rect x="1" y="3" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
                     <line x1="1" y1="6.5" x2="15" y2="6.5" stroke="currentColor" strokeWidth="1.2"/>
@@ -72,7 +72,7 @@ export default function LinkContextMenu({visible, x, y, url, onClose}: LinkConte
             <div
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--surface-muted)] cursor-pointer transition-colors border-t border-[var(--border-muted)]"
                 onClick={() => handleOpen('system')}
-            >
+             data-name="link-context-menu-open-in-system">
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none">
                     <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.2"/>
                     <path d="M4 14L12 14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>

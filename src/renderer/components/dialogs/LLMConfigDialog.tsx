@@ -31,7 +31,7 @@ export default function LLMConfigDialog() {
         <button
           onClick={() => setShowAddModal(true)}
           className="px-3 py-1.5 text-xs font-medium text-brand-500 bg-brand-50 hover:bg-brand-100 rounded-md transition-colors"
-        >
+         data-name="llmconfig-dialog-button">
           + 添加
         </button>
       </div>
@@ -155,14 +155,14 @@ function ProviderCard({ provider, isActive, onSelect, onEdit, onRemove }: {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()} data-name="llmconfig-dialog-div">
           {/* 编辑按钮 */}
           <button
             onClick={onEdit}
             className="p-1.5 text-gray-400 hover:text-brand-500 rounded-md hover:bg-gray-100 transition-colors"
             title="编辑"
             aria-label={`编辑 ${provider.name}`}
-          >
+           data-name="llmconfig-dialog-edit-button">
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
             </svg>
@@ -173,13 +173,13 @@ function ProviderCard({ provider, isActive, onSelect, onEdit, onRemove }: {
               <button
                 onClick={onRemove}
                 className="px-1.5 py-1 text-[10px] font-medium text-white bg-red-500 rounded hover:bg-red-600 transition-colors"
-              >
+               data-name="llmconfig-dialog-confirm-remove-button">
                 确认
               </button>
               <button
                 onClick={() => setConfirmRemove(false)}
                 className="px-1.5 py-1 text-[10px] text-gray-500 hover:text-gray-700 transition-colors"
-              >
+               data-name="llmconfig-dialog-cancel-remove-button">
                 取消
               </button>
             </div>
@@ -189,7 +189,7 @@ function ProviderCard({ provider, isActive, onSelect, onEdit, onRemove }: {
               className="p-1.5 text-gray-400 hover:text-red-500 rounded-md hover:bg-gray-100 transition-colors"
               title="删除"
               aria-label={`删除 ${provider.name}`}
-            >
+             data-name="llmconfig-dialog-delete-button">
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
               </svg>
@@ -228,7 +228,7 @@ function ProviderCard({ provider, isActive, onSelect, onEdit, onRemove }: {
               <button
                 onClick={(e) => { e.stopPropagation(); setModelsExpanded(!modelsExpanded) }}
                 className="mt-1.5 flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
-              >
+               data-name="llmconfig-dialog-toggle-models-button">
                 <svg
                   className={`w-3 h-3 transition-transform duration-150 ${modelsExpanded ? 'rotate-180' : ''}`}
                   viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"

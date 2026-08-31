@@ -1,6 +1,6 @@
 // ── 工具结果批量更新（减少高频 loadedMessages 更新） ──────────────────────
 
-import {useConversationStore, recordToolResultBlock, flatString} from '../../conversationStore'
+import {useConversationStore, flatString} from '../../conversationStore'
 import {useAgentStore} from '..'
 
 export interface PendingToolResultUpdate {
@@ -64,15 +64,11 @@ export function flushToolResultBatch(convId: string) {
         return tc
     })
 
-    // 走 store action 更新，自动标记 dirty 并调度增量落库（避免全量 flushMessages）
+    // 走 store action 更新（持久化由主进程负责）
     if (convMsgs.some(m => m.id === msgId)) {
         useConversationStore.getState().updateMessageForConv(convId, msgId, {toolCalls: updatedToolCalls})
-        // ★ 块级增量：每个本批更新的 toolCall 记 tool_result 块（含完整 result）
-        for (const tc of updatedToolCalls) {
-            if (batch.has(tc.id)) recordToolResultBlock(convId, msgId, tc)
-        }
-        // ★ 内存泄漏修复：工具结果落库后立即截断内存中的 output 与 toolResult，
-        //   防止大输出累积驻留。完整内容已通过 recordToolResultBlock 落库到 DB（message_blocks），
+        // ★ 内存泄漏修复：立即截断内存中的 output 与 toolResult，
+        //   防止大输出累积驻留。完整内容已由主进程持久化到 DB（message_blocks），
         //   内存只保留摘要。两个字段都必须截断：normalizeToolResult 为每个结果生成
         //   output + formatToolResult 两份全文，漏掉 toolResult 会使数 MB 原文永久驻留。
         //   slice 后用 flatString 强制扁平复制，避免 SlicedString 钉住整个父串（Issue 2869）。

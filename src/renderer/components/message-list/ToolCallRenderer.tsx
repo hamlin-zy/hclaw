@@ -417,7 +417,7 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
                 className="w-full flex items-center gap-2 px-3 py-1.5 my-1 rounded-lg text-left transition-colors
                     border border-[var(--border)] bg-[var(--surface-muted)]
                     hover:bg-[var(--surface-elevated)] hover:border-[var(--border-emphasis)]"
-            >
+             data-name="tool-call-renderer-button">
                 {/* Agent / Skill 特殊图标 */}
                 {isAgent && (
                     <span className="text-[var(--brand-primary)] text-xs shrink-0">🤖</span>
@@ -558,7 +558,7 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
             className="w-full flex items-center gap-2 px-3 py-1.5 my-1 rounded-lg text-left transition-colors
                 border border-[var(--border)] bg-[var(--surface-muted)]
                 hover:bg-[var(--surface-elevated)] hover:border-[var(--border-emphasis)]"
-        >
+         data-name="tool-call-renderer-toggle-expanded-button">
             {/* 状态圆点 */}
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`}/>
 

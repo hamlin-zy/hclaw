@@ -151,7 +151,7 @@ export default function SubAgentViewer({
                             className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium hover:bg-[var(--surface-muted)] transition-colors"
                             style={{color: 'var(--brand-primary)'}}
                             title="跳转到子会话"
-                        >
+                         data-name="sub-agent-viewer-button">
                             <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
                                 <polyline points="15 3 21 3 21 9"/>
@@ -162,7 +162,7 @@ export default function SubAgentViewer({
                     )}
                     <button onClick={onClose}
                             className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-[var(--surface-muted)] transition-colors"
-                            style={{color: 'var(--text-muted)'}} aria-label="关闭">
+                            style={{color: 'var(--text-muted)'}} aria-label="关闭" data-name="sub-agent-viewer-close-button">
                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M18 6L6 18M6 6l12 12"/>
                         </svg>

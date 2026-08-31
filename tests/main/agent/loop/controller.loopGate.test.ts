@@ -51,6 +51,7 @@ vi.mock('../../../../src/main/agent/loop/setup', async () => {
             }
         },
         detectCommandContext: async () => ({commandContext: null}),
+        defaultRoleForTrace: (traceContext?: string) => (traceContext === 'subAgent' ? 'lightweight' : 'primary'),
         selectModelForTurn: async function* () {
             return {
                 modelConfig: {model: 'test-model', provider: 'test-provider'},

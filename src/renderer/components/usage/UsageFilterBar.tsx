@@ -55,21 +55,21 @@ export function UsageFilterBar({view, rows, filter, onChange}: {
                 className={inputCls}
                 value={filter.totalMinM}
                 onChange={(e) => onChange({...filter, totalMinM: e.target.value})}
-            />
+            data-name="usage-filter-bar-input"/>
             <span className={labelCls}>–</span>
             <input
                 type="number" data-testid="filter-total-max" placeholder="最大" min="0" step="any"
                 className={inputCls}
                 value={filter.totalMaxM}
                 onChange={(e) => onChange({...filter, totalMaxM: e.target.value})}
-            />
+            data-name="usage-filter-bar-total-max-input"/>
             <span className={labelCls}>M</span>
             {hasActiveFilter(filter) && (
                 <button
                     data-testid="filter-clear"
                     onClick={() => onChange({...EMPTY_USAGE_FILTER})}
                     className="px-1.5 py-0.5 text-[11px] rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors shrink-0"
-                >
+                 data-name="usage-filter-bar-button">
                     清除
                 </button>
             )}

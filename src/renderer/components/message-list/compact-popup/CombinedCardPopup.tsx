@@ -161,7 +161,7 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
                                     className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium shrink-0 hover:bg-[var(--surface-muted)] border border-[var(--border)] mr-1"
                                     style={{color: 'var(--text-secondary)'}}
                                     title="回到主会话"
-                                >
+                                 data-name="combined-card-popup-button">
                                     <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <path d="M19 12H5"/>
                                         <polyline points="12 19 5 12 12 5"/>
@@ -170,7 +170,7 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
                                 </button>
                             )}
                             <button onClick={closeCombinedPopup}
-                                className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-primary)] transition-colors cursor-pointer">✕</button>
+                                className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-primary)] transition-colors cursor-pointer" data-name="combined-card-popup-close-button">✕</button>
                         </div>
 
                         {/* Body */}
@@ -212,7 +212,7 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
                         {/* Footer */}
                         <div className="flex justify-end px-3 py-2 border-t border-[var(--border)] shrink-0">
                             <button onClick={closeCombinedPopup}
-                                className="px-3 py-1 text-[10px] rounded-md bg-[var(--surface-muted)] text-[var(--text-muted)] hover:bg-[var(--surface-elevated)] transition-colors cursor-pointer">关闭</button>
+                                className="px-3 py-1 text-[10px] rounded-md bg-[var(--surface-muted)] text-[var(--text-muted)] hover:bg-[var(--surface-elevated)] transition-colors cursor-pointer" data-name="combined-card-popup-footer-close-button">关闭</button>
                         </div>
                     </motion.div>
                 </motion.div>
@@ -234,7 +234,7 @@ const ThinkBlockInPopup = memo(function ThinkBlockInPopup({thinkBlock}: {thinkBl
             <button
                 onClick={() => setExpanded(!expanded)}
                 className="flex items-center gap-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer w-full text-left bg-none border-none p-0 font-inherit"
-            >
+             data-name="combined-card-popup-toggle-expanded-button">
                 <svg
                     className={`w-3 h-3 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
                     viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -362,7 +362,7 @@ const ToolSubCard = memo(function ToolSubCard({
             className="w-full flex items-center gap-2 px-3 py-2 my-1.5 rounded-lg text-left transition-colors
                 border border-[var(--border)] bg-[var(--surface-muted)]
                 hover:bg-[var(--surface-elevated)] hover:border-[var(--border-emphasis)] cursor-pointer"
-        >
+         data-name="combined-card-popup-agent-card-button">
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`}/>
 
             <span className="flex items-center gap-1.5 text-[11px] min-w-0 flex-1 overflow-hidden">
@@ -402,7 +402,7 @@ const ToolSubCard = memo(function ToolSubCard({
                         hover:bg-[var(--surface-muted)] border border-[var(--border)]"
                     style={{color: 'var(--brand-primary)'}}
                     title="跳转到子会话"
-                >
+                 data-name="combined-card-popup-jump-to-session-button">
                     <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
                         <polyline points="15 3 21 3 21 9"/>

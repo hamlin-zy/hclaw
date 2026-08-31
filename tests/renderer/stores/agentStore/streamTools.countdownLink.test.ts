@@ -60,7 +60,8 @@ beforeEach(() => {
     useToolCallsStore.getState().clearAll()
     mockConvData.convAgentStates = {
         'conv-1': {
-            streamingMessageId: null,
+            // id 单源（§3.6-1）：占位消息由 begin 携带的 messageId 创建，此处预置活跃载体
+            streamingMessageId: 'msg-begin-1',
             agentState: {status: 'running'},
             streamBuffer: '',
             streamBlocks: [],

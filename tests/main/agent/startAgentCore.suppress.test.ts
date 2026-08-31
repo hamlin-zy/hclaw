@@ -34,6 +34,8 @@ vi.mock('@/main/repositories', () => ({
         readMessages: vi.fn(() => dbMessages),
         readMeta: vi.fn(() => ({workspacePath: 'E:/ws'})),
         getSystemPrompt: vi.fn(() => null),
+        // Task 7：user 消息落库改主进程 writeNow（渲染端停写熔断）
+        writeMessagesDelta: vi.fn(() => true),
     }),
 }))
 vi.mock('@/main/repositories/sqlite/systemSettingsRepository', () => ({

@@ -268,11 +268,11 @@ export default function MCPDialog() {
                     <button onClick={() => setActiveTab('user')}
                             className={`px-3 py-1 text-[10px] font-medium rounded-md transition-all ${
                                 activeTab === 'user' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                            }`}>用户 MCP</button>
+                            }`} data-name="mcpdialog-button">用户 MCP</button>
                     <button onClick={() => setActiveTab('plugin')}
                             className={`px-3 py-1 text-[10px] font-medium rounded-md transition-all flex items-center gap-1 ${
                                 activeTab === 'plugin' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                            }`}>
+                            }`} data-name="mcpdialog-plugin-tab-button">
                         插件 MCP
                         {pluginMcpServers.length > 0 && (
                             <span className="px-1 py-0.5 text-[9px] bg-brand-100 text-brand-600 rounded-full">
@@ -288,11 +288,11 @@ export default function MCPDialog() {
                 <>
                     <div className="flex items-center gap-2">
                         <button onClick={() => setEditTarget('add')}
-                                className="px-2.5 py-1 text-xs text-brand-500 hover:bg-brand-50 rounded-md transition-colors">
+                                className="px-2.5 py-1 text-xs text-brand-500 hover:bg-brand-50 rounded-md transition-colors" data-name="mcpdialog-add-server-button">
                             + 添加服务器
                         </button>
                         <button onClick={handleImportFile} disabled={importing}
-                                className="px-2.5 py-1 text-xs text-brand-500 hover:bg-brand-50 rounded-md transition-colors flex items-center gap-1 disabled:opacity-50">
+                                className="px-2.5 py-1 text-xs text-brand-500 hover:bg-brand-50 rounded-md transition-colors flex items-center gap-1 disabled:opacity-50" data-name="mcpdialog-import-config-button">
                             <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                                 <polyline points="7 10 12 15 17 10"/>

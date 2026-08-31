@@ -16,6 +16,7 @@ import {useUpdaterStore} from '../stores/updaterStore'
 import {usePluginUpdateStore} from '../stores/pluginUpdateStore'
 import SchemeSelector from './SchemeSelector'
 import {SIDEBAR_MENU_GROUPS, type SidebarMenuItem} from './sidebar/menuItems'
+import CopyToast from './common/CopyToast'
 
 type SystemStatus =
     'initializing'
@@ -230,13 +231,13 @@ function SidebarGearMenu({anchorRef}: {anchorRef: RefObject<HTMLDivElement | nul
         return createPortal(
             <div ref={menuRef} className="fixed z-[9999] py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md shadow-lg min-w-[160px] max-h-[70vh] overflow-y-auto"
                  style={menuStyle}
-                 onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                 onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-name="conversation-sidebar-div">
                 {SIDEBAR_MENU_GROUPS.map((g) => (
                     <div key={g.group}>
                         <div className="px-3 pt-2 pb-1 text-[10px] font-medium text-[var(--text-muted)]">{g.group}</div>
                         {g.items.map((item) => (
                             <button key={item.type} onClick={() => handleItemClick(item.type!)}
-                                    className="relative w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors">
+                                    className="relative w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors" data-name="conversation-sidebar-button">
                                 <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center">
                                     <MenuItemIcon item={item} className="w-3.5 h-3.5"/>
                                 </span>
@@ -260,8 +261,9 @@ function SidebarGearMenu({anchorRef}: {anchorRef: RefObject<HTMLDivElement | nul
                     onClick={() => setIsOpen((v) => !v)}
                     aria-label="功能菜单"
                     aria-expanded={isOpen}
+                    title="切换菜单 (Alt)"
                     className="icon-btn flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                >
+                 data-name="conversation-sidebar-menu-toggle-button">
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                         {/* 三横线菜单图标（hamburger）：功能菜单语义，比齿轮更符合大众习惯 */}
                         <line x1="3" y1="6" x2="21" y2="6"/>
@@ -318,8 +320,9 @@ export default function ConversationSidebar() {
                               <button
                                   onClick={toggleLeft}
                                   aria-label="折叠侧边栏"
+                                  title="折叠侧边栏 (Ctrl+B)"
                                   className="mini-toggle flex items-center justify-center w-[30px] h-[30px] rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                              >
+                               data-name="conversation-sidebar-collapse-button">
                                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                                       <polyline points="15 18 9 12 15 6"/>
                                   </svg>
@@ -333,8 +336,9 @@ export default function ConversationSidebar() {
                               <button
                                   onClick={toggleTheme}
                                   aria-label={themeNextLabel(theme)}
+                                  title="切换主题 (Ctrl+Shift+T)"
                                   className="icon-btn flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                              >
+                               data-name="conversation-sidebar-theme-toggle-button">
                                   <ThemeIcon theme={theme}/>
                               </button>
                           </div>
@@ -351,7 +355,7 @@ export default function ConversationSidebar() {
                                     .map((item) => (
                                         <button
                                             key={item.type}
-                                            data-name="collapsed-item"
+                                           data-name="collapsed-item"
                                             onClick={() => openMenuItem(item.type!)}
                                             title={item.label}
                                             aria-label={item.label}
@@ -366,7 +370,7 @@ export default function ConversationSidebar() {
                                 onClick={(e) => { e.stopPropagation(); setLeftCollapsed(false) }}
                                 aria-label="展开侧边栏"
                                 className="flex items-center justify-center w-[26px] h-[26px] mb-[8px] mt-[4px] rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors z-10"
-                            >
+                             data-name="conversation-sidebar-expand-button">
                                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                                     <polyline points="9 18 15 12 9 6"/>
                                 </svg>
@@ -385,7 +389,7 @@ export default function ConversationSidebar() {
                   aria-label="展开侧边栏"
                   className="absolute top-0 h-full flex items-center z-50"
                   style={{right: '-24px'}}
-              >
+               data-name="conversation-sidebar-hover-expand-button">
                   <div
                       className="w-6 h-20 rounded-r flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[var(--surface-muted)] transition-colors">
                       <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -492,7 +496,7 @@ export function WorkspaceSelector() {
         aria-haspopup="listbox"
         aria-label="选择工作目录"
         className="w-full flex items-center justify-between p-2 pl-2.5 -ml-2 rounded-xl hover:bg-gray-100/60 dark:hover:bg-white/5 transition-colors duration-200 group focus:outline-none focus:bg-gray-100/80 dark:focus:bg-white/10"
-      >
+       data-name="conversation-sidebar-workspace-select-button">
           <div className="flex items-center gap-3 overflow-hidden w-[85%]">
               <div className="w-8 h-8 rounded-[10px] bg-white dark:bg-[#1E1E1E] border border-gray-200/80 dark:border-white/10 shadow-sm flex items-center justify-center shrink-0 group-hover:border-gray-300 dark:group-hover:border-white/20 transition-colors">
                   <svg className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-gray-200 transition-colors"
@@ -567,7 +571,7 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
                   placeholder="搜索目录..."
                   aria-label="搜索目录"
                   className="w-full pl-6 pr-2 py-1.5 text-2xs bg-[var(--surface-muted)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/20"
-                />
+                data-name="conversation-sidebar-input"/>
               </div>
             </div>
 
@@ -578,7 +582,7 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
                 onClick={handleOpenNew}
                 role="option"
                 className="w-full flex items-center gap-[var(--space-snug)] px-[var(--space-relaxed)] py-[var(--space-snug)] rounded-md text-xs text-[var(--brand-primary)] hover:bg-[var(--brand-muted)] transition-colors"
-              >
+               data-name="conversation-sidebar-workspace-new-option">
                   <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
                        aria-hidden="true">
                       <line x1="12" y1="5" x2="12" y2="19"/>
@@ -589,7 +593,7 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
 
                   {filtered.length > 0 && <div className="my-1 h-px bg-[var(--border-muted)]" aria-hidden="true"/>}
 
-              {filtered.map((entry) => (
+              {filtered.map((entry, i) => (
                 <div
                   key={entry.path}
                   role="option"
@@ -600,7 +604,7 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
                         : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
                   }`}
                   onClick={() => handleSelect(entry.path)}
-                >
+                 data-name={`conversation-sidebar-workspace-option-${i}`}>
                     <svg className="w-3.5 h-3.5 shrink-0 opacity-50" viewBox="0 0 24 24" fill="none"
                          stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
@@ -621,7 +625,7 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
                     aria-label="在文件管理器中打开"
                     title="在文件管理器中打开"
                     className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--brand-primary)] opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                  >
+                   data-name="conversation-sidebar-open-in-explorer-button">
                     <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
                   </button>
                   <button
@@ -637,7 +641,7 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
                     }}
                     aria-label="从历史中移除"
                     className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--error)] opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                  >
+                   data-name="conversation-sidebar-remove-button">
                     <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
                   </button>
                 </div>
@@ -680,8 +684,9 @@ function NewChatButton() {
     <button
       onClick={handleNew}
       aria-label="新建对话"
+      title="新建会话 (Ctrl+N)"
       className="w-full flex items-center justify-center gap-2 py-2.5 bg-gray-900 dark:bg-white/5 border border-transparent dark:border-white/10 text-white dark:text-gray-300 rounded-[18px] text-[13px] font-medium hover:bg-gray-800 dark:hover:bg-white/10 dark:hover:text-gray-100 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.15)] dark:shadow-none transition-all active:scale-[0.98] group"
-    >
+     data-name="conversation-sidebar-new-button">
         <svg className="w-4 h-4 text-gray-300 dark:text-gray-500 group-hover:text-white dark:group-hover:text-gray-200 transition-colors"
              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
             <line x1="12" y1="5" x2="12" y2="19"/>
@@ -710,7 +715,7 @@ function SearchInput() {
         placeholder="搜索对话..."
         aria-label="搜索对话"
         className="w-full pl-9 pr-4 py-2 bg-gray-100/60 dark:bg-white/5 rounded-[36px] text-[13px] text-gray-800 dark:text-gray-200 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:bg-white dark:focus:bg-[#1A1A1A] focus:ring-2 focus:ring-gray-200 dark:focus:ring-white/10 focus:border-transparent transition-all hover:bg-gray-100/80 dark:hover:bg-white/10"
-      />
+      data-name="conversation-sidebar-search-input"/>
     </div>
   )
 }
@@ -740,6 +745,7 @@ export function ConversationList() {
     const workspaces = useConversationStore((s) => s.workspaces)
     const searchQuery = useConversationStore((s) => s.searchQuery)
     const activeConversationId = useConversationStore((s) => s.activeConversationId)
+    const [showCopyToast, setShowCopyToast] = useState(false)
     const [contextMenu, setContextMenu] = useState<{
         x: number;
         y: number;
@@ -989,22 +995,32 @@ export function ConversationList() {
                           setRenamingId(id)
                           setContextMenu(null)
                       }}
+                      onCopyId={async (id) => {
+                          setContextMenu(null)
+                          try {
+                              await navigator.clipboard.writeText(id)
+                              setShowCopyToast(true)
+                              setTimeout(() => setShowCopyToast(false), 1500)
+                          } catch { /* clipboard unavailable */ }
+                      }}
                   />
               )}
           </AnimatePresence>
+          <CopyToast visible={showCopyToast}/>
       </div>
   )
 }
 
 // ── 右键菜单布局常量 ──
-const CONTEXT_MENU_HEIGHT = 280 // 5 个按钮 + 分隔线
+// 5 个按钮 + 分隔线；dev 模式下多一个"复制会话 ID"，按 6 个按钮估算避免底部溢出
+const CONTEXT_MENU_HEIGHT = 320
 const CONTEXT_MENU_WIDTH = 180
 // 菜单项通用样式；删除按钮叠加 error 变体
 const MENU_ITEM_CLASS = 'w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors'
 
-function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onStartRename}: {
+function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onStartRename, onCopyId}: {
     x: number; y: number; id: string; title: string; pinned?: boolean; parentConvId?: string;
-    onClose: () => void; onStartRename: (id: string) => void
+    onClose: () => void; onStartRename: (id: string) => void; onCopyId: (id: string) => void
 }) {
     const deleteConversation = useConversationStore((s) => s.deleteConversation)
     const togglePinConversation = useConversationStore((s) => s.togglePinConversation)
@@ -1070,7 +1086,7 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
                     togglePinConversation(id)
                 }}
                 className={MENU_ITEM_CLASS}
-            >
+             data-name="conversation-sidebar-menu-pin-button">
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={pinned ? 'currentColor' : 'none'}
                      stroke="currentColor" strokeWidth="2">
                     <path d="M12 2L9.5 9.5 2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5z"/>
@@ -1086,7 +1102,7 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
                     onStartRename(id)
                 }}
                 className={MENU_ITEM_CLASS}
-            >
+             data-name="conversation-sidebar-menu-rename-button">
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
                     <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -1097,7 +1113,7 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
             <button
                 onClick={handleUsageStatsClick}
                 className={MENU_ITEM_CLASS}
-            >
+             data-name="conversation-sidebar-menu-usage-stats-button">
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <line x1="18" y1="20" x2="18" y2="10"/>
                     <line x1="12" y1="20" x2="12" y2="4"/>
@@ -1107,10 +1123,27 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
             </button>
 
             <div className="my-1.5 h-px bg-[var(--border-muted)] mx-2"/>
+            {/* 调试用：仅 dev / --devtools 启动时可见 */}
+            {window.electronAPI?.isDevMode && (
+            <button
+                onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onCopyId(id)
+                }}
+                className={MENU_ITEM_CLASS}
+             data-name="conversation-sidebar-menu-copy-id-button">
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2"/>
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                </svg>
+                复制会话 ID
+            </button>
+            )}
             <button
                 onClick={handleDeleteClick}
                 className={`${MENU_ITEM_CLASS} text-[var(--error)] hover:bg-[var(--error)]/10`}
-            >
+             data-name="conversation-sidebar-menu-delete-button">
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
                 </svg>
@@ -1302,7 +1335,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
             onMouseLeave={handleMouseLeave}
             className={containerClass}
             style={indentLevel ? { paddingLeft: 16 + indentLevel * 16 } : undefined}
-        >
+         data-name="conversation-sidebar-item-row">
             <div className={iconContainerClass}>
                 {showRunningPulse && (
                     <div
@@ -1335,7 +1368,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                         onBlur={handleRenameConfirm}
                         onClick={(e) => e.stopPropagation()}
                         className="flex-1 text-xs font-medium px-1.5 py-0.5 rounded border border-[var(--brand-primary)] bg-[var(--surface)] outline-none text-[var(--text-primary)]"
-                    />
+                    data-name="conversation-sidebar-rename-input"/>
                 ) : (
                     <div
                         title={title}

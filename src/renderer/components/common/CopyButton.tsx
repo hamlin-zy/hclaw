@@ -49,7 +49,7 @@ export function CopyButton({ name, size = 'md' }: CopyButtonProps) {
       className="p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 transition-all flex-shrink-0 cursor-pointer"
       title={copied ? '已复制' : '复制名称'}
       aria-label={copied ? '已复制' : '复制名称'}
-    >
+     data-name="copy-button-button-role">
       {copied ? (
         <svg className={`${iconSize} text-green-500`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M20 6L9 17l-5-5" />

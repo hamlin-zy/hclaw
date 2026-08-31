@@ -12,6 +12,7 @@ import os from 'os'
 import {getAppIconPath} from './icon'
 import {readThemeSetting} from './theme'
 import {createLogger} from '../agent/logger'
+import {isDevMode, isViteDevServer} from './devMode'
 
 const logger = createLogger('windowFactory')
 
@@ -126,6 +127,7 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
                 `--hclaw-win11=${isWin11 ? '1' : '0'}`,
                 `--hclaw-darwin=${isMac ? '1' : '0'}`,
                 `--hclaw-window-id=${id}`,
+                `--hclaw-dev=${isDevMode() ? '1' : '0'}`,
                 ...additionalArguments,
             ],
         },
@@ -173,8 +175,9 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
         return win.isDestroyed() ? false : win.isMaximized()
     })
 
-    // 加载页面
-    const isDev = process.env.NODE_ENV === 'development' || process.env.HCLAW_DEV_MODE === 'true' || process.argv.includes('--inspect')
+    // 加载页面（加载决策用 isViteDevServer：不含 --devtools，否则打包版 --devtools 启动时
+    // 会尝试连不存在的 dev server 导致所有独立窗口黑屏）
+    const isDev = isViteDevServer()
     if (isDev) {
         win.loadURL(`http://localhost:5173/${entryHtml}`)
         if (devTools) win.webContents.openDevTools({mode: 'detach'})

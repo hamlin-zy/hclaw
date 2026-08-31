@@ -44,6 +44,7 @@ import {runtimeConfigManager} from './agent/runtimeConfigManager';
 import {setConfigBridge} from './agent/common/configBridge';
 import {init as initUpdater} from './updater/updateChecker';
 import {versionManager} from './plugin/versionManager';
+import {getConversationPersistence} from './persistence/conversationPersistence';
 
 const logger = createLogger('app')
 
@@ -172,6 +173,14 @@ initWindowIPC();
 initConfigIPC();
 initBackgroundIPC();
 initConversationIPC();
+
+// 落库回执事件广播（§3.4 双通道第 2 条）：flush 级回执（message-finalized /
+// persist-degraded），仅携带变更引用，不带全量消息（§3.6-6）。
+// UI 流式 chunk 级事件保持现状不动（7.5）。
+getConversationPersistence().onPersistEvent(e => {
+  const win = getMainWindow();
+  try { win?.webContents.send('agent-persist-event', e) } catch { /* 窗口未就绪/已销毁时忽略 */ }
+});
 
 registerPluginIPC();
 registerCapabilityIPC();
@@ -398,6 +407,20 @@ app.on('ready', async () => {
     // Post-startup warmup
     setTimeout(() => powerManager.refresh().catch(() => {}), 0)
 
+  // §4.2 崩溃恢复：启动完成时全库扫描一次未 finalize 的 assistant 消息，
+  // 逐会话补终态（只做一次，不循环；§8 已接受增量丢失风险）
+  try {
+    const {getDatabase} = await import('./repositories/sqlite');
+    const {getConversationPersistence} = await import('./persistence/conversationPersistence');
+    const convs = getDatabase().prepare(
+      "SELECT DISTINCT conversation_id AS id FROM messages WHERE role = 'assistant' AND ended_at IS NULL"
+    ).all() as Array<{id: string}>;
+    for (const {id} of convs) getConversationPersistence().recoverUnfinalized(id);
+    if (convs.length > 0) logger.info('recover-unfinalized-done', {conversations: convs.length});
+  } catch (err) {
+    logger.warn('recover-unfinalized-failed', {error: String(err)});
+  }
+
   // Startup complete
   logger.info('[App] HClaw ready');
 
@@ -426,10 +449,9 @@ app.on('activate', () => {
 app.on('before-quit', async () => {
   setIsQuitting(true);
 
-    // 通知渲染进程刷盘未持久化的消息
-  const win = getMainWindow();
-  if (win && !win.isDestroyed()) {
-    win.webContents.send('flush-save');
+  // §4.3 退出边界：全部会话未 flush 增量同步落库
+  try { getConversationPersistence().flushAllSync() } catch (err) {
+    console.error('[quit] flushAllSync failed:', err)
   }
 });
 

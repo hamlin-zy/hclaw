@@ -59,13 +59,13 @@ export default function WindowTitleBar({title}: WindowTitleBarProps) {
                 <div className="titlebar-center drag-region"/>
                 <div className="titlebar-right no-drag">
                     <div className="window-controls">
-                        <button className="window-control-btn" onClick={() => window.electronAPI?.windowControls?.minimize?.()} aria-label="最小化">
+                        <button className="window-control-btn" onClick={() => window.electronAPI?.windowControls?.minimize?.()} aria-label="最小化" data-name="window-title-bar-button">
                             <MinimizeIcon/>
                         </button>
-                        <button className="window-control-btn" onClick={() => window.electronAPI?.windowControls?.maximize?.()} aria-label={isMaximized ? '还原' : '最大化'}>
+                        <button className="window-control-btn" onClick={() => window.electronAPI?.windowControls?.maximize?.()} aria-label={isMaximized ? '还原' : '最大化'} data-name="window-title-bar-maximize-button">
                             {isMaximized ? <RestoreIcon/> : <MaximizeIcon/>}
                         </button>
-                        <button className="window-control-btn window-control-btn--close" onClick={() => window.electronAPI?.windowControls?.close?.()} aria-label="关闭">
+                        <button className="window-control-btn window-control-btn--close" onClick={() => window.electronAPI?.windowControls?.close?.()} aria-label="关闭" data-name="window-title-bar-close-button">
                             <CloseIcon/>
                         </button>
                     </div>

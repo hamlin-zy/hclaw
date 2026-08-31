@@ -3,27 +3,14 @@
 import type {AgentStore, AgentStreamPayload} from '../types'
 import {createDefaultConvData} from '../defaultState'
 import {useConversationStore} from '../../conversationStore'
-import {flushConversationDirty} from '../../conversationStore'
 
 import type {StreamCtx} from './streamContext'
-import {getLastStreamType, setLastStreamType} from './streamType'
 import {handleBegin, handleAgentStart, handleText, handleThinking} from './streamCore'
 import {handleToolUse, handleToolsStart, handleToolStart, handleToolProgress, handleToolDetail, handleToolResult, handleToolCompleted, handleToolDenied} from './streamTools'
 import {handleAgentProgress, handleSubagentProgress, handleSubagentStart, handleSubagentDone} from './streamSubAgents'
 import {handleSkillStart, handleSkillPhase, handleSkillReferenceLoaded, handleSkillScriptStart, handleSkillScriptOutput, handleSkillScriptDone, handleSkillLog, handleSkillEnd} from './streamSkills'
 import {handleModeChange, handleTasksUpdate, handleLlmCallDone, handleCommandStart} from './streamSystem'
 import {handleDone, handleError, handleAskUser, handleWarning, handlePermissionRulesUpdated, handlePermissionConfirm, handleUserMessageInjected, handleLoopSuspected, handleLoopEscalated} from './streamInteraction'
-
-const TEXTISH = new Set(['text', 'thinking'])
-
-export function shouldFlushOnBoundary(prev: string | undefined, curr: string): boolean {
-    if (!prev) return false
-    // done/error/user_message_injected 由各自 handler 收尾统一 flush（先补 endedAt 再 flush，
-    // 防无 endedAt 快照覆盖主进程 final 写），不在段边界处提前触发
-    if (curr === 'done' || curr === 'error' || curr === 'user_message_injected') return false
-    if (TEXTISH.has(prev) && prev !== curr) return true    // 思考/正文段结束（含 thinking↔text 段边界）
-    return false
-}
 
 type SetFn = (...args: any[]) => any
 type GetFn = () => AgentStore
@@ -44,14 +31,7 @@ export async function handleStreamEventImpl(set: SetFn, get: GetFn, payload: Age
 
     const ctx: StreamCtx = {set, get, convId, isActiveConv, isAgentAborted, event}
 
-    // ★ 段边界落库：thinking→text / text→tool 等类型切换即段结束 → 立即刷 dirty。
-    //   done/error/user_message_injected 不在此触发（shouldFlushOnBoundary 返回 false），
-    //   由各自 handler 收尾后统一 flush，避免无 endedAt 快照覆盖主进程 final 写。
-    const prevType = getLastStreamType(convId)
-    if (shouldFlushOnBoundary(prevType, event.type)) {
-        void flushConversationDirty(convId)
-    }
-    setLastStreamType(convId, event.type)
+    // ★ 段边界落库已随渲染端落库退出（Phase 3）删除；段类型状态仅剩 UI 内部消费。
 
     switch (event.type) {
         case 'begin':                  handleBegin(ctx);                   break

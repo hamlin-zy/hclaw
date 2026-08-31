@@ -52,7 +52,7 @@ function Toast({message, type, onClose}: { message: string; type: 'success' | 'e
         <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium
             animate-[fade-in-up_0.2s_ease-out]
             ${type === 'success' ? 'bg-[#10B981] text-white' : 'bg-[#EF4444] text-white'}`}
-            onClick={onClose}>
+            onClick={onClose} data-name="channels-dialog-div">
             {type === 'success' ? '✅ ' : '❌ '}{message}
         </div>
     )
@@ -88,7 +88,7 @@ function ConfigFields({channel, savedConfig, onSave}: {
                     <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">{f.label}</label>
                     <input type={f.secret ? 'password' : 'text'} value={fields[f.key] || ''}
                            onChange={e => change(f.key, e.target.value)} placeholder={f.placeholder}
-                           className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/20"/>
+                           className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/20" data-name="channels-dialog-input"/>
                 </div>
             ))}
             <button onClick={() => {
@@ -96,7 +96,7 @@ function ConfigFields({channel, savedConfig, onSave}: {
                 for (const f of inputFields) cfg[f.key] = fields[f.key] || ''
                 onSave(cfg)
             }}
-                    className="w-full py-2 rounded-lg text-sm font-medium text-white bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] transition-colors">
+                    className="w-full py-2 rounded-lg text-sm font-medium text-white bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] transition-colors" data-name="channels-dialog-button">
                 保存配置
             </button>
         </div>
@@ -144,7 +144,7 @@ function WeChatLoginPanel({onConnected}: { onConnected: () => void }) {
                     </div>
                 </div>
                 <button onClick={store.startLogin}
-                        className="w-full py-2.5 rounded-lg text-sm font-medium text-white bg-[#07C160] hover:bg-[#06AD56] transition-colors">
+                        className="w-full py-2.5 rounded-lg text-sm font-medium text-white bg-[#07C160] hover:bg-[#06AD56] transition-colors" data-name="channels-dialog-start-login-button">
                     扫码登录
                 </button>
             </div>
@@ -214,18 +214,18 @@ function WeChatLoginPanel({onConnected}: { onConnected: () => void }) {
                 {(phase === 'show_qr' || phase === 'scanning') && (
                     <>
                         <button onClick={store.cancelLogin}
-                                className="px-4 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] transition-colors">
+                                className="px-4 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] transition-colors" data-name="channels-dialog-cancel-login-button">
                             取消
                         </button>
                         <button onClick={store.startLogin}
-                                className="px-4 py-1.5 text-xs rounded-lg bg-[var(--surface-muted)] text-[var(--text-primary)] hover:bg-[var(--border)] transition-colors">
+                                className="px-4 py-1.5 text-xs rounded-lg bg-[var(--surface-muted)] text-[var(--text-primary)] hover:bg-[var(--border)] transition-colors" data-name="channels-dialog-refresh-qr-button">
                             刷新二维码
                         </button>
                     </>
                 )}
                 {(phase === 'expired' || phase === 'error') && (
                     <button onClick={store.startLogin}
-                            className="px-4 py-1.5 text-xs rounded-lg bg-[#07C160] text-white hover:bg-[#06AD56] transition-colors">
+                            className="px-4 py-1.5 text-xs rounded-lg bg-[#07C160] text-white hover:bg-[#06AD56] transition-colors" data-name="channels-dialog-relogin-button">
                         重新扫码
                     </button>
                 )}
@@ -307,7 +307,7 @@ export default function ChannelsDialog() {
         <div className="p-4 space-y-3">
             <p className="text-xs text-[var(--text-muted)]">接入各平台，通过聊天渠道与 Agent 交互</p>
 
-            {CHANNEL_DEFS.map(def => {
+            {CHANNEL_DEFS.map((def, i) => {
                 const ch = getChannel(def.type)
                 const status = ch?.status || 'disconnected'
                 const st = STATUS_STYLE[status] || STATUS_STYLE.disconnected
@@ -319,7 +319,7 @@ export default function ChannelsDialog() {
                          className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden transition-shadow hover:shadow-card">
                         {/* ── 行头 ── */}
                         <div className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
-                             onClick={() => setExpandedType(isExpanded ? null : def.type)}>
+                             onClick={() => setExpandedType(isExpanded ? null : def.type)} data-name={`channels-dialog-channel-header-${i}`}>
                             <div className="shrink-0">{def.icon}</div>
                             <div className="flex-1 min-w-0">
                                 <div className="text-sm font-medium text-[var(--text-primary)]">{def.label}</div>
@@ -330,7 +330,7 @@ export default function ChannelsDialog() {
                                 <span className="text-2xs text-[var(--text-secondary)]">{st.label}</span>
                             </div>
                             {ch && (
-                                <div onClick={e => e.stopPropagation()}>
+                                <div onClick={e => e.stopPropagation()} data-name="channels-dialog-actions">
                                     <Switch checked={ch.enabled} onChange={() => handleToggle(def.type)} />
                                 </div>
                             )}
@@ -347,7 +347,7 @@ export default function ChannelsDialog() {
                                                       onSave={config => handleSave(def, config)}/>
                                         {ch && (
                                             <button onClick={() => remove(ch.id)}
-                                                    className="text-2xs text-[var(--text-muted)] hover:text-[var(--error)] transition-colors">
+                                                    className="text-2xs text-[var(--text-muted)] hover:text-[var(--error)] transition-colors" data-name="channels-dialog-remove-channel-button">
                                                 删除此渠道配置
                                             </button>
                                         )}

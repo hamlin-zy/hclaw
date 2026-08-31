@@ -42,7 +42,7 @@ export default function MCPPluginServerCard({
                 server.enabled ? 'border-gray-100 hover:border-gray-200 hover:shadow-sm hover:border-blue-200' :
                     'border-gray-50 opacity-60'
             }`}
-        >
+         data-name="mcpplugin-server-card-div">
             <div className="p-3">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -66,12 +66,12 @@ export default function MCPPluginServerCard({
                             <div className="text-[10px] text-gray-400 mt-0.5">插件: {pluginName}{isPluginDisabled && '（已禁用）'}</div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()} data-name="mcpplugin-server-card-actions">
                         <button
                             onClick={onReconnect}
                             className="p-1.5 text-gray-400 hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"
                             title="重新连接"
-                        >
+                         data-name="mcpplugin-server-card-button">
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <path d="M23 4v6h-6M1 20v-6h6"/>
                                 <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
@@ -82,7 +82,7 @@ export default function MCPPluginServerCard({
                             onClick={handleCopyConfig}
                             className="p-1.5 text-gray-300 hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"
                             title={copied ? '已复制' : '复制 JSON 配置'}
-                        >
+                         data-name="mcpplugin-server-card-copy-config-button">
                             {copied ? (
                                 <svg className="w-3.5 h-3.5 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                     <path d="M20 6L9 17l-5-5"/>
@@ -100,7 +100,7 @@ export default function MCPPluginServerCard({
                                 onEdit()
                             }}
                             className="p-1.5 text-gray-300 hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"
-                        >
+                         data-name="mcpplugin-server-card-edit-button">
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                  strokeWidth="2">
                                 <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
