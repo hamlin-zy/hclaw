@@ -81,15 +81,18 @@ describe('UsageWindow 全局用量窗口', () => {
         expect(screen.getAllByText(/人民币按 1 USD ≈ 7\.40 CNY 实时汇率折算/).length).toBe(3)
     })
 
-    it('时间按钮顺序：全部 → 今天 → 近7天 → 近30天 → 自定义', async () => {
+    it('时间按钮顺序：今天 → 昨天 → 近7天 → 近30天 → 自定义', async () => {
         render(<UsageWindow />)
         // flush 汇率同步的异步 resolve（macrotask），避免 setState 落在 act 外产生警告
         await act(async () => { await new Promise(r => setTimeout(r, 0)) })
-        const labels = ['全部', '今天', '近 7 天', '近 30 天', '自定义']
-        const buttons = screen.getAllByRole('button')
+        // 过滤栏（UsageFilterBar）的 ThemedSelect 触发器文本可能为「全部」，与时间分段
+        // 按钮文本碰撞——限定在分段控件容器内查询（以 range-today 为锚点）
+        const labels = ['今天', '昨天', '近 7 天', '近 30 天', '自定义']
+        const seg = screen.getByTestId('range-today').parentElement!
+        const buttons = Array.from(seg.querySelectorAll('button'))
         const rangeButtons = labels.map(l => buttons.find(b => b.textContent === l))
         const indexes = rangeButtons.map(b => buttons.indexOf(b!))
-        // 全部按钮排在今天之前，且顺序递增
+        // 顺序递增
         expect(indexes).toEqual([...indexes].sort((a, b) => a - b))
         expect(indexes[0]).toBeLessThan(indexes[1])
         expect(indexes[4]).toBeGreaterThan(indexes[3])
@@ -149,12 +152,13 @@ describe('UsageWindow 全局用量窗口', () => {
         expect(screen.getByText('按天')).toBeTruthy()
     })
 
-    it('点击全部 → range=all + 按天粒度', async () => {
+    it('点击昨天 → range=yesterday + 按小时粒度', async () => {
         render(<UsageWindow />)
         await waitFor(() => expect(api().usageStatsQuery).toHaveBeenCalled())
-        fireEvent.click(screen.getByText('全部'))
+        // 「全部」范围已被「昨天」取代；用 testid 定位避免与过滤栏下拉选项文本碰撞
+        fireEvent.click(screen.getByTestId('range-yesterday'))
         await waitFor(() => {
-            expect(lastQuery()).toEqual({range: 'all', view: 'provider', granularity: 'day'})
+            expect(lastQuery()).toEqual({range: 'yesterday', view: 'provider', granularity: 'hour'})
         })
     })
 
@@ -281,8 +285,10 @@ describe('明细表：服务商列 / 模型ID 表头 / 全列排序', () => {
         fireEvent.click(screen.getByText('按模型'))
         await waitFor(() => expect(screen.getAllByText('deepseek-v4-flash')).toHaveLength(1))
         // 表头：模型ID（替代原「名称」）+ 服务商
+        // 过滤栏也有「服务商」标签文本，表头断言限定在 thead 内
         expect(screen.getByText('模型ID')).toBeTruthy()
-        expect(screen.getByText('服务商')).toBeTruthy()
+        const thead = screen.getByText('模型ID').closest('thead')!
+        expect(Array.from(thead.querySelectorAll('th')).some(th => th.textContent === '服务商')).toBeTruthy()
         // 服务商列独立展示（不再走 via 小字），旧「via」文案不再出现
         expect(screen.getByText('OpenRouter')).toBeTruthy()
         expect(screen.queryByText(/via /)).toBeNull()
@@ -305,10 +311,12 @@ describe('明细表：服务商列 / 模型ID 表头 / 全列排序', () => {
         fireEvent.click(screen.getByText('合计'))
         expect(firstRowText()).toContain('OpenAI')
         // 首列（服务商，文本列）点击 → 升序（D < O）→ Deepseek-ant 在前
-        fireEvent.click(screen.getByText('服务商'))
+        // 「服务商」文本与过滤栏标签碰撞，取 thead 内的表头元素
+        const providerHeader = () => screen.getAllByText('服务商').find(el => el.closest('thead'))!
+        fireEvent.click(providerHeader())
         expect(firstRowText()).toContain('Deepseek-ant')
         // 再点 → 降序 → OpenAI 在前
-        fireEvent.click(screen.getByText('服务商'))
+        fireEvent.click(providerHeader())
         expect(firstRowText()).toContain('OpenAI')
     })
 })

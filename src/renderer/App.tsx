@@ -3,6 +3,7 @@ import {AnimatePresence} from 'framer-motion'
 import TitleBar from './components/TitleBar'
 import ConversationSidebar from './components/ConversationSidebar'
 import MainWorkspace from './components/MainWorkspace'
+import SidePanels from './components/SidePanels'
 import MenuDialogRenderer from './components/MenuDialogRenderer'
 import DiffModal from './components/DiffModal'
 import AskUserModal from './components/AskUserModal'
@@ -263,7 +264,7 @@ async function syncModelSchemeToMain(llmState: ReturnType<typeof useLLMStore.get
 export default function App() {
   const registerStreamListener = useAgentStore((s) => s.registerStreamListener)
   const theme = useThemeStore((s) => s.theme)
-  const {leftCollapsed} = useSidebarStore()
+  const {leftCollapsed, rightCollapsed, setRightCollapsed} = useSidebarStore()
   const background = useSettingsStore((s) => s.settings.ui.background)
 
   // 注册系统内快捷键（非全局快捷键）
@@ -546,6 +547,18 @@ export default function App() {
     }
   }, [])
 
+  // ── 监听渲染端跨窗口创建的会话（如 MCP「帮我检查」独立窗口），刷新主窗口侧栏 ──
+  useEffect(() => {
+    const cleanup = window.electronAPI?.receive?.('conversation-created', (payload: any) => {
+      if (!payload?.id || payload?.source !== 'renderer-create') return
+      useConversationStore.getState().handleSessionCreated(payload.id, payload.title || '新对话', payload.workspacePath || '', undefined, payload.createdAt, payload.updatedAt)
+    })
+
+    return () => {
+      cleanup?.()
+    }
+  }, [])
+
     // ── 监听服务商配置变更，同步到主进程全局管理器 ──
     useEffect(() => {
       const buildSignature = (providers: ReturnType<typeof useLLMStore.getState>['providers']) =>
@@ -689,7 +702,7 @@ export default function App() {
           </>
         )}
         <TitleBar />
-        <main className={`flex-1 flex overflow-hidden py-2 gap-2 ${leftCollapsed ? 'pl-0 pr-2' : 'px-2'}`}
+        <main className={`flex-1 flex overflow-hidden py-2 gap-2 ${leftCollapsed ? 'pl-0' : 'pl-2'} ${rightCollapsed ? 'pr-0' : 'pr-2'}`}
               style={{minHeight: 0, marginTop: 0, marginBottom: 0}}>
           {/* 左侧边栏卡片 - 折叠时保留 36px 窄条（含全部菜单项图标 + 展开入口）：
               折叠态紧贴窗口左缘无缝隙（main 去 pl），左上/左下圆角改直角；
@@ -708,6 +721,23 @@ export default function App() {
             data-name="main-column">
             <MainWorkspace/>
           </div>
+          {/* 右侧面板卡片 - 折叠时保留窄条（含展开入口，复刻左侧边栏折叠交互；
+              折叠/展开逻辑复用 sidebarStore.rightCollapsed 与 Ctrl+Shift+B 快捷键；
+              若整个卸载则折叠后只剩快捷键可展开） */}
+          {rightCollapsed ? (
+            <button
+              onClick={() => setRightCollapsed(false)}
+              aria-label="展开右侧面板"
+              className="app-surface-card self-end mb-[8px] bg-[var(--surface)] rounded-l shadow-card border border-r-0 border-[var(--border)] flex items-center justify-center w-[18px] h-[72px] flex-shrink-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors">
+              <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+            </button>
+          ) : (
+            <div data-name="side-panels" className="app-surface-card w-sidebar flex-shrink-0 min-h-0 flex flex-col transition-all h-full rounded-lg shadow-card border border-[var(--border)] overflow-hidden">
+              <SidePanels/>
+            </div>
+          )}
         </main>
         <AnimatePresence>
           <MenuDialogRenderer key="menu-dialog" />

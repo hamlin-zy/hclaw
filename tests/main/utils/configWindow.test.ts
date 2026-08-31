@@ -57,8 +57,8 @@ beforeEach(async () => {
 })
 
 describe('configWindow 注册表', () => {
-    it('白名单含 21 种 dialogType', () => {
-        expect(CONFIG_DIALOG_TYPES.size).toBe(21)
+    it('白名单含 22 种 dialogType', () => {
+        expect(CONFIG_DIALOG_TYPES.size).toBe(22)
         expect(CONFIG_DIALOG_TYPES.has('llm-config')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('permission-rules')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('about')).toBe(true)
@@ -66,6 +66,7 @@ describe('configWindow 注册表', () => {
         expect(CONFIG_DIALOG_TYPES.has('usage')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('task-history')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('task-history-conv')).toBe(true)
+        expect(CONFIG_DIALOG_TYPES.has('memo-edit')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('hooks')).toBe(false)
         expect(CONFIG_DIALOG_TYPES.has('update-notice')).toBe(false)
     })

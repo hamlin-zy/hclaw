@@ -500,8 +500,10 @@ export function initWindowIPC(): void {
         }
     });
 
-    ipcMain.handle('close-window', () => {
-        mainWindow?.close();
+    ipcMain.handle('close-window', (event) => {
+        // 关闭发起调用的窗口自身：主窗口 TitleBar 调用时即主窗口，
+        // 子窗口（如备忘录编辑窗口）调用时避免误关主窗口
+        BrowserWindow.fromWebContents(event.sender)?.close();
     });
 
     ipcMain.handle('is-maximized', () => {

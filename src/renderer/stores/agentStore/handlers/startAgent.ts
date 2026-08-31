@@ -2,7 +2,8 @@
 
 import type {AgentStore} from '../types'
 import {IDLE_STATE, makeAgentState} from '../defaultState'
-import {useConversationStore} from '../../conversationStore'
+import {useConversationStore, finalizeMessageDelta} from '../../conversationStore'
+import type {ContentBlock} from '@shared/types'
 import {clearAllBatches} from '../helpers/convHelpers'
 
 type SetFn = (...args: any[]) => any
@@ -53,6 +54,29 @@ export async function startAgentImpl(
                     toolCalls: updatedToolCalls,
                 })
             }
+        }
+    }
+
+    // ★ 兜底补全：上一条 assistant 消息若因异常（abort 时 done 丢失 / 崩溃）未终结
+    //   （无 endedAt），补 end 块 + endedAt 后再开始新一轮。否则 ensureStreamingMessage
+    //   孤儿收养会把新响应合并进旧气泡。
+    //   时间戳取最后一条用户消息 timestamp - 1（而非"最后一块时间+1"）：
+    //   保证 assistant.endedAt < 新 user.timestamp（消息按 timestamp 排序合并时不串位），
+    //   且语义上"消息在用户发话前已结束"恒成立。
+    {
+        const convMsgs = useConversationStore.getState().messagesMap[conversationId] || []
+        const lastUserTs = [...convMsgs].reverse().find(m => m.role === 'user')?.timestamp
+        const endedAt = (lastUserTs ?? Date.now()) - 1
+        for (const msg of convMsgs) {
+            if (msg.role !== 'assistant' || msg.endedAt) continue
+            // 内存补 endedAt + end 块（末块非 end 时追加，end 语义恒为收尾哨兵）
+            const blocks: ContentBlock[] | undefined = msg.contentBlocks
+            const patch: Record<string, unknown> = {endedAt}
+            if (blocks && blocks.length > 0 && blocks[blocks.length - 1].type !== 'end') {
+                patch.contentBlocks = [...blocks, {id: `end-${msg.id}`, type: 'end' as const, endedAt}]
+            }
+            useConversationStore.getState().updateMessageForConv(conversationId, msg.id, patch)
+            finalizeMessageDelta(conversationId, msg.id, endedAt)
         }
     }
 

@@ -7,6 +7,27 @@
 
 ---
 
+## [v0.5.0] - 2026-08-31
+
+### 新增
+- **备忘录功能上线** — 右侧新增备忘录面板，支持新建/编辑/搜索/置顶与拖拽排序，可为备忘录绑定能力（`MemoPanel.tsx` / `memoStore.ts`）
+- **备忘录独立编辑窗口** — 编辑不再挤在侧边栏，独立窗口支持拖拽上传附件、图片预览，保存失败自动保留编辑状态并提示错误（`MemoEditDialog.tsx` / `memo-edit`）
+- **发送到会话处理** — 备忘录可一键转为新会话并自动启动 Agent 处理，复用会话交接链路（`createSessionFromMemo`）
+- **用量明细过滤** — 用量窗口新增时间范围与服务商过滤，新增「昨天」快捷范围（`UsageFilterBar.tsx`）
+- **会话跨窗口同步** — 会话的创建与删除实时广播到所有窗口，列表不再出现不同步（`conversationStore.ts`）
+- **能力选择器组件化** — 定时任务与备忘录共用同一能力选择组件（`CapabilityPicker.tsx`）
+
+### 变更
+- **下拉选择器全面主题化** — 原生 select 全部替换为应用内统一样式的主题化下拉组件（`ThemedSelect.tsx`）
+
+### 修复
+- **Tooltip 体验** — 无文本元素命中时旧 tooltip 不再滞留，左缘越界自动钳制（`TooltipPortal.tsx`）
+- **Markdown 渲染** — 修复多行代码块与用户 HTML 的渲染问题（`MarkdownRenderer.tsx`）
+- **Agent 稳定性** — 修复跨轮恢复时工具定义不一致、命令重放位置漂移等偶发异常；附件构建收拢为统一模块，会话交接链路附件完整传递（`startAgentCore.ts` / `userContentBuilder.ts`）
+- **窗口关闭行为** — `close-window` 仅关闭发起调用的窗口自身（`window.ts`）
+
+---
+
 ## [v0.4.16] - 2026-08-29
 
 ### 新增

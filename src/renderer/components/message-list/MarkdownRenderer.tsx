@@ -257,9 +257,10 @@ function normalizeMarkdownPaths(markdown: string): string {
 
 /**
  * 转义非 HTML 标签的尖括号，防止 rehypeRaw 将 TypeScript 泛型（如 Promise<string>）当成 HTML 标签
- * 仅保留已知的合法 HTML 标签，其他 <...> 模式转义为 &lt;...&gt;
+ * allowHtml=true（助手消息）：仅保留白名单内的合法 HTML 标签，其他 <...> 模式打断
+ * allowHtml=false（用户消息）：用户输入不应被解析为 HTML（如 "<select>具体问题" 会渲染成下拉框），全部打断
  */
-function escapeNonHtmlTags(markdown: string): string {
+function escapeNonHtmlTags(markdown: string, allowHtml: boolean): string {
     if (typeof markdown !== 'string') return ''
     const KNOWN_HTML_TAGS = new Set([
         'a','abbr','address','area','article','aside','audio','b','base','bdi','bdo','blockquote',
@@ -275,8 +276,10 @@ function escapeNonHtmlTags(markdown: string): string {
     ])
     // 匹配 <tagName ...> 或 </tagName> 模式
     return markdown.replace(/<\/?([A-Za-z][A-Za-z0-9]*)\b[^>]*?>/g, (match, tagName) => {
-        if (KNOWN_HTML_TAGS.has(tagName.toLowerCase())) {
-            return match  // 保留合法 HTML 标签
+        // 仅 allowHtml（助手消息）时保留白名单内的合法 HTML 标签；
+        // 用户消息所有 HTML 标签一律打断
+        if (allowHtml && KNOWN_HTML_TAGS.has(tagName.toLowerCase())) {
+            return match
         }
         // 用零宽空格打断 HTML 标签语法，防止 rehypeRaw 将其解析为 HTML
         // 不直接使用 &lt; 实体，因为 React 渲染文本时不会解码实体
@@ -328,9 +331,9 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
                                                         }: MarkdownRendererProps) {
     const normalizedChildren = useMemo(() => {
         const normalized = normalizeMarkdownPaths(children)
-        const escaped = escapeNonHtmlTags(normalized)
+        const escaped = escapeNonHtmlTags(normalized, !isUser)
         return stripRefAttributes(escaped)
-    }, [children])
+    }, [children, isUser])
 
     // ── 链接打开方式 ──
     const {settings} = useSettingsStore()
@@ -407,9 +410,16 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
     return {
         // 普通 pre（非代码块中的 pre，react-markdown 会为无语言标注的代码块生成 <pre><code>）
         pre({children}: any) {
+            // 围栏代码块（无语言标注）会生成 <pre><code>，其中 code 走行内样式分支
+            // （whitespace-nowrap + 药丸背景），会把多行内容折叠成单行。
+            // 此处直接提取代码文本渲染为块级代码，保留换行；
+            // 带语言标注的代码块走 SyntaxHighlighter 分支不受影响。
+            const child: any = Array.isArray(children) ? children[0] : children
+            const raw = child?.props?.children
+            const codeText = typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.join('') : null
             return (
                 <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--surface-muted)]/50 p-3 my-3.5 text-sm font-mono leading-[1.6] border border-[var(--border-muted)]">
-                    {children}
+                    {codeText != null ? codeText : children}
                 </pre>
             )
         },

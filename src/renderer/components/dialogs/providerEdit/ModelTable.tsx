@@ -1,4 +1,4 @@
-import type {ProviderModel, ModelType} from '@shared/types'
+import type {ProviderModel} from '@shared/types'
 import type {Currency} from '@shared/pricing'
 import {displayPrice, parsePriceInput} from '../../../lib/priceEditing'
 import {useState, type MouseEvent} from 'react'

@@ -108,6 +108,20 @@ declare global {
         saveTempFile: (data: { buffer: number[], name: string }) => Promise<string | null>
         saveDroppedFile: (data: { sourcePath: string, name: string }) => Promise<string | null>
         getDroppedFilePath: (file: File) => string
+
+        // 备忘录（memo）：所有通道返回 {ok: true, data} | {ok: false, error}
+        memo: {
+            list: (workspacePath: string) => Promise<{ok: boolean, data?: any, error?: string}>
+            getById: (id: string) => Promise<{ok: boolean, data?: import('../shared/types/memo').MemoItem, error?: string}>
+            create: (input: {workspacePath: string, title: string, content: string, capability?: import('../shared/types/memo').MemoCapability, attachments?: import('../shared/types/memo').MemoAttachment[]}) => Promise<{ok: boolean, data?: any, error?: string}>
+            update: (id: string, patch: unknown) => Promise<{ok: boolean, data?: any, error?: string}>
+            remove: (id: string) => Promise<{ok: boolean, data?: any, error?: string}>
+            uploadAttachment: (input: unknown) => Promise<{ok: boolean, data?: any, error?: string}>
+            uploadFile: (file: File) => Promise<{ok: boolean, data?: any, error?: string}>
+            discardPending: (ids: string[]) => Promise<{ok: boolean, data?: any, error?: string}>
+            createSession: (id: string) => Promise<{ok: boolean, data?: {convId: string}, error?: string}>
+        }
+        onMemoChanged: (handler: (payload: {workspacePath: string}) => void) => () => void
         clipboardWriteImage: (data: { buffer: number[] }) => Promise<{ success: boolean; error?: string }>
         agentWarmupClients: (data: {
             scheme: import('./types').ModelScheme
@@ -246,6 +260,9 @@ declare global {
             updatedAt?: number
         }) => void) => () => void
 
+        // 监听主进程推送的会话删除（任意窗口删除后其他窗口同步移除侧栏条目）
+        onConversationDeleted: (callback: (data: { ids: string[] }) => void) => () => void
+
       // Block operations (incremental write)
       blocksWrite: (convId: string, block: unknown) => Promise<boolean>
       blocksUpdate: (blockId: string, updates: unknown) => Promise<boolean>
@@ -326,6 +343,10 @@ declare global {
         dialogType: string
         /** 任务历史窗口限定的会话 id（--hclaw-task-conv；仅 task-history-conv 有，其余为空字符串） */
         taskConvId: string
+        /** 备忘录编辑窗口：编辑态 memo id（--hclaw-memo-id；其余为空字符串） */
+        memoId: string
+        /** 备忘录编辑窗口：新建态目标工作区路径（--hclaw-memo-workspace；其余为空字符串） */
+        memoWorkspace: string
         /** 打开配置对话框独立窗口（主进程注册表按 dialogType 管理单例；extraArgs 追加为窗口启动参数） */
         openConfigWindow: (dialogType: string, extraArgs?: string[]) => Promise<void>
         /** 独立窗口通用控制（主窗口无 --hclaw-window-id，此值为 undefined） */

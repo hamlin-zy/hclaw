@@ -83,6 +83,7 @@ function todayStartMs(now: number): number {
  * 时间范围 → 过滤边界（毫秒）
  * - 'all' → 双 null（不过滤）
  * - 'today' → 当日 0 点起，至 now（endMs null）
+ * - 'yesterday' → 昨日 0 点起，至今日 0 点（闭区间上限）
  * - '7d'/'30d' → now 向前滚动
  * - 'custom' → 需 custom 起止（YYYY-MM-DD，天级精度，闭区间）；缺失时回退 'today' 语义
  */
@@ -96,6 +97,10 @@ export function timeRangeBounds(range: TimeRange, now: number = Date.now(), cust
     return {startMs: todayStartMs(now), endMs: null}
   }
   if (range === 'today') return {startMs: todayStartMs(now), endMs: null}
+  if (range === 'yesterday') {
+    const todayStart = todayStartMs(now)
+    return {startMs: todayStart - 24 * 3600 * 1000, endMs: todayStart}
+  }
   // 剩余分支仅为 '7d' / '30d'
   const ms = range === '7d' ? 7 * 24 * 3600 * 1000 : 30 * 24 * 3600 * 1000
   return {startMs: now - ms, endMs: null}

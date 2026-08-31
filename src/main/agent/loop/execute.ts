@@ -35,6 +35,7 @@ import {resolveContextUsageTokens} from '../context'
 import {resolveMaxContextTokens} from './modelMaxContext'
 import {modelMetaRegistry} from '../../modelMetaRegistry'
 import {withLlmTraceStream, type LlmTraceCallContext} from '../../utils/llmTraceRecorder'
+import {buildCommandTaskContent} from '../utils/userContentBuilder'
 
 const toolRegistry = getToolRegistry()
 
@@ -346,13 +347,15 @@ export async function* executeLlmCallWithRetry(
             // ── 命令模板尾随注入（R1 缓存修复）──
             // 模板不拼接进 systemPrompt（会破坏前缀缓存：命令轮 system 与普通轮不一致
             // 导致 cached_tokens 归零），而是作为末尾 user 消息追加，所有 adapter 一致。
+            // ★ content 构建走共享函数：与 ipc/execution.ts 历史重放同源，
+            //   保证首轮直传与后续轮重建输出逐字节一致 → KV cache 前缀不断裂
             let effectiveMessages = messagesToSend
             if (commandTemplate) {
                 effectiveMessages = [
                     ...messagesToSend,
                     {
                         role: 'user',
-                        content: `<command-task>\n${commandTemplate}\n</command-task>`,
+                        content: buildCommandTaskContent(commandTemplate),
                         id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                     } as ChatMessage,
                 ]
