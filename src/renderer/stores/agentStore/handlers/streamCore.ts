@@ -70,7 +70,11 @@ export function ensureStreamingMessage(get: GetFn, convId: string, preferredId?:
     //    （首 token 前崩溃残留）→ 复用其 id 作为载体并注册主进程（主进程 pending
     //   复用同一 id，done 合并不产生副本）。recoverSessions 播种已清除 seed 消息的
     //    内存 endedAt，播种 id 同样经由此路径自然复用，无需 recoveredStreaming 标记。
-    const orphan = msgs.find(m => m.role === 'assistant' && !m.endedAt)
+    // ★ 守卫：仅收养会话"最后一条消息"。若其后已出现新消息（尤其用户消息），
+    //   说明该未终结 assistant 是历史异常残留（如 abort 终态丢失）——收养会把
+    //   新响应合并进旧气泡，必须新建占位。
+    const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : undefined
+    const orphan = lastMsg && lastMsg.role === 'assistant' && !lastMsg.endedAt ? lastMsg : undefined
     if (orphan) {
         get().updateConvData(convId, {streamingMessageId: orphan.id})
         window.electronAPI?.agentRegisterStreamingMessage?.(convId, orphan.id)

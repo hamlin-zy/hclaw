@@ -127,7 +127,7 @@ export default function ThinkingEffortSelector({conversationId}: ThinkingEffortS
                             exit={{opacity: 0, y: 8, scale: 0.96}}
                             transition={{duration: 0.15}}
                             style={{bottom: position.bottom, right: position.right}}
-                            className="fixed z-[9999] w-max min-w-[200px] max-w-[340px]"
+                            className="fixed z-[9999] w-max max-w-[340px]"
                             onMouseDown={(e) => e.stopPropagation()}
                             ref={panelRef}
                         >

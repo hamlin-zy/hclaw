@@ -14,6 +14,7 @@ import {
   type ProviderPreset,
 } from '@shared/modelPresets'
 import ModelTable from './providerEdit/ModelTable'
+import ThemedSelect from '../ThemedSelect'
 import {commitRow, displayPrice, parsePriceInput, type PriceEdits} from '../../lib/priceEditing'
 import type {Currency} from '@shared/pricing'
 
@@ -884,16 +885,20 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                   <span className="text-[11px] font-medium text-gray-600 shrink-0">已获取 {fetchedResult.length} 个模型</span>
                   <input value={fetchSearch} onChange={(e) => setFetchSearch(e.target.value)} placeholder="搜索模型..."
                     className="flex-1 min-w-0 px-2 py-1 text-[10px] border border-gray-200 rounded-md focus:outline-none focus:border-brand-300" />
-                  <select value={fetchTypeFilter} onChange={(e) => setFetchTypeFilter(e.target.value as any)}
-                    className="text-[10px] border border-gray-200 rounded px-1 py-1 bg-white focus:outline-none">
-                    <option value="all">全部类型</option>
-                    <option value="text">文本</option>
-                    <option value="image">图像</option>
-                    <option value="voice">音频</option>
-                    <option value="video">视频</option>
-                    <option value="music">音乐</option>
-                    <option value="embedding">向量</option>
-                  </select>
+                  <ThemedSelect
+                    value={fetchTypeFilter}
+                    onChange={(v) => setFetchTypeFilter(v as any)}
+                    options={[
+                        {value: 'all', label: '全部类型'},
+                        {value: 'text', label: '文本'},
+                        {value: 'image', label: '图像'},
+                        {value: 'voice', label: '音频'},
+                        {value: 'video', label: '视频'},
+                        {value: 'music', label: '音乐'},
+                        {value: 'embedding', label: '向量'},
+                    ]}
+                    ariaLabel="价目表类型过滤"
+                  />
                   <button onClick={() => setSelectedIds(new Set(fetchedResult.map(m => m.id)))} className="text-[10px] text-brand-500 hover:underline shrink-0">全选</button>
                   <button onClick={() => setSelectedIds(new Set())} className="text-[10px] text-gray-400 hover:underline shrink-0">清空</button>
                 </div>

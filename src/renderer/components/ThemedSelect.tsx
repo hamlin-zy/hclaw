@@ -1,6 +1,7 @@
 import {useEffect, useLayoutEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
+import {useSettingsStore} from '../stores/settingsStore'
 
 /** 弹层面板最大高度，同时用于判断是否向上翻转 */
 const PANEL_MAX_H = 240
@@ -35,6 +36,7 @@ export default function ThemedSelect({
                                          error = false,
                                          className = '',
                                          ariaLabel,
+                                         fullWidth = false,
                                      }: {
     value: string
     options: ThemedSelectOption[]
@@ -44,11 +46,15 @@ export default function ThemedSelect({
     error?: boolean
     className?: string
     ariaLabel?: string
+    /** 撑满父容器（表单网格/等宽布局用）；默认宽度随选中项文本自适应，不换行不截断 */
+    fullWidth?: boolean
 }) {
     const [open, setOpen] = useState(false)
     const [pos, setPos] = useState<{top: number; left: number; width: number; dropUp: boolean} | null>(null)
     const btnRef = useRef<HTMLButtonElement>(null)
     const panelRef = useRef<HTMLDivElement>(null)
+    // 用户自定义背景图开启 → 弹层切换毛玻璃；默认主题下用不透明 surface（与弹窗/菜单同原则）
+    const bgEnabled = useSettingsStore(s => s.settings.ui.background?.enabled && !!s.settings.ui.background.imagePath)
 
     const selected = options.find((o) => o.value === value)
 
@@ -101,13 +107,13 @@ export default function ThemedSelect({
                 aria-label={ariaLabel}
                 aria-expanded={open}
                 aria-haspopup="listbox"
-                className={`w-full flex items-center justify-between gap-1.5 px-2 py-1.5 text-[11px] bg-[var(--surface)] border rounded text-left transition-colors focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
+                className={`flex items-center justify-between gap-1.5 px-2 py-1.5 text-[11px] bg-[var(--surface)] border rounded text-left transition-colors focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
                     error
                         ? 'border-red-300 focus:border-red-400'
                         : open
                             ? 'border-brand-300'
                             : 'border-gray-200 hover:border-gray-300 focus:border-brand-300'
-                } ${className}`}
+                } ${fullWidth ? 'w-full' : 'w-auto max-w-full whitespace-nowrap'} ${className}`}
             >
                 <span className={`truncate ${selected ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}>
                     {selected?.label || placeholder}
@@ -135,11 +141,16 @@ export default function ThemedSelect({
                             top: pos?.dropUp ? undefined : pos?.top,
                             bottom: pos?.dropUp ? window.innerHeight - (pos?.top ?? 0) : undefined,
                             left: pos?.left,
-                            width: pos ? Math.max(pos.width, 160) : undefined,
+                            // 默认：宽度随最长选项文本自适应（限视口内），触发按钮宽度为下限
+                            ...(fullWidth
+                                ? {width: pos ? Math.max(pos.width, 160) : undefined}
+                                : {width: 'max-content', minWidth: pos?.width, maxWidth: 'min(480px, calc(100vw - 16px))'}),
                         }}
                         className="z-[9999]"
                     >
-                        <div className="bg-[var(--surface-elevated)]/92 backdrop-blur-lg border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden max-h-[240px] overflow-y-auto">
+                        <div className={`${bgEnabled
+                            ? 'bg-[var(--surface-elevated)]/92 backdrop-blur-lg'
+                            : 'bg-[var(--surface-elevated)]'} border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden max-h-[240px] overflow-y-auto`}>
                             <div className="p-1.5 flex flex-col">
                                 {options.map((opt) => {
                                     const isActive = opt.value === value

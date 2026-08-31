@@ -148,7 +148,7 @@ function TurnGroup({turn, records, expandedId, onToggle, onOpenDetail}: {
                 <b className="text-[var(--text-primary)]">Turn {turn}</b>
                 <span>{steps.size} 个步骤 · 总耗时 {(totalMs / 1000).toFixed(1)}s</span>
             </div>
-            {[...steps.entries()].sort((a, b) => a[0] - b[0]).map(([step, list]) => {
+            {[...steps.entries()].sort((a, b) => a[0] - b[0]).map(([_step, list]) => {
                 const sorted = [...list].sort((a, b) => b.ts - a.ts || b.attempt - a.attempt)
                 return sorted.length > 1 ? (
                     <RetryCard key={sorted[0].id} attempts={sorted}

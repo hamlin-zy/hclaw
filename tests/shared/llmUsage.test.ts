@@ -73,6 +73,11 @@ describe('timeRangeStartMs', () => {
     expect(timeRangeStartMs('today', now)).toBe(new Date(2026, 7, 16).getTime())
   })
 
+  it("'yesterday' → 昨日 0 点", () => {
+    const now = new Date(2026, 7, 16, 14, 30).getTime() // 2026-08-16 14:30
+    expect(timeRangeStartMs('yesterday', now)).toBe(new Date(2026, 7, 15).getTime())
+  })
+
   it("'7d' → now - 7 天", () => {
     expect(timeRangeStartMs('7d', 1_000_000)).toBe(1_000_000 - 7 * 24 * 3600 * 1000)
   })
@@ -90,6 +95,16 @@ describe('timeRangeBounds', () => {
   it("'today' → 当天 0 点起，endMs null（至 now）", () => {
     const now = new Date(2026, 7, 16, 14, 30).getTime()
     expect(timeRangeBounds('today', now)).toEqual({startMs: new Date(2026, 7, 16).getTime(), endMs: null})
+  })
+
+  it("'yesterday' → 昨日 0 点 ~ 今日 0 点（闭区间上限）", () => {
+    const now = new Date(2026, 7, 16, 14, 30).getTime()
+    expect(timeRangeBounds('yesterday', now)).toEqual({
+      startMs: new Date(2026, 7, 15).getTime(),
+      endMs: new Date(2026, 7, 16).getTime(),
+    })
+    // 跨度恰为一天；今日 0 点整的记录不属于昨天（endMs 为上限而非闭区间终点）
+    expect(timeRangeBounds('yesterday', now).endMs! - timeRangeBounds('yesterday', now).startMs!).toBe(24 * 3600 * 1000)
   })
 
   it("'7d' → now - 7 天，endMs null", () => {

@@ -443,6 +443,19 @@
     color: var(--text-primary);
 }
 
+/* Number input — 全局隐藏原生增减按钮（spinner）：
+   原生样式与紧凑输入框设计及深色主题不协调；隐藏后数值增减仍可用
+   键盘 ↑/↓（type=number 原生行为保留），功能无损失 */
+input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
 /* Checkbox — custom styling */
 :is(.dark, .yuanshandai, .shiyangjin) input[type="checkbox"]:not(.sr-only) {
     -webkit-appearance: none;
@@ -828,13 +841,21 @@ body {
     outline-color: var(--brand-primary);
 }
 
+/* 键盘导航焦点描边仅用于无自身边框反馈的控件（button 等）。
+   文本输入类（input/textarea）有光标 + 边框变色（focus:border-brand-*）双重反馈，
+   套用 2px outline 会出现粗描边、与下拉框聚焦样式不一致——由组件边框样式接管。
+   checkbox 无边框，仍需 outline（见下方专属规则）。 */
 button:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
 select:focus-visible {
   outline: 2px solid var(--brand-primary);
   outline-offset: 2px;
     outline-color: var(--brand-primary);
+}
+
+/* 文本输入类：outline 置空，聚焦反馈由组件边框变色（focus:border-brand-*）接管 */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
 }
 
 /* ========================================
@@ -2410,6 +2431,16 @@ html.bg-enabled,
  * = 主层 × 0.7，App.tsx 计算），保持内容清晰、背景模糊的层次。 */
 .bg-enabled .permission-rules-card [class*="bg-[var(--surface)]"] {
     background-color: color-mix(in srgb, var(--surface) var(--bg-surface-alpha-inner, 45%), transparent) !important;
+}
+
+/* ── 备忘录面板（memo-panel-card）：对齐会话列表（left-sidebar-card）──
+ * 半透明 surface 底色（--bg-surface-alpha-inner = 主层 × 0.7，App.tsx 计算）
+ * + blur 跟随 --bg-blur 滑杆。内部列表项保持透明底 + hover 半透明，
+ * 无实底卡片，无需 bg-enabled 半透明覆盖规则。 */
+.bg-enabled .memo-panel-card {
+    background-color: color-mix(in srgb, var(--surface) var(--bg-surface-alpha-inner, 45%), transparent) !important;
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
 }
 
 /* ── 消息列表卡片（data-name="message-list-card"）半透明 ──

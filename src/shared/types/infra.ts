@@ -257,7 +257,7 @@ export interface TrendPoint {
 }
 
 /** 时间范围；'custom' 配合 usage-stats:query 的 customStart/customEnd（YYYY-MM-DD，天级精度） */
-export type TimeRange = 'today' | '7d' | '30d' | 'all' | 'custom'
+export type TimeRange = 'today' | 'yesterday' | '7d' | '30d' | 'all' | 'custom'
 
 /** 趋势分组粒度 */
 export type TrendGranularity = 'day' | 'hour'

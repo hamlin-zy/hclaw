@@ -188,7 +188,10 @@ export function messageToBlocks(msg: Message, _convId: string): { messages: Mess
       agentType: msg.agentType,
       model: msg.model,
       skillExecution: msg.skillExecution,
-      attachments: msg.attachments,
+      // ★ metadata.attachments 兜底：memo/handoff 链路将附件存于 metadata.attachments
+      //   （顶层 msg.attachments 为 undefined），具名字段若不兜底会用 undefined
+      //   覆盖 spread 进来的 metadata.attachments → 落库丢失附件（实测根因）
+      attachments: msg.attachments ?? (msg.metadata?.attachments as typeof msg.attachments),
       plannedCommands: msg.plannedCommands,
       // ★ 命令上下文透传：UserCommandBubble 渲染 /能力 徽章依赖这些字段，
       //   缺失会导致历史消息从 DB 加载后丢失命令样式（还原为纯文本）

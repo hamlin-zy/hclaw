@@ -194,11 +194,29 @@ export function resolveCommandTemplate(
 
 // ─── 缓存载荷类型 ────────────────────────────────────────
 
+/**
+ * 缓存载荷 commandId 跨轮携带：本轮有新命令用新值，否则沿用缓存值。
+ * 用途：后续普通轮从缓存恢复 agentDefinition（工具集一致性，见 execution.ts）。
+ */
+export function carryForwardCommandId(
+    commandContext: {commandId: string} | null | undefined,
+    cached: {commandId?: string | null} | null | undefined,
+): string | null {
+    return commandContext?.commandId ?? cached?.commandId ?? null
+}
+
 interface CachePayload {
     core: string
     commandTemplate: string
     /** 系统提示词构建日期（yyyy-MM-dd），用于跨天失效 */
     buildDate?: string
+    /**
+     * 产生当前 system prompt 的命令 ID（agent:/skill:/插件命令）。
+     * agent: 命令轮的 agentDefinition 影响工具过滤；后续普通轮从该值恢复
+     * agentDefinition，保证 tools 数组跨轮逐字节一致（否则 prompt cache 前缀
+     * 在 tools 段断裂 → cached_tokens 归零），同时保持只读 Agent 的工具限制。
+     */
+    commandId?: string | null
 }
 
 /** 安全解析 DB 缓存 JSON，兼容旧格式纯字符串 */
@@ -487,7 +505,14 @@ export class AgentLoopController {
             const commandTemplate = resolveCommandTemplate(commandContext, cached)
 
             // ★ 构建新的缓存载荷（JSON 格式）
-            const newCachePayload = JSON.stringify({core: systemPrompt, commandTemplate, buildDate: today})
+            // commandId 跨轮携带：无新命令时沿用缓存中的值，保证后续普通轮
+            // 能从 execution.ts 恢复 agentDefinition（工具集一致性）
+            const newCachePayload = JSON.stringify({
+                core: systemPrompt,
+                commandTemplate,
+                buildDate: today,
+                commandId: carryForwardCommandId(commandContext, cached),
+            })
 
             // ★ 缓存未命中时写入 DB（不阻塞主流程）
             if (conversationRepo && newCachePayload !== cachedSystemPrompt) {

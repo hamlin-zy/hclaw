@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from 'react'
 import type {ChannelUI} from '../../stores/channelStore'
+import ThemedSelect from '../ThemedSelect'
 
 interface Props {
   channel: ChannelUI
@@ -53,14 +54,13 @@ export default function ChannelEditModal({channel, onClose, onSave}: Props) {
           <div key={f.key}>
             <label className="block text-xs text-[var(--text-secondary)] mb-1">{f.label}</label>
             {f.type === 'select' ? (
-              <select value={config[f.key] || ''}
-                onChange={e => setConfig({...config, [f.key]: e.target.value})}
-                className="w-full px-2 py-1.5 text-xs rounded border border-[var(--border)]
-                  bg-[var(--bg-primary)] text-[var(--text-primary)]">
-                {f.options?.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              <ThemedSelect
+                fullWidth
+                value={config[f.key] || ''}
+                onChange={v => setConfig({...config, [f.key]: v})}
+                options={(f.options || []).map(o => ({value: o.value, label: o.label}))}
+                ariaLabel={f.label}
+              />
             ) : (
               <input type={f.type}
                 value={config[f.key] || ''}

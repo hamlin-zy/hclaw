@@ -3,6 +3,7 @@ import type {ConversationWithStats} from '@shared/types'
 import {useConversationStore} from '../../stores/conversationStore'
 import {confirm} from '../ConfirmDialog'
 import {collectDescendants} from '../../stores/conversationTree'
+import {formatRelativeTime} from '../../lib/relativeTime'
 
 /** 工具栏按钮样式常量 */
 const BTN_BORDERED = "px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors shrink-0"
@@ -137,20 +138,8 @@ export default function ConversationsDialog() {
         if (!confirmed) return
     }, [selectedCount, selectedIds, deleteConversations, loadData])
 
-    // ── 格式化时间 ──────────────────────────────────────────
-    const formatTime = useCallback((ts: number) => {
-        const now = Date.now()
-        const diff = now - ts
-        if (diff < 60000) return '刚刚'
-        if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`
-        if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`
-        if (diff < 604800000) return `${Math.floor(diff / 86400000)} 天前`
-        return new Date(ts).toLocaleDateString('zh-CN', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-        })
-    }, [])
+    // ── 格式化时间（共享工具，与备忘录列表同源） ──────────────────
+    const formatTime = formatRelativeTime
 
     // ── 总计信息 ────────────────────────────────────────────
     const totals = useMemo(() => {

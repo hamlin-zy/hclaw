@@ -315,7 +315,7 @@ export const bashTool: Tool<BashInput, string> = {
 ${
   shellInfo.name === 'powershell' ? `PowerShell 语法:
 - 列出文件: \`Get-ChildItem\` (别名 \`ls\`/\`dir\`)
-- 查找文本: \`Select-String -Path <file> -Pattern <regex>\`
+- 查找文本: \`Select-String -Path <file> -Pattern <regex>\`（grep 不可用，禁止使用 grep/findstr）
 - 环境变量: \`$env:VARIABLE_NAME\` (如 \`$env:PATH\`)
 - 管道: \`|\`
 - 路径分隔符: \\\`\\\`
