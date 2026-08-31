@@ -90,9 +90,6 @@ export class AgentManager {
   /** 会话 → 已 ensureMessageRow 的消息 id 集（行先建再写块，幂等防重复） */
   #rowEnsured = new Map<string, Set<string>>()
 
-  /** 会话 → 当前轮次索引（块 turn_index 溯源，与渲染端 currentTurnIndex 语义一致） */
-  #turnIndexByConv = new Map<string, number>()
-
   constructor() {
     eventBus.on(MCPThemeEvents.TOOLS_REFRESHED, () => {
       this.broadcastMcpToolsRefresh()
@@ -505,7 +502,6 @@ export class AgentManager {
         // offset 型块，finalize 再补插 seq 型块 → 同消息两套 text 块 → 读回正文重复。
         const finalized = getConversationPersistence().finalizeMessage(conversationId, oldPending.id, Date.now())
         if (finalized) resetBridgeMsgState(oldPending.id)
-        this.#turnIndexByConv.set(conversationId, (this.#turnIndexByConv.get(conversationId) ?? 0) + 1)
         if (!finalized) logger.warn('[AgentManager] turn reset finalize 失败，将随重试补齐', {conversationId})
         await this.#mergeAndPersist(conversationId, oldPending, true)
       }
@@ -1121,9 +1117,9 @@ export class AgentManager {
       ensured.add(pending.id)
       this.#rowEnsured.set(conversationId, ensured)
     }
-    // ② 事件桥接（msgId = pending.id；turnIndex 用 manager 轮次计数）
+    // ② 事件桥接（msgId = pending.id；turnIndex 由 streamBridge 按 LLM 调用轮次标注）
     if (pending) {
-      persistStreamEvent(persistence, conversationId, pending.id, pending, event, this.#turnIndexByConv.get(conversationId))
+      persistStreamEvent(persistence, conversationId, pending.id, pending, event)
     }
 
     return pending
@@ -1399,7 +1395,6 @@ export class AgentManager {
       logger.warn('[AgentManager] 持久化清理失败', {error: err})
     }
     this.#rowEnsured.delete(conversationId)
-    this.#turnIndexByConv.delete(conversationId)
     this.#assistantMetaByConv.delete(conversationId)
   }
 

@@ -5,7 +5,7 @@
  * attempt 徽章/耗时+TTFB。重试（同 conversation+turn+step 多 attempt）合并为
  * 单卡片：主体显示最后一次 attempt + 红色「重试 N 次」徽章，展开内联列出全部尝试。
  */
-import {useMemo, useState} from 'react'
+import {useCallback, useMemo, useRef, useState} from 'react'
 import type {LlmCallRecord, LlmTraceProjection, TimelineNode, TraceFilter} from './types'
 
 interface TimelineViewProps {
@@ -14,6 +14,8 @@ interface TimelineViewProps {
     onOpenDetail: (record: LlmCallRecord) => void
     /** conversationId → 会话标题（会话下拉与分组头部展示用，缺省只显示 id） */
     conversationTitles?: Map<string, string>
+    /** conversationId → 日志落盘目录完整路径（分组头部复制按钮用；缺省不显示按钮） */
+    conversationPaths?: Map<string, string>
 }
 
 /** ── 记录收集与过滤（LlmLogsWindow 导出按钮复用同一口径）── */
@@ -70,8 +72,20 @@ function fmtTime(ts: number): string {
     return new Date(ts).toLocaleTimeString('zh-CN', {hour12: false})
 }
 
-export function TimelineView({projection, filter, onOpenDetail, conversationTitles}: TimelineViewProps) {
+export function TimelineView({projection, filter, onOpenDetail, conversationTitles, conversationPaths}: TimelineViewProps) {
     const [expandedId, setExpandedId] = useState<string | null>(null)
+    const [copiedConvId, setCopiedConvId] = useState<string | null>(null)
+    const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    /** 复制会话日志落盘路径到剪贴板，按钮短暂显示「已复制」1.5s */
+    const copyConvPath = useCallback(async (convId: string) => {
+        const p = conversationPaths?.get(convId)
+        if (!p) return
+        try { await navigator.clipboard.writeText(p) } catch { /* 剪贴板不可用时静默 */ }
+        setCopiedConvId(convId)
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+        copyTimerRef.current = setTimeout(() => setCopiedConvId(null), 1500)
+    }, [conversationPaths])
 
     // 过滤 + 分组：conversation → turn，组内按 ts 排序
     const groups = useMemo(() => {
@@ -107,6 +121,15 @@ export function TimelineView({projection, filter, onOpenDetail, conversationTitl
                         <span className="text-[11px] font-mono text-[var(--text-muted)]">
                             {[...turns.values()].reduce((s, l) => s + l.length, 0)} 次调用 · {turns.size} 个 turn
                         </span>
+                        {conversationPaths?.get(convId) && (
+                            <button
+                                onClick={() => copyConvPath(convId)}
+                                title="复制日志落盘路径"
+                             data-name="timeline-conv-copy"
+                                className="ml-auto text-[11px] cursor-pointer select-none rounded border border-[var(--border)] px-1.5 py-px text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors">
+                                {copiedConvId === convId ? '已复制' : '复制路径'}
+                            </button>
+                        )}
                     </div>
                     {/* turn 降序：最新 turn 在前 */}
                     {[...turns.entries()].sort((a, b) => b[0] - a[0]).map(([turn, records]) => (

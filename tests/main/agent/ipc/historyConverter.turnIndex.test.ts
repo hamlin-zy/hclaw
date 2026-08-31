@@ -169,6 +169,52 @@ describe('groupByTurnIndex — 纯分组函数', () => {
   })
 })
 
+describe('convertFromTurnIndex — 同 turn 内多段 think 拼接（对齐 loop thinkParts.join(\'\')）', () => {
+  it('同 turnIndex 组内多个 think 块拼接为一条 reasoning（不覆盖），文本拼接，不产生 stub', () => {
+    // 复刻真实断裂场景：一次 LLM 调用内 think→text"先按"→think→text"流程做..."→tool
+    const msg = {
+      role: 'assistant',
+      content: '先按流程做 Phase 1',
+      contentBlocks: [
+        think('a', '思考A', 0),
+        text('a', '先按', 0),
+        think('b', '思考B', 0),
+        text('b', '流程做 Phase 1', 0),
+        toolUse('b', {id: 'tc-1', name: 'bash', arguments: {}, status: 'success', result: {output: 'ok'}}, 0),
+      ],
+    }
+
+    const result = convertAssistantHistoryMessage(msg)
+    const assistants = result.filter(m => m.role === 'assistant')
+
+    // ★ 关键断言：一条 assistant（修复前 seg.reasoning 覆盖为最后一段 think）
+    expect(assistants).toHaveLength(1)
+    expect(assistants[0].reasoningContent).toBe('思考A思考B')
+    expect(assistants[0].content).toBe('先按流程做 Phase 1')
+    expect(assistants[0].toolCalls).toHaveLength(1)
+    // 无 stub：tool 消息紧跟唯一 assistant
+    expect(result.filter(m => m.role === 'tool')).toHaveLength(1)
+  })
+
+  it('同 turn 多段带 signature 的 think：内容拼接，signature 取最后一段（对齐 loop 语义）', () => {
+    const msg = {
+      role: 'assistant',
+      content: '正文',
+      contentBlocks: [
+        {id: 'cb-a', type: 'think', turnIndex: 0, thinkBlock: {id: 't-a', content: '思考A', status: 'complete', timestamp: 1, signature: 'sig-a'}},
+        {id: 'cb-b', type: 'think', turnIndex: 0, thinkBlock: {id: 't-b', content: '思考B', status: 'complete', timestamp: 1, signature: 'sig-b'}},
+        text('c', '正文', 0),
+      ],
+    }
+
+    const result = convertAssistantHistoryMessage(msg)
+    expect(result).toHaveLength(1)
+    expect(result[0].thinking).toBe('思考A思考B')
+    expect(result[0].thinkingSignature).toBe('sig-b')
+    expect(result[0].reasoningContent).toBeUndefined()
+  })
+})
+
 describe('end 块（收尾哨兵）不干扰轮次重建', () => {
   function endBlock(turnIndex?: number) {
     return {id: `cb-end`, type: 'end', endedAt: 1786984426335, turnIndex}

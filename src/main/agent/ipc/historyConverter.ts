@@ -239,8 +239,11 @@ function convertFromTurnIndex(msg: any): HistoryChatMessage[] {
     for (const cb of blocks) {
       if (cb.type === 'think') {
         if (cb.thinkBlock?.content) {
-          seg.reasoning = cb.thinkBlock.content
-          seg.signature = cb.thinkBlock.signature
+          // ★ 同 turn 内多段 think（流式分段落库）必须拼接，与 loop 内存态
+          //   manager.accumulator.ts 的 thinkParts.join('') 逐字节一致；
+          //   覆盖赋值会把前段 think 丢进 stub，重建前缀错位 → KV cache 断裂
+          seg.reasoning = seg.reasoning === undefined ? cb.thinkBlock.content : seg.reasoning + cb.thinkBlock.content
+          if (cb.thinkBlock.signature) seg.signature = cb.thinkBlock.signature
         }
       } else if (cb.type === 'text') {
         if (cb.text) seg.contentParts.push(cb.text)
