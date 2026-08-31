@@ -77,7 +77,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
             <button
               onClick={() => { this.setState({ hasError: false }); window.location.reload() }}
               className="px-4 py-2 text-sm bg-brand-500 text-white rounded-lg hover:bg-brand-600 transition-colors"
-            >
+             data-name="app-button">
               重新加载
             </button>
           </div>
@@ -602,13 +602,8 @@ export default function App() {
     startWatermarkTimer()
   }, [])
 
-  // 注册退出时刷盘监听
-  useEffect(() => {
-    const unsub = window.electronAPI?.onFlushSave?.(() => {
-      useConversationStore.getState().saveMessages()
-    })
-    return () => { if (unsub) unsub() }
-  }, [])
+  // 渲染端落库已收敛至主进程（Phase 3）：退出前刷盘由主进程自行处理，
+  // 原 onFlushSave → saveMessages 监听删除。
 
   // ── 全局右键粘贴处理 ──────────────────────────────
   // 所有 input/textarea 的右键自动粘贴剪贴板文字
@@ -692,7 +687,7 @@ export default function App() {
           <>
             <div
               className="absolute inset-0 z-0 pointer-events-none"
-              data-name="background-layer"
+             data-name="background-layer"
               style={{backgroundImage: `url(${background.imagePath})`, backgroundSize: 'cover', backgroundPosition: 'center'}}
             />
             <div
@@ -711,14 +706,14 @@ export default function App() {
             className={`app-surface-card bg-[var(--surface)] rounded-lg shadow-card border border-[var(--border)] transition-all ${
                 leftCollapsed ? 'overflow-visible rounded-l-none' : 'overflow-hidden'
             } flex flex-col`}
-            data-name="left-sidebar-card"
+           data-name="left-sidebar-card"
             style={{width: leftCollapsed ? 'var(--sidebar-collapsed-width, 36px)' : 'var(--sidebar-width)'}}>
             <ConversationSidebar/>
           </div>
           {/* 中间主内容卡片 */}
           <div
             className="app-surface-card flex-1 flex flex-col min-w-0 transition-all overflow-hidden"
-            data-name="main-column">
+           data-name="main-column">
             <MainWorkspace/>
           </div>
           {/* 右侧面板卡片 - 折叠时保留窄条（含展开入口，复刻左侧边栏折叠交互；
@@ -728,7 +723,7 @@ export default function App() {
             <button
               onClick={() => setRightCollapsed(false)}
               aria-label="展开右侧面板"
-              className="app-surface-card self-end mb-[8px] bg-[var(--surface)] rounded-l shadow-card border border-r-0 border-[var(--border)] flex items-center justify-center w-[18px] h-[72px] flex-shrink-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors">
+              className="app-surface-card self-end mb-[8px] bg-[var(--surface)] rounded-l shadow-card border border-r-0 border-[var(--border)] flex items-center justify-center w-[18px] h-[72px] flex-shrink-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors" data-name="app-right-panel-expand-button">
               <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
                 <polyline points="15 18 9 12 15 6"/>
               </svg>

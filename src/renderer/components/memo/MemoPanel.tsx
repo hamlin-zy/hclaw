@@ -115,7 +115,7 @@ export default function MemoPanel() {
                     // 对齐会话列表 SearchInput：胶囊圆角 + 半透明底 + focus ring
                     // 注：文字/占位符有意用 --text-primary/--text-muted token 而非会话列表的 gray-800/gray-200（token 化偏差，非不一致）
                     className="w-full px-4 py-2 bg-gray-100/60 dark:bg-white/5 rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:bg-white dark:focus:bg-[#1A1A1A] focus:ring-2 focus:ring-gray-200 dark:focus:ring-white/10 focus:border-transparent transition-all hover:bg-gray-100/80 dark:hover:bg-white/10"
-                />
+                data-name="memo-panel-input"/>
             </div>
 
             {/* 列表（胶囊圆角项 + hover 半透明，对齐会话列表 ConversationItem） */}
@@ -152,8 +152,9 @@ export default function MemoPanel() {
                 <button
                     onClick={() => setRightCollapsed(true)}
                     aria-label="折叠右侧面板"
+                    title="折叠右侧面板 (Ctrl+Shift+B)"
                     className="mini-toggle flex items-center justify-center w-[30px] h-[30px] rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                >
+                 data-name="memo-panel-button">
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                         <polyline points="9 18 15 12 9 6"/>
                     </svg>
@@ -234,7 +235,7 @@ function TipButton({tip, label, onClick, className, disabled, children}: {
                 }}
                 onMouseLeave={() => setAnchor(null)}
                 className={className}
-            >
+             data-name="memo-panel-trigger-button">
                 {children}
             </button>
             {anchor && createPortal(
@@ -329,7 +330,7 @@ function MemoItemRow({item, onOpen, dragging, onDragStart, onDragEnd, onDrop}: {
             }}
             // 对齐 ConversationItem：透明底 + 胶囊圆角 + hover/active 半透明，无实底卡片
             className={`group relative p-2.5 rounded-[18px] border border-transparent cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-white/5 active:bg-gray-100 dark:active:bg-white/10 ${processed ? 'opacity-50' : ''} ${dragging ? 'opacity-30' : ''}`}
-        >
+         data-name="memo-panel-div">
             {/* 能力徽章/标题/时间等文字内容占满整行；操作按钮绝对定位覆盖，不预留宽度（opacity-0 仅视觉隐藏仍占布局，会把文字列挤窄导致提前截断） */}
             <div className="min-w-0">
                 {/* 能力徽章在标题上方（纵向排列） */}

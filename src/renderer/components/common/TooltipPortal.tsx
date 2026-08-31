@@ -48,6 +48,13 @@ type TooltipState = {text: string; x: number; y: number; placement: TooltipPlace
  *  用于空间检测：下方剩余空间不足时翻转到元素上方 */
 const TOOLTIP_HEIGHT_ESTIMATE = 30
 
+/** 水平钳制时 tooltip 与窗口边缘的最小间距 */
+const TOOLTIP_EDGE_MARGIN = 8
+
+/** 水平钳制方向：left = 与触发元素左缘对齐（越窗口左缘）；right = 与窗口右缘对齐（越右缘，
+ *  右下角按钮如 memo-panel-button 居中放置时文本会溢出窗口右侧） */
+type ClampSide = 'left' | 'right' | null
+
 export default function TooltipPortal() {
     const [tooltip, setTooltip] = useState<TooltipState>(null)
     const hideTimer = useRef<number | null>(null)
@@ -55,15 +62,23 @@ export default function TooltipPortal() {
     // 左缘钳制：居中放置时 tooltip 半宽可能越过触发元素左缘（会话列表
     // 靠窗口左侧时会溢出窗口）。渲染后测量实际宽度，若越界则改为与触发元素
     // 左缘对齐（取消 X 方向位移）。useLayoutEffect 在绘制前同步修正，无闪烁。
-    const [clamped, setClamped] = useState(false)
+    const [clamped, setClamped] = useState<ClampSide>(null)
 
     useLayoutEffect(() => {
         const el = tipRef.current
         if (!tooltip || !el || tooltip.placement === 'right') {
-            setClamped(false)
+            setClamped(null)
             return
         }
-        setClamped(tooltip.x - el.offsetWidth / 2 < tooltip.minX)
+        // 右缘钳制优先：右溢出会直接出屏不可见，比左溢出（遮住面板内容）
+        // 更不可接受。两者可能同时越界（右下角按钮 + 宽 tooltip），此时保右缘。
+        if (tooltip.x + el.offsetWidth / 2 > window.innerWidth - TOOLTIP_EDGE_MARGIN) {
+            setClamped('right')
+        } else if (tooltip.x - el.offsetWidth / 2 < tooltip.minX) {
+            setClamped('left')
+        } else {
+            setClamped(null)
+        }
     }, [tooltip])
 
     useEffect(() => {
@@ -175,11 +190,16 @@ export default function TooltipPortal() {
                 ...TOOLTIP_STYLE,
                 opacity: tooltip ? 1 : 0,
                 top: tooltip?.y ?? -9999,
-                // 钳制时：左缘与触发元素对齐，取消 X 位移（Y 位移保留）
-                left: clamped && tooltip ? tooltip.minX : (tooltip?.x ?? -9999),
-                transform: clamped && tooltip
+                // 左缘钳制：与触发元素左缘对齐，取消 X 位移（Y 位移保留）
+                // 右缘钳制：右对齐窗口内缘（translateX(-100%)），Y 位移保留
+                left: clamped === 'right' && tooltip
+                    ? window.innerWidth - TOOLTIP_EDGE_MARGIN
+                    : (clamped === 'left' && tooltip ? tooltip.minX : (tooltip?.x ?? -9999)),
+                transform: clamped === 'left' && tooltip
                     ? (tooltip.placement === 'above' ? 'translateY(-100%)' : 'none')
-                    : (tooltip?.placement === 'right'
+                    : clamped === 'right' && tooltip
+                        ? (tooltip.placement === 'above' ? 'translate(-100%, -100%)' : 'translateX(-100%)')
+                        : (tooltip?.placement === 'right'
                         ? 'translateY(-50%)'
                         : tooltip?.placement === 'above'
                             ? 'translate(-50%, -100%)'

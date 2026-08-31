@@ -52,17 +52,18 @@ export function toSlug(name: string): string {
     .replace(/^-+|-+$/g, '') || 'item'
 }
 
-/** 格式化 token 数为可读形式（≥1000 显示为 x.xk） */
+/** 格式化 token 数为可读形式（k/M/B/T 自动进位，保留 2 位小数；<1000 原样） */
 export function formatTokenCount(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`
+  if (n >= 1e12) return `${(n / 1e12).toFixed(2)}T`
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(2)}k`
+  return `${n}`
 }
 
-/** 紧凑格式化 token 数：≥1e9 → x.xB；≥1e6 → x.xM；≥1000 → x.xk；否则原样 */
+/** 紧凑格式化 token 数：≥1e12 → x.xxT；≥1e9 → x.xxB；≥1e6 → x.xxM；≥1000 → x.xxk；否则原样 */
 export function formatTokenCompact(n: number): string {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
-  return `${n}`
+  return formatTokenCount(n)
 }
 
 /** 解码吞吐展示：≥10 取整，<10 保留一位小数，负数 clamp 到 0。 */

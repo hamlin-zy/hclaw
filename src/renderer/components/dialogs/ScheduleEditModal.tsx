@@ -304,13 +304,13 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
             <div className="w-full max-w-xl bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl overflow-hidden"
-                 onClick={e => e.stopPropagation()}>
+                 onClick={e => e.stopPropagation()} data-name="schedule-edit-modal-div">
                 <div className="px-5 py-3 border-b border-[var(--border)] flex items-center justify-between">
                     <h3 className="text-sm font-medium text-[var(--text-primary)]">
                         {!initial?.id ? '新建定时任务' : '编辑定时任务'}
                     </h3>
                     <button onClick={onClose}
-                            className="w-7 h-7 rounded flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]">
+                            className="w-7 h-7 rounded flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]" data-name="schedule-edit-modal-button">
                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M18 6L6 18M6 6l12 12"/>
                         </svg>
@@ -323,12 +323,12 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                         <div className="flex-1 min-w-0">
                             <label className={labelCls}>任务名称</label>
                             <input type="text" value={name} onChange={e => setName(e.target.value)}
-                                   placeholder="例如: 每日代码审查" className={inputCls} autoFocus/>
+                                   placeholder="例如: 每日代码审查" className={inputCls} autoFocus data-name="schedule-edit-modal-input"/>
                         </div>
                         <div className="flex-1 min-w-0">
                             <label className={labelCls}>描述 <span className="opacity-60">(可选)</span></label>
                             <input type="text" value={description} onChange={e => setDescription(e.target.value)}
-                                   placeholder="简短描述" className={inputCls}/>
+                                   placeholder="简短描述" className={inputCls} data-name="schedule-edit-modal-description-input"/>
                         </div>
                     </div>
 
@@ -356,7 +356,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                         mode === 'capability'
                                             ? 'bg-green-50 dark:bg-green-500/10 border-[var(--border)] shadow-sm text-green-600 dark:text-green-400 font-medium'
                                             : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
-                                    }`}>
+                                    }`} data-name="schedule-edit-modal-capability-mode-button">
                                 <div className="font-medium">可用能力</div>
                                 <div className="text-[10px] opacity-70 mt-0.5">从 Agent / Skill / 命令中选择</div>
                             </button>
@@ -365,7 +365,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                         mode === 'script'
                                             ? 'bg-green-50 dark:bg-green-500/10 border-[var(--border)] shadow-sm text-green-600 dark:text-green-400 font-medium'
                                             : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
-                                    }`}>
+                                    }`} data-name="schedule-edit-modal-script-mode-button">
                                 <div className="font-medium">本地脚本</div>
                                 <div className="text-[10px] opacity-70 mt-0.5">执行本地文件系统中的脚本</div>
                             </button>
@@ -383,15 +383,15 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                             <label className={labelCls}>脚本路径</label>
                             <div className="flex gap-2">
                                 <input type="text" value={taskTarget} onChange={e => setTaskTarget(e.target.value)}
-                                       placeholder="例如: C:\scripts\backup.ps1" className="flex-1 px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)] font-mono"/>
+                                       placeholder="例如: C:\scripts\backup.ps1" className="flex-1 px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)] font-mono" data-name="schedule-edit-modal-script-path-input"/>
                                 <button onClick={handleBrowse}
-                                        className="px-3 py-1.5 text-xs rounded-md bg-[var(--surface-muted)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)] border border-[var(--border)] transition-colors flex-shrink-0">
+                                        className="px-3 py-1.5 text-xs rounded-md bg-[var(--surface-muted)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)] border border-[var(--border)] transition-colors flex-shrink-0" data-name="schedule-edit-modal-browse-button">
                                     浏览
                                 </button>
                             </div>
                             <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{scriptTypeHint}</p>
                             <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange}
-                                   accept={platform === 'win32' ? '.bat,.ps1,.cmd,.exe' : '.sh,.zsh,.bash'}/>
+                                   accept={platform === 'win32' ? '.bat,.ps1,.cmd,.exe' : '.sh,.zsh,.bash'} data-name="schedule-edit-modal-file-input"/>
                         </div>
                     )}
 
@@ -410,7 +410,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                   placeholder={mode === 'script'
                                       ? '描述脚本的用途和预期输出（仅作记录用途）'
                                       : '告诉 AI 要做什么，例如：请对 src/main 目录下的所有 TypeScript 文件做代码审查'}
-                                  className="w-full px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)] resize-none min-h-[80px] overflow-hidden"/>
+                                  className="w-full px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)] resize-none min-h-[80px] overflow-hidden" data-name="schedule-edit-modal-textarea"/>
                         {mode !== 'script' && (
                             <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">作为 Agent 的初始指令。留空则使用能力本身的默认行为。</p>
                         )}
@@ -421,7 +421,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                         <label className={labelCls}>什么时候执行？</label>
                         <button type="button"
                                 onClick={() => setCronExpanded(!cronExpanded)}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-xs bg-[var(--surface-muted)] rounded-md border border-[var(--border)] hover:bg-[var(--surface)] transition-colors text-left">
+                                className="w-full flex items-center gap-2 px-3 py-2 text-xs bg-[var(--surface-muted)] rounded-md border border-[var(--border)] hover:bg-[var(--surface)] transition-colors text-left" data-name="schedule-edit-modal-toggle-cron-button">
                             <span className="flex-1 min-w-0">
                                 <span className="text-[var(--text-muted)]">频率: </span>
                                 <span className="text-[var(--text-primary)] font-medium">{cronHuman}</span>
@@ -442,13 +442,13 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                         {key: 'monthly' as CronMode, label: '每月'},
                                         {key: 'interval' as CronMode, label: '间隔'},
                                         {key: 'custom' as CronMode, label: '高级'},
-                                    ]).map(tab => (
+                                    ]).map((tab, i) => (
                                         <button key={tab.key} type="button" onClick={() => updateCron({mode: tab.key})}
                                                 className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${
                                                     cron.mode === tab.key
                                                         ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)] font-medium'
                                                         : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-[var(--surface)]'
-                                                }`}>
+                                                }`} data-name={`schedule-edit-modal-cron-tab-${i}`}>
                                             {tab.label}
                                         </button>
                                     ))}
@@ -460,11 +460,11 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                             <span>每天</span>
                                             <input type="number" min={0} max={23} value={cron.dailyHour}
                                                    onChange={e => updateCron({dailyHour: Math.max(0, Math.min(23, parseInt(e.target.value) || 0))})}
-                                                   className="w-14 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center"/>
+                                                   className="w-14 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center" data-name="schedule-edit-modal-daily-hour-input"/>
                                             <span>:</span>
                                             <input type="number" min={0} max={59} value={cron.dailyMin}
                                                    onChange={e => updateCron({dailyMin: Math.max(0, Math.min(59, parseInt(e.target.value) || 0))})}
-                                                   className="w-14 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center"/>
+                                                   className="w-14 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center" data-name="schedule-edit-modal-daily-minute-input"/>
                                         </div>
                                     )}
                                     {cron.mode === 'weekly' && (
@@ -480,7 +480,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                                                 cron.weeklyDays[i]
                                                                     ? 'bg-[var(--brand-primary)] text-white'
                                                                     : 'bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)]'
-                                                            }`}>
+                                                            }`} data-name={`schedule-edit-modal-weekday-${i}`}>
                                                         {label}
                                                     </button>
                                                 ))}
@@ -489,11 +489,11 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                                 <span>时间</span>
                                                 <input type="number" min={0} max={23} value={cron.weeklyHour}
                                                        onChange={e => updateCron({weeklyHour: Math.max(0, Math.min(23, parseInt(e.target.value) || 0))})}
-                                                       className="w-14 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center"/>
+                                                       className="w-14 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center" data-name="schedule-edit-modal-weekly-hour-input"/>
                                                 <span>:</span>
                                                 <input type="number" min={0} max={59} value={cron.weeklyMin}
                                                        onChange={e => updateCron({weeklyMin: Math.max(0, Math.min(59, parseInt(e.target.value) || 0))})}
-                                                       className="w-14 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center"/>
+                                                       className="w-14 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center" data-name="schedule-edit-modal-weekly-minute-input"/>
                                             </div>
                                         </div>
                                     )}
@@ -512,11 +512,11 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                                 <span>时间</span>
                                                 <input type="number" min={0} max={23} value={cron.monthlyHour}
                                                        onChange={e => updateCron({monthlyHour: Math.max(0, Math.min(23, parseInt(e.target.value) || 0))})}
-                                                       className="w-14 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center"/>
+                                                       className="w-14 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center" data-name="schedule-edit-modal-monthly-hour-input"/>
                                                 <span>:</span>
                                                 <input type="number" min={0} max={59} value={cron.monthlyMin}
                                                        onChange={e => updateCron({monthlyMin: Math.max(0, Math.min(59, parseInt(e.target.value) || 0))})}
-                                                       className="w-14 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center"/>
+                                                       className="w-14 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center" data-name="schedule-edit-modal-monthly-minute-input"/>
                                             </div>
                                         </div>
                                     )}
@@ -525,7 +525,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                             <span>每</span>
                                             <input type="number" min={1} max={999} value={cron.intervalValue}
                                                    onChange={e => updateCron({intervalValue: Math.max(1, parseInt(e.target.value) || 1)})}
-                                                   className="w-16 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center"/>
+                                                   className="w-16 px-2 py-1 text-xs bg-[var(--surface)] rounded border border-[var(--border)] text-center" data-name="schedule-edit-modal-interval-value-input"/>
                                             <ThemedSelect
                                                 value={cron.intervalUnit}
                                                 onChange={v => updateCron({intervalUnit: v as 'minutes' | 'hours'})}
@@ -539,11 +539,11 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                             <input type="text" value={cron.customExpr}
                                                    onChange={e => updateCron({customExpr: e.target.value})}
                                                    placeholder="0 9 * * 1-5"
-                                                   className="w-full px-3 py-1.5 text-xs font-mono bg-[var(--surface)] rounded border border-[var(--border)] text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"/>
+                                                   className="w-full px-3 py-1.5 text-xs font-mono bg-[var(--surface)] rounded border border-[var(--border)] text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]" data-name="schedule-edit-modal-custom-cron-input"/>
                                             <p className="mt-1 text-[10px] text-[var(--text-muted)]">
                                                 格式: 分 时 日 月 周 &nbsp;
                                                 <span className="text-[var(--brand-primary)] cursor-pointer"
-                                                      onClick={() => window.electronAPI?.openExternal?.('https://crontab.guru/')}>crontab.guru 查看帮助 ↗</span>
+                                                      onClick={() => window.electronAPI?.openExternal?.('https://crontab.guru/')} data-name="schedule-edit-modal-span">crontab.guru 查看帮助 ↗</span>
                                             </p>
                                         </div>
                                     )}
@@ -565,9 +565,9 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
 
                 <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border)] bg-[var(--surface-muted)]">
                     <button onClick={onClose}
-                            className="px-3 py-1.5 text-xs rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)] transition-colors">取消</button>
+                            className="px-3 py-1.5 text-xs rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)] transition-colors" data-name="schedule-edit-modal-cancel-button">取消</button>
                     <button onClick={handleSave}
-                            className="px-4 py-1.5 text-xs font-medium rounded-md bg-[var(--brand-primary)] text-white hover:opacity-90 transition-opacity">保存</button>
+                            className="px-4 py-1.5 text-xs font-medium rounded-md bg-[var(--brand-primary)] text-white hover:opacity-90 transition-opacity" data-name="schedule-edit-modal-save-button">保存</button>
                 </div>
             </div>
         </div>

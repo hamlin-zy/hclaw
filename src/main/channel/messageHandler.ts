@@ -21,6 +21,7 @@ import {mcpService} from '../services/mcpService'
 import {getMainWindow} from '../window'
 import {startAgentCore} from '../agent/startAgentCore'
 import type {ChannelBindingRecord, CommandResult, IncomingMessage, ResourceRef} from './types'
+import type {Message} from '../../shared/types'
 import {logger} from '../agent/logger'
 
 /** 统一的结构化错误日志，避免 (err as Error)?.message || err 重复书写 */
@@ -84,29 +85,11 @@ setInterval(cleanupExpiredPendingAttachments, 60 * 1000)
 // ─── 消息持久化辅助 ──────────────────────────────────────────
 
 /**
- * 将渠道附件转换为 Message Attachment 格式（含 id、类型检测等）
- */
-function toMessageAttachments(atts: Array<{ path: string; name: string; mimeType?: string }>): Array<{
-    id: string; name: string; type: string; size: number; path: string; isImage: boolean
-}> {
-    const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg'])
-    return atts.map(a => {
-        const ext = a.path ? `.${a.path.split('.').pop()?.toLowerCase()}` : ''
-        return {
-            id: crypto.randomUUID(),
-            name: a.name,
-            type: a.mimeType || '',
-            size: 0,
-            path: a.path,
-            isImage: IMAGE_EXTENSIONS.has(ext),
-        }
-    })
-}
-
-/**
  * 向 conversation 表写入一条消息并更新元数据
- * 使用直接 INSERT，消除 readMessages → DELETE ALL → REINSERT ALL 的竞态风险
- * 支持传入 attachments 结构化存储在 metadata 中，供 UI 层 AttachmentPreview 渲染
+ * §3.3：渠道消息与 loop/memo/handoff 走同一落库通路——user 经 buildUserMessage 构建、
+ * writeNow 单事务同步写入（4.2：渠道消息无窗口期），顺带获得 UI 事件推送（§8 已接受）。
+ * 渠道会话通常无进行中 flush，writeNow 与 flush 的并发语义由 Task 9 交错测试锁定；
+ * 非 user（assistant 快捷回复）同样经 writeNow + messageToBlocks 唯一序列化层落库。
  */
 async function persistMessage(
     conversationId: string,
@@ -115,27 +98,36 @@ async function persistMessage(
     options?: { preview?: string; reloadMessages?: boolean; attachments?: Array<{ path: string; name: string; mimeType?: string }> }
 ): Promise<void> {
     try {
-        const {getDatabase, saveDatabase} = await import('../repositories/sqlite')
         const {createConversationRepository} = await import('../repositories')
-        const db = getDatabase()
-        const msgId = crypto.randomUUID()
-        const timestamp = Date.now()
+        const {getConversationPersistence} = await import('../persistence/conversationPersistence')
+        const p = getConversationPersistence()
 
-        // ★ 直接 INSERT，避免 readMessages → DELETE ALL → REINSERT ALL 的竞态导致消息丢失
-        // 结构化存储附件到 metadata，使 UI 能用 AttachmentPreview 渲染精美卡片而非原始文本
-        const metaData: Record<string, unknown> = {content}
-        if (options?.attachments?.length) {
-            metaData.attachments = toMessageAttachments(options.attachments)
+        if (role === 'user') {
+            const {buildUserMessage} = await import('../agent/messageBuilder')
+            const msg = await buildUserMessage({
+                convId: conversationId,
+                text: content,
+                attachments: options?.attachments,
+            })
+            if (!p.writeNow(conversationId, msg)) {
+                logError('persistMessage', new Error('writeNow failed'), { convId: conversationId.slice(0,8), role, contentLen: (content||'').length })
+                throw new Error('writeNow failed')
+            }
+        } else {
+            // assistant 快捷回复：Message 构建者仅有 user 入口（§2），此处按
+            // messageToBlocks 约定补一个 text contentBlock，保证读侧 blocks 重建。
+            const msg: Message = {
+                id: crypto.randomUUID(),
+                role: 'assistant',
+                content,
+                timestamp: Date.now(),
+                contentBlocks: [{id: `text-${crypto.randomUUID()}`, type: 'text', text: content}],
+            }
+            if (!p.writeNow(conversationId, msg)) {
+                logError('persistMessage', new Error('writeNow failed'), { convId: conversationId.slice(0,8), role, contentLen: (content||'').length })
+                throw new Error('writeNow failed')
+            }
         }
-        const metadataStr = JSON.stringify(metaData)
-
-        db.prepare(
-            'INSERT INTO messages (id, conversation_id, role, timestamp, ended_at, metadata, llm_stats) VALUES (?, ?, ?, ?, NULL, ?, NULL)'
-        ).run(msgId, conversationId, role, timestamp, metadataStr)
-
-        db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(timestamp, conversationId)
-
-        saveDatabase()
 
         const preview = options?.preview ?? (content.slice(0, 200).replace(/\n+/g, ' ').trim() || '(空回复)')
         createConversationRepository().updateMeta(conversationId, {preview})
@@ -318,36 +310,32 @@ async function handleCommandResult(
 
 /**
  * 持久化快捷指令消息（Issues #2/#3）
- * 将用户消息和助手回复写入 SQLite，使用事务保证原子性
+ * §3.3：经 writeNow 落库（单事务、无直插口），user 走唯一构建者 buildUserMessage；
+ * assistant 快捷回复按 messageToBlocks 约定补 text contentBlock。
  */
 async function persistCommandMessages(conversationId: string, userText: string, assistantReply?: string): Promise<void> {
-    const {getDatabase, saveDatabase} = await import('../repositories/sqlite')
     try {
-        const db = getDatabase()
-        const now = Date.now()
+        const {buildUserMessage} = await import('../agent/messageBuilder')
+        const {getConversationPersistence} = await import('../persistence/conversationPersistence')
+        const p = getConversationPersistence()
 
-        const userRowId = crypto.randomUUID()
-        const newRows: Array<{
-            id: string; role: string; timestamp: number; ended_at: null; metadata: string; llm_stats: null
-        }> = [
-            { id: userRowId, role: 'user', timestamp: now, ended_at: null, metadata: JSON.stringify({content: userText}), llm_stats: null },
-        ]
-        if (assistantReply) {
-            const asstRowId = crypto.randomUUID()
-            newRows.push({ id: asstRowId, role: 'assistant', timestamp: now + 1, ended_at: null, metadata: JSON.stringify({content: assistantReply}), llm_stats: null })
+        const userMsg = await buildUserMessage({convId: conversationId, text: userText})
+        if (!p.writeNow(conversationId, userMsg)) {
+            logError('handler.persistError', new Error('writeNow failed'), {convId: conversationId.slice(0, 8)})
+            return
         }
-
-        db.transaction(() => {
-            const stmt = db.prepare(
-                'INSERT INTO messages (id, conversation_id, role, timestamp, ended_at, metadata, llm_stats) VALUES (?, ?, ?, ?, ?, ?, ?)'
-            )
-            for (const row of newRows) {
-                stmt.run(row.id, conversationId, row.role, row.timestamp, row.ended_at, row.metadata, row.llm_stats)
+        if (assistantReply) {
+            const asstMsg: Message = {
+                id: crypto.randomUUID(),
+                role: 'assistant',
+                content: assistantReply,
+                timestamp: Date.now(),
+                contentBlocks: [{id: `text-${crypto.randomUUID()}`, type: 'text', text: assistantReply}],
             }
-            db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId)
-        })()
-
-        saveDatabase()
+            if (!p.writeNow(conversationId, asstMsg)) {
+                logError('handler.persistError', new Error('writeNow failed (assistant)'), {convId: conversationId.slice(0, 8)})
+            }
+        }
 
         notifyConversationUpdated(conversationId, {preview: userText.slice(0, 200)})
     } catch (err) {

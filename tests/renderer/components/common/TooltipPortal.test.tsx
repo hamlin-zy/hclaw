@@ -155,6 +155,33 @@ describe('TooltipPortal hover 语义', () => {
         expect(tipEl.style.transform).not.toContain('-50%')
     })
 
+    it('居中放置会越过窗口右缘时：tooltip 右缘钳制对齐窗口内缘（右下角按钮溢出回归）', () => {
+        const {container} = render(
+            <>
+                <TooltipPortal/>
+                <button title="折叠右侧面板 (Ctrl+Shift+B)" data-testid="target">
+                    <svg/>
+                </button>
+            </>,
+        )
+        const btn = container.querySelector('[data-testid="target"]')!
+        // 模拟右下角按钮：jsdom 视口宽 1024，按钮 left=974, width=40 → 居中锚点 x=994，
+        // tooltip 宽 200 → 居中时右缘 1094 > 1024-8=1016，必须钳制到窗口右缘内
+        vi.spyOn(btn, 'getBoundingClientRect').mockReturnValue({
+            left: 974, top: 900, right: 1014, bottom: 930, width: 40, height: 30,
+            x: 974, y: 900, toJSON: () => ({}),
+        } as DOMRect)
+        fireEvent.mouseOver(btn)
+        const tipEl = document.querySelector('.tooltip-portal') as HTMLElement
+        expect(tipEl.textContent).toContain('折叠右侧面板')
+        Object.defineProperty(tipEl, 'offsetWidth', {value: 200, configurable: true})
+        // 触发重渲染以执行 useLayoutEffect 钳制
+        fireEvent.mouseOver(btn)
+        // 右对齐窗口内缘：left = 1024 - 8，transform 取消居中改为右对齐
+        expect(tipEl.style.left).toBe('1016px')
+        expect(tipEl.style.transform).toContain('-100%')
+    })
+
     it('快速扫过多个无 title 元素后进入 icon：旧隐藏定时器不泄漏（闪现消失竞态）', () => {
         vi.useFakeTimers()
         try {

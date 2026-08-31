@@ -6,7 +6,7 @@
 // ★ 方案 A：queueMicrotask → setTimeout 固定 24ms 窗口，与 textBatch 同步改造。
 
 import {useAgentStore} from '..'
-import {useConversationStore, recordThinkBlock} from '../../conversationStore'
+import {useConversationStore} from '../../conversationStore'
 import {createDefaultConvData} from '../defaultState'
 
 const FLUSH_WINDOW_MS = 24   // spec §4.2：60fps 半帧，上限 ≈42 次/s
@@ -94,11 +94,9 @@ export function flushThinkingBatch(convId: string) {
 
     // ★ 块级增量：最后 think 块的 id/textOffset 来自已更新的 streamBlocks
     //   （Task 1 后 id = think-${msgId}-${thinkSeq}，绝不能从扁平字段 think-${msgId} 派生）
+    //   （Phase 3：落库已由主进程负责，此处仅派生 id 供 UI contentBlocks 更新使用）
     const updatedBlocks = useAgentStore.getState().convAgentStates[convId]?.streamBlocks ?? []
     const lastThink = [...updatedBlocks].reverse().find(b => b.type === 'think')
-    if (lastThink && lastThink.type === 'think') {
-        recordThinkBlock(convId, msgId, lastThink.id, lastThink.thinkContent ?? '', 'thinking', lastThink.textOffset)
-    }
 
     // 4. ★ 方案 B1：contentBlocks 已存在 → 块级增量只替换 think 块（其他块引用不变）；
     //   首次（无 contentBlocks）→ 全量创建（仅活跃会话，成本高）

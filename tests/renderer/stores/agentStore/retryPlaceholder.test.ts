@@ -111,22 +111,14 @@ describe('handleWarning 重试分支占位气泡', () => {
         mockConversationState.updateMessageForConv.mockClear()
     })
 
-    it('无 streamingMessageId：创建占位 assistant 消息并写入 streamingMessageId', () => {
+    it('无 streamingMessageId：不建占位（id 单源：占位由 begin 携带的 messageId 创建），重试提示照常', () => {
         seedConv()
         handleWarning(makeCtx({type: 'warning', message: 'retry 1/10：timeout'}))
 
-        // 创建占位消息
-        expect(mockConversationState.addMessageToConv).toHaveBeenCalledTimes(1)
-        const [convId, msg] = mockConversationState.addMessageToConv.mock.calls[0]
-        expect(convId).toBe('conv-1')
-        expect(msg.role).toBe('assistant')
-        expect(msg.content).toBe('')
-        expect(typeof msg.id).toBe('string')
-
-        // streamingMessageId 指向占位消息 → 后续 text 复用，不重复建消息
-        const state = mockAgentState.convAgentStates['conv-1']
-        expect(state.streamingMessageId).toBe(msg.id)
+        // 不自建占位消息（事件未到不建占位，ensureStreamingMessage 返回 null）
+        expect(mockConversationState.addMessageToConv).not.toHaveBeenCalled()
         // 重试提示状态照常更新
+        const state = mockAgentState.convAgentStates['conv-1']
         expect(state.executingToolsMessage).toEqual({
             label: '重试 1/10：timeout',
             urgent: false,

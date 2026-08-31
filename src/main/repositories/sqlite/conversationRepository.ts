@@ -5,6 +5,17 @@ import {blocksToMessage, messageToBlocks} from './messageBlockHelper'
 import type {IConversationRepository} from '../interfaces'
 import type {BlockDeltaPatch, BlockType, ConversationMeta, ConversationWithStats, LlmStats, Message, MessageBlock} from '@shared/types'
 
+// ★ 临时诊断（catalog 隐式消息渲染 bug）：捕获"catalog 内容 user 消息丢失 metadata"的写入方。
+// 调试结束后应连同 writeMessages / writeMessagesDelta 中的调用点一并删除。
+function logReminderWithoutSourceKind(source: string, convId: string, msg: Message): void {
+    if (msg.role === 'user' && typeof msg.content === 'string' && msg.content.includes('<system-reminder>')
+        && !msg.metadata?.sourceKind) {
+        console.error(`[DIAG catalog-meta-loss] ${source} 写入无 sourceKind 的 reminder user 消息`,
+            {convId: convId.slice(0, 12), msgId: msg.id, metadataKeys: Object.keys(msg.metadata ?? {})},
+            new Error('stack').stack)
+    }
+}
+
 export class SqliteConversationRepository implements IConversationRepository {
     private blockRepo = new SqliteMessageBlockRepository()
 
@@ -66,10 +77,14 @@ export class SqliteConversationRepository implements IConversationRepository {
 
     list(): ConversationMeta[] {
         try {
-            const rows = getDatabase().prepare('SELECT meta FROM conversations ORDER BY updated_at DESC').all() as Array<{
+            // ★ 双源漂移修复：updatedAt 以列 updated_at 为唯一真源（与 listWithStats 同口径）。
+            //   writeMessages/writeMessagesDelta 只更新列，不更新 meta JSON 的 updatedAt；
+            //   若读 meta JSON，IPC conversation-list 重载后会拿到旧值导致排序回跳。
+            const rows = getDatabase().prepare('SELECT meta, updated_at FROM conversations ORDER BY updated_at DESC').all() as Array<{
                 meta: string
+                updated_at: number
             }>
-            return rows.map(row => JSON.parse(row.meta))
+            return rows.map(row => ({...JSON.parse(row.meta), updatedAt: row.updated_at}))
         } catch (err) {
             console.error('[SqliteConversationRepository] list failed:', err)
             return []
@@ -78,10 +93,11 @@ export class SqliteConversationRepository implements IConversationRepository {
 
     listByWorkspace(workspacePath: string): ConversationMeta[] {
         try {
+            // ★ 同 list()：updatedAt 以列值为唯一真源
             const rows = getDatabase().prepare(
-                'SELECT meta FROM conversations WHERE workspace_path = ? ORDER BY updated_at DESC'
-            ).all(workspacePath) as Array<{ meta: string }>
-            return rows.map(row => JSON.parse(row.meta))
+                'SELECT meta, updated_at FROM conversations WHERE workspace_path = ? ORDER BY updated_at DESC'
+            ).all(workspacePath) as Array<{ meta: string; updated_at: number }>
+            return rows.map(row => ({...JSON.parse(row.meta), updatedAt: row.updated_at}))
         } catch (err) {
             console.error('[SqliteConversationRepository] listByWorkspace failed:', err)
             return []
@@ -116,6 +132,10 @@ export class SqliteConversationRepository implements IConversationRepository {
             // 旧方案 DELETE ALL + INSERT ALL 会误删 compact 时尚未被 worker 感知的新消息（如刚收到的用户指令）
             // 新方案只替换 compact 结果中包含的消息，未涉及的消息（含新用户消息）原样保留
             const messageIds = messages.map(m => m.id).filter(Boolean) as string[]
+            for (const m of messages) {
+                logReminderWithoutSourceKind('writeMessages', convId, m)
+            }
+
             const writeTransaction = db.transaction(() => {
                 // 1. 删除将被替换消息的旧 blocks（INSERT OR REPLACE 不会级联删除关联 blocks）
                 if (messageIds.length > 0) {
@@ -167,6 +187,8 @@ export class SqliteConversationRepository implements IConversationRepository {
         try {
             const db = getDatabase()
             const {messages: [msgRecord], blocks} = messageToBlocks(message, convId)
+
+            logReminderWithoutSourceKind('writeMessagesDelta', convId, msgRecord)
 
             db.transaction(() => {
                 // 1. 删除该消息的旧 blocks（INSERT OR REPLACE 不级联删除 blocks）
@@ -368,6 +390,46 @@ export class SqliteConversationRepository implements IConversationRepository {
         } catch (err) {
             console.error('[SqliteConversationRepository] repairTextTail failed:', err)
             return false
+        }
+    }
+
+    /**
+     * 崩溃恢复（§4.2）：未 finalize 的 assistant 消息补 end 块 + abnormalTermination 标记。
+     * 复用 writeBlockDelta finalize 分支的 end 块规则（:302-313）：end 恒为当前最大 sequence。
+     * 幂等：已有 end 块则跳过（ENDED_AT 已设置的消息由调用方 SQL 过滤，双保险）。
+     */
+    finalizeAbnormal(convId: string, msgId: string, endedAt: number): boolean {
+        try {
+            const db = getDatabase()
+            db.transaction(() => {
+                const msgRow = db.prepare('SELECT metadata FROM messages WHERE id = ? AND conversation_id = ?').get(msgId, convId) as {metadata: string | null} | undefined
+                if (!msgRow) throw new Error(`finalizeAbnormal: 消息行不存在 msg=${msgId}`)
+                const endBlock = db.prepare("SELECT id FROM message_blocks WHERE message_id = ? AND block_type = 'end'").get(msgId) as {id: string} | undefined
+                if (!endBlock) {
+                    const seq = (db.prepare('SELECT COALESCE(MAX(sequence), -1) + 1 AS s FROM message_blocks WHERE message_id = ?').get(msgId) as {s: number}).s
+                    db.prepare("INSERT INTO message_blocks (id, message_id, block_type, content, data, sequence, timestamp, ended_at) VALUES (?, ?, 'end', NULL, ?, ?, ?, ?)")
+                        .run(`${msgId}-end`, msgId, JSON.stringify({endedAt}), seq, endedAt, endedAt)
+                }
+                const meta = {...JSON.parse(msgRow.metadata || '{}'), abnormalTermination: true}
+                db.prepare('UPDATE messages SET ended_at = ?, metadata = ? WHERE id = ?').run(endedAt, JSON.stringify(meta), msgId)
+            })()
+            saveDatabase()
+            return true
+        } catch (err) {
+            console.error('[SqliteConversationRepository] finalizeAbnormal failed:', err)
+            return false
+        }
+    }
+
+    /** §4.2 恢复扫描：未 finalize 的 assistant 消息 id 列表 */
+    listUnfinalized(convId: string): Array<{id: string}> {
+        try {
+            return getDatabase().prepare(
+                "SELECT id FROM messages WHERE conversation_id = ? AND role = 'assistant' AND ended_at IS NULL"
+            ).all(convId) as Array<{id: string}>
+        } catch (err) {
+            console.error('[SqliteConversationRepository] listUnfinalized failed:', err)
+            return []
         }
     }
 

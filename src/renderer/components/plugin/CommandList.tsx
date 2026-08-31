@@ -237,7 +237,7 @@ export function CommandList({
     if (error) return (
         <div className="p-8 text-center">
             <div className="text-sm text-[var(--error)]">{error}</div>
-            <button onClick={loadCommands} className="mt-2 text-xs text-[var(--brand-primary)] hover:underline">重试
+            <button onClick={loadCommands} className="mt-2 text-xs text-[var(--brand-primary)] hover:underline" data-name="command-list-button">重试
             </button>
         </div>
     );
@@ -263,7 +263,7 @@ export function CommandList({
                         data-flat-index={flatIdx}
                         onClick={() => onCommandClick(cmd)}
                         className={`w-full px-4 py-2.5 flex items-center gap-3 text-left transition-colors focus:outline-none border-b border-[var(--border)] last:border-0 ${isSelected ? 'bg-[var(--brand-primary)]/20 border-l-2 border-l-[var(--brand-primary)]' : 'hover:bg-[var(--surface-muted)]'}`}
-                    >
+                     data-name={`command-list-command-item-${flatIdx}`}>
                     <span
                         className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-sm ${isSelected ? 'bg-[var(--brand-primary)] text-white' : style.iconRing}`}>
                       {style.icon}

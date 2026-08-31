@@ -101,8 +101,8 @@ describe('handleBegin 占位气泡（会话首轮思考中有气泡可挂）', (
         mockAgentState.errorMessage = null
         mockAgentState.agentState = {status: 'running'}
         mockConversationState.addMessageToConv.mockClear()
-        registerSpy.mockClear()
-        // electronAPI：占位创建后注册 id 到主进程（幽灵双写防御链路的渲染端入口）
+        // electronAPI：注册链路（agent-register-streaming-message）已随 id 单源删除，
+        // 渲染端不应再有上报调用
         vi.stubGlobal('electronAPI', {
             agentRegisterStreamingMessage: registerSpy,
         })
@@ -112,13 +112,14 @@ describe('handleBegin 占位气泡（会话首轮思考中有气泡可挂）', (
         vi.unstubAllGlobals()
     })
 
-    it('无 streamingMessageId：创建占位 assistant 消息并写入 streamingMessageId', () => {
+    it('begin 携带 messageId（id 单源）：以其创建占位 assistant 消息并写入 streamingMessageId', () => {
         seedConv()
-        handleBegin(makeCtx({type: 'begin'}))
+        handleBegin(makeCtx({type: 'begin', messageId: 'msg-1728000000000-abc123'}))
 
         expect(mockConversationState.addMessageToConv).toHaveBeenCalledTimes(1)
         const [convId, msg] = mockConversationState.addMessageToConv.mock.calls[0]
         expect(convId).toBe('conv-1')
+        expect(msg.id).toBe('msg-1728000000000-abc123')
         expect(msg.role).toBe('assistant')
         expect(msg.content).toBe('')
 
@@ -128,48 +129,23 @@ describe('handleBegin 占位气泡（会话首轮思考中有气泡可挂）', (
         expect(state.agentState).toMatchObject({status: 'running', phase: 'streaming'})
     })
 
+    it('begin 无 messageId：不建占位（id 单源，事件未到不建占位，不自建 UUID）', () => {
+        seedConv()
+        handleBegin(makeCtx({type: 'begin'}))
+
+        expect(mockConversationState.addMessageToConv).not.toHaveBeenCalled()
+        expect(mockAgentState.convAgentStates['conv-1'].streamingMessageId).toBeNull()
+    })
+
     it('已有 streamingMessageId（多轮工具后新一轮）：不创建占位，保留原 ID', () => {
         seedConv({streamingMessageId: 'msg-1'})
-        handleBegin(makeCtx({type: 'begin'}))
+        handleBegin(makeCtx({type: 'begin', messageId: 'msg-other'}))
 
         expect(mockConversationState.addMessageToConv).not.toHaveBeenCalled()
         expect(mockAgentState.convAgentStates['conv-1'].streamingMessageId).toBe('msg-1')
     })
 
-    it('创建占位后通过 IPC 注册占位 id（主进程 pending 复用，防幽灵双写）', () => {
-        seedConv()
-        handleBegin(makeCtx({type: 'begin'}))
-
-        const msg = mockConversationState.addMessageToConv.mock.calls[0][1]
-        // 注册 id 必须与渲染端占位消息 id 完全一致，否则主进程 pending 独立生成
-        // 新 id → done 全量写兜底以新 id 插入幽灵副本（重启加载后气泡渲染 2 份）
-        expect(registerSpy).toHaveBeenCalledTimes(1)
-        expect(registerSpy).toHaveBeenCalledWith('conv-1', msg.id)
-    })
-
-    it('已有 streamingMessageId：不重复注册（复用原 ID，注册仅发生在新建占位时）', () => {
-        seedConv({streamingMessageId: 'msg-1'})
-        handleBegin(makeCtx({type: 'begin'}))
-
-        expect(registerSpy).not.toHaveBeenCalled()
-    })
-
-    it('begin 携带 messageId（子会话 agentTool 累积器固定 id）：占位消息 id 对齐该 id 而非 UUID', () => {
-        seedConv()
-        handleBegin(makeCtx({type: 'begin', messageId: 'msg-1728000000000-abc123'}))
-
-        expect(mockConversationState.addMessageToConv).toHaveBeenCalledTimes(1)
-        const [convId, msg] = mockConversationState.addMessageToConv.mock.calls[0]
-        expect(convId).toBe('conv-1')
-        expect(msg.id).toBe('msg-1728000000000-abc123')
-        expect(msg.role).toBe('assistant')
-
-        // 后续流式事件复用该 id → 与主进程 SQLite 增量落库消息同 id，
-        // 首次打开子会话时 switchActiveConversation 按 id 去重合并两轨 → 单条气泡
-        expect(mockAgentState.convAgentStates['conv-1'].streamingMessageId).toBe('msg-1728000000000-abc123')
-    })
-
-    it('begin 携带 messageId：不注册主进程（子会话持久化走 agentTool 累积器路径，无 pending 机制可复用）', () => {
+    it('不注册主进程（消息 id 单源自主进程，agent-register-streaming-message 链路已删除）', () => {
         seedConv()
         handleBegin(makeCtx({type: 'begin', messageId: 'msg-1728000000000-abc123'}))
 

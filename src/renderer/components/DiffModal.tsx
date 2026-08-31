@@ -40,7 +40,7 @@ export default function DiffModal() {
               </div>
                   <button onClick={closeDiffModal}
                           className="w-7 h-7 rounded flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]"
-                          aria-label="关闭">
+                          aria-label="关闭" data-name="diff-modal-button">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
               </button>
             </div>

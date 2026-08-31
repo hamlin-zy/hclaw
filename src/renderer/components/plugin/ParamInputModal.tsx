@@ -85,14 +85,14 @@ export function ParamInputModal({ isOpen, command, onSubmit, onCancel }: ParamIn
                     {command.description}
                   </p>
                     {command.description.length > 50 && (
-                        <button onClick={() => setDescExpanded(v => !v)} className="param-toggle-btn">
+                        <button onClick={() => setDescExpanded(v => !v)} className="param-toggle-btn" data-name="param-input-modal-button">
                           {descExpanded ? '收起' : '展开'}
                         </button>
                     )}
                   </div>
               )}
             </div>
-            <button onClick={onCancel} className="param-icon-btn"><CloseIcon/></button>
+            <button onClick={onCancel} className="param-icon-btn" data-name="param-input-modal-close-button"><CloseIcon/></button>
           </header>
 
           {/* Content */}
@@ -113,14 +113,14 @@ export function ParamInputModal({ isOpen, command, onSubmit, onCancel }: ParamIn
                   onChange={handleTextareaChange}
                   placeholder="在此输入..."
                   autoFocus
-              />
+              data-name="param-input-modal-textarea"/>
             </section>
           </div>
 
           {/* Footer */}
           <footer className="param-modal-footer">
-            <button onClick={onCancel} className="param-btn param-btn-secondary">取消</button>
-            <button onClick={handleSubmit} className="param-btn param-btn-primary">执行命令</button>
+            <button onClick={onCancel} className="param-btn param-btn-secondary" data-name="param-input-modal-cancel-button">取消</button>
+            <button onClick={handleSubmit} className="param-btn param-btn-primary" data-name="param-input-modal-submit-button">执行命令</button>
           </footer>
         </motion.div>
       </motion.div>

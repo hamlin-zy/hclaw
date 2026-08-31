@@ -86,7 +86,7 @@ describe('session_handoff Tool — 附件支持', () => {
         expect(result.success).toBe(true)
     })
 
-    it('带附件：落库 content 为纯文本，metadata.attachments 为结构化 Attachment 数组', async () => {
+    it('带附件：落库 content 为纯文本，顶层 attachments 为结构化 Attachment 数组（R6 单形态）', async () => {
         const result = await sessionHandoffTool.execute(
             {...baseArgs, attachments: [{path: imgPath, name: 'shot.png', mimeType: 'image/png'}]},
             makeCtx('conv-src'),
@@ -96,11 +96,13 @@ describe('session_handoff Tool — 附件支持', () => {
         const [, msgs] = writeMessagesMock.mock.calls[0] as [string, Array<Record<string, any>>]
         const userMsg = msgs[0]
         expect(userMsg.content).toBe(baseArgs.handoffSummary)
-        expect(userMsg.metadata.attachments).toHaveLength(1)
-        expect(userMsg.metadata.attachments[0]).toMatchObject({
+        expect(userMsg.attachments).toHaveLength(1)
+        expect(userMsg.attachments[0]).toMatchObject({
             name: 'shot.png', type: 'image/png', path: imgPath, isImage: true, size: 0,
         })
-        expect(userMsg.metadata.attachments[0].id).toBeTruthy()
+        expect(userMsg.attachments[0].id).toBeTruthy()
+        // R6：metadata 不再承载附件（metadata.attachments 由 writeMessages 内 messageToBlocks 序列化承载）
+        expect(userMsg.metadata?.attachments).toBeUndefined()
     })
 
     it('首轮消息 content 为多模态构建（图片 base64 + 路径标记），与历史重建共享函数输出深度一致', async () => {

@@ -132,7 +132,7 @@ export default function ToolsDialog() {
                         onMouseEnter={e => { if (enabledCount > 0) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--surface-muted)' }}
                         onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
                         disabled={enabledCount === 0}
-                    >
+                     data-name="tools-dialog-button">
                         全部禁用
                     </button>
                     <button
@@ -147,7 +147,7 @@ export default function ToolsDialog() {
                         onMouseEnter={e => { if (enabledCount < totalCount) (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--brand-muted)' }}
                         onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
                         disabled={enabledCount === totalCount}
-                    >
+                     data-name="tools-dialog-enable-all-button">
                         全部启用
                     </button>
                 </div>
@@ -385,7 +385,7 @@ function ToolCard({tool, description, onToggle}: {tool: ToolState; description: 
                                     color: 'var(--text-primary)',
                                 }}
                                 autoFocus
-                            />
+                            data-name="tools-dialog-input"/>
                             <span className="text-[9px]" style={{color: 'var(--text-muted)'}}>ms</span>
                             <button
                                 onClick={handleSaveTimeout}
@@ -396,7 +396,7 @@ function ToolCard({tool, description, onToggle}: {tool: ToolState; description: 
                                 }}
                                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.opacity = '0.85'}
                                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.opacity = '1'}
-                            >
+                             data-name="tools-dialog-save-timeout-button">
                                 保存
                             </button>
                             <button
@@ -409,7 +409,7 @@ function ToolCard({tool, description, onToggle}: {tool: ToolState; description: 
                                 }}
                                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--border)'}
                                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--surface-muted)'}
-                            >
+                             data-name="tools-dialog-cancel-timeout-button">
                                 取消
                             </button>
                             <button
@@ -419,7 +419,7 @@ function ToolCard({tool, description, onToggle}: {tool: ToolState; description: 
                                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--warning-muted)'}
                                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
                                 title="重置为默认值"
-                            >
+                             data-name="tools-dialog-reset-timeout-button">
                                 重置
                             </button>
                         </div>
@@ -431,7 +431,7 @@ function ToolCard({tool, description, onToggle}: {tool: ToolState; description: 
                             onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)'}
                             onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'}
                             title={defaultTimeout ? `默认: ${formatTimeout(defaultTimeout)}` : '点击编辑'}
-                        >
+                         data-name="tools-dialog-edit-timeout-button">
                             <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <circle cx="12" cy="12" r="10"/>
                                 <path d="M12 6v6l4 2"/>

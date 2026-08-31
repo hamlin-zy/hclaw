@@ -109,7 +109,7 @@ export default function SkillsDialog() {
                       className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20 transition-colors"
                       title="创建新技能"
                       aria-label="创建新技能"
-                  >
+                   data-name="skills-dialog-button">
                       <Plus className="w-3.5 h-3.5"/>
                       <span>创建</span>
                   </button>
@@ -119,7 +119,7 @@ export default function SkillsDialog() {
                       className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       title="安装技能 (ZIP)"
                       aria-label="安装技能"
-                  >
+                   data-name="skills-dialog-install-zip-button">
                       {installing ? (
                           <RefreshCw className="w-3.5 h-3.5 animate-spin"/>
                       ) : (
@@ -133,7 +133,7 @@ export default function SkillsDialog() {
                       className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       title="刷新技能列表"
                       aria-label="刷新技能列表"
-                  >
+                   data-name="skills-dialog-refresh-button">
                       <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`}/>
                   </button>
               </div>
@@ -163,7 +163,7 @@ export default function SkillsDialog() {
 
           {/* Tabs */}
           <div className="flex items-center gap-1 px-4 py-2 border-b border-[var(--border-muted)]">
-              {(['local', 'plugin'] as TabType[]).map(tab => (
+              {(['local', 'plugin'] as TabType[]).map((tab, i) => (
                   <button
                       key={tab}
                       onClick={() => setActiveTab(tab)}
@@ -172,7 +172,7 @@ export default function SkillsDialog() {
                               ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
                               : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                       }`}
-                  >
+                   data-name={`skills-dialog-tab-${i}`}>
                       {tab === 'local' && '本地'}
                       {tab === 'plugin' && '插件'}
                   </button>
@@ -189,7 +189,7 @@ export default function SkillsDialog() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--brand-primary)]"
-                  />
+                  data-name="skills-dialog-input"/>
               </div>
           </div>
 
@@ -297,7 +297,7 @@ function SkillCard({
                         : 'bg-[var(--surface)] border-[var(--border)] opacity-60'
                 }`}
                 onClick={onOpenDetail}
-            >
+             data-name="skills-dialog-div">
                 <div className="p-3">
                     {/* Title Row: name + badges + action buttons */}
                     <div className="flex items-center justify-between gap-2">
@@ -320,7 +320,7 @@ function SkillCard({
                                     </span>
                             )}
                         </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()} data-name="skills-dialog-skill-actions">
                             {skill.filePath && (
                                 <button
                                     onClick={(e) => {
@@ -329,7 +329,7 @@ function SkillCard({
                                     }}
                                     className="p-1 text-gray-300 hover:text-[var(--brand-primary)] transition-colors"
                                     title="打开所在目录"
-                                >
+                                 data-name="skills-dialog-open-folder-button">
                                     <Folder className="w-4 h-4"/>
                                 </button>
                             )}
@@ -339,7 +339,7 @@ function SkillCard({
                                     disabled={deleting}
                                     className="p-1 text-gray-300 hover:text-[var(--error)] transition-colors disabled:opacity-30"
                                     title="删除技能"
-                                >
+                                 data-name="skills-dialog-delete-button">
                                     <Trash2 className="w-4 h-4"/>
                                 </button>
                             )}
@@ -351,7 +351,7 @@ function SkillCard({
                                 className={`w-8 h-4.5 rounded-full p-0.5 transition-colors relative ${
                                     skill.enabled ? 'bg-[var(--brand-primary)]' : 'bg-gray-200'
                                 }`}
-                            >
+                             data-name="skills-dialog-skill-toggle-button">
                                 <div
                                     className={`w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${skill.enabled ? 'translate-x-3.5' : 'translate-x-0'}`}
                                 />
@@ -458,7 +458,7 @@ function PluginGroupCard({
             <div
                 className="flex items-center justify-between px-3 py-2 bg-[var(--surface-muted)]/50 cursor-pointer"
                 onClick={() => setCollapsed(c => !c)}
-            >
+             data-name="skills-dialog-plugin-group-header">
                 <div className="flex items-center gap-2">
                     <Folder className="w-4 h-4 text-[var(--brand-primary)]"/>
                     <span className="text-xs font-semibold text-[var(--text-primary)]">{pluginName}</span>
@@ -474,7 +474,7 @@ function PluginGroupCard({
                             if (ids.length > 0) await onToggleBatch(ids, targetEnabled)
                         }}
                         className="text-[10px] font-medium text-[var(--brand-primary)] hover:text-[var(--brand-primary)]/80 transition-colors flex-shrink-0"
-                    >
+                     data-name="skills-dialog-batch-toggle-button">
                         {skills.every(s => s.enabled) ? '全部禁用' : '全部启用'}
                     </button>
                     <ChevronDown

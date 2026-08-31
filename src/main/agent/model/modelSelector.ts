@@ -62,15 +62,21 @@ export function selectModelForTaskWithRole(
         throw new Error('No valid model role configured')
     }
 
-    if (intent?.suggestedModel) {
-        const roleConfig = getRoleConfig(scheme, intent.suggestedModel)
-        // 仅当角色已启用且已配置时才使用；否则落入 fallback 链（不再"未启用也使用"）
-        if (isValid(roleConfig)) return {config: roleConfig!, role: intent.suggestedModel}
+    // 按起始角色的降级链选第一个有效角色：
+    // - lightweight（子会话默认）：L→P→R（轻量未启用升主力，主力未启用升推理）
+    // - primary：P→L→R
+    // - reasoning：R→P→L（推理未启用降主力，主力未启用降轻量）
+    const fallbackChains: Partial<Record<ModelRole, ModelRole[]>> = {
+        primary: ['primary', 'lightweight', 'reasoning'],
+        lightweight: ['lightweight', 'primary', 'reasoning'],
+        reasoning: ['reasoning', 'primary', 'lightweight'],
     }
-
-    // 兜底：按 primary → lightweight → reasoning 顺序选第一个有效角色
-    const enabledFallback = [primary, lightweight, reasoning].find(isValid)
-    if (enabledFallback) return {config: enabledFallback!, role: 'primary'}
+    // 非 text 角色（如 image_understanding）不在链内，回落 primary 链
+    const chain = fallbackChains[intent?.suggestedModel ?? 'primary'] ?? fallbackChains.primary!
+    for (const role of chain) {
+        const roleConfig = getRoleConfig(scheme, role)
+        if (isValid(roleConfig)) return {config: roleConfig!, role}
+    }
     throw new Error('No valid model role configured')
 }
 

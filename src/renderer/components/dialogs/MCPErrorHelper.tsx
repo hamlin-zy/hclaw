@@ -108,7 +108,7 @@ export function useMcpErrorDialog(opts?: {
                             role="alertdialog"
                             aria-modal="true"
                             onClick={e => e.stopPropagation()}
-                        >
+                         data-name="mcperror-helper-div">
                             {/* Header */}
                             <div className="px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)]">
                                 <div className="flex items-center gap-3">
@@ -139,13 +139,13 @@ export function useMcpErrorDialog(opts?: {
                                 <button
                                     onClick={close}
                                     className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                                >
+                                 data-name="mcperror-helper-button">
                                     取消
                                 </button>
                                 <button
                                     onClick={handleHelp}
                                     className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/80 text-white transition-colors"
-                                >
+                                 data-name="mcperror-helper-help-button">
                                     帮我检查
                                 </button>
                             </div>

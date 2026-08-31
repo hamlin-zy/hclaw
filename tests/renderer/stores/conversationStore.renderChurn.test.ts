@@ -36,19 +36,9 @@ function makeMsg(id: string, content: string, role: 'user' | 'assistant' = 'assi
     return {id, role, content, timestamp: Date.now()}
 }
 
-// 捕获 blockDelta IPC 调用（记录真实落库参数，这里只关心不误触全量写）
-let blockDeltaCalls: Array<{convId: string; msgId: string; patch: any}>
-
 beforeEach(() => {
-    blockDeltaCalls = []
     ;(globalThis as any).window = {
         electronAPI: {
-            conversationWriteBlockDelta: vi.fn(async (convId: string, msgId: string, patch: any) => {
-                blockDeltaCalls.push({convId, msgId, patch})
-                return true
-            }),
-            conversationWriteMessages: vi.fn(async () => true),
-            conversationWriteMessagesDelta: vi.fn(async () => true),
             conversationGetMessages: vi.fn(async () => [] as Message[]),
             conversationList: vi.fn(async () => []),
             workspaceGetCurrent: vi.fn(async () => null),

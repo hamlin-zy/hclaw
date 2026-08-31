@@ -18,6 +18,8 @@ import {convertAssistantHistoryMessage} from './ipc/historyConverter'
 import {TEXT_MODEL_ROLES} from '@shared/types'
 import type {ModelRole, SystemSettings} from '@shared/types'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
+import {buildUserMessage} from './messageBuilder'
+import {getConversationPersistence} from '../persistence/conversationPersistence'
 
 export type StartOrigin = 'renderer' | 'scheduler' | 'channel' | 'memo'
 
@@ -166,6 +168,20 @@ export async function startAgentCore(params: CoreStartParams, origin: StartOrigi
     const workingDir = meta?.workspacePath || ''
 
     const userMessageContent = await buildUserMessageContent(params.message, params.messageAttachments)
+
+    // Phase 2：user 消息落库收敛到主进程（渲染端已停写熔断，渲染端不再经
+    // block-delta 落库 user 消息；此处为唯一写入方）。
+    // ★P2：messageMetadata（commandId/commandTemplate 等）随消息落库，
+    // 否则重启后 UserCommandBubble 丢失命令样式（还原为纯文本）。
+    if (!params.suppressUserMessage) {
+      const userMsg = await buildUserMessage({
+        convId: params.conversationId,
+        text: params.message,
+        attachments: params.messageAttachments,
+        metadata: params.messageMetadata,
+      })
+      getConversationPersistence().writeNow(params.conversationId, userMsg)
+    }
 
     // 转换历史消息（兼容新旧格式）
     const convertedMessages: AgentStartParams['messages'] = []

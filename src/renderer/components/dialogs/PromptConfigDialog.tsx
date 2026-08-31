@@ -31,7 +31,7 @@ function SchemeListItem({
                     ? 'bg-brand-50 text-brand-600'
                     : 'text-gray-600 hover:bg-gray-50'
             }`}
-        >
+         data-name="prompt-config-dialog-div">
             <div className="flex items-center gap-1.5 min-w-0">
                 <div
                     className={`shrink-0 w-1.5 h-1.5 rounded-full ${
@@ -58,13 +58,13 @@ function DeleteConfirmButton({onConfirm}: { onConfirm: () => void }) {
                 <button
                     onClick={onConfirm}
                     className="px-1.5 py-0.5 text-[10px] bg-red-500 text-white rounded hover:bg-red-600"
-                >
+                 data-name="prompt-config-dialog-button">
                     确认
                 </button>
                 <button
                     onClick={() => setConfirming(false)}
                     className="px-1.5 py-0.5 text-[10px] bg-gray-100 text-gray-400 rounded hover:bg-gray-200"
-                >
+                 data-name="prompt-config-dialog-cancel-delete-button">
                     取消
                 </button>
             </div>
@@ -76,7 +76,7 @@ function DeleteConfirmButton({onConfirm}: { onConfirm: () => void }) {
             onClick={() => setConfirming(true)}
             className="p-1 text-gray-400 hover:text-red-500 transition-colors"
             title="删除方案"
-        >
+         data-name="prompt-config-dialog-delete-scheme-button">
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                  strokeWidth="2">
                 <polyline points="3 6 5 6 21 6"/>
@@ -279,7 +279,7 @@ export default function PromptConfigDialog() {
                             setSelectedSchemeId(id)
                         }}
                         className="w-full px-2 py-1.5 text-xs text-brand-500 hover:bg-brand-50 rounded transition-colors"
-                    >
+                     data-name="prompt-config-dialog-add-scheme-button">
                         + 新建方案
                     </button>
                     <button
@@ -288,7 +288,7 @@ export default function PromptConfigDialog() {
                             setSelectedSchemeId(id)
                         }}
                         className="w-full px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-50 rounded transition-colors"
-                    >
+                     data-name="prompt-config-dialog-add-default-scheme-button">
                         从默认创建
                     </button>
                 </div>
@@ -324,7 +324,7 @@ export default function PromptConfigDialog() {
                                     }}
                                     className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
                                     title="克隆此方案"
-                                >
+                                 data-name="prompt-config-dialog-clone-button">
                                     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"
                                          stroke="currentColor" strokeWidth="2">
                                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
@@ -344,7 +344,7 @@ export default function PromptConfigDialog() {
                             {/* 节点列表 */}
                             <div className="w-44 border-r border-gray-100 flex flex-col shrink-0 bg-white">
                                 <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
-                                    {ALL_PROMPT_NODES.map((node: PromptNodeMeta) => (
+                                    {ALL_PROMPT_NODES.map((node: PromptNodeMeta, i) => (
                                         <button
                                             key={node.key}
                                             onClick={() => setSelectedNodeKey(node.key)}
@@ -353,7 +353,7 @@ export default function PromptConfigDialog() {
                                                     ? 'bg-brand-50 text-brand-600'
                                                     : 'text-gray-600 hover:bg-gray-50'
                                             }`}
-                                        >
+                                         data-name={`prompt-config-dialog-node-tab-${i}`}>
                                             <div className="flex items-center justify-between">
                                                 <span className="truncate">{node.name}</span>
                                                 {isCustomized(node.key) && (
@@ -378,7 +378,7 @@ export default function PromptConfigDialog() {
                                                     <button
                                                         onClick={() => resetNode(selectedSchemeId!, selectedNodeKey!)}
                                                         className="text-[10px] text-brand-500 hover:underline"
-                                                    >
+                                                     data-name="prompt-config-dialog-reset-node-button">
                                                         恢复默认
                                                     </button>
                                                 )}
@@ -408,7 +408,7 @@ export default function PromptConfigDialog() {
                                                 }}
                                                 placeholder="在此输入自定义提示词内容..."
                                                 className="flex-1 w-full p-3 text-xs text-gray-700 font-mono resize-none outline-none leading-relaxed"
-                                            />
+                                            data-name="prompt-config-dialog-textarea"/>
                                         </div>
                                     </div>
                                 ) : (
@@ -426,7 +426,7 @@ export default function PromptConfigDialog() {
                                 onClick={handlePreview}
                                 disabled={isPreviewLoading}
                                 className="px-3 py-1 text-xs text-gray-500 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50"
-                            >
+                             data-name="prompt-config-dialog-preview-button">
                                 {isPreviewLoading ? '构建中...' : '预览系统提示词'}
                             </button>
 
@@ -434,7 +434,7 @@ export default function PromptConfigDialog() {
                                 <button
                                     onClick={() => setActiveScheme(selectedScheme.id)}
                                     className="px-3 py-1 text-xs bg-brand-500 text-white rounded-md hover:bg-brand-600 transition-colors"
-                                >
+                                 data-name="prompt-config-dialog-activate-button">
                                     激活方案
                                 </button>
                             )}
@@ -457,24 +457,24 @@ export default function PromptConfigDialog() {
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
                     onClick={() => setIsPreviewOpen(false)}
-                >
+                 data-name="prompt-config-dialog-preview-overlay">
                     <div
                         className="bg-white rounded-xl shadow-2xl w-[700px] max-w-[90vw] max-h-[80vh] flex flex-col"
                         onClick={(e) => e.stopPropagation()}
-                    >
+                     data-name="prompt-config-dialog-preview-panel">
                         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                             <h4 className="text-sm font-medium text-gray-700">系统提示词预览</h4>
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={handleCopy}
                                     className="px-2 py-1 text-[10px] text-gray-500 border border-gray-200 rounded hover:bg-gray-50 transition-colors"
-                                >
+                                 data-name="prompt-config-dialog-copy-button">
                                     {copied ? '已复制' : '复制'}
                                 </button>
                                 <button
                                     onClick={() => setIsPreviewOpen(false)}
                                     className="p-1 text-gray-400 hover:text-gray-600"
-                                >
+                                 data-name="prompt-config-dialog-close-button">
                                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none"
                                          stroke="currentColor" strokeWidth="2">
                                         <line x1="18" y1="6" x2="6" y2="18"/>

@@ -43,7 +43,7 @@ export const CopyButton = memo(function CopyButton({code, label}: { code: string
                 text-[var(--text-muted)] hover:text-[var(--text-primary)]
                 border border-[var(--border)] opacity-0 group-hover:opacity-100"
             title={label || '复制'}
-        >
+         data-name="popup-utils-button">
             {copied ? '已复制' : '复制'}
         </button>
     )

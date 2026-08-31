@@ -301,7 +301,7 @@ export default function CommandsDialog() {
                                 onClick={handleNew}
                                 className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20 transition-colors"
                                 title="创建新命令"
-                            >
+                             data-name="commands-dialog-button">
                                 <Plus className="w-3.5 h-3.5"/>
                                 <span>创建</span>
                             </button>
@@ -309,7 +309,7 @@ export default function CommandsDialog() {
                                 onClick={handleResetPresets}
                                 className="px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 rounded-md transition-colors"
                                 title="重新生成预设命令文件（commit-msg）"
-                            >
+                             data-name="commands-dialog-reset-presets-button">
                                 重置预设
                             </button>
                         </>
@@ -319,7 +319,7 @@ export default function CommandsDialog() {
 
             {/* Tab 切换 */}
             <div className="flex gap-1 px-4 py-2 border-b border-[var(--border-muted)]">
-                {(['local', 'plugin'] as TabType[]).map(tab => (
+                {(['local', 'plugin'] as TabType[]).map((tab, i) => (
                     <button
                         key={tab}
                         onClick={() => setActiveTab(tab)}
@@ -328,7 +328,7 @@ export default function CommandsDialog() {
                                 ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] font-medium'
                                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                         }`}
-                    >
+                     data-name={`commands-dialog-tab-${i}`}>
                         {tab === 'local' ? '本地' : '插件'}
                     </button>
                 ))}
@@ -346,7 +346,7 @@ export default function CommandsDialog() {
                         className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--surface)] border border-[var(--border)] rounded-md
                                  text-[var(--text-primary)] placeholder-[var(--text-muted)]
                                  focus:outline-none focus:border-[var(--brand-primary)]"
-                    />
+                    data-name="commands-dialog-input"/>
                 </div>
             </div>
 
@@ -491,7 +491,7 @@ function LocalCommandCard({
                         ? 'bg-[var(--surface)] border-[var(--border)] hover:border-[var(--border-muted)]'
                         : 'bg-[var(--surface)] border-[var(--border)] opacity-60'
                 }`}
-            >
+             data-name="commands-dialog-div">
                 <div className="p-3">
                     {/* Title Row */}
                     <div className="flex items-center justify-between gap-2">
@@ -504,7 +504,7 @@ function LocalCommandCard({
                             <CopyButton name={name}/>
                             <SourceBadge source={source}/>
                         </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()} data-name="commands-dialog-row-actions">
                             {isUser && (
                                 <>
                                     {userCommand?.filePath && (
@@ -515,7 +515,7 @@ function LocalCommandCard({
                                             }}
                                             className="p-1 text-gray-300 hover:text-[var(--brand-primary)] transition-colors"
                                             title="打开所在目录"
-                                        >
+                                         data-name="commands-dialog-open-folder-button">
                                             <Folder className="w-4 h-4"/>
                                         </button>
                                     )}
@@ -524,7 +524,7 @@ function LocalCommandCard({
                                             onClick={e => { e.stopPropagation(); onEdit?.() }}
                                             className="p-1 text-gray-300 hover:text-[var(--brand-primary)] transition-colors"
                                             title="编辑"
-                                        >
+                                         data-name="commands-dialog-edit-button">
                                             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                 <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
                                             </svg>
@@ -535,7 +535,7 @@ function LocalCommandCard({
                                             onClick={e => { e.stopPropagation(); onDelete?.() }}
                                             className="p-1 text-gray-300 hover:text-[var(--error)] transition-colors"
                                             title="删除"
-                                        >
+                                         data-name="commands-dialog-delete-button">
                                             <Trash2 className="w-4 h-4"/>
                                         </button>
                                     )}
@@ -633,7 +633,7 @@ function PluginGroupCard({
             <div
                 className="flex items-center justify-between px-3 py-2 bg-[var(--surface-muted)]/50 cursor-pointer select-none"
                 onClick={() => setCollapsed(c => !c)}
-            >
+             data-name="commands-dialog-plugin-group-header">
                 <div className="flex items-center gap-2">
                     <Folder className="w-4 h-4 text-[var(--brand-primary)]"/>
                     <span className="text-xs font-semibold text-[var(--text-primary)]">{group.pluginName}</span>
@@ -646,7 +646,7 @@ function PluginGroupCard({
                             await onBatchToggle(group, !allEnabled)
                         }}
                         className="text-[10px] font-medium text-[var(--brand-primary)] hover:text-[var(--brand-primary)]/80 transition-colors flex-shrink-0"
-                    >
+                     data-name="commands-dialog-batch-toggle-button">
                         {allEnabled ? '全部禁用' : '全部启用'}
                     </button>
                     <ChevronDown
@@ -714,7 +714,7 @@ function PluginCommandCard({
                 onClick={onPreview}
                 className={`flex items-center gap-3 px-4 py-2.5 mx-1 rounded-md transition-colors cursor-pointer
                             ${isEnabled ? 'hover:bg-[var(--surface-muted)]' : 'opacity-50'}`}
-            >
+             data-name="commands-dialog-plugin-command-card">
                 {/* Icon */}
                 <span className={`flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-xs
                                ${isEnabled
@@ -746,7 +746,7 @@ function PluginCommandCard({
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()} data-name="commands-dialog-command-actions">
                     <Switch checked={isEnabled} onChange={onToggle}/>
                 </div>
             </div>
@@ -789,12 +789,12 @@ function CommandPreviewModal({command, onClose}: {
         <div
             className="fixed inset-0 z-[100] flex items-center justify-center"
             onClick={() => onClose()}
-        >
+         data-name="commands-dialog-preview-overlay">
             <div className="absolute inset-0 bg-black/50"/>
             <div
                 onClick={e => e.stopPropagation()}
                 className="relative w-[580px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col overflow-hidden"
-            >
+             data-name="commands-dialog-preview-panel">
                 {/* Header */}
                 <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border)] flex items-center justify-between">
                     <div className="flex items-center gap-3 min-w-0">
@@ -815,7 +815,7 @@ function CommandPreviewModal({command, onClose}: {
                     <button
                         onClick={() => onClose()}
                         className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded transition-colors"
-                    >
+                     data-name="commands-dialog-preview-close-button">
                         <X className="w-4 h-4"/>
                     </button>
                 </div>
@@ -892,7 +892,7 @@ function CommandPreviewModal({command, onClose}: {
                     <button
                         onClick={() => onClose()}
                         className="px-4 py-2 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-all"
-                    >
+                     data-name="commands-dialog-preview-footer-close-button">
                         关闭
                     </button>
                 </div>

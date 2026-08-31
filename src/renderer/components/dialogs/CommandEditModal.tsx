@@ -144,7 +144,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
             <div
                 className="w-full max-w-xl bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl overflow-hidden"
                 onClick={e => e.stopPropagation()}
-            >
+             data-name="command-edit-modal-div">
                 {/* 标题 */}
                 <div className="px-5 py-3 border-b border-[var(--border)]">
                     <h3 className="text-sm font-medium text-[var(--text-primary)]">
@@ -158,7 +158,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                     <div>
                         <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">命令名称</label>
                         <input type="text" value={name} onChange={e => setName(e.target.value)}
-                               placeholder="例如: explain" className={inputClass} autoFocus/>
+                               placeholder="例如: explain" className={inputClass} autoFocus data-name="command-edit-modal-input"/>
                         <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">只允许字母、数字、下划线和连字符</p>
                     </div>
 
@@ -167,7 +167,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                         <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">描述 <span
                             className="opacity-60">(可选)</span></label>
                         <input type="text" value={description} onChange={e => setDescription(e.target.value)}
-                               placeholder="简短描述命令用途" className={inputClass}/>
+                               placeholder="简短描述命令用途" className={inputClass} data-name="command-edit-modal-description-input"/>
                     </div>
 
                     {/* 模板内容 */}
@@ -184,7 +184,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                                      text-[var(--text-primary)] placeholder-[var(--text-muted)]
                                      border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]
                                      font-mono resize-y"
-                        />
+                        data-name="command-edit-modal-textarea"/>
                         <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">
                             使用 <code className="text-[var(--brand-primary)]">$ARGUMENTS</code> 作为用户输入占位符
                             {content.length > 0 && (
@@ -203,7 +203,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                                 <button
                                     onClick={addArg}
                                     className="text-[10px] text-[var(--brand-primary)] hover:underline"
-                                >
+                                 data-name="command-edit-modal-button">
                                     + 添加参数
                                 </button>
                             )}
@@ -217,19 +217,19 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                                     <input type="text" value={arg.name}
                                            onChange={e => updateArg(i, 'name', e.target.value)}
                                            placeholder="参数名"
-                                           className="flex-1 px-2 py-1 text-[10px] bg-[var(--surface-muted)] rounded text-[var(--text-primary)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"/>
+                                           className="flex-1 px-2 py-1 text-[10px] bg-[var(--surface-muted)] rounded text-[var(--text-primary)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]" data-name={`command-edit-modal-arg-name-input-${i}`}/>
                                     <input type="text" value={arg.default || ''}
                                            onChange={e => updateArg(i, 'default', e.target.value)}
                                            placeholder="默认值"
-                                           className="w-20 px-2 py-1 text-[10px] bg-[var(--surface-muted)] rounded text-[var(--text-primary)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"/>
+                                           className="w-20 px-2 py-1 text-[10px] bg-[var(--surface-muted)] rounded text-[var(--text-primary)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]" data-name={`command-edit-modal-arg-default-input-${i}`}/>
                                     <label className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]">
                                         <input type="checkbox" checked={arg.required || false}
                                                onChange={e => updateArg(i, 'required', e.target.checked)}
-                                               className="rounded"/>
+                                               className="rounded" data-name={`command-edit-modal-arg-required-checkbox-${i}`}/>
                                         必填
                                     </label>
                                     <button onClick={() => removeArg(i)}
-                                            className="text-[var(--text-muted)] hover:text-[var(--error)] text-xs px-1">✕
+                                            className="text-[var(--text-muted)] hover:text-[var(--error)] text-xs px-1" data-name={`command-edit-modal-remove-arg-button-${i}`}>✕
                                     </button>
                                 </div>
                             ))}
@@ -253,7 +253,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                                 onClick={handleReset}
                                 disabled={resetting}
                                 className="px-3 py-1.5 text-xs rounded-md text-[var(--text-muted)] hover:text-[var(--warning)] hover:bg-[var(--warning)]/10 transition-colors disabled:opacity-50"
-                            >
+                             data-name="command-edit-modal-reset-button">
                                 {resetting ? '重置中...' : '重置为默认'}
                             </button>
                         )}
@@ -262,7 +262,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                     <button
                         onClick={onCancel}
                         className="px-3 py-1.5 text-xs rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)] transition-colors"
-                    >
+                     data-name="command-edit-modal-cancel-button">
                         取消
                     </button>
                     <button
@@ -272,7 +272,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                                  bg-[var(--brand-primary)] text-white
                                  hover:opacity-90 transition-opacity
                                  disabled:opacity-50"
-                    >
+                     data-name="command-edit-modal-save-button">
                         {saving ? '保存中...' : '保存'}
                     </button>
                 </div>

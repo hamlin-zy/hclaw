@@ -12,7 +12,7 @@ import {describe, it, expect, vi, beforeEach} from 'vitest'
 import {handleError} from '../../../../src/renderer/stores/agentStore/handlers/streamInteraction'
 
 // ── 依赖 mock：静态 store（getState 返回可断言的最小形态） ──
-const {mockConversationState, mockAgentState, mockFlushDirty} = vi.hoisted(() => ({
+const {mockConversationState, mockAgentState} = vi.hoisted(() => ({
     mockConversationState: {
         messagesMap: {},
         addMessageToConv: vi.fn(),
@@ -30,8 +30,6 @@ vi.mock('../../../../src/renderer/stores/conversationStore', () => ({
     useConversationStore: {
         getState: () => mockConversationState,
     },
-    flushConversationDirty: mockFlushDirty,
-    finalizeMessageDelta: vi.fn(),
 }))
 
 vi.mock('../../../../src/renderer/stores/agentStore', () => ({
@@ -111,10 +109,9 @@ describe('handleError 收尾补 endedAt（防无 endedAt 快照覆盖主进程 f
         mockAgentState.agentState = {status: 'running'}
         mockConversationState.addMessageToConv.mockClear()
         mockConversationState.updateMessageForConv.mockClear()
-        mockFlushDirty.mockClear()
     })
 
-    it('有流式消息：flush 前补 endedAt（updateMessageForConv 先于 flushConversationDirty 调用）', () => {
+    it('有流式消息：补 endedAt（updateMessageForConv）', () => {
         seedConv()
         handleError(makeCtx({type: 'error', error: 'boom'}))
 
@@ -124,22 +121,15 @@ describe('handleError 收尾补 endedAt（防无 endedAt 快照覆盖主进程 f
         expect(convId).toBe('conv-1')
         expect(msgId).toBe('msg-1')
         expect(patch.endedAt).toBeTypeOf('number')
-
-        // ★ 顺序：endedAt 补写必须发生在 flush 之前（否则无 endedAt 快照覆盖 final 写）
-        const updateOrder = mockConversationState.updateMessageForConv.mock.invocationCallOrder[0]
-        const flushOrder = mockFlushDirty.mock.invocationCallOrder[0]
-        expect(updateOrder).toBeLessThan(flushOrder)
-        expect(mockFlushDirty).toHaveBeenCalledWith('conv-1')
     })
 
-    it('无流式消息：不补 endedAt（分支跳过），但 flush 仍执行', () => {
+    it('无流式消息：不建占位（id 单源：占位由 begin 携带的 messageId 创建），不补 endedAt', () => {
         seedConv({streamingMessageId: null})
         handleError(makeCtx({type: 'error', error: 'boom'}))
 
-        // 无流式消息 → 新建占位消息，但不补 endedAt
-        expect(mockConversationState.addMessageToConv).toHaveBeenCalledTimes(1)
+        // 无流式消息 → 不自建占位（ensureStreamingMessage 事件未到不建占位），不补 endedAt
+        expect(mockConversationState.addMessageToConv).not.toHaveBeenCalled()
         expect(mockConversationState.updateMessageForConv).not.toHaveBeenCalled()
-        expect(mockFlushDirty).toHaveBeenCalledWith('conv-1')
     })
 
     it('末尾 streamingMessageId 已置 null，但基于进入 error 前的快照仍补 endedAt', () => {

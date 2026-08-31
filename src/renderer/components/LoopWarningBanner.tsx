@@ -46,7 +46,7 @@ const LoopWarningBanner = memo(function LoopWarningBanner({conversationId}: Loop
 
     return (
         <div
-            data-name="loop-warning-banner"
+           data-name="loop-warning-banner"
             className="mx-[20px] mb-1 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-sm cursor-pointer"
             onClick={() => setExpanded(e => !e)}
         >
@@ -60,11 +60,11 @@ const LoopWarningBanner = memo(function LoopWarningBanner({conversationId}: Loop
                     <button
                         className="text-xs underline opacity-70 hover:opacity-100"
                         onClick={e => {e.stopPropagation(); setDismissedFp(warning.fingerprint)}}
-                    >关闭</button>
+                     data-name="loop-warning-banner-button">关闭</button>
                     <button
                         className="text-xs underline opacity-70 hover:opacity-100"
                         onClick={e => {e.stopPropagation(); silence()}}
-                    >这是误判</button>
+                     data-name="loop-warning-banner-silence-button">这是误判</button>
                 </span>
             </div>
             {expanded && (

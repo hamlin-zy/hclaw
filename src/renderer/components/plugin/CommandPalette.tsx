@@ -223,7 +223,7 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
                              text-[var(--text-primary)] placeholder-[var(--text-muted)]
                              focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
                     autoFocus
-                  />
+                  data-name="command-palette-input"/>
                 </div>
 
                 {/* Tab 栏 */}
@@ -238,7 +238,7 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
                           ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)] font-medium'
                           : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]'
                       }`}
-                    >
+                     data-name="command-palette-button">
                       {tab.label}
                     </button>
                   ))}

@@ -424,6 +424,13 @@ export const useAgentStore = create<AgentStore>()(
                         void get().refreshActiveBatch(convId)
                     }
                 }) || null
+                // ★ 侧栏元数据事件（§3.4）：message-finalized（end 块落库同事务成功后发出）
+                //   → touchConversation 更新会话 updatedAt 并重排（侧栏不再依赖渲染端落库顺带刷新）
+                const unsubPersist = window.electronAPI?.onAgentPersistEvent?.((e: {type: string; convId: string}) => {
+                    if (e?.type === 'message-finalized' && e.convId) {
+                        useConversationStore.getState().touchConversation(e.convId, Date.now())
+                    }
+                }) || null
                 streamUnsubscribe = unsub
                 return () => {
                     document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -431,6 +438,7 @@ export const useAgentStore = create<AgentStore>()(
                     flushAllThinkingBatches()
                     streamUnsubscribe?.()
                     unsubBatches?.()
+                    unsubPersist?.()
                     streamUnsubscribe = null
                 }
             },
