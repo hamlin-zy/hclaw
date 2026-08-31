@@ -7,6 +7,14 @@
 
 ---
 
+## [v0.5.2] - 2026-09-01
+
+### 修复
+- **修复长对话中 KV cache 偶发断裂的问题** — LLM 调用记录现在按对话轮次正确归类，同一轮中的多段思考内容也能完整拼接展示，减少不必要的重复计算与费用浪费 (`streamBridge.ts` / `historyConverter.ts` / `llmCallLogStore.ts`)
+- **LLM Trace 会话列表支持复制运行时路径** — 在追踪列表中可直接复制会话的运行时目录路径，方便定位日志与问题排查 (`LlmLogsWindow.tsx` / `TimelineView.tsx`)
+
+---
+
 ## [v0.5.1] - 2026-08-31
 
 ### 新增

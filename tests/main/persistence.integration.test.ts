@@ -213,7 +213,7 @@ describe('§5.3-7 UI 流式事件粒度回归（7.5 双通道）', () => {
       const p = new ConversationPersistence(repo as never)
       const pending = mkPending()
       for (const c of ['a', 'b', 'c']) {
-        persistStreamEvent(p, 'c1', 'm1', pending, {type: 'text', content: c} as never, 0)
+        persistStreamEvent(p, 'c1', 'm1', pending, {type: 'text', content: c} as never)
       }
       vi.advanceTimersByTime(10000)  // 未到 30s 节流窗口
       expect(repo.writeBlockDelta).not.toHaveBeenCalled()  // 落库被节流
