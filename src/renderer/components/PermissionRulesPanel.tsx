@@ -108,7 +108,7 @@ export default function PermissionRulesPanel() {
                             className="w-5 h-5 rounded flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] disabled:opacity-50 transition-all"
                             aria-label="刷新规则"
                             title="刷新规则列表"
-                        >
+                         data-name="permission-rules-panel-button">
                             <svg
                                 className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`}
                                 viewBox="0 0 24 24"
@@ -135,12 +135,12 @@ export default function PermissionRulesPanel() {
                             <p className="text-xs text-[var(--text-muted)]">暂无自动放行规则</p>
                         </div>
                     ) : (
-                        sortedRules.map((rule) => (
+                        sortedRules.map((rule, i) => (
                             <div
                                 key={rule.tool}
                                 onClick={() => handleEditClick(rule)}
                                 className="p-2.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] shadow-sm group cursor-pointer hover:border-[var(--brand-primary)]/30 hover:shadow-sm transition-all"
-                            >
+                             data-name="permission-rules-panel-div">
                                 <div className="flex items-center gap-1.5">
                                     <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)] shrink-0"/>
                                     <span
@@ -154,7 +154,7 @@ export default function PermissionRulesPanel() {
                                         }}
                                         className="text-[var(--error)] opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:bg-[var(--error)]/10 rounded shrink-0"
                                         title="删除规则"
-                                    >
+                                     data-name={`permission-rules-panel-rule-delete-${i}`}>
                                         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none"
                                              stroke="currentColor" strokeWidth="2">
                                             <path
@@ -194,11 +194,11 @@ export default function PermissionRulesPanel() {
                 <div
                     className="fixed inset-0 z-[var(--z-overlay)] flex items-center justify-center bg-black/40 backdrop-blur-sm"
                     onClick={handleCancel}
-                >
+                 data-name="permission-rules-panel-edit-overlay">
                     <div
                         className="bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] w-[420px] overflow-hidden"
                         onClick={(e) => e.stopPropagation()}
-                    >
+                     data-name="permission-rules-panel-edit-panel">
                         {/* 弹窗 Header */}
                         <div className="px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)]">
                             <div className="flex items-center gap-3">
@@ -228,7 +228,7 @@ export default function PermissionRulesPanel() {
                                         placeholder="例如: bash:git*"
                                         autoFocus
                                         spellCheck={false}
-                                    />
+                                    data-name="permission-rules-panel-input"/>
                                     <p className="mt-1.5 text-[10px] text-[var(--text-muted)] leading-relaxed">
                                         支持 <code className="text-[var(--brand-primary)]">*</code> 通配符，如
                                         <code className="text-[var(--brand-primary)]"> bash:git*</code> 匹配所有以 git 开头的 bash 命令
@@ -273,14 +273,14 @@ export default function PermissionRulesPanel() {
                                             className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
                                                 bg-[var(--surface-muted)] text-[var(--text-muted)]
                                                 hover:bg-[var(--surface-hover)] border border-[var(--border)]"
-                                        >
+                                         data-name="permission-rules-panel-cancel-delete-button">
                                             取消
                                         </button>
                                         <button
                                             onClick={handleDelete}
                                             className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
                                                 bg-[var(--error)] text-white hover:bg-[var(--error)]/80"
-                                        >
+                                         data-name="permission-rules-panel-confirm-delete-button">
                                             确认删除
                                         </button>
                                     </div>
@@ -291,7 +291,7 @@ export default function PermissionRulesPanel() {
                                         onClick={handleDelete}
                                         className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
                                             text-[var(--error)] hover:bg-[var(--error)]/10 border border-[var(--border)] hover:border-[var(--error)]/30"
-                                    >
+                                     data-name="permission-rules-panel-delete-button">
                                         删除规则
                                     </button>
                                     <div className="flex items-center gap-2">
@@ -300,7 +300,7 @@ export default function PermissionRulesPanel() {
                                             className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
                                                 bg-[var(--surface-muted)] text-[var(--text-muted)]
                                                 hover:bg-[var(--surface-hover)] border border-[var(--border)]"
-                                        >
+                                         data-name="permission-rules-panel-cancel-edit-button">
                                             {isEditing ? '取消' : '关闭'}
                                         </button>
                                         {isEditing ? (
@@ -310,7 +310,7 @@ export default function PermissionRulesPanel() {
                                                 className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
                                                     bg-[var(--brand-primary)] text-white
                                                     hover:bg-[var(--brand-primary)]/80 disabled:opacity-40 disabled:cursor-not-allowed"
-                                            >
+                                             data-name="permission-rules-panel-save-edit-button">
                                                 保存
                                             </button>
                                         ) : (
@@ -319,7 +319,7 @@ export default function PermissionRulesPanel() {
                                                 className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
                                                     bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]
                                                     hover:bg-[var(--brand-primary)]/20 border border-[var(--brand-primary)]/20"
-                                            >
+                                             data-name="permission-rules-panel-edit-button">
                                                 编辑
                                             </button>
                                         )}

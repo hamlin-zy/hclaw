@@ -133,7 +133,7 @@ export default function CapabilityPicker({selected, onSelect}: {
                             type="button"
                             onClick={handleClear}
                             className="hover:opacity-70"
-                        >
+                         data-name="capability-picker-button">
                             <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                  strokeWidth="2">
                                 <path d="M18 6L6 18M6 6l12 12"/>
@@ -148,7 +148,7 @@ export default function CapabilityPicker({selected, onSelect}: {
                     placeholder={selected ? '' : '搜索可用能力...'}
                     className="flex-1 min-w-0 bg-transparent text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none"
                     autoFocus
-                />
+                data-name="capability-picker-input"/>
             </div>
             <div className="mt-1.5 max-h-40 overflow-y-auto rounded-md border border-[var(--border)]">
                 {loading ? (
@@ -158,7 +158,7 @@ export default function CapabilityPicker({selected, onSelect}: {
                         {search ? '未找到匹配的能力' : '暂无可用能力'}
                     </div>
                 ) : (
-                    displayItems.map(cap => (
+                    displayItems.map((cap, i) => (
                         <button
                             key={cap.id}
                             onClick={() => {
@@ -170,7 +170,7 @@ export default function CapabilityPicker({selected, onSelect}: {
                                     ? 'bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400'
                                     : 'text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                             }`}
-                        >
+                         data-name={`capability-picker-option-${i}`}>
                             <div className="flex items-center gap-1.5">
                                 <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${cap.sourceColor}`}>
                                     {cap.sourceLabel}

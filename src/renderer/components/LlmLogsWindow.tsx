@@ -15,6 +15,7 @@ import {JsonTree} from './llmTrace/JsonTree'
 import {TimelineView, collectRecords, applyTraceFilter} from './llmTrace/TimelineView'
 import {extractUsage, extractToolCalls, extractTextContent, type TokenUsage} from '@shared/utils/llmUsageParser'
 import {tokensPerSecond} from '@shared/llmUsage'
+import {formatTokenCount as fmtCompact} from '../lib/format'
 import {confirm} from './ConfirmDialog'
 import ThemedSelect from './ThemedSelect'
 import {CopyButton} from './common/CopyButton'
@@ -33,10 +34,6 @@ interface DetailState {
 }
 
 const FILE_MISSING_NOTE = '原始文件缺失（可能录制中断）'
-
-function fmtCompact(n: number): string {
-    return n >= 1000000 ? `${(n / 1000000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
-}
 
 export default function LlmLogsWindow() {
     const [enabled, setEnabled] = useState(false)
@@ -219,7 +216,7 @@ export default function LlmLogsWindow() {
                             ? 'border-[var(--error)]/45 text-[var(--error)]'
                             : 'border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                     }`}
-                >
+                 data-name="llm-logs-window-button">
                     <span className={`w-2 h-2 rounded-full shrink-0 ${recording ? 'bg-[var(--error)] animate-pulse' : pausedReason ? 'bg-[var(--text-muted)]' : 'bg-[var(--text-muted)]'}`} />
                     {recording ? '录制中' : pausedReason ? `已暂停 · ${pausedReason}` : '未录制'}
                 </button>
@@ -227,16 +224,16 @@ export default function LlmLogsWindow() {
                 <button
                     onClick={handleExport}
                     className="px-3 py-1 text-xs rounded-md border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors"
-                >导出</button>
+                 data-name="llm-logs-window-export-button">导出</button>
                 <button
                     onClick={handleClear}
                     className="px-3 py-1 text-xs rounded-md border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--error)] hover:text-[var(--error)] transition-colors"
-                >清空</button>
+                 data-name="llm-logs-window-clear-button">清空</button>
             </div>
 
             {/* ── 过滤条 ── */}
             <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--border)] shrink-0 flex-wrap">
-                {([['all', '全部状态'], ['failed', '仅失败'], ['retries', '含重试']] as const).map(([key, label]) => (
+                {([['all', '全部状态'], ['failed', '仅失败'], ['retries', '含重试']] as const).map(([key, label], i) => (
                     <button
                         key={key}
                         onClick={() => setFilter(f => ({...f, status: key}))}
@@ -245,7 +242,7 @@ export default function LlmLogsWindow() {
                                 ? 'border-[var(--brand-primary)] text-[var(--brand-primary)] bg-[var(--brand-muted)]'
                                 : 'border-[var(--border)] text-[var(--text-secondary)]'
                         }`}
-                    >{label}</button>
+                     data-name={`llm-logs-window-status-filter-${i}`}>{label}</button>
                 ))}
                 <ThemedSelect
                     value={filter.model}
@@ -426,7 +423,7 @@ function DetailView({state, tab, onTab, onClose}: {
                 onDoubleClick={() => setHeight(Math.round(window.innerHeight * 0.45))}
             />
             <div className="flex items-center gap-0.5 px-3 pt-1.5 border-b border-[var(--border)] shrink-0">
-                {TABS.map(([key, label]) => (
+                {TABS.map(([key, label], i) => (
                     <button
                         key={key}
                         onClick={() => onTab(key)}
@@ -435,14 +432,14 @@ function DetailView({state, tab, onTab, onClose}: {
                                 ? 'text-[var(--brand-primary)] bg-[var(--surface-elevated)] shadow-[inset_0_-2px_0_var(--brand-primary)]'
                                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                         }`}
-                    >{label}</button>
+                     data-name={`llm-logs-window-tab-${i}`}>{label}</button>
                 ))}
                 <span className="font-mono text-[10.5px] text-[var(--text-muted)] ml-2 truncate">{r.id}</span>
                 <button
                     onClick={onClose}
                     className="ml-auto p-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                     title="关闭详情"
-                >✕</button>
+                 data-name="llm-logs-window-close-detail-button">✕</button>
             </div>
 
             <div className="flex-1 min-h-0 overflow-auto p-3 font-mono text-xs leading-relaxed">
@@ -525,7 +522,7 @@ function RequestTab({record: r, reqBody}: {
     return (
         <div>
             <div className="flex gap-0.5 mb-2">
-                {SUB_TABS.map(([key, label]) => (
+                {SUB_TABS.map(([key, label], i) => (
                     <button
                         key={key}
                         onClick={() => setSubTab(key)}
@@ -534,7 +531,7 @@ function RequestTab({record: r, reqBody}: {
                                 ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)]'
                                 : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
                         }`}
-                    >{label}</button>
+                     data-name={`llm-logs-window-sub-tab-${i}`}>{label}</button>
                 ))}
             </div>
             {subTab === 'overview'
@@ -615,7 +612,7 @@ function ResponseView({apiStyle, resText}: {apiStyle: string; resText: string}) 
                 <button
                     onClick={() => setShowText(s => !s)}
                     className="py-0.5 px-2 text-[11px] rounded-full border-none bg-[var(--surface-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer transition-colors"
-                >{showText ? '查看原文' : '查看正文'}</button>
+                 data-name="llm-logs-window-toggle-text-button">{showText ? '查看原文' : '查看正文'}</button>
             )}
             <div className="relative">
                 {!showText || text == null ? (

@@ -643,11 +643,11 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
         <div
           className="w-full max-w-[800px] max-h-[88vh] overflow-y-auto bg-white rounded-xl shadow-elevated border border-gray-200 pointer-events-auto"
           onClick={e => e.stopPropagation()}
-        >
+         data-name="provider-edit-modal-div">
           {/* Header */}
           <div className="sticky top-0 bg-white z-10 px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-800">{isEdit ? '编辑服务商' : '添加服务商'}</h3>
-            <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 transition-colors">
+            <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 transition-colors" data-name="provider-edit-modal-button">
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M18 6L6 18M6 6l12 12"/>
               </svg>
@@ -660,7 +660,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1.5">API类型</label>
               <div className="grid grid-cols-4 gap-1.5">
-                {CARD_PRESETS.map((p) => (
+                {CARD_PRESETS.map((p, i) => (
                   <button key={p.id} onClick={() => {
                     setProviderType(p.id)
                     if (p.id === 'google') {
@@ -677,7 +677,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                     className={`px-2 py-1.5 text-xs rounded-md border transition-colors ${
                       providerType === p.id ? 'bg-brand-50 border-brand-200 text-brand-600' : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700'
                     }`}
-                  >{p.name}</button>
+                   data-name={`provider-edit-modal-provider-type-${i}`}>{p.name}</button>
                 ))}
               </div>
             </div>
@@ -690,12 +690,12 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                   {([
                     {id: 'chat', name: 'Chat Completions'},
                     {id: 'responses', name: 'Responses API'},
-                  ] as const).map((p) => (
+                  ] as const).map((p, i) => (
                     <button key={p.id} onClick={() => setApiStyle(p.id)}
                       className={`px-2 py-1.5 text-xs rounded-md border transition-colors ${
                         apiStyle === p.id ? 'bg-brand-50 border-brand-200 text-brand-600' : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700'
                       }`}
-                    >{p.name}</button>
+                     data-name={`provider-edit-modal-api-style-${i}`}>{p.name}</button>
                   ))}
                 </div>
                 <p className="text-[10px] text-gray-400 mt-1">决定请求协议格式，影响所有对话请求的兼容性。Responses API 为 OpenAI 官方推荐协议；第三方兼容服务请保持 Chat Completions。</p>
@@ -707,7 +707,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
               <label className="flex items-start gap-2 text-xs font-medium text-gray-500">
                 <input type="checkbox" checked={useSystemArray}
                   onChange={(e) => setUseSystemArray(e.target.checked)}
-                  className="w-3.5 h-3.5 mt-0.5 rounded border-gray-300 text-brand-500 focus:ring-brand-300" />
+                  className="w-3.5 h-3.5 mt-0.5 rounded border-gray-300 text-brand-500 focus:ring-brand-300" data-name="provider-edit-modal-input"/>
                 <div className="flex flex-col">
                   <span>启用 System Prompt 缓存</span>
                   <span className="text-[10px] text-gray-400">
@@ -725,12 +725,12 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                   {([
                     {id: 'api-key', name: 'AI Studio API Key'},
                     {id: 'google-oauth2', name: 'Google 账号登录'},
-                  ] as const).map((p) => (
+                  ] as const).map((p, i) => (
                     <button key={p.id} onClick={() => setAuthType(p.id)}
                       className={`px-2 py-1.5 text-xs rounded-md border transition-colors ${
                         authType === p.id ? 'bg-brand-50 border-brand-200 text-brand-600' : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700'
                       }`}
-                    >{p.name}</button>
+                     data-name={`provider-edit-modal-auth-type-${i}`}>{p.name}</button>
                   ))}
                 </div>
                 <p className="text-[10px] text-gray-400 mt-1">Google 走 SDK 固定端点，无需配置 Base URL；认证方式决定右侧凭据位的形态，影响模型拉取与测试请求。</p>
@@ -752,7 +752,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                 placeholder="例如：OpenAI"
                 className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 focus:outline-none ${
                   !isEdit && !name.trim() ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-brand-300'
-                }`} />
+                }`} data-name="provider-edit-modal-name-input"/>
               {!isEdit && !name.trim() && <div className="text-[10px] text-red-400 mt-0.5">服务商名称不能为空</div>}
             </div>
 
@@ -766,9 +766,9 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                     placeholder={isEncryptedKey ? '已加密' : 'sk-...'}
                     className={`w-full px-2.5 py-1.5 pr-8 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 focus:outline-none ${
                       !isEdit && !apiKey.trim() ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-brand-300'
-                    }`} />
+                    }`} data-name="provider-edit-modal-api-key-input"/>
                   <button type="button" onClick={() => setShowApiKey(!showApiKey)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600">
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600" data-name="provider-edit-modal-toggle-api-key-button">
                     {showApiKey ? (
                       <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
@@ -796,7 +796,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                       <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
                       已授权{email ? ` · ${email}` : ''}
                     </span>
-                    <button onClick={handleGoogleLogin} className="text-[10px] text-brand-500 hover:underline shrink-0">切换账号</button>
+                    <button onClick={handleGoogleLogin} className="text-[10px] text-brand-500 hover:underline shrink-0" data-name="provider-edit-modal-switch-account-button">切换账号</button>
                   </div>
                 ) : authStatus === 'expired' ? (
                   <div className="flex items-center justify-between px-2.5 py-1.5 bg-orange-50/50 border border-orange-100 rounded-md">
@@ -804,13 +804,13 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                       <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
                       授权已过期
                     </span>
-                    <button onClick={handleGoogleLogin} className="text-[10px] text-brand-500 font-medium hover:underline shrink-0">重新登录</button>
+                    <button onClick={handleGoogleLogin} className="text-[10px] text-brand-500 font-medium hover:underline shrink-0" data-name="provider-edit-modal-relogin-button">重新登录</button>
                   </div>
                 ) : (
                   <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-gray-50/50 border border-gray-200 rounded-md">
                     <span className="text-[10px] text-gray-400">尚未授权，授权后可获取模型列表并测试</span>
                     <button onClick={handleGoogleLogin} disabled={isLoggingIn}
-                      className="shrink-0 px-2.5 py-0.5 bg-brand-50 border border-brand-200 rounded text-[10px] text-brand-600 font-medium hover:bg-brand-100 transition-colors disabled:opacity-50">
+                      className="shrink-0 px-2.5 py-0.5 bg-brand-50 border border-brand-200 rounded text-[10px] text-brand-600 font-medium hover:bg-brand-100 transition-colors disabled:opacity-50" data-name="provider-edit-modal-google-login-button">
                       {isLoggingIn ? '正在授权...' : '去授权'}
                     </button>
                   </div>
@@ -831,7 +831,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                   placeholder={isEncryptedKey ? '已加密' : 'AIza...'}
                   className={`w-full px-2.5 py-1.5 text-xs border rounded-md text-gray-700 placeholder-gray-300 focus:outline-none ${
                     !isEdit && !apiKey.trim() ? 'border-red-300 focus:border-red-400 bg-red-50' : 'border-gray-200 focus:border-brand-300 bg-white'
-                  }`} />
+                  }`} data-name="provider-edit-modal-google-api-key-input"/>
                 {!isEdit && !apiKey.trim() && <div className="text-[10px] text-red-400 mt-0.5">API Key 不能为空</div>}
               </div>
             )}
@@ -845,7 +845,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                   placeholder="https://api.openai.com/v1"
                   className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 focus:outline-none ${
                     !isEdit && !baseUrl.trim() ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-brand-300'
-                  }`} />
+                  }`} data-name="provider-edit-modal-base-url-input"/>
                 {!isEdit && !baseUrl.trim() && <div className="text-[10px] text-red-400 mt-0.5">API Base URL 不能为空</div>}
                 {/* Base URL 格式校验提示（onBlur 触发，只提示不修改） */}
                 {baseUrlValidation?.level === 'warn' && (
@@ -874,7 +874,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
             {/* 启用开关 */}
             <label className="flex items-center gap-2 text-xs font-medium text-gray-500">
               <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)}
-                className="w-3.5 h-3.5 rounded border-gray-300 text-brand-500 focus:ring-brand-300" />
+                className="w-3.5 h-3.5 rounded border-gray-300 text-brand-500 focus:ring-brand-300" data-name="provider-edit-modal-enabled-checkbox"/>
               启用此服务商
             </label>
 
@@ -884,7 +884,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-[11px] font-medium text-gray-600 shrink-0">已获取 {fetchedResult.length} 个模型</span>
                   <input value={fetchSearch} onChange={(e) => setFetchSearch(e.target.value)} placeholder="搜索模型..."
-                    className="flex-1 min-w-0 px-2 py-1 text-[10px] border border-gray-200 rounded-md focus:outline-none focus:border-brand-300" />
+                    className="flex-1 min-w-0 px-2 py-1 text-[10px] border border-gray-200 rounded-md focus:outline-none focus:border-brand-300" data-name="provider-edit-modal-fetch-search-input"/>
                   <ThemedSelect
                     value={fetchTypeFilter}
                     onChange={(v) => setFetchTypeFilter(v as any)}
@@ -899,15 +899,15 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                     ]}
                     ariaLabel="价目表类型过滤"
                   />
-                  <button onClick={() => setSelectedIds(new Set(fetchedResult.map(m => m.id)))} className="text-[10px] text-brand-500 hover:underline shrink-0">全选</button>
-                  <button onClick={() => setSelectedIds(new Set())} className="text-[10px] text-gray-400 hover:underline shrink-0">清空</button>
+                  <button onClick={() => setSelectedIds(new Set(fetchedResult.map(m => m.id)))} className="text-[10px] text-brand-500 hover:underline shrink-0" data-name="provider-edit-modal-select-all-button">全选</button>
+                  <button onClick={() => setSelectedIds(new Set())} className="text-[10px] text-gray-400 hover:underline shrink-0" data-name="provider-edit-modal-clear-selection-button">清空</button>
                 </div>
                 <div className="max-h-40 overflow-y-auto space-y-0.5 mb-1.5">
-                  {filteredFetched.map(m => (
+                  {filteredFetched.map((m, i) => (
                     <label key={m.id} className="flex items-center gap-1.5 text-[10px] font-mono text-gray-600 cursor-pointer">
                       <input type="checkbox" checked={selectedIds.has(m.id)}
                         onChange={(e) => setSelectedIds(prev => { const s = new Set(prev); if (e.target.checked) s.add(m.id); else s.delete(m.id); return s })}
-                        className="w-3 h-3 rounded border-gray-300 text-brand-500" />
+                        className="w-3 h-3 rounded border-gray-300 text-brand-500" data-name={`provider-edit-modal-model-checkbox-${i}`}/>
                       <span className="flex-1 truncate">{m.id}</span>
                       <span className="text-[9px] px-1 rounded bg-gray-100 text-gray-400 shrink-0">{m.modelType || 'text'}</span>
                     </label>
@@ -915,9 +915,9 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                   {filteredFetched.length === 0 && <div className="text-[10px] text-gray-400 py-1 text-center">无匹配模型</div>}
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button onClick={handleReplace} className="px-2 py-1 text-[10px] bg-brand-500 text-white rounded-md hover:bg-brand-600">替换</button>
-                  <button onClick={handleMerge} className="px-2 py-1 text-[10px] border border-brand-200 text-brand-600 rounded-md hover:bg-brand-50/50">合并</button>
-                  <button onClick={() => { setFetchedResult(null); setSelectedIds(new Set()) }} className="px-2 py-1 text-[10px] text-gray-400 hover:text-gray-600">取消</button>
+                  <button onClick={handleReplace} className="px-2 py-1 text-[10px] bg-brand-500 text-white rounded-md hover:bg-brand-600" data-name="provider-edit-modal-replace-button">替换</button>
+                  <button onClick={handleMerge} className="px-2 py-1 text-[10px] border border-brand-200 text-brand-600 rounded-md hover:bg-brand-50/50" data-name="provider-edit-modal-merge-button">合并</button>
+                  <button onClick={() => { setFetchedResult(null); setSelectedIds(new Set()) }} className="px-2 py-1 text-[10px] text-gray-400 hover:text-gray-600" data-name="provider-edit-modal-cancel-fetch-button">取消</button>
                   <span className="text-[9px] text-gray-400 ml-auto">已选 {selectedIds.size} 个</span>
                 </div>
               </div>
@@ -944,7 +944,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                   )}
                   <button onClick={handleFetchModels} disabled={fetching || !canFetch}
                   title={!canFetch ? credentialBlockReason : '自动获取模型列表'}
-                  className="flex items-center gap-1 text-[10px] font-medium text-brand-500 hover:text-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                  className="flex items-center gap-1 text-[10px] font-medium text-brand-500 hover:text-brand-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors" data-name="provider-edit-modal-fetch-models-button">
                   {fetching
                     ? <span className="w-3 h-3 border-2 border-brand-300 border-t-transparent rounded-full animate-spin" />
                     : <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6"/></svg>}
@@ -981,11 +981,11 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
             <div className="text-[11px] text-red-400">{nameValidationError || formValidationError || modelValidationError || ''}</div>
             <div className="flex items-center gap-2">
               <button onClick={onClose}
-                className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors">
+                className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors" data-name="provider-edit-modal-cancel-button">
                 取消
               </button>
               <button onClick={handleSave} disabled={saving || !name.trim() || !!nameValidationError || !!modelValidationError || !!formValidationError}
-                className="px-3 py-1.5 text-xs font-medium bg-brand-500 text-white rounded-md hover:bg-brand-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
+                className="px-3 py-1.5 text-xs font-medium bg-brand-500 text-white rounded-md hover:bg-brand-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5" data-name="provider-edit-modal-save-button">
                 {saving && <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                 {isEdit ? '保存' : '添加'}
               </button>

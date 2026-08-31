@@ -114,7 +114,7 @@ export default function ThemedSelect({
                             ? 'border-brand-300'
                             : 'border-gray-200 hover:border-gray-300 focus:border-brand-300'
                 } ${fullWidth ? 'w-full' : 'w-auto max-w-full whitespace-nowrap'} ${className}`}
-            >
+             data-name="themed-select-button">
                 <span className={`truncate ${selected ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}>
                     {selected?.label || placeholder}
                 </span>
@@ -152,7 +152,7 @@ export default function ThemedSelect({
                             ? 'bg-[var(--surface-elevated)]/92 backdrop-blur-lg'
                             : 'bg-[var(--surface-elevated)]'} border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden max-h-[240px] overflow-y-auto`}>
                             <div className="p-1.5 flex flex-col">
-                                {options.map((opt) => {
+                                {options.map((opt, i) => {
                                     const isActive = opt.value === value
                                     return (
                                         <div key={opt.value || '__empty'}>
@@ -168,7 +168,7 @@ export default function ThemedSelect({
                                                         ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)] font-medium'
                                                         : 'text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                                 }`}
-                                            >
+                                             data-name={`themed-select-option-${i}`}>
                                                 <div className="flex items-center gap-2">
                                                     <span className="flex-1 truncate">{opt.label}</span>
                                                     {isActive && (

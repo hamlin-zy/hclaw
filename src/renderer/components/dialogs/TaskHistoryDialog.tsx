@@ -125,7 +125,7 @@ function BatchRow({batch, checked, deleting, onToggleCheck}: BatchRowProps) {
                     checked ? 'bg-[var(--surface-muted)]' : ''
                 }`}
                 onClick={() => onToggleCheck(batch.id)}
-            >
+             data-name="task-history-dialog-div">
                 <div className="flex items-center">
                     <input
                         type="checkbox"
@@ -134,7 +134,7 @@ function BatchRow({batch, checked, deleting, onToggleCheck}: BatchRowProps) {
                         disabled={deleting}
                         onClick={(e) => e.stopPropagation()}
                         className="w-3.5 h-3.5 rounded border-[var(--border)] accent-[var(--brand-primary)]"
-                    />
+                    data-name="task-history-dialog-input"/>
                 </div>
 
                 {/* 展开/收起箭头 */}
@@ -147,7 +147,7 @@ function BatchRow({batch, checked, deleting, onToggleCheck}: BatchRowProps) {
                         void toggleExpand()
                     }}
                     className="p-0 border-none bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer grid place-items-center"
-                >
+                 data-name="task-history-dialog-button">
                     <svg className={`w-3.5 h-3.5 transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
                          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <polyline points="9 18 15 12 9 6"/>
@@ -390,7 +390,7 @@ export default function TaskHistoryDialog() {
                     </svg>
                     <span className="text-sm text-red-400">{error}</span>
                     <button onClick={reloadRef.current}
-                            className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors">
+                            className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors" data-name="task-history-dialog-reload-button">
                         重试
                     </button>
                 </div>
@@ -413,7 +413,7 @@ export default function TaskHistoryDialog() {
                         onChange={(e) => setFilterInput(e.target.value)}
                         placeholder="搜索任务组或任务标题"
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--brand-primary)]"
-                    />
+                    data-name="task-history-dialog-filter-input"/>
                 </div>
 
                 <div className="ml-auto flex items-center gap-3 shrink-0">
@@ -430,7 +430,7 @@ export default function TaskHistoryDialog() {
                                     ? 'bg-red-500/20 text-red-400 cursor-not-allowed'
                                     : 'bg-red-500/12 text-red-400 hover:bg-red-500/20'
                         }`}
-                    >
+                     data-name="task-history-dialog-delete-button">
                         {deleting ? (
                             <>
                                 <div className="w-3.5 h-3.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin"/>
@@ -462,7 +462,7 @@ export default function TaskHistoryDialog() {
                     <button
                         onClick={() => setDeleteError(null)}
                         className="ml-auto shrink-0 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                    >
+                     data-name="task-history-dialog-dismiss-error-button">
                         关闭
                     </button>
                 </div>
@@ -481,11 +481,11 @@ export default function TaskHistoryDialog() {
                                     ? 'bg-[var(--brand-muted)] text-[var(--brand-primary)] font-medium'
                                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)]'
                             }`}
-                        >
+                         data-name="task-history-dialog-all-conversations-tab-button">
                             <span className="min-w-0 truncate">全部会话</span>
                             <span className="shrink-0 text-[11px] tabular-nums opacity-70">{groups.length}</span>
                         </button>
-                        {groups.map((g) => (
+                        {groups.map((g, i) => (
                             <button
                                 key={g.conversationId}
                                 onClick={() => setSelectedConvId(g.conversationId)}
@@ -496,7 +496,7 @@ export default function TaskHistoryDialog() {
                                         ? 'bg-[var(--brand-muted)] text-[var(--brand-primary)] font-medium'
                                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)]'
                                 }`}
-                            >
+                             data-name={`task-history-dialog-group-${i}`}>
                                 <span className="min-w-0 truncate">
                                     {g.conversationTitle || '(无标题)'}
                                 </span>

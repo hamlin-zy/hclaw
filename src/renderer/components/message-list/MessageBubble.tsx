@@ -200,7 +200,7 @@ const StatusNote = memo(function StatusNote({note}: {note: StatusNoteData | null
                     className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover/status:opacity-100 hover:bg-[var(--border-muted)] transition-all cursor-pointer text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                     aria-label="复制错误详情"
                     title="复制错误详情"
-                >
+                 data-name="message-bubble-button">
                     {copied ? (
                         <svg className="w-3.5 h-3.5 text-[var(--brand-primary)]" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -245,7 +245,7 @@ const MessageBubble = memo(function MessageBubble({message, statusNote, isAgentR
 
             {/* 消息气泡 - Glassmorphism 风格 */}
             <div
-                data-name="message-bubble"
+               data-name="message-bubble"
                 className={`message-bubble ${isUser ? 'user' : 'assistant'} max-w-[85%] flex flex-col transition duration-200`}>
 
                 {/* Header - 仅助手消息显示 */}
@@ -358,6 +358,10 @@ const MessageBubble = memo(function MessageBubble({message, statusNote, isAgentR
                 >
                     {/* 独立 memo 组件：流式内容重画不影响本区域（见 StatusNote 定义注释） */}
                     <StatusNote note={statusNote}/>
+                    {/* §4.2 崩溃恢复标记：readMessages 将 metadata 平铺到顶层，恢复扫描补终态的消息展示"回复中断" */}
+                    {(message.abnormalTermination === true || message.metadata?.abnormalTermination === true) && (
+                        <span className="text-xs opacity-60 shrink-0">回复中断</span>
+                    )}
                     <span className="timestamp shrink-0 whitespace-nowrap">
                         {message.endedAt ? (
                             <>

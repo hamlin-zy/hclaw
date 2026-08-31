@@ -204,6 +204,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
         <div className="relative ms-2">
             <button
                 ref={buttonRef}
+                data-name="model-selector-trigger"
                 onClick={() => setView(view === 'closed' ? 'providers' : 'closed')}
                 className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/60 focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface)] ${
                     view !== 'closed'
@@ -253,6 +254,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                             return (
                                                 <button
                                                     key={p.id}
+                                                    data-name={`model-selector-provider-${p.id}`}
                                                     onClick={(e) => openProviderSubmenu(p.id, e.currentTarget)}
                                                     onMouseEnter={(e) => openProviderSubmenu(p.id, e.currentTarget)}
                                                     onMouseLeave={scheduleClose}
@@ -308,6 +310,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                             return (
                                                 <button
                                                     key={m.id}
+                                                    data-name={`model-selector-model-${m.id}`}
                                                     onClick={() => handleApply(selProviderId, m.id)}
                                                     className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs rounded-lg transition-colors ${
                                                         isSelected ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]' : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'

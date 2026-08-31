@@ -29,7 +29,7 @@ import {createConversationRepository} from '../../repositories'
 
 import type {RunParams, MainLoopExitReason, ControllerState} from './types'
 import {endTurnCleanup} from './helpers'
-import {initializeRunEnvironment, detectCommandContext, selectModelForTurn, filterTools, filterToolsForDegrade, buildSystemPrompt} from './setup'
+import {initializeRunEnvironment, detectCommandContext, selectModelForTurn, defaultRoleForTrace, filterTools, filterToolsForDegrade, buildSystemPrompt} from './setup'
 import {executeLlmCallWithRetry, executeToolCalls, extractMediaFromToolResults} from './execute'
 import {PreprocessCache} from './preprocessCache'
 import {LoopDetector, buildTurnToolCalls, isLoopPatternSilenced, type LoopVerdict} from './loopDetector'
@@ -441,8 +441,10 @@ export class AgentLoopController {
             this.turns = turnCount
             logger.info(`[AgentLoop] start turn ${turnCount}/${maxTurnsLimit}`)
 
-            // ── 选择模型（显式 modelRole → 会话 override → 默认 primary）──
-            const selection = yield* selectModelForTurn(schemeConfig, sessionId, params.modelRole)
+            // ── 选择模型（显式 modelRole → 会话 override → 默认角色降级链）──
+            // 子会话（agentTool，traceContext='subAgent'）未显式指定 modelRole 时默认轻量模型
+            // 子会话（agentTool，traceContext='subAgent'）未显式指定 modelRole 时默认轻量模型
+            const selection = yield* selectModelForTurn(schemeConfig, sessionId, params.modelRole, defaultRoleForTrace(params.traceContext))
 
             // ── 过滤工具列表 ──
             const agentType = (agentTypeParam ?? params.agentType) || 'General'

@@ -16,7 +16,7 @@ function MenuButton({icon, label, onClick}: MenuButtonProps) {
             type="button"
             onClick={onClick}
             className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-        >
+         data-name="tool-menu-button">
             <svg className="w-4 h-4 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 {icon}
             </svg>
@@ -63,7 +63,7 @@ export default function ToolMenu({onUploadFile, onOpenCommandPalette}: ToolMenuP
                         : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                 }`}
                 title="更多工具"
-            >
+             data-name="tool-menu-toggle-button">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <line x1="12" y1="5" x2="12" y2="19"/>
                     <line x1="5" y1="12" x2="19" y2="12"/>

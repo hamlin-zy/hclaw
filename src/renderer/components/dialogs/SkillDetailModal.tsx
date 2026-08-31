@@ -197,7 +197,7 @@ export default function SkillDetailModal({
                         <div
                             className="w-full max-w-3xl max-h-[90vh] bg-[var(--surface)] rounded-xl shadow-elevated overflow-hidden pointer-events-auto flex flex-col"
                             onClick={e => e.stopPropagation()}
-                        >
+                         data-name="skill-detail-modal-div">
                             {/* Header */}
                             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)]">
                                 <h2 className="text-base font-semibold text-[var(--text-primary)]">
@@ -206,7 +206,7 @@ export default function SkillDetailModal({
                                 <button
                                     onClick={onClose}
                                     className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                                >
+                                 data-name="skill-detail-modal-button">
                                     <X className="w-4 h-4"/>
                                 </button>
                             </div>
@@ -221,7 +221,7 @@ export default function SkillDetailModal({
                                                 ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
                                                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                         }`}
-                                    >
+                                     data-name="skill-detail-modal-preview-tab-button">
                                         <Eye className="w-3.5 h-3.5"/>
                                         预览
                                     </button>
@@ -233,7 +233,7 @@ export default function SkillDetailModal({
                                                     ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
                                                     : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                             }`}
-                                        >
+                                         data-name="skill-detail-modal-edit-tab-button">
                                             <Edit3 className="w-3.5 h-3.5"/>
                                             编辑
                                         </button>
@@ -252,7 +252,7 @@ export default function SkillDetailModal({
                                                 value={editName}
                                                 onChange={e => setEditName(e.target.value)}
                                                 className="w-full px-2.5 py-1.5 text-sm bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)]"
-                                            />
+                                            data-name="skill-detail-modal-input"/>
                                         ) : (
                                             <div className="text-sm text-[var(--text-primary)] font-medium">{editName || skill?.name || 'new-skill'}</div>
                                         )}
@@ -267,7 +267,7 @@ export default function SkillDetailModal({
                                             onChange={e => setEditDescription(e.target.value)}
                                             rows={2}
                                             className="w-full px-2.5 py-1.5 text-sm bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] resize-y focus:outline-none focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)]"
-                                        />
+                                        data-name="skill-detail-modal-textarea"/>
                                     ) : (
                                         <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
                                             {editDescription || skill?.description || '无描述'}
@@ -313,7 +313,7 @@ export default function SkillDetailModal({
                                             className="w-full h-80 p-3 text-xs font-mono bg-[var(--surface)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] resize-none focus:outline-none focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)]"
                                             placeholder="输入 SKILL.MD 内容..."
                                             spellCheck={false}
-                                        />
+                                        data-name="skill-detail-modal-content-textarea"/>
                                     ) : (
                                         <pre className="p-3 text-xs font-mono bg-[var(--surface)] border border-[var(--border)] rounded-lg overflow-x-auto whitespace-pre-wrap max-h-80 text-[var(--text-secondary)]">
                                             {content || skill?.content || '无内容'}
@@ -369,14 +369,14 @@ export default function SkillDetailModal({
                                     <button
                                         onClick={handleCancel}
                                         className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                                    >
+                                     data-name="skill-detail-modal-cancel-button">
                                         {mode === 'create' ? '取消' : '取消编辑'}
                                     </button>
                                     <button
                                         onClick={handleSave}
                                         disabled={isSaving}
                                         className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--brand-primary)] text-white hover:bg-[var(--brand-primary)]/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                                    >
+                                     data-name="skill-detail-modal-save-button">
                                         {isSaving ? (
                                             <>
                                                 <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />

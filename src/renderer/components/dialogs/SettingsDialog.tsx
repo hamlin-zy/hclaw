@@ -211,7 +211,7 @@ export default function SettingsDialog() {
                         ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
                         : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                 }`}
-            >
+             data-name="settings-dialog-button">
                 {resetFeedback === `${category}-tab` ? '✓ 已恢复默认' : '恢复本页默认'}
             </button>
         </div>
@@ -401,7 +401,7 @@ export default function SettingsDialog() {
                         className="flex-1 accent-[var(--brand)]"
                         value={current.model.defaultTemperature}
                         onChange={(e) => updatePending('model', {defaultTemperature: parseFloat(e.target.value)})}
-                    />
+                    data-name="settings-dialog-input"/>
                     <input
                         type="number"
                         min="0"
@@ -417,7 +417,7 @@ export default function SettingsDialog() {
                             const v = parseFloat(e.target.value)
                             if (isNaN(v) || v < 0) updatePending('model', {defaultTemperature: 0})
                         }}
-                    />
+                    data-name="settings-dialog-temperature-input"/>
                 </div>
                 <p className="text-[10px] text-[var(--text-muted)]">0 = 确定性输出，2 = 高随机性。建议代码任务使用 0。</p>
             </div>
@@ -575,7 +575,7 @@ export default function SettingsDialog() {
                             }
                         }}
                         placeholder="默认：~/.hclaw"
-                    />
+                    data-name="settings-dialog-hclaw-dir-input"/>
                     <button
                         className="px-2.5 py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-[var(--surface-muted)] rounded border border-[var(--border-muted)] transition-colors whitespace-nowrap"
                         onClick={async () => {
@@ -586,7 +586,7 @@ export default function SettingsDialog() {
                             }
                         }}
                         title="选择目录"
-                    >
+                     data-name="settings-dialog-pick-dir-button">
                         浏览
                     </button>
                     <button
@@ -596,7 +596,7 @@ export default function SettingsDialog() {
                             saveHclawDir('')
                         }}
                         title="重置为默认值"
-                    >
+                     data-name="settings-dialog-reset-dir-button">
                         重置
                     </button>
                 </div>
@@ -692,7 +692,7 @@ export default function SettingsDialog() {
                                     style={{backgroundImage: `url(${current.ui.background.imagePath})`}}
                                     onClick={() => setPreviewSrc(current.ui.background!.imagePath)}
                                     title="点击放大查看"
-                                />
+                                data-name="settings-dialog-div"/>
                             ) : (
                                 <div className="w-24 h-14 rounded border border-dashed border-[var(--border)] flex items-center justify-center text-[10px] text-[var(--text-muted)] shrink-0">
                                     未选择图片
@@ -715,7 +715,7 @@ export default function SettingsDialog() {
                                             if (list) setHistoryImages(list)
                                         }
                                     }}
-                                >
+                                 data-name="settings-dialog-upload-background-button">
                                     选择图片
                                 </button>
                                 {current.ui.background.imagePath && (
@@ -734,7 +734,7 @@ export default function SettingsDialog() {
                                             const list = await window.electronAPI?.backgroundList?.()
                                             if (list) setHistoryImages(list)
                                         }}
-                                    >
+                                     data-name="settings-dialog-pick-background-button">
                                         清除背景
                                     </button>
                                 )}
@@ -746,7 +746,7 @@ export default function SettingsDialog() {
                             <div className="space-y-1.5">
                                 <label className="text-[11px] text-[var(--text-muted)]">历史图片</label>
                                 <div className="flex gap-2 overflow-x-auto pb-1">
-                                    {historyImages.map(img => {
+                                    {historyImages.map((img, i) => {
                                         const isActive = current.ui.background?.imagePath === img.path
                                         return (
                                             <div key={img.path} className="relative group shrink-0">
@@ -761,7 +761,7 @@ export default function SettingsDialog() {
                                                         background: {...current.ui.background!, imagePath: img.path}
                                                     })}
                                                     title={img.name}
-                                                />
+                                                data-name={`settings-dialog-background-thumb-${i}`}/>
                                                 {/* 放大查看按钮（hover 显示） */}
                                                 <button
                                                     className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow text-[var(--text-muted)] hover:text-[var(--brand-primary)] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
@@ -770,7 +770,7 @@ export default function SettingsDialog() {
                                                         setPreviewSrc(img.path)
                                                     }}
                                                     title="放大查看"
-                                                >
+                                                 data-name={`settings-dialog-background-preview-${i}`}>
                                                     <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                                                         <circle cx="11" cy="11" r="8"/>
                                                         <path d="m21 21-4.3-4.3"/>
@@ -784,7 +784,7 @@ export default function SettingsDialog() {
                                                         handleDeleteHistoryImage(img)
                                                     }}
                                                     title="删除"
-                                                >
+                                                 data-name={`settings-dialog-background-delete-${i}`}>
                                                     <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                                                         <polyline points="3 6 5 6 21 6"/>
                                                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -811,7 +811,7 @@ export default function SettingsDialog() {
                                     background: {...current.ui.background!, overlay: Number(e.target.value)}
                                 })}
                                 className="w-full accent-[var(--brand-primary)]"
-                            />
+                            data-name="settings-dialog-overlay-opacity-input"/>
                         </div>
 
                         {/* 模糊强度 */}
@@ -826,7 +826,7 @@ export default function SettingsDialog() {
                                     background: {...current.ui.background!, blur: Number(e.target.value)}
                                 })}
                                 className="w-full accent-[var(--brand-primary)]"
-                            />
+                            data-name="settings-dialog-background-blur-input"/>
                         </div>
                     </div>
                 )}
@@ -883,7 +883,7 @@ export default function SettingsDialog() {
                         {id: 'model', label: '模型参数', icon: '🧠'},
                         {id: 'channels', label: '渠道配置', icon: '🔗'},
                         {id: 'shortcuts', label: '快捷键', icon: '⌨️'},
-                    ].map((tab) => (
+                    ].map((tab, i) => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id as Category)}
@@ -892,7 +892,7 @@ export default function SettingsDialog() {
                                     ? 'bg-[var(--surface-muted)] text-[var(--text-primary)] font-medium shadow-sm'
                                     : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                             }`}
-                        >
+                         data-name={`settings-dialog-tab-${i}`}>
                             <span className="mr-2.5">{tab.icon}</span>
                             {tab.label}
                         </button>
@@ -918,7 +918,7 @@ export default function SettingsDialog() {
                                         ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
                                         : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--error)] hover:border-[var(--error)]'
                                 }`}
-                            >
+                             data-name="settings-dialog-reset-all-button">
                                 {resetFeedback === 'all' ? '✓ 已恢复全部默认' : '恢复全部默认'}
                             </button>
                         </div>
@@ -945,14 +945,14 @@ export default function SettingsDialog() {
                     <button
                         onClick={handleDiscard}
                         className="px-3 py-1.5 text-[11px] font-medium rounded-md border border-[var(--border)] text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                    >
+                     data-name="settings-dialog-discard-button">
                         放弃
                     </button>
                     <button
                         onClick={handleSave}
                         disabled={!loaded || saving}
                         className="px-3 py-1.5 text-[11px] font-medium rounded-md bg-[var(--brand-primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-                    >
+                     data-name="settings-dialog-save-button">
                         {saving ? '保存中...' : '保存'}
                     </button>
                 </div>
@@ -1002,7 +1002,7 @@ function NumberField({
                     const parsed = decimals > 0 ? parseFloat(e.target.value) : parseInt(e.target.value)
                     onChange(parsed)
                 }}
-            />
+            data-name="settings-dialog-number-field-input"/>
             {isDangerous && (
                 <p className="text-[10px] text-red-500">值无效，已还原为 {fallback}</p>
             )}

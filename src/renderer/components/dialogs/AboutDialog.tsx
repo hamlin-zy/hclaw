@@ -159,7 +159,7 @@ export default function AboutDialog() {
             hover:border-[var(--brand-primary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]
             active:scale-[0.97] active:bg-[var(--surface-muted)]
             disabled:opacity-60 disabled:cursor-wait transition-all duration-150"
-        >
+         data-name="about-dialog-button">
           {checking && (
             <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M21 12a9 9 0 11-6.219-8.56" />
@@ -174,7 +174,7 @@ export default function AboutDialog() {
               onClick={() => window.electronAPI?.openSystem?.(updateResult.downloads.github)}
               className="flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs
                 bg-[var(--brand-primary)] text-white hover:opacity-90 transition-opacity"
-            >
+             data-name="about-dialog-github-download-button">
               GitHub 下载
             </button>
             <button
@@ -182,7 +182,7 @@ export default function AboutDialog() {
               className="flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs
                 bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)]
                 hover:border-[var(--brand-primary)] transition-colors"
-            >
+             data-name="about-dialog-baidu-download-button">
               网盘下载
             </button>
           </div>
@@ -191,7 +191,7 @@ export default function AboutDialog() {
 
       {/* Links Grid — 2x2 */}
       <div className="grid grid-cols-2 gap-2.5 w-full max-w-[300px]">
-        {LINKS.map((link) => (
+        {LINKS.map((link, i) => (
           <button
             key={link.label}
             onClick={(e) => handleLinkClick(link.url, e)}
@@ -199,7 +199,7 @@ export default function AboutDialog() {
               text-[var(--text-secondary)] bg-[var(--surface)] border border-[var(--border)]
               hover:border-[var(--brand-primary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]
               transition-all duration-150"
-          >
+           data-name={`about-dialog-link-${i}`}>
             <span className="w-4 h-4 flex items-center justify-center text-[var(--text-muted)]">
               {link.icon}
             </span>

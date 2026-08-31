@@ -49,7 +49,7 @@ function CollapsibleCategory({title, icon, items, limit, isCollapsed, onToggle, 
                     <button
                         onClick={onToggle}
                         className="text-xs text-[var(--brand-primary)] hover:text-[var(--brand-primary)]/80 transition-colors"
-                    >
+                     data-name="plugin-dialog-button">
                         {isCollapsed ? `展开全部` : '收起'}
                     </button>
                 )}
@@ -528,14 +528,14 @@ export default function PluginDialog() {
                           className="flex-1 px-4 py-2.5 bg-[var(--surface-muted)] rounded-lg border border-[var(--border)]
                        text-[var(--text-primary)] placeholder-[var(--text-muted)]
                        focus:outline-none focus:border-[var(--brand-primary)]/50 focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all"
-                      />
+                      data-name="plugin-dialog-input"/>
                       <button
                           onClick={handleInstall}
                           disabled={installing || !installUrl.trim()}
                           className="px-4 py-2.5 border border-[var(--border)] text-[var(--brand-primary)] hover:border-[var(--brand-primary)]/50 hover:bg-[var(--brand-primary)]/10
                        disabled:opacity-50 disabled:cursor-not-allowed
                        font-medium rounded-lg transition-colors flex items-center gap-2 text-xs"
-                      >
+                       data-name="plugin-dialog-install-button">
                           {installing && (
                               <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
                                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
@@ -548,7 +548,7 @@ export default function PluginDialog() {
                           onClick={handleReload}
                           className="p-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded transition-colors"
                           title="刷新"
-                      >
+                       data-name="plugin-dialog-reload-button">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                               <path d="M23 4v6h-6M1 20v-6h6"/>
                               <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
@@ -596,7 +596,7 @@ export default function PluginDialog() {
                                                         className={`font-medium truncate ${nameClass}`}
                                                         onClick={(e) => handlePluginNameClick(repoUrl, e)}
                                                         title={repoUrl || undefined}
-                                                    >
+                                                     data-name="plugin-dialog-h4">
                                                         {plugin.manifest.name || plugin.name}
                                                     </h4>
                                                 )
@@ -657,7 +657,7 @@ export default function PluginDialog() {
                                                   className="px-1.5 py-1.5 text-xs font-medium rounded-md
                                                      bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20
                                                      transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                              >
+                                               data-name="plugin-dialog-sync-versions-button">
                                                   {syncingVersion === plugin.name ? '同步中...' : '同步版本'}
                                               </button>
                                           )}
@@ -668,7 +668,7 @@ export default function PluginDialog() {
                                                   className="px-1.5 py-1.5 text-xs font-medium rounded-md
                                                      bg-[var(--warning)]/10 text-[var(--warning)] hover:bg-[var(--warning)]/20
                                                      transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                              >
+                                               data-name="plugin-dialog-reset-plugin-button">
                                                   {resettingPlugin === plugin.name ? '还原中...' : '还原'}
                                               </button>
                                           )}
@@ -677,7 +677,7 @@ export default function PluginDialog() {
                                               className="px-1.5 py-1.5 text-xs font-medium rounded-md
                                  bg-[var(--error)]/10 text-[var(--error)] hover:bg-[var(--error)]/20
                                  transition-colors"
-                                          >
+                                           data-name="plugin-dialog-uninstall-button">
                                               卸载
                                           </button>
                                       </div>
@@ -744,7 +744,7 @@ export default function PluginDialog() {
                                           }
                                       }}
                                       className="mt-3 flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
-                                  >
+                                   data-name="plugin-dialog-toggle-details-button">
                                       <svg
                                           className={`w-3 h-3 transition-transform ${expandedPlugin === plugin.name ? 'rotate-180' : ''}`}
                                           fill="none"

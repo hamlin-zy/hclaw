@@ -36,6 +36,8 @@ import {
   PENDING_MSG_MAX_BYTES,
 } from './manager.constants'
 import {createPendingMsg, normalizeToolResult, finalizePending, appendCappedPart, isRenderedCopyFingerprintMatch, buildStreamSnapshot} from './manager.accumulator'
+import {getConversationPersistence} from '../persistence/conversationPersistence'
+import {persistStreamEvent, resetBridgeMsgState} from '../persistence/streamBridge'
 
 // ─── 快照 v2 辅助（与 manager.accumulator.ts 双轨一致）──────────
 const PROGRESS_LOG_MAX_IMPL = 200
@@ -77,6 +79,19 @@ export class AgentManager {
   /** 会话 → 渲染端占位消息 id（ensureStreamingMessage 上报）。
    *  主进程 pending 累积复用该 id，避免与渲染端流式消息双 id 双写（幽灵消息根因）。 */
   private streamingMsgIds: Map<string, string> = new Map()
+
+  // ─── Phase 2：loop 接管流式落库（渲染端已停写，本类为唯一持久化主体）───
+
+  /** 会话 → assistant 消息行级 metadata（agentName/model，UI 徽章依赖）。
+   *  来源：agent_start 流事件（主进程持有真实 model；AgentStartParams.modelConfig
+   *  为占位空对象，loop 运行时才解析，故以事件为准）。 */
+  #assistantMetaByConv = new Map<string, {agentName?: string; model?: string}>()
+
+  /** 会话 → 已 ensureMessageRow 的消息 id 集（行先建再写块，幂等防重复） */
+  #rowEnsured = new Map<string, Set<string>>()
+
+  /** 会话 → 当前轮次索引（块 turn_index 溯源，与渲染端 currentTurnIndex 语义一致） */
+  #turnIndexByConv = new Map<string, number>()
 
   constructor() {
     eventBus.on(MCPThemeEvents.TOOLS_REFRESHED, () => {
@@ -136,21 +151,6 @@ export class AgentManager {
         }
       }
     }
-  }
-
-  /**
-   * 渲染端占位消息 id 注册（ensureStreamingMessage 创建空占位后调用）。
-   *
-   * 目的：主进程 pending（createPendingMsg 随机 id）与渲染端占位（randomUUID）
-   * 双轨独立生成 id，done 时 #mergeAndPersist 全量写兜底会以 pending.id 插入
-   * 幽灵副本 → 重启加载后每条助手消息渲染 2 份。注册后 pending 一律复用
-   * 渲染端 id，兜底路径自然短路（该 id 已有 blocks）。
-   */
-  registerStreamingMessage(conversationId: string, msgId: string): void {
-    this.streamingMsgIds.set(conversationId, msgId)
-    // 竞态兜底：text 先于注册到达（pending 已创建）→ 立即对齐
-    const pending = this.pendingAssistantMsg.get(conversationId)
-    if (pending) pending.id = msgId
   }
 
   // ─── Worker 生命周期管理 ───────────────────────────────
@@ -238,7 +238,13 @@ export class AgentManager {
     }
 
     // 通知渲染进程该会话的 Agent 已启动
-    this.forwardToRenderer(params.conversationId, {type: 'begin'})
+    // ★ 消息 id 单源（§3.6-1）：流式消息 id 由主进程生成并随 begin 事件下发，
+    //   渲染端不再自建占位 id（ensureStreamingMessage 用事件 payload messageId）。
+    //   streamingMsgIds 种子使 accumulateEvent 新建 pending 复用同一 id
+    //   （原"渲染端注册 → 主进程对齐"反转为"主进程生成 → 事件下发"）。
+    const streamMsgId = crypto.randomUUID()
+    this.streamingMsgIds.set(params.conversationId, streamMsgId)
+    this.forwardToRenderer(params.conversationId, {type: 'begin', messageId: streamMsgId})
 
     // 监听 Worker 消息
     worker.on('message', this.createMessageHandler(params.conversationId, worker))
@@ -383,10 +389,10 @@ export class AgentManager {
           return
         }
 
-        // Agent 结束后残留的注入消息：保存到会话历史并通知渲染层
+        // Agent 结束后残留收尾：持久化 pending assistant 消息（残留注入消息直接丢弃，落库归 startAgentCore）
         if (msg.type === WORKER_MESSAGE_TYPES.PENDING_MESSAGES_AFTER_EXIT) {
-          const exitMsg = (msg as unknown) as { conversationId: string; messages: Array<{ content: string; id: string }> }
-          await this.handlePendingMessagesAfterExit(exitMsg.conversationId, exitMsg.messages || [])
+          const exitMsg = (msg as unknown) as { conversationId: string }
+          await this.handlePendingMessagesAfterExit(exitMsg.conversationId)
           return
         }
 
@@ -492,6 +498,15 @@ export class AgentManager {
     if (event.type === 'user_message_injected') {
       const oldPending = this.pendingAssistantMsg.get(conversationId)
       if (oldPending) {
+        // turn reset：★顺序强制（设计 §3.1 / §3.6-4 / ★P3）——必须先 finalize
+        // （end 块落库 + message-finalized 事件），再跑 #mergeAndPersist——
+        // finalize 先落块后，merge 走"已有 blocks"修复分支（repairTextTail +
+        // setMessageEnded），绝无全量写；若顺序颠倒，merge 在 blocks==0 时全量写
+        // offset 型块，finalize 再补插 seq 型块 → 同消息两套 text 块 → 读回正文重复。
+        const finalized = getConversationPersistence().finalizeMessage(conversationId, oldPending.id, Date.now())
+        if (finalized) resetBridgeMsgState(oldPending.id)
+        this.#turnIndexByConv.set(conversationId, (this.#turnIndexByConv.get(conversationId) ?? 0) + 1)
+        if (!finalized) logger.warn('[AgentManager] turn reset finalize 失败，将随重试补齐', {conversationId})
         await this.#mergeAndPersist(conversationId, oldPending, true)
       }
       this.pendingAssistantMsg.set(conversationId, null)
@@ -626,6 +641,19 @@ export class AgentManager {
    *
    * @param isFinal - 是否为最终写入（done/error），会影响 thinkBlock 状态和 endedAt
    */
+  /** done/error/afterExit 收尾：★顺序强制——先 finalize（end 块落库 + 事件），
+   *  成功后清理桥接段号状态，再跑 #mergeAndPersist（此时 merge 必走"已有 blocks"
+   *  修复分支，绝无全量写 → 防两套 text 块正文重复，★P3）。 */
+  async #finalizeThenMerge(conversationId: string): Promise<void> {
+    const pending = this.pendingAssistantMsg.get(conversationId)
+    if (pending) {
+      const finalized = getConversationPersistence().finalizeMessage(conversationId, pending.id, Date.now())
+      if (finalized) resetBridgeMsgState(pending.id)
+      if (!finalized) logger.warn('[AgentManager] 收尾 finalize 失败，将随重试补齐', {conversationId})
+    }
+    await this.#mergeAndPersist(conversationId, pending, true)
+  }
+
   async #mergeAndPersist(
     conversationId: string,
     pending: PendingAssistantMsg | null | undefined,
@@ -686,6 +714,8 @@ export class AgentManager {
       content: pending.content,
       timestamp: pending.timestamp,
       endedAt: isFinal ? now : undefined,
+      // ★P2：全量写路径同样不能丢 agentName/model（UI 徽章依赖）
+      metadata: this.#assistantMetaByConv.get(conversationId),
       toolCalls: pending.toolCalls.length > 0 ? pending.toolCalls : undefined,
       thinkBlock: pending.thinkContent
         ? {
@@ -754,6 +784,10 @@ export class AgentManager {
     })()
     if (raced) return
     saveDatabase()
+
+    // ★P3：全量写已含全部内容，桥接未 flush patch 必须丢弃——否则随后的
+    //   finalize 会把桥接累积的 seq 型块补插进同一消息 → 两套 text 块 → 读回重复。
+    getConversationPersistence().discardMessage(conversationId, pending.id)
 
     // 检查 user 消息是否丢失
     const afterUserRows = db.prepare(
@@ -827,7 +861,7 @@ export class AgentManager {
     event: {type: 'done'; reason: 'completed' | 'aborted' | 'error'},
   ): Promise<void> {
     try {
-      await this.#mergeAndPersist(conversationId, this.pendingAssistantMsg.get(conversationId), true)
+      await this.#finalizeThenMerge(conversationId)
     } catch (err) {
       logger.error('[AgentManager] 持久化异常', {error: err})
     }
@@ -838,7 +872,7 @@ export class AgentManager {
   /** 处理 error 事件 */
   private async handleErrorEvent(conversationId: string, errorMsg: string): Promise<void> {
     try {
-      await this.#mergeAndPersist(conversationId, this.pendingAssistantMsg.get(conversationId), true)
+      await this.#finalizeThenMerge(conversationId)
     } catch (err) {
       logger.error('[AgentManager] 持久化异常', {error: err})
     }
@@ -846,37 +880,12 @@ export class AgentManager {
     this.forwardToRenderer(conversationId, {type: 'error', error: errorMsg})
   }
 
-  /** 处理 Agent 结束后残留的注入消息 */
-  private async handlePendingMessagesAfterExit(conversationId: string, messages: Array<{ content: string; id: string }>): Promise<void> {
-    if (!messages.length) return
-
+  /** 处理 Agent 结束后残留的收尾工作（残留注入消息直接丢弃，不再落库——历史"永不处理的 user 死数据"问题） */
+  private async handlePendingMessagesAfterExit(conversationId: string): Promise<void> {
     try {
-      // 1. 持久化当前 pending assistant 消息（如果有）
-      await this.#mergeAndPersist(conversationId, this.pendingAssistantMsg.get(conversationId), true)
+      // 持久化当前 pending assistant 消息（如果有）
+      await this.#finalizeThenMerge(conversationId)
       this.pendingAssistantMsg.set(conversationId, null)
-
-      // 2. 将残留消息写入会话历史
-      const {createConversationRepository} = await import('../repositories')
-      const repo = createConversationRepository()
-      const now = Date.now()
-      const messageRecords = messages.map((msg, idx) => ({
-        id: msg.id,
-        role: 'user' as const,
-        content: msg.content || '',
-        timestamp: now + idx,  // 同一批次内按 idx 微调排序
-      }))
-      const written = repo.writeMessages(conversationId, messageRecords)
-      if (!written) {
-        logger.warn('[AgentManager] handlePendingMessagesAfterExit: writeMessages 返回 false', {conversationId})
-      }
-
-      // 3. 通知渲染层，触发新 Agent 处理这些消息
-      this.forwardToRenderer(conversationId, {
-        type: 'user_message_injected_after_exit',
-        messages,
-      })
-
-      logger.info(`[AgentManager] 已处理 ${messages.length} 条残留的注入消息到会话 ${conversationId}`)
     } catch (err) {
       logger.error('[AgentManager] handlePendingMessagesAfterExit 失败', {error: err})
     }
@@ -1071,6 +1080,18 @@ export class AgentManager {
         break
       }
 
+      case 'agent_start': {
+        // ★P2：assistant 消息行级 metadata（agentName/model，UI 徽章依赖）。
+        //   事件携带真实 model（AgentStartParams.modelConfig 为占位空对象，
+        //   loop 运行时才解析），agentType 对应消息 agentName。
+        const start = event as {type: 'agent_start'; agentType?: string; model?: string}
+        this.#assistantMetaByConv.set(conversationId, {
+          ...(start.agentType ? {agentName: start.agentType} : {}),
+          ...(start.model ? {model: start.model} : {}),
+        })
+        break
+      }
+
       case 'done':
       case 'error': {
         // 终态清空阻塞态（兜底防陈旧阻塞态复活，与 accumulator.ts 双轨一致）
@@ -1088,6 +1109,21 @@ export class AgentManager {
     //   （幂等：已对齐时重设相同值无副作用）
     if (pending && registeredMsgId) {
       pending.id = registeredMsgId
+    }
+
+    // ── Phase 2：loop 接管落库（渲染端已停写，本类为唯一持久化主体）────────
+    // ① 消息行先建再写块：首次见到 pending.id 时确保行级字段
+    //   （writeBlockDelta 既有规范；★P2 metadata 携带 agentName/model）。
+    const persistence = getConversationPersistence()
+    if (pending && !this.#rowEnsured.get(conversationId)?.has(pending.id)) {
+      persistence.ensureMessageRow(conversationId, pending.id, pending.timestamp, this.#assistantMetaByConv.get(conversationId))
+      const ensured = this.#rowEnsured.get(conversationId) ?? new Set<string>()
+      ensured.add(pending.id)
+      this.#rowEnsured.set(conversationId, ensured)
+    }
+    // ② 事件桥接（msgId = pending.id；turnIndex 用 manager 轮次计数）
+    if (pending) {
+      persistStreamEvent(persistence, conversationId, pending.id, pending, event, this.#turnIndexByConv.get(conversationId))
     }
 
     return pending
@@ -1259,6 +1295,11 @@ export class AgentManager {
    * pending 为 null（首 token 前崩溃窗口）时返回 null。
    */
   async getStreamSnapshot(conversationId: string) {
+    // §4.2 恢复扫描：快照播种前先给该会话未 finalize 的 assistant 消息落终态
+    //（先落终态再快照，避免把将死的流式态播种给 UI）。活跃 loop 的消息不在
+    // 扫描范围（ended_at 会被正常 finalize；扫描 SQL 只看 ended_at IS NULL，
+    // 若 loop 仍在写块，补 end 块属幂等容错，正常路径不受影响）。
+    getConversationPersistence().recoverUnfinalized(conversationId)
     const pending = this.pendingAssistantMsg.get(conversationId) ?? null
     if (!pending) return null
     let dbTextBlockCount = 0
@@ -1347,6 +1388,19 @@ export class AgentManager {
     this.pendingAssistantMsg.delete(conversationId)
     this.streamingMsgIds.delete(conversationId)
     this.streamListeners.delete(conversationId)
+
+    // Phase 2：持久化状态清理（7.2b 必然事件：run 结束即 flush 残余增量后整组清理，
+    // 防后续 flush 复活/污染；同时清理本类桥接辅助状态）
+    try {
+      const persistence = getConversationPersistence()
+      persistence.flush(conversationId)
+      persistence.clearConversation(conversationId)
+    } catch (err) {
+      logger.warn('[AgentManager] 持久化清理失败', {error: err})
+    }
+    this.#rowEnsured.delete(conversationId)
+    this.#turnIndexByConv.delete(conversationId)
+    this.#assistantMetaByConv.delete(conversationId)
   }
 
   /**

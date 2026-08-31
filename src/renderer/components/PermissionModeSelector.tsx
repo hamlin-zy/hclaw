@@ -96,7 +96,7 @@ export default function PermissionModeSelector() {
                     text-[var(--text-secondary)]
                 `}
                 aria-expanded={isOpen}
-            >
+             data-name="permission-mode-selector-button">
                 {/* 盾牌/闪电图标 */}
                 <span className="text-[var(--text-secondary)]">{activeMode.icon}</span>
 
@@ -136,7 +136,7 @@ export default function PermissionModeSelector() {
                                     运行模式
                                 </div>
 
-                                {modes.map((m) => {
+                                {modes.map((m, i) => {
                                     const isActive = permissionMode === m.id
 
                                     return (
@@ -154,7 +154,7 @@ export default function PermissionModeSelector() {
                                                     : `text-[var(--text-muted)] hover:bg-[var(--surface-muted)] ${m.hoverColor}`
                                                 }
                                             `}
-                                        >
+                                         data-name={`permission-mode-selector-mode-${i}`}>
                                             {/* 左侧图标 */}
                                             <span className={isActive ? '' : 'opacity-70'}>{m.icon}</span>
 

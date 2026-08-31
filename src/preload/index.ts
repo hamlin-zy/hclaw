@@ -42,10 +42,15 @@ const memoArg = (prefix: string): string => {
 const memoId = memoArg('--hclaw-memo-id=')
 const memoWorkspace = memoArg('--hclaw-memo-workspace=')
 
+// 从 additionalArguments 读取开发模式标识（主进程 isDevMode() 判定，经 --hclaw-dev 透传）
+const devArg = process.argv.find(arg => arg.startsWith('--hclaw-dev='))
+const isDevMode = devArg ? devArg.split('=')[1] === '1' : false
+
 contextBridge.exposeInMainWorld('electronAPI', {
     initialTheme: initialThemeValue,
     isWin11,
     isDarwin,
+    isDevMode,
   // Window control
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
     getPlatform: () => ipcRenderer.invoke('get-platform'),
@@ -121,8 +126,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('agent-abort', conversationId),
   agentLoopSilence: (conversationId: string, fingerprint: string) =>
     ipcRenderer.invoke('agent-loop-silence', conversationId, fingerprint),
-  agentRegisterStreamingMessage: (conversationId: string, messageId: string) =>
-    ipcRenderer.invoke('agent-register-streaming-message', conversationId, messageId),
+  // ★ 消息 id 单源（§3.6-1）：主进程经 begin 事件下发 messageId，渲染端不再注册占位 id
+  onAgentPersistEvent: (callback: (payload: unknown) => void) => {
+    const handler = (_: unknown, payload: unknown) => callback(payload)
+    ipcRenderer.on('agent-persist-event', handler)
+    return () => ipcRenderer.removeListener('agent-persist-event', handler)
+  },
   agentInjectMessage: (params: { conversationId: string; content: string; messageId?: string }) =>
     ipcRenderer.invoke('agent-inject-message', params),
   agentStatus: (conversationId?: string) =>
@@ -274,12 +283,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('conversation-read-tail', convId, count),
     conversationReadBefore: (convId: string, beforeTimestamp: number, count: number) =>
         ipcRenderer.invoke('conversation-read-before', convId, beforeTimestamp, count),
-  conversationWriteMessages: (convId: string, messages: unknown[]) =>
-    ipcRenderer.invoke('conversation-write-messages', convId, messages),
-  conversationWriteMessagesDelta: (convId: string, message: unknown) =>
-    ipcRenderer.invoke('conversation-write-messages-delta', convId, message),
-  conversationWriteBlockDelta: (convId: string, msgId: string, patch: unknown) =>
-    ipcRenderer.invoke('conversation-write-block-delta', convId, msgId, patch),
   conversationUpdateMeta: (convId: string, updates: Record<string, unknown>) =>
     ipcRenderer.invoke('conversation-update-meta', convId, updates),
   conversationDelete: (convId: string) =>
@@ -401,13 +404,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 语音转文字（前端录音按钮使用）
     speechToTextConvert: (audioPath: string) =>
         ipcRenderer.invoke('speech-to-text-convert', audioPath),
-
-  // Flush save on app quit
-  onFlushSave: (callback: () => void) => {
-    const handler = () => callback()
-    ipcRenderer.on('flush-save', handler)
-    return () => ipcRenderer.removeListener('flush-save', handler)
-  },
 
     // MCP (Model Context Protocol) management
     mcp: {

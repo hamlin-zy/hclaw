@@ -180,7 +180,7 @@ export default function ConversationsDialog() {
                     <button
                         onClick={loadData}
                         className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                    >
+                     data-name="conversations-dialog-button">
                         重试
                     </button>
                 </div>
@@ -212,7 +212,7 @@ export default function ConversationsDialog() {
                 <button
                     onClick={() => setSelectedIds(new Set(conversations.map((c) => c.id)))}
                     className={BTN_BORDERED}
-                >
+                 data-name="conversations-dialog-select-all-button">
                     全选
                 </button>
                 <button
@@ -226,7 +226,7 @@ export default function ConversationsDialog() {
                         })
                     }}
                     className={BTN_BORDERED}
-                >
+                 data-name="conversations-dialog-invert-selection-button">
                     反选
                 </button>
 
@@ -234,12 +234,12 @@ export default function ConversationsDialog() {
                 <div className="w-px h-4 bg-[var(--border-muted)] shrink-0" aria-hidden="true"/>
 
                 {/* 按时间快捷选择 */}
-                {TIME_PRESETS.map(({days, label}) => (
+                {TIME_PRESETS.map(({days, label}, i) => (
                     <button
                         key={days}
                         onClick={() => selectByTime(days)}
                         className={BTN_GHOST}
-                    >
+                     data-name={`conversations-dialog-time-preset-${i}`}>
                         {label}
                     </button>
                 ))}
@@ -248,7 +248,7 @@ export default function ConversationsDialog() {
                 <button
                     onClick={() => setSelectedIds(new Set())}
                     className={BTN_GHOST}
-                >
+                 data-name="conversations-dialog-clear-selection-button">
                     取消选中
                 </button>
 
@@ -270,7 +270,7 @@ export default function ConversationsDialog() {
                                     ? 'bg-red-500/20 text-red-400 cursor-not-allowed'
                                     : 'bg-red-500/12 text-red-400 hover:bg-red-500/20'
                         }`}
-                    >
+                     data-name="conversations-dialog-delete-button">
                         {deleting ? (
                             <>
                                 <div
@@ -317,7 +317,7 @@ export default function ConversationsDialog() {
                                 onChange={() => toggleSelect(conv.id)}
                                 disabled={deleting}
                                 className="w-3.5 h-3.5 rounded border-[var(--border)] text-[var(--brand-primary)] focus:ring-[var(--brand-primary)] accent-[var(--brand-primary)]"
-                            />
+                            data-name="conversations-dialog-input"/>
                         </div>
                         <div className="flex items-center truncate text-[var(--text-primary)]">
                             {conv.title || '(无标题)'}

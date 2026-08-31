@@ -1,5 +1,6 @@
 import {useMemo} from 'react'
 import {useConversationStore} from '../stores/conversationStore'
+import {formatTokenCount as formatTokenK} from '../lib/format'
 
 /**
  * 会话统计信息
@@ -63,9 +64,6 @@ export default function SessionStats() {
             subAgentTokens
         }
     }, [loadedMessages])
-
-    const formatTokenK = (count: number): string =>
-        count >= 1000 ? `${(count / 1000).toFixed(1)}k` : `${count}`
 
     const stats = [
         `LLM ${sessionStats.requestCount}次`,

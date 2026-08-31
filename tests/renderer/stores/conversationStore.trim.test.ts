@@ -70,8 +70,6 @@ function addMany(count: number, convId: string, maker: (id: string) => Message):
 beforeEach(() => {
     ;(globalThis as any).window = {
         electronAPI: {
-            conversationWriteMessagesDelta: vi.fn(async () => true),
-            conversationWriteMessages: vi.fn(async () => true),
         },
     }
     useConversationStore.setState({
@@ -86,7 +84,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-    useConversationStore.getState().cancelPendingSave()
     vi.useRealTimers()
 })
 

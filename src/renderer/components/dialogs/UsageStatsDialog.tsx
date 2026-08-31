@@ -118,7 +118,7 @@ export default function UsageStatsDialog() {
                     <button
                         onClick={() => options && void loadData(options.convId)}
                         className="mt-3 px-4 py-1.5 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                    >
+                     data-name="usage-stats-dialog-button">
                         重试
                     </button>
                 </div>
@@ -191,11 +191,11 @@ export default function UsageStatsDialog() {
                             <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">分组用量</span>
                             <div className="flex gap-0.5 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
                                 <button onClick={() => setGroupView('provider')}
-                                        className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${groupView === 'provider' ? 'bg-[var(--surface-elevated)] shadow-sm' : 'text-[var(--text-muted)]'}`}>
+                                        className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${groupView === 'provider' ? 'bg-[var(--surface-elevated)] shadow-sm' : 'text-[var(--text-muted)]'}`} data-name="usage-stats-dialog-group-provider-button">
                                     按服务商
                                 </button>
                                 <button onClick={() => setGroupView('model')}
-                                        className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${groupView === 'model' ? 'bg-[var(--surface-elevated)] shadow-sm' : 'text-[var(--text-muted)]'}`}>
+                                        className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${groupView === 'model' ? 'bg-[var(--surface-elevated)] shadow-sm' : 'text-[var(--text-muted)]'}`} data-name="usage-stats-dialog-group-model-button">
                                     按模型
                                 </button>
                             </div>
@@ -295,7 +295,7 @@ export default function UsageStatsDialog() {
                             className={`absolute pointer-events-auto bg-[var(--surface)] rounded-xl border border-[var(--border)] overflow-hidden w-[560px] max-w-[calc(100vw-2rem)] transition-shadow duration-100 ${isDragging ? 'scale-[1.02]' : 'shadow-elevated'}`}
                             style={{left: position.x, top: position.y}}
                             onClick={(e) => e.stopPropagation()}
-                        >
+                         data-name="usage-stats-dialog-div">
                             {/* 头部：图标 + 标题 + 快捷关闭（拖动手柄） */}
                             <div
                                 onMouseDown={handleDragStart}
@@ -320,7 +320,7 @@ export default function UsageStatsDialog() {
                                         onClick={handleClose}
                                         aria-label="关闭"
                                         className="p-1.5 -mr-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                                    >
+                                     data-name="usage-stats-dialog-close-button">
                                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                                             <line x1="18" y1="6" x2="6" y2="18"/>
                                             <line x1="6" y1="6" x2="18" y2="18"/>

@@ -50,19 +50,19 @@ export function HandoffDialog({conversationId, ratio, windowTokens, estimatedTok
             checked={dismissSession}
             onChange={(e) => setDismissSession(e.target.checked)}
             className="w-4 h-4"
-          />
+          data-name="handoff-dialog-input"/>
         </label>
         <div className="flex justify-end gap-3">
-          <button className="rounded-lg px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]" onClick={() => choose('cancel')}>
+          <button className="rounded-lg px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]" onClick={() => choose('cancel')} data-name="handoff-dialog-button">
             取消发送
           </button>
-          <button className="rounded-lg px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]" onClick={() => choose('continue')}>
+          <button className="rounded-lg px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]" onClick={() => choose('continue')} data-name="handoff-dialog-continue-button">
             继续在当前会话执行
           </button>
           <button
             className="rounded-lg px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500"
             onClick={() => choose('handoff')}
-          >
+           data-name="handoff-dialog-handoff-button">
             交接并新建会话
           </button>
         </div>

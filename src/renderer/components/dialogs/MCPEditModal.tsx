@@ -23,15 +23,15 @@ export default function MCPEditModal({ server, onSave, onCancel, onTestError }: 
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center"
-             onClick={onCancel}>
+             onClick={onCancel} data-name="mcpedit-modal-div">
             <div className="absolute inset-0 bg-black/50"/>
             <div onClick={e => e.stopPropagation()}
-                 className="relative w-[580px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col overflow-hidden">
+                 className="relative w-[580px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col overflow-hidden" data-name="mcpedit-modal-panel">
                 {/* 标题栏 */}
                 <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border)] flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-[var(--text-primary)]">{title}</h3>
                     <button onClick={onCancel}
-                            className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded transition-colors">
+                            className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded transition-colors" data-name="mcpedit-modal-button">
                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                         </svg>

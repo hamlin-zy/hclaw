@@ -62,7 +62,7 @@ function AgentCard({template, onEdit, onDelete, onToggle, onPreview, readOnly}: 
                     ? "bg-[var(--surface)] border-[var(--border)] hover:border-[var(--border-muted)] hover:shadow-sm"
                     : "bg-[var(--surface-muted)]/20 border-[var(--border)] opacity-60"
             )}
-        >
+         data-name="agents-dialog-button-role">
             {/* Icon + Content (title row with buttons | tags | description — full width) */}
             <div className="flex items-start gap-4">
                 {/* Agent 图标 */}
@@ -85,7 +85,7 @@ function AgentCard({template, onEdit, onDelete, onToggle, onPreview, readOnly}: 
                             </h3>
                             <CopyButton name={template.name} />
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()} data-name="agents-dialog-div">
                             <Switch checked={template.enabled} onChange={onToggle}/>
                             <div className="flex items-center gap-1 pl-2 border-l border-[var(--border)]">
                                 <button
@@ -99,7 +99,7 @@ function AgentCard({template, onEdit, onDelete, onToggle, onPreview, readOnly}: 
                                     )}
                                     title="编辑"
                                     aria-label="编辑"
-                                >
+                                 data-name="agents-dialog-button">
                                     <Edit2 className="w-4 h-4"/>
                                 </button>
                                 <button
@@ -113,7 +113,7 @@ function AgentCard({template, onEdit, onDelete, onToggle, onPreview, readOnly}: 
                                     )}
                                     title="删除"
                                     aria-label="删除"
-                                >
+                                 data-name="agents-dialog-agent-delete-button">
                                     <Trash2 className="w-4 h-4"/>
                                 </button>
                             </div>
@@ -163,12 +163,12 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
             role="dialog"
             aria-modal="true"
             aria-label={`Agent 详情：${agent.name}`}
-        >
+         data-name="agents-dialog-detail-overlay">
             <div className="absolute inset-0 bg-black/50"/>
             <div
                 onClick={e => e.stopPropagation()}
                 className="relative w-[580px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col overflow-hidden"
-            >
+             data-name="agents-dialog-detail-panel">
                 {/* Header */}
                 <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border)] flex items-center justify-between">
                     <div className="flex items-center gap-3 min-w-0">
@@ -192,7 +192,7 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                         onClick={() => onClose()}
                         aria-label="关闭"
                         className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded transition-colors"
-                    >
+                     data-name="agents-dialog-detail-close-button">
                         <X className="w-4 h-4"/>
                     </button>
                 </div>
@@ -292,14 +292,14 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                                     ? "bg-[var(--surface-muted)] text-[var(--text-muted)]/50 cursor-not-allowed"
                                     : "bg-[var(--brand-primary)] text-white hover:shadow-md"
                             )}
-                        >
+                         data-name="agents-dialog-detail-edit-button">
                             编辑
                         </button>
                     )}
                     <button
                         onClick={() => onClose()}
                         className="px-4 py-2 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-all"
-                    >
+                     data-name="agents-dialog-detail-footer-close-button">
                         关闭
                     </button>
                 </div>
@@ -418,7 +418,7 @@ export default function AgentsDialog() {
                             onClick={handleSync}
                             disabled={loading}
                             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
+                         data-name="agents-dialog-sync-button">
                             <RefreshCw className={clsx("h-3.5 w-3.5", loading && "animate-spin")}/>
                             {syncStatus || '同步'}
                         </button>
@@ -429,7 +429,7 @@ export default function AgentsDialog() {
                                 setShowModal(true)
                             }}
                             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20 transition-colors"
-                        >
+                         data-name="agents-dialog-add-button">
                             <Plus className="h-3.5 w-3.5"/>
                             创建
                         </button>
@@ -449,7 +449,7 @@ export default function AgentsDialog() {
                                 ? "bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] shadow-sm"
                                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         )}
-                    >
+                     data-name="agents-dialog-local-tab-button">
                         本地
                     </button>
                     <button
@@ -460,7 +460,7 @@ export default function AgentsDialog() {
                                 ? "bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] shadow-sm"
                                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         )}
-                    >
+                     data-name="agents-dialog-plugin-tab-button">
                         插件 Agents
                     </button>
                 </div>
@@ -479,12 +479,12 @@ export default function AgentsDialog() {
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="block w-full rounded-lg border border-[var(--border)] bg-[var(--surface-muted)]/50 py-2 pl-9 pr-8 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] shadow-sm focus:border-[var(--brand-primary)]/50 focus:bg-[var(--surface-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all"
-                    />
+                    data-name="agents-dialog-input"/>
                     {searchQuery && (
                         <button
                             onClick={() => setSearchQuery('')}
                             className="absolute inset-y-0 right-0 flex items-center pr-3 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                        >
+                         data-name="agents-dialog-clear-search-button">
                             <X className="h-4 w-4"/>
                         </button>
                     )}
@@ -646,7 +646,7 @@ function PluginAgentGroup({pluginName, agents, toggleTemplate, toggleTemplateBat
             <div
                 className="flex items-center justify-between px-3 py-2 bg-[var(--surface-muted)]/50 cursor-pointer"
                 onClick={() => setCollapsed(c => !c)}
-            >
+             data-name="agents-dialog-plugin-group-header">
                 <div className="flex items-center gap-2">
                     <svg className="w-4 h-4 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="none"
                          stroke="currentColor" strokeWidth="2">
@@ -667,7 +667,7 @@ function PluginAgentGroup({pluginName, agents, toggleTemplate, toggleTemplateBat
                             }
                         }}
                         className="text-[10px] font-medium text-[var(--brand-primary)] hover:text-[var(--brand-primary)]/80 transition-colors flex-shrink-0"
-                    >
+                     data-name="agents-dialog-batch-toggle-button">
                         {agents.every(a => a.enabled) ? '全部禁用' : '全部启用'}
                     </button>
                     <svg
@@ -727,12 +727,12 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
         <div
             className="fixed inset-0 z-[100] flex items-center justify-center"
             onClick={() => onCancel()}
-        >
+         data-name="agents-dialog-form-overlay">
             <div className="absolute inset-0 bg-black/50"/>
             <div
                 onClick={e => e.stopPropagation()}
                 className="relative w-[580px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col overflow-hidden"
-            >
+             data-name="agents-dialog-form-panel">
                 {/* Header */}
                 <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border)] flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-[var(--text-primary)]">
@@ -741,7 +741,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                     <button
                         onClick={() => onCancel()}
                         className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded transition-colors"
-                    >
+                     data-name="agents-dialog-form-close-button">
                         <X className="w-4 h-4"/>
                     </button>
                 </div>
@@ -759,7 +759,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             onChange={e => setForm({...form, name: e.target.value})}
                             placeholder="如：安全审计专家"
                             className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all"
-                        />
+                        data-name="agents-dialog-name-input"/>
                     </div>
 
                     {/* 简短描述 */}
@@ -773,7 +773,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             onChange={e => setForm({...form, description: e.target.value})}
                             placeholder="该 Agent 主要负责什么任务？"
                             className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all"
-                        />
+                        data-name="agents-dialog-description-input"/>
                     </div>
 
                     {/* 何时使用 */}
@@ -788,7 +788,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             onChange={e => setForm({...form, whenToUse: e.target.value})}
                             placeholder="如：代码审查、安全审计、性能优化时使用"
                             className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all"
-                        />
+                        data-name="agents-dialog-when-to-use-input"/>
                     </div>
 
                     {/* 系统提示词 */}
@@ -802,7 +802,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             rows={8}
                             placeholder="详细定义该 Agent 的角色、知识边界、行动规则和输出格式要求..."
                             className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm font-mono text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all resize-none"
-                        />
+                        data-name="agents-dialog-textarea"/>
                     </div>
                 </div>
 
@@ -811,14 +811,14 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                     <button
                         onClick={() => onCancel()}
                         className="px-4 py-2 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-all"
-                    >
+                     data-name="agents-dialog-form-cancel-button">
                         取消
                     </button>
                     <button
                         onClick={handleSave}
                         disabled={!form.name || !form.systemPrompt}
                         className="px-4 py-2 rounded-lg bg-[var(--brand-primary)] text-white text-xs font-bold shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                    >
+                     data-name="agents-dialog-form-save-button">
                         {editingId ? '保存修改' : '立即创建'}
                     </button>
                 </div>

@@ -173,11 +173,18 @@ describe('agentTool.execute — 模型角色接线', () => {
         expect(capturedParams.modelRole).toBeUndefined()
     })
 
-    it('modelRole 未指定 + 无父 override → 不固化（默认 primary，ModelSelector 显示 primary 与实际一致）', async () => {
+    it('modelRole 未指定 + 无父 override → 不固化 override（每轮走实时角色解析，默认轻量链）', async () => {
         await agentTool.execute({task: '子任务', agent: 'Test Agent'}, CONTEXT)
 
         expect(mockRtc.setOverride).not.toHaveBeenCalled()
         expect(capturedParams.modelRole).toBeUndefined()
+        // 子会话标识：loop 内默认角色解析依赖 traceContext（未显式 modelRole → 默认 lightweight）
+        expect(capturedParams.traceContext).toBe('subAgent')
+    })
+
+    it('显式 modelRole 时同样携带 traceContext=subAgent', async () => {
+        await agentTool.execute({task: '子任务', agent: 'Test Agent', modelRole: 'lightweight'}, CONTEXT)
+        expect(capturedParams.traceContext).toBe('subAgent')
     })
 
     it('llm_call_done → llm_usage 落库与 role 一致的服务商/模型（问题 3 落库路径）', async () => {

@@ -49,7 +49,7 @@ export function CatalogStatusLine({entries}: CatalogStatusLineProps) {
                 onClick={() => setExpanded(v => !v)}
                 aria-expanded={expanded}
                 className="text-xs text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors cursor-pointer"
-            >
+             data-name="catalog-status-line-button">
                 已加载能力目录（{entries.length} 项）
             </button>
             {expanded && (

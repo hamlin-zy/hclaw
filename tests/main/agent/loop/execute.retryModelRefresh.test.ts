@@ -8,6 +8,7 @@ import type {ToolDefinitionForLLM} from '../../../../src/main/agent/tools/types'
 //   executeLlmCallWithRetry 应在 attempt ≥ 2 时重新解析并用新配置重试。
 //   注意：真实 selectModelForTurn 是同步 generator（yield* 消费），mock 必须返回生成器。
 vi.mock('../../../../src/main/agent/loop/setup', () => ({
+    defaultRoleForTrace: (traceContext?: string) => (traceContext === 'subAgent' ? 'lightweight' : 'primary'),
     selectModelForTurn: vi.fn(function* () {
         return {
             modelConfig: {provider: 'openai', model: 'gpt-5', apiKey: 'sk-new'} as never,
@@ -112,7 +113,7 @@ describe('executeLlmCallWithRetry 重试前重新解析模型配置（倒计时�
 
         // 1. 重试时重新解析了模型配置
         expect(selectModelForTurn).toHaveBeenCalledTimes(1)
-        expect(selectModelForTurn).toHaveBeenCalledWith(undefined, 'conv-1', undefined)
+        expect(selectModelForTurn).toHaveBeenCalledWith(undefined, 'conv-1', undefined, 'primary')
 
         // 2. getAdapter 被调用 2 次，第二次收到新模型 + directModel=true + 新角色
         expect(llmCaller.getAdapter).toHaveBeenCalledTimes(2)

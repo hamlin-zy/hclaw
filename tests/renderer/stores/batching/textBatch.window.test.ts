@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
 
-// store 桩：flushTextBatch 依赖 useAgentStore/useConversationStore/recordTextBlock
-const {mockUpdateMessageForConv, mockRecordTextBlock, mockUpdateConvData} = vi.hoisted(() => ({
+// store 桩：flushTextBatch 依赖 useAgentStore/useConversationStore
+const {mockUpdateMessageForConv, mockUpdateConvData} = vi.hoisted(() => ({
     mockUpdateMessageForConv: vi.fn(),
-    mockRecordTextBlock: vi.fn(),
     mockUpdateConvData: vi.fn(),
 }))
 
@@ -31,7 +30,6 @@ vi.mock('../../../../src/renderer/stores/conversationStore', () => ({
             updateMessageForConv: (...a: unknown[]) => mockUpdateMessageForConv(...a),
         }),
     },
-    recordTextBlock: (...a: unknown[]) => mockRecordTextBlock(...a),
 }))
 
 import {
@@ -46,7 +44,6 @@ describe('textBatch 固定窗口批处理', () => {
         // 避免前一用例遗留的未到期 timer / 残留 batch 污染本用例断言
         flushAllTextBatches()
         mockUpdateMessageForConv.mockClear()
-        mockRecordTextBlock.mockClear()
         mockUpdateConvData.mockClear()
     })
     afterEach(() => {
@@ -62,8 +59,6 @@ describe('textBatch 固定窗口批处理', () => {
         vi.advanceTimersByTime(24)
         expect(mockUpdateMessageForConv).toHaveBeenCalledTimes(1)
         expect(mockUpdateMessageForConv.mock.calls[0][2]).toMatchObject({content: '你好！'})
-        expect(mockRecordTextBlock).toHaveBeenCalledTimes(1)
-        expect(mockRecordTextBlock.mock.calls[0][2]).toBe('你好！')
     })
 
     it('窗口不因新 chunk 重置：总时长 ≈ 窗口值（50ms ÷ 24ms = 2 窗）', () => {

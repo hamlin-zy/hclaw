@@ -75,7 +75,7 @@ function ToolCard({tool, serverName, isPlugin}: {
                     hasExtra ? 'hover:bg-[var(--surface-muted)]' : ''
                 } p-3.5 ${expanded ? 'pb-2.5' : ''}`}
                 onClick={() => hasExtra && setExpanded(!expanded)}
-            >
+             data-name="mcptools-overlay-div">
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-0.5">
                         <span className="text-xs font-semibold text-[var(--text-primary)] font-mono truncate">
@@ -111,7 +111,7 @@ function ToolCard({tool, serverName, isPlugin}: {
                     <button
                         onClick={e => { e.stopPropagation(); setExpanded(!expanded) }}
                         className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded shrink-0 mt-0.5 transition-colors"
-                    >
+                     data-name="mcptools-overlay-button">
                         <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
                              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                             <polyline points="6 9 12 15 18 9"/>
@@ -189,7 +189,7 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
         <div
             className="fixed inset-0 z-modal flex items-center justify-center"
             onClick={onClose}
-        >
+         data-name="mcptools-overlay-backdrop">
             {/* 遮罩层 */}
             <div className="absolute inset-0 bg-black/50"/>
 
@@ -197,7 +197,7 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
             <div
                 onClick={e => e.stopPropagation()}
                 className="relative w-[600px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col"
-            >
+             data-name="mcptools-overlay-panel">
                 {/* ─── Header ──────────────────────────────── */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] shrink-0 bg-[var(--surface-elevated)]">
                     <div className="flex items-center gap-3 min-w-0">
@@ -240,7 +240,7 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                     <button
                         onClick={onClose}
                         className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded-lg transition-colors shrink-0"
-                    >
+                     data-name="mcptools-overlay-close-button">
                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                         </svg>

@@ -9,6 +9,8 @@ declare global {
         isWin11: boolean
         // macOS 标识（用于 TitleBar 左侧为交通灯按钮预留间距）
         isDarwin: boolean
+        // 开发模式标识（主进程判定，经 additionalArguments 透传；控制调试类 UI 如"复制会话 ID"）
+        isDevMode: boolean
 
       // Window control
       getAppVersion: () => Promise<string>
@@ -75,7 +77,8 @@ declare global {
       }) => Promise<{ success: boolean; error?: string }>
       agentAbort: (conversationId: string) => Promise<{ success: boolean }>
       agentLoopSilence: (conversationId: string, fingerprint: string) => Promise<{ success: boolean }>
-      agentRegisterStreamingMessage: (conversationId: string, messageId: string) => Promise<boolean>
+      // ★ 消息 id 单源（§3.6-1）：主进程经 begin 事件下发 messageId，渲染端不再注册占位 id
+      onAgentPersistEvent: (callback: (payload: { type: string; convId: string }) => void) => () => void
       agentInjectMessage: (params: { conversationId: string; content: string; messageId?: string }) => Promise<{ success: boolean }>
       agentStatus: (conversationId?: string) => Promise<{
         running: boolean
@@ -227,9 +230,6 @@ declare global {
             messages: unknown[];
             totalCount: number
         }>
-      conversationWriteMessages: (convId: string, messages: unknown[]) => Promise<boolean>
-      conversationWriteMessagesDelta: (convId: string, message: unknown) => Promise<boolean>
-      conversationWriteBlockDelta: (convId: string, msgId: string, patch: unknown) => Promise<boolean>
       conversationUpdateMeta: (convId: string, updates: Record<string, unknown>) => Promise<boolean>
       conversationDelete: (convId: string) => Promise<boolean>
       conversationDeleteMessage: (convId: string, messageId: string) => Promise<boolean>
@@ -284,8 +284,7 @@ declare global {
         // Speech-to-Text (voice recording button)
         speechToTextConvert: (audioPath: string) => Promise<{ success: boolean; text?: string; error?: string }>
 
-      // Flush save on app quit
-      onFlushSave: (callback: () => void) => () => void
+
 
         // MCP (Model Context Protocol) management
         mcp: {

@@ -143,7 +143,7 @@ export const SkillBubble = memo(function SkillBubble({
           userSelect: 'none',
         }}
         onClick={handleToggle}
-      >
+       data-name="skill-bubble-div">
         <span style={{fontSize: 18}}>🔧</span>
         <span style={{flex: 1, fontWeight: 600, color: '#1e293b'}}>
           {skillName}
@@ -419,7 +419,7 @@ function LogsSection({
           color: '#475569',
           cursor: 'pointer',
         }}
-      >
+       data-name="skill-bubble-button">
         📋 执行日志 ({logs.length})
         <ChevronIcon expanded={expanded} />
       </button>

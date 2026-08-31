@@ -26,6 +26,7 @@ function isCatalogMessage(msg: {metadata?: unknown; sourceKind?: unknown}): bool
     return getCatalogMeta(msg)?.sourceKind === SOURCE_KIND_CATALOG
 }
 import {KbdCombo} from '../common/Kbd'
+import CopyToast from '../common/CopyToast'
 
 // ─── useFind Hook (CSS Highlight API) ─────────────────────
 /** 单次搜索的命中数上限（防御性，防止超长会话卡死 UI） */
@@ -349,28 +350,7 @@ function useFind(
     }
 }
 
-// ─── 复制提示 Toast ────────────────────────────────────
-
-const CopyToast = memo(function CopyToast({visible}: { visible: boolean }) {
-    return (
-        <AnimatePresence>
-            {visible && (
-                <motion.div
-                    initial={{opacity: 0, y: -20}}
-                    animate={{opacity: 1, y: 0}}
-                    exit={{opacity: 0, y: -20}}
-                    transition={{duration: 0.2, ease: 'easeOut'}}
-                    className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-sm text-[var(--text-primary)]"
-                    role="status"
-                    aria-live="polite"
-                >
-                    <span className="text-[var(--brand-primary)] mr-1.5">✔</span>
-                    已复制
-                </motion.div>
-            )}
-        </AnimatePresence>
-    )
-})
+// ─── 复制提示 Toast（共享组件，见 common/CopyToast.tsx） ────────────────────────────────────
 
 // ─── Welcome Message ─────────────────────────────────────
 
@@ -481,7 +461,7 @@ const LoadMoreTrigger = memo(function LoadMoreTrigger({
                 </div>
             ) : hasMore ? (
                 <button onClick={onLoadMore}
-                        className="text-xs text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors cursor-pointer">
+                        className="text-xs text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors cursor-pointer" data-name="message-list-button">
                     加载更多历史消息
                 </button>
             ) : conversationId ? (
@@ -1076,7 +1056,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
             <div
                 ref={containerRef}
                 onScroll={handleScroll}
-                data-name="message-list-scroll-container"
+               data-name="message-list-scroll-container"
                 className="flex-1 overflow-y-auto overflow-x-hidden"
                 tabIndex={0}
             >
@@ -1230,7 +1210,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                                 autoFocus
                                 aria-label="搜索关键词"
                                 spellCheck={false}
-                            />
+                            data-name="message-list-input"/>
                         </div>
                         {find.totalMatches > 0 && (
                             <span className="text-xs text-[var(--text-secondary)] font-variant-numeric-tabular-nums px-2">
@@ -1245,7 +1225,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                             className="p-1.5 rounded bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--brand-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                             aria-label="上一条"
                             title="上一条 (↑ / Shift+Enter)"
-                        >
+                         data-name="message-list-find-prev-button">
                             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
                         </button>
                         <button
@@ -1254,7 +1234,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                             className="p-1.5 rounded bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--brand-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                             aria-label="下一条"
                             title="下一条 (↓ / Enter)"
-                        >
+                         data-name="message-list-find-next-button">
                             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
                         </button>
                         <button
@@ -1262,7 +1242,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                             className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)] transition-colors ml-1"
                             aria-label="关闭查找"
                             title="关闭 (Esc)"
-                        >
+                         data-name="message-list-find-close-button">
                             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                         </button>
                     </div>
