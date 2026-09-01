@@ -351,7 +351,7 @@ export function initConfigIPC(): void {
 
     // Config file read/write (.json / SQLite)
     // SQLite 中存储的 key（新增请加入此 Set）
-    const SQLITE_KEYS = new Set(['settings', 'prompt-config', 'message-display-mode'])
+    const SQLITE_KEYS = new Set(['settings', 'message-display-mode'])
 
     ipcMain.handle('config-read', async (_event: any, name: string) => {
         return SQLITE_KEYS.has(name)
@@ -404,32 +404,6 @@ export function initConfigIPC(): void {
             console.error('[secret-decrypt] FAILED:', err, 'cipherText length:', cipherText?.length)
             return null;
         }
-    });
-
-    // Prompt config IPC — 读写 SQLite，兼顾旧 JSON 文件迁移
-
-    ipcMain.handle('prompt-config-read', async () => {
-        // 优先从 SQLite 读取
-        let data = systemSettingsRepo.getJson('prompt-config')
-        if (data !== null) return data
-
-        // 兼容旧文件：从 JSON 文件迁移到 SQLite
-        try {
-            data = configRepo.read('prompt-config')
-            if (data) {
-                systemSettingsRepo.setJson('prompt-config', data)
-                // 迁移后删除旧文件
-                const oldPath = configPath('prompt-config')
-                if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath)
-            }
-        } catch {
-        }
-
-        return data ?? {enabled: true, nodes: {}}
-    });
-
-    ipcMain.handle('prompt-config-write', async (_event: any, data: unknown) => {
-        return systemSettingsRepo.setJson('prompt-config', data)
     });
 
     // Save blob/image to persistent temp directory (renderer-side uploads)

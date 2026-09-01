@@ -254,6 +254,9 @@ export async function* executeLlmCallWithRetry(
                         type: 'error',
                         error: `上下文已接近窗口上限（约 ${pct}%），本轮已停止。建议交接或新建会话继续。`,
                     }
+                    // ★ stop 路径返回 null 后 controller 直接 early_exit，不会再发 done
+                    //   → 渲染端永久卡「响应中」。必须在此补发 done（manager 侧幂等）。
+                    yield {type: 'done', reason: 'error'}
                     return null
                 }
                 if (action === 'inject') handoffInjected = true

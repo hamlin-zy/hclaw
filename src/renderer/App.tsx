@@ -511,7 +511,7 @@ export default function App() {
     }
   }, [])
 
-  // ── 提示词方案变更推送：其他窗口（prompt-config）改了 prompt-schemes → 主窗口重新 hydration ──
+  // ── 提示词方案变更推送：其他窗口（prompt-scheme）改了 prompt-schemes → 主窗口重新 hydration ──
   useEffect(() => {
     const cleanup = window.electronAPI?.onPromptSchemesChanged?.(() => {
       void usePromptSchemeStore.persist.rehydrate()
