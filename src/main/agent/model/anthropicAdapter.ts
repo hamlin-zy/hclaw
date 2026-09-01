@@ -52,7 +52,9 @@ export class AnthropicAdapter implements ModelAdapter {
   async *chat(params: ChatParams): AsyncGenerator<StreamChunk> {
     const { messages, systemPrompt, tools, maxTokens, thinkingEffort, abortSignal } = params
 
-    const thinkingModeActive = !!thinkingEffort
+    // disabled 哨兵 = 显式禁用思考：Anthropic 语义为省略 thinking 参数（默认关），
+    // 与 undefined（未指定）同样按非推理模式处理历史消息转换
+    const thinkingModeActive = !!thinkingEffort && thinkingEffort !== 'disabled'
     const needsCompatNormalization = this.isThirdPartyAPI()
     const converted = convertMessagesIncremental(messages, thinkingModeActive, needsCompatNormalization, this.convertCache)
     this.convertCache = converted.cache
@@ -83,9 +85,9 @@ export class AnthropicAdapter implements ModelAdapter {
       stream: true,
     }
 
-    // 推理/思考模式：使用 thinkingEffort 控制强度（undefined=禁用）
+    // 推理/思考模式：使用 thinkingEffort 控制强度（undefined 或 disabled=禁用）
     // 使用 adaptive thinking（SDK 推荐替代 enabled）+ output_config.effort
-    if (thinkingEffort) {
+    if (thinkingEffort && thinkingEffort !== 'disabled') {
         requestParams.thinking = {
             type: 'adaptive',
         }

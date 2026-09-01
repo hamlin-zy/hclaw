@@ -35,7 +35,6 @@ import {resolveContextUsageTokens} from '../context'
 import {resolveMaxContextTokens} from './modelMaxContext'
 import {modelMetaRegistry} from '../../modelMetaRegistry'
 import {withLlmTraceStream, type LlmTraceCallContext} from '../../utils/llmTraceRecorder'
-import {buildCommandTaskContent} from '../utils/userContentBuilder'
 
 const toolRegistry = getToolRegistry()
 
@@ -78,8 +77,6 @@ export interface ExecuteLlmCallParams {
     llmCaller: LLMCaller
     state: AgentLoopState
     systemPrompt: string
-    /** skill/agent 命令模板，作为 system 独立块传递（Anthropic 多块缓存用） */
-    commandTemplate?: string
     availableToolDefinitions: ToolDefinitionForLLM[]
     /**
      * ★ 能力过滤前、白名单过滤后的工具列表（400 降级恢复 analyze_image 时用，
@@ -133,7 +130,7 @@ const chatStepCounters = new Map<string, number>()
 export async function* executeLlmCallWithRetry(
     ctx: ExecuteLlmCallParams,
 ): AsyncGenerator<AgentStreamEvent, LlmStreamResult | null> {
-    const {llmCaller, state, systemPrompt, commandTemplate, availableToolDefinitions, preCapabilityToolDefinitions,
+    const {llmCaller, state, systemPrompt, availableToolDefinitions, preCapabilityToolDefinitions,
         schemeName, getSettings, params, turns, preprocessCache} = ctx
     const {abortSignal, requestConfirmation} = params
 
@@ -291,6 +288,11 @@ export async function* executeLlmCallWithRetry(
             //   角色配置的 thinking_effort 被丢弃（配置→执行断链：方案配了 high 实际不思考，
             //   且 LLM 仍返回 reasoning → 落库 think 块 vs loop 发送剥离 → 跨 turn 缓存断裂）。
             //   旧行为兜底：scheme 未配 thinking_effort 时，reasoning 角色仍默认 'auto'。
+            // ★ override 层的「显式禁用」哨兵值 'disabled' 直接透传给 adapter：
+            //   adapter 按供应商语义发送关闭参数（Anthropic 省略 thinking、智谱/DeepSeek/
+            //   火山 thinking.type=disabled、百炼 enable_thinking:false、OpenAI reasoning_effort:none）。
+            //   供应商强制思考模型（GLM-5.3 系等）不支持关闭时由 adapter 跳过参数，
+            //   返回的 reasoning 由显示层（manager.impl thinkParts 累积门控，后续 Layer2）抑制。
             const thinkingEffort = modelConfig.thinkingEffort
                 ?? (workModeRole === 'reasoning' ? 'auto' : undefined)
 
@@ -321,8 +323,10 @@ export async function* executeLlmCallWithRetry(
             //
             // DeepSeek/MiMo 等第三方 Anthropic 兼容 API 不要求 signature，跳过此检查。
             const isThirdPartyAPI = isThirdPartyAnthropicAPI(currentModel, modelConfig.baseUrl || '')
+            // 'disabled' 是显式禁用哨兵：非推理语义，但保留原值透传给 adapter（由其按供应商发送关闭参数）
+            const thinkingDisabled = thinkingEffort === 'disabled'
             let effectiveThinkingEffort = thinkingEffort
-            if (thinkingEffort && !isThirdPartyAPI) {
+            if (thinkingEffort && !thinkingDisabled && !isThirdPartyAPI) {
                 const hasIncompleteThinking = messagesToSend.some(msg =>
                     msg.role === 'assistant' && !!msg.thinking && !msg.thinkingSignature
                 )
@@ -344,7 +348,7 @@ export async function* executeLlmCallWithRetry(
             // ── 非推理模式 / 降级后的消息清理 ──
             // 清理所有 assistant 消息中的 thinking/thinkingSignature 残留，
             // 确保发送给 API 的消息与当前 thinking 模式状态一致。
-            if (!effectiveThinkingEffort) {
+            if (!effectiveThinkingEffort || thinkingDisabled) {
                 const hasThinkingContent = messagesToSend.some(msg =>
                     msg.role === 'assistant' && (msg.thinking || msg.thinkingSignature)
                 )
@@ -355,23 +359,6 @@ export async function* executeLlmCallWithRetry(
                     logger.info(`[AgentLoop] 当前模型不启用推理模式${reason}，过滤历史消息中的 thinking 内容`)
                     messagesToSend = sanitizeThinkingForModel(messagesToSend)
                 }
-            }
-
-            // ── 命令模板尾随注入（R1 缓存修复）──
-            // 模板不拼接进 systemPrompt（会破坏前缀缓存：命令轮 system 与普通轮不一致
-            // 导致 cached_tokens 归零），而是作为末尾 user 消息追加，所有 adapter 一致。
-            // ★ content 构建走共享函数：与 ipc/execution.ts 历史重放同源，
-            //   保证首轮直传与后续轮重建输出逐字节一致 → KV cache 前缀不断裂
-            let effectiveMessages = messagesToSend
-            if (commandTemplate) {
-                effectiveMessages = [
-                    ...messagesToSend,
-                    {
-                        role: 'user',
-                        content: buildCommandTaskContent(commandTemplate),
-                        id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                    } as ChatMessage,
-                ]
             }
 
             const maxTokens = getSettings()?.model.defaultMaxTokens ?? DEFAULT_MAX_TOKENS
@@ -396,7 +383,7 @@ export async function* executeLlmCallWithRetry(
             }
             const rawStream = withLlmTraceStream(traceCtx, adapter!.chat({
                 systemPrompt,
-                messages: effectiveMessages,
+                messages: messagesToSend,
                 tools: toolsToSend,
                 maxTokens,
                 temperature: getSettings()?.model.defaultTemperature ?? 0,

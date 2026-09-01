@@ -10,7 +10,13 @@
 
 import type {ModelOverride, ModelScheme, ModelRoleConfig} from './types/model'
 
-export type ThinkingEffort = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+/**
+ * 思考强度档位。
+ * - `disabled`：会话级「显式禁用」哨兵值（仅 override 链路），任何 API 中都不出现。
+ *   用于表达「这个会话关闭思考」，且在 execute.ts 中被归一化为 undefined，
+ *   同时跳过 reasoning 角色的 `?? auto` 兜底（否则禁用会被 auto 覆盖）。
+ */
+export type ThinkingEffort = 'disabled' | 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 /** 单个档位选项（供思考强度选择器渲染） */
 export interface EffortOption {
@@ -51,7 +57,7 @@ export function getEffortOptions(providerType?: string): EffortOption[] {
 }
 
 /** 合法档位白名单：非白名单值（含 ''）视为未配置，不透传进 LLM API */
-const VALID_EFFORTS: readonly string[] = ['auto', 'low', 'medium', 'high', 'xhigh', 'max']
+const VALID_EFFORTS: readonly string[] = ['disabled', 'auto', 'low', 'medium', 'high', 'xhigh', 'max']
 
 function isValidEffort(value: unknown): value is ThinkingEffort {
     return VALID_EFFORTS.includes(value as string)

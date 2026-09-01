@@ -5,7 +5,8 @@
  * 1. 轮 1 发送 → 启用新技能（写真实 skillRegistry）→ 轮 2 发送：
  *    - system 字节不变
  *    - 到替换点前的消息前缀 JSON 序列化一致（前缀 hash 一致）
- *    - catalog 消息恰一条且包含新技能名（update-by-id 原地替换）
+ *    - catalog 追加式：目录变化追加新消息（旧消息内容不变），最后一条生效
+ *      （spec §3.1）
  * 2. §4.5 逐字还原：catalog user 消息进入 LLM 请求 messages 数组时 content
  *    与发布时 byte-equal（含标签与空白，无 trim/重排）
  * 3. DB 读回 metadata 保留性：writeMessagesDelta 落库后按 id 读回，
@@ -185,8 +186,10 @@ describe('能力目录 缓存前缀集成（Task 9）', () => {
         // system 字节不变
         expect(t2.request.systemPrompt).toBe(t1.request.systemPrompt)
 
-        // 到替换点前的前缀一致（brief 断言逐字实现）
-        const prefixOf = (req: RecordedRequest) => JSON.stringify(req.messages.slice(0, -2))
+        // 到非 catalog 消息前的前缀一致（追加式：旧 catalog 消息位置/字节不动）
+        const prefixOf = (req: RecordedRequest) => JSON.stringify(
+            req.messages.slice(0, -2).filter(m =>
+                !((m.metadata as Record<string, unknown> | undefined)?.sourceKind === SOURCE_KIND_CATALOG)))
         expect(prefixOf(t2.request)).toBe(prefixOf(t1.request))
 
         // 更强断言：除 catalog 消息与各轮 turn-input 外全部消息逐位不变（位置保持，无重排）
@@ -195,10 +198,10 @@ describe('能力目录 缓存前缀集成（Task 9）', () => {
             && !(m.id ?? '').startsWith('turn-input-'))
         expect(stable(t2.request)).toEqual(stable(t1.request))
 
-        // catalog 恰一条且含新技能名
+        // catalog 追加式：第一条内容不变，最后一条含新技能名（last-one-wins）
         const catalogs = t2.request.messages.filter(m => (m.metadata)?.sourceKind === SOURCE_KIND_CATALOG)
-        expect(catalogs).toHaveLength(1)
-        expect(catalogs[0].content).toContain('skill-fresh')
+        expect(catalogs.length).toBeGreaterThanOrEqual(1)
+        expect(catalogs[catalogs.length - 1].content).toContain('skill-fresh')
     })
 
     it('§4.5 逐字还原：LLM 请求中的 catalog content 与发布时 byte-equal（含标签与空白）', () => {
@@ -218,13 +221,16 @@ describe('能力目录 缓存前缀集成（Task 9）', () => {
         skillRegistry.register(makeSkill('skill-fresh'))
         const t2 = sendTurn(state, cs, repo)
 
-        // 发布形态基准：本轮 replace 决策落盘的消息（replacement 文案，与轮 1 first 文案不同属预期）
-        const replacedInState = catalogsOf(t2.state.messages)[0]
-        expect(String(replacedInState.content)).not.toBe(publishedContent) // replacement ≠ first 文案
-        const expectedContent = String(replacedInState.content)
+        // 追加式：目录变更后消息流含两条 catalog 消息（首条内容逐字节不变）
+        const stateCatalogs = catalogsOf(t2.state.messages)
+        expect(stateCatalogs).toHaveLength(2)
+        expect(String(stateCatalogs[0].content)).toBe(publishedContent)
+        // 发布形态基准：本轮追加的新消息（replacement 文案，与轮 1 first 文案不同属预期）
+        const expectedContent = String(stateCatalogs[1].content)
+        expect(expectedContent).not.toBe(publishedContent) // replacement ≠ first 文案
 
-        // 替换后的 catalog 进入请求 messages 时与发布形态 byte-equal：无 trim、无重排
-        const req2Catalog = catalogsOf(t2.request.messages)[0]
+        // 追加后的 catalog 进入请求 messages 时与发布形态 byte-equal：无 trim、无重排
+        const req2Catalog = catalogsOf(t2.request.messages).slice(-1)[0]
         const req2Content = String(req2Catalog.content)
         expect(req2Content).toBe(expectedContent)
         // 显式字节级校验：首尾字符与长度均未被规范化
@@ -255,23 +261,25 @@ describe('能力目录 缓存前缀集成（Task 9）', () => {
         expect(back!.catalogDigest).toBe(digest1)
         expect(Array.isArray(back!.catalogEntries)).toBe(true)
 
-        // 轮 2 原地替换后再次读回：metadata 随 update-by-id 更新为新 digest，仍完整
+        // 轮 2 追加新 catalog 消息后再次读回：两条 catalog 行，metadata 各自完整
         skillRegistry.register(makeSkill('skill-fresh'))
         const t2 = sendTurn(state, cs, repo)
-        const replaced = catalogsOf(t2.request.messages)[0]
-        const digest2 = (replaced.metadata as Record<string, unknown>).catalogDigest as string
+        const appended = catalogsOf(t2.request.messages).slice(-1)[0]
+        const digest2 = (appended.metadata as Record<string, unknown>).catalogDigest as string
         expect(digest2).not.toBe(digest1)
 
         const rows2 = repo.readMessages(CONV_ID) as Array<Message & Record<string, unknown>>
-        // catalog 恰一行（update-by-id，未产生第二条）
+        // 两条 catalog 行（追加式，旧行不动）
         const catalogRows = rows2.filter(m => m.sourceKind === SOURCE_KIND_CATALOG)
-        expect(catalogRows).toHaveLength(1)
-        const back2 = rows2.find(m => m.id === replaced.id)!
+        expect(catalogRows).toHaveLength(2)
+        // DB 读回顺序 = 发布顺序（rowid ASC tiebreaker）
+        expect(catalogRows.map(r => r.id)).toEqual([published.id, appended.id])
+        const back2 = rows2.find(m => m.id === appended.id)!
         expect(back2.sourceKind).toBe(SOURCE_KIND_CATALOG)
         expect(back2.catalogDigest).toBe(digest2)
         expect(Array.isArray(back2.catalogEntries)).toBe(true)
         // §4.5 延伸：DB 读回的 content 与请求中 byte-equal（metadata.content 为唯一权威）
-        expect(back2.content).toBe(replaced.content)
+        expect(back2.content).toBe(appended.content)
     })
 
     it('恢复用例：序列化 state → 重建 state → 再跑一轮 pre-step → catalog 仍为 1 且零写入', () => {
@@ -285,7 +293,7 @@ describe('能力目录 缓存前缀集成（Task 9）', () => {
         const serialized = JSON.stringify(t1.state.messages)
         const revived = createLoopState(JSON.parse(serialized) as ChatMessage[])
         const restoredCs = restoreCatalogState(revived.messages)
-        expect(restoredCs.publishedMessageId).toBe(originalId)
+        expect(restoredCs.lastDigest).toBe((catalogsOf(t1.request.messages)[0].metadata as Record<string, unknown>).catalogDigest)
 
         // 恢复后再跑一轮 pre-step：digest 未变 → none，catalog 仍恰一条，零落库
         const before = (repo.readMessages(CONV_ID) as Array<{id: string}>).length
@@ -332,12 +340,10 @@ describe('能力目录 缓存前缀集成（Task 9）', () => {
         const revived = createLoopState(rebuilt)
         const restoredCs = restoreCatalogState(revived.messages)
         // 关键断言：重建后 catalog 状态可被扫到（digest 与发布时一致）
-        expect(restoredCs.publishedMessageId).toBe(originalId)
         expect(restoredCs.lastDigest).toBe(digest1)
 
-        // 恢复后跑一轮 pre-step：digest 未变 → none，catalog 仍恰一条，零落库写入
+        // 恢复后跑一轮 pre-step：digest 未变 → none，零落库写入
         const before = (repo.readMessages(CONV_ID) as Array<{id: string}>).length
-        skillRegistry.register(makeSkill('skill-recover-noop')) // 即使 registry 有变化也不应触发重发？——digest 相同则 none
         const r = runCatalogPreStep(revived, restoredCs, repo, CONV_ID, false)
         expect(catalogsOf(r.state.messages)).toHaveLength(1)
         expect(catalogsOf(r.state.messages)[0].id).toBe(originalId)

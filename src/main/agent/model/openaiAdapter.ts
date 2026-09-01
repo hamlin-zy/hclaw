@@ -86,8 +86,12 @@ export class OpenAIAdapter implements ModelAdapter {
       ...(tools?.length ? { tools: this.convertTools(tools) } : {}),
     }
 
-    // 推理/思考模式：使用 thinkingEffort 控制强度（undefined=禁用）
-    if (thinkingEffort) {
+    // 推理/思考模式：使用 thinkingEffort 控制强度（undefined=未指定，disabled=显式禁用）
+    if (thinkingEffort === 'disabled') {
+        // 显式禁用：按供应商语义发送关闭参数；temperature 保持常规行为
+        this.applyThinkingDisabled(requestParams as any, false)
+        requestParams.temperature = temperature ?? 0.7
+    } else if (thinkingEffort) {
         const finalEffort = this.resolveThinkingEffort(thinkingEffort)
         ;(requestParams as any).reasoning_effort = finalEffort
 
@@ -97,8 +101,32 @@ export class OpenAIAdapter implements ModelAdapter {
         requestParams.temperature = temperature ?? 0.7
     }
 
+    // 创建流；若因注入的思考关闭参数不被网关支持而报 400，剔除后重试一次
+    const createStream = (params: typeof requestParams) => this.client.chat.completions.create(params)
+    const isThinkingParamRejection = (err: any): boolean => {
+      const status = err?.status ?? err?.statusCode
+      if (status !== 400) return false
+      const msg = String(err?.message ?? err ?? '').toLowerCase()
+      return ['thinking', 'enable_thinking', 'reasoning', 'unrecognized', 'unexpected'].some(k => msg.includes(k))
+    }
+
     try {
-      const stream = await this.client.chat.completions.create(requestParams)
+      let stream: Awaited<ReturnType<typeof createStream>>
+      try {
+        stream = await createStream(requestParams)
+      } catch (err: any) {
+        if (thinkingEffort === 'disabled' && isThinkingParamRejection(err)) {
+          logger.warn('[openaiAdapter] 网关不支持思考关闭参数(400)，剔除后重试', {
+            model: this.model, error: String(err?.message ?? err),
+          })
+          const retryParams = {...requestParams} as any
+          delete retryParams.thinking
+          delete retryParams.enable_thinking
+          stream = await createStream(retryParams)
+        } else {
+          throw err
+        }
+      }
 
       // 累积 tool_calls（OpenAI 是增量式的，需要拼合）
       const toolCallAccumulator: Map<number, { id: string; name: string; args: string }> = new Map()
@@ -253,7 +281,9 @@ export class OpenAIAdapter implements ModelAdapter {
     if (maxTokens) requestParams.max_output_tokens = maxTokens
 
     // 推理强度：Responses API 使用 reasoning: {effort}（low/medium/high）
-    if (thinkingEffort) {
+    if (thinkingEffort === 'disabled') {
+      this.applyThinkingDisabled(requestParams, true)
+    } else if (thinkingEffort) {
       const finalEffort = this.resolveThinkingEffort(thinkingEffort)
       requestParams.reasoning = { effort: finalEffort }
     }
@@ -385,6 +415,52 @@ export class OpenAIAdapter implements ModelAdapter {
       logger.info('[OpenAIAdapter] thinkingEffort 映射', {model: this.model, original: effort, sent: finalEffort})
     }
     return finalEffort
+  }
+
+  /**
+   * 显式禁用思考（thinkingEffort === 'disabled'）时按供应商发送对应关闭参数。
+   * 参数族按 baseUrl 判定（同 isOfficialOpenAIEndpoint 的模式匹配先例）：
+   * 发错字段对部分供应商是 400（如 OpenAI 官方不认识 thinking 字段），
+   * 未知第三方网关不发参数（安全兜底，由显示层抑制 reasoning 展示）。
+   * 返回是否实际发送了关闭参数（仅用于日志）。
+   */
+  private applyThinkingDisabled(requestParams: any, responsesStyle: boolean): boolean {
+    const baseUrl = (this.config as ModelConfig).baseUrl || ''
+    const model = this.model
+
+    // 智谱：thinking:{type} 参数族；GLM-5.3 系列为强制思考模型，传 disabled 会 400，跳过
+    const isZhipu = baseUrl.includes('bigmodel.cn')
+    if (isZhipu && /^glm-5\.3/i.test(model)) {
+      logger.info('[OpenAIAdapter] 强制思考模型不支持关闭思考，跳过关闭参数', {model})
+      return false
+    }
+    if (isZhipu || baseUrl.includes('deepseek.com') || baseUrl.includes('volces.com')) {
+      // 智谱 / DeepSeek / 火山方舟：thinking:{type} 参数族（disabled=强制关闭）
+      requestParams.thinking = {type: 'disabled'}
+      return true
+    }
+    if (baseUrl.includes('aliyuncs.com') || baseUrl.includes('dashscope.aliyun')) {
+      // 阿里百炼 compatible-mode：enable_thinking 开关（「仅思考」模型不支持关闭，会忽略或报错）
+      requestParams.enable_thinking = false
+      return true
+    }
+    if (baseUrl.includes('openrouter.ai')) {
+      // OpenRouter 统一网关：reasoning.effort=none（OpenRouter 归一化转发给上游）
+      requestParams.reasoning = {effort: 'none'}
+      return true
+    }
+    if (this.isOfficialOpenAIEndpoint()) {
+      // OpenAI 官方：chat 用 reasoning_effort，responses 用 reasoning:{effort}
+      if (responsesStyle) requestParams.reasoning = {effort: 'none'}
+      else requestParams.reasoning_effort = 'none'
+      return true
+    }
+    // 未知第三方 OpenAI 兼容网关：默认按国内厂商通用语义发送 thinking:{type:"disabled"}
+    // （智谱/DeepSeek/火山/硅基流动等均为此参数族）。个别严格网关可能拒绝未知字段，
+    // 由 chat 路径的 400 降级重试兜底（剔除该参数后重发一次）。
+    requestParams.thinking = {type: 'disabled'}
+    logger.info('[OpenAIAdapter] 未识别网关，disabled 默认发送 thinking:disabled（400 时自动降级）', {model, baseUrl})
+    return true
   }
 
   // ─── 内部方法 ──────────────────────────────────────

@@ -151,7 +151,7 @@ function renderFullEntryLine(e: CatalogEntry): string {
 }
 
 export interface PublishDecision {
-  action: 'none' | 'publish' | 'replace'
+  action: 'none' | 'publish'
   content?: string
   metadata?: CatalogMetadata
 }
@@ -159,16 +159,16 @@ export interface PublishDecision {
 /**
  * 两段式发布决策（spec §5.2）。
  *
- * 第一段：完整性门控（先于四格表执行）
+ * 第一段：完整性门控（先于决策表执行）
  * - complete === false && incompleteStreak < 3 → 直接 none（不更新 lastDigest）
- * - complete === false && incompleteStreak ≥ 3 → 残缺数据照常进入四格决策 + warn
+ * - complete === false && incompleteStreak ≥ 3 → 残缺数据照常进入决策 + warn
  *
- * 第二段：四格决策表
+ * 第二段：决策表（追加式，spec §3.1：变化即追加新消息，旧字节不动）
  * | digest vs lastDigest | 已有 catalog 消息 | 动作 |
  * | 相同 | 有 | none |
- * | 相同 | 无 | publish（异常态重发布，first 文案）|
- * | 不同 | 无 | publish（first 文案；空目录例外：不发消息）|
- * | 不同 | 有 | replace（replacement / empty 文案）|
+ * | 相同 | 无 | publish（异常态重发布，first 文案；空目录不发）|
+ * | 不同 | 无 | publish（first 文案；空目录不发消息）|
+ * | 不同 | 有 | publish（追加新消息；replacement / empty 文案）|
  */
 export function decidePublish(
   snapshot: CatalogSnapshot,
@@ -186,26 +186,15 @@ export function decidePublish(
   }
   const nextIncompleteStreak = snapshot.complete ? 0 : incompleteStreak + 1
 
-  // —— 第二段：四格决策表 ——
+  // —— 第二段：决策（追加式，spec §3.1：变化即追加新消息，旧字节不动）——
   const entries = snapshot.entries
   const digest = computeDigest({mode, entries})
-  if (lastDigest && digest === lastDigest) {
-    if (hasPublished) return {decision: {action: 'none'}, nextIncompleteStreak}
-    // 异常态：digest 相同但消息流中无已发布 catalog 消息 → 重新发布一次
-    return {
-      decision: {
-        action: 'publish',
-        content: renderCatalogContent(entries, mode, 'first'),
-        metadata: makeMetadata(digest),
-      },
-      nextIncompleteStreak,
-    }
+  if (lastDigest && digest === lastDigest && hasPublished) {
+    return {decision: {action: 'none'}, nextIncompleteStreak}
   }
-
-  // digest 不同（或无 lastDigest）；empty 文案仅在"已发布后变空"的 replace 分支适用
+  // digest 相同但流中无已发布记录（异常态）→ 重新发布 first 文案
   if (!hasPublished) {
     if (entries.length === 0) {
-      // 空目录且从未发布 → 不发送
       return {decision: {action: 'none'}, nextIncompleteStreak}
     }
     return {
@@ -217,11 +206,11 @@ export function decidePublish(
       nextIncompleteStreak,
     }
   }
-
+  // digest 变化：追加新消息；空目录发 empty 文案提醒模型旧目录已失效
   const kind = entries.length === 0 ? 'empty' : 'replacement'
   return {
     decision: {
-      action: 'replace',
+      action: 'publish',
       content: renderCatalogContent(entries, mode, kind),
       metadata: makeMetadata(digest),
     },
