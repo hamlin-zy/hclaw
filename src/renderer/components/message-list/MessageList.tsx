@@ -10,7 +10,7 @@ import {useAgentStore} from '../../stores/agentStore'
 import MessageBubble from './MessageBubble'
 import {CatalogStatusLine, parseCatalogEntriesFromContent} from './CatalogStatusLine'
 import {getPhaseLabel} from './StatusIndicators'
-import {SOURCE_KIND_CATALOG} from '@shared/types/message'
+import {SOURCE_KIND_CATALOG, SOURCE_KIND_COMMAND_TASK} from '@shared/types/message'
 import type {CatalogEntry} from '@shared/types/message'
 
 /**
@@ -24,6 +24,13 @@ function getCatalogMeta(msg: {metadata?: unknown; sourceKind?: unknown}): Record
 }
 function isCatalogMessage(msg: {metadata?: unknown; sourceKind?: unknown}): boolean {
     return getCatalogMeta(msg)?.sourceKind === SOURCE_KIND_CATALOG
+}
+/**
+ * command-task（<command-task>）真实消息：仅用于驱动 LLM 前缀，不在 UI 渲染为气泡。
+ * 与 catalog 同构（metadata.sourceKind 标记），重启后从 DB 读回仍可识别。
+ */
+function isCommandTaskMessage(msg: {metadata?: unknown; sourceKind?: unknown}): boolean {
+    return getCatalogMeta(msg)?.sourceKind === SOURCE_KIND_COMMAND_TASK
 }
 import {KbdCombo} from '../common/Kbd'
 import CopyToast from '../common/CopyToast'
@@ -573,10 +580,11 @@ export default function MessageList({conversationId}: { conversationId?: string 
     }
 
     // ── 用户消息索引（用于导航按钮） ──────────────────────
-    // 跳过能力目录注入的 user 消息（sourceKind='capability-catalog'）
+    // 跳过能力目录 & command-task（<command-task>）等内部注入的 user 消息，
+    // 避免它们进入"用户消息导航"索引（否则滚动定位会锚定到不可见气泡上）。
     const userMessageIndices = useMemo(() => {
         return messages.reduce<number[]>((acc, msg, index) => {
-            if (msg.role === 'user' && !isCatalogMessage(msg)) acc.push(index)
+            if (msg.role === 'user' && !isCatalogMessage(msg) && !isCommandTaskMessage(msg)) acc.push(index)
             return acc
         }, [])
     }, [messages])
@@ -950,6 +958,10 @@ export default function MessageList({conversationId}: { conversationId?: string 
             // 若直到列表末尾都没有后续消息（或下一个是 user），则不挂载
             let pendingEntries: CatalogEntry[] | null = null
             messages.forEach((message, origIdx) => {
+                if (isCommandTaskMessage(message)) {
+                    // command-task（<command-task>）内部消息：不渲染气泡、不挂载目录条目
+                    return
+                }
                 if (isCatalogMessage(message)) {
                     // 新目录消息 metadata.catalogEntries 为空数组，fallback 从 content 解析
                     const metaEntries = getCatalogMeta(message)?.catalogEntries as CatalogEntry[] | undefined

@@ -5,7 +5,7 @@ import {useAgentStore} from '../stores/agentStore'
 import {useLLMStore} from '../stores/llmStore'
 import {usePrimaryRole} from '../hooks/usePrimaryRole'
 import {getEffortOptions, resolveOverrideThinkingEffort} from '@shared/thinkingEffort'
-import type {ThinkingEffort} from '@shared/thinkingEffort'
+import type {EffortOption, ThinkingEffort} from '@shared/thinkingEffort'
 import {useModelSchemeStore} from '../stores/modelSchemeStore'
 
 interface ThinkingEffortSelectorProps {
@@ -34,8 +34,14 @@ export default function ThinkingEffortSelector({conversationId}: ThinkingEffortS
     const effectiveModelId = modelOverride?.modelId ?? primaryRole?.modelId ?? ''
     const provider = providers.find(p => p.id === effectiveProviderId)
 
-    // 档位列表按协议动态渲染
-    const options = useMemo(() => getEffortOptions(provider?.type), [provider?.type])
+    // 档位列表按协议动态渲染 + 前置「禁用」哨兵档位
+    // ★ 禁用语义：override 层写入 'disabled' 哨兵值 → execute.ts 归一化为 undefined 关闭思考
+    //   （区别于 scheme 层用 '' → undefined 的临时方案；override 层需要独立哨兵，
+    //     否则 reasoning 角色的 `?? auto` 兜底会覆盖禁用）
+    const options = useMemo<EffortOption[]>(
+        () => [{value: 'disabled', label: '禁用'}, ...getEffortOptions(provider?.type)],
+        [provider?.type],
+    )
 
     // 生效思考强度（与主进程 resolveOverrideThinkingEffort 同一纯函数）
     const schemes = useModelSchemeStore(s => s.schemes)

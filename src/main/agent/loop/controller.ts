@@ -26,6 +26,9 @@ import {formatYmd, isCacheStale} from '../utils/dateUtils'
 import {permissionRulesManager} from '../permissions/permissionRule'
 import type {IConversationRepository} from '../../repositories/interfaces'
 import {createConversationRepository} from '../../repositories'
+import {randomUUID} from 'crypto'
+import type {Message} from '@shared/types'
+import {SOURCE_KIND_COMMAND_TASK} from '@shared/types'
 
 import type {RunParams, MainLoopExitReason, ControllerState} from './types'
 import {endTurnCleanup} from './helpers'
@@ -34,6 +37,7 @@ import {executeLlmCallWithRetry, executeToolCalls, extractMediaFromToolResults} 
 import {PreprocessCache} from './preprocessCache'
 import {LoopDetector, buildTurnToolCalls, isLoopPatternSilenced, type LoopVerdict} from './loopDetector'
 import {restoreCatalogState, runCatalogPreStep, type CatalogState} from './catalogPublish'
+import {buildCommandTaskContent} from '../utils/userContentBuilder'
 // ─── LLM 调用事件与工具方法（内联自历史 compress.ts） ───
 import type {ChatMessage} from '../model/types'
 
@@ -180,18 +184,6 @@ function getLastUserMessage(state: AgentLoopState): ChatMessage | null {
         : null
 }
 
-/**
- * 解析本轮生效的命令模板（R2 残留修复）。
- * 仅当轮有新命令（commandContext）时返回其模板；不从 DB 缓存回退——
- * 回退会让普通轮永久携带上一轮模板，尾随注入消息残留导致缓存/语义污染。
- */
-export function resolveCommandTemplate(
-    commandContext: {commandTemplate: string} | null | undefined,
-    _cached: CachePayload | null | undefined,
-): string {
-    return commandContext?.commandTemplate ?? ''
-}
-
 // ─── 缓存载荷类型 ────────────────────────────────────────
 
 /**
@@ -207,7 +199,6 @@ export function carryForwardCommandId(
 
 interface CachePayload {
     core: string
-    commandTemplate: string
     /** 系统提示词构建日期（yyyy-MM-dd），用于跨天失效 */
     buildDate?: string
     /**
@@ -230,7 +221,7 @@ function safeParseCache(raw: string | null): CachePayload | null {
     } catch {
         // 旧格式：纯字符串（core = 完整提示词，无模板）
     }
-    return { core: raw, commandTemplate: '' }
+    return { core: raw }
 }
 
 // Re-export for backward compatibility — 使用 controller.ts 导出引用
@@ -342,6 +333,28 @@ export class AgentLoopController {
 
         // ★ 能力目录状态：循环外初始化；从既有会话消息流还原（恢复会话零重复发布）
         let catalogState: CatalogState = restoreCatalogState(currentState.messages)
+
+        // ★ CT 真实消息化（spec §3.2）：主循环前插入 state 并落库，轮内后续 LLM 调用从 state 自然读到。
+        // 位置在 catalog pre-step 之前：assistant 行首建于首次内容落库（无占位行），CT 天然先于它们。
+        if (commandContext) {
+            const ctMessage: ChatMessage = {
+                id: randomUUID(),
+                role: 'user',
+                content: buildCommandTaskContent(commandContext.commandTemplate),
+                // ★ 内部机制消息标记：UI 层（MessageList）据此过滤，不渲染为气泡。
+                //   metadata 不进发给 LLM 的 content 字节，仅用于读回后识别（与 catalog 的
+                //   sourceKind 契约同构；messageBlockHelper 用 ...(msg.metadata) 透传持久化）。
+                metadata: {sourceKind: SOURCE_KIND_COMMAND_TASK},
+            }
+            currentState = addMessage(currentState, ctMessage)
+            if (conversationRepo && sessionId) {
+                try {
+                    conversationRepo.writeMessagesDelta(sessionId, {...ctMessage, timestamp: Date.now()} as unknown as Message)
+                } catch (err) {
+                    logger.debug('[AgentLoop] CT message persist failed (in-memory only)', {error: String(err)})
+                }
+            }
+        }
 
         // ── LLM 循环检测：按档位初始化（off / 子 Agent 运行 → 不检测）──
         // 子 Agent 运行标识：modelRole 为 agentTool 子会话专用字段（grep agentTool.ts 确认，
@@ -501,17 +514,11 @@ export class AgentLoopController {
                 cachedSystemPrompt: cacheStale ? null : cachedCore,
             })
 
-            // ★ 提取 commandTemplate：仅当轮有新命令时传模板（R2 残留修复）
-            // 不再回退 DB 缓存值——回退会让普通轮永久携带上一轮的模板（尾随注入残留）。
-            // 旧缓存载荷中的 commandTemplate 键保留不迁移，读取端不再消费。
-            const commandTemplate = resolveCommandTemplate(commandContext, cached)
-
             // ★ 构建新的缓存载荷（JSON 格式）
             // commandId 跨轮携带：无新命令时沿用缓存中的值，保证后续普通轮
             // 能从 execution.ts 恢复 agentDefinition（工具集一致性）
             const newCachePayload = JSON.stringify({
                 core: systemPrompt,
-                commandTemplate,
                 buildDate: today,
                 commandId: carryForwardCommandId(commandContext, cached),
             })
@@ -527,7 +534,6 @@ export class AgentLoopController {
                 llmCaller: this.llmCaller,
                 state: currentState,
                 systemPrompt,
-                commandTemplate,
                 availableToolDefinitions,
                 preCapabilityToolDefinitions,
                 modelConfig: selection.modelConfig,

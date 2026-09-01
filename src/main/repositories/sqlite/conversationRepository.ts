@@ -111,7 +111,7 @@ export class SqliteConversationRepository implements IConversationRepository {
             const db = getDatabase()
 
             const msgRows = db.prepare(
-                'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC'
+                'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC, rowid ASC'
             ).all(convId) as typeof this.msgRowType[]
 
             return  this.buildMessagesFromRows(msgRows)
@@ -611,7 +611,7 @@ export class SqliteConversationRepository implements IConversationRepository {
             const totalCount = totalRow?.cnt ?? 0
 
             const msgRows = db.prepare(
-                'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT ?'
+                'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ? ORDER BY timestamp DESC, rowid DESC LIMIT ?'
             ).all(convId, count) as typeof this.msgRowType[]
             msgRows.reverse()
 
@@ -634,7 +634,7 @@ export class SqliteConversationRepository implements IConversationRepository {
             const totalCount = totalRow?.cnt ?? 0
 
             const msgRows = db.prepare(
-                'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?'
+                'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ? AND timestamp < ? ORDER BY timestamp DESC, rowid DESC LIMIT ?'
             ).all(convId, beforeTimestamp, count) as typeof this.msgRowType[]
             msgRows.reverse()
 

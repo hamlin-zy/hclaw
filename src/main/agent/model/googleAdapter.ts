@@ -61,7 +61,7 @@ export class GoogleAdapter implements ModelAdapter {
     }
 
     async *chat(params: ChatParams): AsyncGenerator<StreamChunk> {
-        const {messages, systemPrompt, tools, maxTokens, abortSignal} = params
+        const {messages, systemPrompt, tools, maxTokens, thinkingEffort, abortSignal} = params
 
         const converted = convertMessagesIncremental(messages, this.convertCache)
         this.convertCache = converted.cache
@@ -83,12 +83,12 @@ export class GoogleAdapter implements ModelAdapter {
         if (this.isOAuth) {
             await this.refreshTokenIfExpired()
             const oauthFetch = this.createOAuthFetch(this.apiKey)
-            yield* this.chatOAuth(history, lastUserMsg, effectiveSystemPrompt, tools, maxTokens, abortSignal, oauthFetch)
+            yield* this.chatOAuth(history, lastUserMsg, effectiveSystemPrompt, tools, maxTokens, thinkingEffort, abortSignal, oauthFetch)
             return
         }
 
         // ── API Key 模式：标准 SDK ──
-        yield* this.chatSDK(history, lastUserMsg, effectiveSystemPrompt, tools, maxTokens, abortSignal)
+        yield* this.chatSDK(history, lastUserMsg, effectiveSystemPrompt, tools, maxTokens, thinkingEffort, abortSignal)
     }
 
     /**
@@ -127,12 +127,17 @@ export class GoogleAdapter implements ModelAdapter {
         systemPrompt: string | undefined,
         tools: ToolDefinition[] | undefined,
         maxTokens: number | undefined,
+        thinkingEffort: string | undefined,
         abortSignal: AbortSignal | undefined,
         oauthFetch: typeof fetch,
     ): AsyncGenerator<StreamChunk> {
+        const thinkingConfig = this.buildThinkingDisabledConfig(thinkingEffort)
         const modelOptions: any = {
             model: this.model,
-            generationConfig: {maxOutputTokens: maxTokens || 8192},
+            generationConfig: {
+                maxOutputTokens: maxTokens || 8192,
+                ...(thinkingConfig ? {thinkingConfig} : {}),
+            },
         }
         if (systemPrompt) {
             modelOptions.systemInstruction = systemPrompt
@@ -227,13 +232,16 @@ export class GoogleAdapter implements ModelAdapter {
         systemPrompt?: string,
         tools?: ToolDefinition[],
         maxTokens?: number,
+        thinkingEffort?: string,
         abortSignal?: AbortSignal
     ): AsyncGenerator<StreamChunk> {
+        const thinkingConfig = this.buildThinkingDisabledConfig(thinkingEffort)
         const model = this.genAI.getGenerativeModel({
             model: this.model,
             ...(systemPrompt ? {systemInstruction: systemPrompt} : {}),
             generationConfig: {
                 maxOutputTokens: maxTokens || 8192,
+                ...(thinkingConfig ? {thinkingConfig} : {}),
             },
             ...(tools?.length ? {tools: this.convertTools(tools)} : {}),
         }, {fetchFn: recordingFetch} as any)
@@ -297,6 +305,26 @@ export class GoogleAdapter implements ModelAdapter {
   /** 失效增量转换缓存（normalize 注入/取代后由调用方触发，下次全量重建） */
   invalidateConvertCache(): void {
     this.convertCache = null
+  }
+
+  /**
+   * thinkingEffort === 'disabled'（显式禁用思考）时返回 thinkingConfig 关闭参数：
+   * - Gemini 2.5/2.0/1.5 Flash 系：thinkingBudget: 0（可关闭）
+   * - Gemini 3 Flash：thinkingLevel: 'MINIMAL'（3 系最低档）
+   * - Pro 系（2.5 Pro min 128 / Gemini 3 Pro）：无法关闭，返回 undefined（不发参数）
+   * 非 disabled 返回 undefined（Google 默认开启思考，本 adapter 未实现档位控制）。
+   */
+  private buildThinkingDisabledConfig(thinkingEffort: string | undefined): any | undefined {
+    if (thinkingEffort !== 'disabled') return undefined
+    const m = this.model.toLowerCase()
+    if (m.includes('gemini-3-flash')) return {thinkingLevel: 'MINIMAL'}
+    if (m.includes('gemini-3')) {
+      // Gemini 3 Pro 最低仅 LOW，不可关闭：跳过参数，交由显示层抑制
+      return undefined
+    }
+    if (m.includes('flash')) return {thinkingBudget: 0}
+    // 2.5 Pro 等其余模型：不可关闭
+    return undefined
   }
 
   private convertTools(tools: ToolDefinition[]): any {
