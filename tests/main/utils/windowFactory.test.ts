@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
     handlers: new Map<string, Function>(),
     removed: [] as string[],
     sent: [] as Array<{channel: string; payload: any}>,
+    events: [] as Array<{event: string; handler: Function}>,
 }))
 
 vi.mock('electron', () => {
@@ -20,8 +21,11 @@ vi.mock('electron', () => {
         setMenuBarVisibility() {}
         once() {}
         on(event: string, fn: Function) {
+            state.events.push({event, handler: fn})
             if (event === 'maximize') fn()
             if (event === 'unmaximize') fn()
+            // page-title-updated 处理器需要 event 参数（调用 preventDefault）
+            if (event === 'page-title-updated') fn({preventDefault: vi.fn()})
         }
         loadURL = vi.fn()
         loadFile = vi.fn()
@@ -123,6 +127,15 @@ describe('windowFactory.createAppWindow', () => {
         createAppWindow({...BASE_OPTS})
         const sends = state.sent.filter(s => s.channel === 'test-win-maximized-changed')
         expect(sends.length).toBeGreaterThan(0)
+    })
+
+    it('拦截 page-title-updated，防止页面 <title> 覆盖构造标题（任务栏标题修复）', () => {
+        createAppWindow({...BASE_OPTS})
+        const evt = {preventDefault: vi.fn()}
+        const entry = state.events.find(e => e.event === 'page-title-updated')
+        expect(entry).toBeTruthy()
+        entry!.handler(evt)
+        expect(evt.preventDefault).toHaveBeenCalled()
     })
 
     it('生产模式 loadFile 到 renderer/main_window/<entryHtml>', () => {

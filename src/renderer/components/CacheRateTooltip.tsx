@@ -5,8 +5,9 @@ import {formatTokenCount, formatTokensPerSecond, tokensPerSecond} from '../lib/f
 import {useMessageTokenStats} from '../hooks/useMessageTokenStats'
 import {useModelContextLength, useWindowUsage} from '../hooks/useWindowUsage'
 import {useAgentStore} from '../stores/agentStore'
+import {useConversationStore} from '../stores/conversationStore'
 import {useLLMStore} from '../stores/llmStore'
-import {usePrimaryRole} from '../hooks/usePrimaryRole'
+import {useDefaultRoleForSession} from '../hooks/usePrimaryRole'
 import {resolveActiveModel} from '../lib/modelResolution'
 import {computeUsagePct, type MessageTokenStats} from '@shared/messageTokenStats'
 import MetricBadge from './MetricBadge'
@@ -98,14 +99,16 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
 
   const {stats, byModel} = useMessageTokenStats()
 
-  // 会话生效模型（与 ModelSelector 同源解析：modelOverride → 无则 primary 兜底）
+  // 会话生效模型（与 ModelSelector 同源解析：modelOverride → 无则会话默认角色兜底）
   const modelOverride = useAgentStore(s => s.modelOverride)
   const providers = useLLMStore(s => s.providers)
-  // 当前方案 primary 角色（无 override 时兜底；与 ModelSelector 共用 usePrimaryRole，防口径漂移）
-  const primaryRole = usePrimaryRole()
+  // 会话默认角色（无 override 时兜底；主会话 primary / 子会话 lightweight，
+  // 与 ModelSelector 共用 useDefaultRoleForSession，防口径漂移）
+  const conversationId = useConversationStore(s => s.activeConversationId)
+  const defaultRole = useDefaultRoleForSession(conversationId ?? '')
   const activeModel = useMemo(
-    () => resolveActiveModel({override: modelOverride, providers, primaryRole}),
-    [modelOverride, providers, primaryRole],
+    () => resolveActiveModel({override: modelOverride, providers, defaultRole}),
+    [modelOverride, providers, defaultRole],
   )
 
   // 生效模型在历史数据中的分组（历史数据 providerName 缺失时按 provider 类型名分组 → 双匹配）

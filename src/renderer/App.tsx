@@ -1,5 +1,5 @@
 import {Component, type ReactNode, useEffect} from 'react'
-import {AnimatePresence} from 'framer-motion'
+import {AnimatePresence, motion} from 'framer-motion'
 import TitleBar from './components/TitleBar'
 import ConversationSidebar from './components/ConversationSidebar'
 import MainWorkspace from './components/MainWorkspace'
@@ -718,21 +718,29 @@ export default function App() {
           </div>
           {/* 右侧面板卡片 - 折叠时保留窄条（含展开入口，复刻左侧边栏折叠交互；
               折叠/展开逻辑复用 sidebarStore.rightCollapsed 与 Ctrl+Shift+B 快捷键；
+              宽度动画对齐左侧边栏（motion.div + 0.2s ease）；
               若整个卸载则折叠后只剩快捷键可展开） */}
-          {rightCollapsed ? (
-            <button
-              onClick={() => setRightCollapsed(false)}
-              aria-label="展开右侧面板"
-              className="app-surface-card self-end mb-[8px] bg-[var(--surface)] rounded-l shadow-card border border-r-0 border-[var(--border)] flex items-center justify-center w-[18px] h-[72px] flex-shrink-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors" data-name="app-right-panel-expand-button">
-              <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-                <polyline points="15 18 9 12 15 6"/>
-              </svg>
-            </button>
-          ) : (
-            <div data-name="side-panels" className="app-surface-card w-sidebar flex-shrink-0 min-h-0 flex flex-col transition-all h-full rounded-lg shadow-card border border-[var(--border)] overflow-hidden">
+          <motion.div
+            initial={false}
+            animate={{width: rightCollapsed ? '18px' : 'var(--sidebar-width)'}}
+            transition={{duration: 0.2, ease: [0.4, 0, 0.2, 1]}}
+            className={`app-surface-card flex-shrink-0 flex ${rightCollapsed
+                ? 'self-end mb-[8px] h-[72px] bg-[var(--surface)] items-center justify-center rounded-l shadow-card border border-r-0 border-[var(--border)]'
+                : 'min-h-0 flex-col h-full rounded-lg shadow-card border border-[var(--border)] overflow-hidden'}`}
+            data-name={rightCollapsed ? 'app-right-panel-expand-strip' : 'side-panels'}>
+            {rightCollapsed ? (
+              <button
+                onClick={() => setRightCollapsed(false)}
+                aria-label="展开右侧面板"
+                className="w-full h-full flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors" data-name="app-right-panel-expand-button">
+                <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                  <polyline points="15 18 9 12 15 6"/>
+                </svg>
+              </button>
+            ) : (
               <SidePanels/>
-            </div>
-          )}
+            )}
+          </motion.div>
         </main>
         <AnimatePresence>
           <MenuDialogRenderer key="menu-dialog" />
