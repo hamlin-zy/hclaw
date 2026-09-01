@@ -8,7 +8,12 @@ export interface TimelineItem {
 
 export const timelineItems: TimelineItem[] = [
   {
-    version: 'v0.5.3', date: '2026-09-01', tag: '最新',
+    version: 'v0.5.5', date: '2026-09-01', tag: '最新',
+    title: '内置浏览器重构与用量明细优化',
+    items: ['内置浏览器重构为 WebContentsView 架构，自定义标题栏更稳定流畅', '用量明细表支持主/子会话列、列宽拖拽与对齐优化', '修复会话交接后消息渲染不全、恢复执行后气泡显示不全的问题', '新增 Ctrl+Shift+N 快速新建备忘录'],
+  },
+  {
+    version: 'v0.5.3', date: '2026-09-01',
     title: '思考可禁用与消息可靠性提升',
     items: ['思考强度新增「禁用」档位，可彻底关闭模型思考过程，响应更快', '指令消息直接落库展示，长对话中指令显示与回放更可靠', '技能列表变更改为追加式更新，历史记录更清晰完整'],
   },
