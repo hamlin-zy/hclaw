@@ -475,6 +475,10 @@ export default function SettingsDialog() {
                         keys: (<KbdCombo keys={['Ctrl', 'N']}/>),
                     },
                     {
+                        label: '新建备忘录',
+                        keys: (<KbdCombo keys={['Ctrl', 'Shift', 'N']}/>),
+                    },
+                    {
                         label: '上一个会话',
                         keys: (<KbdCombo keys={['Alt', '↑']}/>),
                     },

@@ -638,11 +638,23 @@ export class AgentLoopController {
                 }
             }
 
-            // ── mid-loop 交接门：auto-handoff 注入后，工具执行完成即强制结束本轮 ──
-            // 无论模型是否成功调用 session_handoff，都不进入下一轮，防止交接门反复命中导致重复注入死循环。
-            if (handoffRequested) {
-                logger.info(`[AgentLoop] mid-loop handoff requested, force ending turn ${this.turns}`)
+            // ── 交接后强制结束本轮 ──
+            // ① mid-loop 交接门注入（handoffRequested）：无论模型是否成功调用 session_handoff，
+            //    都不进入下一轮，防止交接门反复命中导致重复注入死循环。
+            // ② 模型主动调用 session_handoff：新会话已创建、任务已移交，主会话不应再带着
+            //    交接结果进入下一轮 LLM 调用（上下文本已接近上限，继续轮询会导致卡死/爆窗）。
+            const calledSessionHandoff = collectedToolCalls.some(tc => tc.name === 'session_handoff')
+            if (handoffRequested || calledSessionHandoff) {
+                logger.info(`[AgentLoop] handoff force ending turn ${this.turns}`, {
+                    gateInjected: handoffRequested,
+                    toolCalled: calledSessionHandoff,
+                })
                 endTurnCleanup()
+                // ★ 必须显式发 done 事件：normal 路径由 handleNoToolCalls 发 done，
+                //   而本路径直接 return early_exit 不产生 done → 渲染端永远停留在
+                //   「响应中」（UI 卡死）。done 后 worker 退出，onWorkerExit 的
+                //   兜底 done('aborted') 为重复通知，manager 侧幂等处理。
+                yield {type: 'done', reason: 'completed'}
                 return 'early_exit'
             }
 

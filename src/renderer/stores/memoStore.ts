@@ -26,6 +26,11 @@ const unwrap = <T,>(res?: {ok: boolean; data?: T; error?: string}): T | null => 
     return null
 }
 
+/** 打开新建备忘录编辑窗口（MemoPanel 新建按钮与 Ctrl+Shift+N 快捷键共用） */
+export function openMemoCreateWindow(workspacePath: string) {
+    void window.electronAPI?.openConfigWindow?.('memo-edit', [`--hclaw-memo-workspace=${encodeURIComponent(workspacePath)}`])
+}
+
 export const useMemoStore = create<MemoStoreState>((set, get) => ({
     memos: [],
     loading: false,

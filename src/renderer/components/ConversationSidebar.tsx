@@ -938,7 +938,7 @@ export function ConversationList() {
           // 非展开的父会话跳过子会话（仅当该父会话及其全部祖先展开时才显示子级）
           if (expandedParentIds.has(conv.id)) {
               if (directChildren) {
-                  directChildren.sort((a, b) => b.updatedAt - a.updatedAt)
+                  directChildren.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
                   for (const child of directChildren) {
                       // 递归前检查祖先链：若 child 的祖先链中某级未展开则跳过整棵子树
                       if (isAncestryExpanded(child)) {
@@ -970,7 +970,7 @@ export function ConversationList() {
                   key={conv.id}
                   id={conv.id}
                   title={conv.title}
-                  timestamp={conv.updatedAt}
+                  timestamp={conv.createdAt ?? conv.updatedAt}
                   preview={conv.preview}
                   pinned={conv.pinned}
                   channel={conv.channel}

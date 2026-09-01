@@ -85,7 +85,8 @@ type AgentToolInput = { task: string; agent: string; tools?: string[]; modelRole
  * 决策顺序（与 selectModelForTurn 对齐）：
  * 1. 显式 modelRole 且方案角色已启用配置 → role 对应的 endpointId/modelId/providerName
  * 2. modelRole 无效/未指定 → 沿 parentConvId 链继承最近的有效父会话 override
- * 3. 均无 → null（不固化；默认 primary，ModelSelector 显示 primary 与实际一致）
+ * 3. 均无 → null（不固化；运行层按 traceContext 默认角色解析：子会话 lightweight（L→P→R），
+ *    主会话 primary（P→L→R），见 defaultRoleForTrace。显示层由 useDefaultRoleForSession 对齐同一口径）
  */
 export function resolveChildConvOverride(
     modelRole: ModelRole | undefined,

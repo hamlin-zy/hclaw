@@ -19,7 +19,7 @@
  */
 import React, {useEffect, useMemo, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
-import {useMemoStore, subscribeMemoChanged} from '../../stores/memoStore'
+import {useMemoStore, subscribeMemoChanged, openMemoCreateWindow} from '../../stores/memoStore'
 import {useConversationStore} from '../../stores/conversationStore'
 import {useSidebarStore} from '../../stores/sidebarStore'
 import {confirm} from '../ConfirmDialog'
@@ -83,7 +83,7 @@ export default function MemoPanel() {
     }
     const openCreate = () => {
         if (!wsPath) return
-        void window.electronAPI?.openConfigWindow?.('memo-edit', [`--hclaw-memo-workspace=${encodeURIComponent(wsPath)}`])
+        openMemoCreateWindow(wsPath)
     }
 
     const activeCount = memos.filter((m) => m.status === 'active').length
@@ -94,8 +94,8 @@ export default function MemoPanel() {
             <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)] shrink-0">
                 <span className="text-xs font-medium text-[var(--text-muted)]">备忘录</span>
                 <TipButton
-                    tip="新建备忘录"
-                    label="新建备忘录"
+                    tip="新建备忘录 (Ctrl+Shift+N)"
+                    label="新建备忘录 (Ctrl+Shift+N)"
                     onClick={openCreate}
                     className={ACTION_BTN_MUTED}
                 >

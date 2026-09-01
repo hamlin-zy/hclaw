@@ -337,8 +337,13 @@ async function switchActiveConversation(id: string | null) {
             //   会覆盖内存完整流式内容导致正文被截断。按消息 id 去重，同 id（msg-<ts>-<rand>）
             //   不重复；完成态（idle）不合并，以 SQLite 为准，防重复气泡。
             if (targetMsgs) {
-                const agentState = useAgentStore.getState().convAgentStates[id]?.agentState
-                const isRunning = agentState?.status === 'running' || agentState?.status === 'thinking'
+                const agentConvData = useAgentStore.getState().convAgentStates[id]
+                const agentStatus = agentConvData?.agentState.status
+                // paused + pending 双态（ask_user / permission 阻塞）视同运行中，
+                // 否则进入会话时内存流式消息不合并，气泡只显示 DB 陈旧快照
+                const isBlockedPending = agentStatus === 'paused'
+                    && !!(agentConvData?.pendingQuestion || agentConvData?.pendingPermissionConfirm)
+                const isRunning = agentStatus === 'running' || agentStatus === 'thinking' || isBlockedPending
                 if (isRunning) {
                     const {messagesMap} = useConversationStore.getState()
                     const sqliteMsgs = messagesMap[id] || []
@@ -677,9 +682,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           window.electronAPI?.conversationUpdateMeta?.(id, {...updates, updatedAt: Date.now()})
       },
 
-      /** 会话元数据事件消费（§3.4）：message-finalized → 更新 updatedAt 并重排。
-       *  纯内存操作：updatedAt 持久化由主进程 flush 时承担，渲染端不回写。
-       *  排序规则与 getFilteredConversations 一致（置顶优先，updatedAt 倒序）。 */
+      /** 会话元数据事件消费（§3.4）：message-finalized → 更新 updatedAt。
+       *  ★ 稳定排序方案：列表按 createdAt 倒序固定，此处不再触发重排——
+       *  后台 loop 结束落库不会把会话顶到列表最上方（用户诉求：顺序稳定优于活动时间排序）。 */
       touchConversation: (convId, updatedAt) => {
           set((state) => {
               const wsPath = state.currentWorkspacePath
@@ -687,12 +692,6 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               const conversations = state.workspaces[wsPath].conversations.map(c =>
                   c.id === convId ? {...c, updatedAt: Math.max(c.updatedAt || 0, updatedAt)} : c
               )
-              // 复用侧栏排序规则重排（置顶优先，updatedAt 倒序）
-              conversations.sort((a, b) => {
-                  if (a.pinned && !b.pinned) return -1
-                  if (!a.pinned && b.pinned) return 1
-                  return b.updatedAt - a.updatedAt
-              })
               return {
                   workspaces: {...state.workspaces, [wsPath]: {...state.workspaces[wsPath], conversations}},
               }
@@ -735,7 +734,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           return [...filtered].sort((a, b) => {
               if (a.pinned && !b.pinned) return -1
               if (!a.pinned && b.pinned) return 1
-              return b.updatedAt - a.updatedAt
+              return (b.createdAt || 0) - (a.createdAt || 0)
           })
       },
 
@@ -945,7 +944,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           }
 
           for (const ws of Object.values(workspaces)) {
-              ws.conversations.sort((a, b) => b.updatedAt - a.updatedAt)
+              ws.conversations.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
           }
 
           set({workspaces, currentWorkspacePath})
@@ -1073,7 +1072,7 @@ if (typeof window !== 'undefined') {
 
         const wsInfo = workspaces[wsPath] || {lastOpenedAt: Date.now(), conversations: []}
         const updatedConvs = [summary, ...wsInfo.conversations]
-            .sort((a, b) => b.updatedAt - a.updatedAt)
+            .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
 
         const updates: any = {
             workspaces: {

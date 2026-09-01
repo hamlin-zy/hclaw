@@ -7,6 +7,22 @@
 
 ---
 
+## [v0.5.5] - 2026-09-01
+
+### 新增
+- **内置浏览器全新外壳** — 内置浏览器重构为 WebContentsView 架构，配备自定义标题栏，标签页与窗口管理更稳定流畅 (`windowFactory.ts` / `BrowserShellWindow.tsx`)
+- **新建备忘录快捷键** — 新增 Ctrl+Shift+N 快速新建备忘录，右侧面板折叠动画与左侧边栏一致 (`useGlobalHotkeys.ts` / `MemoPanel.tsx`)
+- **用量明细表更易读** — 支持主/子会话列区分、列头溢出提示、列宽拖拽调整，服务商与模型列不再折行 (`UsageWindow.tsx`)
+
+### 修复
+- **修复会话交接后消息渲染不全的问题** — 强制收尾时正确补发完成事件，晚到的工具结果也能正确定位与排序 (`streamTools.ts` / `toolResultBatch.ts`)
+- **修复恢复执行后气泡渲染不全的问题** — 等待确认的阻塞状态现在视同运行中处理，ask_user 恢复后消息完整显示 (`controller.ts`)
+
+### 变更
+- **会话默认角色逻辑统一** — 会话默认模型角色的判断口径与运行层对齐，减少不一致导致的模型选择偏差 (`usePrimaryRole.ts` / `modelResolution.ts`)
+
+---
+
 ## [v0.5.3] - 2026-09-01
 
 ### 新增

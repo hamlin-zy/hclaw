@@ -59,12 +59,15 @@ const h = vi.hoisted(() => {
     // ── electronAPI ──
     const openConfigWindow = vi.fn(async () => {})
 
-    return {useMemoStore, subscribeMemoChanged, useConversationStore, setActiveConversation, openConfigWindow}
+    return {useMemoStore, subscribeMemoChanged, useConversationStore, setActiveConversation, openConfigWindow,
+        // 真实实现走 window.electronAPI.openConfigWindow，代理保持断言一致
+        openMemoCreateWindow: (ws: string) => window.electronAPI?.openConfigWindow?.('memo-edit', [`--hclaw-memo-workspace=${encodeURIComponent(ws)}`])}
 })
 
 vi.mock('@/renderer/stores/memoStore', () => ({
     useMemoStore: h.useMemoStore,
     subscribeMemoChanged: h.subscribeMemoChanged,
+    openMemoCreateWindow: h.openMemoCreateWindow,
 }))
 vi.mock('@/renderer/stores/conversationStore', () => ({
     useConversationStore: h.useConversationStore,
@@ -130,7 +133,7 @@ describe('MemoPanel', () => {
         h.useConversationStore.getState().currentWorkspacePath = ''
         render(<MemoPanel/>)
 
-        fireEvent.click(screen.getByLabelText('新建备忘录'))
+        fireEvent.click(screen.getByLabelText('新建备忘录 (Ctrl+Shift+N)'))
         expect(h.openConfigWindow).not.toHaveBeenCalled()
     })
 
@@ -265,7 +268,7 @@ describe('MemoPanel', () => {
         setMemos([])
         render(<MemoPanel/>)
 
-        fireEvent.click(screen.getByLabelText('新建备忘录'))
+        fireEvent.click(screen.getByLabelText('新建备忘录 (Ctrl+Shift+N)'))
         expect(h.openConfigWindow).toHaveBeenCalledWith('memo-edit', ['--hclaw-memo-workspace=E%3A%5Cproj'])
     })
 
@@ -274,7 +277,7 @@ describe('MemoPanel', () => {
         setMemos([])
         render(<MemoPanel/>)
 
-        fireEvent.click(screen.getByLabelText('新建备忘录'))
+        fireEvent.click(screen.getByLabelText('新建备忘录 (Ctrl+Shift+N)'))
         expect(h.openConfigWindow).toHaveBeenCalledWith('memo-edit', ['--hclaw-memo-workspace=' + encodeURIComponent('E:\\my projects\\app')])
     })
 

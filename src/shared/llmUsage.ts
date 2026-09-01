@@ -201,6 +201,8 @@ export function mergeByProvider(rows: UsageBreakdown[]): UsageBreakdown[] {
       existing.requestCount += r.requestCount
       // 会话数近似累加：跨模型合并时同会话会被重复计数（展示用近似值，精确值见按模型视图）
       existing.conversationCount = (existing.conversationCount ?? 0) + (r.conversationCount ?? 0)
+      existing.mainConversationCount = (existing.mainConversationCount ?? 0) + (r.mainConversationCount ?? 0)
+      existing.subConversationCount = (existing.subConversationCount ?? 0) + (r.subConversationCount ?? 0)
       existing.inputTokens += r.inputTokens
       existing.outputTokens += r.outputTokens
       existing.cacheReadTokens += r.cacheReadTokens

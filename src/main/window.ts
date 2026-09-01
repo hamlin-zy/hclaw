@@ -1,4 +1,4 @@
-import {app, BrowserWindow, dialog, ipcMain, screen, shell} from 'electron';
+import {app, BrowserWindow, WebContentsView, dialog, ipcMain, screen, shell} from 'electron';
 import fsPromises from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -714,25 +714,77 @@ export function initWindowIPC(): void {
  * 创建内置浏览器窗口
  *
  * 特性:
- * - 窗口创建收敛到 windowFactory（externalUrl 模式，主题自适应 titleBarOverlay）
+ * - 窗口创建收敛到 windowFactory（统一包装：无边框 + 自定义标题栏 + 主题跟随 + 窗口控制 IPC）
+ * - 外部网站由 WebContentsView 承载，叠加在自定义标题栏下方
+ * - 窗口标题 / 任务栏 / 标题栏文本跟随网站标题
  * - 新窗口链接也在内置浏览器中打开
  * - 注入自定义滚动条样式（浏览器特有行为，保留在本模块）
  */
 function createBrowserWindow(url: string): BrowserWindow {
+    const id = `builtin-browser-${Date.now()}`;
     const win = createAppWindow({
-        id: `builtin-browser-${Date.now()}`,
+        id,
         title: 'HClaw 内置浏览器',
-        entryHtml: '', // externalUrl 模式下不使用
+        entryHtml: 'dialogWindow.html',
         width: 1200,
         height: 800,
         minWidth: 600,
         minHeight: 400,
-        externalUrl: url,
+        devTools: false,
+        additionalArguments: [
+            '--hclaw-dialog=builtin-browser',
+            `--hclaw-browser-url=${encodeURIComponent(url)}`,
+        ],
+    });
+
+    // 外部网站视图：沙箱隔离，置于标题栏（33px + 1px 下边框）下方
+    const view = new WebContentsView({
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+        },
+    });
+    view.setBackgroundColor(win.getBackgroundColor() ?? '#ffffff');
+    void view.webContents.loadURL(url);
+
+    // 网页首次加载完成（或失败）后再挂载视图并通知渲染层隐藏加载动画：
+    // WebContentsView 叠在宿主页之上，提前挂载会让加载中的黑屏盖住 loading 动画
+    const TITLE_BAR_TOTAL = TITLEBAR_HEIGHT + 1;
+    const updateViewBounds = (): void => {
+        if (win.isDestroyed() || view.webContents.isDestroyed()) return;
+        const [width, height] = win.getContentSize();
+        view.setBounds({x: 0, y: TITLE_BAR_TOTAL, width, height: Math.max(0, height - TITLE_BAR_TOTAL)});
+    };
+    let settled = false;
+    const notifyLoaded = (status: 'done' | 'failed'): void => {
+        if (settled) return;
+        settled = true;
+        if (!win.isDestroyed() && !view.webContents.isDestroyed()) {
+            win.contentView.addChildView(view);
+            updateViewBounds();
+        }
+        if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+            win.webContents.send(`${id}-page-loaded`, status);
+        }
+    };
+    view.webContents.once('did-finish-load', () => notifyLoaded('done'));
+    view.webContents.once('did-fail-load', () => notifyLoaded('failed'));
+
+    win.on('resize', updateViewBounds);
+    win.on('maximize', updateViewBounds);
+    win.on('unmaximize', updateViewBounds);
+
+    // 标题跟随网站：任务栏/窗口标题 + 标题栏文本（IPC 推送给 BrowserShellWindow）
+    view.webContents.on('page-title-updated', (_event, title) => {
+        if (win.isDestroyed()) return;
+        win.setTitle(title);
+        if (!win.webContents.isDestroyed()) win.webContents.send(`${id}-page-title`, title);
     });
 
     // 注入自定义滚动条样式（覆盖外部网站的系统原生滚动条）
-    win.webContents.on('did-finish-load', () => {
-        win.webContents.insertCSS(`
+    view.webContents.on('did-finish-load', () => {
+        view.webContents.insertCSS(`
             ::-webkit-scrollbar { width: 6px !important; height: 6px !important; background: transparent !important; }
             ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15) !important; border-radius: 3px !important; }
             ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25) !important; }
@@ -741,9 +793,13 @@ function createBrowserWindow(url: string): BrowserWindow {
     });
 
     // 拦截新窗口：也在内置浏览器中打开
-    win.webContents.setWindowOpenHandler(({url: targetUrl}) => {
+    view.webContents.setWindowOpenHandler(({url: targetUrl}) => {
         createBrowserWindow(targetUrl);
         return {action: 'deny'};
+    });
+
+    win.on('closed', () => {
+        if (!view.webContents.isDestroyed()) view.webContents.close();
     });
 
     return win;

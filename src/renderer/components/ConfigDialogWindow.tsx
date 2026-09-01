@@ -23,6 +23,7 @@ import MemoEditDialog from './dialogs/MemoEditDialog'
 import PermissionRulesPanel from './PermissionRulesPanel'
 import LlmLogsWindow from './LlmLogsWindow'
 import UsageWindow from './usage/UsageWindow'
+import BrowserShellWindow from './BrowserShellWindow'
 
 interface DialogConfig {
     title: string
@@ -62,6 +63,12 @@ const DIALOG_CONFIG: Record<string, DialogConfig> = {
 export default function ConfigDialogWindow() {
     useThemeSync()
     const dialogType = window.electronAPI?.dialogType ?? ''
+
+    // 内置浏览器外壳：标题跟随网站标题，自持 WindowTitleBar，不走下方固定标题包装
+    if (dialogType === 'builtin-browser') {
+        return <BrowserShellWindow/>
+    }
+
     const config = DIALOG_CONFIG[dialogType]
 
     return (
