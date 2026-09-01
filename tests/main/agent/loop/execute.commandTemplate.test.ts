@@ -2,16 +2,14 @@ import {describe, expect, it, vi, afterEach} from 'vitest'
 import {executeLlmCallWithRetry, type ExecuteLlmCallParams} from '../../../../src/main/agent/loop/execute'
 import {PreprocessCache} from '../../../../src/main/agent/loop/preprocessCache'
 import type {ChatMessage, ModelAdapter, StreamChunk} from '../../../../src/main/agent/model/types'
-import type {ToolDefinitionForLLM} from '../../../../src/main/agent/tools/types'
 
 /**
- * R1：命令模板必须尾随注入（末尾 user 消息），不得拼接进 systemPrompt。
- * 否则命令轮 system 与普通轮不一致 → 供应商前缀缓存全部失效（cached_tokens 归零）。
+ * Task 4 重写：CT（<command-task>）已改为真实持久化消息（controller 主循环前
+ * 插入 state 并落库），executeLlmCallWithRetry 不再接收 commandTemplate 参数，
+ * 也不再合成注入任何尾随消息。本文件保留 executeLlmCallWithRetry 的基础行为用例。
  */
-describe('executeLlmCallWithRetry 命令模板尾随注入（R1）', () => {
+describe('executeLlmCallWithRetry 基础行为', () => {
   afterEach(() => vi.restoreAllMocks())
-
-  const TEMPLATE = '/write-plan 请输出完整计划'
 
   async function* okStream(): AsyncGenerator<StreamChunk> {
     yield {type: 'text', content: 'ok'}
@@ -19,7 +17,7 @@ describe('executeLlmCallWithRetry 命令模板尾随注入（R1）', () => {
     yield {type: 'done', stopReason: 'end_turn'}
   }
 
-  function buildCtx(chat: ReturnType<typeof vi.fn>, provider: string, commandTemplate: string): ExecuteLlmCallParams {
+  function buildCtx(chat: ReturnType<typeof vi.fn>, provider: string): ExecuteLlmCallParams {
     const adapter = {
       chat,
       getModelInfo: () => ({maxContextTokens: 128_000}),
@@ -40,7 +38,6 @@ describe('executeLlmCallWithRetry 命令模板尾随注入（R1）', () => {
       llmCaller,
       state: {messages: [{role: 'user', content: 'hello'}] as ChatMessage[]} as never,
       systemPrompt: 'CORE_SYSTEM_PROMPT',
-      commandTemplate,
       availableToolDefinitions: [],
       preCapabilityToolDefinitions: [],
       modelConfig: {provider, model: 'test-model'} as never,
@@ -70,45 +67,48 @@ describe('executeLlmCallWithRetry 命令模板尾随注入（R1）', () => {
     } while (!done.done)
   }
 
-  it('openai chat 路径：system 不含模板，模板在末尾 user 消息中', async () => {
+  it('openai chat 路径：system 透传，消息按 state 原样发送', async () => {
     const chat = vi.fn().mockImplementation(() => okStream())
-    await drive(buildCtx(chat, 'deepseek', TEMPLATE))
+    await drive(buildCtx(chat, 'deepseek'))
 
     expect(chat).toHaveBeenCalledTimes(1)
     const call = chat.mock.calls[0][0]
 
-    // system 与普通轮逐字一致（不拼接模板）
     expect(call.systemPrompt).toBe('CORE_SYSTEM_PROMPT')
 
-    // 模板出现在消息序列末尾
+    // 不再有合成 CT：消息序列与 state 一致，末尾不出现 <command-task>
     const msgs = call.messages as ChatMessage[]
-    const last = msgs[msgs.length - 1]
-    expect(last.role).toBe('user')
-    expect(String(last.content)).toContain('<command-task>')
-    expect(String(last.content)).toContain(TEMPLATE)
+    expect(msgs).toHaveLength(1)
+    expect(msgs.every(m => !String(m.content ?? '').includes('<command-task>'))).toBe(true)
 
     // 不再把 commandTemplate 作为独立参数传给 adapter
     expect(call.commandTemplate).toBeUndefined()
   })
 
-  it('anthropic 路径：同样尾随注入而非拼接 system', async () => {
+  it('anthropic 路径：同样透传，不注入任何模板消息', async () => {
     const chat = vi.fn().mockImplementation(() => okStream())
-    await drive(buildCtx(chat, 'anthropic', TEMPLATE))
+    await drive(buildCtx(chat, 'anthropic'))
 
     const call = chat.mock.calls[0][0]
     expect(call.systemPrompt).toBe('CORE_SYSTEM_PROMPT')
     const msgs = call.messages as ChatMessage[]
-    const last = msgs[msgs.length - 1]
-    expect(last.role).toBe('user')
-    expect(String(last.content)).toContain(TEMPLATE)
+    expect(msgs.some(m => String(m.content ?? '').includes('<command-task>'))).toBe(false)
   })
 
-  it('无命令轮：不追加任何模板消息', async () => {
+  it('历史带旧 commandTemplate metadata：仍原样发送，不合成 CT（metadata 不影响内容字节）', async () => {
     const chat = vi.fn().mockImplementation(() => okStream())
-    await drive(buildCtx(chat, 'deepseek', ''))
+    const ctx = buildCtx(chat, 'deepseek')
+    ctx.state = {
+      messages: [
+        {role: 'user', content: 'hello', id: 'm0', metadata: {commandId: 'cmd-abc', commandTemplate: '/skill x'}},
+        {role: 'assistant', content: 'ok', id: 'a1'},
+      ] as ChatMessage[],
+    } as never
+    await drive(ctx)
 
     const call = chat.mock.calls[0][0]
     const msgs = call.messages as ChatMessage[]
+    expect(msgs).toHaveLength(2)
     expect(msgs.some(m => String(m.content ?? '').includes('<command-task>'))).toBe(false)
   })
 })

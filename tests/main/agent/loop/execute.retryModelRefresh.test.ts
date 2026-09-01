@@ -77,7 +77,6 @@ describe('executeLlmCallWithRetry 重试前重新解析模型配置（倒计时�
             llmCaller: llmCaller as never,
             state: {messages: [] as ChatMessage[]} as never,
             systemPrompt: 'sys',
-            commandTemplate: '',
             availableToolDefinitions: [makeDef('file_read')],
             preCapabilityToolDefinitions: [makeDef('file_read')],
             // 旧模型配置（turn 开始时解析）

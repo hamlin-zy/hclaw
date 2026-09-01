@@ -31,8 +31,9 @@ export interface ModelConfig {
    * 推理/思考强度（undefined=禁用，auto=默认高强度）
    * - low / medium / high: 基础强度
    * - xhigh / max: 高强度（DeepSeek/Anthropic 支持，OpenAI 会降级为 high）
+   * - disabled: 会话 override 层的「显式禁用」哨兵值，由 execute.ts 归一化为 undefined
    */
-  thinkingEffort?: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  thinkingEffort?: 'disabled' | 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   /** 扩展特性（透传自 LLMProvider） */
   features?: ProviderFeatures
 }
@@ -109,8 +110,9 @@ export interface ModelOverride {
   /**
    * 会话级思考强度覆盖（思考强度选择器写入）
    * undefined = 未显式指定 → 解析时按「方案角色匹配继承 → auto」兜底
+   * disabled = 显式禁用（哨兵值）：不继承方案角色，也不被 auto 兜底覆盖
    */
-  thinkingEffort?: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  thinkingEffort?: 'disabled' | 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 }
 
 /** 模型方案角色新结构 */

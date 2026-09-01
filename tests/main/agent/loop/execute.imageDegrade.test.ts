@@ -97,7 +97,6 @@ describe('executeLlmCallWithRetry 400 降级自愈（生成器级，mock adapter
       llmCaller,
       state: {messages: [imageMsg]} as never,
       systemPrompt: 'sys',
-      commandTemplate: '',
       // 能力过滤后（多模态模型）：无 analyze_image
       availableToolDefinitions: [makeDef('file_read')],
       // 白名单后、能力过滤前：含 analyze_image（降级恢复源）
