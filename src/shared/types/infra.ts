@@ -234,6 +234,10 @@ export interface UsageBreakdown {
   requestCount: number
   /** 组内去重会话数（COUNT(DISTINCT conversation_id)；历史 llm_stats 回填组无会话维度，为 0/缺省） */
   conversationCount?: number
+  /** 组内去重主会话数（conversations.meta.parentConvId 为空；历史 llm_stats 回填组可缺省） */
+  mainConversationCount?: number
+  /** 组内去重子会话数（conversations.meta.parentConvId 非空；历史 llm_stats 回填组可缺省） */
+  subConversationCount?: number
   inputTokens: number
   outputTokens: number
   cacheReadTokens: number

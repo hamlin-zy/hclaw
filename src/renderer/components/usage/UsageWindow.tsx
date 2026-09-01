@@ -27,6 +27,14 @@ const SORT_DEFAULT_DIR: Record<SortCol, 1 | -1> = {
 }
 const TEXT_SORT_COLS = new Set<SortCol>(['name', 'provider'])
 
+/** 明细表默认列宽（%，table-fixed + colgroup；手动调节后按列名覆盖存入 widths state） */
+const DEFAULT_COL_WIDTHS: Record<SortCol, number> = {
+    name: 12, provider: 9, conversations: 5.5, avgSessionCost: 7.5, request: 5, avgTtft: 6.5, avgThroughput: 6.5, avgCacheHit: 7,
+    input: 5.5, output: 5.5, cache: 6.5, total: 5.5, price: 8, cost: 6.5, pct: 7,
+}
+/** 列宽调节下限（%）；拖动时相邻列吸收差值，两列合计不变 */
+const MIN_COL_PCT = 3
+
 // ─── 行级指标（排序键与单元格展示共用同口径） ───
 /** 平均首字延迟（秒）；无样本返回 0 */
 const avgTtftSecondsOf = (b: UsageBreakdown): number => (b.ttftCount ?? 0) > 0 ? (b.ttftMs ?? 0) / (b.ttftCount ?? 1) / 1000 : 0
@@ -214,10 +222,36 @@ export default function UsageWindow() {
     const [sort, setSort] = useState<{col: SortCol; dir: 1 | -1} | null>(null)
     // ── 明细表过滤：服务商/模型下拉 + 合计 token 范围（M），仅作用于明细表行，视图切换时重置 ──
     const [filter, setFilter] = useState<UsageFilterState>(EMPTY_USAGE_FILTER)
+    // ── 明细表列宽：table-fixed + colgroup（%），手动拖动按列名覆盖；视图切换时重置 ──
+    const [widths, setWidths] = useState<Partial<Record<SortCol, number>>>({})
+    const tableRef = useRef<HTMLTableElement>(null)
     useEffect(() => {
         setSort(null)
         setFilter(EMPTY_USAGE_FILTER)
+        setWidths({})
     }, [view])
+
+    /** 列宽拖拽：目标列与相邻列（右侧优先，末列取左侧）互换宽度，合计不变；stopPropagation 避免触发排序 */
+    const startResize = (e: React.MouseEvent, col: SortCol, neighbor: SortCol | undefined) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!neighbor || neighbor === col) return
+        const tableW = tableRef.current?.clientWidth ?? 1
+        const startX = e.clientX
+        const w0 = widths[col] ?? DEFAULT_COL_WIDTHS[col]
+        const n0 = widths[neighbor] ?? DEFAULT_COL_WIDTHS[neighbor]
+        const onMove = (ev: MouseEvent) => {
+            const dxPct = (ev.clientX - startX) / tableW * 100
+            const w = Math.min(Math.max(w0 + dxPct, MIN_COL_PCT), w0 + n0 - MIN_COL_PCT)
+            setWidths(s => ({...s, [col]: w, [neighbor]: n0 - (w - w0)}))
+        }
+        const onUp = () => {
+            window.removeEventListener('mousemove', onMove)
+            window.removeEventListener('mouseup', onUp)
+        }
+        window.addEventListener('mousemove', onMove)
+        window.addEventListener('mouseup', onUp)
+    }
 
     const toggleSort = (col: SortCol) => {
         setSort(s => s?.col === col ? {col, dir: (s.dir * -1) as 1 | -1} : {col, dir: SORT_DEFAULT_DIR[col]})
@@ -225,9 +259,9 @@ export default function UsageWindow() {
 
 /** 明细表共有列（两视图共用）；会话列 tip 因两视图数据口径不同而异 */
 const detailColumns = (view: View): Array<{col: SortCol; label: string; tip?: string}> => [
-    {col: 'conversations', label: '会话', tip: view === 'provider'
-        ? '按「会话 × 模型」组合计数后跨模型累加：同一会话切换过多个模型或服务商时，会在每个模型/服务商下各计一次（非去重会话数）'
-        : '组内去重会话数（同一会话切换模型会分别计入其他模型；历史 llm_stats 回填数据不含会话维度）'},
+    {col: 'conversations', label: '主/子会话', tip: view === 'provider'
+        ? '按「会话 × 模型」组合计数后跨模型累加（非去重会话数）；主/子按 conversations.meta.parentConvId 区分，同一会话切换过多个模型或服务商时会在每个模型/服务商下各计一次'
+        : '组内去重会话数，格式 主/子：主 = parentConvId 为空的会话数，子 = parentConvId 非空的子会话数（同一会话切换模型会分别计入其他模型；历史 llm_stats 回填数据不含会话维度）'},
     {col: 'avgSessionCost', label: '平均会话成本', tip: '成本 ÷ 会话数（当前维度行的合计成本 ÷ 该行会话数）；会话数为 0 或无成本时不计'},
     {col: 'request', label: '请求'},
     {col: 'avgTtft', label: '平均首字', tip: 'Σ首字延迟 ÷ 携带首字延迟的调用数（秒）'},
@@ -457,21 +491,33 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                             ) : filteredBreakdown.length === 0 ? (
                                 <div className="py-12 text-center text-sm text-[var(--text-muted)]">无符合过滤条件的数据</div>
                             ) : (
-                                <table className="w-full text-xs">
+                                <table ref={tableRef} className="w-full table-fixed text-xs">
+                                    <colgroup>
+                                        {columns.map(({col}) => (
+                                            <col key={col} style={{width: `${widths[col] ?? DEFAULT_COL_WIDTHS[col]}%`}}/>
+                                        ))}
+                                    </colgroup>
                                     <thead>
                                         <tr className="bg-[var(--surface-muted)] text-[var(--text-muted)] border-b border-[var(--border)]">
                                             {columns.map(({col, label, tip}, idx) => (
                                                 <th key={col}
                                                     onClick={() => toggleSort(col)}
-                                                    title="点击排序"
-                                                    className={`font-medium px-3 py-2.5 select-none cursor-pointer hover:text-[var(--text-primary)] transition-colors text-center ${idx === 0 ? 'px-4' : ''}`} data-name="usage-window-th">
-                                                    <span className="inline-flex items-center justify-center gap-1">
-                                                        {label}
+                                                    title={`${label}（点击排序）`}
+                                                    className={`relative font-medium px-3 py-2.5 select-none cursor-pointer hover:text-[var(--text-primary)] transition-colors text-center overflow-hidden whitespace-nowrap ${idx === 0 ? 'px-4' : ''}`} data-name="usage-window-th">
+                                                    <span className="inline-flex items-center justify-center gap-1 max-w-full">
+                                                        <span className="truncate">{label}</span>
                                                         {tip && <InfoTip text={tip} placement="top"/>}
                                                         {sort?.col === col && (
                                                             <span className="text-[9px] text-[var(--brand-primary)]">{sort.dir === 1 ? '▲' : '▼'}</span>
                                                         )}
                                                     </span>
+                                                    {/* 列宽拖拽把手（右缘 6px 热区）；阻止冒泡避免触发排序 */}
+                                                    <span
+                                                        onMouseDown={(e) => startResize(e, col, columns[idx + 1]?.col ?? columns[idx - 1]?.col)}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-[var(--brand-primary)]/30"
+                                                        data-name="usage-window-col-resizer"
+                                                    />
                                                 </th>
                                             ))}
                                         </tr>
@@ -494,50 +540,54 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                                                 b.cacheWriteTokens,
                                                 currency
                                             )
+                                            // 主/子会话数：历史 llm_stats 回填组无该维度，两者皆空时显示 —（与 conversationCount 缺省语义一致）
+                                            const hasConvSplit = b.mainConversationCount != null || b.subConversationCount != null
                                             return (
                                                 <tr key={rowKey} className="border-t border-[var(--border-muted)] tabular-nums hover:bg-[var(--surface-muted)] transition-colors">
                                                     {view === 'provider' ? (
-                                                        <td className="px-4 py-2.5 font-medium text-left">
-                                                            <div className="flex items-center gap-2">
+                                                        <td className="px-4 py-2.5 font-medium text-center overflow-hidden whitespace-nowrap" title={b.providerName || providerDisplayName(b.key)}>
+                                                            <div className="flex items-center gap-2 min-w-0">
                                                                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--brand-primary)] shrink-0"/>
-                                                                <span className="break-all">{b.providerName || providerDisplayName(b.key)}</span>
+                                                                <span className="truncate">{b.providerName || providerDisplayName(b.key)}</span>
                                                             </div>
                                                         </td>
                                                     ) : (
                                                         <>
-                                                            <td className="px-4 py-2.5 text-left text-[var(--text-secondary)] max-w-[140px] truncate" title={b.providerName || b.providerType || ''}>
-                                                                {b.providerName || providerDisplayName(b.providerType || '')}
+                                                            <td className="px-4 py-2.5 text-center text-[var(--text-secondary)] overflow-hidden whitespace-nowrap" title={b.providerName || b.providerType || ''}>
+                                                                <span className="block truncate">{b.providerName || providerDisplayName(b.providerType || '')}</span>
                                                             </td>
-                                                            <td className="px-3 py-2.5 font-medium text-left">
-                                                                <div className="flex items-center gap-2">
+                                                            <td className="px-3 py-2.5 font-medium text-center overflow-hidden whitespace-nowrap" title={b.key}>
+                                                                <div className="flex items-center gap-2 min-w-0">
                                                                     <span className="w-1.5 h-1.5 rounded-full bg-[var(--brand-primary)] shrink-0"/>
-                                                                    <span className="break-all">{b.key}</span>
+                                                                    <span className="truncate">{b.key}</span>
                                                                 </div>
                                                             </td>
                                                         </>
                                                     )}
-                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{(b.conversationCount ?? 0) > 0 ? b.conversationCount : '—'}</td>
-                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">
+                                                    <td className="px-3 py-2.5 text-center text-[var(--text-secondary)] whitespace-nowrap" title={hasConvSplit ? `主 ${b.mainConversationCount ?? 0} / 子 ${b.subConversationCount ?? 0}` : undefined}>
+                                                        {hasConvSplit ? `${b.mainConversationCount ?? 0}/${b.subConversationCount ?? 0}` : '—'}
+                                                    </td>
+                                                    <td className="px-3 py-2.5 text-center text-[var(--text-secondary)]">
                                                         {(b.conversationCount ?? 0) > 0 && b.costUsd > 0 ? formatCost(b.costUsd / (b.conversationCount ?? 1), currency) : '—'}
                                                     </td>
-                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{b.requestCount}</td>
-                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">
+                                                    <td className="px-3 py-2.5 text-center text-[var(--text-secondary)]">{b.requestCount}</td>
+                                                    <td className="px-3 py-2.5 text-center text-[var(--text-secondary)]">
                                                         {(b.ttftCount ?? 0) > 0 ? `${avgTtftSecondsOf(b).toFixed(1)}s` : '—'}
                                                     </td>
-                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">
+                                                    <td className="px-3 py-2.5 text-center text-[var(--text-secondary)]">
                                                         {(b.decodeMs ?? 0) > 0 ? `${formatTokensPerSecond(avgThroughputOf(b))} t/s` : '—'}
                                                     </td>
-                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">
+                                                    <td className="px-3 py-2.5 text-center text-[var(--text-secondary)]">
                                                         {cacheHitPctOf(b) != null ? `${Math.round(cacheHitPctOf(b)!)}%` : '—'}
                                                     </td>
-                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{formatTokenCompact(b.inputTokens)}</td>
-                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{formatTokenCompact(b.outputTokens)}</td>
-                                                    <td className="px-3 py-2.5 text-right text-[var(--text-secondary)]">{b.cacheReadTokens > 0 ? formatTokenCompact(b.cacheReadTokens) : '—'}</td>
-                                                    <td className="px-3 py-2.5 text-right font-medium">{formatTokenCompact(b.totalTokens)}</td>
-                                                    <td className="px-3 py-2.5 text-right text-[var(--text-primary)] font-medium tabular-nums">{pricePerMillion}</td>
-                                                    <td className="px-3 py-2.5 text-right text-[var(--brand-primary)] font-medium">{b.costUsd > 0 ? formatCost(b.costUsd, currency) : '—'}</td>
-                                                    <td className="px-3 py-2.5 text-right">
-                                                        <div className="flex items-center justify-end gap-2">
+                                                    <td className="px-3 py-2.5 text-center text-[var(--text-secondary)]">{formatTokenCompact(b.inputTokens)}</td>
+                                                    <td className="px-3 py-2.5 text-center text-[var(--text-secondary)]">{formatTokenCompact(b.outputTokens)}</td>
+                                                    <td className="px-3 py-2.5 text-center text-[var(--text-secondary)]">{b.cacheReadTokens > 0 ? formatTokenCompact(b.cacheReadTokens) : '—'}</td>
+                                                    <td className="px-3 py-2.5 text-center font-medium">{formatTokenCompact(b.totalTokens)}</td>
+                                                    <td className="px-3 py-2.5 text-center text-[var(--text-primary)] font-medium tabular-nums">{pricePerMillion}</td>
+                                                    <td className="px-3 py-2.5 text-center text-[var(--brand-primary)] font-medium">{b.costUsd > 0 ? formatCost(b.costUsd, currency) : '—'}</td>
+                                                    <td className="px-3 py-2.5 text-center">
+                                                        <div className="flex items-center justify-center gap-2">
                                                             <div className="w-12 h-1 rounded-full bg-[var(--border)] overflow-hidden">
                                                                 <div className="h-full rounded-full bg-[var(--brand-primary)]" style={{width: `${Math.max(pct, 2)}%`}}/>
                                                             </div>

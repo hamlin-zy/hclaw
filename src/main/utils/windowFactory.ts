@@ -31,30 +31,6 @@ export interface AppWindowOptions {
     additionalArguments?: string[]
     /** 开发模式是否自动打开 DevTools（默认开；配置窗口传 false 关闭） */
     devTools?: boolean
-    /**
-     * 外部 URL 模式：直接加载该 URL，跳过 preload/additionalArguments/窗口控制 IPC。
-     * 用于内置浏览器等无渲染入口的窗口；entryHtml 此时被忽略。
-     */
-    externalUrl?: string
-    /** 覆盖 titleBarOverlay 配色；缺省时按当前主题自动选择（仅非 macOS 生效） */
-    titleBarOverlay?: {color: string; symbolColor: string; height: number}
-}
-
-/**
- * 按主题返回内置浏览器 titleBarOverlay 默认配色
- * dark→#1e1e2e/#cdd6f4；远山黛(yuanshandai)→#31475d/#e8edf2 系；浅色系→#f3f4f6/#374151
- */
-function themeOverlay(): {color: string; symbolColor: string; height: number} {
-    const {rawTheme} = readThemeSetting()
-    switch (rawTheme) {
-        case 'dark':
-            return {color: '#1e1e2e', symbolColor: '#cdd6f4', height: 36}
-        case 'yuanshandai':
-            return {color: '#31475d', symbolColor: '#e8edf2', height: 36}
-        default:
-            // light / shiyangjin / 未识别主题
-            return {color: '#f3f4f6', symbolColor: '#374151', height: 36}
-    }
 }
 
 /** 幂等注册 ipcMain.handle：同 channel 重复创建时先移除旧 handler（窗口关闭后重开场景） */
@@ -74,32 +50,6 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
     if (process.platform === 'win32') {
         const winBuild = parseInt(os.release().split('.')[2] || '0', 10)
         isWin11 = winBuild >= 22000
-    }
-
-    // 外部 URL 模式：直接加载 URL，不注入 preload/主题参数，也不注册窗口控制 IPC
-    if (options.externalUrl) {
-        const extWin = new BrowserWindow({
-            width: options.width,
-            height: options.height,
-            minWidth: options.minWidth,
-            minHeight: options.minHeight,
-            icon: iconPath,
-            title,
-            autoHideMenuBar: true,
-            ...(isMac ? {frame: true as const} : {
-                frame: false,
-                titleBarOverlay: options.titleBarOverlay ?? themeOverlay(),
-            }),
-            backgroundColor: backgroundColor === 'dark' ? '#1e1e1e' : '#ffffff',
-            webPreferences: {
-                nodeIntegration: false,
-                contextIsolation: true,
-                sandbox: true,
-            },
-        })
-        extWin.setMenu(null)
-        void extWin.loadURL(options.externalUrl)
-        return extWin
     }
 
     const win = new BrowserWindow({
@@ -137,6 +87,9 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
 
     win.setMenu(null)
     win.setMenuBarVisibility(false)
+    // 拦截页面 document.title 覆盖：各窗口入口 html 的 <title> 是共享的静态文案，
+    // 若不拦截，页面加载后任务栏会统一显示该文案而非构造时传入的 title
+    win.on('page-title-updated', (event) => event.preventDefault())
     win.once('ready-to-show', () => {
         if (!win.isDestroyed()) win.show()
     })

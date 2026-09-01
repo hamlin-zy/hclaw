@@ -2,7 +2,8 @@
 /**
  * useGlobalHotkeys hook 测试
  *
- * 保护：全局快捷键分发逻辑（Ctrl+N 新建会话 / Alt+↑↓ 切换会话 /
+ * 保护：全局快捷键分发逻辑（Ctrl+N 新建会话 / Ctrl+Shift+N 新建备忘录 /
+ * Alt+↑↓ 切换会话 /
  * Ctrl+B 左侧栏 / Ctrl+Shift+T 主题 / Esc 中断 Agent / Ctrl+K 命令面板）。
  *
  * 事件通过 document keydown 监听，store 为模块级 zustand 单例。
@@ -323,17 +324,43 @@ describe('useGlobalHotkeys', () => {
         vi.unstubAllGlobals()
     })
 
-    it('Ctrl+N 时 Shift 修饰 → 不触发（仅 Ctrl+N）', () => {
+    it('Ctrl+Shift+N 有工作空间 → 打开新建备忘录编辑窗口（不触发新建会话）', () => {
         const createMock = vi.fn().mockResolvedValue('conv-1')
         useConversationStore.setState({currentWorkspacePath: '/ws', createConversation: createMock})
-        const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+        const openMock = vi.fn()
+        vi.stubGlobal('electronAPI', {openConfigWindow: openMock})
         mountHook()
 
         pressKey({key: 'n', ctrlKey: true, shiftKey: true})
 
+        expect(openMock).toHaveBeenCalledWith('memo-edit', ['--hclaw-memo-workspace=%2Fws'])
+        // Ctrl+Shift+N 不应触发新建会话
         expect(createMock).not.toHaveBeenCalled()
-        expect(dispatchSpy.mock.calls.some(([e]) =>
-            (e as CustomEvent).type === 'hclaw:new-conversation')).toBe(false)
+        vi.unstubAllGlobals()
+    })
+
+    it('Ctrl+Shift+N 无工作空间 → 不调用 openConfigWindow', () => {
+        useConversationStore.setState({currentWorkspacePath: null as any})
+        const openMock = vi.fn()
+        vi.stubGlobal('electronAPI', {openConfigWindow: openMock})
+        mountHook()
+
+        pressKey({key: 'n', ctrlKey: true, shiftKey: true})
+
+        expect(openMock).not.toHaveBeenCalled()
+        vi.unstubAllGlobals()
+    })
+
+    it('Ctrl+N 且无 Shift → 仅触发新建会话，不打开备忘录', () => {
+        useConversationStore.setState({currentWorkspacePath: '/ws'})
+        const openMock = vi.fn()
+        vi.stubGlobal('electronAPI', {openConfigWindow: openMock})
+        mountHook()
+
+        pressKey({key: 'n', ctrlKey: true})
+
+        expect(openMock).not.toHaveBeenCalled()
+        vi.unstubAllGlobals()
     })
 
     it('Esc 有活跃会话 → 调用 abortAgent', () => {
