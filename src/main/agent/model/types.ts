@@ -143,11 +143,15 @@ export interface ChatParams {
   maxTokens?: number
   temperature?: number
   /**
-   * 推理/思考强度（undefined=禁用，auto=默认高强度）
+   * 推理/思考强度（undefined=未指定；auto=默认高强度）
    * low/medium/high: 基础强度
    * xhigh/max: 高强度（DeepSeek/Anthropic 支持，OpenAI 会降级为 high）
+   * disabled: 显式禁用思考（哨兵值透传）：adapter 按供应商语义发送关闭参数
+   * （Anthropic=省略 thinking；智谱/DeepSeek/火山=thinking.type=disabled；
+   *   百炼=enable_thinking:false；OpenRouter=reasoning.effort:none；
+   *   OpenAI 官方=reasoning_effort:none；未知网关不发参数）
    */
-  thinkingEffort?: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  thinkingEffort?: 'disabled' | 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   abortSignal?: AbortSignal
   /**
    * skill/agent 命令模板

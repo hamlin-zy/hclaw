@@ -84,7 +84,14 @@ export function selectModelForTaskWithRole(
  * 将 ModelRoleConfig 转换为 ModelConfig（用于 agentLoop）
  */
 export function resolveModelConfig(
-    roleConfig: ModelRoleConfig,
+    roleConfig: Pick<ModelRoleConfig, 'endpointId' | 'modelId' | 'enabled'> & {
+        /**
+         * 推理/思考强度。scheme 角色层通常为不含 disabled 的档位；
+         * 但 resolveDirectModelConfig 会传入含 'disabled' 哨兵的 override 解析结果，
+         * 该哨兵需保留到 execute.ts 归一化为 undefined（否则 disabled 会被 reasoning 兜底覆盖）。
+         */
+        thinkingEffort?: 'disabled' | 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+    },
     providers: LLMProvider[],
 ): ModelConfig | null {
     const provider = providers.find((p) => p.id === roleConfig.endpointId)

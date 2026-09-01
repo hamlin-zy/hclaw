@@ -83,4 +83,38 @@ describe('ThinkingEffortSelector', () => {
         const autoBtn = screen.getByTitle(/等效 high/)
         expect(autoBtn.textContent).toBe('自动')
     })
+
+    it('选项列表前置「禁用」档位', () => {
+        render(<ThinkingEffortSelector conversationId="conv-1"/>)
+        fireEvent.click(screen.getByTitle('思考强度'))
+        const disabledBtn = screen.getByRole('button', {name: /^禁用$/})
+        expect(disabledBtn).toBeTruthy()
+    })
+
+    it('选「禁用」触发 setModelOverride 携带 thinkingEffort:disabled', () => {
+        const setModelOverride = vi.fn()
+        vi.mocked(useAgentStore).mockImplementation((sel: any) => {
+            const state = {modelOverride: null, setModelOverride}
+            return sel ? sel(state) : state
+        })
+        render(<ThinkingEffortSelector conversationId="conv-1"/>)
+        fireEvent.click(screen.getByTitle('思考强度'))
+        fireEvent.click(screen.getByRole('button', {name: /^禁用$/}))
+        expect(setModelOverride).toHaveBeenCalledWith(
+            'conv-1',
+            expect.objectContaining({endpointId: 'p1', modelId: 'm1', thinkingEffort: 'disabled'}),
+        )
+    })
+
+    it('override 为 disabled 时展示「禁用」文案', () => {
+        vi.mocked(useAgentStore).mockImplementation((sel: any) => {
+            const state = {
+                modelOverride: {endpointId: 'p1', modelId: 'm1', thinkingEffort: 'disabled'},
+                setModelOverride: vi.fn(),
+            }
+            return sel ? sel(state) : state
+        })
+        render(<ThinkingEffortSelector conversationId="conv-1"/>)
+        expect(screen.getByText(/思维:\s*禁用/)).toBeTruthy()
+    })
 })

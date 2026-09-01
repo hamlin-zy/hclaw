@@ -10,7 +10,7 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest'
 import {render, waitFor, fireEvent, screen} from '@testing-library/react'
 import MessageList from '../../../../src/renderer/components/message-list/MessageList'
-import {SOURCE_KIND_CATALOG} from '../../../../src/shared/types/message'
+import {SOURCE_KIND_CATALOG, SOURCE_KIND_COMMAND_TASK} from '../../../../src/shared/types/message'
 
 const {mockConversationState, mockAgentState} = vi.hoisted(() => ({
     mockConversationState: {
@@ -100,6 +100,15 @@ function catalogUser(id: string) {
             sourceKind: SOURCE_KIND_CATALOG,
             catalogEntries: [{name: 'a', type: 'skill', description: 'd'}],
         },
+    }
+}
+
+function commandTaskUser(id: string) {
+    return {
+        id,
+        role: 'user',
+        content: '<command-task>\n# 技能模式\n</command-task>',
+        metadata: {sourceKind: SOURCE_KIND_COMMAND_TASK},
     }
 }
 
@@ -193,5 +202,47 @@ describe('MessageList 能力目录过滤与状态行', () => {
 
         // 状态行计数来自 content 解析，而非固定 0 项
         expect(screen.getByText(/已加载能力目录（2 项）/)).toBeTruthy()
+    })
+
+    it('command-task（<command-task>）消息被过滤：不渲染气泡、不进入用户消息导航', async () => {
+        mockConversationState.messagesMap['conv-1'] = [
+            {id: 'm0', role: 'user', content: '第一条'},
+            commandTaskUser('m1'),
+            {id: 'm2', role: 'assistant', content: '回复'},
+        ]
+        mockConversationState.loadedMessages = mockConversationState.messagesMap['conv-1']
+        mockConversationState.activeConversationId = 'conv-1'
+
+        await renderAndSettle()
+
+        // 仅 2 个气泡行（user + assistant），CT 消息不可见
+        expect(document.querySelectorAll('[data-msg-idx]').length).toBe(2)
+        expect(screen.queryByText(/技能模式|command-task/)).toBeNull()
+    })
+
+    it('command-task 与 catalog 同时存在时均被跳过，导航锚定真实 user', async () => {
+        mockConversationState.messagesMap['conv-1'] = [
+            {id: 'm0', role: 'user', content: '第一条'},
+            commandTaskUser('m1'),
+            catalogUser('m2'),
+            {id: 'm3', role: 'assistant', content: '回复'},
+        ]
+        mockConversationState.loadedMessages = mockConversationState.messagesMap['conv-1']
+        mockConversationState.activeConversationId = 'conv-1'
+
+        const container = await renderAndSettle()
+        container.scrollTop = 240
+        mockScrollTop = 240
+        fireEvent.scroll(container)
+
+        const prevBtn = document.querySelector('[aria-label="上一条用户消息"]') as HTMLButtonElement
+        await waitFor(() => expect(prevBtn).toBeTruthy())
+        fireEvent.click(prevBtn)
+
+        await waitFor(() => {
+            expect(scrollIntoViewMock.mock.calls.length).toBeGreaterThan(0)
+            // 导航跳过 CT(idx=1) 与 catalog(idx=2)，直接回到真实 user idx=0
+            expect(scrollIntoViewMock.mock.instances[0].getAttribute('data-msg-idx')).toBe('0')
+        })
     })
 })

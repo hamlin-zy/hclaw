@@ -97,6 +97,17 @@ describe('resolveOverrideThinkingEffort — 三条解析路径', () => {
         expect(resolveOverrideThinkingEffort(ov, makeScheme())).toBe('high')
     })
 
+    it('哨兵值 disabled → 显式禁用，不继承方案角色也不兜底 auto', () => {
+        const ov = {endpointId: 'prov-a', modelId: 'model-a', thinkingEffort: 'disabled'} as ModelOverride
+        // 方案角色 primary 是 high，但显式 disabled 必须优先
+        expect(resolveOverrideThinkingEffort(ov, makeScheme())).toBe('disabled')
+    })
+
+    it('哨兵值 disabled 且无 scheme → 仍返回 disabled（不被 auto 覆盖）', () => {
+        const ov = {endpointId: 'prov-x', modelId: 'model-x', thinkingEffort: 'disabled'} as ModelOverride
+        expect(resolveOverrideThinkingEffort(ov, null)).toBe('disabled')
+    })
+
     it('方案角色 thinkingEffort 为非法值 TURBO → 不透传，走 auto 兜底', () => {
         const badScheme: ModelScheme = {
             ...makeScheme(),

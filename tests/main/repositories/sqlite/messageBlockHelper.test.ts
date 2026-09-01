@@ -270,3 +270,32 @@ describe('metadata 瘦身（Task 5：主进程 messageToBlocks 全量写路径�
         expect(record.content).toBe('系统提示')
     })
 })
+
+describe('command-task（<command-task>）消息标记持久化与字节隔离', () => {
+    it('messageToBlocks 透传 metadata.sourceKind（command-task 标记不丢失）', () => {
+        const msg: Message = {
+            id: 'ct-1',
+            role: 'user',
+            content: '<command-task>\n# 技能模式\n</command-task>',
+            timestamp: 1000,
+            metadata: {sourceKind: 'command-task'},
+        }
+        const {messages: [record]} = messageToBlocks(msg, 'conv-1')
+        expect(record.metadata!.sourceKind).toBe('command-task')
+    })
+
+    it('metadata 标记不透传进 content 字节（只作用于识别，不影响 LLM 前缀）', () => {
+        // 模拟 buildMessagesFromRows 读回形态：metadata.sourceKind 展开到顶层，content 取 metadata.content
+        const msg: Message = {
+            id: 'ct-2',
+            role: 'user',
+            content: '<command-task>\n# 技能模式\n</command-task>',
+            timestamp: 1000,
+            metadata: {content: '<command-task>\n# 技能模式\n</command-task>', sourceKind: 'command-task'},
+        }
+        const {messages: [record]} = messageToBlocks(msg, 'conv-1')
+        // content 保持纯命令文本，不因 sourceKind 标记而改变字节
+        expect(record.metadata!.content).toBe('<command-task>\n# 技能模式\n</command-task>')
+        expect(record.metadata!.sourceKind).toBe('command-task')
+    })
+})

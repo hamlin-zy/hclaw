@@ -9,7 +9,7 @@
 import type {AgentStartParams} from './manager'
 import {agentManager} from './manager'
 import {isAudioFile, isImageFile, isNetworkImageUrl} from './utils/imageProcessor'
-import {convertUserHistoryMessage, normalizeHistoryMessageOrder} from './utils/userContentBuilder'
+import {convertUserHistoryMessage} from './utils/userContentBuilder'
 import {runtimeConfigManager} from './runtimeConfigManager'
 import {resolveAgentDefinitionForTurn} from './agentTemplateConverter'
 import {createConversationRepository} from '../repositories'
@@ -205,9 +205,8 @@ export async function startAgentCore(params: CoreStartParams, origin: StartOrigi
             if (!params.suppressUserMessage && isDuplicatePendingUser && msg === lastHistoryMsg) {
                 continue
             }
-            // ★ user 消息重建（附件构建 + metadata 收拢 + 命令尾随重放）
-            //   统一走共享函数（userContentBuilder.convertUserHistoryMessage），
-            //   回归测试锁定其输出与 loop/execute.ts 首轮注入逐字节一致
+            // ★ user 消息重建（附件构建 + metadata 收拢）统一走共享函数
+            //   （userContentBuilder.convertUserHistoryMessage，恒 1:1）
             convertedMessages.push(...await convertUserHistoryMessage(msg))
         } else if (msg.role === 'assistant') {
             // ★ 按 contentBlocks 的 think 边界无损还原多 assistant
@@ -219,7 +218,9 @@ export async function startAgentCore(params: CoreStartParams, origin: StartOrigi
         // system 消息跳过（由 systemPrompt 处理）
     }
 
-    const messages = normalizeHistoryMessageOrder(convertedMessages)
+    // DB 读回顺序即插入顺序（timestamp ASC, rowid ASC），CT/catalog 等真实持久化
+    // 消息已按真实位置落库，无需重定位
+    const messages = convertedMessages
     // suppressUserMessage: true 时由渠道调用方已自行落库/推送 user 消息，
     // 本次仅以 DB 历史重建上下文，不重推 params.message
     if (!params.suppressUserMessage) {

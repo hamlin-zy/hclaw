@@ -178,29 +178,39 @@ describe('decidePublish 四格决策表', () => {
     expect(r.decision.action).toBe('publish')
   })
 
-  it('digest 不同且有已发布消息 → replace + replacement 文案', () => {
+  it('digest 不同且有已发布消息 → publish 追加新消息 + replacement 文案', () => {
     const d1 = decidePublish(snap(eA), 'full', undefined, false, 0)
     const r = decidePublish(snap(eB), 'full', d1.decision.metadata!.catalogDigest, true, 0)
-    expect(r.decision.action).toBe('replace')
+    expect(r.decision.action).toBe('publish')
     expect(r.decision.content).toContain('replaces every earlier capability list')
     expect(r.decision.metadata!.catalogDigest).toBe(dOf(eB))
+  })
+
+  it('digest 变化 → 第二条 catalog 消息追加（旧消息内容不变）', () => {
+    // 追加式语义：digest 变化时返回 publish + replacement 文案，由调用方追加，
+    // 旧消息由调用方负责不动（见 catalogPublish.test.ts I1）
+    const d1 = decidePublish(snap(eA), 'full', undefined, false, 0)
+    const r = decidePublish(snap(eB), 'full', d1.decision.metadata!.catalogDigest, true, 0)
+    expect(r.decision.action).toBe('publish')
+    expect(r.decision.content).toContain('replaces every earlier')
   })
 
   it('启停抖动回到原 digest 时命中零操作', () => {
     const d1 = decidePublish(snap(eA), 'full', undefined, false, 0)
     expect(d1.decision.action).toBe('publish')
     const off = decidePublish(snap([]), 'full', d1.decision.metadata!.catalogDigest, true, 0)
-    expect(off.decision.action).toBe('replace')   // 目录变空
+    expect(off.decision.action).toBe('publish')   // 目录变空：追加 empty 文案提醒失效
+    expect(off.decision.content).toContain('No skills are currently available')
     const back = decidePublish(snap(eA), 'full', d1.decision.metadata!.catalogDigest, true, 0)
     expect(back.decision.action).toBe('none')     // 抖动回来：digest 相同且有已发布消息
   })
 
-  it('字段敏感性：仅 trigger 变化触发替换', () => {
+  it('字段敏感性：仅 trigger 变化触发追加', () => {
     const a: CatalogEntry[] = [{name: 'x', type: 'skill', description: 'd'}]
     const b: CatalogEntry[] = [{name: 'x', type: 'skill', description: 'd', trigger: 't'}]
     const d1 = decidePublish(snap(a), 'full', undefined, false, 0)
     const r = decidePublish(snap(b), 'full', d1.decision.metadata!.catalogDigest, true, 0)
-    expect(r.decision.action).toBe('replace')
+    expect(r.decision.action).toBe('publish')
   })
 
   it('空目录且从未发布 → 不发消息（spec §5.2 空目录规则）', () => {
@@ -318,7 +328,7 @@ describe('decidePublish two-stage', () => {
 
     it('U9b: 连续失败≥3 → 残缺数据照常决策', () => {
         const r = decidePublish(snapFor(one, false), 'names', 'old', true, 3)
-        expect(r.decision.action).toBe('replace')
+        expect(r.decision.action).toBe('publish')
         expect(r.nextIncompleteStreak).toBe(4)
     })
 
@@ -328,9 +338,9 @@ describe('decidePublish two-stage', () => {
         expect(r.nextIncompleteStreak).toBe(0)
     })
 
-    it('U8b: 已发布后变空 → empty replacement', () => {
+    it('U8b: 已发布后变空 → empty 文案追加', () => {
         const r = decidePublish(snapFor([]), 'names', 'old', true, 0)
-        expect(r.decision.action).toBe('replace')
+        expect(r.decision.action).toBe('publish')
         expect(r.decision.content).toContain('No skills are currently available')
     })
 
