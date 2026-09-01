@@ -420,9 +420,22 @@ export async function getTraceIndexLines(conversationId: string): Promise<LlmCal
     return out.sort((a, b) => a.ts - b.ts)
 }
 
-/** 清空：调用方须先停录制（Task 5 接线保证顺序），此处等待句柄空闲后删目录 */
+/** 清空：调用方须先停录制（Task 5 接线保证顺序），此处等待句柄空闲后删目录。
+ *  注意：activeWrites 按线程独立，Worker 线程的在途写不受主进程 barrier 约束；
+ *  已越过 isRecordingEnabled() 检查的调用仍会继续写完 req/res/index，与 rm 竞争。
+ *  Windows 下表现为 rmdir EBUSY/EPERM（杀软/索引器短暂占用同理）→ 有界退避重试兜底。 */
+const CLEAR_RETRY_CODES = new Set(['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'])
 export async function clearTraceLogs(): Promise<void> {
-    await waitForIdleWriters()
     const root = deps.rootDir()
-    if (fs.existsSync(root)) await fs.promises.rm(root, {recursive: true, force: true})
+    for (let attempt = 0; ; attempt++) {
+        try {
+            if (fs.existsSync(root)) await fs.promises.rm(root, {recursive: true, force: true})
+            return
+        } catch (err) {
+            const code = (err as NodeJS.ErrnoException | null)?.code ?? ''
+            if (!CLEAR_RETRY_CODES.has(code) || attempt >= 5) throw err
+            await waitForIdleWriters()
+            await new Promise(r => setTimeout(r, 100 * 2 ** attempt))
+        }
+    }
 }

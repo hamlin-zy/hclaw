@@ -189,6 +189,14 @@ function buildExecEnv(): NodeJS.ProcessEnv {
   env.LANG = 'en_US.UTF-8'
   env.LC_ALL = 'en_US.UTF-8'
 
+  // 抑制子进程 ANSI 颜色输出（全平台）：
+  // 工具结果直接进入 LLM 上下文，颜色转义码白白消耗 token 且干扰解析。
+  // NO_COLOR 标准 + chalk 系 FORCE_COLOR + CI 惯例 + TERM 检测退化，多层覆盖。
+  env.NO_COLOR = '1'
+  env.FORCE_COLOR = '0'
+  env.CI = 'true'
+  env.TERM = 'dumb'
+
   // Windows PowerShell 编码设置
   if (shellInfo.os === 'windows' && shellInfo.name === 'powershell') {
     env.PSExecutionPolicyPreference = 'Bypass'
@@ -219,6 +227,9 @@ function buildPowerShellScript(command: string): string {
 }
 
 // ─── 输出截断 ──────────────────────────────────
+
+/** ANSI 转义序列：CSI（颜色/光标控制）+ OSC（终端标题等），用于剥离子进程输出中的颜色码 */
+const ANSI_ESCAPE_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g
 
 const MAX_OUTPUT_SIZE = 2 * 1024 * 1024 // 2MB 硬性上限
 const TRUNCATION_NOTE = '\n\n[输出已截断 — 超过 2MB 限制]'
@@ -466,6 +477,10 @@ ${
         let output = ''
         if (stdoutStr) output += stdoutStr
         if (stderrStr) output += (output ? '\n' : '') + stderrStr
+
+        // ── ANSI 转义码剥离兜底：部分工具无视 NO_COLOR/FORCE_COLOR 硬编码颜色，
+        //    在此统一剥离（CSI 序列 + OSC 序列），保证进入上下文的输出干净 ──
+        output = output.replace(ANSI_ESCAPE_RE, '')
 
         // 详细错误分析
         if (exitCode === 0) {

@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest'
 import {toLlmUsageRecord, timeRangeStartMs, timeRangeBounds, parseLocalDateStartMs, parseLocalDateEndMs, computeKpis, tokensPerSecond, mergeByProvider, attachCosts, computeUsageCost} from '@shared/llmUsage'
+import type {CustomPriceEntry} from '@shared/usagePriceResolver'
 import {extractToolCallCount, extractToolCalls, extractTextContent} from '@shared/utils/llmUsageParser'
 
 describe('toLlmUsageRecord', () => {
@@ -246,6 +247,65 @@ describe('attachCosts（批量补成本）', () => {
     expect(out[0].costUsd).toBeCloseTo(1000*3e-6 + 100*15e-6 + 5000*0.3e-6, 10)
     expect(out[1].costUsd).toBe(0)
     expect(out[0].inputTokens).toBe(1000)  // 其余字段原样保留
+  })
+
+  // ── customPrices 分支（与 resolvePriceSource / attachCosts 同语义）──
+
+  const customPrices: CustomPriceEntry[] = [
+    {providerId: 'p1', providerName: 'Alpha', model: 'm1', pricing: {input: 2e-6, output: 10e-6}},
+    {providerName: 'Beta', model: 'm2', pricing: {input: 5e-6}},
+  ]
+
+  it('customPrices (providerId, model) 精确命中 → 覆盖 getMeta 价格', () => {
+    const rows = [
+      {key: 'm1', providerType: 'p', providerId: 'p1', providerName: 'Alpha', requestCount: 1, inputTokens: 1000, outputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1100, costUsd: 999},
+    ]
+    const out = attachCosts(rows, getMeta, customPrices)
+    expect(out[0].costUsd).toBeCloseTo(1000*2e-6 + 100*10e-6, 10)
+  })
+
+  it('同 model 跨 provider 行级独立取价：未命中行回退 getMeta，命中行用自定义价', () => {
+    const rows = [
+      {key: 'm1', providerType: 'p', providerId: 'p1', providerName: 'Alpha', requestCount: 1, inputTokens: 1000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1000, costUsd: 999},
+      {key: 'm1', providerType: 'p', providerId: 'p9', providerName: 'Other', requestCount: 1, inputTokens: 1000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1000, costUsd: 999},
+    ]
+    const out = attachCosts(rows, getMeta, customPrices)
+    expect(out[0].costUsd).toBeCloseTo(1000*2e-6, 10)     // p1 命中自定义价
+    expect(out[1].costUsd).toBeCloseTo(1000*3e-6, 10)     // p9 未命中 → getMeta 兜底
+  })
+
+  it('缺 providerId → providerName 首命中回退', () => {
+    const rows = [
+      {key: 'm2', providerType: 'p', providerName: 'Beta', requestCount: 1, inputTokens: 2000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2000, costUsd: 999},
+    ]
+    const out = attachCosts(rows, getMeta, customPrices)
+    expect(out[0].costUsd).toBeCloseTo(2000*5e-6, 10)
+  })
+
+  it('customPrices 为空数组 → 全部走 getMeta（不触发解析）', () => {
+    const rows = [
+      {key: 'm1', providerType: 'p', providerId: 'p1', providerName: 'Alpha', requestCount: 1, inputTokens: 1000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1000, costUsd: 999},
+    ]
+    const out = attachCosts(rows, getMeta, [])
+    expect(out[0].costUsd).toBeCloseTo(1000*3e-6, 10)
+  })
+})
+
+describe('computeUsageCost（cacheWrite 计费）', () => {
+  it('cacheWriteTokens × cacheWritePrice 计入成本', () => {
+    const cost = computeUsageCost(
+      {model: 'm', inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 200},
+      () => ({inputPrice: 1e-6, outputPrice: 2e-6, cacheReadPrice: 0.5e-6, cacheWritePrice: 3e-6}),
+    )
+    expect(cost).toBeCloseTo(100*1e-6 + 10*2e-6 + 200*3e-6, 12)
+  })
+
+  it('PriceSource 缺 cacheWritePrice（旧构造方）→ cacheWrite 按 0 计费，不产生 NaN', () => {
+    const cost = computeUsageCost(
+      {model: 'm', inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 200},
+      () => ({inputPrice: 1e-6, outputPrice: 2e-6, cacheReadPrice: 0.5e-6}) as any,
+    )
+    expect(cost).toBeCloseTo(100*1e-6 + 10*2e-6, 12)
   })
 })
 

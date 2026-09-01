@@ -15,6 +15,7 @@ import type {ConversationPersistence, ToolCallPersistable} from './conversationP
 // ── P5 修正：think 段号状态（writeBlockDelta 对 think 块是覆盖语义，交错思考
 //    think→tool→think 场景下固定单 id 会覆盖丢段；渲染端现状为每段独立 id）──
 const thinkSegByMsg = new Map<string, number>()          // msgId → 当前段号
+const thinkSegAccumByMsg = new Map<string, string>()     // msgId → 当前段内累积内容（段边界重置）
 const lastWasThinking = new Set<string>()                // msgId → 上一事件是否 thinking
 
 // ── 方案 2 根治：LLM 调用轮次标注（turnIndex）────────────────────────────
@@ -26,6 +27,13 @@ const lastWasThinking = new Set<string>()                // msgId → 上一事�
 // 为 stub assistant → 重建序列 ≠ loop 内存态 → KV cache 断裂。
 const turnSeqByMsg = new Map<string, number>()           // msgId → 当前轮次
 const contentAfterToolByMsg = new Set<string>()          // msgId → tool_result 后已有内容块
+// 双通道重复投递防护：toolExecutor.execute 既 events.push(tool_start)（随
+// execEvents 延迟 yield）又 onEvent 即时推送，且 executeToolCalls 在所有工具
+// 结束后才 yield execEvents → 第二份 tool_start 落在 tool_completed（closeTurn
+// 置标记）之后 → turnForContent 消费标记 → tool 块 turn_index 虚高 1 → 重建时
+// text/think 与 tool_use 拆成两条 assistant → 跨 turn 前缀分叉 → 缓存断裂。
+// 同一 msgId 的同一 toolCallId 只落一次块。
+const persistedToolCallIds = new Map<string, Set<string>>()
 
 /** 当前轮次（tool_use 等不开启新轮的块） */
 function currentTurn(msgId: string): number {
@@ -73,18 +81,39 @@ export function persistStreamEvent(
       // 进入新 think 段（think→text→think 交错）→ 段号 +1（渲染端每段独立 id 语义）
       if (!lastWasThinking.has(msgId)) {
         thinkSegByMsg.set(msgId, thinkSeq() + 1)
+        thinkSegAccumByMsg.set(msgId, '')
       }
       lastWasThinking.add(msgId)
-      const content = pending.thinkParts?.length ? pending.thinkParts.join('') : ((event as {content?: string}).content || '')
-      if (content) p.recordThinkBlock(convId, msgId, `think-${msgId}-${thinkSeq()}`, content, 'thinking', turnForContent(msgId))
+      // ★ 段内增量累积，而非 pending.thinkParts.join('') 全量快照：
+      //   thinkParts 是整条消息（跨所有 LLM 调用轮）的 UI 聚合，每轮写一份
+      //   全量快照会使 historyConverter 按 turn 分组拼接后每轮 reasoningContent
+      //   都携带之前所有轮的 thinking → 重建请求 input 暴涨（74.6k→151k tokens）。
+      //   段内累积（delta 之和）与 loop 内存态 execute.ts thinkingParts.join('')
+      //   （每轮增量）逐字节一致：同 turn 多段拼接 = 该轮全部 thinking delta。
+      const delta = (event as {content?: string}).content || ''
+      const accum = (thinkSegAccumByMsg.get(msgId) ?? '') + delta
+      thinkSegAccumByMsg.set(msgId, accum)
+      if (accum) p.recordThinkBlock(convId, msgId, `think-${msgId}-${thinkSeq()}`, accum, 'thinking', turnForContent(msgId))
       break
     }
     case 'tool_use':
     case 'tool_start': {
       const tc = (event as {toolCall?: ToolCallPersistable}).toolCall
       if (!tc) break
+      // 双通道重复投递防护：同 id 只落一次（重复事件不得再次消费 turn 标记）
+      let seen = persistedToolCallIds.get(msgId)
+      if (!seen) {
+        seen = new Set<string>()
+        persistedToolCallIds.set(msgId, seen)
+      }
+      if (seen.has(tc.id)) break
+      seen.add(tc.id)
       lastWasThinking.delete(msgId)
-      p.recordToolCallBlock(convId, msgId, {...tc, status: tc.status ?? 'running'}, currentTurn(msgId))
+      // 契约补全：LLM 调用可能只返回 tool_calls（零 thinking/text），
+      // 此时 tool_use 也处于 tool_result 之后 → 必须开启新轮，否则该调用的
+      // tool_call 块沿用上一轮 turnIndex，重建时并入上一组 assistant，
+      // 序列与 loop 内存态分叉 → 跨 turn 首请求 KV cache 断裂。
+      p.recordToolCallBlock(convId, msgId, {...tc, status: tc.status ?? 'running'}, turnForContent(msgId))
       break
     }
     case 'tool_result':
@@ -128,9 +157,11 @@ export function persistStreamEvent(
 /** 消息终结时清理桥接段号状态（7.2：finalize 为必然事件触发，finalizeMessage 成功路径调用） */
 export function resetBridgeMsgState(msgId: string): void {
   thinkSegByMsg.delete(msgId)
+  thinkSegAccumByMsg.delete(msgId)
   lastWasThinking.delete(msgId)
   turnSeqByMsg.delete(msgId)
   contentAfterToolByMsg.delete(msgId)
+  persistedToolCallIds.delete(msgId)
 }
 
 /** text 段序号 = 已出现的非 text 块数(对齐 conversationStore.ts:216-221 语义)。

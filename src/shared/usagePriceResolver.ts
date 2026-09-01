@@ -36,3 +36,21 @@ export function resolveCustomPrice(
 export function pricingToPriceSource(p: ModelPricing): PriceSource {
   return {inputPrice: p.input ?? 0, outputPrice: p.output ?? 0, cacheReadPrice: p.cacheRead ?? 0, cacheWritePrice: p.cacheWrite ?? 0}
 }
+
+/**
+ * 行级取价（纯函数，shared attachCosts / 主进程 toModelBreakdown 共用）：
+ * 自定义定价命中（非 null）→ 全量价集（缺失维度补 0）；否则 getMeta 兜底。
+ */
+export function resolvePriceSource(
+  model: string,
+  providerId: string | null,
+  providerName: string | null,
+  getMeta: (model: string) => PriceSource,
+  customPrices?: CustomPriceEntry[],
+): PriceSource {
+  if (customPrices && customPrices.length > 0) {
+    const custom = resolveCustomPrice(customPrices, {model, providerId, providerName})
+    if (custom) return pricingToPriceSource(custom)
+  }
+  return getMeta(model)
+}

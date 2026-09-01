@@ -34,6 +34,7 @@ import type {RunParams, MainLoopExitReason, ControllerState} from './types'
 import {endTurnCleanup} from './helpers'
 import {initializeRunEnvironment, detectCommandContext, selectModelForTurn, defaultRoleForTrace, filterTools, filterToolsForDegrade, buildSystemPrompt} from './setup'
 import {executeLlmCallWithRetry, executeToolCalls, extractMediaFromToolResults} from './execute'
+import type {LlmStreamResult} from './types'
 import {PreprocessCache} from './preprocessCache'
 import {LoopDetector, buildTurnToolCalls, isLoopPatternSilenced, type LoopVerdict} from './loopDetector'
 import {restoreCatalogState, runCatalogPreStep, type CatalogState} from './catalogPublish'
@@ -530,7 +531,13 @@ export class AgentLoopController {
             }
 
             // ── LLM 调用（含重试） ──
-            const llmResult = yield* executeLlmCallWithRetry({
+            // 逐事件转发并跟踪 error/done：executeLlmCallWithRetry 失败返回 null 时
+            // （graceful-stop / 重试耗尽），若已 yield error 但未发 done，此处兜底补发，
+            // 防止渲染端永久停留在「响应中」。
+            let sawErrorEvent = false
+            let sawDoneEvent = false
+            let llmResult: LlmStreamResult | null = null
+            const llmGen = executeLlmCallWithRetry({
                 llmCaller: this.llmCaller,
                 state: currentState,
                 systemPrompt,
@@ -545,9 +552,25 @@ export class AgentLoopController {
                 preprocessCache,
                 directModel: selection.directModel,
             })
+            for (;;) {
+                const step = await llmGen.next()
+                if (step.done) {
+                    llmResult = step.value
+                    break
+                }
+                const ev = step.value as AgentStreamEvent
+                if (ev.type === 'error') sawErrorEvent = true
+                if (ev.type === 'done') sawDoneEvent = true
+                yield ev
+            }
 
             if (abortSignal?.aborted) return 'early_exit'
-            if (llmResult === null) return 'early_exit'
+            if (llmResult === null) {
+                if (sawErrorEvent && !sawDoneEvent) {
+                    yield {type: 'done', reason: 'error'}
+                }
+                return 'early_exit'
+            }
 
             const {
                 assistantContent, assistantThinking, assistantThinkingSignature,
@@ -654,7 +677,17 @@ export class AgentLoopController {
                 //   而本路径直接 return early_exit 不产生 done → 渲染端永远停留在
                 //   「响应中」（UI 卡死）。done 后 worker 退出，onWorkerExit 的
                 //   兜底 done('aborted') 为重复通知，manager 侧幂等处理。
-                yield {type: 'done', reason: 'completed'}
+                // ★ 交接门注入但模型未调用 session_handoff（弱模型常见）：不得假报
+                //   completed（UI 显示已完成但任务未移交 = 静默中断），必须显式报错。
+                if (handoffRequested && !calledSessionHandoff) {
+                    yield {
+                        type: 'error',
+                        error: '交接未完成：模型收到交接指令但未调用 session_handoff，任务已中断。请重试或在原会话手动发送交接指令。',
+                    }
+                    yield {type: 'done', reason: 'error'}
+                } else {
+                    yield {type: 'done', reason: 'completed'}
+                }
                 return 'early_exit'
             }
 
