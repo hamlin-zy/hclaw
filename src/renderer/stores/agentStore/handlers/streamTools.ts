@@ -12,6 +12,8 @@ import {
 } from '../batching/textBatch'
 import {
     scheduleToolResultUpdate,
+    flushToolResultBatch,
+    findOwningMessage,
 } from '../batching/toolResultBatch'
 import {normalizeToolResult} from '../helpers/misc'
 import {ensureAgentToolTaskId} from './streamSubAgents'
@@ -229,23 +231,25 @@ export function handleToolResult(ctx: StreamCtx) {
     const convState = get().convAgentStates[convId] || createDefaultConvData()
     const msgId = convState.streamingMessageId
     const convStore = useConversationStore.getState()
-
-    if (!msgId && convState.agentState.status === 'idle') return
-
-    // ★ 完成态兜底：agent 工具结果携带 _meta.childConvId 时给父工具补写子会话关联
-    //   （运行中已由 subagent_progress 写入，此处幂等覆盖；随增量落库持久化）
-    const meta = (event.result as any)?._meta as {childConvId?: string} | undefined
-    if (meta?.childConvId) {
-        ensureAgentToolTaskId(convId, event.toolCallId, meta.childConvId)
-    }
-
     const convMsgs = convStore.messagesMap[convId] || []
-    const msg = convMsgs.find(m => m.id === msgId)
     const result = event.result ? normalizeToolResult(event.result) : null
 
-    if (msg?.toolCalls && result && msgId) {
+    // ★ 消息定位复用 findOwningMessage：优先 streamingMessageId，兜底按 toolCallId 反查
+    //   （done 先行清空 streamingMessageId / 消息被重建等竞态下的晚到结果不丢弃）。
+    //   兜底路径不复活 agent 运行态。
+    const targetMsg = findOwningMessage(convMsgs, msgId, event.toolCallId)
+
+    if (targetMsg?.toolCalls && result) {
+        const targetMsgId = targetMsg.id
+        // ★ 完成态兜底：agent 工具结果携带 _meta.childConvId 时给父工具补写子会话关联
+        //   （运行中已由 subagent_progress 写入，此处幂等覆盖；随增量落库持久化）
+        const meta = (event.result as any)?._meta as {childConvId?: string} | undefined
+        if (meta?.childConvId) {
+            ensureAgentToolTaskId(convId, event.toolCallId, meta.childConvId)
+        }
+
         useToolCallsStore.getState().setToolResult(event.toolCallId, result)
-        const tc = msg.toolCalls.find(tc => tc.id === event.toolCallId)
+        const tc = targetMsg.toolCalls.find(tc => tc.id === event.toolCallId)
         if (event.skillName && tc) {
             useToolCallsStore.getState().updateToolCall(event.toolCallId, {skillName: event.skillName} as any)
         }
@@ -256,12 +260,20 @@ export function handleToolResult(ctx: StreamCtx) {
         //   先固化到消息再删除，否则 SessionStats/弹窗丢失统计。
         const runtimeState = useToolCallsStore.getState().states[event.toolCallId]
         if (runtimeState?.tokenUsage && tc && !tc.tokenUsage) {
-            useConversationStore.getState().updateMessageForConv(convId, msgId, {
-                toolCalls: msg.toolCalls.map(t => t.id === event.toolCallId ? {...t, tokenUsage: runtimeState.tokenUsage} : t),
+            useConversationStore.getState().updateMessageForConv(convId, targetMsgId, {
+                toolCalls: targetMsg.toolCalls.map(t => t.id === event.toolCallId ? {...t, tokenUsage: runtimeState.tokenUsage} : t),
             })
         }
         useToolCallsStore.getState().clearToolCall(event.toolCallId)
-        scheduleToolResultUpdate(convId, msgId, event.toolCallId, result)
+        // ★ msgId 随 batch entry 固化，flush 与 streamingMessageId 解耦；
+        //   agent 已收尾（idle）时立即 flush，避免依赖后续 rAF
+        scheduleToolResultUpdate(convId, targetMsgId, event.toolCallId, result)
+        if (convState.agentState.status === 'idle') {
+            flushToolResultBatch(convId)
+            // done 已收尾（晚到的 tool_result）：应用结果后直接返回，
+            // 不复活 agent 运行态（不递减 runningToolCount / 不写 running 状态）
+            return
+        }
     }
 
     const newCount = Math.max(0, convState.runningToolCount - 1)

@@ -3,7 +3,7 @@ import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useAgentStore} from '../stores/agentStore'
 import {useLLMStore} from '../stores/llmStore'
-import {usePrimaryRole} from '../hooks/usePrimaryRole'
+import {useDefaultRoleForSession} from '../hooks/usePrimaryRole'
 import {resolveActiveModel} from '../lib/modelResolution'
 import type {ModelOverride} from '@shared/types'
 
@@ -24,7 +24,7 @@ const HOVER_DELAY = 120
 
 /**
  * 模型选择器 — 会话级模型覆盖（替代 WorkModeSelector）
- * - 无 override：虚拟选中当前方案 primary（只读匹配，不写库）
+ * - 无 override：虚拟选中会话默认角色（主会话 primary / 子会话 lightweight，与运行层对齐；只读匹配，不写库）
  * - 用户选定具体模型：当前会话后续轮次直接使用（会话级 override，持久化）
  * - 位置：InputArea 下方统计栏（t/s 徽章旁），popover 向上展开
  * - 交互：popover 列服务商 → hover/点击服务商项 → 右侧级联子菜单列模型（点击即应用）
@@ -70,20 +70,21 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
     }, [conversationId])
 
     // 解析生效显示：与 selectModelForTurn 决策对齐（findEffectiveOverride 只认会话 override，
-    // 无记录=默认 primary）。★ 不回退历史选择：老会话无 override 记录时显示 primary 模型名（虚拟选中），
-    //   否则显示与实际生效不一致。新会话无 override 记录 → 默认 primary，显示 primary 模型名。
+    // 无记录=会话默认角色：主会话 primary / 子会话 lightweight，见 useDefaultRoleForSession）。
+    // ★ 不回退历史选择：老会话无 override 记录时显示默认角色模型名（虚拟选中），
+    //   否则显示与实际生效不一致。
     const active = modelOverride
 
-    // 当前方案 primary 角色（无 override 时作为虚拟选中目标；只读匹配，不写库；
-    // 与 CacheRateTooltip 共用 usePrimaryRole，防口径漂移）
-    const primaryRole = usePrimaryRole()
+    // 会话默认角色（无 override 时作为虚拟选中目标；只读匹配，不写库；
+    // 与 CacheRateTooltip 共用 useDefaultRoleForSession，防口径漂移）
+    const defaultRole = useDefaultRoleForSession(conversationId)
 
     // 生效模型解析（与 CacheRateTooltip 共用 resolveActiveModel，防口径漂移）
     const activeResolution = useMemo(() => resolveActiveModel({
         override: active,
         providers,
-        primaryRole,
-    }), [active, providers, primaryRole])
+        defaultRole,
+    }), [active, providers, defaultRole])
 
     const activeLabel = activeResolution.label
 
@@ -250,7 +251,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                         )}
                                         {enabledProviders.map(p => {
                                             const isActive = active?.endpointId === p.id
-                                                || (!active && primaryRole?.endpointId === p.id)   // 虚拟选中：primary 所在服务商
+                                                || (!active && defaultRole?.endpointId === p.id)   // 虚拟选中：默认角色所在服务商
                                             return (
                                                 <button
                                                     key={p.id}
@@ -306,7 +307,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                         )}
                                         {selModels.map(m => {
                                             const isSelected = (active?.endpointId === selProviderId && active?.modelId === m.id)
-                                                || (!active && primaryRole?.endpointId === selProviderId && primaryRole.modelId === m.id)  // 虚拟选中：primary 模型项
+                                                || (!active && defaultRole?.endpointId === selProviderId && defaultRole?.modelId === m.id)  // 虚拟选中：默认角色模型项
                                             return (
                                                 <button
                                                     key={m.id}

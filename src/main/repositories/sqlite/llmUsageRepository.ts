@@ -33,6 +33,10 @@ interface ModelAggRow {
   request_count: number
   /** 组内去重会话数（COUNT(DISTINCT conversation_id)；历史行 conversation_id 可空） */
   conversation_count: number
+  /** 组内去重主会话数（conversations.meta.parentConvId 为空） */
+  main_conv_count: number
+  /** 组内去重子会话数（conversations.meta.parentConvId 非空） */
+  sub_conv_count: number
   input_tokens: number
   output_tokens: number
   cache_read_tokens: number
@@ -72,21 +76,24 @@ export class SqliteLlmUsageRepository {
       const db = getDatabase()
       const {startMs, endMs} = timeRangeBounds(params.range, Date.now(), toCustomRange(params))
       const rows = db.prepare(`
-        SELECT provider_type, model, provider_name, provider_id,
+        SELECT u.provider_type, u.model, u.provider_name, u.provider_id,
                COUNT(*) AS request_count,
-               COUNT(DISTINCT conversation_id) AS conversation_count,
-               SUM(input_tokens) AS input_tokens,
-               SUM(output_tokens) AS output_tokens,
-               SUM(cache_read_tokens) AS cache_read_tokens,
-               SUM(cache_write_tokens) AS cache_write_tokens,
-               SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) AS total_tokens,
-               SUM(decode_ms) AS decode_ms,
-               SUM(ttft_ms) AS ttft_ms,
-               COUNT(ttft_ms) AS ttft_count
-        FROM llm_usage
-        WHERE (? IS NULL OR created_at >= ?)
-          AND (? IS NULL OR created_at <= ?)
-        GROUP BY provider_id, provider_name, provider_type, model
+               COUNT(DISTINCT u.conversation_id) AS conversation_count,
+               COUNT(DISTINCT CASE WHEN json_extract(c.meta, '$.parentConvId') IS NULL THEN u.conversation_id END) AS main_conv_count,
+               COUNT(DISTINCT CASE WHEN json_extract(c.meta, '$.parentConvId') IS NOT NULL THEN u.conversation_id END) AS sub_conv_count,
+               SUM(u.input_tokens) AS input_tokens,
+               SUM(u.output_tokens) AS output_tokens,
+               SUM(u.cache_read_tokens) AS cache_read_tokens,
+               SUM(u.cache_write_tokens) AS cache_write_tokens,
+               SUM(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens) AS total_tokens,
+               SUM(u.decode_ms) AS decode_ms,
+               SUM(u.ttft_ms) AS ttft_ms,
+               COUNT(u.ttft_ms) AS ttft_count
+        FROM llm_usage u
+        LEFT JOIN conversations c ON c.id = u.conversation_id
+        WHERE (? IS NULL OR u.created_at >= ?)
+          AND (? IS NULL OR u.created_at <= ?)
+        GROUP BY u.provider_id, u.provider_name, u.provider_type, u.model
       `).all(startMs, startMs, endMs, endMs) as ModelAggRow[]
 
       const breakdowns = rows.map((r) => this.toModelBreakdown(r, getMeta, customPrices))
@@ -317,6 +324,8 @@ export class SqliteLlmUsageRepository {
       providerId: r.provider_id ?? undefined,
       requestCount: r.request_count,
       conversationCount: r.conversation_count ?? 0,
+      mainConversationCount: r.main_conv_count,
+      subConversationCount: r.sub_conv_count,
       inputTokens: r.input_tokens,
       outputTokens: r.output_tokens,
       cacheReadTokens: r.cache_read_tokens,

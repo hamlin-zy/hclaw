@@ -546,6 +546,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
                       ipcRenderer.on(`${windowId}-maximized-changed`, handler)
                       return () => ipcRenderer.removeListener(`${windowId}-maximized-changed`, handler)
                   },
+                  // 内置浏览器：页面标题更新（主进程 page-title-updated 转发，标题栏文本跟随网站标题）
+                  onPageTitle: (callback: (title: string) => void) => {
+                      const handler = (_: unknown, v: string) => callback(v)
+                      ipcRenderer.on(`${windowId}-page-title`, handler)
+                      return () => ipcRenderer.removeListener(`${windowId}-page-title`, handler)
+                  },
+                  // 内置浏览器：网页首次加载完成（done）/失败（failed），用于隐藏加载动画
+                  onPageLoaded: (callback: (status: string) => void) => {
+                      const handler = (_: unknown, v: string) => callback(v)
+                      ipcRenderer.on(`${windowId}-page-loaded`, handler)
+                      return () => ipcRenderer.removeListener(`${windowId}-page-loaded`, handler)
+                  },
               },
           }
         : {}),

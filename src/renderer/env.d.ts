@@ -355,6 +355,10 @@ declare global {
             close: () => Promise<void>
             isMaximized: () => Promise<boolean>
             onMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void
+            /** 内置浏览器：网站页面标题更新（标题栏文本跟随网站标题） */
+            onPageTitle: (callback: (title: string) => void) => () => void
+            /** 内置浏览器：网页首次加载完成（done）或失败（failed），用于隐藏加载动画 */
+            onPageLoaded: (callback: (status: string) => void) => () => void
         }
 
         // Skills management

@@ -1,8 +1,8 @@
 /**
  * 会话生效模型解析（ModelSelector / CacheRateTooltip 共用，防口径漂移）
  *
- * 口径：modelOverride → 无则当前方案 primary 角色兜底（与 selectModelForTurn 的
- * findEffectiveOverride 决策对齐；primary 只读匹配，不写库）。
+ * 口径：modelOverride → 无则按会话默认角色兜底（主会话 primary / 子会话 lightweight，
+ * 与运行层 defaultRoleForTrace + selectModelForTurn 决策对齐；只读匹配，不写库）。
  * 返回服务商/模型解析结果 + 展示文案；解析失败时给出兜底文案。
  */
 import type {LLMProvider, ModelOverride, ModelSchemeRole, ProviderModel} from '@shared/types'
@@ -18,7 +18,7 @@ export interface ActiveModelResolution {
   providerName: string
   /** 模型显示名（providers.models[].name，与 llmStats.model 同口径） */
   modelName: string
-  /** 展示文案「{服务商名}: {模型名}」；不可解析时为 override 残值或「主力模型」 */
+  /** 展示文案「{服务商名}: {模型名}」；不可解析时为 override 残值或兜底角色名（主力模型/轻量模型） */
   label: string
 }
 
@@ -47,9 +47,10 @@ function toResolution(provider: LLMProvider, model: ProviderModel): ActiveModelR
 export function resolveActiveModel(opts: {
   override: ModelOverride | null
   providers: LLMProvider[]
-  primaryRole: ModelSchemeRole | null
+  /** 会话默认角色（无 override 时的虚拟选中目标）：主会话 primary / 子会话 lightweight，见 useDefaultRoleForSession */
+  defaultRole: ModelSchemeRole | null
 }): ActiveModelResolution {
-  const {override, providers, primaryRole} = opts
+  const {override, providers, defaultRole} = opts
 
   if (override) {
     const {provider, model} = findProviderModel(providers, override.endpointId, override.modelId)
@@ -65,19 +66,19 @@ export function resolveActiveModel(opts: {
     }
   }
 
-  // 无 override → 当前方案 primary 角色（虚拟选中语义，只读匹配）
-  if (primaryRole) {
-    const {provider, model} = findProviderModel(providers, primaryRole.endpointId, primaryRole.modelId)
+  // 无 override → 会话默认角色（虚拟选中语义，只读匹配）
+  if (defaultRole) {
+    const {provider, model} = findProviderModel(providers, defaultRole.endpointId, defaultRole.modelId)
     if (provider && model) return toResolution(provider, model)
   }
 
-  // primary 未配置/不可解析 → 兜底文案（原「自动」）
+  // 默认角色未配置/不可解析 → 兜底文案（按角色命名，与运行层降级链首角色一致）
   return {
     providerId: null,
     modelId: null,
     providerType: '',
     providerName: '',
     modelName: '',
-    label: '主力模型',
+    label: defaultRole?.role === 'lightweight' ? '轻量模型' : '主力模型',
   }
 }

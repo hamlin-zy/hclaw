@@ -4,6 +4,7 @@ import {useThemeStore} from '../stores/themeStore'
 import {useAgentStore} from '../stores/agentStore'
 import {useConversationStore} from '../stores/conversationStore'
 import {useMenuBarStore} from '../stores/menuBarStore'
+import {openMemoCreateWindow} from '../stores/memoStore'
 
 /**
  * 集中管理所有系统内快捷键（非全局快捷键）
@@ -53,6 +54,14 @@ export function useGlobalHotkeys() {
                     // 无工作空间时弹窗选择目录（由 NewChatButton 处理）
                     window.dispatchEvent(new CustomEvent('hclaw:new-conversation'))
                 }
+                return
+            }
+
+            // Ctrl+Shift+N → 新建备忘录（始终生效，不依赖备忘录面板是否可见）
+            if (ctrl && shift && key === 'n') {
+                e.preventDefault()
+                const ws = useConversationStore.getState().currentWorkspacePath
+                if (ws) openMemoCreateWindow(ws)
                 return
             }
 
