@@ -34,6 +34,16 @@ const mockState = vi.hoisted(() => ({
   registryPlugins: new Map<string, Record<string, any>>(),
 }))
 
+// 规避 repo/registry 顶层模块加载副作用（config → sqlite TDZ）。
+// 仅增加 mocks 以隔离模块加载，不改变任何断言；
+// getByPath 默认返回 undefined → switchVersion 走原 installer.checkoutRef 逻辑。
+vi.mock('@/main/repo/registry', () => ({
+  repoRegistry: { getByPath: () => undefined },
+}))
+vi.mock('@/main/repo/versionManager', () => ({
+  repoVersionManager: { async checkoutRefForRepo() { return {success: false, error: 'should not be called'} } },
+}))
+
 vi.mock('@/main/plugin/installer', () => {
   class MockPluginInstaller {
     async fetchTags(): Promise<void> {

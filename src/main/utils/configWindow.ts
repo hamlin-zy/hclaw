@@ -56,7 +56,7 @@ export const DIALOG_SIZES: Record<string, {width?: number; widthRatio?: number; 
     'scheme-config': {widthRatio: 0.53, maxWidth: 1026, minWidth: 620},
     'mcp': {width: 680},
     'tool-manage': {width: 580},
-    'agents': {width: 600},
+    'agents': {width: 750},
     'skills': {width: 580},
     'plugins': {width: 640},
     'commands': {width: 580},

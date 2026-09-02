@@ -22,7 +22,6 @@ import {ToolExecutor} from './toolExecutor'
 import {addMessage, createAssistantMessage} from '../state'
 import {logger} from '../logger'
 import {extractTextContent, getMessagePreview} from '../utils/contentUtils'
-import {formatYmd, isCacheStale} from '../utils/dateUtils'
 import {permissionRulesManager} from '../permissions/permissionRule'
 import type {IConversationRepository} from '../../repositories/interfaces'
 import {createConversationRepository} from '../../repositories'
@@ -38,7 +37,9 @@ import type {LlmStreamResult} from './types'
 import {PreprocessCache} from './preprocessCache'
 import {LoopDetector, buildTurnToolCalls, isLoopPatternSilenced, type LoopVerdict} from './loopDetector'
 import {restoreCatalogState, runCatalogPreStep, type CatalogState} from './catalogPublish'
+import {restoreEnvState, runEnvPreStep, type EnvState} from './envPublish'
 import {buildCommandTaskContent} from '../utils/userContentBuilder'
+import {buildAgentDefinitionCtMessage, shouldInjectAgentDefinitionCt} from './agentDefinitionCt'
 // ─── LLM 调用事件与工具方法（内联自历史 compress.ts） ───
 import type {ChatMessage} from '../model/types'
 
@@ -200,7 +201,16 @@ export function carryForwardCommandId(
 
 interface CachePayload {
     core: string
-    /** 系统提示词构建日期（yyyy-MM-dd），用于跨天失效 */
+    /**
+     * system 签名（f(workingDir, agentType, agentDefinition, customInstructions)）。
+     * 复用守卫：签名一致才复用 core；签名不含日期/权限模式（二者已移出 system，
+     * system 可跨天、跨权限模式复用，避免唯一 cache_control 断点失效）。
+     */
+    signature?: string
+    /**
+     * @deprecated 旧字段的构建日期（yyyy-MM-dd）。日期已移出 system，不再作为
+     * 失效依据；仅保留解析兼容，重建后载荷不再写入。
+     */
     buildDate?: string
     /**
      * 产生当前 system prompt 的命令 ID（agent:/skill:/插件命令）。
@@ -209,6 +219,28 @@ interface CachePayload {
      * 在 tools 段断裂 → cached_tokens 归零），同时保持只读 Agent 的工具限制。
      */
     commandId?: string | null
+}
+
+/**
+ * 计算 system 签名：真正影响 system 文本的项。
+ * - workingDir / agentType / customInstructions 直接入键
+ * - ★ 方案 A：agentDefinition 不再入键——agent 专属模板已移出 system（经 CT
+ *   用户消息注入），system 文本与 agent 无关，切换 agent 不应触发重建。
+ *   agentType 参数保留：非 agentDefinition 路径（如 agentType 模板分支）仍影响 system。
+ * 不含日期/权限模式（已移出 system，不构成缓存破坏）。
+ */
+export function buildSystemSignature(
+    workingDir: string,
+    agentType: string,
+    /** @deprecated 方案 A 后不再参与签名（模板已移出 system）；保留参数兼容调用方 */
+    _agentDefinition: {agentType: string; systemPromptTemplate: string} | undefined,
+    customInstructions: string | undefined,
+): string {
+    return JSON.stringify({
+        workingDir,
+        agentType,
+        customInstructions: customInstructions ?? '',
+    })
 }
 
 /** 安全解析 DB 缓存 JSON，兼容旧格式纯字符串 */
@@ -334,6 +366,8 @@ export class AgentLoopController {
 
         // ★ 能力目录状态：循环外初始化；从既有会话消息流还原（恢复会话零重复发布）
         let catalogState: CatalogState = restoreCatalogState(currentState.messages)
+        // ★ 环境快照状态（日期）：同构还原，崩溃重启零重复发布
+        let envState: EnvState = restoreEnvState(currentState.messages)
 
         // ★ CT 真实消息化（spec §3.2）：主循环前插入 state 并落库，轮内后续 LLM 调用从 state 自然读到。
         // 位置在 catalog pre-step 之前：assistant 行首建于首次内容落库（无占位行），CT 天然先于它们。
@@ -353,6 +387,25 @@ export class AgentLoopController {
                     conversationRepo.writeMessagesDelta(sessionId, {...ctMessage, timestamp: Date.now()} as unknown as Message)
                 } catch (err) {
                     logger.debug('[AgentLoop] CT message persist failed (in-memory only)', {error: String(err)})
+                }
+            }
+        } else if (agentDefinition) {
+            // ★ 方案 A：commandContext 为 null 但 agentDefinition 存在（/aside 经
+            //   messageMetadata.commandId → resolveAgentDefinitionForTurn，或子 Agent
+            //   agentTool 派发）→ agent 专属模板经 CT 用户消息注入，system 保持稳定 base。
+            //   commandContext 优先（其 commandTemplate 即 agent 模板，二者相同，不重复注入）。
+            //   幂等守卫：agentDefinition 会被跨轮从缓存载荷 commandId 恢复，每次 run 都到
+            //   此处 —— state 已有内容相同的 CT 消息时跳过，防止重复注入。
+            const ctMessage = buildAgentDefinitionCtMessage(agentDefinition)
+            if (ctMessage && shouldInjectAgentDefinitionCt(currentState.messages, ctMessage.content)) {
+                currentState = addMessage(currentState, ctMessage)
+                logger.info('[AgentLoop] agentDefinition template injected via CT message (stable base system)')
+                if (conversationRepo && sessionId) {
+                    try {
+                        conversationRepo.writeMessagesDelta(sessionId, {...ctMessage, timestamp: Date.now()} as unknown as Message)
+                    } catch (err) {
+                        logger.debug('[AgentLoop] agent CT message persist failed (in-memory only)', {error: String(err)})
+                    }
                 }
             }
         }
@@ -457,7 +510,6 @@ export class AgentLoopController {
 
             // ── 选择模型（显式 modelRole → 会话 override → 默认角色降级链）──
             // 子会话（agentTool，traceContext='subAgent'）未显式指定 modelRole 时默认轻量模型
-            // 子会话（agentTool，traceContext='subAgent'）未显式指定 modelRole 时默认轻量模型
             const selection = yield* selectModelForTurn(schemeConfig, sessionId, params.modelRole, defaultRoleForTrace(params.traceContext))
 
             // ── 过滤工具列表 ──
@@ -491,6 +543,14 @@ export class AgentLoopController {
                 catalogState = r.catalogState
             }
 
+            // ── 环境快照发布（pre-step）：日期 digest 变化时追加 system-env 消息 ──
+            //   （日期已移出 system，前部消息字节不动，保住唯一 cache_control 断点）
+            {
+                const r = runEnvPreStep(currentState, envState, conversationRepo, sessionId)
+                currentState = r.state
+                envState = r.envState
+            }
+
             // ── 构建系统提示词 ──
             const sysPromptContext = await permissionRulesManager.getContext()
             const currentPermissionMode = sysPromptContext.mode
@@ -499,9 +559,11 @@ export class AgentLoopController {
             const cached = safeParseCache(cachedSystemPrompt)
             const cachedCore = cached?.core ?? null
 
-            // ★ 缓存跨天失效：构建日期不是今天（或无 buildDate 的旧缓存）→ 强制重建
-            const today = formatYmd()
-            const cacheStale = isCacheStale(cached?.buildDate, today)
+            // ★ system 签名：真正影响 system 文本的项（日期/权限模式已移出 system，
+            //   不参与签名——system 可跨天、跨权限模式复用）
+            const cacheSignature = buildSystemSignature(
+                workingDir, agentType, agentDefinition, customInstructions,
+            )
 
             const systemPrompt = await buildSystemPrompt({
                 commandContext,
@@ -512,7 +574,9 @@ export class AgentLoopController {
                 customInstructions,
                 agentType,
                 agentTemplates,
-                cachedSystemPrompt: cacheStale ? null : cachedCore,
+                cachedSystemPrompt: cachedCore,
+                cacheSignature,
+                cachedSignature: cached?.signature ?? null,
             })
 
             // ★ 构建新的缓存载荷（JSON 格式）
@@ -520,7 +584,7 @@ export class AgentLoopController {
             // 能从 execution.ts 恢复 agentDefinition（工具集一致性）
             const newCachePayload = JSON.stringify({
                 core: systemPrompt,
-                buildDate: today,
+                signature: cacheSignature,
                 commandId: carryForwardCommandId(commandContext, cached),
             })
 

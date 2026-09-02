@@ -559,7 +559,9 @@ export class PluginInstaller {
     const git = simpleGit(pluginPath)
     try {
       // Try exact tag match first
-      const tag = await git.raw(['describe', '--tags', '--exact-match', '--quiet'])
+      // 注意：不可加 --quiet——部分 git 版本下 --quiet 会抑制 tag 名输出（"Do not output anything"），
+      // 导致本方法在 detached HEAD 时永远返回 'HEAD'
+      const tag = await git.raw(['describe', '--tags', '--exact-match'])
       if (tag?.trim()) return tag.trim()
     } catch {
       // Not on a tag — fall through

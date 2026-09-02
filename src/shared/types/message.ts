@@ -431,6 +431,8 @@ export interface CatalogEntry {
 export const SOURCE_KIND_CATALOG = 'capability-catalog' as const
 /** command-task（<command-task>）内部消息标记：真实持久化消息，UI 层据此过滤为不可见 */
 export const SOURCE_KIND_COMMAND_TASK = 'command-task' as const
+/** 系统（会话级环境快照）内部消息标记：日期等环境信息 digest 变化时追加，UI 层过滤为不可见 */
+export const SOURCE_KIND_SYSTEM_ENV = 'system-env' as const
 
 export interface CatalogMetadata {
   sourceKind: typeof SOURCE_KIND_CATALOG

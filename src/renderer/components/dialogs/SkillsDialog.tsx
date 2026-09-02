@@ -6,9 +6,12 @@ import {confirm} from '../../components/ConfirmDialog'
 import LoadErrorBanner from '../common/LoadErrorBanner'
 import {CopyButton} from '../common/CopyButton'
 import SkillDetailModal from './SkillDetailModal'
-import {Folder, Search, Trash2, ChevronDown, Check, AlertCircle, Plus, Download, RefreshCw} from 'lucide-react'
+import RepoGroupCard from '../repo/RepoGroupCard'
+import {useRepoUpdateStore} from '../../stores/repoUpdateStore'
+import {buildRepoGroups, filterRepoTabSkills, sortReposByUpdate} from '../repo/repoGrouping'
+import {Folder, Search, Trash2, ChevronDown, Check, AlertCircle, Plus, Download, RefreshCw, GitBranch} from 'lucide-react'
 
-type TabType = 'local' | 'plugin'
+type TabType = 'local' | 'repo' | 'plugin'
 
 export default function SkillsDialog() {
     const {
@@ -24,6 +27,9 @@ export default function SkillsDialog() {
     } = useSkillStore()
     const [activeTab, setActiveTab] = useState<TabType>('local')
     const [searchQuery, setSearchQuery] = useState('')
+    // 仓库红点状态（有更新的仓库列表项置顶显示）
+    const repoUpdateMap = useRepoUpdateStore(s => s.updateMap)
+    const repoHasUpdate = useRepoUpdateStore(s => s.hasUpdate)
     // 弹窗状态：isOpen=是否可见, skill=当前显示的skill, mode=预览/编辑/创建
     const [detailModal, setDetailModal] = useState<{
         isOpen: boolean
@@ -38,6 +44,49 @@ export default function SkillsDialog() {
     const [refreshing, setRefreshing] = useState(false)
     const [installing, setInstalling] = useState(false)
     const [installMessage, setInstallMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+    const [repoUrl, setRepoUrl] = useState('')
+    const [repoInstalling, setRepoInstalling] = useState(false)
+    const [repoList, setRepoList] = useState<any[]>([])
+
+    // 仓库列表（用于本地/插件 Tab 按仓库归属分组）
+    const refreshRepoList = useCallback(() => {
+        return (window.electronAPI as any)?.repo?.list?.().then((repos: any[]) => setRepoList(repos || [])).catch(() => {})
+    }, [])
+
+    // 挂载时拉取一次
+    useEffect(() => {
+        refreshRepoList()
+    }, [refreshRepoList])
+
+    // 打开/切换仓库 tab 时主动拉取仓库版本 meta，确保红点与置顶反映当前状态。
+    // （App 启动时的仓库版本检测为异步 fire-and-forget，可能晚于本对话框渲染导致 updateMap 为空）
+    useEffect(() => {
+        void useRepoUpdateStore.getState().refreshFromCache()
+    }, [activeTab])
+
+    const handleRepoInstall = useCallback(async () => {
+        if (!repoUrl.trim()) return
+        setRepoInstalling(true)
+        setInstallMessage(null)
+        try {
+            const api = window.electronAPI as any
+            const result = await api?.repo?.install?.('skill', repoUrl.trim())
+            if (result?.success) {
+                setInstallMessage({type: 'success', text: `仓库已安装: ${result.repoId}`})
+                await refreshSkills()
+                refreshRepoList()
+                setRepoUrl('')
+                setTimeout(() => setInstallMessage(null), 3000)
+            } else {
+                // 错误消息不清除，避免用户尚未读完即消失
+                setInstallMessage({type: 'error', text: `安装失败: ${result?.error || '未知错误'}`})
+            }
+        } catch (e: any) {
+            setInstallMessage({type: 'error', text: `安装失败: ${e?.message || '未知错误'}`})
+        } finally {
+            setRepoInstalling(false)
+        }
+    }, [repoUrl, refreshSkills, refreshRepoList])
     const openSkillDetail = useCallback((skill: import('@shared/types').Skill, mode: 'preview' | 'edit' = 'preview') => {
         setDetailModal({isOpen: true, skill, mode})
     }, [])
@@ -72,12 +121,13 @@ export default function SkillsDialog() {
         setInstalling(false)
         if (result.success) {
             setInstallMessage({type: 'success', text: `技能 "${result.skillName}" 安装成功`})
+            refreshRepoList()
         } else if (result.error && result.error !== 'User cancelled') {
             setInstallMessage({type: 'error', text: `安装失败: ${result.error}`})
         }
         // 3秒后自动清除提示
         setTimeout(() => setInstallMessage(null), 3000)
-    }, [installSkill])
+    }, [installSkill, refreshRepoList])
 
     const filteredSkills = useMemo(() => {
         let filtered = skills
@@ -85,6 +135,9 @@ export default function SkillsDialog() {
         // 按标签过滤
         if (activeTab === 'local') {
             filtered = filtered.filter(s => s.source === 'builtin' || s.source === 'user' || !s.source)
+        } else if (activeTab === 'repo') {
+            // 仓库 tab：只显示 skills 管理页安装的仓库（skills/public，source='user'），排除插件目录技能
+            filtered = filterRepoTabSkills(filtered)
         } else if (activeTab === 'plugin') {
             filtered = filtered.filter(s => s.source === 'plugin')
         }
@@ -139,6 +192,26 @@ export default function SkillsDialog() {
               </div>
           </div>
 
+          {/* Repo install input */}
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--border-muted)]">
+              <GitBranch className="w-3.5 h-3.5 text-[var(--text-muted)] flex-shrink-0"/>
+              <input
+                  type="text"
+                  value={repoUrl}
+                  onChange={e => setRepoUrl(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !repoInstalling && handleRepoInstall()}
+                  placeholder="输入 Git 仓库地址，从仓库安装技能（克隆到 skills/public 并按仓库分组）"
+                  className="flex-1 px-2.5 py-1.5 text-xs bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--brand-primary)]"
+               data-name="skills-dialog-repo-input"/>
+              <button
+                  onClick={handleRepoInstall}
+                  disabled={repoInstalling || !repoUrl.trim()}
+                  className="flex-shrink-0 px-2 py-1 text-xs font-medium rounded-md border border-[var(--border)] text-[var(--brand-primary)] hover:border-[var(--brand-primary)]/50 hover:bg-[var(--brand-primary)]/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+               data-name="skills-dialog-repo-install-button">
+                  {repoInstalling ? '安装中...' : '安装仓库'}
+              </button>
+          </div>
+
           {/* Install message toast */}
           {installMessage && (
               <div className={`mx-4 mt-2 px-3 py-2 text-xs rounded-md flex items-center gap-2 ${
@@ -163,18 +236,23 @@ export default function SkillsDialog() {
 
           {/* Tabs */}
           <div className="flex items-center gap-1 px-4 py-2 border-b border-[var(--border-muted)]">
-              {(['local', 'plugin'] as TabType[]).map((tab, i) => (
+              {(['local', 'repo', 'plugin'] as TabType[]).map((tab, i) => (
                   <button
                       key={tab}
                       onClick={() => setActiveTab(tab)}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      className={`relative px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                           activeTab === tab
                               ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
                               : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                       }`}
                    data-name={`skills-dialog-tab-${i}`}>
                       {tab === 'local' && '本地'}
+                      {tab === 'repo' && '仓库'}
                       {tab === 'plugin' && '插件'}
+                      {/* 仓库 tab 红点：存在可升级仓库时提示 */}
+                      {tab === 'repo' && repoHasUpdate && (
+                          <span className="absolute top-1.5 right-1 w-1.5 h-1.5 rounded-full bg-red-500" />
+                      )}
                   </button>
               ))}
           </div>
@@ -211,24 +289,77 @@ export default function SkillsDialog() {
                   <PluginGroupedList
                       skills={filteredSkills}
                       matchedSkills={matchedSkills}
+                      repoList={repoList}
                       onToggle={toggleSkill}
                       onToggleBatch={toggleSkillBatch}
                       onOpenDetail={openSkillDetail}
                   />
               ) : (
-                  <div className="p-2 space-y-1.5">
-                      <AnimatePresence initial={false}>
-                          {filteredSkills.map(skill => (
-                              <SkillCard
-                                  key={skill.id}
-                                  skill={skill}
-                                  isMatched={matchedSkills.some(m => m.skillId === skill.id)}
-                                  onToggle={() => toggleSkill(skill.id)}
-                                  onOpenDetail={() => openSkillDetail(skill)}
-                              />
-                          ))}
-                      </AnimatePresence>
-                  </div>
+                  (() => {
+                      // 按仓库归属分组：有归属进 group，无归属进 local
+                      const {local: localSkills, groups} = buildRepoGroups(filteredSkills, repoList)
+                      if (activeTab === 'repo') {
+                          // 仓库 tab：只展示仓库分组卡片，有更新的仓库置顶
+                          const sortedGroups = sortReposByUpdate(groups, repoUpdateMap)
+                          return sortedGroups.length > 0 ? (
+                              <div className="p-2 space-y-3">
+                                  <AnimatePresence initial={false}>
+                                      {sortedGroups.map(group => (
+                                          <RepoGroupCard
+                                              key={group.repo.id}
+                                              repo={group.repo}
+                                              skillCount={group.skills.length}
+                                              agentCount={0}
+                                              skills={group.skills}
+                                              onToggleBatch={toggleSkillBatch}
+                                              onVersionSwitched={() => void useSkillStore.getState().refreshSkills()}
+                                          >
+                                              {group.skills.map(skill => (
+                                                  <SkillCard
+                                                      key={skill.id}
+                                                      skill={skill}
+                                                      isMatched={matchedSkills.some(m => m.skillId === skill.id)}
+                                                      onToggle={() => toggleSkill(skill.id)}
+                                                      onOpenDetail={() => openSkillDetail(skill)}
+                                                      onDeleted={refreshRepoList}
+                                                  />
+                                              ))}
+                                          </RepoGroupCard>
+                                      ))}
+                                  </AnimatePresence>
+                              </div>
+                          ) : (
+                              <div className="flex flex-col items-center justify-center py-12 text-center">
+                                  <Folder className="w-10 h-10 text-[var(--text-muted)]/30 mb-3"/>
+                                  <p className="text-sm text-[var(--text-muted)]">暂无仓库技能</p>
+                                  <p className="text-xs text-[var(--text-muted)]/60 mt-1">在上方输入 Git 仓库地址安装，技能将归入对应仓库分组</p>
+                              </div>
+                          )
+                      }
+                      // 本地 tab：只展示无仓库归属的本地技能
+                      return localSkills.length > 0 ? (
+                          <div className="p-2 space-y-1.5">
+                              <AnimatePresence initial={false}>
+                                  {localSkills.map(skill => (
+                                      <SkillCard
+                                          key={skill.id}
+                                          skill={skill}
+                                          isMatched={matchedSkills.some(m => m.skillId === skill.id)}
+                                          onToggle={() => toggleSkill(skill.id)}
+                                          onOpenDetail={() => openSkillDetail(skill)}
+                                          onDeleted={refreshRepoList}
+                                      />
+                                  ))}
+                              </AnimatePresence>
+                          </div>
+                      ) : (
+                          <div className="flex flex-col items-center justify-center py-12 text-center">
+                              <Folder className="w-10 h-10 text-[var(--text-muted)]/30 mb-3"/>
+                              <p className="text-sm text-[var(--text-muted)]">暂无本地技能</p>
+                              <p className="text-xs text-[var(--text-muted)]/60 mt-1">本地技能已全部归入仓库分组，可在「仓库」tab 查看</p>
+                          </div>
+                      )
+                  })()
               )}
           </div>
 
@@ -251,11 +382,13 @@ function SkillCard({
                        isMatched,
                        onToggle,
                        onOpenDetail,
+                       onDeleted,
                    }: {
     skill: import('@shared/types').Skill
     isMatched: boolean
     onToggle: () => void
     onOpenDetail: () => void
+    onDeleted?: () => void
 }) {
     const {removeSkill, refreshSkills} = useSkillStore()
     const [deleting, setDeleting] = useState(false)
@@ -276,11 +409,12 @@ function SkillCard({
         setDeleting(false)
         if (result.success) {
             refreshSkills()
+            onDeleted?.()
         } else {
             setDeleteError(result.error || '删除失败')
             setTimeout(() => setDeleteError(null), 4000)
         }
-    }, [skill, removeSkill, refreshSkills])
+    }, [skill, removeSkill, refreshSkills, onDeleted])
 
     return (
         <motion.div
@@ -374,139 +508,71 @@ function SkillCard({
 function PluginGroupedList({
                                skills,
                                matchedSkills,
+                               repoList,
                                onToggle,
                                onToggleBatch,
                                onOpenDetail,
                            }: {
     skills: import('@shared/types').Skill[]
     matchedSkills: { skillId: string }[]
+    repoList: any[]
     onToggle: (id: string) => void
     onToggleBatch: (skillIds: string[], enabled: boolean) => Promise<{ success: boolean; error: string }>
     onOpenDetail: (skill: import('@shared/types').Skill, mode?: 'preview' | 'edit') => void
 }) {
-    // 从插件真实启用状态过滤：只有 pluginEnabled=true 的插件才显示分组
-    // 注意：不能用 skill.enabled 推断，因为插件启用/禁用不会更新技能个体的 enabled（保留用户配置）
-    const enabledPlugins = useMemo(() => {
-        const set = new Set<string>()
+    // 按 owner/repo（repoId）分组，只显示至少有 1 个 pluginEnabled 技能的仓库分组
+    // 批处理「全部启用/禁用」仍基于技能个体 enabled（保留用户配置）
+    const grouped = useMemo(() => {
+        const map = new Map<string, {repo: any; skills: import('@shared/types').Skill[]}>()
         for (const skill of skills) {
-            if (skill.source === 'plugin' && skill.pluginEnabled && skill.pluginName) {
-                set.add(skill.pluginName)
+            const repo = repoList.find(r => (r.capabilities?.skills || []).includes(skill.id))
+            if (repo) {
+                const entry = map.get(repo.id) || {repo, skills: []}
+                entry.skills.push(skill)
+                map.set(repo.id, entry)
+            } else {
+                // 未命中仓库归属的 plugin skill（如手动解压到插件目录）：
+                // 按 pluginName 兜底分组，保证技能不静默消失
+                const groupKey = `plugin:${skill.pluginName || skill.id}`
+                const fallbackRepo = {
+                    id: skill.pluginName || skill.id,
+                    name: skill.pluginName || skill.id,
+                    source: 'plugin',
+                    capabilities: {skills: [], agents: [], plugins: []},
+                }
+                const entry = map.get(groupKey) || {repo: fallbackRepo, skills: []}
+                entry.skills.push(skill)
+                map.set(groupKey, entry)
             }
         }
-        return set
-    }, [skills])
-
-    // 按插件名分组，只显示已启用插件的分组
-    const grouped = useMemo(() => {
-        const map = new Map<string, import('@shared/types').Skill[]>()
-        for (const skill of skills) {
-            const pluginName = skill.pluginName || 'unknown'
-            if (!enabledPlugins.has(pluginName)) continue
-            const list = map.get(pluginName) || []
-            list.push(skill)
-            map.set(pluginName, list)
-        }
-        return Array.from(map.entries()).map(([name, pluginSkills]) => ({ name, skills: pluginSkills }))
-    }, [skills, enabledPlugins])
+        return Array.from(map.values()).filter(group => group.skills.some(s => s.pluginEnabled))
+    }, [skills, repoList])
 
     return (
         <div className="p-2 space-y-3">
             <AnimatePresence initial={false}>
                 {grouped.map(group => (
-                    <PluginGroupCard
-                        key={group.name}
-                        pluginName={group.name}
+                    <RepoGroupCard
+                        key={group.repo.id}
+                        repo={group.repo}
+                        skillCount={group.skills.length}
+                        agentCount={0}
                         skills={group.skills}
-                        matchedSkills={matchedSkills}
-                        onToggle={onToggle}
                         onToggleBatch={onToggleBatch}
-                        onOpenDetail={onOpenDetail}
-                    />
+                        onVersionSwitched={() => void useSkillStore.getState().refreshSkills()}
+                    >
+                        {group.skills.map(skill => (
+                            <SkillCard
+                                key={skill.id}
+                                skill={skill}
+                                isMatched={matchedSkills.some(m => m.skillId === skill.id)}
+                                onToggle={() => onToggle(skill.id)}
+                                onOpenDetail={() => onOpenDetail(skill)}
+                            />
+                        ))}
+                    </RepoGroupCard>
                 ))}
             </AnimatePresence>
         </div>
-    )
-}
-
-function PluginGroupCard({
-                             pluginName,
-                             skills,
-                             matchedSkills,
-                             onToggle,
-                             onToggleBatch,
-                             onOpenDetail,
-                         }: {
-    pluginName: string
-    skills: import('@shared/types').Skill[]
-    matchedSkills: { skillId: string }[]
-    onToggle: (id: string) => void
-    onToggleBatch: (skillIds: string[], enabled: boolean) => Promise<{ success: boolean; error: string }>
-    onOpenDetail: (skill: import('@shared/types').Skill, mode?: 'preview' | 'edit') => void
-}) {
-    const [collapsed, setCollapsed] = useState(true)
-
-    return (
-        <motion.div
-            layout
-            initial={{opacity: 0, y: -8}}
-            animate={{opacity: 1, y: 0}}
-            exit={{opacity: 0, y: -8}}
-            transition={{duration: 0.15}}
-            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden"
-        >
-            {/* 插件标题栏 */}
-            <div
-                className="flex items-center justify-between px-3 py-2 bg-[var(--surface-muted)]/50 cursor-pointer"
-                onClick={() => setCollapsed(c => !c)}
-             data-name="skills-dialog-plugin-group-header">
-                <div className="flex items-center gap-2">
-                    <Folder className="w-4 h-4 text-[var(--brand-primary)]"/>
-                    <span className="text-xs font-semibold text-[var(--text-primary)]">{pluginName}</span>
-                    <span className="text-[10px] text-[var(--text-muted)]">{skills.length} 个技能</span>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                        onClick={async e => {
-                            e.stopPropagation()
-                            const allEnabled = skills.every(s => s.enabled)
-                            const targetEnabled = !allEnabled
-                            const ids = skills.filter(s => s.enabled !== targetEnabled).map(s => s.id)
-                            if (ids.length > 0) await onToggleBatch(ids, targetEnabled)
-                        }}
-                        className="text-[10px] font-medium text-[var(--brand-primary)] hover:text-[var(--brand-primary)]/80 transition-colors flex-shrink-0"
-                     data-name="skills-dialog-batch-toggle-button">
-                        {skills.every(s => s.enabled) ? '全部禁用' : '全部启用'}
-                    </button>
-                    <ChevronDown
-                        className={`w-4 h-4 text-[var(--text-muted)] transition-transform duration-300 ${collapsed ? '' : 'rotate-180'}`}
-                    />
-                </div>
-            </div>
-
-            {/* 插件下的技能列表 */}
-            <AnimatePresence initial={false}>
-                {!collapsed && (
-                    <motion.div
-                        initial={{opacity: 0, height: 0}}
-                        animate={{opacity: 1, height: 'auto'}}
-                        exit={{opacity: 0, height: 0}}
-                        transition={{duration: 0.2, ease: 'easeInOut'}}
-                        style={{overflow: 'hidden'}}
-                    >
-                        <div className="p-2 space-y-1.5 border-t border-[var(--border-muted)]">
-                            {skills.map(skill => (
-                                <SkillCard
-                                    key={skill.id}
-                                    skill={skill}
-                                    isMatched={matchedSkills.some(m => m.skillId === skill.id)}
-                                    onToggle={() => onToggle(skill.id)}
-                                    onOpenDetail={() => onOpenDetail(skill)}
-                                />
-                            ))}
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </motion.div>
     )
 }
