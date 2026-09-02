@@ -45,6 +45,8 @@ import {setConfigBridge} from './agent/common/configBridge';
 import {init as initUpdater} from './updater/updateChecker';
 import {versionManager} from './plugin/versionManager';
 import {getConversationPersistence} from './persistence/conversationPersistence';
+import {registerRepoIPC, initializeRepoSystem} from './repo/ipc';
+import {repoVersionManager} from './repo/versionManager';
 
 const logger = createLogger('app')
 
@@ -183,6 +185,7 @@ getConversationPersistence().onPersistEvent(e => {
 });
 
 registerPluginIPC();
+registerRepoIPC();
 registerCapabilityIPC();
 registerAgentIPC();
 initGoogleAuthIPC();
@@ -371,6 +374,17 @@ app.on('ready', async () => {
     }
   }).catch((err: any) => {
     logger.warn('plugin-version-check-failed', {error: String(err)});
+  });
+
+  // Skills/Agents repo startup check (fire-and-forget) — discover + fetch tags, push red-dot meta
+  initializeRepoSystem().then(() => {
+    const win = getMainWindow();
+    const meta = repoVersionManager.getAllVersionMeta();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('repo:status-update', meta);
+    }
+  }).catch((err: any) => {
+    logger.warn('repo-version-startup-failed', {error: String(err)});
   });
 
   // Step 3: Agent + Skills 初始化（含插件 MCP 配置加载 + 缓存回写）

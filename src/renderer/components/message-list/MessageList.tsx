@@ -10,7 +10,7 @@ import {useAgentStore} from '../../stores/agentStore'
 import MessageBubble from './MessageBubble'
 import {CatalogStatusLine, parseCatalogEntriesFromContent} from './CatalogStatusLine'
 import {getPhaseLabel} from './StatusIndicators'
-import {SOURCE_KIND_CATALOG, SOURCE_KIND_COMMAND_TASK} from '@shared/types/message'
+import {SOURCE_KIND_CATALOG, SOURCE_KIND_COMMAND_TASK, SOURCE_KIND_SYSTEM_ENV} from '@shared/types/message'
 import type {CatalogEntry} from '@shared/types/message'
 
 /**
@@ -31,6 +31,12 @@ function isCatalogMessage(msg: {metadata?: unknown; sourceKind?: unknown}): bool
  */
 function isCommandTaskMessage(msg: {metadata?: unknown; sourceKind?: unknown}): boolean {
     return getCatalogMeta(msg)?.sourceKind === SOURCE_KIND_COMMAND_TASK
+}
+/**
+ * system-env（会话级环境快照，日期）内部消息：仅驱动 LLM 消息流尾部，不渲染为气泡。
+ */
+function isSystemEnvMessage(msg: {metadata?: unknown; sourceKind?: unknown}): boolean {
+    return getCatalogMeta(msg)?.sourceKind === SOURCE_KIND_SYSTEM_ENV
 }
 import {KbdCombo} from '../common/Kbd'
 import CopyToast from '../common/CopyToast'
@@ -584,7 +590,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
     // 避免它们进入"用户消息导航"索引（否则滚动定位会锚定到不可见气泡上）。
     const userMessageIndices = useMemo(() => {
         return messages.reduce<number[]>((acc, msg, index) => {
-            if (msg.role === 'user' && !isCatalogMessage(msg) && !isCommandTaskMessage(msg)) acc.push(index)
+            if (msg.role === 'user' && !isCatalogMessage(msg) && !isCommandTaskMessage(msg) && !isSystemEnvMessage(msg)) acc.push(index)
             return acc
         }, [])
     }, [messages])
@@ -960,6 +966,10 @@ export default function MessageList({conversationId}: { conversationId?: string 
             messages.forEach((message, origIdx) => {
                 if (isCommandTaskMessage(message)) {
                     // command-task（<command-task>）内部消息：不渲染气泡、不挂载目录条目
+                    return
+                }
+                if (isSystemEnvMessage(message)) {
+                    // system-env（环境快照）内部消息：不渲染气泡
                     return
                 }
                 if (isCatalogMessage(message)) {

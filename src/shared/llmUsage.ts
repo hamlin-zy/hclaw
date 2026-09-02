@@ -7,7 +7,7 @@
  * - mergeByProvider / attachCosts：分组合并与成本（主进程 / 渲染层共用）
  */
 import type {LlmUsageRecord, TimeRange, UsageBreakdown} from './types'
-import {resolveCustomPrice, pricingToPriceSource, type CustomPriceEntry} from './usagePriceResolver'
+import {resolvePriceSource, type CustomPriceEntry} from './usagePriceResolver'
 import {MIN_DECODE_MS} from './types'
 
 /** llm_call_done 事件的用量字段（结构化子集，避免 shared → main 依赖） */
@@ -228,13 +228,7 @@ export function attachCosts(rows: UsageBreakdown[], getMeta: (model: string) => 
     ...b,
     costUsd: computeUsageCost(
       {model: b.key, inputTokens: b.inputTokens, outputTokens: b.outputTokens, cacheReadTokens: b.cacheReadTokens, cacheWriteTokens: b.cacheWriteTokens},
-      () => {
-        if (customPrices && customPrices.length > 0) {
-          const custom = resolveCustomPrice(customPrices, {model: b.key, providerId: b.providerId ?? null, providerName: b.providerName ?? null})
-          if (custom) return pricingToPriceSource(custom)
-        }
-        return getMeta(b.key)
-      },
+      () => resolvePriceSource(b.key, b.providerId ?? null, b.providerName ?? null, getMeta, customPrices),
     ),
   }))
 }

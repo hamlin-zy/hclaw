@@ -218,6 +218,47 @@ describe('bashTool — 中止信号', () => {
     })
 })
 
+describe('bashTool — 颜色抑制与 ANSI 剥离', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+        tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'bash-tool-test-'))
+    })
+
+    afterEach(() => {
+        fsSync.rmSync(tmpDir, {recursive: true, force: true})
+    })
+
+    it('子进程环境注入颜色抑制变量（NO_COLOR / FORCE_COLOR / CI / TERM）', async () => {
+        const result = await bashTool.execute(
+            {command: '"NO_COLOR=$env:NO_COLOR FORCE_COLOR=$env:FORCE_COLOR CI=$env:CI TERM=$env:TERM"'},
+            makeContext(tmpDir),
+        )
+
+        expect(result.success).toBe(true)
+        expect(result.output).toContain('NO_COLOR=1')
+        expect(result.output).toContain('FORCE_COLOR=0')
+        expect(result.output).toContain('CI=true')
+        expect(result.output).toContain('TERM=dumb')
+    })
+
+    it('输出中的 ANSI 转义码被剥离（兜底路径）', async () => {
+        // 子进程主动输出真实 ESC 转义序列（模拟无视 NO_COLOR 的工具），
+        // 验证 close 回调中的 ANSI_ESCAPE_RE 剥离兜底生效
+        const result = await bashTool.execute(
+            {command: '"$([char]27)[31mRED$([char]27)[0m $([char]27)[2mdim$([char]27)[22m"'},
+            makeContext(tmpDir),
+        )
+
+        expect(result.success).toBe(true)
+        expect(result.output).toContain('RED')
+        expect(result.output).toContain('dim')
+        expect(result.output).not.toContain('[31m')
+        expect(result.output).not.toContain('[0m')
+        expect(result.output).not.toContain('[2m')
+    })
+})
+
 describe('bashTool — shell 信息与终端显示名', () => {
     it('getShellInfo 返回完整结构', () => {
         const info = getShellInfo()

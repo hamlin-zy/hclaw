@@ -39,17 +39,17 @@ const DIALOG_CONFIG: Record<string, DialogConfig> = {
     'llm-config': {title: '服务商配置', Component: LLMConfigDialog},
     'mcp': {title: 'MCP 服务', Component: MCPDialog},
     'scheme-config': {title: '模型方案', Component: ModelSchemeDialog},
-    'tools': {title: '工具管理', Component: ToolsDialog},
+    'tool-manage': {title: '工具管理', Component: ToolsDialog},
     'agents': {title: 'Agents', Component: AgentsDialog},
     'skills': {title: 'Skills', Component: SkillsDialog},
     'plugins': {title: '插件管理', Component: PluginDialog},
     'commands': {title: '命令管理', Component: CommandsDialog},
     'schedules': {title: '定时任务', Component: ScheduleDialog},
     'channels': {title: '渠道管理', Component: ChannelsDialog},
-    'prompt-config': {title: '提示词方案', Component: PromptConfigDialog},
+    'prompt-scheme': {title: '提示词方案', Component: PromptConfigDialog},
     'conversations': {title: '会话管理', Component: ConversationsDialog},
     'settings': {title: '系统设置', Component: SettingsDialog},
-    'tool-list': {title: '工具列表预览', Component: ToolListDialog},
+    'tool-catalog': {title: '工具清单', Component: ToolListDialog},
     'system-prompt': {title: '系统提示词预览', Component: SystemPromptDialog},
     'about': {title: '关于 HClaw', Component: AboutDialog},
     'llm-logs': {title: 'LLM 调用日志', Component: LlmLogsWindow},
@@ -59,6 +59,9 @@ const DIALOG_CONFIG: Record<string, DialogConfig> = {
     'task-history-conv': {title: '任务历史', Component: TaskHistoryDialog},
     'memo-edit': {title: '备忘录编辑', Component: MemoEditDialog},
 }
+
+/** 独立窗口支持的 dialogType 集合（供跨层一致性测试与路由校验复用） */
+export const DIALOG_CONFIG_KEYS = new Set(Object.keys(DIALOG_CONFIG))
 
 export default function ConfigDialogWindow() {
     useThemeSync()

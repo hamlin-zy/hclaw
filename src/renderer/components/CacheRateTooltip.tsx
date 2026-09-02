@@ -390,11 +390,11 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
       >
         {/* 缓存命中率徽章（进度环 = 生效模型末次请求命中率，图标 = 数据库；无数据 → 占位） */}
         <MetricBadge pct={badgeRate ?? undefined} accent={badgeRate != null ? cacheRateAccent(badgeRate) : 'var(--border)'} icon={<Database className="w-3 h-3"/>}>
-          缓存 {badgeRate != null ? `${badgeRate}%` : '—'}
+          {badgeRate != null ? `${badgeRate}%` : '—'}
         </MetricBadge>
         {/* 窗口占用徽章（进度环 = 生效模型窗口使用率，图标 = 窗口方块，内置分级；无数据 → 占位） */}
         <MetricBadge pct={pct} icon={<AppWindow className="w-3 h-3"/>}>
-          窗口 {badgeWindowTokens != null ? formatTokenCount(badgeWindowTokens) : '—'}
+          {badgeWindowTokens != null ? formatTokenCount(badgeWindowTokens) : '—'}
         </MetricBadge>
         {/* 末次吞吐徽章（静态边框，图标 = 速度计，无时序数据时隐藏） */}
         {badgeTps != null && (

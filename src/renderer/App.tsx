@@ -25,6 +25,7 @@ import {useSettingsStore} from './stores/settingsStore'
 import {useSidebarStore} from './stores/sidebarStore'
 import {useUpdaterStore} from './stores/updaterStore'
 import {usePluginUpdateStore} from './stores/pluginUpdateStore'
+import {useRepoUpdateStore} from './stores/repoUpdateStore'
 import {useMenuBarStore} from './stores/menuBarStore'
 import {useGlobalHotkeys} from './hooks/useGlobalHotkeys'
 import TooltipPortal from './components/common/TooltipPortal'
@@ -417,6 +418,18 @@ export default function App() {
     return () => unsubscribe?.()
   }, [])
 
+  // ── 订阅仓库版本状态推送（skills/agents 仓库化管理：启动 repo 检查完成后推送一次） ──
+  // ALSO actively pull from main process cache as fallback (push may fire before listener registered)
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.repo?.onRepoStatusUpdate?.((data: any) => {
+      if (data && typeof data === 'object') {
+        useRepoUpdateStore.getState().setVersionMeta(data)
+      }
+    })
+    useRepoUpdateStore.getState().refreshFromCache()
+    return () => unsubscribe?.()
+  }, [])
+
   // ── 自动弹出更新通知：发现新版本 → 弹窗（受 ignored / alreadyNoticed 保护） ──
   const updateResult = useUpdaterStore((s) => s.result)
   const updateIgnored = useUpdaterStore((s) => s.ignored)
@@ -511,7 +524,7 @@ export default function App() {
     }
   }, [])
 
-  // ── 提示词方案变更推送：其他窗口（prompt-config）改了 prompt-schemes → 主窗口重新 hydration ──
+  // ── 提示词方案变更推送：其他窗口（prompt-scheme）改了 prompt-schemes → 主窗口重新 hydration ──
   useEffect(() => {
     const cleanup = window.electronAPI?.onPromptSchemesChanged?.(() => {
       void usePromptSchemeStore.persist.rehydrate()

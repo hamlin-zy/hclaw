@@ -8,7 +8,12 @@ export interface TimelineItem {
 
 export const timelineItems: TimelineItem[] = [
   {
-    version: 'v0.5.5', date: '2026-09-01', tag: '最新',
+    version: 'v0.5.6', date: '2026-09-02', tag: '最新',
+    title: '技能与 Agent 管理升级',
+    items: ['技能与 Agent 支持按仓库分组管理，可一键安装与更新', '会话模式选择器支持响应式折叠，界面细节统一', '修复长对话历史偶发残缺、权限占位符被错误替换的问题'],
+  },
+  {
+    version: 'v0.5.5', date: '2026-09-01',
     title: '内置浏览器重构与用量明细优化',
     items: ['内置浏览器重构为 WebContentsView 架构，自定义标题栏更稳定流畅', '用量明细表支持主/子会话列、列宽拖拽与对齐优化', '修复会话交接后消息渲染不全、恢复执行后气泡显示不全的问题', '新增 Ctrl+Shift+N 快速新建备忘录'],
   },

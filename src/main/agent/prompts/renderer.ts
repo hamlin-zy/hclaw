@@ -18,14 +18,8 @@ export function renderSystemPrompt(
 
   let result = template
 
-  // 替换 {{permissionMode}}
-  result = result.replace(/\{\{permissionMode\}\}/gi, () => {
-    const modeMap: Record<string, string> = {
-      'auto': '自动模式',
-      'safe': '安全模式'
-    }
-    return modeMap[params.permissionMode] || params.permissionMode
-  })
+  // ★ 安全决策：权限模式不下发模型（本地 permissionEngine 兜底），
+  //   因此 {{permissionMode}} 不再被替换，模板里的该占位符保持原样。
 
   // 替换 {{workingDir}}
   result = result.replace(/\{\{workingDir\}\}/gi, params.workingDir)

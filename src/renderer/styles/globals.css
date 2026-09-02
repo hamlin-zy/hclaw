@@ -2535,6 +2535,30 @@ html.bg-enabled,
 .seg.perm button.active[data-v="safe"] { color:var(--success); }
 .tb-sep { width:1px; height:14px; background:var(--border); margin:0 6px; flex-shrink:0; }
 
+/* ── 挤压折叠态：单选胶囊 + hover 上弹（ConvModeSegs 折叠分级）── ── */
+.seg-collapsed {
+  position:relative; display:inline-flex; flex-shrink:0; align-items:center;
+  background:var(--surface-muted); border-radius:99px; padding:2px;
+}
+.seg-collapsed-pill {
+  display:inline-flex; align-items:center; padding:3px 10px; border-radius:99px;
+  font-size:11px; line-height:1.4; color:var(--text-primary); font-weight:600;
+  background:var(--surface-elevated); box-shadow:0 1px 3px rgba(0,0,0,.12);
+  white-space:nowrap; cursor:default; user-select:none;
+}
+/* 上弹选项列表：Portal 渲染到 body，fixed 定位，向上弹出（不依赖父容器） */
+.seg-pop {
+  position:fixed; display:flex; flex-direction:column; min-width:56px; padding:3px;
+  background:var(--surface-elevated); border:1px solid var(--border); border-radius:10px;
+  box-shadow:0 6px 20px rgba(0,0,0,.18); z-index:1200; white-space:nowrap;
+}
+.seg-pop-item {
+  padding:4px 10px; border-radius:7px; font-size:11px; line-height:1.4;
+  color:var(--text-muted); text-align:center; border:none; background:transparent; cursor:pointer;
+}
+.seg-pop-item:hover { background:var(--surface-muted); color:var(--text-primary); }
+.seg-pop-item.active { color:var(--brand-primary); font-weight:600; }
+
 /* ── 侧边栏 footer 工具行 ── */
 .tools-row { display:flex; align-items:center; gap:6px; }
 .icon-btn  { width:26px; height:26px; border-radius:7px; position:relative; }

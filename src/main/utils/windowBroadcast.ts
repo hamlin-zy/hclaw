@@ -16,3 +16,17 @@ export function broadcastToOtherWindows(event: Electron.IpcMainInvokeEvent, chan
         }
     }
 }
+
+/**
+ * 广播事件给所有渲染窗口（含发起窗口）。
+ *
+ * 用于发起窗口自身 store 不会主动更新的路径（如仓库版本切换/同步后红点状态），
+ * 发起窗口需要靠推送刷新 updateMap。
+ */
+export function broadcastToAllWindows(channel: string, payload?: unknown): void {
+    for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+            win.webContents.send(channel, payload)
+        }
+    }
+}

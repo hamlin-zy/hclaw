@@ -7,6 +7,7 @@ import {getDatabase} from '../repositories/sqlite'
 import {PluginRegistry} from '../plugin/registry'
 import type {AgentTemplate} from '@shared/types'
 import {buildAgentTemplateFromRaw, type RawAgentConfig} from './utils/configExtractor'
+import {parseMarkdownFrontmatter} from './utils/agentFrontmatter'
 import {logger} from './logger'
 import {addAgentLoadError, resetAgentLoadErrors} from './agentLoadErrors'
 
@@ -57,33 +58,7 @@ interface ScanOptions {
 }
 
 // ─── 核心解析函数 ──────────────────────────────────────────
-
-/**
- * 解析 Markdown 文件中的 YAML frontmatter
- * 格式:
- * ---
- * name: Agent Name
- * description: Agent description
- * tools: [tool1, tool2]
- * ---
- * System prompt content here...
- */
-function parseMarkdownFrontmatter(content: string): {
-    frontmatter: Record<string, unknown>
-    bodyContent: string
-} | null {
-    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/)
-    if (!match) return null
-
-    try {
-        const frontmatter = yaml.load(match[1]) as Record<string, unknown>
-        const bodyContent = match[2].trim()
-        return {frontmatter, bodyContent}
-    } catch (err) {
-        logger.debug('[AgentLoader] failed to parse YAML frontmatter', {error: err})
-        return null
-    }
-}
+// parseMarkdownFrontmatter 已抽离到 ./utils/agentFrontmatter（纯函数，便于测试与复用）
 
 /**
  * 从文件内容解析 agent 配置
@@ -224,6 +199,7 @@ async function scanAgentDirectory(
                 )
 
                 if (template) {
+                    template.filePath = filePath // 供 repo 能力归因（AgentTemplate.filePath）
                     // 添加额外的标签
                     if (extraTags.length > 0) {
                         template.tags = [...(template.tags || []), ...extraTags]
@@ -532,9 +508,11 @@ export async function scanAllAgents(): Promise<AgentTemplate[]> {
 
     logger.debug('[AgentLoader] scanAllAgents: total', {count: allTemplates.length})
 
-    // 清理不再存在的插件 Agent 覆盖记录
-    const validPluginIds = new Set(allTemplates.filter(t => t.tags?.some(tag => tag.startsWith('plugin:'))).map(t => t.id))
-    await cleanStalePluginOverrides(validPluginIds)
+    // 清理“agent 已不存在”的覆盖记录（所有 Agent，不只插件）。
+    // 注意：仓库/本地 Agent 的 override 同样持久化在 agent_overrides，必须保留；
+    // 若只以插件 id 作为白名单，非插件 override 会被误删，导致批量启停刷新后失效。
+    const validAgentIds = new Set(allTemplates.map(t => t.id))
+    await cleanStalePluginOverrides(validAgentIds)
 
     return allTemplates
 }
@@ -556,14 +534,16 @@ export async function updatePluginAgentOverride(agentId: string, enabled: boolea
 }
 
 /**
- * 清理不再存在的插件 Agent 的覆盖状态（避免垃圾数据堆积）
+ * 清理不再存在的 Agent 的覆盖状态（避免垃圾数据堆积）。
+ * 传入“当前全部有效模板 id”，删除 agent_id 不在其中的 override。
+ * 必须用全量 id 而非仅插件 id，否则会误删仓库/本地 Agent 的启停覆盖。
  */
-export async function cleanStalePluginOverrides(validPluginAgentIds: Set<string>): Promise<void> {
+export async function cleanStalePluginOverrides(validAgentIds: Set<string>): Promise<void> {
     try {
-        if (validPluginAgentIds.size === 0) return
+        if (validAgentIds.size === 0) return
         const db = getDatabase()
-        const placeholders = Array(validPluginAgentIds.size).fill('?').join(',')
-        const result = db.prepare(`DELETE FROM agent_overrides WHERE agent_id NOT IN (${placeholders})`).run(...validPluginAgentIds)
+        const placeholders = Array(validAgentIds.size).fill('?').join(',')
+        const result = db.prepare(`DELETE FROM agent_overrides WHERE agent_id NOT IN (${placeholders})`).run(...validAgentIds)
         if (result.changes > 0) {
             logger.debug('[AgentLoader] cleanStalePluginOverrides: cleaned', {count: result.changes})
         }

@@ -3,14 +3,14 @@
  *
  * - record：单条写入（INSERT OR IGNORE 幂等）
  * - queryAggregated：全局聚合。分组按 (provider_id, provider_name, provider_type, model)，
- *   成本按行独立 provider-aware 重算（attachCostsProviderAware，注入 getMeta），
+ *   成本按行独立 provider-aware 重算（shared attachCosts，注入 getMeta），
  *   历史 llm_stats 回填按含 provider_id 的组键合并，view='provider' 时按服务商合并（shared mergeByProvider，成本求和）
  * - queryTrend：按天趋势（含历史回填）
  * - queryByConversation：会话弹窗分组（WHERE conversation_id IN (...)）
  */
 import {getDatabase} from './index'
-import {timeRangeBounds, computeUsageCost, mergeByProvider, type PriceSource} from '@shared/llmUsage'
-import {resolveCustomPrice, pricingToPriceSource, type CustomPriceEntry} from '@shared/usagePriceResolver'
+import {timeRangeBounds, attachCosts, computeUsageCost, mergeByProvider, type PriceSource} from '@shared/llmUsage'
+import {resolvePriceSource, type CustomPriceEntry} from '@shared/usagePriceResolver'
 import type {LlmUsageRecord, LlmStats, UsageBreakdown, TrendPoint, TimeRange, TrendGranularity} from '@shared/types'
 import {createQueryLogger} from './queryLogger'
 
@@ -103,7 +103,7 @@ export class SqliteLlmUsageRepository {
       const merged = this.mergeLegacyIntoBreakdowns(breakdowns, this.readLegacyLlmStats(null, {startMs, endMs}))
       merged.sort((a, b) => b.totalTokens - a.totalTokens)
       // 成本统一重算（回填行由此获得成本）：每行独立 provider-aware 取价（自定义 → getMeta 兜底）
-      const withCost = this.attachCostsProviderAware(merged, getMeta, customPrices)
+      const withCost = attachCosts(merged, getMeta, customPrices)
       logQuery('queryAggregated', start, `${withCost.length} rows`)
       return params.view === 'provider' ? mergeByProvider(withCost) : withCost
     } catch (err) {
@@ -285,36 +285,6 @@ export class SqliteLlmUsageRepository {
     }
   }
 
-  /**
-   * provider-aware 批量补成本（§三 C4）：每行独立取价——
-   * 自定义 (providerId, model) → providerName → getMeta（OpenRouter 等兜底）。
-   * 禁止把同 model 跨服务商行合并后取一次价——成本必须在行级算好后再由 mergeByProvider 求和。
-   */
-  private attachCostsProviderAware(rows: UsageBreakdown[], getMeta: (model: string) => PriceSource, customPrices?: CustomPriceEntry[]): UsageBreakdown[] {
-    return rows.map((b) => ({
-      ...b,
-      costUsd: computeUsageCost(
-        {
-          model: b.key,
-          inputTokens: b.inputTokens,
-          outputTokens: b.outputTokens,
-          cacheReadTokens: b.cacheReadTokens,
-          cacheWriteTokens: b.cacheWriteTokens,
-        },
-        () => this.resolvePriceSource(b.key, b.providerId ?? null, b.providerName ?? null, getMeta, customPrices),
-      ),
-    }))
-  }
-
-  /** 行级取价：自定义定价命中（非 null）→ 全量价集（缺失维度补 0）；否则 getMeta 兜底（既有路径不变） */
-  private resolvePriceSource(model: string, providerId: string | null, providerName: string | null, getMeta: (model: string) => PriceSource, customPrices?: CustomPriceEntry[]): PriceSource {
-    if (customPrices && customPrices.length > 0) {
-      const custom = resolveCustomPrice(customPrices, {model, providerId, providerName})
-      if (custom) return pricingToPriceSource(custom)
-    }
-    return getMeta(model)
-  }
-
   /** 模型粒度行 → UsageBreakdown（含成本；行级独立 provider-aware 取价） */
   private toModelBreakdown(r: ModelAggRow, getMeta: (model: string) => PriceSource, customPrices?: CustomPriceEntry[]): UsageBreakdown {
     return {
@@ -340,7 +310,7 @@ export class SqliteLlmUsageRepository {
           cacheReadTokens: r.cache_read_tokens,
           cacheWriteTokens: r.cache_write_tokens,
         },
-        () => this.resolvePriceSource(r.model, r.provider_id, r.provider_name, getMeta, customPrices),
+        () => resolvePriceSource(r.model, r.provider_id, r.provider_name, getMeta, customPrices),
       ),
       decodeMs: r.decode_ms ?? undefined,
       ttftMs: r.ttft_ms ?? undefined,
