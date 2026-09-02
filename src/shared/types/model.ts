@@ -239,6 +239,8 @@ export interface AgentTemplate {
   skillIds?: string[]
   /** 标签，用于分类 */
   tags?: string[]
+  /** 来源文件路径（磁盘 .md 文件，用于仓库归属判定） */
+  filePath?: string
   createdAt: number
   updatedAt: number
 

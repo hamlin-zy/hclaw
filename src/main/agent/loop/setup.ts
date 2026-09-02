@@ -34,7 +34,6 @@ import {filterToolsForAgent} from '../tools/filter'
 import {filterToolsByAgentType, getAgentToolRestrictions} from '../agentTypes/configs'
 import {supportsImageInput} from '../modelCapability'
 import {buildSystemPrompt as buildSystemPromptBase} from '../systemPrompt'
-import {renderSystemPrompt} from '../utils/promptRenderer'
 import {resolveModelConfig, resolveDirectModelConfig, selectModelForTaskWithRole} from '../model/modelSelector'
 import {getRoleConfig} from '@shared/modelSchemeHelpers'
 import {resolveOverrideThinkingEffort} from '@shared/thinkingEffort'
@@ -381,6 +380,13 @@ export interface BuildSystemPromptParams {
     agentTemplates: import('@shared/types').AgentTemplate[] | undefined
     /** 数据库缓存的系统提示词，无新指令时直接复用，跳过完整构建 */
     cachedSystemPrompt?: string | null
+    /**
+     * 当前 system 签名（f(workingDir, agentType, agentDefinition, customInstructions)），
+     * 由 controller 计算并写入缓存载荷。缓存复用守卫：签名一致才复用。
+     */
+    cacheSignature?: string | null
+    /** 缓存载荷中记录的构建时签名；与 cacheSignature 不一致 → 强制重建 */
+    cachedSignature?: string | null
 }
 
 export async function buildSystemPrompt(params: BuildSystemPromptParams): Promise<string> {
@@ -394,56 +400,49 @@ export async function buildSystemPrompt(params: BuildSystemPromptParams): Promis
         agentType,
         agentTemplates,
         cachedSystemPrompt,
+        cacheSignature,
+        cachedSignature,
     } = params
 
-    // ★ 缓存命中：无新命令且 DB 有缓存 → 跳过整个构建
-    if (!commandContext && cachedSystemPrompt) {
+    // ★ 缓存命中：无新命令、DB 有缓存、且 system 签名（agentType / agentDefinition /
+    //   customInstructions / workingDir）与缓存构建时一致 → 跳过整个构建。
+    //   日期/权限模式已移出 system，签名不含它们，system 可跨天、跨权限模式复用。
+    if (!commandContext && cachedSystemPrompt && cacheSignature != null && cacheSignature === cachedSignature) {
         logger.info('[AgentLoop] cache hit: reusing cached system prompt')
         return cachedSystemPrompt
     }
 
-    if (commandContext) {
-        const isAgentCommand = commandContext.commandId.startsWith('agent:')
-        if (isAgentCommand) {
-            const envInfo = [
-                '## 环境信息',
-                `- **工作目录**: ${workingDir}`,
-                `- **权限模式**: ${currentPermissionMode}`,
-            ].join('\n')
-            const prompt = `${commandContext.commandTemplate}\n\n${envInfo}`
-            logger.info('[AgentLoop] agent command + minimal context')
-            return customInstructions ? `${prompt}\n\n## 自定义指令\n\n${customInstructions}` : prompt
-        } else {
-            const basePrompt = await buildSystemPromptBase({
-                workingDir,
-                tools: availableToolDefinitions,
-                permissionMode: currentPermissionMode,
-                customInstructions,
-                agentType: agentType as HClawAgentType,
-                agentTemplates,
-                taskDescription: '',
-            })
-            logger.info('[AgentLoop] command + full system context (template sent as separate block)')
-            return basePrompt
-        }
-    }
-
-    if (agentDefinition) {
-        const prompt = renderSystemPrompt(agentDefinition.systemPromptTemplate, {
-            permissionMode: currentPermissionMode,
-            workingDir,
-            agentType: agentDefinition.agentType,
-        })
-        return customInstructions ? `${prompt}\n\n${customInstructions}` : prompt
-    }
-
-    return buildSystemPromptBase({
+    // ★ 缓存稳定：system 文本与当前命令类型无关。命令模板（含 agent: 命令）
+    //   一律通过 CT 用户消息（buildCommandTaskContent）注入消息流，不得提升进
+    //   system 参数——否则会改变 anthropicAdapter 唯一 cache_control 断点的
+    //   system 内容，导致供应商前缀缓存命中率归零。
+    // 通用稳定 base system；命令类与其共用（system 文本与命令类型无关）。
+    // 仅定义一次，两处复用，避免调用参数重复。
+    // agentTypeOverride：agentDefinition 路径强制 'General'（agent 专属模板由 CT
+    // 消息承载，见 controller），保证 system 与切换的 agent 无关 → 前缀缓存稳定。
+    const buildBase = (agentTypeOverride?: string) => buildSystemPromptBase({
         workingDir,
         tools: availableToolDefinitions,
         permissionMode: currentPermissionMode,
         customInstructions,
-        agentType: agentType as HClawAgentType,
+        agentType: (agentTypeOverride ?? agentType) as HClawAgentType,
         agentTemplates,
         taskDescription: '',
     })
+
+    if (commandContext) {
+        logger.info('[AgentLoop] command + stable base system context (template sent via CT message)')
+        return buildBase()
+    }
+
+    if (agentDefinition) {
+        // ★ 方案 A：不再把 agentDefinition.systemPromptTemplate 渲染进 system——
+        // system 收敛到稳定 base（与 commandContext/兜底一致），agent 专属模板
+        // 由 controller 以 <command-task> 用户消息注入。切换 agent 不再破坏
+        // anthropicAdapter 唯一 cache_control 断点（system[0]）。
+        logger.info('[AgentLoop] agentDefinition + stable base system (template sent via CT message)')
+        return buildBase('General')
+    }
+
+    return buildBase()
 }

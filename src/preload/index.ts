@@ -691,6 +691,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
         },
     },
 
+    // Repo API (skills/agents 仓库化管理)
+    repo: {
+        install: (target: string, url: string) => ipcRenderer.invoke('repo:install', target, url),
+        list: () => ipcRenderer.invoke('repo:list'),
+        getVersions: (repoId: string) => ipcRenderer.invoke('repo:get-versions', repoId),
+        syncVersions: (repoId: string) => ipcRenderer.invoke('repo:sync-versions', repoId),
+        switchVersion: (repoId: string, ref: string) => ipcRenderer.invoke('repo:switch-version', repoId, ref),
+        getAllVersionMeta: () => ipcRenderer.invoke('repo:get-all-version-meta'),
+        onRepoStatusUpdate: (callback: (data: any) => void) => {
+            const handler = (_: unknown, data: any) => callback(data)
+            ipcRenderer.on('repo:status-update', handler)
+            return () => ipcRenderer.removeListener('repo:status-update', handler)
+        },
+    },
+
     // Plugin command overrides
     pluginCommand: {
         getOverrides: () => ipcRenderer.invoke('plugin-command:get-overrides'),

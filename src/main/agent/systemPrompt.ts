@@ -15,12 +15,16 @@ import {isMcpToolName} from '@shared/utils/mcpShortId'
 import {promptResolver, type PromptResolver} from './prompts/resolver'
 import {getAgentTemplate} from './prompts/agentTemplates'
 import {getHclawDir} from '../config'
-import {formatYmd} from './utils/dateUtils'
 
 
 export interface SystemPromptContext {
     workingDir: string
     tools: ToolDefinitionForLLM[]
+    /**
+     * 权限模式。★ 缓存稳定化（决策）：不再拼入 system 文本——权限策略完全由
+     * 本地 permissionEngine 兜底，模型无感知。字段保留仅为兼容调用方签名，
+     * 任何分支都不得把它写进提示词。
+     */
     permissionMode: string
     customInstructions?: string
     userHints?: string[]
@@ -52,9 +56,7 @@ export async function buildSystemPrompt(
 - **终端**: ${terminalName} (${shellInfo.shell})
 - **操作系统**: ${displayOS(shellInfo.os)}
 - **Node.js**: ${process.version}
-- **工作目录**: ${ctx.workingDir}
-- **权限模式**: ${ctx.permissionMode}
-- **当前日期**: ${formatYmd()}`)
+- **工作目录**: ${ctx.workingDir}`)
 
     // 系统目录结构（配置目录/数据目录说明）
     const dirsSection = r.resolve('system.directories')

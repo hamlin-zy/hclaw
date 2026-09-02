@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react'
+import {useCallback, useEffect, useMemo, useState} from 'react'
 import {clsx} from 'clsx'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
@@ -7,7 +7,10 @@ import {confirm} from '../ConfirmDialog'
 import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
 import type {AgentTemplate} from '@shared/types'
 import {fuzzyFilter} from '../../lib/search'
-import {Layers, Search, RefreshCw, Plus, Edit2, Trash2, X} from 'lucide-react'
+import RepoGroupCard from '../repo/RepoGroupCard'
+import {sortReposByUpdate} from '../repo/repoGrouping'
+import {useRepoUpdateStore} from '../../stores/repoUpdateStore'
+import {Layers, Search, RefreshCw, Plus, Edit2, Trash2, X, GitBranch, Check, AlertCircle} from 'lucide-react'
 import LoadErrorBanner from '../common/LoadErrorBanner'
 
 // 标签样式配置（模块级常量，避免重复创建）
@@ -18,6 +21,15 @@ const TAG_STYLES: Record<string, string> = {
     plugin:   "bg-[var(--tag-plugin-bg)] text-[var(--tag-plugin-text)] ring-[var(--tag-plugin-border)]",
 }
 const TAG_BASE_CLASS = "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wider uppercase ring-1 ring-inset"
+
+/** 判断 dir 是否位于 repoPath 目录内（含边界校验 + Windows 盘符大小写归一化）。
+ * 仅作为 capabilities.agents 匹配不中的兜底：dir === repo 根 或 位于 repo 根的子目录。 */
+function isWithinRepoPath(dir: string, repoPath: string): boolean {
+    const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
+    const d = norm(dir)
+    const r = norm(repoPath)
+    return d === r || d.startsWith(r + '/')
+}
 
 function getTagClass(tag: string): string {
     const normalized = tag.toUpperCase().replace('PLUGIN:', '')
@@ -325,7 +337,13 @@ export default function AgentsDialog() {
     const [editingId, setEditingId] = useState<string | null>(null)
     const [previewAgent, setPreviewAgent] = useState<AgentTemplate | null>(null)
     const [syncStatus, setSyncStatus] = useState<string | null>(null)
-    const [activeTab, setActiveTab] = useState<'local' | 'plugin'>('local')
+    const [activeTab, setActiveTab] = useState<'local' | 'repo' | 'plugin'>('local')
+    const repoUpdateMap = useRepoUpdateStore(s => s.updateMap)
+    const repoHasUpdate = useRepoUpdateStore(s => s.hasUpdate)
+    // 打开/切换 tab 时兜底拉取仓库更新状态（与 SkillsDialog 保持一致）
+    useEffect(() => {
+        void useRepoUpdateStore.getState().refreshFromCache()
+    }, [activeTab])
     const [searchQuery, setSearchQuery] = useState('')
     const [form, setForm] = useState<Partial<AgentTemplate>>({
         name: '',
@@ -334,6 +352,42 @@ export default function AgentsDialog() {
         systemPrompt: '',
         enabled: true,
     })
+    // 仓库安装（从 Git 仓库安装 Agent）+ 仓库列表（用于分组）
+    const [repoUrl, setRepoUrl] = useState('')
+    const [repoInstalling, setRepoInstalling] = useState(false)
+    const [repoMessage, setRepoMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+    const [repoList, setRepoList] = useState<any[]>([])
+
+    const refreshRepoList = useCallback(() => {
+        return (window.electronAPI as any)?.repo?.list?.().then((repos: any[]) => setRepoList(repos || [])).catch(() => {})
+    }, [])
+
+    useEffect(() => {
+        refreshRepoList()
+    }, [refreshRepoList])
+
+    const handleRepoInstall = useCallback(async () => {
+        if (!repoUrl.trim()) return
+        setRepoInstalling(true)
+        setRepoMessage(null)
+        try {
+            const api = window.electronAPI as any
+            const result = await api?.repo?.install?.('agent', repoUrl.trim())
+            if (result?.success) {
+                setRepoMessage({type: 'success', text: `仓库已安装: ${result.repoId}`})
+                await syncFromDisk()
+                refreshRepoList()
+                setRepoUrl('')
+                setTimeout(() => setRepoMessage(null), 3000)
+            } else {
+                setRepoMessage({type: 'error', text: `安装失败: ${result?.error || '未知错误'}`})
+            }
+        } catch (e: any) {
+            setRepoMessage({type: 'error', text: `安装失败: ${e?.message || '未知错误'}`})
+        } finally {
+            setRepoInstalling(false)
+        }
+    }, [repoUrl, syncFromDisk, refreshRepoList])
 
     useEffect(() => {
         init()
@@ -342,9 +396,31 @@ export default function AgentsDialog() {
     const localTemplates = templates.filter(t => !t.tags?.some(tag => tag.startsWith('plugin:')))
     const pluginTemplates = templates.filter(t => t.tags?.some(tag => tag.startsWith('plugin:')))
     const enabledCount = templates.filter(t => t.enabled).length
-    const filteredByTab = activeTab === 'local' ? localTemplates : pluginTemplates
+    // 仓库 tab 与本地 tab 共用非插件模板；仓库 tab 仅展示仓库分组（见下方 activeTab === 'repo' 分支）
+    const filteredByTab = activeTab === 'plugin' ? pluginTemplates : localTemplates
     const displayTemplates = fuzzyFilter(filteredByTab, searchQuery, ['name'])
     const isReadOnly = activeTab === 'plugin'
+
+    // 本地 Tab：按仓库归属分组（capabilities.agents 优先，其次 filePath 目录前缀匹配），无归属归入「本地代理」组
+    const agentGroups = useMemo(() => {
+        const grouped = new Map<string, {repo: any; agents: AgentTemplate[]}>()
+        const localAgents: AgentTemplate[] = []
+        for (const agent of displayTemplates) {
+            const dir = typeof agent.filePath === 'string' ? agent.filePath.replace(/\\/g, '/') : ''
+            const repo = repoList.find(r =>
+                (r.capabilities?.agents || []).includes(agent.id) ||
+                (dir !== '' && typeof r.path === 'string' && isWithinRepoPath(dir, r.path))
+            )
+            if (repo) {
+                const entry = grouped.get(repo.id) || {repo, agents: []}
+                entry.agents.push(agent)
+                grouped.set(repo.id, entry)
+            } else {
+                localAgents.push(agent)
+            }
+        }
+        return {grouped: [...grouped.values()], localAgents}
+    }, [displayTemplates, repoList])
 
     const handleDeleteWithConfirm = async (id: string, name: string) => {
         await confirm({
@@ -437,6 +513,41 @@ export default function AgentsDialog() {
                 </div>
             </div>
 
+            {/* 仓库安装输入框 */}
+            <div className="flex items-center gap-2 px-6 py-2 border-b border-[var(--border-muted)]">
+                <GitBranch className="w-3.5 h-3.5 text-[var(--text-muted)] flex-shrink-0"/>
+                <input
+                    type="text"
+                    value={repoUrl}
+                    onChange={e => setRepoUrl(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && !repoInstalling && handleRepoInstall()}
+                    placeholder="输入 Git 仓库地址，从仓库安装 Agent（克隆到 agents 目录并按仓库分组）"
+                    className="flex-1 px-2.5 py-1.5 text-xs bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--brand-primary)]"
+                 data-name="agents-dialog-repo-input"/>
+                <button
+                    onClick={handleRepoInstall}
+                    disabled={repoInstalling || !repoUrl.trim()}
+                    className="flex-shrink-0 px-2 py-1 text-xs font-medium rounded-md border border-[var(--border)] text-[var(--brand-primary)] hover:border-[var(--brand-primary)]/50 hover:bg-[var(--brand-primary)]/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                 data-name="agents-dialog-repo-install-button">
+                    {repoInstalling ? '安装中...' : '安装仓库'}
+                </button>
+            </div>
+
+            {/* 仓库安装结果提示 */}
+            {repoMessage && (
+                <div className={`mx-6 mt-2 px-3 py-2 text-xs rounded-md flex items-center gap-2 ${
+                    repoMessage.type === 'success'
+                        ? 'bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20'
+                        : 'bg-[var(--error)]/10 text-[var(--error)] border border-[var(--error)]/20'
+                }`}>
+                    {repoMessage.type === 'success'
+                        ? <Check className="w-3.5 h-3.5 flex-shrink-0"/>
+                        : <AlertCircle className="w-3.5 h-3.5 flex-shrink-0"/>
+                    }
+                    {repoMessage.text}
+                </div>
+            )}
+
             {/* 工具栏区域 */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 bg-[var(--surface-muted)]/20 border-b border-[var(--border-muted)]">
                 {/* Tab 切换 */}
@@ -451,6 +562,21 @@ export default function AgentsDialog() {
                         )}
                      data-name="agents-dialog-local-tab-button">
                         本地
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('repo')}
+                        className={clsx(
+                            "relative rounded-md px-4 py-1.5 text-xs font-medium transition-all duration-200 whitespace-nowrap",
+                            activeTab === 'repo'
+                                ? "bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] shadow-sm"
+                                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                        )}
+                     data-name="agents-dialog-repo-tab-button">
+                        仓库
+                        {/* 仓库 tab 红点：存在可升级仓库时提示 */}
+                        {repoHasUpdate && (
+                            <span className="absolute top-1.5 right-1 w-1.5 h-1.5 rounded-full bg-red-500" />
+                        )}
                     </button>
                     <button
                         onClick={() => setActiveTab('plugin')}
@@ -508,26 +634,16 @@ export default function AgentsDialog() {
                             <Layers className="w-8 h-8 text-[var(--text-muted)] opacity-30"/>
                         </div>
                         <h3 className="text-sm font-medium text-[var(--text-primary)]">
-                            {activeTab === 'local' ? '暂无自定义 Agent' : '暂无插件 Agent'}
+                            {activeTab === 'local' ? '暂无自定义 Agent' : activeTab === 'repo' ? '暂无仓库 Agent' : '暂无插件 Agent'}
                         </h3>
                         <p className="text-xs text-[var(--text-muted)] mt-1.5">
-                            {activeTab === 'local' ? '点击右上方按钮开始创建' : '插件 Agent 可通过插件系统安装'}
+                            {activeTab === 'local' ? '点击右上方按钮开始创建' : activeTab === 'repo' ? '在上方输入 Git 仓库地址安装，Agent 将归入对应仓库分组' : '插件 Agent 可通过插件系统安装'}
                         </p>
                     </div>
                 ) : (
                     <div className="flex flex-col gap-4">
-                        {activeTab === 'plugin' ? (
-                            <PluginAgentGroupList
-                                templates={displayTemplates}
-                                toggleTemplate={toggleTemplate}
-                                toggleTemplateBatch={toggleTemplateBatch}
-                                handleDeleteWithConfirm={handleDeleteWithConfirm}
-                                startEdit={startEdit}
-                                onPreview={(t) => setPreviewAgent(t)}
-                                isReadOnly={isReadOnly}
-                            />
-                        ) : (
-                            displayTemplates.map(t => (
+                        {(() => {
+                            const renderCard = (t: AgentTemplate) => (
                                 <AgentCard
                                     key={t.id}
                                     template={t}
@@ -537,8 +653,80 @@ export default function AgentsDialog() {
                                     onPreview={() => setPreviewAgent(t)}
                                     readOnly={isReadOnly}
                                 />
-                            ))
-                        )}
+                            )
+                            if (activeTab === 'plugin') {
+                                return (
+                                    <PluginAgentGroupList
+                                        templates={displayTemplates}
+                                        toggleTemplate={toggleTemplate}
+                                        toggleTemplateBatch={toggleTemplateBatch}
+                                        handleDeleteWithConfirm={handleDeleteWithConfirm}
+                                        startEdit={startEdit}
+                                        onPreview={(t) => setPreviewAgent(t)}
+                                        isReadOnly={isReadOnly}
+                                    />
+                                )
+                            }
+                            if (activeTab === 'repo') {
+                                // 仓库 tab：只展示仓库分组卡片，有更新的仓库置顶
+                                // （sortReposByUpdate 泛型仅要求 group.repo.id，`{ repo; agents }` 结构天然满足）
+                                const sortedGroups = sortReposByUpdate(agentGroups.grouped, repoUpdateMap)
+                                if (sortedGroups.length === 0) {
+                                    return (
+                                        <div className="flex flex-col items-center justify-center py-24 text-center border border-dashed border-[var(--border)] rounded-xl bg-[var(--surface-muted)]/20">
+                                            <Layers className="w-8 h-8 text-[var(--text-muted)] opacity-30 mb-3"/>
+                                            <p className="text-sm text-[var(--text-muted)]">暂无仓库 Agent</p>
+                                            <p className="text-xs text-[var(--text-muted)]/60 mt-1.5">在上方输入 Git 仓库地址安装，Agent 将归入对应仓库分组</p>
+                                        </div>
+                                    )
+                                }
+                                return (
+                                    <AnimatePresence initial={false}>
+                                        {sortedGroups.map(group => (
+                                            <RepoGroupCard
+                                                key={group.repo.id}
+                                                repo={group.repo}
+                                                skillCount={0}
+                                                agentCount={group.agents.length}
+                                                agents={group.agents}
+                                                onToggleBatch={toggleTemplateBatch}
+                                                onVersionSwitched={() => void useAgentTemplateStore.getState().syncFromDisk()}
+                                            >
+                                                {group.agents.map(renderCard)}
+                                            </RepoGroupCard>
+                                        ))}
+                                    </AnimatePresence>
+                                )
+                            }
+                            // 本地 tab：无归属的「本地代理」+ 仓库分组（保持现状）
+                            return (
+                                <div className="space-y-3">
+                                    {agentGroups.localAgents.length > 0 && (
+                                        <div className="space-y-1.5">
+                                            <div className="text-xs font-semibold text-[var(--text-muted)]">本地代理</div>
+                                            <AnimatePresence initial={false}>
+                                                {agentGroups.localAgents.map(renderCard)}
+                                            </AnimatePresence>
+                                        </div>
+                                    )}
+                                    <AnimatePresence initial={false}>
+                                        {agentGroups.grouped.map(group => (
+                                            <RepoGroupCard
+                                                key={group.repo.id}
+                                                repo={group.repo}
+                                                skillCount={0}
+                                                agentCount={group.agents.length}
+                                                agents={group.agents}
+                                                onToggleBatch={toggleTemplateBatch}
+                                                onVersionSwitched={() => void useAgentTemplateStore.getState().syncFromDisk()}
+                                            >
+                                                {group.agents.map(renderCard)}
+                                            </RepoGroupCard>
+                                        ))}
+                                    </AnimatePresence>
+                                </div>
+                            )
+                        })()}
                     </div>
                 )}
             </div>
