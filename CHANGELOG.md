@@ -7,6 +7,19 @@
 
 ---
 
+## [v0.5.6] - 2026-09-02
+
+### 新增
+- **技能与 Agent 管理页面升级** — 支持按 GitHub 仓库分组查看、一键安装/更新技能与 Agent，并显示待更新红点提示 (`SkillsDialog.tsx` / `AgentsDialog.tsx` / `repo/`)
+- **Agent 会话提示更清晰** — 会话模式选择器支持响应式折叠，代派提示词更精准 (`ConvModeSegs.tsx` / `prompts.ts`)
+- **界面元素统一** — 下拉选择、对话框、仓库分组卡片等视觉细节统一 (`ThemedSelect.tsx` / `RepoGroupCard.tsx`)
+
+### 修复
+- **修复长对话历史偶发残缺的问题** — 会话定义模板改经工具消息注入，避免重复跨轮污染 (`agentDefinitionCt.ts` / `controller.ts`)
+- **修复权限模式占位符被错误替换的问题** — 权限模式与日期不再写入系统提示词，缓存签名守卫命中率更高 (`systemPrompt.ts` / `renderer.ts`)
+
+---
+
 ## [v0.5.5] - 2026-09-01
 
 ### 新增
