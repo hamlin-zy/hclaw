@@ -13,6 +13,12 @@ vi.mock('electron', () => ({
         handle: (channel: string, fn: Function) => { state.handlers.set(channel, fn) },
         removeHandler: () => {},
     },
+    // llm-config/scheme-config 走 widthRatio 自适应宽度，resolveDialogWidth 会调用 screen，
+    // 需补齐 mock 避免测试抛错
+    screen: {
+        getCursorScreenPoint: () => ({x: 0, y: 0}),
+        getDisplayNearestPoint: () => ({workArea: {width: 1920, height: 1080}}),
+    },
 }))
 
 // mock 工厂：返回可观测的假窗口
@@ -118,10 +124,10 @@ describe('configWindow 注册表', () => {
     })
 
     it('窗口 closed → 从注册表删除，可重建', () => {
-        openConfigWindow('tools')
+        openConfigWindow('tool-manage')
         const win = state.created[0]
         win.close()
-        openConfigWindow('tools')
+        openConfigWindow('tool-manage')
         expect(state.created).toHaveLength(2)
     })
 

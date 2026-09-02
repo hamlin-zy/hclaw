@@ -8,12 +8,12 @@ describe('遗留工具列表渲染链清理', () => {
     expect(out).toBe('工具: {tools}')
   })
 
-  it('utils/promptRenderer：{working_dir} / {permission_mode} / {agent_type} 仍替换（回归）', () => {
+  it('utils/promptRenderer：{working_dir} / {agent_type} 仍替换（回归）', () => {
     const out = renderUtils(
       '{working_dir}|{permission_mode}|{agent_type}',
       {permissionMode: 'safe', workingDir: '/tmp', agentType: 'Plan'},
     )
-    expect(out).toBe('/tmp|safe|Plan')
+    expect(out).toBe('/tmp|{permission_mode}|Plan')
   })
 
   it('prompts/renderer：{{availableTools}} 不再被替换（保留原文）', () => {
@@ -21,11 +21,11 @@ describe('遗留工具列表渲染链清理', () => {
     expect(out).toBe('x: {{availableTools}}')
   })
 
-  it('prompts/renderer：{{permissionMode}} / {{workingDir}} / {{agentType}} 仍替换（回归）', () => {
+  it('prompts/renderer：{{permissionMode}} 不再被替换（安全决策：权限模式不下发模型）', () => {
     const out = renderPrompts(
       '{{permissionMode}}|{{workingDir}}|{{agentType}}',
       {permissionMode: 'auto', workingDir: '/tmp', agentType: 'General'},
     )
-    expect(out).toBe('自动模式|/tmp|General')
+    expect(out).toBe('{{permissionMode}}|/tmp|General')
   })
 })

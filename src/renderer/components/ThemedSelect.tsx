@@ -71,6 +71,16 @@ export default function ThemedSelect({
         })
     }, [open])
 
+    // 面板宽度按内容自适应，靠窗口右缘时可能溢出 → 渲染后实测宽度，向左收拢钳制在视口内
+    useLayoutEffect(() => {
+        if (!open || !pos || !panelRef.current) return
+        const pw = panelRef.current.offsetWidth
+        const maxLeft = window.innerWidth - pw - 8
+        if (pos.left > maxLeft) {
+            setPos(p => (p ? {...p, left: Math.max(8, maxLeft)} : p))
+        }
+    }, [open, pos])
+
     useEffect(() => {
         if (!open) return
         const handleOutside = (e: MouseEvent) => {

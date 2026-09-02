@@ -17,6 +17,8 @@ import {PluginInstaller} from './installer'
 import {PluginRegistry} from './registry'
 import {powerManager} from '../agent/powerManager'
 import {createLogger} from '../agent/logger'
+import {repoRegistry} from '../repo/registry'
+import {repoVersionManager} from '../repo/versionManager'
 
 const logger = createLogger('plugin-version')
 
@@ -155,7 +157,10 @@ class PluginVersionManagerImpl {
     }
 
     try {
-      const result = await this.installer.checkoutRef(plugin.path, ref)
+      const repo = repoRegistry.getByPath(plugin.path)
+      const result = repo
+        ? await repoVersionManager.checkoutRefForRepo(repo.id, ref)
+        : await this.installer.checkoutRef(plugin.path, ref)
       if (!result.success) {
         return result
       }

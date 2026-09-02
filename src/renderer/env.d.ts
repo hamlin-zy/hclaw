@@ -461,6 +461,39 @@ declare global {
             onPluginStatusUpdate: (callback: (data: any) => void) => () => void
         }
 
+        // Repo API (skills/agents 仓库化管理)
+        repo: {
+            install: (target: string, url: string) => Promise<{ success: boolean; repoId?: string; path?: string; error?: string }>
+            list: () => Promise<Array<{
+                id: string
+                owner: string
+                name: string
+                path: string
+                source: string
+                origin: string
+                capabilities: { plugins: string[]; skills: string[]; agents: string[] }
+                hasManifest: boolean
+                enabled: boolean
+            }>>
+            getVersions: (repoId: string) => Promise<{
+                tags: string[]
+                branches: string[]
+                latest: string
+                current: string
+                hasUpdate: boolean
+            } | null>
+            syncVersions: (repoId: string) => Promise<{
+                tags: string[]
+                branches: string[]
+                latest: string
+                current: string
+                hasUpdate: boolean
+            } | null>
+            switchVersion: (repoId: string, ref: string) => Promise<{ success: boolean; versionInfo?: { tags: string[]; branches: string[]; latest: string; current: string; hasUpdate: boolean }; error?: string }>
+            getAllVersionMeta: () => Promise<Record<string, { current: string; latest: string; hasUpdate: boolean }>>
+            onRepoStatusUpdate: (callback: (data: any) => void) => () => void
+        }
+
         // Plugin command override management
         pluginCommand?: {
             getOverrides: () => Promise<Array<{

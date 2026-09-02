@@ -14,6 +14,7 @@ import {collectDescendants} from '../stores/conversationTree'
 import {useThemeStore} from '../stores/themeStore'
 import {useUpdaterStore} from '../stores/updaterStore'
 import {usePluginUpdateStore} from '../stores/pluginUpdateStore'
+import {useRepoUpdateStore} from '../stores/repoUpdateStore'
 import SchemeSelector from './SchemeSelector'
 import {SIDEBAR_MENU_GROUPS, type SidebarMenuItem} from './sidebar/menuItems'
 import CopyToast from './common/CopyToast'
@@ -186,6 +187,7 @@ function SidebarGearMenu({anchorRef}: {anchorRef: RefObject<HTMLDivElement | nul
     const menuRef = useRef<HTMLDivElement>(null)
     const hasUpdate = useUpdaterStore((s) => s.result?.status === 'update-available')
     const pluginHasUpdate = usePluginUpdateStore((s) => s.hasUpdate)
+    const repoHasUpdate = useRepoUpdateStore((s) => s.hasUpdate)
 
     // 监听全局快捷键：单独按 Alt → 切换本菜单（见 useGlobalHotkeys.ts）
     useEffect(() => {
@@ -211,7 +213,7 @@ function SidebarGearMenu({anchorRef}: {anchorRef: RefObject<HTMLDivElement | nul
         setIsOpen(false)
     }
 
-    const showUpdateDot = hasUpdate || pluginHasUpdate
+    const showUpdateDot = hasUpdate || pluginHasUpdate || repoHasUpdate
 
     // 空间检测：齿轮按钮位于 footer（窗口底部），向下弹出会被视口底边裁剪。
     // 下方剩余空间不足时改为向上弹出（bottom 定位），保证菜单完整可见。
@@ -242,7 +244,7 @@ function SidebarGearMenu({anchorRef}: {anchorRef: RefObject<HTMLDivElement | nul
                                     <MenuItemIcon item={item} className="w-3.5 h-3.5"/>
                                 </span>
                                 <span>{item.label}</span>
-                                {((item.type === 'about' && hasUpdate) || (item.type === 'plugins' && pluginHasUpdate)) && (
+                                {((item.type === 'about' && hasUpdate) || (item.type === 'plugins' && pluginHasUpdate) || (item.type === 'skills' && repoHasUpdate)) && (
                                     <span className="ml-auto w-1.5 h-1.5 rounded-full bg-red-500" aria-label="有新版本"/>
                                 )}
                             </button>
