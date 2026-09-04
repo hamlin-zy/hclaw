@@ -3,6 +3,8 @@
  * 显示命令模板预览并输入参数执行
  */
 import React, {useState, useRef, useEffect} from 'react';
+import PhrasePicker from '../PhrasePicker';
+import {usePhrasePicker, pickPhraseInto} from '../../hooks/usePhrasePicker';
 import {createPortal} from 'react-dom';
 import {AnimatePresence, motion} from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
@@ -49,11 +51,14 @@ export function ParamInputModal({ isOpen, command, onSubmit, onCancel }: ParamIn
     ta.style.height = ta.scrollHeight + 'px';
   };
 
+  const {open: phraseOpen, openOnShortcut: onPhraseShortcut, close: closePhrase} = usePhrasePicker();
+
   if (!isOpen || !command) return null;
 
   const handleSubmit = () => onSubmit(command.id, paramValue);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    onPhraseShortcut(e);
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -122,6 +127,18 @@ export function ParamInputModal({ isOpen, command, onSubmit, onCancel }: ParamIn
             <button onClick={onCancel} className="param-btn param-btn-secondary" data-name="param-input-modal-cancel-button">取消</button>
             <button onClick={handleSubmit} className="param-btn param-btn-primary" data-name="param-input-modal-submit-button">执行命令</button>
           </footer>
+
+          <PhrasePicker
+              open={phraseOpen}
+              anchorRef={textareaRef}
+              onClose={closePhrase}
+              onPick={(phrase) => {
+                closePhrase();
+                const ta = textareaRef.current;
+                if (!ta) return;
+                pickPhraseInto(ta, phrase, setParamValue);
+              }}
+          />
         </motion.div>
       </motion.div>
     </AnimatePresence>,
