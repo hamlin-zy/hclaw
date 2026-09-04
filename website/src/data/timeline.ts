@@ -8,7 +8,12 @@ export interface TimelineItem {
 
 export const timelineItems: TimelineItem[] = [
   {
-    version: 'v0.5.6', date: '2026-09-02', tag: '最新',
+    version: 'v0.5.7', date: '2026-09-05', tag: '最新',
+    title: '快捷短语功能上线',
+    items: ['支持自定义常用短语，通过 Ctrl+Shift+V 或短语选择弹窗一键插入', '新增短语管理窗口，可增删改查与排序', '修复历史消息偶发系统提示、仓库红点污染等问题'],
+  },
+  {
+    version: 'v0.5.6', date: '2026-09-02',
     title: '技能与 Agent 管理升级',
     items: ['技能与 Agent 支持按仓库分组管理，可一键安装与更新', '会话模式选择器支持响应式折叠，界面细节统一', '修复长对话历史偶发残缺、权限占位符被错误替换的问题'],
   },
