@@ -5,7 +5,7 @@ import {IDLE_STATE, createDefaultConvData} from '../defaultState'
 import {useConversationStore} from '../../conversationStore'
 import {textBlockId} from '../contentBlocks'
 import {useToolCallsStore} from '../../toolCallsStore'
-import {clearAllBatches} from '../helpers/convHelpers'
+import {clearAllBatches, removeEmptyAssistantMessage} from '../helpers/convHelpers'
 import {flushThinkingBatch} from '../batching/thinkingBatch'
 
 type SetFn = (...args: any[]) => any
@@ -128,6 +128,10 @@ export async function abortAgentImpl(
             const endedAt = Date.now()
             useConversationStore.getState().updateMessageForConv(conversationId, streamingMsgId, {endedAt})
         }
+
+        // ★ 空占位清理：首 token 前立即终止时，占位气泡无任何内容，直接移除
+        //   （否则残留一个空白 assistant 气泡，且永不落库、重启后才消失）。
+        removeEmptyAssistantMessage(conversationId, streamingMsgId)
     }
 
     get().updateConvData(conversationId, {

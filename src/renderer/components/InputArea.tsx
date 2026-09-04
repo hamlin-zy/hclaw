@@ -16,6 +16,8 @@ import {HandoffDialog, type HandoffChoice} from './HandoffDialog'
 import {buildHandoffMessage} from '../utils/handoff'
 import {deriveConversationTitle} from '../utils/conversationTitle'
 import {useSettingsStore} from '../stores/settingsStore'
+import PhrasePicker from './PhrasePicker'
+import {usePhrasePicker, pickPhraseInto} from '../hooks/usePhrasePicker'
 
 import ImagePreviewModal from './common/ImagePreviewModal'
 import {generateFileId} from '../lib/format'
@@ -364,7 +366,10 @@ export default function InputArea({isActive = true}: InputAreaProps) {
         submitMessage(text, options)
     }
 
+    const {open: phraseOpen, openOnShortcut: onPhraseShortcut, close: closePhrase} = usePhrasePicker()
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
+        onPhraseShortcut(e)
         // Enter (不含 Shift/Ctrl/Meta) → 发送
         if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
             e.preventDefault()
@@ -711,6 +716,18 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                     />,
                     document.body,
                 )}
+
+            <PhrasePicker
+                open={phraseOpen}
+                anchorRef={textareaRef}
+                onClose={closePhrase}
+                onPick={(phrase) => {
+                    closePhrase()
+                    const ta = textareaRef.current
+                    if (!ta) return
+                    pickPhraseInto(ta, phrase, setInput)
+                }}
+            />
         </div>
     )
 }

@@ -18,6 +18,7 @@ function repo(id: string, rpath: string, name = id.split('/')[1]): GitRepo {
     source: 'github', origin: `https://github.com/${id}.git`,
     capabilities: {plugins: [], skills: [], agents: []},
     hasManifest: false, enabled: true,
+    rootType: rpath.includes('plugins') ? 'plugin' : rpath.includes('agents') ? 'agent' : 'skill',
   }
 }
 

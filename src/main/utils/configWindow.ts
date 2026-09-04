@@ -17,6 +17,7 @@ export const CONFIG_DIALOG_TYPES = new Set([
     'llm-logs', 'usage',
     'task-history', 'task-history-conv',
     'memo-edit',
+    'quick-phrases',
 ])
 
 /** 窗口标题（与 MenuDialogRenderer DIALOG_CONFIG 的 title 对齐） */
@@ -43,6 +44,7 @@ export const DIALOG_TITLES: Record<string, string> = {
     'task-history': '任务历史',
     'task-history-conv': '任务历史',
     'memo-edit': '备忘录编辑',
+    'quick-phrases': '快捷短语',
 }
 
 /**
@@ -73,6 +75,7 @@ export const DIALOG_SIZES: Record<string, {width?: number; widthRatio?: number; 
     'task-history': {width: 780},
     'task-history-conv': {width: 720},
     'memo-edit': {width: 560},
+    'quick-phrases': {width: 560},
 }
 const DEFAULT_DIALOG_SIZE = {width: 680, height: 700, minWidth: 420, minHeight: 400}
 
