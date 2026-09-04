@@ -20,6 +20,7 @@ import SystemPromptDialog from './dialogs/SystemPromptDialog'
 import AboutDialog from './dialogs/AboutDialog'
 import TaskHistoryDialog from './dialogs/TaskHistoryDialog'
 import MemoEditDialog from './dialogs/MemoEditDialog'
+import PhraseDialog from './dialogs/PhraseDialog'
 import PermissionRulesPanel from './PermissionRulesPanel'
 import LlmLogsWindow from './LlmLogsWindow'
 import UsageWindow from './usage/UsageWindow'
@@ -58,6 +59,7 @@ const DIALOG_CONFIG: Record<string, DialogConfig> = {
     'task-history': {title: '任务历史', Component: TaskHistoryDialog},
     'task-history-conv': {title: '任务历史', Component: TaskHistoryDialog},
     'memo-edit': {title: '备忘录编辑', Component: MemoEditDialog},
+    'quick-phrases': {title: '快捷短语', Component: PhraseDialog},
 }
 
 /** 独立窗口支持的 dialogType 集合（供跨层一致性测试与路由校验复用） */

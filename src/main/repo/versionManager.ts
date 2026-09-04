@@ -35,6 +35,11 @@ export class RepoVersionManager {
   }
 
   async warmCache(repoId: string, repoPath: string): Promise<RepoVersionInfo> {
+    // 插件仓库版本由 PluginVersionManager 管理，不混入 repo versionMap
+    const repo = repoRegistry.get(repoId)
+    if (repo?.rootType === 'plugin') {
+      return {tags: [], branches: [], latest: '', current: 'HEAD', hasUpdate: false}
+    }
     try {
       const info = await this.collectVersionInfo(repoPath)
       this.versionMap.set(repoId, info)
@@ -48,7 +53,7 @@ export class RepoVersionManager {
 
   async syncVersions(repoId: string): Promise<RepoVersionInfo | null> {
     const repo = repoRegistry.get(repoId)
-    if (!repo || repo.source === 'local') return null
+    if (!repo || repo.source === 'local' || repo.rootType === 'plugin') return null
     try {
       await this.installer.fetchTags(repo.path)
       const info = await this.collectVersionInfo(repo.path)
@@ -61,7 +66,10 @@ export class RepoVersionManager {
   }
 
   async startupCheck(repos: GitRepo[]): Promise<Record<string, RepoVersionInfo>> {
-    const gitRepos = repos.filter(r => r.source !== 'local')
+    // 只检查技能/代理仓库（rootType !== 'plugin'）。插件仓库的版本由
+    // PluginVersionManager 独立管理，混入会导致「仓库」tab 红点亮起但列表项无红点
+    // （用户无法定位是哪个仓库有更新）。
+    const gitRepos = repos.filter(r => r.source !== 'local' && r.rootType !== 'plugin')
     await Promise.all(gitRepos.map(async (repo) => {
       try {
         await this.installer.fetchTags(repo.path)
@@ -96,6 +104,9 @@ export class RepoVersionManager {
     if (repo.source === 'local') {
       return {success: false, error: 'Local repos do not support version switching'}
     }
+    if (repo.rootType === 'plugin') {
+      return {success: false, error: 'Plugin repos are managed by PluginVersionManager'}
+    }
     try {
       const result = await this.installer.checkoutRef(repo.path, ref)
       if (!result.success) return result as RepoSwitchResult
@@ -118,6 +129,11 @@ export class RepoVersionManager {
   getAllVersionMeta(): Record<string, RepoVersionMeta> {
     const meta: Record<string, RepoVersionMeta> = {}
     for (const [id, info] of this.versionMap) {
+      // 排除插件仓库——其版本由 PluginVersionManager 管理。
+      // 若包含它们，tab 红点（hasUpdate = any(...true)）会因插件仓库
+      // 处于 main 分支超前于最新 tag 而恒亮，即使技能仓库已切换到最新版。
+      const repo = repoRegistry.get(id)
+      if (repo?.rootType === 'plugin') continue
       meta[id] = {current: info.current, latest: info.latest, hasUpdate: info.hasUpdate}
     }
     return meta

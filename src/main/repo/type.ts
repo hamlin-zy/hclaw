@@ -1,6 +1,8 @@
 // src/main/repo/type.ts
 export type RepoSource = 'github' | 'gitee' | 'gitlab' | 'local'
 export type InstallTarget = 'skill' | 'agent'
+/** 仓库来源根目录类型：plugins/ → plugin，skills/public/ → skill，agents/ → agent */
+export type RepoRootType = 'plugin' | 'skill' | 'agent'
 
 /** 一个带 .git 的仓库实体（owner/repo 维度） */
 export interface GitRepo {
@@ -20,6 +22,8 @@ export interface GitRepo {
   hasManifest: boolean
   /** 插件源是否启用（非插件仓库恒 true） */
   enabled: boolean
+  /** 该仓库被发现的根目录类型（plugin/skill/agent），用于区分插件仓库与技能/代理仓库 */
+  rootType: RepoRootType
 }
 
 /** 仓库版本信息（对应 plugin 的 VersionInfo，key 换成 repoId） */
