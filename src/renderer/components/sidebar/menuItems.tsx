@@ -115,6 +115,13 @@ export const SIDEBAR_MENU_GROUPS: Array<{group: string; items: SidebarMenuItem[]
                 </svg>,
             },
             {
+                type: 'quick-phrases', label: '快捷短语',
+                icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M4 5a2 2 0 0 1 2-2h8l6 6v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/>
+                    <path d="M8 9h6M8 13h6M8 17h3"/>
+                </svg>,
+            },
+            {
                 type: 'prompt-scheme', label: '系统提示词',
                 icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <path d="M12 20h9"/>

@@ -38,6 +38,22 @@ function isCommandTaskMessage(msg: {metadata?: unknown; sourceKind?: unknown}): 
 function isSystemEnvMessage(msg: {metadata?: unknown; sourceKind?: unknown}): boolean {
     return getCatalogMeta(msg)?.sourceKind === SOURCE_KIND_SYSTEM_ENV
 }
+/**
+ * 内容兜底：检测在 sourceKind 元数据系统引入之前写入的隐式消息。
+ * 这些消息的内容整个是一个 <system-reminder> 或 <command-task> 块，但没有 sourceKind。
+ * ★ 必须只匹配内容完全由标签包裹的消息——如果用户消息中引用了 <system-reminder>
+ *   标签但还有其他文本（如讨论此 bug），不能误过滤。
+ */
+function isImplicitReminderMessage(msg: {metadata?: unknown; sourceKind?: unknown; content?: unknown; role?: string}): boolean {
+    // 先走 sourceKind 正常路径
+    if (isCatalogMessage(msg) || isCommandTaskMessage(msg) || isSystemEnvMessage(msg)) return true
+    if (msg.role !== 'user') return false
+    const content = typeof msg.content === 'string' ? msg.content.trim() : ''
+    // 仅匹配整个内容是单个 <system-reminder> 或 <command-task> 块的消息
+    if (content.startsWith('<system-reminder>') && content.endsWith('</system-reminder>')) return true
+    if (content.startsWith('<command-task>') && content.endsWith('</command-task>')) return true
+    return false
+}
 import {KbdCombo} from '../common/Kbd'
 import CopyToast from '../common/CopyToast'
 
@@ -590,7 +606,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
     // 避免它们进入"用户消息导航"索引（否则滚动定位会锚定到不可见气泡上）。
     const userMessageIndices = useMemo(() => {
         return messages.reduce<number[]>((acc, msg, index) => {
-            if (msg.role === 'user' && !isCatalogMessage(msg) && !isCommandTaskMessage(msg) && !isSystemEnvMessage(msg)) acc.push(index)
+            if (msg.role === 'user' && !isImplicitReminderMessage(msg)) acc.push(index)
             return acc
         }, [])
     }, [messages])
@@ -979,6 +995,11 @@ export default function MessageList({conversationId}: { conversationId?: string 
                         ? metaEntries
                         : parseCatalogEntriesFromContent(message.content)
                     pendingEntries = (pendingEntries ?? []).concat(entries ?? [])
+                    return
+                }
+                // ★ 内容兜底：过滤 sourceKind 系统引入前写入的隐式消息（无 sourceKind
+                //   但内容整个是 <system-reminder> 或 <command-task> 块）
+                if (isImplicitReminderMessage(message)) {
                     return
                 }
                 if (message.role !== 'user' && message.role !== 'assistant') {

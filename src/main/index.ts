@@ -36,6 +36,7 @@ import {schedulerManager} from './scheduler';
 import {channelManager} from './channel/ChannelManager';
 import {initChannelIPC} from './channel/channelIPC';
 import {initMemoIPC} from './memo/memoIPC';
+import {initPhraseIPC} from './phrase/phraseIPC';
 import {memoStore} from './memo/memoStore';
 import {createLogger} from './agent/logger';
 import {powerManager} from './agent/powerManager';
@@ -195,6 +196,7 @@ initPromptSchemeIPC();
 initToolIPC();
 initScheduleIPC();
 initMemoIPC();
+initPhraseIPC();
 // 应用启动时清理超 24h 的暂存附件残留（spec §4）
 memoStore.cleanupStalePending();
 initChannelIPC();

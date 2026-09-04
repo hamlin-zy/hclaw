@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import {simpleGit} from 'simple-git'
 import {getHclawDir} from '../config'
-import type {GitRepo, RemoteInfo, RepoSource} from './type'
+import type {GitRepo, RemoteInfo, RepoSource, RepoRootType} from './type'
 import {parseGitOrigin} from './origin'
 
 /** discover 可注入的依赖集合（测试无需 config mock / 真实 git） */
@@ -69,9 +69,14 @@ export class RepoRegistry {
 
     const found: GitRepo[] = []
     const seen = new Set<string>()
-    const rootPaths = [roots.plugins, roots.skillsPublic, roots.agents]
+    // rootType 映射：plugins → plugin，skills/public → skill，agents → agent
+    const rootEntries: {path: string; type: RepoRootType}[] = [
+      {path: roots.plugins, type: 'plugin'},
+      {path: roots.skillsPublic, type: 'skill'},
+      {path: roots.agents, type: 'agent'},
+    ]
 
-    for (const root of rootPaths) {
+    for (const {path: root, type: rootType} of rootEntries) {
       if (!fs.existsSync(root)) continue
       let entries: fs.Dirent[]
       try {
@@ -108,6 +113,7 @@ export class RepoRegistry {
           capabilities: {plugins: [], skills: [], agents: []},
           hasManifest: this.hasManifest(dirPath),
           enabled: true,
+          rootType,
         })
       }
     }

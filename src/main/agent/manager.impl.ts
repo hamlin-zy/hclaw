@@ -90,6 +90,9 @@ export class AgentManager {
   /** 会话 → 已 ensureMessageRow 的消息 id 集（行先建再写块，幂等防重复） */
   #rowEnsured = new Map<string, Set<string>>()
 
+  /** 正常完成（done reason 'completed'）的会话 ID，worker 退出时据此触发任务栏/托盘完成提醒 */
+  #completedNormally = new Set<string>()
+
   constructor() {
     eventBus.on(MCPThemeEvents.TOOLS_REFRESHED, () => {
       this.broadcastMcpToolsRefresh()
@@ -862,6 +865,11 @@ export class AgentManager {
       logger.error('[AgentManager] 持久化异常', {error: err})
     }
 
+    // ★ 正常完成标记：worker 退出时（onWorkerExit）据此触发任务栏/托盘完成提醒
+    if (event.reason === 'completed') {
+      this.#completedNormally.add(conversationId)
+    }
+
     this.forwardToRenderer(conversationId, event)
   }
 
@@ -907,6 +915,12 @@ export class AgentManager {
     const currentEntry = this.workers.get(conversationId)
     if (currentEntry && currentEntry.worker !== worker) {
       return
+    }
+
+    // ★ 正常完成提醒：done(reason completed) 的 worker 正常退出时触发任务栏/托盘闪烁
+    //   （仅在窗口隐藏/最小化时闪烁；窗口可见时不打扰）。aborted/error/崩溃不触发。
+    if (this.#completedNormally.delete(conversationId)) {
+      notifyUserAttention()
     }
 
     // ★ forwardToRenderer 确保渲染进程收到 done 事件，
@@ -1384,6 +1398,7 @@ export class AgentManager {
     this.pendingAssistantMsg.delete(conversationId)
     this.streamingMsgIds.delete(conversationId)
     this.streamListeners.delete(conversationId)
+    this.#completedNormally.delete(conversationId)
 
     // Phase 2：持久化状态清理（7.2b 必然事件：run 结束即 flush 残余增量后整组清理，
     // 防后续 flush 复活/污染；同时清理本类桥接辅助状态）

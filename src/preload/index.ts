@@ -372,6 +372,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.on('memo_changed', listener)
         return () => ipcRenderer.removeListener('memo_changed', listener)
     },
+    // 快捷短语（phrase）IPC：所有通道返回 {ok, data} | {ok, error}
+    phrase: {
+        list: () => ipcRenderer.invoke('phrase:list'),
+        create: (input: {content: string}) => ipcRenderer.invoke('phrase:create', input),
+        update: (id: string, content: string) => ipcRenderer.invoke('phrase:update', {id, patch: {content}}),
+        remove: (id: string) => ipcRenderer.invoke('phrase:delete', id),
+        touch: (id: string) => ipcRenderer.invoke('phrase:touch', id),
+    },
+    onPhraseChanged: (handler: () => void) => {
+        const listener = () => handler()
+        ipcRenderer.on('phrase_changed', listener)
+        return () => ipcRenderer.removeListener('phrase_changed', listener)
+    },
     clipboardWriteImage: (data: { buffer: number[] }) =>
         ipcRenderer.invoke('clipboard-write-image', data),
   openPath: (filePath: string) =>

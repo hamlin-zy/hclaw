@@ -64,6 +64,8 @@ interface ConversationStore {
     /** 块级增量：替换指定会话消息 contentBlocks 中指定 id 的块（其他块引用不变） */
     updateMessageBlockForConv: (convId: string, id: string, blockId: string, blockPatch: ContentBlock) => void
   deleteMessage: (id: string) => void
+    /** 按会话删除消息（用于非活跃会话的后台 agent 清理，如 abort 后移除空占位气泡） */
+    deleteMessageForConv: (convId: string, id: string) => void
   loadMessages: (convId: string) => Promise<void>
     /** 增量加载：只加载最近 N 条，替代 loadMessages 的全量加载 */
     loadMessagesInitial: (convId: string, pageSize?: number) => Promise<void>
@@ -814,6 +816,18 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       deleteMessage: (id) => {
           const convId = get().activeConversationId
           if (!convId) return
+          const convMsgs = get().messagesMap[convId] || []
+          const newConvMsgs = convMsgs.filter(m => m.id !== id)
+          set(state => ({
+              messagesMap: {...state.messagesMap, [convId]: newConvMsgs},
+              loadedMessages: convId === state.activeConversationId ? newConvMsgs : state.loadedMessages,
+          }))
+          if (convId) {
+              window.electronAPI?.conversationDeleteMessage?.(convId, id)
+          }
+      },
+
+      deleteMessageForConv: (convId, id) => {
           const convMsgs = get().messagesMap[convId] || []
           const newConvMsgs = convMsgs.filter(m => m.id !== id)
           set(state => ({

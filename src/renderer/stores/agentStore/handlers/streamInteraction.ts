@@ -17,7 +17,7 @@ import {
 } from '../batching/thinkingBatch'
 import {flushToolResultBatch} from '../batching/toolResultBatch'
 import {parseCommands} from '../helpers/misc'
-import {clearConversationRuntimeState} from '../helpers/convHelpers'
+import {clearConversationRuntimeState, removeEmptyAssistantMessage} from '../helpers/convHelpers'
 import {ensureStreamingMessage} from './streamCore'
 
 /**
@@ -157,6 +157,13 @@ export async function handleDone(ctx: StreamCtx) {
                 messageMetadata: firstMsg.metadata,
             })
         }
+    }
+
+    // ★ 空占位清理（aborted/loop_detected）：若本轮 assistant 消息无任何内容（首 token 前
+    //   即终止），移除空白气泡。abortAgentImpl 已即时清理，此处兜底 handleDone 直发路径
+    //   （如 onWorkerExit 安全网 / loop_detected 收尾），幂等无害。
+    if (event.reason === 'aborted' || event.reason === 'loop_detected') {
+        removeEmptyAssistantMessage(convId, doneConvData.streamingMessageId)
     }
 
     // ★ 即时清理：本轮结束即释放段边界状态与残留的运行时工具状态
