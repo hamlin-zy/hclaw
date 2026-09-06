@@ -20,17 +20,31 @@ import {beforeEach, describe, expect, it, vi} from 'vitest'
 // 必须在使用前 mock：agentTool 内部 import 了 runtimeConfigManager / agentRegistry。
 // vi.hoisted：mock 工厂被提升到文件顶部，必须在工厂内构造可引用的 mock。
 const mocks = vi.hoisted(() => ({
-    getPrimaryProvider: vi.fn(),
     find: vi.fn(),
     getEnabled: vi.fn(),
+    getScheme: vi.fn(),
+    getProviders: vi.fn(),
 }))
+
+// 可用方案（primary 角色可用），保证 execute 内 ①.1 校验通过，聚焦 agent 未知名/已禁用场景
+const AVAILABLE_SCHEME = {
+    id: 'scheme-1',
+    name: '测试方案',
+    enabled: true,
+    roles: [
+        {role: 'primary', enabled: true, endpointId: 'p1', modelId: 'm1'},
+    ],
+} as any
+
+const AVAILABLE_PROVIDERS = [
+    {id: 'p1', name: '主力服务商', type: 'openai', enabled: true,
+        models: [{id: 'm1', name: '主力模型', enabled: true}]},
+] as any
 
 vi.mock('@/main/agent/runtimeConfigManager', () => ({
     runtimeConfigManager: {
-        getPrimaryProvider: mocks.getPrimaryProvider,
-        // agentTool 模块顶层 buildInputSchema() 需要；测试仅涉 execute/description，方案为空即可
-        getScheme: () => null,
-        getProviders: () => [],
+        getScheme: mocks.getScheme,
+        getProviders: mocks.getProviders,
         getConfig: () => ({workingDir: ''}),
     },
 }))
@@ -47,8 +61,9 @@ import {agentTool} from '@/main/agent/tools/builtin/agentTool'
 const CONTEXT = {conversationId: 'conv-test'} as any
 
 beforeEach(() => {
-    // 默认：主模型已配置 + 未找到该 agent
-    mocks.getPrimaryProvider.mockReturnValue({isValid: true})
+    // 默认：primary 角色可用（让 ①.1 校验通过）+ 未找到该 agent
+    mocks.getScheme.mockReturnValue(AVAILABLE_SCHEME)
+    mocks.getProviders.mockReturnValue(AVAILABLE_PROVIDERS)
     mocks.find.mockReturnValue(undefined)
     mocks.getEnabled.mockReturnValue([])
 })
@@ -93,6 +108,26 @@ describe('agent 工具派遣引导（description 动态构建）', () => {
     it('提示列表外名称会报错重试（不静默回退 General）', () => {
         expect(agentTool.description).toContain('会报错重试')
     })
+
+    it('modelRole 示例按当前可用角色动态列出（AVAILABLE_SCHEME 仅 primary 可用）', () => {
+        // 默认 AVAILABLE_SCHEME 只有 primary 角色可用
+        expect(agentTool.description).toContain('【必填】modelRole')
+        expect(agentTool.description).toContain('primary')
+        // 未启用的 lightweight / reasoning 不应进入描述示例，避免误导 LLM 填入
+        expect(agentTool.description).not.toContain('lightweight（')
+        expect(agentTool.description).not.toContain('reasoning（')
+    })
+
+    it('未启用的 modelRole 不出现在描述示例中（避免 LLM 把 Explore 等 agent 名当 modelRole 填）', () => {
+        expect(agentTool.description).not.toContain('lightweight（只读调研')
+        expect(agentTool.description).not.toContain('reasoning（复杂推理')
+    })
+
+    it('agent 类型映射与 modelRole 模型档位措辞分离（消除"角色"歧义）', () => {
+        // 新的措辞用"类型映射"而非"角色映射"，避免与 modelRole 参数撞车
+        expect(agentTool.description).toContain('类型映射')
+        expect(agentTool.description).not.toContain('角色映射')
+    })
 })
 
 describe('agent 工具 execute — 未知名/已禁用 agent 的行为', () => {
@@ -100,7 +135,7 @@ describe('agent 工具 execute — 未知名/已禁用 agent 的行为', () => {
         mocks.find.mockReturnValue(undefined)
 
         const result = await agentTool.execute(
-            {task: '实现一个功能', agent: 'Subagent (general-purpose)'},
+            {task: '实现一个功能', agent: 'Subagent (general-purpose)', modelRole: 'primary'},
             CONTEXT,
         )
 
@@ -116,7 +151,7 @@ describe('agent 工具 execute — 未知名/已禁用 agent 的行为', () => {
         ] as any)
 
         const result = await agentTool.execute(
-            {task: '写测试', agent: 'Disabled Agent'},
+            {task: '写测试', agent: 'Disabled Agent', modelRole: 'primary'},
             CONTEXT,
         )
 
@@ -133,7 +168,7 @@ describe('agent 工具 execute — 未知名/已禁用 agent 的行为', () => {
         ] as any)
 
         const result = await agentTool.execute(
-            {task: '审查代码', agent: 'General-purpose'},
+            {task: '审查代码', agent: 'General-purpose', modelRole: 'primary'},
             CONTEXT,
         )
 
@@ -146,7 +181,7 @@ describe('agent 工具 execute — 未知名/已禁用 agent 的行为', () => {
 
     it('可用列表为空时兜底提示 General Agent', async () => {
         const result = await agentTool.execute(
-            {task: '写测试', agent: 'unknown-agent'},
+            {task: '写测试', agent: 'unknown-agent', modelRole: 'primary'},
             CONTEXT,
         )
 

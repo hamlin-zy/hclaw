@@ -1,9 +1,12 @@
 import {useState, useCallback} from 'react'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
+import {MCPVersionBadge} from './MCPVersionBadge'
 import type {MCPServer} from '@shared/types'
 import {confirm} from '../ConfirmDialog'
+import {useMcpUpdateStore} from '../../stores/mcpUpdateStore'
 import {statusDotClasses, transportColorClasses, buildMcpConfigJson} from './MCPUtils'
+import {useMcpVersionSwitch, showToast} from '../../hooks/useMcpVersionSwitch'
 
 export default function MCPUserServerCard({
     server,
@@ -21,6 +24,11 @@ export default function MCPUserServerCard({
     onReconnect: () => void
 }) {
     const [copied, setCopied] = useState(false)
+    const versionMeta = useMcpUpdateStore(s => s.versionMeta[server.id])
+    const hasUpdate = versionMeta?.hasUpdate === true
+    const sourceType = versionMeta?.sourceType
+    const canUpgrade = sourceType === 'npx' || sourceType === 'plugin' || sourceType === 'binary'
+    const {availableVersions, switching, handleVersionSwitch} = useMcpVersionSwitch(server, versionMeta)
 
     const handleCopyConfig = useCallback(async (e: React.MouseEvent) => {
         e.stopPropagation()
@@ -44,13 +52,24 @@ export default function MCPUserServerCard({
             <div className="p-3">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className={`w-2.5 h-2.5 rounded-full ${statusDotClasses(server.status)}`}/>
-                        <div>
+                        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusDotClasses(server.status)}`}/>
+                        <div className="min-w-0">
                             <div className="text-xs font-semibold text-gray-700 flex items-center gap-1">
                                 <span>{server.name}</span>
                                 <CopyButton name={server.name} />
                                 <span
                                     className={`text-[9px] px-1 py-0.5 rounded font-medium uppercase border ${transportColorClasses(server.transport)}`}>{server.transport}</span>
+                                {versionMeta && (
+                                    <MCPVersionBadge
+                                        current={versionMeta.current}
+                                        latest={versionMeta.latest}
+                                        hasUpdate={hasUpdate}
+                                        availableVersions={availableVersions}
+                                        pkgManager={versionMeta.pkgManager}
+                                        disabled={switching}
+                                        onSwitch={handleVersionSwitch}
+                                    />
+                                )}
                                 {server.status === 'connected' && (
                                     <span
                                         className="text-[9px] text-gray-400 font-normal">{(server.tools?.length || 0)} 个工具</span>
@@ -61,7 +80,48 @@ export default function MCPUserServerCard({
                             )}
                         </div>
                     </div>
-                    <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()} data-name="mcpuser-server-card-actions">
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()} data-name="mcpuser-server-card-actions">
+                        {canUpgrade && hasUpdate && (
+                            <button
+                                onClick={async (e) => {
+                                    e.stopPropagation()
+                                    // Legacy binary (no package manager detected) → show manual instructions.
+                                    // Auto-upgradable binary (pkgManager set) → normal upgrade flow.
+                                    const isLegacyBinary = sourceType === 'binary' && !versionMeta?.pkgManager
+                                    const confirmed = await confirm({
+                                        title: isLegacyBinary ? '查看手动升级步骤' : '确认升级',
+                                        message: isLegacyBinary
+                                            ? `「${server.name}」为本地二进制安装，暂不支持自动升级。确认后将显示手动升级步骤。`
+                                            : `确认升级 ${server.name} 到 ${versionMeta?.latest || '最新版'}？此操作将重启 MCP 服务，可能中断当前正在使用的工具调用。`,
+                                        confirmText: isLegacyBinary ? '查看手动升级步骤' : '升级',
+                                        confirmVariant: 'warning',
+                                        onConfirm: async () => {
+                                            const result = await window.electronAPI?.mcp?.upgradeServer?.(server.id)
+                                            if (result?.success) {
+                                                // Toast handled by parent (MCPDialog) via store subscription
+                                            } else {
+                                                // Legacy binary returns manual-instructions text as the error payload — surface it as info, not error
+                                                showToast(
+                                                    isLegacyBinary ? 'info' : 'error',
+                                                    isLegacyBinary
+                                                        ? (result?.error || '未配置 checkUrl，无法生成手动升级步骤')
+                                                        : `升级失败: ${result?.error || '未知错误'}`,
+                                                    8000,
+                                                )
+                                            }
+                                        },
+                                    })
+                                }}
+                                className="p-1.5 text-orange-400 hover:text-orange-500 hover:bg-orange-50 rounded-md transition-all"
+                                title="升级到新版本"
+                            >
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="17 8 12 3 7 8"/>
+                                    <line x1="12" y1="3" x2="12" y2="15"/>
+                                </svg>
+                            </button>
+                        )}
                         <button
                             onClick={onReconnect}
                             className="p-1.5 text-gray-400 hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"

@@ -49,7 +49,8 @@ export function filterRepoTabSkills<S extends {source?: string}>(skills: S[]): S
  */
 export function sortReposByUpdate<G extends { repo: { id: string } }>(
   groups: G[],
-  updateMap: Record<string, boolean>,
+  // updateMap 值可能为 boolean | null（三态，null 视为无更新）——排序仅依赖真值，行为不变
+  updateMap: Record<string, boolean | null>,
 ): G[] {
   return [...groups].sort((a, b) => {
     const au = updateMap[a.repo.id] ? 1 : 0

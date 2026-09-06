@@ -4,7 +4,8 @@
  * 提供统一访问 ModelScheme 的辅助函数。
  */
 
-import type {ModelRole, ModelRoleConfig, ModelScheme, ModelSchemeRole} from './types'
+import type {LLMProvider, ModelRole, ModelRoleConfig, ModelScheme, ModelSchemeRole} from './types'
+import {TEXT_MODEL_ROLES} from './types'
 
 /**
  * 检查 scheme 是否使用 roles 数组结构
@@ -141,5 +142,39 @@ export function resolveRoleDisplay(role: ModelSchemeRole): { name: string; descr
         description: role.description || defaults?.description || '',
         icon: role.icon || defaults?.icon || '❓',
     }
+}
+
+// ─── 文本角色可用性（唯一权威口径）────────────────────────
+
+/**
+ * 判断文本角色是否可用（与 runtimeConfigManager.resolveRoleProvider 完全一致的口径）：
+ * 属于文本角色 && role.enabled && endpointId && modelId
+ * && 对应 provider 存在且 provider.enabled && provider 内该 model 存在且 model.enabled
+ */
+export function isTextRoleUsable(
+    scheme: ModelScheme | null,
+    providers: LLMProvider[],
+    role: ModelRole
+): boolean {
+    if (!scheme || !providers || providers.length === 0) return false
+    if (!TEXT_MODEL_ROLES.includes(role)) return false
+
+    const roleObj = scheme.roles.find(r => r.role === role)
+    if (!roleObj || !roleObj.enabled || !roleObj.endpointId || !roleObj.modelId) return false
+
+    const provider = providers.find(p => p.id === roleObj.endpointId)
+    if (!provider || !provider.enabled) return false
+
+    const model = provider.models?.find(m => m.id === roleObj.modelId)
+    if (!model || !model.enabled) return false
+
+    return true
+}
+
+/**
+ * 返回当前可用的文本角色（按 primary/lightweight/reasoning 固定顺序）
+ */
+export function getUsableTextRoles(scheme: ModelScheme | null, providers: LLMProvider[]): ModelRole[] {
+    return TEXT_MODEL_ROLES.filter(role => isTextRoleUsable(scheme, providers, role))
 }
 

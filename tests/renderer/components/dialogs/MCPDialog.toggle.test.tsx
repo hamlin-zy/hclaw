@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
-import {render, screen, fireEvent, waitFor} from '@testing-library/react'
+import {render, screen, fireEvent, waitFor, act} from '@testing-library/react'
 import MCPDialog from '../../../../src/renderer/components/dialogs/MCPDialog'
 
 // ── 依赖 mock ──────────────────────────────────────────
@@ -31,6 +31,7 @@ const {mockMcpState, mcpApiMock} = vi.hoisted(() => {
             setEnabled: vi.fn().mockResolvedValue({success: true}),
             startServer: vi.fn().mockResolvedValue({success: true}),
             stopServer: vi.fn().mockResolvedValue({success: true}),
+            switchVersion: vi.fn().mockResolvedValue({success: true}),
             onStatusChanged: vi.fn(),
         },
     }
@@ -75,6 +76,7 @@ beforeEach(() => {
     mcpApiMock.setEnabled.mockClear()
     mcpApiMock.startServer.mockClear()
     mcpApiMock.stopServer.mockClear()
+    mcpApiMock.switchVersion.mockClear()
 })
 
 afterEach(() => {
@@ -101,5 +103,34 @@ describe('MCPDialog 冒烟 + toggleAll 分支（Task 4 改写的 startServer/sto
             expect(mcpApiMock.stopServer).toHaveBeenCalledWith('server-b')
         })
         expect(mcpApiMock.startServer).not.toHaveBeenCalled()
+    })
+
+    // ── F-B regression: `hclaw:show-toast` CustomEvent must render a local toast ──
+    it('渲染 hclaw:show-toast 消息（F-B regression）', async () => {
+        render(<MCPDialog />)
+        await waitFor(() => expect(screen.getByText('MCP 服务器')).toBeTruthy())
+        expect(screen.queryByTestId('mcpdialog-toast')).toBeNull()
+
+        act(() => {
+            window.dispatchEvent(new CustomEvent('hclaw:show-toast', {
+                detail: {type: 'success', message: '版本检测完成', duration: 5000},
+            }))
+        })
+
+        await waitFor(() => expect(screen.getByText(/版本检测完成/)).toBeTruthy())
+    })
+
+    it('hclaw:show-toast 在卸载后不再渲染（listener 已清理）', async () => {
+        const {unmount} = render(<MCPDialog />)
+        await waitFor(() => expect(screen.getByText('MCP 服务器')).toBeTruthy())
+        unmount()
+
+        // Dispatch after unmount — no crash, no new DOM node
+        expect(() => {
+            window.dispatchEvent(new CustomEvent('hclaw:show-toast', {
+                detail: {type: 'error', message: 'should-not-appear'},
+            }))
+        }).not.toThrow()
+        expect(screen.queryByText(/should-not-appear/)).toBeNull()
     })
 })

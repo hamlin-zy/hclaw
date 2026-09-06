@@ -11,11 +11,15 @@ import {describe, it, expect, vi, beforeEach} from 'vitest'
 vi.mock('@/main/agent/manager', () => ({agentManager: {start: vi.fn().mockResolvedValue(undefined)}}))
 vi.mock('@/main/agent/runtimeConfigManager', () => ({
     runtimeConfigManager: {
+        // 需满足新口径 getUsableTextRoles：role 启用 + provider 存在且启用 + model 启用
         getScheme: vi.fn(() => ({
             id: 's1', name: 'test',
-            roles: [{role: 'reasoning', enabled: true, endpointId: 'e1', modelId: 'm1'}],
+            roles: [{role: 'reasoning', enabled: true, endpointId: 'p1', modelId: 'm1'}],
         })),
-        getProviders: vi.fn(() => []),
+        getProviders: vi.fn(() => [
+            {id: 'p1', name: '推理服务商', type: 'openai', enabled: true,
+                models: [{id: 'm1', name: 'reason-model', enabled: true}]},
+        ] as any),
     },
 }))
 // 可变 DB 历史快照（各用例可覆写，默认 user+assistant，模拟真实会话末尾有回复）

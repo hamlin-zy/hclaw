@@ -37,6 +37,7 @@ import type {LlmStreamResult} from './types'
 import {PreprocessCache} from './preprocessCache'
 import {LoopDetector, buildTurnToolCalls, isLoopPatternSilenced, type LoopVerdict} from './loopDetector'
 import {restoreCatalogState, runCatalogPreStep, type CatalogState} from './catalogPublish'
+import {toolRegistry} from '../tools/registry'
 import {restoreEnvState, runEnvPreStep, type EnvState} from './envPublish'
 import {buildCommandTaskContent} from '../utils/userContentBuilder'
 import {buildAgentDefinitionCtMessage, shouldInjectAgentDefinitionCt} from './agentDefinitionCt'
@@ -643,7 +644,6 @@ export class AgentLoopController {
                 reasoningTokens, llmDuration,
                 ttftMs, decodeMs, tokensPerSecond,
                 currentProvider, currentModel, currentSchemeName, providerName, providerId,
-                handoffRequested,
             } = llmResult
 
             // ── 发送 LLM 调用完成事件 ──
@@ -690,6 +690,20 @@ export class AgentLoopController {
             }
 
             // ── 执行工具调用 ──
+            // 运行时白名单：与发送给 LLM 的 tools 定义一致，拦截幻觉调用。
+            // 并入 preCapabilityToolDefinitions：400 降级重试时 LLM 实际收到的是
+            // 该列表（多出 analyze_image），降级后的合法调用不应被误拦。
+            const allowedToolNames = new Set([
+                ...availableToolDefinitions.map(t => t.name),
+                ...preCapabilityToolDefinitions.map(t => t.name),
+            ])
+            // 运行时黑名单：全量工具减去白名单 = 被过滤层移除的工具集合。
+            // 纵深防御：即使白名单因 args.tools=['*'] 覆盖而放宽，
+            // 黑名单仍能拦截被 disallowedTools / 类型级黑名单禁止的工具。
+            const allToolNames = new Set(toolRegistry.getAll().map(t => t.name))
+            const disallowedToolNames = new Set(
+                [...allToolNames].filter(name => !allowedToolNames.has(name))
+            )
             const toolResult = yield* executeToolCalls({
                 toolExecutor: this.toolExecutor,
                 collectedToolCalls,
@@ -701,13 +715,8 @@ export class AgentLoopController {
                 channelSend,
                 onEvent,
                 sessionId,
-                // 运行时白名单：与发送给 LLM 的 tools 定义一致，拦截幻觉调用。
-                // 并入 preCapabilityToolDefinitions：400 降级重试时 LLM 实际收到的是
-                // 该列表（多出 analyze_image），降级后的合法调用不应被误拦。
-                allowedToolNames: new Set([
-                    ...availableToolDefinitions.map(t => t.name),
-                    ...preCapabilityToolDefinitions.map(t => t.name),
-                ]),
+                allowedToolNames,
+                disallowedToolNames,
             })
             currentState = toolResult.state
             for (const event of toolResult.events) yield event
@@ -725,33 +734,19 @@ export class AgentLoopController {
                 }
             }
 
-            // ── 交接后强制结束本轮 ──
-            // ① mid-loop 交接门注入（handoffRequested）：无论模型是否成功调用 session_handoff，
-            //    都不进入下一轮，防止交接门反复命中导致重复注入死循环。
-            // ② 模型主动调用 session_handoff：新会话已创建、任务已移交，主会话不应再带着
-            //    交接结果进入下一轮 LLM 调用（上下文本已接近上限，继续轮询会导致卡死/爆窗）。
+            // ── 模型主动调用 session_handoff 后强制结束本轮 ──
+            // 新会话已创建、任务已移交，主会话不应再带着交接结果进入下一轮 LLM 调用
+            // （上下文本已接近上限，继续轮询会导致卡死/爆窗）。
+            // 不再因 handoffRequested 强制结束：模型可能在收到交接指令后先调用本地工具
+            // 确认信息（读文件、生成总结等）再调用 session_handoff；防重复注入由
+            // execute.ts 的 handoffInjectedBySession 会话级去重机制保证。
             const calledSessionHandoff = collectedToolCalls.some(tc => tc.name === 'session_handoff')
-            if (handoffRequested || calledSessionHandoff) {
-                logger.info(`[AgentLoop] handoff force ending turn ${this.turns}`, {
-                    gateInjected: handoffRequested,
-                    toolCalled: calledSessionHandoff,
-                })
+            if (calledSessionHandoff) {
+                logger.info(`[AgentLoop] session_handoff called, force ending turn ${this.turns}`)
                 endTurnCleanup()
-                // ★ 必须显式发 done 事件：normal 路径由 handleNoToolCalls 发 done，
-                //   而本路径直接 return early_exit 不产生 done → 渲染端永远停留在
-                //   「响应中」（UI 卡死）。done 后 worker 退出，onWorkerExit 的
-                //   兜底 done('aborted') 为重复通知，manager 侧幂等处理。
-                // ★ 交接门注入但模型未调用 session_handoff（弱模型常见）：不得假报
-                //   completed（UI 显示已完成但任务未移交 = 静默中断），必须显式报错。
-                if (handoffRequested && !calledSessionHandoff) {
-                    yield {
-                        type: 'error',
-                        error: '交接未完成：模型收到交接指令但未调用 session_handoff，任务已中断。请重试或在原会话手动发送交接指令。',
-                    }
-                    yield {type: 'done', reason: 'error'}
-                } else {
-                    yield {type: 'done', reason: 'completed'}
-                }
+                // ★ 必须显式发 done 事件：本路径直接 return early_exit 不产生 done，
+                //   渲染端会永久停留在「响应中」。manager 侧幂等处理。
+                yield {type: 'done', reason: 'completed'}
                 return 'early_exit'
             }
 

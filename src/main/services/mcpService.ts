@@ -167,6 +167,28 @@ export class MCPServerService {
     }
   }
 
+  /**
+   * 更新单个 server 的配置字段（增量）
+   * patch 只接受 McpServer 的配置字段；
+   * runtime 字段（status / errorDetail / tools）以及未在 patch 中出现的配置字段（如 enabled）均保留原值。
+   */
+  update(id: string, patch: Partial<McpServer>): boolean {
+    try {
+        const server = this.servers.get(id)
+        if (!server) {
+            logger.error('update', {success: false, id, error: 'server-not-found'})
+            return false
+        }
+        this.servers.set(id, {...server, ...patch})
+        writeMcpConfig(Array.from(this.servers.values()))
+        this.notify({type: 'list-changed', data: {servers: this.list()}})
+        return true
+    } catch (err) {
+      logger.error('update', {success: false, error: String(err)})
+      return false
+    }
+  }
+
     /**
      * 从文件重新加载配置到内存缓存（保留 runtime 状态）
      * 由 mcpWatcher 在检测到文件外部变更时调用，

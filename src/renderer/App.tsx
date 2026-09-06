@@ -26,6 +26,7 @@ import {useSidebarStore} from './stores/sidebarStore'
 import {useUpdaterStore} from './stores/updaterStore'
 import {usePluginUpdateStore} from './stores/pluginUpdateStore'
 import {useRepoUpdateStore} from './stores/repoUpdateStore'
+import {useMcpUpdateStore} from './stores/mcpUpdateStore'
 import {useMenuBarStore} from './stores/menuBarStore'
 import {useGlobalHotkeys} from './hooks/useGlobalHotkeys'
 import TooltipPortal from './components/common/TooltipPortal'
@@ -427,6 +428,17 @@ export default function App() {
       }
     })
     useRepoUpdateStore.getState().refreshFromCache()
+    return () => unsubscribe?.()
+  }, [])
+
+  // ── 订阅 MCP 版本状态推送 ──
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.mcp?.onMcpStatusUpdate?.((data: any) => {
+      if (data && typeof data === 'object') {
+        useMcpUpdateStore.getState().setVersionMeta(data)
+      }
+    })
+    useMcpUpdateStore.getState().refreshFromCache()
     return () => unsubscribe?.()
   }, [])
 

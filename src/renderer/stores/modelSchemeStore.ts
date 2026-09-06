@@ -86,7 +86,9 @@ const createDefaultRole = (
     ...(role === 'reasoning' ? {thinkingEffort: 'auto' as const} : {}),
 })
 
-/** 校验方案是否至少有一个有效文本角色（enabled && endpointId && modelId） */
+/** 校验方案是否至少有一个有效文本角色（enabled && endpointId && modelId）
+ *  注：此为 UI 层宽松校验（无 providers 上下文），不判 provider/model enabled；
+ *  运行层可用性以 getUsableTextRoles（shared/modelSchemeHelpers）为准 */
 export function hasValidTextRole(scheme: Pick<ModelScheme, 'roles'>): boolean {
     return scheme.roles.some(r =>
         TEXT_MODEL_ROLES.includes(r.role as ModelRole)

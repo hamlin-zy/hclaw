@@ -1,12 +1,16 @@
 /**
- * Controller 交接门强制结束轮次回归测试（bug：静默中断）
+ * Controller session_handoff 强制结束轮次回归测试
  *
- * 背景（2026-09 bug 排查）：
- * - Bug A：mid-loop 交接门注入（handoffRequested=true）后，controller.ts 无论模型
- *   是否真的调用 session_handoff，都 yield done('completed') 并退出。弱模型经常
- *   只回复总结文本不调工具 → UI 假报"已完成"，任务未移交 = 静默中断。
- *   期望：未调用 session_handoff 时必须 yield error（提示交接未完成），
- *   done reason 为 'error' 而非 'completed'。
+ * 设计意图（2026-09 修复）：
+ * - 模型主动调用 session_handoff 后必须强制结束本轮：新会话已创建、任务已移交，
+ *   主会话不应再带着交接结果进入下一轮 LLM 调用（上下文已接近上限，继续轮询会爆窗）。
+ * - 不再因 handoffRequested 强制结束：模型可能在收到交接指令后先调用本地工具
+ *   确认信息（读文件、生成总结等）再调用 session_handoff，防重复注入由
+ *   execute.ts 的 handoffInjectedBySession 会话级去重机制保证。
+ *
+ * 历史 bug 记录：
+ * - Bug A（已修复，行为已变）：旧实现里 handoffRequested=true 但模型未调 session_handoff
+ *   会 yield error 中断任务。新行为是允许继续（模型可先调工具再生成总结）。
  * - Bug B：graceful-stop 模式下 executeLlmCallWithRetry yield error 后返回 null
  *   → controller 直接 return early_exit，不发 done 事件 → 渲染端永久卡"响应中"。
  *   期望：error 后必须有 done 事件（reason 'error'）。
@@ -120,32 +124,8 @@ beforeEach(() => {
     mocks.llmQueue = []
 })
 
-describe('controller 交接门强制结束轮次', () => {
-    it('Bug A：handoffRequested=true 但模型未调用 session_handoff → 必须 yield error 且 done reason 非 completed', async () => {
-        // 模拟弱模型：收到交接指令后只调了普通工具（未调 session_handoff）
-        mocks.llmQueue = [{...tcResult(), handoffRequested: true}]
-        const events = await runAndCollect(makeParams())
-
-        const error = events.find((e: any) => e.type === 'error') as any
-        expect(error, '未调用 session_handoff 却没有 error 提示（假报完成 = 静默中断）').toBeTruthy()
-        expect(error.error).toContain('交接')
-
-        const done = events.find((e: any) => e.type === 'done') as any
-        expect(done).toBeTruthy()
-        expect(done.reason).not.toBe('completed')
-    })
-
-    it('Bug A 对照：handoffRequested=true 且模型调用了 session_handoff → done completed（正常交接）', async () => {
-        mocks.llmQueue = [{...tcResult([HANDOFF_TOOL_CALL]), handoffRequested: true}]
-        const events = await runAndCollect(makeParams())
-
-        const done = events.find((e: any) => e.type === 'done') as any
-        expect(done).toBeTruthy()
-        expect(done.reason).toBe('completed')
-        expect(events.some((e: any) => e.type === 'error')).toBe(false)
-    })
-
-    it('Bug A 对照：模型主动调用 session_handoff（无 handoffRequested）→ done completed', async () => {
+describe('controller session_handoff 强制结束轮次', () => {
+    it('模型主动调用 session_handoff → done completed，任务正常交接', async () => {
         mocks.llmQueue = [tcResult([HANDOFF_TOOL_CALL])]
         const events = await runAndCollect(makeParams())
 
@@ -155,7 +135,39 @@ describe('controller 交接门强制结束轮次', () => {
         expect(events.some((e: any) => e.type === 'error')).toBe(false)
     })
 
-    it('Bug B：graceful-stop（error 后返回 null）→ 必须有 done 事件，渲染端不能卡"响应中"', async () => {
+    it('模型主动调用 session_handoff（handoffRequested=true 亦不影响）→ done completed', async () => {
+        // 交接门注入 + 模型成功调用 → 正常交接
+        mocks.llmQueue = [{...tcResult([HANDOFF_TOOL_CALL]), handoffRequested: true}]
+        const events = await runAndCollect(makeParams())
+
+        const done = events.find((e: any) => e.type === 'done') as any
+        expect(done).toBeTruthy()
+        expect(done.reason).toBe('completed')
+        expect(events.some((e: any) => e.type === 'error')).toBe(false)
+    })
+
+    it('handoffRequested=true 但模型未调用 session_handoff → 不报错，允许进入下一轮（模型可先调工具确认信息再交接）', async () => {
+        // 新行为：不再因"收到交接指令但未调用 session_handoff"就报错中断。
+        // 模型可能在收到 prompt 后先调用本地工具（读文件、生成总结等）
+        // 再生成结构化交接总结并调用 session_handoff，本用例覆盖该合理场景。
+        // 第 2 轮返回无工具调用 → 自然退出（handleNoToolCalls → early_exit）。
+        mocks.llmQueue = [
+            {...tcResult(), handoffRequested: true},  // 第 1 轮：注入了交接指令，但只调了普通工具
+            tcResult([]),                              // 第 2 轮：模型无工具调用，任务自然结束
+        ]
+        const events = await runAndCollect(makeParams())
+
+        // 关键 1：不出现"交接未完成"错误
+        expect(
+            events.some((e: any) => e.type === 'error' && String(e.error).includes('交接未完成')),
+            '不应因未调用 session_handoff 就报错中断',
+        ).toBe(false)
+
+        // 关键 2：真的进入了第 2 轮（mock 队列第 2 项被消费）
+        expect(mocks.llmQueue.length).toBe(0)
+    })
+
+    it('graceful-stop（error 后返回 null）→ 必须有 done 事件，渲染端不能卡"响应中"', async () => {
         mocks.llmQueue = ['ERROR_THEN_NULL']
         const events = await runAndCollect(makeParams())
 

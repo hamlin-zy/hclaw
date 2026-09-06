@@ -166,8 +166,6 @@ export interface ChatParams {
 export interface ModelInfo {
   provider: string
   model: string
-  /** 模型支持的最大上下文 token */
-  maxContextTokens: number
   /** 是否支持 tool_use */
   supportsTools: boolean
   /** 是否支持 extended thinking */

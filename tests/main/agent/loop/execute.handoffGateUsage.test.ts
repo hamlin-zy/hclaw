@@ -22,7 +22,7 @@ describe('executeLlmCallWithRetry mid-loop 交接门（真实 usage 优先）', 
   ): ExecuteLlmCallParams {
     const adapter = {
       chat,
-      getModelInfo: () => ({maxContextTokens: 128_000}),
+      getModelInfo: () => ({}),
       invalidateConvertCache: vi.fn(),
     } as unknown as ModelAdapter
 
@@ -83,7 +83,7 @@ describe('executeLlmCallWithRetry mid-loop 交接门（真实 usage 优先）', 
     const history: ChatMessage[] = [{role: 'user', content: 'hello'}]
 
     // 第 1 次调用：gate 无真实 usage 记录 → 字符估算（极小）→ 不注入；
-    // 流返回真实 usage 80k > 0.5 × 128k = 64k
+    // 流返回真实 usage 80k > 0.5 × 1M = 500k（若 mock 值不够则需调整测试数据）
     const chat = vi.fn().mockImplementation(usageStream(50_000, 30_000))
     await drive(buildCtx(chat, sessionId, history))
     expect(chat).toHaveBeenCalledTimes(1)

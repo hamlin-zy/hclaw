@@ -46,12 +46,12 @@ describe('executeLlmCallWithRetry 重试前重新解析模型配置（倒计时�
         const chatOk = vi.fn().mockImplementation(() => okStream())
         const adapterV3 = {
             chat: chatErr,
-            getModelInfo: () => ({maxContextTokens: 128_000}),
+            getModelInfo: () => ({}),
             invalidateConvertCache: vi.fn(),
         } as unknown as ModelAdapter
         const adapterGpt5 = {
             chat: chatOk,
-            getModelInfo: () => ({maxContextTokens: 128_000}),
+            getModelInfo: () => ({}),
             invalidateConvertCache: vi.fn(),
         } as unknown as ModelAdapter
 
@@ -143,7 +143,7 @@ describe('executeLlmCallWithRetry 重试前重新解析模型配置（倒计时�
             chat: vi.fn()
                 .mockImplementationOnce(() => errStream())
                 .mockImplementationOnce(() => okStream()),
-            getModelInfo: () => ({maxContextTokens: 128_000}),
+            getModelInfo: () => ({}),
             invalidateConvertCache: vi.fn(),
         } as unknown as ModelAdapter
         vi.mocked(llmCaller.getAdapter)

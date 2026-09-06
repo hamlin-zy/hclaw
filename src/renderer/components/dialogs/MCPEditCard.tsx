@@ -109,6 +109,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
     const [name, setName] = useState(server?.name || '')
     const [transport, setTransport] = useState(server?.transport || 'stdio')
     const [userDescription, setUserDescription] = useState(server?.userDescription || '')
+    const [checkUrl, setCheckUrl] = useState(server?.checkUrl || '')
     const [command, setCommand] = useState(server?.command || '')
     const [argsStr, setArgsStr] = useState(server?.args?.join('\n') || '')
     const [envPairs, setEnvPairs] = useState<Array<{ key: string; value: string }>>(objectToPairs(server?.env))
@@ -248,6 +249,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
             headers,
             cwd: cwd || undefined,
             timeout,
+            checkUrl: checkUrl || undefined,
         })
     }
 
@@ -355,6 +357,22 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                                        placeholder="/absolute/path/to/working/dir"
                                        className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono focus:border-brand-500 outline-none" data-name="mcpedit-card-cwd-input"/>
                             </div>
+                            {command && (
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                                        版本检查 URL
+                                        <span className="text-gray-400 font-normal ml-1">（可选，用于本地二进制服务器）</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={checkUrl}
+                                        onChange={e => setCheckUrl(e.target.value)}
+                                        placeholder="https://api.github.com/repos/owner/repo/releases/latest"
+                                        className="w-full px-3 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                        data-name="mcpedit-card-checkurl-input"
+                                    />
+                                </div>
+                            )}
                         </div>
                     ) : (
                         <div className="space-y-3 p-2.5 bg-gray-50/50 rounded-lg border border-gray-100">
