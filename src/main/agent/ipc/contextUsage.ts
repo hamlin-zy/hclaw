@@ -7,12 +7,15 @@
 
 import {ipcMain} from 'electron'
 import {resolveContextUsageTokens} from '../context'
-import {resolveMaxContextTokens} from '../loop/modelMaxContext'
+import {resolveModelParams} from '@shared/modelParams'
 import {runtimeConfigManager} from '../runtimeConfigManager'
 import {modelMetaRegistry} from '../../modelMetaRegistry'
 import type {ChatMessage} from '../model/types'
-import type {LLMProvider, ModelScheme} from '@shared/types'
+import type {LLMProvider, ModelScheme, ModelConfig} from '@shared/types'
 import {createConversationRepository} from '../../repositories'
+
+/** 模型级运行时参数覆盖（spec §6.3） */
+type ModelParams = NonNullable<ModelConfig['modelParams']>
 
 export interface ContextUsageResult {
     /** 上下文占用比例（0-1） */
@@ -36,12 +39,16 @@ export function computeContextUsage(params: {
     history: Array<{role: string; content?: unknown; toolResult?: unknown; toolCalls?: unknown; llmStats?: ChatMessage['llmStats']}>
     cachedSystemPromptJson?: string | null
     modelMetaContextLength?: number
+    /** primary 模型 per-model 参数覆盖（spec §6.3，与 execute.ts handoff gate 同口径） */
+    modelParams?: ModelParams
+    settings?: {model?: {defaultTemperature?: number; defaultMaxTokens?: number}}
 }): ContextUsageResult {
-    const {history, cachedSystemPromptJson, modelMetaContextLength} = params
+    const {history, cachedSystemPromptJson, modelMetaContextLength, modelParams, settings} = params
 
-    const windowTokens = resolveMaxContextTokens({
-        modelMetaContextLength,
-    })
+    // 分母与 execute.ts handoff gate 同口径（spec §6.3）：
+    // per-model 自定义 → OpenRouter（or-models.json）→ 系统设置无关此参数 → 兜底 1M
+    const windowTokens = resolveModelParams(modelParams, settings, modelMetaContextLength ?? 0)
+        .maxContextTokens.value
 
     let systemPrompt: string | undefined
     if (cachedSystemPromptJson) {
@@ -81,18 +88,50 @@ export function resolvePrimaryModelName(
     return provider?.models.find((m) => m.id === role.modelId)?.name || ''
 }
 
+/**
+ * 纯函数：解析 primary 模型的 per-model 参数覆盖（spec §6.3）。
+ * 仅当 primary 模型存在于【已启用】provider 列表且至少一项数值参数非 null 时返回；
+ * 否则返回 undefined → resolveModelParams 走 OpenRouter/兜底层（与 execute.ts 回退一致）。
+ */
+export function resolvePrimaryModelParams(
+    scheme: Pick<ModelScheme, 'roles'> | null | undefined,
+    providers: LLMProvider[],
+): ModelParams | undefined {
+    const role = scheme?.roles.find((r) => r.role === 'primary')
+    if (!role) return undefined
+    const provider = providers.find((p) => p.id === role.endpointId && p.enabled)
+    const model = provider?.models.find((m) => m.id === role.modelId)
+    if (!model) return undefined
+    if (model.maxContextTokens == null && model.temperature == null && model.maxOutputTokens == null) {
+        return undefined
+    }
+    return {
+        maxContextTokens: model.maxContextTokens,
+        temperature: model.temperature,
+        maxOutputTokens: model.maxOutputTokens,
+    }
+}
+
 export function registerHandlers(): void {
     ipcMain.handle('context:get-usage', async (_event, conversationId: string): Promise<ContextUsageResult> => {
         const conversationRepo = createConversationRepository()
         const history = conversationRepo.readMessages(conversationId) || []
         const cachedSystemPromptJson = conversationRepo.getSystemPrompt(conversationId)
         const modelScheme = runtimeConfigManager.getScheme()
+        const providers = runtimeConfigManager.getProviders()
         // primary role 的 UUID modelId → 解析为模型名 → or-models.json 权威窗口；
-        // 未命中返回 0 → 纯函数内回退默认 1M
-        const primaryModelName = resolvePrimaryModelName(modelScheme, runtimeConfigManager.getProviders())
+        // 未命中返回 0 → 纯函数内回退默认 1M。
+        // per-model 自定义参数与 execute.ts handoff gate 同口径（spec §6.3）
+        const primaryModelName = resolvePrimaryModelName(modelScheme, providers)
         const modelMetaContextLength = primaryModelName
             ? modelMetaRegistry.getContextLength(primaryModelName)
             : 0
-        return computeContextUsage({history, cachedSystemPromptJson, modelMetaContextLength})
+        return computeContextUsage({
+            history,
+            cachedSystemPromptJson,
+            modelMetaContextLength,
+            modelParams: resolvePrimaryModelParams(modelScheme, providers),
+            settings: runtimeConfigManager.getSettings() ?? undefined,
+        })
     })
 }

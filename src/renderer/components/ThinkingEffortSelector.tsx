@@ -1,6 +1,7 @@
 import {useMemo, useState, useEffect, useRef} from 'react'
 import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
+import {popoverUp} from '../lib/motionPresets'
 import {useAgentStore} from '../stores/agentStore'
 import {useLLMStore} from '../stores/llmStore'
 import {usePrimaryRole} from '../hooks/usePrimaryRole'
@@ -129,9 +130,7 @@ export default function ThinkingEffortSelector({conversationId}: ThinkingEffortS
                 <AnimatePresence>
                     {open && (
                         <motion.div
-                            initial={{opacity: 0, y: 8, scale: 0.96}}
-                            animate={{opacity: 1, y: 0, scale: 1}}
-                            exit={{opacity: 0, y: 8, scale: 0.96}}
+                            {...popoverUp}
                             transition={{duration: 0.15}}
                             style={{bottom: position.bottom, right: position.right}}
                             className="fixed z-[9999] w-max max-w-[340px]"

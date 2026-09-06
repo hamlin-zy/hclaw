@@ -150,6 +150,8 @@ describe('executeLlmCallWithRetry 400 降级自愈（生成器级，mock adapter
     expect((chat.mock.calls[1][0].tools as ToolDefinitionForLLM[]).map(t => t.name)).toContain('analyze_image')
 
     // ★ 消息侧同源：supportsImageInput 以当前模型 id 被调用（降级场景消息侧路径仍在执行）
-    expect(supportsSpy).toHaveBeenCalledWith(MODEL_ID)
+    // ★ 消息侧同源：supportsImageInput 以当前模型 id 被调用（降级场景消息侧路径仍在执行）；
+    //   第二参为 modelConfig.modelTypes（未配置时 undefined）
+    expect(supportsSpy).toHaveBeenCalledWith(MODEL_ID, undefined)
   })
 })

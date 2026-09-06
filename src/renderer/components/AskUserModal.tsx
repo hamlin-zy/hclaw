@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {fade, scaleFade} from '../lib/motionPresets'
 import {useAgentStore} from '../stores/agentStore'
 import {useThemeStore} from '../stores/themeStore'
 import {MarkdownRenderer} from './message-list'
@@ -174,17 +175,13 @@ export default function AskUserModal() {
         <AnimatePresence>
             {/* 容器：全屏透明，事件穿透，不遮幕布 */}
             <motion.div
-                initial={{opacity: 0}}
-                animate={{opacity: 1}}
-                exit={{opacity: 0}}
+                {...fade}
                 className="fixed z-[var(--z-overlay)] pointer-events-none"
                 style={{left: 0, top: 0, width: '100vw', height: '100vh'}}
             >
                 <motion.div
                     ref={dialogRef}
-                    initial={{scale: 0.95, opacity: 0}}
-                    animate={{scale: 1, opacity: 1}}
-                    exit={{scale: 0.95, opacity: 0}}
+                    {...scaleFade}
                     transition={{duration: 0.15, ease: 'easeOut'}}
                     className={`absolute pointer-events-auto dialog-surface w-[calc(100vw-2rem)] max-w-md bg-[var(--surface)] rounded-xl overflow-hidden transition-shadow duration-100 ${
                         isDragging ? 'shadow-overlay scale-[1.02]' : 'shadow-elevated'

@@ -164,6 +164,8 @@ export interface ModelTestParams {
   refreshToken?: string
   expiryDate?: number
   model: string
+  /** 模型配置的自定义温度（详情弹窗设置）；undefined = 未配置，交由适配器默认 */
+  temperature?: number
   features?: ProviderFeatures
 }
 
@@ -233,6 +235,7 @@ export async function testProviderModel(params: ModelTestParams, deps: FetcherDe
         for await (const chunk of withLlmTraceStream(traceCtx, adapter.chat({
       messages: [{role: 'user', content: 'ping'}],
       maxTokens: 8,
+      temperature: params.temperature,
       abortSignal: controller.signal,
     }))) {
       if (chunk.type === 'error') throw chunk.error

@@ -18,16 +18,16 @@ vi.mock('zustand', () => ({
   },
 }))
 
-import {createUpdateStore} from '@/renderer/stores/createUpdateStore'
+import {createUpdateStore, type VersionMetaBase} from '@/renderer/stores/createUpdateStore'
 
 describe('createUpdateStore factory', () => {
-  let mockGetAllVersionMeta: ReturnType<typeof vi.fn>
+  let mockGetAllVersionMeta: () => Promise<Record<string, VersionMetaBase>>
 
   beforeEach(() => {
-    mockGetAllVersionMeta = vi.fn().mockResolvedValue({
+    mockGetAllVersionMeta = vi.fn<() => Promise<Record<string, VersionMetaBase>>>().mockResolvedValue({
       'srv1': {current: '1.0.0', latest: '2.0.0', hasUpdate: true, sourceType: 'binary', lastChecked: 0},
       'srv2': {current: '1.0.0', latest: '1.0.0', hasUpdate: false, sourceType: 'npx', lastChecked: 0},
-    })
+    } as Record<string, VersionMetaBase>)
   })
 
   it('creates store with versionMeta, updateMap, hasUpdate', () => {

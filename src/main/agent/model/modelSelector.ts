@@ -136,6 +136,18 @@ export function resolveModelConfig(
         apiStyle: provider.apiStyle || 'chat',
         // 透传服务商扩展特性（如显式缓存支持）
         features: provider.features,
+        // 模型类型（自定义模态判定），兼容旧单值 modelType 字段
+        modelTypes: model.modelTypes ?? (model.modelType ? [model.modelType] : undefined),
+        // 模型级运行时参数覆盖（spec §6：仅在至少一项有值时携带，避免空对象覆盖语义）
+        ...(model.maxContextTokens != null || model.temperature != null || model.maxOutputTokens != null
+            ? {
+                modelParams: {
+                    maxContextTokens: model.maxContextTokens,
+                    temperature: model.temperature,
+                    maxOutputTokens: model.maxOutputTokens,
+                },
+            }
+            : {}),
     }
 
     // 同步推理强度

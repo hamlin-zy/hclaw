@@ -24,7 +24,8 @@ const h = vi.hoisted(() => {
     const agentStateMap: Record<string, any> = {}
     const reconcileCalls: string[] = []
     const updateConvDataCalls: string[] = []
-    return {agentStateMap, reconcileCalls, updateConvDataCalls}
+    const refreshCalls: string[] = []
+    return {agentStateMap, reconcileCalls, updateConvDataCalls, refreshCalls}
 })
 
 // mock agentStore（conversationStore 依赖它，但仅 action 内部惰性调用 getState）
@@ -33,6 +34,7 @@ vi.mock('../../../src/renderer/stores/agentStore', () => ({
         getState: () => ({
             get convAgentStates() { return h.agentStateMap },
             updateConvData: (convId: string) => { h.updateConvDataCalls.push(convId) },
+            refreshActiveBatch: (convId: string) => { h.refreshCalls.push(convId) },
             removeConvData: () => {},
             flushPendingStreamData: () => {},
             reconcileStreamingContent: (convId: string) => { h.reconcileCalls.push(convId) },
@@ -81,6 +83,7 @@ beforeEach(() => {
     readTailCalls = []
     h.reconcileCalls.length = 0
     h.updateConvDataCalls.length = 0
+    h.refreshCalls.length = 0
     delete h.agentStateMap[NEW_ID]
     ;(globalThis as any).window = {
         electronAPI: {
@@ -157,5 +160,20 @@ describe('handleSessionCreated（会话交接自动切换激活链路）', () =>
             expect(readTailCalls.some(c => c.convId === NEW_ID)).toBe(true)
         })
         expect(useConversationStore.getState().activeConversationId).toBe(NEW_ID)
+    })
+
+    it('交接会话（handoffFromConvId 非空）时清空来源会话的残留待办', async () => {
+        useConversationStore.getState().handleSessionCreated(NEW_ID, '交接会话', '/ws', PARENT_ID)
+
+        await vi.waitFor(() => {
+            expect(h.refreshCalls.includes(PARENT_ID)).toBe(true)
+        })
+    })
+
+    it('非交接创建（handoffFromConvId 为空）时不触发来源会话刷新', async () => {
+        useConversationStore.getState().handleSessionCreated(NEW_ID, '新会话', '/ws', undefined)
+
+        await Promise.resolve()
+        expect(h.refreshCalls.length).toBe(0)
     })
 })

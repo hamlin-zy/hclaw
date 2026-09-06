@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {fade, scaleFade} from '../../lib/motionPresets'
 import type {ConversationUsageStats, UsageBreakdown} from '@shared/types'
 import {formatTokenCount, formatTokenCompact, formatTokensPerSecond, formatCost, type Currency} from '../../lib/format'
 import {computeKpis, duplicatedModelKeys, mergeByProvider} from '@shared/llmUsage'
@@ -273,17 +274,13 @@ export default function UsageStatsDialog() {
             {options && (
                 <>
                     <motion.div
-                        initial={{opacity: 0}}
-                        animate={{opacity: 1}}
-                        exit={{opacity: 0}}
+                        {...fade}
                         transition={{duration: 0.15}}
                         className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[99998]"
                         onClick={handleClose}
                     />
                     <motion.div
-                        initial={{scale: 0.95, opacity: 0}}
-                        animate={{scale: 1, opacity: 1}}
-                        exit={{scale: 0.95, opacity: 0}}
+                        {...scaleFade}
                         transition={{duration: 0.15, ease: 'easeOut'}}
                         className="fixed inset-0 pointer-events-none z-[99999]"
                     >

@@ -1,5 +1,6 @@
 import {useEffect} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {fade, scaleFade} from '../lib/motionPresets'
 import {useFileChangeStore} from '../stores/fileChangeStore'
 
 export default function DiffModal() {
@@ -18,16 +19,12 @@ export default function DiffModal() {
       {diffModalOpen && selectedFileChange && (
         <>
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            {...fade}
             className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[var(--z-overlay)]"
             onClick={closeDiffModal}
           />
           <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.95, opacity: 0 }}
+            {...scaleFade}
             className="fixed inset-6 bg-[var(--surface)] rounded-xl shadow-elevated flex flex-col overflow-hidden z-[var(--z-modal)]"
           >
             {/* Header */}

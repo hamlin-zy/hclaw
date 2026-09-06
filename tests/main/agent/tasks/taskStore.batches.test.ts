@@ -110,6 +110,37 @@ describe('TaskStore — 任务批次', () => {
         expect(newBatch.status).toBe('active')
     })
 
+    it('显式 batchName 与当前活跃批次同名 → 归并进当前批次（并行同名创建不拆批）', () => {
+        taskStore.createTask('conv-1', '任务A', undefined, '本周待办')
+        const batch = taskStore.getActiveBatch('conv-1')!
+        expect(batch.name).toBe('本周待办')
+        expect(batch.status).toBe('active')
+
+        // 并行同名 batch_name（模拟工具并行调用）：第二次、第三次都应归入同一批次
+        taskStore.createTask('conv-1', '任务B', undefined, '本周待办')
+        taskStore.createTask('conv-1', '任务C', undefined, '本周待办')
+
+        const after = taskStore.getActiveBatch('conv-1')!
+        expect(after.id).toBe(batch.id)
+        expect(after.name).toBe('本周待办')
+        expect(after.status).toBe('active')
+        expect(taskStore.getCurrentBatchTasks('conv-1')).toHaveLength(3)
+    })
+
+    it('显式 batchName 与已完成同名批次冲突 → 仍开新批次（完成后重开新批语义保留）', () => {
+        const a = taskStore.createTask('conv-1', '任务A', undefined, '本周待办')
+        const oldBatch = taskStore.getActiveBatch('conv-1')!
+        taskStore.updateTaskStatus('conv-1', a.id, 'completed')
+        expect(taskStore.getActiveBatch('conv-1')!.status).toBe('completed')
+
+        taskStore.createTask('conv-1', '任务B', undefined, '本周待办')
+
+        const newBatch = taskStore.getActiveBatch('conv-1')!
+        expect(newBatch.id).not.toBe(oldBatch.id)
+        expect(newBatch.name).toBe('本周待办')
+        expect(newBatch.status).toBe('active')
+    })
+
     it('末任务转终态 → 批次变 completed，且对应事件载荷 batchStatus=completed', () => {
         const a = taskStore.createTask('conv-1', '任务A')
         const b = taskStore.createTask('conv-1', '任务B')

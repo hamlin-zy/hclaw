@@ -1,6 +1,5 @@
 import type {ProviderModel} from '@shared/types'
-import type {Currency} from '@shared/pricing'
-import {displayPrice, parsePriceInput} from '../../../lib/priceEditing'
+import {hasCustomParams} from '@shared/modelParams'
 import {useState, type MouseEvent} from 'react'
 
 interface TestState {
@@ -9,24 +8,8 @@ interface TestState {
   latencyMs?: number
 }
 
-type PriceField = 'input' | 'output' | 'cacheRead' | 'cacheWrite'
-
 interface ModelTableProps {
   models: ProviderModel[]
-  currency: Currency
-  rate: number
-  rateDate: string | null
-  /** 汇率拉取未就绪（USD+rate=1 恒等窗口）：锁定价格输入与货币切换，避免编辑串货币归属歧义 */
-  rateLoading: boolean
-  /** 行内编辑状态：rowId → 字段 → 用户原始输入串 */
-  edits: Record<string, Partial<Record<PriceField, string>>>
-  onEditCell: (rowId: string, field: PriceField, raw: string) => void
-  /** 工具栏货币切换（USD ↔ CNY；汇率折算与落盘由父级在保存时统一处理） */
-  onCurrencyChange: (cur: Currency) => void
-  /** 以 OpenRouter 元数据回填该行空缺价格（Task 11 接线；T9 允许 no-op） */
-  onFillRow: (modelId: string) => Promise<void>
-  /** 表头「填充」：逐行全表回填空缺价格（无空缺行报告「无空缺」并保持不动） */
-  onFillAll: () => Promise<void>
   testStates: Record<string, TestState>
   canTest: boolean
   credentialBlockReason: string
@@ -34,26 +17,16 @@ interface ModelTableProps {
   batchProgress: {done: number; total: number} | null
   /** 工具栏右侧插槽（父级放置「自动获取」等外部依赖按钮） */
   toolbarExtra?: React.ReactNode
+  /** 打开模型详情弹窗（⚙️ 详情列，参数配置在详情弹窗内完成） */
+  onOpenDetail: (modelId: string) => void
   onNameChange: (id: string, name: string) => void
-  onTest: (modelId: string, modelName: string) => void
+  onTest: (modelId: string, modelName: string, temperature?: number) => void
   onTestAll: () => void
   onCancelBatch: () => void
   onDelete: (id: string) => void
   onAdd: (name?: string) => void
 }
 
-const PRICE_COLUMNS: Array<{field: PriceField; label: string}> = [
-  {field: 'input', label: '输入价'},
-  {field: 'output', label: '输出价'},
-  {field: 'cacheRead', label: '缓存读'},
-  {field: 'cacheWrite', label: '缓存写'},
-]
-
-const CURRENCY_SYMBOL: Record<Currency, string> = {USD: '$', CNY: '￥'}
-
-const TYPE_LABEL: Record<string, string> = {
-  text: '文本', image: '图像', voice: '音频', video: '视频', music: '音乐', embedding: '向量',
-}
 
 /** 复制测试错误信息 */
 const copyError = async (text: string | undefined) => {
@@ -61,29 +34,32 @@ const copyError = async (text: string | undefined) => {
   try { await navigator.clipboard.writeText(text) } catch { /* 剪贴板不可用时静默 */ }
 }
 
+/** 24x24 stroke 齿轮（与项目现有 svg 图标 stroke 风格一致） */
+function GearIcon() {
+  return (
+    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h.09a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h.09a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v.09a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+    </svg>
+  )
+}
+
 /**
- * 模型管理表（设计 §三 B4）：
- * 列 = 模型 ID ｜ 类型徽标 ｜ 4 价格输入框 ｜ 填充 ｜ 测试 ｜ 删除。
+ * 模型管理表（设计 §三 B4 瘦身版）：
+ * 列 = 模型 ID ｜ 详情(⚙️) ｜ 测试 ｜ 删除。
+ * 类型徽标与价格编辑、参数配置均迁往模型详情弹窗（onOpenDetail）。
  * 无启用开关列——使用哪个模型由模型方案角色引用决定；新增行固定 enabled:true，
  * 存量行 enabled 值由父级透传，本组件不读写。
  */
 export default function ModelTable({
   models,
-  currency,
-  rate,
-  rateDate,
-  rateLoading,
-  edits,
-  onEditCell,
-  onCurrencyChange,
-  onFillRow,
-  onFillAll,
   testStates,
   canTest,
   credentialBlockReason,
   batchTesting,
   batchProgress,
   toolbarExtra,
+  onOpenDetail,
   onNameChange,
   onTest,
   onTestAll,
@@ -91,7 +67,6 @@ export default function ModelTable({
   onDelete,
   onAdd,
 }: ModelTableProps) {
-  const sym = CURRENCY_SYMBOL[currency]
   // 测试失败错误包 tips：fixed 定位（锚点 rect），避免被表格 overflow-x-auto 容器裁剪
   const [errTip, setErrTip] = useState<{x: number; y: number; error?: string} | null>(null)
   const openErrTip = (e: MouseEvent<HTMLSpanElement>, error?: string) => {
@@ -101,25 +76,9 @@ export default function ModelTable({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <label className="text-xs font-medium text-gray-500">模型列表<span className="ml-1.5 text-[10px] font-normal text-gray-400">价格允许为空</span></label>
+        <label className="text-xs font-medium text-gray-500">模型列表</label>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-gray-400">{models.length} 个模型</span>
-          {/* 汇率参考：date 为 null 表示主进程未同步（使用兜底汇率） */}
-          <span className="text-[9px] text-gray-300" title="价格换算参考汇率（CNY/USD）">
-            {rateDate ? `汇率 ${rate}（${rateDate}）` : `汇率 ${rate} · 未同步`}
-          </span>
-          {/* 货币切换段（§三 B5）：展示货币切换，仅影响展示与本次编辑折算 */}
-          <div className="flex items-center rounded border border-gray-200 overflow-hidden text-[10px]">
-            {(['USD', 'CNY'] as Currency[]).map(cur => (
-              <button key={cur} onClick={() => onCurrencyChange(cur)} disabled={rateLoading}
-                title={rateLoading ? '汇率加载中…' : undefined}
-                className={`px-1.5 py-0.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                  currency === cur ? 'bg-brand-50 text-brand-600 font-medium' : 'bg-white text-gray-400 hover:text-gray-600'
-                }`} data-name="model-table-button">
-                {cur === 'USD' ? '$ 美元' : '￥ 人民币'}
-              </button>
-            ))}
-          </div>
           {batchTesting ? (
             <button onClick={onCancelBatch}
               className="flex items-center gap-1 text-[10px] font-medium text-orange-500 hover:text-orange-600 transition-colors" data-name="model-table-cancel-batch-button">
@@ -139,26 +98,11 @@ export default function ModelTable({
 
       {/* 表格容器：窄窗口横向滚动兜底 */}
       <div className="border border-gray-100 rounded-md overflow-x-auto mb-2">
-        <table className="w-full border-collapse text-[11px] min-w-[640px]">
+        <table className="w-full border-collapse text-[11px] min-w-[340px]">
           <thead>
             <tr className="bg-gray-50/50 text-left">
               <th className="px-2 py-1.5 font-medium text-gray-400 text-[10px] whitespace-nowrap">模型 ID</th>
-              <th className="px-1 py-1.5 font-medium text-gray-400 text-[10px] whitespace-nowrap w-[52px]">类型</th>
-              {PRICE_COLUMNS.map(c => (
-                <th key={c.field} className="px-1 py-1.5 font-medium text-gray-400 text-[10px] whitespace-nowrap w-[76px]">
-                  {c.label}(<span>{sym}</span>/M)
-                </th>
-              ))}
-              <th className="px-1 py-1.5 font-medium text-gray-400 text-[10px] whitespace-nowrap w-[40px]">
-                <button onClick={() => { void onFillAll() }} disabled={batchTesting}
-                  title="逐行按模型 ID 查询 OpenRouter 元数据，回填空缺的价格列（已有价格不覆盖）"
-                  className="inline-flex items-center gap-0.5 text-gray-300 hover:text-brand-500 disabled:opacity-30 transition-colors" data-name="model-table-fill-all-prices-button">
-                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 5v14M19 12l-7 7-7-7"/>
-                  </svg>
-                  填充
-                </button>
-              </th>
+              <th className="px-1 py-1.5 font-medium text-gray-400 text-[10px] whitespace-nowrap w-[40px] text-center">详情</th>
               <th className="px-1 py-1.5 font-medium text-gray-400 text-[10px] whitespace-nowrap w-[40px]">测试</th>
               <th className="px-1 py-1.5 font-medium text-gray-400 text-[10px] whitespace-nowrap w-[32px]">删除</th>
             </tr>
@@ -166,7 +110,7 @@ export default function ModelTable({
           <tbody>
             {models.length === 0 && (
               <tr>
-                <td colSpan={8} className="text-center text-gray-400 text-[11px] py-6">
+                <td colSpan={4} className="text-center text-gray-400 text-[11px] py-6">
                   暂无模型 · 点击手动添加或从服务商拉取开始
                 </td>
               </tr>
@@ -185,48 +129,15 @@ export default function ModelTable({
                         isEmpty || isDuplicate ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-brand-300'
                       }`} data-name="model-table-input"/>
                   </td>
-                  {/* 类型徽标（hover 显示识别来源说明） */}
-                  <td className="px-1 py-1">
-                    <span
-                      className="inline-block max-w-full px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 text-[9px] whitespace-nowrap"
-                      title={`类型：${TYPE_LABEL[model.modelType || 'text'] || model.modelType || 'text'}\n识别来源：拉取时按模型 ID 命名规则推断；填充命中 OpenRouter 元数据后按输入模态更新`}
-                    >{TYPE_LABEL[model.modelType || 'text'] || model.modelType || 'text'}</span>
-                  </td>
-                  {/* 4 价格输入框：货币符号随 currency；值 = 编辑串或存储价折算展示；下方 ≈ 反向参考值 */}
-                  {PRICE_COLUMNS.map(({field}, ci) => {
-                    const raw = edits[model.id]?.[field]
-                    const hasRaw = raw !== undefined && raw.trim() !== ''
-                    // 反向参考基准（USD/token）：有用户输入按当前货币解析；否则用存储原值
-                    const usdToken = hasRaw ? parsePriceInput(raw as string, currency, rate) : model.pricing?.[field]
-                    const hint = usdToken !== undefined
-                      ? displayPrice(usdToken, currency === 'USD' ? 'CNY' : 'USD', rate)
-                      : null
-                    return (
-                      <td key={field} className="px-1 py-1">
-                        <input type="text" inputMode="decimal"
-                          value={raw ?? displayPrice(model.pricing?.[field], currency, rate)}
-                          onChange={(e) => onEditCell(model.id, field, e.target.value)}
-                          disabled={rateLoading}
-                          placeholder="—"
-                          title={rateLoading ? '汇率加载中…' : undefined}
-                          className="w-full min-w-0 px-1 py-1 text-[11px] text-right bg-white border border-gray-200 rounded text-gray-700 placeholder-gray-300 focus:outline-none focus:border-brand-300 disabled:opacity-40 disabled:cursor-not-allowed" data-name={`model-table-price-input-${ci}`}/>
-                        {hint && (
-                          <div className="text-[9px] text-gray-300 text-right leading-tight select-none">
-                            ≈ {currency === 'USD' ? '￥' : '$'}{hint}
-                          </div>
-                        )}
-                      </td>
-                    )
-                  })}
-                  {/* 填充：以 OpenRouter 元数据回填空缺价格（接线见 Task 11） */}
+                  {/* 详情：⚙️ 打开模型详情弹窗；已配置自定义参数时橙点提示 */}
                   <td className="px-1 py-1 text-center">
-                    <button onClick={() => { void onFillRow(model.id) }}
-                      disabled={batchTesting}
-                      title="按模型 ID 查询 OpenRouter 元数据，回填空缺的价格列（已有价格不覆盖）"
-                      className="p-1 text-gray-300 hover:text-brand-500 disabled:opacity-30 transition-colors" data-name="model-table-fill-row-button">
-                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M12 5v14M19 12l-7 7-7-7"/>
-                      </svg>
+                    <button onClick={() => onOpenDetail(model.id)}
+                      title="模型详情与参数配置"
+                      className="relative p-1 text-gray-300 hover:text-brand-500 transition-colors" data-name="model-table-detail-button">
+                      <GearIcon />
+                      {hasCustomParams(model) && (
+                        <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-orange-500 border border-white" />
+                      )}
                     </button>
                   </td>
                   {/* 测试态：spinner / ✔+延迟 / ✖+完整错误 tips（含复制） */}
@@ -255,7 +166,7 @@ export default function ModelTable({
                       </span>
                     ) : (
                       <button
-                        onClick={(e) => { e.stopPropagation(); onTest(model.id, model.name) }}
+                        onClick={(e) => { e.stopPropagation(); onTest(model.id, model.name, model.temperature ?? undefined) }}
                         disabled={batchTesting || !canTest || !model.name.trim()}
                         title={!model.name.trim() ? '请先填写模型名称' : !canTest ? credentialBlockReason : '测试此模型'}
                         className="p-1 text-gray-300 hover:text-brand-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors" data-name="model-table-test-model-button">

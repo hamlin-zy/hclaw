@@ -281,3 +281,16 @@ export function deleteByConversation(convId: string): void {
         db.prepare('DELETE FROM task_batches WHERE conversation_id = ?').run(convId)
     })()
 }
+
+/** 交接迁移：把来源会话的活跃批次（含任务）的 conversation_id 改绑到目标会话 */
+export function migrateActiveBatch(fromConvId: string, toConvId: string): void {
+    const db = getDatabase()
+    db.transaction(() => {
+        const active = db.prepare(
+            `SELECT id FROM task_batches WHERE conversation_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1`,
+        ).get(fromConvId) as {id: string} | undefined
+        if (!active) return
+        db.prepare(`UPDATE task_batches SET conversation_id = ? WHERE id = ?`).run(toConvId, active.id)
+        db.prepare(`UPDATE tasks SET conversation_id = ? WHERE batch_id = ?`).run(toConvId, active.id)
+    })()
+}

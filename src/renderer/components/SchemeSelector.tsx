@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
+import {dropdown} from '../lib/motionPresets'
 import {switchActiveScheme, useModelSchemeStore} from '../stores/modelSchemeStore'
 import type {ModelScheme} from '@shared/types'
 
@@ -219,9 +220,7 @@ export default function SchemeSelector() {
             <AnimatePresence>
                 {toastMessage && (
                     <motion.div
-                        initial={{opacity: 0, y: -10}}
-                        animate={{opacity: 1, y: 0}}
-                        exit={{opacity: 0, y: -10}}
+                        {...dropdown}
                         transition={{duration: 0.2, ease: 'easeOut'}}
                         className="fixed top-4 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2 rounded-lg bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-sm text-[var(--text-primary)] flex items-center gap-2"
                         role="status"

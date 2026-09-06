@@ -14,6 +14,14 @@ export interface SqlProviderModel {
   enabled: boolean
   /** 4 维价格（USD/token）；undefined = 未配置 */
   pricing?: ModelPricing
+  /** 上下文窗口上限（tokens） */
+  maxContextTokens?: number
+  /** 采样温度（0-2）；undefined = 未配置 */
+  temperature?: number
+  /** 最大输出 tokens */
+  maxOutputTokens?: number
+  /** 模型类型数组（新列，JSON）；undefined = 未配置 */
+  modelTypes?: ModelType[]
 }
 
 export interface LLMProviderWithModels extends LLMProvider {
@@ -318,7 +326,19 @@ const parsePricing = (raw: string | null | undefined): ModelPricing | undefined 
     }
 }
 
-const SQL_MODEL_COLUMNS = 'id, provider_id, model_name, model_type, enabled, pricing'
+/** 解析 model_types JSON 数组（非法 JSON/非数组/空数组 → undefined；NULL 由调用方处理回退） */
+const parseModelTypes = (raw: string): ModelType[] | undefined => {
+    try {
+        const p = JSON.parse(raw)
+        return Array.isArray(p) && p.length > 0 ? (p as ModelType[]) : undefined
+    } catch {
+        return undefined
+    }
+}
+
+const SQL_MODEL_COLUMNS =
+    'id, provider_id, model_name, model_type, enabled, pricing, ' +
+    'max_context_tokens, temperature, max_output_tokens, model_types'
 
 /** 将数据库行映射为 SqlProviderModel 对象 */
 const mapRowToSqlProviderModel = (row: Record<string, unknown>): SqlProviderModel => ({
@@ -328,6 +348,16 @@ const mapRowToSqlProviderModel = (row: Record<string, unknown>): SqlProviderMode
     modelType: row.model_type as ModelType,
     enabled: row.enabled === 1,
     pricing: parsePricing(row.pricing as string),
+    maxContextTokens: (row.max_context_tokens as number | null | undefined) ?? undefined,
+    temperature: (row.temperature as number | null | undefined) ?? undefined,
+    maxOutputTokens: (row.max_output_tokens as number | null | undefined) ?? undefined,
+    // model_types：NULL → 回退旧 model_type 单值包装数组；非法 JSON/非数组 → undefined
+    modelTypes:
+        row.model_types == null
+            ? row.model_type
+                ? [row.model_type as ModelType]
+                : undefined
+            : parseModelTypes(row.model_types as string),
 })
 
 export class SqliteProviderModelRepository {
@@ -392,6 +422,10 @@ export class SqliteProviderModelRepository {
         modelType: string;
         enabled: boolean;
         pricing?: ModelPricing;
+        maxContextTokens?: number;
+        temperature?: number;
+        maxOutputTokens?: number;
+        modelTypes?: ModelType[];
     }, now: number): unknown[] {
         return [
             model.id,
@@ -400,6 +434,10 @@ export class SqliteProviderModelRepository {
             model.modelType,
             model.enabled ? 1 : 0,
             model.pricing ? JSON.stringify(model.pricing) : '',
+            model.maxContextTokens ?? null,
+            model.temperature ?? null,
+            model.maxOutputTokens ?? null,
+            model.modelTypes ? JSON.stringify(model.modelTypes) : null,
             now,
         ]
     }
@@ -417,14 +455,15 @@ export class SqliteProviderModelRepository {
         if (this.getById(model.id)) {
             db.prepare(`
           UPDATE provider_models SET provider_id=?, model_name=?, model_type=?, enabled=?,
-            pricing=?, updated_at=?
+            pricing=?, max_context_tokens=?, temperature=?, max_output_tokens=?, model_types=?, updated_at=?
           WHERE id=?
         `).run(...params.slice(1).concat(params[0]))
       } else {
             db.prepare(`
           INSERT INTO provider_models (id,provider_id,model_name,model_type,enabled,pricing,
+            max_context_tokens,temperature,max_output_tokens,model_types,
             created_at,updated_at)
-          VALUES (?,?,?,?,?,?,?,?)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         `).run(...params, now)
       }
 
@@ -450,8 +489,9 @@ export class SqliteProviderModelRepository {
 
       const stmt = db.prepare(`
         INSERT INTO provider_models (id,provider_id,model_name,model_type,enabled,pricing,
+          max_context_tokens,temperature,max_output_tokens,model_types,
           created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
       `)
 
       for (const model of models) {

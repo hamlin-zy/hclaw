@@ -23,7 +23,7 @@ const {cpMock, mcpServiceMock, mcpWorkerManagerMock, pluginVersionManagerMock} =
 vi.mock('child_process', () => ({
   spawn: vi.fn(),
   exec: vi.fn((_cmd: string, _opts: any, callback: Function) => {
-    callback(null, cpMock.execAsync ? '' : '', '')
+    callback(null, '', '')
     return {} as any
   }),
 }))

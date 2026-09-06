@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {fade, scaleFade} from '../lib/motionPresets'
 import {useAgentStore} from '../stores/agentStore'
 import {useConversationStore} from '../stores/conversationStore'
 
@@ -135,16 +136,12 @@ export default function PermissionConfirmModal() {
     return (
         <AnimatePresence>
             <motion.div
-                initial={{opacity: 0}}
-                animate={{opacity: 1}}
-                exit={{opacity: 0}}
+                {...fade}
                 className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[var(--z-overlay)] flex items-center justify-center p-4"
                 onClick={(e) => e.stopPropagation()}
             >
                 <motion.div
-                    initial={{scale: 0.95, opacity: 0}}
-                    animate={{scale: 1, opacity: 1}}
-                    exit={{scale: 0.95, opacity: 0}}
+                    {...scaleFade}
                     transition={{duration: 0.15, ease: 'easeOut'}}
                     className="bg-[var(--surface)] rounded-xl shadow-elevated overflow-hidden flex flex-col"
                     style={{width: size.width, height: size.height}}

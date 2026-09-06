@@ -13,7 +13,6 @@ import type {ModelAdapter} from '../model/index'
 import type {ToolContext, ToolDefinitionForLLM} from '../tools/types'
 import type {LoopState as AgentLoopState} from '../state'
 import type {ModelRole} from '@shared/types'
-import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import type {RunParams, LlmStreamResult, ToolExecutionResult} from './types'
 
 import {LLMCaller, isContextLengthError as checkContextLengthError, parsePlannedCommands} from './llmCaller'
@@ -32,7 +31,7 @@ import {sanitizeMessagesForModel, sanitizeThinkingForModel} from './helpers'
 import {getToolRegistry} from '../tools/registry'
 import {computeTokenTiming, isTokenDelta} from './tokenTiming'
 import {resolveContextUsageTokens} from '../context'
-import {resolveMaxContextTokens} from './modelMaxContext'
+import {resolveModelParams} from '@shared/modelParams'
 import {modelMetaRegistry} from '../../modelMetaRegistry'
 import {withLlmTraceStream, type LlmTraceCallContext} from '../../utils/llmTraceRecorder'
 
@@ -232,13 +231,19 @@ export async function* executeLlmCallWithRetry(
             const normalizedMessages = preprocessCache.process(state.messages || [])
             let messagesToSend: ChatMessage[] = normalizedMessages
 
+            // spec §6.3：运行时参数统一解析（handoff gate 与 adapter.chat 共用本次结果）。
+            // 每次 attempt 解析一次：重试可能切换模型，参数须跟随最新 modelConfig。
+            const resolvedParams = resolveModelParams(
+                modelConfig.modelParams,
+                getSettings(),
+                modelMetaRegistry.getContextLength(currentModel),
+            )
+
             // ── mid-loop 交接门（每轮 LLM 调用评估一次）──
             // 估算仅在首次 attempt 执行；注入在每次 attempt 重新追加（messagesToSend 每次重建）。
             if (!handoffGateEvaluated) {
                 handoffGateEvaluated = true
-                const windowTokens = resolveMaxContextTokens({
-                    modelMetaContextLength: modelMetaRegistry.getContextLength(currentModel),
-                })
+                const windowTokens = resolvedParams.maxContextTokens.value
                 // 分子：优先上一轮请求的真实 usage（B1 后消息不再携带 llmStats，须走本模块记录），
                 // 无记录时回退 chars/4 字符估算（中文失真，仅首次调用兜底）
                 const recordedUsage = params.sessionId ? lastRequestUsageBySession.get(params.sessionId) : undefined
@@ -317,7 +322,7 @@ export async function* executeLlmCallWithRetry(
             // ── 非视觉模型/降级：过滤消息中的 image_url ──
             // ★ 判定与工具侧同源（supportsImageInput）：元数据优先，命名模式回退
             // ★ 400 降级后强制过滤（与工具侧恢复 analyze_image 同步）
-            const modelSupportsImages = supportsImageInput(currentModel)
+            const modelSupportsImages = supportsImageInput(currentModel, modelConfig.modelTypes)
             const stripImages = !modelSupportsImages || degraded
             if (stripImages) {
                 const hasImageContent = messagesToSend.some(msg =>
@@ -376,7 +381,7 @@ export async function* executeLlmCallWithRetry(
                 }
             }
 
-            const maxTokens = getSettings()?.model.defaultMaxTokens ?? DEFAULT_MAX_TOKENS
+            const maxTokens = resolvedParams.maxOutputTokens.value
             // ── LLM 出口：agent 主循环 chat 调用 ──
             // withLlmTraceStream 包裹生成器：recordingFetch 在流消费时刻仍能读到归因上下文
             // 真实 step：本次调用的首个 attempt 递增计数器，重试 attempt 复用同一值
@@ -401,7 +406,7 @@ export async function* executeLlmCallWithRetry(
                 messages: messagesToSend,
                 tools: toolsToSend,
                 maxTokens,
-                temperature: getSettings()?.model.defaultTemperature ?? 0,
+                temperature: resolvedParams.temperature.value,
                 ...(effectiveThinkingEffort ? {thinkingEffort: effectiveThinkingEffort} : {}),
             }))
 
