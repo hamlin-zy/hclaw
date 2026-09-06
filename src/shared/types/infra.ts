@@ -30,6 +30,16 @@ export interface MCPServer {
   autoApprove?: string[]
   denyList?: string[]
   errorDetail?: string
+  // Version management (runtime display, not persisted — mapped from VersionMeta via useMcpUpdateStore)
+  // Note: these fields are declared for type completeness but are NOT populated
+  // by mcp:get-all-status. The UI reads version data from useMcpUpdateStore
+  // (via mcp:get-version-meta IPC), not from MCPServer objects.
+  sourceType?: 'npx' | 'plugin' | 'binary' | 'url' | 'unknown'
+  version?: string | null
+  latestVersion?: string | null
+  hasUpdate?: boolean | null
+  // Version check URL for binary local servers (Task 12 P1#7)
+  checkUrl?: string
 }
 
 export interface MCPTool {

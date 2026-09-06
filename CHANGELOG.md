@@ -7,6 +7,17 @@
 
 ---
 
+## [v0.5.8] - 2026-09-06
+
+### 新增
+- **MCP 服务器版本管理** — MCP 服务器现在支持查看与切换历史版本，可在设置界面查看各服务器的版本信息，遇到新版本不兼容时一键回退到稳定版本
+- **MCP 插件服务器升级体验** — 插件服务器的更新/回退状态在卡片上直观展示，升级过程进度与结果一目了然
+
+### 变更
+- **会话上下文用量展示优化** — 上下文占用信息跨场景展示口径统一，长会话中更准确地反映剩余空间
+
+---
+
 ## [v0.5.7] - 2026-09-05
 
 ### 新增
@@ -693,7 +704,7 @@
 - **压缩相关默认值与导出清理** — `context.ts` 中仅保留 `estimateMessagesTokens`/`estimateTokens` 等纯 token 估算函数；`compress.ts` 退化为只含 `emitLlmCallDone`、`handleNoToolCalls`、`getLastUserMessage` 等公共 helper；`detectCommandContext` 中 `commandName === 'compact'` 判断恒为 `false` (`src/main/agent/context.ts`, `src/main/agent/loop/compress.ts`, `src/main/agent/loop/setup.ts`)
 
 ### 新增
-- **`resolveMaxContextTokens()` 集中解析模型上下文窗口** — ModelScheme > adapter > 默认 128000 三级 fallback，新增 provider 只需改这一个文件 (`src/main/agent/loop/modelMaxContext.ts`)
+- **`resolveMaxContextTokens()` 集中解析模型上下文窗口** — or-models.json 权威窗口 > 默认 1M 两级 fallback，新增 provider 只需改这一个文件 (`src/main/agent/loop/modelMaxContext.ts`)
 - **`truncateForLlmCall()` 接入主循环** — 在 `executeLlmCallWithRetry` 中、ContextRetrieval 之后、image 过滤之前调用，超出预算时自动触发结构截断并记录日志 (`src/main/agent/loop/execute.ts`)
 - **结构截断单测覆盖** — `structuredTruncation.test.ts` 覆盖「纯文本轮丢弃 / 混合轮配对剥离 / 全失败 turn 当文本处理 / 保留首条 user + 最近 10 轮」；`truncateBeforeLlm.test.ts` 覆盖「budget 内 passthrough / 超 budget 触发截断」 (`src/main/agent/loop/structuredTruncation.test.ts`, `src/main/agent/loop/truncateBeforeLlm.test.ts`)
 - **本地 vitest 配置** — `vitest.config.local.ts` 声明 `@` 路径别名与测试文件 include 范围 (`vitest.config.local.ts`)

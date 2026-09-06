@@ -315,6 +315,12 @@ declare global {
                 tools?: unknown[]
             }) => void) => () => void
             onListChanged: (callback: () => void) => () => void
+            getAllVersionMeta: () => Promise<Record<string, { current: string | null; latest: string | null; hasUpdate: boolean | null; sourceType: string; lastChecked: number; availableVersions?: string[] }>>
+            checkVersions: () => Promise<{ success: boolean; data?: Record<string, { current: string | null; latest: string | null; hasUpdate: boolean | null; sourceType: string; lastChecked: number }>; error?: string }>
+            upgradeServer: (serverId: string) => Promise<{ success: boolean; error?: string }>
+            getAvailableVersions: (serverId: string) => Promise<string[]>
+            switchVersion: (serverId: string, version: string) => Promise<{ success: boolean; error?: string }>
+            onMcpStatusUpdate: (callback: (data: any) => void) => () => void
         }
 
         // 系统提示词构建（用于测试）

@@ -61,6 +61,15 @@ export const SIDEBAR_MENU_GROUPS: Array<{group: string; items: SidebarMenuItem[]
                     <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
                 </svg>,
             },
+            {
+                type: 'plugins', label: '插件',
+                icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M20 7h-9"/>
+                    <path d="M14 17H5"/>
+                    <circle cx="17" cy="17" r="3"/>
+                    <circle cx="7" cy="7" r="3"/>
+                </svg>,
+            },
         ],
     },
     {
@@ -126,15 +135,6 @@ export const SIDEBAR_MENU_GROUPS: Array<{group: string; items: SidebarMenuItem[]
                 icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <path d="M12 20h9"/>
                     <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-                </svg>,
-            },
-            {
-                type: 'plugins', label: '三方插件',
-                icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <path d="M20 7h-9"/>
-                    <path d="M14 17H5"/>
-                    <circle cx="17" cy="17" r="3"/>
-                    <circle cx="7" cy="7" r="3"/>
                 </svg>,
             },
         ],

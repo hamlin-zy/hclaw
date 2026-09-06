@@ -1,8 +1,11 @@
 import {useState, useCallback} from 'react'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
+import {MCPVersionBadge} from './MCPVersionBadge'
 import type {MCPServer} from '@shared/types'
+import {useMcpUpdateStore} from '../../stores/mcpUpdateStore'
 import {statusDotClasses, buildMcpConfigJson} from './MCPUtils'
+import {useMcpVersionSwitch} from '../../hooks/useMcpVersionSwitch'
 
 type PluginServer = MCPServer & { pluginEnabled?: boolean }
 
@@ -23,6 +26,9 @@ export default function MCPPluginServerCard({
     const pluginName = server.id.split(':')[1] || 'unknown'
     const isPluginDisabled = server.pluginEnabled === false
     const [copied, setCopied] = useState(false)
+    const versionMeta = useMcpUpdateStore(s => s.versionMeta[server.id])
+    const hasUpdate = versionMeta?.hasUpdate === true
+    const {availableVersions, switching, handleVersionSwitch} = useMcpVersionSwitch(server, versionMeta)
 
     const handleCopyConfig = useCallback(async (e: React.MouseEvent) => {
         e.stopPropagation()
@@ -46,8 +52,8 @@ export default function MCPPluginServerCard({
             <div className="p-3">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className={`w-2.5 h-2.5 rounded-full ${statusDotClasses(server.status, server.enabled)}`}/>
-                        <div>
+                        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusDotClasses(server.status, server.enabled)}`}/>
+                        <div className="min-w-0">
                             <div className="text-xs font-semibold text-gray-700 flex items-center gap-1">
                                 <span>{server.name}</span>
                                 <CopyButton name={server.name} />
@@ -55,6 +61,17 @@ export default function MCPPluginServerCard({
                                     className="text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-600 font-medium uppercase border border-blue-100">插件</span>
                                 <span
                                     className="text-[9px] px-1 py-0.5 rounded bg-gray-50 text-gray-400 font-medium uppercase border border-gray-100">{server.transport}</span>
+                                {versionMeta && (
+                                    <MCPVersionBadge
+                                        current={versionMeta.current}
+                                        latest={versionMeta.latest}
+                                        hasUpdate={hasUpdate}
+                                        availableVersions={availableVersions}
+                                        pkgManager={versionMeta.pkgManager}
+                                        disabled={switching}
+                                        onSwitch={handleVersionSwitch}
+                                    />
+                                )}
                                 {server.status === 'connected' && server.enabled && (
                                     <span
                                         className="text-[9px] text-gray-400 font-normal">{(server.tools?.length || 0)} 个工具</span>
@@ -66,7 +83,7 @@ export default function MCPPluginServerCard({
                             <div className="text-[10px] text-gray-400 mt-0.5">插件: {pluginName}{isPluginDisabled && '（已禁用）'}</div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()} data-name="mcpplugin-server-card-actions">
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()} data-name="mcpplugin-server-card-actions">
                         <button
                             onClick={onReconnect}
                             className="p-1.5 text-gray-400 hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"

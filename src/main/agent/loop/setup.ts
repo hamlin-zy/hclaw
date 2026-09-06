@@ -39,7 +39,6 @@ import {getRoleConfig} from '@shared/modelSchemeHelpers'
 import {resolveOverrideThinkingEffort} from '@shared/thinkingEffort'
 import {getRoleDisplayName} from './helpers'
 import {resolveEntityCommand} from '../entityCommandResolver'
-import {createConversationRepository} from '../../repositories'
 
 const toolRegistry: ToolRegistry = container.get<ToolRegistry>(DI_TOKENS.ToolRegistry)
 
@@ -185,23 +184,12 @@ export async function detectCommandContext(params: RunParams): Promise<{
 
 // ─── 模型选择 ──────────────────────────────────────────────
 
-/** 沿 parentConvId 链向上查找最近的有效 override（agentTool 子会话继承父会话） */
+/**
+ * 查询会话自身的模型 override（不再沿 parentConvId 链上溯继承：
+ * agentTool 仅在子会话创建时按显式 modelRole 固化自身 override，父链继承已删除）
+ */
 function findEffectiveOverride(convId: string): ModelOverride | null {
-    const repo = createConversationRepository()
-    let current = convId
-    const visited = new Set<string>()
-    while (current && !visited.has(current)) {
-        visited.add(current)
-        const ov = runtimeConfigManager.getOverride(current)
-        if (ov) return ov
-        try {
-            const meta = repo.readMeta(current) as { parentConvId?: string } | null
-            current = meta?.parentConvId || ''
-        } catch {
-            return null
-        }
-    }
-    return null
+    return runtimeConfigManager.getOverride(convId)
 }
 
 /**
@@ -331,14 +319,19 @@ export async function filterToolsForDegrade(
     let availableToolDefinitions = await toolRegistry.getToolDefinitions()
 
     if (agentDefinition) {
+        // 第 1 层：agent 级过滤（白名单 + 黑名单）
         const allTools = toolRegistry.getAll()
         const filteredTools = filterToolsForAgent(agentDefinition, allTools)
         const filteredToolNames = new Set(filteredTools.map(t => t.name))
         availableToolDefinitions = availableToolDefinitions.filter(def => filteredToolNames.has(def.name))
-    } else {
-        const toolRestrictions = getAgentToolRestrictions(agentType as HClawAgentType)
-        availableToolDefinitions = filterToolsByAgentType(availableToolDefinitions, toolRestrictions)
     }
+
+    // 第 2 层：叠加类型级过滤（类型级黑名单作为纵深防御）
+    // ★ 此前为 OR 设计（有 agentDefinition 则跳过类型级），导致类型级黑名单
+    //   （如 Explore 类型的 Edit/Write/Bash 禁令）在子 Agent 路径完全失效。
+    //   改为 AND：先 agent 级过滤，再叠加类型级过滤，双重保护。
+    const toolRestrictions = getAgentToolRestrictions(agentType as HClawAgentType)
+    availableToolDefinitions = filterToolsByAgentType(availableToolDefinitions, toolRestrictions)
 
     return availableToolDefinitions
 }

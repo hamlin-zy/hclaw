@@ -17,4 +17,6 @@ export interface McpServer {
     autoApprove?: string[]
     /** 拒绝调用的工具名称列表 */
     denyList?: string[]
+    /** Remote version check URL (optional, for local binary servers). Supports GitHub releases API or custom JSON endpoint. */
+    checkUrl?: string
 }

@@ -365,17 +365,9 @@ export class OpenAIAdapter implements ModelAdapter {
   }
 
   getModelInfo(): ModelInfo {
-    const modelMeta: Record<string, number> = {
-      'gpt-4o': 128000,
-      'gpt-4o-mini': 128000,
-      'gpt-4-turbo': 128000,
-      'gpt-4': 8192,
-      'gpt-3.5-turbo': 16385,
-    }
     return {
       provider: this.providerName,
       model: this.model,
-      maxContextTokens: modelMeta[this.model] || 128000,
       supportsTools: true,
       supportsThinking: false,
     }

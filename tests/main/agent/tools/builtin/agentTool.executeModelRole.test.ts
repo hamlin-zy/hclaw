@@ -88,8 +88,10 @@ const SCHEME = {
 } as any
 
 const PROVIDERS = [
-    {id: 'p1', name: '主力服务商', type: 'openai'},
-    {id: 'p2', name: '轻量服务商', type: 'custom'},
+    {id: 'p1', name: '主力服务商', type: 'openai', enabled: true,
+        models: [{id: 'primary-model-id', name: 'primary-model', enabled: true}]},
+    {id: 'p2', name: '轻量服务商', type: 'custom', enabled: true,
+        models: [{id: 'light-model-id', name: 'light-model', enabled: true}]},
 ] as any
 
 /** 捕获 agentLoop 参数的 fake repo */
@@ -159,27 +161,6 @@ describe('agentTool.execute — 模型角色接线', () => {
         expect(capturedParams).toBeDefined()
         expect(capturedParams.modelRole).toBe('lightweight')
         expect(capturedParams.sessionId).toBe(targetConv)
-    })
-
-    it('modelRole 未指定 + 父会话有 override → 继承父 override 固化', async () => {
-        mocks.getOverride.mockReturnValue({endpointId: 'p9', modelId: 'parent-model', providerName: '父服务商'})
-
-        await agentTool.execute({task: '子任务', agent: 'Test Agent'}, CONTEXT)
-
-        expect(mockRtc.setOverride).toHaveBeenCalledTimes(1)
-        const [targetConv, ov] = mockRtc.setOverride.mock.calls[0] as [string, any]
-        expect(targetConv).toMatch(/^conv-/)
-        expect(ov).toEqual({endpointId: 'p9', modelId: 'parent-model', providerName: '父服务商'})
-        expect(capturedParams.modelRole).toBeUndefined()
-    })
-
-    it('modelRole 未指定 + 无父 override → 不固化 override（每轮走实时角色解析，默认轻量链）', async () => {
-        await agentTool.execute({task: '子任务', agent: 'Test Agent'}, CONTEXT)
-
-        expect(mockRtc.setOverride).not.toHaveBeenCalled()
-        expect(capturedParams.modelRole).toBeUndefined()
-        // 子会话标识：loop 内默认角色解析依赖 traceContext（未显式 modelRole → 默认 lightweight）
-        expect(capturedParams.traceContext).toBe('subAgent')
     })
 
     it('显式 modelRole 时同样携带 traceContext=subAgent', async () => {

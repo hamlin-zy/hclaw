@@ -11,7 +11,7 @@ import ThemedSelect from '../ThemedSelect'
 
 type Category = keyof SystemSettings | 'shortcuts'
 
-/** 校验非负整数，0 或 NaN 时返回 null（触发危险提示） */
+/** 非负数值钳位：undefined/NaN/负数 时回落到 fallback；0 视为合法（如"关闭"、"不重试"等语义）。 */
 function clampPositive(value: number | undefined, fallback: number): number {
     if (value === undefined || isNaN(value) || value < 0) return fallback
     return value
@@ -265,6 +265,16 @@ export default function SettingsDialog() {
                 fallback={600}
                 decimals={1}
             />
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <Switch
+                        checked={(current.agent.handoffThresholdRatio ?? 0.5) > 0}
+                        ariaLabel="交接引导"
+                        onChange={(checked) => updatePending('agent', {handoffThresholdRatio: checked ? 0.5 : 0})}
+                    />
+                    <span className="text-xs font-medium text-[var(--text-muted)]">交接引导</span>
+                </div>
+            </div>
             <NumberField
                 label="交接引导阈值 (%)"
                 description="发送消息时，若当前会话上下文占用超过此比例，将弹窗询问是否交接到新会话；单次任务执行中上下文超过此比例时，也会按下方「单轮内溢出处理」触发自动交接或优雅停止。默认 50%。设 0 同时关闭发送前弹窗与单轮内保护（不推荐——可能裸报窗口超限错误）。"
@@ -272,6 +282,7 @@ export default function SettingsDialog() {
                 onChange={(v) => updatePending('agent', {handoffThresholdRatio: Math.min(100, Math.max(0, Math.round(v))) / 100})}
                 min={0}
                 fallback={50}
+                disabled={(current.agent.handoffThresholdRatio ?? 0.5) === 0}
             />
             <div className="grid grid-cols-1 gap-2">
                 <label className="flex items-center justify-between text-sm">
@@ -976,6 +987,7 @@ function NumberField({
                          max,
                          fallback,
                          decimals = 0,
+                         disabled = false,
                      }: {
     label: string
     description: string
@@ -985,8 +997,11 @@ function NumberField({
     max?: number
     fallback: number
     decimals?: number
+    disabled?: boolean
 }) {
-    const isDangerous = value <= 0 || isNaN(value)
+    // 依据调用方传入的 min 判断：某些字段（如交接阈值、retryAttempts）允许 0 作为合法值（关闭/不重试），
+    // 不能硬编码 "0 即危险"，否则会与实际语义（min=0 的字段）冲突，输出误导性的"值无效"警告。
+    const isDangerous = isNaN(value) || value < min
 
     return (
         <div className="space-y-1">
@@ -996,6 +1011,7 @@ function NumberField({
                 step={decimals > 0 ? `0.${'0'.repeat(decimals - 1)}1` : 1}
                 min={min}
                 max={max}
+                disabled={disabled}
                 className={`w-full bg-[var(--surface-muted)] border rounded px-3 py-1.5 text-sm outline-none transition-colors ${
                     isDangerous
                         ? 'border-red-500 focus:border-red-500'
