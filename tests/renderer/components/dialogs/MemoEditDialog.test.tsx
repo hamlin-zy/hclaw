@@ -362,4 +362,81 @@ describe('MemoEditDialog', () => {
         expect(clickSpy).toHaveBeenCalledTimes(1)
         clickSpy.mockRestore()
     })
+
+    // ── 图片附件缩略图点击预览大图（复用统一看图组件 ImagePreviewModal） ──
+
+    it('点击图片缩略图 → 打开 ImagePreviewModal 大图预览', async () => {
+        stubWindow({memoId: 'memo-1'})
+        h.memoApi.getById.mockResolvedValue({
+            ok: true,
+            data: editItem({
+                attachments: [{id: 'att-img', fileName: 'photo.png', storedPath: 'E:\\p\\photo.png', mime: 'image/png', kind: 'image'}],
+            }),
+        })
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(screen.getByTestId('memo-attachment-image')).toBeTruthy())
+        expect(screen.queryByText('滚轮：缩放')).toBeNull()
+
+        fireEvent.click(screen.getByTestId('memo-attachment-image'))
+
+        await waitFor(() => expect(screen.getByText('滚轮：缩放')).toBeTruthy())
+        // 预览图 src 与缩略图同源（hclaw-media:// URL）
+        const modal = screen.getByText('滚轮：缩放')
+        const previewImg = modal.closest('div.fixed')!.querySelectorAll('img')
+        expect([...previewImg].some((i) => (i as HTMLImageElement).getAttribute('src') === 'hclaw-media:///E:/p/photo.png')).toBe(true)
+    })
+
+    it('点击缩略图上的 × → 移除附件且不误开大图预览', async () => {
+        stubWindow({memoId: 'memo-1'})
+        h.memoApi.getById.mockResolvedValue({
+            ok: true,
+            data: editItem({
+                attachments: [{id: 'att-rm', fileName: 'r.png', storedPath: 'E:\\p\\r.png', mime: 'image/png', kind: 'image'}],
+            }),
+        })
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(screen.getByTestId('memo-attachment-remove-att-rm')).toBeTruthy())
+        fireEvent.click(screen.getByTestId('memo-attachment-remove-att-rm'))
+
+        expect(screen.queryByText('滚轮：缩放')).toBeNull()
+        await waitFor(() => expect(screen.queryByTestId('memo-attachment-card')).toBeNull())
+        expect(h.memoApi.discardPending).not.toHaveBeenCalled()
+    })
+
+    it('非图片附件卡片不响应点击预览', async () => {
+        stubWindow({memoId: 'memo-1'})
+        h.memoApi.getById.mockResolvedValue({
+            ok: true,
+            data: editItem({
+                attachments: [{id: 'att-doc', fileName: 'notes.pdf', storedPath: 'E:\\p\\notes.pdf', mime: 'application/pdf', kind: 'file'}],
+            }),
+        })
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(screen.getByText('notes.pdf')).toBeTruthy())
+        fireEvent.click(screen.getByTestId('memo-attachment-card'))
+        expect(screen.queryByText('滚轮：缩放')).toBeNull()
+    })
+
+    it('关闭大图预览 → 关闭弹窗且附件列表不变', async () => {
+        stubWindow({memoId: 'memo-1'})
+        h.memoApi.getById.mockResolvedValue({
+            ok: true,
+            data: editItem({
+                attachments: [{id: 'att-img', fileName: 'photo.png', storedPath: 'E:\\p\\photo.png', mime: 'image/png', kind: 'image'}],
+            }),
+        })
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(screen.getByTestId('memo-attachment-image')).toBeTruthy())
+        fireEvent.click(screen.getByTestId('memo-attachment-image'))
+        await waitFor(() => expect(screen.getByText('滚轮：缩放')).toBeTruthy())
+
+        fireEvent.click(screen.getByTitle('关闭 (ESC)'))
+
+        await waitFor(() => expect(screen.queryByText('滚轮：缩放')).toBeNull())
+        expect(screen.getByTestId('memo-attachment-image')).toBeTruthy()
+    })
 })

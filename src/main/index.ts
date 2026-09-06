@@ -45,6 +45,7 @@ import {runtimeConfigManager} from './agent/runtimeConfigManager';
 import {setConfigBridge} from './agent/common/configBridge';
 import {init as initUpdater} from './updater/updateChecker';
 import {versionManager} from './plugin/versionManager';
+import {mcpVersionManager} from './agent/mcp/versionManager';
 import {getConversationPersistence} from './persistence/conversationPersistence';
 import {registerRepoIPC, initializeRepoSystem} from './repo/ipc';
 import {repoVersionManager} from './repo/versionManager';
@@ -398,6 +399,16 @@ app.on('ready', async () => {
   mcpWorkerManager.init().catch((err: any) => {
     logger.info('[MCP] MCP Worker init failed:', err.message);
   });
+
+  // MCP version check (fire-and-forget) — probes --version / npm view / checkUrl
+  // Results broadcast to all windows via mcp:status-update
+  // Must run after mcpWorkerManager.init() so MCP processes are ready for --version probe
+  mcpVersionManager.startupCheck().then((versionMeta) => {
+    const hasUpdates = Object.entries(versionMeta).some(([, v]) => v.hasUpdate === true)
+    logger.info('mcp-version-startup-done', {hasUpdates, total: Object.keys(versionMeta).length})
+  }).catch((err: any) => {
+    logger.warn('mcp-version-check-failed', {error: String(err)})
+  })
 
   // Step 5b: Start config file watcher (mcp.json)
   startConfigWatcher();

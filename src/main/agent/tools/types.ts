@@ -60,6 +60,8 @@ export interface ToolContext {
     onEvent?: (event: any) => void
     /** 当前 Agent 允许使用的工具名集合（运行时白名单校验，防止模型幻觉调用未注入的工具） */
     allowedToolNames?: ReadonlySet<string>
+  /** 当前 Agent 禁止使用的工具名集合（运行时黑名单校验，即使白名单被覆盖为 ['*'] 仍能拦截） */
+  disallowedToolNames?: ReadonlySet<string>
 }
 
 // ─── 工具执行结果 ──────────────────────────────────────

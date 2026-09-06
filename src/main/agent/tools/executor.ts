@@ -103,6 +103,20 @@ export async function executeTool(
     }
   }
 
+  // Agent 黑名单运行时校验：即使白名单被 args.tools=['*'] 覆盖，
+  // disallowedTools 中列出的工具仍应被拦截（纵深防御）。
+  if (context.disallowedToolNames && context.disallowedToolNames.has(toolCall.name)) {
+    return {
+      toolCallId: toolCall.id,
+      toolName: toolCall.name,
+      denied: true,
+      denyReason: `工具 ${toolCall.name} 被当前 Agent 的黑名单禁止`,
+      result: errorResult(
+        `工具 "${toolCall.name}" 被当前 Agent 的 disallowedTools 列表禁止，调用已被拒绝。`
+      ),
+    }
+  }
+
       const permResult = permissionEngine.check(tool, toolCall.arguments)
     
     let userApproved = false

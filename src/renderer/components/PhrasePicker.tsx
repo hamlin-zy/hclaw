@@ -19,6 +19,10 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
     const [sel, setSel] = useState(0)
     const searchRef = useRef<HTMLInputElement>(null)
     const listRef = useRef<HTMLDivElement>(null)
+    const panelRef = useRef<HTMLDivElement>(null)
+    const onCloseRef = useRef(onClose)
+
+    useEffect(() => { onCloseRef.current = onClose }, [onClose])
 
     useEffect(() => {
         if (open) {
@@ -33,6 +37,25 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
     useEffect(() => {
         if (!open) anchorRef.current?.focus()
     }, [open, anchorRef])
+
+    // 焦点兜底：面板外的 mousedown 或全局 Esc 都能关闭。
+    // 面板内 onKeyDown 已 stopPropagation，document 收不到不会重复触发。
+    useEffect(() => {
+        if (!open) return
+        const handleOutsideDown = (e: MouseEvent) => {
+            const panel = panelRef.current
+            if (panel && !panel.contains(e.target as Node)) onCloseRef.current()
+        }
+        const handleEscape = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onCloseRef.current()
+        }
+        document.addEventListener('mousedown', handleOutsideDown)
+        document.addEventListener('keydown', handleEscape)
+        return () => {
+            document.removeEventListener('mousedown', handleOutsideDown)
+            document.removeEventListener('keydown', handleEscape)
+        }
+    }, [open])
 
     const sorted = useMemo(() => [...phrases].sort((a, b) =>
         ((b.lastUsedAt ?? b.createdAt) - (a.lastUsedAt ?? a.createdAt)) || (b.createdAt - a.createdAt),
@@ -68,6 +91,7 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
     return createPortal(
         <div className="fixed z-[9999]" style={style}>
             <motion.div
+                ref={panelRef}
                 initial={{opacity: 0, y: -6}}
                 animate={{opacity: 1, y: 0}}
                 transition={{duration: 0.12}}

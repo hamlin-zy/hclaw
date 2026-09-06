@@ -452,6 +452,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.on('mcp:list-changed', handler)
             return () => ipcRenderer.removeListener('mcp:list-changed', handler)
         },
+        // Version management
+        getAllVersionMeta: () => ipcRenderer.invoke('mcp:get-version-meta'),
+        checkVersions: () => ipcRenderer.invoke('mcp:check-versions'),
+        upgradeServer: (serverId: string) => ipcRenderer.invoke('mcp:upgrade-server', serverId),
+        getAvailableVersions: (serverId: string) => ipcRenderer.invoke('mcp:get-available-versions', serverId),
+        switchVersion: (serverId: string, version: string) => ipcRenderer.invoke('mcp:switch-version', serverId, version),
+        onMcpStatusUpdate: (callback: (data: any) => void) => {
+            const handler = (_: unknown, data: any) => callback(data)
+            ipcRenderer.on('mcp:status-update', handler)
+            return () => ipcRenderer.removeListener('mcp:status-update', handler)
+        },
     },
 
     // 调度任务管理

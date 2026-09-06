@@ -15,8 +15,8 @@ import {resolveAgentDefinitionForTurn} from './agentTemplateConverter'
 import {createConversationRepository} from '../repositories'
 import {logger} from './logger'
 import {convertAssistantHistoryMessage} from './ipc/historyConverter'
-import {TEXT_MODEL_ROLES} from '@shared/types'
-import type {ModelRole, SystemSettings} from '@shared/types'
+import {getUsableTextRoles} from '@shared/modelSchemeHelpers'
+import type {SystemSettings} from '@shared/types'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
 import {buildUserMessage} from './messageBuilder'
 import {getConversationPersistence} from '../persistence/conversationPersistence'
@@ -151,10 +151,7 @@ async function buildUserMessageContent(
 export async function startAgentCore(params: CoreStartParams, origin: StartOrigin): Promise<void> {
     // ★ 方案校验：三角色全空则拒绝启动（双重校验，见 spec 4.5）
     const schemeForCheck = runtimeConfigManager.getScheme()
-    const hasValidRole = schemeForCheck?.roles.some(r =>
-        TEXT_MODEL_ROLES.includes(r.role as ModelRole)
-        && r.enabled && r.endpointId && r.modelId
-    )
+    const hasValidRole = getUsableTextRoles(schemeForCheck, runtimeConfigManager.getProviders()).length > 0
     if (!hasValidRole) {
         throw new AgentStartValidationError('推理模型、主力模型、轻量模型不允许全部为空')
     }

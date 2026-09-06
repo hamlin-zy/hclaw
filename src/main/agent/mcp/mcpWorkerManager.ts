@@ -38,12 +38,11 @@ export class MCPWorkerManager {
     private readyResolve: (() => void) | null = null
 
     /**
-     * 等待 restartServer 结果的 Promise 映射: serverId → { resolve, reject, timer }
+     * 等待 restartServer 结果的 Promise 映射: serverId → { resolve, timer }
      * 由 IPC handler 设置，Worker 的 restart_complete 消息触发
      */
     private restartWaiters: Map<string, {
         resolve: (result: { success: boolean; merged?: boolean }) => void
-        reject: (err: Error) => void
         timer: ReturnType<typeof setTimeout>
     }> = new Map()
 
@@ -271,7 +270,7 @@ export class MCPWorkerManager {
                 resolve({ success: false })
             }, 60_000) // 60 秒超时
 
-            this.restartWaiters.set(serverId, { resolve, reject: () => {}, timer })
+            this.restartWaiters.set(serverId, { resolve, timer })
         })
     }
 

@@ -22,6 +22,7 @@ interface McpServerInput {
     autoApprove?: string[]
     denyList?: string[]
     userDescription?: string
+    checkUrl?: string
 }
 
 /**
@@ -53,6 +54,7 @@ function parseMcpServers(raw: Record<string, McpServerInput>): McpServer[] {
         autoApprove: entry.autoApprove || [],
         denyList: entry.denyList || [],
         userDescription: entry.userDescription || '',
+        checkUrl: entry.checkUrl || '',
         enabled: entry.enabled ?? true,
     }))
 }
@@ -74,6 +76,7 @@ function serializeMcpServers(servers: McpServer[]): Record<string, unknown> {
             autoApprove: s.autoApprove || [],
             denyList: s.denyList || [],
             userDescription: s.userDescription || '',
+            checkUrl: s.checkUrl || '',
         }
     }
     return {mcpServers: map}
@@ -96,6 +99,7 @@ export interface PluginMcpOverride {
     autoApprove?: string[]
     denyList?: string[]
     userDescription?: string
+    checkUrl?: string
 }
 
 /** 读取插件 MCP 覆盖配置 */
@@ -171,6 +175,7 @@ export function mergePluginOverride(
         autoApprove: override?.autoApprove || (pluginServer.autoApprove as string[]) || [],
         denyList: override?.denyList || (pluginServer.denyList as string[]) || [],
         userDescription: override?.userDescription || (pluginServer.userDescription as string) || '',
+        checkUrl: override?.checkUrl || (pluginServer.checkUrl as string) || '',
         enabled: override?.enabled ?? true,
     }
 }

@@ -58,6 +58,14 @@ export type HandoffGateAction = 'none' | 'inject' | 'stop'
  */
 const lastRequestUsageBySession = new Map<string, {inputTokens: number; cacheReadTokens: number}>()
 
+/**
+ * 已注入过 mid-loop 交接指令的会话 ID 集合。
+ * 同一会话只注入一次 MID_LOOP_HANDOFF_PROMPT：模型收到 prompt 后可能先调用本地工具
+ * 确认信息（读文件、生成总结等）再调用 session_handoff，下一轮不再重复注入以避免
+ * 指令污染。防死循环由「只注入一次」保证，而不是 controller 的同一轮强制结束。
+ */
+const handoffInjectedBySession = new Set<string>()
+
 export function evaluateHandoffGate(
     usageTokens: number,
     windowTokens: number,
@@ -229,11 +237,7 @@ export async function* executeLlmCallWithRetry(
             if (!handoffGateEvaluated) {
                 handoffGateEvaluated = true
                 const windowTokens = resolveMaxContextTokens({
-                    provider: currentProvider,
-                    model: currentModel,
-                    modelScheme: modelConfig as {maxContextTokens?: number},
                     modelMetaContextLength: modelMetaRegistry.getContextLength(currentModel),
-                    adapterInfo: adapter?.getModelInfo?.() ?? null,
                 })
                 // 分子：优先上一轮请求的真实 usage（B1 后消息不再携带 llmStats，须走本模块记录），
                 // 无记录时回退 chars/4 字符估算（中文失真，仅首次调用兜底）
@@ -259,7 +263,15 @@ export async function* executeLlmCallWithRetry(
                     yield {type: 'done', reason: 'error'}
                     return null
                 }
-                if (action === 'inject') handoffInjected = true
+                if (action === 'inject') {
+                    // 同一会话只注入一次：模型收到 prompt 后可能先调用工具确认信息
+                    // 再生成交接总结，下一轮不再重复注入（避免指令污染）
+                    const sid = params.sessionId
+                    if (!sid || !handoffInjectedBySession.has(sid)) {
+                        handoffInjected = true
+                        if (sid) handoffInjectedBySession.add(sid)
+                    }
+                }
             }
             if (handoffInjected) {
                 messagesToSend = [
@@ -760,6 +772,8 @@ export interface ExecuteToolCallsParams {
     sessionId?: string
     /** 当前 Agent 允许使用的工具名集合（运行时白名单校验，undefined = 不限制） */
     allowedToolNames?: ReadonlySet<string>
+    /** 当前 Agent 禁止使用的工具名集合（运行时黑名单校验，undefined = 不限制） */
+    disallowedToolNames?: ReadonlySet<string>
 }
 
 /**
@@ -772,7 +786,7 @@ export async function* executeToolCalls(
     ctx: ExecuteToolCallsParams,
 ): AsyncGenerator<AgentStreamEvent, ToolExecutionResult> {
     const {toolExecutor, collectedToolCalls, state, workingDir, abortSignal,
-        requestConfirmation, askUserQuestion, channelSend, onEvent, sessionId, allowedToolNames} = ctx
+        requestConfirmation, askUserQuestion, channelSend, onEvent, sessionId, allowedToolNames, disallowedToolNames} = ctx
 
     // 通知 UI 工具执行即将开始（停止 thinking 动画 + 显示执行状态）
     yield {type: 'tools_start', toolCount: collectedToolCalls.length}
@@ -786,6 +800,7 @@ export async function* executeToolCalls(
         onEvent,
         conversationId: sessionId,
         allowedToolNames,
+        disallowedToolNames,
         sendMessage: (msg: any) => {
             if (!onEvent) return
             switch (msg.type) {

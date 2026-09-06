@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from 'react'
+import {useCallback, useEffect, useRef, useState} from 'react'
 import {Switch} from '../common/Switch'
 import {useMcpStore} from '../../stores/mcpStore'
 import type {MCPServer} from '@shared/types'
@@ -7,8 +7,36 @@ import MCPUserServerCard from './MCPUserServerCard'
 import MCPPluginServerCard from './MCPPluginServerCard'
 import MCPEditModal from './MCPEditModal'
 import {useMcpErrorDialog} from './MCPErrorHelper'
+import {useMcpUpdateStore} from '../../stores/mcpUpdateStore'
+import {showToast} from '../../hooks/useMcpVersionSwitch'
 
 type TabType = 'user' | 'plugin'
+
+type ToastType = 'success' | 'error' | 'info'
+interface ToastState { message: string; type: ToastType }
+
+// Local toast — mirrors the pattern used in ChannelsDialog.
+// Renders pinned bottom-center; dismiss on click.
+function Toast({message, type, onClose}: { message: string; type: ToastType; onClose: () => void }) {
+    const styles: Record<ToastType, string> = {
+        success: 'bg-[#10B981] text-white',
+        error: 'bg-[#EF4444] text-white',
+        info: 'bg-[#3B82F6] text-white',
+    }
+    const icons: Record<ToastType, string> = {
+        success: '✅ ',
+        error: '❌ ',
+        info: 'ℹ️ ',
+    }
+    return (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium
+            animate-[fade-in-up_0.2s_ease-out]
+            ${styles[type]}`}
+            onClick={onClose} data-testid="mcpdialog-toast" data-name="mcpdialog-toast">
+            {icons[type]}{message}
+        </div>
+    )
+}
 
 export default function MCPDialog() {
     const {
@@ -32,6 +60,61 @@ export default function MCPDialog() {
         skipped: number
         error?: string
     } | null>(null)
+
+    // ─── MCP version meta: register push listener + pull initial cache ───
+    // ConfigDialogWindow is a separate window from App.tsx, so the listener
+    // registered in App.tsx does NOT reach this window. Must register locally.
+    useEffect(() => {
+        const unsubscribe = window.electronAPI?.mcp?.onMcpStatusUpdate?.((data: any) => {
+            if (data && typeof data === 'object') {
+                useMcpUpdateStore.getState().setVersionMeta(data)
+            }
+        })
+        useMcpUpdateStore.getState().refreshFromCache()
+        return () => unsubscribe?.()
+    }, [])
+
+    // ─── Toast (listens to `hclaw:show-toast` CustomEvent) ───
+    // Dispatched from checkVersions handler and MCPUserServerCard.upgradeServer.
+    const [toast, setToast] = useState<ToastState | null>(null)
+    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    const clearToast = useCallback(() => {
+        if (toastTimer.current) {
+            clearTimeout(toastTimer.current)
+            toastTimer.current = null
+        }
+        setToast(null)
+    }, [])
+
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const {type, message, duration} = (e as CustomEvent<{
+                type?: ToastType
+                message?: string
+                duration?: number
+            }>).detail ?? {}
+            if (!message) return
+            clearToast()
+            setToast({message, type: type || 'info'})
+            toastTimer.current = setTimeout(clearToast, duration || 5000)
+        }
+        window.addEventListener('hclaw:show-toast', handler)
+        return () => {
+            window.removeEventListener('hclaw:show-toast', handler)
+            if (toastTimer.current) clearTimeout(toastTimer.current)
+        }
+    }, [clearToast])
+
+    // ─── Sync versions (manual trigger) ───
+    const handleSyncVersions = useCallback(async () => {
+        const result = await window.electronAPI?.mcp?.checkVersions?.()
+        if (result?.success) {
+            showToast('success', '版本检测完成')
+        } else {
+            showToast('error', `版本检测失败: ${result?.error || '未知错误'}`)
+        }
+    }, [])
 
     // ─── 同步服务器状态 ─────────────────────
 
@@ -300,6 +383,14 @@ export default function MCPDialog() {
                             </svg>
                             {importing ? '导入中...' : '导入配置'}
                         </button>
+                        <button onClick={handleSyncVersions}
+                                className="px-2.5 py-1 text-xs text-brand-500 hover:bg-brand-50 rounded-md transition-colors flex items-center gap-1"
+                                title="检测所有 MCP 服务版本">
+                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                            </svg>
+                            同步版本
+                        </button>
                         {userMcpServers.length > 0 && (
                             <div className="ml-auto flex items-center gap-2">
                                 <span className="text-[10px] font-medium text-gray-500">全部开启</span>
@@ -412,6 +503,7 @@ export default function MCPDialog() {
                 <MCPToolsOverlay server={toolsModalServer} onClose={() => setToolsModalServer(null)}/>
             )}
             <McpErrorOverlay />
+            {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast}/>}
         </div>
     )
 }

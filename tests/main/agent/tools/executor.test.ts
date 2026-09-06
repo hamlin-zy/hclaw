@@ -152,3 +152,93 @@ describe('executeTool 白名单校验（allowedToolNames）', () => {
         expect(result.result.success).toBe(true)
     })
 })
+
+// ── Agent 黑名单运行时校验 ──────────────────────────────
+// 修复 3：新增 disallowedToolNames 运行时校验。
+// 纵深防御：即使白名单被 args.tools=['*'] 覆盖而放宽，
+// 黑名单仍能拦截被 disallowedTools 禁止的工具。
+describe('executeTool 黑名单校验（disallowedToolNames）', () => {
+    const probe = 'blacklist_probe_tool'
+    const probe2 = 'blacklist_probe_tool2'
+    toolRegistry.register(makeTool(probe))
+    toolRegistry.register(makeTool(probe2))
+    const call = {id: 'tc-b1', name: probe, arguments: {}}
+    const call2 = {id: 'tc-b2', name: probe2, arguments: {}}
+
+    it('黑名单内的工具被拒绝', async () => {
+        const result = await executeTool(call, {
+            ...baseContext,
+            disallowedToolNames: new Set([probe]),
+        })
+        expect(result.denied).toBe(true)
+        expect(result.result.success).toBe(false)
+        expect(result.result.error).toContain('disallowedTools 列表禁止')
+    })
+
+    it('黑名单外的工具正常执行', async () => {
+        const result = await executeTool(call, {
+            ...baseContext,
+            disallowedToolNames: new Set([probe2]),
+        })
+        expect(result.result.success).toBe(true)
+        expect(result.denied).toBeUndefined()
+    })
+
+    it('未传 disallowedToolNames 时不限制（向后兼容）', async () => {
+        const result = await executeTool(call, baseContext)
+        expect(result.result.success).toBe(true)
+    })
+
+    /**
+     * 核心场景：白名单为 ['*']（全部允许）+ 黑名单禁 probe2。
+     * 白名单不限制（undefined 或全量），黑名单仍能拦截。
+     * 模拟 args.tools=['*'] 覆盖了 agent 白名单的情况。
+     */
+    it('白名单不限制 + 黑名单禁止 → 工具被拒绝（纵深防御）', async () => {
+        const result = await executeTool(call2, {
+            ...baseContext,
+            // allowedToolNames 未传 = 不限制（模拟 tools=['*'] 场景）
+            disallowedToolNames: new Set([probe2]),
+        })
+        expect(result.denied).toBe(true)
+        expect(result.result.success).toBe(false)
+    })
+
+    /**
+     * 白名单允许 + 黑名单禁止 → 黑名单优先（拒绝）。
+     * 两个集合冲突时，黑名单（deny）优先于白名单（allow）。
+     */
+    it('白名单允许 + 黑名单禁止 → 黑名单优先拒绝', async () => {
+        const result = await executeTool(call, {
+            ...baseContext,
+            allowedToolNames: new Set([probe]),    // 白名单允许
+            disallowedToolNames: new Set([probe]),  // 但黑名单也禁止
+        })
+        expect(result.denied).toBe(true)
+        expect(result.result.success).toBe(false)
+        expect(result.result.error).toContain('disallowedTools 列表禁止')
+    })
+
+    /**
+     * 白名单拒绝 → 直接拒绝（不进入黑名单检查）。
+     * 白名单检查在前，黑名单检查在后，两者短路。
+     */
+    it('白名单拒绝 → 直接拒绝（不检查黑名单）', async () => {
+        const result = await executeTool(call, {
+            ...baseContext,
+            allowedToolNames: new Set([probe2]),   // 白名单不含 probe
+            disallowedToolNames: new Set([probe2]), // 黑名单禁 probe2（不是 probe）
+        })
+        expect(result.denied).toBe(true)
+        expect(result.result.success).toBe(false)
+        expect(result.result.error).toContain('不在当前 Agent 的可用工具列表中')
+    })
+
+    it('空黑名单 → 不拒绝任何工具', async () => {
+        const result = await executeTool(call, {
+            ...baseContext,
+            disallowedToolNames: new Set(),
+        })
+        expect(result.result.success).toBe(true)
+    })
+})

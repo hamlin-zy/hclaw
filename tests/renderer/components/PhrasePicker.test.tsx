@@ -139,4 +139,37 @@ describe('PhrasePicker', () => {
         fireEvent.keyDown(panel, {key: 'Escape'})
         expect(parentKeyDown).not.toHaveBeenCalled()
     })
+
+    it('点击 picker 外部（mousedown 到非面板节点）触发 onClose', () => {
+        const onClose = vi.fn()
+        seed([item({id: 'a', content: 'AAA'})])
+        const outside = document.createElement('div')
+        document.body.appendChild(outside)
+        render(<PhrasePicker open anchorRef={{current: null}} onClose={onClose} onPick={noop} />)
+        // 用户点到了面板外的区域 → 焦点漂走，面板应自动关闭
+        fireEvent.mouseDown(outside)
+        expect(onClose).toHaveBeenCalledTimes(1)
+        outside.remove()
+    })
+
+    it('焦点漂到面板外后，按 Esc（document 级 keydown）也能关闭', () => {
+        const onClose = vi.fn()
+        seed([item({id: 'a', content: 'AAA'})])
+        render(<PhrasePicker open anchorRef={{current: null}} onClose={onClose} onPick={noop} />)
+        // 焦点不在 picker 内时，keydown 应通过 document 级兜底触发 onClose
+        fireEvent.keyDown(document, {key: 'Escape'})
+        expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    it('open=false 时不挂载全局 mousedown/keydown 监听', () => {
+        const onClose = vi.fn()
+        seed([item({id: 'a', content: 'AAA'})])
+        render(<PhrasePicker open={false} anchorRef={{current: null}} onClose={onClose} onPick={noop} />)
+        const outside = document.createElement('div')
+        document.body.appendChild(outside)
+        fireEvent.mouseDown(outside)
+        fireEvent.keyDown(document, {key: 'Escape'})
+        expect(onClose).not.toHaveBeenCalled()
+        outside.remove()
+    })
 })
