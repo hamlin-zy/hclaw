@@ -20,7 +20,7 @@ describe('executeLlmCallWithRetry 基础行为', () => {
   function buildCtx(chat: ReturnType<typeof vi.fn>, provider: string): ExecuteLlmCallParams {
     const adapter = {
       chat,
-      getModelInfo: () => ({maxContextTokens: 128_000}),
+      getModelInfo: () => ({}),
       invalidateConvertCache: vi.fn(),
     } as unknown as ModelAdapter
 

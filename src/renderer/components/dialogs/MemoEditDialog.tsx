@@ -14,6 +14,7 @@
  */
 import React, {useEffect, useRef, useState} from 'react'
 import CapabilityPicker from '../common/CapabilityPicker'
+import ImagePreviewModal from '../common/ImagePreviewModal'
 import type {MemoItem, MemoCapability, MemoAttachment} from '@shared/types/memo'
 import {toMediaUrl, isImageFileName} from '@/renderer/utils/mediaUrl'
 
@@ -34,6 +35,8 @@ export default function MemoEditDialog() {
     const [tip, setTip] = useState<string | null>(null)
     const [saving, setSaving] = useState(false)
     const [dragOver, setDragOver] = useState(false)
+    /** 大图预览目标：图片附件缩略图点击后置位，复用统一看图组件 ImagePreviewModal */
+    const [preview, setPreview] = useState<{src: string; alt: string} | null>(null)
     const fileRef = useRef<HTMLInputElement>(null)
     // 本次会话新上传（暂存于 _pending）的附件 id：取消/放弃时需清理
     const addedPendingIds = useRef<string[]>([])
@@ -187,7 +190,11 @@ export default function MemoEditDialog() {
             <div
                 key={a.id}
                 data-testid="memo-attachment-card"
-                className="relative inline-flex items-center rounded border border-[var(--border)] bg-[var(--surface-muted)] overflow-hidden"
+                className={`relative inline-flex items-center rounded border border-[var(--border)] bg-[var(--surface-muted)] overflow-hidden${
+                    isImage ? ' cursor-pointer hover:border-[var(--border-emphasis)]' : ''
+                }`}
+                onClick={isImage ? () => setPreview({src: toMediaUrl(a.storedPath), alt: a.fileName}) : undefined}
+                title={isImage ? '点击预览大图' : undefined}
             >
                 {isImage ? (
                     <div className="flex flex-col items-center">
@@ -207,7 +214,11 @@ export default function MemoEditDialog() {
                 <button
                     title="移除附件"
                     data-testid={`memo-attachment-remove-${a.id}`}
-                    onClick={() => removeAttachment(a.id)}
+                    onClick={(e) => {
+                        // 阻断冒泡：否则移除会同时触发卡片的大图预览
+                        e.stopPropagation()
+                        removeAttachment(a.id)
+                    }}
                     className="absolute top-0.5 right-0.5 w-4 h-4 leading-none rounded-full text-[10px] bg-[var(--surface-overlay)] text-[var(--text-muted)] hover:text-red-500"
                  data-name="memo-edit-dialog-button">×</button>
             </div>
@@ -330,6 +341,10 @@ export default function MemoEditDialog() {
                     保存
                 </button>
             </div>
+            {/* 图片附件大图预览：复用统一看图组件（zoom/rotate/drag/右键复制） */}
+            {preview && (
+                <ImagePreviewModal src={preview.src} alt={preview.alt} onClose={() => setPreview(null)}/>
+            )}
         </div>
     )
 }

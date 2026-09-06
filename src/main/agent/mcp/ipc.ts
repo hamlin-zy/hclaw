@@ -1,4 +1,4 @@
-﻿import {BrowserWindow, ipcMain} from 'electron'
+﻿import {ipcMain} from 'electron'
 import {logger} from '../logger'
 import {mcpClient} from './client'
 import type {MCPServerConfig} from './types'
@@ -7,6 +7,8 @@ import type {McpServer} from '../../../shared/types/mcp'
 import {setMcpPluginOverride} from '../../config/mcpConfig'
 import {PluginRegistry} from '../../plugin/registry'
 import {mcpWorkerManager} from './mcpWorkerManager'
+import {mcpVersionManager} from './versionManager'
+import {broadcastToAllWindows} from '../../utils/windowBroadcast'
 import path from 'path'
 import fs from 'fs'
 
@@ -14,6 +16,37 @@ import fs from 'fs'
 const ok = () => ({success: true})
 /** IPC 响应辅助：失败 */
 const fail = (err: unknown) => ({success: false, error: String(err)})
+
+/** 广播最新版本 meta 到所有渲染窗口（upgrade/switch handler 共用） */
+function broadcastVersionMeta(): void {
+    const meta = mcpVersionManager.getAllVersionMeta()
+    broadcastToAllWindows('mcp:status-update', meta)
+}
+
+/**
+ * 手工罗列 server 字段白名单（渲染端不可信 payload / 状态快照共用基础字段集）。
+ * includeId 为 true 时额外携带 id（mcp:get-all-status 的 config 形状）。
+ */
+function pickServerFields(s: Record<string, any>, includeId: boolean): Record<string, unknown> {
+    const picked: Record<string, unknown> = {
+        name: s.name,
+        transport: s.transport,
+        command: s.command,
+        args: s.args,
+        env: s.env,
+        url: s.url,
+        headers: s.headers,
+        cwd: s.cwd,
+        timeout: s.timeout,
+        autoApprove: s.autoApprove,
+        denyList: s.denyList,
+        userDescription: s.userDescription,
+        checkUrl: s.checkUrl,
+        enabled: s.enabled,
+    }
+    if (includeId) picked.id = s.id
+    return picked
+}
 
 export function registerMCPIPC(): void {
     // 列出所有 MCP 服务器配置（不含运行时状态）
@@ -47,21 +80,7 @@ export function registerMCPIPC(): void {
             logger.debug('[MCP IPC] mcp:save-server called', {id: server?.id})
             if (server?.id?.startsWith('plugin:')) {
                 // 插件服务器：写入 pluginMcpServers 覆盖节，不修改插件目录配置
-                setMcpPluginOverride(server.id, {
-                    enabled: server.enabled,
-                    name: server.name,
-                    transport: server.transport,
-                    command: server.command,
-                    args: server.args,
-                    env: server.env,
-                    url: server.url,
-                    headers: server.headers,
-                    cwd: server.cwd,
-                    timeout: server.timeout,
-                    autoApprove: server.autoApprove,
-                    denyList: server.denyList,
-                    userDescription: server.userDescription,
-                })
+                setMcpPluginOverride(server.id, pickServerFields(server, false))
                 // 同步 mcpService 缓存
                 const s = mcpService.get(server.id)
                 if (s) {
@@ -171,6 +190,7 @@ export function registerMCPIPC(): void {
                     autoApprove: config.autoApprove as string[] | undefined,
                     denyList: config.denyList as string[] | undefined,
                     userDescription: '',
+                    checkUrl: config.checkUrl as string | undefined,
                     enabled: true,
                 }
 
@@ -280,26 +300,70 @@ export function registerMCPIPC(): void {
     // 获取所有服务器状态 — 从权威缓存读取（Worker 的状态变化会实时同步到这里）
     ipcMain.handle('mcp:get-all-status', async () => {
         return mcpService.list().map(s => ({
-            config: {
-                id: s.id,
-                name: s.name,
-                transport: s.transport,
-                command: s.command,
-                args: s.args,
-                env: s.env,
-                url: s.url,
-                headers: s.headers,
-                cwd: s.cwd,
-                timeout: s.timeout,
-                autoApprove: s.autoApprove,
-                denyList: s.denyList,
-                userDescription: s.userDescription,
-                enabled: s.enabled,
-            },
+            config: pickServerFields(s, true),
             status: s.status,
             error: s.errorDetail,
             tools: s.tools,
         }))
+    })
+
+    // ── Version management handlers ──────────────────────────────
+
+    // Get all cached version metadata (no network requests).
+    // Returns a bare record — matches plugin/repo sibling pattern and what
+    // createUpdateStore.refreshFromCache expects (no {success, data} wrapper).
+    ipcMain.handle('mcp:get-version-meta', () => {
+        return mcpVersionManager.getAllVersionMeta()
+    })
+
+    // Manually trigger version check (sync button).
+    // startupCheck() broadcasts 'mcp:status-update' internally — do NOT
+    // re-broadcast here (would double-fire the renderer listener).
+    ipcMain.handle('mcp:check-versions', async () => {
+        try {
+            const meta = await mcpVersionManager.startupCheck()
+            return {success: true, data: meta}
+        } catch (err) {
+            logger.error('[MCP IPC] check-versions failed', {error: err})
+            return {success: false, error: String(err)}
+        }
+    })
+
+    // Upgrade a server (by sourceType dispatch)
+    ipcMain.handle('mcp:upgrade-server', async (_event, serverId: string) => {
+        try {
+            if (!serverId) return {success: false, error: 'serverId is required'}
+
+            const server = mcpService.get(serverId)
+            if (!server) return {success: false, error: `Server not found: ${serverId}`}
+
+            const result = await mcpVersionManager.upgradeServer(serverId)
+            // Broadcast updated version state
+            broadcastVersionMeta()
+            return result
+        } catch (err) {
+            logger.error('[MCP IPC] upgrade-server failed', {error: err})
+            return {success: false, error: String(err)}
+        }
+    })
+
+    // Get available versions for a server (for version dropdown)
+    ipcMain.handle('mcp:get-available-versions', (_event, serverId: string) => {
+        return mcpVersionManager.getAvailableVersions(serverId)
+    })
+
+    // Switch server to a specific version
+    ipcMain.handle('mcp:switch-version', async (_event, serverId: string, version: string) => {
+        try {
+            if (!serverId || !version) return {success: false, error: 'serverId and version are required'}
+            const result = await mcpVersionManager.switchVersion(serverId, version)
+            // Broadcast updated version state
+            broadcastVersionMeta()
+            return result
+        } catch (err) {
+            logger.error('[MCP IPC] switch-version failed', {error: err})
+            return {success: false, error: String(err)}
+        }
     })
 }
 
@@ -311,14 +375,10 @@ export function registerMCPEventForwarding(): () => void {
         if (event.type === 'status-changed') {
             const data = event.data as { serverId: string; status: string; error?: string; tools?: unknown[] }
             // 广播给所有渲染窗口（配置窗口独立化后主窗口之外还有 mcp 窗口/其他窗口）
-            for (const win of BrowserWindow.getAllWindows()) {
-                if (!win.isDestroyed()) win.webContents.send('mcp:status-changed', data)
-            }
+            broadcastToAllWindows('mcp:status-changed', data)
         } else if (event.type === 'list-changed') {
             // 列表变更（新增/删除/外部修改 mcp.json）→ 通知所有渲染窗口刷新
-            for (const win of BrowserWindow.getAllWindows()) {
-                if (!win.isDestroyed()) win.webContents.send('mcp:list-changed')
-            }
+            broadcastToAllWindows('mcp:list-changed')
         }
     })
 

@@ -202,7 +202,6 @@ export class AnthropicAdapter implements ModelAdapter {
     return {
       provider: 'anthropic',
       model: this.model,
-      maxContextTokens: meta.maxContext,
       supportsTools: true,
       supportsThinking: meta.thinking,
     }

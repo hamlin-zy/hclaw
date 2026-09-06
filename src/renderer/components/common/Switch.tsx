@@ -5,6 +5,7 @@ interface SwitchProps {
   onChange: (checked: boolean) => void;
   disabled?: boolean;
   loading?: boolean;
+  ariaLabel?: string;
 }
 
 /**
@@ -13,13 +14,15 @@ interface SwitchProps {
  * - 开启状态: bg-[var(--brand-primary)]
  * - 支持 loading 旋转动画
  * - 支持 disabled 禁用
+ * - 支持 ariaLabel（无障碍可访问名，用于 screen.getByRole 查询）
  */
-export function Switch({ checked, onChange, disabled = false, loading = false }: SwitchProps) {
+export function Switch({ checked, onChange, disabled = false, loading = false, ariaLabel }: SwitchProps) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       disabled={disabled || loading}
       onClick={() => onChange(!checked)}
       className={clsx(

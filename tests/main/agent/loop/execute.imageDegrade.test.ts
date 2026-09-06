@@ -71,7 +71,7 @@ describe('executeLlmCallWithRetry 400 降级自愈（生成器级，mock adapter
   function buildCtx(chat: ReturnType<typeof vi.fn>): ExecuteLlmCallParams {
     const adapter = {
       chat,
-      getModelInfo: () => ({maxContextTokens: 128_000}),
+      getModelInfo: () => ({}),
       invalidateConvertCache: vi.fn(),
     } as unknown as ModelAdapter
 

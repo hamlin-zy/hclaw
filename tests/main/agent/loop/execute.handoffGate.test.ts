@@ -2,7 +2,7 @@ import {describe, it, expect} from 'vitest'
 import {evaluateHandoffGate, MID_LOOP_HANDOFF_PROMPT} from '../../../../src/main/agent/loop/execute'
 
 describe('evaluateHandoffGate（触发线 = thresholdRatio，默认 0.5）', () => {
-  const W = 128000
+  const W = 1000000
   const T = 0.5
   it('低于阈值×窗口 → none', () => {
     expect(evaluateHandoffGate(0.49 * W, W, T, 'auto-handoff')).toBe('none')

@@ -29,8 +29,7 @@ import {agentRegistry} from '../../agentRegistry'
 import {agentTemplateToDefinition} from '../../agentTemplateConverter'
 import type {AgentDefinition} from '@shared/agent'
 import type {LLMProvider, ModelOverride, ModelRole, ModelScheme} from '@shared/types'
-import {TEXT_MODEL_ROLES} from '@shared/types'
-import {getRoleConfig} from '@shared/modelSchemeHelpers'
+import {getRoleConfig, isTextRoleUsable, getUsableTextRoles} from '@shared/modelSchemeHelpers'
 import {runtimeConfigManager} from '../../runtimeConfigManager'
 import {systemSettingsRepo} from '../../../repositories/sqlite/systemSettingsRepository'
 import {permissionEngine} from '../permission'
@@ -77,54 +76,34 @@ function getRecursionDepth(convId: string): number {
 
 // ─── 输入 Schema ──────────────────────────────────────────
 
-type AgentToolInput = { task: string; agent: string; tools?: string[]; modelRole?: ModelRole }
+type AgentToolInput = { task: string; agent: string; tools?: string[]; modelRole: ModelRole }
 
 /**
  * 解析子会话应固化的模型 override（ModelSelector 显示 + 子会话内后续轮次一致）。
  *
- * 决策顺序（与 selectModelForTurn 对齐）：
- * 1. 显式 modelRole 且方案角色已启用配置 → role 对应的 endpointId/modelId/providerName
- * 2. modelRole 无效/未指定 → 沿 parentConvId 链继承最近的有效父会话 override
- * 3. 均无 → null（不固化；运行层按 traceContext 默认角色解析：子会话 lightweight（L→P→R），
- *    主会话 primary（P→L→R），见 defaultRoleForTrace。显示层由 useDefaultRoleForSession 对齐同一口径）
+ * 两级决策：
+ * 1. 显式 modelRole 且该文本角色可用（isTextRoleUsable，含 provider/model enabled 判定）
+ *    → role 对应的 endpointId/modelId/providerName
+ * 2. modelRole 缺失或不可用 → null（不固化；运行层按 traceContext 默认角色解析：
+ *    子会话 lightweight（L→P→R），主会话 primary（P→L→R），见 defaultRoleForTrace）
  */
 export function resolveChildConvOverride(
     modelRole: ModelRole | undefined,
     scheme: ModelScheme | null,
     providers: LLMProvider[],
-    parentConvId: string | undefined,
-    getOverride: (convId: string) => ModelOverride | null,
-    readParentMeta: (convId: string) => { parentConvId?: string } | null,
 ): ModelOverride | null {
-    // ① 显式 modelRole：仅文本角色且方案角色已启用配置才生效（与 schema 枚举一致）
-    if (modelRole && TEXT_MODEL_ROLES.includes(modelRole)) {
-        const roleConfig = scheme && getRoleConfig(scheme, modelRole)
-        if (roleConfig?.enabled && roleConfig.endpointId && roleConfig.modelId) {
-            const provider = providers.find(p => p.id === roleConfig.endpointId)
-            return {
-                endpointId: roleConfig.endpointId,
-                modelId: roleConfig.modelId,
-                providerName: provider?.name,
-            }
+    // ① 显式 modelRole：仅当角色可用（含 provider/model enabled）才生效（与 schema 枚举一致）
+    if (modelRole && isTextRoleUsable(scheme, providers, modelRole)) {
+        const roleConfig = getRoleConfig(scheme!, modelRole)
+        const provider = providers.find(p => p.id === roleConfig!.endpointId)
+        return {
+            endpointId: roleConfig!.endpointId,
+            modelId: roleConfig!.modelId,
+            providerName: provider?.name,
         }
     }
 
-    // ② 继承父会话 override（沿 parentConvId 链向上查找最近的有效记录）
-    let current = parentConvId
-    const visited = new Set<string>()
-    while (current && !visited.has(current)) {
-        visited.add(current)
-        const ov = getOverride(current)
-        if (ov) return ov
-        try {
-            const meta = readParentMeta(current)
-            current = meta?.parentConvId || ''
-        } catch {
-            return null
-        }
-    }
-
-    // ③ 无 override 可固化 → 不固化，每轮按实时角色解析（默认轻量模型，链 L→P→R），
+    // ② 无可用 modelRole → null（不固化），每轮按实时角色解析（默认轻量模型，链 L→P→R），
     //    保证运行中方案变更（如 lightweight 启用/禁用）下一轮即感知
     return null
 }
@@ -142,43 +121,74 @@ function getSelectableAgentNames(): string[] {
 }
 
 /**
+ * modelRole 每个取值的用途指引（用于描述/schemadescription 中拼接示例）。
+ * 与 shared/modelSchemeHelpers.MODEL_ROLE_INFO 的 UI 展示信息独立：此处面向 LLM 选参，
+ * 措辞强调"何时选它"，而非"这个模型是什么"。
+ */
+type TextModelRole = 'primary' | 'lightweight' | 'reasoning'
+
+const MODEL_ROLE_GUIDANCE: Record<TextModelRole, string> = {
+    primary: '常规实现与修复的默认选项',
+    lightweight: '只读调研 / 代码搜索 / 格式化 / 简单问答',
+    reasoning: '复杂推理 / 架构权衡 / 深度调试分析',
+}
+
+/**
  * 动态构建 inputSchema：
  * - agent 用 enum 约束为「已启用 Agent 名称」（弱指令遵循模型只能选合法值，
  *   选错时 zod 错误信息自动携带候选列表，报错即引导）；
- * - modelRole 枚举按当前方案已启用且已配置的文本角色生成。
+ * - modelRole 必填，枚举按当前方案可用文本角色实时生成（getUsableTextRoles，
+ *   含 provider/model enabled 判定），每次序列化现算，方案变更即时感知；
+ * - 描述中的示例与选择规则只覆盖当前可用角色，未启用角色不进入示例，
+ *   避免 LLM 看到"未启用"的取值被误导填入。
  */
 function buildInputSchema(): z.ZodType<AgentToolInput> {
     const agentNames = getSelectableAgentNames()
-    const availableRoles = runtimeConfigManager.getScheme()?.roles
-        .filter(r => TEXT_MODEL_ROLES.includes(r.role as ModelRole) && r.enabled && r.endpointId && r.modelId)
-        .map(r => r.role) ?? []
+    const availableRoles = getUsableTextRoles(
+        runtimeConfigManager.getScheme(),
+        runtimeConfigManager.getProviders(),
+    )
     return z.object({
         task: z.string().describe('子任务的完整描述（包含目标 + 参考材料）'),
         agent: (agentNames.length ? z.enum(agentNames as [string, ...string[]]) : z.string())
-            .describe('必填。要作为子 Agent 运行的已启用 Agent 名称，从可选项中精确选择。角色映射：实现/修复→Implementer、审查→Code Reviewer、代码搜索/调研→Explore、架构规划→Plan、验证→Verification、模糊或跨领域→General。'),
+            .describe('必填。要作为子 Agent 运行的已启用 Agent 名称，从可选项中精确选择。类型映射：实现/修复→Implementer、审查→Code Reviewer、代码搜索/调研→Explore、架构规划→Plan、验证→Verification、模糊或跨领域→General。'),
         tools: z.array(z.string()).optional()
             .describe('允许使用的工具白名单（指定 agent 时覆盖 Agent 定义的白名单）'),
-        modelRole: z.enum(availableRoles.length ? availableRoles as [string, ...string[]] : ['primary']).optional()
-            .describe(`指定子 Agent 使用的模型角色（可选）。当前可用：${availableRoles.join('、') || 'primary（仅默认）'}。按任务复杂度指定：简单任务→lightweight、复杂推理→reasoning、常规→primary。未指定时子会话默认使用轻量模型（未启用则升级主力、再升级推理）。`),
+        modelRole: z.enum(availableRoles.length ? availableRoles as [ModelRole, ...ModelRole[]] : ['primary' as ModelRole])
+            .describe(
+                `必填。子 Agent 使用的模型档位，取值仅限当前可用文本角色：${availableRoles.join('、') || 'primary（当前无可用文本角色，请先在设置中配置）'}。` +
+                '选择规则：' +
+                availableRoles.map(r => `${r}：${MODEL_ROLE_GUIDANCE[r as TextModelRole]}`).join('；') +
+                '。使用不在可用列表中的取值会报错并要求重选。',
+            ),
     }) as z.ZodType<AgentToolInput>
 }
 
-let inputSchema: z.ZodType<AgentToolInput> = buildInputSchema()
-
 /**
- * 动态构建工具描述（getter 实时计算，agent 启停即时感知）：
+ * 动态构建工具描述（getter 实时计算，agent 启停 + 模型方案变更即时感知）：
  * - 示例名称实时取已启用 Agent 前 3 个，禁用/新增不会漂移；
- * - 参数细节由 schema describe 承担，此处只留用途 + 选参 + 编排要点。
+ * - modelRole 示例与选择规则动态反映当前可用文本角色（getUsableTextRoles），
+ *   未启用角色不出现在描述中，避免弱模型被"未启用"的取值误导；
+ * - agent 与 modelRole 明确区分为"Agent 类型"与"模型档位"两组概念，
+ *   消除原"角色映射"措辞与 modelRole 参数名的撞车（弱模型曾把 Explore 当 modelRole 填）。
  */
 function buildAgentToolDescription(): string {
     const examples = getSelectableAgentNames().slice(0, 3)
     const exampleText = examples.length ? examples.map(n => `"${n}"`).join('、') : '"General Agent"'
+    const availableRoles = getUsableTextRoles(
+        runtimeConfigManager.getScheme(),
+        runtimeConfigManager.getProviders(),
+    )
+    const roleGuidance = availableRoles.length > 0
+        ? '，按任务从当前可用角色中选择：' + availableRoles.map(r => `${r}（${MODEL_ROLE_GUIDANCE[r as TextModelRole]}）`).join(' / ')
+        : '，当前无可用文本角色，请先在设置中配置'
     return (
         '派生子 Agent 执行子任务（子 Agent 拥有独立推理循环和工具访问权限）。\n' +
         `【必填】agent：从可选项中精确选择一个已启用 Agent（如 ${exampleText}）。` +
-        '角色映射：实现/修复→Implementer、审查→Code Reviewer、代码搜索/调研→Explore、' +
+        '类型映射：实现/修复→Implementer、审查→Code Reviewer、代码搜索/调研→Explore、' +
         '架构规划→Plan、验证→Verification、模糊或跨领域→General。' +
         '名称不含插件后缀，可选项之外的名称会报错重试。\n' +
+        `【必填】modelRole：子 Agent 使用的模型档位${roleGuidance}。\n` +
         '【编排】① 先规划再派遣：识别关键路径上的阻塞任务与可并行旁路任务，' +
         '不把阻塞自己的任务派出去空等；② 独立步骤尽量一次并行派遣；' +
         '③ 编码优先派 Implementer（可落地）、调研才派 Explore，简单任务自己做。' +
@@ -192,39 +202,33 @@ export const agentTool: Tool<AgentToolInput, string> = {
     name: 'agent',
     // getter 实时构建：agent 启停/新增即时反映到描述，禁用角色不会进入候选示例
     get description() { return buildAgentToolDescription() },
-    // getter 保持与 let inputSchema 实时同步：setAgentToolConfig 重建后立即生效
-    get inputSchema() { return inputSchema },
+    // getter 现算：与 description 同构，每次工具定义被序列化时实时反映当前方案的可用角色枚举
+    get inputSchema() { return buildInputSchema() },
     isDestructive: false,
 
     async execute(args, context): Promise<ToolResult<string>> {
-        // ①.1 校验 modelRole（若指定）：必须是当前方案中已启用且已配置的角色
-        if (args.modelRole) {
+        // ①.1 校验 modelRole（必传）：必须是当前方案中可用的文本角色
+        {
             const currentScheme = runtimeConfigManager.getScheme()
             const currentProviders = runtimeConfigManager.getProviders()
-            if (currentScheme && currentProviders.length > 0) {
-                const {getRoleConfig} = await import('@shared/modelSchemeHelpers')
-                const roleConfig = getRoleConfig(currentScheme, args.modelRole as any)
-                const isValidRole = roleConfig?.enabled && roleConfig.endpointId && roleConfig.modelId
-                if (!isValidRole) {
-                    const availableRoles = currentScheme.roles
-                        .filter(r => TEXT_MODEL_ROLES.includes(r.role as ModelRole) && r.enabled && r.endpointId && r.modelId)
-                        .map(r => r.role)
-                    return {
-                        success: false,
-                        output: '',
-                        error: `modelRole "${args.modelRole}" 不可用（未启用或未配置）。当前方案可用角色：${availableRoles.join(', ') || '无'}。请从可用角色中选择，或省略 modelRole 让子会话继承父会话模型。`,
-                    }
+            const availableRoles = getUsableTextRoles(currentScheme, currentProviders)
+            // modelRole 必传：缺失时给出可行动的错误（zod 通常已拦截，此处防御）
+            if (!args.modelRole) {
+                return {
+                    success: false,
+                    output: '',
+                    error: `modelRole 为必填参数：请指定子 Agent 使用的模型角色。当前可用角色：${availableRoles.join(', ') || '无（模型方案中无任何可用文本角色，请先在设置中配置）'}。选择规则：只读调研/格式化/简单问答→lightweight；深度推理/架构权衡/复杂调试→reasoning；常规实现与修复→primary。`,
                 }
             }
-        }
-
-        // ① 检查模型配置
-        const primary = runtimeConfigManager.getPrimaryProvider()
-        if (!primary.isValid) {
-            return {
-                success: false,
-                output: '',
-                error: '模型配置未初始化',
+            // 角色不可用（未启用 / 服务商已禁用 / 模型已禁用）→ 明确告知原因
+            if (!isTextRoleUsable(currentScheme, currentProviders, args.modelRole as ModelRole)) {
+                return {
+                    success: false,
+                    output: '',
+                    error: availableRoles.length === 0
+                        ? '当前模型方案无可用的文本角色，请检查模型方案配置（角色需启用，且其服务商与模型均需启用）。'
+                        : `modelRole "${args.modelRole}" 不可用（未启用，或其服务商/模型已禁用）。当前方案可用角色：${availableRoles.join(', ')}。请从可用角色中选择并重试。`,
+                }
             }
         }
 
@@ -307,9 +311,6 @@ export const agentTool: Tool<AgentToolInput, string> = {
             args.modelRole,
             runtimeConfigManager.getScheme(),
             runtimeConfigManager.getProviders(),
-            parentConvId || undefined,
-            (convId) => runtimeConfigManager.getOverride(convId),
-            (convId) => conversationRepo.readMeta(convId) as { parentConvId?: string } | null,
         )
         if (childOverride) {
             runtimeConfigManager.setOverride(childConvId, childOverride)
@@ -355,6 +356,11 @@ export const agentTool: Tool<AgentToolInput, string> = {
         })
 
         // ⑦ 强制权限模式为 auto（子会话不弹确认框）
+        // ★ disallowedTools 必须显式传递：agentTemplateToDefinition 返回的 agentDefinition
+        //   包含 disallowedTools，但此处重构 effectiveAgentDef 时曾遗漏该字段，
+        //   导致 agent 级黑名单（Layer 3）在子 Agent 派发路径完全失效。
+        //   tools 字段（白名单）不能替代黑名单——两者是互补的纵深防御：
+        //   白名单可能被 args.tools 覆盖为 ['*']，此时黑名单是唯一防线。
         const effectiveAgentDef: AgentDefinition = {
             source: 'user' as const,
             agentType: agentName,
@@ -363,15 +369,35 @@ export const agentTool: Tool<AgentToolInput, string> = {
             systemPromptTemplate: effectiveAgentDefinition.systemPromptTemplate || '',
             renderedSystemPrompt: '',
             tools: effectiveAgentDefinition.tools || args.tools,
+            disallowedTools: effectiveAgentDefinition.disallowedTools,
             permissionMode: 'auto',
         }
 
         // ⑧ 构建 agentLoop 参数（当前进程/线程中运行）
+        //    兜底 modelConfig 按请求角色解析（与子会话实际使用的模型一致；primary 可被禁用）。
+        //    上方 isTextRoleUsable 已保证此处可解析，任一为空仍是配置矛盾 → 显式报错，不静默兜底。
+        const roleCfg = getRoleConfig(runtimeConfigManager.getScheme()!, args.modelRole)
+        const roleProvider = runtimeConfigManager.getProviders().find(p => p.id === roleCfg.endpointId)
+        if (!roleProvider) {
+            return {
+                success: false,
+                output: '',
+                error: `modelRole "${args.modelRole}" 对应的服务商不存在（endpointId="${roleCfg.endpointId}"），请检查模型方案配置。`,
+            }
+        }
+        const roleModel = roleProvider.models.find(m => m.id === roleCfg.modelId)
+        if (!roleModel) {
+            return {
+                success: false,
+                output: '',
+                error: `modelRole "${args.modelRole}" 对应的模型不存在（${roleProvider.name}/${roleCfg.modelId}），请检查模型方案配置。`,
+            }
+        }
         const modelConfig = {
-            provider: primary.provider!.type,
-            model: primary.modelName || '',
+            provider: roleProvider.type,
+            model: roleModel.name,
             apiKey: '',
-            baseUrl: primary.provider!.baseUrl || '',
+            baseUrl: roleProvider.baseUrl || '',
         }
         const workingDir = runtimeConfigManager.getConfig().workingDir || ''
         const maxTurnsLimit = settings?.agent?.maxTurns ?? 500
@@ -625,7 +651,5 @@ export function setAgentToolConfig(): void {
     if (config.workingDir) {
         permissionEngine.setWorkingDir(config.workingDir)
     }
-    // ★ 方案变更时重建 schema（agent 候选枚举 + modelRole 枚举；每轮 loop 启动调用，
-    //   运行中 agent 实时感知）。description 为 getter 实时计算，无需在此重建。
-    inputSchema = buildInputSchema()
+    // description / inputSchema 均为 getter 实时计算，无需在此重建
 }
