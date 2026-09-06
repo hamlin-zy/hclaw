@@ -36,6 +36,14 @@ export interface ModelConfig {
   thinkingEffort?: 'disabled' | 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   /** 扩展特性（透传自 LLMProvider） */
   features?: ProviderFeatures
+  /** 模型类型（透传自 ProviderModel.modelTypes，供模态能力判定） */
+  modelTypes?: ModelType[]
+  /** 模型级自定义运行时参数（透传自 ProviderModel，undefined=未配置） */
+  modelParams?: {
+    maxContextTokens?: number
+    temperature?: number
+    maxOutputTokens?: number
+  }
 }
 
 // ─── Model scheme ──────────────────────────────────────
@@ -159,10 +167,18 @@ export interface ProviderCredentials {
 export interface ProviderModel {
   id: string
   name: string
-  modelType?: ModelType
+  /** 模型类型（多选，对齐 OpenRouter input_modalities）；undefined/空 = 未配置（回退旧 modelType） */
+  modelTypes?: ModelType[]
+  modelType?: ModelType          // @deprecated 旧单选，保留只读兼容，读取时包装为数组
   enabled: boolean
   /** 4 维价格（USD/token）；缺省 = 未配置 */
   pricing?: ModelPricing
+  /** 最大上下文（token）；undefined = 未配置 → 运行时 OpenRouter 匹配 → 1M */
+  maxContextTokens?: number
+  /** 采样温度（0-2）；undefined = 未配置 → 系统设置 defaultTemperature */
+  temperature?: number
+  /** 最大输出（token）；undefined = 未配置 → 系统设置 defaultMaxTokens */
+  maxOutputTokens?: number
 }
 
 /** 服务商扩展特性 */

@@ -1,4 +1,5 @@
-import {motion} from 'framer-motion'
+import {AnimatePresence, motion} from 'framer-motion'
+import {dropdown} from '../lib/motionPresets'
 import {useEffect, useMemo, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import type {PhraseItem} from '@shared/types/phrase'
@@ -78,9 +79,7 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
         if (keyMap[e.key]) { e.preventDefault(); e.stopPropagation(); keyMap[e.key]() }
     }
 
-    if (!open) return null
-
-    const rect = anchorRef.current?.getBoundingClientRect()
+    const rect = open ? anchorRef.current?.getBoundingClientRect() : undefined
     const dropUp = rect ? rect.top > window.innerHeight / 2 : false
     const style: React.CSSProperties = rect
         ? (dropUp
@@ -89,13 +88,14 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
         : {left: 0, top: 0}
 
     return createPortal(
-        <div className="fixed z-[9999]" style={style}>
+        <AnimatePresence>
+            {open && (
             <motion.div
                 ref={panelRef}
-                initial={{opacity: 0, y: -6}}
-                animate={{opacity: 1, y: 0}}
+                {...dropdown}
                 transition={{duration: 0.12}}
-                className="w-[380px] bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl overflow-hidden"
+                style={style}
+                className="fixed z-[9999] w-[380px] bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl overflow-hidden"
                 onKeyDown={onKeyDown}
                 data-name="phrase-picker-panel"
             >
@@ -142,7 +142,8 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
                     ))}
                 </div>
             </motion.div>
-        </div>,
+            )}
+        </AnimatePresence>,
         document.body,
     )
 }

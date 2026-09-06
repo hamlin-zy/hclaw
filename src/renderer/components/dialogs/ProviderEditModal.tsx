@@ -1,5 +1,6 @@
 import {useEffect, useMemo, useRef, useState} from 'react'
 import {motion} from 'framer-motion'
+import {fade, scaleFade} from '../../lib/motionPresets'
 import type {LLMProvider, ProviderModel} from '../../stores/llmStore'
 import {useLLMStore} from '../../stores/llmStore'
 import type {ModelType} from '@shared/types'
@@ -15,8 +16,8 @@ import {
 } from '@shared/modelPresets'
 import ModelTable from './providerEdit/ModelTable'
 import ThemedSelect from '../ThemedSelect'
-import {commitRow, displayPrice, parsePriceInput, type PriceEdits} from '../../lib/priceEditing'
-import type {Currency} from '@shared/pricing'
+import {useSettingsStore} from '../../stores/settingsStore'
+import {ModelDetailModal} from './providerEdit/ModelDetailModal'
 
 interface ProviderEditModalProps {
   mode: 'add' | 'edit'
@@ -35,6 +36,8 @@ const CARD_PRESETS: Array<{ id: LLMProvider['type']; name: string; baseUrl: stri
 
 export default function ProviderEditModal({mode, provider, onClose, onSave}: ProviderEditModalProps) {
   const {getDecryptedApiKey, providers} = useLLMStore()
+  // 系统设置模型默认值（详情弹窗 placeholder 来源，照 settingsStore 现有订阅方式）
+  const settingsModel = useSettingsStore(s => s.settings.model)
   const isEdit = mode === 'edit'
 
   // ─── 表单状态 ──────────────────────────────────────
@@ -68,19 +71,13 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
   // 闭包里的 models 快照已过期；行读取与空缺判断一律走 ref，杜绝 stale 写入/误报
   const modelsRef = useRef(models)
   useEffect(() => { modelsRef.current = models }, [models])
-  // 价格行内编辑状态（rowId → 字段 → 用户原始输入串）
-  const [priceEdits, setPriceEdits] = useState<PriceEdits>({})
-  // 填充按钮（↧）状态：进行中标记 + 工具栏轻量提示（含未匹配红字）
-  const [filling, setFilling] = useState(false)
+  // 填充提示（工具栏轻量提示，含未匹配红字）：单行填充由详情弹窗触发
   const [fillNotice, setFillNotice] = useState<{kind: 'ok' | 'error'; text: string} | null>(null)
-  // 价格展示货币 + 汇率（§三 B5）：加载前用中性恒等（USD, rate=1）避免错符号/错汇率组合；
-  // exchangeRateGet 成功后三者一起切换（主进程已兜底 7.2，date null = 未同步）
-  const [currency, setCurrency] = useState<Currency>('CNY')
+  // 汇率（CNY/USD，详情弹窗折算展示用）：加载前用恒等 rate=1 避免错汇率组合；
+  // exchangeRateGet 成功后一起切换（主进程已兜底 7.2，date null = 未同步）
   const [rate, setRate] = useState(1)
-  const [rateDate, setRateDate] = useState<string | null>(null)
-  // 汇率未就绪前锁定价格输入与货币切换：避免 USD+rate=1 恒等窗口输入的 edits
-  // 在真汇率到达后被按新汇率折算（语义归属歧义）
-  const [rateLoading, setRateLoading] = useState(true)
+  // 模型详情弹窗（Task 7 接入渲染）：当前打开详情的模型 id，null = 关闭
+  const [detailModelId, setDetailModelId] = useState<string | null>(null)
   const [isLoggingIn, setIsLoggingIn] = useState(false)
 
   // 拉取结果面板
@@ -181,11 +178,10 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
     return () => document.removeEventListener('keydown', handleEsc)
   }, [onClose])
 
-  // 卸载时清理识别防抖定时器 + 清空编辑态（§三 B5：弹窗关闭不留残留编辑串）
+  // 卸载时清理识别防抖定时器（§三 B5：弹窗关闭不留残留状态）
   useEffect(() => () => {
     if (recognizeDebounceRef.current) clearTimeout(recognizeDebounceRef.current)
     batchCancelRef.current = true // 弹窗关闭中止批量测试
-    setPriceEdits({})
   }, [])
 
   // 挂载时获取参考汇率（§三 B5）：主进程已兜底 7.2；date null = 未同步
@@ -195,10 +191,8 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
       .then((res) => {
         if (cancelled || !res || !Number.isFinite(res.rate) || res.rate <= 0) return
         setRate(res.rate)
-        setRateDate(res.date ?? null)
       })
       .catch(() => { /* 拉取失败保持中性恒等（USD, rate=1） */ })
-      .finally(() => { if (!cancelled) setRateLoading(false) })
     return () => { cancelled = true }
   }, [])
 
@@ -224,29 +218,6 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
     return apiKey
   }
 
-  /** 切换类型：模型列表为空时填充该类型的预设模型（识别到的 preset 用其专属模型，否则用类型默认值） */
-  /** 货币切换（§三 B5）：已填编辑串按旧货币/汇率折算为新货币下的等值展示串重显，
-   *  保证保存时按新货币 parse 回同一 USD/token（否则 18￥ 会被当成 18$ 落盘）。
-   *  解析失败的串（非法输入）直接丢弃，不携带垃圾值进入保存。 */
-  const handleCurrencyChange = (cur: Currency) => {
-    if (cur === currency) return
-    setPriceEdits(prev => {
-      const next: PriceEdits = {}
-      for (const [rowId, fields] of Object.entries(prev)) {
-        const converted: Partial<Record<'input' | 'output' | 'cacheRead' | 'cacheWrite', string>> = {}
-        for (const [field, raw] of Object.entries(fields)) {
-          if (raw === undefined || raw.trim() === '') continue
-          const usdToken = parsePriceInput(raw, currency, rate)
-          if (usdToken === undefined) continue // 非法输入：丢弃该编辑
-          converted[field as 'input'] = displayPrice(usdToken, cur, rate)
-        }
-        if (Object.keys(converted).length > 0) next[rowId] = converted
-      }
-      return next
-    })
-    setCurrency(cur)
-  }
-
   /** 切换类型：模型列表为空时填充该类型的预设模型（识别到的 preset 用其专属模型，否则用类型默认值）；
    *  anthropic 不做预设填充（模型命名因中转/渠道差异大，预设列表易误导） */
   const applyTypeChange = (preset: ProviderPreset | null, type: LLMProvider['type']) => {
@@ -256,77 +227,37 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
     })
   }
 
-  // ─── 填充按钮（↧，设计 §三 B4/B5）──────────────────────
-  // 仅回填空缺价格列（已有价格一律不覆盖）；回填的是 USD/token 原始值，直接落 m.pricing，
-  // 不计入 priceEdits（不经过货币折算）；命中元数据时按 inputModalities 更新 modelType。
-  const PRICE_FIELDS = ['input', 'output', 'cacheRead', 'cacheWrite'] as const
-  type PriceFieldKey = (typeof PRICE_FIELDS)[number]
-
-  /** 行内某字段是否为空缺（回填目标 = 空缺单元格） */
-  const isFieldEmpty = (m: ProviderModel, f: PriceFieldKey) => m.pricing?.[f] === undefined
-
-  /** 清除已回填单元格的残留编辑串：填充值落 pricing 后，不得被旧 raw edits 遮蔽 */
-  const clearEditsFor = (rowId: string, fields: PriceFieldKey[]) => {
-    if (fields.length === 0) return
-    setPriceEdits(prev => {
-      const row = prev[rowId]
-      if (!row) return prev
-      const nextRow = {...row}
-      for (const f of fields) delete nextRow[f]
-      const next = {...prev}
-      if (Object.keys(nextRow).length > 0) next[rowId] = nextRow
-      else delete next[rowId]
-      return next
-    })
-  }
+  // ─── 单行填充（详情弹窗「填充本模型」，设计 §三 B4/B5）──────────────────────
+  // 仅回填空缺价格列（已有价格一律不覆盖）；回填的是 USD/token 原始值，直接落 m.pricing
+  // （不经过货币折算）；命中元数据时按 inputModalities 更新 modelType。
 
   /**
-   * 回填单行：查 OpenRouter 元数据，填充该行空缺价格 + 更新 modelType。
-   * 返回 {ok, filled}；未匹配（matchedKey null）→ 红字提示、无任何 state 变更。
+   * 回填单模型：按名称查 OpenRouter 元数据，填充该行空缺价格 + 更新 modelType，
+   * 同步进 models。返回回填后的模型；未匹配 / 行不存在 → null（内部提示）。
    */
-  const fillRowFromMeta = async (rowId: string, modelName: string): Promise<{ok: boolean; filled: PriceFieldKey[]; typeUpdated: boolean}> => {
-    const r = await window.electronAPI?.modelMetaLookup?.(modelName.trim())
+  const fillSingleRow = async (modelName: string): Promise<ProviderModel | null> => {
+    const trimmed = modelName.trim()
+    if (!trimmed) return null
+    const r = await window.electronAPI?.modelMetaLookup?.(trimmed)
     if (!r?.matchedKey) {
-      setFillNotice({kind: 'error', text: `「${modelName.trim()}」未匹配到 OpenRouter 元数据`})
-      return {ok: false, filled: [], typeUpdated: false}
+      setFillNotice({kind: 'error', text: `「${trimmed}」未匹配到 OpenRouter 元数据`})
+      return null
     }
-    const m0 = modelsRef.current.find(m => m.id === rowId)
-    if (!m0) return {ok: false, filled: [], typeUpdated: false}
-    const filled: PriceFieldKey[] = []
-    if (m0.pricing?.input === undefined && r.inputPrice > 0) filled.push('input')
-    if (m0.pricing?.output === undefined && r.outputPrice > 0) filled.push('output')
-    if (m0.pricing?.cacheRead === undefined && r.cacheReadPrice > 0) filled.push('cacheRead')
-    if (m0.pricing?.cacheWrite === undefined && r.cacheWritePrice !== undefined) filled.push('cacheWrite')
+    const m0 = modelsRef.current.find(m => m.name.trim() === trimmed)
+    if (!m0) return null
     const multimodal = !!r.inputModalities?.length && r.inputModalities.some(x => x !== 'text')
-    const typeUpdated = multimodal && (m0.modelType ?? 'text') !== 'multimodal'
-    setModels(prev => prev.map(m => m.id !== rowId ? m : {
-      ...m,
+    const next: ProviderModel = {
+      ...m0,
       pricing: {
-        input: m.pricing?.input ?? (r.inputPrice > 0 ? r.inputPrice : undefined),
-        output: m.pricing?.output ?? (r.outputPrice > 0 ? r.outputPrice : undefined),
-        cacheRead: m.pricing?.cacheRead ?? (r.cacheReadPrice > 0 ? r.cacheReadPrice : undefined),
-        cacheWrite: m.pricing?.cacheWrite ?? r.cacheWritePrice,
+        input: m0.pricing?.input ?? (r.inputPrice > 0 ? r.inputPrice : undefined),
+        output: m0.pricing?.output ?? (r.outputPrice > 0 ? r.outputPrice : undefined),
+        cacheRead: m0.pricing?.cacheRead ?? (r.cacheReadPrice > 0 ? r.cacheReadPrice : undefined),
+        cacheWrite: m0.pricing?.cacheWrite ?? r.cacheWritePrice,
       },
-      modelType: multimodal ? 'multimodal' : m.modelType ?? 'text',
-    }))
-    clearEditsFor(rowId, filled)
-    return {ok: true, filled, typeUpdated}
-  }
-
-  /** 单行填充按钮：查元数据回填空缺价格 + 更新类型；价格已满时仍更新类型 */
-  const handleFillRow = async (rowId: string) => {
-    if (filling) return
-    const m0 = modelsRef.current.find(m => m.id === rowId)
-    if (!m0?.name.trim()) return
-    setFilling(true)
-    try {
-      const res = await fillRowFromMeta(rowId, m0.name)
-      if (res.ok && res.filled.length === 0) {
-        setFillNotice({kind: 'ok', text: `「${m0.name.trim()}」价格无空缺${res.typeUpdated ? '，类型已按元数据更新' : ''}`})
-      }
-    } finally {
-      setFilling(false)
+      modelType: multimodal ? 'multimodal' : m0.modelType ?? 'text',
     }
+    setModels(prev => prev.map(m => m.id !== m0.id ? m : next))
+    return next
   }
 
   /** 拉取采纳后：按 OpenRouter 元数据自动填充类型字段（仅类型；价格仍由用户手动维护）。
@@ -346,39 +277,6 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
       } catch { /* 单行查询失败跳过，不中断整体 */ }
     }
     if (updated > 0) setFillNotice({kind: 'ok', text: `已按 OpenRouter 元数据更新 ${updated} 行类型`})
-  }
-
-  /** 表头填充：逐行全表回填空缺；无空缺行报告「无空缺」并保持不动 */
-  const handleFillAll = async () => {
-    if (filling) return
-    const targets = modelsRef.current.filter(m => m.name.trim())
-    if (targets.length === 0) return
-    setFilling(true)
-    try {
-      let filledRows = 0
-      let noGapRows = 0
-      let missedRows = 0
-      for (const t of targets) {
-        // 循环中每次重读最新行（ref 镜像）：删行跳过；空缺判断与名称用当前值，不用闭包旧快照
-        const m0 = modelsRef.current.find(m => m.id === t.id)
-        if (!m0 || !m0.name.trim()) continue // 循环中被删除/改空的行跳过
-        if (PRICE_FIELDS.every(f => !isFieldEmpty(m0, f))) { noGapRows++; continue }
-        const res = await fillRowFromMeta(t.id, m0.name)
-        if (res.ok) filledRows++
-        else missedRows++
-      }
-      const parts: string[] = []
-      if (filledRows > 0) parts.push(`已回填 ${filledRows} 行`)
-      if (missedRows > 0) parts.push(`${missedRows} 行未匹配`)
-      if (noGapRows > 0) parts.push(`${noGapRows} 行无空缺`)
-      setFillNotice(
-        parts.length > 0
-          ? {kind: missedRows > 0 ? 'error' : 'ok', text: `全表填充：${parts.join('，')}`}
-          : null
-      )
-    } finally {
-      setFilling(false)
-    }
   }
 
   /** Base URL onChange：识别服务商（仅添加模式 + name 为空时辅助填充；不覆盖已填内容） */
@@ -509,7 +407,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
     }
   }
 
-  const runSingleTest = async (modelId: string, modelName: string): Promise<void> => {
+  const runSingleTest = async (modelId: string, modelName: string, temperature?: number): Promise<void> => {
     const snap = testSnapshotRef.current
     if (!snap) return
     const result = await window.electronAPI?.providerTestModel?.({
@@ -521,6 +419,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
       refreshToken: snap.refreshToken,
       expiryDate: snap.expiryDate,
       model: modelName.trim(),
+      temperature,
       features: providerType === 'anthropic' ? {systemContentBlocks: useSystemArray} : undefined,
     })
     if (result?.success) {
@@ -531,12 +430,12 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
     }
   }
 
-  const handleTestModel = async (modelId: string, modelName: string) => {
+  const handleTestModel = async (modelId: string, modelName: string, temperature?: number) => {
     if (batchTesting) return
     if (!modelName.trim()) return
     setTestStates(prev => ({...prev, [modelId]: {status: 'testing'}}))
     snapshotTestParams()
-    await runSingleTest(modelId, modelName)
+    await runSingleTest(modelId, modelName, temperature)
   }
 
   const handleTestAll = async () => {
@@ -552,7 +451,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
       const t = targets[i]
       if (!models.some(m => m.id === t.id)) continue // 测试中已删除的行跳过
       setTestStates(prev => ({...prev, [t.id]: {status: 'testing'}}))
-      await runSingleTest(t.id, t.name)
+      await runSingleTest(t.id, t.name, t.temperature ?? undefined)
       setBatchProgress({done: i + 1, total: targets.length})
     }
     setBatchTesting(false)
@@ -604,19 +503,14 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
           apiKey: (apiKeyTouched || !isEdit) ? (apiKey.trim() || undefined) : undefined,
         },
         enabled,
-        // 落盘边界（§三 B5）：仅编辑过的单元格按当前货币折算；未编辑行/字段原样透传
-        // （commitRow 返回 undefined 时不注入 pricing 键，无价行保持无价）
-        models: models.map(m => {
-          if (!priceEdits[m.id]) return m
-          return {...m, pricing: commitRow(m.pricing, priceEdits[m.id], currency, rate)}
-        }),
+        // 价格折算已在详情弹窗确认时经 commitRow 完成，此处内存 models 纯透传落库
+        models,
       }
       // 编辑模式下如果没有修改 apiKey，不覆盖原有的加密值
       if (isEdit && !apiKeyTouched) {
         delete data.credentials
       }
       await onSave(data)
-      setPriceEdits({}) // 保存成功清空编辑态，避免重开时残留输入串
       onClose()
     } finally {
       setSaving(false)
@@ -627,21 +521,17 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
     <>
       {/* Backdrop — 不绑定关闭事件，防止意外丢失表单数据 */}
       <motion.div
-        initial={{opacity: 0}}
-        animate={{opacity: 1}}
-        exit={{opacity: 0}}
+        {...fade}
         className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[99998]"
       />
       {/* Modal */}
       <motion.div
-        initial={{scale: 0.95, opacity: 0}}
-        animate={{scale: 1, opacity: 1}}
-        exit={{scale: 0.95, opacity: 0}}
+        {...scaleFade}
         transition={{duration: 0.15, ease: 'easeOut'}}
         className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-[99999]"
       >
         <div
-          className="w-full max-w-[800px] max-h-[88vh] overflow-y-auto bg-white rounded-xl shadow-elevated border border-gray-200 pointer-events-auto"
+          className="w-full max-w-[534px] max-h-[88vh] overflow-y-auto bg-white rounded-xl shadow-elevated border border-gray-200 pointer-events-auto"
           onClick={e => e.stopPropagation()}
          data-name="provider-edit-modal-div">
           {/* Header */}
@@ -952,18 +842,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                 </button>
                 </>
               }
-              currency={currency}
-              rate={rate}
-              rateDate={rateDate}
-              rateLoading={rateLoading}
-              edits={priceEdits}
-              onEditCell={(rowId, field, raw) => setPriceEdits(prev => ({
-                ...prev,
-                [rowId]: {...prev[rowId], [field]: raw},
-              }))}
-              onCurrencyChange={handleCurrencyChange}
-              onFillRow={handleFillRow}
-              onFillAll={handleFillAll}
+              onOpenDetail={(id) => setDetailModelId(id)}
               onNameChange={(id, newName) => {                setModels(models.map(m => m.id === id ? {...m, name: newName} : m))
                 // 模型名称变更后清空该模型测试结果，避免旧结果匹配新名称造成误导
                 setTestStates(prev => { const next = {...prev}; delete next[id]; return next })
@@ -993,6 +872,19 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
           </div>
         </div>
       </motion.div>
+
+      {/* 模型详情弹窗（价格/参数编辑收敛于此；确定 → 更新内存 models，随外层「保存」落库） */}
+      {detailModelId && (
+        <ModelDetailModal
+          open
+          providerName={name.trim() || '未命名服务商'}
+          model={models.find(m => m.id === detailModelId) ?? null}
+          onClose={() => setDetailModelId(null)}
+          onConfirm={(next) => setModels(prev => prev.map(m => m.id === next.id ? next : m))}
+          rate={rate}
+          settingsDefaults={{defaultTemperature: settingsModel.defaultTemperature, defaultMaxTokens: settingsModel.defaultMaxTokens}}
+        />
+      )}
     </>
   )
 }

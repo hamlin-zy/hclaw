@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest'
-import {computeContextUsage, resolvePrimaryModelName} from '@/main/agent/ipc/contextUsage'
+import {computeContextUsage, resolvePrimaryModelName, resolvePrimaryModelParams} from '@/main/agent/ipc/contextUsage'
 
 describe('computeContextUsage', () => {
   it('空历史 + 无缓存 prompt：跳过发送前引导（ratio 0，无法估算真实 prompt）', () => {
@@ -71,5 +71,40 @@ describe('computeContextUsage', () => {
     expect(resolvePrimaryModelName(scheme, providers)).toBe('z-ai/glm-4.7')
     expect(resolvePrimaryModelName(null, providers)).toBe('')
     expect(resolvePrimaryModelName(scheme, [])).toBe('')
+  })
+
+  // ── spec §6.3 口径统一：primary 模型 per-model 参数 → 分母与 execute.ts handoff gate 一致 ──
+  describe('resolvePrimaryModelParams', () => {
+    const scheme = {roles: [{role: 'primary', endpointId: 'ep1', modelId: 'm1', enabled: true}]} as never
+
+    it('primary 模型配置自定义 maxContextTokens → 返回 modelParams', () => {
+      const providers = [
+        {id: 'ep1', enabled: true, models: [{id: 'm1', name: 'm', maxContextTokens: 128000}]},
+      ] as never
+      expect(resolvePrimaryModelParams(scheme, providers)).toEqual({maxContextTokens: 128000, temperature: undefined, maxOutputTokens: undefined})
+    })
+    it('三项参数均未配置 → undefined（走 OpenRouter/兜底）', () => {
+      const providers = [{id: 'ep1', enabled: true, models: [{id: 'm1', name: 'm'}]}] as never
+      expect(resolvePrimaryModelParams(scheme, providers)).toBeUndefined()
+    })
+    it('provider 未启用 / 模型未命中 → undefined', () => {
+      const disabled = [{id: 'ep1', enabled: false, models: [{id: 'm1', name: 'm', maxContextTokens: 128000}]}] as never
+      const missing = [{id: 'ep1', enabled: true, models: [{id: 'm0', name: 'm', maxContextTokens: 128000}]}] as never
+      expect(resolvePrimaryModelParams(scheme, disabled)).toBeUndefined()
+      expect(resolvePrimaryModelParams(scheme, missing)).toBeUndefined()
+    })
+  })
+
+  it('modelParams 自定义 128k → windowTokens=128000（custom 优先于 modelMeta）', () => {
+    const r = computeContextUsage({
+      history: [],
+      modelMetaContextLength: 200000,
+      modelParams: {maxContextTokens: 128000},
+    })
+    expect(r.windowTokens).toBe(128000)
+  })
+  it('无 modelParams → OpenRouter（modelMeta）→ 兜底 1M 口径不变', () => {
+    expect(computeContextUsage({history: [], modelMetaContextLength: 200000}).windowTokens).toBe(200000)
+    expect(computeContextUsage({history: []}).windowTokens).toBe(1000000)
   })
 })

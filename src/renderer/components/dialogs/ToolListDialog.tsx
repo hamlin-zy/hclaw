@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {collapse} from '../../lib/motionPresets'
 
 // 类型来自 window.electronAPI 返回值
 // ToolDefinitionForLLM 已在 env.d.ts 定义
@@ -312,9 +313,7 @@ export default function ToolListDialog() {
                                     <AnimatePresence initial={false}>
                                         {expandedServers.has(server.serverId) && (
                                             <motion.div
-                                                initial={{ height: 0, opacity: 0 }}
-                                                animate={{ height: 'auto', opacity: 1 }}
-                                                exit={{ height: 0, opacity: 0 }}
+                                                {...collapse}
                                                 transition={{ duration: 0.2, ease: 'easeInOut' }}
                                                 className="overflow-hidden"
                                             >

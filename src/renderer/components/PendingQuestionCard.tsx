@@ -1,4 +1,5 @@
 import {AnimatePresence, motion} from 'framer-motion'
+import {dropdown} from '../lib/motionPresets'
 import {useAgentStore} from '../stores/agentStore'
 import {useConversationStore} from '../stores/conversationStore'
 
@@ -41,9 +42,7 @@ export default function PendingQuestionCard({isPaused, pendingQuestion, onSelect
         <AnimatePresence>
             {isPaused && (
                 <motion.div
-                    initial={{opacity: 0, y: -10}}
-                    animate={{opacity: 1, y: 0}}
-                    exit={{opacity: 0, y: -10}}
+                    {...dropdown}
                     className="bg-[var(--info)]/5 border border-[var(--info)]/20 rounded-lg p-3 mb-2"
                 >
                     <div className="flex items-center gap-2 mb-2 text-[var(--info)]">

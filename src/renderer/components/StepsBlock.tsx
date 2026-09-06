@@ -1,5 +1,6 @@
 import {memo, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {collapse} from '../lib/motionPresets'
 import type {StepNode, StepsBlock as StepsBlockType} from '@shared/types'
 import {useAgentStore} from '../stores/agentStore'
 import {isUltraCompactMode} from '../lib/displayMode'
@@ -102,9 +103,7 @@ const StepsBlock = memo(function StepsBlock({stepsBlock}: { stepsBlock: StepsBlo
         <AnimatePresence>
           {isUltraExpanded && (
             <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
+              {...collapse}
               transition={{duration: 0.2, ease: 'easeInOut'}}
               className="overflow-hidden"
             >

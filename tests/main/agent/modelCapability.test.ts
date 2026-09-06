@@ -1,5 +1,4 @@
 import {describe, expect, it, beforeEach, afterEach, vi} from 'vitest'
-import * as helpers from '../../../src/main/agent/loop/helpers'
 
 // mock modelMetaRegistry（不依赖磁盘缓存）
 vi.mock('../../../src/main/modelMetaRegistry', () => {
@@ -18,9 +17,8 @@ const mockGetModalities = modelMetaRegistry.getInputModalities as ReturnType<typ
 describe('supportsImageInput 判定优先级', () => {
   beforeEach(() => {
     mockGetModalities.mockReset()
-    // 默认不命中元数据 → 回退命名模式
+    // 默认不命中元数据 → 回退命名模式（shared/modelParams 内置正则）
     mockGetModalities.mockReturnValue(null)
-    vi.spyOn(helpers, 'isVisionModel')
   })
   afterEach(() => vi.restoreAllMocks())
 
@@ -33,7 +31,6 @@ describe('supportsImageInput 判定优先级', () => {
     mockGetModalities.mockReturnValue(['text'])
     // 即使命名模式会命中（如 gpt-4o），也不回退
     expect(supportsImageInput('gpt-4o')).toBe(false)
-    expect(helpers.isVisionModel).not.toHaveBeenCalled()
   })
 
   it('②b 元数据含 video 不含 image → false', () => {
@@ -41,19 +38,34 @@ describe('supportsImageInput 判定优先级', () => {
     expect(supportsImageInput('qwen/qwen3-vl')).toBe(false)
   })
 
-  it('③ 元数据 null → 回退命名模式命中 → true', () => {
+  it('③ 元数据 null → 回退命名模式命中 → true（shared 内置正则，与 helpers 同源）', () => {
     mockGetModalities.mockReturnValue(null)
-    ;(helpers.isVisionModel as any).mockReturnValue(true)
     // 注意：'gpt-4o' 已在用例②被记忆化为 false（per-modelId 缓存跨用例保留），
     // 此处用全新 id 验证回退路径，避免与用例②共享缓存。
     expect(supportsImageInput('gpt-4o-fallback')).toBe(true)
-    expect(helpers.isVisionModel).toHaveBeenCalledWith('gpt-4o-fallback')
   })
 
   it('④ 元数据 null + 命名模式不命中 → false', () => {
     mockGetModalities.mockReturnValue(null)
-    ;(helpers.isVisionModel as any).mockReturnValue(false)
     expect(supportsImageInput('deepseek-v4-flash')).toBe(false)
+  })
+
+  it('⑤ 自定义 modelTypes 优先于元数据（含 image/multimodal → true）', () => {
+    mockGetModalities.mockReturnValue(['text'])
+    expect(supportsImageInput('text-only-model', ['text', 'image'])).toBe(true)
+    expect(supportsImageInput('text-only-model', ['multimodal'])).toBe(true)
+  })
+
+  it('⑤b 自定义 modelTypes 明确不含 image → false（覆盖元数据命中）', () => {
+    mockGetModalities.mockReturnValue(['image'])
+    expect(supportsImageInput('or-vision-model', ['text'])).toBe(false)
+  })
+
+  it('⑤c 同一 modelId 在有无 customTypes 时缓存不串扰', () => {
+    mockGetModalities.mockReturnValue(['text'])
+    expect(supportsImageInput('dual-key-model')).toBe(false)
+    expect(supportsImageInput('dual-key-model', ['image'])).toBe(true)
+    expect(supportsImageInput('dual-key-model')).toBe(false)
   })
 
   it('边界：空串 / undefined → false（不抛异常）', () => {

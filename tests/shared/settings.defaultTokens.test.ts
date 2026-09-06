@@ -18,8 +18,9 @@ describe('DEFAULT_MAX_TOKENS', () => {
     })
 
     it('默认设置文件引用常量而非硬编码数字', () => {
+        // execute.ts 已改经 @shared/modelParams.resolveModelParams 消费 settings.model.defaultMaxTokens
+        // （spec §6.3 统一解析），不再直接引用 DEFAULT_MAX_TOKENS，故从清单移除。
         const files = [
-            'src/main/agent/loop/execute.ts',
             'src/main/agent/manager.impl.ts',
             'src/main/agent/worker.ts',
             'src/renderer/stores/settingsStore.ts',

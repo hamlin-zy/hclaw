@@ -1,6 +1,7 @@
 // 仓库分组卡片：分组容器 + 标题栏（owner/repo + 能力计数 + 版本控件 + 批处理）+ 折叠
 import {useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {dropdown} from '../../lib/motionPresets'
 import {Folder, ChevronDown} from 'lucide-react'
 import RepoVersionControl from './RepoVersionControl'
 
@@ -34,7 +35,7 @@ export default function RepoGroupCard({repo, skillCount, agentCount, children, o
   const allEnabled = batchItems.length > 0 && batchItems.every(s => s.enabled)
 
   return (
-    <motion.div layout initial={{opacity: 0, y: -8}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -8}} transition={{duration: 0.15}}
+    <motion.div layout {...dropdown} transition={{duration: 0.15}}
       className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2 bg-[var(--surface-muted)]/50 cursor-pointer"
         onClick={() => setCollapsed(c => !c)} data-name="repo-group-card-header">

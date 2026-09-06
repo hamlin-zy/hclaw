@@ -13,6 +13,7 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {createPortal} from 'react-dom';
 import {AnimatePresence, motion} from 'framer-motion';
+import {fade, scaleFade} from '../../lib/motionPresets';
 import {CommandList} from './CommandList';
 import {nextPaletteTab, PALETTE_TABS, PaletteTab, TAB_SOURCES} from '../../lib/paletteTabs';
 import {ParamInputModal} from './ParamInputModal';
@@ -182,18 +183,14 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
       <AnimatePresence>
         {isOpen && !paramModalOpen && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            {...fade}
             className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] bg-black/50"
             onClick={onClose}
             onKeyDown={handleKeyDown}
             tabIndex={-1}
           >
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
+              {...scaleFade}
               transition={{ duration: 0.15 }}
               className="w-full max-w-2xl bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl overflow-hidden"
               onClick={e => e.stopPropagation()}

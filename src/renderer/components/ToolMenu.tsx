@@ -1,5 +1,6 @@
 import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
+import {fade} from '../lib/motionPresets'
 import {type ReactNode, useRef, useState} from 'react'
 import {generateFileId} from '../lib/format'
 import {useConversationStore} from '../stores/conversationStore'
@@ -74,9 +75,7 @@ export default function ToolMenu({onUploadFile, onOpenCommandPalette}: ToolMenuP
                 {toolMenuOpen && (
                     <>
                         <motion.div
-                            initial={{opacity: 0}}
-                            animate={{opacity: 1}}
-                            exit={{opacity: 0}}
+                            {...fade}
                             className="fixed inset-0 z-40"
                             onClick={closeMenu}
                         />

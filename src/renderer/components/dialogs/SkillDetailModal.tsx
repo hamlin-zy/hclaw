@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {fade, scaleFade} from '../../lib/motionPresets'
 import {useSkillStore} from '../../stores/skillStore'
 import type {Skill} from '@shared/types'
 import {X, Eye, Edit3, Save} from 'lucide-react'
@@ -179,18 +180,14 @@ export default function SkillDetailModal({
                 <>
                     {/* 背景遮罩 — 不绑定关闭事件，防止意外丢失表单数据 */}
                     <motion.div
-                        initial={{opacity: 0}}
-                        animate={{opacity: 1}}
-                        exit={{opacity: 0}}
+                        {...fade}
                         transition={{duration: 0.15}}
                         className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[99998]"
                     />
                     
                     {/* 弹窗主体 */}
                     <motion.div
-                        initial={{scale: 0.95, opacity: 0}}
-                        animate={{scale: 1, opacity: 1}}
-                        exit={{scale: 0.95, opacity: 0}}
+                        {...scaleFade}
                         transition={{duration: 0.15}}
                         className="fixed inset-0 flex items-center justify-center p-4 z-[99999] pointer-events-none"
                     >

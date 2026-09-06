@@ -47,7 +47,7 @@ export class McpVersionManager {
   /** 内存缓存: serverId → VersionMeta */
   private versionMap = new Map<string, VersionMeta>()
   /** 去重锁：防止并发 startupCheck */
-  private isChecking = false
+  public isChecking = false
 
   /**
    * 推断 MCP 服务的来源类型。

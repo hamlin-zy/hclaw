@@ -5,6 +5,7 @@
 
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {tooltip} from '../../lib/motionPresets'
 import {useConversationStore} from '../../stores/conversationStore'
 import {useAgentStore} from '../../stores/agentStore'
 import MessageBubble from './MessageBubble'
@@ -1153,9 +1154,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                                     <polyline points="6 9 12 15 18 9"/>
                                 </NavButton>
                                 <motion.button
-                                    initial={{opacity: 0, scale: 0.8}}
-                                    animate={{opacity: 1, scale: 1}}
-                                    exit={{opacity: 0, scale: 0.8}}
+                                    {...tooltip}
                                     transition={{duration: 0.15}}
                                     onClick={goToBottom}
                                     aria-label="回到底部"
@@ -1187,9 +1186,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                             <div className="flex items-center gap-2 pointer-events-auto">
                                 {originParentConvId && (
                                     <motion.button
-                                        initial={{opacity: 0, scale: 0.9}}
-                                        animate={{opacity: 1, scale: 1}}
-                                        exit={{opacity: 0, scale: 0.9}}
+                                        {...tooltip}
                                         transition={{duration: 0.15}}
                                         onClick={() => goToOriginConversation(originParentConvId)}
                                         aria-label="←父会话"
@@ -1205,9 +1202,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                                 )}
                                 {originHandoffFromId && (
                                     <motion.button
-                                        initial={{opacity: 0, scale: 0.9}}
-                                        animate={{opacity: 1, scale: 1}}
-                                        exit={{opacity: 0, scale: 0.9}}
+                                        {...tooltip}
                                         transition={{duration: 0.15}}
                                         onClick={() => goToOriginConversation(originHandoffFromId)}
                                         aria-label="←前会话"

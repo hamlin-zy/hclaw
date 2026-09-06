@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useMemo, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {dropdown} from '../../lib/motionPresets'
 import {useSkillStore} from '../../stores/skillStore'
 import {fuzzyFilter} from '../../lib/search'
 import {confirm} from '../../components/ConfirmDialog'
@@ -419,9 +420,7 @@ function SkillCard({
     return (
         <motion.div
             layout
-            initial={{opacity: 0, y: -8}}
-            animate={{opacity: 1, y: 0}}
-            exit={{opacity: 0, y: -8}}
+            {...dropdown}
             transition={{duration: 0.15}}
         >
             <div

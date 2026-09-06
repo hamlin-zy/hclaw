@@ -42,6 +42,11 @@ const STORE_HANDLERS: Record<string, {
                     modelType: m.modelType || 'text',
                     enabled: m.enabled,
                     pricing: m.pricing || undefined,
+                    // 运行时参数（详情弹窗配置）：缺失须透传，否则重开配置页即丢失
+                    maxContextTokens: m.maxContextTokens ?? undefined,
+                    temperature: m.temperature ?? undefined,
+                    maxOutputTokens: m.maxOutputTokens ?? undefined,
+                    modelTypes: m.modelTypes ?? undefined,
                 })),
             }))
             const activeProviderId = providers.find((p: any) => p.enabled)?.id || null
@@ -64,6 +69,11 @@ const STORE_HANDLERS: Record<string, {
                     id: m.id, providerId: provider.id, modelName: m.name,
                     modelType: m.modelType || 'text', enabled: m.enabled,
                     pricing: m.pricing || undefined,
+                    // 运行时参数：未配置传 undefined（repo 层落 NULL），有值必须透传防抹除
+                    maxContextTokens: m.maxContextTokens,
+                    temperature: m.temperature,
+                    maxOutputTokens: m.maxOutputTokens,
+                    modelTypes: m.modelTypes,
                 }))
                 await window.electronAPI?.providerModel?.saveByProvider?.(provider.id, models)
             }

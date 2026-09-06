@@ -3,6 +3,7 @@ import {clsx} from 'clsx'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
 import {AnimatePresence, motion} from 'framer-motion'
+import {dropdown} from '../../lib/motionPresets'
 import {confirm} from '../ConfirmDialog'
 import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
 import type {AgentTemplate} from '@shared/types'
@@ -824,9 +825,7 @@ function PluginAgentGroup({pluginName, agents, toggleTemplate, toggleTemplateBat
     return (
         <motion.div
             layout
-            initial={{opacity: 0, y: -8}}
-            animate={{opacity: 1, y: 0}}
-            exit={{opacity: 0, y: -8}}
+            {...dropdown}
             transition={{duration: 0.15}}
             className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden"
         >
