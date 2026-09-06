@@ -4,6 +4,7 @@
  */
 
 import {motion} from 'framer-motion'
+import {dropdown} from '../lib/motionPresets'
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
 interface CommandItem {
@@ -101,7 +102,7 @@ export function InlineCommandPicker({query, onClose, onComplete}: Props) {
 
     return (
         <motion.div
-            initial={{opacity: 0, y: -6}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -6}}
+            {...dropdown}
             transition={{duration: 0.12}}
             className="absolute left-0 top-full mt-1.5 w-[380px] bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl z-50 overflow-hidden"
             onKeyDown={onKeyDown}

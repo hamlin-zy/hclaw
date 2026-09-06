@@ -1,4 +1,5 @@
 import {AnimatePresence, motion} from 'framer-motion'
+import {fade, scaleFade} from '../lib/motionPresets'
 
 interface ModelAlertDialogProps {
     open: boolean
@@ -14,16 +15,12 @@ export default function ModelAlertDialog({open, onClose, onConfigure}: ModelAler
         <AnimatePresence>
             {open && (
                 <motion.div
-                    initial={{opacity: 0}}
-                    animate={{opacity: 1}}
-                    exit={{opacity: 0}}
+                    {...fade}
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
                     onClick={onClose}
                 >
                     <motion.div
-                        initial={{scale: 0.95, opacity: 0}}
-                        animate={{scale: 1, opacity: 1}}
-                        exit={{scale: 0.95, opacity: 0}}
+                        {...scaleFade}
                         className="bg-[var(--surface)] rounded-lg shadow-elevated p-5 max-w-sm mx-4 border border-[var(--border)]"
                         onClick={(e) => e.stopPropagation()}
                     >

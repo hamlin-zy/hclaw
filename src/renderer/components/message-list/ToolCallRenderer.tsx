@@ -414,7 +414,7 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
             {/* 概要行 */}
             <button
                 onClick={handleClick}
-                className="w-full flex items-center gap-2 px-3 py-1.5 my-1 rounded-lg text-left transition-colors
+                className="w-full flex items-start gap-2 px-3 py-1.5 my-1 rounded-lg text-left transition-colors
                     border border-[var(--border)] bg-[var(--surface-muted)]
                     hover:bg-[var(--surface-elevated)] hover:border-[var(--border-emphasis)]"
              data-name="tool-call-renderer-button">
@@ -451,7 +451,7 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
                     </span>
                 ) : (
                     /* 工具芯片列表 */
-                    <span className="flex items-center gap-1.5 text-[11px] min-w-0 flex-1 overflow-hidden">
+                    <span className="flex flex-wrap items-center gap-1.5 text-[11px] min-w-0 flex-1">
                         {chips.map((chip) => (
                             <span key={chip.name}
                                 className="flex items-center gap-1 px-1.5 py-0.5 rounded
@@ -555,7 +555,7 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
     return (
         <button
             onClick={handleClick}
-            className="w-full flex items-center gap-2 px-3 py-1.5 my-1 rounded-lg text-left transition-colors
+            className="w-full flex items-start gap-2 px-3 py-1.5 my-1 rounded-lg text-left transition-colors
                 border border-[var(--border)] bg-[var(--surface-muted)]
                 hover:bg-[var(--surface-elevated)] hover:border-[var(--border-emphasis)]"
          data-name="tool-call-renderer-toggle-expanded-button">
@@ -563,7 +563,7 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`}/>
 
             {/* 芯片列表 */}
-            <span className="flex items-center gap-1.5 text-[11px] min-w-0 flex-1 overflow-hidden">
+            <span className="flex flex-wrap items-center gap-1.5 text-[11px] min-w-0 flex-1">
                 {/* 思考计数芯片（无思考块时隐藏） */}
                 {thinkCount > 0 && (
                     <span className="flex items-center gap-1 px-1.5 py-0.5 rounded

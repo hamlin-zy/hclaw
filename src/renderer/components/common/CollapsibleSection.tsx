@@ -1,5 +1,6 @@
 import {memo, useState, type ReactNode} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {collapse} from '../../lib/motionPresets'
 
 interface CollapsibleSectionProps {
   /** 标题文本 */
@@ -75,9 +76,7 @@ const CollapsibleSection = memo(function CollapsibleSection({
       <AnimatePresence>
         {isExpanded && (
           <motion.div
-            initial={{height: 0, opacity: 0}}
-            animate={{height: 'auto', opacity: 1}}
-            exit={{height: 0, opacity: 0}}
+            {...collapse}
             transition={{duration: 0.2, ease: 'easeInOut'}}
             className={`overflow-hidden ${contentClassName}`}
           >

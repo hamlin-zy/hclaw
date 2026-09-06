@@ -366,6 +366,10 @@ async function switchActiveConversation(id: string | null) {
         agentStore.updateConvData(id, agentStore.convAgentStates[id] ?? DEFAULT_AGENT_STATE)
         // 会话级模式初始化（meta → 全局默认回退）
         void applyConvModesToAgentStore(id)
+        // ★ 主动水合待办批次：切换会话时从 DB 查询活跃批次，
+        //   不依赖 TodoStrip 的被动 useEffect（条件不满足时水合会漏触发，
+        //   导致"重启后进行中的待办列表不显示"）
+        void agentStore.refreshActiveBatch?.(id)
     } else {
         useConversationStore.setState({ activeConversationId: null, loadedMessages: [] })
     }
@@ -428,7 +432,11 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const convs = get().workspaces[path]?.conversations || []
           const idSet = new Set(convs.map(c => c.id))
           const rootConv = convs.find(c => isRootConversation(c, idSet))
-          if (rootConv) get().loadMessages(rootConv.id)
+          if (rootConv) {
+              get().loadMessages(rootConv.id)
+              // ★ 主动水合待办批次：应用重启后首次加载会话，从 DB 查询活跃批次
+              void useAgentStore.getState().refreshActiveBatch?.(rootConv.id)
+          }
       },
 
       removeWorkspace: async (path) => {
@@ -572,6 +580,11 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           switchActiveConversation(convId).catch((err) => {
               console.error('[handleSessionCreated] switch failed:', err)
           })
+          // ★ 交接迁移同步：来源会话的活跃批次已迁移到新会话，清空来源会话渲染端
+          //   残留待办（refreshActiveBatch 以 DB 为准，无活跃批次即清空 currentBatch/tasks）。
+          if (handoffFromConvId) {
+              void useAgentStore.getState().refreshActiveBatch(handoffFromConvId)
+          }
       },
 
       // 子 Agent 独立会话创建事件处理：侧栏顶部插入 + 自动归属当前工作区

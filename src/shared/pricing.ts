@@ -6,6 +6,16 @@ export interface ModelPricing {
   output?: number
   cacheRead?: number
   cacheWrite?: number
+  /**
+   * 录入真相（录入即真，WYSIWYG）：用户实际录入的币种与数值快照。
+   * 回显优先逐字使用 entered（不随汇率漂移）；USD/token 4 字段仍是保存时
+   * 按「录入值 ÷ 汇率」固化的快照，供用量成本计算消费（语义不变）。
+   * 旧数据（无 entered）继续按 USD/token × 汇率折算展示（向后兼容）。
+   */
+  entered?: {
+    currency: Currency
+    values: Partial<Record<'input' | 'output' | 'cacheRead' | 'cacheWrite', number>>
+  }
 }
 
 export type Currency = 'USD' | 'CNY'

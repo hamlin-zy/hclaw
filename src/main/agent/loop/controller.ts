@@ -518,7 +518,7 @@ export class AgentLoopController {
             // ★ 400 降级恢复用：能力过滤前、白名单后的完整列表（含 analyze_image，已过 agent 白名单）
             const preCapabilityToolDefinitions = await filterToolsForDegrade(agentDefinition, agentType)
             const availableToolDefinitions = await filterTools(
-                agentDefinition, agentType, selection.modelConfig.model, preCapabilityToolDefinitions,
+                agentDefinition, agentType, selection.modelConfig.model, selection.modelConfig.modelTypes, preCapabilityToolDefinitions,
             )
             logger.debug(
                 `[AgentLoop] setup model:${selection.modelConfig.model} provider:${selection.modelConfig.provider} tools:${availableToolDefinitions.length}`,

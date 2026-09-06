@@ -104,6 +104,14 @@ export const sessionHandoffTool: Tool<SessionHandoffInput, string> = {
             return {success: false, output: '', error: '创建新会话失败'}
         }
 
+        // ★ 交接迁移：把来源会话的活跃批次（当前待办）改绑到新会话，
+        //   使新会话启动时能通过 buildTaskBatchSnapshot 从 DB 恢复待办，而非从零开始。
+        //   已完成批次留在来源会话作历史（历史任务组窗口按会话分组不受破坏）。
+        if (parentConvId) {
+            const {migrateActiveBatch} = await import('../../../repositories/sqlite/taskBatchRepository')
+            migrateActiveBatch(parentConvId, newConvId)
+        }
+
         // ④ 写入首条 user 消息（交接总结）
         //    capability 非空时拼接 "/能力名\n" 前缀 → 新会话首条消息触发对应技能/代理命令（detectCommandContext 会解析）
         const userMsgId = `msg-${now}-${Math.random().toString(36).slice(2, 8)}`

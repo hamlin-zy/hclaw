@@ -348,12 +348,14 @@ export async function filterTools(
     agentDefinition: AgentDefinition | undefined,
     agentType: string,
     modelId: string,
+    /** 模型自定义类型（ModelConfig.modelTypes），与消息侧 supportsImageInput 判定同源（spec §6） */
+    customModelTypes?: import('@shared/types').ModelType[],
     baseTools?: ToolDefinitionForLLM[],
 ): Promise<ToolDefinitionForLLM[]> {
     const preCapability = baseTools ?? await filterToolsForDegrade(agentDefinition, agentType)
 
     // ★ 能力驱动过滤（精确名匹配，不误伤 MCP 前缀工具）
-    if (supportsImageInput(modelId)) {
+    if (supportsImageInput(modelId, customModelTypes)) {
         return preCapability.filter(d => d.name !== 'analyze_image')
     }
 
