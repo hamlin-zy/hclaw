@@ -52,6 +52,7 @@ const MIGRATION_FILES = [
     '030_add_provider_features.sql',
     '038_drop_supports_thinking.sql',
     '042_add_provider_model_pricing.sql',
+    '043_add_provider_model_runtime_params.sql',
 ]
 
 beforeEach(() => {

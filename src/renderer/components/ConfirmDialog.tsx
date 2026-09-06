@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {fade, scaleFade} from '../lib/motionPresets'
 
 /**
  * 确认弹窗选项接口
@@ -117,9 +118,7 @@ export default function ConfirmDialog() {
                 <>
                     {/* 背景遮罩 */}
                     <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
+                        {...fade}
                         transition={{ duration: 0.15 }}
                         className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[99998]"
                         onClick={handleCancel}
@@ -127,9 +126,7 @@ export default function ConfirmDialog() {
 
                     {/* 弹窗主体 */}
                     <motion.div
-                        initial={{ scale: 0.95, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.95, opacity: 0 }}
+                        {...scaleFade}
                         transition={{ duration: 0.15, ease: 'easeOut' }}
                         className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-[99999]"
                     >

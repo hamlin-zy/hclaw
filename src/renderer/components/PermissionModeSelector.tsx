@@ -1,6 +1,7 @@
 import {useEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
+import {popoverDown} from '../lib/motionPresets'
 import {useAgentStore} from '../stores/agentStore'
 
 /**
@@ -120,9 +121,7 @@ export default function PermissionModeSelector() {
                 <AnimatePresence>
                 {isOpen && (
                     <motion.div
-                        initial={{opacity: 0, y: -8, scale: 0.96}}
-                        animate={{opacity: 1, y: 0, scale: 1}}
-                        exit={{opacity: 0, y: -8, scale: 0.96}}
+                        {...popoverDown}
                         transition={{duration: 0.15, ease: [0.4, 0, 0.2, 1]}}
                         style={{top: position.top, right: position.right, width: '180px'}}
                         className="fixed z-[9999]"

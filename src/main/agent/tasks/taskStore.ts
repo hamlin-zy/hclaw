@@ -145,9 +145,14 @@ class TaskStore {
         // 显式 batchName trim 后判空：空串视同未传
         const explicitName = batchName?.trim() || undefined
 
-        // 显式 batchName 或「无活跃批次且无未完成任务」→ 新建批次；否则复用当前批次
+        // 新建批次的三种情形：
+        // - 无当前批次
+        // - 当前批次任务已全部终态（完成后重开新批）
+        // - 显式 batchName 与当前批次名不同（显式改名/强制开新批）
+        // 显式 batchName 与当前批次名相同 → 归并进当前批次（并行同名创建不拆批）
         let batch = this.batchesByConv.get(key)
-        if (!batch || explicitName || !this.hasIncompleteTasks(convTasks)) {
+        const explicitNewBatch = explicitName != null && batch != null && explicitName !== batch.name
+        if (!batch || !this.hasIncompleteTasks(convTasks) || explicitNewBatch) {
             // 取代旧活跃批次时，先补发旧批次的 completed 收尾事件（保证 UI 收到完整批次生命周期）
             const oldBatch = batch
             if (oldBatch && oldBatch.status === 'active') {

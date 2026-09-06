@@ -35,6 +35,7 @@ import {
     listBatches,
     deleteBatches,
     deleteByConversation,
+    migrateActiveBatch,
 } from '../../../src/main/repositories/sqlite/taskBatchRepository'
 import type {Task} from '../../../src/shared/types/message'
 
@@ -243,5 +244,53 @@ describe('deleteBatches / deleteByConversation — 删除', () => {
         // conv-2 完好
         expect(db.prepare('SELECT id FROM task_batches WHERE conversation_id = ?').all('conv-2')).toHaveLength(1)
         expect(db.prepare('SELECT id FROM tasks WHERE batch_id = ?').all('b3')).toHaveLength(1)
+    })
+})
+
+describe('migrateActiveBatch — 交接迁移', () => {
+    beforeEach(() => {
+        makeConv('conv-old', '旧会话')
+        makeConv('conv-new', '新会话')
+    })
+
+    it('有活跃批次时：批次与任务的 conversation_id 改绑到目标会话', () => {
+        upsertSnapshot('conv-old', {id: 'b1', name: '进行中', status: 'active'}, [
+            makeTask('t1', 'A'), makeTask('t2', 'B'),
+        ])
+        migrateActiveBatch('conv-old', 'conv-new')
+
+        // 旧会话无活跃批次
+        expect(getActiveBatch('conv-old')).toBeNull()
+        // 新会话取到迁移过来的活跃批次 + 任务
+        const result = getActiveBatch('conv-new')
+        expect(result).not.toBeNull()
+        expect(result!.batch.id).toBe('b1')
+        expect(result!.tasks.map(t => t.id)).toEqual(['t1', 't2'])
+        // tasks 表的 conversation_id 也改绑
+        const taskRows = db.prepare('SELECT conversation_id FROM tasks WHERE batch_id = ?').all('b1') as Array<{conversation_id: string}>
+        expect(taskRows.every(r => r.conversation_id === 'conv-new')).toBe(true)
+    })
+
+    it('无活跃批次时（仅 completed）空操作，不迁移已完成历史', () => {
+        upsertSnapshot('conv-old', {id: 'b-done', name: '已完成', status: 'completed'}, [makeTask('t1', 'A', 'completed')])
+        migrateActiveBatch('conv-old', 'conv-new')
+
+        expect(getActiveBatch('conv-old')).toBeNull()
+        expect(getActiveBatch('conv-new')).toBeNull()
+        // completed 批次仍留在旧会话
+        const rows = db.prepare('SELECT conversation_id FROM task_batches WHERE id = ?').all('b-done') as Array<{conversation_id: string}>
+        expect(rows[0].conversation_id).toBe('conv-old')
+    })
+
+    it('同时有 completed 与 active 批次时，仅迁移 active 批次', () => {
+        upsertSnapshot('conv-old', {id: 'b-done', name: '已完成', status: 'completed'}, [makeTask('t1', 'A', 'completed')])
+        upsertSnapshot('conv-old', {id: 'b-active', name: '进行中', status: 'active'}, [makeTask('t2', 'B')])
+        migrateActiveBatch('conv-old', 'conv-new')
+
+        // active 迁走
+        expect(getActiveBatch('conv-new')!.batch.id).toBe('b-active')
+        // completed 留旧会话
+        const done = db.prepare('SELECT conversation_id FROM task_batches WHERE id = ?').all('b-done') as Array<{conversation_id: string}>
+        expect(done[0].conversation_id).toBe('conv-old')
     })
 })

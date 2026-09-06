@@ -8,6 +8,7 @@
 
 import {memo, useEffect, useMemo} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {fade, scaleFade} from '../../../lib/motionPresets'
 import {useToolCallsStore} from '../../../stores/toolCallsStore'
 import {useAgentStore} from '../../../stores/agentStore'
 import {useConversationStore} from '../../../stores/conversationStore'
@@ -67,17 +68,13 @@ const CompactToolPopup = memo(function CompactToolPopup() {
     return (
         <AnimatePresence>
             <motion.div
-                initial={{opacity: 0}}
-                animate={{opacity: 1}}
-                exit={{opacity: 0}}
+                {...fade}
                 className="fixed z-[10000] pointer-events-none"
                 style={{left: 0, top: 0, width: '100vw', height: '100vh'}}
             >
                 <motion.div
                     ref={dialogRef}
-                    initial={{scale: 0.95, opacity: 0}}
-                    animate={{scale: 1, opacity: 1}}
-                    exit={{scale: 0.95, opacity: 0}}
+                    {...scaleFade}
                     transition={{duration: 0.15, ease: 'easeOut'}}
                     className={`absolute pointer-events-auto bg-[var(--surface)] rounded-2xl flex flex-col overflow-hidden shadow-2xl transition-shadow duration-100 border border-[var(--border)] ${
                         isDragging ? 'shadow-overlay scale-[1.02]' : ''

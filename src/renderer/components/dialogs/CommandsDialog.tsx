@@ -12,6 +12,7 @@ import {clsx} from 'clsx'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
 import {AnimatePresence, motion} from 'framer-motion'
+import {dropdown} from '../../lib/motionPresets'
 import {useUserCommandStore} from '../../stores/userCommandStore'
 import {CommandEditModal} from './CommandEditModal'
 import {confirm} from '../ConfirmDialog'
@@ -479,9 +480,7 @@ function LocalCommandCard({
     return (
         <motion.div
             layout
-            initial={{opacity: 0, y: -8}}
-            animate={{opacity: 1, y: 0}}
-            exit={{opacity: 0, y: -8}}
+            {...dropdown}
             transition={{duration: 0.15}}
         >
             <div
@@ -623,9 +622,7 @@ function PluginGroupCard({
     return (
         <motion.div
             layout
-            initial={{opacity: 0, y: -8}}
-            animate={{opacity: 1, y: 0}}
-            exit={{opacity: 0, y: -8}}
+            {...dropdown}
             transition={{duration: 0.15}}
             className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden"
         >
@@ -705,9 +702,7 @@ function PluginCommandCard({
     return (
         <motion.div
             layout
-            initial={{opacity: 0, y: -4}}
-            animate={{opacity: 1, y: 0}}
-            exit={{opacity: 0, y: -4}}
+            {...dropdown}
             transition={{duration: 0.12}}
         >
             <div

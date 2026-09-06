@@ -5,6 +5,7 @@
 
 import {Fragment, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {motion} from 'framer-motion'
+import {dropdown} from '../lib/motionPresets'
 import {useConversationStore} from '../stores/conversationStore'
 import {fuzzyMatch} from '../lib/search'
 
@@ -119,7 +120,7 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
 
     // 无工作目录时显示提示
     if (!ws) return (
-        <motion.div initial={{opacity: 0, y: -6}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -6}}
+        <motion.div {...dropdown}
                     className="absolute left-0 top-full mt-1.5 w-[420px] bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl z-50 p-6 text-center">
             <p className="text-sm text-[var(--text-muted)]">请先选择一个工作目录</p>
             <p className="text-xs text-[var(--text-muted)] mt-1">左侧边栏可选择或新建</p>
@@ -129,7 +130,7 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
     const segments = currentNav.split('/').filter(Boolean)
 
     return (
-        <motion.div initial={{opacity: 0, y: -6}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -6}}
+        <motion.div {...dropdown}
                     transition={{duration: 0.12}}
                     className="absolute left-0 top-full mt-1.5 w-[420px] bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl z-50 overflow-hidden"
                     onKeyDown={onKeyDown}

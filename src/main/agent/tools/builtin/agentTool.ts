@@ -377,20 +377,20 @@ export const agentTool: Tool<AgentToolInput, string> = {
         //    兜底 modelConfig 按请求角色解析（与子会话实际使用的模型一致；primary 可被禁用）。
         //    上方 isTextRoleUsable 已保证此处可解析，任一为空仍是配置矛盾 → 显式报错，不静默兜底。
         const roleCfg = getRoleConfig(runtimeConfigManager.getScheme()!, args.modelRole)
-        const roleProvider = runtimeConfigManager.getProviders().find(p => p.id === roleCfg.endpointId)
+        const roleProvider = runtimeConfigManager.getProviders().find(p => p.id === roleCfg!.endpointId)
         if (!roleProvider) {
             return {
                 success: false,
                 output: '',
-                error: `modelRole "${args.modelRole}" 对应的服务商不存在（endpointId="${roleCfg.endpointId}"），请检查模型方案配置。`,
+                error: `modelRole "${args.modelRole}" 对应的服务商不存在（endpointId="${roleCfg!.endpointId}"），请检查模型方案配置。`,
             }
         }
-        const roleModel = roleProvider.models.find(m => m.id === roleCfg.modelId)
+        const roleModel = roleProvider.models.find(m => m.id === roleCfg!.modelId)
         if (!roleModel) {
             return {
                 success: false,
                 output: '',
-                error: `modelRole "${args.modelRole}" 对应的模型不存在（${roleProvider.name}/${roleCfg.modelId}），请检查模型方案配置。`,
+                error: `modelRole "${args.modelRole}" 对应的模型不存在（${roleProvider.name}/${roleCfg!.modelId}），请检查模型方案配置。`,
             }
         }
         const modelConfig = {
