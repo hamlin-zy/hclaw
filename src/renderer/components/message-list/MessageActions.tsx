@@ -44,6 +44,33 @@ const RetryButton = memo(function RetryButton({message}: { message: Message }) {
     )
 })
 
+// 复制按钮组件 - 复制用户消息正文（不含附件）
+// 成功后通过 window 事件通知 MessageList 展示 CopyToast（避免 prop 下钻破坏 MessageBubble memo）
+const UserCopyButton = memo(function UserCopyButton({message}: { message: Message }) {
+    const handleCopy = useCallback(async () => {
+        try {
+            await navigator.clipboard.writeText(message.content || '')
+            window.dispatchEvent(new CustomEvent('hclaw-message-copied'))
+        } catch {
+            // 复制失败，静默处理
+        }
+    }, [message.content])
+
+    return (
+        <button
+            onClick={handleCopy}
+            className="mb-[22px] flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-sm text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:border-[var(--brand-primary)] transition-all flex-shrink-0"
+            title="复制"
+            aria-label="复制消息正文"
+            data-find-exclude data-name="message-actions-copy-button">
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+        </button>
+    )
+})
+
 // 删除按钮组件 - 用于删除单条消息
 const DeleteButton = memo(function DeleteButton({message, bottomMargin = 'mb-[22px]'}: { message: Message; bottomMargin?: string }) {
     const agentStatus = useAgentStore((s) => s.agentState.status)
@@ -214,6 +241,7 @@ export const MessageActions = memo(function MessageActions({message}: { message:
     return (
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
             <RetryButton message={message}/>
+            <UserCopyButton message={message}/>
             <DeleteButton message={message} bottomMargin="mb-[22px]"/>
         </div>
     )
