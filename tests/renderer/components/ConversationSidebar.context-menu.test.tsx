@@ -13,8 +13,8 @@ const {mockState, getFilteredConversationsMock} = vi.hoisted(() => ({
         searchQuery: '',
     },
     getFilteredConversationsMock: vi.fn(() => [
-        {id: 'conv-1', title: '第一个会话', parentConvId: null, updatedAt: 300, preview: '', pinned: false},
-        {id: 'conv-2', title: '第二个会话', parentConvId: null, updatedAt: 200, preview: '', pinned: false},
+        {id: 'conv-1', title: '第一个会话', parentConvId: null, createdAt: Date.now(), updatedAt: 300, preview: '', pinned: false},
+        {id: 'conv-2', title: '第二个会话', parentConvId: null, createdAt: Date.now() - 60000, updatedAt: 200, preview: '', pinned: false},
     ]),
 }))
 
@@ -40,8 +40,8 @@ vi.mock('../../../src/renderer/stores/agentStore', () => ({
 beforeEach(() => {
     getFilteredConversationsMock.mockReset()
     getFilteredConversationsMock.mockReturnValue([
-        {id: 'conv-1', title: '第一个会话', parentConvId: null, updatedAt: 300, preview: '', pinned: false},
-        {id: 'conv-2', title: '第二个会话', parentConvId: null, updatedAt: 200, preview: '', pinned: false},
+        {id: 'conv-1', title: '第一个会话', parentConvId: null, createdAt: Date.now(), updatedAt: 300, preview: '', pinned: false},
+        {id: 'conv-2', title: '第二个会话', parentConvId: null, createdAt: Date.now() - 60000, updatedAt: 200, preview: '', pinned: false},
     ])
 })
 

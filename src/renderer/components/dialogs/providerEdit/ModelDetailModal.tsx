@@ -13,7 +13,7 @@ import type {ModelType, ProviderModel} from '@shared/types'
 import type {Currency} from '@shared/pricing'
 import {tokenToPerM} from '@shared/pricing'
 import {commitRow, displayEnteredCell, reverseHintPrice, formatPrice, type PriceEdits, type PriceField} from '../../../lib/priceEditing'
-import {commitModelDetail, mergeOrTypesOnEdit, validateModelDetailDraft, type ModelDetailDraft} from '../../../lib/modelDetailCommit'
+import {commitModelDetail, validateModelDetailDraft, type ModelDetailDraft} from '../../../lib/modelDetailCommit'
 import {resolveModelParams, DEFAULT_MAX_CONTEXT_TOKENS} from '@shared/modelParams'
 
 const PRICE_FIELDS: Array<{key: PriceField; label: string}> = [
@@ -199,16 +199,10 @@ export function ModelDetailModal({open, providerName, model, settingsDefaults, r
 
   const toggleType = (t: ModelType) => {
     setError(null)
-    if (typesFromOr) {
-      // OR 预展示 → 自定义编辑态：以「当前已存值 ∪ OR 命中集」为起点，再切换目标项
-      setTypesFromOr(false)
-      const start = mergeOrTypesOnEdit(draft.modelTypes, orTypes)
-      setDraft(prev => ({
-        ...prev,
-        modelTypes: start.includes(t) ? start.filter(x => x !== t) : [...start, t],
-      }))
-      return
-    }
+    // 任何手动点击即退出 OR 预展示态（虚线 chip 消失），此后按自定义值切换。
+    // 不并入 OR 命中集：OR 建议仅作视觉预展示，用户需逐个显式勾选才落库，
+    // 避免首次点击意外把全部 OR 类型带入自定义（导致「取消一个」后红点仍亮）。
+    setTypesFromOr(false)
     setDraft(prev => ({
       ...prev,
       modelTypes: prev.modelTypes.includes(t) ? prev.modelTypes.filter(x => x !== t) : [...prev.modelTypes, t],
