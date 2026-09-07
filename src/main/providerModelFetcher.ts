@@ -11,6 +11,7 @@ import {
   type FetchErrorCode,
 } from '@shared/modelPresets'
 import {withLlmTraceStream, type LlmTraceCallContext} from './utils/llmTraceRecorder'
+import {withOpenCodeHeaders} from './utils/opencodeHeaders'
 
 const FETCH_TIMEOUT_MS = 15000
 
@@ -113,7 +114,8 @@ export async function fetchProviderModels(
 
   const doFetch = async (url: string, headers: Record<string, string>): Promise<{status: number; body: string}> => {
     try {
-      const res = await fetch(url, {headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)})
+      // OpenCode Go 合规头注入（仅_opencode.ai 域名生效）；无会话上下文 → 进程级 session ID
+      const res = await fetch(url, withOpenCodeHeaders(url, {headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)}))
       return {status: res.status, body: await safeText(res)}
     } catch {
       return {status: 0, body: ''} // 0 = 网络层失败

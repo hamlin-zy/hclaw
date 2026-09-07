@@ -22,177 +22,12 @@ import {ScheduleRecord, scheduleRepo} from './ScheduleRepository'
 import {createConversationRepository} from '../repositories'
 import type {IConversationRepository} from '../repositories/interfaces'
 import type {ConversationMeta} from '@shared/types'
-import type {ModelConfig} from '../agent/model/types'
-import {agentRegistry} from '../agent/agentRegistry'
-import {runtimeConfigManager} from '../agent/runtimeConfigManager'
-import {getModelConfigForAgentType, resolveModelConfig} from '../agent/model/modelSelector'
 import {getHclawDir} from '../config'
 import {getMainWindow} from '../window'
 import {SqliteWorkspaceRepository} from '../repositories/sqlite/workspaceRepository'
 import {createLogger} from '../agent/logger'
 
 const logger = createLogger('scheduler')
-
-/** Phase 1 优化: Scheduler Agent Worker 池，替代主进程直跑 agentLoop */
-class SchedulerWorkerPool {
-    private workers: Worker[] = []
-    private readyQueue: Worker[] = []
-    private pendingTasks: any[] = []
-    private pendingResolvers = new Map<string, (r: { success: boolean; output: string; error?: string }) => void>()
-    private _onStream?: (scheduleId: string, content: string) => void
-    private spawnCount = 0
-    private readonly MAX_SPAWN = 10
-    /** 跟踪每个 worker 当前正在执行的任务 scheduleId */
-    private workerTasks = new Map<Worker, string>()
-    /** Agent 启动/结束回调 */
-    onAgentStart?: (scheduleId: string, convId: string) => void
-    onAgentDone?: (scheduleId: string, convId: string, success: boolean) => void
-
-    constructor(private poolSize = 2) {
-    }
-
-    set onStream(cb: ((scheduleId: string, content: string) => void) | undefined) {
-        this._onStream = cb
-    }
-
-    init(): void {
-        this.spawnCount = 0
-        for (let i = 0; i < this.poolSize; i++) this.spawnWorker()
-    }
-
-    private spawnWorker(): void {
-        if (++this.spawnCount > this.MAX_SPAWN) {
-            console.error(`[SchedulerPool] spawn failed after ${this.MAX_SPAWN} attempts, giving up`)
-            return
-        }
-        const workerPath = path.join(__dirname, 'schedulerAgentWorker.cjs')
-        const worker = new Worker(workerPath)
-
-        worker.on('message', (msg: any) => {
-            if (msg.type === 'task:stream') {
-                this._onStream?.(msg.scheduleId, msg.content)
-                return
-            }
-            // 处理 Agent 启动/结束事件
-            if (msg.type === 'agent:start') {
-                // 通知主进程更新会话状态为 running
-                this.onAgentStart?.(msg.scheduleId, msg.convId)
-                return
-            }
-            if (msg.type === 'agent:done') {
-                // 通知主进程更新会话状态为 archived
-                this.onAgentDone?.(msg.scheduleId, msg.convId, msg.success)
-                return
-            }
-            if (msg.type === 'child_conv_created') {
-                // 子 Agent 独立会话创建事件 → 通知渲染进程刷新侧栏
-                try {
-                    const win = getMainWindow()
-                    if (win && !win.isDestroyed()) {
-                        win.webContents.send('child_conv_created', {
-                            id: msg.childConvId,
-                            title: msg.title,
-                            parentConvId: msg.parentConvId || undefined,
-                        })
-                    }
-                } catch {
-                    // window not available
-                }
-                return
-            }
-            if (msg.type === 'session_created') {
-                try {
-                    const win = getMainWindow()
-                    if (win && !win.isDestroyed()) {
-                        win.webContents.send('session_created', {
-                            id: msg.convId,
-                            title: msg.title,
-                            workspacePath: msg.workspacePath || '',
-                        })
-                    }
-                } catch (e) {
-                    logger.error('[Scheduler] 转发 session_created 失败', {error: String(e)})
-                }
-                return
-            }
-            if (msg.type === 'task:result') {
-                logger.debug('worker.taskResult', {scheduleId: msg.scheduleId, success: String(msg.success), error: msg.error?.slice(0, 200) || '(none)', outputLen: String((msg.output || '').length)})
-                this.workerTasks.delete(worker)
-                this.readyQueue.push(worker)
-                this.processQueue()
-                const resolve = this.pendingResolvers.get(msg.scheduleId)
-                if (resolve) {
-                    resolve({success: msg.success, output: msg.output || '', error: msg.error})
-                    this.pendingResolvers.delete(msg.scheduleId)
-                }
-            }
-        })
-
-        const onWorkerDead = () => {
-            // worker 挂了 → 将其正在执行的任务标记为失败
-            const taskId = this.workerTasks.get(worker)
-            if (taskId) {
-                this.workerTasks.delete(worker)
-                const resolve = this.pendingResolvers.get(taskId)
-                if (resolve) {
-                    resolve({success: false, output: '', error: 'Worker terminated unexpectedly'})
-                    this.pendingResolvers.delete(taskId)
-                }
-            }
-            this.workers = this.workers.filter(w => w !== worker)
-            this.readyQueue = this.readyQueue.filter(w => w !== worker)
-            setTimeout(() => this.spawnWorker(), 2000)
-        }
-
-        worker.on('error', (err: Error) => {
-            console.error(`[SchedulerPool] worker error:`, (err as Error)?.message || err)
-            onWorkerDead()
-        })
-        worker.on('exit', (code) => {
-            if (code !== 0) {
-                console.error(`[SchedulerPool] worker exited with code ${code}`)
-            }
-            onWorkerDead()
-        })
-
-        this.workers.push(worker)
-        this.readyQueue.push(worker)
-    }
-
-    async executeTask(task: any): Promise<{ success: boolean; output: string; error?: string }> {
-        const worker = this.readyQueue.shift()
-        if (worker) {
-            logger.debug('pool.dispatch', {convId: task.convId, scheduleId: task.scheduleId, readyQueueSize: String(this.readyQueue.length)})
-            this.workerTasks.set(worker, task.scheduleId)
-            worker.postMessage({cmd: 'run', task})
-        } else {
-            logger.debug('pool.queue', {convId: task.convId, scheduleId: task.scheduleId, pendingQueueSize: String(this.pendingTasks.length)})
-            this.pendingTasks.push(task)
-        }
-        return new Promise((resolve) => {
-            this.pendingResolvers.set(task.scheduleId, resolve)
-        })
-    }
-
-    private processQueue(): void {
-        while (this.readyQueue.length > 0 && this.pendingTasks.length > 0) {
-            const worker = this.readyQueue.shift()!
-            const next = this.pendingTasks.shift()!
-            logger.debug('pool.processQueue', {convId: next.convId, scheduleId: next.scheduleId})
-            this.workerTasks.set(worker, next.scheduleId)
-            worker.postMessage({cmd: 'run', task: next})
-        }
-    }
-
-    shutdown(): void {
-        for (const w of this.workers) w.terminate()
-        this.workers = []
-        this.readyQueue = []
-        this.pendingTasks = []
-        this.pendingResolvers.clear()
-        this.workerTasks.clear()
-    }
-}
 
 const execAsync = promisify(exec)
 
@@ -201,12 +36,9 @@ class SchedulerManager {
   private activeRuns = new Map<string, AbortController>()
   public scheduleRepo = scheduleRepo
   private convRepo: IConversationRepository
-    /** Phase 1: Scheduler Agent Worker 池（替代主进程直跑 agentLoop） */
-    private agentWorkerPool: SchedulerWorkerPool
 
   constructor() {
     this.convRepo = createConversationRepository()
-      this.agentWorkerPool = new SchedulerWorkerPool(2)
   }
 
   // ─── 生命周期 ─────────────────────────────────────────────
@@ -220,14 +52,6 @@ class SchedulerManager {
       this.resetStaleRunningStatus()
 
       this.spawnCronWorker()
-      // 设置 Agent Worker 池的回调
-      this.agentWorkerPool.onAgentStart = (scheduleId, convId) => {
-          this.updateConversationStatus(convId, 'running')
-      }
-      this.agentWorkerPool.onAgentDone = (scheduleId, convId, _success) => {
-          this.updateConversationStatus(convId, 'archived')
-      }
-      this.agentWorkerPool.init()
   }
 
   /**
@@ -504,91 +328,6 @@ class SchedulerManager {
   // ─── 任务分派 ─────────────────────────────────────────────
 
   /**
-   * 按 taskType 路由到具体的执行方法
-   * Phase 1 优化:
-   *   - agent/skill → 通过 Agent Worker 池执行（不再阻塞主进程）
-   *   - command → 通过 Agent Worker 池执行（最终调 agentLoop）
-   *   - script → 仍使用 child_process.exec（轻量，不会阻塞 UI）
-   */
-  private async dispatchTask(
-    msg: {taskType: string; taskTarget: string; taskArgs: any[]; convId: string; startTime?: number},
-    _signal: AbortSignal
-  ): Promise<{success: boolean; output: string; error?: string}> {
-    switch (msg.taskType) {
-      case 'agent':
-      case 'skill':
-      case 'command':
-          return this.runViaWorkerPool(msg)
-      case 'script':
-          return this.runScript(msg.taskTarget, msg.taskArgs, msg.convId, msg.startTime || Date.now(), _signal)
-      default:
-        return {
-          success: false,
-          output: '',
-          error: `Unknown task type: ${msg.taskType}`,
-        }
-    }
-  }
-
-  /**
-   * Phase 1: 通过 Agent Worker 池执行包含 agentLoop 的任务
-   * 使用 /{能力名} {提示词} 格式构造消息，与用户在聊天栏输入一致
-   */
-  private async runViaWorkerPool(msg: {
-      taskType: string
-      taskTarget: string
-      taskArgs: any[]
-      convId: string
-  }): Promise<{ success: boolean; output: string; error?: string }> {
-      const getFirstArg = () =>
-          typeof msg.taskArgs[0] === 'string' ? msg.taskArgs[0].trim() : ''
-
-      let agentDef: any = null
-      const userPrompt = getFirstArg()
-      const content = `/${msg.taskTarget} ${userPrompt || ''}`.trim()
-
-      // agent 类型需要传递 agentDef 给 agentLoop
-      if (msg.taskType === 'agent') {
-          agentDef = agentRegistry.get(msg.taskTarget)
-          logger.debug('workerPool.agentDef', {name: agentDef?.name || 'null', convId: msg.convId})
-      }
-
-      const messages: Array<{ role: 'user'; content: string }> = [
-          {role: 'user', content},
-      ]
-
-      logger.info('workerPool.submit', {convId: msg.convId, type: msg.taskType, target: msg.taskTarget, message: content})
-
-      const modelConfig = this.getModelConfig()
-      if (!modelConfig) {
-          logger.error('workerPool.noModelConfig', {convId: msg.convId})
-          return {success: false, output: '', error: '无法获取模型配置，请检查模型方案设置'}
-      }
-
-      logger.debug('workerPool.modelConfig', {provider: modelConfig.provider, model: modelConfig.model, convId: msg.convId})
-
-      // 传递 providers + scheme 给 Worker 线程，用于初始化 ConfigBridge
-      const providers = runtimeConfigManager.getProviders()
-      const scheme = runtimeConfigManager.getConfig().scheme
-      logger.debug('workerPool.providers', {providers: String(providers?.length), scheme: scheme?.id || '(none)', convId: msg.convId})
-
-      const taskSettings = runtimeConfigManager.getSettings()
-
-      return this.agentWorkerPool.executeTask({
-          scheduleId: msg.taskTarget,
-          convId: msg.convId,
-          taskType: msg.taskType,
-          messages,
-          modelConfig,
-          workingDir: runtimeConfigManager.getWorkingDir() || '',
-          agentDef,
-          providers,
-          scheme,
-          settings: taskSettings || undefined,
-      })
-  }
-
-  /**
    * 执行 Script 任务 — 通过 child_process.exec 直接执行本地脚本
    * 将执行日志写入 {hclawDir}/logs/schedules/{scheduleId}-{startTime}.log
    */
@@ -673,29 +412,6 @@ class SchedulerManager {
     }
   }
 
-  /**
-   * 获取当前运行时模型配置
-   */
-  private getModelConfig(): ModelConfig | null {
-    const config = runtimeConfigManager.getConfig()
-    const scheme = config.scheme
-    const providers = runtimeConfigManager.getProviders()
-
-    if (!scheme || providers.length === 0) return null
-
-    // 优先使用 primary 角色的模型配置
-    const result = getModelConfigForAgentType(scheme, 'General', providers)
-    if (result) return result.modelConfig
-
-    // 兜底：尝试 resolve primary 配置
-    const primaryRoleConfig = scheme.roles.find(r => r.role === 'primary')
-    if (primaryRoleConfig) {
-      return resolveModelConfig(primaryRoleConfig, providers)
-    }
-
-    return null
-  }
-
   // ─── IPC 控制方法 ─────────────────────────────────────────
 
   /**
@@ -760,8 +476,6 @@ class SchedulerManager {
     this.worker?.postMessage({cmd: 'shutdown'})
     this.worker?.terminate()
     this.worker = null
-      // Phase 1: 关闭 Agent Worker 池
-      this.agentWorkerPool.shutdown()
   }
 }
 

@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest'
-import {resolveModelParams, resolveModelModalities, DEFAULT_MAX_CONTEXT_TOKENS} from '../../src/shared/modelParams'
+import {resolveModelParams, resolveModelModalities, hasCustomParams, DEFAULT_MAX_CONTEXT_TOKENS} from '../../src/shared/modelParams'
 
 const settings = (temperature = 0.7, maxTokens = 50_000) =>
   ({model: {defaultTemperature: temperature, defaultMaxTokens: maxTokens}}) as any
@@ -71,5 +71,42 @@ describe('resolveModelModalities', () => {
   it('两者皆无 → 命名模式推断（source=fallback）', () => {
     expect(resolveModelModalities(undefined, null, 'gpt-4o').supportsImage).toBe(true)
     expect(resolveModelModalities(undefined, null, 'deepseek-chat').supportsImage).toBe(false)
+  })
+})
+
+describe('hasCustomParams · 齿轮橙点判定', () => {
+  it('全部为空 → false', () => {
+    expect(hasCustomParams({} as any)).toBe(false)
+  })
+  it('有运行时参数 → true', () => {
+    expect(hasCustomParams({temperature: 0.6} as any)).toBe(true)
+    expect(hasCustomParams({maxContextTokens: 128000} as any)).toBe(true)
+  })
+  it('有自定义价格（正值）→ true', () => {
+    expect(hasCustomParams({pricing: {input: 1}} as any)).toBe(true)
+    expect(hasCustomParams({pricing: {output: 5, cacheRead: 1}} as any)).toBe(true)
+  })
+  it('价格全填 0（用户手动输入）→ true', () => {
+    // fix #1 后 lookupMeta 缺失价格返回 undefined（非 0），fillSingleRow 用 >0 守卫永不设 0，
+    // pricing 中的 0 值仅来自用户手动输入，应算自定义（免费语义）
+    expect(hasCustomParams({pricing: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}} as any)).toBe(true)
+    expect(hasCustomParams({pricing: {input: 0}} as any)).toBe(true)
+  })
+  it('pricing 为 undefined（无价格）→ false', () => {
+    expect(hasCustomParams({pricing: undefined} as any)).toBe(false)
+  })
+  it('pricing 为空对象（无字段）→ false', () => {
+    expect(hasCustomParams({pricing: {}} as any)).toBe(false)
+  })
+  it('有自定义 modelTypes → true', () => {
+    expect(hasCustomParams({modelTypes: ['text']} as any)).toBe(true)
+    expect(hasCustomParams({modelTypes: ['text', 'image']} as any)).toBe(true)
+  })
+  it('modelTypes 空数组 → false', () => {
+    expect(hasCustomParams({modelTypes: []} as any)).toBe(false)
+  })
+  it('组合：任意一项为 true 即 true', () => {
+    expect(hasCustomParams({temperature: 0.5, pricing: {input: 0}, modelTypes: ['text']} as any)).toBe(true)
+    expect(hasCustomParams({maxContextTokens: 100, modelTypes: []} as any)).toBe(true)
   })
 })

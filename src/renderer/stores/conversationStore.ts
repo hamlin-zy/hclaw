@@ -12,6 +12,8 @@ interface WorkspaceInfo {
 
 interface ConversationStore {
   currentWorkspacePath: string | null
+  /** 当前工作目录的 git 分支（非 git 目录为 null，徽章条件渲染） */
+  gitBranch: string | null
   activeConversationId: string | null
   workspaces: Record<string, WorkspaceInfo>
   loadedMessages: Message[]
@@ -379,9 +381,35 @@ async function switchActiveConversation(id: string | null) {
     }
 }
 
+// ── Git 分支感知 ────────────────────────────────────────
+
+/** 拉取指定目录的 git 分支并写入 store（带竞态守卫：仅当仍是当前工作区时生效） */
+async function refreshGitBranch(wsPath: string | null): Promise<void> {
+    if (!wsPath) {
+        useConversationStore.setState({gitBranch: null})
+        return
+    }
+    try {
+        const branch = await window.electronAPI?.workspace?.getGitBranch(wsPath) ?? null
+        // 等待期间可能已切换工作区，避免旧目录的分支覆盖新目录
+        if (useConversationStore.getState().currentWorkspacePath === wsPath) {
+            useConversationStore.setState({gitBranch: branch})
+        }
+    } catch { /* 非 git 目录 / IPC 失败 → 保持 null，徽章不渲染 */ }
+}
+
+/** 订阅主进程 git 分支变化广播（外部命令行切分支）。应用启动时调用一次 */
+export function subscribeGitBranchChanges(): () => void {
+    const unsub = window.electronAPI?.workspace?.onGitBranchChanged?.((branch) => {
+        useConversationStore.setState({gitBranch: branch})
+    })
+    return () => unsub?.()
+}
+
 export const useConversationStore = createWithEqualityFn<ConversationStore>()(
   (set, get) => ({
       currentWorkspacePath: null,
+      gitBranch: null,
       activeConversationId: null,
       workspaces: {},
       loadedMessages: [],
@@ -397,7 +425,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
 
       setWorkspace: async (path) => {
           if (!path) {
-              set({currentWorkspacePath: null, activeConversationId: null})
+              set({currentWorkspacePath: null, activeConversationId: null, gitBranch: null})
               return
           }
 
@@ -428,6 +456,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               }
           })
 
+          // 切换工作区：重新拉取 git 分支（主进程侧同时重建 watch）
+          void refreshGitBranch(path)
+
           // 加载消息仅针对根会话（与激活保持一致）
           const convs = get().workspaces[path]?.conversations || []
           const idSet = new Set(convs.map(c => c.id))
@@ -454,6 +485,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   workspaces: rest,
                   currentWorkspacePath: state.currentWorkspacePath === path ? null : state.currentWorkspacePath,
                   activeConversationId: state.currentWorkspacePath === path ? null : state.activeConversationId,
+                  gitBranch: state.currentWorkspacePath === path ? null : state.gitBranch,
               }
           })
 
@@ -943,6 +975,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       loadConversations: async () => {
           const currentWorkspace = await window.electronAPI?.workspace?.getCurrent()
           const currentWorkspacePath = currentWorkspace?.path || null
+          // 启动加载：拉取当前工作区 git 分支（主进程侧同时建立 watch）
+          void refreshGitBranch(currentWorkspacePath)
           const allMetas = await window.electronAPI?.conversationList?.() || []
 
           const workspaces: Record<string, WorkspaceInfo> = {}

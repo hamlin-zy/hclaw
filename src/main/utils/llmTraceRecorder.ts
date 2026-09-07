@@ -16,6 +16,7 @@ import {AsyncLocalStorage} from 'async_hooks'
 import {parentPort, workerData} from 'worker_threads'
 import type {LlmCallRecord, LlmTraceContextKind} from '@shared/types/llmTrace'
 import {sanitizeHeaders} from '@shared/types/llmTrace'
+import {withOpenCodeHeaders} from './opencodeHeaders'
 
 export interface LlmTraceCallContext {
     conversationId: string
@@ -184,6 +185,9 @@ function dayDirOf(root: string, ctx: LlmTraceCallContext, ts: number): string {
 }
 
 export const recordingFetch: typeof globalThis.fetch = async (input, init) => {
+    // OpenCode Go 合规头（UA + x-opencode-session）注入；仅_opencode.ai 域名生效，
+    // 必须在录制开关判定之前执行，保证关闭录制时请求头同样合规。
+    init = withOpenCodeHeaders(input, init, als.getStore()?.conversationId)
     if (!isRecordingEnabled()) return (deps.upstreamFetch ?? globalThis.fetch)(input, init)
 
     const ctx = als.getStore() ?? FALLBACK_CTX

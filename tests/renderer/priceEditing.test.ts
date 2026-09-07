@@ -43,6 +43,12 @@ describe('parsePriceInput', () => {
     expect(parsePriceInput('-1', 'USD', 7.2)).toBeUndefined()
   })
 
+  it('输入 0 → 0（用户手动输入免费语义，非 undefined）', () => {
+    expect(parsePriceInput('0', 'USD', 7.2)).toBe(0)
+    expect(parsePriceInput('0', 'CNY', 7.2)).toBe(0)
+    expect(parsePriceInput('0.0', 'USD', 1)).toBe(0)
+  })
+
   it('USD：$/1M → USD/token', () => {
     expect(close(parsePriceInput('15', 'USD', 7.2)!, perMtoToken(15))).toBe(true)
   })
@@ -113,6 +119,29 @@ describe('commitRow（落盘边界）', () => {
   it('全空（原值全空 + 无编辑）→ undefined', () => {
     expect(commitRow(undefined, undefined, 'USD', 7.2)).toBeUndefined()
     expect(commitRow({}, {}, 'CNY', 7.2)).toBeUndefined()
+  })
+
+  it('全部价格手动填 0（免费语义）→ pricing 对象含 0 值（非 undefined）', () => {
+    // 用户手动将 4 个价格全部填 0：commitRow 应产生含 0 值的 pricing 对象，
+    // 而非 undefined（0 是用户显式输入，非"未配置"）。
+    const edits: PriceEdits['row1'] = {input: '0', output: '0', cacheRead: '0', cacheWrite: '0'}
+    const r = commitRow(undefined, edits, 'USD', 7.2)
+    expect(r).toBeDefined()
+    expect(r!.input).toBe(0)
+    expect(r!.output).toBe(0)
+    expect(r!.cacheRead).toBe(0)
+    expect(r!.cacheWrite).toBe(0)
+    // entered 同步落盘（录入即真）
+    expect(r!.entered).toEqual({currency: 'USD', values: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}})
+  })
+
+  it('部分价格填 0、部分留空 → 0 落值、空留 undefined', () => {
+    const edits: PriceEdits['row1'] = {input: '0', output: '', cacheRead: '5', cacheWrite: ''}
+    const r = commitRow(undefined, edits, 'USD', 7.2)
+    expect(r!.input).toBe(0)
+    expect(r!.output).toBeUndefined()
+    expect(close(r!.cacheRead!, perMtoToken(5))).toBe(true)
+    expect(r!.cacheWrite).toBeUndefined()
   })
 })
 
