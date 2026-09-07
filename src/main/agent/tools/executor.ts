@@ -13,6 +13,7 @@ import {localSandbox} from '../../sandbox/localSandbox'
 import type {SandboxOperation} from '../../sandbox/types'
 import {coerceToolParams} from './coercer'
 import {errorResult} from '../common/toolResult'
+import {resolveToolName} from './toolNameResolver'
 import {createTimeoutResult, ToolTimeoutError, withToolTimeout} from './toolTimeout'
 import {getToolDefaultTimeout, toolRepo} from '../../repositories/sqlite/toolRepository'
 
@@ -77,14 +78,26 @@ export async function executeTool(
   toolCall: ExecuteToolCall,
   context: ToolContext,
 ): Promise<ExecuteToolResult> {
-      const tool = toolRegistry.get(toolCall.name)
-    
-  // 工具未注册
+  // 工具未注册：先尝试名称纠偏（别名/大小写），命中则路由到实际工具（仅纠偏名称，不做参数转换）
+  let tool = toolRegistry.get(toolCall.name)
   if (!tool) {
-          return {
+    const resolved = resolveToolName(toolCall.name, toolRegistry.getNames())
+    if (resolved) {
+      toolCall.name = resolved
+      tool = toolRegistry.get(resolved)
+    }
+  }
+
+  // 工具未注册（纠偏后仍未命中）：返回原错误 + 可用工具名列表
+  if (!tool) {
+    const available = toolRegistry.getNames()
+    return {
       toolCallId: toolCall.id,
       toolName: toolCall.name,
-      result: errorResult(`Unknown tool: ${toolCall.name}`),
+      result: errorResult(
+        `Unknown tool: ${toolCall.name}。可用工具: ${available.join(', ')}。` +
+        `请从可用工具列表中选择并重试。`
+      ),
     }
   }
 
@@ -117,6 +130,8 @@ export async function executeTool(
     }
   }
 
+      // 权限引擎为懒初始化（check 是同步方法），执行前确保 mode/rules 已加载
+      await permissionEngine.ensureReady()
       const permResult = permissionEngine.check(tool, toolCall.arguments)
     
     let userApproved = false

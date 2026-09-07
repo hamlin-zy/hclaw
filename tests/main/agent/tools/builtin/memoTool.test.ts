@@ -178,6 +178,40 @@ describe('memo_tool', () => {
         expect(memoTool.isDestructive).toBeUndefined()
     })
 
+    // ── schema 条件必填（zod 校验发生在 executor 层，直接测 inputSchema）──
+    describe('inputSchema 条件必填（superRefine）', () => {
+        it.each([
+            [{action: 'update', status: 'processed'}, 'id'],
+            [{action: 'delete'}, 'id'],
+            [{action: 'create', content: '有内容'}, 'title'],
+            [{action: 'create', title: '有标题'}, 'content'],
+        ])('缺少条件必填字段 → parse 抛错并提示字段 (%#)', (args, field) => {
+            const result = memoTool.inputSchema.safeParse(args)
+            expect(result.success).toBe(false)
+            if (!result.success) {
+                expect(result.error.issues.some(i => i.path.includes(field))).toBe(true)
+            }
+        })
+
+        it('update 缺 id 的错误信息可行动（提示先 list）', () => {
+            const result = memoTool.inputSchema.safeParse({action: 'update', status: 'processed'})
+            expect(result.success).toBe(false)
+            if (!result.success) {
+                const idIssue = result.error.issues.find(i => i.path.includes('id'))
+                expect(idIssue?.message).toContain('list')
+            }
+        })
+
+        it.each([
+            {action: 'list'},
+            {action: 'create', title: 'T', content: 'C'},
+            {action: 'update', id: 'memo-1', status: 'processed'},
+            {action: 'delete', id: 'memo-1'},
+        ])('合法输入 → parse 通过 (%#)', (args) => {
+            expect(memoTool.inputSchema.safeParse(args).success).toBe(true)
+        })
+    })
+
     it('workspacePath 使用 context.workingDir（不落其他工作区）', async () => {
         const ctx = makeContext()
         const otherDir = path.join(testDir, 'other-workspace')

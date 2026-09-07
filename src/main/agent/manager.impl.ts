@@ -391,6 +391,14 @@ export class AgentManager {
           return
         }
 
+        // memo_tool 写操作后的备忘录变更广播：Worker 内无法访问 BrowserWindow，经此转发所有窗口
+        if (msg.type === WORKER_MESSAGE_TYPES.MEMO_CHANGED) {
+            const {workspacePath} = msg as unknown as {workspacePath: string}
+            const {broadcastMemoChanged} = await import('../memo/broadcast')
+            broadcastMemoChanged(workspacePath)
+            return
+        }
+
         // Agent 结束后残留收尾：持久化 pending assistant 消息（残留注入消息直接丢弃，落库归 startAgentCore）
         if (msg.type === WORKER_MESSAGE_TYPES.PENDING_MESSAGES_AFTER_EXIT) {
           const exitMsg = (msg as unknown) as { conversationId: string }

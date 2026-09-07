@@ -20,6 +20,31 @@ const inputSchema = z.object({
     status: z.enum(['active', 'processed']).optional().describe('状态。update 可选：active=待处理 | processed=已处理。'),
     priority: z.enum(['urgent', 'high', 'normal', 'low']).optional()
         .describe('优先级。create/update 可选，根据内容自行判断，缺省 normal。'),
+}).superRefine((args, ctx) => {
+    // 条件必填：update/delete 需要 id；create 需要 title 与 content
+    if ((args.action === 'update' || args.action === 'delete') && !args.id) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['id'],
+            message: `${args.action} 操作需要提供 id，可先调用 list 获取`,
+        })
+    }
+    if (args.action === 'create') {
+        if (!args.title) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['title'],
+                message: 'create 操作需要提供 title（标题）',
+            })
+        }
+        if (!args.content) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['content'],
+                message: 'create 操作需要提供 content（完整任务描述）',
+            })
+        }
+    }
 })
 
 type MemoToolInput = z.infer<typeof inputSchema>

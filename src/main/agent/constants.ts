@@ -47,6 +47,8 @@ export const WORKER_MESSAGE_TYPES = {
     CHANNEL_SEND_RESULT: 'channel-send-result',
     /** Agent 结束后残留的注入消息 (Worker -> Main)，用于兜底处理未消费的插入消息 */
     PENDING_MESSAGES_AFTER_EXIT: 'pending-messages-after-exit',
+    /** 备忘录变更广播 (Worker -> Main)，主进程转发给所有渲染窗口 */
+    MEMO_CHANGED: 'memo_changed',
 } as const
 
 /** Squirrel Windows 安装程序命令 */
