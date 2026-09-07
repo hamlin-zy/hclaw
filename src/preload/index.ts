@@ -797,6 +797,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
         delete: (id: string) => ipcRenderer.invoke('workspace:delete', id),
         getCurrent: () => ipcRenderer.invoke('workspace:getCurrent'),
         setCurrent: (id: string) => ipcRenderer.invoke('workspace:setCurrent', id),
+        getGitBranch: (cwd: string) => ipcRenderer.invoke('workspace:getGitBranch', cwd),
+        // git 分支变化推送（外部命令行切分支等）；返回取消订阅函数
+        onGitBranchChanged: (callback: (branch: string | null) => void) => {
+            const handler = (_: unknown, payload: unknown) => callback(payload as string | null)
+            ipcRenderer.on('workspace:git-branch-changed', handler)
+            return () => ipcRenderer.removeListener('workspace:git-branch-changed', handler)
+        },
     },
 
     // CapabilityHub — 统一能力中心查询 API

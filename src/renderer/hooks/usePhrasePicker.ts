@@ -29,7 +29,7 @@ export function pickPhraseInto(
 export function usePhrasePicker() {
     const [open, setOpen] = useState(false)
     const openOnShortcut = (e: React.KeyboardEvent) => {
-        if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'v') {
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'v') {
             e.preventDefault()
             setOpen(true)
         }

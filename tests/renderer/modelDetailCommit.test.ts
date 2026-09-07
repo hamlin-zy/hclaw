@@ -1,5 +1,6 @@
 import {describe, it, expect} from 'vitest'
 import {commitModelDetail} from '../../src/renderer/lib/modelDetailCommit'
+import {commitRow, type PriceEdits} from '../../src/renderer/lib/priceEditing'
 import {hasCustomParams} from '../../src/shared/modelParams'
 
 const base = {id: 'm1', name: 'gpt-x', enabled: true} as any
@@ -64,5 +65,25 @@ describe('OR 预展示不落库（spec §2.2 placeholder 永不落库）', () =>
     const next = commitModelDetail({...base, modelTypes: ['multimodal']}, {maxContextTokens: '', temperature: '', maxOutputTokens: '', modelTypes: []})
     expect(next.modelTypes).toBeUndefined()
     expect(hasCustomParams(next)).toBe(false)
+  })
+})
+
+describe('集成 · 价格全 0 红点链路（用户报告场景）', () => {
+  it('4 个价格全填 0 → commitRow → commitModelDetail → hasCustomParams=true（红点亮）', () => {
+    // 模拟弹窗 handleConfirm 全链路：commitRow 折算价格 → commitModelDetail 组装 → hasCustomParams 判定
+    const edits: PriceEdits['row1'] = {input: '0', output: '0', cacheRead: '0', cacheWrite: '0'}
+    const pricing = commitRow(undefined, edits, 'USD', 7.2)
+    const next = commitModelDetail({...base, modelTypes: undefined}, {maxContextTokens: '', temperature: '', maxOutputTokens: '', modelTypes: []})
+    const result = {...next, pricing}
+    expect(hasCustomParams(result)).toBe(true)
+  })
+
+  it('4 个价格全清空（未填写）→ hasCustomParams=false（红点不亮）', () => {
+    // 对照：无价格编辑 → commitRow 返回 undefined → pricing 为 undefined
+    const pricing = commitRow(undefined, undefined, 'USD', 7.2)
+    const next = commitModelDetail(base, {maxContextTokens: '', temperature: '', maxOutputTokens: '', modelTypes: []})
+    const result = {...next, pricing}
+    expect(result.pricing).toBeUndefined()
+    expect(hasCustomParams(result)).toBe(false)
   })
 })

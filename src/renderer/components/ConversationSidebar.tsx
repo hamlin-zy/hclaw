@@ -12,6 +12,7 @@ import {fuzzyFilter} from '../lib/search'
 import {confirm} from './ConfirmDialog'
 import {showUsageStats} from './dialogs/UsageStatsDialog'
 import {collectDescendants} from '../stores/conversationTree'
+import {useDayBoundaryTick} from '../hooks/useDayBoundaryTick'
 import {useThemeStore} from '../stores/themeStore'
 import {useUpdaterStore} from '../stores/updaterStore'
 import {usePluginUpdateStore} from '../stores/pluginUpdateStore'
@@ -413,8 +414,27 @@ export default function ConversationSidebar() {
 /** 工作区切换抽屉宽度（px） */
 const DRAWER_WIDTH = 300
 
+/** git 分支徽章（纯展示只读；branch 为 null 时不渲染） */
+function GitBranchBadge({branch, className}: {branch: string | null, className?: string}) {
+    if (!branch) return null
+    return (
+        <span
+            className={`inline-flex items-center gap-0.5 min-w-0 flex-initial max-w-[130px] rounded-full bg-gray-100 dark:bg-white/10 px-1.5 py-px text-[11px] font-medium text-gray-500 dark:text-gray-400 overflow-hidden ${className || ''}`}
+            data-tooltip={branch}>
+            <svg className="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 strokeWidth="2" aria-hidden="true">
+                {/* git branch 图标 */}
+                <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/>
+                <path d="M6 9v6M18 9a9 9 0 01-9 9"/>
+            </svg>
+            <span className="truncate">{branch}</span>
+        </span>
+    )
+}
+
 export function WorkspaceSelector() {
   const currentWorkspacePath = useConversationStore((s) => s.currentWorkspacePath)
+  const gitBranch = useConversationStore((s) => s.gitBranch)
   const setWorkspace = useConversationStore((s) => s.setWorkspace)
   const workspaces = useConversationStore((s) => s.workspaces)
   const removeWorkspace = useConversationStore((s) => s.removeWorkspace)
@@ -510,14 +530,20 @@ export function WorkspaceSelector() {
                   </svg>
               </div>
               <div className="flex flex-col items-start overflow-hidden text-left w-full">
+              {/* 名称行：项目名 + git 徽章同行流式排列，min-w-0 + truncate 溢出隐藏，不挤压右侧 › */}
+              <div className="flex items-center gap-1.5 w-full min-w-0">
                   <span
-                      className={`font-semibold text-gray-900 dark:text-gray-100 text-[13px] tracking-tight truncate w-full ${!currentWorkspacePath ? 'text-gray-400 dark:text-gray-500' : ''}`}
+                      className={`font-semibold text-gray-900 dark:text-gray-100 text-[13px] tracking-tight truncate shrink-0 max-w-[65%] ${!currentWorkspacePath ? 'text-gray-400 dark:text-gray-500' : ''}`}
                       title={currentWorkspacePath || ''}>
                       {displayName}
                   </span>
-                  {currentWorkspacePath && (
-                      <span className="text-[11px] text-gray-400 dark:text-gray-500 font-medium truncate w-full">{currentWorkspacePath}</span>
-                  )}
+                  {currentWorkspacePath && <GitBranchBadge branch={gitBranch}/>}
+              </div>
+              {currentWorkspacePath && (
+                  <span className="w-full min-w-0">
+                      <span className="text-[11px] text-gray-400 dark:text-gray-500 font-medium truncate block w-full">{currentWorkspacePath}</span>
+                  </span>
+              )}
               </div>
           </div>
           <svg
@@ -532,7 +558,7 @@ export function WorkspaceSelector() {
         <WorkspaceDrawerPortal
           key="workspace-drawer"
           drawerRef={drawerRef}
-          {...{ search, setSearch, filtered, handleSelect, handleOpenNew, removeWorkspace, currentWorkspacePath }}
+          {...{ search, setSearch, filtered, handleSelect, handleOpenNew, removeWorkspace, currentWorkspacePath, gitBranch }}
         />
       )}
     </div>
@@ -540,7 +566,7 @@ export function WorkspaceSelector() {
 }
 
 /** 工作区切换抽屉（portal 到 body 的悬浮面板，随开关即时挂载/卸载） */
-function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSelect, handleOpenNew, removeWorkspace, currentWorkspacePath}: {
+function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSelect, handleOpenNew, removeWorkspace, currentWorkspacePath, gitBranch}: {
     drawerRef: RefObject<HTMLDivElement | null>
     search: string
     setSearch: (v: string) => void
@@ -549,6 +575,7 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
     handleOpenNew: () => void
     removeWorkspace: (path: string) => void
     currentWorkspacePath: string | null
+    gitBranch: string | null
 }) {
     return createPortal(
         <motion.div
@@ -615,8 +642,14 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
                     <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
                   </svg>
                   <div className="flex-1 min-w-0">
-                      <div className="text-2xs font-medium truncate">{getBasename(entry.path)}</div>
-                      <div className="text-2xs text-[var(--text-muted)] [overflow-wrap:anywhere]">{entry.path}</div>
+                      <div className="flex items-center gap-1 min-w-0">
+                          <span className="text-2xs font-medium truncate shrink-0 max-w-[65%]">{getBasename(entry.path)}</span>
+                          {/* 分支仅当前工作区可知；其他条目分支未知不渲染 */}
+                          {entry.path === currentWorkspacePath && <GitBranchBadge branch={gitBranch}/>}
+                      </div>
+                      <div className="text-2xs text-[var(--text-muted)] [overflow-wrap:anywhere]">
+                          <span className="min-w-0 [overflow-wrap:anywhere]">{entry.path}</span>
+                      </div>
                   </div>
                   {entry.path === currentWorkspacePath && (
                       <svg className="w-3 h-3 text-[var(--brand-primary)] shrink-0" viewBox="0 0 24 24" fill="none"
@@ -827,6 +860,8 @@ export function ConversationList() {
     const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set())
     const [dateGroupExpanded, setDateGroupExpanded] = useState<Set<string>>(new Set())
     const listRef = useRef<HTMLDivElement>(null)
+    // 跨天信号：午夜自动刷新日期分组（今天/历史）
+    const dayTick = useDayBoundaryTick()
 
     // 监听全局点击以关闭菜单
     // ★ 注意：不监听 window 的 scroll 事件。原因见 tasks/01-context-menu-close.md：
@@ -957,6 +992,17 @@ export function ConversationList() {
         })
     }, [activeConversationId])
 
+  // 日期分组：置顶脱离、今天平铺、历史按层级（默认折叠）
+  // ★ 必须在早期 return 之前定义（见上方 Hooks 规则注释）
+  // createdAt 缺失时回退 updatedAt（与 ConversationItem timestamp 显示逻辑一致）
+  const rootConvs = filtered.filter(c => !c.parentConvId || !filtered.some(p => p.id === c.parentConvId))
+  const ts = (c: typeof filtered[number]) => c.createdAt ?? c.updatedAt ?? 0
+  const pinnedRoots = rootConvs.filter(c => c.pinned)
+  const todayRoots = rootConvs.filter(c => !c.pinned && isToday(ts(c)))
+  const historyRoots = rootConvs.filter(c => !c.pinned && !isToday(ts(c)))
+  // dayTick：跨天时触发本组件重渲染，使上方 isToday 与分组重新计算
+  const historyGroups = groupByDateHierarchy(historyRoots)
+
   if (!currentWorkspacePath) {
     return (
         <div className="flex-1 flex flex-col items-center justify-center p-[var(--space-loose)] text-center">
@@ -1039,15 +1085,6 @@ export function ConversationList() {
           return next
       })
   }
-
-  // 日期分组：置顶脱离、今天平铺、历史按层级（默认折叠）
-  // createdAt 缺失时回退 updatedAt（与 ConversationItem timestamp 显示逻辑一致）
-  const rootConvs = filtered.filter(c => !c.parentConvId || !filtered.some(p => p.id === c.parentConvId))
-  const ts = (c: typeof filtered[number]) => c.createdAt ?? c.updatedAt ?? 0
-  const pinnedRoots = rootConvs.filter(c => c.pinned)
-  const todayRoots = rootConvs.filter(c => !c.pinned && isToday(ts(c)))
-  const historyRoots = rootConvs.filter(c => !c.pinned && !isToday(ts(c)))
-  const historyGroups = groupByDateHierarchy(historyRoots)
 
   // renderItems 回调：对分组内的根会话调用 groupByParent + ConversationItem
   const renderItems = (roots: typeof filtered) =>

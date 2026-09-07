@@ -136,8 +136,12 @@ export function resolveModelConfig(
         apiStyle: provider.apiStyle || 'chat',
         // 透传服务商扩展特性（如显式缓存支持）
         features: provider.features,
-        // 模型类型（自定义模态判定），兼容旧单值 modelType 字段
-        modelTypes: model.modelTypes ?? (model.modelType ? [model.modelType] : undefined),
+        // 模型类型（用户在模型详情中的自定义模态声明，模态判定的最高优先级）。
+        // 注意：不得回退旧单值 modelType —— 该列多为导入时的推断默认值（如 'text'），
+        // 包装成 customTypes 会在 resolveModelModalities 中作为"权威声明"短路
+        // OpenRouter 元数据判定，导致多模态模型（如 glm-5.3-flash）被误判纯文本。
+        // NULL = 未配置 → supportsImageInput 依次回退元数据/命名模式判定。
+        modelTypes: model.modelTypes,
         // 模型级运行时参数覆盖（spec §6：仅在至少一项有值时携带，避免空对象覆盖语义）
         ...(model.maxContextTokens != null || model.temperature != null || model.maxOutputTokens != null
             ? {

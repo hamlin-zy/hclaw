@@ -166,26 +166,6 @@ export default defineConfig({
                 });
                 console.log('[channel-worker] Bundled channelWorker.cjs (CJS format)');
             }
-        },
-        {
-            name: 'bundle-scheduler-agent-worker',
-            apply: 'build',
-            async closeBundle() {
-                const esbuild = await import('esbuild');
-                esbuild.buildSync({
-                    entryPoints: ['src/main/scheduler/schedulerAgentWorker.ts'],
-                    outfile: '.vite/main/schedulerAgentWorker.cjs',
-                    bundle: true,
-                    platform: 'node',
-                    format: 'cjs',
-                    target: 'es2020',
-                    external: ['electron', '@photostructure/sqlite'],
-                    alias: {
-                        '@shared': path.resolve(__dirname, 'src/shared'),
-                    },
-                });
-                console.log('[scheduler-agent-worker] Bundled schedulerAgentWorker.js');
-            }
         }
     ],
   optimizeDeps: {

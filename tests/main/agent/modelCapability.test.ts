@@ -61,6 +61,14 @@ describe('supportsImageInput 判定优先级', () => {
     expect(supportsImageInput('or-vision-model', ['text'])).toBe(false)
   })
 
+  // ★ 回归（glm-5.3-flash 误判事件）：无 customTypes（modelSelector 不再包装旧单值默认值）
+  //   时，元数据含 image 必须生效。历史 bug：调用方把导入默认值 'text' 包装成 ['text']
+  //   传入，本用例 ① 本应成立的判定被 ⑤b 路径短路。
+  it('回归：无 customTypes + 元数据含 image → true（不被单值默认值短路）', () => {
+    mockGetModalities.mockReturnValue(['text', 'image', 'video'])
+    expect(supportsImageInput('z-ai/glm-5.3-flash')).toBe(true)
+  })
+
   it('⑤c 同一 modelId 在有无 customTypes 时缓存不串扰', () => {
     mockGetModalities.mockReturnValue(['text'])
     expect(supportsImageInput('dual-key-model')).toBe(false)

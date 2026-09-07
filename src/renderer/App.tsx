@@ -13,7 +13,7 @@ import PermissionConfirmModal from './components/PermissionConfirmModal'
 import CompactToolPopup from './components/message-list/compact-popup'
 import CombinedCardPopup from './components/message-list/compact-popup/CombinedCardPopup'
 import {useAgentStore} from './stores/agentStore'
-import {useConversationStore} from './stores/conversationStore'
+import {useConversationStore, subscribeGitBranchChanges} from './stores/conversationStore'
 import {useLLMStore} from './stores/llmStore'
 import {useModelSchemeStore} from './stores/modelSchemeStore'
 import {useToolStore} from './stores/toolStore'
@@ -331,6 +331,8 @@ export default function App() {
   }, [background?.enabled, background?.imagePath, background?.overlay, background?.blur, theme])
 
   useEffect(() => {
+    // 订阅主进程 git 分支变化广播（外部命令行切分支等）
+    const unsubscribeGitBranch = subscribeGitBranchChanges()
     const init = async () => {
       try {
         await Promise.all([
@@ -390,6 +392,7 @@ export default function App() {
     }
     // 不阻塞渲染：init 在后台执行，组件自行管理 loading 状态
     init()
+    return unsubscribeGitBranch
   }, [])
 
   // ── 订阅更新检查推送（启动时静默检查完成后主进程会推送一次） ──

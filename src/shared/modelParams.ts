@@ -97,7 +97,8 @@ export function hasCustomParams(
   m: Pick<ProviderModel, 'maxContextTokens' | 'temperature' | 'maxOutputTokens' | 'pricing' | 'modelTypes'>,
 ): boolean {
   const hasNum = m.maxContextTokens != null || m.temperature != null || m.maxOutputTokens != null
-  const hasPrice = Object.values(m.pricing ?? {}).some(v => (v as number) > 0)
+  const hasPrice = m.pricing?.input != null || m.pricing?.output != null ||
+    m.pricing?.cacheRead != null || m.pricing?.cacheWrite != null
   const hasTypes = !!m.modelTypes && m.modelTypes.length > 0
   return hasNum || hasPrice || hasTypes
 }

@@ -3,7 +3,7 @@
  */
 
 import {Worker} from 'worker_threads'
-import {BrowserWindow} from 'electron'
+import {app, BrowserWindow} from 'electron'
 import * as path from 'path'
 import {WORKER_MESSAGE_TYPES} from './constants'
 import type {AgentStreamEvent} from './stream'
@@ -223,6 +223,8 @@ export class AgentManager {
       // llm-trace 根目录：Worker 内 electron 不可用，若自行解析会回退 ~/.hclaw 导致与
       // 主线程读盘（userData）分叉——窗口读不到录制的数据。主进程解析后下发，保证写读同源。
       llmTraceRootDir: getLlmTraceRootDir(),
+      // OpenCode 合规头（opencodeHeaders.ts）：Worker 内 electron 不可用，主进程下发版本号供 User-Agent 使用
+      hclawVersion: app.getVersion(),
       ...(taskBatchSnapshot ? {taskBatchSnapshot} : {}),
     }
 
