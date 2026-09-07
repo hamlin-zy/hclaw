@@ -561,9 +561,9 @@ declare global {
         modelMetaGetWindow: (model: string) => Promise<{contextLength: number}>
         modelMetaLookup: (model: string) => Promise<{
           contextLength: number
-          inputPrice: number
-          outputPrice: number
-          cacheReadPrice: number
+          inputPrice?: number
+          outputPrice?: number
+          cacheReadPrice?: number
           cacheWritePrice?: number
           inputModalities: string[] | null
           matchedKey: string | null

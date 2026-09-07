@@ -93,8 +93,8 @@ describe('SqliteProviderModelRepository — 运行时参数 + modelTypes 持久�
         expect(bare.maxContextTokens).toBeUndefined()
         expect(bare.temperature).toBeUndefined()
         expect(bare.maxOutputTokens).toBeUndefined()
-        // model_types 未配置但 model_type 有值 → 旧列回退包装数组
-        expect(bare.modelTypes).toEqual(['text'])
+        // model_types 未配置 → undefined（回退由消费方 modelSelector 处理）
+        expect(bare.modelTypes).toBeUndefined()
     })
 
     it('save 更新路径：运行时参数往返一致，不丢字段', () => {
@@ -119,13 +119,13 @@ describe('SqliteProviderModelRepository — 运行时参数 + modelTypes 持久�
         expect(JSON.parse(raw.model_types)).toEqual(['text', 'image'])
     })
 
-    it('旧数据兼容：model_type 单值 + model_types=NULL → 读取为 [model_type]', () => {
+    it('旧数据兼容：model_types=NULL → 读取为 undefined（回退由消费方 modelSelector 处理）', () => {
         const repo = new SqliteProviderModelRepository()
         repo.save(makeModel({id: 'm-legacy'}))
         db.prepare("UPDATE provider_models SET model_type = 'image', model_types = NULL WHERE id = 'm-legacy'").run()
 
         const got = repo.getById('m-legacy')!
-        expect(got.modelTypes).toEqual(['image'])
+        expect(got.modelTypes).toBeUndefined()
     })
 
     it('model_types 非法 JSON / 非数组 → 读取为 undefined', () => {

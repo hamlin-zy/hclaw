@@ -87,23 +87,27 @@ export class ModelMetaRegistry {
 
   /**
    * 单模型查询：价格（USD/token）+ 窗口 + 输入模态 + 实际命中的 OR 条目 id。
-   * 未命中 / 空表 → 全 0 + matchedKey null + inputModalities null（调用方降级）。
+   * 未命中 / 空表 → 价格全 undefined + matchedKey null + inputModalities null（调用方降级）。
    */
   lookupMeta(modelId: string): {
     contextLength: number
-    inputPrice: number
-    outputPrice: number
-    cacheReadPrice: number
+    inputPrice?: number
+    outputPrice?: number
+    cacheReadPrice?: number
     cacheWritePrice?: number
     inputModalities: string[] | null
     matchedKey: string | null
   } {
     const raw = this.lookup(modelId)
     if (!raw) {
-      return {contextLength: 0, inputPrice: 0, outputPrice: 0, cacheReadPrice: 0, inputModalities: null, matchedKey: null}
+      return {contextLength: 0, inputPrice: undefined, outputPrice: undefined, cacheReadPrice: undefined, inputModalities: null, matchedKey: null}
     }
     return {
-      ...this.getMeta(modelId),
+      contextLength: raw.context_length ?? raw.top_provider?.context_length ?? 0,
+      inputPrice: toPriceOrUndefined(raw.pricing?.prompt),
+      outputPrice: toPriceOrUndefined(raw.pricing?.completion),
+      cacheReadPrice: toPriceOrUndefined(raw.pricing?.input_cache_read),
+      cacheWritePrice: toPriceOrUndefined(raw.pricing?.input_cache_write),
       inputModalities: this.getInputModalities(modelId),
       matchedKey: raw.id,
     }

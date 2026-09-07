@@ -298,9 +298,9 @@ describe('lookupMeta', () => {
     const r = reg.lookupMeta('nonexistent/model')
     expect(r).toEqual({
       contextLength: 0,
-      inputPrice: 0,
-      outputPrice: 0,
-      cacheReadPrice: 0,
+      inputPrice: undefined,
+      outputPrice: undefined,
+      cacheReadPrice: undefined,
       inputModalities: null,
       matchedKey: null,
     })
@@ -314,12 +314,24 @@ describe('lookupMeta', () => {
     const r = reg.lookupMeta('any/model')
     expect(r).toEqual({
       contextLength: 0,
-      inputPrice: 0,
-      outputPrice: 0,
-      cacheReadPrice: 0,
+      inputPrice: undefined,
+      outputPrice: undefined,
+      cacheReadPrice: undefined,
       inputModalities: null,
       matchedKey: null,
     })
+  })
+
+  it('命中但无 pricing 字段 → 四格价格均 undefined（缺失即未配置，非 0）', async () => {
+    const reg = await makeRegistry([{id: 'a/b', context_length: 100}])
+
+    const r = reg.lookupMeta('a/b')
+    expect(r.inputPrice).toBeUndefined()
+    expect(r.outputPrice).toBeUndefined()
+    expect(r.cacheReadPrice).toBeUndefined()
+    expect(r.cacheWritePrice).toBeUndefined()
+    expect(r.contextLength).toBe(100)
+    expect(r.matchedKey).toBe('a/b')
   })
 })
 
