@@ -456,6 +456,10 @@ export default function SettingsDialog() {
                         label: '切换明暗主题',
                         keys: (<KbdCombo keys={['Ctrl', 'Shift', 'T']}/>),
                     },
+                    {
+                        label: '切换右侧备忘录面板',
+                        keys: (<KbdCombo keys={['Ctrl', 'Shift', 'B']}/>),
+                    },
                 ],
             },
             {
@@ -500,6 +504,10 @@ export default function SettingsDialog() {
                     {
                         label: '粘贴剪贴板内容',
                         keys: (<KbdCombo keys={['Ctrl', 'V']}/>),
+                    },
+                    {
+                        label: '呼出短语选择器',
+                        keys: (<KbdCombo keys={['Ctrl', 'Shift', 'V']}/>),
                     },
                     {
                         label: '查找消息',

@@ -339,6 +339,11 @@ app.on('ready', async () => {
     // 初始化提示词方案（首次运行时创建默认方案）
     promptSchemeRepo.initializeDefaults();
 
+  // 任务批次查询/删除 IPC（历史任务组窗口数据源）
+  // ★ 必须在 createWindow 之前注册：渲染进程启动后会立即 invoke
+  //   task-batches:get-active，注册晚了会报 "No handler registered"
+  initTaskBatchIPC();
+
   createWindow();
 
     // 设置自定义应用菜单，移除与渲染进程快捷键冲突的默认加速器（如 Ctrl+N）
@@ -424,9 +429,6 @@ app.on('ready', async () => {
 
   // 配置对话框独立窗口注册表 + open-config-window IPC
   initConfigWindowIPC();
-
-  // 任务批次持久化查询/删除 IPC（历史任务组窗口数据源）
-  initTaskBatchIPC();
 
   // Scheduler system initialization (loads enabled schedules into worker)
   schedulerManager.init()

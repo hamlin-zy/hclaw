@@ -22,6 +22,7 @@ import {useConversationStore} from '../../stores/conversationStore'
 import {useSidebarStore} from '../../stores/sidebarStore'
 import {confirm} from '../ConfirmDialog'
 import {formatRelativeTime} from '../../lib/relativeTime'
+import {useDayBoundaryTick} from '../../hooks/useDayBoundaryTick'
 import {sortActiveMemos, groupProcessedByDate, renumberGroup, countGroupItems} from './memoSort'
 import type {ProcessedDateGroup} from './memoSort'
 import type {MemoCapability, MemoItem} from '@shared/types/memo'
@@ -60,11 +61,12 @@ export default function MemoPanel() {
         return kw ? list.filter(match) : list
     }, [memos, kw]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    // 历史列表分组（搜索过滤后分组）
+    // 历史列表分组（搜索过滤后分组）；dayTick：跨天时强制重算分组
+    const dayTick = useDayBoundaryTick()
     const historyGroups = useMemo(() => {
         const processed = memos.filter((m) => m.status !== 'active')
         return groupProcessedByDate(kw ? processed.filter(match) : processed)
-    }, [memos, kw]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [memos, kw, dayTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const updateItem = useMemoStore((s) => s.updateItem)
     // 拖拽：dragOrder 覆盖派生顺序，提供乐观更新驱动 FLIP 动画；onDragEnd 落库后清空回到派生顺序

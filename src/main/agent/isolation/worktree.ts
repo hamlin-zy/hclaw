@@ -27,7 +27,8 @@ export class WorktreeManager {
 
   /**
    * 执行 git 命令（跨平台兼容）
-   * Windows 上需要 shell: true 以正确解析 git.exe 路径
+   * 不使用 shell：spawnSync 在 Windows 上无需 shell 即可按 PATH 解析 git.exe，
+   * 且 args 含用户提供的路径，shell 模式只拼接不转义（DEP0190：注入/空格断裂风险）
    */
   private git(
     args: string[],
@@ -35,7 +36,7 @@ export class WorktreeManager {
   ): ReturnType<typeof spawnSync> {
     const result = spawnSync('git', args, {
       ...options,
-      shell: process.platform === 'win32',
+      windowsHide: true,
     })
     return result
   }
