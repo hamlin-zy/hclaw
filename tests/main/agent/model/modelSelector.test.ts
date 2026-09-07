@@ -294,6 +294,30 @@ describe('resolveModelConfig', () => {
         expect(result).not.toBeNull()
         expect(result!.features).toEqual({})
     })
+
+    // ★ 回归：旧单值 modelType（导入默认 'text'）不得包装为 customTypes 权威声明，
+    //   否则 resolveModelModalities 短路元数据判定，多模态模型（如 glm-5.3-flash）被误判纯文本。
+    it('旧单值 modelType=text + modelTypes=null → modelTypes 为 undefined（不短路元数据判定）', () => {
+        const providers = [makeProvider({
+            id: 'prov-glm',
+            type: 'openai',
+            models: [{id: 'm1', name: 'z-ai/glm-5.3-flash', enabled: true, modelType: 'text'} as never],
+        })]
+        const result = resolveModelConfig({endpointId: 'prov-glm', modelId: 'm1', enabled: true}, providers)
+        expect(result).not.toBeNull()
+        expect(result!.modelTypes).toBeUndefined()
+    })
+
+    it('modelTypes 数组（用户真实声明）→ 原样透传', () => {
+        const providers = [makeProvider({
+            id: 'prov-mt',
+            type: 'openai',
+            models: [{id: 'm2', name: 'some-model', enabled: true, modelTypes: ['image', 'text']} as never],
+        })]
+        const result = resolveModelConfig({endpointId: 'prov-mt', modelId: 'm2', enabled: true}, providers)
+        expect(result).not.toBeNull()
+        expect(result!.modelTypes).toEqual(['image', 'text'])
+    })
 })
 
 // ─── selectModelForAgentType / getModelConfigForAgentType ────────

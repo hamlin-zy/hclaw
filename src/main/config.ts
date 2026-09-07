@@ -7,6 +7,7 @@ import {systemSettingsRepo} from './repositories/sqlite/systemSettingsRepository
 import {workspaceRepo} from './repositories/sqlite/workspaceRepository';
 import {getPresetCommandMarkdownFiles, OBSOLETE_PRESET_COMMANDS} from './command/presetCommands';
 import {gracefulRestart} from './utils/restart';
+import {getGitBranch, startGitBranchWatch, stopGitBranchWatch} from './workspace/gitBranch';
 
 // --- 共享常量 ---
 
@@ -474,6 +475,18 @@ export function initConfigIPC(): void {
         return workspaceRepo.getCurrentWorkspace();
     });
 
+    ipcMain.handle('workspace:getGitBranch', async (_event: any, cwd: string) => {
+        if (cwd) {
+            // 建立/重建分支 watch（启动加载与工作区切换都会走到这里，保证监听与当前 cwd 一致）
+            try {
+                startGitBranchWatch(cwd);
+            } catch (err) {
+                console.error('[config] 启动 git 分支监听失败:', err);
+            }
+        }
+        return getGitBranch(cwd);
+    });
+
     ipcMain.handle('workspace:setCurrent', async (_event: any, id: string) => {
         const result = workspaceRepo.setCurrentWorkspace(id);
         if (result) {
@@ -485,6 +498,12 @@ export function initConfigIPC(): void {
                     runtimeConfigManager.setWorkingDir(workspace.path);
                 } catch (err) {
                     console.error('[config] 更新 runtimeConfigManager 失败:', err);
+                }
+                // 切换工作区：重建 git 分支 watch（先 stop 旧的）
+                try {
+                    startGitBranchWatch(workspace.path);
+                } catch (err) {
+                    console.error('[config] 启动 git 分支监听失败:', err);
                 }
             }
         }

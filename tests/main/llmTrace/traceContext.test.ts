@@ -33,12 +33,14 @@ describe('LLM 归因 traceContext（入口显式声明，防回归真值判断�
         expect(loop).not.toMatch(/traceContext\s*=\s*['"]/) // 不得设默认值
     })
 
-    it('三个入口显式设置各自的 traceContext', () => {
+    it('各入口显式设置各自的 traceContext', () => {
         const worker = readSrc('src/main/agent/worker.ts')
         const scheduler = readSrc('src/main/agent/subagent/scheduler.ts')
-        const cronWorker = readSrc('src/main/scheduler/schedulerAgentWorker.ts')
+        const schedulerManager = readSrc('src/main/scheduler/index.ts')
         expect(worker).toMatch(/traceContext:\s*'main'/)
         expect(scheduler).toMatch(/traceContext:\s*'subAgent'/)
-        expect(cronWorker).toMatch(/traceContext:\s*'background'/)
+        // 定时任务在主进程经 startAgentCore → agentLoop 执行
+        // （schedulerAgentWorker.ts 死代码已删除，其 traceContext:'background' 一并移除）
+        expect(schedulerManager).not.toMatch(/traceContext:\s*params\.agentType\s*\?/)
     })
 })

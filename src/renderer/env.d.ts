@@ -613,6 +613,9 @@ declare global {
             delete: (id: string) => Promise<boolean>
             getCurrent: () => Promise<{ id: string; path: string; name: string; createdAt: number; updatedAt: number } | null>
             setCurrent: (id: string) => Promise<boolean>
+            getGitBranch: (cwd: string) => Promise<string | null>
+            /** git 分支变化推送（外部命令行切分支等）；返回取消订阅函数 */
+            onGitBranchChanged: (callback: (branch: string | null) => void) => () => void
         }
 
         // 任务批次（历史任务组窗口数据源；类型复用主进程 taskBatchRepository）

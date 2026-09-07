@@ -411,10 +411,14 @@ export async function checkScriptDependencies(scripts: ScriptFile[]): Promise<{
 function commandExists(cmd: string): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      const proc = spawn(cmd, ['--version'], {
-        shell: process.platform === 'win32',
-        windowsHide: true,
-      })
+      // Windows：shell 模式必须传单个字符串（DEP0190：shell + args 数组只拼接不转义），
+      //   cmd 加引号防止含空格路径断裂及特殊字符注入；shell 同时提供 PATHEXT 解析。
+      // 非 Windows：不用 shell，保留 args 数组形式（引号字符串在无 shell 时会被
+      //   当作含引号的文件名导致 ENOENT）。
+      const isWin = process.platform === 'win32'
+      const proc = isWin
+        ? spawn(`"${cmd}" --version`, {shell: true, windowsHide: true})
+        : spawn(cmd, ['--version'], {windowsHide: true})
       
       // 进程启动失败（如命令不存在）
       proc.on('error', () => resolve(false))
