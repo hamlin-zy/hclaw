@@ -23,8 +23,18 @@ import {createConversationRepository} from '../repositories'
 import type {IConversationRepository} from '../repositories/interfaces'
 import type {ConversationMeta} from '@shared/types'
 import {getHclawDir} from '../config'
-import {getMainWindow} from '../window'
 import {SqliteWorkspaceRepository} from '../repositories/sqlite/workspaceRepository'
+
+/**
+ * 惰性获取主窗口：本模块位于 Agent Worker 的静态依赖闭包内
+ * （builtin/schedulerManageTool → scheduler/index），顶层 import window.ts 会把
+ * electron 主进程 API 拉进 worker（见 tests/main/deps/workerNoElectron.test.ts）
+ */
+function requireMainWindow(): ReturnType<typeof import('../window')['getMainWindow']> {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- worker 闭包不得静态引入 electron，需延迟加载
+    const {getMainWindow} = require('../window')
+    return getMainWindow()
+}
 import {createLogger} from '../agent/logger'
 
 const logger = createLogger('scheduler')
@@ -66,7 +76,7 @@ class SchedulerManager {
       }
       // 推送状态变化到渲染进程，使侧边栏实时刷新（best-effort）
       try {
-          const win = getMainWindow()
+          const win = requireMainWindow()
           if (win && !win.isDestroyed()) {
               win.webContents.send('conversation-updated', {
                   id: convId,
@@ -261,7 +271,7 @@ class SchedulerManager {
     }
 
     try {
-      const win = getMainWindow()
+      const win = requireMainWindow()
       if (win && !win.isDestroyed()) {
         win.webContents.send('conversation-updated', {
           id: convId,
@@ -313,7 +323,7 @@ class SchedulerManager {
 
     // 推送新会话事件到渲染进程，使会话列表实时刷新
     try {
-      const win = getMainWindow()
+      const win = requireMainWindow()
       if (win && !win.isDestroyed()) {
         win.webContents.send('conversation-created', {
           ...meta,
