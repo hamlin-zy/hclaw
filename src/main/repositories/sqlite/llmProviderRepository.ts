@@ -351,12 +351,10 @@ const mapRowToSqlProviderModel = (row: Record<string, unknown>): SqlProviderMode
     maxContextTokens: (row.max_context_tokens as number | null | undefined) ?? undefined,
     temperature: (row.temperature as number | null | undefined) ?? undefined,
     maxOutputTokens: (row.max_output_tokens as number | null | undefined) ?? undefined,
-    // model_types：NULL → 回退旧 model_type 单值包装数组；非法 JSON/非数组 → undefined
+    // model_types：NULL → undefined（回退由消费方 modelSelector 处理）；非法 JSON/非数组 → undefined
     modelTypes:
         row.model_types == null
-            ? row.model_type
-                ? [row.model_type as ModelType]
-                : undefined
+            ? undefined
             : parseModelTypes(row.model_types as string),
 })
 

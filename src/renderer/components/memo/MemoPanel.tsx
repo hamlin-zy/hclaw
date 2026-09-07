@@ -1,31 +1,34 @@
 /**
- * MemoPanel - 备忘录面板（Task 8，UI 修订轮 Task C 精简为纯列表）
+ * MemoPanel - 备忘录面板（待办/历史双 Tab + 日期分组 + Reorder 拖拽）
  *
  * 挂载于右侧边栏容器（SidePanels）。挂载时 load 当前工作区备忘录并
  * subscribeMemoChanged（workspacePath 相等才刷新）。
  *
- * - 背景：半透明 surface 底色（--bg-surface-alpha-inner）+ blur（globals.css .memo-panel-card，
- *   对齐 left-sidebar-card）；内部项透明底 + hover 半透明，无实底卡片
- * - 列表条目：能力徽章（上）+ 标题（下）+ 附件角标（数量），圆角卡片项
- *   （rounded-[18px]，对齐会话列表 ConversationItem）；不展示正文、不内联编辑
- * - 点击条目 → openConfigWindow('memo-edit', ['--hclaw-memo-id=<id>'])
- * - 新增按钮 → openConfigWindow('memo-edit', ['--hclaw-memo-workspace=<path>'])
- * - 搜索：关键词过滤 title + content（大小写不敏感）
- * - 排序：active 在前（updatedAt desc），processed 沉底置灰
- * - 会话处理：active 项 ▶ 创建会话处理；processed 项跳转关联会话（不存在则禁用）
- * - 面板右缘按钮 tooltip：用 TipButton 局部实现（向左展开 + nowrap）。
- *   TooltipPortal 全局组件仅支持 above/below/right 且无右缘钳制，不改公共组件，
- *   故面板内易被右缘遮挡的按钮不用 title（避免被 TooltipPortal 接管）而走局部方案
+ * 结构：标题+新建 → 搜索框 → Tab(待办|历史) → 列表
+ * - 待办 Tab：active 项，sortActiveMemos 排序（pinned→sortIndex→createdAt），
+ *   framer-motion Reorder 拖拽（FLIP 挤压动画），置顶约束保留
+ * - 历史 Tab：processed 项，groupProcessedByDate 按创建日期层级分组
+ *   （本月→日；本年→月→日；往年→年→月→日），组间倒序、组内 desc，
+ *   各组默认折叠，点组头展开
+ * - 搜索：只作用于当前 Tab，切 Tab 保留关键字
+ *
+ * 其余视觉对齐（胶囊圆角项、TipButton 等）见各组件内联注释。
  */
 import React, {useEffect, useMemo, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
+import {Reorder} from 'framer-motion'
 import {useMemoStore, subscribeMemoChanged, openMemoCreateWindow} from '../../stores/memoStore'
 import {useConversationStore} from '../../stores/conversationStore'
 import {useSidebarStore} from '../../stores/sidebarStore'
 import {confirm} from '../ConfirmDialog'
 import {formatRelativeTime} from '../../lib/relativeTime'
-import {sortMemos, reorderGroup, renumberGroup} from './memoSort'
+import {sortActiveMemos, groupProcessedByDate, renumberGroup, countGroupItems} from './memoSort'
+import type {ProcessedDateGroup} from './memoSort'
 import type {MemoCapability, MemoItem} from '@shared/types/memo'
+
+const PENDING_TAB = 'pending' as const
+const HISTORY_TAB = 'history' as const
+type MemoTab = typeof PENDING_TAB | typeof HISTORY_TAB
 
 /** TipButton 共用样式：面板内所有 hover 操作按钮的底样式，颜色类由调用处追加 */
 const ACTION_BTN_BASE = 'p-1 rounded hover:bg-[var(--surface-muted)] transition-colors'
@@ -40,6 +43,7 @@ export default function MemoPanel() {
     const setRightCollapsed = useSidebarStore((s) => s.setRightCollapsed)
 
     const [keyword, setKeyword] = useState('')
+    const [tab, setTab] = useState<MemoTab>(PENDING_TAB)
 
     useEffect(() => {
         if (!wsPath) return
@@ -47,34 +51,53 @@ export default function MemoPanel() {
         return subscribeMemoChanged(() => useConversationStore.getState().currentWorkspacePath ?? '')
     }, [wsPath, load])
 
-    const sorted = useMemo(() => {
-        const kw = keyword.trim().toLowerCase()
-        const list = kw
-            ? memos.filter((m) =>
-                m.title.toLowerCase().includes(kw) || m.content.toLowerCase().includes(kw))
-            : [...memos]
-        // 排序规则：未处理分组在前 → 组内 pinned 优先 → sortIndex desc → createdAt asc
-        return sortMemos(list)
-    }, [memos, keyword])
+    const kw = keyword.trim().toLowerCase()
+    const match = (m: MemoItem) => m.title.toLowerCase().includes(kw) || m.content.toLowerCase().includes(kw)
+
+    // 待办列表（搜索过滤后排序）
+    const activeList = useMemo(() => {
+        const list = sortActiveMemos(memos)
+        return kw ? list.filter(match) : list
+    }, [memos, kw]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    // 历史列表分组（搜索过滤后分组）
+    const historyGroups = useMemo(() => {
+        const processed = memos.filter((m) => m.status !== 'active')
+        return groupProcessedByDate(kw ? processed.filter(match) : processed)
+    }, [memos, kw]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const updateItem = useMemoStore((s) => s.updateItem)
-    // 拖拽排序：记录被拖拽项 id，落到目标行后组内重排 + 全量重编号落库
-    const [dragId, setDragId] = useState<string | null>(null)
+    // 拖拽：dragOrder 覆盖派生顺序，提供乐观更新驱动 FLIP 动画；onDragEnd 落库后清空回到派生顺序
+    const [dragOrder, setDragOrder] = useState<string[] | null>(null)
+    const renderOrder = dragOrder ?? activeList.map((m) => m.id)
+    const idsToMemos = (ids: string[]): MemoItem[] =>
+        ids.map((id) => memos.find((m) => m.id === id)).filter(Boolean) as MemoItem[]
 
-    const handleDrop = async (targetId: string) => {
-        const fromId = dragId
-        setDragId(null)
-        if (!fromId || fromId === targetId) return
-        // 仅 active 组可拖拽（processed 不可拖、不可作为落点）
-        const group = sorted.filter((m) => m.status === 'active')
-        const from = group.findIndex((m) => m.id === fromId)
-        const target = group.findIndex((m) => m.id === targetId)
-        if (from === -1 || target === -1) return
-        const reordered = reorderGroup(group, fromId, target)
-        if (!reordered) return // 违反约束（未置顶上穿置顶区）→ 拒绝
-        for (const {id, sortIndex} of renumberGroup(reordered)) {
+    const handleReorder = (newOrder: string[]) => {
+        // 置顶约束：非置顶项不得上穿置顶区（等价于置顶连续居前）
+        const items = idsToMemos(newOrder)
+        const firstUnpinned = items.findIndex((m) => !m.pinned)
+        if (firstUnpinned !== -1 && items.slice(firstUnpinned).some((m) => m.pinned)) return // 拒绝→回弹
+        setDragOrder(newOrder)
+    }
+
+    const handleDragEnd = async () => {
+        const items = idsToMemos(dragOrder ?? renderOrder)
+        for (const {id, sortIndex} of renumberGroup(items)) {
             await updateItem(id, {sortIndex})
         }
+        setDragOrder(null) // 落库后回到派生顺序（sortIndex 已更新，顺序一致）
+    }
+
+    // 历史分组折叠状态（默认全部折叠，点组头 toggle）
+    const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
+    const toggleGroup = (key: string) => {
+        setExpandedKeys((prev) => {
+            const next = new Set(prev)
+            if (next.has(key)) next.delete(key)
+            else next.add(key)
+            return next
+        })
     }
 
     // workspacePath/id 经 encodeURIComponent 编码后传参（路径含空格/`=` 时不会被 argv 切断，preload 侧解码）
@@ -87,6 +110,8 @@ export default function MemoPanel() {
     }
 
     const activeCount = memos.filter((m) => m.status === 'active').length
+    const processedCount = memos.length - activeCount
+    const searching = kw.length > 0
 
     return (
         <div className="memo-panel-card flex flex-col h-full text-[var(--text-primary)]">
@@ -112,42 +137,88 @@ export default function MemoPanel() {
                     value={keyword}
                     onChange={(e) => setKeyword(e.target.value)}
                     placeholder="搜索备忘录..."
-                    // 对齐会话列表 SearchInput：胶囊圆角 + 半透明底 + focus ring
-                    // 注：文字/占位符有意用 --text-primary/--text-muted token 而非会话列表的 gray-800/gray-200（token 化偏差，非不一致）
                     className="w-full px-4 py-2 bg-gray-100/60 dark:bg-white/5 rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:bg-white dark:focus:bg-[#1A1A1A] focus:ring-2 focus:ring-gray-200 dark:focus:ring-white/10 focus:border-transparent transition-all hover:bg-gray-100/80 dark:hover:bg-white/10"
                 data-name="memo-panel-input"/>
             </div>
 
-            {/* 列表（胶囊圆角项 + hover 半透明，对齐会话列表 ConversationItem） */}
-            <div className="flex-1 overflow-y-auto px-[var(--space-relaxed)] py-[var(--space-tight)] space-y-[1px]">
-                {loading && sorted.length === 0 && (
-                    <div className="p-4 text-center text-xs text-[var(--text-muted)]">加载中...</div>
-                )}
-                {!loading && sorted.length === 0 && (
-                    <div className="p-4 text-center text-xs text-[var(--text-muted)]">
-                        {keyword ? '无匹配的备忘录' : '暂无备忘录'}
-                    </div>
-                )}
-                {sorted.map((m) => (
-                    <MemoItemRow
-                        key={m.id}
-                        item={m}
-                        onOpen={() => openEdit(m.id)}
-                        dragging={dragId === m.id}
-                        onDragStart={() => setDragId(m.id)}
-                        onDragEnd={() => setDragId(null)}
-                        onDrop={() => void handleDrop(m.id)}
-                    />
-                ))}
+            {/* Tab：待办 | 历史 */}
+            <div className="flex shrink-0 border-b border-[var(--border)]" data-name="memo-panel-tabs">
+                <TabButton active={tab === PENDING_TAB} onClick={() => setTab(PENDING_TAB)}>
+                    待办
+                </TabButton>
+                <TabButton active={tab === HISTORY_TAB} onClick={() => setTab(HISTORY_TAB)}>
+                    历史
+                </TabButton>
             </div>
 
-            {/* 底部统计 + 折叠按钮：布局对齐会话列表 footer 的 status-row（按钮在统计旁） */}
+            {/* 列表区 */}
+            <div className="flex-1 overflow-y-auto px-[var(--space-relaxed)] py-[var(--space-tight)] space-y-[1px]">
+                {loading && memos.length === 0 && (
+                    <div className="p-4 text-center text-xs text-[var(--text-muted)]">加载中...</div>
+                )}
+                {!loading && tab === PENDING_TAB && activeList.length === 0 && (
+                    <div className="p-4 text-center text-xs text-[var(--text-muted)]">
+                        {searching ? '无匹配的备忘录' : '暂无备忘录'}
+                    </div>
+                )}
+                {!loading && tab === HISTORY_TAB && historyGroups.length === 0 && (
+                    <div className="p-4 text-center text-xs text-[var(--text-muted)]">
+                        {searching ? '无匹配的历史' : '暂无历史'}
+                    </div>
+                )}
+
+                {tab === PENDING_TAB && (
+                    searching ? (
+                        // 搜索时不启用拖拽（避免在过滤子集上重排破坏全局 sortIndex）
+                        activeList.map((m) => (
+                            <MemoItemRow key={m.id} item={m} onOpen={() => openEdit(m.id)}/>
+                        ))
+                    ) : (
+                        <Reorder.Group axis="y" values={renderOrder} onReorder={handleReorder} className="space-y-[1px]">
+                            {renderOrder.map((id) => {
+                                const m = memos.find((x) => x.id === id)
+                                if (!m) return null
+                                return (
+                                    <Reorder.Item
+                                        key={id}
+                                        value={id}
+                                        onDragEnd={() => void handleDragEnd()}
+                                        // 拖拽提起视觉：轻微缩放 + 阴影，松手回弹
+                                        whileDrag={{scale: 1.02, boxShadow: '0 4px 12px rgba(0,0,0,0.15)'}}
+                                        className="list-none"
+                                    >
+                                        <MemoItemRow item={m} onOpen={() => openEdit(m.id)}/>
+                                    </Reorder.Item>
+                                )
+                            })}
+                        </Reorder.Group>
+                    )
+                )}
+
+                {tab === HISTORY_TAB && (
+                    historyGroups.map((g, i) => (
+                        <GroupNode
+                            key={g.label + i}
+                            group={g}
+                            parentKey=""
+                            expandedKeys={expandedKeys}
+                            onToggle={toggleGroup}
+                            onOpen={openEdit}
+                        />
+                    ))
+                )}
+            </div>
+
+            {/* 底部统计 + 折叠按钮 */}
             <div className="shrink-0 px-3 py-2 border-t border-[var(--border)] flex items-center justify-between gap-2">
-                <div
-                    data-testid="memo-stats"
-                    className="text-2xs text-[var(--text-muted)]"
-                >
-                    待处理 {activeCount} · 已处理 {memos.length - activeCount}
+                <div data-testid="memo-stats" className="text-2xs text-[var(--text-muted)]">
+                    <span className={tab === PENDING_TAB ? 'text-[var(--brand-primary)] font-medium' : ''}>
+                        待处理 {activeCount}
+                    </span>
+                    {' · '}
+                    <span className={tab === HISTORY_TAB ? 'text-[var(--brand-primary)] font-medium' : ''}>
+                        已处理 {processedCount}
+                    </span>
                 </div>
                 <button
                     onClick={() => setRightCollapsed(true)}
@@ -160,6 +231,72 @@ export default function MemoPanel() {
                     </svg>
                 </button>
             </div>
+        </div>
+    )
+}
+
+/** Tab 按钮 */
+function TabButton({active, onClick, children}: {active: boolean; onClick: () => void; children: React.ReactNode}) {
+    return (
+        <button
+            onClick={onClick}
+            className={`flex-1 py-2 text-xs font-medium transition-colors ${active ? 'text-[var(--brand-primary)] border-b-2 border-[var(--brand-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
+        >
+            {children}
+        </button>
+    )
+}
+
+/** 历史分组节点：递归渲染 year→month→day，day 叶子渲染条目 */
+function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen}: {
+    group: ProcessedDateGroup
+    parentKey: string
+    expandedKeys: Set<string>
+    onToggle: (key: string) => void
+    onOpen: (id: string) => void
+}) {
+    const key = parentKey ? `${parentKey}/${group.label}` : group.label
+    const expanded = expandedKeys.has(key)
+    const depth = parentKey ? parentKey.split('/').length : 0
+    const count = countGroupItems(group)
+
+    return (
+        <div data-testid="memo-group" data-group-key={key}>
+            <button
+                onClick={() => onToggle(key)}
+                aria-label={`${expanded ? '折叠' : '展开'} ${group.label}`}
+                aria-expanded={expanded}
+                className="flex items-center gap-1 w-full py-1.5 hover:bg-gray-50 dark:hover:bg-white/5 rounded transition-colors"
+                style={{paddingLeft: `${depth * 16 + 4}px`}}
+            >
+                <svg
+                    className={`w-3 h-3 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-90' : ''}`}
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                >
+                    <polyline points="9 18 15 12 9 6"/>
+                </svg>
+                <span className="text-xs font-medium text-[var(--text-secondary)]">{group.label}</span>
+                <span className="text-[10px] text-[var(--text-muted)]">· {count}</span>
+            </button>
+            {expanded && (
+                <div style={{paddingLeft: `${depth * 16 + 4}px`}}>
+                    {group.kind === 'day'
+                        ? group.items.map((m) => (
+                            <MemoItemRow key={m.id} item={m} onOpen={() => onOpen(m.id)} processed/>
+                        ))
+                        : group.children.map((c, i) => (
+                            <GroupNode
+                                key={c.label + i}
+                                group={c}
+                                parentKey={key}
+                                expandedKeys={expandedKeys}
+                                onToggle={onToggle}
+                                onOpen={onOpen}
+                            />
+                        ))
+                    }
+                </div>
+            )}
         </div>
     )
 }
@@ -269,19 +406,17 @@ function TipButton({tip, label, onClick, className, disabled, children}: {
 /** 置顶图标 path（徽标与操作按钮共用） */
 const PIN_PATH = 'M16 3v5.06c0 .53.21 1.04.59 1.41L19 12v2h-6v6l-1 1-1-1v-6H5v-2l2.41-2.53c.38-.37.59-.88.59-1.41V3h8z'
 
-/** 单条备忘录行：能力徽章 + 标题 + 附件角标 + 创建时间；active 项可置顶/拖拽，点击打开独立编辑窗口 */
-function MemoItemRow({item, onOpen, dragging, onDragStart, onDragEnd, onDrop}: {
+/** 单条备忘录行：能力徽章 + 标题 + 附件角标 + 创建时间；active 项可置顶，点击打开独立编辑窗口 */
+function MemoItemRow({item, onOpen, processed: processedProp}: {
     item: MemoItem
     onOpen: () => void
-    dragging: boolean
-    onDragStart: () => void
-    onDragEnd: () => void
-    onDrop: () => void
+    /** 显式标记为已办（历史列表）；省略时按 item.status 推断 */
+    processed?: boolean
 }) {
     const createSession = useMemoStore((s) => s.createSession)
     const remove = useMemoStore((s) => s.remove)
     const updateItem = useMemoStore((s) => s.updateItem)
-    const processed = item.status !== 'active'
+    const processed = processedProp ?? item.status !== 'active'
     const conversations = useConversationStore((s) => s.workspaces[s.currentWorkspacePath ?? '']?.conversations ?? [])
     const convExists = item.relatedConvId ? conversations.some((c: {id: string}) => c.id === item.relatedConvId) : false
 
@@ -312,26 +447,9 @@ function MemoItemRow({item, onOpen, dragging, onDragStart, onDragEnd, onDrop}: {
             data-testid="memo-item"
             data-memo-id={item.id}
             onClick={onOpen}
-            // 拖拽：仅 active 项可拖；processed 不可拖、不响应 drop
-            draggable={!processed}
-            onDragStart={(e) => {
-                e.dataTransfer.effectAllowed = 'move'
-                e.dataTransfer.setData('text/plain', item.id)
-                onDragStart()
-            }}
-            onDragEnd={onDragEnd}
-            onDragOver={(e) => {
-                if (!processed) e.preventDefault()
-            }}
-            onDrop={(e) => {
-                if (processed) return
-                e.preventDefault()
-                onDrop()
-            }}
-            // 对齐 ConversationItem：透明底 + 胶囊圆角 + hover/active 半透明，无实底卡片
-            className={`group relative p-2.5 rounded-[18px] border border-transparent cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-white/5 active:bg-gray-100 dark:active:bg-white/10 ${processed ? 'opacity-50' : ''} ${dragging ? 'opacity-30' : ''}`}
+            className={`group relative p-2.5 rounded-[18px] border border-transparent cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-white/5 active:bg-gray-100 dark:active:bg-white/10 ${processed ? 'opacity-50' : ''}`}
          data-name="memo-panel-div">
-            {/* 能力徽章/标题/时间等文字内容占满整行；操作按钮绝对定位覆盖，不预留宽度（opacity-0 仅视觉隐藏仍占布局，会把文字列挤窄导致提前截断） */}
+            {/* 能力徽章/标题/时间等文字内容占满整行；操作按钮绝对定位覆盖，不预留宽度 */}
             <div className="min-w-0">
                 {/* 能力徽章在标题上方（纵向排列） */}
                 {item.capability && <CapabilityBadge capability={item.capability}/>}

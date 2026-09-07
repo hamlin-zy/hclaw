@@ -2,22 +2,121 @@
  * 备忘录列表排序 / 拖拽重排纯函数（MemoPanel 使用，独立导出便于测试）
  *
  * 排序规则（spec）：
- * 未处理在前（两级分组）→ 组内 pinned 优先 → sortIndex desc → createdAt asc
+ * - 待办（active）：pinned 优先 → sortIndex desc → createdAt asc（compareWithinGroup）
+ * - 历史（processed）：按创建日期层级分组（本月→日；本年→月→日；往年→年→月→日），
+ *   组间倒序（最近在上）、组内 createdAt desc（最新在上）
  */
 import type {MemoItem} from '@shared/types/memo'
 
-/** 组内比较器：pinned 优先 → sortIndex desc → createdAt asc */
+/** 组内比较器（待办用）：pinned 优先 → sortIndex desc → createdAt asc */
 export function compareWithinGroup(a: MemoItem, b: MemoItem): number {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
     if ((b.sortIndex ?? 0) !== (a.sortIndex ?? 0)) return (b.sortIndex ?? 0) - (a.sortIndex ?? 0)
     return a.createdAt - b.createdAt
 }
 
-/** 备忘录列表排序：未处理分组在前，各组内按 compareWithinGroup */
-export function sortMemos(list: MemoItem[]): MemoItem[] {
-    const active = list.filter(m => m.status === 'active').sort(compareWithinGroup)
-    const processed = list.filter(m => m.status !== 'active').sort(compareWithinGroup)
-    return [...active, ...processed]
+/** 待办列表排序：过滤 active + compareWithinGroup */
+export function sortActiveMemos(list: MemoItem[]): MemoItem[] {
+    return list.filter(m => m.status === 'active').sort(compareWithinGroup)
+}
+
+/** 通用日期分组节点：year/month 含 children，day 含 items（组内已按 createdAt desc 排序） */
+export interface DateGroup<T = unknown> {
+    kind: 'year' | 'month' | 'day'
+    label: string
+    items: T[]
+    children: DateGroup<T>[]
+}
+
+/** 备忘录历史分组节点（向后兼容别名） */
+export type ProcessedDateGroup = DateGroup<MemoItem>
+
+/** 递归统计分组节点下的条目总数（组头角标用） */
+export function countGroupItems<T>(g: DateGroup<T>): number {
+    if (g.kind === 'day') return g.items.length
+    return g.children.reduce((n, c) => n + countGroupItems(c), 0)
+}
+
+/**
+ * 通用日期层级分组（备忘录历史 / 会话列表共用）：
+ * - 本月（now 所在年月）→ 顶层「日」组
+ * - 本年其他月 → 顶层「月」组 +「日」子组
+ * - 往年 → 顶层「年」组 +「月」子组 +「日」孙组
+ *
+ * 组间倒序（最近的日期在上），组内（日组 items）按 createdAt desc（最新在上）。
+ * now 参数可注入以稳定测试（默认 Date.now()）。
+ */
+export function groupByDateHierarchy<T extends {createdAt: number}>(items: T[], now = Date.now()): DateGroup<T>[] {
+    const sorted = [...items].sort((a, b) => b.createdAt - a.createdAt)
+    const nowDate = new Date(now)
+    const nowYear = nowDate.getFullYear()
+    const nowMonth0 = nowDate.getMonth()
+
+    // year -> month -> day 三级索引（顺序遍历 sorted 保证组内 desc）
+    const yearMap = new Map<number, Map<number, Map<number, T[]>>>()
+    for (const m of sorted) {
+        const d = new Date(m.createdAt)
+        const y = d.getFullYear()
+        const mo = d.getMonth()
+        const da = d.getDate()
+        let monthMap = yearMap.get(y)
+        if (!monthMap) { monthMap = new Map(); yearMap.set(y, monthMap) }
+        let dayMap = monthMap.get(mo)
+        if (!dayMap) { dayMap = new Map(); monthMap.set(mo, dayMap) }
+        let arr = dayMap.get(da)
+        if (!arr) { arr = []; dayMap.set(da, arr) }
+        arr.push(m)
+    }
+
+    const result: DateGroup<T>[] = []
+    const years = [...yearMap.keys()].sort((a, b) => b - a)
+    for (const y of years) {
+        const monthMap = yearMap.get(y)!
+        if (y === nowYear) {
+            // 本年：不产生「年」节点，月直接挂顶层（本月再精简为「日」）
+            appendMonthGroups(result, monthMap, nowYear, nowMonth0, y)
+        } else {
+            const yearGroup: DateGroup<T> = {kind: 'year', label: `${y}年`, items: [], children: []}
+            appendMonthGroups(yearGroup.children, monthMap, nowYear, nowMonth0, y)
+            result.push(yearGroup)
+        }
+    }
+    return result
+}
+
+/** 备忘录历史分组：过滤 processed 后调用通用分组 */
+export function groupProcessedByDate(list: MemoItem[], now = Date.now()): DateGroup<MemoItem>[] {
+    const processed = list.filter(m => m.status !== 'active')
+    return groupByDateHierarchy(processed, now)
+}
+
+/** 月层级：本月直接铺「日」组到 target，其余月产生「月」节点（倒序） */
+function appendMonthGroups<T>(
+    target: DateGroup<T>[],
+    monthMap: Map<number, Map<number, T[]>>,
+    nowYear: number,
+    nowMonth0: number,
+    year: number,
+): void {
+    const months = [...monthMap.keys()].sort((a, b) => b - a)
+    for (const month0 of months) {
+        const dayMap = monthMap.get(month0)!
+        if (year === nowYear && month0 === nowMonth0) {
+            appendDayGroups(target, dayMap, month0)
+        } else {
+            const monthGroup: DateGroup<T> = {kind: 'month', label: `${month0 + 1}月`, items: [], children: []}
+            appendDayGroups(monthGroup.children, dayMap, month0)
+            target.push(monthGroup)
+        }
+    }
+}
+
+/** 日层级：按日倒序产生「日」组（items 已按 desc） */
+function appendDayGroups<T>(target: DateGroup<T>[], dayMap: Map<number, T[]>, month0: number): void {
+    const days = [...dayMap.keys()].sort((a, b) => b - a)
+    for (const day of days) {
+        target.push({kind: 'day', label: `${month0 + 1}月${day}日`, items: dayMap.get(day)!, children: []})
+    }
 }
 
 /**

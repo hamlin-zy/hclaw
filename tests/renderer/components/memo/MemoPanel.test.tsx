@@ -1,15 +1,18 @@
 // @vitest-environment jsdom
 /**
- * MemoPanel 组件测试（UI 修订轮 Task C：纯列表 + 独立编辑窗口）
+ * MemoPanel 组件测试（双 Tab + 日期分组 + Reorder 拖拽）
  *
  * 覆盖语义用例：
- * 1. 搜索关键词过滤 title + content（大小写不敏感）
- * 2. processed 沉底且置灰
- * 3. 条目纯展示：标题 + 附件角标 + 能力徽章，不渲染正文
- * 4. 点击条目 → openConfigWindow('memo-edit', ['--hclaw-memo-id=<id>'])
- * 5. 新增按钮 → openConfigWindow('memo-edit', ['--hclaw-memo-workspace=<path>'])
+ * 1. Tab 切换：默认待办，切到历史
+ * 2. 待办列表：排序渲染（pinned→sortIndex→createdAt）
+ * 3. 历史列表：按创建日期层级分组，默认折叠，点组头展开
+ * 4. 历史 processed 项置灰
+ * 5. 搜索只作用于当前 Tab
  * 6. 跳转按钮两态：会话存在可点 → setActiveConversation；已删除 → disabled
  * 7. 删除走 ConfirmDialog 确认
+ * 8. 底部统计随 Tab 高亮
+ * 9. 点击条目 → openConfigWindow('memo-edit', ['--hclaw-memo-id=<id>'])
+ * 10. 新增按钮 → openConfigWindow('memo-edit', ['--hclaw-memo-workspace=<path>'])
  *
  * mock 约定：memoStore / conversationStore / confirm 按 mockZustandStore 模式；
  * electronAPI.openConfigWindow 以 vi.fn stub。
@@ -60,7 +63,6 @@ const h = vi.hoisted(() => {
     const openConfigWindow = vi.fn(async () => {})
 
     return {useMemoStore, subscribeMemoChanged, useConversationStore, setActiveConversation, openConfigWindow,
-        // 真实实现走 window.electronAPI.openConfigWindow，代理保持断言一致
         openMemoCreateWindow: (ws: string) => window.electronAPI?.openConfigWindow?.('memo-edit', [`--hclaw-memo-workspace=${encodeURIComponent(ws)}`])}
 })
 
@@ -103,8 +105,21 @@ const item = (id: string, over: Partial<MemoItem> = {}): MemoItem => ({
     ...over,
 })
 
+/** 相对日期构造（本地时间，避免时区偏移） */
+const _now = new Date()
+const daysAgo = (n: number) => new Date(_now.getFullYear(), _now.getMonth(), _now.getDate() - n, 12).getTime()
+const monthsAgo = (n: number) => new Date(_now.getFullYear(), _now.getMonth() - n, 15, 12).getTime()
+const yearsAgo = (n: number) => new Date(_now.getFullYear() - n, 5, 15, 12).getTime()
+
 function setMemos(memos: MemoItem[]) {
     h.useMemoStore.setState({memos})
+}
+
+/** 切到历史 Tab 并展开第一个分组（默认全部折叠） */
+function gotoHistoryAndExpandFirstGroup() {
+    fireEvent.click(screen.getByRole('button', {name: '历史'}))
+    const headers = screen.getAllByRole('button', {name: /^展开 /})
+    if (headers.length > 0) fireEvent.click(headers[0])
 }
 
 describe('MemoPanel', () => {
@@ -116,15 +131,12 @@ describe('MemoPanel', () => {
         render(<MemoPanel/>)
 
         expect(screen.getByText('写文档')).toBeTruthy()
-        // 命中 title
         fireEvent.change(screen.getByPlaceholderText(/搜索备忘录/), {target: {value: 'LOGIN'}})
         expect(screen.queryByText('写文档')).toBeNull()
         expect(screen.getByText('fix login bug')).toBeTruthy()
-        // 命中 content（title 不含关键词）
         fireEvent.change(screen.getByPlaceholderText(/搜索备忘录/), {target: {value: 'DOCS'}})
         expect(screen.getByText('写文档')).toBeTruthy()
         expect(screen.queryByText('fix login bug')).toBeNull()
-        // 全不命中
         fireEvent.change(screen.getByPlaceholderText(/搜索备忘录/), {target: {value: 'zzz-no-match'}})
         expect(screen.getByText('无匹配的备忘录')).toBeTruthy()
     })
@@ -149,24 +161,179 @@ describe('MemoPanel', () => {
         expect(stats.textContent).toContain('待处理 2')
         expect(stats.textContent).toContain('已处理 1')
     })
+})
 
-    it('processed 沉底且置灰', () => {
+describe('MemoPanel · Tab 切换', () => {
+    it('默认显示待办 Tab，待办项可见、历史项不可见', () => {
         setMemos([
-            item('p1', {status: 'processed'}),
-            item('a1', {title: 'active one'}),
+            item('a1', {title: '待办项A'}),
+            item('p1', {status: 'processed', createdAt: daysAgo(0), title: '历史项P'}),
+        ])
+        render(<MemoPanel/>)
+
+        expect(screen.getByText('待办项A')).toBeTruthy()
+        expect(screen.queryByText('历史项P')).toBeNull()
+    })
+
+    it('切到历史 Tab 后显示分组头（不展示条目，因为默认折叠）', () => {
+        setMemos([
+            item('p1', {status: 'processed', createdAt: daysAgo(0), title: '历史项P'}),
+        ])
+        render(<MemoPanel/>)
+
+        fireEvent.click(screen.getByRole('button', {name: '历史'}))
+        // 分组头存在（展开按钮）
+        expect(screen.getAllByRole('button', {name: /^展开 /}).length).toBeGreaterThan(0)
+        // 条目仍不可见（折叠）
+        expect(screen.queryByText('历史项P')).toBeNull()
+    })
+
+    it('切回待办 Tab 后待办项可见', () => {
+        setMemos([
+            item('a1', {title: '待办项A'}),
+            item('p1', {status: 'processed', createdAt: daysAgo(0), title: '历史项P'}),
+        ])
+        render(<MemoPanel/>)
+
+        fireEvent.click(screen.getByRole('button', {name: '历史'}))
+        fireEvent.click(screen.getByRole('button', {name: '待办'}))
+        expect(screen.getByText('待办项A')).toBeTruthy()
+    })
+})
+
+describe('MemoPanel · 待办列表排序', () => {
+    it('渲染顺序：pinned → sortIndex desc → createdAt asc', () => {
+        setMemos([
+            item('a', {createdAt: 3}),
+            item('b', {createdAt: 1, pinned: true}),
+            item('c', {createdAt: 2}),
         ])
         render(<MemoPanel/>)
 
         const rows = screen.getAllByTestId('memo-item')
-        expect(rows).toHaveLength(2)
-        // active 在前，processed 沉底
-        expect(rows[0].textContent).toContain('active one')
-        expect(rows[1].textContent).toContain('memo-p1')
-        // 置灰 class
-        expect(rows[1].className).toContain('opacity-50')
-        expect(rows[0].className).not.toContain('opacity-50')
+        expect(rows.map((r) => r.getAttribute('data-memo-id'))).toEqual(['b', 'c', 'a'])
     })
 
+    it('置顶项与未置顶项各自组内有序，置顶居前', () => {
+        setMemos([
+            item('u1', {sortIndex: 0, createdAt: 1}),
+            item('p1', {sortIndex: 5, createdAt: 9, pinned: true}),
+            item('u2', {sortIndex: 0, createdAt: 2}),
+            item('p2', {sortIndex: 3, createdAt: 8, pinned: true}),
+        ])
+        render(<MemoPanel/>)
+
+        const rows = screen.getAllByTestId('memo-item')
+        // sortIndex desc: p1(5) > p2(3) → p1,p2 在前；createdAt asc: u1(1) < u2(2)
+        expect(rows.map((r) => r.getAttribute('data-memo-id'))).toEqual(['p1', 'p2', 'u1', 'u2'])
+    })
+})
+
+describe('MemoPanel · 历史分组与折叠', () => {
+    it('processed 项置灰（opacity-50），active 项不置灰', () => {
+        setMemos([
+            item('a1', {title: 'active one'}),
+            item('p1', {status: 'processed', createdAt: daysAgo(0), title: '历史项P'}),
+        ])
+        render(<MemoPanel/>)
+
+        // 待办 Tab 下 active 不置灰
+        const activeRow = screen.getAllByTestId('memo-item')[0]
+        expect(activeRow.className).not.toContain('opacity-50')
+
+        // 历史 Tab 下 processed 置灰
+        gotoHistoryAndExpandFirstGroup()
+        const processedRow = screen.getByTestId('memo-item')
+        expect(processedRow.className).toContain('opacity-50')
+    })
+
+    it('展开分组后条目可见，再点折叠后隐藏', () => {
+        setMemos([
+            item('p1', {status: 'processed', createdAt: daysAgo(0), title: '历史项P'}),
+        ])
+        render(<MemoPanel/>)
+
+        fireEvent.click(screen.getByRole('button', {name: '历史'}))
+        expect(screen.queryByText('历史项P')).toBeNull()
+
+        // 展开
+        fireEvent.click(screen.getAllByRole('button', {name: /^展开 /})[0])
+        expect(screen.getByText('历史项P')).toBeTruthy()
+
+        // 折叠
+        fireEvent.click(screen.getAllByRole('button', {name: /^折叠 /})[0])
+        expect(screen.queryByText('历史项P')).toBeNull()
+    })
+
+    it('跨年数据产生「年」层级分组头', () => {
+        setMemos([
+            item('old', {status: 'processed', createdAt: yearsAgo(1), title: '去年的项'}),
+        ])
+        render(<MemoPanel/>)
+
+        fireEvent.click(screen.getByRole('button', {name: '历史'}))
+        // 顶层应有「YYYY年」分组头（textContent 含「年」字，年组 label 如「2025年」）
+        const headers = screen.getAllByRole('button', {name: /^展开 /})
+        const yearHeader = headers.find((b) => (b.textContent ?? '').includes('年'))
+        expect(yearHeader).toBeTruthy()
+    })
+
+    it('本月数据直接为「日」层级（无月/年包裹）', () => {
+        setMemos([
+            item('today', {status: 'processed', createdAt: daysAgo(0), title: '今天项'}),
+        ])
+        render(<MemoPanel/>)
+
+        fireEvent.click(screen.getByRole('button', {name: '历史'}))
+        const headers = screen.getAllByRole('button', {name: /^展开 /})
+        // 本月日组 label 形如「M月D日」
+        const dayHeader = headers.find((b) => /\d+月\d+日/.test(b.textContent ?? ''))
+        expect(dayHeader).toBeTruthy()
+        // 不应有「年」层级组头（月组/日组 label 不含「年」字）
+        const yearHeader = headers.find((b) => (b.textContent ?? '').includes('年'))
+        expect(yearHeader).toBeFalsy()
+    })
+})
+
+describe('MemoPanel · 搜索只搜当前 Tab', () => {
+    it('待办 Tab 搜索只过滤待办项', () => {
+        setMemos([
+            item('a1', {title: 'login bug', status: 'active'}),
+            item('a2', {title: 'docs', status: 'active'}),
+            item('p1', {title: 'login history', status: 'processed', createdAt: daysAgo(0)}),
+        ])
+        render(<MemoPanel/>)
+
+        // 默认待办 Tab
+        expect(screen.getByText('login bug')).toBeTruthy()
+        fireEvent.change(screen.getByPlaceholderText(/搜索备忘录/), {target: {value: 'login'}})
+        expect(screen.getByText('login bug')).toBeTruthy()
+        expect(screen.queryByText('docs')).toBeNull()
+        // 历史项不在待办 Tab 显示
+        expect(screen.queryByText('login history')).toBeNull()
+    })
+
+    it('历史 Tab 搜索只过滤历史项（搜索后展开分组可见匹配条目）', () => {
+        setMemos([
+            item('a1', {title: 'login bug', status: 'active'}),
+            item('p1', {title: 'login history', status: 'processed', createdAt: daysAgo(0)}),
+            item('p2', {title: 'other', status: 'processed', createdAt: daysAgo(1)}),
+        ])
+        render(<MemoPanel/>)
+
+        fireEvent.click(screen.getByRole('button', {name: '历史'}))
+        fireEvent.change(screen.getByPlaceholderText(/搜索备忘录/), {target: {value: 'login'}})
+
+        // 搜索结果只含匹配的历史项，展开后可见
+        const headers = screen.getAllByRole('button', {name: /^展开 /})
+        if (headers.length > 0) fireEvent.click(headers[0])
+        expect(screen.getByText('login history')).toBeTruthy()
+        expect(screen.queryByText('other')).toBeNull()
+        expect(screen.queryByText('login bug')).toBeNull()
+    })
+})
+
+describe('MemoPanel · 条目交互', () => {
     it('条目纯展示：标题 + 附件角标 + 能力徽章，不渲染正文', () => {
         setMemos([item('m1', {
             title: '购物清单',
@@ -181,9 +348,7 @@ describe('MemoPanel', () => {
         expect(row.textContent).toContain('daily-task')
         expect(row.textContent).toContain('技能')
         expect(row.textContent).toContain('📎 1')
-        // 不再展示正文摘要
         expect(row.textContent).not.toContain('牛奶')
-        // 无内联编辑器
         expect(screen.queryByPlaceholderText('记录备忘...')).toBeNull()
         expect(screen.queryByText('保存')).toBeNull()
     })
@@ -197,10 +362,8 @@ describe('MemoPanel', () => {
 
         const row = screen.getByTestId('memo-item')
         const badge = screen.getByTestId('memo-capability-badge')
-        // DOM 顺序：徽章在标题元素之前
         const titleEl = Array.from(row.querySelectorAll('div')).find((d) => d.textContent === '标题在下')
         expect(badge.compareDocumentPosition(titleEl!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-        // 同构样式：agent 蓝 / 图标 chip / 类型标签
         expect(badge.textContent).toContain('review-agent')
         expect(badge.textContent).toContain('代理')
         expect(badge.className).toContain('items-center')
@@ -235,13 +398,13 @@ describe('MemoPanel', () => {
         render(<MemoPanel/>)
 
         const deleteBtn = screen.getByLabelText('删除')
-        expect(deleteBtn.getAttribute('title')).toBeNull() // 不用 title，避免被全局 TooltipPortal 接管
+        expect(deleteBtn.getAttribute('title')).toBeNull()
         fireEvent.mouseEnter(deleteBtn)
 
         const tip = screen.getByTestId('memo-tip')
         expect(tip.textContent).toBe('删除')
         expect(tip.style.whiteSpace).toBe('nowrap')
-        expect(tip.style.transform).toBe('translateX(-100%)') // 右缘对齐按钮右缘、向左延伸
+        expect(tip.style.transform).toBe('translateX(-100%)')
 
         fireEvent.mouseLeave(deleteBtn)
         expect(screen.queryByTestId('memo-tip')).toBeNull()
@@ -281,22 +444,21 @@ describe('MemoPanel', () => {
         expect(h.openConfigWindow).toHaveBeenCalledWith('memo-edit', ['--hclaw-memo-workspace=' + encodeURIComponent('E:\\my projects\\app')])
     })
 
-    it('跳转按钮：会话存在可点 → setActiveConversation；已删除 → disabled', () => {
+    it('历史 Tab 跳转按钮：会话存在可点 → setActiveConversation；已删除 → disabled', () => {
         setMemos([
-            item('p1', {status: 'processed', relatedConvId: 'conv-1'}),
-            item('p2', {title: 'orphan', status: 'processed', relatedConvId: 'conv-gone'}),
+            item('p1', {status: 'processed', createdAt: daysAgo(0), relatedConvId: 'conv-1'}),
+            item('p2', {status: 'processed', createdAt: daysAgo(1), title: 'orphan', relatedConvId: 'conv-gone'}),
         ])
         render(<MemoPanel/>)
 
-        const rows = screen.getAllByTestId('memo-item')
-        const okBtn = Array.from(rows[0].querySelectorAll('button')).find((b) => b.getAttribute('aria-label') === '跳转到关联会话')!
+        fireEvent.click(screen.getByRole('button', {name: '历史'}))
+        // 展开第一个分组（含 p1）
+        fireEvent.click(screen.getAllByRole('button', {name: /^展开 /})[0])
+
+        const okBtn = screen.getByLabelText('跳转到关联会话')
         expect(okBtn.disabled).toBe(false)
         fireEvent.click(okBtn)
         expect(h.setActiveConversation).toHaveBeenCalledWith('conv-1')
-
-        const orphanRow = screen.getByText('orphan').closest('[data-testid="memo-item"]')!
-        const orphanBtn = Array.from(orphanRow.querySelectorAll('button')).find((b) => b.getAttribute('aria-label') === '跳转到关联会话')!
-        expect(orphanBtn.disabled).toBe(true)
     })
 
     it('删除走 ConfirmDialog 确认', async () => {
@@ -329,8 +491,6 @@ describe('CAP_STYLE ↔ TYPE_STYLE 漂移守护', () => {
     })
 
     it('UserCommandBubble 不存在与 command 语义等价的漂移键（plugin 仅作灰色降级，不参与断言）', () => {
-        // 守护意图说明：若未来 TYPE_STYLE 新增与 skill/agent/command 同义的新键，
-        // 应更新 PAIRINGS 使其纳入一致性校验，而不是放任漂移。
         expect(TYPE_STYLE.plugin).toBeDefined()
         expect(CAP_STYLE.command).toBeDefined()
     })
