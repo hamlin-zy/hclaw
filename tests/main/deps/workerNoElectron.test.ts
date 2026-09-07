@@ -105,5 +105,7 @@ describe('worker-no-electron：worker 依赖闭包不得引入 electron', () => 
         }
 
         expect(offenders).toEqual([])
-    })
+    // 全量跑时与其它用例并发，dependency-cruiser 全图扫描受 CPU 竞争影响波动大，
+    // 单独跑仅 ~1.5s，这里放宽超时避免 flaky（vitest 全局默认 10s）
+    }, 60_000)
 })

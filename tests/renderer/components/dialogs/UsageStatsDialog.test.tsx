@@ -40,7 +40,7 @@ describe('UsageStatsDialog 分组用量', () => {
     it('总计部分照常渲染（KPI/Token 明细/缓存/调用）', async () => {
         render(<UsageStatsDialog />)
         openDialog()
-        await waitFor(() => expect(screen.getByText('27.8M')).toBeTruthy())
+        await waitFor(() => expect(screen.getByText('27.79M')).toBeTruthy())
         expect(screen.getByText('缓存命中率')).toBeTruthy()
         // 时序 KPI：平均吞吐 = Σ输出 ÷ Σ解码时长；平均首字 = Σ首字 ÷ 样本数
         expect(screen.getByText('平均吞吐')).toBeTruthy()
@@ -56,7 +56,7 @@ describe('UsageStatsDialog 分组用量', () => {
     it('弹窗宽度 560px（加宽）', async () => {
         render(<UsageStatsDialog />)
         openDialog()
-        await waitFor(() => expect(screen.getByText('27.8M')).toBeTruthy())
+        await waitFor(() => expect(screen.getByText('27.79M')).toBeTruthy())
         expect(screen.getByRole('dialog').className).toContain('w-[560px]')
     })
 
@@ -75,7 +75,7 @@ describe('UsageStatsDialog 分组用量', () => {
     it('LLM 请求与工具调用在一行显示（同一 grid 容器）', async () => {
         render(<UsageStatsDialog />)
         openDialog()
-        await waitFor(() => expect(screen.getByText('27.8M')).toBeTruthy())
+        await waitFor(() => expect(screen.getByText('27.79M')).toBeTruthy())
         const llmLabel = screen.getByText('LLM 请求')
         const toolLabel = screen.getByText('工具调用')
         // 两个 StatRow 的父级是同一个 grid（grid-cols-2 一行两列）
@@ -86,7 +86,7 @@ describe('UsageStatsDialog 分组用量', () => {
     it('Token 明细 / 缓存 / 调用每一项均带边框', async () => {
         render(<UsageStatsDialog />)
         openDialog()
-        await waitFor(() => expect(screen.getByText('27.8M')).toBeTruthy())
+        await waitFor(() => expect(screen.getByText('27.79M')).toBeTruthy())
         // Token 明细：输入/输出两项（分组卡片中也有同名标签，取第一处 = 明细区）
         for (const label of ['输入', '输出']) {
             const row = screen.getAllByText(label)[0]!.closest('div.flex')
@@ -113,7 +113,7 @@ describe('UsageStatsDialog 分组用量', () => {
         await waitFor(() => expect(screen.getByText('缓存写入')).toBeTruthy())
         const writeRow = screen.getByText('缓存写入').closest('div.flex')
         expect(writeRow!.className).toContain('rounded-lg border')
-        expect(screen.getByText('5.0k')).toBeTruthy()
+        expect(screen.getByText('5.00k')).toBeTruthy()
     })
 
     it('无时序数据 → 平均吞吐/首字显示 —', async () => {
@@ -176,7 +176,7 @@ describe('UsageStatsDialog 分组用量', () => {
         })
         render(<UsageStatsDialog />)
         openDialog()
-        await waitFor(() => expect(screen.getByText('27.8M')).toBeTruthy())
+        await waitFor(() => expect(screen.getByText('27.79M')).toBeTruthy())
         expect(screen.queryByText('分组用量')).toBeNull()
     })
 

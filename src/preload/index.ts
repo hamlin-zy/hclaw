@@ -196,6 +196,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         whenToUse?: string
         systemPrompt: string
         enabled?: boolean
+        allowedTools?: string[]
+        disallowedTools?: string[]
     }) => ipcRenderer.invoke('agents:create', params),
     agentsDelete: (templateId: string) =>
         ipcRenderer.invoke('agents:delete', templateId),
@@ -205,6 +207,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         whenToUse?: string
         enabled?: boolean
         systemPrompt?: string
+        allowedTools?: string[]
+        disallowedTools?: string[]
     }) => ipcRenderer.invoke('agents:update', templateId, updates),
     agentsToggleBatch: (params: {templateIds: string[]; enabled: boolean}) =>
         ipcRenderer.invoke('agents:toggle-batch', params),

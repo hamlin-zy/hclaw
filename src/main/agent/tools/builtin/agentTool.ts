@@ -135,8 +135,10 @@ const MODEL_ROLE_GUIDANCE: Record<TextModelRole, string> = {
 
 /**
  * 动态构建 inputSchema：
- * - agent 用 enum 约束为「已启用 Agent 名称」（弱指令遵循模型只能选合法值，
- *   选错时 zod 错误信息自动携带候选列表，报错即引导）；
+ * - agent 用 string + 描述内嵌候选列表（不再用 z.enum 硬约束）：
+ *   枚举会在 zod 校验层直接拒绝近义名称（如 "Implementer" vs 注册名 "Implementer Agent"），
+ *   使 execute 内 agentRegistry.find 的双向前缀容错永远无法生效。
+ *   放宽后，错误名称由 execute 的 find() + 行动性报错（列候选、要求重试）兜底；
  * - modelRole 必填，枚举按当前方案可用文本角色实时生成（getUsableTextRoles，
  *   含 provider/model enabled 判定），每次序列化现算，方案变更即时感知；
  * - 描述中的示例与选择规则只覆盖当前可用角色，未启用角色不进入示例，
@@ -148,10 +150,11 @@ function buildInputSchema(): z.ZodType<AgentToolInput> {
         runtimeConfigManager.getScheme(),
         runtimeConfigManager.getProviders(),
     )
+    const candidates = agentNames.length ? agentNames.join(' | ') : 'General Agent'
     return z.object({
         task: z.string().describe('子任务的完整描述（包含目标 + 参考材料）'),
-        agent: (agentNames.length ? z.enum(agentNames as [string, ...string[]]) : z.string())
-            .describe('必填。要作为子 Agent 运行的已启用 Agent 名称，从可选项中精确选择。类型映射：实现/修复→Implementer、审查→Code Reviewer、代码搜索/调研→Explore、架构规划→Plan、验证→Verification、模糊或跨领域→General。'),
+        agent: z.string()
+            .describe(`必填。要作为子 Agent 运行的已启用 Agent 名称，从以下候选中选择：${candidates}。名称需完整精确（含" Agent"后缀），如 "Implementer Agent"；传入前缀近义词会由系统容错匹配。类型映射：实现/修复→Implementer、审查→Code Reviewer、代码搜索/调研→Explore、架构规划→Plan、验证→Verification、模糊或跨领域→General。`),
         tools: z.array(z.string()).optional()
             .describe('允许使用的工具白名单（指定 agent 时覆盖 Agent 定义的白名单）'),
         modelRole: z.enum(availableRoles.length ? availableRoles as [ModelRole, ...ModelRole[]] : ['primary' as ModelRole])

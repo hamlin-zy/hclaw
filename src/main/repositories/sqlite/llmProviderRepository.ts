@@ -1,9 +1,9 @@
 import {getDatabase, saveDatabase} from './index'
 import type {ModelPricing} from '@shared/pricing'
-import type {AuthType, LLMProvider, ModelType, ProviderCredentials, ProviderModel, ProviderType} from '@shared/types'
+import type {AuthType, LLMProvider, ModelType, ProviderCredentials, ProviderCustomHeader, ProviderModel, ProviderType} from '@shared/types'
 
 // Re-export for consumers
-export type {LLMProvider, ProviderCredentials, ProviderModel, ModelType, ProviderType, AuthType}
+export type {LLMProvider, ProviderCredentials, ProviderCustomHeader, ProviderModel, ModelType, ProviderType, AuthType}
 
 /** Repository 层模型记录（包含 DB 列） */
 export interface SqlProviderModel {
@@ -33,6 +33,54 @@ import {createQueryLogger} from './queryLogger'
 // ─── 辅助函数 ─────────────────────────────────────────────
 
 const logQuery = createQueryLogger('SQLite ProviderRepository')
+
+/** 将数据库行映射为 ProviderCustomHeader 对象 */
+const mapRowToHeader = (row: Record<string, unknown>): ProviderCustomHeader => ({
+    id: row.id as string,
+    providerId: row.provider_id as string,
+    headerName: (row.header_name as string) ?? '',
+    prefix: (row.prefix as string | null) ?? undefined,
+    variable: (row.variable as ProviderCustomHeader['variable'] | null) ?? undefined,
+})
+
+/** 查询某 provider 的自定义请求头（无配置返回 undefined，避免空数组污染） */
+const listHeadersByProvider = (db: ReturnType<typeof getDatabase>, providerId: string): ProviderCustomHeader[] | undefined => {
+    const rows = db.prepare(
+        'SELECT id, provider_id, header_name, prefix, variable FROM provider_custom_headers WHERE provider_id = ? ORDER BY created_at ASC'
+    ).all(providerId) as Array<Record<string, unknown>>
+    if (rows.length === 0) return undefined
+    return rows.map(mapRowToHeader)
+}
+
+/** 批量查询多个 provider 的自定义请求头并按 provider_id 分组 */
+const listHeadersByProviderIds = (db: ReturnType<typeof getDatabase>, providerIds: string[]): Map<string, ProviderCustomHeader[]> => {
+    const map = new Map<string, ProviderCustomHeader[]>()
+    if (providerIds.length === 0) return map
+    const placeholders = providerIds.map(() => '?').join(',')
+    const rows = db.prepare(
+        `SELECT id, provider_id, header_name, prefix, variable FROM provider_custom_headers WHERE provider_id IN (${placeholders}) ORDER BY created_at ASC`
+    ).all(...providerIds) as Array<Record<string, unknown>>
+    for (const row of rows) {
+        const h = mapRowToHeader(row)
+        const arr = map.get(h.providerId)
+        if (arr) arr.push(h)
+        else map.set(h.providerId, [h])
+    }
+    return map
+}
+
+/** 替换某 provider 的全部自定义请求头（DELETE + INSERT，headers 为空则仅清空） */
+const replaceHeaders = (db: ReturnType<typeof getDatabase>, providerId: string, headers: ProviderCustomHeader[] | undefined, now: number): void => {
+    db.prepare('DELETE FROM provider_custom_headers WHERE provider_id = ?').run(providerId)
+    if (!headers || headers.length === 0) return
+    const stmt = db.prepare(`
+      INSERT INTO provider_custom_headers (id, provider_id, header_name, prefix, variable, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+    for (const h of headers) {
+        stmt.run(h.id, providerId, h.headerName, h.prefix ?? null, h.variable ?? null, now, now)
+    }
+}
 
 /** 将数据库行映射为 LLMProvider 对象 */
 const mapRowToProvider = (row: Record<string, unknown>): LLMProvider => {
@@ -77,6 +125,11 @@ export class SqliteProviderRepository {
         enabled: number
       }>
         const providers = rows.map(mapRowToProvider)
+        const headerMap = listHeadersByProviderIds(db, providers.map(p => p.id))
+        for (const p of providers) {
+            const hs = headerMap.get(p.id)
+            if (hs) p.customHeaders = hs
+        }
       logQuery('list', start, `${providers.length} providers`)
       return providers
     } catch (err) {
@@ -108,7 +161,10 @@ export class SqliteProviderRepository {
         enabled: number
       } | undefined
       if (!row) return null
-        return mapRowToProvider(row)
+        const provider = mapRowToProvider(row)
+        const hs = listHeadersByProvider(db, provider.id)
+        if (hs) provider.customHeaders = hs
+        return provider
     } catch (err) {
       console.error('[SqliteProviderRepository] getById failed:', err)
       return null
@@ -138,7 +194,10 @@ export class SqliteProviderRepository {
         enabled: number
       } | undefined
       if (!row) return null
-        return mapRowToProvider(row)
+        const provider = mapRowToProvider(row)
+        const hs = listHeadersByProvider(db, provider.id)
+        if (hs) provider.customHeaders = hs
+        return provider
     } catch (err) {
       console.error('[SqliteProviderRepository] getByName failed:', err)
       return null
@@ -198,6 +257,9 @@ export class SqliteProviderRepository {
         )
       }
 
+      // 同步自定义请求头（DELETE + INSERT）
+      replaceHeaders(db, provider.id, provider.customHeaders, now)
+
       saveDatabase()
       logQuery('save', start, provider.id)
       return true
@@ -252,10 +314,15 @@ export class SqliteProviderRepository {
             now,
             now
           )
+
+          // 同步自定义请求头（DELETE + INSERT）
+          replaceHeaders(db, provider.id, provider.customHeaders, now)
         }
 
         // 重新清理孤儿模型（刚才删除 provider 后可能新增了 providers，确保一致性）
         db.prepare('DELETE FROM provider_models WHERE provider_id NOT IN (SELECT id FROM providers)').run()
+        // 清理孤儿请求头
+        db.prepare('DELETE FROM provider_custom_headers WHERE provider_id NOT IN (SELECT id FROM providers)').run()
 
         db.exec('COMMIT')
       } catch (innerErr) {
@@ -280,8 +347,9 @@ export class SqliteProviderRepository {
     const start = Date.now()
     try {
       const db = getDatabase()
-      // 先删除关联的模型
+      // 先删除关联的模型与请求头
       db.prepare('DELETE FROM provider_models WHERE provider_id = ?').run(id)
+      db.prepare('DELETE FROM provider_custom_headers WHERE provider_id = ?').run(id)
       db.prepare('DELETE FROM providers WHERE id = ?').run(id)
       saveDatabase()
       logQuery('delete', start, id)

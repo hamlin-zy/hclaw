@@ -171,7 +171,8 @@ describe('MCPUserServerCard 版本下拉（Task 5）', () => {
         )
         render(<MCPUserServerCard server={serverWithVersions} {...noopHandlers} />)
         expect(screen.queryByRole('combobox')).toBeNull()
-        expect(screen.getByText('1.0.0 / 2.0.0')).toBeTruthy()
+        // availableVersions 为空时不渲染下拉，版本经 MCPVersionBadge 呈现：v1.0.0 徽章 + title 提示新版本
+        expect(screen.getByTitle('有新版本 2.0.0').textContent).toContain('1.0.0')
     })
 
     it('dispatches hclaw:show-toast success after switchVersion resolves', async () => {
