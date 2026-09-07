@@ -83,14 +83,14 @@ describe('executeLlmCallWithRetry mid-loop 交接门（真实 usage 优先）', 
     const history: ChatMessage[] = [{role: 'user', content: 'hello'}]
 
     // 第 1 次调用：gate 无真实 usage 记录 → 字符估算（极小）→ 不注入；
-    // 流返回真实 usage 80k > 0.5 × 1M = 500k（若 mock 值不够则需调整测试数据）
-    const chat = vi.fn().mockImplementation(usageStream(50_000, 30_000))
+    // 流返回真实 usage 550k > 0.5 × 1M = 500k（test-model 无注册窗口，走 1M fallback）
+    const chat = vi.fn().mockImplementation(usageStream(400_000, 150_000))
     await drive(buildCtx(chat, sessionId, history))
     expect(chat).toHaveBeenCalledTimes(1)
     const firstMsgs = chat.mock.calls[0][0].messages as ChatMessage[]
     expect(firstMsgs.some(m => String(m.content ?? '').includes('准备交接'))).toBe(false)
 
-    // 第 2 次调用：gate 应消费第 1 轮真实 usage（80k > 64k）→ 注入
+    // 第 2 次调用：gate 应消费第 1 轮真实 usage（550k > 500k 阈值）→ 注入
     const chat2 = vi.fn().mockImplementation(usageStream(1, 0))
     await drive(buildCtx(chat2, sessionId, history))
     expect(chat2).toHaveBeenCalledTimes(1)
