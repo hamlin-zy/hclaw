@@ -243,6 +243,46 @@ describe('memoStore', () => {
     })
 })
 
+describe('memoStore priority 持久化', () => {
+    it('update({priority: "low"}) 后重载 store，条目带 priority', async () => {
+        const store = await freshStore()
+        const item = store.create({workspacePath: 'E:\\p', content: 'c', title: 'T'})
+        store.update(item.id, {priority: 'low'})
+
+        const store2 = await freshStore()
+        const loaded = store2.findById(item.id)!
+        expect(loaded.priority).toBe('low')
+        // list 同样返回
+        expect(store2.list('E:\\p')[0].priority).toBe('low')
+    })
+
+    it('update({priority: "urgent"}) 直接返回值也正确', async () => {
+        const store = await freshStore()
+        const item = store.create({workspacePath: 'E:\\p', content: 'c', title: 'T'})
+        expect(store.update(item.id, {priority: 'urgent'}).priority).toBe('urgent')
+    })
+
+    it('不传 priority 的 patch 不影响已有值', async () => {
+        const store = await freshStore()
+        const item = store.create({workspacePath: 'E:\\p', content: 'c', title: 'T'})
+        store.update(item.id, {priority: 'high'})
+        const updated = store.update(item.id, {content: 'v2'})
+        expect(updated.priority).toBe('high')
+        expect(updated.content).toBe('v2')
+
+        const store2 = await freshStore()
+        expect(store2.findById(item.id)!.priority).toBe('high')
+    })
+
+    it('新条目缺省无 priority 字段（undefined 视为 normal，老数据无需迁移）', async () => {
+        const store = await freshStore()
+        const item = store.create({workspacePath: 'E:\\p', content: 'c', title: 'T'})
+        expect(item.priority).toBeUndefined()
+        const store2 = await freshStore()
+        expect(store2.findById(item.id)!.priority).toBeUndefined()
+    })
+})
+
 describe('memoStore pinned/sortIndex', () => {
     it('新建条目默认 pinned=false、sortIndex=0', async () => {
         const store = await freshStore()

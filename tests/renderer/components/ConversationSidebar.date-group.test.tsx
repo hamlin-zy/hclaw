@@ -15,12 +15,14 @@ import {render, screen, fireEvent, cleanup} from '@testing-library/react'
 import {ConversationList} from '../../../src/renderer/components/ConversationSidebar'
 
 // ── 依赖 mock ──
+/** mock 会话结构：与 getFilteredConversations 返回的 ConversationSummary 关键字段对齐 */
+type MockConv = {
+    id: string; title: string; parentConvId?: string | null;
+    createdAt: number; updatedAt: number; preview?: string;
+    pinned?: boolean; channel?: string; status?: string
+}
 const h = vi.hoisted(() => {
-    const getFilteredConversationsMock = vi.fn(() => [] as Array<{
-        id: string; title: string; parentConvId?: string | null;
-        createdAt: number; updatedAt: number; preview?: string;
-        pinned?: boolean; channel?: string; status?: string
-    }>)
+    const getFilteredConversationsMock = vi.fn(() => [] as MockConv[])
     const mockState = {
         currentWorkspacePath: 'E:/workspace/media/hclaw',
         workspaces: {'E:/workspace/media/hclaw': {lastOpenedAt: 300, conversations: []}},
@@ -53,13 +55,13 @@ const daysAgo = (n: number) => new Date(_now.getFullYear(), _now.getMonth(), _no
 const monthsAgo = (n: number) => new Date(_now.getFullYear(), _now.getMonth() - n, 15, 12).getTime()
 const yearsAgo = (n: number) => new Date(_now.getFullYear() - n, 5, 15, 12).getTime()
 
-const conv = (id: string, over: Record<string, unknown> = {}): Record<string, unknown> => ({
+const conv = (id: string, over: Partial<MockConv> = {}): MockConv => ({
     id, title: `conv-${id}`, parentConvId: null,
     createdAt: daysAgo(0), updatedAt: daysAgo(0), preview: '', pinned: false,
     ...over,
 })
 
-function setConvs(convs: Array<Record<string, unknown>>) {
+function setConvs(convs: MockConv[]) {
     h.getFilteredConversationsMock.mockReturnValue(convs)
 }
 

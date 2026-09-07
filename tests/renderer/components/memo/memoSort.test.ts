@@ -68,6 +68,34 @@ describe('sortActiveMemos 待办排序规则', () => {
         expect(sortActiveMemos([b, a]).map(m => m.id)).toEqual(['a', 'b'])
     })
 
+    it('pinned 优先于 priority（置顶区永远在最前）', () => {
+        const a = item({id: 'a', priority: 'urgent'})
+        const b = item({id: 'b', priority: 'low', pinned: true})
+        expect(sortActiveMemos([a, b]).map(m => m.id)).toEqual(['b', 'a'])
+    })
+
+    it('priority 权重插队：urgent > high > normal > low', () => {
+        const low = item({id: 'low', priority: 'low', createdAt: 1})
+        const normal = item({id: 'normal', createdAt: 2})
+        const high = item({id: 'high', priority: 'high', createdAt: 3})
+        const urgent = item({id: 'urgent', priority: 'urgent', createdAt: 4})
+        expect(sortActiveMemos([low, normal, high, urgent]).map(m => m.id))
+            .toEqual(['urgent', 'high', 'normal', 'low'])
+    })
+
+    it('priority undefined 视为 normal', () => {
+        const noPri = item({id: 'noPri', createdAt: 2})
+        const normal = item({id: 'normal', priority: 'normal', createdAt: 1})
+        expect(sortActiveMemos([noPri, normal]).map(m => m.id)).toEqual(['normal', 'noPri'])
+    })
+
+    it('priority 相同时回落 sortIndex desc / createdAt asc', () => {
+        const a = item({id: 'a', priority: 'high', sortIndex: 5, createdAt: 9})
+        const b = item({id: 'b', priority: 'high', sortIndex: 5, createdAt: 1})
+        const c = item({id: 'c', priority: 'high', sortIndex: 1, createdAt: 2})
+        expect(sortActiveMemos([c, b, a]).map(m => m.id)).toEqual(['b', 'a', 'c'])
+    })
+
     it('不修改原数组', () => {
         const src = [item({id: 'a', createdAt: 2}), item({id: 'b', createdAt: 1})]
         sortActiveMemos(src)
