@@ -50,8 +50,8 @@ export const memoTool: Tool<MemoToolInput, string> = {
         '例如："记一条备忘录，下周提醒我整理周报" → action=create, title="整理周报", content="下周整理本周周报，包含进展、风险与下周计划。"。',
     inputSchema,
     requiredPermissions: [],
-    // 含 delete（破坏性）操作，整体标记，调用时走用户二次确认
-    isDestructive: true,
+    // 不标记 isDestructive：create/list/update 需免确认（定时/无人值守场景），
+    // 仅 delete 在 execute 内动态走 requestConfirmation 二次确认
 
     async execute(args: MemoToolInput, context: ToolContext): Promise<ToolResult<string>> {
         try {
@@ -115,6 +115,15 @@ export const memoTool: Tool<MemoToolInput, string> = {
                     const existing = memoStore.findById(args.id)
                     if (!existing) {
                         return {success: false, output: '', error: `未找到ID为 "${args.id}" 的备忘录。`}
+                    }
+                    // 破坏性操作：工具级免确认，仅在 delete 动态请求用户二次确认
+                    if (context.requestConfirmation) {
+                        const decision = await context.requestConfirmation(
+                            `确定删除备忘录「${existing.title}」(ID: ${existing.id}) 吗？`
+                        )
+                        if (decision === 'deny') {
+                            return {success: false, output: '', error: '用户拒绝删除该备忘录。'}
+                        }
                     }
                     memoStore.remove(args.id)
                     broadcastMemoChanged(existing.workspacePath)

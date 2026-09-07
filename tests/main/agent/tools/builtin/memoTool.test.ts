@@ -17,7 +17,7 @@ vi.mock('../../../../../src/main/config', () => ({
 }))
 
 // electron mock：收集 memo_changed 广播，便于断言
-const sentMessages: Record<string, Array<{ channel: string; payload: unknown }>> = {}
+const sentMessages: Record<string, unknown[]> = {}
 vi.mock('electron', () => ({
     BrowserWindow: {
         getAllWindows: () => [
@@ -139,8 +139,43 @@ describe('memo_tool', () => {
         expect(sentMessages['memo_changed']).toEqual([{workspacePath: ctx.workingDir}])
     })
 
-    it('工具定义 isDestructive === true', () => {
-        expect(memoTool.isDestructive).toBe(true)
+    it('delete 用户拒绝确认 → 不删除', async () => {
+        const ctx = makeContext()
+        const item = memoStore.create({workspacePath: ctx.workingDir, title: 'T', content: 'C'})
+        const denyCtx = {
+            ...ctx,
+            requestConfirmation: vi.fn().mockResolvedValue('deny'),
+        } as unknown as ToolContext
+        const result = await memoTool.execute({action: 'delete', id: item.id}, denyCtx)
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('拒绝')
+        expect(memoStore.findById(item.id)).toBeDefined()
+        expect(sentMessages['memo_changed']).toEqual([])
+    })
+
+    it('delete 用户允许确认 → 删除成功', async () => {
+        const ctx = makeContext()
+        const item = memoStore.create({workspacePath: ctx.workingDir, title: 'T', content: 'C'})
+        const allowCtx = {
+            ...ctx,
+            requestConfirmation: vi.fn().mockResolvedValue('allow'),
+        } as unknown as ToolContext
+        const result = await memoTool.execute({action: 'delete', id: item.id}, allowCtx)
+        expect(result.success).toBe(true)
+        expect(memoStore.findById(item.id)).toBeUndefined()
+        expect(sentMessages['memo_changed']).toEqual([{workspacePath: ctx.workingDir}])
+    })
+
+    it('delete 无 requestConfirmation（无人值守）→ 直接删除', async () => {
+        const ctx = makeContext()
+        const item = memoStore.create({workspacePath: ctx.workingDir, title: 'T', content: 'C'})
+        const result = await memoTool.execute({action: 'delete', id: item.id}, ctx)
+        expect(result.success).toBe(true)
+        expect(memoStore.findById(item.id)).toBeUndefined()
+    })
+
+    it('工具定义不标记 isDestructive（create/list/update 免确认）', () => {
+        expect(memoTool.isDestructive).toBeUndefined()
     })
 
     it('workspacePath 使用 context.workingDir（不落其他工作区）', async () => {
