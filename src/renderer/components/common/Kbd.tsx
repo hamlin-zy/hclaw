@@ -11,6 +11,35 @@ function displayKey(key: string): string {
     return key
 }
 
+/** 修饰键翻译表：[显示符号, 无障碍朗读名]，未列出的键原样返回 */
+const MAC_MODIFIER: Record<string, [string, string]> = {
+    Ctrl: ['⌘', 'Command'],
+    Shift: ['⇧', 'Shift'],
+    Alt: ['⌥', 'Option'],
+}
+
+const mapShortcut = (shortcut: string, translate: (key: string) => string): string =>
+    shortcut
+        .split('+')
+        .map(part => translate(part.trim()))
+        .join('+')
+
+/** 将 "Ctrl+Shift+B" 这类快捷键字符串按平台转换为显示文本（mac 上为 ⌘⇧B 风格，其他平台原样返回） */
+export function formatShortcut(shortcut: string): string {
+    if (!isMac) return shortcut
+    return mapShortcut(shortcut, key => MAC_MODIFIER[key]?.[0] ?? key)
+}
+
+/**
+ * 将快捷键转换为无障碍朗读文本（aria-label 用）：mac 上修饰键用全称拼写
+ * （Ctrl→Command、Alt→Option），其他平台保持原样（Ctrl/Alt 本身即全称）。
+ * 视觉 tooltip 用 formatShortcut（符号风格），朗读文本用本函数。
+ */
+export function formatShortcutSpoken(shortcut: string): string {
+    if (!isMac) return shortcut
+    return mapShortcut(shortcut, key => MAC_MODIFIER[key]?.[1] ?? key)
+}
+
 /** 单键样式 */
 export function Kbd({children}: { children: React.ReactNode }) {
     const display = typeof children === 'string' ? displayKey(children) : children

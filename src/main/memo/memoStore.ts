@@ -117,7 +117,7 @@ class MemoStore {
         return this.locate(id)?.item
     }
 
-    update(id: string, patch: Partial<Pick<MemoItem, 'title' | 'content' | 'capability' | 'attachments' | 'status' | 'relatedConvId' | 'pinned' | 'sortIndex'>>): MemoItem {
+    update(id: string, patch: Partial<Pick<MemoItem, 'title' | 'content' | 'capability' | 'attachments' | 'status' | 'relatedConvId' | 'pinned' | 'sortIndex' | 'priority'>>): MemoItem {
         const hit = this.locate(id)
         if (!hit) throw new Error('MEMO_NOT_FOUND')
         const {workspacePath} = hit

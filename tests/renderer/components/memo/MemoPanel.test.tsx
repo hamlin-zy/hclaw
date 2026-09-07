@@ -91,6 +91,7 @@ import MemoPanel from '@/renderer/components/memo/MemoPanel'
 import {CAP_STYLE} from '@/renderer/components/memo/MemoPanel'
 import {TYPE_STYLE} from '@/renderer/components/message-list/UserCommandBubble'
 import {confirm} from '@/renderer/components/ConfirmDialog'
+import TooltipPortal from '@/renderer/components/common/TooltipPortal'
 
 const P = 'E:\\proj'
 const item = (id: string, over: Partial<MemoItem> = {}): MemoItem => ({
@@ -393,30 +394,31 @@ describe('MemoPanel · 条目交互', () => {
         expect(input.className).toContain('dark:bg-white/5')
     })
 
-    it('右缘按钮 tooltip：悬停时经 Portal 向左展开且不换行（nowrap）', () => {
+    it('右缘按钮 tooltip：title 走全局 TooltipPortal，data-tooltip-placement=left 向左展开', () => {
         setMemos([item('m1')])
-        render(<MemoPanel/>)
+        render(<><MemoPanel/><TooltipPortal/></>)
 
         const deleteBtn = screen.getByLabelText('删除')
-        expect(deleteBtn.getAttribute('title')).toBeNull()
-        fireEvent.mouseEnter(deleteBtn)
+        expect(deleteBtn.getAttribute('title')).toBe('删除')
+        expect(deleteBtn.dataset.tooltipPlacement).toBe('left')
 
-        const tip = screen.getByTestId('memo-tip')
+        // 全局接管：mouseover 后 title 被移除，Portal 渲染主题化 tooltip（左放置锚定）
+        fireEvent.mouseOver(deleteBtn)
+        const tip = document.querySelector<HTMLElement>('.tooltip-portal')!
         expect(tip.textContent).toBe('删除')
-        expect(tip.style.whiteSpace).toBe('nowrap')
-        expect(tip.style.transform).toBe('translateX(-100%)')
+        expect(tip.style.transform).toBe('translate(-100%, -50%)')
 
-        fireEvent.mouseLeave(deleteBtn)
-        expect(screen.queryByTestId('memo-tip')).toBeNull()
+        fireEvent.mouseOut(deleteBtn)
+        expect(deleteBtn.getAttribute('title')).toBe('删除')
     })
 
     it('创建会话处理按钮 tooltip 文案为「创建会话处理」', () => {
         setMemos([item('m1')])
-        render(<MemoPanel/>)
+        render(<><MemoPanel/><TooltipPortal/></>)
 
         const btn = screen.getByLabelText('创建会话处理')
-        fireEvent.mouseEnter(btn)
-        expect(screen.getByTestId('memo-tip').textContent).toBe('创建会话处理')
+        fireEvent.mouseOver(btn)
+        expect(document.querySelector('.tooltip-portal')!.textContent).toBe('创建会话处理')
     })
 
     it('点击条目 → openConfigWindow 传 --hclaw-memo-id', () => {
@@ -455,7 +457,7 @@ describe('MemoPanel · 条目交互', () => {
         // 展开第一个分组（含 p1）
         fireEvent.click(screen.getAllByRole('button', {name: /^展开 /})[0])
 
-        const okBtn = screen.getByLabelText('跳转到关联会话')
+        const okBtn = screen.getByLabelText('跳转到关联会话') as HTMLButtonElement
         expect(okBtn.disabled).toBe(false)
         fireEvent.click(okBtn)
         expect(h.setActiveConversation).toHaveBeenCalledWith('conv-1')
@@ -468,6 +470,51 @@ describe('MemoPanel · 条目交互', () => {
         fireEvent.click(screen.getByLabelText('删除'))
         await waitFor(() => expect(confirm).toHaveBeenCalled())
         await waitFor(() => expect(h.useMemoStore.getState().remove).toHaveBeenCalledWith('m1'))
+    })
+})
+
+describe('MemoPanel · 优先级下拉（PrioritySelect 集成）', () => {
+    it('active 项渲染 PrioritySelect，processed/历史项不渲染', () => {
+        setMemos([
+            item('a1', {title: '待办项A'}),
+            item('p1', {status: 'processed', createdAt: daysAgo(0), title: '历史项P'}),
+        ])
+        render(<MemoPanel/>)
+
+        // 待办 Tab：active 项有下拉
+        const rows = screen.getAllByTestId('memo-item')
+        expect(rows).toHaveLength(1)
+        expect(screen.getByTestId('priority-select')).toBeTruthy()
+
+        // 历史 Tab：processed 项无下拉
+        gotoHistoryAndExpandFirstGroup()
+        expect(screen.getByTestId('memo-item').getAttribute('data-memo-id')).toBe('p1')
+        expect(screen.queryByTestId('priority-select')).toBeNull()
+    })
+
+    it('选择优先级 → updateItem 被调用且 patch 为 {priority: "high"}', () => {
+        setMemos([item('m1')])
+        render(<MemoPanel/>)
+
+        fireEvent.click(screen.getByTestId('priority-trigger'))
+        fireEvent.click(screen.getByTestId('priority-option-high'))
+        expect(h.useMemoStore.getState().updateItem).toHaveBeenCalledWith('m1', {priority: 'high'})
+    })
+
+    it('点击优先级下拉不触发条目 onClick（不打开编辑窗口）', () => {
+        setMemos([item('m1')])
+        render(<MemoPanel/>)
+
+        fireEvent.click(screen.getByTestId('priority-trigger'))
+        fireEvent.click(screen.getByTestId('priority-option-low'))
+        expect(h.openConfigWindow).not.toHaveBeenCalled()
+    })
+
+    it('缺省（无 priority 字段）显示"普通"', () => {
+        setMemos([item('m1')])
+        render(<MemoPanel/>)
+
+        expect(screen.getByTestId('priority-trigger').textContent).toContain('普通')
     })
 })
 

@@ -2,15 +2,22 @@
  * 备忘录列表排序 / 拖拽重排纯函数（MemoPanel 使用，独立导出便于测试）
  *
  * 排序规则（spec）：
- * - 待办（active）：pinned 优先 → sortIndex desc → createdAt asc（compareWithinGroup）
+ * - 待办（active）：pinned 优先 → priority 权重（urgent > high > normal > low，undefined 视为 normal）
+ *   → sortIndex desc → createdAt asc（compareWithinGroup）
  * - 历史（processed）：按创建日期层级分组（本月→日；本年→月→日；往年→年→月→日），
  *   组间倒序（最近在上）、组内 createdAt desc（最新在上）
  */
-import type {MemoItem} from '@shared/types/memo'
+import type {MemoItem, MemoPriority} from '@shared/types/memo'
+import {MEMO_PRIORITY_WEIGHT} from '@shared/types/memo'
 
-/** 组内比较器（待办用）：pinned 优先 → sortIndex desc → createdAt asc */
+const priorityWeight = (p?: MemoPriority): number => MEMO_PRIORITY_WEIGHT[p ?? 'normal']
+
+/** 组内比较器（待办用）：pinned 优先 → priority 权重 → sortIndex desc → createdAt asc */
 export function compareWithinGroup(a: MemoItem, b: MemoItem): number {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+    const pa = priorityWeight(a.priority)
+    const pb = priorityWeight(b.priority)
+    if (pa !== pb) return pa - pb
     if ((b.sortIndex ?? 0) !== (a.sortIndex ?? 0)) return (b.sortIndex ?? 0) - (a.sortIndex ?? 0)
     return a.createdAt - b.createdAt
 }

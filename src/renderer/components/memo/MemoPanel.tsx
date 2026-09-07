@@ -12,15 +12,16 @@
  *   各组默认折叠，点组头展开
  * - 搜索：只作用于当前 Tab，切 Tab 保留关键字
  *
- * 其余视觉对齐（胶囊圆角项、TipButton 等）见各组件内联注释。
+ * 其余视觉对齐（胶囊圆角项等）见各组件内联注释。
  */
-import React, {useEffect, useMemo, useRef, useState} from 'react'
-import {createPortal} from 'react-dom'
+import React, {useEffect, useMemo, useState} from 'react'
 import {Reorder} from 'framer-motion'
 import {useMemoStore, subscribeMemoChanged, openMemoCreateWindow} from '../../stores/memoStore'
 import {useConversationStore} from '../../stores/conversationStore'
 import {useSidebarStore} from '../../stores/sidebarStore'
 import {confirm} from '../ConfirmDialog'
+import {PrioritySelect} from '../common/PrioritySelect'
+import {formatShortcut, formatShortcutSpoken} from '../common/Kbd'
 import {formatRelativeTime} from '../../lib/relativeTime'
 import {useDayBoundaryTick} from '../../hooks/useDayBoundaryTick'
 import {sortActiveMemos, groupProcessedByDate, renumberGroup, countGroupItems} from './memoSort'
@@ -31,7 +32,7 @@ const PENDING_TAB = 'pending' as const
 const HISTORY_TAB = 'history' as const
 type MemoTab = typeof PENDING_TAB | typeof HISTORY_TAB
 
-/** TipButton 共用样式：面板内所有 hover 操作按钮的底样式，颜色类由调用处追加 */
+/** 面板内 hover 操作按钮共用的底样式，颜色类由调用处追加 */
 const ACTION_BTN_BASE = 'p-1 rounded hover:bg-[var(--surface-muted)] transition-colors'
 /** 底样式 + 默认灰字、hover 品牌色（新建/跳转等常规操作按钮） */
 const ACTION_BTN_MUTED = `${ACTION_BTN_BASE} text-[var(--text-muted)] hover:text-[var(--brand-primary)]`
@@ -120,16 +121,19 @@ export default function MemoPanel() {
             {/* 顶部：标题 + 新建 */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)] shrink-0">
                 <span className="text-xs font-medium text-[var(--text-muted)]">备忘录</span>
-                <TipButton
-                    tip="新建备忘录 (Ctrl+Shift+N)"
-                    label="新建备忘录 (Ctrl+Shift+N)"
+                <button
+                    // 走全局 TooltipPortal：data-tooltip-placement="left" 使 tooltip
+                    // 向左展开（按钮贴面板右缘，向右展开会溢出屏幕）
+                    title={`新建备忘录 (${formatShortcut('Ctrl+Shift+N')})`}
+                    aria-label={`新建备忘录 (${formatShortcutSpoken('Ctrl+Shift+N')})`}
                     onClick={openCreate}
+                    data-tooltip-placement="left"
                     className={ACTION_BTN_MUTED}
-                >
+                 data-name="memo-panel-trigger-button">
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M12 5v14M5 12h14"/>
                     </svg>
-                </TipButton>
+                </button>
             </div>
 
             {/* 搜索框 */}
@@ -225,7 +229,7 @@ export default function MemoPanel() {
                 <button
                     onClick={() => setRightCollapsed(true)}
                     aria-label="折叠右侧面板"
-                    title="折叠右侧面板 (Ctrl+Shift+B)"
+                    title={`折叠右侧面板 (${formatShortcut('Ctrl+Shift+B')})`}
                     className="mini-toggle flex items-center justify-center w-[30px] h-[30px] rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
                  data-name="memo-panel-button">
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -331,80 +335,6 @@ function CapabilityBadge({capability}: {capability: MemoCapability}) {
     )
 }
 
-/**
- * 面板右缘按钮的局部 tooltip：向左展开（右缘对齐按钮右缘）+ 不换行。
- * 不使用 title 属性——TooltipPortal 会全局接管 [title] 且仅支持
- * above/below/right 放置（无左向/右缘钳制），故走局部 Portal 方案。
- */
-function TipButton({tip, label, onClick, className, disabled, children}: {
-    tip: string
-    label: string
-    onClick?: (e: React.MouseEvent) => void
-    className: string
-    disabled?: boolean
-    children: React.ReactNode
-}) {
-    const [anchor, setAnchor] = useState<{top: number; right: number} | null>(null)
-    const btnRef = useRef<HTMLButtonElement>(null)
-    // 列表 reorder（remove+insert）会替换按钮 DOM 节点，Chrome 不补发 mouseleave，
-    // 仅靠元素级 onMouseLeave 会滞留 anchor 导致 tip 永不关闭。
-    // 故在 tip 显示期间挂 document 级监听：指针不在按钮上即关闭（对节点替换免疫）。
-    useEffect(() => {
-        if (!anchor) return
-        const onMove = (e: MouseEvent) => {
-            if (!btnRef.current?.contains(e.target as Node)) setAnchor(null)
-        }
-        document.addEventListener('mousemove', onMove)
-        document.addEventListener('pointerover', onMove)
-        return () => {
-            document.removeEventListener('mousemove', onMove)
-            document.removeEventListener('pointerover', onMove)
-        }
-    }, [anchor])
-    return (
-        <>
-            <button
-                ref={btnRef}
-                aria-label={label}
-                onClick={onClick}
-                disabled={disabled}
-                onMouseEnter={(e) => {
-                    const r = e.currentTarget.getBoundingClientRect()
-                    setAnchor({top: r.bottom, right: r.right})
-                }}
-                onMouseLeave={() => setAnchor(null)}
-                className={className}
-             data-name="memo-panel-trigger-button">
-                {children}
-            </button>
-            {anchor && createPortal(
-                <div
-                    data-testid="memo-tip"
-                    style={{
-                        position: 'fixed',
-                        top: anchor.top + 6,
-                        left: anchor.right,
-                        transform: 'translateX(-100%)',
-                        whiteSpace: 'nowrap',
-                        padding: '4px 8px',
-                        background: 'var(--surface-elevated)',
-                        color: 'var(--text-primary)',
-                        border: '1px solid var(--border)',
-                        boxShadow: 'var(--shadow-overlay)',
-                        fontSize: '11px',
-                        borderRadius: '4px',
-                        pointerEvents: 'none',
-                        zIndex: 2147483647,
-                    }}
-                >
-                    {tip}
-                </div>,
-                document.body,
-            )}
-        </>
-    )
-}
-
 /** 置顶图标 path（徽标与操作按钮共用） */
 const PIN_PATH = 'M16 3v5.06c0 .53.21 1.04.59 1.41L19 12v2h-6v6l-1 1-1-1v-6H5v-2l2.41-2.53c.38-.37.59-.88.59-1.41V3h8z'
 
@@ -455,7 +385,18 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
             <div className="min-w-0">
                 {/* 能力徽章在标题上方（纵向排列） */}
                 {item.capability && <CapabilityBadge capability={item.capability}/>}
-                <div className="text-xs font-medium break-words">{item.title || '（无标题）'}</div>
+                {/* 标题行：标题左侧截断，右侧优先级下拉固定不被挤压（仅 active 项显示） */}
+                <div className="flex items-center gap-1.5 w-full min-w-0">
+                    <div className="text-xs font-medium truncate flex-1" title={item.title || '（无标题）'}>{item.title || '（无标题）'}</div>
+                    {!processed && (
+                        <PrioritySelect
+                            value={item.priority}
+                            onChange={(p) => {
+                                void updateItem(item.id, {priority: p})
+                            }}
+                        />
+                    )}
+                </div>
                 <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
                     {item.pinned && !processed && (
                         <span title="已置顶" aria-label="已置顶">
@@ -471,65 +412,69 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
                     {processed && <span>已处理</span>}
                 </div>
             </div>
-            {/* hover 操作区：绝对定位覆盖右侧，bg-inherit 盖住下方文字保证可读性 */}
-            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 rounded-full bg-inherit opacity-0 group-hover:opacity-100 transition-opacity">
+            {/* hover 操作区：绝对定位覆盖时间行（bottom 锚定），与标题行的优先级下拉垂直错开，不遮挡 */}
+            <div className="absolute right-2.5 bottom-1.5 flex items-center gap-1 rounded-full bg-inherit opacity-0 group-hover:opacity-100 transition-opacity">
                 {!processed && (
-                    <TipButton
-                        tip={item.pinned ? '取消置顶' : '置顶'}
-                        label={item.pinned ? '取消置顶' : '置顶'}
+                    <button
+                        title={item.pinned ? '取消置顶' : '置顶'}
+                        aria-label={item.pinned ? '取消置顶' : '置顶'}
                         onClick={togglePin}
+                        data-tooltip-placement="left"
                         className={`${ACTION_BTN_BASE} ${item.pinned ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--brand-primary)]'}`}
-                    >
+                     data-name="memo-panel-trigger-button">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={item.pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
                             <path d={PIN_PATH}/>
                         </svg>
-                    </TipButton>
+                    </button>
                 )}
                 {processed ? (
                     item.relatedConvId && (
-                        <TipButton
-                            tip="跳转到关联会话"
-                            label="跳转到关联会话"
+                        <button
+                            title="跳转到关联会话"
+                            aria-label="跳转到关联会话"
                             disabled={!convExists}
+                            data-tooltip-placement="left"
                             onClick={(e) => {
                                 e.stopPropagation()
                                 useConversationStore.getState().setActiveConversation(item.relatedConvId!)
                             }}
                             className={`${ACTION_BTN_MUTED} disabled:opacity-30 disabled:cursor-not-allowed`}
-                        >
+                         data-name="memo-panel-trigger-button">
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <path d="M5 12h14M12 5l7 7-7 7"/>
                             </svg>
-                        </TipButton>
+                        </button>
                     )
                 ) : (
-                    <TipButton
-                        tip="创建会话处理"
-                        label="创建会话处理"
+                    <button
+                        title="创建会话处理"
+                        aria-label="创建会话处理"
+                        data-tooltip-placement="left"
                         onClick={(e) => {
                             e.stopPropagation()
                             void handleCreateSession()
                         }}
                         className={ACTION_BTN_MUTED}
-                    >
+                     data-name="memo-panel-trigger-button">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M5 3l14 9-14 9V3z"/>
                         </svg>
-                    </TipButton>
+                    </button>
                 )}
-                <TipButton
-                    tip="删除"
-                    label="删除"
+                <button
+                    title="删除"
+                    aria-label="删除"
+                    data-tooltip-placement="left"
                     onClick={(e) => {
                         e.stopPropagation()
                         void handleDelete()
                     }}
                     className={`${ACTION_BTN_BASE} text-[var(--text-muted)] hover:text-red-500`}
-                >
+                 data-name="memo-panel-trigger-button">
                     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/>
                     </svg>
-                </TipButton>
+                </button>
             </div>
         </div>
     )
