@@ -44,18 +44,6 @@ export function commitModelDetail(
   }
 }
 
-/**
- * OR 预勾选转自定义（spec §2.2：placeholder 值永不落库）
- *
- * 组件侧：OR 命中的模型类型仅作虚线框「预展示」，不写入 draft.modelTypes。
- * 用户点击任意 chip 进入自定义编辑态时，以「当前已存值 ∪ OR 命中集」为起点再切换目标项。
- */
-export function mergeOrTypesOnEdit(currentModelTypes: string[], orTypes: string[]): string[] {
-  const set = new Set(currentModelTypes)
-  for (const t of orTypes) set.add(t)
-  return [...set]
-}
-
 /** 校验（「确定」门禁）：返回首个错误文案，null = 通过 */
 export function validateModelDetailDraft(draft: ModelDetailDraft): string | null {
   try {

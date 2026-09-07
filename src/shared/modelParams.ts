@@ -93,13 +93,11 @@ export function resolveModelModalities(
   return {supportsImage: nameImpliesImage(modelName), source: 'fallback'}
 }
 
-/**
- * 模型是否配置了自定义数值参数（详情弹窗 ⚙️ 橙点徽标用）。
- * 仅判 3 个数值参数（!= null），不计 modelTypes——repository 对旧数据回退
- * [model_type] 使该字段恒非空，计入会导致所有存量模型橙点假阳性。
- */
 export function hasCustomParams(
-  m: Pick<ProviderModel, 'maxContextTokens' | 'temperature' | 'maxOutputTokens'>,
+  m: Pick<ProviderModel, 'maxContextTokens' | 'temperature' | 'maxOutputTokens' | 'pricing' | 'modelTypes'>,
 ): boolean {
-  return m.maxContextTokens != null || m.temperature != null || m.maxOutputTokens != null
+  const hasNum = m.maxContextTokens != null || m.temperature != null || m.maxOutputTokens != null
+  const hasPrice = Object.values(m.pricing ?? {}).some(v => (v as number) > 0)
+  const hasTypes = !!m.modelTypes && m.modelTypes.length > 0
+  return hasNum || hasPrice || hasTypes
 }

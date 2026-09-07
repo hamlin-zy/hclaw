@@ -420,14 +420,14 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
              data-name="tool-call-renderer-button">
                 {/* Agent / Skill 特殊图标 */}
                 {isAgent && (
-                    <span className="text-[var(--brand-primary)] text-xs shrink-0">🤖</span>
+                    <span className="text-[var(--brand-primary)] text-xs shrink-0 self-center">🤖</span>
                 )}
                 {isSkill && (
-                    <span className="text-[var(--brand-primary)] text-xs shrink-0">🛠️</span>
+                    <span className="text-[var(--brand-primary)] text-xs shrink-0 self-center">🛠️</span>
                 )}
 
                 {/* 状态圆点 */}
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`}/>
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 self-center ${dotClass}`}/>
 
                 {/* Agent / Skill 名称 + 描述 */}
                 {isAgent ? (
@@ -472,7 +472,7 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
                 )}
 
                 {/* 展开详情 */}
-                <span className="text-[10px] text-[var(--text-muted)] shrink-0 flex items-center gap-0.5">
+                <span className="text-[10px] text-[var(--text-muted)] shrink-0 self-center flex items-center gap-0.5">
                     展开详情
                     <span className="text-[8px]" style={{color: 'var(--text-muted)'}}>›</span>
                 </span>
@@ -560,7 +560,7 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
                 hover:bg-[var(--surface-elevated)] hover:border-[var(--border-emphasis)]"
          data-name="tool-call-renderer-toggle-expanded-button">
             {/* 状态圆点 */}
-            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`}/>
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 self-center ${dotClass}`}/>
 
             {/* 芯片列表 */}
             <span className="flex flex-wrap items-center gap-1.5 text-[11px] min-w-0 flex-1">
@@ -593,7 +593,7 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
             )}
 
             {/* 展开详情 */}
-            <span className="text-[10px] text-[var(--text-muted)] shrink-0 flex items-center gap-0.5">
+            <span className="text-[10px] text-[var(--text-muted)] shrink-0 self-center flex items-center gap-0.5">
                 展开详情
                 <span className="text-[8px]" style={{color: 'var(--text-muted)'}}>›</span>
             </span>

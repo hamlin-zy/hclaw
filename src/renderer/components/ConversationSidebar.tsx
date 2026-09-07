@@ -1,6 +1,7 @@
 import {type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
+import {groupByDateHierarchy, countGroupItems, type DateGroup} from './memo/memoSort'
 import {useConversationStore} from '../stores/conversationStore'
 import {useSidebarStore} from '../stores/sidebarStore'
 import {getBasename, getRelativeTime} from '../lib/format'
@@ -743,6 +744,70 @@ function addSelfAndAncestors<T extends {parentConvId?: string}>(
     return set
 }
 
+/** 判断时间戳是否在今天 */
+function isToday(ts: number): boolean {
+    const d = new Date(ts)
+    const n = new Date()
+    return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()
+}
+
+/**
+ * 会话历史日期分组节点：递归渲染 year→month→day，day 叶子用 renderItems 回调渲染会话条目。
+ * 组头默认折叠，点组头展开/收起。视觉对齐备忘录 GroupNode（chevron + label + 条目数）。
+ */
+function ConversationDateGroup<T extends {createdAt: number}>({group, parentKey, depth, expandedKeys, onToggle, renderItems}: {
+    group: DateGroup<T>
+    parentKey: string
+    depth: number
+    expandedKeys: Set<string>
+    onToggle: (key: string) => void
+    renderItems: (roots: T[]) => React.ReactNode
+}) {
+    const key = parentKey ? `${parentKey}/${group.label}` : group.label
+    const expanded = expandedKeys.has(key)
+    const count = countGroupItems(group)
+    const pad = depth * 14 + 4
+
+    return (
+        <div data-testid="conv-date-group" data-group-key={key}>
+            <button
+                onClick={() => onToggle(key)}
+                aria-label={`${expanded ? '折叠' : '展开'} ${group.label}`}
+                aria-expanded={expanded}
+                className="flex items-center gap-1 w-full py-1.5 hover:bg-gray-50 dark:hover:bg-white/5 rounded-md transition-colors"
+                style={{paddingLeft: pad}}
+            >
+                <svg
+                    className={`w-3 h-3 text-[var(--text-muted)] transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"
+                >
+                    <polyline points="9 18 15 12 9 6"/>
+                </svg>
+                <span className="text-[11px] font-medium text-[var(--text-muted)]">{group.label}</span>
+                <span className="text-[10px] text-[var(--text-muted)] opacity-60">· {count}</span>
+            </button>
+            {expanded && (
+                <div style={{paddingLeft: pad}}>
+                    {group.kind === 'day'
+                        ? renderItems(group.items)
+                        : group.children.map((c, i) => (
+                            <ConversationDateGroup
+                                key={c.label + i}
+                                group={c}
+                                parentKey={key}
+                                depth={depth + 1}
+                                expandedKeys={expandedKeys}
+                                onToggle={onToggle}
+                                renderItems={renderItems}
+                            />
+                        ))
+                    }
+                </div>
+            )}
+        </div>
+    )
+}
+
 export function ConversationList() {
   const currentWorkspacePath = useConversationStore((s) => s.currentWorkspacePath)
     const getFilteredConversations = useConversationStore((s) => s.getFilteredConversations)
@@ -760,6 +825,7 @@ export function ConversationList() {
     } | null>(null)
     const [renamingId, setRenamingId] = useState<string | null>(null)
     const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set())
+    const [dateGroupExpanded, setDateGroupExpanded] = useState<Set<string>>(new Set())
     const listRef = useRef<HTMLDivElement>(null)
 
     // 监听全局点击以关闭菜单
@@ -964,28 +1030,68 @@ export function ConversationList() {
       return result
   }
 
+  // 日期分组折叠 toggle
+  const toggleDateGroup = (key: string) => {
+      setDateGroupExpanded((prev) => {
+          const next = new Set(prev)
+          if (next.has(key)) next.delete(key)
+          else next.add(key)
+          return next
+      })
+  }
+
+  // 日期分组：置顶脱离、今天平铺、历史按层级（默认折叠）
+  // createdAt 缺失时回退 updatedAt（与 ConversationItem timestamp 显示逻辑一致）
+  const rootConvs = filtered.filter(c => !c.parentConvId || !filtered.some(p => p.id === c.parentConvId))
+  const ts = (c: typeof filtered[number]) => c.createdAt ?? c.updatedAt ?? 0
+  const pinnedRoots = rootConvs.filter(c => c.pinned)
+  const todayRoots = rootConvs.filter(c => !c.pinned && isToday(ts(c)))
+  const historyRoots = rootConvs.filter(c => !c.pinned && !isToday(ts(c)))
+  const historyGroups = groupByDateHierarchy(historyRoots)
+
+  // renderItems 回调：对分组内的根会话调用 groupByParent + ConversationItem
+  const renderItems = (roots: typeof filtered) =>
+      groupByParent(roots).map(conv => (
+          <ConversationItem
+              key={conv.id}
+              id={conv.id}
+              title={conv.title}
+              timestamp={conv.createdAt ?? conv.updatedAt}
+              preview={conv.preview}
+              pinned={conv.pinned}
+              channel={conv.channel}
+              status={conv.status}
+              indentLevel={conv.indentLevel}
+              childCount={conv.childCount}
+              childIds={childIdsMap.get(conv.id)}
+              onParentClick={conv.childCount > 0 ? handleParentClick : undefined}
+              isRenaming={renamingId === conv.id}
+              onStopRename={() => setRenamingId(null)}
+              onOpenMenu={(x, y) => setContextMenu({x, y, id: conv.id, title: conv.title, pinned: conv.pinned, parentConvId: conv.parentConvId})}
+          />
+      ))
+
   return (
       <div
           ref={listRef}
           className="flex-1 overflow-y-auto px-[var(--space-relaxed)] space-y-[1px] py-[var(--space-tight)] scrollbar-thin relative"
       >
-          {groupByParent(filtered).map(conv => (
-              <ConversationItem
-                  key={conv.id}
-                  id={conv.id}
-                  title={conv.title}
-                  timestamp={conv.createdAt ?? conv.updatedAt}
-                  preview={conv.preview}
-                  pinned={conv.pinned}
-                  channel={conv.channel}
-                  status={conv.status}
-                  indentLevel={conv.indentLevel}
-                  childCount={conv.childCount}
-                  childIds={childIdsMap.get(conv.id)}
-                  onParentClick={conv.childCount > 0 ? handleParentClick : undefined}
-                  isRenaming={renamingId === conv.id}
-                  onStopRename={() => setRenamingId(null)}
-                  onOpenMenu={(x, y) => setContextMenu({x, y, id: conv.id, title: conv.title, pinned: conv.pinned, parentConvId: conv.parentConvId})}
+          {/* 置顶区：pinned 根会话平铺，不套组头 */}
+          {pinnedRoots.length > 0 && renderItems(pinnedRoots)}
+
+          {/* 今天区：今天的根会话平铺 */}
+          {todayRoots.length > 0 && renderItems(todayRoots)}
+
+          {/* 历史分组：按日期层级，默认折叠 */}
+          {historyGroups.map((g, i) => (
+              <ConversationDateGroup
+                  key={g.label + i}
+                  group={g}
+                  parentKey=""
+                  depth={0}
+                  expandedKeys={dateGroupExpanded}
+                  onToggle={toggleDateGroup}
+                  renderItems={renderItems}
               />
           ))}
 

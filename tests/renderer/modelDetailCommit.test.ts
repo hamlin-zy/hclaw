@@ -1,5 +1,6 @@
 import {describe, it, expect} from 'vitest'
-import {commitModelDetail, mergeOrTypesOnEdit} from '../../src/renderer/lib/modelDetailCommit'
+import {commitModelDetail} from '../../src/renderer/lib/modelDetailCommit'
+import {hasCustomParams} from '../../src/shared/modelParams'
 
 const base = {id: 'm1', name: 'gpt-x', enabled: true} as any
 
@@ -43,15 +44,25 @@ describe('commitModelDetail · 保存过滤（spec §2.2）', () => {
   })
 })
 
-describe('mergeOrTypesOnEdit · OR 预勾选转自定义（spec §2.2 placeholder 永不落库）', () => {
-  it('并入 OR 命中集作为自定义编辑起点（去重）', () => {
-    expect(mergeOrTypesOnEdit(['text'], ['text', 'image'])).toEqual(['text', 'image'])
-    expect(mergeOrTypesOnEdit([], ['text', 'voice'])).toEqual(['text', 'voice'])
-  })
-  it('OR 命中集不直接落库：commit 仅写 draft.modelTypes（未手动编辑时保持初始化值）', () => {
-    // 初始化为 model.modelTypes ?? []；OR 派生值只用于视觉预展示，未并入 draft
+describe('OR 预展示不落库（spec §2.2 placeholder 永不落库）', () => {
+  it('未手动编辑时 draft.modelTypes 保持初始化值（[]），commit → undefined', () => {
+    // 模拟：modelTypes 为空 + OR 命中 ['text','image']，用户未点任何 chip 即确定
     const model = {...base, modelTypes: undefined}
     const next = commitModelDetail(model, {maxContextTokens: '', temperature: '', maxOutputTokens: '', modelTypes: []})
     expect(next.modelTypes).toBeUndefined()
+    expect(hasCustomParams(next)).toBe(false)
+  })
+  it('仅手动勾选的类类型落库（OR 建议不自动并入）', () => {
+    // 模拟：modelTypes 为空 + OR 命中 ['text','image']，用户仅点击 'multimodal'
+    // 修复后：draft = ['multimodal']（不并入 OR 的 text/image）
+    const next = commitModelDetail({...base, modelTypes: undefined}, {maxContextTokens: '', temperature: '', maxOutputTokens: '', modelTypes: ['multimodal']})
+    expect(next.modelTypes).toEqual(['multimodal'])
+    expect(hasCustomParams(next)).toBe(true)
+  })
+  it('复原：清空 modelTypes 后 hasCustomParams 返回 false（红点消失）', () => {
+    // 模拟：modelTypes=['multimodal'] → 用户取消勾选 → draft=[] → commit → undefined
+    const next = commitModelDetail({...base, modelTypes: ['multimodal']}, {maxContextTokens: '', temperature: '', maxOutputTokens: '', modelTypes: []})
+    expect(next.modelTypes).toBeUndefined()
+    expect(hasCustomParams(next)).toBe(false)
   })
 })

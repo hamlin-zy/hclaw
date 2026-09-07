@@ -246,12 +246,13 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
     const m0 = modelsRef.current.find(m => m.name.trim() === trimmed)
     if (!m0) return null
     const multimodal = !!r.inputModalities?.length && r.inputModalities.some(x => x !== 'text')
+    const positiveOrUndef = (v?: number) => (v ?? 0) > 0 ? v : undefined
     const next: ProviderModel = {
       ...m0,
       pricing: {
-        input: m0.pricing?.input ?? (r.inputPrice > 0 ? r.inputPrice : undefined),
-        output: m0.pricing?.output ?? (r.outputPrice > 0 ? r.outputPrice : undefined),
-        cacheRead: m0.pricing?.cacheRead ?? (r.cacheReadPrice > 0 ? r.cacheReadPrice : undefined),
+        input: m0.pricing?.input ?? positiveOrUndef(r.inputPrice),
+        output: m0.pricing?.output ?? positiveOrUndef(r.outputPrice),
+        cacheRead: m0.pricing?.cacheRead ?? positiveOrUndef(r.cacheReadPrice),
         cacheWrite: m0.pricing?.cacheWrite ?? r.cacheWritePrice,
       },
       modelType: multimodal ? 'multimodal' : m0.modelType ?? 'text',
