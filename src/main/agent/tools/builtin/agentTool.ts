@@ -238,7 +238,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
         const template = agentRegistry.find(args.agent)
         if (!template || !template.enabled) {
             const available = (agentRegistry.getEnabled() || [])
-                .filter(a => !a.id.startsWith('cmd:') && a.name && a.name !== 'General')
+                .filter(a => !a.id.startsWith('cmd:') && a.name)
                 .map(a => a.name!)
             return {
                 success: false,
@@ -618,8 +618,9 @@ function sendToRenderer(workerType: string, workerPayload: Record<string, unknow
         if (win && !win.isDestroyed()) {
             win.webContents.send(mainChannel, mainPayload)
         }
-    } catch {
-        // window not available
+    } catch (err) {
+        // window not available —— 通知失败不应影响工具结果，但须留痕排查（渲染端将看不到子会话创建提醒）
+        logger.warn(`[agentTool] sendToRenderer 主进程路径失败 (channel=${mainChannel}): ${err instanceof Error ? err.message : String(err)}`)
     }
 }
 
