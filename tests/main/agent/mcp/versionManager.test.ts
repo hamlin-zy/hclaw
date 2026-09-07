@@ -115,9 +115,11 @@ describe('McpVersionManager.inferSourceType', () => {
     expect(manager.inferSourceType(server)).toBe('unknown')
   })
 
-  it('returns "plugin" even when command looks like npx (plugin: prefix takes priority)', () => {
+  it('npx/npm command takes priority over plugin: prefix (npm version probing wins)', () => {
     const server = makeServer({id: 'plugin:myplugin:server1', command: 'npx', args: ['pkg']})
-    expect(manager.inferSourceType(server)).toBe('plugin')
+    // 设计如此（versionManager.ts 优先级注释）：plugin:ecc:github 实际执行 npx，
+    // 必须按 npm 包版本探测，不能走 plugin 的 git tags 路径
+    expect(manager.inferSourceType(server)).toBe('npx')
   })
 
   it('returns "binary" for Windows backslash path command', () => {
