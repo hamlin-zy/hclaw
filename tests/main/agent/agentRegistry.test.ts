@@ -118,6 +118,15 @@ describe('agentRegistry — find 查找', () => {
         expect(agentRegistry.find('探索_AGENT')?.id).toBe('explorer')
     })
 
+    it('find 双向前缀匹配：输入 "Implementer" 命中注册名 "Implementer Agent"（回归）', () => {
+        agentRegistry.register(makeAgent({id: 'impl', name: 'Implementer Agent'}))
+        agentRegistry.register(makeAgent({id: 'reviewer', name: 'Code Reviewer Agent'}))
+
+        // 回归背景：LLM 常省略 " Agent" 后缀，曾因仅精确/模糊匹配而失败
+        expect(agentRegistry.find('Implementer')?.id).toBe('impl')
+        expect(agentRegistry.find('Code Reviewer')?.id).toBe('reviewer')
+    })
+
     it('find 未注册 Agent → undefined', () => {
         agentRegistry.register(makeAgent({id: 'impl'}))
 

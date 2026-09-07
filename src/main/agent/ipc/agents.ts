@@ -9,7 +9,7 @@ import {findAgentFile, scanAllAgents, updatePluginAgentOverride} from '../agentL
 import {getAndClearAgentLoadErrors} from '../agentLoadErrors'
 import {agentRegistry} from '../agentRegistry'
 import {powerManager} from '../powerManager'
-import {updateJsonField, updateMarkdownFrontmatter} from '../utils/frontmatter'
+import {formatYamlArray, updateJsonField, updateMarkdownFrontmatter} from '../utils/frontmatter'
 import {logger} from '../logger'
 import {getHclawDir} from '../../config'
 import type {AgentTemplate} from '@shared/types'
@@ -63,6 +63,8 @@ export function registerHandlers(): void {
         whenToUse?: string
         systemPrompt: string
         enabled?: boolean
+        allowedTools?: string[]
+        disallowedTools?: string[]
     }) => {
         try {
             const agentsDir = path.join(getHclawDir(), 'agents')
@@ -99,6 +101,8 @@ export function registerHandlers(): void {
                 `name: ${params.name}`,
                 `description: ${params.description || ''}`,
                 params.whenToUse ? `when_to_use: ${params.whenToUse}` : null,
+                params.allowedTools?.length ? `allowedTools: ${formatYamlArray(params.allowedTools)}` : null,
+                params.disallowedTools?.length ? `disallowedTools: ${formatYamlArray(params.disallowedTools)}` : null,
                 `enabled: ${params.enabled !== false}`,
                 '---',
                 '',
@@ -145,13 +149,15 @@ export function registerHandlers(): void {
         }
     })
 
-    // 更新 Agent（支持 name/description/when_to_use/enabled/systemPrompt）
+    // 更新 Agent（支持 name/description/when_to_use/enabled/systemPrompt/allowedTools/disallowedTools）
     ipcMain.handle('agents:update', async (_event, templateId: string, updates: {
         name?: string
         description?: string
         whenToUse?: string
         enabled?: boolean
         systemPrompt?: string
+        allowedTools?: string[]
+        disallowedTools?: string[]
     }) => {
         try {
             // ─── enabled 统一写入 agent_overrides 表（所有 Agent）──
@@ -179,10 +185,17 @@ export function registerHandlers(): void {
                 const ext = path.extname(foundFile).toLowerCase()
 
                 if (ext === '.md' || ext === '.yaml' || ext === '.yml') {
-                    const fields: Array<{key: string; value: string | boolean | number | undefined}> = []
+                    const fields: Array<{key: string; value: string | boolean | number | string[] | undefined}> = []
                     if (updates.name !== undefined) fields.push({key: 'name', value: updates.name})
                     if (updates.description !== undefined) fields.push({key: 'description', value: updates.description})
                     if (updates.whenToUse !== undefined) fields.push({key: 'when_to_use', value: updates.whenToUse})
+                    if (updates.allowedTools !== undefined) {
+                        // 空数组经 updateMarkdownFrontmatter 的 formatYamlArray 返回 undefined → 删除字段
+                        fields.push({key: 'allowedTools', value: updates.allowedTools})
+                    }
+                    if (updates.disallowedTools !== undefined) {
+                        fields.push({key: 'disallowedTools', value: updates.disallowedTools})
+                    }
 
                     let updatedContent = updateMarkdownFrontmatter(content, fields)
 

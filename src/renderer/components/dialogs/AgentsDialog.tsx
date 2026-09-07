@@ -433,7 +433,7 @@ export default function AgentsDialog() {
         })
     }
 
-    const resetForm = () => setForm({name: '', description: '', whenToUse: '', systemPrompt: '', enabled: true})
+    const resetForm = () => setForm({name: '', description: '', whenToUse: '', systemPrompt: '', enabled: true, allowedTools: [], disallowedTools: []})
 
     const handleSave = (data: Partial<AgentTemplate>) => {
         if (!data.name || !data.systemPrompt) return
@@ -457,6 +457,8 @@ export default function AgentsDialog() {
             whenToUse: t.whenToUse || '',
             systemPrompt: t.systemPrompt,
             enabled: t.enabled,
+            allowedTools: t.allowedTools || [],
+            disallowedTools: t.disallowedTools || [],
         })
         setEditingId(t.id)
         setShowModal(true)
@@ -895,6 +897,110 @@ function PluginAgentGroup({pluginName, agents, toggleTemplate, toggleTemplateBat
     )
 }
 
+// ─── 工具标签输入（Enter/逗号添加，Backspace 删除末位） ──────────
+
+function TagInput({value, onChange, placeholder, emptyHint, tagVariant = 'default', inputId}: {
+    value: string[]
+    onChange: (tags: string[]) => void
+    placeholder: string
+    emptyHint: string
+    tagVariant?: 'default' | 'danger'
+    inputId?: string
+}) {
+    const [draft, setDraft] = useState('')
+    const [error, setError] = useState<string | null>(null)
+
+    const commitDraft = (raw?: string) => {
+        const parts = (raw ?? draft).split(',').map(s => s.trim()).filter(Boolean)
+        if (parts.length === 0) return
+        const next = [...value]
+        for (const p of parts) {
+            if (next.includes(p)) {
+                setError(`工具 "${p}" 已存在`)
+                continue
+            }
+            next.push(p)
+        }
+        onChange(next)
+        setDraft('')
+    }
+
+    const removeTag = (tag: string) => {
+        onChange(value.filter(t => t !== tag))
+        setError(null)
+    }
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault()
+            setError(null)
+            commitDraft()
+        } else if (e.key === 'Backspace' && draft === '' && value.length > 0) {
+            onChange(value.slice(0, -1))
+            setError(null)
+        }
+    }
+
+    return (
+        <div className="space-y-1">
+            <div
+                className="w-full min-h-[42px] px-2 py-1.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] focus-within:border-[var(--brand-primary)] focus-within:ring-1 focus-within:ring-[var(--brand-primary)]/30 transition-all flex flex-wrap items-center gap-1.5 cursor-text"
+                onClick={e => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}
+            >
+                {value.length === 0 && (
+                    <span className="text-xs text-[var(--text-muted)] px-1">{emptyHint}</span>
+                )}
+                {value.map(tag => (
+                    <span
+                        key={tag}
+                        className={
+                            tagVariant === 'danger'
+                                ? 'inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium bg-[var(--surface-elevated)] text-[var(--text-secondary)] border border-[var(--error)]/40'
+                                : 'inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium bg-[var(--surface-elevated)] text-[var(--text-secondary)] border border-[var(--border)]'
+                        }
+                    >
+                        {tag}
+                        <button
+                            type="button"
+                            aria-label={`移除 ${tag}`}
+                            onClick={e => {
+                                e.stopPropagation()
+                                removeTag(tag)
+                            }}
+                            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                        >
+                            <X className="w-3 h-3" aria-hidden="true"/>
+                        </button>
+                    </span>
+                ))}
+                <input
+                    id={inputId}
+                    type="text"
+                    value={draft}
+                    onChange={e => {
+                        setDraft(e.target.value)
+                        if (error) setError(null)
+                        if (e.target.value.includes(',')) {
+                            // 逗号输入时立即提交（含末尾逗号）
+                            commitDraft(e.target.value)
+                        }
+                    }}
+                    onKeyDown={handleKeyDown}
+                    onBlur={() => {
+                        commitDraft()
+                        setError(null)
+                    }}
+                    placeholder={value.length === 0 ? '' : placeholder}
+                    className="flex-1 min-w-[80px] bg-transparent border-none outline-none text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] py-1"
+                />
+            </div>
+            {error && (
+                <p className="text-[11px] text-[var(--error)] px-1" role="alert">{error}</p>
+            )}
+        </div>
+    )
+}
+
 // ─── Agent 编辑/创建弹出模态框 ──────────────────────────────
 
 function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
@@ -990,6 +1096,37 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             placeholder="详细定义该 Agent 的角色、知识边界、行动规则和输出格式要求..."
                             className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm font-mono text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all resize-none"
                         data-name="agents-dialog-textarea"/>
+                    </div>
+
+                    {/* 可用工具 */}
+                    <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                            可用工具
+                            <span className="ml-1 text-[9px] font-normal normal-case text-[var(--text-muted)]">（输入后按回车或逗号添加）</span>
+                        </label>
+                        <TagInput
+                            value={form.allowedTools || []}
+                            onChange={tags => setForm({...form, allowedTools: tags})}
+                            placeholder="输入工具名，如 file_read"
+                            emptyHint="留空表示不限制工具（继承全部可用工具）"
+                            inputId="agents-dialog-allowed-tools-input"
+                        />
+                    </div>
+
+                    {/* 禁用工具 */}
+                    <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                            禁用工具
+                            <span className="ml-1 text-[9px] font-normal normal-case text-[var(--text-muted)]">（输入后按回车或逗号添加）</span>
+                        </label>
+                        <TagInput
+                            value={form.disallowedTools || []}
+                            onChange={tags => setForm({...form, disallowedTools: tags})}
+                            placeholder="输入工具名，如 file_write"
+                            emptyHint="留空表示不禁用任何工具"
+                            tagVariant="danger"
+                            inputId="agents-dialog-disallowed-tools-input"
+                        />
                     </div>
                 </div>
 

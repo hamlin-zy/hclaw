@@ -78,9 +78,10 @@ describe('InputToolbar 窄窗口溢出保护契约', () => {
 
     it('pendingMessages 待处理徽章 shrink-0 whitespace-nowrap：不被压缩换行', () => {
         const {container} = render(<InputToolbar {...BASE_PROPS}/>)
-        const pending = [...container.querySelectorAll<HTMLElement>('span')].find((el) =>
-            el.textContent?.includes('条消息待处理'),
-        )
+        // 取最内层徽章（外层包装 span 无 shrink-0，内层徽章才有；pre-order 下最后一个即最深）
+        const pending = [...container.querySelectorAll<HTMLElement>('span')]
+            .filter((el) => el.textContent?.includes('条消息待处理'))
+            .pop()
         expect(pending).not.toBeNull()
         expect(pending!.className).toContain('shrink-0')
         expect(pending!.className).toContain('whitespace-nowrap')

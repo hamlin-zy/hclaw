@@ -206,6 +206,8 @@ declare global {
             whenToUse?: string
             systemPrompt: string
             enabled?: boolean
+            allowedTools?: string[]
+            disallowedTools?: string[]
         }) => Promise<{ success: boolean; error?: string }>
         agentsDelete: (templateId: string) => Promise<{ success: boolean; error?: string }>
         agentsUpdate: (templateId: string, updates: {
@@ -214,6 +216,8 @@ declare global {
             whenToUse?: string
             enabled?: boolean
             systemPrompt?: string
+            allowedTools?: string[]
+            disallowedTools?: string[]
         }) => Promise<{ success: boolean; error?: string }>
         agentsToggleBatch: (params: {templateIds: string[]; enabled: boolean}) => Promise<{
             success: boolean;

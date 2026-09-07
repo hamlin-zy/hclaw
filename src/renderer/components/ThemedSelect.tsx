@@ -156,7 +156,7 @@ export default function ThemedSelect({
                                 ? {width: pos ? Math.max(pos.width, 160) : undefined}
                                 : {width: 'max-content', minWidth: pos?.width, maxWidth: 'min(480px, calc(100vw - 16px))'}),
                         }}
-                        className="z-[9999]"
+                        className="z-[100002]"
                     >
                         <div className={`${bgEnabled
                             ? 'bg-[var(--surface-elevated)]/92 backdrop-blur-lg'

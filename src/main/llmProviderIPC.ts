@@ -6,6 +6,7 @@ import {
   type SqlProviderModel,
 } from './repositories/sqlite/llmProviderRepository'
 import {encryptSecret} from './utils/crypto'
+import {invalidateCustomHeaderCache} from './utils/llmTraceRecorder'
 import {createLogger} from './agent/logger'
 import {broadcastToOtherWindows} from './utils/windowBroadcast'
 import {fetchProviderModels, testProviderModel} from './providerModelFetcher'
@@ -70,6 +71,7 @@ export function initProviderIPC(): void {
         }
       }
       const success = providerRepo.save(processedProvider)
+      invalidateCustomHeaderCache()
       broadcastToOtherWindows(event, 'llm-config-changed')
       return { success }
     } catch (err) {
@@ -110,6 +112,7 @@ export function initProviderIPC(): void {
       logger.info('save-all', {count: processedProviders.length})
       const success = providerRepo.saveAll(processedProviders)
       logger.info('save-all:result', {success})
+      invalidateCustomHeaderCache()
       broadcastToOtherWindows(event, 'llm-config-changed')
       return { success }
     } catch (err) {
@@ -122,6 +125,7 @@ export function initProviderIPC(): void {
   ipcMain.handle('provider:delete', async (event, id: string) => {
     try {
       const success = providerRepo.delete(id)
+      invalidateCustomHeaderCache()
       broadcastToOtherWindows(event, 'llm-config-changed')
       return { success }
     } catch (err) {

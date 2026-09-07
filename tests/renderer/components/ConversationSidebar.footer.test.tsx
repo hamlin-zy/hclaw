@@ -49,12 +49,12 @@ describe('ConversationSidebar footer / 折叠态', () => {
         expect(container.querySelector('[aria-label*="折叠"],[aria-label*="collapse" i]')).not.toBeNull()
     })
 
-    it('折叠态渲染全部菜单项（与齿轮菜单同源 18 项）+ 展开按钮', () => {
+    it('折叠态渲染全部菜单项（与齿轮菜单同源 19 项）+ 展开按钮', () => {
         useSidebarStore.setState({leftCollapsed: true})
         const {container} = render(<ConversationSidebar/>)
         const icons = container.querySelector('[data-name="sidebar-collapsed-icons"]')
         expect(icons).not.toBeNull()
-        expect(icons!.querySelectorAll('[data-name="collapsed-item"]').length).toBe(18)
+        expect(icons!.querySelectorAll('[data-name="collapsed-item"]').length).toBe(19)
         // 展开按钮：双入口设计 —— 新增底部按钮 + 右侧边缘既有按钮共用同一 aria-label，
         // 必须断言数量为 2 而非 not.toBeNull()，否则右侧边缘按钮会遮蔽底部按钮缺失的失败
         expect(container.querySelectorAll('[aria-label="展开侧边栏"]').length).toBe(2)
@@ -63,8 +63,8 @@ describe('ConversationSidebar footer / 折叠态', () => {
             icons!.querySelectorAll('[data-name="collapsed-item"]'), // 与点击按钮同元素，title/aria-label 均为 item.label
         ).map((el) => el.getAttribute('aria-label'))
         expect(collapsedLabels).toEqual([
-            '模型方案', '服务商', 'Agents', 'Skills', '命令', '内置工具', 'MCP 服务', '权限配置', '三方渠道',
-            '历史会话', '任务历史', '系统提示词', '三方插件', '定时任务', '系统设置', 'LLM调用日志', 'LLM用量统计', '关于',
+            '模型方案', '服务商', 'Agents', 'Skills', '命令', '插件', '内置工具', 'MCP 服务', '权限配置', '三方渠道',
+            '历史会话', '任务历史', '快捷短语', '系统提示词', '定时任务', '系统设置', 'LLM调用日志', 'LLM用量统计', '关于',
         ])
     })
 })

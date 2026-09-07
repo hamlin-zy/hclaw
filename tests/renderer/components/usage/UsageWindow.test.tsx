@@ -100,7 +100,7 @@ describe('UsageWindow 全局用量窗口', () => {
 
     it('渲染 KPI + 趋势柱状条 + 分组表', async () => {
         render(<UsageWindow />)
-        await waitFor(() => expect(screen.getByText('27.8M')).toBeTruthy())
+        await waitFor(() => expect(screen.getByText('27.79M')).toBeTruthy())
         expect(screen.getByText('总成本')).toBeTruthy()
         // 时序 KPI：平均吞吐 = Σ输出 ÷ Σ解码时长；平均首字 = Σ首字 ÷ 样本数
         // （明细表新增同名列头，getByText 会多匹配，故取首个即 KPI 区域）
