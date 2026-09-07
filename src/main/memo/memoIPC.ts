@@ -2,8 +2,9 @@
  * Memo IPC — 通道注册 + memo_changed 跨窗口广播（spec §5/§9）
  * 返回约定：{ok: true, data} | {ok: false, error}（渲染层 toast）
  */
-import {ipcMain, BrowserWindow} from 'electron'
+import {ipcMain} from 'electron'
 import {memoStore} from './memoStore'
+import {broadcastMemoChanged} from './broadcast'
 
 function toError(err: unknown): string {
     const message = err instanceof Error ? err.message : err
@@ -12,11 +13,7 @@ function toError(err: unknown): string {
     return String(message)
 }
 
-function broadcastChanged(workspacePath: string): void {
-    for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) win.webContents.send('memo_changed', {workspacePath})
-    }
-}
+const broadcastChanged = broadcastMemoChanged
 
 let registered = false
 
