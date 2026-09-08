@@ -193,9 +193,12 @@ function findEffectiveOverride(convId: string): ModelOverride | null {
 }
 
 /**
- * 根据「显式 modelRole → 会话 override → 默认 primary」三级决策选择模型
- * - 显式 modelRole（agentTool 子会话）：仅 3 文本角色且方案角色已启用配置才生效
+ * 根据「会话 override → 显式 modelRole → 默认降级链」三级决策选择模型
  * - 会话 override：绕过角色直接解析该模型（directModel），失效则降级默认 primary + warning
+ *   ★ 优先级最高：agentTool 子会话创建时已把 modelRole 固化为子会话 override
+ *   （agentTool ⑥.5 setOverride），首轮 override 与 modelRole 解析结果一致；
+ *   用户在子会话中显式切换模型（更新 override）后必须生效，故 override 先于 modelRole。
+ * - 显式 modelRole（agentTool 子会话）：仅 3 文本角色且方案角色已启用配置才生效
  * - 默认：primary 角色（fallback 链 primary→lightweight→reasoning，见 modelSelector）
  * - 图片消息：loop 始终使用当前决策模型，图片分析由 analyze_image 内置工具调用视觉理解模型处理
  */
@@ -220,26 +223,9 @@ export function* selectModelForTurn(
         ? runtimeProviders
         : ((schemeConfig?.providers as LLMProvider[] | undefined) || [])
 
-    // ── 0. 显式 modelRole（agentTool 子会话）：仅文本角色且方案角色已启用配置才生效 ──
-    if (modelRoleOverride && TEXT_MODEL_ROLES.includes(modelRoleOverride)) {
-        const roleConfig = currentScheme && getRoleConfig(currentScheme, modelRoleOverride)
-        if (roleConfig?.enabled && roleConfig.endpointId && roleConfig.modelId && providers.length > 0) {
-            const resolved = resolveModelConfig(roleConfig, providers)
-            if (resolved) {
-                return {
-                    modelConfig: resolved,
-                    schemeId: currentScheme?.id || null,
-                    schemeName: currentScheme?.name || null,
-                    suggestedRole: modelRoleOverride,
-                    providerName: resolved._providerName,
-                    providerId: resolved._providerId,
-                }
-            }
-        }
-        // 校验降级：角色未启用/未配置 → 落入后续步骤
-    }
-
-    // ── 1. 会话 override（子会话沿父链继承）──
+    // ── 0. 会话 override（用户显式指定的模型，优先级最高）──
+    // agentTool 子会话创建时已把 modelRole 固化为自身 override，故此步同时覆盖
+    // 「创建时固化」与「用户运行中/后续显式切换」两种来源
     const override = sessionId ? findEffectiveOverride(sessionId) : null
     if (override) {
         if (providers.length > 0) {
@@ -258,13 +244,32 @@ export function* selectModelForTurn(
                 }
             }
         }
-        // override 失效（服务商/模型已删除或禁用）→ 降级默认 primary + warning
+        // override 失效（服务商/模型已删除或禁用）→ 降级显式 modelRole / 默认 primary + warning
         logger.warn(`[AgentLoop] 会话模型 override 失效（${override.endpointId}/${override.modelId}），降级默认 primary`)
         yield {type: 'warning', message: '会话指定的模型已失效，已切换为主力模型'}
     }
 
+    // ── 1. 显式 modelRole（agentTool 子会话）：仅文本角色且方案角色已启用配置才生效 ──
+    if (modelRoleOverride && TEXT_MODEL_ROLES.includes(modelRoleOverride)) {
+        const roleConfig = currentScheme && getRoleConfig(currentScheme, modelRoleOverride)
+        if (roleConfig?.enabled && roleConfig.endpointId && roleConfig.modelId && providers.length > 0) {
+            const resolved = resolveModelConfig(roleConfig, providers)
+            if (resolved) {
+                return {
+                    modelConfig: resolved,
+                    schemeId: currentScheme?.id || null,
+                    schemeName: currentScheme?.name || null,
+                    suggestedRole: modelRoleOverride,
+                    providerName: resolved._providerName,
+                    providerId: resolved._providerId,
+                }
+            }
+        }
+        // 校验降级：角色未启用/未配置 → 落入后续步骤
+    }
+
     // ── 2. 默认：按 defaultRole 起始的降级链选择 ──
-    // - 主会话默认 primary（P→L→R）；agentTool 子会话（未显式 modelRole）默认 lightweight（L→P→R）
+    // - 主会话默认 primary（P→L→R）；agentTool 子会话（未显式 modelRole 且无 override）默认 lightweight（L→P→R）
     // - 显式 modelRole 未生效（角色未启用/未配置）时同样按其起始角色降级（如 R→P→L）
     const requestedRole: ModelRole = modelRoleOverride ?? defaultRole
     let suggestedRole: ModelRole = requestedRole

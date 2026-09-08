@@ -66,7 +66,7 @@ class MemoStore {
         return this.readAll(workspacePath)
     }
 
-    create(input: {workspacePath: string; title: string; content: string; capability?: MemoCapability; attachments?: MemoAttachment[]}): MemoItem {
+    create(input: {workspacePath: string; title: string; content: string; capability?: MemoCapability; attachments?: MemoAttachment[]; priority?: MemoItem['priority']}): MemoItem {
         const title = input.title?.trim() ?? ''
         const content = input.content?.trim() ?? ''
         const attachments = input.attachments ?? []
@@ -85,6 +85,7 @@ class MemoStore {
             status: 'active',
             pinned: false,
             sortIndex: 0,
+            priority: input.priority,
         }
         // 暂存附件迁移到 attachments/<memoId>/（与写 memos.json 同一同步事务）
         item.attachments = item.attachments.map(att => this.migratePending(att, item.id, input.workspacePath))

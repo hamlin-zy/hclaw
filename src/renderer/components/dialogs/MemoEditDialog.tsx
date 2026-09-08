@@ -15,7 +15,8 @@
 import React, {useEffect, useRef, useState} from 'react'
 import CapabilityPicker from '../common/CapabilityPicker'
 import ImagePreviewModal from '../common/ImagePreviewModal'
-import type {MemoItem, MemoCapability, MemoAttachment} from '@shared/types/memo'
+import {PrioritySelect} from '../common/PrioritySelect'
+import type {MemoItem, MemoCapability, MemoAttachment, MemoPriority} from '@shared/types/memo'
 import {toMediaUrl, isImageFileName} from '@/renderer/utils/mediaUrl'
 
 const MAX_ATTACHMENTS = 20
@@ -28,6 +29,7 @@ export default function MemoEditDialog() {
     const [title, setTitle] = useState('')
     const [content, setContent] = useState('')
     const [capability, setCapability] = useState<MemoCapability | undefined>(undefined)
+    const [priority, setPriority] = useState<MemoPriority>('normal')
     const [attachments, setAttachments] = useState<MemoAttachment[]>([])
     const [loading, setLoading] = useState(isEdit)
     const [loadError, setLoadError] = useState<string | null>(null)
@@ -52,6 +54,7 @@ export default function MemoEditDialog() {
                 setTitle(item.title)
                 setContent(item.content)
                 setCapability(item.capability)
+                setPriority(item.priority ?? 'normal')
                 setAttachments(item.attachments)
                 setStatus(item.status)
             } else {
@@ -170,8 +173,8 @@ export default function MemoEditDialog() {
         setSaving(true)
         const api = window.electronAPI?.memo
         const res = isEdit
-            ? await api?.update(memoId, {title: title.trim(), content: content.trim(), capability, attachments})
-            : await api?.create({workspacePath, title: title.trim(), content: content.trim(), capability, attachments})
+            ? await api?.update(memoId, {title: title.trim(), content: content.trim(), capability, attachments, priority})
+            : await api?.create({workspacePath, title: title.trim(), content: content.trim(), capability, attachments, priority})
         setSaving(false)
         if (res?.ok) {
             addedPendingIds.current = []
@@ -252,7 +255,10 @@ export default function MemoEditDialog() {
         >
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
                 <div>
-                    <label className="block text-xs text-[var(--text-muted)] mb-1">标题</label>
+                    <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs text-[var(--text-muted)]">标题</label>
+                        <PrioritySelect size="md" value={priority} onChange={setPriority}/>
+                    </div>
                     <input
                         type="text"
                         value={title}
