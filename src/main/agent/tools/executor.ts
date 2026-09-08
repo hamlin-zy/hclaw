@@ -357,6 +357,10 @@ const SIZE_TRUNCATE_THRESHOLD = 15000 // 字符数截断阈值
  * 任何截断或"[警告] 结果较大"尾巴都会破坏三端一致性（运行时 toolResult /
  * DB tool_result / 历史重建），故豁免（阈值 Infinity 同时跳过截断与警告）。
  *
+ * list_agents 同理：output 是完整 agent 名册（JSON 数组，多插件场景可达数十 KB），
+ * 截断会让 LLM 只看到名册前半段，误判不存在的 agent（如 code-simplifier），
+ * 且单行 JSON 被硬切会产生非法片段，故豁免（阈值 Infinity）。
+ *
  * MCP 工具（m_/mp_ 前缀）：MCP 结果路径（mcp/formatResult.ts 拼接 text parts）无内部截断，
  * executor 层 128KB 阈值即 MCP 结果的唯一截断点（产品规格）。
  * 因此结果在 128KB 以内时原样返回（不截断、不附加"[警告] 结果较大"），
@@ -368,6 +372,7 @@ const TOOL_SIZE_TRUNCATE_THRESHOLDS: Record<string, number> = {
     bash: 2 * 1024 * 1024,
     agent: Infinity,
     skill: Infinity,
+    list_agents: Infinity,
 }
 // executor 层对 MCP 结果的 128KB 截断阈值（产品规格）：
 // MCP 结果路径无内部上限，此阈值即 MCP 结果的唯一截断点。

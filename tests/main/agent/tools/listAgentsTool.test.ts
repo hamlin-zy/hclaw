@@ -25,6 +25,33 @@ describe('list_agents', () => {
         expect(parsed[1].plugin).toBe('ecc')
     })
 
+    it('精简描述: userDescription > whenToUse > description 优先级', async () => {
+        vi.spyOn(agentRegistry, 'getEnabled').mockReturnValue([
+            {enabled: true, name: 'A', userDescription: '用户定制', description: '系统描述', whenToUse: '触发条件'},
+            {enabled: true, name: 'B', description: '系统描述', whenToUse: '触发条件'},
+            {enabled: true, name: 'C', description: '系统描述'},
+        ] as any)
+        const result = await listAgentsTool.execute({} as any, {} as any)
+        const parsed = JSON.parse(result.output)
+        expect(parsed[0].description).toBe('用户定制')
+        expect(parsed[1].description).toBe('触发条件')
+        expect(parsed[2].description).toBe('系统描述')
+    })
+
+    it('精简描述: 纯空白 whenToUse 视为缺失，折叠内部空白，超长 description 截断到 250', async () => {
+        vi.spyOn(agentRegistry, 'getEnabled').mockReturnValue([
+            {enabled: true, name: 'A', description: '系统描述', whenToUse: '   \n\t '},
+            {enabled: true, name: 'B', description: '多行\n\n描述\t文本'},
+            {enabled: true, name: 'C', description: 'x'.repeat(300)},
+        ] as any)
+        const result = await listAgentsTool.execute({} as any, {} as any)
+        const parsed = JSON.parse(result.output)
+        expect(parsed[0].description).toBe('系统描述')
+        expect(parsed[1].description).toBe('多行 描述 文本')
+        expect(parsed[2].description).toBe('x'.repeat(247) + '...')
+        expect(parsed[2].description.length).toBe(250)
+    })
+
     it('U12: 空 registry 返回 []', async () => {
         vi.spyOn(agentRegistry, 'getEnabled').mockReturnValue([] as any)
         const result = await listAgentsTool.execute({} as any, {} as any)
