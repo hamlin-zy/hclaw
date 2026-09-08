@@ -215,11 +215,6 @@ export default function PromptConfigDialog() {
         }
     }
 
-    // 确保选中方案变化时同步选中节点
-    useEffect(() => {
-        setSelectedNodeKey(null)
-    }, [selectedSchemeId])
-
     // 首次打开时，如果尚未选中任何方案，自动选中当前激活的方案
     useEffect(() => {
         if (selectedSchemeId === null && activePromptSchemeId !== null) {
@@ -227,18 +222,11 @@ export default function PromptConfigDialog() {
         }
     }, [activePromptSchemeId, selectedSchemeId])
 
-    // 首次选中方案时，自动选中第一个节点
-    const [hasAutoSelectedNode, setHasAutoSelectedNode] = useState(false)
+    // 切换方案时自动选中第一个节点
     useEffect(() => {
-        if (selectedScheme && !hasAutoSelectedNode && ALL_PROMPT_NODES.length > 0) {
+        if (selectedSchemeId !== null && ALL_PROMPT_NODES.length > 0) {
             setSelectedNodeKey(ALL_PROMPT_NODES[0].key)
-            setHasAutoSelectedNode(true)
         }
-    }, [selectedScheme, hasAutoSelectedNode])
-
-    // 方案变化时重置自动选中状态
-    useEffect(() => {
-        setHasAutoSelectedNode(false)
     }, [selectedSchemeId])
 
     return (
