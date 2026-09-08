@@ -16,6 +16,7 @@ import {HandoffDialog, type HandoffChoice} from './HandoffDialog'
 import {buildHandoffMessage} from '../utils/handoff'
 import {deriveConversationTitle} from '../utils/conversationTitle'
 import {useSettingsStore} from '../stores/settingsStore'
+import {shortcutManager} from '../services/shortcutManager'
 import PhrasePicker from './PhrasePicker'
 import {usePhrasePicker, pickPhraseInto} from '../hooks/usePhrasePicker'
 
@@ -377,43 +378,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
             return
         }
 
-        // Ctrl+↑ → 输入历史（上翻）
-        if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowUp') {
-            e.preventDefault()
-            const history = useInputHistoryStore.getState().history
-            if (history.length === 0) return
-
-            // 首次进入历史模式，保存当前输入
-            if (historyIndex === -1) {
-                setSavedInput(input)
-                setHistoryIndex(history.length - 1)
-                setInput(history[history.length - 1])
-            } else {
-                const newIndex = Math.max(0, historyIndex - 1)
-                setHistoryIndex(newIndex)
-                setInput(history[newIndex])
-            }
-            return
-        }
-
-        // Ctrl+↓ → 输入历史（下翻）
-        if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown') {
-            e.preventDefault()
-            if (historyIndex === -1) return
-
-            const history = useInputHistoryStore.getState().history
-            if (historyIndex >= history.length - 1) {
-                // 回到当前输入
-                setHistoryIndex(-1)
-                setInput(savedInput)
-                setSavedInput('')
-            } else {
-                const newIndex = historyIndex + 1
-                setHistoryIndex(newIndex)
-                setInput(history[newIndex])
-            }
-            return
-        }
+        // Ctrl+↑/↓ → 输入历史：经 shortcutManager 订阅（见下方 useEffect）
     }
 
     // 监听全局快捷键事件：Ctrl+K → 打开命令选择弹窗（仅活跃会话响应）
@@ -422,6 +387,63 @@ export default function InputArea({isActive = true}: InputAreaProps) {
         const handler = () => setCommandPaletteOpen(prev => !prev)
         window.addEventListener('hclaw:toggle-command-palette', handler)
         return () => window.removeEventListener('hclaw:toggle-command-palette', handler)
+    }, [isActive])
+
+    // 输入历史导航（Ctrl+↑/↓，可配置）：经 shortcutManager 订阅；用 ref 镜像闭包状态避免 stale closure
+    const inputRef = useRef(input)
+    const historyIndexRef = useRef(historyIndex)
+    const savedInputRef = useRef(savedInput)
+    // 镜像闭包状态到 ref，避免 shortcutManager 订阅（deps 仅 isActive）捕获 stale 值
+    useEffect(() => {
+        inputRef.current = input
+        historyIndexRef.current = historyIndex
+        savedInputRef.current = savedInput
+    })
+
+    useEffect(() => {
+        if (!isActive) return
+
+        // 焦点守卫：仅当事件源自本 InputArea 的 textarea 时才执行历史切换，
+        // 避免焦点在搜索框/设置输入框等任意位置按 Ctrl+↑ 都改写输入框并抢焦点
+        const isFromOurTextarea = () =>
+            document.activeElement !== null && document.activeElement === textareaRef.current
+
+        const onPrev = () => {
+            if (!isFromOurTextarea()) return
+            const history = useInputHistoryStore.getState().history
+            if (history.length === 0) return
+            // 首次进入历史模式，保存当前输入
+            if (historyIndexRef.current === -1) {
+                setSavedInput(inputRef.current)
+                setHistoryIndex(history.length - 1)
+                setInput(history[history.length - 1])
+            } else {
+                const newIndex = Math.max(0, historyIndexRef.current - 1)
+                setHistoryIndex(newIndex)
+                setInput(history[newIndex])
+            }
+        }
+
+        const onNext = () => {
+            if (!isFromOurTextarea()) return
+            const historyIndex = historyIndexRef.current
+            if (historyIndex === -1) return
+            const history = useInputHistoryStore.getState().history
+            if (historyIndex >= history.length - 1) {
+                // 回到当前输入
+                setHistoryIndex(-1)
+                setInput(savedInputRef.current)
+                setSavedInput('')
+            } else {
+                const newIndex = historyIndex + 1
+                setHistoryIndex(newIndex)
+                setInput(history[newIndex])
+            }
+        }
+
+        const offPrev = shortcutManager.on('prevInputHistory', onPrev)
+        const offNext = shortcutManager.on('nextInputHistory', onNext)
+        return () => { offPrev(); offNext() }
     }, [isActive])
 
     // 监听 Ctrl+N 新建会话后焦点输入框（仅活跃会话响应）

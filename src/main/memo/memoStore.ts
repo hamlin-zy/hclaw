@@ -66,7 +66,7 @@ class MemoStore {
         return this.readAll(workspacePath)
     }
 
-    create(input: {workspacePath: string; title: string; content: string; capability?: MemoCapability; attachments?: MemoAttachment[]}): MemoItem {
+    create(input: {workspacePath: string; title: string; content: string; capability?: MemoCapability; attachments?: MemoAttachment[]; priority?: MemoItem['priority']}): MemoItem {
         const title = input.title?.trim() ?? ''
         const content = input.content?.trim() ?? ''
         const attachments = input.attachments ?? []
@@ -85,6 +85,7 @@ class MemoStore {
             status: 'active',
             pinned: false,
             sortIndex: 0,
+            priority: input.priority,
         }
         // 暂存附件迁移到 attachments/<memoId>/（与写 memos.json 同一同步事务）
         item.attachments = item.attachments.map(att => this.migratePending(att, item.id, input.workspacePath))
@@ -117,7 +118,7 @@ class MemoStore {
         return this.locate(id)?.item
     }
 
-    update(id: string, patch: Partial<Pick<MemoItem, 'title' | 'content' | 'capability' | 'attachments' | 'status' | 'relatedConvId' | 'pinned' | 'sortIndex'>>): MemoItem {
+    update(id: string, patch: Partial<Pick<MemoItem, 'title' | 'content' | 'capability' | 'attachments' | 'status' | 'relatedConvId' | 'pinned' | 'sortIndex' | 'priority'>>): MemoItem {
         const hit = this.locate(id)
         if (!hit) throw new Error('MEMO_NOT_FOUND')
         const {workspacePath} = hit
@@ -147,9 +148,38 @@ class MemoStore {
         const {workspacePath} = hit
         const items = this.readAll(workspacePath).filter(m => m.id !== id)
         this.writeAll(workspacePath, items)
-        // 清理该条目的附件归档目录
-        const attDir = path.join(memoDir(workspacePath), 'attachments', id)
-        fs.rmSync(attDir, {recursive: true, force: true})
+        this.removeAttachmentDir(workspacePath, id)
+    }
+
+    /** 删除条目的附件归档目录（attachments/<memoId>/） */
+    private removeAttachmentDir(workspacePath: string, id: string): void {
+        fs.rmSync(path.join(memoDir(workspacePath), 'attachments', id), {recursive: true, force: true})
+    }
+
+    /**
+     * 批量删除（"删除组内备忘录"用）：按工作区分组，每个工作区只读写一次 memos.json，
+     * 并逐条清理附件归档目录。返回受影响的工作区路径列表（供 IPC 层广播 memo_changed）。
+     * 不存在的 id 静默跳过（与单删 remove 语义一致）；空数组短路返回 []。
+     */
+    removeMany(ids: string[]): string[] {
+        const wanted = [...new Set(ids)]
+        if (wanted.length === 0) return []
+        const wsToIds = new Map<string, string[]>()
+        for (const id of wanted) {
+            const hit = this.locate(id)
+            if (!hit) continue
+            const list = wsToIds.get(hit.workspacePath) ?? []
+            list.push(id)
+            wsToIds.set(hit.workspacePath, list)
+        }
+        const affected: string[] = []
+        for (const [workspacePath, wsIds] of wsToIds) {
+            const idSet = new Set(wsIds)
+            this.writeAll(workspacePath, this.readAll(workspacePath).filter(m => !idSet.has(m.id)))
+            for (const id of wsIds) this.removeAttachmentDir(workspacePath, id)
+            affected.push(workspacePath)
+        }
+        return affected
     }
 
     /** storedPath 位于 _pending 的附件迁移到 attachments/<memoId>/，否则原样返回 */

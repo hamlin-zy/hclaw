@@ -196,6 +196,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         whenToUse?: string
         systemPrompt: string
         enabled?: boolean
+        allowedTools?: string[]
+        disallowedTools?: string[]
     }) => ipcRenderer.invoke('agents:create', params),
     agentsDelete: (templateId: string) =>
         ipcRenderer.invoke('agents:delete', templateId),
@@ -205,6 +207,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         whenToUse?: string
         enabled?: boolean
         systemPrompt?: string
+        allowedTools?: string[]
+        disallowedTools?: string[]
     }) => ipcRenderer.invoke('agents:update', templateId, updates),
     agentsToggleBatch: (params: {templateIds: string[]; enabled: boolean}) =>
         ipcRenderer.invoke('agents:toggle-batch', params),
@@ -361,6 +365,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         create: (input: unknown) => ipcRenderer.invoke('memo:create', input),
         update: (id: string, patch: unknown) => ipcRenderer.invoke('memo:update', {id, patch}),
         remove: (id: string) => ipcRenderer.invoke('memo:delete', id),
+        removeMany: (ids: string[]) => ipcRenderer.invoke('memo:deleteMany', ids),
         uploadAttachment: (input: unknown) => ipcRenderer.invoke('memo:uploadAttachment', input),
         // 渲染层 File 对象无绝对路径，需在 preload 侧用 webUtils 解析
         uploadFile: (file: File) => ipcRenderer.invoke('memo:uploadAttachment', {fileName: file.name, srcPath: webUtils.getPathForFile(file), mime: file.type}),
@@ -621,6 +626,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // System settings management
     settingsUpdate: (settings: import('../shared/types').SystemSettings) =>
         ipcRenderer.invoke('settings-update', settings),
+
+    // 快捷键：全局键注册失败结果推送（'shortcuts-global-failures'）
+    onShortcutsGlobalFailures: (callback: (failures: Record<string, string>) => void) => {
+        const handler = (_e: unknown, failures: Record<string, string>) => callback(failures)
+        ipcRenderer.on('shortcuts-global-failures', handler)
+        return () => { ipcRenderer.removeListener('shortcuts-global-failures', handler) }
+    },
 
     // Window theme management
     setWindowTheme: (theme: string) =>

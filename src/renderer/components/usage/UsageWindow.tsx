@@ -51,10 +51,12 @@ const SEGMENT_BTN = 'px-2.5 py-1 text-xs rounded-md transition-colors'
 const SEGMENT_ACTIVE = 'bg-[var(--surface-elevated)] shadow-sm text-[var(--text-primary)] font-medium'
 const SEGMENT_INACTIVE = 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
 
-/** 时间范围按钮顺序：今天 → 昨天 → 7天 → 30天 → 自定义，默认今天 */
-const RANGE_OPTIONS: Array<{range: TimeRange; label: string}> = [
+/** 时间范围按钮顺序：今天 → 昨天 → 本周 → 本月 → 7天 → 30天 → 自定义，默认今天；tip = 口径提示（InfoTip 悬停展示） */
+const RANGE_OPTIONS: Array<{range: TimeRange; label: string; tip?: string}> = [
     {range: 'today', label: '今天'},
     {range: 'yesterday', label: '昨天'},
+    {range: 'thisWeek', label: '本周', tip: '本周一 0 点至今（周一为一周起始）'},
+    {range: 'thisMonth', label: '本月', tip: '本月 1 日 0 点至今'},
     {range: '7d', label: '近 7 天'},
     {range: '30d', label: '近 30 天'},
     {range: 'custom', label: '自定义'},
@@ -323,11 +325,14 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
             {/* 工具栏：时间范围（含自定义日历）+ 分组视图 + 货币切换 + 刷新 */}
             <div className="flex items-center gap-3 px-5 py-2.5 border-b border-[var(--border)] shrink-0 flex-wrap">
                 <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
-                    {RANGE_OPTIONS.map(({range: r, label}) => (
-                        <button key={r} data-testid={`range-${r}`} onClick={() => setRange(r)}
-                                className={`${SEGMENT_BTN} ${range === r ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`} data-name="usage-window-button">
-                            {label}
-                        </button>
+                    {RANGE_OPTIONS.map(({range: r, label, tip}) => (
+                        <span key={r} className="flex items-center gap-0.5">
+                            <button data-testid={`range-${r}`} onClick={() => setRange(r)}
+                                    className={`${SEGMENT_BTN} ${range === r ? SEGMENT_ACTIVE : SEGMENT_INACTIVE}`} data-name="usage-window-button">
+                                {label}
+                            </button>
+                            {tip && <InfoTip text={tip} />}
+                        </span>
                     ))}
                 </div>
                 {/* 自定义日期范围选择器（天级精度，闭区间） */}

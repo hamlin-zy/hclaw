@@ -8,16 +8,17 @@
  *   由 MemoPanel 挂载时调用一次（Task 8）
  */
 import {create} from 'zustand'
-import type {MemoItem, MemoAttachment, MemoCapability} from '@shared/types/memo'
+import type {MemoItem, MemoAttachment, MemoCapability, MemoPriority} from '@shared/types/memo'
 
 interface MemoStoreState {
     memos: MemoItem[]
     loading: boolean
     error: string | null
     load: (workspacePath: string) => Promise<void>
-    create: (input: {workspacePath: string; title: string; content: string; capability?: MemoCapability; attachments?: MemoAttachment[]}) => Promise<MemoItem | null>
+    create: (input: {workspacePath: string; title: string; content: string; capability?: MemoCapability; attachments?: MemoAttachment[]; priority?: MemoPriority}) => Promise<MemoItem | null>
     updateItem: (id: string, patch: Partial<MemoItem>) => Promise<void>
     remove: (id: string) => Promise<void>
+    removeMany: (ids: string[]) => Promise<void>
     createSession: (id: string) => Promise<{convId: string} | null>
 }
 
@@ -77,6 +78,18 @@ export const useMemoStore = create<MemoStoreState>((set, get) => ({
         const res = await window.electronAPI?.memo.remove(id)
         if (!unwrap(res)) {
             set({error: res?.error || '删除备忘录失败'})
+            return
+        }
+        if (current) await get().load(current.workspacePath)
+    },
+
+    /** 批量删除（删除组内备忘录）：一次 IPC + 一次全量刷新 */
+    removeMany: async (ids) => {
+        if (ids.length === 0) return
+        const current = get().memos.find((m) => ids.includes(m.id))
+        const res = await window.electronAPI?.memo.removeMany(ids)
+        if (!unwrap(res)) {
+            set({error: res?.error || '批量删除备忘录失败'})
             return
         }
         if (current) await get().load(current.workspacePath)

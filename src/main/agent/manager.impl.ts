@@ -17,6 +17,7 @@ import {gracefulRestart} from '../utils/restart'
 import {capabilityManager} from './capabilityManager'
 import {logger} from './logger'
 import {mcpWorkerManager, setAgentManagerRef} from './mcp/mcpWorkerManager'
+import {injectChildMessage} from './tools/builtin/agentTool'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
 import {upsertSnapshot, getActiveBatch} from '../repositories/sqlite/taskBatchRepository'
 import {runtimeConfigManager} from './runtimeConfigManager'
@@ -389,6 +390,14 @@ export class AgentManager {
           await permissionEngine.reloadRules()
           this.forwardToRenderer(msg.conversationId, {type: 'permission-rules-updated'})
           return
+        }
+
+        // memo_tool 写操作后的备忘录变更广播：Worker 内无法访问 BrowserWindow，经此转发所有窗口
+        if (msg.type === WORKER_MESSAGE_TYPES.MEMO_CHANGED) {
+            const {workspacePath} = msg as unknown as {workspacePath: string}
+            const {broadcastMemoChanged} = await import('../memo/broadcast')
+            broadcastMemoChanged(workspacePath)
+            return
         }
 
         // Agent 结束后残留收尾：持久化 pending assistant 消息（残留注入消息直接丢弃，落库归 startAgentCore）
@@ -1278,22 +1287,54 @@ export class AgentManager {
     }
   }
 
-  /** 向运行中的 Agent 注入用户消息 */
+  /**
+   * 向运行中的 Agent 注入用户消息
+   *
+   * 三级路由：
+   * 1. 会话自身是运行中的 Worker → 直接 postMessage（原路径）
+   * 2. 子会话（agentTool in-process loop）且父 agent 运行在主进程
+   *    → agentTool 模块注册表直接入队
+   * 3. 父 agent 运行在某个 Worker → 广播 INJECT_USER_MESSAGE（带 convId），
+   *    由 worker 侧 agentTool 注册表路由到对应子会话队列
+   */
   injectMessage(conversationId: string, content: string, messageId?: string): boolean {
+    // 三条路径共用同一消息 id：未显式指定则生成
+    const msgId = messageId || `inject-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const entry = this.workers.get(conversationId)
-    if (!entry) {
-      logger.warn('[AgentManager] injectMessage: 会话未在运行中', {conversationId})
-      return false
+    if (entry) {
+      entry.worker.postMessage({
+        type: WORKER_MESSAGE_TYPES.INJECT_USER_MESSAGE,
+        convId: conversationId,
+        message: {
+          content,
+          id: msgId,
+        },
+      })
+      logger.info('[AgentManager] 已向 Worker 转发注入消息', {conversationId, contentPreview: (content || '').slice(0, 80)})
+      return true
     }
-    entry.worker.postMessage({
-      type: WORKER_MESSAGE_TYPES.INJECT_USER_MESSAGE,
-      message: {
-        content,
-        id: messageId || `inject-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      },
-    })
-    logger.info('[AgentManager] 已向 Worker 转发注入消息', {conversationId, contentPreview: (content || '').slice(0, 80)})
-    return true
+
+    // 路径 2：主进程内运行的子会话（agentTool in-process）
+    const injectedLocal = injectChildMessage(conversationId, content, msgId)
+    if (injectedLocal) return true
+
+    // 路径 3：父 agent 运行在 Worker 中，广播后由 worker 侧路由。
+    // 注意：无法从 worker 获取子会话运行状态的 ack，广播即视为已投递；
+    // 若子会话恰在此窗口结束，消息已由渲染端持久化，worker 侧注册表 miss 时静默忽略。
+    if (this.workers.size > 0) {
+      for (const [, w] of this.workers) {
+        w.worker.postMessage({
+          type: WORKER_MESSAGE_TYPES.INJECT_USER_MESSAGE,
+          convId: conversationId,
+          message: {content, id: msgId},
+        })
+      }
+      logger.info('[AgentManager] 已广播注入消息到 Workers（子会话路由）', {conversationId, contentPreview: (content || '').slice(0, 80)})
+      return true
+    }
+
+    logger.warn('[AgentManager] injectMessage: 会话未在运行中', {conversationId})
+    return false
   }
 
   /** 获取所有运行中的会话 ID */

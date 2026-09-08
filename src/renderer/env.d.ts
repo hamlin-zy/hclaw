@@ -116,9 +116,10 @@ declare global {
         memo: {
             list: (workspacePath: string) => Promise<{ok: boolean, data?: any, error?: string}>
             getById: (id: string) => Promise<{ok: boolean, data?: import('../shared/types/memo').MemoItem, error?: string}>
-            create: (input: {workspacePath: string, title: string, content: string, capability?: import('../shared/types/memo').MemoCapability, attachments?: import('../shared/types/memo').MemoAttachment[]}) => Promise<{ok: boolean, data?: any, error?: string}>
+            create: (input: {workspacePath: string, title: string, content: string, capability?: import('../shared/types/memo').MemoCapability, attachments?: import('../shared/types/memo').MemoAttachment[], priority?: import('../shared/types/memo').MemoPriority}) => Promise<{ok: boolean, data?: any, error?: string}>
             update: (id: string, patch: unknown) => Promise<{ok: boolean, data?: any, error?: string}>
             remove: (id: string) => Promise<{ok: boolean, error?: string}>
+            removeMany: (ids: string[]) => Promise<{ok: boolean, data?: number, error?: string}>
             uploadAttachment: (input: unknown) => Promise<{ok: boolean, data?: any, error?: string}>
             uploadFile: (file: File) => Promise<{ok: boolean, data?: any, error?: string}>
             discardPending: (ids: string[]) => Promise<{ok: boolean, data?: any, error?: string}>
@@ -206,6 +207,8 @@ declare global {
             whenToUse?: string
             systemPrompt: string
             enabled?: boolean
+            allowedTools?: string[]
+            disallowedTools?: string[]
         }) => Promise<{ success: boolean; error?: string }>
         agentsDelete: (templateId: string) => Promise<{ success: boolean; error?: string }>
         agentsUpdate: (templateId: string, updates: {
@@ -214,6 +217,8 @@ declare global {
             whenToUse?: string
             enabled?: boolean
             systemPrompt?: string
+            allowedTools?: string[]
+            disallowedTools?: string[]
         }) => Promise<{ success: boolean; error?: string }>
         agentsToggleBatch: (params: {templateIds: string[]; enabled: boolean}) => Promise<{
             success: boolean;
@@ -645,6 +650,9 @@ declare global {
 
         // Settings management
         settingsUpdate: (settings: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>
+
+        // 快捷键：全局键注册失败结果推送（'shortcuts-global-failures'，空对象 = 无失败）
+        onShortcutsGlobalFailures?: (callback: (failures: Record<string, string>) => void) => () => void
 
         commandResolveByName: (name: string, args?: string) => Promise<{ template: string; commandId: string } | null>
 

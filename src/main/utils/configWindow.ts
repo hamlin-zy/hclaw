@@ -69,7 +69,7 @@ export const DIALOG_SIZES: Record<string, {width?: number; widthRatio?: number; 
     'settings': {width: 780},
     'tool-catalog': {width: 580},
     'system-prompt': {width: 680},
-    'about': {width: 400, minWidth: 360, height: 430},
+    'about': {width: 400, minWidth: 360, height: 516},
     'llm-logs': {width: 1200, height: 700, minWidth: 800},
     'usage': {width: 1200, height: 700, minWidth: 800},
     'task-history': {width: 780},

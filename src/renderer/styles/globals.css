@@ -1481,6 +1481,15 @@ html, body {
     margin-bottom: 14px;
 }
 
+/* 用户气泡内的附件卡片：边框融入品牌色调，避免浅灰白边框在绿色气泡上发白突兀 */
+.message-bubble.user .attachment-preview-card {
+    border-color: color-mix(in srgb, var(--brand-primary) 20%, transparent);
+}
+
+.message-bubble.user .attachment-preview-card:hover {
+    border-color: color-mix(in srgb, var(--brand-primary) 35%, transparent);
+}
+
 /* 虚线分割 */
 .message-bubble .divider {
     border: none;

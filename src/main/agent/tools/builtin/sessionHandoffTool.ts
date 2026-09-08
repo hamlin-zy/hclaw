@@ -200,8 +200,9 @@ function sendToRenderer(workerType: string, workerPayload: Record<string, unknow
         if (win && !win.isDestroyed()) {
             win.webContents.send(mainChannel, mainPayload)
         }
-    } catch {
-        // window not available
+    } catch (err) {
+        // window not available —— 通知失败不应影响工具结果，但须留痕排查（渲染端将感知不到会话切换）
+        logger.warn(`[sessionHandoffTool] sendToRenderer 主进程路径失败 (channel=${mainChannel}): ${err instanceof Error ? err.message : String(err)}`)
     }
 }
 

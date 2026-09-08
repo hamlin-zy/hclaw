@@ -1,4 +1,7 @@
 import {useCallback, useEffect, useMemo, useState} from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import {clsx} from 'clsx'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
@@ -6,6 +9,7 @@ import {AnimatePresence, motion} from 'framer-motion'
 import {dropdown} from '../../lib/motionPresets'
 import {confirm} from '../ConfirmDialog'
 import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
+import {useToolStore} from '../../stores/toolStore'
 import type {AgentTemplate} from '@shared/types'
 import {fuzzyFilter} from '../../lib/search'
 import RepoGroupCard from '../repo/RepoGroupCard'
@@ -232,8 +236,8 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                     )}
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">系统提示词 (System Prompt)</label>
-                        <div className="rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] p-3 max-h-64 overflow-y-auto custom-scrollbar">
-                            <pre className="text-xs font-mono text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap break-words">{agent.systemPrompt}</pre>
+                        <div className="rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] p-3 max-h-64 overflow-y-auto custom-scrollbar [&_h1,&_h2,&_h3,&_h4]:text-xs [&_h1,&_h2,&_h3,&_h4]:font-bold [&_h1,&_h2,&_h3,&_h4]:text-[var(--text-primary)] [&_h1,&_h2]:mt-3 [&_h1,&_h2]:mb-1.5 [&_h3,&_h4]:mt-2 [&_h3,&_h4]:mb-1 [&_h1:first-child,&_h2:first-child,&_h3:first-child,&_h4:first-child]:mt-0 [&_p]:text-xs [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul,&_ol]:text-xs [&_ul,&_ol]:my-1.5 [&_ul,&_ol]:pl-5 [&_li]:my-0.5 [&_code]:text-[11px] [&_code]:font-mono [&_code]:bg-[var(--surface-elevated)] [&_code]:border [&_code]:border-[var(--border)] [&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_pre]:bg-[var(--surface-elevated)] [&_pre]:border [&_pre]:border-[var(--border)] [&_pre]:rounded [&_pre]:p-2 [&_pre]:my-1.5 [&_pre]:overflow-x-auto [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--border)] [&_blockquote]:pl-2 [&_blockquote]:text-[var(--text-secondary)] [&_blockquote]:my-1.5 [&_hr]:border-[var(--border)] [&_hr]:my-2 [&_a]:text-[var(--brand-primary)] [&_a]:underline [&_strong]:font-semibold">
+                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{agent.systemPrompt}</ReactMarkdown>
                         </div>
                     </div>
                     {agent.skillIds && agent.skillIds.length > 0 && (
@@ -265,9 +269,8 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                                             <span
                                                 key={tool}
                                                 aria-label={`禁止使用 ${tool}`}
-                                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium bg-[var(--surface-muted)] text-[var(--text-secondary)] border border-[var(--error)]/40"
+                                                className="inline-flex items-center rounded px-2 py-1 text-[10px] font-medium bg-[var(--surface-muted)] text-[var(--text-secondary)] border border-[var(--border)] line-through decoration-[var(--error)]/60"
                                             >
-                                                <X className="w-3 h-3 text-[var(--error)]" aria-hidden="true"/>
                                                 {tool}
                                             </span>
                                         ))}
@@ -280,16 +283,19 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                             </div>
                         )}
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                         <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">状态</label>
-                        <span className={clsx(
-                            "inline-flex items-center rounded px-2 py-1 text-[11px] font-semibold",
-                            agent.enabled
-                                ? "bg-[var(--tag-dev-bg)] text-[var(--tag-dev-text)] ring-1 ring-inset ring-[var(--tag-dev-border)]"
-                                : "bg-[var(--surface-muted)] text-[var(--text-muted)] ring-1 ring-inset ring-[var(--border)]"
-                        )}>
-                            {agent.enabled ? '已启用' : '已禁用'}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[10px] text-[var(--text-muted)] w-14 shrink-0">状态</span>
+                            <span className={clsx(
+                                "inline-flex items-center rounded px-2 py-1 text-[10px] font-medium",
+                                agent.enabled
+                                    ? "bg-[var(--tag-dev-bg)] text-[var(--tag-dev-text)] border border-[var(--tag-dev-border)]"
+                                    : "bg-[var(--surface-muted)] text-[var(--text-muted)] border border-[var(--border)]"
+                            )}>
+                                {agent.enabled ? '已启用' : '已禁用'}
+                            </span>
+                        </div>
                     </div>
                 </div>
 
@@ -300,10 +306,10 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                             onClick={() => onEdit()}
                             disabled={readOnly}
                             className={clsx(
-                                "px-4 py-2 rounded-lg text-xs font-bold shadow-sm hover:shadow-md transition-all",
+                                "px-4 py-2 rounded-lg text-xs font-bold transition-colors",
                                 readOnly
                                     ? "bg-[var(--surface-muted)] text-[var(--text-muted)]/50 cursor-not-allowed"
-                                    : "bg-[var(--brand-primary)] text-white hover:shadow-md"
+                                    : "bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20"
                             )}
                          data-name="agents-dialog-detail-edit-button">
                             编辑
@@ -433,7 +439,7 @@ export default function AgentsDialog() {
         })
     }
 
-    const resetForm = () => setForm({name: '', description: '', whenToUse: '', systemPrompt: '', enabled: true})
+    const resetForm = () => setForm({name: '', description: '', whenToUse: '', systemPrompt: '', enabled: true, allowedTools: [], disallowedTools: []})
 
     const handleSave = (data: Partial<AgentTemplate>) => {
         if (!data.name || !data.systemPrompt) return
@@ -457,6 +463,8 @@ export default function AgentsDialog() {
             whenToUse: t.whenToUse || '',
             systemPrompt: t.systemPrompt,
             enabled: t.enabled,
+            allowedTools: t.allowedTools || [],
+            disallowedTools: t.disallowedTools || [],
         })
         setEditingId(t.id)
         setShowModal(true)
@@ -895,6 +903,170 @@ function PluginAgentGroup({pluginName, agents, toggleTemplate, toggleTemplateBat
     )
 }
 
+// ─── 工具标签输入（Enter/逗号添加，Backspace 删除末位） ──────────
+
+function TagInput({value, onChange, placeholder, emptyHint, inputId, suggestions}: {
+    value: string[]
+    onChange: (tags: string[]) => void
+    placeholder: string
+    emptyHint: string
+    inputId?: string
+    suggestions?: string[]
+}) {
+    const [draft, setDraft] = useState('')
+    const [error, setError] = useState<string | null>(null)
+    const [activeIdx, setActiveIdx] = useState(-1)
+    const [suggestOpen, setSuggestOpen] = useState(false)
+
+    // 候选：非空输入、不区分大小写包含匹配、排除已存在 tag
+    const lowerDraft = draft.trim().toLowerCase()
+    const filteredSuggestions = suggestions && lowerDraft
+        ? suggestions.filter(s => !value.includes(s) && s.toLowerCase().includes(lowerDraft)).slice(0, 8)
+        : []
+    const showSuggest = suggestOpen && filteredSuggestions.length > 0
+
+    const applySuggestion = (s: string) => {
+        commitDraft(s)
+        setActiveIdx(-1)
+        setSuggestOpen(false)
+    }
+
+    const commitDraft = (raw?: string) => {
+        const parts = (raw ?? draft).split(',').map(s => s.trim()).filter(Boolean)
+        if (parts.length === 0) return
+        const next = [...value]
+        for (const p of parts) {
+            if (next.includes(p)) {
+                setError(`工具 "${p}" 已存在`)
+                continue
+            }
+            next.push(p)
+        }
+        onChange(next)
+        setDraft('')
+    }
+
+    const removeTag = (tag: string) => {
+        onChange(value.filter(t => t !== tag))
+        setError(null)
+    }
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (showSuggest && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+            e.preventDefault()
+            const dir = e.key === 'ArrowDown' ? 1 : -1
+            setActiveIdx(i => (i + dir + filteredSuggestions.length) % filteredSuggestions.length)
+            return
+        }
+        if (showSuggest && e.key === 'Escape') {
+            e.preventDefault()
+            setSuggestOpen(false)
+            setActiveIdx(-1)
+            return
+        }
+        if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault()
+            setError(null)
+            if (showSuggest && activeIdx >= 0 && activeIdx < filteredSuggestions.length) {
+                applySuggestion(filteredSuggestions[activeIdx])
+                return
+            }
+            commitDraft()
+            setSuggestOpen(false)
+            setActiveIdx(-1)
+        } else if (e.key === 'Backspace' && draft === '' && value.length > 0) {
+            onChange(value.slice(0, -1))
+            setError(null)
+        }
+    }
+
+    return (
+        <div className="space-y-1 relative">
+            {showSuggest && (
+                <ul
+                    role="listbox"
+                    className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto custom-scrollbar rounded-lg bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated py-1"
+                >
+                    {filteredSuggestions.map((s, i) => (
+                        <li key={s} role="option" aria-selected={i === activeIdx}
+                            onMouseDown={e => {
+                                // 阻止 input 失焦，避免触发 blur 提交逻辑
+                                e.preventDefault()
+                                applySuggestion(s)
+                            }}
+                            onMouseEnter={() => setActiveIdx(i)}
+                            className={
+                                i === activeIdx
+                                    ? 'px-3 py-1.5 text-xs cursor-pointer bg-[var(--surface-muted)] text-[var(--text-primary)]'
+                                    : 'px-3 py-1.5 text-xs cursor-pointer text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors'
+                            }
+                        >
+                            {s}
+                        </li>
+                    ))}
+                </ul>
+            )}
+            <div
+                className="w-full min-h-[42px] px-2 py-1.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] focus-within:border-[var(--brand-primary)] focus-within:ring-1 focus-within:ring-[var(--brand-primary)]/30 transition-all flex flex-wrap items-center gap-1.5 cursor-text"
+                onClick={e => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}
+            >
+                {value.length === 0 && (
+                    <span className="text-xs text-[var(--text-muted)] px-1">{emptyHint}</span>
+                )}
+                {value.map(tag => (
+                    <span
+                        key={tag}
+                        className='inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium bg-[var(--surface-elevated)] text-[var(--text-secondary)] border border-[var(--border)]'
+                    >
+                        {tag}
+                        <button
+                            type="button"
+                            aria-label={`移除 ${tag}`}
+                            onClick={e => {
+                                e.stopPropagation()
+                                removeTag(tag)
+                            }}
+                            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                        >
+                            <X className="w-3 h-3" aria-hidden="true"/>
+                        </button>
+                    </span>
+                ))}
+                <input
+                    id={inputId}
+                    type="text"
+                    value={draft}
+                    onChange={e => {
+                        setDraft(e.target.value)
+                        if (error) setError(null)
+                        if (e.target.value.includes(',')) {
+                            // 逗号输入时立即提交（含末尾逗号）
+                            commitDraft(e.target.value)
+                            setSuggestOpen(false)
+                            setActiveIdx(-1)
+                        } else {
+                            setSuggestOpen(true)
+                            setActiveIdx(-1)
+                        }
+                    }}
+                    onKeyDown={handleKeyDown}
+                    onBlur={() => {
+                        commitDraft()
+                        setError(null)
+                        setSuggestOpen(false)
+                        setActiveIdx(-1)
+                    }}
+                    placeholder={value.length === 0 ? '' : placeholder}
+                    className="flex-1 min-w-[80px] bg-transparent border-none outline-none text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] py-1"
+                />
+            </div>
+            {error && (
+                <p className="text-[11px] text-[var(--error)] px-1" role="alert">{error}</p>
+            )}
+        </div>
+    )
+}
+
 // ─── Agent 编辑/创建弹出模态框 ──────────────────────────────
 
 function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
@@ -904,6 +1076,14 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
     onCancel: () => void
 }) {
     const [form, setForm] = useState<Partial<AgentTemplate>>(initialForm)
+    const tools = useToolStore(s => s.tools)
+    const loadTools = useToolStore(s => s.loadTools)
+
+    useEffect(() => {
+        // 幂等：store 已在 rehydrate 时加载过，isLoading 防重入
+        loadTools()
+    }, [loadTools])
+    const toolNames = useMemo(() => tools.map(t => t.id), [tools])
 
     const handleSave = () => {
         if (!form.name || !form.systemPrompt) return
@@ -990,6 +1170,38 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             placeholder="详细定义该 Agent 的角色、知识边界、行动规则和输出格式要求..."
                             className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm font-mono text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all resize-none"
                         data-name="agents-dialog-textarea"/>
+                    </div>
+
+                    {/* 可用工具 */}
+                    <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                            可用工具
+                            <span className="ml-1 text-[9px] font-normal normal-case text-[var(--text-muted)]">（输入后按回车或逗号添加）</span>
+                        </label>
+                        <TagInput
+                            value={form.allowedTools || []}
+                            onChange={tags => setForm({...form, allowedTools: tags})}
+                            placeholder="输入工具名，如 file_read"
+                            emptyHint="留空表示不限制工具（继承全部可用工具）"
+                            suggestions={toolNames}
+                            inputId="agents-dialog-allowed-tools-input"
+                        />
+                    </div>
+
+                    {/* 禁用工具 */}
+                    <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                            禁用工具
+                            <span className="ml-1 text-[9px] font-normal normal-case text-[var(--text-muted)]">（输入后按回车或逗号添加）</span>
+                        </label>
+                        <TagInput
+                            value={form.disallowedTools || []}
+                            onChange={tags => setForm({...form, disallowedTools: tags})}
+                            placeholder="输入工具名，如 file_write"
+                            emptyHint="留空表示不禁用任何工具"
+                            suggestions={toolNames}
+                            inputId="agents-dialog-disallowed-tools-input"
+                        />
                     </div>
                 </div>
 

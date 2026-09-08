@@ -19,7 +19,7 @@ const PROCESS_SESSION_ID = randomUUID()
 
 /** HClaw 版本（惰性缓存）：Worker 内 electron 暴露面有限，防御式 require */
 let cachedVersion: string | null = null
-function hclawVersion(): string {
+export function hclawVersion(): string {
     if (cachedVersion) return cachedVersion
     let version: string | null = null
     try {

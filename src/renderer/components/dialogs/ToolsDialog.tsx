@@ -14,7 +14,22 @@ const TOOL_CATEGORIES = [
     {
         id: 'system',
         name: '系统工具',
-        tools: ['ask_user', 'agent', 'skill', 'task_create', 'task_update', 'task_list']
+        tools: ['ask_user', 'agent', 'skill', 'describe_skills', 'list_agents', 'task_create', 'task_update', 'task_list']
+    },
+    {
+        id: 'channel',
+        name: '消息渠道',
+        tools: ['channel_list', 'channel_send']
+    },
+    {
+        id: 'task_system',
+        name: '任务与系统管理',
+        tools: ['scheduler_manage', 'system_manage', 'session_handoff', 'memo_tool']
+    },
+    {
+        id: 'data',
+        name: '数据查询',
+        tools: ['hclaw_db_query']
     }
     // vision/audio 分组已移除：analyze_image / speech_to_text 为能力驱动工具，永久常开
 ]
@@ -31,11 +46,20 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     ask_user: '向用户提问并等待回答',
     agent: '派生子 Agent 处理子任务',
     skill: '调用技能执行特定任务',
+    describe_skills: '查看技能的详细描述与用法（只读）',
+    list_agents: '列出当前可用的 Agent 名册（只读）',
+    channel_list: '列出所有已连接（含正在连接）的渠道，包含渠道名称、类型与连接状态',
+    channel_send: '通过指定渠道向用户发送消息（文本/媒体/图文）',
+    scheduler_manage: '定时任务管理。支持列出、查看详情、创建、更新、删除、立即执行或停止任务',
+    system_manage: 'HClaw 系统管理。支持获取/更新系统配置以及重启应用',
+    session_handoff: '当当前会话上下文过长、LLM 智力下降时使用。总结当前任务并创建新会话继续工作',
+    memo_tool: '备忘录管理。支持列出、创建、更新、删除备忘录',
     task_create: '创建新的待办事项任务，支持任务组分批管理',
     task_update: '更新待办事项的状态',
     task_list: '列出所有待办事项',
     analyze_image: '使用独立视觉模型分析图片内容（需在模型方案中配置视觉模型）',
-    speech_to_text: '使用独立语音模型将音频转换为文字（需在模型方案中配置音频模型）'
+    speech_to_text: '使用独立语音模型将音频转换为文字（需在模型方案中配置音频模型）',
+    hclaw_db_query: '查询 HClaw 系统自身数据库（只读），支持历史会话、任务、用量等数据的 SELECT/聚合查询'
 }
 
 // 工具默认超时时间（毫秒）

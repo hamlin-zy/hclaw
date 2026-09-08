@@ -21,6 +21,7 @@ import {useMcpUpdateStore} from '../stores/mcpUpdateStore'
 import SchemeSelector from './SchemeSelector'
 import {SIDEBAR_MENU_GROUPS, type SidebarMenuItem} from './sidebar/menuItems'
 import CopyToast from './common/CopyToast'
+import {formatShortcut} from './common/Kbd'
 
 type SystemStatus =
     'initializing'
@@ -326,7 +327,7 @@ export default function ConversationSidebar() {
                               <button
                                   onClick={toggleLeft}
                                   aria-label="折叠侧边栏"
-                                  title="折叠侧边栏 (Ctrl+B)"
+                                  title={`折叠侧边栏 (${formatShortcut('Ctrl+B')})`}
                                   className="mini-toggle flex items-center justify-center w-[30px] h-[30px] rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
                                data-name="conversation-sidebar-collapse-button">
                                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -342,7 +343,7 @@ export default function ConversationSidebar() {
                               <button
                                   onClick={toggleTheme}
                                   aria-label={themeNextLabel(theme)}
-                                  title="切换主题 (Ctrl+Shift+T)"
+                                  title={`切换主题 (${formatShortcut('Ctrl+Shift+T')})`}
                                   className="icon-btn flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
                                data-name="conversation-sidebar-theme-toggle-button">
                                   <ThemeIcon theme={theme}/>
@@ -722,7 +723,7 @@ function NewChatButton() {
     <button
       onClick={handleNew}
       aria-label="新建对话"
-      title="新建会话 (Ctrl+N)"
+      title={`新建会话 (${formatShortcut('Ctrl+N')})`}
       className="w-full flex items-center justify-center gap-2 py-2.5 bg-gray-900 dark:bg-white/5 border border-transparent dark:border-white/10 text-white dark:text-gray-300 rounded-[18px] text-[13px] font-medium hover:bg-gray-800 dark:hover:bg-white/10 dark:hover:text-gray-100 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.15)] dark:shadow-none transition-all active:scale-[0.98] group"
      data-name="conversation-sidebar-new-button">
         <svg className="w-4 h-4 text-gray-300 dark:text-gray-500 group-hover:text-white dark:group-hover:text-gray-200 transition-colors"
@@ -861,7 +862,8 @@ export function ConversationList() {
     const [dateGroupExpanded, setDateGroupExpanded] = useState<Set<string>>(new Set())
     const listRef = useRef<HTMLDivElement>(null)
     // 跨天信号：午夜自动刷新日期分组（今天/历史）
-    const dayTick = useDayBoundaryTick()
+    // 返回值无需使用：hook 内部状态变化即触发本组件重渲染，重新计算 isToday 分组
+    useDayBoundaryTick()
 
     // 监听全局点击以关闭菜单
     // ★ 注意：不监听 window 的 scroll 事件。原因见 tasks/01-context-menu-close.md：

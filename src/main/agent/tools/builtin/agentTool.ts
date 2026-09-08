@@ -22,6 +22,7 @@ import {z} from 'zod'
 import {randomUUID} from 'crypto'
 import {parentPort} from 'worker_threads'
 import type {Tool, ToolResult} from '../types'
+import type {ChatMessage} from '../../model/types'
 import {agentLoop} from '../../loop'
 import type {AgentStreamEvent} from '../../stream'
 import {logger} from '../../logger'
@@ -39,6 +40,7 @@ import {
     finalizeChildConv,
     flushAccumulatorMessage,
     handleChildEvent,
+    rotateChildConvAccumulator,
 } from './childConvMessages'
 import {toLlmUsageRecord} from '@shared/llmUsage'
 import {llmUsageRepo} from '../../../repositories/sqlite/llmUsageRepository'
@@ -46,6 +48,35 @@ import {llmUsageRepo} from '../../../repositories/sqlite/llmUsageRepository'
 // ─── 并发控制 ──────────────────────────────────────────────
 
 const activeChildSessions = new Set<string>()
+
+// ─── 运行中子会话的注入消息队列 ────────────────────────────
+
+/**
+ * 运行中子会话 → 待注入用户消息队列。
+ * 子会话不注册为独立 Worker（in-process agentLoop），主进程/父 Worker 的
+ * injectMessage 无法通过 workers map 找到它；此注册表提供注入入口，
+ * 队列数组引用直接传给 agentLoop 的 pendingInjectedMessages，
+ * 由 Controller 在每轮开始时消费（controller.ts 注入点），实现
+ * 「工具调用结束后下一轮生效」。done 时 Controller 的 no-tool-call 守卫
+ * 保证队列非空不提前退出，故正常路径 done ⇒ 队列已空。
+ */
+const childInjectionQueues = new Map<string, ChatMessage[]>()
+
+/**
+ * 向运行中的子会话注入用户消息
+ * @returns true = 子会话正在运行且已入队；false = 子会话未在运行
+ */
+export function injectChildMessage(conversationId: string, content: string, messageId?: string): boolean {
+    const queue = childInjectionQueues.get(conversationId)
+    if (!queue) return false
+    queue.push({
+        role: 'user',
+        content,
+        id: messageId || `inject-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    })
+    logger.info('[AgentTool] 已注入用户消息到运行中子会话', {conversationId, contentPreview: (content || '').slice(0, 80)})
+    return true
+}
 
 // ─── 递归深度追踪 ────────────────────────────────────────
 
@@ -135,8 +166,10 @@ const MODEL_ROLE_GUIDANCE: Record<TextModelRole, string> = {
 
 /**
  * 动态构建 inputSchema：
- * - agent 用 enum 约束为「已启用 Agent 名称」（弱指令遵循模型只能选合法值，
- *   选错时 zod 错误信息自动携带候选列表，报错即引导）；
+ * - agent 用 string + 描述内嵌候选列表（不再用 z.enum 硬约束）：
+ *   枚举会在 zod 校验层直接拒绝近义名称（如 "Implementer" vs 注册名 "Implementer Agent"），
+ *   使 execute 内 agentRegistry.find 的双向前缀容错永远无法生效。
+ *   放宽后，错误名称由 execute 的 find() + 行动性报错（列候选、要求重试）兜底；
  * - modelRole 必填，枚举按当前方案可用文本角色实时生成（getUsableTextRoles，
  *   含 provider/model enabled 判定），每次序列化现算，方案变更即时感知；
  * - 描述中的示例与选择规则只覆盖当前可用角色，未启用角色不进入示例，
@@ -148,10 +181,11 @@ function buildInputSchema(): z.ZodType<AgentToolInput> {
         runtimeConfigManager.getScheme(),
         runtimeConfigManager.getProviders(),
     )
+    const candidates = agentNames.length ? agentNames.join(' | ') : 'General Agent'
     return z.object({
         task: z.string().describe('子任务的完整描述（包含目标 + 参考材料）'),
-        agent: (agentNames.length ? z.enum(agentNames as [string, ...string[]]) : z.string())
-            .describe('必填。要作为子 Agent 运行的已启用 Agent 名称，从可选项中精确选择。类型映射：实现/修复→Implementer、审查→Code Reviewer、代码搜索/调研→Explore、架构规划→Plan、验证→Verification、模糊或跨领域→General。'),
+        agent: z.string()
+            .describe(`必填。要作为子 Agent 运行的已启用 Agent 名称，从以下候选中选择：${candidates}。名称需完整精确（含" Agent"后缀），如 "Implementer Agent"；传入前缀近义词会由系统容错匹配。类型映射：实现/修复→Implementer、审查→Code Reviewer、代码搜索/调研→Explore、架构规划→Plan、验证→Verification、模糊或跨领域→General。`),
         tools: z.array(z.string()).optional()
             .describe('允许使用的工具白名单（指定 agent 时覆盖 Agent 定义的白名单）'),
         modelRole: z.enum(availableRoles.length ? availableRoles as [ModelRole, ...ModelRole[]] : ['primary' as ModelRole])
@@ -238,7 +272,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
         const template = agentRegistry.find(args.agent)
         if (!template || !template.enabled) {
             const available = (agentRegistry.getEnabled() || [])
-                .filter(a => !a.id.startsWith('cmd:') && a.name && a.name !== 'General')
+                .filter(a => !a.id.startsWith('cmd:') && a.name)
                 .map(a => a.name!)
             return {
                 success: false,
@@ -414,6 +448,10 @@ export const agentTool: Tool<AgentToolInput, string> = {
         const childAcc = createChildConvAccumulator(childConvId)
 
         activeChildSessions.add(childConvId)
+        // 注入队列：引用同时注册到 childInjectionQueues 并传给 agentLoop，
+        // 运行中收到的用户消息经 injectChildMessage 入队，Controller 每轮消费
+        const childPendingInjected: ChatMessage[] = []
+        childInjectionQueues.set(childConvId, childPendingInjected)
 
         // ★ 向渲染进程发送子会话 begin 事件，使侧边栏显示运行状态动画。
         //   messageId 必须携带累积器固定消息 id（msg-<ts>-<rand>）：渲染端
@@ -440,6 +478,8 @@ export const agentTool: Tool<AgentToolInput, string> = {
                 agentDefinition: effectiveAgentDef,
                 conversationTitle: `子 Agent: ${args.task.slice(0, 50)}`,
                 abortSignal: context.abortSignal,
+                // 运行中注入的用户消息队列（子会话版，与 worker 主会话同构）
+                pendingInjectedMessages: childPendingInjected,
                 // ★ 关键：转发嵌套子 Agent（二级及以上）的 subagent_* 事件到父上下文。
                 //   本 agentLoop 的 toolContext.sendMessage 依赖 onEvent 转发事件；
                 //   若不传，嵌套 agentTool 的 context.sendMessage 变为空操作
@@ -463,6 +503,16 @@ export const agentTool: Tool<AgentToolInput, string> = {
                 // ── 累积文本输出（返回给主 Agent 的最终摘要） ──
                 if (event.type === 'text') {
                     output += event.content
+                }
+
+                // ── 注入用户消息：轮换累积器，开启新的 assistant 消息 ──
+                //   旧消息收尾（endedAt），后续事件携带新 messageId → 渲染端/DB
+                //   均分段为新气泡（与主会话注入行为一致）。
+                //   ★ 不 continue：事件仍需走底部 sendChildAgentEvent 转发，
+                //     渲染端 handleUserMessageInjected 依赖它清空 streamingMessageId，
+                //     后续新 id 事件才能创建新气泡（漏发会导致内容并进旧气泡）。
+                if (event.type === 'user_message_injected') {
+                    rotateChildConvAccumulator(childAcc, conversationRepo, childConvId)
                 }
 
                 // ── 累积器处理（构建完整执行过程消息） ──
@@ -540,6 +590,10 @@ export const agentTool: Tool<AgentToolInput, string> = {
             sendChildAgentEvent(childConvId, {type: 'done', reason: 'error'})
         } finally {
             activeChildSessions.delete(childConvId)
+            // 兜底：abort 等异常退出路径可能残留未消费的注入消息（Controller 正常
+            // 路径经 no-tool-call 守卫保证 done 前清空）。清理注册表防止泄漏；
+            // 残留消息已由渲染端 addMessage 持久化到子会话历史，不丢内容。
+            childInjectionQueues.delete(childConvId)
         }
 
         // ⑩ 写入子会话的辅助消息历史（最终落库）
@@ -618,8 +672,9 @@ function sendToRenderer(workerType: string, workerPayload: Record<string, unknow
         if (win && !win.isDestroyed()) {
             win.webContents.send(mainChannel, mainPayload)
         }
-    } catch {
-        // window not available
+    } catch (err) {
+        // window not available —— 通知失败不应影响工具结果，但须留痕排查（渲染端将看不到子会话创建提醒）
+        logger.warn(`[agentTool] sendToRenderer 主进程路径失败 (channel=${mainChannel}): ${err instanceof Error ? err.message : String(err)}`)
     }
 }
 

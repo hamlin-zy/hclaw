@@ -46,22 +46,10 @@ function BilibiliSvg() {
   )
 }
 
-/** 抖音图标 — 音乐符号风格 */
-function DouyinSvg() {
-  return (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 18V5l12-2v13" />
-      <circle cx="6" cy="18" r="3" />
-      <circle cx="18" cy="16" r="3" />
-    </svg>
-  )
-}
-
 const LINKS: LinkItem[] = [
   { label: 'GitHub', url: 'https://github.com/hamlin-zy/hclaw', icon: <GithubSvg /> },
   { label: 'Gitee', url: 'https://gitee.com/sunshao/hclaw', icon: <GiteeSvg /> },
   { label: 'B站', url: 'https://space.bilibili.com/3707005250308201', icon: <BilibiliSvg /> },
-  { label: '抖音', url: 'https://v.douyin.com/BBGiozWD36o/', icon: <DouyinSvg /> },
 ]
 
 /** 检查更新按钮的 5 种状态文案 */
@@ -189,16 +177,16 @@ export default function AboutDialog() {
         )}
       </div>
 
-      {/* Links Grid — 2x2 */}
+      {/* Links Grid — 2 行：GitHub/Gitee 一行，B站独占一行 */}
       <div className="grid grid-cols-2 gap-2.5 w-full max-w-[300px]">
         {LINKS.map((link, i) => (
           <button
             key={link.label}
             onClick={(e) => handleLinkClick(link.url, e)}
-            className="flex flex-col items-center justify-center gap-1.5 px-3 py-3 rounded-xl text-xs
+            className={`flex flex-col items-center justify-center gap-1.5 px-3 py-3 rounded-xl text-xs
               text-[var(--text-secondary)] bg-[var(--surface)] border border-[var(--border)]
               hover:border-[var(--brand-primary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]
-              transition-all duration-150"
+              transition-all duration-150 ${i === LINKS.length - 1 ? 'col-span-2' : ''}`}
            data-name={`about-dialog-link-${i}`}>
             <span className="w-4 h-4 flex items-center justify-center text-[var(--text-muted)]">
               {link.icon}
@@ -206,6 +194,14 @@ export default function AboutDialog() {
             <span>{link.label}</span>
           </button>
         ))}
+      </div>
+
+      {/* QQ 群 */}
+      <div className="w-full mt-4">
+        <div className="w-full h-px mb-3 bg-[var(--border)]" />
+        <p className="text-xs text-center text-[var(--text-secondary)]">
+          QQ群：754207905
+        </p>
       </div>
 
       {/* LinkContextMenu for 'ask' mode */}

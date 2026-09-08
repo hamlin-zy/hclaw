@@ -65,6 +65,11 @@ function ensureInitialized(): void {
     }
 }
 
+/** 获取主数据库文件绝对路径（供只读连接等场景使用） */
+export function getDatabaseFilePath(): string {
+    return DB_FILE
+}
+
 export function getDatabase(): EnhancedDB {
     ensureInitialized()
     return db!

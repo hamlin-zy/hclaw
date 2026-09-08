@@ -192,6 +192,16 @@ export interface ProviderFeatures {
   supportsExplicitCaching?: boolean
 }
 
+/** 服务商自定义请求头（value = prefix + 可选系统变量） */
+export interface ProviderCustomHeader {
+  id: string
+  providerId: string
+  headerName: string
+  prefix?: string
+  /** 系统变量标识；undefined = 纯静态值 */
+  variable?: 'system.version' | 'session.id'
+}
+
 /** LLM 供应商（统一配置） */
 export interface LLMProvider {
   id: string
@@ -210,6 +220,8 @@ export interface LLMProvider {
   email?: string
   enabled: boolean
   models: ProviderModel[]
+  /** 自定义 HTTP 请求头（随 provider 存取） */
+  customHeaders?: ProviderCustomHeader[]
 }
 
 // ─── Command definition ──────────────────────────────────

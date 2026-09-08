@@ -13,7 +13,10 @@ vi.mock('@/main/agent/runtimeConfigManager', () => ({
             id: 's1', name: 'test',
             roles: [{role: 'reasoning', enabled: true, endpointId: 'e1', modelId: 'm1'}],
         })),
-        getProviders: vi.fn(() => []),
+        getProviders: vi.fn(() => [
+            // startAgentCore 会校验角色可用性（provider 存在且 enabled、模型存在且 enabled）
+            {id: 'e1', enabled: true, models: [{id: 'm1', enabled: true}]},
+        ] as any),
     },
 }))
 vi.mock('@/main/repositories', () => ({

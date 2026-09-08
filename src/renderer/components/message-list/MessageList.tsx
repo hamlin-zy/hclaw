@@ -4,7 +4,7 @@
  */
 
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {AnimatePresence, motion} from 'framer-motion'
+import {motion} from 'framer-motion'
 import {tooltip} from '../../lib/motionPresets'
 import {useConversationStore} from '../../stores/conversationStore'
 import {useAgentStore} from '../../stores/agentStore'
@@ -565,6 +565,11 @@ export default function MessageList({conversationId}: { conversationId?: string 
 
     const containerRef = useRef<HTMLDivElement>(null)
     const [showCopyToast, setShowCopyToast] = useState(false)
+    // 展示"已复制"Toast，1.5s 后自动隐藏（文本选择复制 / 消息操作复制共用）
+    const flashCopyToast = useCallback(() => {
+        setShowCopyToast(true)
+        setTimeout(() => setShowCopyToast(false), 1500)
+    }, [])
     const [showScrollBtn, setShowScrollBtn] = useState(false)
     const [newMsgCount, setNewMsgCount] = useState(0)
     // 会话来源导航（子会话 → 父会话；交接会话 → 前会话）
@@ -950,10 +955,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                 const selection = window.getSelection()
                 const selectedText = selection?.toString().trim()
                 if (selectedText && selectedText.length > 0) {
-                    navigator.clipboard.writeText(selectedText).then(() => {
-                        setShowCopyToast(true)
-                        setTimeout(() => setShowCopyToast(false), 1500)
-                    }).catch(() => {})
+                    navigator.clipboard.writeText(selectedText).then(flashCopyToast).catch(() => {})
                 }
             }, 10)
         }
@@ -961,6 +963,13 @@ export default function MessageList({conversationId}: { conversationId?: string 
         document.addEventListener('mouseup', handleMouseUp)
         return () => document.removeEventListener('mouseup', handleMouseUp)
     }, [conversationId])
+
+    // ── 消息操作复制按钮成功事件 → CopyToast ────────────
+    // UserCopyButton（MessageActions）复制成功后派发 'hclaw-message-copied'，此处统一展示 Toast
+    useEffect(() => {
+        window.addEventListener('hclaw-message-copied', flashCopyToast)
+        return () => window.removeEventListener('hclaw-message-copied', flashCopyToast)
+    }, [flashCopyToast])
 
     // ── 加载更多 ──────────────────────────────────────────
     const loadMore = useCallback(() => {

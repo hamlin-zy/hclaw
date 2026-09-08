@@ -5,7 +5,8 @@
  * Claude Code 生态的 `Subagent (general-purpose)` 语法派发子代理。HClaw 中不存在
  * 该同名 Agent。
  *
- * 方案：agent 参数为必填 + schema enum 约束（仅已启用 Agent 名），LLM 必须从可用
+ * 方案：agent 参数为必填 + schema 描述内嵌候选列表（不再 z.enum 硬约束，避免
+ * 近义名称在 zod 层被拒、find 前缀容错失效），LLM 被引导从可用
  * Agent 列表中选择（实现→Implementer、审查→Code Reviewer 等）；填写列表外名称
  * 或已禁用 Agent 时工具返回错误 + 可用列表，强制 LLM 修正后重试，而非静默回退
  * General。
@@ -127,6 +128,30 @@ describe('agent 工具派遣引导（description 动态构建）', () => {
         // 新的措辞用"类型映射"而非"角色映射"，避免与 modelRole 参数撞车
         expect(agentTool.description).toContain('类型映射')
         expect(agentTool.description).not.toContain('角色映射')
+    })
+})
+
+describe('agent 工具 inputSchema — 名称容错（回归）', () => {
+    it('schema 不再 enum 硬约束：缺 " Agent" 后缀的名称可通过校验（交由 find 前缀容错）', () => {
+        mocks.getEnabled.mockReturnValue([
+            {name: 'Implementer Agent', id: 'impl', enabled: true},
+        ] as any)
+        // 回归背景：曾用 z.enum(agentNames) 硬约束，"Implementer" 在 zod 层即被
+        // 拒绝（Invalid option），execute 内 find() 的双向前缀匹配永远无法生效
+        const parsed = agentTool.inputSchema.parse({
+            task: 'x',
+            agent: 'Implementer',
+            modelRole: 'primary',
+        })
+        expect(parsed.agent).toBe('Implementer')
+    })
+
+    it('schema 描述内嵌候选列表（引导 LLM 选择）', () => {
+        mocks.getEnabled.mockReturnValue([
+            {name: 'Implementer Agent', id: 'impl', enabled: true},
+        ] as any)
+        const desc = (agentTool.inputSchema as any).shape.agent.description
+        expect(desc).toContain('Implementer Agent')
     })
 })
 

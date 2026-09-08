@@ -16,6 +16,13 @@ describe('checkResultSize — MCP 工具豁免', () => {
         expect(r.output).not.toContain('[结果已截断]')
     })
 
+    it('list_agents 名册超 15KB 不截断（豁免）', () => {
+        const roster = 'x'.repeat(40_000)
+        const r = checkResultSize('list_agents', {success: true, output: roster})
+        expect(r.output).toBe(roster)
+        expect(r.output).not.toContain('[结果已截断]')
+    })
+
     it('普通工具仍受 15KB 截断', () => {
         const r = checkResultSize('grep', {success: true, output: bigOutput})
         expect(r.output).toContain('[结果已截断]')
