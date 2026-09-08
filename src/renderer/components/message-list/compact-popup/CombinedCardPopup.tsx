@@ -70,6 +70,17 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
     // 无条件 hooks，调用方可安全忽略返回值
     // 用于 tool 子卡片点击打开 CompactToolPopup
     const handleOpenToolPopup = useCallback((toolCalls: ToolCall[]) => {
+        // ★ 目标工具调用中含 running 状态的 agent 卡片 → 跳转子会话（有 taskId）或忽略点击，
+        //   不打开次级弹窗；已完成/出错卡片行为不变
+        const toolStates = useToolCallsStore.getState().states
+        for (const tc of toolCalls) {
+            const status = toolStates[tc.id]?.status ?? tc.status
+            if (tc.name === 'agent' && status === 'running') {
+                const taskId = toolStates[tc.id]?.taskId ?? tc.taskId
+                if (taskId) useConversationStore.getState().setActiveConversation(taskId)
+                return
+            }
+        }
         // 按名称分组统计
         const typeCounts = new Map<string, number>()
         for (const tc of toolCalls) {
