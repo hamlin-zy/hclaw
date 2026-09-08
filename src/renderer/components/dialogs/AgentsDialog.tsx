@@ -1,4 +1,7 @@
 import {useCallback, useEffect, useMemo, useState} from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import {clsx} from 'clsx'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
@@ -233,8 +236,8 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                     )}
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">系统提示词 (System Prompt)</label>
-                        <div className="rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] p-3 max-h-64 overflow-y-auto custom-scrollbar">
-                            <pre className="text-xs font-mono text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap break-words">{agent.systemPrompt}</pre>
+                        <div className="rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] p-3 max-h-64 overflow-y-auto custom-scrollbar [&_h1,&_h2,&_h3,&_h4]:text-xs [&_h1,&_h2,&_h3,&_h4]:font-bold [&_h1,&_h2,&_h3,&_h4]:text-[var(--text-primary)] [&_h1,&_h2]:mt-3 [&_h1,&_h2]:mb-1.5 [&_h3,&_h4]:mt-2 [&_h3,&_h4]:mb-1 [&_h1:first-child,&_h2:first-child,&_h3:first-child,&_h4:first-child]:mt-0 [&_p]:text-xs [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul,&_ol]:text-xs [&_ul,&_ol]:my-1.5 [&_ul,&_ol]:pl-5 [&_li]:my-0.5 [&_code]:text-[11px] [&_code]:font-mono [&_code]:bg-[var(--surface-elevated)] [&_code]:border [&_code]:border-[var(--border)] [&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_pre]:bg-[var(--surface-elevated)] [&_pre]:border [&_pre]:border-[var(--border)] [&_pre]:rounded [&_pre]:p-2 [&_pre]:my-1.5 [&_pre]:overflow-x-auto [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--border)] [&_blockquote]:pl-2 [&_blockquote]:text-[var(--text-secondary)] [&_blockquote]:my-1.5 [&_hr]:border-[var(--border)] [&_hr]:my-2 [&_a]:text-[var(--brand-primary)] [&_a]:underline [&_strong]:font-semibold">
+                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{agent.systemPrompt}</ReactMarkdown>
                         </div>
                     </div>
                     {agent.skillIds && agent.skillIds.length > 0 && (
@@ -266,9 +269,8 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                                             <span
                                                 key={tool}
                                                 aria-label={`禁止使用 ${tool}`}
-                                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium bg-[var(--surface-muted)] text-[var(--text-secondary)] border border-[var(--error)]/40"
+                                                className="inline-flex items-center rounded px-2 py-1 text-[10px] font-medium bg-[var(--surface-muted)] text-[var(--text-secondary)] border border-[var(--border)] line-through decoration-[var(--error)]/60"
                                             >
-                                                <X className="w-3 h-3 text-[var(--error)]" aria-hidden="true"/>
                                                 {tool}
                                             </span>
                                         ))}
@@ -281,16 +283,19 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                             </div>
                         )}
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                         <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">状态</label>
-                        <span className={clsx(
-                            "inline-flex items-center rounded px-2 py-1 text-[11px] font-semibold",
-                            agent.enabled
-                                ? "bg-[var(--tag-dev-bg)] text-[var(--tag-dev-text)] ring-1 ring-inset ring-[var(--tag-dev-border)]"
-                                : "bg-[var(--surface-muted)] text-[var(--text-muted)] ring-1 ring-inset ring-[var(--border)]"
-                        )}>
-                            {agent.enabled ? '已启用' : '已禁用'}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[10px] text-[var(--text-muted)] w-14 shrink-0">状态</span>
+                            <span className={clsx(
+                                "inline-flex items-center rounded px-2 py-1 text-[10px] font-medium",
+                                agent.enabled
+                                    ? "bg-[var(--tag-dev-bg)] text-[var(--tag-dev-text)] border border-[var(--tag-dev-border)]"
+                                    : "bg-[var(--surface-muted)] text-[var(--text-muted)] border border-[var(--border)]"
+                            )}>
+                                {agent.enabled ? '已启用' : '已禁用'}
+                            </span>
+                        </div>
                     </div>
                 </div>
 
@@ -301,10 +306,10 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                             onClick={() => onEdit()}
                             disabled={readOnly}
                             className={clsx(
-                                "px-4 py-2 rounded-lg text-xs font-bold shadow-sm hover:shadow-md transition-all",
+                                "px-4 py-2 rounded-lg text-xs font-bold transition-colors",
                                 readOnly
                                     ? "bg-[var(--surface-muted)] text-[var(--text-muted)]/50 cursor-not-allowed"
-                                    : "bg-[var(--brand-primary)] text-white hover:shadow-md"
+                                    : "bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20"
                             )}
                          data-name="agents-dialog-detail-edit-button">
                             编辑
@@ -900,12 +905,11 @@ function PluginAgentGroup({pluginName, agents, toggleTemplate, toggleTemplateBat
 
 // ─── 工具标签输入（Enter/逗号添加，Backspace 删除末位） ──────────
 
-function TagInput({value, onChange, placeholder, emptyHint, tagVariant = 'default', inputId, suggestions}: {
+function TagInput({value, onChange, placeholder, emptyHint, inputId, suggestions}: {
     value: string[]
     onChange: (tags: string[]) => void
     placeholder: string
     emptyHint: string
-    tagVariant?: 'default' | 'danger'
     inputId?: string
     suggestions?: string[]
 }) {
@@ -1012,11 +1016,7 @@ function TagInput({value, onChange, placeholder, emptyHint, tagVariant = 'defaul
                 {value.map(tag => (
                     <span
                         key={tag}
-                        className={
-                            tagVariant === 'danger'
-                                ? 'inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium bg-[var(--surface-elevated)] text-[var(--text-secondary)] border border-[var(--error)]/40'
-                                : 'inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium bg-[var(--surface-elevated)] text-[var(--text-secondary)] border border-[var(--border)]'
-                        }
+                        className='inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium bg-[var(--surface-elevated)] text-[var(--text-secondary)] border border-[var(--border)]'
                     >
                         {tag}
                         <button
@@ -1199,7 +1199,6 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             onChange={tags => setForm({...form, disallowedTools: tags})}
                             placeholder="输入工具名，如 file_write"
                             emptyHint="留空表示不禁用任何工具"
-                            tagVariant="danger"
                             suggestions={toolNames}
                             inputId="agents-dialog-disallowed-tools-input"
                         />
