@@ -270,8 +270,8 @@ export interface TrendPoint {
   cacheReadTokens: number
 }
 
-/** 时间范围；'custom' 配合 usage-stats:query 的 customStart/customEnd（YYYY-MM-DD，天级精度） */
-export type TimeRange = 'today' | 'yesterday' | '7d' | '30d' | 'all' | 'custom'
+/** 时间范围；'thisWeek' = 本周一 0 点起（周一为一周起始）；'thisMonth' = 本月 1 日 0 点起；'custom' 配合 usage-stats:query 的 customStart/customEnd（YYYY-MM-DD，天级精度） */
+export type TimeRange = 'today' | 'yesterday' | 'thisWeek' | 'thisMonth' | '7d' | '30d' | 'all' | 'custom'
 
 /** 趋势分组粒度 */
 export type TrendGranularity = 'day' | 'hour'
