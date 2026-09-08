@@ -81,21 +81,25 @@ describe('UsageWindow 全局用量窗口', () => {
         expect(screen.getAllByText(/人民币按 1 USD ≈ 7\.40 CNY 实时汇率折算/).length).toBe(3)
     })
 
-    it('时间按钮顺序：今天 → 昨天 → 近7天 → 近30天 → 自定义', async () => {
+    it('时间按钮顺序：今天 → 昨天 → 本周 → 本月 → 近7天 → 近30天 → 自定义', async () => {
         render(<UsageWindow />)
         // flush 汇率同步的异步 resolve（macrotask），避免 setState 落在 act 外产生警告
         await act(async () => { await new Promise(r => setTimeout(r, 0)) })
         // 过滤栏（UsageFilterBar）的 ThemedSelect 触发器文本可能为「全部」，与时间分段
         // 按钮文本碰撞——限定在分段控件容器内查询（以 range-today 为锚点）
-        const labels = ['今天', '昨天', '近 7 天', '近 30 天', '自定义']
-        const seg = screen.getByTestId('range-today').parentElement!
+        const labels = ['今天', '昨天', '本周', '本月', '近 7 天', '近 30 天', '自定义']
+        // 按钮外可能包一层 tip 容器 span，向上找最近的分段容器 div
+        const seg = screen.getByTestId('range-today').closest('div')!
         const buttons = Array.from(seg.querySelectorAll('button'))
         const rangeButtons = labels.map(l => buttons.find(b => b.textContent === l))
         const indexes = rangeButtons.map(b => buttons.indexOf(b!))
         // 顺序递增
         expect(indexes).toEqual([...indexes].sort((a, b) => a - b))
         expect(indexes[0]).toBeLessThan(indexes[1])
-        expect(indexes[4]).toBeGreaterThan(indexes[3])
+        expect(indexes[indexes.length - 1]).toBeGreaterThan(indexes[indexes.length - 2])
+        // 本周 / 本月按钮附带口径提示（InfoTip）
+        expect(screen.getByTestId('range-thisWeek')).toBeTruthy()
+        expect(screen.getByTestId('range-thisMonth')).toBeTruthy()
     })
 
     it('渲染 KPI + 趋势柱状条 + 分组表', async () => {
