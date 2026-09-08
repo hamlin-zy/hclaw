@@ -88,7 +88,8 @@ export default function MCPUserServerCard({
                                     // Legacy binary (no package manager detected) → show manual instructions.
                                     // Auto-upgradable binary (pkgManager set) → normal upgrade flow.
                                     const isLegacyBinary = sourceType === 'binary' && !versionMeta?.pkgManager
-                                    const confirmed = await confirm({
+                                    // 仅需弹窗展示说明，确认结果不参与分支
+                                    await confirm({
                                         title: isLegacyBinary ? '查看手动升级步骤' : '确认升级',
                                         message: isLegacyBinary
                                             ? `「${server.name}」为本地二进制安装，暂不支持自动升级。确认后将显示手动升级步骤。`

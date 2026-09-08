@@ -129,7 +129,7 @@ export default function MemoPanel() {
                     onClick={openCreate}
                     data-tooltip-placement="left"
                     className={ACTION_BTN_MUTED}
-                 data-name="memo-panel-trigger-button">
+                 data-name="memo-delete-button">
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M12 5v14M5 12h14"/>
                     </svg>
@@ -421,7 +421,7 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
                         onClick={togglePin}
                         data-tooltip-placement="left"
                         className={`${ACTION_BTN_BASE} ${item.pinned ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--brand-primary)]'}`}
-                     data-name="memo-panel-trigger-button">
+                     data-name="memo-pin-button">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={item.pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
                             <path d={PIN_PATH}/>
                         </svg>
@@ -439,7 +439,7 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
                                 useConversationStore.getState().setActiveConversation(item.relatedConvId!)
                             }}
                             className={`${ACTION_BTN_MUTED} disabled:opacity-30 disabled:cursor-not-allowed`}
-                         data-name="memo-panel-trigger-button">
+                         data-name="memo-open-conv-button">
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <path d="M5 12h14M12 5l7 7-7 7"/>
                             </svg>
@@ -455,7 +455,7 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
                             void handleCreateSession()
                         }}
                         className={ACTION_BTN_MUTED}
-                     data-name="memo-panel-trigger-button">
+                     data-name="memo-create-session-button">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M5 3l14 9-14 9V3z"/>
                         </svg>

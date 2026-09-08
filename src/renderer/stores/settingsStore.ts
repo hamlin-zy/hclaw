@@ -61,6 +61,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     linkOpening: {
         mode: 'ask',
     },
+    shortcuts: {overrides: {}},
 }
 
 /** 同步全局权限模式权威键（system_settings.permission_mode）；失败仅告警，不阻断保存流程 */
@@ -98,6 +99,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
                     subagent: {...DEFAULT_SETTINGS.subagent, ...(data.subagent || {})},
                     channels: {...DEFAULT_SETTINGS.channels, ...(data.channels || {})},
                     linkOpening: {...DEFAULT_SETTINGS.linkOpening, ...(data.linkOpening || {})},
+                    shortcuts: {...DEFAULT_SETTINGS.shortcuts, ...(data.shortcuts || {})},
                     fullSkillDescriptions: data.fullSkillDescriptions ?? false,
                 }
                 set({settings: mergedSettings})
@@ -237,6 +239,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             ui: {...currentSettings.ui, ...(updates.ui || {})},
             subagent: {...currentSettings.subagent, ...(updates.subagent || {})} as typeof currentSettings.subagent,
             channels: {...currentSettings.channels, ...(updates.channels || {})} as typeof currentSettings.channels,
+            shortcuts: {...currentSettings.shortcuts, ...(updates.shortcuts || {})},
         }
 
         try {

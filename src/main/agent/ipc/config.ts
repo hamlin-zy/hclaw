@@ -46,6 +46,17 @@ export function registerHandlers(): void {
         // 广播给除发起窗口外的所有渲染窗口（跨窗口数据一致性）：
         // 设置窗口写库后主窗口经 'settings-changed' 刷新 settingsStore（含 ui.background 背景/遮罩/模糊）。
         broadcastToOtherWindows(event, 'settings-changed', settings)
+        // 快捷键配置化：按新配置同步主进程全局键，并把注册失败结果推给所有窗口
+        try {
+            const {syncGlobalShortcuts} = await import('../../shortcuts')
+            const failures = syncGlobalShortcuts(settings.shortcuts?.overrides)
+            const {BrowserWindow} = await import('electron')
+            BrowserWindow.getAllWindows().forEach(w => {
+                if (!w.isDestroyed()) w.webContents.send('shortcuts-global-failures', failures)
+            })
+        } catch (err: any) {
+            logger.warn('[settings-update] global shortcuts sync failed', {error: err?.message})
+        }
         return {success: true}
     })
 

@@ -9,7 +9,7 @@ import {ensureConfigLayout, initConfigIPC} from './config';
 import {initBackgroundIPC} from './ipc/background';
 import {createWindow, getMainWindow, initWindowIPC, setIsQuitting, broadcastUpdaterStatus} from './window';
 import {createTray} from './tray';
-import {registerGlobalShortcuts} from './shortcuts';
+import {registerGlobalShortcutsAtStartup} from './shortcuts';
 import {createAppMenu} from './menu';
 import {initConversationIPC} from './conversation';
 import {agentManager, initAgent, registerAgentIPC} from './agent';
@@ -353,7 +353,7 @@ app.on('ready', async () => {
   registerMCPEventForwarding();
 
   createTray();
-  registerGlobalShortcuts();
+  registerGlobalShortcutsAtStartup();
 
   // ── Async block: Agent/Skills/MCP 顺序初始化 ──
   //

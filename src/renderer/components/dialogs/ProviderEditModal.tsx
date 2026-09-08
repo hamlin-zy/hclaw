@@ -271,36 +271,6 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
   // 仅回填空缺价格列（已有价格一律不覆盖）；回填的是 USD/token 原始值，直接落 m.pricing
   // （不经过货币折算）；命中元数据时按 inputModalities 更新 modelType。
 
-  /**
-   * 回填单模型：按名称查 OpenRouter 元数据，填充该行空缺价格 + 更新 modelType，
-   * 同步进 models。返回回填后的模型；未匹配 / 行不存在 → null（内部提示）。
-   */
-  const fillSingleRow = async (modelName: string): Promise<ProviderModel | null> => {
-    const trimmed = modelName.trim()
-    if (!trimmed) return null
-    const r = await window.electronAPI?.modelMetaLookup?.(trimmed)
-    if (!r?.matchedKey) {
-      setFillNotice({kind: 'error', text: `「${trimmed}」未匹配到 OpenRouter 元数据`})
-      return null
-    }
-    const m0 = modelsRef.current.find(m => m.name.trim() === trimmed)
-    if (!m0) return null
-    const multimodal = !!r.inputModalities?.length && r.inputModalities.some(x => x !== 'text')
-    const positiveOrUndef = (v?: number) => (v ?? 0) > 0 ? v : undefined
-    const next: ProviderModel = {
-      ...m0,
-      pricing: {
-        input: m0.pricing?.input ?? positiveOrUndef(r.inputPrice),
-        output: m0.pricing?.output ?? positiveOrUndef(r.outputPrice),
-        cacheRead: m0.pricing?.cacheRead ?? positiveOrUndef(r.cacheReadPrice),
-        cacheWrite: m0.pricing?.cacheWrite ?? r.cacheWritePrice,
-      },
-      modelType: multimodal ? 'multimodal' : m0.modelType ?? 'text',
-    }
-    setModels(prev => prev.map(m => m.id !== m0.id ? m : next))
-    return next
-  }
-
   /** 拉取采纳后：按 OpenRouter 元数据自动填充类型字段（仅类型；价格仍由用户手动维护）。
    *  规则：命中且输入模态含非 text → multimodal；命名推断出的特殊类型（video/image/...）不覆盖。 */
   const enrichTypesFromMeta = async (list: ProviderModel[]) => {

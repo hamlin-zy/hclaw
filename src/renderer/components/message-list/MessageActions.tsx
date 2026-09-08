@@ -221,7 +221,7 @@ const CopyButton = memo(function CopyButton({message}: { message: Message }) {
             className="flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-sm text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:border-[var(--brand-primary)] transition-all flex-shrink-0"
             title={copied ? '已复制' : '复制'}
             aria-label={copied ? '已复制' : '复制此消息'}
-         data-name="message-actions-copy-button">
+         data-name="message-actions-assistant-copy-button">
             {copied ? (
                 <svg className="w-4 h-4 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M20 6L9 17l-5-5"/>

@@ -626,6 +626,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     settingsUpdate: (settings: import('../shared/types').SystemSettings) =>
         ipcRenderer.invoke('settings-update', settings),
 
+    // 快捷键：全局键注册失败结果推送（'shortcuts-global-failures'）
+    onShortcutsGlobalFailures: (callback: (failures: Record<string, string>) => void) => {
+        const handler = (_e: unknown, failures: Record<string, string>) => callback(failures)
+        ipcRenderer.on('shortcuts-global-failures', handler)
+        return () => { ipcRenderer.removeListener('shortcuts-global-failures', handler) }
+    },
+
     // Window theme management
     setWindowTheme: (theme: string) =>
         ipcRenderer.invoke('set-window-theme', theme),
