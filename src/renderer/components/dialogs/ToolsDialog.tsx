@@ -25,6 +25,11 @@ const TOOL_CATEGORIES = [
         id: 'task_system',
         name: '任务与系统管理',
         tools: ['scheduler_manage', 'system_manage', 'session_handoff', 'memo_tool']
+    },
+    {
+        id: 'data',
+        name: '数据查询',
+        tools: ['hclaw_db_query']
     }
     // vision/audio 分组已移除：analyze_image / speech_to_text 为能力驱动工具，永久常开
 ]
@@ -53,7 +58,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     task_update: '更新待办事项的状态',
     task_list: '列出所有待办事项',
     analyze_image: '使用独立视觉模型分析图片内容（需在模型方案中配置视觉模型）',
-    speech_to_text: '使用独立语音模型将音频转换为文字（需在模型方案中配置音频模型）'
+    speech_to_text: '使用独立语音模型将音频转换为文字（需在模型方案中配置音频模型）',
+    hclaw_db_query: '查询 HClaw 系统自身数据库（只读），支持历史会话、任务、用量等数据的 SELECT/聚合查询'
 }
 
 // 工具默认超时时间（毫秒）
