@@ -108,6 +108,29 @@ describe('timeRangeBounds', () => {
     expect(timeRangeBounds('yesterday', now).endMs! - timeRangeBounds('yesterday', now).startMs!).toBe(24 * 3600 * 1000)
   })
 
+  it("'thisWeek' → 本周一 0 点起（周一为一周起始）", () => {
+    // 2026-08-12 为周三 → 本周一 2026-08-10
+    const wed = new Date(2026, 7, 12, 14, 30).getTime()
+    expect(timeRangeBounds('thisWeek', wed)).toEqual({startMs: new Date(2026, 7, 10).getTime(), endMs: null})
+    // 周一当天 → 起点为当日 0 点
+    const mon = new Date(2026, 7, 10, 8, 0).getTime()
+    expect(timeRangeBounds('thisWeek', mon)).toEqual({startMs: new Date(2026, 7, 10).getTime(), endMs: null})
+    // 周日 → 仍归本周（起点为本周一 2026-08-10，而非前一周一）
+    const sun = new Date(2026, 7, 16, 23, 0).getTime()
+    expect(timeRangeBounds('thisWeek', sun)).toEqual({startMs: new Date(2026, 7, 10).getTime(), endMs: null})
+  })
+
+  it("'thisMonth' → 本月 1 日 0 点起", () => {
+    const now = new Date(2026, 7, 16, 14, 30).getTime()
+    expect(timeRangeBounds('thisMonth', now)).toEqual({startMs: new Date(2026, 7, 1).getTime(), endMs: null})
+    // 跨月边界：3 月 15 日 → 起点 2026-03-01（年/月回滚正确）
+    const march = new Date(2026, 2, 15).getTime()
+    expect(timeRangeBounds('thisMonth', march)).toEqual({startMs: new Date(2026, 2, 1).getTime(), endMs: null})
+    // 1 日当天 → 起点为当日 0 点
+    const first = new Date(2026, 7, 1, 10, 0).getTime()
+    expect(timeRangeBounds('thisMonth', first)).toEqual({startMs: new Date(2026, 7, 1).getTime(), endMs: null})
+  })
+
   it("'7d' → now - 7 天，endMs null", () => {
     expect(timeRangeBounds('7d', 1_000_000)).toEqual({startMs: 1_000_000 - 7 * 24 * 3600 * 1000, endMs: null})
   })

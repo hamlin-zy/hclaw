@@ -3,6 +3,7 @@ import {toolRepo} from './repositories/sqlite/toolRepository'
 import {toolRegistry} from './agent/tools/registry'
 import {ALWAYS_ON_TOOLS} from './agent/constants'
 import {broadcastToOtherWindows} from './utils/windowBroadcast'
+import {initHclawDbQueryConnection, closeConnection, HCLAW_DB_QUERY_TOOL_ID} from './agent/tools/builtin/hclawDbQueryConnection'
 
 // ─── IPC 结果包装工具 ─────────────────────────────────
 
@@ -31,6 +32,13 @@ function wrapVoid(fn: () => void): VoidResult {
 /**
  * 注册工具管理的 IPC handlers
  */
+/** 工具启停后同步 hclaw_db_query 只读连接的预热/关闭 */
+function syncHclawDbQueryConnection(id: string, enabled: boolean): void {
+    if (id !== HCLAW_DB_QUERY_TOOL_ID) return
+    if (enabled) initHclawDbQueryConnection()
+    else closeConnection()
+}
+
 export function initToolIPC(): void {
     ipcMain.handle('tool:list', async () => {
         try {
@@ -55,7 +63,10 @@ export function initToolIPC(): void {
             return {success: false, error: `${id} 为能力驱动工具（图片/音频理解），不可手动禁用`}
         }
         const result = wrapVoid(() => toolRepo.setEnabled(id, enabled))
-        if (result.success) broadcastToOtherWindows(event, 'tools-changed')
+        if (result.success) {
+            broadcastToOtherWindows(event, 'tools-changed')
+            syncHclawDbQueryConnection(id, enabled)
+        }
         return result
     })
 
@@ -64,7 +75,10 @@ export function initToolIPC(): void {
             return {success: false, error: '包含能力驱动工具（analyze_image / speech_to_text），拒绝批量修改'}
         }
         const result = wrapVoid(() => toolRepo.setEnabledBatch(updates))
-        if (result.success) broadcastToOtherWindows(event, 'tools-changed')
+        if (result.success) {
+            broadcastToOtherWindows(event, 'tools-changed')
+            for (const u of updates) syncHclawDbQueryConnection(u.id, u.enabled)
+        }
         return result
     })
 

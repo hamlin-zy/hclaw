@@ -132,19 +132,19 @@ describe('agentTool modelRole 动态枚举', () => {
     })
 })
 
-describe('agentTool agent 候选动态枚举', () => {
+describe('agentTool agent 候选（schema 放宽为 string，容错交由 find）', () => {
     beforeEach(() => { vi.clearAllMocks() })
 
-    it('agent 枚举只含已启用名称（禁用/cmd: 伪 Agent 不入）', () => {
+    it('schema 不再 enum 硬约束：列表外/禁用/近义名称均通过校验（execute 层兜底）', () => {
         setAgentToolConfig()
         // 已启用 → 通过
         expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'General Agent', modelRole: 'primary'})).not.toThrow()
         expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'Implementer Agent', modelRole: 'primary'})).not.toThrow()
-        // 已禁用 → 拒绝（禁用角色不进入候选）
-        expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'Disabled Agent', modelRole: 'primary'})).toThrow()
-        // cmd: 伪 Agent（命令条目）→ 拒绝
-        expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'commit-msg', modelRole: 'primary'})).toThrow()
-        // 列表外名称 → 拒绝
-        expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'Subagent (general-purpose)', modelRole: 'primary'})).toThrow()
+        // 回归背景：曾用 z.enum 硬约束，"Implementer"（缺 " Agent" 后缀）在 zod 层即被
+        // 拒绝，execute 内 agentRegistry.find 的双向前缀容错永远无法生效 → 放宽为 string
+        expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'Implementer', modelRole: 'primary'})).not.toThrow()
+        // 禁用/未知名也放行 schema，由 execute 的 find() + 行动性报错兜底（列候选、要求重试）
+        expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'Disabled Agent', modelRole: 'primary'})).not.toThrow()
+        expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'Subagent (general-purpose)', modelRole: 'primary'})).not.toThrow()
     })
 })

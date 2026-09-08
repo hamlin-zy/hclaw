@@ -14,7 +14,9 @@ function asError(err: unknown): string {
 }
 
 /** 从真实注册表聚合技能/代理/插件能力（供 discover 填充 capabilities）。
- * 用 require 规避顶层循环依赖（agent/skills、agent/agentRegistry、plugin/registry 与 repo 模块互相引用风险）。 */
+ * require 为有意设计：规避顶层循环依赖（agent/skills、agent/agentRegistry、plugin/registry 与 repo 模块互相引用风险），
+ * 故禁用 no-require-imports 规则。 */
+/* eslint-disable @typescript-eslint/no-require-imports */
 function collectCapabilityInputs() {
   const {skillRegistry} = require('../agent/skills') as typeof import('../agent/skills')
   const {agentRegistry} = require('../agent/agentRegistry') as typeof import('../agent/agentRegistry')

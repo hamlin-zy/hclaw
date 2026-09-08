@@ -10,7 +10,7 @@ import SkillDetailModal from './SkillDetailModal'
 import RepoGroupCard from '../repo/RepoGroupCard'
 import {useRepoUpdateStore} from '../../stores/repoUpdateStore'
 import {buildRepoGroups, filterRepoTabSkills, sortReposByUpdate} from '../repo/repoGrouping'
-import {Folder, Search, Trash2, ChevronDown, Check, AlertCircle, Plus, Download, RefreshCw, GitBranch} from 'lucide-react'
+import {Folder, Search, Trash2, Check, AlertCircle, Plus, Download, RefreshCw, GitBranch} from 'lucide-react'
 
 type TabType = 'local' | 'repo' | 'plugin'
 

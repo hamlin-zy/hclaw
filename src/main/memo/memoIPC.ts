@@ -2,8 +2,9 @@
  * Memo IPC — 通道注册 + memo_changed 跨窗口广播（spec §5/§9）
  * 返回约定：{ok: true, data} | {ok: false, error}（渲染层 toast）
  */
-import {ipcMain, BrowserWindow} from 'electron'
+import {ipcMain} from 'electron'
 import {memoStore} from './memoStore'
+import {broadcastMemoChanged} from './broadcast'
 
 function toError(err: unknown): string {
     const message = err instanceof Error ? err.message : err
@@ -12,11 +13,7 @@ function toError(err: unknown): string {
     return String(message)
 }
 
-function broadcastChanged(workspacePath: string): void {
-    for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) win.webContents.send('memo_changed', {workspacePath})
-    }
-}
+const broadcastChanged = broadcastMemoChanged
 
 let registered = false
 
@@ -58,6 +55,16 @@ export function initMemoIPC(): void {
     })
     ipcMain.handle('memo:update', (_e, {id, patch}) => wrap(memoStore.findById(id)?.workspacePath, () => memoStore.update(id, patch)))
     ipcMain.handle('memo:delete', (_e, id: string) => wrap(memoStore.findById(id)?.workspacePath, () => memoStore.remove(id)))
+    // 批量删除（删除组内备忘录）：removeMany 返回受影响的工作区，逐个广播 memo_changed
+    ipcMain.handle('memo:deleteMany', async (_e, ids: string[]) => {
+        try {
+            const wsPaths = memoStore.removeMany(Array.isArray(ids) ? ids : [])
+            for (const ws of wsPaths) broadcastChanged(ws)
+            return {ok: true as const, data: wsPaths.length}
+        } catch (err) {
+            return {ok: false as const, error: toError(err)}
+        }
+    })
     // uploadAttachment / discardPending 无需广播，走 wrapAsync（同步 wrap 会把 Promise 嵌入 data 导致 clone 失败）
     ipcMain.handle('memo:uploadAttachment', (_e, input) => wrapAsync(() => memoStore.uploadAttachment(input)))
     ipcMain.handle('memo:discardPending', (_e, ids: string[]) => wrapAsync(() => memoStore.discardPending(ids)))

@@ -8,7 +8,12 @@ export interface TimelineItem {
 
 export const timelineItems: TimelineItem[] = [
   {
-    version: 'v0.5.11', date: '2026-09-07', tag: '最新',
+    version: 'v0.5.12', date: '2026-09-08', tag: '最新',
+    title: 'Agent 数据库查询与备忘录升级',
+    items: ['Agent 可直接查询本地数据库（历史会话/任务/用量），AI 主动帮你记事', '备忘录支持优先级与历史组右键批量删除，用户消息一键复制', '用量统计提速约 3.6 倍，名册输出 token 开销降低约 2/3', '修复后台子 Agent 事件偶发丢失、工具调用偶发失败'],
+  },
+  {
+    version: 'v0.5.11', date: '2026-09-07',
     title: '快捷键设置与 git 分支感知',
     items: ['快捷键设置页补全，修正 macOS 平台快捷键说明', '工作目录卡片显示当前 git 分支徽章（只读感知）', '会话与备忘录列表跨天自动刷新日期分组', '修复价格全为 0 时红点提示不显示'],
   },

@@ -16,6 +16,7 @@ vi.mock('../../../src/main/memo/memoStore', () => ({
         create: vi.fn(() => ({id: 'memo-1'})),
         update: vi.fn(() => ({id: 'memo-1'})),
         remove: vi.fn(),
+        removeMany: vi.fn(() => [] as string[]),
         uploadAttachment: vi.fn(),
         discardPending: vi.fn(),
         createSessionFromMemo: vi.fn(async () => ({convId: 'conv-1'})),
@@ -29,10 +30,27 @@ describe('memoIPC', () => {
     beforeEach(() => { mocks.send.mockClear() })
 
     it('注册全部通道', () => {
-        for (const ch of ['memo:list', 'memo:create', 'memo:update', 'memo:delete',
+        for (const ch of ['memo:list', 'memo:create', 'memo:update', 'memo:delete', 'memo:deleteMany',
             'memo:uploadAttachment', 'memo:discardPending', 'memo:createSession']) {
             expect(mocks.handle[ch]).toBeDefined()
         }
+    })
+
+    it('deleteMany: 批量删除并按受影响工作区广播 memo_changed', async () => {
+        const {memoStore} = await import('../../../src/main/memo/memoStore')
+        vi.mocked(memoStore.removeMany).mockReturnValueOnce(['E:\\p', 'E:\\q'])
+        const result = await mocks.handle['memo:deleteMany']({}, ['m1', 'm2'])
+        expect(result).toEqual({ok: true, data: 2})
+        expect(memoStore.removeMany).toHaveBeenCalledWith(['m1', 'm2'])
+        expect(mocks.send).toHaveBeenCalledWith('memo_changed', expect.objectContaining({workspacePath: 'E:\\p'}))
+        expect(mocks.send).toHaveBeenCalledWith('memo_changed', expect.objectContaining({workspacePath: 'E:\\q'}))
+    })
+
+    it('deleteMany: 非数组入参 → 空数组短路，不抛错', async () => {
+        const {memoStore} = await import('../../../src/main/memo/memoStore')
+        const result = await mocks.handle['memo:deleteMany']({}, 'not-an-array')
+        expect(result).toEqual({ok: true, data: 0})
+        expect(memoStore.removeMany).toHaveBeenCalledWith([])
     })
 
     it('create: 标题为空 → 返回结构化错误（文案涵盖标题）', async () => {

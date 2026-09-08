@@ -40,7 +40,7 @@ const TOOLTIP_STYLE: React.CSSProperties = {
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
 }
 
-type TooltipPlacement = 'above' | 'below' | 'right'
+type TooltipPlacement = 'above' | 'below' | 'right' | 'left'
 
 type TooltipState = {text: string; x: number; y: number; placement: TooltipPlacement; minX: number} | null
 
@@ -53,7 +53,30 @@ const TOOLTIP_EDGE_MARGIN = 8
 
 /** 水平钳制方向：left = 与触发元素左缘对齐（越窗口左缘）；right = 与窗口右缘对齐（越右缘，
  *  右下角按钮如 memo-panel-button 居中放置时文本会溢出窗口右侧） */
-type ClampSide = 'left' | 'right' | null
+type ClampSide = 'left' | 'right' | 'leftEdge' | null
+
+/**
+ * 'leftEdge'：left 放置专属——tooltip 右缘（translate(-100%) 锚定）越过窗口左缘时，
+ * 将右缘钳制到窗口内缘 TOOLTIP_EDGE_MARGIN 处（left 放置的触发元素通常贴右缘，
+ * 不会出现 above/below 那种以触发元素为界的钳制语义）。
+ */
+
+/** 水平定位：left 放置右缘锚定触发元素左缘（x 即锚点），钳制时改锚窗口内缘 */
+function tooltipLeft(tooltip: NonNullable<TooltipState>, clamped: ClampSide): number {
+    if (clamped === 'right') return window.innerWidth - TOOLTIP_EDGE_MARGIN
+    if (clamped === 'leftEdge') return TOOLTIP_EDGE_MARGIN
+    if (clamped === 'left') return tooltip.minX
+    return tooltip.x
+}
+
+/** transform 由放置方向 + 钳制状态共同决定（Y 位移保留：仅取消 X 位移） */
+function tooltipTransform(tooltip: NonNullable<TooltipState>, clamped: ClampSide): string {
+    if (tooltip.placement === 'left') return 'translate(-100%, -50%)'
+    if (tooltip.placement === 'right') return 'translateY(-50%)'
+    if (clamped === 'left') return tooltip.placement === 'above' ? 'translateY(-100%)' : 'none'
+    if (clamped === 'right') return tooltip.placement === 'above' ? 'translate(-100%, -100%)' : 'translateX(-100%)'
+    return tooltip.placement === 'above' ? 'translate(-50%, -100%)' : 'translateX(-50%)'
+}
 
 export default function TooltipPortal() {
     const [tooltip, setTooltip] = useState<TooltipState>(null)
@@ -66,7 +89,16 @@ export default function TooltipPortal() {
 
     useLayoutEffect(() => {
         const el = tipRef.current
-        if (!tooltip || !el || tooltip.placement === 'right') {
+        if (!tooltip || !el) {
+            setClamped(null)
+            return
+        }
+        // left 放置：右缘锚定在触发元素左缘左侧，若越过窗口左缘则钳制到内缘
+        if (tooltip.placement === 'left') {
+            setClamped(tooltip.x - el.offsetWidth < TOOLTIP_EDGE_MARGIN ? 'leftEdge' : null)
+            return
+        }
+        if (tooltip.placement === 'right') {
             setClamped(null)
             return
         }
@@ -138,13 +170,19 @@ export default function TooltipPortal() {
             let placement: TooltipPlacement = 'above'
             if (el.dataset.tooltipPlacement === 'right') {
                 placement = 'right'
+            } else if (el.dataset.tooltipPlacement === 'left') {
+                // 向左放置：tooltip 右缘对齐触发元素左缘（贴窗口/面板右缘的
+                // 操作按钮，向右展开会溢出屏幕），配合 leftEdge 钳制兜底
+                placement = 'left'
             } else {
                 placement = spaceBelow < TOOLTIP_HEIGHT_ESTIMATE + 12 ? 'above' : 'below'
             }
             const x = placement === 'right'
                 ? rect.right + 8
-                : rect.left + rect.width / 2
-            const y = placement === 'right'
+                : placement === 'left'
+                    ? rect.left - 6
+                    : rect.left + rect.width / 2
+            const y = placement === 'right' || placement === 'left'
                 ? rect.top + rect.height / 2
                 : placement === 'above'
                     ? rect.top - 6
@@ -174,10 +212,19 @@ export default function TooltipPortal() {
 
         document.addEventListener('mouseover', handleMouseOver)
         document.addEventListener('mouseout', handleMouseOut)
+        // 兜底：指针离开窗口（mouseleave 不冒泡，需挂 documentElement）或窗口失焦时，
+        // 不会再有 mouseover 触发隐藏，tooltip 会滞留。对列表 reorder 替换按钮 DOM
+        // （Chrome 不补发 mouseleave）的场景同样有效——下一个 mouseover 必然到来，
+        // 而离开窗口/失焦由这里兜住。
+        const handleDocLeave = () => setTooltip(null)
+        document.documentElement.addEventListener('mouseleave', handleDocLeave)
+        window.addEventListener('blur', handleDocLeave)
 
         return () => {
             document.removeEventListener('mouseover', handleMouseOver)
             document.removeEventListener('mouseout', handleMouseOut)
+            document.documentElement.removeEventListener('mouseleave', handleDocLeave)
+            window.removeEventListener('blur', handleDocLeave)
             if (hideTimer.current) clearTimeout(hideTimer.current)
         }
     }, [])
@@ -192,18 +239,8 @@ export default function TooltipPortal() {
                 top: tooltip?.y ?? -9999,
                 // 左缘钳制：与触发元素左缘对齐，取消 X 位移（Y 位移保留）
                 // 右缘钳制：右对齐窗口内缘（translateX(-100%)），Y 位移保留
-                left: clamped === 'right' && tooltip
-                    ? window.innerWidth - TOOLTIP_EDGE_MARGIN
-                    : (clamped === 'left' && tooltip ? tooltip.minX : (tooltip?.x ?? -9999)),
-                transform: clamped === 'left' && tooltip
-                    ? (tooltip.placement === 'above' ? 'translateY(-100%)' : 'none')
-                    : clamped === 'right' && tooltip
-                        ? (tooltip.placement === 'above' ? 'translate(-100%, -100%)' : 'translateX(-100%)')
-                        : (tooltip?.placement === 'right'
-                        ? 'translateY(-50%)'
-                        : tooltip?.placement === 'above'
-                            ? 'translate(-50%, -100%)'
-                            : 'translateX(-50%)'),
+                left: tooltip ? tooltipLeft(tooltip, clamped) : -9999,
+                transform: tooltip ? tooltipTransform(tooltip, clamped) : 'translateX(-50%)',
             }}
         >
             {tooltip?.text ?? ''}

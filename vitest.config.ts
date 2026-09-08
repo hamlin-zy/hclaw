@@ -5,7 +5,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+    setupFiles: ['./tests/setup.global.ts'],
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx', 'src/shared/**/*.test.ts'],
     exclude: [
       // 手动诊断脚本：连接真实用户 DB（HCLAW_DB/CONV_ID），非 CI 常规测试，不自动收集
       // 注：只排除 *.diag.test.ts，同目录的 growthDetector 单测需入 CI

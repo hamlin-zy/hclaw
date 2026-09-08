@@ -31,6 +31,7 @@ const h = vi.hoisted(() => {
         create: vi.fn(async () => null),
         updateItem: vi.fn(async () => {}),
         remove: vi.fn(async () => {}),
+        removeMany: vi.fn(async () => {}),
         createSession: vi.fn(async () => null),
     }
     const useMemoStore: any = (selector?: (s: any) => unknown) => (selector ? selector(memoState) : memoState)
@@ -91,6 +92,7 @@ import MemoPanel from '@/renderer/components/memo/MemoPanel'
 import {CAP_STYLE} from '@/renderer/components/memo/MemoPanel'
 import {TYPE_STYLE} from '@/renderer/components/message-list/UserCommandBubble'
 import {confirm} from '@/renderer/components/ConfirmDialog'
+import TooltipPortal from '@/renderer/components/common/TooltipPortal'
 
 const P = 'E:\\proj'
 const item = (id: string, over: Partial<MemoItem> = {}): MemoItem => ({
@@ -393,30 +395,31 @@ describe('MemoPanel · 条目交互', () => {
         expect(input.className).toContain('dark:bg-white/5')
     })
 
-    it('右缘按钮 tooltip：悬停时经 Portal 向左展开且不换行（nowrap）', () => {
+    it('右缘按钮 tooltip：title 走全局 TooltipPortal，data-tooltip-placement=left 向左展开', () => {
         setMemos([item('m1')])
-        render(<MemoPanel/>)
+        render(<><MemoPanel/><TooltipPortal/></>)
 
         const deleteBtn = screen.getByLabelText('删除')
-        expect(deleteBtn.getAttribute('title')).toBeNull()
-        fireEvent.mouseEnter(deleteBtn)
+        expect(deleteBtn.getAttribute('title')).toBe('删除')
+        expect(deleteBtn.dataset.tooltipPlacement).toBe('left')
 
-        const tip = screen.getByTestId('memo-tip')
+        // 全局接管：mouseover 后 title 被移除，Portal 渲染主题化 tooltip（左放置锚定）
+        fireEvent.mouseOver(deleteBtn)
+        const tip = document.querySelector<HTMLElement>('.tooltip-portal')!
         expect(tip.textContent).toBe('删除')
-        expect(tip.style.whiteSpace).toBe('nowrap')
-        expect(tip.style.transform).toBe('translateX(-100%)')
+        expect(tip.style.transform).toBe('translate(-100%, -50%)')
 
-        fireEvent.mouseLeave(deleteBtn)
-        expect(screen.queryByTestId('memo-tip')).toBeNull()
+        fireEvent.mouseOut(deleteBtn)
+        expect(deleteBtn.getAttribute('title')).toBe('删除')
     })
 
     it('创建会话处理按钮 tooltip 文案为「创建会话处理」', () => {
         setMemos([item('m1')])
-        render(<MemoPanel/>)
+        render(<><MemoPanel/><TooltipPortal/></>)
 
         const btn = screen.getByLabelText('创建会话处理')
-        fireEvent.mouseEnter(btn)
-        expect(screen.getByTestId('memo-tip').textContent).toBe('创建会话处理')
+        fireEvent.mouseOver(btn)
+        expect(document.querySelector('.tooltip-portal')!.textContent).toBe('创建会话处理')
     })
 
     it('点击条目 → openConfigWindow 传 --hclaw-memo-id', () => {
@@ -455,7 +458,7 @@ describe('MemoPanel · 条目交互', () => {
         // 展开第一个分组（含 p1）
         fireEvent.click(screen.getAllByRole('button', {name: /^展开 /})[0])
 
-        const okBtn = screen.getByLabelText('跳转到关联会话')
+        const okBtn = screen.getByLabelText('跳转到关联会话') as HTMLButtonElement
         expect(okBtn.disabled).toBe(false)
         fireEvent.click(okBtn)
         expect(h.setActiveConversation).toHaveBeenCalledWith('conv-1')
@@ -468,6 +471,51 @@ describe('MemoPanel · 条目交互', () => {
         fireEvent.click(screen.getByLabelText('删除'))
         await waitFor(() => expect(confirm).toHaveBeenCalled())
         await waitFor(() => expect(h.useMemoStore.getState().remove).toHaveBeenCalledWith('m1'))
+    })
+})
+
+describe('MemoPanel · 优先级下拉（PrioritySelect 集成）', () => {
+    it('active 项渲染 PrioritySelect，processed/历史项不渲染', () => {
+        setMemos([
+            item('a1', {title: '待办项A'}),
+            item('p1', {status: 'processed', createdAt: daysAgo(0), title: '历史项P'}),
+        ])
+        render(<MemoPanel/>)
+
+        // 待办 Tab：active 项有下拉
+        const rows = screen.getAllByTestId('memo-item')
+        expect(rows).toHaveLength(1)
+        expect(screen.getByTestId('priority-select')).toBeTruthy()
+
+        // 历史 Tab：processed 项无下拉
+        gotoHistoryAndExpandFirstGroup()
+        expect(screen.getByTestId('memo-item').getAttribute('data-memo-id')).toBe('p1')
+        expect(screen.queryByTestId('priority-select')).toBeNull()
+    })
+
+    it('选择优先级 → updateItem 被调用且 patch 为 {priority: "high"}', () => {
+        setMemos([item('m1')])
+        render(<MemoPanel/>)
+
+        fireEvent.click(screen.getByTestId('priority-trigger'))
+        fireEvent.click(screen.getByTestId('priority-option-high'))
+        expect(h.useMemoStore.getState().updateItem).toHaveBeenCalledWith('m1', {priority: 'high'})
+    })
+
+    it('点击优先级下拉不触发条目 onClick（不打开编辑窗口）', () => {
+        setMemos([item('m1')])
+        render(<MemoPanel/>)
+
+        fireEvent.click(screen.getByTestId('priority-trigger'))
+        fireEvent.click(screen.getByTestId('priority-option-low'))
+        expect(h.openConfigWindow).not.toHaveBeenCalled()
+    })
+
+    it('缺省（无 priority 字段）显示"普通"', () => {
+        setMemos([item('m1')])
+        render(<MemoPanel/>)
+
+        expect(screen.getByTestId('priority-trigger').textContent).toContain('普通')
     })
 })
 
@@ -493,5 +541,79 @@ describe('CAP_STYLE ↔ TYPE_STYLE 漂移守护', () => {
     it('UserCommandBubble 不存在与 command 语义等价的漂移键（plugin 仅作灰色降级，不参与断言）', () => {
         expect(TYPE_STYLE.plugin).toBeDefined()
         expect(CAP_STYLE.command).toBeDefined()
+    })
+})
+
+describe("MemoPanel · 历史组头右键删除整组", () => {
+    /** 展开历史 Tab 第一个组并右键其组头 */
+    function openGroupMenu(memos: MemoItem[]) {
+        setMemos(memos)
+        render(<MemoPanel/>)
+        fireEvent.click(screen.getByRole("button", {name: "历史"}))
+        const header = screen.getAllByRole("button", {name: /^展开 /})[0]
+        fireEvent.contextMenu(header, {clientX: 50, clientY: 60})
+    }
+
+    it("右键组头 → 弹出菜单，非搜索文案含组内总数", () => {
+        openGroupMenu([
+            item("p1", {status: "processed", createdAt: daysAgo(0), title: "P1"}),
+            item("p2", {status: "processed", createdAt: daysAgo(0), title: "P2"}),
+        ])
+        const menu = screen.getByTestId("memo-group-context-menu")
+        expect(menu.textContent).toContain("删除组内备忘录 (2)")
+    })
+
+    it("点击菜单项 → confirm 确认后按组内 ids 调用 removeMany", async () => {
+        openGroupMenu([
+            item("p1", {status: "processed", createdAt: daysAgo(0), title: "P1"}),
+            item("p2", {status: "processed", createdAt: daysAgo(0), title: "P2"}),
+        ])
+        fireEvent.click(screen.getByTestId("memo-group-context-menu").querySelector("button")!)
+        await waitFor(() => expect(h.useMemoStore.getState().removeMany).toHaveBeenCalledWith(["p1", "p2"]))
+        expect(vi.mocked(confirm)).toHaveBeenCalledWith(expect.objectContaining({confirmVariant: "danger"}))
+    })
+
+    it("confirm 取消 → 不调用 removeMany", async () => {
+        vi.mocked(confirm).mockResolvedValueOnce(false)
+        openGroupMenu([item("p1", {status: "processed", createdAt: daysAgo(0), title: "P1"})])
+        fireEvent.click(screen.getByTestId("memo-group-context-menu").querySelector("button")!)
+        await waitFor(() => expect(vi.mocked(confirm)).toHaveBeenCalled())
+        expect(h.useMemoStore.getState().removeMany).not.toHaveBeenCalled()
+    })
+
+    it("搜索态：文案为删除匹配项，只删命中条目", async () => {
+        setMemos([
+            item("p1", {status: "processed", createdAt: daysAgo(0), title: "report"},
+                ),
+            item("p2", {status: "processed", createdAt: daysAgo(0), title: "other"}),
+        ])
+        render(<MemoPanel/>)
+        fireEvent.change(screen.getByPlaceholderText(/搜索备忘录/), {target: {value: "report"}})
+        fireEvent.click(screen.getByRole("button", {name: "历史"}))
+        const header = screen.getAllByRole("button", {name: /^展开 /})[0]
+        fireEvent.contextMenu(header, {clientX: 50, clientY: 60})
+        const menu = screen.getByTestId("memo-group-context-menu")
+        expect(menu.textContent).toContain("删除组内匹配项 (1)")
+        fireEvent.click(menu.querySelector("button")!)
+        await waitFor(() => expect(h.useMemoStore.getState().removeMany).toHaveBeenCalledWith(["p1"]))
+    })
+
+    it("点击菜单外区域 → 菜单关闭", () => {
+        openGroupMenu([item("p1", {status: "processed", createdAt: daysAgo(0), title: "P1"})])
+        expect(screen.getByTestId("memo-group-context-menu")).toBeTruthy()
+        fireEvent.click(document.body)
+        expect(screen.queryByTestId("memo-group-context-menu")).toBeNull()
+    })
+
+    it("嵌套年组右键 → 递归收集全部子组条目", async () => {
+        openGroupMenu([
+            item("y1", {status: "processed", createdAt: yearsAgo(1), title: "Y1"}),
+            item("y2", {status: "processed", createdAt: yearsAgo(1), title: "Y2"}),
+        ])
+        // 顶层组可能是年组（yearsAgo(1) 非本年本月）
+        const menu = screen.getByTestId("memo-group-context-menu")
+        expect(menu.textContent).toContain("(2)")
+        fireEvent.click(menu.querySelector("button")!)
+        await waitFor(() => expect(h.useMemoStore.getState().removeMany).toHaveBeenCalledWith(["y1", "y2"]))
     })
 })

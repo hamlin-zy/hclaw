@@ -63,8 +63,8 @@ beforeEach(async () => {
 })
 
 describe('configWindow 注册表', () => {
-    it('白名单含 22 种 dialogType', () => {
-        expect(CONFIG_DIALOG_TYPES.size).toBe(22)
+    it('白名单含 23 种 dialogType', () => {
+        expect(CONFIG_DIALOG_TYPES.size).toBe(23)
         expect(CONFIG_DIALOG_TYPES.has('llm-config')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('permission-rules')).toBe(true)
         expect(CONFIG_DIALOG_TYPES.has('about')).toBe(true)

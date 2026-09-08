@@ -1,10 +1,13 @@
 import {randomBytes, createHash} from 'crypto';
-import {app, ipcMain, shell} from 'electron';
 import axios from 'axios';
 import http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import {getMainWindow} from '../window';
+
+// electron 与 window 只能惰性 require：本模块位于 worker 侧依赖闭包内
+// （modelSchemeManager 动态 import 本模块刷新 Google OAuth token），
+// worker 线程无法安全使用 electron 主进程 API，顶层 import 会在加载时引入风险。
+// 另见 .dependency-cruiser.js 中 worker-no-electron 规则。
 
 // Google OAuth2 凭据配置
 // GOOGLE_CLIENT_ID 是公开标识，可放心硬编码或通过环境变量覆盖
@@ -22,8 +25,10 @@ function loadGoogleOAuthConfig(): {clientId?: string; clientSecret?: string} {
     }
     try {
         // 开发环境：仓库根目录 config/；打包环境：resources/config/
+        // app 惰性 require：worker 线程内 electron.app 不可用（仅主进程路径需要该候选）
         const candidates = [
-            path.join(app.getAppPath(), 'config', 'google-oauth.local.json'),
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- worker 闭包不得静态引入 electron，需延迟加载
+            path.join(require('electron').app?.getAppPath?.() ?? '', 'config', 'google-oauth.local.json'),
             path.join(process.resourcesPath ?? '', 'config', 'google-oauth.local.json'),
         ];
         for (const p of candidates) {
@@ -163,8 +168,13 @@ export class GoogleAuthService {
     }
 }
 
-/** 注册 Google 认证相关的 IPC Handlers */
+/** 注册 Google 认证相关的 IPC Handlers（仅主进程调用，worker 中不得调用） */
 export function initGoogleAuthIPC() {
+    // 惰性 require：electron/window 仅本主进程入口使用（见文件头说明）
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- worker 闭包不得静态引入 electron，需延迟加载
+    const {ipcMain, shell} = require('electron')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- 同上
+    const {getMainWindow} = require('../window')
     ipcMain.handle('auth-google-login', async () => {
         return new Promise((resolve) => {
             const server = http.createServer(async (req, res) => {

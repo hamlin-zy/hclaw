@@ -29,12 +29,23 @@ import {useRepoUpdateStore} from './stores/repoUpdateStore'
 import {useMcpUpdateStore} from './stores/mcpUpdateStore'
 import {useMenuBarStore} from './stores/menuBarStore'
 import {useGlobalHotkeys} from './hooks/useGlobalHotkeys'
+import {shortcutManager} from './services/shortcutManager'
 import TooltipPortal from './components/common/TooltipPortal'
 import {createGcScheduler} from './lib/gcScheduler'
 import {syncExchangeRate} from './lib/format'
 import {registerStoreMemorySources} from './utils/memorySources'
 import {startWatermarkTimer} from './utils/memoryWatermark'
 import type {ModelType} from '@shared/types'
+
+/**
+ * loadSettings 完成后用最新 overrides 重建 shortcutManager 绑定表。
+ * 广播载荷可能不含 shortcuts 字段，统一从 settingsStore 读取。
+ */
+function reloadShortcutBindings(): void {
+  void useSettingsStore.getState().loadSettings().then(() => {
+    shortcutManager.setBindings(useSettingsStore.getState().settings?.shortcuts?.overrides)
+  }).catch(() => {})
+}
 
 interface ErrorBoundaryProps {
   children: ReactNode
@@ -344,6 +355,9 @@ export default function App() {
           useAgentTemplateStore.getState().init(),
         ])
 
+        // settings hydration 完成 → 初始化 shortcutManager 快捷键绑定表
+        reloadShortcutBindings()
+
         // 应用启动时同步主题设置
         const theme = useSettingsStore.getState().settings.ui.theme
         resolveAndApplyTheme(theme)
@@ -470,6 +484,8 @@ export default function App() {
           resolveAndApplyTheme(settings.ui.theme)
         }
       }
+      // 快捷键覆盖项变更 → 重建 shortcutManager 匹配表
+      reloadShortcutBindings()
     })
 
     return () => {
@@ -483,7 +499,7 @@ export default function App() {
   // 与上方 'settings-updated'（agent 工具路径）订阅并存，互不替代。
   useEffect(() => {
     const cleanup = window.electronAPI?.onSettingsChanged?.(() => {
-      void useSettingsStore.getState().loadSettings()
+      reloadShortcutBindings()
     })
 
     return () => {

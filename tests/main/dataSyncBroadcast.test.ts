@@ -55,9 +55,11 @@ describe('promptSchemeIPC.ts — prompt-schemes-changed 广播', () => {
 })
 
 describe('mcp ipc.ts — 状态推送广播所有窗口', () => {
-    it('registerMCPEventForwarding 用 BrowserWindow.getAllWindows() 而非仅 mainWindow', () => {
+    it('registerMCPEventForwarding 用 broadcastToAllWindows 而非仅 mainWindow', () => {
         const src = fs.readFileSync(MCP_IPC_TS, 'utf-8')
-        expect(src).toContain('BrowserWindow.getAllWindows()')
+        expect(src).toContain('broadcastToAllWindows(')
+        expect(src).toContain("broadcastToAllWindows('mcp:status-changed'")
+        expect(src).toContain("broadcastToAllWindows('mcp:list-changed'")
         // 不允许再出现仅发 mainWindow 的 mcp 推送
         expect(src).not.toContain("mainWindow.webContents.send('mcp:status-changed'")
         expect(src).not.toContain("mainWindow.webContents.send('mcp:list-changed'")

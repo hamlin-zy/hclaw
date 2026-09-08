@@ -243,6 +243,46 @@ describe('memoStore', () => {
     })
 })
 
+describe('memoStore priority 持久化', () => {
+    it('update({priority: "low"}) 后重载 store，条目带 priority', async () => {
+        const store = await freshStore()
+        const item = store.create({workspacePath: 'E:\\p', content: 'c', title: 'T'})
+        store.update(item.id, {priority: 'low'})
+
+        const store2 = await freshStore()
+        const loaded = store2.findById(item.id)!
+        expect(loaded.priority).toBe('low')
+        // list 同样返回
+        expect(store2.list('E:\\p')[0].priority).toBe('low')
+    })
+
+    it('update({priority: "urgent"}) 直接返回值也正确', async () => {
+        const store = await freshStore()
+        const item = store.create({workspacePath: 'E:\\p', content: 'c', title: 'T'})
+        expect(store.update(item.id, {priority: 'urgent'}).priority).toBe('urgent')
+    })
+
+    it('不传 priority 的 patch 不影响已有值', async () => {
+        const store = await freshStore()
+        const item = store.create({workspacePath: 'E:\\p', content: 'c', title: 'T'})
+        store.update(item.id, {priority: 'high'})
+        const updated = store.update(item.id, {content: 'v2'})
+        expect(updated.priority).toBe('high')
+        expect(updated.content).toBe('v2')
+
+        const store2 = await freshStore()
+        expect(store2.findById(item.id)!.priority).toBe('high')
+    })
+
+    it('新条目缺省无 priority 字段（undefined 视为 normal，老数据无需迁移）', async () => {
+        const store = await freshStore()
+        const item = store.create({workspacePath: 'E:\\p', content: 'c', title: 'T'})
+        expect(item.priority).toBeUndefined()
+        const store2 = await freshStore()
+        expect(store2.findById(item.id)!.priority).toBeUndefined()
+    })
+})
+
 describe('memoStore pinned/sortIndex', () => {
     it('新建条目默认 pinned=false、sortIndex=0', async () => {
         const store = await freshStore()
@@ -314,5 +354,39 @@ describe('memoStore pinned/sortIndex', () => {
         const store2 = await freshStore()
         expect(store2.list('E:\\p')).toHaveLength(0)
         expect(fs.readdirSync(path.dirname(file)).some(f => f.startsWith('memos.json.corrupt-'))).toBe(true)
+    })
+})
+
+describe("memoStore removeMany 批量删除", () => {
+    it("批量删除：一次调用删多条，返回受影响工作区", async () => {
+        const store = await freshStore()
+        const a = store.create({workspacePath: "E:\\p", title: "a", content: "a"})
+        const b = store.create({workspacePath: "E:\\p", title: "b", content: "b"})
+        const c = store.create({workspacePath: "E:\\q", title: "c", content: "c"})
+        const affected = store.removeMany([a.id, b.id, c.id])
+        expect(affected.sort()).toEqual(["E:\\p", "E:\\q"])
+        expect(store.list("E:\\p")).toHaveLength(0)
+        expect(store.list("E:\\q")).toHaveLength(0)
+    })
+    it("不存在的 id 静默跳过，重复 id 去重", async () => {
+        const store = await freshStore()
+        const a = store.create({workspacePath: "E:\\p", title: "a", content: "a"})
+        const affected = store.removeMany([a.id, a.id, "memo-nope"])
+        expect(affected).toEqual(["E:\\p"])
+        expect(store.list("E:\\p")).toHaveLength(0)
+    })
+    it("空数组短路返回 []，不写文件", async () => {
+        const store = await freshStore()
+        expect(store.removeMany([])).toEqual([])
+    })
+    it("删除后清理附件归档目录", async () => {
+        const store = await freshStore()
+        const src = path.join(dir, "a.txt")
+        fs.writeFileSync(src, "x")
+        const att = await store.uploadAttachment({fileName: "a.txt", srcPath: src, mime: "text/plain"})
+        const item = store.create({workspacePath: "E:\\p", title: "t", content: "c", attachments: [att]})
+        expect(fs.existsSync(item.attachments[0].storedPath)).toBe(true)
+        store.removeMany([item.id])
+        expect(fs.existsSync(item.attachments[0].storedPath)).toBe(false)
     })
 })

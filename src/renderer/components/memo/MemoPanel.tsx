@@ -12,7 +12,7 @@
  *   各组默认折叠，点组头展开
  * - 搜索：只作用于当前 Tab，切 Tab 保留关键字
  *
- * 其余视觉对齐（胶囊圆角项、TipButton 等）见各组件内联注释。
+ * 其余视觉对齐（胶囊圆角项等）见各组件内联注释。
  */
 import React, {useEffect, useMemo, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
@@ -21,9 +21,11 @@ import {useMemoStore, subscribeMemoChanged, openMemoCreateWindow} from '../../st
 import {useConversationStore} from '../../stores/conversationStore'
 import {useSidebarStore} from '../../stores/sidebarStore'
 import {confirm} from '../ConfirmDialog'
+import {PrioritySelect} from '../common/PrioritySelect'
+import {formatShortcut, formatShortcutSpoken} from '../common/Kbd'
 import {formatRelativeTime} from '../../lib/relativeTime'
 import {useDayBoundaryTick} from '../../hooks/useDayBoundaryTick'
-import {sortActiveMemos, groupProcessedByDate, renumberGroup, countGroupItems} from './memoSort'
+import {sortActiveMemos, groupProcessedByDate, renumberGroup, countGroupItems, collectGroupMemoIds} from './memoSort'
 import type {ProcessedDateGroup} from './memoSort'
 import type {MemoCapability, MemoItem} from '@shared/types/memo'
 
@@ -31,7 +33,7 @@ const PENDING_TAB = 'pending' as const
 const HISTORY_TAB = 'history' as const
 type MemoTab = typeof PENDING_TAB | typeof HISTORY_TAB
 
-/** TipButton 共用样式：面板内所有 hover 操作按钮的底样式，颜色类由调用处追加 */
+/** 面板内 hover 操作按钮共用的底样式，颜色类由调用处追加 */
 const ACTION_BTN_BASE = 'p-1 rounded hover:bg-[var(--surface-muted)] transition-colors'
 /** 底样式 + 默认灰字、hover 品牌色（新建/跳转等常规操作按钮） */
 const ACTION_BTN_MUTED = `${ACTION_BTN_BASE} text-[var(--text-muted)] hover:text-[var(--brand-primary)]`
@@ -69,8 +71,11 @@ export default function MemoPanel() {
     }, [memos, kw, dayTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const updateItem = useMemoStore((s) => s.updateItem)
+    const removeMany = useMemoStore((s) => s.removeMany)
     // 拖拽：dragOrder 覆盖派生顺序，提供乐观更新驱动 FLIP 动画；onDragEnd 落库后清空回到派生顺序
     const [dragOrder, setDragOrder] = useState<string[] | null>(null)
+    // 拖拽期间抑制条目 click（Reorder 松开鼠标时 pointerup 仍会派发 click，误开编辑窗口）
+    const dragActiveRef = useRef(false)
     const renderOrder = dragOrder ?? activeList.map((m) => m.id)
     const idsToMemos = (ids: string[]): MemoItem[] =>
         ids.map((id) => memos.find((m) => m.id === id)).filter(Boolean) as MemoItem[]
@@ -102,6 +107,51 @@ export default function MemoPanel() {
         })
     }
 
+    // ── 历史组头右键菜单（删除组内备忘录）──
+    // ids 为右键时该组渲染集合的条目 id：非搜索 = 组内全部；搜索 = 当前命中的条目
+    const [groupMenu, setGroupMenu] = useState<{x: number; y: number; label: string; ids: string[]} | null>(null)
+    const groupMenuDeletingRef = useRef(false)
+
+    const openGroupMenu = (e: React.MouseEvent, group: ProcessedDateGroup) => {
+        e.preventDefault()
+        e.stopPropagation()
+        const ids = collectGroupMemoIds(group)
+        if (ids.length === 0) return
+        setGroupMenu({x: e.clientX, y: e.clientY, label: group.label, ids})
+    }
+
+    const handleDeleteGroup = async () => {
+        const menu = groupMenu
+        if (!menu || groupMenuDeletingRef.current) return
+        setGroupMenu(null) // confirm 前先关菜单，与 ConversationSidebar 删除交互一致
+        groupMenuDeletingRef.current = true
+        try {
+            const ok = await confirm({
+                title: '删除组内备忘录',
+                message: `确定删除「${menu.label}」中的 ${menu.ids.length} 条备忘录吗？\n此操作不可撤销。`,
+                confirmText: '删除',
+                confirmVariant: 'danger',
+            })
+            if (ok) await removeMany(menu.ids)
+        } finally {
+            groupMenuDeletingRef.current = false
+        }
+    }
+
+    // 菜单关闭：全局 contextmenu（右键别处/另一组头时旧菜单关闭并重新定位）+ 点击其他区域
+    useEffect(() => {
+        if (!groupMenu) return
+        const close = () => setGroupMenu(null)
+        window.addEventListener('contextmenu', close)
+        window.addEventListener('click', close)
+        window.addEventListener('scroll', close, true)
+        return () => {
+            window.removeEventListener('contextmenu', close)
+            window.removeEventListener('click', close)
+            window.removeEventListener('scroll', close, true)
+        }
+    }, [groupMenu])
+
     // workspacePath/id 经 encodeURIComponent 编码后传参（路径含空格/`=` 时不会被 argv 切断，preload 侧解码）
     const openEdit = (id: string) => {
         void window.electronAPI?.openConfigWindow?.('memo-edit', [`--hclaw-memo-id=${encodeURIComponent(id)}`])
@@ -120,16 +170,19 @@ export default function MemoPanel() {
             {/* 顶部：标题 + 新建 */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)] shrink-0">
                 <span className="text-xs font-medium text-[var(--text-muted)]">备忘录</span>
-                <TipButton
-                    tip="新建备忘录 (Ctrl+Shift+N)"
-                    label="新建备忘录 (Ctrl+Shift+N)"
+                <button
+                    // 走全局 TooltipPortal：data-tooltip-placement="left" 使 tooltip
+                    // 向左展开（按钮贴面板右缘，向右展开会溢出屏幕）
+                    title={`新建备忘录 (${formatShortcut('Ctrl+Shift+N')})`}
+                    aria-label={`新建备忘录 (${formatShortcutSpoken('Ctrl+Shift+N')})`}
                     onClick={openCreate}
+                    data-tooltip-placement="left"
                     className={ACTION_BTN_MUTED}
-                >
+                 data-name="memo-delete-button">
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M12 5v14M5 12h14"/>
                     </svg>
-                </TipButton>
+                </button>
             </div>
 
             {/* 搜索框 */}
@@ -184,12 +237,20 @@ export default function MemoPanel() {
                                     <Reorder.Item
                                         key={id}
                                         value={id}
-                                        onDragEnd={() => void handleDragEnd()}
+                                        onDragStart={() => { dragActiveRef.current = true }}
+                                        onDragEnd={() => {
+                                            void handleDragEnd()
+                                            // click 在 pointerup 后同步派发，下一帧才解除抑制，避免松手误触编辑
+                                            setTimeout(() => { dragActiveRef.current = false }, 0)
+                                        }}
                                         // 拖拽提起视觉：轻微缩放 + 阴影，松手回弹
                                         whileDrag={{scale: 1.02, boxShadow: '0 4px 12px rgba(0,0,0,0.15)'}}
                                         className="list-none"
                                     >
-                                        <MemoItemRow item={m} onOpen={() => openEdit(m.id)}/>
+                                        <MemoItemRow item={m} onOpen={() => {
+                                            if (dragActiveRef.current) return
+                                            openEdit(m.id)
+                                        }}/>
                                     </Reorder.Item>
                                 )
                             })}
@@ -206,10 +267,24 @@ export default function MemoPanel() {
                             expandedKeys={expandedKeys}
                             onToggle={toggleGroup}
                             onOpen={openEdit}
+                            onGroupMenu={openGroupMenu}
                         />
                     ))
                 )}
             </div>
+
+            {/* 历史组头右键菜单（portal 到 body，脱离面板 overflow 裁剪） */}
+            {groupMenu && (
+                <GroupContextMenu
+                    x={groupMenu.x}
+                    y={groupMenu.y}
+                    label={groupMenu.label}
+                    count={groupMenu.ids.length}
+                    searching={searching}
+                    onDelete={() => void handleDeleteGroup()}
+                    onClose={() => setGroupMenu(null)}
+                />
+            )}
 
             {/* 底部统计 + 折叠按钮 */}
             <div className="shrink-0 px-3 py-2 border-t border-[var(--border)] flex items-center justify-between gap-2">
@@ -225,7 +300,7 @@ export default function MemoPanel() {
                 <button
                     onClick={() => setRightCollapsed(true)}
                     aria-label="折叠右侧面板"
-                    title="折叠右侧面板 (Ctrl+Shift+B)"
+                    title={`折叠右侧面板 (${formatShortcut('Ctrl+Shift+B')})`}
                     className="mini-toggle flex items-center justify-center w-[30px] h-[30px] rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
                  data-name="memo-panel-button">
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -250,12 +325,13 @@ function TabButton({active, onClick, children}: {active: boolean; onClick: () =>
 }
 
 /** 历史分组节点：递归渲染 year→month→day，day 叶子渲染条目 */
-function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen}: {
+function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen, onGroupMenu}: {
     group: ProcessedDateGroup
     parentKey: string
     expandedKeys: Set<string>
     onToggle: (key: string) => void
     onOpen: (id: string) => void
+    onGroupMenu: (e: React.MouseEvent, group: ProcessedDateGroup) => void
 }) {
     const key = parentKey ? `${parentKey}/${group.label}` : group.label
     const expanded = expandedKeys.has(key)
@@ -266,6 +342,7 @@ function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen}: {
         <div data-testid="memo-group" data-group-key={key}>
             <button
                 onClick={() => onToggle(key)}
+                onContextMenu={(e) => onGroupMenu(e, group)}
                 aria-label={`${expanded ? '折叠' : '展开'} ${group.label}`}
                 aria-expanded={expanded}
                 className="flex items-center gap-1 w-full py-1.5 hover:bg-gray-50 dark:hover:bg-white/5 rounded transition-colors"
@@ -294,12 +371,68 @@ function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen}: {
                                 expandedKeys={expandedKeys}
                                 onToggle={onToggle}
                                 onOpen={onOpen}
+                                onGroupMenu={onGroupMenu}
                             />
                         ))
                     }
                 </div>
             )}
         </div>
+    )
+}
+
+/** 组头右键菜单菜单项通用样式（与 ConversationSidebar.GlobalContextMenu 同源） */
+const GROUP_MENU_ITEM_CLASS = 'w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors'
+
+/**
+ * 历史组头右键菜单（删除组内备忘录）。
+ * 样式对齐会话列表 GlobalContextMenu：surface 面板 + border-emphasis + shadow-elevated，
+ * 删除项 error 红色变体；定位做视口边界收敛。
+ */
+function GroupContextMenu({x, y, label, count, searching, onDelete, onClose}: {
+    x: number
+    y: number
+    label: string
+    count: number
+    searching: boolean
+    onDelete: () => void
+    onClose: () => void
+}) {
+    const MENU_W = 180
+    const MENU_H = 48
+    const adjustedX = Math.min(x, window.innerWidth - MENU_W - 10)
+    const adjustedY = y + MENU_H > window.innerHeight
+        ? Math.max(10, window.innerHeight - MENU_H - 10)
+        : y
+    const menuText = searching ? `删除组内匹配项 (${count})` : `删除组内备忘录 (${count})`
+    return createPortal(
+        <div
+            role="menu"
+            data-testid="memo-group-context-menu"
+            style={{position: 'fixed', left: adjustedX, top: adjustedY, zIndex: 9999}}
+            className="bg-[var(--surface)] border border-[var(--border-emphasis)] rounded-xl shadow-elevated py-1.5 min-w-[160px] ring-1 ring-black/5"
+            onContextMenu={(e) => e.preventDefault()}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+        >
+            <button
+                role="menuitem"
+                onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onClose()
+                    onDelete()
+                }}
+                className={`${GROUP_MENU_ITEM_CLASS} text-[var(--error)] hover:bg-[var(--error)]/10`}
+                data-name="memo-group-menu-delete-button"
+            >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/>
+                </svg>
+                {menuText}
+            </button>
+        </div>,
+        document.body,
     )
 }
 
@@ -328,80 +461,6 @@ function CapabilityBadge({capability}: {capability: MemoCapability}) {
                 {style.label}
             </span>
         </div>
-    )
-}
-
-/**
- * 面板右缘按钮的局部 tooltip：向左展开（右缘对齐按钮右缘）+ 不换行。
- * 不使用 title 属性——TooltipPortal 会全局接管 [title] 且仅支持
- * above/below/right 放置（无左向/右缘钳制），故走局部 Portal 方案。
- */
-function TipButton({tip, label, onClick, className, disabled, children}: {
-    tip: string
-    label: string
-    onClick?: (e: React.MouseEvent) => void
-    className: string
-    disabled?: boolean
-    children: React.ReactNode
-}) {
-    const [anchor, setAnchor] = useState<{top: number; right: number} | null>(null)
-    const btnRef = useRef<HTMLButtonElement>(null)
-    // 列表 reorder（remove+insert）会替换按钮 DOM 节点，Chrome 不补发 mouseleave，
-    // 仅靠元素级 onMouseLeave 会滞留 anchor 导致 tip 永不关闭。
-    // 故在 tip 显示期间挂 document 级监听：指针不在按钮上即关闭（对节点替换免疫）。
-    useEffect(() => {
-        if (!anchor) return
-        const onMove = (e: MouseEvent) => {
-            if (!btnRef.current?.contains(e.target as Node)) setAnchor(null)
-        }
-        document.addEventListener('mousemove', onMove)
-        document.addEventListener('pointerover', onMove)
-        return () => {
-            document.removeEventListener('mousemove', onMove)
-            document.removeEventListener('pointerover', onMove)
-        }
-    }, [anchor])
-    return (
-        <>
-            <button
-                ref={btnRef}
-                aria-label={label}
-                onClick={onClick}
-                disabled={disabled}
-                onMouseEnter={(e) => {
-                    const r = e.currentTarget.getBoundingClientRect()
-                    setAnchor({top: r.bottom, right: r.right})
-                }}
-                onMouseLeave={() => setAnchor(null)}
-                className={className}
-             data-name="memo-panel-trigger-button">
-                {children}
-            </button>
-            {anchor && createPortal(
-                <div
-                    data-testid="memo-tip"
-                    style={{
-                        position: 'fixed',
-                        top: anchor.top + 6,
-                        left: anchor.right,
-                        transform: 'translateX(-100%)',
-                        whiteSpace: 'nowrap',
-                        padding: '4px 8px',
-                        background: 'var(--surface-elevated)',
-                        color: 'var(--text-primary)',
-                        border: '1px solid var(--border)',
-                        boxShadow: 'var(--shadow-overlay)',
-                        fontSize: '11px',
-                        borderRadius: '4px',
-                        pointerEvents: 'none',
-                        zIndex: 2147483647,
-                    }}
-                >
-                    {tip}
-                </div>,
-                document.body,
-            )}
-        </>
     )
 }
 
@@ -449,13 +508,24 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
             data-testid="memo-item"
             data-memo-id={item.id}
             onClick={onOpen}
-            className={`group relative p-2.5 rounded-[18px] border border-transparent cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-white/5 active:bg-gray-100 dark:active:bg-white/10 ${processed ? 'opacity-50' : ''}`}
+            className={`group relative p-2.5 rounded-[18px] border border-[var(--border)] bg-[var(--surface-muted)]/60 cursor-pointer transition-all hover:bg-[var(--surface-muted)] active:bg-[var(--surface-muted)] ${processed ? 'opacity-50' : ''}`}
          data-name="memo-panel-div">
             {/* 能力徽章/标题/时间等文字内容占满整行；操作按钮绝对定位覆盖，不预留宽度 */}
             <div className="min-w-0">
                 {/* 能力徽章在标题上方（纵向排列） */}
                 {item.capability && <CapabilityBadge capability={item.capability}/>}
-                <div className="text-xs font-medium break-words">{item.title || '（无标题）'}</div>
+                {/* 标题行：标题左侧截断，右侧优先级下拉固定不被挤压（仅 active 项显示） */}
+                <div className="flex items-center gap-1.5 w-full min-w-0">
+                    <div className="text-xs font-medium truncate flex-1" title={item.title || '（无标题）'}>{item.title || '（无标题）'}</div>
+                    {!processed && (
+                        <PrioritySelect
+                            value={item.priority}
+                            onChange={(p) => {
+                                void updateItem(item.id, {priority: p})
+                            }}
+                        />
+                    )}
+                </div>
                 <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
                     {item.pinned && !processed && (
                         <span title="已置顶" aria-label="已置顶">
@@ -471,65 +541,69 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
                     {processed && <span>已处理</span>}
                 </div>
             </div>
-            {/* hover 操作区：绝对定位覆盖右侧，bg-inherit 盖住下方文字保证可读性 */}
-            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 rounded-full bg-inherit opacity-0 group-hover:opacity-100 transition-opacity">
+            {/* hover 操作区：绝对定位覆盖时间行（bottom 锚定），与标题行的优先级下拉垂直错开，不遮挡 */}
+            <div className="absolute right-2.5 bottom-1.5 flex items-center gap-1 rounded-full bg-inherit opacity-0 group-hover:opacity-100 transition-opacity">
                 {!processed && (
-                    <TipButton
-                        tip={item.pinned ? '取消置顶' : '置顶'}
-                        label={item.pinned ? '取消置顶' : '置顶'}
+                    <button
+                        title={item.pinned ? '取消置顶' : '置顶'}
+                        aria-label={item.pinned ? '取消置顶' : '置顶'}
                         onClick={togglePin}
+                        data-tooltip-placement="left"
                         className={`${ACTION_BTN_BASE} ${item.pinned ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--brand-primary)]'}`}
-                    >
+                     data-name="memo-pin-button">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={item.pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
                             <path d={PIN_PATH}/>
                         </svg>
-                    </TipButton>
+                    </button>
                 )}
                 {processed ? (
                     item.relatedConvId && (
-                        <TipButton
-                            tip="跳转到关联会话"
-                            label="跳转到关联会话"
+                        <button
+                            title="跳转到关联会话"
+                            aria-label="跳转到关联会话"
                             disabled={!convExists}
+                            data-tooltip-placement="left"
                             onClick={(e) => {
                                 e.stopPropagation()
                                 useConversationStore.getState().setActiveConversation(item.relatedConvId!)
                             }}
                             className={`${ACTION_BTN_MUTED} disabled:opacity-30 disabled:cursor-not-allowed`}
-                        >
+                         data-name="memo-open-conv-button">
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <path d="M5 12h14M12 5l7 7-7 7"/>
                             </svg>
-                        </TipButton>
+                        </button>
                     )
                 ) : (
-                    <TipButton
-                        tip="创建会话处理"
-                        label="创建会话处理"
+                    <button
+                        title="创建会话处理"
+                        aria-label="创建会话处理"
+                        data-tooltip-placement="left"
                         onClick={(e) => {
                             e.stopPropagation()
                             void handleCreateSession()
                         }}
                         className={ACTION_BTN_MUTED}
-                    >
+                     data-name="memo-create-session-button">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M5 3l14 9-14 9V3z"/>
                         </svg>
-                    </TipButton>
+                    </button>
                 )}
-                <TipButton
-                    tip="删除"
-                    label="删除"
+                <button
+                    title="删除"
+                    aria-label="删除"
+                    data-tooltip-placement="left"
                     onClick={(e) => {
                         e.stopPropagation()
                         void handleDelete()
                     }}
                     className={`${ACTION_BTN_BASE} text-[var(--text-muted)] hover:text-red-500`}
-                >
+                 data-name="memo-panel-trigger-button">
                     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/>
                     </svg>
-                </TipButton>
+                </button>
             </div>
         </div>
     )

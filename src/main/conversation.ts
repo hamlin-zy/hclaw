@@ -6,7 +6,7 @@ import {modelMetaPriceSource} from './modelMetaRegistry'
 import {buildCustomPriceEntries} from './utils/customPriceEntries'
 import {getMainWindow} from './window'
 import {getConversationPersistence} from './persistence/conversationPersistence'
-import type {BlockDeltaPatch, ConversationMeta, ConversationSummary, Message, MessageBlock} from '@shared/types';
+import type {ConversationMeta, ConversationSummary, MessageBlock} from '@shared/types';
 import {collectDescendants} from '@shared/utils/conversationTree'
 
 /** 向除发送方外的所有窗口广播事件（跨窗口同步共用） */

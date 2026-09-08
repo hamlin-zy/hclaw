@@ -173,7 +173,17 @@ export class PermissionEngine {
 
   constructor() {
       // 延迟初始化：不在此处访问数据库，避免在模块加载时（DB 迁移前）查询不存在的表
-      // ensureInit() 会在第一次实际使用时（setMode/getMode/check 等）触发初始化
+      // ensureInit() 会在第一次实际使用时（setMode/getMode 等）触发初始化；
+      // check() 为同步方法无法 await 初始化，调用方须先 await ensureReady()
+  }
+
+  /**
+   * 确保初始化完成（公开版本，供同步 check() 的调用方在执行前 await）
+   * executor 等异步调用链在调用 check() 前应先 await 本方法，
+   * 否则 check 将基于未初始化的默认 mode/rules 做出决策。
+   */
+  async ensureReady(): Promise<void> {
+    await this.ensureInit()
   }
 
   /**
@@ -344,7 +354,7 @@ export class PermissionEngine {
     return false
   }
 
-  /** 检查工具调用权限 */
+  /** 检查工具调用权限（同步；调用方须已通过 ensureReady() 完成初始化，否则基于默认 mode/rules 决策） */
   check(tool: Tool, args: any): PermissionResult {
       // Auto 模式下首次调用时警告危险规则
       if (this.mode === 'auto' && !this._dangerousRulesWarned) {

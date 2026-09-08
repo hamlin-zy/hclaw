@@ -2,6 +2,7 @@ import {useEffect, useMemo, useRef, useState} from 'react'
 import {motion} from 'framer-motion'
 import {fade, scaleFade} from '../../lib/motionPresets'
 import type {LLMProvider, ProviderModel} from '../../stores/llmStore'
+import type {ProviderCustomHeader} from '@shared/types'
 import {useLLMStore} from '../../stores/llmStore'
 import type {ModelType} from '@shared/types'
 import {isEncrypted} from '../../lib/crypto'
@@ -15,7 +16,18 @@ import {
   type ProviderPreset,
 } from '@shared/modelPresets'
 import ModelTable from './providerEdit/ModelTable'
+
+/** 自定义请求头变量选项与示例值 */
+const HEADER_VARIABLES: Array<{value: ProviderCustomHeader['variable'] | ''; label: string; sample?: string}> = [
+  {value: '', label: '无'},
+  {value: 'system.version', label: '系统版本', sample: '0.2.87'},
+  {value: 'session.id', label: '会话ID', sample: 'a3f2c1d8-4e5b'},
+]
+
+/** 常用请求头名建议（datalist 提示，不限制输入） */
+const HEADER_NAME_SUGGESTIONS = ['User-Agent', 'X-Request-ID', 'X-Title', 'HTTP-Referer', 'x-opencode-session', 'X-Custom-Auth']
 import ThemedSelect from '../ThemedSelect'
+import ThemedCombobox from '../ThemedCombobox'
 import {useSettingsStore} from '../../stores/settingsStore'
 import {ModelDetailModal} from './providerEdit/ModelDetailModal'
 
@@ -54,6 +66,34 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
   const [apiStyle, setApiStyle] = useState<'chat' | 'responses'>(provider?.apiStyle || 'chat')
   const [enabled, setEnabled] = useState(provider?.enabled ?? true)
   const [saving, setSaving] = useState(false)
+
+  // 自定义请求头（编辑模式用已有数据初始化，新增模式为空数组）
+  const [customHeaders, setCustomHeaders] = useState<ProviderCustomHeader[]>(
+    (provider?.customHeaders || []).map(h => ({...h}))
+  )
+  // 二级弹窗草稿：打开时深拷贝，行内编辑只改 draft，「确定」写回 customHeaders
+  const [showHeadersModal, setShowHeadersModal] = useState(false)
+  const [headersDraft, setHeadersDraft] = useState<ProviderCustomHeader[]>([])
+
+  const openHeadersModal = () => {
+    setHeadersDraft(customHeaders.map(h => ({...h})))
+    setShowHeadersModal(true)
+  }
+
+  /** 行是否无效：headerName 已填但固定前缀与系统变量同时为空（解析结果为空头，无意义） */
+  const isHeaderRowInvalid = (h: ProviderCustomHeader) =>
+    !!h.headerName.trim() && !h.prefix?.trim() && !h.variable
+
+  /** 「确定」：校验通过后过滤掉 headerName 为空的行写回主表单；存在无效行时阻止并提示 */
+  const confirmHeadersModal = () => {
+    if (headersDraft.some(isHeaderRowInvalid)) return
+    setCustomHeaders(headersDraft.filter(h => h.headerName.trim()).map(h => ({...h, headerName: h.headerName.trim()})))
+    setShowHeadersModal(false)
+  }
+
+  const updateHeaderDraft = (id: string, patch: Partial<ProviderCustomHeader>) => {
+    setHeadersDraft(prev => prev.map(h => h.id === id ? {...h, ...patch} : h))
+  }
 
   // OAuth2
   const [oauthTokens, setOauthTokens] = useState<{ accessToken: string; refreshToken: string; expiryDate: number } | null>(null)
@@ -230,36 +270,6 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
   // ─── 单行填充（详情弹窗「填充本模型」，设计 §三 B4/B5）──────────────────────
   // 仅回填空缺价格列（已有价格一律不覆盖）；回填的是 USD/token 原始值，直接落 m.pricing
   // （不经过货币折算）；命中元数据时按 inputModalities 更新 modelType。
-
-  /**
-   * 回填单模型：按名称查 OpenRouter 元数据，填充该行空缺价格 + 更新 modelType，
-   * 同步进 models。返回回填后的模型；未匹配 / 行不存在 → null（内部提示）。
-   */
-  const fillSingleRow = async (modelName: string): Promise<ProviderModel | null> => {
-    const trimmed = modelName.trim()
-    if (!trimmed) return null
-    const r = await window.electronAPI?.modelMetaLookup?.(trimmed)
-    if (!r?.matchedKey) {
-      setFillNotice({kind: 'error', text: `「${trimmed}」未匹配到 OpenRouter 元数据`})
-      return null
-    }
-    const m0 = modelsRef.current.find(m => m.name.trim() === trimmed)
-    if (!m0) return null
-    const multimodal = !!r.inputModalities?.length && r.inputModalities.some(x => x !== 'text')
-    const positiveOrUndef = (v?: number) => (v ?? 0) > 0 ? v : undefined
-    const next: ProviderModel = {
-      ...m0,
-      pricing: {
-        input: m0.pricing?.input ?? positiveOrUndef(r.inputPrice),
-        output: m0.pricing?.output ?? positiveOrUndef(r.outputPrice),
-        cacheRead: m0.pricing?.cacheRead ?? positiveOrUndef(r.cacheReadPrice),
-        cacheWrite: m0.pricing?.cacheWrite ?? r.cacheWritePrice,
-      },
-      modelType: multimodal ? 'multimodal' : m0.modelType ?? 'text',
-    }
-    setModels(prev => prev.map(m => m.id !== m0.id ? m : next))
-    return next
-  }
 
   /** 拉取采纳后：按 OpenRouter 元数据自动填充类型字段（仅类型；价格仍由用户手动维护）。
    *  规则：命中且输入模态含非 text → multimodal；命名推断出的特殊类型（video/image/...）不覆盖。 */
@@ -506,6 +516,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
         enabled,
         // 价格折算已在详情弹窗确认时经 commitRow 完成，此处内存 models 纯透传落库
         models,
+        customHeaders: customHeaders.filter(h => h.headerName.trim()),
       }
       // 编辑模式下如果没有修改 apiKey，不覆盖原有的加密值
       if (isEdit && !apiKeyTouched) {
@@ -732,11 +743,22 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
             {providerType !== 'google' && (
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">API Base URL <span className="text-red-400">*</span></label>
+                <div className="flex gap-2">
                 <input type="text" value={baseUrl} onChange={(e) => handleBaseUrlChange(e.target.value)} onBlur={handleBaseUrlBlur}
                   placeholder="https://api.openai.com/v1"
-                  className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 focus:outline-none ${
+                  className={`flex-1 min-w-0 px-2.5 py-1.5 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 focus:outline-none ${
                     !isEdit && !baseUrl.trim() ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-brand-300'
                   }`} data-name="provider-edit-modal-base-url-input"/>
+                {/* 自定义请求头入口：N>0 绿色标识已配置 */}
+                <button type="button" onClick={openHeadersModal}
+                  className={`shrink-0 px-2 py-1 text-xs border rounded-md bg-white transition-colors whitespace-nowrap ${
+                    customHeaders.length > 0
+                      ? 'border-emerald-300 text-emerald-600 hover:border-emerald-400 hover:bg-emerald-50/50'
+                      : 'border-gray-200 text-brand-500 hover:border-brand-300 hover:bg-brand-50/50'
+                  }`} data-name="provider-edit-modal-custom-headers-button">
+                  ⚙ 自定义请求头 ({customHeaders.length})
+                </button>
+                </div>
                 {!isEdit && !baseUrl.trim() && <div className="text-[10px] text-red-400 mt-0.5">API Base URL 不能为空</div>}
                 {/* Base URL 格式校验提示（onBlur 触发，只提示不修改） */}
                 {baseUrlValidation?.level === 'warn' && (
@@ -885,6 +907,101 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
           rate={rate}
           settingsDefaults={{defaultTemperature: settingsModel.defaultTemperature, defaultMaxTokens: settingsModel.defaultMaxTokens}}
         />
+      )}
+      {/* 二级弹窗：自定义请求头管理（草稿模式，确定写回主表单） */}
+      {showHeadersModal && (
+        <>
+          <motion.div {...fade} className="fixed inset-0 bg-black/35 backdrop-blur-sm z-[100000]" />
+          <motion.div
+            {...scaleFade}
+            transition={{duration: 0.15, ease: 'easeOut'}}
+            className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-[100001]"
+          >
+            <div
+              className="w-full max-w-[480px] max-h-[70vh] overflow-y-auto bg-white rounded-xl shadow-elevated border border-gray-200 pointer-events-auto"
+              onClick={e => e.stopPropagation()}
+             data-name="provider-edit-modal-custom-headers-div">
+              {/* 标题 */}
+              <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
+                <h4 className="text-[13px] font-semibold text-gray-800">自定义请求头</h4>
+                <button onClick={() => setShowHeadersModal(false)} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 transition-colors" data-name="provider-edit-modal-custom-headers-close-button">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+
+              {/* 说明 */}
+              <div className="px-5 pt-3">
+                <p className="text-[10px] text-gray-400 leading-relaxed">
+                  为该服务商的所有请求附加 HTTP 头。值 = 固定前缀 + 系统变量（可选），变量在每次请求时自动解析。
+                </p>
+              </div>
+
+              {/* 头行列表 */}
+              <div className="px-5 py-3 space-y-2">
+                {headersDraft.map((h) => {
+                  const variable = HEADER_VARIABLES.find(v => v.value === (h.variable || ''))
+                  const hasPreview = !!h.prefix || !!variable?.sample
+                  const rowInvalid = isHeaderRowInvalid(h)
+                  return (
+                    <div key={h.id}>
+                      <div className="flex gap-1.5 items-start">
+                        <ThemedCombobox value={h.headerName}
+                          onChange={(v) => updateHeaderDraft(h.id, {headerName: v})}
+                          suggestions={HEADER_NAME_SUGGESTIONS}
+                          placeholder="X-My-Header"
+                          className="w-32 shrink-0"
+                          ariaLabel="请求头名称"/>
+                        <input type="text" value={h.prefix || ''} onChange={(e) => updateHeaderDraft(h.id, {prefix: e.target.value})}
+                          placeholder="固定前缀，可空"
+                          className={`flex-1 min-w-0 px-2 py-1.5 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 focus:outline-none ${rowInvalid ? 'border-red-300' : 'border-gray-200 focus:border-brand-300'}`}
+                          data-name="provider-edit-modal-header-prefix-input"/>
+                        <span className="shrink-0 w-3.5 text-center leading-[30px] text-xs text-gray-400">+</span>
+                        <ThemedSelect value={h.variable || ''} onChange={(v) => updateHeaderDraft(h.id, {variable: (v || undefined) as ProviderCustomHeader['variable']})}
+                          options={HEADER_VARIABLES.map(v => ({value: v.value || '', label: v.label}))}
+                          className="w-[88px] shrink-0"
+                          error={rowInvalid}
+                          ariaLabel="系统变量"/>
+                        <button type="button" title="删除" onClick={() => setHeadersDraft(prev => prev.filter(x => x.id !== h.id))}
+                          className="shrink-0 p-1 text-gray-300 hover:text-red-400 transition-colors" data-name="provider-edit-modal-header-delete-button">
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                        </button>
+                      </div>
+                      {/* 行预览：前缀灰、变量品牌蓝高亮；两者皆空不显示 */}
+                      {rowInvalid ? (
+                        <div className="text-[10px] text-red-400 pl-[136px] mt-0.5">
+                          固定前缀与系统变量不能同时为空
+                        </div>
+                      ) : hasPreview && (
+                        <div className="font-mono text-[10.5px] text-gray-400 pl-[136px] mt-0.5" data-name="provider-edit-modal-header-preview">
+                          预览：{h.prefix && <span className="text-gray-500">{h.prefix}</span>}
+                          {variable?.sample && <span className="text-brand-600 bg-brand-50 rounded px-0.5">{variable.sample}</span>}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                <button type="button"
+                  onClick={() => setHeadersDraft(prev => [...prev, {id: crypto.randomUUID(), providerId: provider?.id || '', headerName: ''}])}
+                  className="w-full py-1.5 border border-dashed border-gray-300 rounded-md text-[11px] text-gray-400 hover:text-brand-500 hover:border-brand-300 transition-colors"
+                  data-name="provider-edit-modal-add-header-button">
+                  ＋ 添加请求头
+                </button>
+              </div>
+
+              {/* 底部按钮 */}
+              <div className="border-t border-gray-100 px-5 py-3 flex justify-end gap-2">
+                <button onClick={() => setShowHeadersModal(false)}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors" data-name="provider-edit-modal-custom-headers-cancel-button">
+                  取消
+                </button>
+                <button onClick={confirmHeadersModal} disabled={headersDraft.some(isHeaderRowInvalid)}
+                  className="px-3 py-1.5 text-xs font-medium bg-brand-500 text-white rounded-md hover:bg-brand-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed" data-name="provider-edit-modal-custom-headers-confirm-button">
+                  确定
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </>
       )}
     </>
   )

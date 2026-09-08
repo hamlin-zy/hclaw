@@ -439,4 +439,43 @@ describe('MemoEditDialog', () => {
         await waitFor(() => expect(screen.queryByText('滚轮：缩放')).toBeNull())
         expect(screen.getByTestId('memo-attachment-image')).toBeTruthy()
     })
+
+    // ── 优先级设置 ──
+
+    it('编辑态：回填优先级，保存 patch 携带 priority', async () => {
+        stubWindow({memoId: 'memo-1'})
+        h.memoApi.getById.mockResolvedValue({ok: true, data: editItem({priority: 'urgent'})})
+        h.memoApi.update.mockResolvedValue({ok: true, data: true})
+        render(<MemoEditDialog/>)
+
+        // 回填：徽章显示「紧急」
+        await waitFor(() => expect(screen.getByText('紧急')).toBeTruthy())
+
+        fireEvent.click(screen.getByTestId('priority-trigger'))
+        fireEvent.click(screen.getByTestId('priority-option-high'))
+        fireEvent.click(screen.getByText('保存'))
+
+        await waitFor(() => expect(h.memoApi.update).toHaveBeenCalledTimes(1))
+        const [, patch] = h.memoApi.update.mock.calls[0]
+        expect(patch).toEqual(expect.objectContaining({priority: 'high'}))
+        await waitFor(() => expect(h.closeWindow).toHaveBeenCalled())
+    })
+
+    it('新建态：默认优先级 normal，切换后 create 携带 priority', async () => {
+        stubWindow({workspace: P})
+        h.memoApi.create.mockResolvedValue({ok: true, data: null})
+        render(<MemoEditDialog/>)
+
+        // 缺省显示「普通」
+        expect(screen.getByText('普通')).toBeTruthy()
+
+        fireEvent.click(screen.getByTestId('priority-trigger'))
+        fireEvent.click(screen.getByTestId('priority-option-low'))
+        fireEvent.change(screen.getByPlaceholderText('备忘录标题'), {target: {value: '带优先级'}})
+        fireEvent.change(screen.getByPlaceholderText('记录备忘...'), {target: {value: '正文'}})
+        fireEvent.click(screen.getByText('保存'))
+
+        await waitFor(() => expect(h.memoApi.create).toHaveBeenCalledTimes(1))
+        expect(h.memoApi.create).toHaveBeenCalledWith(expect.objectContaining({title: '带优先级', priority: 'low'}))
+    })
 })

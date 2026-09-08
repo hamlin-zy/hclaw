@@ -7,7 +7,7 @@
 
 export interface FrontmatterUpdate {
     key: string
-    value: string | boolean | number | undefined  // undefined 表示删除该字段
+    value: string | boolean | number | string[] | undefined  // undefined 或空数组表示删除该字段
 }
 
 /**
@@ -24,12 +24,26 @@ function escapeYamlValue(value: string): string {
 }
 
 /**
+ * 将字符串数组格式化为 YAML flow 序列（如 ["a", "b"]）
+ * 空数组返回 undefined（表示删除字段）
+ */
+export function formatYamlArray(value: string[]): string | undefined {
+    if (value.length === 0) return undefined
+    return `[${value.map(v => `"${escapeYamlValue(v)}"`).join(', ')}]`
+}
+
+/**
  * 将 YAML 值格式化为字符串
  * - boolean: 输出为 "true" 或 "false"（不带引号，YAML原生布尔值）
  * - number: 输出为数字字符串（不带引号）
+ * - string[]: 输出为 YAML flow 序列，空数组视为删除
  * - string: 包裹双引号并转义
  */
-function formatYamlValue(value: string | boolean | number): string {
+function formatYamlValue(value: string | boolean | number | string[] | undefined): string | undefined {
+    if (value === undefined) return undefined
+    if (Array.isArray(value)) {
+        return formatYamlArray(value)
+    }
     if (typeof value === 'boolean') {
         return value ? 'true' : 'false'
     }
@@ -63,14 +77,15 @@ export function updateMarkdownFrontmatter(
 
     for (const {key, value} of updates) {
         const keyRegex = new RegExp(`^(${key}:\\s*).+$`, 'm')
+        const formatted = formatYamlValue(value)
 
         if (keyRegex.test(frontmatter)) {
             // 字段已存在
-            if (value !== undefined) {
+            if (formatted !== undefined) {
                 // 更新值
                 frontmatter = frontmatter.replace(
                     keyRegex,
-                    `$1${formatYamlValue(value)}`
+                    `$1${formatted}`
                 )
             } else {
                 // 删除字段（包括后面的换行）
@@ -79,18 +94,18 @@ export function updateMarkdownFrontmatter(
                     ''
                 )
             }
-        } else if (value !== undefined) {
+        } else if (formatted !== undefined) {
             // 字段不存在，需要添加
             // 优先在 description 字段后插入
             const descMatch = frontmatter.match(/^(description:\s*.+)$/m)
             if (descMatch) {
                 frontmatter = frontmatter.replace(
                     /^(description:\s*.+)$/m,
-                    `$1\n${key}: ${formatYamlValue(value)}`
+                    `$1\n${key}: ${formatted}`
                 )
             } else {
                 // 在 frontmatter 末尾追加
-                frontmatter += `\n${key}: ${formatYamlValue(value)}`
+                frontmatter += `\n${key}: ${formatted}`
             }
         }
     }

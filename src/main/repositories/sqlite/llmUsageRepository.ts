@@ -69,18 +69,42 @@ export class SqliteLlmUsageRepository {
     logQuery('record', start, record.id)
   }
 
+  /**
+   * 全局聚合（双视图一次扫描）：底层原始聚合只算一遍（含历史回填与成本），
+   * 返回 model / provider 两个视图。provider 视图 = model 视图结果经 mergeByProvider 合并，
+   * 与分别调用 queryAggregated 两次的输出完全一致；供 usage-stats IPC 消除重复行扫描。
+   */
+  queryAggregatedBoth(params: UsageQueryRange, getMeta: (model: string) => PriceSource, customPrices?: CustomPriceEntry[]): {model: UsageBreakdown[]; provider: UsageBreakdown[]} {
+    const model = this.aggregateModelView(params, getMeta, customPrices)
+    return {model, provider: mergeByProvider(model)}
+  }
+
   /** 全局聚合（成本统一 attachCosts；view='provider' 时按服务商合并） */
   queryAggregated(params: UsageQueryRange & {view: 'provider' | 'model'}, getMeta: (model: string) => PriceSource, customPrices?: CustomPriceEntry[]): UsageBreakdown[] {
+    const breakdowns = this.aggregateModelView(params, getMeta, customPrices)
+    return params.view === 'provider' ? mergeByProvider(breakdowns) : breakdowns
+  }
+
+  /**
+   * 全局聚合核心：模型粒度原始聚合（llm_usage 行扫描 + 历史 llm_stats 回填 + 成本重算）。
+   * 会话分类优化：conversations 的 json_extract(meta,'$.parentConvId') 预先按会话去重解析
+   * （物化 CTE 每会话只解析一次），再与 llm_usage 逐行 JOIN，避免每条用量行重复解析 JSON。
+   * 口径与旧的逐行解析完全一致：conversation_id 在 conversations 无行或 meta 无该键时视为 NULL（主会话）。
+   */
+  private aggregateModelView(params: UsageQueryRange, getMeta: (model: string) => PriceSource, customPrices?: CustomPriceEntry[]): UsageBreakdown[] {
     const start = Date.now()
     try {
       const db = getDatabase()
       const {startMs, endMs} = timeRangeBounds(params.range, Date.now(), toCustomRange(params))
       const rows = db.prepare(`
+        WITH conv AS MATERIALIZED (
+          SELECT id, json_extract(meta, '$.parentConvId') AS parent_conv_id FROM conversations
+        )
         SELECT u.provider_type, u.model, u.provider_name, u.provider_id,
                COUNT(*) AS request_count,
                COUNT(DISTINCT u.conversation_id) AS conversation_count,
-               COUNT(DISTINCT CASE WHEN json_extract(c.meta, '$.parentConvId') IS NULL THEN u.conversation_id END) AS main_conv_count,
-               COUNT(DISTINCT CASE WHEN json_extract(c.meta, '$.parentConvId') IS NOT NULL THEN u.conversation_id END) AS sub_conv_count,
+               COUNT(DISTINCT CASE WHEN c.parent_conv_id IS NULL THEN u.conversation_id END) AS main_conv_count,
+               COUNT(DISTINCT CASE WHEN c.parent_conv_id IS NOT NULL THEN u.conversation_id END) AS sub_conv_count,
                SUM(u.input_tokens) AS input_tokens,
                SUM(u.output_tokens) AS output_tokens,
                SUM(u.cache_read_tokens) AS cache_read_tokens,
@@ -90,7 +114,7 @@ export class SqliteLlmUsageRepository {
                SUM(u.ttft_ms) AS ttft_ms,
                COUNT(u.ttft_ms) AS ttft_count
         FROM llm_usage u
-        LEFT JOIN conversations c ON c.id = u.conversation_id
+        LEFT JOIN conv c ON c.id = u.conversation_id
         WHERE (? IS NULL OR u.created_at >= ?)
           AND (? IS NULL OR u.created_at <= ?)
         GROUP BY u.provider_id, u.provider_name, u.provider_type, u.model
@@ -105,7 +129,7 @@ export class SqliteLlmUsageRepository {
       // 成本统一重算（回填行由此获得成本）：每行独立 provider-aware 取价（自定义 → getMeta 兜底）
       const withCost = attachCosts(merged, getMeta, customPrices)
       logQuery('queryAggregated', start, `${withCost.length} rows`)
-      return params.view === 'provider' ? mergeByProvider(withCost) : withCost
+      return withCost
     } catch (err) {
       console.error('[SqliteLlmUsageRepository] queryAggregated failed:', err)
       return []

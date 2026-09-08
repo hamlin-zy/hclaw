@@ -6,8 +6,9 @@ import {createConfigRepository} from './repositories';
 import {systemSettingsRepo} from './repositories/sqlite/systemSettingsRepository';
 import {workspaceRepo} from './repositories/sqlite/workspaceRepository';
 import {getPresetCommandMarkdownFiles, OBSOLETE_PRESET_COMMANDS} from './command/presetCommands';
-import {gracefulRestart} from './utils/restart';
-import {getGitBranch, startGitBranchWatch, stopGitBranchWatch} from './workspace/gitBranch';
+// gracefulRestart / gitBranch 改为使用处惰性 require：本模块位于 Agent Worker 的静态
+// 依赖闭包内，顶层 import 会把 window.ts/windowBroadcast.ts 等 electron 模块拉进 worker
+// （见 tests/main/deps/workerNoElectron.test.ts）
 
 // --- 共享常量 ---
 
@@ -347,6 +348,9 @@ export function initConfigIPC(): void {
     })
 
     ipcMain.handle('app-restart', async () => {
+        // 惰性 require：worker 闭包不得静态引入 electron（restart.ts 顶层 import electron）
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- 延迟加载
+        const {gracefulRestart} = require('./utils/restart');
         await gracefulRestart()
     })
 
@@ -476,6 +480,9 @@ export function initConfigIPC(): void {
     });
 
     ipcMain.handle('workspace:getGitBranch', async (_event: any, cwd: string) => {
+        // 惰性 require：gitBranch → windowBroadcast 顶层 import electron（见文件头说明）
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- 延迟加载
+        const {getGitBranch, startGitBranchWatch} = require('./workspace/gitBranch');
         if (cwd) {
             // 建立/重建分支 watch（启动加载与工作区切换都会走到这里，保证监听与当前 cwd 一致）
             try {
@@ -501,6 +508,8 @@ export function initConfigIPC(): void {
                 }
                 // 切换工作区：重建 git 分支 watch（先 stop 旧的）
                 try {
+                    // eslint-disable-next-line @typescript-eslint/no-require-imports -- 延迟加载，同上
+                    const {startGitBranchWatch} = require('./workspace/gitBranch');
                     startGitBranchWatch(workspace.path);
                 } catch (err) {
                     console.error('[config] 启动 git 分支监听失败:', err);

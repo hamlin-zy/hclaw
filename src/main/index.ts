@@ -9,7 +9,7 @@ import {ensureConfigLayout, initConfigIPC} from './config';
 import {initBackgroundIPC} from './ipc/background';
 import {createWindow, getMainWindow, initWindowIPC, setIsQuitting, broadcastUpdaterStatus} from './window';
 import {createTray} from './tray';
-import {registerGlobalShortcuts} from './shortcuts';
+import {registerGlobalShortcutsAtStartup} from './shortcuts';
 import {createAppMenu} from './menu';
 import {initConversationIPC} from './conversation';
 import {agentManager, initAgent, registerAgentIPC} from './agent';
@@ -353,7 +353,7 @@ app.on('ready', async () => {
   registerMCPEventForwarding();
 
   createTray();
-  registerGlobalShortcuts();
+  registerGlobalShortcutsAtStartup();
 
   // ── Async block: Agent/Skills/MCP 顺序初始化 ──
   //
@@ -399,6 +399,10 @@ app.on('ready', async () => {
   logger.info('init-checkpoint', {step: 'initAgent-start'})
   await initAgent();
   logger.info('init-checkpoint', {step: 'initAgent-done'})
+
+  // 预热 hclaw_db_query 只读连接（数据库已初始化、工具已注册）
+  const {initHclawDbQueryConnection} = await import('./agent/tools/builtin/hclawDbQueryConnection');
+  initHclawDbQueryConnection();
 
   // Step 4: MCP Worker 初始化（此时 mcpService 缓存已包含所有 MCP 配置）
   mcpWorkerManager.init().catch((err: any) => {
@@ -488,6 +492,9 @@ app.on('will-quit', async () => {
   globalShortcut.unregisterAll();
   agentManager.abortAll();
   await mcpWorkerManager.shutdown();
+  // 关闭 hclaw_db_query 只读连接
+  const {closeConnection} = await import('./agent/tools/builtin/hclawDbQueryConnection');
+  try { closeConnection(); } catch { /* ignore */ }
   // 退出前强制 checkpoint：把 WAL 合并回主库并截断
   const {flushDatabase} = await import('./repositories/sqlite');
   try { flushDatabase(); } catch { /* ignore */ }

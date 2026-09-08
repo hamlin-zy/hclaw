@@ -17,6 +17,16 @@ export interface MemoAttachment {
     kind: 'image' | 'file'
 }
 
+export type MemoPriority = 'urgent' | 'high' | 'normal' | 'low'
+
+/** 优先级权重：数值越小优先级越高（undefined / normal = 1） */
+export const MEMO_PRIORITY_WEIGHT: Record<MemoPriority, number> = {
+    urgent: 0,
+    high: 1,
+    normal: 2,
+    low: 3,
+}
+
 export interface MemoItem {
     id: string
     workspacePath: string
@@ -32,4 +42,6 @@ export interface MemoItem {
     pinned?: boolean
     /** 组内手动排序序号（拖拽后组内重编号 1..n，desc 排序；默认 0） */
     sortIndex?: number
+    /** 优先级（缺省视为 normal，老数据无需迁移） */
+    priority?: MemoPriority
 }

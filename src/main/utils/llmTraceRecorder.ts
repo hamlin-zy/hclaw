@@ -16,7 +16,9 @@ import {AsyncLocalStorage} from 'async_hooks'
 import {parentPort, workerData} from 'worker_threads'
 import type {LlmCallRecord, LlmTraceContextKind} from '@shared/types/llmTrace'
 import {sanitizeHeaders} from '@shared/types/llmTrace'
+import type {ProviderCustomHeader} from '@shared/types/model'
 import {withOpenCodeHeaders} from './opencodeHeaders'
+import {resolveCustomHeaders} from './customHeaderResolver'
 
 export interface LlmTraceCallContext {
     conversationId: string
@@ -32,6 +34,15 @@ export interface LlmTraceCallContext {
 interface LlmTraceDeps {
     rootDir(): string
     upstreamFetch?: typeof globalThis.fetch
+    /** 自定义请求头数据源（可注入以便测试；缺省用 providerRepo 惰性回退） */
+    customHeaderProviders?: () => CustomHeaderProviderSource[]
+}
+
+/** 自定义请求头注入所需的最小 provider 信息 */
+export interface CustomHeaderProviderSource {
+    enabled: boolean
+    baseUrl?: string
+    customHeaders?: ProviderCustomHeader[]
 }
 
 /**
@@ -100,6 +111,79 @@ export function setRecordingEnabled(v: boolean): void {
 
 // ── ALS 上下文 ──
 const als = new AsyncLocalStorage<LlmTraceCallContext>()
+
+// ── 服务商自定义请求头（provider_custom_headers）注入 ──
+// utils 层不顶层依赖 repositories（Worker/测试环境兜底 + 避免循环依赖），
+// 而是在首次使用时防御式 require providerRepo，并按 host 缓存（TTL）避免每请求查库。
+const CUSTOM_HEADER_CACHE_TTL_MS = 30_000
+let customHeaderCache: {at: number; byHost: Map<string, ProviderCustomHeader[]>} | null = null
+let defaultHeaderSource: (() => CustomHeaderProviderSource[]) | null = null
+
+function getCustomHeaderSources(): CustomHeaderProviderSource[] {
+    if (deps.customHeaderProviders) {
+        try { return deps.customHeaderProviders() ?? [] } catch { return [] }
+    }
+    if (!defaultHeaderSource) {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- 延迟加载：避免顶层依赖 repositories 与循环依赖
+            const {SqliteProviderRepository} = require('../repositories/sqlite/llmProviderRepository')
+            const repo: {list(): Array<{enabled: boolean; baseUrl?: string; customHeaders?: ProviderCustomHeader[]}>} = new SqliteProviderRepository()
+            defaultHeaderSource = () =>
+                repo.list().map(p => ({enabled: p.enabled, baseUrl: p.baseUrl, customHeaders: p.customHeaders}))
+        } catch {
+            defaultHeaderSource = () => []
+        }
+    }
+    try { return defaultHeaderSource() } catch { return [] }
+}
+
+/** 自定义请求头缓存失效（provider 配置变更时可调用） */
+export function invalidateCustomHeaderCache(): void {
+    customHeaderCache = null
+}
+
+function customHeadersByHost(host: string): ProviderCustomHeader[] | undefined {
+    const now = Date.now()
+    if (!customHeaderCache || now - customHeaderCache.at > CUSTOM_HEADER_CACHE_TTL_MS) {
+        const byHost = new Map<string, ProviderCustomHeader[]>()
+        for (const p of getCustomHeaderSources()) {
+            if (!p.enabled || !p.baseUrl || !p.customHeaders?.length) continue
+            let providerHost: string | null = null
+            try { providerHost = new URL(p.baseUrl).hostname.toLowerCase() } catch { continue }
+            if (!providerHost) continue
+            const existing = byHost.get(providerHost)
+            if (existing) existing.push(...p.customHeaders)
+            else byHost.set(providerHost, [...p.customHeaders])
+        }
+        customHeaderCache = {at: now, byHost}
+    }
+    return customHeaderCache.byHost.get(host)
+}
+
+/**
+ * 注入用户自定义请求头（优先级高于 opencode 硬编码头：后执行 set 即覆盖）。
+ * 按请求 URL hostname 精确匹配 provider.baseUrl 的 hostname；无命中/无配置原样返回 init。
+ */
+function withCustomHeaders(
+    input: string | URL | Request,
+    init: RequestInit | undefined,
+    sessionId?: string,
+): RequestInit {
+    const url = typeof input === 'string'
+        ? input
+        : input instanceof URL ? input.href : input.url
+    let host: string
+    try { host = new URL(url).hostname.toLowerCase() } catch { return init ?? {} }
+    const configured = customHeadersByHost(host)
+    if (!configured?.length) return init ?? {}
+    const resolved = resolveCustomHeaders(configured, sessionId)
+    const entries = Object.entries(resolved)
+    if (entries.length === 0) return init ?? {}
+    const headers = new Headers(init?.headers)
+    for (const [name, value] of entries) headers.set(name, value)
+    return {...(init ?? {}), headers}
+}
+
 export function runWithLlmTraceContext<T>(ctx: LlmTraceCallContext, fn: () => Promise<T>): Promise<T> {
     return als.run(ctx, fn)
 }
@@ -188,6 +272,8 @@ export const recordingFetch: typeof globalThis.fetch = async (input, init) => {
     // OpenCode Go 合规头（UA + x-opencode-session）注入；仅_opencode.ai 域名生效，
     // 必须在录制开关判定之前执行，保证关闭录制时请求头同样合规。
     init = withOpenCodeHeaders(input, init, als.getStore()?.conversationId)
+    // 用户自定义请求头注入（后执行 set，优先级 > opencode 硬编码头）
+    init = withCustomHeaders(input, init, als.getStore()?.conversationId)
     if (!isRecordingEnabled()) return (deps.upstreamFetch ?? globalThis.fetch)(input, init)
 
     const ctx = als.getStore() ?? FALLBACK_CTX

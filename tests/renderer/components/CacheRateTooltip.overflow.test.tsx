@@ -19,7 +19,7 @@
  * 与消息 llmStats 的 provider（类型名）/model（模型名）匹配。
  */
 import {describe, it, expect, beforeEach, afterEach} from 'vitest'
-import {render, screen, cleanup, fireEvent, act, waitFor} from '@testing-library/react'
+import {render, screen, within, cleanup, fireEvent, act, waitFor} from '@testing-library/react'
 import CacheRateTooltip from '../../../src/renderer/components/CacheRateTooltip'
 import {useConversationStore} from '../../../src/renderer/stores/conversationStore'
 import {useAgentStore} from '../../../src/renderer/stores/agentStore'
@@ -78,14 +78,15 @@ describe('CacheRateTooltip 真实渲染（无 mock 链路）', () => {
         const {container} = render(<CacheRateTooltip/>)
 
         // 命中率 = 9000 / (1000 + 9000) = 90%
-        const cacheBadge = screen.getByText('缓存 90%')
+        const toolbar = within(container.querySelector('[data-name="input-toolbar-cache-rate"]')!)
+        const cacheBadge = toolbar.getByText('90%')
         expect(cacheBadge).toBeTruthy()
 
         // 窗口占用 = 末次 input + 末次 cacheRead = 1000 + 9000 = 10.0k
-        expect(screen.getByText(/窗口/)).toBeTruthy()
+        expect(toolbar.getByText(/^[\d.]+k$/)).toBeTruthy()
 
         // 末次吞吐 = 500 / 10s = 50 t/s（rounded）
-        const tps = screen.getByText(/t\/s/)
+        const tps = toolbar.getByText(/t\/s/)
         expect(tps).toBeTruthy()
 
         // 徽章容器 span 带 whitespace-nowrap 保护（本修复的核心契约）
@@ -140,11 +141,11 @@ describe('CacheRateTooltip 真实渲染（无 mock 链路）', () => {
         const {container} = render(<CacheRateTooltip/>)
 
         // 末次命中率 = 800 / (200 + 800) = 80%
-        expect(screen.getByText('缓存 80%')).toBeTruthy()
-        expect(screen.queryByText(/缓存 9[0-9]%/)).toBeNull()
+        expect(within(container.querySelector('[data-name="input-toolbar-cache-rate"]')!).getByText('80%')).toBeTruthy()
+        expect(within(container.querySelector('[data-name="input-toolbar-cache-rate"]')!).queryByText(/9[0-9]%/)).toBeNull()
 
         // 末次窗口占用 = 200 + 800 = 1.0k
-        expect(screen.getByText(/窗口/)).toBeTruthy()
+        expect(within(container.querySelector('[data-name="input-toolbar-cache-rate"]')!).getByText(/^[\d.]+k$/)).toBeTruthy()
 
         const badges = [...container.querySelectorAll<HTMLElement>('span.group.relative.inline-flex')]
         expect(badges.length).toBeGreaterThanOrEqual(2)
@@ -172,10 +173,12 @@ describe('CacheRateTooltip 真实渲染（无 mock 链路）', () => {
             ],
         })
         setActiveModel('openrouter', 'deepseek-v3')
-        render(<CacheRateTooltip/>)
+        const {container} = render(<CacheRateTooltip/>)
         expect(screen.queryByText(/t\/s/)).toBeNull()
-        expect(screen.getByText(/缓存/)).toBeTruthy()
-        expect(screen.getByText(/窗口/)).toBeTruthy()
+        // 徽章为图标+纯数值（无文字标签），旧数据仍渲染缓存/窗口两个徽章
+        const tb = within(container.querySelector('[data-name="input-toolbar-cache-rate"]')!)
+        expect(tb.getByText('90%')).toBeTruthy()
+        expect(tb.getByText(/^[\d.]+k$/)).toBeTruthy()
     })
 
     it('decodeMs=1 的历史坏数据：吞吐按 500ms 下限计算，徽章显示 1518 t/s 而非 759000', () => {
@@ -247,8 +250,7 @@ describe('CacheRateTooltip 生效模型无数据 + 卡片模型切换器', () =>
             render(<CacheRateTooltip/>)
 
             // 徽章占位（不显示数值），但触发容器仍在 → 保留 hover 卡片入口
-            expect(screen.getByText('缓存 —')).toBeTruthy()
-            expect(screen.getByText('窗口 —')).toBeTruthy()
+            expect(within(document.querySelector('[data-name="input-toolbar-cache-rate"]')!).getAllByText('—').length).toBe(2)
             expect(screen.queryByText(/t\/s/)).toBeNull()
 
             // hover 打开卡片 → 默认选中生效模型（无数据）→ 空态提示
@@ -266,8 +268,7 @@ describe('CacheRateTooltip 生效模型无数据 + 卡片模型切换器', () =>
             expect(screen.getByText('90%')).toBeTruthy()
             expect(screen.queryByText('该模型暂无请求数据')).toBeNull()
             // 徽章不跟随卡片切换：生效模型仍无数据 → 占位保持不变
-            expect(screen.getByText('缓存 —')).toBeTruthy()
-            expect(screen.getByText('窗口 —')).toBeTruthy()
+            expect(within(document.querySelector('[data-name="input-toolbar-cache-rate"]')!).getAllByText('—').length).toBe(2)
         } finally {
             // 还原服务商（避免串扰后续用例）；组件仍挂载 → act 包裹，避免 store 变更
             // 在断言后触发未包裹的 re-render 产生 "not wrapped in act(...)" 警告
@@ -317,19 +318,19 @@ describe('CacheRateTooltip 生效模型无数据 + 卡片模型切换器', () =>
         const trigger = document.querySelector('[data-name="input-toolbar-cache-rate"]')!
         fireEvent.mouseEnter(trigger)
 
-        // 默认选中生效模型 → 卡片显示其统计（平均命中率 90%）
-        expect(screen.getByText('90%')).toBeTruthy()
+        // 默认选中生效模型 → 卡片显示其统计（平均命中率 90%）：徽章 + 卡片各一处，共 2
+        expect(screen.getAllByText('90%').length).toBe(2)
 
         // 切换器展开 → 历史模型列表 → 选择 other-model
         const switcher = document.querySelector('[data-name="cache-rate-model-switcher"]')!
         fireEvent.click(switcher)
         fireEvent.click(screen.getByText('openrouter: other-model'))
 
-        // 卡片指标切换为该模型（80%），生效模型统计数值不再显示
+        // 卡片指标切换为该模型（80%），生效模型统计数值不再显示：90% 仅剩徽章 1 处
         expect(screen.getByText('80%')).toBeTruthy()
-        expect(screen.queryByText('90%')).toBeNull()
+        expect(screen.getAllByText('90%').length).toBe(1)
         // 徽章不跟随切换：仍显示生效模型（deepseek-v3）的末次命中率 90%
-        expect(screen.getByText('缓存 90%')).toBeTruthy()
+        expect(within(document.querySelector('[data-name="input-toolbar-cache-rate"]')!).getByText('90%')).toBeTruthy()
     })
 
     it('卡片关闭后重置模型选择：再次打开默认回到生效模型', async () => {
@@ -372,8 +373,8 @@ describe('CacheRateTooltip 生效模型无数据 + 卡片模型切换器', () =>
         const trigger = document.querySelector('[data-name="input-toolbar-cache-rate"]')!
         fireEvent.mouseEnter(trigger)
 
-        // 默认选中生效模型
-        expect(screen.getByText('90%')).toBeTruthy()
+        // 默认选中生效模型：徽章 + 卡片各一处 90%，共 2
+        expect(screen.getAllByText('90%').length).toBe(2)
 
         // 切换到历史模型 other-model
         const switcher = document.querySelector('[data-name="cache-rate-model-switcher"]')!
@@ -387,7 +388,7 @@ describe('CacheRateTooltip 生效模型无数据 + 卡片模型切换器', () =>
 
         // 再次打开 → 选择重置为默认生效模型（90%），不再停留在上次选择
         fireEvent.mouseEnter(trigger)
-        expect(screen.getByText('90%')).toBeTruthy()
+        expect(screen.getAllByText('90%').length).toBe(2)
         expect(screen.queryByText('80%')).toBeNull()
     })
 

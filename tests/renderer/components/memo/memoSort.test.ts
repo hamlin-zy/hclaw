@@ -7,7 +7,7 @@
  *   组间倒序、组内 createdAt desc
  */
 import {describe, it, expect} from 'vitest'
-import {sortActiveMemos, groupProcessedByDate, reorderGroup, renumberGroup} from '@/renderer/components/memo/memoSort'
+import {sortActiveMemos, groupProcessedByDate, reorderGroup, renumberGroup, collectGroupMemoIds} from '@/renderer/components/memo/memoSort'
 import type {ProcessedDateGroup} from '@/renderer/components/memo/memoSort'
 import type {MemoItem} from '@/shared/types/memo'
 
@@ -66,6 +66,34 @@ describe('sortActiveMemos 待办排序规则', () => {
         const b = item({id: 'b', createdAt: 2}) as MemoItem
         delete (b as Partial<MemoItem>).sortIndex
         expect(sortActiveMemos([b, a]).map(m => m.id)).toEqual(['a', 'b'])
+    })
+
+    it('pinned 优先于 priority（置顶区永远在最前）', () => {
+        const a = item({id: 'a', priority: 'urgent'})
+        const b = item({id: 'b', priority: 'low', pinned: true})
+        expect(sortActiveMemos([a, b]).map(m => m.id)).toEqual(['b', 'a'])
+    })
+
+    it('priority 权重插队：urgent > high > normal > low', () => {
+        const low = item({id: 'low', priority: 'low', createdAt: 1})
+        const normal = item({id: 'normal', createdAt: 2})
+        const high = item({id: 'high', priority: 'high', createdAt: 3})
+        const urgent = item({id: 'urgent', priority: 'urgent', createdAt: 4})
+        expect(sortActiveMemos([low, normal, high, urgent]).map(m => m.id))
+            .toEqual(['urgent', 'high', 'normal', 'low'])
+    })
+
+    it('priority undefined 视为 normal', () => {
+        const noPri = item({id: 'noPri', createdAt: 2})
+        const normal = item({id: 'normal', priority: 'normal', createdAt: 1})
+        expect(sortActiveMemos([noPri, normal]).map(m => m.id)).toEqual(['normal', 'noPri'])
+    })
+
+    it('priority 相同时回落 sortIndex desc / createdAt asc', () => {
+        const a = item({id: 'a', priority: 'high', sortIndex: 5, createdAt: 9})
+        const b = item({id: 'b', priority: 'high', sortIndex: 5, createdAt: 1})
+        const c = item({id: 'c', priority: 'high', sortIndex: 1, createdAt: 2})
+        expect(sortActiveMemos([c, b, a]).map(m => m.id)).toEqual(['b', 'a', 'c'])
     })
 
     it('不修改原数组', () => {
@@ -264,5 +292,27 @@ describe('renumberGroup 重编号', () => {
         const sorted = sortActiveMemos(reordered).map(m => m.id)
         expect(sorted).toEqual(['b', 'a', 'c'])
         expect(map.get('b')).toBe(3)
+    })
+})
+
+describe("collectGroupMemoIds 组内条目收集", () => {
+    it("day 叶子组：收集全部 items id", () => {
+        const g: ProcessedDateGroup = {kind: "day", label: "8月1日", items: [processed(1, "a"), processed(2, "b")], children: []}
+        expect(collectGroupMemoIds(g)).toEqual(["a", "b"])
+    })
+    it("嵌套年-月-日：递归收集全部 id", () => {
+        const g: ProcessedDateGroup = {
+            kind: "year", label: "2025年", items: [], children: [
+                {kind: "month", label: "6月", items: [], children: [
+                    {kind: "day", label: "6月1日", items: [processed(1, "a")], children: []},
+                    {kind: "day", label: "6月2日", items: [processed(2, "b"), processed(3, "c")], children: []},
+                ]},
+            ],
+        }
+        expect(collectGroupMemoIds(g)).toEqual(["a", "b", "c"])
+    })
+    it("空组（无 children 无 items）返回 []", () => {
+        const g: ProcessedDateGroup = {kind: "year", label: "2020年", items: [], children: []}
+        expect(collectGroupMemoIds(g)).toEqual([])
     })
 })

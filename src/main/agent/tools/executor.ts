@@ -13,6 +13,7 @@ import {localSandbox} from '../../sandbox/localSandbox'
 import type {SandboxOperation} from '../../sandbox/types'
 import {coerceToolParams} from './coercer'
 import {errorResult} from '../common/toolResult'
+import {resolveToolName} from './toolNameResolver'
 import {createTimeoutResult, ToolTimeoutError, withToolTimeout} from './toolTimeout'
 import {getToolDefaultTimeout, toolRepo} from '../../repositories/sqlite/toolRepository'
 
@@ -77,14 +78,26 @@ export async function executeTool(
   toolCall: ExecuteToolCall,
   context: ToolContext,
 ): Promise<ExecuteToolResult> {
-      const tool = toolRegistry.get(toolCall.name)
-    
-  // 工具未注册
+  // 工具未注册：先尝试名称纠偏（别名/大小写），命中则路由到实际工具（仅纠偏名称，不做参数转换）
+  let tool = toolRegistry.get(toolCall.name)
   if (!tool) {
-          return {
+    const resolved = resolveToolName(toolCall.name, toolRegistry.getNames())
+    if (resolved) {
+      toolCall.name = resolved
+      tool = toolRegistry.get(resolved)
+    }
+  }
+
+  // 工具未注册（纠偏后仍未命中）：返回原错误 + 可用工具名列表
+  if (!tool) {
+    const available = toolRegistry.getNames()
+    return {
       toolCallId: toolCall.id,
       toolName: toolCall.name,
-      result: errorResult(`Unknown tool: ${toolCall.name}`),
+      result: errorResult(
+        `Unknown tool: ${toolCall.name}。可用工具: ${available.join(', ')}。` +
+        `请从可用工具列表中选择并重试。`
+      ),
     }
   }
 
@@ -117,6 +130,8 @@ export async function executeTool(
     }
   }
 
+      // 权限引擎为懒初始化（check 是同步方法），执行前确保 mode/rules 已加载
+      await permissionEngine.ensureReady()
       const permResult = permissionEngine.check(tool, toolCall.arguments)
     
     let userApproved = false
@@ -342,6 +357,10 @@ const SIZE_TRUNCATE_THRESHOLD = 15000 // 字符数截断阈值
  * 任何截断或"[警告] 结果较大"尾巴都会破坏三端一致性（运行时 toolResult /
  * DB tool_result / 历史重建），故豁免（阈值 Infinity 同时跳过截断与警告）。
  *
+ * list_agents 同理：output 是完整 agent 名册（JSON 数组，多插件场景可达数十 KB），
+ * 截断会让 LLM 只看到名册前半段，误判不存在的 agent（如 code-simplifier），
+ * 且单行 JSON 被硬切会产生非法片段，故豁免（阈值 Infinity）。
+ *
  * MCP 工具（m_/mp_ 前缀）：MCP 结果路径（mcp/formatResult.ts 拼接 text parts）无内部截断，
  * executor 层 128KB 阈值即 MCP 结果的唯一截断点（产品规格）。
  * 因此结果在 128KB 以内时原样返回（不截断、不附加"[警告] 结果较大"），
@@ -353,6 +372,7 @@ const TOOL_SIZE_TRUNCATE_THRESHOLDS: Record<string, number> = {
     bash: 2 * 1024 * 1024,
     agent: Infinity,
     skill: Infinity,
+    list_agents: Infinity,
 }
 // executor 层对 MCP 结果的 128KB 截断阈值（产品规格）：
 // MCP 结果路径无内部上限，此阈值即 MCP 结果的唯一截断点。
