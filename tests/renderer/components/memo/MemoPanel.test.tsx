@@ -31,6 +31,7 @@ const h = vi.hoisted(() => {
         create: vi.fn(async () => null),
         updateItem: vi.fn(async () => {}),
         remove: vi.fn(async () => {}),
+        removeMany: vi.fn(async () => {}),
         createSession: vi.fn(async () => null),
     }
     const useMemoStore: any = (selector?: (s: any) => unknown) => (selector ? selector(memoState) : memoState)
@@ -540,5 +541,79 @@ describe('CAP_STYLE ↔ TYPE_STYLE 漂移守护', () => {
     it('UserCommandBubble 不存在与 command 语义等价的漂移键（plugin 仅作灰色降级，不参与断言）', () => {
         expect(TYPE_STYLE.plugin).toBeDefined()
         expect(CAP_STYLE.command).toBeDefined()
+    })
+})
+
+describe("MemoPanel · 历史组头右键删除整组", () => {
+    /** 展开历史 Tab 第一个组并右键其组头 */
+    function openGroupMenu(memos: MemoItem[]) {
+        setMemos(memos)
+        render(<MemoPanel/>)
+        fireEvent.click(screen.getByRole("button", {name: "历史"}))
+        const header = screen.getAllByRole("button", {name: /^展开 /})[0]
+        fireEvent.contextMenu(header, {clientX: 50, clientY: 60})
+    }
+
+    it("右键组头 → 弹出菜单，非搜索文案含组内总数", () => {
+        openGroupMenu([
+            item("p1", {status: "processed", createdAt: daysAgo(0), title: "P1"}),
+            item("p2", {status: "processed", createdAt: daysAgo(0), title: "P2"}),
+        ])
+        const menu = screen.getByTestId("memo-group-context-menu")
+        expect(menu.textContent).toContain("删除组内备忘录 (2)")
+    })
+
+    it("点击菜单项 → confirm 确认后按组内 ids 调用 removeMany", async () => {
+        openGroupMenu([
+            item("p1", {status: "processed", createdAt: daysAgo(0), title: "P1"}),
+            item("p2", {status: "processed", createdAt: daysAgo(0), title: "P2"}),
+        ])
+        fireEvent.click(screen.getByTestId("memo-group-context-menu").querySelector("button")!)
+        await waitFor(() => expect(h.useMemoStore.getState().removeMany).toHaveBeenCalledWith(["p1", "p2"]))
+        expect(vi.mocked(confirm)).toHaveBeenCalledWith(expect.objectContaining({confirmVariant: "danger"}))
+    })
+
+    it("confirm 取消 → 不调用 removeMany", async () => {
+        vi.mocked(confirm).mockResolvedValueOnce(false)
+        openGroupMenu([item("p1", {status: "processed", createdAt: daysAgo(0), title: "P1"})])
+        fireEvent.click(screen.getByTestId("memo-group-context-menu").querySelector("button")!)
+        await waitFor(() => expect(vi.mocked(confirm)).toHaveBeenCalled())
+        expect(h.useMemoStore.getState().removeMany).not.toHaveBeenCalled()
+    })
+
+    it("搜索态：文案为删除匹配项，只删命中条目", async () => {
+        setMemos([
+            item("p1", {status: "processed", createdAt: daysAgo(0), title: "report"},
+                ),
+            item("p2", {status: "processed", createdAt: daysAgo(0), title: "other"}),
+        ])
+        render(<MemoPanel/>)
+        fireEvent.change(screen.getByPlaceholderText(/搜索备忘录/), {target: {value: "report"}})
+        fireEvent.click(screen.getByRole("button", {name: "历史"}))
+        const header = screen.getAllByRole("button", {name: /^展开 /})[0]
+        fireEvent.contextMenu(header, {clientX: 50, clientY: 60})
+        const menu = screen.getByTestId("memo-group-context-menu")
+        expect(menu.textContent).toContain("删除组内匹配项 (1)")
+        fireEvent.click(menu.querySelector("button")!)
+        await waitFor(() => expect(h.useMemoStore.getState().removeMany).toHaveBeenCalledWith(["p1"]))
+    })
+
+    it("点击菜单外区域 → 菜单关闭", () => {
+        openGroupMenu([item("p1", {status: "processed", createdAt: daysAgo(0), title: "P1"})])
+        expect(screen.getByTestId("memo-group-context-menu")).toBeTruthy()
+        fireEvent.click(document.body)
+        expect(screen.queryByTestId("memo-group-context-menu")).toBeNull()
+    })
+
+    it("嵌套年组右键 → 递归收集全部子组条目", async () => {
+        openGroupMenu([
+            item("y1", {status: "processed", createdAt: yearsAgo(1), title: "Y1"}),
+            item("y2", {status: "processed", createdAt: yearsAgo(1), title: "Y2"}),
+        ])
+        // 顶层组可能是年组（yearsAgo(1) 非本年本月）
+        const menu = screen.getByTestId("memo-group-context-menu")
+        expect(menu.textContent).toContain("(2)")
+        fireEvent.click(menu.querySelector("button")!)
+        await waitFor(() => expect(h.useMemoStore.getState().removeMany).toHaveBeenCalledWith(["y1", "y2"]))
     })
 })

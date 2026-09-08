@@ -55,6 +55,16 @@ export function initMemoIPC(): void {
     })
     ipcMain.handle('memo:update', (_e, {id, patch}) => wrap(memoStore.findById(id)?.workspacePath, () => memoStore.update(id, patch)))
     ipcMain.handle('memo:delete', (_e, id: string) => wrap(memoStore.findById(id)?.workspacePath, () => memoStore.remove(id)))
+    // 批量删除（删除组内备忘录）：removeMany 返回受影响的工作区，逐个广播 memo_changed
+    ipcMain.handle('memo:deleteMany', async (_e, ids: string[]) => {
+        try {
+            const wsPaths = memoStore.removeMany(Array.isArray(ids) ? ids : [])
+            for (const ws of wsPaths) broadcastChanged(ws)
+            return {ok: true as const, data: wsPaths.length}
+        } catch (err) {
+            return {ok: false as const, error: toError(err)}
+        }
+    })
     // uploadAttachment / discardPending 无需广播，走 wrapAsync（同步 wrap 会把 Promise 嵌入 data 导致 clone 失败）
     ipcMain.handle('memo:uploadAttachment', (_e, input) => wrapAsync(() => memoStore.uploadAttachment(input)))
     ipcMain.handle('memo:discardPending', (_e, ids: string[]) => wrapAsync(() => memoStore.discardPending(ids)))

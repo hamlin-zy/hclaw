@@ -356,3 +356,37 @@ describe('memoStore pinned/sortIndex', () => {
         expect(fs.readdirSync(path.dirname(file)).some(f => f.startsWith('memos.json.corrupt-'))).toBe(true)
     })
 })
+
+describe("memoStore removeMany 批量删除", () => {
+    it("批量删除：一次调用删多条，返回受影响工作区", async () => {
+        const store = await freshStore()
+        const a = store.create({workspacePath: "E:\\p", title: "a", content: "a"})
+        const b = store.create({workspacePath: "E:\\p", title: "b", content: "b"})
+        const c = store.create({workspacePath: "E:\\q", title: "c", content: "c"})
+        const affected = store.removeMany([a.id, b.id, c.id])
+        expect(affected.sort()).toEqual(["E:\\p", "E:\\q"])
+        expect(store.list("E:\\p")).toHaveLength(0)
+        expect(store.list("E:\\q")).toHaveLength(0)
+    })
+    it("不存在的 id 静默跳过，重复 id 去重", async () => {
+        const store = await freshStore()
+        const a = store.create({workspacePath: "E:\\p", title: "a", content: "a"})
+        const affected = store.removeMany([a.id, a.id, "memo-nope"])
+        expect(affected).toEqual(["E:\\p"])
+        expect(store.list("E:\\p")).toHaveLength(0)
+    })
+    it("空数组短路返回 []，不写文件", async () => {
+        const store = await freshStore()
+        expect(store.removeMany([])).toEqual([])
+    })
+    it("删除后清理附件归档目录", async () => {
+        const store = await freshStore()
+        const src = path.join(dir, "a.txt")
+        fs.writeFileSync(src, "x")
+        const att = await store.uploadAttachment({fileName: "a.txt", srcPath: src, mime: "text/plain"})
+        const item = store.create({workspacePath: "E:\\p", title: "t", content: "c", attachments: [att]})
+        expect(fs.existsSync(item.attachments[0].storedPath)).toBe(true)
+        store.removeMany([item.id])
+        expect(fs.existsSync(item.attachments[0].storedPath)).toBe(false)
+    })
+})
