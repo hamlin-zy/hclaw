@@ -30,6 +30,7 @@ beforeEach(() => {
             subagent: {maxConcurrency: 9, defaultTimeout: 60000, retryAttempts: 5, priorityEnabled: true, maxDepth: 9},
             channels: {sendGreeting: false, connectionTimeout: 90},
             linkOpening: {mode: 'builtin'},
+            shortcuts: {overrides: {}},
         },
         pendingSettings: null,
         isDirty: false,
@@ -57,7 +58,7 @@ describe('resetCategoryToDefault', () => {
 })
 
 describe('resetAllToDefault', () => {
-    it('恢复后 7 个分类全部等于默认值', () => {
+    it('恢复后 8 个分类全部等于默认值', () => {
         const {resetAllToDefault} = useSettingsStore.getState()
         resetAllToDefault()
         const state = useSettingsStore.getState()

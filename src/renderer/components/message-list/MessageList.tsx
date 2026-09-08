@@ -4,7 +4,7 @@
  */
 
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {AnimatePresence, motion} from 'framer-motion'
+import {motion} from 'framer-motion'
 import {tooltip} from '../../lib/motionPresets'
 import {useConversationStore} from '../../stores/conversationStore'
 import {useAgentStore} from '../../stores/agentStore'

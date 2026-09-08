@@ -150,6 +150,10 @@ export interface SystemSettings {
   }
   /** 技能目录详细描述开关（true=完整描述格式，false/undefined=仅名称索引，缺省关闭） */
   fullSkillDescriptions?: boolean
+  /** 快捷键覆盖项（仅存偏离默认的绑定；空/缺省 = 全默认） */
+  shortcuts?: {
+    overrides?: Partial<Record<import('@shared/shortcuts').ShortcutAction, string>>
+  }
 }
 
 // ─── Channel types ─────────────────────────────────────

@@ -862,7 +862,8 @@ export function ConversationList() {
     const [dateGroupExpanded, setDateGroupExpanded] = useState<Set<string>>(new Set())
     const listRef = useRef<HTMLDivElement>(null)
     // 跨天信号：午夜自动刷新日期分组（今天/历史）
-    const dayTick = useDayBoundaryTick()
+    // 返回值无需使用：hook 内部状态变化即触发本组件重渲染，重新计算 isToday 分组
+    useDayBoundaryTick()
 
     // 监听全局点击以关闭菜单
     // ★ 注意：不监听 window 的 scroll 事件。原因见 tasks/01-context-menu-close.md：

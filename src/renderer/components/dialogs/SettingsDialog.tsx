@@ -8,6 +8,8 @@ import {applyThemeClass} from '../../lib/theme'
 import {SystemSettings} from '@shared/types'
 import {confirm} from '../ConfirmDialog'
 import ThemedSelect from '../ThemedSelect'
+import {ShortcutRow} from '../settings/ShortcutRow'
+import {SHORTCUT_DEFS, mergeOverrides, type ShortcutAction} from '../../../shared/shortcuts'
 
 type Category = keyof SystemSettings | 'shortcuts'
 
@@ -32,6 +34,7 @@ export default function SettingsDialog() {
         discardChanges,
         resetCategoryToDefault,
         resetAllToDefault,
+        updateSettings,
     } = useSettingsStore()
     const [activeTab, setActiveTab] = useState<Category>('ui')
     const [saving, setSaving] = useState(false)
@@ -42,6 +45,13 @@ export default function SettingsDialog() {
     // ── 历史背景图 ──
     const [historyImages, setHistoryImages] = useState<Array<{path: string; name: string; size: number; mtime: number}>>([])
     const [previewSrc, setPreviewSrc] = useState<string | null>(null)
+
+    // ── 快捷键：全局键注册失败结果（Task 3 推送；空对象 = 无失败）──
+    const [globalFailures, setGlobalFailures] = useState<Record<string, string>>({})
+    useEffect(() => {
+        const off = window.electronAPI?.onShortcutsGlobalFailures?.(setGlobalFailures)
+        return () => off?.()
+    }, [])
 
     // 加载当前系统配置目录
     useEffect(() => {
@@ -437,132 +447,101 @@ export default function SettingsDialog() {
 
 
     const renderShortcutsSettings = () => {
+        const overrides = settings.shortcuts?.overrides ?? {}
+        const effective = mergeOverrides(overrides)
+
+        const handleOverrideChange = (id: ShortcutAction, acc: string | null) => {
+            // shortcuts 为浅合并：必须传完整 overrides（先取 store 现值再改单个 id）
+            const newOverrides = {...overrides}
+            if (acc === null) delete newOverrides[id]
+            else newOverrides[id] = acc
+            // 镜像 settingsStore saveSettings 顺序：configWrite 先写库 → settingsUpdate 广播
+            updateSettings({shortcuts: {overrides: newOverrides}}).catch((err) => {
+                console.error('[Settings] 快捷键保存失败:', err)
+            })
+        }
+
+        const handleResetAll = () => {
+            updateSettings({shortcuts: {overrides: {}}}).catch((err) => {
+                console.error('[Settings] 快捷键全部恢复默认失败:', err)
+            })
+        }
+
+        const GROUP_ORDER: { title: string; icon: string; group?: '面板 & 窗口' | '输入 & 会话' | '全局' }[] = [
+            {title: '面板 & 窗口', icon: '⊞', group: '面板 & 窗口'},
+            {title: '输入 & 会话', icon: '⌨', group: '输入 & 会话'},
+            {title: '全局', icon: '🌐', group: '全局'},
+        ]
 
         type ShortcutEntry = { label: string; keys: React.ReactNode }
 
-        const groups: { title: string; icon: string; items: ShortcutEntry[] }[] = [
-            {
-                title: '面板 & 窗口', icon: '⊞',
-                items: [
-                    {
-                        label: '切换左侧栏',
-                        keys: (<KbdCombo keys={['Ctrl', 'B']}/>),
-                    },
-                    {
-                        label: '功能菜单（左下角三横线）',
-                        keys: (<Kbd>Alt</Kbd>),
-                    },
-                    {
-                        label: '切换明暗主题',
-                        keys: (<KbdCombo keys={['Ctrl', 'Shift', 'T']}/>),
-                    },
-                    {
-                        label: '切换右侧备忘录面板',
-                        keys: (<KbdCombo keys={['Ctrl', 'Shift', 'B']}/>),
-                    },
-                ],
-            },
-            {
-                title: '输入 & 会话', icon: '⌨',
-                items: [
-                    {
-                        label: '发送消息',
-                        keys: <Kbd>Enter</Kbd>,
-                    },
-                    {
-                        label: '换行',
-                        keys: (<KbdCombo keys={['Shift', 'Enter']}/>),
-                    },
-                    {
-                        label: '命令选择弹窗',
-                        keys: (<KbdCombo keys={['Ctrl', 'K']}/>),
-                    },
-                    {
-                        label: '上一条输入历史',
-                        keys: (<KbdCombo keys={['Ctrl', '↑']}/>),
-                    },
-                    {
-                        label: '下一条输入历史',
-                        keys: (<KbdCombo keys={['Ctrl', '↓']}/>),
-                    },
-                    {
-                        label: '新建会话',
-                        keys: (<KbdCombo keys={['Ctrl', 'N']}/>),
-                    },
-                    {
-                        label: '新建备忘录',
-                        keys: (<KbdCombo keys={['Ctrl', 'Shift', 'N']}/>),
-                    },
-                    {
-                        label: '上一个会话',
-                        keys: (<KbdCombo keys={['Alt', '↑']}/>),
-                    },
-                    {
-                        label: '下一个会话',
-                        keys: (<KbdCombo keys={['Alt', '↓']}/>),
-                    },
-                    {
-                        label: '粘贴剪贴板内容',
-                        keys: (<KbdCombo keys={['Ctrl', 'V']}/>),
-                    },
-                    {
-                        label: '呼出短语选择器',
-                        keys: (<KbdCombo keys={['Ctrl', 'Shift', 'V']}/>),
-                    },
-                    {
-                        label: '查找消息',
-                        keys: (<KbdCombo keys={['Ctrl', 'F']}/>),
-                    },
-                ],
-            },
-            {
-                title: 'Agent & 权限', icon: '⚡',
-                items: [
-                    {
-                        label: '中断 Agent 执行',
-                        keys: <Kbd>Esc</Kbd>,
-                    },
-                    {
-                        label: '允许当前工具调用',
-                        keys: <Kbd>Enter</Kbd>,
-                    },
-                ],
-            },
-            {
-                title: '全局快捷键', icon: '🌐',
-                items: [
-                    {
-                        label: '隐藏 / 显示 HClaw 窗口',
-                        keys: (<KbdCombo keys={['Ctrl', 'Shift', 'Space']}/>),
-                    },
-                ],
-            },
-        ]
+        const STATIC_ITEMS: Record<string, ShortcutEntry[]> = {
+            '面板 & 窗口': [
+                {label: '功能菜单（左下角三横线）', keys: <Kbd>Alt</Kbd>},
+            ],
+            '输入 & 会话': [
+                {label: '发送消息', keys: <Kbd>Enter</Kbd>},
+                {label: '换行', keys: <KbdCombo keys={['Shift', 'Enter']}/>},
+                {label: '粘贴剪贴板内容', keys: <KbdCombo keys={['Ctrl', 'V']}/>},
+                {label: '查找消息', keys: <KbdCombo keys={['Ctrl', 'F']}/>},
+            ],
+            '全局': [],
+        }
+
+        const STATIC_TAIL: { title: string; icon: string; items: ShortcutEntry[] } = {
+            title: 'Agent & 权限',
+            icon: '⚡',
+            items: [
+                {label: '中断 Agent 执行', keys: <Kbd>Esc</Kbd>},
+                {label: '允许当前工具调用', keys: <Kbd>Enter</Kbd>},
+            ],
+        }
 
         return (
             <div className="space-y-5 pb-2">
-                <div
-                    className="bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded-lg p-3">
-                    <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                        以下快捷键在 HClaw 窗口激活时生效。
-                        全局快捷键 <KbdCombo keys={['Ctrl', 'Shift', 'Space']}/> 在应用外也可隐藏/显示窗口。
-                    </p>
+                <div className="flex items-stretch justify-between gap-3">
+                    <div
+                        className="flex-1 flex items-center gap-2 bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded-lg px-3 py-2">
+                        <span aria-hidden="true" className="text-sm opacity-50 shrink-0">⌨</span>
+                        <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                            点击绑定框可自定义，修改立即生效。全局快捷键在应用外也可触发。
+                        </p>
+                    </div>
+                    <button
+                        onClick={handleResetAll}
+                        className="shrink-0 self-start text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]
+                                   border border-[var(--border-muted)] hover:border-[var(--border-emphasis)]
+                                   hover:bg-[var(--surface-muted)]/60
+                                   rounded-md px-2.5 py-1.5 transition-colors cursor-pointer"
+                    >
+                        全部恢复默认
+                    </button>
                 </div>
                 <div className="grid grid-cols-1 gap-4">
-                    {groups.map((group) => (
+                    {GROUP_ORDER.map(({title, icon, group}) => (
                         <div
-                            key={group.title}
+                            key={title}
                             className="border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden"
                         >
                             <div
                                 className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]/40">
-                                <span className="text-xs opacity-60">{group.icon}</span>
+                                <span className="text-xs opacity-60">{icon}</span>
                                 <h4 className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-                                    {group.title}
+                                    {title}
                                 </h4>
                             </div>
                             <div className="divide-y divide-[var(--border-muted)]">
-                                {group.items.map((item) => (
+                                {(SHORTCUT_DEFS.filter(d => d.group === group)).map((def) => (
+                                    <ShortcutRow
+                                        key={def.id}
+                                        def={def}
+                                        current={effective[def.id]}
+                                        overrides={overrides}
+                                        onChange={handleOverrideChange}
+                                        globalFailure={globalFailures[def.id]}
+                                    />
+                                ))}
+                                {(STATIC_ITEMS[title] ?? []).map((item) => (
                                     <div
                                         key={item.label}
                                         className="flex items-center justify-between px-4 py-2.5 hover:bg-[var(--surface-muted)]/40 transition-colors"
@@ -576,6 +555,29 @@ export default function SettingsDialog() {
                             </div>
                         </div>
                     ))}
+                    <div
+                        className="border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden">
+                        <div
+                            className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]/40">
+                            <span className="text-xs opacity-60">{STATIC_TAIL.icon}</span>
+                            <h4 className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+                                {STATIC_TAIL.title}
+                            </h4>
+                        </div>
+                        <div className="divide-y divide-[var(--border-muted)]">
+                            {STATIC_TAIL.items.map((item) => (
+                                <div
+                                    key={item.label}
+                                    className="flex items-center justify-between px-4 py-2.5 hover:bg-[var(--surface-muted)]/40 transition-colors"
+                                >
+                                    <span className="text-sm text-[var(--text-primary)]">{item.label}</span>
+                                    <div className="flex items-center gap-1 shrink-0 ml-4">
+                                        {item.keys}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             </div>
         )

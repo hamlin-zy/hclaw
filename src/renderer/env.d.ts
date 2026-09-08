@@ -650,6 +650,9 @@ declare global {
         // Settings management
         settingsUpdate: (settings: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>
 
+        // 快捷键：全局键注册失败结果推送（'shortcuts-global-failures'，空对象 = 无失败）
+        onShortcutsGlobalFailures?: (callback: (failures: Record<string, string>) => void) => () => void
+
         commandResolveByName: (name: string, args?: string) => Promise<{ template: string; commandId: string } | null>
 
         // User-defined commands CRUD
