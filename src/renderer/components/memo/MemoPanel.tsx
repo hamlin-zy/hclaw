@@ -74,6 +74,8 @@ export default function MemoPanel() {
     const removeMany = useMemoStore((s) => s.removeMany)
     // 拖拽：dragOrder 覆盖派生顺序，提供乐观更新驱动 FLIP 动画；onDragEnd 落库后清空回到派生顺序
     const [dragOrder, setDragOrder] = useState<string[] | null>(null)
+    // 拖拽期间抑制条目 click（Reorder 松开鼠标时 pointerup 仍会派发 click，误开编辑窗口）
+    const dragActiveRef = useRef(false)
     const renderOrder = dragOrder ?? activeList.map((m) => m.id)
     const idsToMemos = (ids: string[]): MemoItem[] =>
         ids.map((id) => memos.find((m) => m.id === id)).filter(Boolean) as MemoItem[]
@@ -235,12 +237,20 @@ export default function MemoPanel() {
                                     <Reorder.Item
                                         key={id}
                                         value={id}
-                                        onDragEnd={() => void handleDragEnd()}
+                                        onDragStart={() => { dragActiveRef.current = true }}
+                                        onDragEnd={() => {
+                                            void handleDragEnd()
+                                            // click 在 pointerup 后同步派发，下一帧才解除抑制，避免松手误触编辑
+                                            setTimeout(() => { dragActiveRef.current = false }, 0)
+                                        }}
                                         // 拖拽提起视觉：轻微缩放 + 阴影，松手回弹
                                         whileDrag={{scale: 1.02, boxShadow: '0 4px 12px rgba(0,0,0,0.15)'}}
                                         className="list-none"
                                     >
-                                        <MemoItemRow item={m} onOpen={() => openEdit(m.id)}/>
+                                        <MemoItemRow item={m} onOpen={() => {
+                                            if (dragActiveRef.current) return
+                                            openEdit(m.id)
+                                        }}/>
                                     </Reorder.Item>
                                 )
                             })}
@@ -498,7 +508,7 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
             data-testid="memo-item"
             data-memo-id={item.id}
             onClick={onOpen}
-            className={`group relative p-2.5 rounded-[18px] border border-transparent cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-white/5 active:bg-gray-100 dark:active:bg-white/10 ${processed ? 'opacity-50' : ''}`}
+            className={`group relative p-2.5 rounded-[18px] border border-[var(--border)] bg-[var(--surface-muted)]/60 cursor-pointer transition-all hover:bg-[var(--surface-muted)] active:bg-[var(--surface-muted)] ${processed ? 'opacity-50' : ''}`}
          data-name="memo-panel-div">
             {/* 能力徽章/标题/时间等文字内容占满整行；操作按钮绝对定位覆盖，不预留宽度 */}
             <div className="min-w-0">
