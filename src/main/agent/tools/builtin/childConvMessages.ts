@@ -316,3 +316,34 @@ export function finalizeChildConv(
 ): void {
     flushAccumulatorMessage(acc, repo, convId, true)
 }
+
+/**
+ * 注入用户消息时轮换累积器（user_message_injected 时机调用）：
+ * 1. 旧消息收尾落库（附 endedAt）——渲染端 ensureStreamingMessage ① 检测到
+ *    endedAt 后失效旧载体，不再向旧气泡追加内容；
+ * 2. 重置累积器（新 assistantMsgId / startTime，清空缓冲）——后续流事件携带
+ *    新 messageId，渲染端与 DB 均开启新一条 assistant 消息，
+ *    与主会话「注入即分段」的气泡行为一致。
+ */
+export function rotateChildConvAccumulator(
+    acc: ChildConvAccumulator,
+    repo: { writeMessages(convId: string, messages: Message[]): boolean },
+    convId: string,
+): void {
+    const now = Date.now()
+    const old = buildCurrentMessage(acc, now)
+    if (old) {
+        old.endedAt = now
+        repo.writeMessages(convId, [old])
+    }
+
+    acc.assistantMsgId = `msg-${now}-${Math.random().toString(36).slice(2, 8)}`
+    acc.startTime = now
+    acc.textContent = ''
+    acc.blocks = []
+    acc.toolCalls = new Map()
+    acc.pendingToolCount = 0
+    acc.llmStats = []
+    acc.hasError = false
+    acc.errorMsg = ''
+}

@@ -87,7 +87,7 @@ describe('selectModelForTurn — override 优先 + 默认 primary', () => {
         expect(sel.suggestedRole).toBe('primary')
     })
 
-    it('显式 modelRole 优先于 override（reasoning 启用时用推理模型）', async () => {
+    it('会话 override 优先于显式 modelRole（用户显式切换模型必须生效）', async () => {
         const scheme2 = makeScheme([
             {role: 'primary', endpointId: 'p-openai', modelId: 'gpt-4o'},
             {role: 'reasoning', endpointId: 'p-openai', modelId: 'gpt-5', enabled: true},
@@ -98,8 +98,10 @@ describe('selectModelForTurn — override 优先 + 默认 primary', () => {
         let step = gen.next()
         while (!step.done) { step = gen.next() }
         result = step.value
-        expect(result!.modelConfig.model).toBe('gpt-5')
-        expect(result!.directModel).toBeUndefined()
+        // override（用户显式意图）> modelRole：子会话创建时 modelRole 已固化为
+        // override（agentTool ⑥.5），首轮解析一致；用户后续显式切换 override 后生效
+        expect(result!.modelConfig.model).toBe('deepseek-v3')
+        expect(result!.directModel).toBe(true)
     })
 
     it('显式 modelRole 非法/未启用 → 降级继承 override', async () => {

@@ -25,6 +25,7 @@ import {getMessagePreview} from './utils/contentUtils'
 import {createStreamBatchAccumulator} from './streamBatch'
 import type {AgentStreamEvent} from './stream'
 import {setRecordingEnabled} from '../utils/llmTraceRecorder'
+import {routeInjectedUserMessage} from './injectRouting'
 
 /** Phase 2: 通过 MessagePort 从 MCP Worker 获取已连接的工具列表 */
 async function listMcpServersFromWorker(port: MessagePort): Promise<Array<{
@@ -503,16 +504,11 @@ async function main(): Promise<void> {
                     }
                 }
             } else if (msg.type === WORKER_MESSAGE_TYPES.INJECT_USER_MESSAGE) {
-                // 接收主进程转发的新用户消息，存入队列供 Controller 读取
-                if (msg.message) {
-                    const userMsg: import('./model/types').ChatMessage = {
-                        role: 'user',
-                        content: msg.message.content || '',
-                        id: msg.message.id || `inject-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                    }
-                    pendingInjectedMessages.push(userMsg)
-                    
-                }
+                // 接收主进程转发的注入消息，按 convId 路由（实现见 injectRouting.ts）：
+                // - 本 Worker 会话 → 存入 pendingInjectedMessages 供 Controller 读取
+                // - 其他会话 → 运行中的子会话（agentTool in-process loop），经 agentTool
+                //   注册表入队（父会话在本 Worker 中运行的场景，见 manager.impl 路径 3）
+                await routeInjectedUserMessage(msg as {convId?: string; message?: {content?: string; id?: string}}, params.conversationId, pendingInjectedMessages)
             } else if (msg.type === WORKER_MESSAGE_TYPES.LOOP_SILENCE) {
                 // 渲染端"这是误判"：指纹入队，Controller 检测门每轮 shift 消费（detector.silence）
                 if (msg.fingerprint) {

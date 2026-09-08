@@ -8,14 +8,14 @@
  *   由 MemoPanel 挂载时调用一次（Task 8）
  */
 import {create} from 'zustand'
-import type {MemoItem, MemoAttachment, MemoCapability} from '@shared/types/memo'
+import type {MemoItem, MemoAttachment, MemoCapability, MemoPriority} from '@shared/types/memo'
 
 interface MemoStoreState {
     memos: MemoItem[]
     loading: boolean
     error: string | null
     load: (workspacePath: string) => Promise<void>
-    create: (input: {workspacePath: string; title: string; content: string; capability?: MemoCapability; attachments?: MemoAttachment[]}) => Promise<MemoItem | null>
+    create: (input: {workspacePath: string; title: string; content: string; capability?: MemoCapability; attachments?: MemoAttachment[]; priority?: MemoPriority}) => Promise<MemoItem | null>
     updateItem: (id: string, patch: Partial<MemoItem>) => Promise<void>
     remove: (id: string) => Promise<void>
     createSession: (id: string) => Promise<{convId: string} | null>

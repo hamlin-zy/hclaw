@@ -116,7 +116,7 @@ declare global {
         memo: {
             list: (workspacePath: string) => Promise<{ok: boolean, data?: any, error?: string}>
             getById: (id: string) => Promise<{ok: boolean, data?: import('../shared/types/memo').MemoItem, error?: string}>
-            create: (input: {workspacePath: string, title: string, content: string, capability?: import('../shared/types/memo').MemoCapability, attachments?: import('../shared/types/memo').MemoAttachment[]}) => Promise<{ok: boolean, data?: any, error?: string}>
+            create: (input: {workspacePath: string, title: string, content: string, capability?: import('../shared/types/memo').MemoCapability, attachments?: import('../shared/types/memo').MemoAttachment[], priority?: import('../shared/types/memo').MemoPriority}) => Promise<{ok: boolean, data?: any, error?: string}>
             update: (id: string, patch: unknown) => Promise<{ok: boolean, data?: any, error?: string}>
             remove: (id: string) => Promise<{ok: boolean, error?: string}>
             uploadAttachment: (input: unknown) => Promise<{ok: boolean, data?: any, error?: string}>

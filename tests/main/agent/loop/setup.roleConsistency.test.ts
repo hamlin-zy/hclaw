@@ -77,12 +77,13 @@ describe('selectModelForTurn — 显式 modelRole（agentTool 子会话）', () 
         expect(sel.modelConfig.model).toBe('gpt-4o')
     })
 
-    it('modelRole 优先于会话 override（显式角色是子会话权威决策源）', async () => {
-        // 父链存在 override，但显式 modelRole 优先（第 0 步先于 override 第 1 步）
+    it('会话 override 优先于 modelRole（用户显式切换模型必须生效）', async () => {
+        // 子会话创建时 modelRole 已固化为 override（agentTool ⑥.5 setOverride），
+        // 用户在子会话显式切换模型后 override 更新 → 必须优先于 modelRole
         runtimeConfigManager.setOverride('conv-x', {endpointId: 'p-openai', modelId: 'gpt-5'})
         const sel = await runSelect('conv-x', 'lightweight')
-        expect(sel.suggestedRole).toBe('lightweight')
-        expect(sel.modelConfig.model).toBe('deepseek-v3')
-        expect(sel.directModel).toBeUndefined()
+        expect(sel.suggestedRole).toBe('primary') // 占位：override 不经角色
+        expect(sel.modelConfig.model).toBe('gpt-5')
+        expect(sel.directModel).toBe(true)
     })
 })
