@@ -6,6 +6,7 @@ import {AnimatePresence, motion} from 'framer-motion'
 import {dropdown} from '../../lib/motionPresets'
 import {confirm} from '../ConfirmDialog'
 import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
+import {useToolStore} from '../../stores/toolStore'
 import type {AgentTemplate} from '@shared/types'
 import {fuzzyFilter} from '../../lib/search'
 import RepoGroupCard from '../repo/RepoGroupCard'
@@ -899,16 +900,32 @@ function PluginAgentGroup({pluginName, agents, toggleTemplate, toggleTemplateBat
 
 // ─── 工具标签输入（Enter/逗号添加，Backspace 删除末位） ──────────
 
-function TagInput({value, onChange, placeholder, emptyHint, tagVariant = 'default', inputId}: {
+function TagInput({value, onChange, placeholder, emptyHint, tagVariant = 'default', inputId, suggestions}: {
     value: string[]
     onChange: (tags: string[]) => void
     placeholder: string
     emptyHint: string
     tagVariant?: 'default' | 'danger'
     inputId?: string
+    suggestions?: string[]
 }) {
     const [draft, setDraft] = useState('')
     const [error, setError] = useState<string | null>(null)
+    const [activeIdx, setActiveIdx] = useState(-1)
+    const [suggestOpen, setSuggestOpen] = useState(false)
+
+    // 候选：非空输入、不区分大小写包含匹配、排除已存在 tag
+    const lowerDraft = draft.trim().toLowerCase()
+    const filteredSuggestions = suggestions && lowerDraft
+        ? suggestions.filter(s => !value.includes(s) && s.toLowerCase().includes(lowerDraft)).slice(0, 8)
+        : []
+    const showSuggest = suggestOpen && filteredSuggestions.length > 0
+
+    const applySuggestion = (s: string) => {
+        commitDraft(s)
+        setActiveIdx(-1)
+        setSuggestOpen(false)
+    }
 
     const commitDraft = (raw?: string) => {
         const parts = (raw ?? draft).split(',').map(s => s.trim()).filter(Boolean)
@@ -931,10 +948,28 @@ function TagInput({value, onChange, placeholder, emptyHint, tagVariant = 'defaul
     }
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (showSuggest && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+            e.preventDefault()
+            const dir = e.key === 'ArrowDown' ? 1 : -1
+            setActiveIdx(i => (i + dir + filteredSuggestions.length) % filteredSuggestions.length)
+            return
+        }
+        if (showSuggest && e.key === 'Escape') {
+            e.preventDefault()
+            setSuggestOpen(false)
+            setActiveIdx(-1)
+            return
+        }
         if (e.key === 'Enter' || e.key === ',') {
             e.preventDefault()
             setError(null)
+            if (showSuggest && activeIdx >= 0 && activeIdx < filteredSuggestions.length) {
+                applySuggestion(filteredSuggestions[activeIdx])
+                return
+            }
             commitDraft()
+            setSuggestOpen(false)
+            setActiveIdx(-1)
         } else if (e.key === 'Backspace' && draft === '' && value.length > 0) {
             onChange(value.slice(0, -1))
             setError(null)
@@ -942,7 +977,31 @@ function TagInput({value, onChange, placeholder, emptyHint, tagVariant = 'defaul
     }
 
     return (
-        <div className="space-y-1">
+        <div className="space-y-1 relative">
+            {showSuggest && (
+                <ul
+                    role="listbox"
+                    className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto custom-scrollbar rounded-lg bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated py-1"
+                >
+                    {filteredSuggestions.map((s, i) => (
+                        <li key={s} role="option" aria-selected={i === activeIdx}
+                            onMouseDown={e => {
+                                // 阻止 input 失焦，避免触发 blur 提交逻辑
+                                e.preventDefault()
+                                applySuggestion(s)
+                            }}
+                            onMouseEnter={() => setActiveIdx(i)}
+                            className={
+                                i === activeIdx
+                                    ? 'px-3 py-1.5 text-xs cursor-pointer bg-[var(--surface-muted)] text-[var(--text-primary)]'
+                                    : 'px-3 py-1.5 text-xs cursor-pointer text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors'
+                            }
+                        >
+                            {s}
+                        </li>
+                    ))}
+                </ul>
+            )}
             <div
                 className="w-full min-h-[42px] px-2 py-1.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] focus-within:border-[var(--brand-primary)] focus-within:ring-1 focus-within:ring-[var(--brand-primary)]/30 transition-all flex flex-wrap items-center gap-1.5 cursor-text"
                 onClick={e => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}
@@ -983,12 +1042,19 @@ function TagInput({value, onChange, placeholder, emptyHint, tagVariant = 'defaul
                         if (e.target.value.includes(',')) {
                             // 逗号输入时立即提交（含末尾逗号）
                             commitDraft(e.target.value)
+                            setSuggestOpen(false)
+                            setActiveIdx(-1)
+                        } else {
+                            setSuggestOpen(true)
+                            setActiveIdx(-1)
                         }
                     }}
                     onKeyDown={handleKeyDown}
                     onBlur={() => {
                         commitDraft()
                         setError(null)
+                        setSuggestOpen(false)
+                        setActiveIdx(-1)
                     }}
                     placeholder={value.length === 0 ? '' : placeholder}
                     className="flex-1 min-w-[80px] bg-transparent border-none outline-none text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] py-1"
@@ -1010,6 +1076,14 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
     onCancel: () => void
 }) {
     const [form, setForm] = useState<Partial<AgentTemplate>>(initialForm)
+    const tools = useToolStore(s => s.tools)
+    const loadTools = useToolStore(s => s.loadTools)
+
+    useEffect(() => {
+        // 幂等：store 已在 rehydrate 时加载过，isLoading 防重入
+        loadTools()
+    }, [loadTools])
+    const toolNames = useMemo(() => tools.map(t => t.id), [tools])
 
     const handleSave = () => {
         if (!form.name || !form.systemPrompt) return
@@ -1109,6 +1183,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             onChange={tags => setForm({...form, allowedTools: tags})}
                             placeholder="输入工具名，如 file_read"
                             emptyHint="留空表示不限制工具（继承全部可用工具）"
+                            suggestions={toolNames}
                             inputId="agents-dialog-allowed-tools-input"
                         />
                     </div>
@@ -1125,6 +1200,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             placeholder="输入工具名，如 file_write"
                             emptyHint="留空表示不禁用任何工具"
                             tagVariant="danger"
+                            suggestions={toolNames}
                             inputId="agents-dialog-disallowed-tools-input"
                         />
                     </div>
