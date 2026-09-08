@@ -44,6 +44,12 @@ export function countGroupItems<T>(g: DateGroup<T>): number {
     return g.children.reduce((n, c) => n + countGroupItems(c), 0)
 }
 
+/** 递归收集分组节点下全部条目 id（年/月/日任意层级，"删除组内备忘录"用） */
+export function collectGroupMemoIds<T extends {id: string}>(g: DateGroup<T>): string[] {
+    if (g.kind === 'day') return g.items.map((m) => m.id)
+    return g.children.flatMap((c) => collectGroupMemoIds(c))
+}
+
 /**
  * 通用日期层级分组（备忘录历史 / 会话列表共用）：
  * - 本月（now 所在年月）→ 顶层「日」组

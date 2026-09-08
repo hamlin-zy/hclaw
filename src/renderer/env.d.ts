@@ -119,6 +119,7 @@ declare global {
             create: (input: {workspacePath: string, title: string, content: string, capability?: import('../shared/types/memo').MemoCapability, attachments?: import('../shared/types/memo').MemoAttachment[], priority?: import('../shared/types/memo').MemoPriority}) => Promise<{ok: boolean, data?: any, error?: string}>
             update: (id: string, patch: unknown) => Promise<{ok: boolean, data?: any, error?: string}>
             remove: (id: string) => Promise<{ok: boolean, error?: string}>
+            removeMany: (ids: string[]) => Promise<{ok: boolean, data?: number, error?: string}>
             uploadAttachment: (input: unknown) => Promise<{ok: boolean, data?: any, error?: string}>
             uploadFile: (file: File) => Promise<{ok: boolean, data?: any, error?: string}>
             discardPending: (ids: string[]) => Promise<{ok: boolean, data?: any, error?: string}>

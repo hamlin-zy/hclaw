@@ -7,7 +7,7 @@
  *   组间倒序、组内 createdAt desc
  */
 import {describe, it, expect} from 'vitest'
-import {sortActiveMemos, groupProcessedByDate, reorderGroup, renumberGroup} from '@/renderer/components/memo/memoSort'
+import {sortActiveMemos, groupProcessedByDate, reorderGroup, renumberGroup, collectGroupMemoIds} from '@/renderer/components/memo/memoSort'
 import type {ProcessedDateGroup} from '@/renderer/components/memo/memoSort'
 import type {MemoItem} from '@/shared/types/memo'
 
@@ -292,5 +292,27 @@ describe('renumberGroup 重编号', () => {
         const sorted = sortActiveMemos(reordered).map(m => m.id)
         expect(sorted).toEqual(['b', 'a', 'c'])
         expect(map.get('b')).toBe(3)
+    })
+})
+
+describe("collectGroupMemoIds 组内条目收集", () => {
+    it("day 叶子组：收集全部 items id", () => {
+        const g: ProcessedDateGroup = {kind: "day", label: "8月1日", items: [processed(1, "a"), processed(2, "b")], children: []}
+        expect(collectGroupMemoIds(g)).toEqual(["a", "b"])
+    })
+    it("嵌套年-月-日：递归收集全部 id", () => {
+        const g: ProcessedDateGroup = {
+            kind: "year", label: "2025年", items: [], children: [
+                {kind: "month", label: "6月", items: [], children: [
+                    {kind: "day", label: "6月1日", items: [processed(1, "a")], children: []},
+                    {kind: "day", label: "6月2日", items: [processed(2, "b"), processed(3, "c")], children: []},
+                ]},
+            ],
+        }
+        expect(collectGroupMemoIds(g)).toEqual(["a", "b", "c"])
+    })
+    it("空组（无 children 无 items）返回 []", () => {
+        const g: ProcessedDateGroup = {kind: "year", label: "2020年", items: [], children: []}
+        expect(collectGroupMemoIds(g)).toEqual([])
     })
 })

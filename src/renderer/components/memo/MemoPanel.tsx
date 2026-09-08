@@ -14,7 +14,8 @@
  *
  * 其余视觉对齐（胶囊圆角项等）见各组件内联注释。
  */
-import React, {useEffect, useMemo, useState} from 'react'
+import React, {useEffect, useMemo, useRef, useState} from 'react'
+import {createPortal} from 'react-dom'
 import {Reorder} from 'framer-motion'
 import {useMemoStore, subscribeMemoChanged, openMemoCreateWindow} from '../../stores/memoStore'
 import {useConversationStore} from '../../stores/conversationStore'
@@ -24,7 +25,7 @@ import {PrioritySelect} from '../common/PrioritySelect'
 import {formatShortcut, formatShortcutSpoken} from '../common/Kbd'
 import {formatRelativeTime} from '../../lib/relativeTime'
 import {useDayBoundaryTick} from '../../hooks/useDayBoundaryTick'
-import {sortActiveMemos, groupProcessedByDate, renumberGroup, countGroupItems} from './memoSort'
+import {sortActiveMemos, groupProcessedByDate, renumberGroup, countGroupItems, collectGroupMemoIds} from './memoSort'
 import type {ProcessedDateGroup} from './memoSort'
 import type {MemoCapability, MemoItem} from '@shared/types/memo'
 
@@ -70,6 +71,7 @@ export default function MemoPanel() {
     }, [memos, kw, dayTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const updateItem = useMemoStore((s) => s.updateItem)
+    const removeMany = useMemoStore((s) => s.removeMany)
     // 拖拽：dragOrder 覆盖派生顺序，提供乐观更新驱动 FLIP 动画；onDragEnd 落库后清空回到派生顺序
     const [dragOrder, setDragOrder] = useState<string[] | null>(null)
     const renderOrder = dragOrder ?? activeList.map((m) => m.id)
@@ -102,6 +104,51 @@ export default function MemoPanel() {
             return next
         })
     }
+
+    // ── 历史组头右键菜单（删除组内备忘录）──
+    // ids 为右键时该组渲染集合的条目 id：非搜索 = 组内全部；搜索 = 当前命中的条目
+    const [groupMenu, setGroupMenu] = useState<{x: number; y: number; label: string; ids: string[]} | null>(null)
+    const groupMenuDeletingRef = useRef(false)
+
+    const openGroupMenu = (e: React.MouseEvent, group: ProcessedDateGroup) => {
+        e.preventDefault()
+        e.stopPropagation()
+        const ids = collectGroupMemoIds(group)
+        if (ids.length === 0) return
+        setGroupMenu({x: e.clientX, y: e.clientY, label: group.label, ids})
+    }
+
+    const handleDeleteGroup = async () => {
+        const menu = groupMenu
+        if (!menu || groupMenuDeletingRef.current) return
+        setGroupMenu(null) // confirm 前先关菜单，与 ConversationSidebar 删除交互一致
+        groupMenuDeletingRef.current = true
+        try {
+            const ok = await confirm({
+                title: '删除组内备忘录',
+                message: `确定删除「${menu.label}」中的 ${menu.ids.length} 条备忘录吗？\n此操作不可撤销。`,
+                confirmText: '删除',
+                confirmVariant: 'danger',
+            })
+            if (ok) await removeMany(menu.ids)
+        } finally {
+            groupMenuDeletingRef.current = false
+        }
+    }
+
+    // 菜单关闭：全局 contextmenu（右键别处/另一组头时旧菜单关闭并重新定位）+ 点击其他区域
+    useEffect(() => {
+        if (!groupMenu) return
+        const close = () => setGroupMenu(null)
+        window.addEventListener('contextmenu', close)
+        window.addEventListener('click', close)
+        window.addEventListener('scroll', close, true)
+        return () => {
+            window.removeEventListener('contextmenu', close)
+            window.removeEventListener('click', close)
+            window.removeEventListener('scroll', close, true)
+        }
+    }, [groupMenu])
 
     // workspacePath/id 经 encodeURIComponent 编码后传参（路径含空格/`=` 时不会被 argv 切断，preload 侧解码）
     const openEdit = (id: string) => {
@@ -210,10 +257,24 @@ export default function MemoPanel() {
                             expandedKeys={expandedKeys}
                             onToggle={toggleGroup}
                             onOpen={openEdit}
+                            onGroupMenu={openGroupMenu}
                         />
                     ))
                 )}
             </div>
+
+            {/* 历史组头右键菜单（portal 到 body，脱离面板 overflow 裁剪） */}
+            {groupMenu && (
+                <GroupContextMenu
+                    x={groupMenu.x}
+                    y={groupMenu.y}
+                    label={groupMenu.label}
+                    count={groupMenu.ids.length}
+                    searching={searching}
+                    onDelete={() => void handleDeleteGroup()}
+                    onClose={() => setGroupMenu(null)}
+                />
+            )}
 
             {/* 底部统计 + 折叠按钮 */}
             <div className="shrink-0 px-3 py-2 border-t border-[var(--border)] flex items-center justify-between gap-2">
@@ -254,12 +315,13 @@ function TabButton({active, onClick, children}: {active: boolean; onClick: () =>
 }
 
 /** 历史分组节点：递归渲染 year→month→day，day 叶子渲染条目 */
-function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen}: {
+function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen, onGroupMenu}: {
     group: ProcessedDateGroup
     parentKey: string
     expandedKeys: Set<string>
     onToggle: (key: string) => void
     onOpen: (id: string) => void
+    onGroupMenu: (e: React.MouseEvent, group: ProcessedDateGroup) => void
 }) {
     const key = parentKey ? `${parentKey}/${group.label}` : group.label
     const expanded = expandedKeys.has(key)
@@ -270,6 +332,7 @@ function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen}: {
         <div data-testid="memo-group" data-group-key={key}>
             <button
                 onClick={() => onToggle(key)}
+                onContextMenu={(e) => onGroupMenu(e, group)}
                 aria-label={`${expanded ? '折叠' : '展开'} ${group.label}`}
                 aria-expanded={expanded}
                 className="flex items-center gap-1 w-full py-1.5 hover:bg-gray-50 dark:hover:bg-white/5 rounded transition-colors"
@@ -298,12 +361,68 @@ function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen}: {
                                 expandedKeys={expandedKeys}
                                 onToggle={onToggle}
                                 onOpen={onOpen}
+                                onGroupMenu={onGroupMenu}
                             />
                         ))
                     }
                 </div>
             )}
         </div>
+    )
+}
+
+/** 组头右键菜单菜单项通用样式（与 ConversationSidebar.GlobalContextMenu 同源） */
+const GROUP_MENU_ITEM_CLASS = 'w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors'
+
+/**
+ * 历史组头右键菜单（删除组内备忘录）。
+ * 样式对齐会话列表 GlobalContextMenu：surface 面板 + border-emphasis + shadow-elevated，
+ * 删除项 error 红色变体；定位做视口边界收敛。
+ */
+function GroupContextMenu({x, y, label, count, searching, onDelete, onClose}: {
+    x: number
+    y: number
+    label: string
+    count: number
+    searching: boolean
+    onDelete: () => void
+    onClose: () => void
+}) {
+    const MENU_W = 180
+    const MENU_H = 48
+    const adjustedX = Math.min(x, window.innerWidth - MENU_W - 10)
+    const adjustedY = y + MENU_H > window.innerHeight
+        ? Math.max(10, window.innerHeight - MENU_H - 10)
+        : y
+    const menuText = searching ? `删除组内匹配项 (${count})` : `删除组内备忘录 (${count})`
+    return createPortal(
+        <div
+            role="menu"
+            data-testid="memo-group-context-menu"
+            style={{position: 'fixed', left: adjustedX, top: adjustedY, zIndex: 9999}}
+            className="bg-[var(--surface)] border border-[var(--border-emphasis)] rounded-xl shadow-elevated py-1.5 min-w-[160px] ring-1 ring-black/5"
+            onContextMenu={(e) => e.preventDefault()}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+        >
+            <button
+                role="menuitem"
+                onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onClose()
+                    onDelete()
+                }}
+                className={`${GROUP_MENU_ITEM_CLASS} text-[var(--error)] hover:bg-[var(--error)]/10`}
+                data-name="memo-group-menu-delete-button"
+            >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/>
+                </svg>
+                {menuText}
+            </button>
+        </div>,
+        document.body,
     )
 }
 

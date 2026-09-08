@@ -365,6 +365,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         create: (input: unknown) => ipcRenderer.invoke('memo:create', input),
         update: (id: string, patch: unknown) => ipcRenderer.invoke('memo:update', {id, patch}),
         remove: (id: string) => ipcRenderer.invoke('memo:delete', id),
+        removeMany: (ids: string[]) => ipcRenderer.invoke('memo:deleteMany', ids),
         uploadAttachment: (input: unknown) => ipcRenderer.invoke('memo:uploadAttachment', input),
         // 渲染层 File 对象无绝对路径，需在 preload 侧用 webUtils 解析
         uploadFile: (file: File) => ipcRenderer.invoke('memo:uploadAttachment', {fileName: file.name, srcPath: webUtils.getPathForFile(file), mime: file.type}),
