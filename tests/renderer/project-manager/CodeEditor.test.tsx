@@ -57,6 +57,7 @@ vi.mock('@codemirror/state', () => ({
   EditorState: {
     create: vi.fn((cfg: unknown) => cfg),
     allowMultipleSelections: {of: (v: unknown) => v},
+    phrases: {of: (v: unknown) => v},
   },
   EditorSelection: {
     create: (ranges: unknown) => ranges,

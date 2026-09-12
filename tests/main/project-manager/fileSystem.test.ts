@@ -4,7 +4,11 @@ import {mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync} from 'fs'
 import {tmpdir} from 'os'
 import {join} from 'path'
 import {execFileSync} from 'child_process'
-import {assertInWorkspace, listDirectory, readFileForViewer, readFileText, containsNullByte, isImageExt, resetGitRepoCache, deleteGitRepoCache} from '../../../src/main/project-manager/fileSystem'
+import {assertInWorkspace, listDirectory, readFileForViewer, readFileText, deletePath, containsNullByte, isImageExt, resetGitRepoCache, deleteGitRepoCache} from '../../../src/main/project-manager/fileSystem'
+
+// fileSystem.ts 现直接 import electron 的 shell（deletePath 走 trashItem）——测试环境无真实 electron，须 mock
+const mockTrashItem = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('electron', () => ({shell: {trashItem: mockTrashItem}}))
 
 // 包装 fs/promises.readFile 以便模拟 TOCTOU（readFile 返回比前置 stat 更大的 buffer）
 const readFileHook = vi.hoisted(() => ({fn: null as null | ((...args: unknown[]) => unknown)}))
@@ -61,6 +65,33 @@ describe('containsNullByte / isImageExt', () => {
     expect(isImageExt('a.PNG')).toBe(true)
     expect(isImageExt('a.svg')).toBe(true)
     expect(isImageExt('a.ts')).toBe(false)
+  })
+})
+
+describe('deletePath', () => {
+  beforeEach(() => mockTrashItem.mockReset().mockResolvedValue(undefined))
+
+  it('正常删除：经 assertInWorkspace 后调 shell.trashItem（绝对路径）', async () => {
+    const ws = makeWs()
+    try {
+      await deletePath(ws, 'a.ts')
+      expect(mockTrashItem).toHaveBeenCalledWith(join(ws, 'a.ts'))
+    } finally { rmSync(ws, {recursive: true, force: true}) }
+  })
+
+  it('越界路径（../）抛错且不调 trashItem', async () => {
+    await expect(deletePath('/ws/a', '../evil')).rejects.toThrow('路径超出工作目录')
+    expect(mockTrashItem).not.toHaveBeenCalled()
+  })
+
+  it('工作区根（.）抛错且不调 trashItem', async () => {
+    await expect(deletePath('/ws/a', '.')).rejects.toThrow('不能删除工作区根目录')
+    expect(mockTrashItem).not.toHaveBeenCalled()
+  })
+
+  it('空串等价工作区根，同样拒绝', async () => {
+    await expect(deletePath('/ws/a', '')).rejects.toThrow('不能删除工作区根目录')
+    expect(mockTrashItem).not.toHaveBeenCalled()
   })
 })
 

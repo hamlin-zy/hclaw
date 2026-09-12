@@ -156,3 +156,54 @@ describe('editorTabStore', () => {
     expect(useEditorTabStore.getState().tabs.find(t => t.filePath === 'big1.ts')!.content).toBeDefined()
   })
 })
+
+describe('closeTabsForPaths', () => {
+  it('关闭 filePath 命中给定文件的标签', () => {
+    useEditorTabStore.getState().openFileTab(file('a.ts'))
+    useEditorTabStore.getState().openFileTab(file('b.ts'))
+    useEditorTabStore.getState().closeTabsForPaths('a.ts')
+    expect(useEditorTabStore.getState().tabs.map(t => t.filePath)).toEqual(['b.ts'])
+  })
+
+  it('目录删除时按 `<dir>/` 前缀关闭其下所有标签', () => {
+    useEditorTabStore.getState().openFileTab(file('src/a.ts'))
+    useEditorTabStore.getState().openFileTab(file('src/lib/b.ts'))
+    useEditorTabStore.getState().openFileTab(file('other/c.ts'))
+    useEditorTabStore.getState().closeTabsForPaths('src')
+    expect(useEditorTabStore.getState().tabs.map(t => t.filePath)).toEqual(['other/c.ts'])
+  })
+
+  it('数组入参一次关闭多个文件（不误伤前缀相似项）', () => {
+    useEditorTabStore.getState().openFileTab(file('a.ts'))
+    useEditorTabStore.getState().openFileTab(file('a.tsx'))
+    useEditorTabStore.getState().openFileTab(file('b.ts'))
+    useEditorTabStore.getState().closeTabsForPaths(['a.ts', 'b.ts'])
+    expect(useEditorTabStore.getState().tabs.map(t => t.filePath)).toEqual(['a.tsx'])
+  })
+
+  it('diff tab（同样带 filePath）也被关闭', () => {
+    useEditorTabStore.getState().openDiffTab({filePath: 'a.ts', title: '差异：a.ts', diffType: 'working-tree', diffData: {} as never})
+    useEditorTabStore.getState().closeTabsForPaths('a.ts')
+    expect(useEditorTabStore.getState().tabs).toHaveLength(0)
+  })
+
+  it('激活 tab 被关闭时 activeTabId 回退到剩余标签', () => {
+    useEditorTabStore.getState().openFileTab(file('a.ts'))
+    useEditorTabStore.getState().openFileTab(file('b.ts'))
+    const idB = useEditorTabStore.getState().tabs.find(t => t.filePath === 'b.ts')!.id
+    useEditorTabStore.getState().setActive(idB)
+    useEditorTabStore.getState().closeTabsForPaths('b.ts')
+    const s = useEditorTabStore.getState()
+    expect(s.tabs.map(t => t.filePath)).toEqual(['a.ts'])
+    expect(s.activeTabId).toBe(s.tabs[0]!.id)
+  })
+
+  it('无命中时不动 state（activeTabId 保持）', () => {
+    useEditorTabStore.getState().openFileTab(file('a.ts'))
+    const before = useEditorTabStore.getState()
+    useEditorTabStore.getState().closeTabsForPaths('nope.ts')
+    const after = useEditorTabStore.getState()
+    expect(after.tabs).toBe(before.tabs)
+    expect(after.activeTabId).toBe(before.activeTabId)
+  })
+})

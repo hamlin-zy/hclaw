@@ -157,6 +157,9 @@ declare global {
             gitRmCached: (ws: string, p: string) => Promise<void>
             gitCommit: (ws: string, message: string) => Promise<void>
             gitPush: (ws: string) => Promise<void>
+            deletePath: (ws: string, relPath: string) => Promise<void>
+            gitDiscard: (ws: string, filePath: string, status: string) => Promise<void>
+            gitDeleteBranch: (ws: string, opts: {name: string, isRemote: boolean, remoteName?: string, force?: boolean}) => Promise<void>
             onStatusChanged: (cb: (ws: string, summary: import('../shared/types/project-manager').GitStatusSummary) => void) => () => void
             /** HEAD / refs / packed-refs 被改动（外部 commit / push / 切分支）→ commit 列表与分支树需重取 */
             onRefsChanged: (cb: (ws: string) => void) => () => void

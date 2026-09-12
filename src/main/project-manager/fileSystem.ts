@@ -2,6 +2,7 @@
 import {readdir, stat, readFile, realpath} from 'fs/promises'
 import {join, resolve, relative, extname, sep} from 'path'
 import {createHash} from 'crypto'
+import {shell} from 'electron'
 import type {DirEntry, FileContentResult, GitStatus} from '../../shared/types/project-manager'
 import {gitExecResult} from './git/gitExec'
 
@@ -40,6 +41,20 @@ export async function readFileText(workspace: string, relPath: string): Promise<
   const abs = assertInWorkspace(workspace, relPath)
   await assertRealInWorkspace(workspace, abs)
   return readFile(abs, 'utf-8')
+}
+
+/**
+ * 删除工作区内的文件/目录（走系统回收站）。
+ *
+ * - **必须拒绝工作区根**：relPath 规范化为空（'' / '.' / './' 等）时等价于删除整个工作区，
+ *   回收站虽可恢复，但把整个项目误删的代价过高，故在入口直接拒绝。
+ * - **用 shell.trashItem 而非 fs.rm**：删除是破坏性操作，回收站是可恢复的失败兜底；
+ *   直接 rm 一旦路径判断出错即不可逆。
+ */
+export async function deletePath(workspace: string, relPath: string): Promise<void> {
+  const abs = assertInWorkspace(workspace, relPath)
+  if (relative(resolve(workspace), abs) === '') throw new Error('不能删除工作区根目录')
+  await shell.trashItem(abs)
 }
 
 // ==== 被忽略标记（spec §6.3）====

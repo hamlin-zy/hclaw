@@ -243,6 +243,24 @@ export function FileTree() {
     if (typeof api?.openPath === 'function') void api.openPath(absPath(ws, e.path))
     else copyPath(e) // 降级：无 shell 能力时仅复制路径
   }
+  /** 删除文件/目录（不可逆，走系统回收站）；目录与文件共用同一条 deletePath。
+      刷新由 watcher 的 unlink/unlinkDir → invalidateFrom 自动完成，这里不手动处理。 */
+  const deleteEntry = async (e: DirEntry) => {
+    const ok = await confirm({
+      title: '删除',
+      message: `确定删除 ${e.path}？（将移入系统回收站，可从回收站恢复）`,
+      confirmText: '删除',
+      confirmVariant: 'danger',
+    })
+    if (!ok) return
+    const reqWs = ws
+    try {
+      await window.electronAPI?.projectManager?.deletePath(reqWs, e.path)
+    } catch (err) {
+      if (!isCurrent(reqWs)) return
+      await confirm({title: '删除失败', message: err instanceof Error ? err.message : String(err), confirmText: '知道了'})
+    }
+  }
 
   // chevron 独立语义：切换展开；从"折叠"变"展开"时懒加载子条目
   const toggleDir = (e: DirEntry) => {
@@ -434,6 +452,7 @@ export function FileTree() {
             {label: '在文件树中显示', onClick: () => requestReveal(menu.entry.path)},
             {label: '系统打开', onClick: () => openInSystem(menu.entry)},
             {label: '复制路径', onClick: () => copyPath(menu.entry)},
+            {label: '删除', danger: true, onClick: () => void deleteEntry(menu.entry)},
           ]}
         />
       )}

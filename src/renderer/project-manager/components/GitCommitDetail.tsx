@@ -118,7 +118,7 @@ export function GitCommitDetail({workspace}: {workspace: string}) {
   // 双击打开：命中缓存同步打开；miss（未预取/预取失败/未就绪）走异步兜底
   const openOnDoubleClick = (path: string) => {
     if (!selectedHash) return
-    const title = `Diff: ${fileNameOf(path)} @ ${commit?.abbreviatedHash ?? ''}`
+    const title = `差异：${fileNameOf(path)} @ ${commit?.abbreviatedHash ?? ''}`
     const cached = diffCache.get(`${selectedHash}:${path}`)
     if (cached) {
       openDiffFor(path, cached, selectedHash, title)
@@ -140,7 +140,7 @@ export function GitCommitDetail({workspace}: {workspace: string}) {
   if (!selectedHash || !commit) {
     return (
       <PanelCard testId="pm-commit-detail">
-        <PanelHeader title="Commit 详情" testId="pm-detail-header" />
+        <PanelHeader title="提交详情" testId="pm-detail-header" />
         <EmptyState text="选中一个 commit 查看变更详情" />
       </PanelCard>
     )
@@ -196,25 +196,25 @@ export function GitCommitDetail({workspace}: {workspace: string}) {
 
   const actions = (
     <>
-      <IconButton icon={Copy} label="Copy hash" onClick={() => void navigator.clipboard.writeText(commit.hash)} />
-      <IconButton icon={FileText} label="Copy message" onClick={() => void navigator.clipboard.writeText(commit.message)} />
+      <IconButton icon={Copy} label="复制哈希" onClick={() => void navigator.clipboard.writeText(commit.hash)} />
+      <IconButton icon={FileText} label="复制提交信息" onClick={() => void navigator.clipboard.writeText(commit.message)} />
       {/* Show in Terminal = 编辑区只读 tab 显示 git show（pm:git-show-detail），历史设计决定 */}
       <IconButton
         icon={Terminal}
-        label="Show in Terminal"
+        label="在终端中显示"
         onClick={() => {
           const reqWs = workspace
           void window.electronAPI?.projectManager.gitShowDetail(reqWs, commit.hash).then(text => {
             // 归属守卫：期间切了 workspace / 组件已卸载 → 丢弃
             if (!isCurrent(reqWs)) return
-            openFileTab({path: `__show__${commit.hash}`, title: `Show: ${commit.abbreviatedHash}`, content: text, hash: `show-${commit.hash}`})
+            openFileTab({path: `__show__${commit.hash}`, title: `显示：${commit.abbreviatedHash}`, content: text, hash: `show-${commit.hash}`})
           })
         }}
       />
       {/* Compare with HEAD：选中 commit（本组件即选中态）+ 选中文件时可用；ref 用 `${hash}..HEAD` 与双击 tab 键区分 */}
       <IconButton
         icon={GitCompare}
-        label="Compare with HEAD"
+        label="与 HEAD 比较"
         disabled={!selectedFile}
         onClick={() => {
           const f = selectedFile
@@ -223,20 +223,20 @@ export function GitCommitDetail({workspace}: {workspace: string}) {
           void window.electronAPI?.projectManager.gitDiffFile(reqWs, f.path, {from: commit.hash, to: 'HEAD'}).then(diffData => {
             // 归属守卫：期间切了 workspace / 组件已卸载 → 丢弃
             if (!isCurrent(reqWs)) return
-            openDiffTab({filePath: f.path, title: `Diff: ${fileNameOf(f.path)} vs HEAD`, diffType: 'commit', ref: `${commit.hash}..HEAD`, diffData})
+            openDiffTab({filePath: f.path, title: `${fileNameOf(f.path)} 与 HEAD 的差异`, diffType: 'commit', ref: `${commit.hash}..HEAD`, diffData})
           })
         }}
       />
       {/* Checkout：本窗口不支持（title 说明原因） */}
-      <button type="button" className="pm-header-action" disabled title="本窗口不支持 Checkout">Checkout</button>
+      <button type="button" className="pm-header-action" disabled title="本窗口不支持检出">检出</button>
     </>
   )
 
   return (
     <PanelCard testId="pm-commit-detail">
-      <PanelHeader title="Commit 详情" testId="pm-detail-header" actions={actions} />
+      <PanelHeader title="提交详情" testId="pm-detail-header" actions={actions} />
       <div className="pm-detail-scroll">
-        <div>{detail?.files.length ?? 0} files changed</div>
+        <div>已更改 {detail?.files.length ?? 0} 个文件</div>
         {[...tree.entries()].map(([dir, files]) => {
           const isOpen = expandedDirs.has(dir)
           return (
@@ -246,7 +246,7 @@ export function GitCommitDetail({workspace}: {workspace: string}) {
                 hasChildren
                 expanded={isOpen}
                 icon={<FOLDER_OPEN_SPEC.Icon size={13} color={FOLDER_OPEN_SPEC.color} aria-hidden="true" />}
-                label={<span className="pm-group-title">{dir === '.' ? '(root)' : `${dir} (${files.length} files)`}</span>}
+                label={<span className="pm-group-title">{dir === '.' ? '（根目录）' : `${dir}（${files.length} 个文件）`}</span>}
                 onClick={() => toggleDir(dir)}
                 onToggle={() => toggleDir(dir)}
                 ariaLabel={dir}

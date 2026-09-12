@@ -657,3 +657,46 @@ describe('FileTree 外部变更后补齐缓存（invalidateFrom → invalidateTi
     expect(await screen.findByRole('treeitem', {name: 'x.ts'})).toBeInTheDocument()
   })
 })
+
+describe('FileTree 右键删除（danger）', () => {
+  const deletePath = vi.fn(async () => {})
+
+  /** 公共前置：挂载文件树并打开 a.ts 的右键菜单（三条用例只差对 deletePath 的打桩） */
+  const openDeleteMenu = async () => {
+    listDir.mockResolvedValue([fileEntry('a.ts', 'a.ts')])
+    render(<FileTree />)
+    fireEvent.contextMenu(await screen.findByRole('treeitem', {name: 'a.ts'}))
+  }
+
+  beforeEach(() => {
+    // 文件级 beforeEach 未挂 deletePath，删除用例在此补齐
+    deletePath.mockReset().mockResolvedValue(undefined)
+    ;(window as any).electronAPI = {projectManager: {listDirectory: listDir, readFile, deletePath}}
+  })
+
+  it('菜单含「删除」危险项，确认后调用 deletePath', async () => {
+    await openDeleteMenu()
+    const item = screen.getByRole('menuitem', {name: '删除'})
+    expect(item).toHaveClass('pm-context-menu-item--danger')
+    fireEvent.click(item)
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '删除', confirmText: '删除', confirmVariant: 'danger',
+    })))
+    await waitFor(() => expect(deletePath).toHaveBeenCalledWith('/ws', 'a.ts'))
+  })
+
+  it('取消确认时不调用 deletePath', async () => {
+    confirmMock.mockResolvedValue(false)
+    await openDeleteMenu()
+    fireEvent.click(screen.getByRole('menuitem', {name: '删除'}))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled())
+    expect(deletePath).not.toHaveBeenCalled()
+  })
+
+  it('删除失败弹「删除失败」提示', async () => {
+    deletePath.mockRejectedValueOnce(new Error('EPERM'))
+    await openDeleteMenu()
+    fireEvent.click(screen.getByRole('menuitem', {name: '删除'}))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({title: '删除失败', confirmText: '知道了'})))
+  })
+})

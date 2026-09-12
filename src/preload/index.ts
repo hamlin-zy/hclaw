@@ -246,6 +246,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       gitRmCached: (ws: string, p: string) => ipcRenderer.invoke('pm:git-rm-cached', ws, p),
       gitCommit: (ws: string, message: string) => ipcRenderer.invoke('pm:git-commit', ws, message),
       gitPush: (ws: string) => ipcRenderer.invoke('pm:git-push', ws),
+      deletePath: (ws: string, relPath: string) => ipcRenderer.invoke('pm:delete-path', ws, relPath),
+      gitDiscard: (ws: string, filePath: string, status: string) => ipcRenderer.invoke('pm:git-discard', ws, filePath, status),
+      gitDeleteBranch: (ws: string, opts: {name: string, isRemote: boolean, remoteName?: string, force?: boolean}) =>
+        ipcRenderer.invoke('pm:git-delete-branch', ws, opts),
       onStatusChanged: (cb: (ws: string, summary: unknown) => void) => {
         const handler = (_: unknown, ws: string, summary: unknown) => cb(ws, summary)
         ipcRenderer.on('pm:status-changed', handler)

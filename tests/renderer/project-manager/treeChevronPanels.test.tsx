@@ -59,8 +59,8 @@ describe('双击箭头 = 净一次切换（跨面板，spec §3.2）', () => {
 
   it('GitBranchTree 分组行（Local）', async () => {
     render(<GitBranchTree />)
-    await screen.findByRole('treeitem', {name: 'Local'})
-    expectNetOneToggle('Local')
+    await screen.findByRole('treeitem', {name: '本地分支'})
+    expectNetOneToggle('本地分支')
   })
 
   it('PanelHeader（Git 区标题条）', () => {

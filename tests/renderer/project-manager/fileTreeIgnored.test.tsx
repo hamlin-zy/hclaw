@@ -168,11 +168,11 @@ describe('FileTree 右键菜单原语化', () => {
     expect(menu.getAttribute('style')).not.toMatch(/252526/)   // 旧兜底色彻底消失
   })
 
-  it('菜单含四项且点击后关闭', async () => {
+  it('菜单含五项且点击后关闭', async () => {
     listDir.mockResolvedValue(ROOT)
     render(<FileTree />)
     fireEvent.contextMenu(await screen.findByRole('treeitem', {name: 'a.ts'}))
-    expect(screen.getAllByRole('menuitem')).toHaveLength(4)
+    expect(screen.getAllByRole('menuitem')).toHaveLength(5)
     fireEvent.click(screen.getByRole('menuitem', {name: '复制路径'}))
     expect(screen.queryByRole('menu')).toBeNull()
   })

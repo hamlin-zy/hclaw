@@ -95,13 +95,13 @@ describe('GitBranchTree', () => {
     ])
     render(<GitBranchTree />)
     await screen.findByText('develop')
-    fireEvent.click(screen.getByRole('treeitem', {name: 'Local'}))
+    fireEvent.click(screen.getByRole('treeitem', {name: '本地分支'}))
     // Local 组折叠后，Local 子分支隐藏；HEAD 组仍展开
     expect(screen.queryByText('develop')).not.toBeInTheDocument()
     // HEAD 组仍显示 main
     expect(screen.getByText(/HEAD \(main\)/)).toBeInTheDocument()
     // 再点展开
-    fireEvent.click(screen.getByRole('treeitem', {name: 'Local'}))
+    fireEvent.click(screen.getByRole('treeitem', {name: '本地分支'}))
     expect(screen.getByText('develop')).toBeInTheDocument()
   })
 
@@ -131,7 +131,7 @@ describe('GitBranchTree', () => {
     ])
     render(<GitBranchTree />)
     // 统一缩进尺度（spec §13.3）：每层 13px，depth 0 例外为 8px
-    expect(await screen.findByRole('treeitem', {name: 'Local'})).toHaveStyle({paddingLeft: '8px'})
+    expect(await screen.findByRole('treeitem', {name: '本地分支'})).toHaveStyle({paddingLeft: '8px'})
     const localRow = screen.getByRole('treeitem', {name: 'main'})
     expect(localRow).toHaveStyle({paddingLeft: '13px'})
     // 远端分支落在 Remote → origin → 分支 的第三层
@@ -232,9 +232,9 @@ describe('GitDagGraph', () => {
     useGitLogStore.setState({entries: [makeEntry()], selectedHash: null})
     render(<GitDagGraph />)
     expect(screen.getByText(/Alice/)).toBeInTheDocument()
-    // 30 min ago → '30m ago'；走的是 authorDate（committer date 是 makeEntry 里的 now → 'just now'）
-    expect(screen.getByText(/30m ago/)).toBeInTheDocument()
-    expect(screen.queryByText(/just now/)).toBeNull()
+    // 30 min ago → '30 分钟前'；走的是 authorDate（committer date 是 makeEntry 里的 now → '刚刚'）
+    expect(screen.getByText(/30 分钟前/)).toBeInTheDocument()
+    expect(screen.queryByText(/刚刚/)).toBeNull()
   })
 
   it('refs 非空时逐个渲染分支徽章', () => {
@@ -257,7 +257,7 @@ describe('GitDagGraph', () => {
     // 单行省略后靠整行 title 展示 subject 全文（spec §9.1：subject 省略号 + tooltip 全文）
     expect(row).toHaveAttribute('title', 'init')
     // 可见段必须真渲染 `{e.author} · {relativeTime}`（防"tooltip 存在但行空"回归）
-    expect(row.querySelector('.pm-commit-meta')).toHaveTextContent('Alice · 5m ago')
+    expect(row.querySelector('.pm-commit-meta')).toHaveTextContent('Alice · 5 分钟前')
     expect(row.querySelector('.pm-commit-refs')).toHaveTextContent('main')
   })
 
@@ -299,17 +299,22 @@ describe('GitDagGraph', () => {
 
 describe('relativeTime', () => {
   const now = Date.now()
-  it('少于 1 分钟 → just now', () => {
-    expect(relativeTime(now - 30 * 1000)).toBe('just now')
+  it('少于 1 分钟 → 刚刚（0 分钟边界）', () => {
+    expect(relativeTime(now)).toBe('刚刚')
+    expect(relativeTime(now - 30 * 1000)).toBe('刚刚')
   })
-  it('1-60 分钟 → Xm ago', () => {
-    expect(relativeTime(now - 5 * 60 * 1000)).toBe('5m ago')
+  it('1-60 分钟 → X 分钟前（59 分钟边界）', () => {
+    expect(relativeTime(now - 5 * 60 * 1000)).toBe('5 分钟前')
+    expect(relativeTime(now - 59 * 60 * 1000)).toBe('59 分钟前')
   })
-  it('1-24 小时 → Xh ago', () => {
-    expect(relativeTime(now - 3 * 60 * 60 * 1000)).toBe('3h ago')
+  it('1-24 小时 → X 小时前', () => {
+    expect(relativeTime(now - 60 * 60 * 1000)).toBe('1 小时前')
+    expect(relativeTime(now - 3 * 60 * 60 * 1000)).toBe('3 小时前')
   })
-  it('1-7 天 → Xd ago', () => {
-    expect(relativeTime(now - 2 * 24 * 60 * 60 * 1000)).toBe('2d ago')
+  it('24 小时起 → X 天前（24 小时边界）', () => {
+    expect(relativeTime(now - 24 * 60 * 60 * 1000)).toBe('1 天前')
+    expect(relativeTime(now - 2 * 24 * 60 * 60 * 1000)).toBe('2 天前')
+    expect(relativeTime(now - 6 * 24 * 60 * 60 * 1000)).toBe('6 天前')
   })
   it('>= 7 天 → YYYY-MM-DD', () => {
     const past = new Date('2020-01-15T10:00:00')

@@ -56,8 +56,8 @@ export function ProjectManagerApp() {
   // git diff --numstat HEAD 不含未跟踪文件，只看 additions/deletions 会让"纯未跟踪"工作区
   // 在头部显示 Working tree clean、状态栏却显示 N files changed，两个面自相矛盾。
   const gitSummary = summary && changedCount > 0
-    ? `${changedCount} files changed · ${summary.additions} + · ${summary.deletions} −`
-    : 'Working tree clean'
+    ? `已更改 ${changedCount} 个文件 · +${summary.additions} · −${summary.deletions}`
+    : '工作区干净'
 
   // refsVersion：commit/push 后自增，驱动分支名重新拉取（不放在主 effect 里，
   // 否则每次 bumpRefs 都会连带重跑 refresh / loadInitial / 订阅重建）
@@ -101,6 +101,10 @@ export function ProjectManagerApp() {
     const offFile = pm.onFileChanged((pushedWs, payload) => {
       if (pushedWs !== ws) return
       useFileTreeStore.getState().invalidateFrom(payload.path.split('/').slice(0, -1).join('/') || '.')
+      // 删除（文件 / 目录）→ 关闭对应的残留标签页（外部删文件也能自动清理）
+      if (payload.type === 'unlink' || payload.type === 'unlinkDir') {
+        useEditorTabStore.getState().closeTabsForPaths(payload.path)
+      }
       const {tabs, reloadTabContent} = useEditorTabStore.getState()
       // ① 只处理 filePath === payload.path 的 tab（不遍历全部 file tab）
       for (const t of tabs.filter(t => t.type === 'file' && t.filePath === payload.path)) {

@@ -13,6 +13,35 @@ import {lineSelectionDecorations, setSelectedLines} from '../lib/lineDecoration'
 const MONO_FONT = 'ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, "Courier New", monospace'
 
 /**
+ * CodeMirror 内置搜索面板短语中文化。
+ * @codemirror/search 的面板文案经 `EditorState.phrase(key)` 读取，键与源码中
+ * `phrase(view, "...")` 的实参一一对应（Find / Replace / next / previous / all /
+ * match case / regexp / by word / replace / replace all / close / go / Go to line …）。
+ * 挂在 EditorState.phrases facet 上，覆盖内置英文面板。
+ */
+export const SEARCH_PHRASES: Record<string, string> = {
+  Find: '查找',
+  Replace: '替换',
+  next: '下一个',
+  previous: '上一个',
+  all: '全部',
+  select: '选择',
+  'match case': '区分大小写',
+  regexp: '正则',
+  'by word': '全词',
+  'whole word': '全词',
+  replace: '替换',
+  'replace all': '全部替换',
+  close: '关闭',
+  go: '跳转',
+  'Go to line': '跳转到行',
+  'current match': '当前匹配',
+  'on line': '位于行',
+  'replaced match on line $': '已替换第 $ 行的匹配',
+  'replaced $ matches': '已替换 $ 处匹配',
+}
+
+/**
  * 令牌化语法着色（spec §11.1）。
  * 颜色全部走 CSS 变量 → 切换主题无需重建 EditorState，CodeMirror 自动应用新值。
  * 注：`tags` 不在 `@codemirror/language` 导出，来自 `@lezer/highlight`。
@@ -142,6 +171,8 @@ export function CodeEditor({content, path, forceVim, onSelectionChange}: {
         // 非 fallback 样式 → 优先于 basicSetup 内建的 syntaxHighlighting(defaultHighlightStyle, {fallback: true})
         syntaxHighlighting(themedHighlight),
         search({top: true}),
+        // 搜索面板短语中文化（覆盖 @codemirror/search 内置英文文案）
+        EditorState.phrases.of(SEARCH_PHRASES),
         keymap.of([...searchKeymap, ...defaultKeymap]),
         ...(await getLanguageExtension(path)),
         // 按行选中的整行背景装饰（视觉层，语义仍由 EditorSelection 承担）

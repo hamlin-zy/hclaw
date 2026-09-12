@@ -80,7 +80,7 @@ describe('Commit 行四段式（spec §9.1 / G9）', () => {
 
   it('meta 是 author · 相对时间（用 authorDate，不是 committer date）', () => {
     // authorDate 是 2020 年 → 显示绝对日期；date 是 1 小时前。
-    // 若实现误用 e.date，这里会得到 '1h ago'，断言失败（spec §9.1 段名即「author · 相对时间」）。
+    // 若实现误用 e.date，这里会得到 '1 小时前'，断言失败（spec §9.1 段名即「author · 相对时间」）。
     render(<GitDagGraph sortAsc={false} />)
     const meta = screen.getByTestId('pm-commit-row').querySelector('.pm-commit-meta') as HTMLElement
     expect(meta).toHaveTextContent('Haoming Sun')
