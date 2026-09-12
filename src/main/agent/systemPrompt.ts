@@ -11,7 +11,7 @@
 import type {AgentTemplate, HClawAgentType} from '@shared/types'
 import type {ToolDefinitionForLLM} from './tools/types'
 import {getShellInfo, getTerminalDisplayName} from './tools/builtin/bashTool'
-import {isMcpToolName} from '@shared/utils/mcpShortId'
+import {getAllMcpToolMeta} from './mcp/discovery'
 import {promptResolver, type PromptResolver} from './prompts/resolver'
 import {getAgentTemplate} from './prompts/agentTemplates'
 import {getHclawDir} from '../config'
@@ -96,13 +96,21 @@ function buildRoutingSection(_ctx: SystemPromptContext, r: PromptResolver): stri
 }
 
 function buildImageHandlingSection(ctx: SystemPromptContext, r: PromptResolver): string {
-  const hasMcpOcr = ctx.tools?.some(t =>
-    isMcpToolName(t.name) &&
-    (t.name.includes('ocr') || t.name.includes('image') || t.name.includes('vision') || t.name.includes('screenshot'))
-  ) || false
+  // ★ 不能依赖 ctx.tools：catalog 通道下 MCP 工具被移出 tools 数组，
+  //   基于 ctx.tools 的探测会恒为 false（能力探测失效）。改为查 MCP 工具元数据映射——
+  //   它与 toolRegistry 同生命周期（native / catalog 两通道下都完整）。
+  const hasMcpOcr = getAllMcpToolMeta().some(m =>
+    matchesOcrKeyword(m.proxyName) || matchesOcrKeyword(m.rawToolName)
+  )
 
     return r.resolve('system.image').replace('{{mcpOcrStatus}}',
         hasMcpOcr ? '优先调用对应 MCP 工具提取内容' : '当前无可用 MCP 图片工具')
+}
+
+/** MCP 工具是否具备图片/OCR 能力（按工具名关键词判定，与旧实现同源） */
+function matchesOcrKeyword(name: string): boolean {
+  const lower = name.toLowerCase()
+  return lower.includes('ocr') || lower.includes('image') || lower.includes('vision') || lower.includes('screenshot')
 }
 
 function buildMediaSection(r: PromptResolver): string {

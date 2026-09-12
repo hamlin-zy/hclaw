@@ -2,6 +2,7 @@ import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import type {MemoAttachment} from '@shared/types/memo'
 
 // memoStore 通过 getHclawDir() 定位存储目录。
 // getHclawDir 无环境变量覆盖（引导文件/默认 ~/.hclaw），故用 vi.doMock 指到临时目录，
@@ -65,7 +66,7 @@ describe('memoStore attachments', () => {
         const att = await store.uploadAttachment({fileName: '..\\..\\evil.txt', srcPath: src, mime: 'text/plain'})
         expect(path.resolve(att.storedPath).startsWith(path.resolve(PENDING_DIR_TEST()) + path.sep)).toBe(true)
         expect(fs.existsSync(att.storedPath)).toBe(true)
-        expect(path.basename(att.storedPath)).toBe('evil.txt')
+        expect(path.basename(att.storedPath)).toMatch(/_evil\.txt$/)
     })
 
     it('discardPending 传 ../evil 不删除任意目录', async () => {
@@ -111,6 +112,47 @@ describe('memoStore attachments', () => {
     it('createSession 之外：附件 20 个上限由 UI 层拦截（此处仅单条上传）', async () => {
         // 占位断言：上限逻辑在渲染层（spec §9），主进程不做限制
         expect(true).toBe(true)
+    })
+
+    it('同名附件迁移不互相覆盖：5个同名文件 create 后各自独立', async () => {
+        const store = await freshStore()
+        const atts: MemoAttachment[] = []
+        for (let i = 0; i < 5; i++) {
+            const src = path.join(dir, `src-${i}.png`)
+            fs.writeFileSync(src, `data-${i}`)
+            const att = await store.uploadAttachment({fileName: 'image.png', srcPath: src, mime: 'image/png'})
+            atts.push(att)
+        }
+        const item = store.create({workspacePath: 'E:\\p', content: 'five atts', title: 'T', attachments: atts})
+        // 5个附件的 storedPath 各不相同
+        const paths = item.attachments.map(a => a.storedPath)
+        expect(new Set(paths).size).toBe(5)
+        // 每个文件内容独立
+        for (let i = 0; i < 5; i++) {
+            expect(fs.existsSync(item.attachments[i].storedPath)).toBe(true)
+            expect(fs.readFileSync(item.attachments[i].storedPath, 'utf8')).toBe(`data-${i}`)
+        }
+    })
+
+    it('edit 同名附件上传不互相覆盖：有 memoId 时各自独立', async () => {
+        const store = await freshStore()
+        // 先创建一个备忘录
+        const item = store.create({workspacePath: 'E:\\p', content: 'base', title: 'T'})
+        // 编辑时上传 3 个同名附件
+        const uploadedAtts: MemoAttachment[] = []
+        for (let i = 0; i < 3; i++) {
+            const src = path.join(dir, `edit-src-${i}.txt`)
+            fs.writeFileSync(src, `content-${i}`)
+            const att = await store.uploadAttachment({memoId: item.id, fileName: 'file.txt', srcPath: src, mime: 'text/plain'})
+            uploadedAtts.push(att)
+        }
+        // 3个附件的 storedPath 各不相同
+        const paths = uploadedAtts.map(a => a.storedPath)
+        expect(new Set(paths).size).toBe(3)
+        for (let i = 0; i < 3; i++) {
+            expect(fs.existsSync(uploadedAtts[i].storedPath)).toBe(true)
+            expect(fs.readFileSync(uploadedAtts[i].storedPath, 'utf8')).toBe(`content-${i}`)
+        }
     })
 })
 

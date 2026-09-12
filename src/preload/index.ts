@@ -26,10 +26,9 @@ const dialogType = dialogArg ? dialogArg.split('=')[1] : ''
 const taskConvArg = process.argv.find(arg => arg.startsWith('--hclaw-task-conv='))
 const taskConvId = taskConvArg ? taskConvArg.split('=')[1] : ''
 
-// 从 additionalArguments 读取备忘录编辑窗口参数（仅 memo-edit 窗口有）
-// --hclaw-memo-id=<id>：编辑既有备忘录；--hclaw-memo-workspace=<path>：新建（作用于该工作区）
-// 值经渲染端 encodeURIComponent 编码：workspacePath 含空格/`=` 时不会被 argv 切断
-const memoArg = (prefix: string): string => {
+// 从 additionalArguments 读取经 encodeURIComponent 编码的参数值（路径类参数）。
+// 值含空格/`=` 时不会被 argv 切断；非法 % 序列致 decodeURIComponent 抛 URIError → 回退原值
+const readEncodedArg = (prefix: string): string => {
     const arg = process.argv.find(a => a.startsWith(prefix))
     if (!arg) return ''
     const raw = arg.slice(prefix.length)
@@ -39,12 +38,18 @@ const memoArg = (prefix: string): string => {
         return raw
     }
 }
-const memoId = memoArg('--hclaw-memo-id=')
-const memoWorkspace = memoArg('--hclaw-memo-workspace=')
+
+// 备忘录编辑窗口参数（仅 memo-edit 窗口有）：
+// --hclaw-memo-id=<id>：编辑既有备忘录；--hclaw-memo-workspace=<path>：新建（作用于该工作区）
+const memoId = readEncodedArg('--hclaw-memo-id=')
+const memoWorkspace = readEncodedArg('--hclaw-memo-workspace=')
 
 // 从 additionalArguments 读取开发模式标识（主进程 isDevMode() 判定，经 --hclaw-dev 透传）
 const devArg = process.argv.find(arg => arg.startsWith('--hclaw-dev='))
 const isDevMode = devArg ? devArg.split('=')[1] === '1' : false
+
+// 项目管理窗口的工作区路径（仅 project-manager 窗口有）
+const pmWorkspacePath = readEncodedArg('--hclaw-workspace=')
 
 contextBridge.exposeInMainWorld('electronAPI', {
     initialTheme: initialThemeValue,
@@ -150,6 +155,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         requestId: string
         answer: string
     }) => ipcRenderer.invoke('agent-respond-ask-user', params),
+    agentRespondToolsChange: (params: {
+        conversationId: string
+        requestId: string
+        decision: 'continue' | 'cancel' | 'snooze_today'
+    }) => ipcRenderer.invoke('agent-respond-tools-change', params),
     agentWarmupClients: (data: {
         scheme: import('../shared/types').ModelScheme
         providers: Array<{
@@ -217,6 +227,48 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // 系统提示词构建（用于测试）
     systemPromptBuild: () => ipcRenderer.invoke('system-prompt-build'),
+
+    // 项目管理窗口（pm:* IPC）
+    projectManager: {
+      workspacePath: pmWorkspacePath,
+      openProjectManager: (ws: string) => ipcRenderer.invoke('open-project-manager', ws),
+      listDirectory: (ws: string, dir: string) => ipcRenderer.invoke('pm:list-directory', ws, dir),
+      readFile: (ws: string, p: string) => ipcRenderer.invoke('pm:read-file', ws, p),
+      gitStatus: (ws: string) => ipcRenderer.invoke('pm:git-status', ws),
+      gitDiffFile: (ws: string, p: string, mode?: {ref?: string, from?: string, to?: string}) =>
+        ipcRenderer.invoke('pm:git-diff-file', ws, p, mode),
+      gitLog: (ws: string, opts: import('../shared/types/project-manager').LogOptions) => ipcRenderer.invoke('pm:git-log', ws, opts),
+      gitShowCommit: (ws: string, hash: string) => ipcRenderer.invoke('pm:git-show-commit', ws, hash),
+      gitShowDetail: (ws: string, hash: string) => ipcRenderer.invoke('pm:git-show-detail', ws, hash),
+      gitBranches: (ws: string) => ipcRenderer.invoke('pm:git-branches', ws),
+      gitAuthors: (ws: string, opts?: {branch?: string}) => ipcRenderer.invoke('pm:git-authors', ws, opts),
+      gitAdd: (ws: string, paths: string | string[]) => ipcRenderer.invoke('pm:git-add', ws, paths),
+      gitRmCached: (ws: string, p: string) => ipcRenderer.invoke('pm:git-rm-cached', ws, p),
+      gitCommit: (ws: string, message: string) => ipcRenderer.invoke('pm:git-commit', ws, message),
+      gitPush: (ws: string) => ipcRenderer.invoke('pm:git-push', ws),
+      onStatusChanged: (cb: (ws: string, summary: unknown) => void) => {
+        const handler = (_: unknown, ws: string, summary: unknown) => cb(ws, summary)
+        ipcRenderer.on('pm:status-changed', handler)
+        return () => ipcRenderer.removeListener('pm:status-changed', handler)
+      },
+      // 主进程 gitdir 监听推来的 refs 变化（HEAD / refs / packed-refs）：commit 列表与分支树需重取
+      onRefsChanged: (cb: (ws: string) => void) => {
+        const handler = (_: unknown, ws: string) => cb(ws)
+        ipcRenderer.on('pm:refs-changed', handler)
+        return () => ipcRenderer.removeListener('pm:refs-changed', handler)
+      },
+      onFileChanged: (cb: (ws: string, payload: {path: string, type: string}) => void) => {
+        const handler = (_: unknown, ws: string, payload: {path: string, type: string}) => cb(ws, payload)
+        ipcRenderer.on('pm:file-changed', handler)
+        return () => ipcRenderer.removeListener('pm:file-changed', handler)
+      },
+      // 「发送到会话」：PM 渲染进程投递 → 主进程转发 → 主窗口渲染进程执行
+      sendToConversation: (payload: import('@shared/types/project-manager').SendToConversationPayload) =>
+        ipcRenderer.invoke('pm:send-to-conversation', payload),
+      // 主窗口渲染进程回执（确认 user 消息已插入；started 表示 agent loop 是否已启动）
+      ackSendToConversation: (payload: {requestId: string; ok: boolean; error?: string; started?: boolean}) =>
+        ipcRenderer.send('pm:send-to-conversation:ack', payload),
+    },
 
     // 工具列表 + MCP 服务器列表（用于测试）
     toolMcpList: () => ipcRenderer.invoke('tool-mcp-list'),

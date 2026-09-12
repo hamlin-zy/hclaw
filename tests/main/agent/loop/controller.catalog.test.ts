@@ -14,7 +14,7 @@ vi.mock('../../../../src/main/agent/skills/catalogInjector', async (importOrigin
     const actual = await importOriginal<typeof import('../../../../src/main/agent/skills/catalogInjector')>()
     return {
         ...actual,
-        collectCatalogSnapshot: vi.fn(() => ({entries: ENTRIES_MOCK.current(), complete: true})),
+        collectCatalogSnapshot: vi.fn(() => ({skills: ENTRIES_MOCK.current(), mcpTools: [], complete: true})),
     }
 })
 
@@ -120,7 +120,7 @@ describe('能力目录 pre-step（catalogPublish）', () => {
 
         const state = createLoopState([presetMsg])
         const cs = restoreCatalogState(state.messages)
-        expect(cs.lastDigest).toBe(presetMsg.metadata.catalogDigest)
+        expect(cs.lastSkillDigest).toBe(presetMsg.metadata.catalogDigest)
         expect(cs.incompleteStreak).toBe(0)
 
         const r = runCatalogPreStep(state, cs, repo, 'conv-1', false)

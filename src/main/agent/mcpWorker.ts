@@ -45,6 +45,17 @@ interface ListAllRequest {
     callId: string
 }
 
+/**
+ * 权限查询请求（catalog 通道：call_mcp_tool 执行期需按 (serverId, 原始工具名) 重查
+ * denyList / autoApprove；agent worker 内无 MCPClient 实例，经 MessagePort 转发到本 Worker）
+ */
+interface GetToolPermissionRequest {
+    type: 'get_tool_permission'
+    callId: string
+    serverId: string
+    toolName: string
+}
+
 interface McpToolResult {
     success: boolean
     output: string | null
@@ -56,7 +67,7 @@ interface UpdateServersMessage {
     servers: MCPServerConfig[]
 }
 
-type McpWorkerMessage = CallToolRequest | ListToolsRequest | ListAllRequest | UpdateServersMessage
+type McpWorkerMessage = CallToolRequest | ListToolsRequest | ListAllRequest | GetToolPermissionRequest | UpdateServersMessage
 
 // ─── MCP Worker 服务 ──────────────────────────────────
 
@@ -257,6 +268,9 @@ class McpWorkerService {
                 case 'list_all':
                     this.handleListAll(port)
                     break
+                case 'get_tool_permission':
+                    this.handleGetToolPermission(port, req)
+                    break
             }
         })
 
@@ -339,11 +353,27 @@ class McpWorkerService {
                 id: s.config.id,
                 name: s.config.name,
                 status: s.status,
-                tools: s.tools.map(toToolPayload),
+                // ★ 用 getEffectiveTools（已过滤 denyList）：agent worker 的 mcpClient 是
+                //   MessagePort，filterDeniedTools 无法拿到 denyList，只能在源头过滤，
+                //   否则被用户明确 deny 的工具仍会被注册进 registry 并广告给模型。
+                tools: this.mcpClient.getEffectiveTools(s.config.id).map(toToolPayload),
                 userDescription: s.config.userDescription,
             }))
 
         port.postMessage({type: 'all_result', servers})
+    }
+
+    /**
+     * 权限查询：按 (serverId, MCP 侧原始工具名) 返回 denyList / autoApprove 判定结果。
+     * config 变更（用户开关工具/调整自动批准）实时生效，不做缓存。
+     */
+    private handleGetToolPermission(port: MessagePort, req: GetToolPermissionRequest): void {
+        port.postMessage({
+            type: 'tool_permission_result',
+            callId: req.callId,
+            denied: this.mcpClient.isToolDenied(req.serverId, req.toolName),
+            autoApproved: this.mcpClient.isToolAutoApproved(req.serverId, req.toolName),
+        })
     }
 
     // ─── 状态通知 ──────────────────────────────────────
@@ -413,7 +443,10 @@ class McpWorkerService {
         const toolsPayload = {
             id: server.config.id,
             name: server.config.name,
-            tools: server.tools.map(toToolPayload),
+            // 用 getEffectiveTools 剔除 denyList 工具：Agent Worker 内无法访问 denyList
+            // （filterDeniedTools 走 getCurrentClient()，在 worker 里只有 MessagePort），
+            // 若此处下发未过滤列表，被 deny 的工具会被重新注册进 registry 并出现在能力目录。
+            tools: this.mcpClient.getEffectiveTools(serverId).map(toToolPayload),
             userDescription: server.config.userDescription,
             status: server.status,
         }

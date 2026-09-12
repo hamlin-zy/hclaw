@@ -32,6 +32,38 @@ interface InputToolbarProps {
  */
 const MODE_GAP_ALLOWANCE = 28
 
+/**
+ * 状态区可保留的最大宽度（px）。
+ * 状态文案（"按 Shift+Enter 换行，Enter 发送" 约 190px）只是操作提示，空间不足时
+ * 允许被省略号截断，把宽度让给会话级模式控件（安全模式/显示模式）——模式控件是功能
+ * 入口，优先级高于提示文案。超出该值的部分视为"可让渡空间"，计入模式组的宽度预算。
+ * 取值依据：≈ 提示文案前半句（"按 Shift+Enter 换…"）仍可读的宽度。
+ */
+const STATUS_MAX_RESERVE = 96
+
+/**
+ * 模式组"可用宽度"（px）的纯计算。抽成纯函数便于单测：jsdom 无布局引擎，
+ * clientWidth/scrollWidth 恒为 0，只有纯函数才能在测试里断言真实窗口场景。
+ *
+ * 语义：窗口可用宽 − 固定内容宽 − 状态文案保留宽 − 间隙预算。
+ * 状态文案宽按 STATUS_MAX_RESERVE 封顶（超出部分让渡给模式组）。
+ * 结果下限 0（不可为负）。
+ */
+export function computeModeAvailWidth({
+    toolbarW,
+    statusTextW,
+    restW,
+    sendW,
+}: {
+    toolbarW: number
+    statusTextW: number
+    restW: number
+    sendW: number
+}): number {
+    const statusW = Math.min(statusTextW, STATUS_MAX_RESERVE)
+    return Math.max(toolbarW - statusW - restW - sendW - MODE_GAP_ALLOWANCE, 0)
+}
+
 export default function InputToolbar({
     isRunning,
     needsSession,
@@ -52,27 +84,33 @@ export default function InputToolbar({
     //   status（flex-1）吃满。因此若以 action.clientWidth 为基准，在内容无溢出时
     //   会退化为"模式组当前宽度"，模式隐藏（宽=0）时恒为 0 → 拉宽也无法恢复。
     //   正确信号 = toolbar.clientWidth（窗口可用宽）。固定内容宽度用"内容自然宽"：
-    //   - status 为 flex-1 会被拉伸，不能取实际宽，须取其 inline 内容自然宽（不受拉伸）；
+    //   - status 文案为 flex-1 内的可截断文本，取 scrollWidth（完整文本宽，不受截断影响），
+    //     再按 STATUS_MAX_RESERVE 封顶：封顶以外的空间让渡给模式组；
     //   - rest（缓存/模型/思考/菜单）shrink-0，offsetWidth 即内容宽；
     //   - 发送/终止按钮 shrink-0，offsetWidth 即内容宽。
-    //   故 availWidth = toolbar 宽 − status内容宽 − rest宽 − 发送宽 − 间隙。
+    //   故 availWidth = toolbar 宽 − min(status文案宽, STATUS_MAX_RESERVE) − rest宽 − 发送宽 − 间隙。
     //   该值只随窗口宽度变化，与模式组自身渲染形态无关 → 无振荡，拉宽能正确恢复。
     const toolbarRef = useRef<HTMLDivElement>(null)
-    const statusContentRef = useRef<HTMLSpanElement>(null)
+    const statusTextRef = useRef<HTMLSpanElement>(null)
     const restRef = useRef<HTMLDivElement>(null)
     const sendRef = useRef<HTMLDivElement>(null)
     const [availWidth, setAvailWidth] = useState<number | null>(null)
     useLayoutEffect(() => {
         const toolbar = toolbarRef.current
-        const statusContent = statusContentRef.current
+        const statusText = statusTextRef.current
         const rest = restRef.current
         const send = sendRef.current
-        if (!toolbar || !statusContent || !rest || !send) return
+        if (!toolbar || !statusText || !rest || !send) return
         const measure = () => {
-            const statusW = statusContent.offsetWidth
-            const rightW = rest.offsetWidth
-            const sendW = send.offsetWidth
-            setAvailWidth(Math.max(toolbar.clientWidth - statusW - rightW - sendW - MODE_GAP_ALLOWANCE, 0))
+            // 状态文案自然宽用 scrollWidth：文案被省略号截断后它仍返回完整文本宽，
+            // 避免"测量值随截断变化 → 预算变化"的反馈回路。超出 STATUS_MAX_RESERVE
+            // 的部分不让渡给模式组（详见 computeModeAvailWidth）。
+            setAvailWidth(computeModeAvailWidth({
+                toolbarW: toolbar.clientWidth,
+                statusTextW: statusText.scrollWidth,
+                restW: rest.offsetWidth,
+                sendW: send.offsetWidth,
+            }))
         }
         measure()
         const ro = new ResizeObserver(measure)
@@ -84,18 +122,18 @@ export default function InputToolbar({
 
     return (
         <div ref={toolbarRef} data-name="input-toolbar" className="flex items-center justify-between px-2 py-1 border-t border-[var(--border)]" role="status" aria-live="polite">
-            {/* 状态区：flex-1 吃满剩余。其内容自然宽用 inline-flex inner 测量（不受拉伸/裁剪污染） */}
+            {/* 状态区：flex-1 吃满剩余；文案 span 自身可收缩（min-w-0），挤不下时用省略号截断 */}
             <div data-name="input-toolbar-status" className="flex items-center gap-2 text-xs text-[var(--text-muted)] flex-1 min-w-0 overflow-hidden">
-                <span ref={statusContentRef} className="inline-flex items-center gap-2 whitespace-nowrap">
+                <span className="inline-flex items-center gap-2 whitespace-nowrap min-w-0">
                 {/* 模型 + 阶段状态（"模型 思考中/响应中"）已合并至消息气泡底部
                     （MessageList statusNote），运行态不再于输入栏显示文案/脉冲点 */}
-                {needsSession ? (
-                    <span className="truncate min-w-0">请先选择工作目录和会话</span>
-                ) : needsModel ? (
-                    <span className="truncate min-w-0">请先在右上角选择 LLM 服务商</span>
-                ) : (
-                    <span className="truncate min-w-0">按 Shift+Enter 换行，Enter 发送</span>
-                )}
+                {/* 文案为可截断项：父级 min-w-0 + 自身 truncate/min-w-0 → 空间不足时省略号截断，
+                    把宽度让给模式控件（见 STATUS_MAX_RESERVE）；scrollWidth 仍返回完整文本宽供测量 */}
+                <span ref={statusTextRef} className="truncate min-w-0">
+                    {needsSession ? '请先选择工作目录和会话'
+                        : needsModel ? '请先在右上角选择 LLM 服务商'
+                        : '按 Shift+Enter 换行，Enter 发送'}
+                </span>
                 {pendingMessagesCount > 0 && (
                     <span className="text-[var(--warning)] flex items-center gap-1 shrink-0 whitespace-nowrap">
                         <StatusDot color="var(--warning)"/>

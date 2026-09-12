@@ -286,6 +286,12 @@ function extractString(obj: Record<string, unknown>, ...keys: string[]): string 
 /**
  * 安全地解析字符串数组
  *
+ * 兼容三种写法：
+ * - 数组：过滤出字符串项（行为不变）
+ * - 逗号串（Claude Code 风格 `tools: Read, Write, Edit`，js-yaml 解析为字符串）：
+ *   按逗号分割、trim、过滤空项
+ * - 其他类型：返回 []
+ *
  * @param obj 原始对象
  * @param key 字段名
  * @returns 字符串数组
@@ -294,6 +300,9 @@ function parseStringArray(obj: Record<string, unknown>, key: string): string[] {
     const value = obj[key]
     if (Array.isArray(value)) {
         return value.filter((item): item is string => typeof item === 'string')
+    }
+    if (typeof value === 'string') {
+        return value.split(',').map(item => item.trim()).filter(Boolean)
     }
     return []
 }

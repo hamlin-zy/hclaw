@@ -177,9 +177,136 @@ describe('TooltipPortal hover 语义', () => {
         Object.defineProperty(tipEl, 'offsetWidth', {value: 200, configurable: true})
         // 触发重渲染以执行 useLayoutEffect 钳制
         fireEvent.mouseOver(btn)
-        // 右对齐窗口内缘：left = 1024 - 8，transform 取消居中改为右对齐
-        expect(tipEl.style.left).toBe('1016px')
-        expect(tipEl.style.transform).toContain('-100%')
+        // 右缘钳制：改用右缘锚定（left:auto + right:TOOLTIP_EDGE_MARGIN），浮层从
+        // 右缘向左展开 → shrink-to-fit 可用宽度变为整个视口宽，不再被
+        // 「视口宽 − left」压到 min-content 逐字换行（本 bug 的根因）
+        expect(tipEl.style.left).toBe('auto')
+        expect(tipEl.style.right).toBe('8px')
+        // X 方向位移必须取消（translateX(-100%) / -50% 会让文本继续压在窄空间里），
+        // 仅保留 Y 翻转（top=900 已越过 jsdom 视口底部 768 → placement=above）
+        expect(tipEl.style.transform).toBe('translateY(-100%)')
+    })
+
+    it('右缘钳制且位于元素下方：取消 X 位移但保留下方定位（Y 翻转语义不回归）', () => {
+        const {container} = render(
+            <>
+                <TooltipPortal/>
+                <button title="刷新" data-testid="target">
+                    <svg/>
+                </button>
+            </>,
+        )
+        const btn = container.querySelector('[data-testid="target"]')!
+        // 贴右缘但仍在视口上半部：x=920，tooltip 宽 200 → 右缘 1020 > 1016 需右缘钳制；
+        // spaceBelow = 768 - 130 = 638 → placement=below
+        vi.spyOn(btn, 'getBoundingClientRect').mockReturnValue({
+            left: 900, top: 100, right: 940, bottom: 130, width: 40, height: 30,
+            x: 900, y: 100, toJSON: () => ({}),
+        } as DOMRect)
+        fireEvent.mouseOver(btn)
+        const tipEl = document.querySelector('.tooltip-portal') as HTMLElement
+        Object.defineProperty(tipEl, 'offsetWidth', {value: 200, configurable: true})
+        fireEvent.mouseOver(btn)
+        expect(tipEl.style.left).toBe('auto')
+        expect(tipEl.style.right).toBe('8px')
+        // below 路径无 Y 位移，X 位移同样取消
+        expect(tipEl.style.transform).toBe('none')
+        expect(tipEl.style.top).toBe('136px')
+    })
+
+    // ⚠️ 现状特征锁定，**不是期望语义**（既有 gap，见 task-ba3ef213）：
+    // leftEdge 分支返回 left:8，而 placement='left' 的 transform 恒为 translate(-100%,-50%)，
+    // 几何上浮层占据 [-w+8, 8] → 几乎整体落在窗口左缘之外，与「钳制到窗口内缘」的字面意图相反。
+    // 修该 bug 时本用例必须一并修改，并在真实 Chrome 中复测（jsdom 无布局引擎）。
+    it('data-tooltip-placement="left" 溢出窗口左缘：落到 leftEdge 分支（现状特征，既有 gap）', () => {
+        const {container} = render(
+            <>
+                <TooltipPortal/>
+                <button title="定位" data-tooltip-placement="left" data-testid="target">
+                    <svg/>
+                </button>
+            </>,
+        )
+        const btn = container.querySelector('[data-testid="target"]')!
+        // 贴窗口左缘：x = rect.left - 6 = 0，tooltip 宽 200 → 右缘锚定时左缘 -200 越界
+        vi.spyOn(btn, 'getBoundingClientRect').mockReturnValue({
+            left: 6, top: 300, right: 34, bottom: 330, width: 28, height: 30,
+            x: 6, y: 300, toJSON: () => ({}),
+        } as DOMRect)
+        fireEvent.mouseOver(btn)
+        const tipEl = document.querySelector('.tooltip-portal') as HTMLElement
+        Object.defineProperty(tipEl, 'offsetWidth', {value: 200, configurable: true})
+        fireEvent.mouseOver(btn)
+        // leftEdge：右缘锚定到窗口内缘 8px，left 路径的 translate(-100%, -50%) 保留
+        expect(tipEl.style.left).toBe('8px')
+        expect(tipEl.style.right).toBe('auto')
+        expect(tipEl.style.transform).toBe('translate(-100%, -50%)')
+    })
+
+    it('默认居中且不越界：保持 translateX(-50%) 居中（不回归）', () => {
+        const {container} = render(
+            <>
+                <TooltipPortal/>
+                <button title="刷新" data-testid="target">
+                    <svg/>
+                </button>
+            </>,
+        )
+        const btn = container.querySelector('[data-testid="target"]')!
+        vi.spyOn(btn, 'getBoundingClientRect').mockReturnValue({
+            left: 400, top: 100, right: 440, bottom: 130, width: 40, height: 30,
+            x: 400, y: 100, toJSON: () => ({}),
+        } as DOMRect)
+        fireEvent.mouseOver(btn)
+        const tipEl = document.querySelector('.tooltip-portal') as HTMLElement
+        // 窄浮层：x=420 居中 → 410..430，未越右缘（>1016）也未越过元素左缘（minX=400）
+        Object.defineProperty(tipEl, 'offsetWidth', {value: 20, configurable: true})
+        fireEvent.mouseOver(btn)
+        expect(tipEl.style.left).toBe('420px')
+        expect(tipEl.style.right).toBe('auto')
+        expect(tipEl.style.transform).toBe('translateX(-50%)')
+    })
+
+    it('默认居中：下方空间不足时翻转到元素上方（translate(-50%,-100%)）', () => {
+        const {container} = render(
+            <>
+                <TooltipPortal/>
+                <button title="刷新" data-testid="target">
+                    <svg/>
+                </button>
+            </>,
+        )
+        const btn = container.querySelector('[data-testid="target"]')!
+        // bottom=730 → spaceBelow = 38 < 42 → placement=above
+        vi.spyOn(btn, 'getBoundingClientRect').mockReturnValue({
+            left: 400, top: 700, right: 440, bottom: 730, width: 40, height: 30,
+            x: 400, y: 700, toJSON: () => ({}),
+        } as DOMRect)
+        fireEvent.mouseOver(btn)
+        const tipEl = document.querySelector('.tooltip-portal') as HTMLElement
+        Object.defineProperty(tipEl, 'offsetWidth', {value: 20, configurable: true})
+        fireEvent.mouseOver(btn)
+        expect(tipEl.style.transform).toBe('translate(-50%, -100%)')
+    })
+
+    it('浮层宽度契约：max-content + maxWidth 上限，且保留 pre-line 多行能力（未用 nowrap）', () => {
+        const {container} = render(
+            <>
+                <TooltipPortal/>
+                <button title="在文件树中定位当前文件" data-testid="target">
+                    <svg/>
+                </button>
+            </>,
+        )
+        const btn = container.querySelector('[data-testid="target"]')!
+        fireEvent.mouseOver(btn)
+        const tipEl = document.querySelector('.tooltip-portal') as HTMLElement
+        // 宽度取内容自然宽，与「视口宽 − left」解耦；长文案由 maxWidth 兜底换行
+        expect(tipEl.style.width).toBe('max-content')
+        expect(tipEl.style.maxWidth).toContain('320px')
+        expect(tipEl.style.maxWidth).toContain('100vw')
+        // 多行长 label 仍依赖 pre-line 换行，绝不能引入 nowrap
+        expect(tipEl.style.whiteSpace).toBe('pre-line')
     })
 
     it('快速扫过多个无 title 元素后进入 icon：旧隐藏定时器不泄漏（闪现消失竞态）', () => {

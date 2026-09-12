@@ -81,7 +81,8 @@ export function useGlobalHotkeys() {
             // 有其他浮动弹窗打开时（如工具弹窗、聚合卡片弹窗、命令补全等），
             // Esc 交给弹窗自身处理，不终止 Agent
             const agentState = useAgentStore.getState()
-            if (agentState.toolPopupData || agentState.combinedPopupData || agentState.pendingPermissionConfirm) return
+            if (agentState.toolPopupData || agentState.combinedPopupData || agentState.pendingPermissionConfirm
+                || agentState.pendingToolsChangeConfirm) return
             const activeId = useConversationStore.getState().activeConversationId
             if (activeId) {
                 e.preventDefault()

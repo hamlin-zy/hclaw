@@ -45,6 +45,11 @@ export function getToolSummary(tc: ToolCall): string | null {
         const cmdStr = toStringOrNull(args.command)
         return cmdStr ? truncate(cmdStr, 60) : null
     }
+    // catalog 通道下的 MCP 通用调用器：展示实际调用的 MCP 工具名（而非 call_mcp_tool）
+    if (tc.name === 'call_mcp_tool') {
+        const target = toStringOrNull(args.name)
+        return target ? truncate(target, 60) : null
+    }
     if (isMcpToolName(tc.name)) {
         for (const field of ['thought', 'query', 'command', 'url', 'filePath', 'pattern', 'text']) {
             const v = args[field]
@@ -66,6 +71,8 @@ export function getToolArgSummary(tc: ToolCall): string | null {
         return truncate(toStringOrNull(args.filePath) || toStringOrNull(args.path) || toStringOrNull(args.pattern) || '', 50)
     }
     if (tc.name === 'bash') return truncate(toStringOrNull(args.command) || '', 50)
+    // catalog 通道：展示实际 MCP 工具名
+    if (tc.name === 'call_mcp_tool') return truncate(toStringOrNull(args.name) || '', 50)
     if (isMcpToolName(tc.name)) {
         for (const field of ['thought', 'query', 'command', 'url', 'filePath', 'pattern', 'text']) {
             const v = args[field]
@@ -86,6 +93,14 @@ export function getToolDetail(tc: ToolCall): string | null {
         return toStringOrNull(args.filePath) || toStringOrNull(args.path) || toStringOrNull(args.pattern)
     }
     if (tc.name === 'analyze_image') return toStringOrNull(args.imagePath) || toStringOrNull(args.prompt)
+    // catalog 通道：展开区展示实际 MCP 工具名 + 参数
+    if (tc.name === 'call_mcp_tool') {
+        const target = toStringOrNull(args.name)
+        const cleaned: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(args)) if (k !== 'reason' && k !== 'name') cleaned[k] = v
+        const argText = Object.keys(cleaned).length > 0 ? JSON.stringify(cleaned) : null
+        return [target, argText].filter(Boolean).join(' ') || null
+    }
     if (isMcpToolName(tc.name)) {
         const cleaned: Record<string, unknown> = {}
         for (const [k, v] of Object.entries(args)) if (k !== 'reason') cleaned[k] = v

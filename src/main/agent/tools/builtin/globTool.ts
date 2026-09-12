@@ -170,12 +170,39 @@ async function globSearch(
   return results.sort()
 }
 
+/** glob→regex 缓存上限：缓存只为 walk 循环内复用，必须有界，否则进程生命周期内持续累积 */
+export const GLOB_REGEX_CACHE_MAX = 256
+
+/** glob→regex 编译缓存：walk 循环内避免对同一段 pattern 重复编译（Map 保插入序，超限淘汰最旧键） */
+const globToRegexCache = new Map<string, RegExp>()
+
+/**
+ * 有界 LRU 写入：命中/写入都把 key 移到队尾（最近使用），超过 max 时淘汰队首（最久未使用）。
+ * 抽成纯函数便于单测有界性，避免为测试导出内部缓存。
+ */
+export function lruSet<K, V>(cache: Map<K, V>, key: K, value: V, max: number): void {
+  cache.delete(key)
+  cache.set(key, value)
+  if (cache.size > max) {
+    const oldest = cache.keys().next().value
+    if (oldest !== undefined) cache.delete(oldest)
+  }
+}
+
 function globToRegex(glob: string): RegExp {
+  const cached = globToRegexCache.get(glob)
+  if (cached) {
+    lruSet(globToRegexCache, glob, cached, GLOB_REGEX_CACHE_MAX)
+    return cached
+  }
+
   const escaped = glob
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\*/g, '.*')
     .replace(/\?/g, '.')
-  return new RegExp(`^${escaped}$`)
+  const regex = new RegExp(`^${escaped}$`)
+  lruSet(globToRegexCache, glob, regex, GLOB_REGEX_CACHE_MAX)
+  return regex
 }
 
 /** 统一跳过隐藏项与 node_modules（regex 与 glob 模式共用） */

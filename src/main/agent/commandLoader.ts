@@ -73,7 +73,7 @@ function buildCommandDefinition(
   raw: Record<string, unknown>,
   bodyContent: string,
   filePath: string,
-): CommandDefinition | null {
+): CommandDefinition {
   const name = (raw.name as string) || path.basename(filePath, '.md')
   const description = (raw.description as string) || ''
   const enabled = raw.enabled !== false // 默认为 true
@@ -87,11 +87,6 @@ function buildCommandDefinition(
       required: a.required === true ? true : undefined,
       default: a.default !== undefined ? String(a.default) : undefined,
     }))
-  }
-
-  if (!description) {
-    logger.debug('[CommandLoader] missing description, skipping', {id, filePath})
-    return null
   }
 
   const now = Date.now()
@@ -158,10 +153,7 @@ async function scanCommandDirectory(dir: string): Promise<CommandDefinition[]> {
         }
 
         const id = path.basename(filePath, '.md')
-        const cmd = buildCommandDefinition(id, parsed.frontmatter, parsed.bodyContent, filePath)
-        if (cmd) {
-          commands.push(cmd)
-        }
+        commands.push(buildCommandDefinition(id, parsed.frontmatter, parsed.bodyContent, filePath))
       } catch (err) {
         logger.debug('[CommandLoader] failed to read file', {
           filePath,

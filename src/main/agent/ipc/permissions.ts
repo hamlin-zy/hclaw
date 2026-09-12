@@ -6,6 +6,7 @@ import {ipcMain} from 'electron'
 import {permissionEngine} from '../tools/permission'
 import {agentManager} from '../manager'
 import {runtimeConfigManager} from '../runtimeConfigManager'
+import {createConversationRepository} from '../../repositories'
 
 export function registerHandlers(): void {
     // 获取权限模式
@@ -22,8 +23,19 @@ export function registerHandlers(): void {
     })
 
     // 设置会话级权限模式（方案B：安全模式会话级；写 meta + 广播目标 worker）
+    // 子会话权限只读继承根会话：目标 convId 有 parentConvId 时直接拒绝，不做任何写入。
     ipcMain.handle('agent-set-conv-permission-mode', async (_event, convId: string, mode: string) => {
         if (mode !== 'safe' && mode !== 'auto') return {success: false, error: 'invalid mode'}
+
+        let parentConvId: string | undefined
+        try {
+            const meta = createConversationRepository().readMeta(convId) as { parentConvId?: string } | null
+            parentConvId = meta?.parentConvId
+        } catch {
+            parentConvId = undefined
+        }
+        if (parentConvId) return {success: false, error: 'inherited'}
+
         runtimeConfigManager.setConvPermissionMode(convId, mode as any)
         agentManager.broadcastConvPermissionMode(convId, mode as any)
         return {success: true}

@@ -108,6 +108,8 @@ export interface HistoryUserRow {
     catalogDigest?: unknown
     catalogEntries?: unknown
     catalogSuperseded?: unknown
+    /** catalog 种类（skills | mcp）：漏收拢会让 restoreCatalogState 无法区分两源 → 重复发布 */
+    catalogKind?: unknown
 }
 
 /** 重建后的 user 消息 */
@@ -141,6 +143,7 @@ export async function convertUserHistoryMessage(msg: HistoryUserRow): Promise<Re
         ...(msg.sourceKind !== undefined ? {sourceKind: msg.sourceKind} : {}),
         ...(msg.catalogDigest !== undefined ? {catalogDigest: msg.catalogDigest} : {}),
         ...(msg.catalogEntries !== undefined ? {catalogEntries: msg.catalogEntries} : {}),
+        ...(msg.catalogKind !== undefined ? {catalogKind: msg.catalogKind} : {}),
         ...(msg.catalogSuperseded !== undefined ? {catalogSuperseded: msg.catalogSuperseded} : {}),
     }
 

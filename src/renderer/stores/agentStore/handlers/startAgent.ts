@@ -14,10 +14,10 @@ export async function startAgentImpl(
     get: GetFn,
     params: Parameters<AgentStore['startAgent']>[0],
 ) {
-    const {conversationId} = params
+    const {conversationId, force} = params
     // 检查该会话的 agent 状态，而非全局
     const convData = get().convAgentStates[conversationId]
-    if (convData && (convData.agentState.status === 'thinking' || convData.agentState.status === 'running' || convData.agentState.status === 'paused')) {
+    if (!force && convData && (convData.agentState.status === 'thinking' || convData.agentState.status === 'running' || convData.agentState.status === 'paused')) {
         return
     }
 
@@ -103,13 +103,13 @@ export async function startAgentImpl(
             messageAttachments: params.messageAttachments,
             messageMetadata: params.messageMetadata,
         })
-        if (result && !result.success) {
+        if (!result || !result.success) {
             get().updateConvData(conversationId, {
                 agentState: {
                     ...get().convAgentStates[conversationId]?.agentState || get().agentState,
                     status: 'error',
                 },
-                errorMessage: result.error || 'Agent 启动失败',
+                errorMessage: result?.error || 'Agent 启动失败',
             })
         }
     } catch (err: any) {

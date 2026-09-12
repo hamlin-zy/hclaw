@@ -32,6 +32,7 @@ const SNAP = (id: string, content = '', opts: {think?: string; tools?: ToolCall[
     subAgentStream: {},
     pendingQuestion: null,
     pendingPermissionConfirm: null,
+    pendingToolsChangeConfirm: null,
     runningToolCount: 0,
     executingToolsMessage: null,
 })

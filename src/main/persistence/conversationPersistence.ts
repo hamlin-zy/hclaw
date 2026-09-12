@@ -20,12 +20,19 @@ export interface ConversationWriteRepo {
 
 export type PersistEvent =
   | {type: 'message-finalized'; convId: string; msgId: string}
+  // ★ C1 前置：ACK 变体——语义为该消息的 patch 已成功写入（durable）。
+  // 仅由 flush 成功路径在循环结束后逐条 emit；finalizeMessage 路径不发（它已有
+  // message-finalized，避免双发）。供后续「落库后收缩内存」消费。
+  | {type: 'message-flushed'; convId: string; msgId: string}
   | {type: 'persist-degraded'; convId: string; failureCount: number}
 
 /** 桥接侧 toolCall 形态：tool_use/tool_start 事件的 ToolCallInfo 无 status/result */
 export type ToolCallPersistable = Omit<ToolCall, 'status' | 'result'> & {
   status?: ToolCall['status']
   result?: ToolCall['result']
+  /** ★ 内存优化 C1：pending 侧纯内存标记（落库确认后收缩 result）。声明在此仅为
+   *  record* 内显式剥离（destructure）提供类型，绝不写入 DB（否则破坏逐字节契约）。 */
+  resultDurable?: boolean
 }
 
 const THROTTLE_MS = 30000        // 与渲染端同参数（conversationStore.ts:297）
@@ -48,6 +55,30 @@ function mergeBlocksById(prev: MessageBlock[] | undefined, next: MessageBlock[])
     }
   }
   return [...byId.values()]
+}
+
+/** 剥离 pending 侧纯内存标记（result / resultDurable），保证 data JSON 与剥离前逐字节一致。
+ *  ★ 必须用对象 rest 展开——它保留剩余键的**原始插入顺序**。禁止 delete / 重建对象字面量 /
+ *  排序键：二者都会改变 JSON.stringify 的输出顺序，破坏落库逐字节契约。
+ *  result 与 resultDurable 由调用方保证绝不入 DB（resultDurable 是 C1 内存优化标记）。 */
+export function toPersistable(
+  tc: ToolCallPersistable,
+): Omit<ToolCallPersistable, 'result' | 'resultDurable'> {
+  const {result: _result, resultDurable: _resultDurable, ...persistable} = tc
+  return persistable
+}
+
+/** tool_call 块构造函数：recordToolCallBlock / recordToolResultBlock 两处共用。
+ *  两个方法的块字段与键顺序已逐字比对完全一致（id/messageId/blockType/content/sequence/
+ *  timestamp/data/turnIndex），唯一差异是 timestamp 由调用方传入。data 经 toPersistable 剥离后序列化。 */
+export function toolCallBlock(
+  msgId: string, tc: ToolCallPersistable, timestamp: number, turnIndex?: number,
+): MessageBlock {
+  return {
+    id: `${msgId}-tc-${tc.id}`, messageId: msgId, blockType: 'tool_call',
+    content: null, sequence: 0, timestamp,
+    data: JSON.stringify(toPersistable(tc)), turnIndex,
+  }
 }
 
 interface ConvState {
@@ -124,14 +155,21 @@ export class ConversationPersistence {
     return ok
   }
 
-  /** flush 该会话全部 dirty（节流 timer 到期 / 显式调用）。失败者进入指数退避重试。 */
+  /** flush 该会话全部 dirty（节流 timer 到期 / 显式调用）。失败者进入指数退避重试。
+   *  ★ C1 前置：成功路径逐条 emit message-flushed（ACK），供后续落库后收缩内存消费。 */
   flush(convId: string): void {
     const st = this.states.get(convId)
     if (!st || st.patches.size === 0) return
     let failed = false
+    // ★ C1 前置：先在循环内收集本轮真正写成功的 msgId，循环结束后再统一 emit。
+    //   理由：flushMessage 返回 true 即代表该 patch 已 delete + durable，可安全发 ACK；
+    //   不在循环内直接 emit，避免订阅者（可能触发 accumulate/改动 patches）在遍历中变更集合。
+    const flushed: string[] = []
     for (const msgId of [...st.patches.keys()]) {
-      if (!this.flushMessage(convId, msgId)) failed = true
+      if (this.flushMessage(convId, msgId)) flushed.push(msgId)
+      else failed = true
     }
+    for (const msgId of flushed) this.#emit({type: 'message-flushed', convId, msgId})
     if (failed) this.#scheduleRetry(convId)
   }
 
@@ -163,22 +201,15 @@ export class ConversationPersistence {
 
   /** tool_call 块（result 由 tool_result 块承载，不入 data） */
   recordToolCallBlock(convId: string, msgId: string, tc: ToolCallPersistable, turnIndex?: number): void {
-    const {result: _result, ...persistable} = tc
-    this.accumulate(convId, msgId, {upsertBlocks: [{
-      id: `${msgId}-tc-${tc.id}`, messageId: msgId, blockType: 'tool_call',
-      content: null, sequence: 0, timestamp: Date.now(),
-      data: JSON.stringify(persistable), turnIndex,
-    }]})
+    this.accumulate(convId, msgId, {upsertBlocks: [toolCallBlock(msgId, tc, Date.now(), turnIndex)]})
   }
 
   /** tool_result：同 id upsert tool_call（终态 status）+ tool_result 块（conversationStore.ts:267-288 语义平移） */
   recordToolResultBlock(convId: string, msgId: string, tc: ToolCallPersistable, turnIndex?: number): void {
     if (tc.result === undefined) return
     const timestamp = Date.now()
-    const {result: _result, ...persistable} = tc
     this.accumulate(convId, msgId, {upsertBlocks: [
-      {id: `${msgId}-tc-${tc.id}`, messageId: msgId, blockType: 'tool_call', content: null,
-       sequence: 0, timestamp, data: JSON.stringify(persistable), turnIndex},
+      toolCallBlock(msgId, tc, timestamp, turnIndex),
       {id: `${msgId}-tr-${tc.id}`, messageId: msgId, blockType: 'tool_result', content: null,
        sequence: 0, timestamp, data: JSON.stringify({id: tc.id, result: tc.result}), turnIndex},
     ]})
@@ -207,14 +238,19 @@ export class ConversationPersistence {
 
   /** 启动/会话恢复扫描（§4.2）：补齐所有未 finalize 的 assistant 消息。
    *  扫描 SQL 过滤 role='assistant' AND ended_at IS NULL（消息行级条件，DB 层判定）。
-   *  think/tool_call 崩溃窗口内增量丢失不补（§8 已接受风险：loop 内存态不可恢复）。 */
-  recoverUnfinalized(convId: string): void {
+   *  think/tool_call 崩溃窗口内增量丢失不补（§8 已接受风险：loop 内存态不可恢复）。
+   *  ★excludeMsgIds：仍在跑的 loop 对应的消息 id（活跃 pending）。刷新恢复入口
+   *  （getStreamSnapshot）必然传入——阻塞中的消息行 ended_at 本就为 NULL，
+   *  若不排除会被误补 end 块 + abnormalTermination，正常完成的消息被渲染成
+   *  「回复中断」（P1）。真正崩溃残留（无活跃 pending）不受影响，照旧收尾。 */
+  recoverUnfinalized(convId: string, excludeMsgIds?: ReadonlySet<string>): void {
     const repo = this.repo as unknown as {
       finalizeAbnormal: (c: string, m: string, t: number) => boolean
       listUnfinalized?: (c: string) => Array<{id: string}>
     }
     if (!repo.listUnfinalized) return   // SQL 原语由 repo 层提供
     for (const {id} of repo.listUnfinalized(convId)) {
+      if (excludeMsgIds?.has(id)) continue
       repo.finalizeAbnormal(convId, id, Date.now())
     }
   }

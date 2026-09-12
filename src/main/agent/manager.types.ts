@@ -66,6 +66,20 @@ interface WorkerEntry {
 // 导出给外部使用
 export type {WorkerEntry}
 
+/**
+ * ★ 内存优化 C1：pending 态工具调用。
+ * 在共享 ToolCall 基础上增加纯内存标记 resultDurable——仅由主进程 AgentManager 使用，
+ * 绝不落库（persistence record* 与 messageBlockHelper 白名单均显式剥离），故不是
+ * @shared/types 的 ToolCall 契约的一部分。
+ */
+export type PendingToolCall = ToolCall & {
+  /**
+   * ★ 内存优化 C1：该工具调用的 result 已成功落库（收到 message-flushed ACK）后收缩为摘要。
+   * 置位后 result 不再持有 output/toolResult/diff/artifacts 全文，释放主进程峰值内存。
+   */
+  resultDurable?: boolean
+}
+
 export interface PendingAssistantMsg {
   id: string
   content: string
@@ -73,7 +87,7 @@ export interface PendingAssistantMsg {
   contentParts?: string[]
   /** 正文累积长度（O(1) 计数）——★ tool_use textOffset 派生依赖，替代 content.length */
   contentLength: number
-  toolCalls: ToolCall[]
+  toolCalls: PendingToolCall[]
   thinkContent: string | null
   /** 方案 C：thinking 段内累积（对称 text） */
   thinkParts?: string[]
@@ -91,6 +105,8 @@ export interface PendingAssistantMsg {
   pendingQuestion?: {question: string; options?: string[]; multiSelect?: boolean; requestId?: string} | null
   /** permission_confirm 阻塞态 */
   pendingPermissionConfirm?: {question: string; requestId?: string} | null
+  /** tools 变动确认阻塞态（丢失会导致刷新后弹窗不重现、agent 永久等待决策） */
+  pendingToolsChangeConfirm?: {requestId: string; added: string[]; removed: string[]} | null
 }
 
 export interface ToolProgressState {

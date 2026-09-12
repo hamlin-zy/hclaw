@@ -304,15 +304,16 @@ describe('缺陷2 — handleAgentProgress 按 toolCallId 锚定消息', () => {
 
     it('多 running 消息时 tokenUsage 落到 toolCallId 对应的工具', () => {
         handleAgentProgress(progressCtx('tc-live'))
+        // 第三个参数 convId：key 不存在时的兜底建键须带会话归属（防孤儿 key）
         expect(mockUpdateToolCall).toHaveBeenCalledWith('tc-live', expect.objectContaining({
             tokenUsage: expect.objectContaining({inputTokens: 100}),
-        }))
+        }), 'conv-bg')
     })
 
     it('对照组：tc-old 正常收到 tokenUsage', () => {
         handleAgentProgress(progressCtx('tc-old'))
         expect(mockUpdateToolCall).toHaveBeenCalledWith('tc-old', expect.objectContaining({
             tokenUsage: expect.objectContaining({inputTokens: 100}),
-        }))
+        }), 'conv-bg')
     })
 })

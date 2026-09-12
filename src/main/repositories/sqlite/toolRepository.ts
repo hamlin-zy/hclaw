@@ -38,6 +38,9 @@ export function getToolTimeout(toolId: string, dbTimeout: number | null | undefi
 }
 
 export class SqliteToolRepository {
+    /** getTimeout 进程内缓存（null 值用包装对象区分"未缓存"） */
+    private timeoutCache = new Map<string, { value: number | null }>()
+
     /**
      * 获取所有工具记录
      */
@@ -164,14 +167,20 @@ export class SqliteToolRepository {
     }
 
     /**
-     * 获取单个工具的超时时间
+     * 获取单个工具的超时时间（进程内缓存：getTimeout 是 executor 每次工具调用
+     * 的热路径，setTimeout 是唯一的更新入口，更新时失效缓存）
      */
     getTimeout(toolId: string): number | null {
+        const cached = this.timeoutCache.get(toolId)
+        if (cached !== undefined) return cached.value
+
         try {
             const db = getDatabase()
             const stmt = db.prepare(`SELECT timeout FROM tools WHERE id = ?`)
             const row = stmt.get(toolId) as { timeout: number | null } | undefined
-            return row?.timeout ?? null
+            const result = row?.timeout ?? null
+            this.timeoutCache.set(toolId, { value: result })
+            return result
         } catch (err) {
             console.error('[SqliteToolRepository] getTimeout failed:', err)
             return null
@@ -194,6 +203,7 @@ export class SqliteToolRepository {
             `)
             stmt.run(toolId, toolId, timeout, now, now, timeout, now)
             saveDatabase()
+            this.timeoutCache.set(toolId, { value: timeout })
             return true
         } catch (err) {
             console.error('[SqliteToolRepository] setTimeout failed:', err)

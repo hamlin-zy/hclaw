@@ -10,6 +10,7 @@ import AskUserModal from './components/AskUserModal'
 import ConfirmDialog from './components/ConfirmDialog'
 import UsageStatsDialog from './components/dialogs/UsageStatsDialog'
 import PermissionConfirmModal from './components/PermissionConfirmModal'
+import ToolsChangeModal from './components/ToolsChangeModal'
 import CompactToolPopup from './components/message-list/compact-popup'
 import CombinedCardPopup from './components/message-list/compact-popup/CombinedCardPopup'
 import {useAgentStore} from './stores/agentStore'
@@ -30,6 +31,7 @@ import {useMcpUpdateStore} from './stores/mcpUpdateStore'
 import {useMenuBarStore} from './stores/menuBarStore'
 import {useGlobalHotkeys} from './hooks/useGlobalHotkeys'
 import {shortcutManager} from './services/shortcutManager'
+import {registerSendToConversationListener} from './services/sendToConversation'
 import TooltipPortal from './components/common/TooltipPortal'
 import {createGcScheduler} from './lib/gcScheduler'
 import {syncExchangeRate} from './lib/format'
@@ -591,6 +593,12 @@ export default function App() {
     }
   }, [])
 
+  // ── 订阅 PM 窗口「发送到会话」投递（主窗口是唯一执行者，spec §5.3） ──
+  useEffect(() => {
+    const cleanup = registerSendToConversationListener()
+    return () => { cleanup() }
+  }, [])
+
   // ── 监听渲染端跨窗口创建的会话（如 MCP「帮我检查」独立窗口），刷新主窗口侧栏 ──
   useEffect(() => {
     const cleanup = window.electronAPI?.receive?.('conversation-created', (payload: any) => {
@@ -793,6 +801,7 @@ export default function App() {
           <ConfirmDialog key="confirm-dialog"/>
           <UsageStatsDialog key="usage-stats-dialog"/>
           <PermissionConfirmModal key="permission-confirm-modal"/>
+          <ToolsChangeModal key="tools-change-modal"/>
           <CompactToolPopup key="compact-tool-popup"/>
           <CombinedCardPopup key="combined-card-popup"/>
         </AnimatePresence>

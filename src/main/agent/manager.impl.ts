@@ -7,7 +7,7 @@ import {app, BrowserWindow} from 'electron'
 import * as path from 'path'
 import {WORKER_MESSAGE_TYPES} from './constants'
 import type {AgentStreamEvent} from './stream'
-import type {AgentTemplate, Message, SystemSettings} from '@shared/types'
+import type {AgentTemplate, Message, SystemSettings, ToolCall} from '@shared/types'
 import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import type {ChatMessage, ModelConfig} from './model/types'
 import {permissionEngine} from './tools/permission'
@@ -57,7 +57,7 @@ function capSubAgentBucketImpl(bucket: SubAgentEntry[]): void {
   if (bucket.length > SUB_AGENT_STREAM_MAX_IMPL) bucket.splice(0, bucket.length - SUB_AGENT_STREAM_MAX_IMPL)
 }
 import {createForwardPayload, extractWorkerErrorMessage} from './manager.streamForward'
-import {recordLlmUsageEvent} from '../usageWrite'
+import {recordLlmUsageEvent, resetUsageMsgState} from '../usageWrite'
 
 import {loadPluginAgents} from './manager.pluginAgents'
 
@@ -90,6 +90,10 @@ export class AgentManager {
 
   /** 会话 → 已 ensureMessageRow 的消息 id 集（行先建再写块，幂等防重复） */
   #rowEnsured = new Map<string, Set<string>>()
+
+  /** ★ 内存优化 C1：会话 → persistence ACK 订阅退订句柄。
+   *  与 agent 生命周期严格对称（start 订阅 / cleanup 退订），杜绝监听器泄漏。 */
+  #persistAckUnsubs = new Map<string, () => void>()
 
   /** 正常完成（done reason 'completed'）的会话 ID，worker 退出时据此触发任务栏/托盘完成提醒 */
   #completedNormally = new Set<string>()
@@ -245,16 +249,24 @@ export class AgentManager {
     //   渲染端不再自建占位 id（ensureStreamingMessage 用事件 payload messageId）。
     //   streamingMsgIds 种子使 accumulateEvent 新建 pending 复用同一 id
     //   （原"渲染端注册 → 主进程对齐"反转为"主进程生成 → 事件下发"）。
+    // ★ 内存优化 C4：事件监听器闭包只捕获 conversationId 字符串，不再捕获整个 params
+    //   （params 含全量 messages 历史，闭包常驻会使主进程在整个 loop 生命周期内
+    //    多持有一份与 Worker 重复的全量历史）。纯等价重构：实参值与顺序逐字不变。
+    const conversationId = params.conversationId
     const streamMsgId = crypto.randomUUID()
-    this.streamingMsgIds.set(params.conversationId, streamMsgId)
-    this.forwardToRenderer(params.conversationId, {type: 'begin', messageId: streamMsgId})
+    this.streamingMsgIds.set(conversationId, streamMsgId)
+    this.forwardToRenderer(conversationId, {type: 'begin', messageId: streamMsgId})
 
     // 监听 Worker 消息
-    worker.on('message', this.createMessageHandler(params.conversationId, worker))
-    worker.on('error', (err: unknown) => this.onWorkerError(params.conversationId, err instanceof Error ? err : new Error(String(err))))
-    worker.on('exit', (code) => this.onWorkerExit(params.conversationId, worker, code))
+    worker.on('message', this.createMessageHandler(conversationId, worker))
+    worker.on('error', (err: unknown) => this.onWorkerError(conversationId, err instanceof Error ? err : new Error(String(err))))
+    worker.on('exit', (code) => this.onWorkerExit(conversationId, worker, code))
 
-    this.workers.set(params.conversationId, entry)
+    // ★ 内存优化 C1：订阅落库 ACK（与 worker 监听器同处注册），
+    //   在 cleanup/onWorkerExit 路径对称退订，绝不泄漏监听器。
+    this.subscribePersistAck(conversationId)
+
+    this.workers.set(conversationId, entry)
   }
 
   /**
@@ -337,9 +349,19 @@ export class AgentManager {
       message?: string
     }) => {
       try {
+        // ─── 三条「等待用户决策」阻塞链（permission / ask_user / tools 变动）───
+        // ★ 统一接法：一律构造事件后经 handleStreamEvent 流转，而非直接 forwardToRenderer。
+        //   原因：直接转发绕过 accumulateEvent，主进程快照（buildStreamSnapshot /
+        //   getStreamSnapshot）永远看不到阻塞态 → 刷新后渲染端恢复不出弹窗，而 worker
+        //   侧无限等待 → 会话永久死锁。经 handleStreamEvent 后，accumulateEvent 中既有
+        //   的 ask_user / permission_confirm / tools_change_confirm 分支与 done/error
+        //   清空逻辑（与 manager.accumulator.ts 双轨一致）自然生效，转发亦由其中统一完成。
+        //   曾几何时这三条链共用同一缺陷（只有 tools 补了 case 却无生产者 → 死代码），
+        //   故必须一起修，避免同类事实源出现两套写法。
+
         // 权限确认请求
         if (msg.type === WORKER_MESSAGE_TYPES.PERMISSION_CONFIRM) {
-          this.forwardToRenderer(msg.conversationId, {
+          await this.handleStreamEvent(msg.conversationId, worker, {
             type: 'permission_confirm',
             question: msg.message || '',
             requestId: msg.requestId,
@@ -351,12 +373,25 @@ export class AgentManager {
         // 用户提问请求
         if (msg.type === WORKER_MESSAGE_TYPES.ASK_USER_QUESTION) {
           const askUserMsg = msg as {requestId: string; question?: string; options?: string[]; multiSelect?: boolean}
-          this.forwardToRenderer(msg.conversationId, {
+          await this.handleStreamEvent(msg.conversationId, worker, {
             type: 'ask_user',
             question: askUserMsg.question || '',
             options: askUserMsg.options,
             multiSelect: askUserMsg.multiSelect,
             requestId: askUserMsg.requestId,
+          })
+          notifyUserAttention()
+          return
+        }
+
+        // tools 变动确认请求（prompt 缓存重建成本）
+        if (msg.type === WORKER_MESSAGE_TYPES.TOOLS_CHANGE_CONFIRM) {
+          const tcMsg = msg as unknown as {requestId: string; added?: string[]; removed?: string[]}
+          await this.handleStreamEvent(msg.conversationId, worker, {
+            type: 'tools_change_confirm',
+            requestId: tcMsg.requestId,
+            added: tcMsg.added || [],
+            removed: tcMsg.removed || [],
           })
           notifyUserAttention()
           return
@@ -515,7 +550,10 @@ export class AgentManager {
         // setMessageEnded），绝无全量写；若顺序颠倒，merge 在 blocks==0 时全量写
         // offset 型块，finalize 再补插 seq 型块 → 同消息两套 text 块 → 读回正文重复。
         const finalized = getConversationPersistence().finalizeMessage(conversationId, oldPending.id, Date.now())
-        if (finalized) resetBridgeMsgState(oldPending.id)
+        if (finalized) {
+          resetBridgeMsgState(oldPending.id)
+          resetUsageMsgState(oldPending.id)   // ★S5：同条件释放 usage seq 记账
+        }
         if (!finalized) logger.warn('[AgentManager] turn reset finalize 失败，将随重试补齐', {conversationId})
         await this.#mergeAndPersist(conversationId, oldPending, true)
       }
@@ -658,7 +696,10 @@ export class AgentManager {
     const pending = this.pendingAssistantMsg.get(conversationId)
     if (pending) {
       const finalized = getConversationPersistence().finalizeMessage(conversationId, pending.id, Date.now())
-      if (finalized) resetBridgeMsgState(pending.id)
+      if (finalized) {
+        resetBridgeMsgState(pending.id)
+        resetUsageMsgState(pending.id)   // ★S5：同条件释放 usage seq 记账
+      }
       if (!finalized) logger.warn('[AgentManager] 收尾 finalize 失败，将随重试补齐', {conversationId})
     }
     await this.#mergeAndPersist(conversationId, pending, true)
@@ -709,6 +750,18 @@ export class AgentManager {
       }
       return
     }
+    // ★ 内存优化 C1 显式防御：全量写路径不得写入已收缩的 result 摘要。
+    //   理论上不可达——resultDurable 蕴含该消息已有 blocks（收缩仅在 ACK=落库成功后发生），
+    //   而 blocks>0 已在上方 existingBlocks 分支 return。若真到达此处，说明存在逻辑分叉
+    //   （例如 pending.id 与落库 id 不一致），宁可跳过全量写（仅告警）也不拿摘要污染 DB。
+    if (pending.toolCalls.some(tc => tc.resultDurable)) {
+      logger.warn('[AgentManager] #mergeAndPersist 全量写路径命中 resultDurable 收缩产物，已跳过（防摘要写入 DB）', {
+        conversationId,
+        isFinal,
+      })
+      return
+    }
+
     // ↓ 以下为现状全量写路径（仅"无 blocks"消息——如渲染进程崩溃从未落库）
 
     const {messageToBlocks} = await import('../repositories/sqlite/messageBlockHelper')
@@ -971,9 +1024,19 @@ export class AgentManager {
       case 'thinking': {
         const thinkChunk = (event as {type: 'thinking'; content?: string}).content || ''
         if (!pending) pending = createPendingMsg()
+        // ★ 内存优化 C2：与 manager.accumulator.ts 的孪生实现对齐——thinking 同样受
+        //   PENDING_MSG_MAX_BYTES 约束（原实现裸 push + 手算长度，小时级 loop 下 thinkParts
+        //   无上限增长）。超限时截断末段 + warn，语义与 text 分支完全对称。
         pending.thinkParts = pending.thinkParts || []
-        pending.thinkParts.push(thinkChunk)
-        pending.thinkLength = (pending.thinkLength || 0) + thinkChunk.length
+        const {length, truncated} = appendCappedPart(
+          pending.thinkParts, thinkChunk, pending.thinkLength || 0, PENDING_MSG_MAX_BYTES,
+        )
+        pending.thinkLength = length
+        if (truncated) {
+          logger.warn('[AgentManager] pendingAssistantMsg thinkContent 超过容量上限，已截断', {
+            maxBytes: PENDING_MSG_MAX_BYTES,
+          })
+        }
         break
       }
       case 'tool_use':
@@ -1007,6 +1070,16 @@ export class AgentManager {
           ...tc,
           status: normalized.success ? 'success' : 'error',
           result: normalized,
+          // ★ 内存优化 C1（收尾）：该条目此前已收缩（resultDurable）却又收到带全文的
+          //   tool_result（重复/迟到投递，防御场景）→ 必须清除 durable 标记，否则下方
+          //   shrinkDurableToolResults 的守卫（manager.impl.ts:1243）会一直跳过本条目，
+          //   新写入的全文将永久驻留主进程内存（对抗用例 Y2 实测复现）。
+          //   安全性：清除后仍需等下一次 message-flushed ACK 才收缩，而本次事件随后即由
+          //   persistStreamEvent→recordToolResultBlock 把 result 字节快照进 flush patch
+          //   （conversationPersistence.ts:190-200），故 DB 不会丢全文。
+          //   仅当事件真正携带 result 时清除：无 result 的防御性事件若清标记，streamBridge
+          //   回退会拿 normalizeToolResult(undefined) 的空结果覆盖 DB 全文（streamBridge.ts:147）。
+          ...(toolResult.result !== undefined && tc.resultDurable ? {resultDurable: false} : {}),
           // ★ 需求1链路：agent 工具从 result._meta 恢复子会话 ID（taskId === childConvId）
           //   与 manager.accumulator.ts accumulateStreamEvent 保持逻辑一致（双轨）
           ...(tc.name === 'agent' && normalized._meta?.childConvId
@@ -1030,6 +1103,10 @@ export class AgentManager {
             error: deniedReason,
             toolResult: `[ERROR] ${deniedReason}`,
           },
+          // ★ 内存优化 C1（收尾）：同 tool_result —— 已收缩条目再次收到 tool_denied 时
+          //   清除 durable 标记（本次 result 为真实载荷，不涉及无 result 回退），
+          //   使新写入内容能在下一次 ACK 后再次被收缩。
+          ...(pending.toolCalls[idx].resultDurable ? {resultDurable: false} : {}),
         }
         break
       }
@@ -1101,6 +1178,17 @@ export class AgentManager {
         break
       }
 
+      case 'tools_change_confirm': {
+        // 阻塞态入快照：无限等待用户决策，刷新/崩溃后丢失会导致弹窗不重现、agent 永久挂起
+        if (!pending) pending = createPendingMsg()
+        pending.pendingToolsChangeConfirm = {
+          requestId: event.requestId,
+          added: event.added,
+          removed: event.removed,
+        }
+        break
+      }
+
       case 'agent_start': {
         // ★P2：assistant 消息行级 metadata（agentName/model，UI 徽章依赖）。
         //   事件携带真实 model（AgentStartParams.modelConfig 为占位空对象，
@@ -1119,6 +1207,7 @@ export class AgentManager {
         if (pending) {
           pending.pendingQuestion = null
           pending.pendingPermissionConfirm = null
+          pending.pendingToolsChangeConfirm = null
         }
         break
       }
@@ -1148,6 +1237,68 @@ export class AgentManager {
     }
 
     return pending
+  }
+
+  // ─── ★ 内存优化 C1：落库 ACK → 收缩终态工具 result ─────────────────
+  //   背景：pending.toolCalls[].result 持有 output + toolResult 两份全文（单份≤100KB），
+  //   按工具数无上限累积，是「loop done 才释放」的最大内存贡献者。
+  //   策略：仅在确认该消息的块已成功落库（message-flushed ACK）后，把已终态工具调用的
+  //   result 收缩为摘要（保留 id/status/taskId 等），DB 内容与逐字节契约完全不变。
+
+  /** 订阅会话级持久化 ACK。ACK 语义：该 msgId 的 patch 已 durable（见 conversationPersistence.flush）。
+   *  订阅与 agent 生命周期对称——start 订阅，cleanup 退订。 */
+  private subscribePersistAck(conversationId: string): void {
+    // 防重入：同名会话重复 start（如快速连发）时先退订旧订阅，避免 Map 覆盖导致泄漏
+    this.unsubscribePersistAck(conversationId)
+    const unsub = getConversationPersistence().onPersistEvent((e) => {
+      // 仅消费 message-flushed（finalize 事件不发此变体，故不会重复触发）
+      if (e.type !== 'message-flushed') return
+      if (e.convId !== conversationId) return
+      // msgId 必须匹配当前 pending 消息 id（turn reset 后 id 变更，旧 ACK 不得误伤新消息）
+      const pending = this.pendingAssistantMsg.get(conversationId)
+      if (!pending || pending.id !== e.msgId) return
+      this.shrinkDurableToolResults(conversationId)
+    })
+    this.#persistAckUnsubs.set(conversationId, unsub)
+  }
+
+  /** 退订会话级持久化 ACK（幂等）。cleanup 路径必须调用（红线：对称退订，防监听器泄漏）。 */
+  private unsubscribePersistAck(conversationId: string): void {
+    const unsub = this.#persistAckUnsubs.get(conversationId)
+    if (unsub) {
+      unsub()
+      this.#persistAckUnsubs.delete(conversationId)
+    }
+  }
+
+  /**
+   * 把「已终态且尚未收缩」的工具调用 result 降为摘要。
+   *
+   * 收缩规则（对齐 C1 设计）：
+   * - 仅处理 status ∈ {success, error} 且 !resultDurable 的 toolCall；
+   * - result 替换为 {success, error}（去掉 output/toolResult/diff/artifacts/_meta 正文）；
+   * - 置 resultDurable = true；
+   * - id/name/arguments/status/textOffset/reason/terminal/taskId/progress 等其他字段不动。
+   *
+   * 安全性：所有下游消费者只读 id/status/progress（buildStreamSnapshot→seedApplication）
+   * 或 length（deriveTextSeq），或内部剥离 result（recordTool*）。_meta.childConvId 已在
+   * 写入时即时抽成 taskId，后续不再需要 result 全文。
+   */
+  private shrinkDurableToolResults(conversationId: string): void {
+    const pending = this.pendingAssistantMsg.get(conversationId)
+    if (!pending) return
+    for (let i = 0; i < pending.toolCalls.length; i++) {
+      const tc = pending.toolCalls[i]
+      if (tc.resultDurable) continue
+      if (tc.status !== 'success' && tc.status !== 'error') continue
+      if (tc.result === undefined) continue
+      // 摘要：仅保留成败与错误文案（渲染/快照均不消费正文；DB 已持有全文）
+      pending.toolCalls[i] = {
+        ...tc,
+        result: {success: tc.result.success, error: tc.result.error} as ToolCall['result'],
+        resultDurable: true,
+      }
+    }
   }
 
   // ─── 公开 API ────────────────────────────────────────
@@ -1198,6 +1349,15 @@ export class AgentManager {
     const entry = this.workers.get(conversationId)
     if (entry) {
       entry.worker.postMessage({type: WORKER_MESSAGE_TYPES.USER_ANSWER_RESULT, requestId, answer})
+      stopUserAttention()
+    }
+  }
+
+  /** 响应 tools 变动确认（continue / cancel / snooze_today） */
+  respondToolsChange(conversationId: string, requestId: string, decision: 'continue' | 'cancel' | 'snooze_today'): void {
+    const entry = this.workers.get(conversationId)
+    if (entry) {
+      entry.worker.postMessage({type: WORKER_MESSAGE_TYPES.TOOLS_CHANGE_RESULT, requestId, decision})
       stopUserAttention()
     }
   }
@@ -1349,11 +1509,17 @@ export class AgentManager {
    */
   async getStreamSnapshot(conversationId: string) {
     // §4.2 恢复扫描：快照播种前先给该会话未 finalize 的 assistant 消息落终态
-    //（先落终态再快照，避免把将死的流式态播种给 UI）。活跃 loop 的消息不在
-    // 扫描范围（ended_at 会被正常 finalize；扫描 SQL 只看 ended_at IS NULL，
-    // 若 loop 仍在写块，补 end 块属幂等容错，正常路径不受影响）。
-    getConversationPersistence().recoverUnfinalized(conversationId)
+    //（先落终态再快照，避免把将死的流式态播种给 UI）。
+    // ★P1：活跃 loop 的消息 id 必须排除。刷新时渲染端必调本入口，而「阻塞中」
+    // （等用户决策）的消息行 ended_at 本就是 NULL → 无条件扫描会把它补 end 块 +
+    // metadata.abnormalTermination=true，用户点「继续」正常完成后该行仍永久保留
+    // 标记 → MessageBubble 渲染「回复中断」。排除当前 pending.id 后，只有真正
+    // 崩溃残留（pending 已被 cleanup 清掉）才会被扫描收尾。
     const pending = this.pendingAssistantMsg.get(conversationId) ?? null
+    getConversationPersistence().recoverUnfinalized(
+      conversationId,
+      pending ? new Set([pending.id]) : undefined,
+    )
     if (!pending) return null
     let dbTextBlockCount = 0
     try {
@@ -1438,10 +1604,23 @@ export class AgentManager {
     this.parentToChildren.delete(conversationId)
 
     this.workers.delete(conversationId)
+    // ★ 内存优化 V2：异常终态兜底释放 usage seq 记账。
+    // cleanup 只在 worker 崩溃 / abort 超时终止时执行，不经过 finalize 成功分支
+    //（:532 / :678 才释放），若此处直接 delete pending，当前 pending 的 seq 记账
+    // 将永不释放（key 是每条 assistant 消息唯一 UUID，不复用 → 漏删即永久残留）。
+    // resetUsageMsgState 幂等：正常 completed 路径已释放过，重复调用仅 delete no-op +
+    // 有界 Set 去重，不报错、不改变行为。
+    const pendingBeforeCleanup = this.pendingAssistantMsg.get(conversationId)
+    if (pendingBeforeCleanup?.id) {
+      resetUsageMsgState(pendingBeforeCleanup.id)
+    }
     this.pendingAssistantMsg.delete(conversationId)
     this.streamingMsgIds.delete(conversationId)
     this.streamListeners.delete(conversationId)
     this.#completedNormally.delete(conversationId)
+
+    // ★ 内存优化 C1：对称退订持久化 ACK 订阅（红线：绝不新增监听器泄漏）
+    this.unsubscribePersistAck(conversationId)
 
     // Phase 2：持久化状态清理（7.2b 必然事件：run 结束即 flush 残余增量后整组清理，
     // 防后续 flush 复活/污染；同时清理本类桥接辅助状态）

@@ -21,6 +21,7 @@ import type {
  * 方案 C：段内数组追加 + O(1) 长度计数；超限时截断末段。
  * 原地修改 parts，返回追加后的长度与是否发生截断（供调用方记录日志）。
  * 截断语义与旧 capField（逐字 slice 到 maxBytes）保持一致。
+ * 已达上限（length >= maxBytes）时不再 push——既不产生空槽，也不改变 join 结果。
  */
 export function appendCappedPart(
   parts: string[],
@@ -28,6 +29,15 @@ export function appendCappedPart(
   length: number,
   maxBytes: number,
 ): {length: number; truncated: boolean} {
+  // ★ 内存优化 C3：已达上限时直接返回，不再 push。
+  //   旧实现在超限后仍无条件 push，再把末段 slice 成 ''，导致数组槽位随 chunk 数
+  //   无限增长（元素全为空串，小时级 loop 下可达数十万槽位）且随 pending 常驻。
+  //   语义不变：join('') 仍是 maxBytes 前缀（截断本就等价于丢弃该 chunk），
+  //   length 计数不变；truncated=true 与"确实发生截断"一致，调用方 warn 语义不变。
+  //   前置条件：length ≤ maxBytes（调用方一律用本函数返回值回写，恒成立）。
+  if (length >= maxBytes) {
+    return {length, truncated: true}
+  }
   parts.push(chunk)
   length += chunk.length
   if (length <= maxBytes) {
@@ -86,6 +96,13 @@ export function isRenderedCopyFingerprintMatch(nearbyText: string, pendingConten
 /**
  * 累积流事件到主进程消息缓存
  * 与渲染器的 handleStreamEvent 保持逻辑一致，但不依赖 UI 状态
+ *
+ * @deprecated ★ 内存优化 C2 说明：**本函数不是生产路径**。生产唯一调用链是
+ *   `manager.impl.ts` 的私有 `#accumulateEvent`（由 handleStreamEvent 调用）。
+ *   本函数仅被单测当作「pending 构造器/参照实现」使用（manager.accumulator.test.ts、
+ *   manager.mergePersist.wiring.test.ts、manager.streamSnapshot.test.ts）。
+ *   历史教训：C2 修复的「thinking 无 cap」双轨漂移，根因正是本函数（有一份带 cap）
+ *   与生产私有实现（无 cap）各自演进。**任何改动必须双轨同步**，否则会再次静默分叉。
  *
  * @param registeredMsgId 渲染端已创建的空占位消息 id（ensureStreamingMessage 上报）。
  *   新建 pending（含 turn reset 重建）时复用该 id，确保主进程 pending 与渲染端
@@ -288,12 +305,24 @@ export function accumulateStreamEvent(
       break
     }
 
+    case 'tools_change_confirm': {
+      // 阻塞态入快照：无限等待用户决策，刷新/崩溃后丢失会导致弹窗不重现、agent 永久挂起
+      if (!pending) pending = createPendingMsg()
+      pending.pendingToolsChangeConfirm = {
+        requestId: event.requestId,
+        added: event.added,
+        removed: event.removed,
+      }
+      break
+    }
+
     case 'done':
     case 'error': {
       // 终态清空阻塞态（正常路径由用户应答后的后续事件覆盖，此处为兜底防陈旧阻塞态复活）
       if (pending) {
         pending.pendingQuestion = null
         pending.pendingPermissionConfirm = null
+        pending.pendingToolsChangeConfirm = null
       }
       break
     }
@@ -327,6 +356,7 @@ export function createPendingMsg(): PendingAssistantMsg {
     subAgentStream: {},
     pendingQuestion: null,
     pendingPermissionConfirm: null,
+    pendingToolsChangeConfirm: null,
   }
 }
 
@@ -373,6 +403,8 @@ export interface StreamSnapshot {
   pendingQuestion: PendingAssistantMsg['pendingQuestion']
   /** permission_confirm 阻塞态（null = 无） */
   pendingPermissionConfirm: PendingAssistantMsg['pendingPermissionConfirm']
+  /** tools 变动确认阻塞态（null = 无；无限等待用户决策，刷新后须重现弹窗） */
+  pendingToolsChangeConfirm: PendingAssistantMsg['pendingToolsChangeConfirm']
   /** 运行中工具数（由 toolCalls.status 派生，保证与列表自洽） */
   runningToolCount: number
   /**
@@ -411,6 +443,7 @@ export function buildStreamSnapshot(pending: PendingAssistantMsg | null, dbTextB
     ),
     pendingQuestion: pending.pendingQuestion ?? null,
     pendingPermissionConfirm: pending.pendingPermissionConfirm ?? null,
+    pendingToolsChangeConfirm: pending.pendingToolsChangeConfirm ?? null,
     // 由 toolCalls 状态派生，保证与列表永远自洽
     runningToolCount: pending.toolCalls.filter(t => t.status === 'running').length,
     executingToolsMessage: null,

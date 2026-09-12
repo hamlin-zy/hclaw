@@ -5,8 +5,12 @@
  * 新建和编辑共用同一表单。
  */
 
-import React, {useCallback, useEffect, useState} from 'react'
+import {useCallback, useEffect, useState} from 'react'
 import {UserCommand, useUserCommandStore} from '../../stores/userCommandStore'
+import {getCommandNameError} from '@shared/commandName'
+
+/** 出错字段，用于把校验提示定位到对应输入项 */
+type ErrorField = 'name' | 'content' | 'args' | 'general'
 
 interface CommandEditModalProps {
     command: UserCommand | null  // null = 新建模式
@@ -42,7 +46,19 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
     const [args, setArgs] = useState<ArgDef[]>([])
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [errorField, setErrorField] = useState<ErrorField>('general')
     const [resetting, setResetting] = useState(false)
+
+    /** 记录错误信息及所属字段 */
+    const fail = useCallback((message: string, field: ErrorField = 'general') => {
+        setError(message)
+        setErrorField(field)
+    }, [])
+
+    const clearError = useCallback(() => {
+        setError(null)
+        setErrorField('general')
+    }, [])
 
     useEffect(() => {
         if (command) {
@@ -54,13 +70,13 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
     }, [command])
 
     const handleSave = useCallback(async () => {
-        setError(null)
+        clearError()
 
         // 验证
-        if (!name.trim()) return setError('命令名称不能为空')
-        if (!/^[\w-]+$/.test(name.trim())) return setError('命令名称只允许字母、数字、下划线和连字符')
-        if (!content.trim()) return setError('模板内容不能为空')
-        if (args.length > 5) return setError('参数数量不能超过 5 个')
+        const nameError = getCommandNameError(name.trim())
+        if (nameError) return fail(nameError, 'name')
+        if (!content.trim()) return fail('模板内容不能为空', 'content')
+        if (args.length > 5) return fail('参数数量不能超过 5 个', 'args')
 
         const data = {
             name: name.trim(),
@@ -79,37 +95,37 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
             } else {
                 ({success, error: errorMsg} = await updateCommand(command!.id, data))
             }
-            if (!success) return setError(errorMsg || '操作失败')
+            if (!success) return fail(errorMsg || '操作失败')
             onSave()
         } catch (err: any) {
-            setError(err.message)
+            fail(err.message)
         } finally {
             setSaving(false)
         }
-    }, [name, description, content, args, isNew, command, createCommand, updateCommand, onSave, onSaveCustom])
+    }, [name, description, content, args, isNew, command, createCommand, updateCommand, onSave, onSaveCustom, fail, clearError])
 
     // ─── 重置为默认模板 ─────────────────────────────
 
     const handleReset = useCallback(async () => {
         if (!command) return
         if (!window.electronAPI?.command?.getDefaultTemplate) return
-        setError(null)
+        clearError()
         setResetting(true)
         try {
             const tmpl = await window.electronAPI.command.getDefaultTemplate(command.name)
             if (!tmpl) {
-                setError('当前命令没有内置默认模板')
+                fail('当前命令没有内置默认模板')
                 return
             }
             setContent(tmpl.content)
             setDescription(tmpl.description || '')
             setArgs(tmpl.args || [])
         } catch (err: any) {
-            setError(err.message)
+            fail(err.message)
         } finally {
             setResetting(false)
         }
-    }, [command])
+    }, [command, fail, clearError])
 
     // ─── 参数管理 ─────────────────────────────────────
 
@@ -158,8 +174,15 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                     <div>
                         <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">命令名称</label>
                         <input type="text" value={name} onChange={e => setName(e.target.value)}
-                               placeholder="例如: explain" className={inputClass} autoFocus data-name="command-edit-modal-input"/>
-                        <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">只允许字母、数字、下划线和连字符</p>
+                               placeholder="例如: explain"
+                               className={`${inputClass} ${error && errorField === 'name' ? 'border-[var(--error)]' : ''}`}
+                               autoFocus data-name="command-edit-modal-input"/>
+                        {error && errorField === 'name' ? (
+                            <p role="alert"
+                               className="mt-1 text-[11px] text-[var(--error)]">{error}</p>
+                        ) : (
+                            <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">允许中英文、数字、下划线和连字符</p>
+                        )}
                     </div>
 
                     {/* 描述 */}
@@ -225,7 +248,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                                     <label className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]">
                                         <input type="checkbox" checked={arg.required || false}
                                                onChange={e => updateArg(i, 'required', e.target.checked)}
-                                               className="rounded" data-name={`command-edit-modal-arg-required-checkbox-${i}`}/>
+                                               className="w-3 h-3 rounded accent-[var(--brand-primary)]" data-name={`command-edit-modal-arg-required-checkbox-${i}`}/>
                                         必填
                                     </label>
                                     <button onClick={() => removeArg(i)}
@@ -236,9 +259,10 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                         </div>
                     </div>
 
-                    {/* 错误提示 */}
-                    {error && (
-                        <div className="p-2 rounded-md bg-[var(--error)]/10 text-[11px] text-[var(--error)]">
+                    {/* 错误提示（名称错误已内联显示，此处只显示其余字段错误） */}
+                    {error && errorField !== 'name' && (
+                        <div role="alert"
+                             className="p-2 rounded-md bg-[var(--error-muted)] border border-[var(--error)] text-[11px] text-[var(--error)]">
                             {error}
                         </div>
                     )}
