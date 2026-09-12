@@ -2,7 +2,7 @@
  * Agent 循环 — 运行前设置阶段
  *
  * 包含：
- * - 初始化运行环境（权限、工具配置）
+ * - 初始化运行环境（工具配置）
  * - 命令上下文检测（/command 解析）
  * - 模型选择与适配器管理
  * - 工具过滤
@@ -24,12 +24,12 @@ import {container, DI_TOKENS} from '../common/container'
 import {createLoopState} from '../state'
 import {logger} from '../logger'
 import {permissionEngine} from '../tools/permission'
-import {permissionRulesManager} from '../permissions/permissionRule'
 import {runtimeConfigManager} from '../runtimeConfigManager'
 import {extractTextContent} from '../utils/contentUtils'
 import {parseCommandText} from './commandTextParser'
 import {setAgentToolConfig} from '../tools/builtin/agentTool'
 import {setSkillToolConfig} from '../tools/builtin/skillTool'
+import {isMcpToolName} from '@shared/utils/mcpShortId'
 import {filterToolsForAgent} from '../tools/filter'
 import {filterToolsByAgentType, getAgentToolRestrictions} from '../agentTypes/configs'
 import {supportsImageInput} from '../modelCapability'
@@ -48,7 +48,6 @@ const toolRegistry: ToolRegistry = container.get<ToolRegistry>(DI_TOKENS.ToolReg
  * 初始化 Agent 循环的运行环境
  * - 创建循环状态（loop state）
  * - 设置工作目录和权限引擎
- * - 设置权限模式（含 agentDefinition 覆盖）
  * - 设置工具模块级配置
  */
 export async function* initializeRunEnvironment(
@@ -58,24 +57,13 @@ export async function* initializeRunEnvironment(
     getSettings: () => import('@shared/types').SystemSettings | undefined
     workingDir: string
 }> {
-    const {runtimeConfig, settings: initialSettings, agentDefinition} = params
+    const {runtimeConfig, settings: initialSettings} = params
 
     const getSettings = () => runtimeConfig?.settings ?? initialSettings
     const state = createLoopState(params.messages || [])
     const workingDir = runtimeConfigManager.getWorkingDir() || params.workingDir || ''
 
     permissionEngine.setWorkingDir(workingDir)
-
-    const initialPermissionContext = await permissionRulesManager.getContext()
-    let currentPermissionMode: RunMode = initialPermissionContext.mode
-
-    if (agentDefinition?.permissionMode && agentDefinition.permissionMode !== currentPermissionMode) {
-        await permissionRulesManager.applyUpdate({
-            type: 'setMode',
-            mode: agentDefinition.permissionMode,
-        })
-        yield {type: 'mode_change', mode: 'auto'}
-    }
 
     setAgentToolConfig()
     setSkillToolConfig()
@@ -309,6 +297,35 @@ export function* selectModelForTurn(
     }
 
     return {modelConfig, schemeId, schemeName, suggestedRole, providerName: modelConfig._providerName, providerId: modelConfig._providerId}
+}
+
+// ─── MCP 工具注入通道（catalog，唯一通道）──────────────────
+
+/**
+ * MCP 工具不进 tools 数组（由能力目录 + call_mcp_tool 承载），
+ * 从而让 tools 前缀不随 MCP server 启停而变动（prompt 缓存前缀恒定）。
+ *
+ * ★ 先无条件剔除 call_mcp_tool：它不属于 tools 数组，若泄漏会改变 tools 基线
+ *   （误触发一次 ToolsChangeModal），且让模型看到指向不存在目录的工具。
+ * ★ 仅当上游过滤结果原本就保留 call_mcp_tool 时才剔 MCP 工具并追回调用器；
+ *   上游白名单（filterToolsForAgent / filterToolsByAgentType）移除它时不强行追加——
+ *   该 agent 若显式白名单了某几个 MCP 工具，则维持原生直调形态。
+ *
+ * 幂等：重复应用同一列表不会产生重复的 call_mcp_tool。
+ * callMcpToolDef 缺失（注册异常，非可选模式）时不改写列表——异常兜底，退化为原生直调。
+ */
+export function applyMcpCatalogChannel(
+    tools: ToolDefinitionForLLM[],
+    callMcpToolDef: ToolDefinitionForLLM | undefined,
+): ToolDefinitionForLLM[] {
+    if (!callMcpToolDef) return tools
+
+    const withoutCaller = tools.filter(d => d.name !== callMcpToolDef.name)
+    // 上游白名单未保留调用器（该 agent 未显式白名单 call_mcp_tool）→ 维持原生直调形态：
+    // 只剔除泄漏的调用器，MCP 工具原样保留。
+    if (!tools.some(d => d.name === callMcpToolDef.name)) return withoutCaller
+
+    return [...withoutCaller.filter(d => !isMcpToolName(d.name)), callMcpToolDef]
 }
 
 // ─── 工具过滤 ──────────────────────────────────────────────

@@ -52,6 +52,18 @@ function closeTurn(msgId: string): void {
   contentAfterToolByMsg.add(msgId)
 }
 
+/**
+ * 退出 thinking 态：释放段累积字符串并清除 think 标记（4 个非 thinking 分支共用）。
+ * 边界安全性：段内内容已由 recordThinkBlock(accum) 推式全量落库，accum 在此后
+ * 无用途；段累积仅在 think 态存在，故仅在 lastWasThinking 仍有该 msgId 时释放。
+ * 下一段 thinking 到达时仍走 :82-85 的段起始守卫（set('') 重置 + 段号 +1），
+ * 因此段内容与段 id 语义完全不变。
+ */
+function endThinking(msgId: string): void {
+  if (lastWasThinking.has(msgId)) thinkSegAccumByMsg.delete(msgId)
+  lastWasThinking.delete(msgId)
+}
+
 // ── P4 修正：子会话排除（与渲染端 isChildConversation 守卫等价）──────────
 // 子会话落库由 agentTool 独立累积器 childAcc 负责（agentTool.ts），桥接若不排除 =
 // 流式块增量 + childAcc 全量写 + manager 保险丝三写方。
@@ -74,7 +86,7 @@ export function persistStreamEvent(
     case 'text': {
       const chunk = (event as {type: 'text'; content?: string}).content || ''
       if (chunk) p.recordTextChunk(convId, msgId, thinkSeq() + pending.toolCalls.length, chunk, turnForContent(msgId))
-      lastWasThinking.delete(msgId)
+      endThinking(msgId)   // ★S1：think 段结束（转出 think 态）→ 释放段累积
       break
     }
     case 'thinking': {
@@ -108,7 +120,7 @@ export function persistStreamEvent(
       }
       if (seen.has(tc.id)) break
       seen.add(tc.id)
-      lastWasThinking.delete(msgId)
+      endThinking(msgId)   // ★S1：think 段结束（转出 think 态）→ 释放段累积
       // 契约补全：LLM 调用可能只返回 tool_calls（零 thinking/text），
       // 此时 tool_use 也处于 tool_result 之后 → 必须开启新轮，否则该调用的
       // tool_call 块沿用上一轮 turnIndex，重建时并入上一组 assistant，
@@ -121,11 +133,15 @@ export function persistStreamEvent(
       const ev = event as {toolCallId?: string; result?: unknown}
       const tc = pending.toolCalls.find(t => t.id === ev.toolCallId)
       if (!tc) break
-      lastWasThinking.delete(msgId)
+      endThinking(msgId)   // ★S1：think 段结束（转出 think 态）→ 释放段累积
       // 终态修复语义（conversationStore.ts:267-271 平移）：result 由事件携带；
       // manager 私有 accumulateEvent 双轨已把 normalized result 写回 pending.toolCalls，
       // 桥接以事件优先（pending 未及更新时仍能落终态）。
-      const result = ev.result ?? tc.result
+      // ★ 内存优化 C1：tc.resultDurable 为真说明 tc.result 已被收缩为摘要（全文已落库），
+      //   此时绝不可用摘要作回退——否则会把 {success,error} 摘要写进 tool_result 块，
+      //   污染「loop=存储=重建」逐字节契约。回退返回 undefined → 走下方 break（不写库）。
+      //   正常路径下 tool_result/tool_completed 事件结构上必带 result，回退仅为防御性。
+      const result = ev.result ?? (tc.resultDurable ? undefined : tc.result)
       if (result === undefined) break
       const status = tc.status === 'running' || tc.status === undefined
         ? ((result as {success?: boolean}).success === false ? 'error' : 'success')
@@ -138,7 +154,7 @@ export function persistStreamEvent(
       const ev = event as {toolCallId?: string; reason?: string}
       const tc = pending.toolCalls.find(t => t.id === ev.toolCallId)
       if (!tc) break
-      lastWasThinking.delete(msgId)
+      endThinking(msgId)   // ★S1：think 段结束（转出 think 态）→ 释放段累积
       const deniedReason = `[PERMISSION_DENIED] ${ev.reason || '权限被拒绝'}`
       p.recordToolResultBlock(convId, msgId, {
         ...tc,

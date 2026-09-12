@@ -333,7 +333,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
 
         // 检测 / 前缀命令
         if (text.startsWith('/') && !text.startsWith('//')) {
-            const cmdMatch = text.match(/^\/(\w+)(?:\s+(.*))?$/);
+            const cmdMatch = text.match(/^\/(\S+)(?:\s+([\s\S]*))?$/);
             if (cmdMatch) {
                 const cmdName = cmdMatch[1];
                 const cmdArgs = cmdMatch[2];

@@ -73,3 +73,35 @@ describe('PermissionEngine.applyModeFromMain（会话级模式下发，仅内存
         expect(result.allowed).toBe(false)
     })
 })
+
+describe('PermissionEngine.check（modeOverride 作用域覆盖，不写回引擎状态）', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+    })
+
+    it('引擎为 safe 时，传入 auto 覆盖使破坏性工具放行（覆盖生效）', async () => {
+        const engine = new PermissionEngine()
+        await engine.getMode() // ensureInit：mock 上下文 mode 为 safe
+        const tool = makeTool('deleteFile', {isDestructive: true})
+        const result = engine.check(tool, {}, 'auto')
+        expect(result.allowed).toBe(true)
+    })
+
+    it('不传覆盖时仍按引擎原 safe 判定（未回归，override 未污染状态）', async () => {
+        const engine = new PermissionEngine()
+        await engine.getMode()
+        const tool = makeTool('deleteFile', {isDestructive: true})
+        const result = engine.check(tool, {})
+        expect(result.allowed).toBe(false)
+    })
+
+    it('先带 auto 覆盖调用，再不带覆盖调用，判定仍基于原 safe（check 未写 this.mode）', async () => {
+        const engine = new PermissionEngine()
+        await engine.getMode()
+        const tool = makeTool('deleteFile', {isDestructive: true})
+        engine.check(tool, {}, 'auto')
+        const result = engine.check(tool, {})
+        expect(result.allowed).toBe(false)
+        expect(await engine.getMode()).toBe('safe')
+    })
+})

@@ -293,7 +293,7 @@ describe('能力目录 缓存前缀集成（Task 9）', () => {
         const serialized = JSON.stringify(t1.state.messages)
         const revived = createLoopState(JSON.parse(serialized) as ChatMessage[])
         const restoredCs = restoreCatalogState(revived.messages)
-        expect(restoredCs.lastDigest).toBe((catalogsOf(t1.request.messages)[0].metadata as Record<string, unknown>).catalogDigest)
+        expect(restoredCs.lastSkillDigest).toBe((catalogsOf(t1.request.messages)[0].metadata as Record<string, unknown>).catalogDigest)
 
         // 恢复后再跑一轮 pre-step：digest 未变 → none，catalog 仍恰一条，零落库
         const before = (repo.readMessages(CONV_ID) as Array<{id: string}>).length
@@ -340,7 +340,7 @@ describe('能力目录 缓存前缀集成（Task 9）', () => {
         const revived = createLoopState(rebuilt)
         const restoredCs = restoreCatalogState(revived.messages)
         // 关键断言：重建后 catalog 状态可被扫到（digest 与发布时一致）
-        expect(restoredCs.lastDigest).toBe(digest1)
+        expect(restoredCs.lastSkillDigest).toBe(digest1)
 
         // 恢复后跑一轮 pre-step：digest 未变 → none，零落库写入
         const before = (repo.readMessages(CONV_ID) as Array<{id: string}>).length

@@ -26,6 +26,52 @@ export function shortenServerId(serverId: string): string {
 }
 
 /**
+ * 净化服务器名（与 main/agent/mcp/discovery.ts 的 sanitizeToolName 规则一致）
+ *
+ * serverName 在注册名里已被净化（非字母数字下划线→下划线、连续下划线合并、去首尾下划线），
+ * 比较时应做同样净化，否则 `My Server` 与 `My_Server` 无法对应。
+ */
+function sanitizeServerSegment(name: string): string {
+  return name
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+}
+
+/**
+ * 在已知服务器列表下，对注册名做「最长服务器名前缀匹配」
+ *
+ * 命中时返回 serverName（原始名，非净化名）与精确剥离后的 toolName。
+ * 未命中 / 剩余段为空 / 剩余段含前导下划线异常时返回 null，交由调用方回退。
+ */
+function matchKnownServerPrefix(
+  rawName: string,
+  knownServerNames: string[]
+): { serverName: string; toolName: string } | null {
+  let rest: string
+  if (rawName.startsWith('mcp_')) rest = rawName.slice(4)
+  else if (rawName.startsWith('mp_')) rest = rawName.slice(3)
+  else if (rawName.startsWith('m_')) rest = rawName.slice(2)
+  else return null
+
+  let best: { serverName: string; toolName: string } | null = null
+  let bestLen = 0
+  for (const serverName of knownServerNames) {
+    const safe = sanitizeServerSegment(serverName)
+    if (!safe) continue
+    if (!rest.startsWith(`${safe}_`)) continue
+    // 取最长匹配，处理服务器名互为前缀的歧义
+    if (safe.length <= bestLen) continue
+    const toolName = rest.slice(safe.length + 1)
+    // 剩余段为空或含前导下划线（异常）→ 跳过，回退原逻辑
+    if (!toolName || toolName.startsWith('_')) continue
+    bestLen = safe.length
+    best = { serverName, toolName }
+  }
+  return best
+}
+
+/**
  * 从 MCP 工具名中提取 shortId 和原始工具名
  *
  * 统一格式（当前）:
@@ -36,9 +82,22 @@ export function shortenServerId(serverId: string): string {
  * 旧格式（兼容）:
  *   mcp_<shortId>_<工具名>  如 mcp_6x7vml_navigate_page
  *   mcp_<服务器名>_<工具名>  如 mcp_GitHub_navigate_page
+ *
+ * @param knownServerNames 已知服务器名列表。提供时优先按最长前缀精确匹配，
+ *   避免把 6 位的 serverName（如 github）误判为 shortId；未提供/未命中时
+ *   回退到原有的 6 位 hash 正则（向后兼容）。
  */
-export function parseMcpToolName(rawName: string): { shortId: string | null; toolName: string } | null {
+export function parseMcpToolName(
+  rawName: string,
+  knownServerNames?: string[]
+): { shortId: string | null; toolName: string; serverName?: string } | null {
   if (!isMcpToolName(rawName)) return null
+
+  // 优先：已知服务器列表 → 最长前缀精确匹配（serverName 形式）
+  if (knownServerNames && knownServerNames.length > 0) {
+    const matched = matchKnownServerPrefix(rawName, knownServerNames)
+    if (matched) return { shortId: null, toolName: matched.toolName, serverName: matched.serverName }
+  }
 
   // 旧格式: mcp_<6位字母数字hash>_<toolName>（兼容历史数据）
   const oldMatch = rawName.match(/^mcp_([a-z0-9]{6})_(.+)$/)
@@ -58,9 +117,18 @@ export function parseMcpToolName(rawName: string): { shortId: string | null; too
 /**
  * 从 MCP 工具名中提取纯工具名部分（去掉 m_/mp_/mcp_ 前缀+服务器标识）
  * 用于兜底显示 —— 当无法从 mcpServers 反查时，至少显示工具名
+ *
+ * @param knownServerNames 已知服务器名列表。提供时优先按最长前缀精确剥离
+ *   server 段（避免残留 serverName）；未提供/未命中时维持原有字符串剥离行为。
  */
-export function extractMcpToolName(rawName: string): string | null {
+export function extractMcpToolName(rawName: string, knownServerNames?: string[]): string | null {
   if (!isMcpToolName(rawName)) return null
+
+  // 优先：已知服务器列表 → 最长前缀精确剥离
+  if (knownServerNames && knownServerNames.length > 0) {
+    const matched = matchKnownServerPrefix(rawName, knownServerNames)
+    if (matched) return matched.toolName
+  }
 
   // 旧格式：去掉 mcp_HHHHHH_ 前缀
   const oldMatch = rawName.match(/^mcp_[a-z0-9]{6}_(.+)$/)

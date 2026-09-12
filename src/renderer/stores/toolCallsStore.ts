@@ -10,6 +10,7 @@
  */
 
 import {create} from 'zustand'
+import {flatString} from '../utils/flatString'
 
 /** 扩展的工具结果类型（包含主进程返回的完整字段） */
 export interface ExtendedToolResult {
@@ -80,11 +81,11 @@ interface ToolCallsStore {
     /** 注册一个新的工具调用（初始化状态） */
     registerToolCall: (toolCallId: string, initial?: Partial<ToolCallState>, convId?: string) => void
     
-    /** 更新工具状态（progress、status 等） */
-    updateToolCall: (toolCallId: string, updates: Partial<ToolCallState>) => void
+    /** 更新工具状态（progress、status 等）；convId 仅用于 key 不存在时的兜底建键 */
+    updateToolCall: (toolCallId: string, updates: Partial<ToolCallState>, convId?: string) => void
     
-    /** 设置工具执行结果 */
-    setToolResult: (toolCallId: string, result: ExtendedToolResult) => void
+    /** 设置工具执行结果；convId 仅用于 key 不存在时的兜底建键 */
+    setToolResult: (toolCallId: string, result: ExtendedToolResult, convId?: string) => void
     
     /** 批量更新工具状态（用于批量异步处理） */
     batchUpdate: (updates: Array<{ toolCallId: string; updates: Partial<ToolCallState> }>) => void
@@ -131,7 +132,11 @@ function flushBatch(store: { set: (fn: (state: ToolCallsStore) => Partial<ToolCa
     store.set((state) => {
         const newStates = {...state.states}
         for (const {toolCallId, updates: partial} of updates) {
-            const existing = newStates[toolCallId] || {status: 'running' as const}
+            // 只更新已存在的 key：若该 key 已被 clearToolCall / clearConversationToolCalls 删除，
+            // 则丢弃这批迟到的 progress 更新，避免复活出一个无 convId 的孤儿 key（会导致
+            // 会话级清理永远删不掉、UI 上已中止的工具卡片一直转圈）。
+            const existing = newStates[toolCallId]
+            if (!existing) continue
             newStates[toolCallId] = {...existing, ...partial}
         }
         return {states: newStates}
@@ -154,6 +159,31 @@ function scheduleBatchFlush(store: { set: (fn: (state: ToolCallsStore) => Partia
 /** 子 Agent 流式事件数组滑动窗口上限：控制单条 assistant 气泡的内存占用 */
 const MAX_SUBAGENT_STREAM_ENTRIES = 500
 
+/** 进度时间轴条数上限（与主进程 PROGRESS_LOG_MAX 对齐，见 src/main/agent/manager.accumulator.ts） */
+export const PROGRESS_LOG_MAX = 200
+
+/**
+ * 单条 subAgentStream text 条目合并后的字符上限。
+ * 数组滑动窗口（500 条）无法约束"单条超长流式文本"——LLM 逐 token 到达时所有 token 会
+ * 合并进同一条 entry，content 可无限增长。这里对合并结果做二次封顶。
+ * 取 12000：约为常见中英文混排 3~4k token，足以容纳一个完整的正文块而不产生可见截断，
+ * 同时把单条 entry 的内存占用限制在可控范围（远大于测试中的短合并串）。
+ */
+export const MAX_SUBAGENT_TEXT_LENGTH = 12000
+
+/**
+ * 合并文本被截断时追加的可见提示。
+ *
+ * ★ 内存优化 B2：哨兵抗碰撞。截断逻辑需要从正文中剔除历史标记（见 appendSubAgentStream），
+ *   若直接用可见文案 `…(已截断较早内容)` 作哨兵，`split(marker).join('')` 会无差别删除
+ *   正文中偶然出现的同名中文字面量（例如模型输出里恰好写了这句话）——内容被静默吞掉。
+ *   这里用 U+2063 INVISIBLE SEPARATOR 包夹哨兵：可见文案保持 `…(已截断较早内容)` 不变，
+ *   UI 观感一致，但正文自然语言几乎不可能命中完整哨兵，剔除操作只作用于真正的标记。
+ *   U+2063 是普通 UTF-16 code unit（无代理对），split/join/flatString 对其无特殊语义。
+ *   其长度已计入 MARKER.length，参与 keep 计算（MAX - MARKER.length），无需额外处理。
+ */
+export const SUBAGENT_TEXT_TRUNCATION_MARKER = '\u2063…(已截断较早内容)\u2063'
+
 export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
     states: {},
     
@@ -170,7 +200,7 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
         }))
     },
     
-    updateToolCall: (toolCallId, updates) => {
+    updateToolCall: (toolCallId, updates, convId) => {
         // 对于高频更新（如 progress），加入批量队列
         if (updates.progress !== undefined || updates.progressPercent !== undefined) {
             batchQueue.push({toolCallId, updates})
@@ -183,19 +213,24 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
             states: {
                 ...state.states,
                 [toolCallId]: {
-                    ...(state.states[toolCallId] || {status: 'running'}),
+                    // key 不存在时自动建键（streamSubAgents 依赖此行为建立父 agent 运行时 key）。
+                    // fallback 必须带上 convId，否则会产出 clearConversationToolCalls 删不掉的孤儿 key
+                    // （会话删除/切换后内存态残留）。key 已存在时不覆盖其原有 convId（existing 展开在前）。
+                    ...(state.states[toolCallId] || {status: 'running', ...(convId ? {convId} : {})}),
                     ...updates,
                 },
             },
         }))
     },
     
-    setToolResult: (toolCallId, result) => {
+    setToolResult: (toolCallId, result, convId) => {
         set((state) => ({
             states: {
                 ...state.states,
                 [toolCallId]: {
-                    ...(state.states[toolCallId] || {status: 'pending'}),
+                    // 同 updateToolCall：fallback 必须带 convId，否则产生 clearConversationToolCalls
+                    // 删不掉的孤儿 key；key 已存在时不覆盖其原有 convId。
+                    ...(state.states[toolCallId] || {status: 'pending', ...(convId ? {convId} : {})}),
                     status: result.error ? 'error' : 'success',
                     result,
                 },
@@ -256,18 +291,27 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
     appendProgressLog: (toolCallId, text) => {
         const entry = {timestamp: Date.now(), text}
         set((state) => {
-            const existing = state.states[toolCallId] || {status: 'running' as const}
+            // 与 flushBatch 同款守卫：若该 key 已被 clearToolCall / clearConversationToolCalls 删除，
+            // 直接丢弃本次迟到的 progress 更新，防止复活出无 convId 的孤儿 key
+            // （会话级清理永远删不掉、progressLog 继续累积到 PROGRESS_LOG_MAX）。
+            const existing = state.states[toolCallId]
+            if (!existing) return {}
             const currentLog = existing.progressLog || []
             const lastEntry = currentLog.length > 0 ? currentLog[currentLog.length - 1] : null
             // 去重：如果最后一条文本相同，不追加
             if (lastEntry?.text === text) return {}
+            const nextLog = [...currentLog, entry]
             return {
                 states: {
                     ...state.states,
                     [toolCallId]: {
                         ...existing,
                         progress: text,
-                        progressLog: [...currentLog, entry],
+                        // FIFO 丢最旧保最新：始终保留尾部（最新）条目，
+                        // StreamEntryRenderer.getLastActiveTime 依赖尾部时间戳判定"最后活跃"脉冲
+                        progressLog: nextLog.length > PROGRESS_LOG_MAX
+                            ? nextLog.slice(-PROGRESS_LOG_MAX)
+                            : nextLog,
                     },
                 },
             }
@@ -276,15 +320,36 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
 
     appendSubAgentStream: (toolCallId, entry) => {
         set((state) => {
-            const existing = state.states[toolCallId] || {status: 'running' as const}
+            // 与 flushBatch 同款守卫：若该 key 已被 clearToolCall / clearConversationToolCalls 删除，
+            // 直接丢弃本次迟到的流式事件，防止复活出无 convId 的孤儿 key
+            // （会话级清理永远删不掉、subAgentStream 继续累积）。
+            const existing = state.states[toolCallId]
+            if (!existing) return {}
             const currentStream = existing.subAgentStream || []
             // 合并连续 text 条目：LLM token 级流式输出逐 token 到达，
             // 若上一个 entry 也是 text 类型，追加内容而非创建新 entry，避免单个词/字独占一行
             const lastEntry = currentStream.length > 0 ? currentStream[currentStream.length - 1] : undefined
             if (entry.type === 'text' && lastEntry?.type === 'text') {
+                // 合并前先对结果做长度封顶：超出时保留尾部（丢最早内容）并追加可见提示，
+                // 避免逐 token 流式把单条 entry 的 content 撑成无限大。
+                let mergedContent = (lastEntry.content || '') + (entry.content || '')
+                if (mergedContent.length > MAX_SUBAGENT_TEXT_LENGTH) {
+                    // ★ 内存优化 B1：先剔除、后切片、再补一条。
+                    //   修复前（D1）先 slice(-keep) 再剔除标记：若切片起点恰好落入标记内部，
+                    //   标记被切成半截残片（"(已截断较早内容)" / "较早内容)" / ")" 等），
+                    //   split 匹配不到完整标记 → 残片留在内容头部，用户可见。
+                    //   改为先剔除全文旧标记（cleaned 内不含任何标记片段），再对 cleaned 切片，
+                    //   切片永不切穿标记，从性质上保证结果中不残留任何半截标记片段。
+                    //   不变量：任意多次截断后，标记恰好出现 1 次且为后缀，长度 ≤ MAX；
+                    //   首次截断时 merged 内无标记，split/join 为恒等操作，结果与 D1 逐字节一致。
+                    const keep = MAX_SUBAGENT_TEXT_LENGTH - SUBAGENT_TEXT_TRUNCATION_MARKER.length
+                    const cleaned = mergedContent.split(SUBAGENT_TEXT_TRUNCATION_MARKER).join('')
+                    // ★ 内存优化 V1：slice(-keep) 产生 SlicedString 会钉住整个父串，flatString 强制扁平复制
+                    mergedContent = flatString(cleaned.slice(-keep)) + SUBAGENT_TEXT_TRUNCATION_MARKER
+                }
                 const merged = {
                     ...lastEntry,
-                    content: (lastEntry.content || '') + (entry.content || ''),
+                    content: mergedContent,
                 }
                 const newStream = [...currentStream]
                 newStream[newStream.length - 1] = merged

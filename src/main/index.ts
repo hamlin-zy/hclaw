@@ -36,6 +36,7 @@ import {schedulerManager} from './scheduler';
 import {channelManager} from './channel/ChannelManager';
 import {initChannelIPC} from './channel/channelIPC';
 import {initMemoIPC} from './memo/memoIPC';
+import {initProjectManagerIPC, stopAllWatchers} from './project-manager/window';
 import {initPhraseIPC} from './phrase/phraseIPC';
 import {memoStore} from './memo/memoStore';
 import {createLogger} from './agent/logger';
@@ -182,6 +183,9 @@ initConversationIPC();
 // persist-degraded），仅携带变更引用，不带全量消息（§3.6-6）。
 // UI 流式 chunk 级事件保持现状不动（7.5）。
 getConversationPersistence().onPersistEvent(e => {
+  // ★ C1 前置：message-flushed 是进程内 ACK 信号（仅供主进程侧消费，渲染端不消费），
+  // 每次节流 flush 都会发，若透传会产生大量无意义 IPC。故显式白名单只转发既有渲染端事件。
+  if (e.type !== 'message-finalized' && e.type !== 'persist-degraded') return
   const win = getMainWindow();
   try { win?.webContents.send('agent-persist-event', e) } catch { /* 窗口未就绪/已销毁时忽略 */ }
 });
@@ -202,6 +206,7 @@ initPhraseIPC();
 memoStore.cleanupStalePending();
 initChannelIPC();
 channelManager.init();
+initProjectManagerIPC();
 
 app.on('ready', async () => {
   // DB is initialized at module import time via ./repositories/init
@@ -481,6 +486,7 @@ app.on('activate', () => {
 
 app.on('before-quit', async () => {
   setIsQuitting(true);
+  stopAllWatchers();
 
   // §4.3 退出边界：全部会话未 flush 增量同步落库
   try { getConversationPersistence().flushAllSync() } catch (err) {
@@ -492,6 +498,9 @@ app.on('will-quit', async () => {
   globalShortcut.unregisterAll();
   agentManager.abortAll();
   await mcpWorkerManager.shutdown();
+  // 关闭持久化 Shell 会话池，销毁常驻 shell 进程
+  const {disposeAllShellSessions} = await import('./agent/tools/shellPool/pool');
+  try { disposeAllShellSessions(); } catch { /* ignore */ }
   // 关闭 hclaw_db_query 只读连接
   const {closeConnection} = await import('./agent/tools/builtin/hclawDbQueryConnection');
   try { closeConnection(); } catch { /* ignore */ }

@@ -417,7 +417,7 @@ export const MESSAGES_SCHEMA_VERSION = '2.0'
 
 // ─── Capability catalog types ──────────────────────────
 
-export type CapabilityType = 'skill' | 'agent' | 'command'
+export type CapabilityType = 'skill' | 'agent' | 'command' | 'mcp'
 
 export interface CatalogEntry {
   name: string
@@ -439,6 +439,11 @@ export interface CatalogMetadata {
   catalogEntries: CatalogEntry[]
   /** 上次发布的 digest，恢复会话时读回 */
   catalogDigest?: string
+  /**
+   * 目录种类：skills（技能目录，缺省值，兼容旧数据）| mcp（MCP 工具目录）。
+   * 两源各自独立 digest、独立消息，互不牵连重发。
+   */
+  catalogKind?: 'skills' | 'mcp'
 }
 
 // ─── Message (top-level) ──────────────────────────────

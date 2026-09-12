@@ -39,8 +39,8 @@ describe('collectCatalogSnapshot', () => {
         ] as any)
         const snap = collectCatalogSnapshot()
         expect(snap.complete).toBe(true)
-        expect(snap.entries).toHaveLength(1)
-        expect(snap.entries[0].type).toBe('skill')
+        expect(snap.skills).toHaveLength(1)
+        expect(snap.skills[0].type).toBe('skill')
         vi.restoreAllMocks()
     })
 
@@ -50,7 +50,7 @@ describe('collectCatalogSnapshot', () => {
         })
         const snap = collectCatalogSnapshot()
         expect(snap.complete).toBe(false)
-        expect(snap.entries).toEqual([])
+        expect(snap.skills).toEqual([])
         vi.restoreAllMocks()
     })
 
@@ -60,8 +60,8 @@ describe('collectCatalogSnapshot', () => {
             makeSkill('beta', {description: 'only auto'}),
         ] as any)
         const snap = collectCatalogSnapshot()
-        expect(snap.entries.find(e => e.name === 'alpha')!.description).toBe('user desc')
-        expect(snap.entries.find(e => e.name === 'beta')!.description).toBe('only auto')
+        expect(snap.skills.find(e => e.name === 'alpha')!.description).toBe('user desc')
+        expect(snap.skills.find(e => e.name === 'beta')!.description).toBe('only auto')
         vi.restoreAllMocks()
     })
 
@@ -72,7 +72,7 @@ describe('collectCatalogSnapshot', () => {
         ] as any)
         const snap = collectCatalogSnapshot()
         // 全空条目被跳过；仅有 trigger 的保留
-        expect(snap.entries.map(e => e.name)).toEqual(['hasTrigger'])
+        expect(snap.skills.map(e => e.name)).toEqual(['hasTrigger'])
         vi.restoreAllMocks()
     })
 
@@ -81,8 +81,8 @@ describe('collectCatalogSnapshot', () => {
             {enabled: true, name: 'brainstorming', description: 'd', source: 'plugin', pluginName: 'superpowers@github'},
         ] as any)
         const snap = collectCatalogSnapshot()
-        expect(snap.entries[0].name).toBe('brainstorming')
-        expect(snap.entries[0].name).not.toContain('(')
+        expect(snap.skills[0].name).toBe('brainstorming')
+        expect(snap.skills[0].name).not.toContain('(')
         vi.restoreAllMocks()
     })
 })
@@ -151,7 +151,7 @@ describe('renderCatalogContent', () => {
 
 describe('decidePublish 四格决策表', () => {
   const snap = (es: CatalogEntry[], complete = true): Parameters<typeof decidePublish>[0] =>
-    ({entries: es, complete})
+    ({skills: es, mcpTools: [], complete})
   const eA = collectFixture()
   const eB: CatalogEntry[] = [
     {name: 'alpha', type: 'skill', description: 'changed'},
@@ -297,7 +297,7 @@ describe('dual-mode rendering & digest', () => {
 
     const snap = collectCatalogSnapshot()
     expect(snap.complete).toBe(true)
-    const out = renderCatalogContent(snap.entries, 'names', 'first')
+    const out = renderCatalogContent(snap.skills, 'names', 'first')
 
     const indexBlock = out.split('<available_skills>')[1]?.split('</available_skills>')[0] ?? ''
     const indexNames = indexBlock.split(',').map(s => s.trim()).filter(Boolean)
@@ -315,7 +315,7 @@ describe('dual-mode rendering & digest', () => {
 })
 
 const snapFor = (es: CatalogEntry[], complete = true): Parameters<typeof decidePublish>[0] =>
-    ({entries: es, complete})
+    ({skills: es, mcpTools: [], complete})
 
 describe('decidePublish two-stage', () => {
     const one = [entry('alpha')]

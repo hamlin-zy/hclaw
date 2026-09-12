@@ -11,11 +11,21 @@
  * - 危险命令通过字符串拼接构造，避免测试文件本身出现危险命令字面量
  *   （本项目的 bash 安全策略会拦截含字面量危险命令的测试文件）
  */
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {afterAll, afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import * as fsSync from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import {bashTool, getShellInfo, getTerminalDisplayName} from '@/main/agent/tools/builtin/bashTool'
+import {disposeAllShellSessions, disposeAllShellSessionsAsync} from '@/main/agent/tools/shellPool/pool'
+
+// 持久化 Shell 会话池：测试结束后销毁常驻 shell 进程，避免 vitest 挂起与 tmpDir 句柄占用
+afterAll(async () => {
+    await disposeAllShellSessionsAsync()
+})
+
+afterEach(async () => {
+    await disposeAllShellSessionsAsync()
+})
 
 function makeContext(tmpDir: string, abortSignal?: AbortSignal): any {
     return {
@@ -32,8 +42,9 @@ describe('bashTool — 基本命令执行', () => {
         tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'bash-tool-test-'))
     })
 
-    afterEach(() => {
-        fsSync.rmSync(tmpDir, {recursive: true, force: true})
+    afterEach(async () => {
+        await disposeAllShellSessionsAsync()
+        fsSync.rmSync(tmpDir, {recursive: true, force: true, maxRetries: 10, retryDelay: 100})
     })
 
     it('成功执行 echo，输出包含 hello', async () => {
@@ -80,8 +91,9 @@ describe('bashTool — 超时控制', () => {
         tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'bash-tool-test-'))
     })
 
-    afterEach(() => {
-        fsSync.rmSync(tmpDir, {recursive: true, force: true})
+    afterEach(async () => {
+        await disposeAllShellSessionsAsync()
+        fsSync.rmSync(tmpDir, {recursive: true, force: true, maxRetries: 10, retryDelay: 100})
     })
 
     it('长命令超时返回错误且含「超时」字样', async () => {
@@ -104,8 +116,9 @@ describe('bashTool — 非零退出码', () => {
         tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'bash-tool-test-'))
     })
 
-    afterEach(() => {
-        fsSync.rmSync(tmpDir, {recursive: true, force: true})
+    afterEach(async () => {
+        await disposeAllShellSessionsAsync()
+        fsSync.rmSync(tmpDir, {recursive: true, force: true, maxRetries: 10, retryDelay: 100})
     })
 
     it('退出码 3 → 失败且错误含 exit code: 3', async () => {
@@ -137,8 +150,9 @@ describe('bashTool — 危险命令拦截', () => {
         tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'bash-tool-test-'))
     })
 
-    afterEach(() => {
-        fsSync.rmSync(tmpDir, {recursive: true, force: true})
+    afterEach(async () => {
+        await disposeAllShellSessionsAsync()
+        fsSync.rmSync(tmpDir, {recursive: true, force: true, maxRetries: 10, retryDelay: 100})
     })
 
     it('危险命令被安全策略拦截且含「危险命令」字样', async () => {
@@ -159,8 +173,9 @@ describe('bashTool — 输出截断保护', () => {
         tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'bash-tool-test-'))
     })
 
-    afterEach(() => {
-        fsSync.rmSync(tmpDir, {recursive: true, force: true})
+    afterEach(async () => {
+        await disposeAllShellSessionsAsync()
+        fsSync.rmSync(tmpDir, {recursive: true, force: true, maxRetries: 10, retryDelay: 100})
     })
 
     it('超大输出被截断并包含截断标记，output 不超出 2MB 上限', async () => {
@@ -200,8 +215,9 @@ describe('bashTool — 中止信号', () => {
         tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'bash-tool-test-'))
     })
 
-    afterEach(() => {
-        fsSync.rmSync(tmpDir, {recursive: true, force: true})
+    afterEach(async () => {
+        await disposeAllShellSessionsAsync()
+        fsSync.rmSync(tmpDir, {recursive: true, force: true, maxRetries: 10, retryDelay: 100})
     })
 
     it('已 abort 的 AbortSignal 执行长命令 → 错误含「已中止」', async () => {
@@ -225,8 +241,9 @@ describe('bashTool — 颜色抑制与 ANSI 剥离', () => {
         tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'bash-tool-test-'))
     })
 
-    afterEach(() => {
-        fsSync.rmSync(tmpDir, {recursive: true, force: true})
+    afterEach(async () => {
+        await disposeAllShellSessionsAsync()
+        fsSync.rmSync(tmpDir, {recursive: true, force: true, maxRetries: 10, retryDelay: 100})
     })
 
     it('子进程环境注入颜色抑制变量（NO_COLOR / FORCE_COLOR / CI / TERM）', async () => {

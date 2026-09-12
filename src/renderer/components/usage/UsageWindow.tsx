@@ -13,6 +13,7 @@ import {
     Toast,
 } from './statsParts'
 import {UsageFilterBar} from './UsageFilterBar'
+import DatePicker from '../common/DatePicker'
 import {EMPTY_USAGE_FILTER, filterBreakdown, type UsageFilterState} from './usageFilter'
 import type {GlobalUsageStats, TimeRange, TrendGranularity, UsageStatsQueryParams, UsageBreakdown} from '@shared/types'
 
@@ -100,6 +101,12 @@ function trendLabel(day: string, granularity: TrendGranularity): string {
 
 /** 工具栏图标按钮（更新汇率 / 更新价目表）共享样式 */
 const REFRESH_ICON_BTN_CLS = 'px-2 py-1 text-xs rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+
+/**
+ * 自定义范围 DatePicker 输入框样式：对齐原 <input type="date"> 外观。
+ * 用 `!` 提升优先级覆盖 .dp-input 自带 padding/bg/radius（同为单类选择器，见 globals.css 的顺序）。
+ */
+const CUSTOM_DATE_INPUT_CLS = '!rounded-md !border !border-[var(--border)] !bg-[var(--surface-muted)] !px-2 !py-1 !text-xs !text-[var(--text-primary)] tabular-nums outline-none focus:!border-[var(--brand-border)] transition-colors'
 
 /** 趋势柱状条（纯 CSS，零图表库） */
 function TrendBar({value, max, label, isToday}: {value: number; max: number; label: string; isToday: boolean}) {
@@ -338,28 +345,32 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                 {/* 自定义日期范围选择器（天级精度，闭区间） */}
                 {range === 'custom' && (
                     <div className="flex items-center gap-1.5 px-0.5" data-testid="custom-range-picker">
-                        <input
-                            type="date"
-                            data-testid="custom-start"
-                            value={customRange.start}
-                            max={customRange.end}
-                            onChange={(e) => {
-                                if (e.target.value) setCustomRange(c => ({...c, start: e.target.value}))
-                            }}
-                            className="rounded-md border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-xs text-[var(--text-primary)] tabular-nums outline-none focus:border-[var(--brand-border)] transition-colors"
-                        data-name="usage-window-input"/>
+                        {/* 起始：不可晚于结束（max=end）；清空语义与原生一致——空值不提交（起始恒有值） */}
+                        <span className="contents" data-testid="custom-start" data-name="usage-window-input">
+                            <DatePicker
+                                value={customRange.start}
+                                max={customRange.end}
+                                ariaLabel="起始日期"
+                                onChange={(v) => {
+                                    if (v) setCustomRange(c => ({...c, start: v}))
+                                }}
+                                className={CUSTOM_DATE_INPUT_CLS}
+                            />
+                        </span>
                         <span className="text-xs text-[var(--text-muted)]">至</span>
-                        <input
-                            type="date"
-                            data-testid="custom-end"
-                            value={customRange.end}
-                            min={customRange.start}
-                            max={todayLocal()}
-                            onChange={(e) => {
-                                if (e.target.value) setCustomRange(c => ({...c, end: e.target.value}))
-                            }}
-                            className="rounded-md border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-xs text-[var(--text-primary)] tabular-nums outline-none focus:border-[var(--brand-border)] transition-colors"
-                        data-name="usage-window-range-end-input"/>
+                        {/* 结束：不早于起始（min=start），且不可选未来（max=今天） */}
+                        <span className="contents" data-testid="custom-end" data-name="usage-window-range-end-input">
+                            <DatePicker
+                                value={customRange.end}
+                                min={customRange.start}
+                                max={todayLocal()}
+                                ariaLabel="结束日期"
+                                onChange={(v) => {
+                                    if (v) setCustomRange(c => ({...c, end: v}))
+                                }}
+                                className={CUSTOM_DATE_INPUT_CLS}
+                            />
+                        </span>
                     </div>
                 )}
                 <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">

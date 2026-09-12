@@ -122,6 +122,7 @@ export function buildSeedInstruction(snapshot: StreamSnapshot | null, msgs: Mess
         runningToolCount: snapshot.runningToolCount,
         pendingQuestion: snapshot.pendingQuestion,
         pendingPermissionConfirm: snapshot.pendingPermissionConfirm,
+        pendingToolsChangeConfirm: snapshot.pendingToolsChangeConfirm,
         executingToolsMessage: null,
     }
 

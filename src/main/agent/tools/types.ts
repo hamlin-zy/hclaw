@@ -9,8 +9,9 @@
  */
 
 import {z} from 'zod'
-// RunMode 代理导出（真实定义在 @shared/types）
-export type {RunMode} from '@shared/types'
+// RunMode 代理导出（真实定义在 @shared/types）；import 供本文件内联使用
+import type {RunMode} from '@shared/types'
+export type {RunMode}
 
 // 前向声明：避免循环依赖，sendMessage 的具体类型在 stream.ts 中定义
 // ToolContext 中使用泛型函数签名
@@ -62,6 +63,12 @@ export interface ToolContext {
     allowedToolNames?: ReadonlySet<string>
   /** 当前 Agent 禁止使用的工具名集合（运行时黑名单校验，即使白名单被覆盖为 ['*'] 仍能拦截） */
   disallowedToolNames?: ReadonlySet<string>
+  /**
+   * 本次执行的作用域权限模式覆盖（子代理路径固定为 'auto'）。
+   * 优先级高于进程级 permissionEngine 的 mode；缺省时引擎回落自身 mode。
+   * 仅作为参数下发，调用方不得据此写回共享引擎状态。
+   */
+  permissionMode?: RunMode
 }
 
 // ─── 工具执行结果 ──────────────────────────────────────

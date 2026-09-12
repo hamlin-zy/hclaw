@@ -463,6 +463,26 @@ export class McpVersionManager {
     oldMeta: VersionMeta,
   ): Promise<{success: boolean; error?: string}> {
     try {
+      // Pin args to latest version so restart actually installs the new version
+      const spec = parseNpmPackageSpec(server.command, server.args)
+      let latest = oldMeta.latest
+      if (spec.pkgName && !latest) {
+        const reg = await this.queryNpmRegistry(spec.pkgName)
+        latest = reg.latest
+      }
+      let argsForDetect = server.args
+      if (spec.pkgName && latest && isValidVersionSpec(latest)) {
+        try {
+          const newArgs = buildNpxVersionArgs(server.args, spec.pkgName, latest)
+          if (mcpService.update(serverId, {args: newArgs})) {
+            argsForDetect = newArgs
+          }
+        } catch (err) {
+          // Non-fatal: fall back to old args (existing upgrade behavior)
+          logger.warn('upgradeNpx: failed to pin args to latest (non-fatal)', {serverId, err: errMsg(err)})
+        }
+      }
+
       // Clear npm cache (non-fatal if fails)
       try {
         await execAsync('npm cache clean --force', {timeout: 30000})
@@ -481,7 +501,7 @@ export class McpVersionManager {
 
       // Re-probe version after restart (delay 2s for process readiness)
       await new Promise(r => setTimeout(r, 2000))
-      const newMeta = await this.detect(server)
+      const newMeta = await this.detect({...server, args: argsForDetect})
       this.versionMap.set(serverId, newMeta)
       logger.info('upgradeNpx: success', {serverId, newCurrent: newMeta.current})
       return {success: true}

@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from 'react'
+import {useCallback, useEffect, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {fade, scaleFade} from '../lib/motionPresets'
 
@@ -15,8 +15,25 @@ export interface ConfirmDialogOptions {
     onCancel?: () => void
 }
 
-// 内部状态
-let resolvePromise: ((value: boolean) => void) | null = null
+// 内部状态：confirm 与 confirmWithInput 共用一个 resolver（泛型化以便返回 string | null）
+let resolveFn: ((value: unknown) => void) | null = null
+
+/** 取出并清空当前 pending resolver（模块级单例，取用即消费，避免重复 resolve） */
+function takeResolver(): ((value: unknown) => void) | null {
+    const resolve = resolveFn
+    resolveFn = null
+    return resolve
+}
+
+/** 挂起 resolver 并广播弹窗事件；事件处理器（ConfirmDialog）负责后续 resolve */
+function showDialog(kind: 'confirm' | 'input', options: ConfirmDialogOptions): Promise<unknown> {
+    return new Promise((resolve) => {
+        resolveFn = resolve
+        window.dispatchEvent(
+            new CustomEvent('hclaw:show-confirm-dialog', {detail: {kind, ...options}})
+        )
+    })
+}
 
 /**
  * 显示确认弹窗
@@ -24,12 +41,20 @@ let resolvePromise: ((value: boolean) => void) | null = null
  * @returns Promise<boolean> 用户确认返回 true，取消返回 false
  */
 export function confirm(options: ConfirmDialogOptions): Promise<boolean> {
-    return new Promise((resolve) => {
-        resolvePromise = resolve
-        window.dispatchEvent(
-            new CustomEvent('hclaw:show-confirm-dialog', {detail: options})
-        )
-    })
+    return showDialog('confirm', options) as Promise<boolean>
+}
+
+export interface ConfirmInputOptions extends Omit<ConfirmDialogOptions, 'onConfirm'> {
+    inputLabel?: string
+    placeholder?: string
+    initialValue?: string
+    /** true → 渲染 textarea，Ctrl/Cmd+Enter 提交；缺省 → 单行 input，Enter 提交 */
+    multiline?: boolean
+}
+
+/** 显示带输入的确认弹窗。返回 trim 后的值；取消 / ESC / 点遮罩 → null */
+export function confirmWithInput(options: ConfirmInputOptions): Promise<string | null> {
+    return showDialog('input', options) as Promise<string | null>
 }
 
 // 导出给全局使用
@@ -42,14 +67,26 @@ if (typeof window !== 'undefined') {
  * 用于需要用户确认的危险操作（如删除）
  */
 export default function ConfirmDialog() {
+    const [kind, setKind] = useState<'confirm' | 'input'>('confirm')
+    const [inputValue, setInputValue] = useState('')
     const [isOpen, setIsOpen] = useState(false)
     const [options, setOptions] = useState<ConfirmDialogOptions | null>(null)
     const [isLoading, setIsLoading] = useState(false)
 
+    // 实时镜像（供 ESC 监听器读取，避免闭包读到过期状态）
+    const optionsRef = useRef<ConfirmDialogOptions | null>(null)
+    const kindRef = useRef<'confirm' | 'input'>('confirm')
+
     // 监听显示确认弹窗事件
     useEffect(() => {
-        const handleShowDialog = (e: CustomEvent<ConfirmDialogOptions>) => {
-            setOptions(e.detail)
+        const handleShowDialog = (e: CustomEvent<ConfirmDialogOptions & {kind?: string}>) => {
+            const detail = e.detail
+            const nextKind = detail.kind === 'input' ? 'input' : 'confirm'
+            optionsRef.current = detail
+            kindRef.current = nextKind
+            setKind(nextKind)
+            setOptions(detail)
+            setInputValue(nextKind === 'input' ? ((detail as ConfirmInputOptions).initialValue ?? '') : '')
             setIsOpen(true)
             setIsLoading(false)
         }
@@ -63,44 +100,52 @@ export default function ConfirmDialog() {
     const handleConfirm = useCallback(async () => {
         if (!options) return
 
+        if (kind === 'input') {
+            const value = inputValue.trim()
+            if (!value) return                      // 空值兜底（按钮本身已 disabled）
+            const resolve = takeResolver()
+            setIsOpen(false)
+            resolve?.(value)
+            return
+        }
+
         // Guard: if onConfirm is not a function, just close and resolve true
         if (typeof options.onConfirm !== 'function') {
+            const resolve = takeResolver()
             setIsOpen(false)
-            resolvePromise?.(true)
+            resolve?.(true)
             return
         }
 
         setIsLoading(true)
-
         try {
-            // 执行确认回调
             await options.onConfirm()
-            // 关闭弹窗并返回 true
+            const resolve = takeResolver()
             setIsOpen(false)
-            resolvePromise?.(true)
+            resolve?.(true)
         } catch (err) {
-            // 即使回调出错也要关闭弹窗
             setIsLoading(false)
             console.error('[ConfirmDialog] onConfirm error:', err)
         }
-    }, [options])
+    }, [options, kind, inputValue])
 
     const handleCancel = useCallback(() => {
-        options?.onCancel?.()
+        optionsRef.current?.onCancel?.()
+        const resolve = takeResolver()
         setIsOpen(false)
-        resolvePromise?.(false)
-    }, [options])
+        resolve?.(kindRef.current === 'input' ? null : false)
+    }, [])
 
-    // 按 ESC 关闭
+    // 按 ESC 关闭（监听器常驻，经 ref 读取最新状态与 pending resolver）
     useEffect(() => {
         const handleEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && isOpen) {
+            if (e.key === 'Escape' && resolveFn) {
                 handleCancel()
             }
         }
         document.addEventListener('keydown', handleEsc)
         return () => document.removeEventListener('keydown', handleEsc)
-    }, [isOpen, handleCancel])
+    }, [handleCancel])
 
     // 配置按钮样式
     const confirmVariants = {
@@ -111,6 +156,8 @@ export default function ConfirmDialog() {
 
     const variant = options?.confirmVariant || 'primary'
     const confirmClassName = confirmVariants[variant] || confirmVariants.primary
+    // 输入型弹窗的选项视图（非输入型为 null），避免在 JSX 内反复断言 options 类型
+    const inputOptions = kind === 'input' ? (options as ConfirmInputOptions) : null
 
     return (
         <AnimatePresence>
@@ -122,6 +169,7 @@ export default function ConfirmDialog() {
                         transition={{ duration: 0.15 }}
                         className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[99998]"
                         onClick={handleCancel}
+                        data-testid="confirm-dialog-mask"
                     />
 
                     {/* 弹窗主体 */}
@@ -183,6 +231,48 @@ export default function ConfirmDialog() {
                                 <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap">
                                     {options.message}
                                 </p>
+                                {inputOptions && (
+                                    <div className="mt-3">
+                                        {inputOptions.inputLabel && (
+                                            <label htmlFor="confirm-dialog-input" className="block mb-1 text-xs text-[var(--text-muted)]">
+                                                {inputOptions.inputLabel}
+                                            </label>
+                                        )}
+                                        {inputOptions.multiline ? (
+                                            <textarea
+                                                id="confirm-dialog-input"
+                                                rows={3}
+                                                autoFocus
+                                                value={inputValue}
+                                                placeholder={inputOptions.placeholder}
+                                                onChange={e => setInputValue(e.target.value)}
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                                        e.preventDefault()
+                                                        void handleConfirm()
+                                                    }
+                                                }}
+                                                className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--brand-primary)]"
+                                             data-name="confirm-dialog-textarea" />
+                                        ) : (
+                                            <input
+                                                id="confirm-dialog-input"
+                                                type="text"
+                                                autoFocus
+                                                value={inputValue}
+                                                placeholder={inputOptions.placeholder}
+                                                onChange={e => setInputValue(e.target.value)}
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault()
+                                                        void handleConfirm()
+                                                    }
+                                                }}
+                                                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--brand-primary)]"
+                                             data-name="confirm-dialog-input" />
+                                        )}
+                                    </div>
+                                )}
                             </div>
 
                             {/* Actions */}
@@ -196,7 +286,7 @@ export default function ConfirmDialog() {
                                 </button>
                                 <button
                                     onClick={handleConfirm}
-                                    disabled={isLoading}
+                                    disabled={isLoading || (kind === 'input' && inputValue.trim() === '')}
                                     className={`px-4 py-2 text-sm font-medium rounded-lg ${confirmClassName} disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2`}
                                  data-name="confirm-dialog-confirm-button">
                                     {isLoading ? (

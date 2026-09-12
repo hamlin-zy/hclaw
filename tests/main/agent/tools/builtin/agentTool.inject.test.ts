@@ -23,6 +23,9 @@ vi.mock('@/main/agent/runtimeConfigManager', () => ({
         setOverride: vi.fn(),
     },
 }))
+vi.mock('@/main/agent/tools/permission', () => ({
+    permissionEngine: {setWorkingDir: vi.fn()},
+}))
 vi.mock('@/main/agent/agentRegistry', () => ({
     agentRegistry: {
         find: vi.fn((name: string) => (name === 'General Agent' ? {id: 'general', name: 'General Agent', enabled: true} : undefined)),

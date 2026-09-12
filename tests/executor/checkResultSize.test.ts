@@ -40,4 +40,20 @@ describe('checkResultSize — MCP 工具豁免', () => {
         const r = checkResultSize('m_foo_bar', {success: true, output: undefined as any})
         expect(r.output).toBeUndefined()
     })
+
+    // ★ catalog 通道：call_mcp_tool 内部委托 MCP proxy，输出与原生 MCP 工具同源，
+    //   必须同待遇（128KB 阈值 + 不附加「结果较大」警告尾巴），否则大结果被误砍到 15KB。
+    it('call_mcp_tool 20KB 结果不被截断、不加警告尾巴（与原生 MCP 工具一致）', () => {
+        const r = checkResultSize('call_mcp_tool', {success: true, output: bigOutput})
+        expect(r.output).toBe(bigOutput)
+        expect(r.output).not.toContain('[结果已截断]')
+        expect(r.output).not.toContain('[警告]')
+    })
+
+    it('call_mcp_tool 130KB 超限时按 128KB 阈值截断并带标记', () => {
+        const huge = 'y'.repeat(130 * 1024)
+        const r = checkResultSize('call_mcp_tool', {success: true, output: huge})
+        expect(r.output).toContain('[结果已截断]')
+        expect(r.output.length).toBeLessThan(130 * 1024)
+    })
 })

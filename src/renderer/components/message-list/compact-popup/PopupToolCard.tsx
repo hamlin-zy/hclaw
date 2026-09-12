@@ -62,7 +62,8 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
     const mcpServers = useMcpStore(s => s.mcpServers)
     const mcpDisplayName = useMemo(() => {
         if (!isMcpToolName(toolCall.name)) return null
-        const parsed = parseMcpToolName(toolCall.name)
+        const serverNames = mcpServers.map(s => s.name)
+        const parsed = parseMcpToolName(toolCall.name, serverNames)
         if (!parsed) return null
 
         // 旧格式：通过 shortId 反查
@@ -79,7 +80,7 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
         const resolved = resolveMcpDisplayName(toolCall.name, mcpServers)
         if (resolved) return resolved
 
-        const toolOnly = extractMcpToolName(toolCall.name)
+        const toolOnly = extractMcpToolName(toolCall.name, serverNames)
         return toolOnly ? `m_..._${toolOnly}` : null
     }, [toolCall.name, mcpServers])
 

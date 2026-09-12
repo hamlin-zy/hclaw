@@ -68,7 +68,7 @@ export async function abortAgentImpl(
                     useToolCallsStore.getState().updateToolCall(tc.id, {
                         status: 'cancelled',
                         progress: '已取消',
-                    })
+                    }, conversationId)
                     // ★ 即时清理：中止的工具运行时 key 立即删除（消息内已补 ABORTED 结果，渲染层回退静态数据）
                     useToolCallsStore.getState().clearToolCall(tc.id)
                 }
@@ -147,6 +147,7 @@ export async function abortAgentImpl(
         isThinkingAfterTools: false,
         runningToolCount: 0,
         pendingPermissionConfirm: null,
+        pendingToolsChangeConfirm: null,
         pendingQuestion: null,
         errorMessage: null,
         executingToolsMessage: null,
@@ -160,7 +161,7 @@ export async function abortAgentImpl(
             useToolCallsStore.getState().updateToolCall(toolCallId, {
                 status: 'cancelled',
                 progress: tcState.progress || '已取消',
-            })
+            }, conversationId)
             // ★ 即时清理：中止的工具运行时 key 立即删除（消息内已补 ABORTED 结果，渲染层回退静态数据）
             useToolCallsStore.getState().clearToolCall(toolCallId)
         }

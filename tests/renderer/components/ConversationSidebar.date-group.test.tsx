@@ -206,4 +206,53 @@ describe('ConversationList · 日期分组', () => {
         const visible = ['昨天的', '上月的'].filter((t) => screen.queryByText(t))
         expect(visible.length).toBeGreaterThan(0)
     })
+
+    it('首次渲染激活会话在历史分组时自动展开（覆盖用户看不到激活会话的场景）', () => {
+        // 昨天创建的会话作为激活会话
+        const yesterdayConv = conv('yesterday', {title: '昨天的激活会话', createdAt: daysAgo(1)})
+        setConvs([yesterdayConv])
+        h.mockState.activeConversationId = 'yesterday'
+
+        render(<ConversationList/>)
+
+        // 分组被自动展开，激活会话直接可见
+        expect(screen.getByText('昨天的激活会话')).toBeTruthy()
+    })
+
+    it('激活会话在今天时不触发展开历史分组', () => {
+        setConvs([
+            conv('today', {title: '今天的激活会话', createdAt: daysAgo(0)}),
+            conv('yesterday', {title: '昨天的会话', createdAt: daysAgo(1)}),
+        ])
+        h.mockState.activeConversationId = 'today'
+
+        render(<ConversationList/>)
+
+        expect(screen.getByText('今天的激活会话')).toBeTruthy()
+        // 昨天分组的会话不可见（未被自动展开）
+        expect(screen.queryByText('昨天的会话')).toBeNull()
+    })
+
+    it('往年会话：自动展开整条路径（年/月/日三级）', () => {
+        setConvs([
+            conv('old', {title: '去年的激活会话', createdAt: yearsAgo(1)}),
+        ])
+        h.mockState.activeConversationId = 'old'
+
+        render(<ConversationList/>)
+
+        // 年→月→日 全路径展开后，会话可见
+        expect(screen.getByText('去年的激活会话')).toBeTruthy()
+    })
+
+    it('本年非本月会话：自动展开月/日两级路径', () => {
+        setConvs([
+            conv('lastMonth', {title: '上月的激活会话', createdAt: monthsAgo(1)}),
+        ])
+        h.mockState.activeConversationId = 'lastMonth'
+
+        render(<ConversationList/>)
+
+        expect(screen.getByText('上月的激活会话')).toBeTruthy()
+    })
 })

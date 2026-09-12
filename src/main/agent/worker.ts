@@ -9,11 +9,12 @@ import {MessagePort, parentPort, workerData} from 'worker_threads'
 import {agentLoop} from './loop'
 import {registerBuiltinTools} from './tools/index'
 import {permissionEngine} from './tools/permission'
-import {registerMCPTools, setMcpMessagePort, unregisterMCPTools} from './mcp/discovery'
+import {registerMCPTools, setMcpMessagePort, unregisterMCPTools, clearAllMcpToolMeta} from './mcp/discovery'
 import {isMcpToolName} from '@shared/utils/mcpShortId'
 import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import {promptResolver} from './prompts/resolver'
 import {WORKER_MESSAGE_TYPES} from './constants'
+import {ToolsChangeConfirmer} from './toolsChangeConfirm'
 import {applySerializedCapabilitiesInWorker} from './capabilityManager'
 import type {AgentStartParams} from './manager'
 import {updateGlobalScheme} from './model/index'
@@ -49,6 +50,18 @@ async function listMcpServersFromWorker(port: MessagePort): Promise<Array<{
 /** 通知主进程同步权限规则 */
 function syncPermissionRulesToMain(): void {
     parentPort?.postMessage({type: WORKER_MESSAGE_TYPES.SYNC_PERMISSION_RULES})
+}
+
+/**
+ * tools 变动「今天不再提示」的 snooze 日期键（system_settings 表）。
+ * 值为本地日期字符串 'yyyy-MM-dd'；等于今天则跳过弹窗直接放行。
+ */
+const TOOLS_CHANGE_SNOOZE_KEY = 'tools_change_prompt_snooze_until'
+
+/** 本地日期 'yyyy-MM-dd'（与用户感知的“今天”一致，不用 UTC） */
+function localDateString(d: Date = new Date()): string {
+    const p = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
 /** 导出给 executor.ts 使用 */
@@ -289,6 +302,8 @@ async function main(): Promise<void> {
                     tr.unregister(tool.name)
                 }
             }
+            // 元数据映射与 registry 同步清理（catalog 目录/ call_mcp_tool 依赖它）
+            clearAllMcpToolMeta()
         }
     })
 
@@ -363,6 +378,46 @@ async function main(): Promise<void> {
                     multiSelect,
                 })
             })
+        }
+
+        // tools 变动确认（prompt 缓存重建成本）：投递请求 + 等待用户决策。
+        // ★ 与 ask_user 门同构：无限等待用户决策，不设自动放行超时——是否继续只由用户决定。
+        //   唯一在线兜底是 abort/worker 退出（cancelAll 按 cancel 结算）。渲染端刷新/崩溃后
+        //   靠主进程内存快照重现弹窗（pendingToolsChangeConfirm），保证任何会话都有应答路径。
+        const toolsChangeConfirmer = new ToolsChangeConfirmer({
+            post: (msg) => parentPort?.postMessage(msg),
+            messageType: WORKER_MESSAGE_TYPES.TOOLS_CHANGE_CONFIRM,
+            conversationId: params.conversationId,
+            isAborted: () => abortController.signal.aborted,
+        })
+
+        /**
+         * 本轮 tools 集与上一轮不同 → 询问用户是否继续（前缀失配将作废全部历史缓存）。
+         * 命中 snooze 日期（今天不再提示）则直接放行，不弹窗。
+         */
+        const confirmToolsChange = async (info: {added: string[]; removed: string[]; previous: string[]; current: string[]}): Promise<'continue' | 'cancel' | 'snooze_today'> => {
+            // 今天不再提示：读 snooze 日期，命中今日则直接放行
+            try {
+                const {systemSettingsRepo} = await import('../repositories/sqlite/systemSettingsRepository')
+                if (systemSettingsRepo.get(TOOLS_CHANGE_SNOOZE_KEY) === localDateString()) {
+                    return 'continue'
+                }
+            } catch (err) {
+                logger.debug('[Worker] tools change snooze read failed', {error: String(err)})
+            }
+
+            const decision = await toolsChangeConfirmer.request(info)
+
+            // 勾选「今天不再提示」：写入今天日期，本日内后续 tools 变动不再拦截
+            if (decision === 'snooze_today') {
+                try {
+                    const {systemSettingsRepo} = await import('../repositories/sqlite/systemSettingsRepository')
+                    systemSettingsRepo.set(TOOLS_CHANGE_SNOOZE_KEY, localDateString())
+                } catch (err) {
+                    logger.debug('[Worker] tools change snooze write failed', {error: String(err)})
+                }
+            }
+            return decision
         }
 
         // 渠道消息发送请求（通过 parentPort IPC 请求主进程转发）
@@ -464,6 +519,8 @@ async function main(): Promise<void> {
                     resolve(msg.answer)
                     askUserRequests.delete(msg.requestId)
                 }
+            } else if (msg.type === WORKER_MESSAGE_TYPES.TOOLS_CHANGE_RESULT) {
+                toolsChangeConfirmer.settle(msg.requestId, msg.decision)
             } else if (msg.type === WORKER_MESSAGE_TYPES.CHANNEL_SEND_RESULT) {
                 const resolve = channelSendRequests.get(msg.requestId)
                 if (resolve) {
@@ -482,6 +539,8 @@ async function main(): Promise<void> {
                                 tr.unregister(tool.name)
                             }
                         }
+                        // 元数据映射同步清空（随后由 registerMCPTools 重建）
+                        clearAllMcpToolMeta()
                         // 重新注册
                         for (const server of servers) {
                             if (server.tools && server.tools.length > 0) {
@@ -525,6 +584,8 @@ async function main(): Promise<void> {
                 askUserRequests.clear()
                 channelSendRequests.forEach((resolve) => resolve({success: false, error: 'Agent 已中止'}))
                 channelSendRequests.clear()
+                // 取消待处理的 tools 变动确认（视同用户选择取消，阻断本轮发送）
+                toolsChangeConfirmer.cancelAll()
             }
         })
 
@@ -569,6 +630,7 @@ async function main(): Promise<void> {
             requestConfirmation,
             askUserQuestion,
             channelSend,
+            confirmToolsChange,
             abortSignal: abortController.signal,
             conversationTitle: params.conversationTitle,
             // 传递方案更新 Promise 函数供 Loop 内部使用

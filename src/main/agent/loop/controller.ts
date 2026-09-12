@@ -31,7 +31,7 @@ import {SOURCE_KIND_COMMAND_TASK} from '@shared/types'
 
 import type {RunParams, MainLoopExitReason, ControllerState} from './types'
 import {endTurnCleanup} from './helpers'
-import {initializeRunEnvironment, detectCommandContext, selectModelForTurn, defaultRoleForTrace, filterTools, filterToolsForDegrade, buildSystemPrompt} from './setup'
+import {initializeRunEnvironment, detectCommandContext, selectModelForTurn, defaultRoleForTrace, filterTools, filterToolsForDegrade, buildSystemPrompt, applyMcpCatalogChannel} from './setup'
 import {executeLlmCallWithRetry, executeToolCalls, extractMediaFromToolResults} from './execute'
 import type {LlmStreamResult} from './types'
 import {PreprocessCache} from './preprocessCache'
@@ -40,6 +40,7 @@ import {restoreCatalogState, runCatalogPreStep, type CatalogState} from './catal
 import {toolRegistry} from '../tools/registry'
 import {restoreEnvState, runEnvPreStep, type EnvState} from './envPublish'
 import {buildCommandTaskContent} from '../utils/userContentBuilder'
+import {getLastSentToolNames, isSameToolNameSequence} from './toolsSentRecord'
 import {buildAgentDefinitionCtMessage, shouldInjectAgentDefinitionCt} from './agentDefinitionCt'
 // ─── LLM 调用事件与工具方法（内联自历史 compress.ts） ───
 import type {ChatMessage} from '../model/types'
@@ -190,14 +191,26 @@ function getLastUserMessage(state: AgentLoopState): ChatMessage | null {
 // ─── 缓存载荷类型 ────────────────────────────────────────
 
 /**
- * 缓存载荷 commandId 跨轮携带：本轮有新命令用新值，否则沿用缓存值。
+ * 缓存载荷 commandId 跨轮携带。
+ *
+ * 优先级：messageCommandId（messageMetadata.commandId，权威来源）
+ *   > commandContext?.commandId（消息文本重新解析，可能失败）
+ *   > cached?.commandId（沿用历史缓存）
+ *   > null
+ *
+ * 与 startAgentCore 的 agentDefinition 解析优先级一致（metadata 权威优先）。
+ * 若仅依赖 commandContext，当文本解析/实体解析失败（命令名含空格、同名多插件
+ * 歧义等）→ commandContext=null，且新会话 cached=null → commandId 丢失，后续轮
+ * 从缓存恢复 agentDefinition=undefined → tools 放宽 → prompt cache 前缀断裂。
+ *
  * 用途：后续普通轮从缓存恢复 agentDefinition（工具集一致性，见 execution.ts）。
  */
 export function carryForwardCommandId(
     commandContext: {commandId: string} | null | undefined,
     cached: {commandId?: string | null} | null | undefined,
+    messageCommandId?: string,
 ): string | null {
-    return commandContext?.commandId ?? cached?.commandId ?? null
+    return messageCommandId ?? commandContext?.commandId ?? cached?.commandId ?? null
 }
 
 interface CachePayload {
@@ -343,6 +356,7 @@ export class AgentLoopController {
             customInstructions, agentTemplates, schemeConfig,
             requestConfirmation, askUserQuestion, channelSend,
             onEvent, conversationTitle, sessionId,
+            confirmToolsChange,
         } = params
 
         let currentState = state
@@ -369,6 +383,10 @@ export class AgentLoopController {
         let catalogState: CatalogState = restoreCatalogState(currentState.messages)
         // ★ 环境快照状态（日期）：同构还原，崩溃重启零重复发布
         let envState: EnvState = restoreEnvState(currentState.messages)
+
+        // ★ MCP 工具注入通道：catalog（唯一通道）。MCP 工具被移出 tools 数组，
+        //   改由目录消息 + call_mcp_tool 承载。
+        const callMcpToolDef = toolRegistry.getToolDefinition('call_mcp_tool')
 
         // ★ CT 真实消息化（spec §3.2）：主循环前插入 state 并落库，轮内后续 LLM 调用从 state 自然读到。
         // 位置在 catalog pre-step 之前：assistant 行首建于首次内容落库（无占位行），CT 天然先于它们。
@@ -516,13 +534,41 @@ export class AgentLoopController {
             // ── 过滤工具列表 ──
             const agentType = (agentTypeParam ?? params.agentType) || 'General'
             // ★ 400 降级恢复用：能力过滤前、白名单后的完整列表（含 analyze_image，已过 agent 白名单）
-            const preCapabilityToolDefinitions = await filterToolsForDegrade(agentDefinition, agentType)
-            const availableToolDefinitions = await filterTools(
-                agentDefinition, agentType, selection.modelConfig.model, selection.modelConfig.modelTypes, preCapabilityToolDefinitions,
+            const preCapabilityBase = await filterToolsForDegrade(agentDefinition, agentType)
+            const availableBase = await filterTools(
+                agentDefinition, agentType, selection.modelConfig.model, selection.modelConfig.modelTypes, preCapabilityBase,
             )
+            // ★ MCP 通道过滤：两条独立产物都必须过滤（降级路径实际发送 preCapability），
+            //   只过滤一处会让 400 降级把 MCP 工具放回 tools 数组 → 断缓存 + 误报变动弹窗。
+            const preCapabilityToolDefinitions = applyMcpCatalogChannel(preCapabilityBase, callMcpToolDef)
+            const availableToolDefinitions = applyMcpCatalogChannel(availableBase, callMcpToolDef)
             logger.debug(
                 `[AgentLoop] setup model:${selection.modelConfig.model} provider:${selection.modelConfig.provider} tools:${availableToolDefinitions.length}`,
             )
+
+            // ── tools 变动门：本轮工具集与上一轮不同 → 请求前缀从 tools 段失配，
+            //    已积累的 prompt 缓存全部作废。在请求发出前拦截，交由用户确认成本。
+            //    基线取自「上一轮实际发送」记录（跨 Worker 持久化于 system_settings；
+            //    由 execute.ts 在实际发送处写入，故降级路径也准确）。 ──
+            const currentToolNames = availableToolDefinitions.map(t => t.name)
+            const previousToolNames = sessionId ? getLastSentToolNames(sessionId) : undefined
+            if (previousToolNames && !isSameToolNameSequence(previousToolNames, currentToolNames)) {
+                const added = currentToolNames.filter(n => !previousToolNames.includes(n))
+                const removed = previousToolNames.filter(n => !currentToolNames.includes(n))
+                // 无回调（子 Agent in-process loop / 渠道会话）→ 静默放行，
+                // 对齐 askUserQuestion 缺失时的降级路径（见本文件循环检测门）。
+                if (typeof confirmToolsChange === 'function') {
+                    const decision = await confirmToolsChange({added, removed, previous: previousToolNames, current: currentToolNames})
+                    if (decision === 'cancel') {
+                        logger.info(`[AgentLoop] tools change cancelled by user, turns:${turnCount}`)
+                        yield {type: 'done', reason: 'tools_change_cancelled'} as AgentStreamEvent
+                        endTurnCleanup()
+                        return 'early_exit'
+                    }
+                }
+            }
+            // 记录点不在此处：实际发送可能因 400 降级而使用 preCapabilityToolDefinitions，
+            // 由 execute.ts 在算出 toolsToSend 后写入，保证基线 = 实际发送。
 
             // ── 发送 agent_start 事件 ──
             yield {
@@ -539,7 +585,10 @@ export class AgentLoopController {
             // ── 能力目录发布（pre-step）：digest 变化时发布/原地替换 catalog 消息 ──
             {
                 const fullDescriptions = getSettings()?.fullSkillDescriptions ?? false
-                const r = runCatalogPreStep(currentState, catalogState, conversationRepo, sessionId, fullDescriptions)
+                // ★ 本轮 tools 是否真的带上了 call_mcp_tool：受限 agent（白名单未保留调用器）
+                //   为 false → 不发布 MCP 目录，避免目录指示模型调用未声明的工具。
+                const mcpToolDeclared = availableToolDefinitions.some(d => d.name === 'call_mcp_tool')
+                const r = runCatalogPreStep(currentState, catalogState, conversationRepo, sessionId, fullDescriptions, mcpToolDeclared)
                 currentState = r.state
                 catalogState = r.catalogState
             }
@@ -586,7 +635,11 @@ export class AgentLoopController {
             const newCachePayload = JSON.stringify({
                 core: systemPrompt,
                 signature: cacheSignature,
-                commandId: carryForwardCommandId(commandContext, cached),
+                commandId: carryForwardCommandId(
+                    commandContext,
+                    cached,
+                    params.messageMetadata?.commandId as string | undefined,
+                ),
             })
 
             // ★ 缓存未命中时写入 DB（不阻塞主流程）
@@ -717,6 +770,7 @@ export class AgentLoopController {
                 sessionId,
                 allowedToolNames,
                 disallowedToolNames,
+                permissionModeOverride: params.permissionModeOverride,
             })
             currentState = toolResult.state
             for (const event of toolResult.events) yield event

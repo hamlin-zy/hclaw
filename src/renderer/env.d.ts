@@ -108,6 +108,11 @@ declare global {
             requestId: string
             answer: string
         }) => Promise<{ success: boolean }>
+        agentRespondToolsChange: (params: {
+            conversationId: string
+            requestId: string
+            decision: 'continue' | 'cancel' | 'snooze_today'
+        }) => Promise<{ success: boolean }>
         saveTempFile: (data: { buffer: number[], name: string }) => Promise<string | null>
         saveDroppedFile: (data: { sourcePath: string, name: string }) => Promise<string | null>
         getDroppedFilePath: (file: File) => string
@@ -135,6 +140,33 @@ declare global {
             touch: (id: string) => Promise<{ok: boolean, data?: import('../shared/types/phrase').PhraseItem, error?: string}>
         }
         onPhraseChanged: (handler: () => void) => () => void
+        // 项目管理窗口（pm:* IPC）：safeHandle 直接返回 handler 结果（裸值，错误以 reject 抛出）
+        projectManager: {
+            workspacePath: string
+            openProjectManager: (ws: string) => Promise<void>
+            listDirectory: (ws: string, dir: string) => Promise<import('../shared/types/project-manager').DirEntry[]>
+            readFile: (ws: string, p: string) => Promise<import('../shared/types/project-manager').FileContentResult>
+            gitStatus: (ws: string) => Promise<import('../shared/types/project-manager').GitStatusSummary>
+            gitDiffFile: (ws: string, p: string, mode?: {ref?: string, from?: string, to?: string}) => Promise<import('../shared/types/project-manager').DiffResult>
+            gitLog: (ws: string, opts: import('../shared/types/project-manager').LogOptions) => Promise<import('../shared/types/project-manager').GitLogEntry[]>
+            gitShowCommit: (ws: string, hash: string) => Promise<import('../shared/types/project-manager').GitCommitFiles>
+            gitShowDetail: (ws: string, hash: string) => Promise<string>
+            gitBranches: (ws: string) => Promise<import('../shared/types/project-manager').BranchTreeNode[]>
+            gitAuthors: (ws: string, opts?: {branch?: string}) => Promise<import('../shared/types/project-manager').GitAuthor[]>
+            gitAdd: (ws: string, paths: string | string[]) => Promise<void>
+            gitRmCached: (ws: string, p: string) => Promise<void>
+            gitCommit: (ws: string, message: string) => Promise<void>
+            gitPush: (ws: string) => Promise<void>
+            onStatusChanged: (cb: (ws: string, summary: import('../shared/types/project-manager').GitStatusSummary) => void) => () => void
+            /** HEAD / refs / packed-refs 被改动（外部 commit / push / 切分支）→ commit 列表与分支树需重取 */
+            onRefsChanged: (cb: (ws: string) => void) => () => void
+            /** path 为 workspace 相对路径且统一使用正斜杠（主进程 watcher 规范化后推送） */
+            onFileChanged: (cb: (ws: string, payload: {path: string, type: string}) => void) => () => void
+            /** 「发送到会话」：PM 渲染进程投递 → 主进程转发 → 主窗口渲染进程执行（await 主窗口回执） */
+            sendToConversation: (payload: import('../shared/types/project-manager').SendToConversationPayload) => Promise<import('../shared/types/project-manager').SendToConversationResult>
+            /** 主窗口渲染进程回执（确认 user 消息已插入主窗口渲染端；started 表示 agent loop 是否已启动） */
+            ackSendToConversation: (payload: {requestId: string, ok: boolean, error?: string, started?: boolean}) => void
+        }
         clipboardWriteImage: (data: { buffer: number[] }) => Promise<{ success: boolean; error?: string }>
         agentWarmupClients: (data: {
             scheme: import('./types').ModelScheme

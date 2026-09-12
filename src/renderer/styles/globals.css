@@ -101,6 +101,7 @@
     --success: #10b981;
     --warning: #f59e0b;
     --error: #ef4444;
+    --error-muted: rgba(239, 68, 68, 0.10);
     --info: #3b82f6;
 
     /* Semantic tag colors */
@@ -150,6 +151,19 @@
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04);
     --shadow-elevated: 0 1px 3px rgba(0, 0, 0, 0.06);
     --shadow-overlay: 0 2px 8px rgba(0, 0, 0, 0.08);
+
+    /* ==== Project Manager：VCS 状态色（实值令牌，§3.1）==== */
+    --vcs-renamed: #7c3aed;
+
+    /* ==== Project Manager：语法色（实值令牌，§3.3）==== */
+    --code-keyword: #af00db;
+    --code-string: #a31515;
+    --code-comment: #008000;
+    --code-number: #098658;
+    --code-type: #267f99;
+    --code-function: #795e26;
+    --code-ident: #001080;
+    --code-punct: #383a42;
 }
 
 /* Flat card overrides for VS Code aesthetic */
@@ -241,6 +255,69 @@
     0 0 1px rgba(255, 255, 255, 0.04) inset;
     --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.4),
     0 0 1px rgba(255, 255, 255, 0.05) inset;
+
+    /* ==== Project Manager：VCS 状态色（实值令牌，§3.1）==== */
+    --vcs-renamed: #a78bfa;
+
+    /* ==== Project Manager：语法色（实值令牌，§3.3）==== */
+    --code-keyword: #c586c0;
+    --code-string: #ce9178;
+    --code-comment: #6a9955;
+    --code-number: #b5cea8;
+    --code-type: #4ec9b0;
+    --code-function: #dcdcaa;
+    --code-ident: #9cdcfe;
+    --code-punct: #d4d4d4;
+}
+
+/* ========================================
+   Project Manager：派生令牌（§2.2 rev3 / §3）
+   ⚠️ 必须用「四主题选择器同时命中」的写法，不能写成 :root 单条。
+   自定义属性在其被声明的元素上完成 var() 替换后按计算值继承，
+   :root 上算出的值会原样交给 .dark 后代，不会按主题重算。
+   ======================================== */
+:where(:root, .dark, .yuanshandai, .shiyangjin) {
+    /* VCS 状态色（§3.1）—— 引用各主题自己的语义色 */
+    --vcs-modified: var(--warning);
+    --vcs-added: var(--success);
+    --vcs-deleted: var(--error);
+    --vcs-untracked: var(--info);
+
+    /* 目录图标色（§6.1，brand-primary 85%） */
+    --icon-folder: color-mix(in srgb, var(--brand-primary) 85%, transparent);
+
+    /* Diff 色（§3.2）—— 13% / 30% 是唯一调参旋钮 */
+    --diff-added-bg: color-mix(in srgb, var(--success) 13%, transparent);
+    --diff-added-strong: color-mix(in srgb, var(--success) 30%, transparent);
+    --diff-added-rail: var(--success);
+    --diff-removed-bg: color-mix(in srgb, var(--error) 13%, transparent);
+    --diff-removed-strong: color-mix(in srgb, var(--error) 30%, transparent);
+    --diff-removed-rail: var(--error);
+    --diff-blank-bg: var(--surface-muted);
+    /* 按行选中高亮（IDEA 风格）：引用各主题自己的品牌色，25% 是唯一调参旋钮 */
+    --diff-selected-bg: color-mix(in srgb, var(--brand-primary) 25%, transparent);
+
+    /* 编辑器结构线索（§3.3） */
+    --code-gutter-bg: var(--surface-muted);
+    --code-current-line: color-mix(in srgb, var(--text-primary) 5%, transparent);
+    --code-indent-guide: color-mix(in srgb, var(--text-primary) 9%, transparent);
+    --code-selection: var(--brand-muted);
+    --code-match: var(--brand-muted);
+
+    /* Diff side-by-side 的**布局**变量（与配色无关，四主题必须解析到同一个值）。
+        声明在这里而不是 :root，是为了满足「.pm-* 规则消费的令牌必须在四主题下一致可解析」
+        的护栏（themeTokens.test.ts）；真实值由 DiffViewer.tsx 按测量结果写在滚动容器的
+        内联 style 上（内联优先于本声明）：
+        --pm-diff-content-w 最长行的自然宽度 px（与 --pm-diff-half 一起换出行宽 = 滚动范围）
+        --pm-diff-half      可视区半宽 px（中线 sticky 的 left、两侧代码列宽）
+        --pm-diff-view-w    可视区宽 px（右代码列宽）
+        --pm-diff-max-sx    横向滚动范围 px（滚动时间线 keyframes 的终点，= scrollWidth − clientWidth）
+        注：行号槽与中线的静止由 CSS 原生 position: sticky 承担，内容平移由滚动时间线随原生
+        滚动同步产生，主线程不参与滚动路径 —— 见下方 .pm-diff--sbs 的注释。 */
+    --pm-diff-content-w: 0px;
+    --pm-diff-half: 0px;
+    --pm-diff-view-w: 0px;
+    --pm-diff-max-sx: 0px;
 }
 
 /* ========================================
@@ -612,6 +689,7 @@ body {
     --brand-primary: #5ba8a8;
     --brand-hover: #4a9a9a;
     --brand-muted: rgba(75, 160, 160, 0.18);
+    --brand-border: rgba(91, 168, 168, 0.35);
 
     /* Status colors — adjusted for blue-gray harmony */
     --success: #45a88c;
@@ -622,6 +700,19 @@ body {
     --error-muted: rgba(196, 92, 92, 0.12);
     --info: #6a9fd8;
     --info-muted: rgba(106, 159, 216, 0.12);
+
+    /* ==== Project Manager：VCS 状态色（实值令牌，§3.1）==== */
+    --vcs-renamed: #9b8bd8;
+
+    /* ==== Project Manager：语法色（实值令牌，§3.3）==== */
+    --code-keyword: #d3a6f0;
+    --code-string: #f0a58c;
+    --code-comment: #7ba87b;
+    --code-number: #a9d9a4;
+    --code-type: #5fd0c6;
+    --code-function: #e8cf8a;
+    --code-ident: #a3c9f0;
+    --code-punct: #e8edf2;
 
     /* Semantic tag colors */
     --tag-dev-bg: rgba(245, 158, 11, 0.22);
@@ -702,6 +793,7 @@ body {
     --brand-primary: #D6756B;
     --brand-hover: #C9655A;
     --brand-muted: rgba(214, 117, 107, 0.15);
+    --brand-border: rgba(214, 117, 107, 0.32);
 
     /* Status colors — same as light */
     --success: #10b981;
@@ -712,6 +804,19 @@ body {
     --error-muted: rgba(239, 68, 68, 0.10);
     --info: #3b82f6;
     --info-muted: rgba(59, 130, 246, 0.10);
+
+    /* ==== Project Manager：VCS 状态色（实值令牌，§3.1）==== */
+    --vcs-renamed: #8b5cf6;
+
+    /* ==== Project Manager：语法色（实值令牌，§3.3）==== */
+    --code-keyword: #a0349e;
+    --code-string: #a83232;
+    --code-comment: #4f7a4f;
+    --code-number: #2f7d5a;
+    --code-type: #1d6b78;
+    --code-function: #8a6a1a;
+    --code-ident: #28427e;
+    --code-punct: #3C2E2D;
 
     /* Semantic tag colors — warm light */
     --tag-dev-bg: #fef3c7;
@@ -2591,3 +2696,1370 @@ html.bg-enabled,
     animation: slide-up 0.2s ease-out forwards;
 }
 
+/* ========================================
+   Project Manager：原语样式（spec §5.3 / §4）
+   ======================================== */
+.pm-split {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+}
+.pm-split--x { flex-direction: row; }
+.pm-split--y { flex-direction: column; }
+.pm-split-fixed {
+    flex: 0 0 auto;          /* 实际值由内联 style 覆盖（动态计算值） */
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+.pm-split-flex {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+/* 分隔条：命中区 5px、完全透明；鼠标进入不变色、不浮起（用户明确要求） */
+.pm-split-handle {
+    flex: 0 0 5px;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    user-select: none;
+}
+.pm-split-handle--x { cursor: col-resize; }
+.pm-split-handle--y { cursor: row-resize; }
+
+/* ========================================
+   Project Manager：面板骨架原语（spec §2.3 / §4 / §5.4 / §13.5）
+   ======================================== */
+.pm-panel-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+}
+.pm-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    flex: 0 0 22px;
+    height: 22px;
+    padding: 0 6px 0 4px;
+    border-bottom: 1px solid var(--border-muted);
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+.pm-panel-header-main {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+}
+.pm-panel-header-main.is-collapsible { cursor: pointer; }
+.pm-panel-header-title {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.pm-panel-header-count { color: var(--text-muted); flex: 0 0 auto; }
+.pm-panel-header-actions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.pm-panel-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+    min-height: 24px;
+    padding: 2px 4px;
+    border-bottom: 1px solid var(--border-muted);
+}
+.pm-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 100%;
+    padding: 12px;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: center;
+}
+.pm-empty-state-icon { color: var(--text-muted); }
+
+/* ========================================
+   Project Manager：交互原语（spec §4 / §8.1 / §9.2 / §13.6 / §13.7）
+   ======================================== */
+.pm-search {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 20px;
+    padding: 0 4px;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+}
+.pm-search-icon { color: var(--text-muted); flex: 0 0 auto; }
+.pm-search-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    outline: none;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+.pm-search-input::placeholder { color: var(--text-muted); }
+.pm-search-clear,
+.pm-search-submit {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 3px;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.pm-search-clear:hover,
+.pm-search-submit:hover { color: var(--text-primary); }
+
+.pm-toggle-chip {
+    flex: 0 0 auto;
+    height: 20px;
+    padding: 0 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.pm-toggle-chip.is-active {
+    background: var(--brand-muted);
+    border-color: var(--brand-border);
+    color: var(--brand-primary);
+    font-weight: 600;
+}
+
+.pm-icon-btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 3px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.pm-icon-btn:hover:not(:disabled) { background: var(--surface-muted); color: var(--text-primary); }
+.pm-icon-btn.is-active { color: var(--brand-primary); background: var(--brand-muted); }
+.pm-icon-btn:disabled { color: var(--text-muted); cursor: not-allowed; }
+
+.pm-context-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-dropdown);
+}
+.pm-context-menu {
+    position: fixed;
+    z-index: var(--z-elevated);
+    min-width: 150px;
+    padding: 4px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: var(--shadow-overlay);
+}
+.pm-context-menu-item {
+    display: block;
+    width: 100%;
+    height: 24px;
+    padding: 0 10px;
+    background: transparent;
+    border: 0;
+    border-radius: 3px;
+    font-size: 12px;
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.pm-context-menu-item:hover:not(:disabled) { background: var(--brand-muted); }
+.pm-context-menu-item:disabled { color: var(--text-muted); cursor: not-allowed; }
+
+.pm-session-picker { display: flex; flex-direction: column; gap: 4px; }
+.pm-session-picker-input {
+    height: 24px;
+    padding: 0 8px;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+.pm-session-picker-input::placeholder { color: var(--text-muted); }
+.pm-session-picker-list {
+    max-height: 160px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+.pm-session-picker-item {
+    display: block;
+    width: 100%;
+    height: 24px;
+    padding: 0 8px;
+    background: transparent;
+    border: 0;
+    border-radius: 3px;
+    font-size: 12px;
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.pm-session-picker-item.is-highlight { background: var(--surface-muted); }
+.pm-session-picker-item.is-selected { background: var(--brand-muted); color: var(--brand-primary); }
+.pm-session-picker-empty { padding: 8px; font-size: 12px; color: var(--text-muted); text-align: center; }
+
+.pm-tree-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    height: 20px;
+    padding: 0 6px 0 4px;      /* 左侧 padding 由内联 style 覆盖（缩进是动态值） */
+    box-sizing: border-box;
+    background: transparent;
+    border: 0;
+    font-size: 12px;
+    font-family: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.pm-tree-row.is-selected {
+    background: var(--brand-muted);
+    box-shadow: inset 2px 0 0 var(--brand-primary);
+}
+.pm-tree-row-icon {
+    flex: 0 0 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.pm-tree-row-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.pm-tree-row-trailing {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+}
+/* 被忽略文件 / 隐藏文件统一弱化（spec §6.3） */
+.pm-dim { opacity: 0.6; }
+
+/* 状态色（spec §3.1）。颜色类只负责「色」，装饰只作用在文件名与状态字母上——目录名不画删除线。 */
+.pm-c--none { color: var(--text-primary); }
+.pm-c--M { color: var(--vcs-modified); }
+.pm-c--A { color: var(--vcs-added); }
+.pm-c--D { color: var(--vcs-deleted); }
+.pm-c--R { color: var(--vcs-renamed); }
+.pm-c--untracked { color: var(--vcs-untracked); }
+.pm-c--M.pm-file-name,
+.pm-status-badge.pm-c--M { font-weight: bold; }
+.pm-c--D.pm-file-name,
+.pm-status-badge.pm-c--D { text-decoration: line-through; }
+.pm-c--untracked.pm-file-name,
+.pm-status-badge.pm-c--untracked { font-style: italic; }
+
+/* 未跟踪分组（变更列表）：与上方「已跟踪变更」树用横线分开，并整体降为灰色调 ——
+   表达「这些文件尚未进入版本控制」，不与 M/A/D/R 的状态色争夺注意力。
+   注：必须显式覆盖到 svg 与 .pm-c--untracked（图标/文件名/状态字母各自带色，只靠继承到不了）。
+   ⚠️ 图标灰调只能靠 `stroke`：lucide-react 把传入的 color 渲染成 svg 的 **stroke 属性**
+   （不是 color 属性），因此只写 `color` 会让图标保持原色、与分组外毫无区别（已在 Chromium 实测）。 */
+.pm-untracked-section {
+    margin-top: 4px;
+    padding-top: 2px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+}
+.pm-untracked-section .pm-c--untracked { color: var(--text-muted); }
+.pm-untracked-section svg { color: var(--text-muted); stroke: var(--text-muted); }
+
+.pm-status-badge {
+    flex: 0 0 18px;
+    width: 18px;
+    text-align: right;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ========================================
+   Project Manager：布局骨架（spec §1.3 / §1.4 / §5.4）
+   ======================================== */
+.pm-canvas {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: 5px;
+    background: var(--surface-overlay);
+}
+.pm-canvas > .pm-split { flex: 1 1 0; min-height: 0; }
+.pm-git-zone {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+.pm-git-zone > .pm-panel-header {
+    flex: 0 0 22px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+.pm-git-zone-body { flex: 1 1 0; min-height: 0; }
+.pm-git-zone-summary { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+
+/* 状态栏（spec §1.4：去内联）—— 保留原有上边框，只搬样式不改视觉 */
+.pm-status-bar {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    flex: 0 0 auto;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    border-top: 1px solid var(--border);
+}
+.pm-status-bar-path {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 文件树滚动容器与根节点名（spec §6.3 / §6.5）*/
+.pm-tree-scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
+.pm-root-name { font-weight: 600; }
+
+/* 变更列表底部统计行（spec §7）：单行省略，弱化色 */
+.pm-changes-summary {
+    flex: 0 0 auto;
+    padding: 4px 8px;
+    border-top: 1px solid var(--border-muted);
+    color: var(--text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 变更列表底部提交区（spec §2.2）：统计行下方等宽双按钮。
+   颜色全部走令牌；置灰用 .is-disabled + aria-disabled，不用原生 disabled（原生 disabled 不触发 title） */
+.pm-changes-actions {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 6px;
+    padding: 6px 8px;
+    border-top: 1px solid var(--border-muted);
+}
+.pm-changes-actions .pm-changes-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 24px;
+    padding: 0 6px;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+.pm-changes-actions .pm-changes-btn:not(.pm-changes-btn--primary):hover:not(.is-disabled) { background: var(--surface-muted); }
+.pm-changes-actions .pm-changes-btn--primary {
+    border-color: var(--brand-primary);
+    background: var(--brand-primary);
+    color: var(--text-inverse);
+}
+.pm-changes-actions .pm-changes-btn.is-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 组标题：变更列表（spec §7）与分支树（GitBranchTree.tsx 的三处组标题）**共用**，改一处即改两处。
+   组名加粗；不与文件行的 pm-file-name 装饰共用。
+   注意：勿在别处重复定义同名 `.pm-group-title` —— 追加的同名规则会把这里的 700 静默降级为 600，
+   并用 color: var(--text-secondary) 覆盖掉 .pm-c--* 状态色（见下方 :2942-2947）。*/
+.pm-group-title {
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 分支树当前分支行（spec §8.2：加粗 + 品牌色文字；底色/左竖条由 .pm-tree-row.is-selected 提供）*/
+.pm-c--current { font-weight: 600; color: var(--brand-primary); }
+
+/* 分支搜索命中段高亮（spec §8.1：子串包含、忽略大小写，命中的分支高亮匹配段）
+   注意：底色不能用 var(--brand-muted)——它与 .pm-tree-row.is-selected 的底色完全相同，
+   选中某条分支后（查询仍在）高亮会整段消失。这里改用品牌色低透明度底 + 下划线，
+   在选中底之上依然可辨，且仍然只走令牌。 */
+.pm-search-match {
+    background: color-mix(in srgb, var(--brand-primary) 28%, transparent);
+    border-radius: 2px;
+    text-decoration: underline;
+    text-underline-offset: 1px;
+}
+/* ========================================
+   Project Manager：Commit 列表（spec §9.1 / §9.2 / §9.3）
+   ======================================== */
+
+/* 列表滚动容器：commit 列撑满卡片剩余高度（与 .pm-tree-scroll 同构） */
+.pm-commits-scroll {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: auto;
+}
+
+/* 四段式单行（spec §9.1）：rail / hash / subject / refs / author · 相对时间。
+   整行强制单行；行高 24px 是 commit 列表专属尺度（spec §13.2）。 */
+.pm-commit-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 24px;
+    height: 24px;
+    padding: 0 8px 0 2px;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    cursor: pointer;
+    /* 离屏行跳过渲染（CSS 原生懒渲染，与 MessageList.tsx:1133 同策略，不引 @tanstack/react-virtual）。
+       这里 contain-intrinsic-size 的占位高度恒等于真实高度：本规则 height 与 flex-basis 都是显式 24px
+       （上下 padding/border 为 0），元素尺寸不是 auto，故 contain-intrinsic-size 只在被跳过渲染时兜底，
+       写错也不会造成滚动定位跳动（与 MessageList 那套测量补偿不同）。 */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 24px;
+}
+.pm-commit-row:hover { background: var(--surface-muted); }
+/* 选中态：品牌色底 + 左侧 inset 竖条（与 .pm-tree-row.is-selected 同构） */
+.pm-commit-row.is-selected {
+    background: var(--brand-muted);
+    box-shadow: inset 2px 0 0 var(--brand-primary);
+}
+
+/* rail：DAG 轨道 14px，1.5px 竖线 + 7px 圆点（spec §9.3） */
+.pm-commit-rail {
+    position: relative;
+    flex: 0 0 14px;
+    align-self: stretch;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.pm-commit-rail-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 6px;
+    width: 1.5px;
+    background: var(--border-emphasis);
+}
+.pm-commit-rail-dot {
+    position: relative;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+}
+.pm-commit-rail-dot.is-merge { background: var(--info); }
+.pm-commit-rail-dot.is-head { background: var(--brand-primary); }
+
+/* hash：等宽 11px、弱化色、固定宽度不参与收缩（spec §9.1） */
+.pm-commit-hash {
+    flex: 0 0 auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* subject：吃掉剩余宽度，单行省略，全文走 title（spec §9.1） */
+.pm-commit-subject {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+
+/* refs：HEAD / 分支名 / tag: 徽章，品牌色描边胶囊（spec §9.1） */
+.pm-commit-refs {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    overflow: hidden;
+}
+.pm-ref-badge {
+    flex: 0 0 auto;
+    padding: 0 4px;
+    border: 1px solid var(--brand-border);
+    border-radius: 7px;
+    font-size: 10px;
+    line-height: 14px;
+    color: var(--brand-primary);
+}
+
+/* author · 相对时间：弱化色 10px，钉在右侧（spec §9.1） */
+.pm-commit-meta {
+    flex: 0 0 auto;
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+/* 列表尾部提示：没有更早的提交 / 触达 2000 条内存上限 */
+.pm-commit-more {
+    padding: 4px 8px 4px 22px;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+/* 过滤高级字段行（spec §9.2：主工具栏下方的可折叠行） */
+.pm-commits-advanced {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    padding: 2px 4px 4px;
+    border-bottom: 1px solid var(--border-muted);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.pm-commits-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+.pm-commits-input {
+    height: 18px;
+    padding: 0 4px;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-primary);
+    font-size: 11px;
+    outline: none;
+}
+
+/* ========================================
+   Project Manager：Commit 详情（spec §10）
+   ======================================== */
+/* 中段滚动容器（与 .pm-tree-scroll 同构：撑满卡片剩余高度，防止 flex 子项内容撑破面板） */
+.pm-detail-scroll {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: auto;
+    font-size: 12px;
+}
+/* 底部 message/body 区：与滚动区分隔的固定尾栏。
+   flex-shrink 必须为 0 + max-height 封顶卡片一半高度：否则长 message 会把上方变更列表挤成 0 高（basis auto 撑开会吃掉全部剩余空间）。 */
+.pm-detail-footer {
+    flex: 0 0 auto;
+    max-height: 50%;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+}
+.pm-detail-message { font-weight: bold; }
+/* commit body：保留原始换行，长 token 也不撑破面板宽度 */
+.pm-detail-body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+/* 头部文字型动作按钮（只读窗口的 Checkout）：紧凑、可禁用；高度对齐 .pm-icon-btn（20px）使同一行动作区齐平 */
+.pm-header-action {
+    flex: 0 0 auto;
+    height: 20px;
+    padding: 0 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.pm-header-action:disabled { color: var(--text-muted); cursor: not-allowed; }
+
+/* 未指定工作目录空态：静态 padding，阶段一静态样式类化 */
+.pm-no-workspace {
+    padding: 16px;
+}
+
+/* ========================================
+   Project Manager：代码编辑器（spec §11）
+   ======================================== */
+/* 宿主尺寸与等宽字体栈（CodeMirror 内层 `.cm-scroller` 用 font-family: inherit 继承） */
+.pm-code-editor {
+    height: 100%;
+    overflow: auto;
+    font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
+/* 按行选中的整行背景（CodeMirror `Decoration.line` 打的类，见 lib/lineDecoration.ts）。
+   为什么用行级装饰：选中空行时选区 range 折叠，CodeMirror 不绘制选区背景，用户「点了没反应」；
+   行级装饰对空行同样生效，且背景铺满整行宽度（更接近 IDEA 观感）。装饰只负责视觉，
+   语义事实源仍是 EditorSelection。选择器带 .pm-code-editor .cm-editor 前缀把特异度提到 (0,4,0)，
+   确定性压过 themedTheme 的 .cm-activeLine (0,3,0)，避免当前行高亮盖掉选中行。 */
+.pm-code-editor .cm-editor .cm-line.cm-line-selected {
+    background: var(--code-selection);
+}
+/* 缩进参考线：本期按计划授权降级为「不做」，类保留为后续 ViewPlugin 的挂钩点（spec §11.2） */
+.pm-indent-guide {
+    background-image: linear-gradient(to right, var(--code-indent-guide) 1px, transparent 1px);
+    background-repeat: repeat-y;
+    background-position: 0 0;
+}
+
+/* ========================================
+   Project Manager：Diff 视图（spec §12）
+   ======================================== */
+/* 4 列 grid：行号槽 / 左代码 / 行号槽 / 右代码 —— 左右严格同 y（spec §12.2） */
+.pm-diff {
+    display: grid;
+    /* 代码列下限用 max-content（而非 0）：长行不再被压缩，grid 被撑开到内容宽度后溢出
+       .pm-diff-scroll → 横向滚动由单一容器承担，而不是逐单元格各自滚动 */
+    grid-template-columns: minmax(40px, max-content) minmax(max-content, 1fr) minmax(40px, max-content) minmax(max-content, 1fr);
+    /* 内容比容器宽 → max-content 生效撑开；比容器窄 → min-width: 100% 仍铺满面板 */
+    width: max-content;
+    min-width: 100%;
+    font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
+/* diff 面板：工具条固定，diff 区占满剩余高度并自行滚动 —— 横向滚动条因此固定在可视区底部 */
+.pm-diff-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+/* 整份 diff 唯一的两轴滚动容器：滚动范围 ＝ 文件中最长行的宽度（内容 max-content 宽度） */
+.pm-diff-scroll {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: auto;
+    /* 具名滚动时间线：进度 = 本容器的横向滚动量（inline 轴）。
+       inline/unified 也挂 `.pm-diff-scroll`，额外声明无副作用（没有元素引用它）。
+       为什么必须「具名」：行内容元素（.pm-diff-line）有一个 overflow: hidden 的祖先
+       （.pm-diff-code），它才是 .pm-diff-line「最近的滚动容器」→ 匿名 scroll(nearest)
+       会解析到这个退化时间线（横向不可滚，进度恒 0），动画卡死。具名时间线跨过它。 */
+    scroll-timeline: --pm-diff-h inline;
+}
+/* 行容器不产生盒子：4 个单元格直接落进同一 grid row */
+.pm-diff-row { display: contents; }
+.pm-diff-gutter {
+    text-align: right;
+    padding: 0 6px;
+    color: var(--text-muted);
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+    line-height: 20px;
+}
+.pm-diff-gutter.is-added { background: var(--diff-added-bg); box-shadow: inset 3px 0 0 var(--diff-added-rail); }
+.pm-diff-gutter.is-removed { background: var(--diff-removed-bg); box-shadow: inset 3px 0 0 var(--diff-removed-rail); }
+.pm-diff-gutter.is-blank { background: var(--diff-blank-bg); }
+/* 不折行（spec §12.4）。横向滚动已上移到 .pm-diff-scroll：整份 diff 只有一条横向滚动条
+   （固定在可视区底部），单元格自身不再滚动，避免每个 grid row 下都出现一条滚动条 */
+.pm-diff-code {
+    line-height: 20px;
+    white-space: pre;
+}
+.pm-diff-code.is-added { background: var(--diff-added-bg); }
+.pm-diff-code.is-removed { background: var(--diff-removed-bg); }
+.pm-diff-code.is-blank { background: var(--diff-blank-bg); }
+/* 按行选中高亮（IDEA 风格）：该侧的代码单元格与行号槽一起高亮。
+   规则必须排在 .is-added / .is-removed / .is-blank 之后：同特异度下靠顺序取胜，选中态才能盖过行背景。
+   颜色走派生令牌 --diff-selected-bg（四主题共用，引用各主题自己的 --brand-primary）。 */
+.pm-diff-code.is-selected { background: var(--diff-selected-bg); }
+.pm-diff-gutter.is-selected { background: var(--diff-selected-bg); }
+.pm-diff--inline .pm-diff-inline-row.is-selected { background: var(--diff-selected-bg); }
+.pm-diff-word { border-radius: 2px; color: inherit; }
+.pm-diff-word.is-added { background: var(--diff-added-strong); }
+.pm-diff-word.is-removed { background: var(--diff-removed-strong); }
+/* diff 内代码行的语法着色（spec §12 扩展）。
+   类名 → tag 的映射与 CodeEditor.tsx 的 themedHighlight **同源**（见 lib/syntaxHighlight.ts），
+   颜色也复用同一批 --code-* 令牌 —— 同一份代码在编辑器里和在 diff 里必然同色。
+   这里只改前景色：行背景（.pm-diff-code.is-added/.is-removed）与词级高亮（.pm-diff-word）
+   由外层元素承担，着色 span 不会盖掉它们。 */
+.pm-tok-keyword { color: var(--code-keyword); }
+.pm-tok-string { color: var(--code-string); }
+.pm-tok-comment { color: var(--code-comment); font-style: italic; }
+.pm-tok-number { color: var(--code-number); }
+.pm-tok-type { color: var(--code-type); }
+.pm-tok-function { color: var(--code-function); }
+.pm-tok-ident { color: var(--code-ident); }
+.pm-tok-punct { color: var(--code-punct); }
+/* inline / unified 是单列流式布局：必须关掉上面 .pm-diff 的 4 列 grid，
+   否则每 4 个单列行会被塞进一行 grid，单列 diff 被撕成宽窄交替的碎片列。
+   单列同理：宽度由内容撑开（max-content）、窄于容器时铺满（min-width: 100%），
+   横向滚动统一交给 .pm-diff-scroll */
+.pm-diff--inline { display: block; width: max-content; min-width: 100%; }
+.pm-diff--inline .pm-diff-inline-row { display: flex; line-height: 20px; white-space: pre; }
+.pm-diff--inline .pm-diff-inline-row .pm-diff-gutter { flex: 0 0 auto; }
+.pm-diff--inline .pm-diff-inline-row .pm-diff-code { flex: 1 1 auto; }
+
+/* --- side-by-side：IDEA 式「中线恒居中」布局 ---------------------------------
+   病灶：.pm-diff 的列宽原本是 max-content（内容驱动），超长行会把左半栏撑到极宽，
+   分界线被挤出可视区 → 看起来像内联模式。
+   改法（方案 A：块级层叠 + flex 行 + sticky 单元格）：
+   - 静止的两列（左行号槽、中线、右行号槽）交给**原生 position: sticky**，由合成线程逐帧
+     保证与原生横向滚动同步 —— 不再用「反向平移」去抵消滚动位移，从根上消除差帧抖动。
+   - 为什么这里 sticky 钉得住：sticky 的包含块是**行**（.pm-diff-row，一个 flex 容器），
+     行宽 = 最长行宽 + 半栏 + 一个行号槽宽，远宽于可视区 → 行号槽的可钉住行程 = 整个横向
+     滚动范围。（原 grid 实现里 sticky 的包含块就是栅格自身、宽 = 可视区，行程为 0，
+     钉不住，才不得不退化成反向平移凑数。）
+   - 每个 sticky 单元格的 left 等于它不滚动时的自然位置，所以 scrollLeft = 0 时不产生位移、
+     不会在首帧跳变。
+   - 代码内容（.pm-diff-line）仍做 −max-sx 平移：它是「动的东西」，即使与原生滚动差一帧也
+     远不可见；被半栏裁掉的后半段正是靠它平移出来（见下 .pm-diff-line）。
+   结构上仍是「同一个行容器承载 4 个单元格」，左右严格对齐不依赖任何栅格轨道。 */
+.pm-diff--sbs {
+    display: block;          /* 覆盖 .pm-diff 的 grid：不再需要 4 条栅格轨道 */
+    width: max-content;
+    min-width: 100%;
+}
+/* 内容平移的终点是滚动范围 --pm-diff-max-sx（0 → 最大滚动量）：把被半栏裁掉的后半段平移
+   出来。行号槽与中线不再参与平移（sticky 已接管），只有内容在动。 */
+@keyframes pm-diff-line-x {
+    from { transform: translateX(0); }
+    to { transform: translateX(calc(-1 * var(--pm-diff-max-sx, 0px))); }
+}
+/* 行宽 = 最长行宽 + 半栏 + 一个行号槽宽 + 1px 余量：
+   ① 它就是滚动范围（撑宽块已删除），数值与原撑宽块公式保持一致（原实证：2109px 行 /
+      1000px 视口 → maxScrollLeft 1657）
+   ② 同时是 sticky 的包含块宽度 → 决定行号槽可钉住的行程；+1px 是防取整把 sticky 提前夹住 */
+.pm-diff--sbs .pm-diff-row {
+    display: flex;
+    width: calc(var(--pm-diff-content-w, 0px) + var(--pm-diff-half, 50%) + 49px);
+    min-width: 100%;
+}
+/* 四个单元格：两列行号槽（第 1、3 格）与中线都用 sticky 钉住，left 取值 = 各自不滚动时
+   的自然位置（因此 scrollLeft = 0 时零位移、不跳变）。 */
+.pm-diff--sbs .pm-diff-row > :nth-child(1) { position: sticky; left: 0; }
+.pm-diff--sbs .pm-diff-row > :nth-child(2) { position: sticky; left: 48px; }
+.pm-diff--sbs .pm-diff-row > :nth-child(3) {
+    position: sticky;
+    left: var(--pm-diff-half, 50%);
+    /* 中线：右行号槽的左边界就是可视区中线。用边框（含在 border-box 内）而不是背景/阴影，
+       既不改变列宽，也不会与 .is-added/.is-removed 的 inset 竖条阴影互相覆盖 */
+    border-left: 1px solid var(--border);
+}
+.pm-diff--sbs .pm-diff-row > :nth-child(4) { position: sticky; left: calc(var(--pm-diff-half, 50%) + 48px); }
+/* 行号槽定宽（两侧必须等宽，否则中线偏离 50%）。代价：超过 5 位数的行号会被裁剪，
+   但那需要十万行以上的文件，实际不会出现；裁剪总比外溢压住代码列好 */
+.pm-diff--sbs .pm-diff-gutter {
+    flex: 0 0 48px;
+    overflow: hidden;
+}
+/* 裁剪：代码单元格不随内容变宽，超出的部分在各自半栏边界被切掉。
+   min-width: 0 防止 flex item 的 min-width: auto 被 max-content 行内容顶成「最长行那么宽」，
+   导致盒子溢出、裁剪边界跑到中线之外 */
+.pm-diff--sbs .pm-diff-code {
+    flex: 0 0 auto;
+    overflow: hidden;
+    min-width: 0;
+}
+/* 代码列宽由可视区几何决定：左列 = 半栏 − 行号槽；右列 = 可视区 − 半栏 − 行号槽
+   （右侧行号槽在右列的左边）→ 中线恒落在 50% */
+.pm-diff--sbs .pm-diff-row > :nth-child(2) { width: calc(var(--pm-diff-half, 50%) - 48px); }
+.pm-diff--sbs .pm-diff-row > :nth-child(4) { width: calc(var(--pm-diff-view-w, 100%) - var(--pm-diff-half, 50%) - 48px); }
+/* 行内容块：宽度 = 文本自然宽度（max-content）。用 block 而非 inline-block，避免 inline
+   基线留白把 20px 行高撑高（行高必须与行号槽一致，否则左右错行）。
+   它是**唯一**承载内容平移的元素：两侧共用同一个滚动时间线 --pm-diff-h（定义在滚动容器上），
+   行号槽与中线由 sticky 钉住，于是「中线恒居中 + 内容随共用滚动量同步平移」同时成立。
+   注：transform 不改布局宽度，所以 offsetWidth 任何时候都能拿来测量最长行（见 DiffViewer.tsx）。
+   animation 简写会重置 animation-timeline → 必须把 animation-timeline 写在 animation 之后。
+   will-change: transform 预先提升合成层 → scroll-driven translateX 动画在合成线程逐帧执行，
+   不回退到主线程样式重算。没有它，数百个 .pm-diff-line 的动画全部在主线程更新，拖滚动条时卡顿。 */
+.pm-diff--sbs .pm-diff-line {
+    display: block;
+    width: max-content;
+    white-space: pre;
+    transform: none;
+    will-change: transform;
+    animation: pm-diff-line-x linear both;
+    animation-timeline: --pm-diff-h;
+}
+
+/* ========================================
+   Project Manager：编辑器区 Tab 条（spec §11.4 / §2.5 / §13.1）
+   ======================================== */
+.pm-editor-area {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+.pm-tabbar {
+    display: flex;
+    align-items: stretch;
+    flex: 0 0 auto;
+    min-height: 26px;
+    /* 条底色比激活 tab 的 --surface 深一档，激活态才有对比（原两者同色 → 激活不可见） */
+    background: var(--surface-muted);
+    border-bottom: 1px solid var(--border);
+}
+/* 单行铁律：tab 自身 flex: 0 0 auto + nowrap，溢出由这里横向滚动承担，禁止 flex-wrap */
+.pm-tabbar-scroll {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+.pm-tabbar-picker {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    padding: 0 3px;
+    border-left: 1px solid var(--border);
+}
+.pm-tab {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    height: 25px;
+    padding: 0 6px 0 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.pm-tab:hover { background: var(--surface-overlay); color: var(--text-primary); }
+/* 激活 tab（spec §11.4）：品牌色顶部标记 + 加粗 + 与 tabbar 对比的 --surface 底 + 三边描边。
+   注：底边不再声明 border-bottom-color —— .pm-tab 的 border-bottom 是 none，该声明恒无效；
+   且 tab 嵌在 .pm-tabbar-scroll（overflow-y: hidden）内，负 margin 也会被裁掉，
+   真正的「与内容面连通」需改结构，已记入后续项。 */
+.pm-tab.is-active {
+    background: var(--surface);
+    border-color: var(--border-emphasis);
+    color: var(--text-primary);
+    font-weight: 600;
+    box-shadow: inset 0 2px 0 var(--brand-primary);
+}
+/* diff tab 标题走品牌色：表达「这是差异视图」，不继承文件状态色（spec §11.4） */
+.pm-tab.is-diff .pm-tab-title { color: var(--brand-primary); }
+.pm-tab-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+}
+.pm-tab-close {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 3px;
+    font-size: 13px;
+    line-height: 1;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.pm-tab-close:hover { background: var(--brand-muted); color: var(--text-primary); }
+
+/* 内容面：占满剩余高度，自身可滚 */
+.pm-editor-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: auto;
+}
+/* 加载中 / 无法预览 等占位文案 */
+.pm-editor-note {
+    padding: 16px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+/* diff 视图模式工具条（并排 / 内联 / 统一） */
+.pm-diff-toolbar {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 6px;
+    align-items: center;
+    padding: 4px;
+}
+
+/* ========================================
+   Project Manager：Markdown 分屏 / 预览（只读查看器）
+   ======================================== */
+/* md 面板：与 .pm-diff-pane 同构 —— 工具条固定，内容区占满剩余高度 */
+.pm-md-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+.pm-md-toolbar {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 6px;
+    align-items: center;
+    padding: 4px;
+}
+/* 分屏：左右各 flex:1 1 0，独立滚动由内层滚动容器承担（见下），外层不设 overflow，
+   因此不会与 .pm-editor-body 的 overflow:auto 形成嵌套滚动条 */
+.pm-md-split {
+    display: flex;
+    flex: 1 1 0;
+    min-height: 0;
+}
+.pm-md-half {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+}
+.pm-md-half + .pm-md-half {
+    border-left: 1px solid var(--border);
+}
+/* 右栏（预览）独立滚动；左栏滚动交给 .pm-code-editor 自身的 overflow:auto */
+.pm-md-half > .pm-md-preview {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: auto;
+}
+/* 仅「预览」模式：单栏占满剩余高度并整体滚动 */
+.pm-md-preview-pane {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: auto;
+}
+/* 预览内容排版：颜色全部走既有令牌 */
+.pm-md-preview {
+    padding: 12px 16px;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.65;
+    overflow-wrap: break-word;
+}
+.pm-md-preview > :first-child { margin-top: 0; }
+.pm-md-preview > :last-child { margin-bottom: 0; }
+.pm-md-preview h1,
+.pm-md-preview h2,
+.pm-md-preview h3,
+.pm-md-preview h4,
+.pm-md-preview h5,
+.pm-md-preview h6 {
+    margin: 1.2em 0 0.5em;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--text-primary);
+}
+.pm-md-preview h1 {
+    padding-bottom: 0.3em;
+    font-size: 1.6em;
+    border-bottom: 1px solid var(--border);
+}
+.pm-md-preview h2 {
+    padding-bottom: 0.3em;
+    font-size: 1.35em;
+    border-bottom: 1px solid var(--border);
+}
+.pm-md-preview h3 { font-size: 1.15em; }
+.pm-md-preview p { margin: 0.6em 0; }
+.pm-md-preview ul,
+.pm-md-preview ol {
+    margin: 0.6em 0;
+    padding-left: 1.6em;
+}
+.pm-md-preview li { margin: 0.2em 0; }
+.pm-md-preview blockquote {
+    margin: 0.6em 0;
+    padding: 0.2em 0.9em;
+    border-left: 3px solid var(--border-emphasis);
+    color: var(--text-secondary);
+}
+.pm-md-preview hr {
+    margin: 1.2em 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+}
+.pm-md-preview table {
+    margin: 0.7em 0;
+    border-collapse: collapse;
+}
+.pm-md-preview th,
+.pm-md-preview td {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    text-align: left;
+}
+.pm-md-preview th {
+    background: var(--surface-muted);
+    font-weight: 600;
+}
+.pm-md-preview img { max-width: 100%; }
+.pm-md-link {
+    color: var(--brand-primary);
+    text-decoration: none;
+}
+.pm-md-link:hover { text-decoration: underline; }
+.pm-md-inline-code {
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    background: var(--surface-muted);
+    font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: 0.9em;
+}
+.pm-md-code-block {
+    margin: 0.7em 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-muted);
+    overflow: hidden;
+}
+/* 无语言标注的围栏代码块：围栏内是 <code class="pm-md-inline-code">，这里覆盖成药丸→块级 */
+.pm-md-code-block > .pm-md-inline-code {
+    display: block;
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 0;
+    background: transparent;
+    overflow-x: auto;
+    white-space: pre;
+}
+.pm-md-highlight { font-size: 12px; }
+
+.pm-send-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-dropdown);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.35);
+}
+.pm-send-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 480px;
+    max-width: 90vw;
+    padding: 12px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-overlay);
+}
+.pm-send-dialog-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.pm-send-dialog-preview {
+    margin: 0;
+    max-height: 120px;
+    overflow: auto;
+    padding: 8px;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: ui-monospace, Consolas, monospace;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.pm-send-dialog-input {
+    min-height: 64px;
+    padding: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-primary);
+    resize: vertical;
+}
+.pm-send-dialog-targets { display: flex; gap: 16px; font-size: 12px; color: var(--text-primary); }
+.pm-send-dialog-targets label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.pm-send-dialog-error { font-size: 12px; color: var(--error); }
+.pm-send-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.pm-send-dialog-btn {
+    height: 26px;
+    padding: 0 14px;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+.pm-send-dialog-btn--primary { background: var(--brand-primary); color: var(--surface-elevated); border-color: var(--brand-primary); }
+.pm-send-dialog-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* ========================================
+   DatePicker — 通用日期选择器（dp- 前缀）
+   自研弹层替换原生 <input type="date">：
+   主题 token 驱动，四套主题（light/dark/yuanshandai/shiyangjin）自动适配。
+   仅使用设计变量，无硬编码颜色。浮层定位/翻转/关闭沿用 ThemedSelect 范式。
+   ======================================== */
+
+.dp-root {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.dp-input {
+    min-width: 0;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+.dp-input::placeholder { color: var(--text-muted); }
+.dp-input:hover { border-color: var(--border-muted); }
+.dp-input:focus { border-color: var(--brand-border); }
+.dp-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.dp-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+.dp-trigger:hover {
+    color: var(--text-primary);
+    background: var(--surface-muted);
+    border-color: var(--border-muted);
+}
+.dp-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
+.dp-trigger svg { width: 14px; height: 14px; }
+
+.dp-panel {
+    z-index: 100002;
+    width: 252px;
+    padding: 8px;
+    font-size: 12px;
+    color: var(--text-primary);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow-overlay);
+    outline: none;
+    user-select: none;
+}
+
+.dp-topnav {
+    display: flex;
+    justify-content: flex-end;
+    gap: 2px;
+    margin-bottom: 2px;
+}
+
+.dp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+
+.dp-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+.dp-icon-btn:hover { color: var(--text-primary); background: var(--surface-muted); }
+.dp-icon-btn:focus-visible { outline: 2px solid var(--brand-border); outline-offset: -1px; }
+.dp-icon-btn svg { width: 14px; height: 14px; }
+
+.dp-title {
+    flex: 1;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+.dp-title:hover { background: var(--surface-muted); color: var(--brand-primary); }
+.dp-title:focus-visible { outline: 2px solid var(--brand-border); outline-offset: -1px; }
+.dp-title--static { cursor: default; }
+.dp-title--static:hover { background: transparent; color: var(--text-primary); }
+
+.dp-grid { display: grid; }
+
+.dp-weekdays,
+.dp-days { grid-template-columns: repeat(7, 1fr); gap: 2px; }
+
+.dp-weekday {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 22px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.dp-day {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+.dp-day:hover { background: var(--surface-muted); }
+.dp-day:focus-visible { outline: 2px solid var(--brand-border); outline-offset: -1px; }
+.dp-day--muted { color: var(--text-muted); }
+.dp-day--today { font-weight: 600; color: var(--brand-primary); }
+.dp-day--selected {
+    color: var(--surface-elevated);
+    background: var(--brand-primary);
+    font-weight: 600;
+}
+.dp-day--selected:hover { background: var(--brand-primary); }
+
+.dp-months,
+.dp-years {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.dp-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 34px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+.dp-cell:hover { background: var(--surface-muted); }
+.dp-cell:focus-visible { outline: 2px solid var(--brand-border); outline-offset: -1px; }
+.dp-cell--today { color: var(--brand-primary); font-weight: 600; }
+.dp-cell--selected {
+    color: var(--surface-elevated);
+    background: var(--brand-primary);
+    font-weight: 600;
+}
+.dp-cell--selected:hover { background: var(--brand-primary); }
+
+.dp-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+
+.dp-footer-btn {
+    height: 26px;
+    padding: 0 12px;
+    font-size: 12px;
+    color: var(--text-primary);
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.dp-footer-btn:hover { border-color: var(--border-muted); }
+.dp-footer-btn:focus-visible { outline: 2px solid var(--brand-border); outline-offset: -1px; }
+.dp-footer-btn--primary {
+    color: var(--surface-elevated);
+    background: var(--brand-primary);
+    border-color: var(--brand-primary);
+}

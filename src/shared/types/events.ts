@@ -90,7 +90,7 @@ export interface AgentStreamEvent {
   /** tool_progress 事件的重试倒计时剩余秒数（retryCountdown） */
   retryCountdown?: number
   result?: { success: boolean; output: unknown; error?: string }
-  reason?: 'completed' | 'aborted' | 'error' | 'loop_detected'
+  reason?: 'completed' | 'aborted' | 'error' | 'loop_detected' | 'tools_change_cancelled'
   /** loop_suspected/loop_escalated 事件字段 */
   fingerprint?: string
   loopKind?: 'consecutive' | 'period2'

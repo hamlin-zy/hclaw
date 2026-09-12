@@ -357,3 +357,133 @@ describe('isRenderedCopyFingerprintMatch — 渲染端已落库文本指纹匹�
         expect(isRenderedCopyFingerprintMatch('abc', 'ABC')).toBe(false)
     })
 })
+
+// ── 内存优化 C3：达上限后不再 push 空槽（数组槽位不随 chunk 数增长） ──
+// 旧实现超限后仍无条件 push，再把末段 slice 成 ''，导致 parts 槽位随 chunk 数
+// 无限增长（元素全空串），随 pending 常驻整个 loop 生命周期。
+// 不变量：join('') 逐字节不变；length 计数不变。
+describe('appendCappedPart — C3：已达上限不再 push 空槽', () => {
+    it('已达上限后连续 append：parts 长度不再增长，join 结果不变', () => {
+        const parts: string[] = []
+        const max = 10
+        const r0 = appendCappedPart(parts, 'abcdefghij', 0, max)
+        expect(r0).toEqual({length: max, truncated: false})
+        const slotsAfterFirst = parts.length
+
+        for (let i = 0; i < 5; i++) {
+            const r = appendCappedPart(parts, 'X', max, max)
+            expect(r).toEqual({length: max, truncated: true})
+        }
+        // 无新槽：旧实现此处会累积 5 个空串槽位
+        expect(parts.length).toBe(slotsAfterFirst)
+        expect(parts.join('')).toBe('abcdefghij')
+    })
+
+    it('边界：length === maxBytes 恰好等于上限时 append → 不 push、返回 truncated=true', () => {
+        const parts = ['abcd']
+        const r = appendCappedPart(parts, 'x', 4, 4)
+        expect(r).toEqual({length: 4, truncated: true})
+        expect(parts).toEqual(['abcd'])
+        expect(parts.join('')).toBe('abcd')
+    })
+
+    it('逐字等价：与旧算法（无条件 push + 末段 slice）在同序列下 join 与 length 完全一致', () => {
+        // 旧算法参考实现（改动前源码逐字复刻），仅用于等价性对照
+        const legacy = (parts: string[], chunk: string, length: number, maxBytes: number) => {
+            parts.push(chunk)
+            length += chunk.length
+            if (length <= maxBytes) return {length, truncated: false}
+            const overflow = length - maxBytes
+            const last = parts[parts.length - 1]
+            parts[parts.length - 1] = last.slice(0, Math.max(0, last.length - overflow))
+            return {length: maxBytes, truncated: true}
+        }
+
+        const max = 5
+        const chunks = ['ab', 'cdefg', 'h', 'i', 'jklmnop', 'q']
+        const newParts: string[] = []
+        const oldParts: string[] = []
+        let newLen = 0
+        let oldLen = 0
+        for (const c of chunks) {
+            newLen = appendCappedPart(newParts, c, newLen, max).length
+            oldLen = legacy(oldParts, c, oldLen, max).length
+        }
+        expect(newParts.join('')).toBe(oldParts.join(''))
+        expect(newLen).toBe(oldLen)
+        expect(newParts.join('')).toBe(chunks.join('').slice(0, max))
+        // 新形态不再产生空槽（旧形态槽位数 = chunk 数）
+        expect(newParts.length).toBeLessThan(oldParts.length)
+    })
+
+    it('端到端（经 accumulateStreamEvent thinking）：超限后连续 20 个 chunk 不再撑大 thinkParts', () => {
+        let pending = accumulateStreamEvent(
+            null, 'conv-root', {type: 'thinking', content: 't'.repeat(PENDING_MSG_MAX_BYTES)} as any,
+        )
+        expect(pending!.thinkLength).toBe(PENDING_MSG_MAX_BYTES)
+        const slotsAtCap = pending!.thinkParts!.length
+        for (let i = 0; i < 20; i++) {
+            pending = accumulateStreamEvent(
+                pending!, 'conv-root', {type: 'thinking', content: 'x'} as any,
+            )
+        }
+        expect(pending!.thinkParts!.length).toBe(slotsAtCap)
+        expect(pending!.thinkLength).toBe(PENDING_MSG_MAX_BYTES)
+        expect(pending!.thinkParts!.join('').length).toBe(PENDING_MSG_MAX_BYTES)
+    })
+})
+
+// ── 内存优化 C2：manager.impl.ts 的 thinking 分支补齐 PENDING_MSG_MAX_BYTES 上限 ──
+// 覆盖路径：manager.impl.ts 的 accumulateEvent 是 TS-private（非 # 硬私有），运行时可达；
+// 生产调用链为 handleStreamEvent → this.accumulateEvent(...) 后回写
+// pendingAssistantMsg（manager.impl.ts:564-568）。下方 feed() 复刻同一「读-累积-回写」序列，
+// 未为可测性改动任何生产代码结构。
+// 改动前该分支为裸 push + 手算长度（无上限），与 manager.accumulator.ts 的孪生实现漂移。
+describe('内存优化 C2 — impl thinking 分支补齐容量上限', () => {
+    /** 复刻生产回写序列：pendingAssistantMsg.set(convId, accumulateEvent(convId, event)) */
+    function feed(manager: any, convId: string, event: unknown): any {
+        manager.pendingAssistantMsg.set(convId, manager.accumulateEvent(convId, event))
+        return manager.pendingAssistantMsg.get(convId)
+    }
+
+    async function newManager(): Promise<any> {
+        // 动态 import：避免 manager.impl 的依赖图影响本文件其余纯函数用例
+        const {AgentManager} = await import('@/main/agent/manager.impl')
+        return new AgentManager()
+    }
+
+    it('未超限：thinkParts 正常累积、thinkLength 累计（回归：上限不改变正常行为）', async () => {
+        const manager = await newManager()
+        const convId = 'conv-c2-normal'
+        manager.pendingAssistantMsg.set(convId, null)
+        feed(manager, convId, {type: 'thinking', content: '思'})
+        const out = feed(manager, convId, {type: 'thinking', content: '考'})
+        expect(out.thinkParts).toEqual(['思', '考'])
+        expect(out.thinkLength).toBe(2)
+    })
+
+    it('超限：thinkParts/thinkLength 截断到 PENDING_MSG_MAX_BYTES（改动前无上限）', async () => {
+        const manager = await newManager()
+        const convId = 'conv-c2-truncate'
+        manager.pendingAssistantMsg.set(convId, null)
+        const big = 't'.repeat(PENDING_MSG_MAX_BYTES + 10)
+        const out = feed(manager, convId, {type: 'thinking', content: big})
+        expect(out.thinkLength).toBe(PENDING_MSG_MAX_BYTES)
+        expect(out.thinkParts.join('').length).toBe(PENDING_MSG_MAX_BYTES)
+    })
+
+    it('达上限后继续追加：thinkParts 槽位不再增长，join 结果稳定', async () => {
+        const manager = await newManager()
+        const convId = 'conv-c2-saturated'
+        manager.pendingAssistantMsg.set(convId, null)
+        feed(manager, convId, {type: 'thinking', content: 't'.repeat(PENDING_MSG_MAX_BYTES)})
+        const slotsAtCap = manager.pendingAssistantMsg.get(convId).thinkParts.length
+        for (let i = 0; i < 20; i++) {
+            feed(manager, convId, {type: 'thinking', content: 'y'})
+        }
+        const out = manager.pendingAssistantMsg.get(convId)
+        expect(out.thinkParts.length).toBe(slotsAtCap)
+        expect(out.thinkLength).toBe(PENDING_MSG_MAX_BYTES)
+        expect(out.thinkParts.join('')).toBe('t'.repeat(PENDING_MSG_MAX_BYTES))
+    })
+})

@@ -12,6 +12,9 @@ import {
     getToolResultBatchMap,
     scheduleToolResultUpdate,
     clearToolResultBatchData,
+    truncateToolResultObject,
+    TOOL_RESULT_TRUNCATE_LEN,
+    TOOL_RESULT_TRUNCATE_SUFFIX,
 } from '@/renderer/stores/agentStore/batching/toolResultBatch'
 
 // ── 依赖 mock：静态 store（getState 返回最小形态） ──
@@ -52,6 +55,8 @@ vi.mock('@/renderer/stores/conversationStore', () => ({
     useConversationStore: {
         getState: () => mockConversationState,
     },
+    // 与真实实现一致：强制扁平复制（截断大串用）
+    flatString: (s: string) => s.split('').join(''),
     recordToolResultBlock: vi.fn(),
 }))
 
@@ -169,5 +174,80 @@ describe('toolResultBatch 隐藏冻结（Task 6）', () => {
         cb!(0)
         expect(mockConversationState.updateMessageForConv).toHaveBeenCalledTimes(1)
         expect(getToolResultBatch('conv-1').size).toBe(0)
+    })
+})
+
+/** 取最近一次写入 conv-1 的 toolCall 列表 */
+function lastToolCallsForConv(convId: string): any[] | undefined {
+    const calls = mockConversationState.updateMessageForConv.mock.calls.filter((c: any[]) => c[0] === convId)
+    const last = calls[calls.length - 1]
+    return last ? last[2].toolCalls : undefined
+}
+
+describe('toolResultBatch 入队即截断（S4）', () => {
+    it('入队大输出 flush 后与「仅 flush 截断」旧行为逐字节相同，error/artifacts/diff 保留、_fullOutputStored 语义不变', () => {
+        const bigOutput = 'A'.repeat(5000)
+        const bigToolResult = 'T'.repeat(4000)
+        const rawResult = {
+            success: true,
+            output: bigOutput,
+            toolResult: bigToolResult,
+            artifacts: [{path: 'x'}],
+            diff: 'diff-text',
+        }
+
+        scheduleToolResultUpdate('conv-1', 'msg-1', 'tc-1', rawResult)
+        // visible → 执行 rAF 回调触发 flush
+        const cb = rafCb
+        rafCb = null
+        cb!(0)
+
+        const finalized = lastToolCallsForConv('conv-1')!.find((tc: any) => tc.id === 'tc-1')
+
+        // 「仅 flush 截断」旧行为的最终值 = 对原始串做一次截断
+        const expectedOldOutput = bigOutput.slice(0, TOOL_RESULT_TRUNCATE_LEN) + TOOL_RESULT_TRUNCATE_SUFFIX
+        const expectedOldToolResult = bigToolResult.slice(0, TOOL_RESULT_TRUNCATE_LEN) + TOOL_RESULT_TRUNCATE_SUFFIX
+        expect(finalized.result.output).toBe(expectedOldOutput)
+        expect(finalized.result.toolResult).toBe(expectedOldToolResult)
+        // 其余字段保留，截断不影响
+        expect(finalized.result.artifacts).toEqual([{path: 'x'}])
+        expect(finalized.result.diff).toBe('diff-text')
+        // _fullOutputStored 语义不变：截断后为 true
+        expect(finalized.result._fullOutputStored).toBe(true)
+    })
+
+    it('幂等性锁定：截断结果再截断逐字节相同（入队 + flush 双截断等价于单次截断）', () => {
+        const raw = {output: 'A'.repeat(5000), toolResult: 'T'.repeat(4000)}
+        const once = truncateToolResultObject(raw)
+        const twice = truncateToolResultObject(once)
+        expect(once.output).toBe('A'.repeat(TOOL_RESULT_TRUNCATE_LEN) + TOOL_RESULT_TRUNCATE_SUFFIX)
+        expect(twice.output).toBe(once.output)
+        expect(twice.toolResult).toBe(once.toolResult)
+        expect(twice._fullOutputStored).toBe(true)
+    })
+
+    it('document.hidden 期间入队多个大输出 → Map 内每个 entry 的 result 均已截断（不再驻留全文）', () => {
+        setHidden(true)
+        const big1 = 'A'.repeat(5000)
+        const big2 = 'B'.repeat(3000)
+        scheduleToolResultUpdate('conv-1', 'msg-1', 'tc-1', {
+            success: true,
+            output: big1,
+            toolResult: 'C'.repeat(4000),
+        })
+        scheduleToolResultUpdate('conv-1', 'msg-1', 'tc-2', {success: true, output: big2})
+        scheduleToolResultUpdate('conv-1', 'msg-1', 'tc-3', {success: true, output: 'short'})
+
+        const batch = getToolResultBatch('conv-1')
+        // 大输出在入队时即被截断：Map 内不再是全文（长度显著下降且等于截断结果）
+        expect(batch.get('tc-1')!.result.output).toBe(big1.slice(0, TOOL_RESULT_TRUNCATE_LEN) + TOOL_RESULT_TRUNCATE_SUFFIX)
+        expect(batch.get('tc-1')!.result.output.length).toBeLessThan(big1.length)
+        expect(batch.get('tc-1')!.result.toolResult).toBe(
+            'C'.repeat(TOOL_RESULT_TRUNCATE_LEN) + TOOL_RESULT_TRUNCATE_SUFFIX,
+        )
+        expect(batch.get('tc-2')!.result.output).toBe(big2.slice(0, TOOL_RESULT_TRUNCATE_LEN) + TOOL_RESULT_TRUNCATE_SUFFIX)
+        // 未超限的短结果原样保留（不产生截断后缀）
+        expect(batch.get('tc-3')!.result.output).toBe('short')
+        expect(batch.get('tc-3')!.result._fullOutputStored).toBeUndefined()
     })
 })
