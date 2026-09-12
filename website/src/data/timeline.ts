@@ -8,7 +8,12 @@ export interface TimelineItem {
 
 export const timelineItems: TimelineItem[] = [
   {
-    version: 'v0.5.12', date: '2026-09-08', tag: '最新',
+    version: 'v0.5.13', date: '2026-09-12', tag: '最新',
+    title: '项目窗口与 Git 可视化',
+    items: ['全新项目窗口：文件树 + 代码编辑器 + Markdown 预览一站集成', 'Git 面板可视化：状态、分支树、提交详情与并排差异对比', '看代码时可直接把文件/改动/代码行发送到 AI 会话提问', '命令执行与代码搜索提速，长会话内存占用封顶'],
+  },
+  {
+    version: 'v0.5.12', date: '2026-09-08',
     title: 'Agent 数据库查询与备忘录升级',
     items: ['Agent 可直接查询本地数据库（历史会话/任务/用量），AI 主动帮你记事', '备忘录支持优先级与历史组右键批量删除，用户消息一键复制', '用量统计提速约 3.6 倍，名册输出 token 开销降低约 2/3', '修复后台子 Agent 事件偶发丢失、工具调用偶发失败'],
   },
