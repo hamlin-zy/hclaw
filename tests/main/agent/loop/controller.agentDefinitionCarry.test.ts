@@ -45,6 +45,28 @@ describe('carryForwardCommandId（缓存载荷 commandId 跨轮携带）', () =>
   it('本轮无命令且无缓存 → null', () => {
     expect(carryForwardCommandId(null, null)).toBeNull()
   })
+
+  // ── RC1：messageMetadata.commandId 为权威来源（与 startAgentCore 的
+  //    agentDefinition 解析优先级一致），文本解析失败时不得丢失 commandId ──
+  it('metadata.commandId 优先且 commandContext/cached 均空 → 用 metadata', () => {
+    expect(carryForwardCommandId(null, null, 'agent:meta')).toBe('agent:meta')
+  })
+
+  it('metadata 优先于 commandContext', () => {
+    expect(carryForwardCommandId({commandId: 'agent:ctx'}, null, 'agent:meta')).toBe('agent:meta')
+  })
+
+  it('无 metadata 时回落 commandContext', () => {
+    expect(carryForwardCommandId({commandId: 'agent:ctx'}, null, undefined)).toBe('agent:ctx')
+  })
+
+  it('无 metadata 时回落 cached', () => {
+    expect(carryForwardCommandId(null, {commandId: 'agent:old'}, undefined)).toBe('agent:old')
+  })
+
+  it('三者皆空 → null', () => {
+    expect(carryForwardCommandId(null, null, undefined)).toBeNull()
+  })
 })
 
 describe('resolveAgentDefinitionForTurn（次轮 agentDefinition 恢复）', () => {

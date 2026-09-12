@@ -72,6 +72,8 @@ export interface ConvAgentData {
     } | null
     /** 当前权限确认的内容（核心权限系统触发） */
     pendingPermissionConfirm: { question: string; requestId?: string } | null
+    /** 当前 tools 变动确认（prompt 缓存重建成本门触发；非空时弹窗拦截） */
+    pendingToolsChangeConfirm: { requestId: string; added: string[]; removed: string[] } | null
     /** 当前任务列表 */
     tasks: Task[]
     /**
@@ -147,6 +149,8 @@ export interface AgentStore {
     } | null
     /** Agent 需要用户确认权限的内容（核心权限系统触发） */
     pendingPermissionConfirm: { question: string; requestId?: string } | null
+    /** tools 变动确认（prompt 缓存重建成本门；非空时弹窗） */
+    pendingToolsChangeConfirm: { requestId: string; added: string[]; removed: string[] } | null
     /** 当前任务列表 */
     tasks: Task[]
     /** 当前权限规则列表 */
@@ -191,6 +195,8 @@ export interface AgentStore {
     setConvDisplayMode: (convId: string, mode: 'detailed' | 'compact' | 'ultra-compact') => Promise<void>
     respondQuestion: (result: 'allow' | 'always' | 'deny') => Promise<void>
     answerQuestion: (answer: string) => Promise<void>
+    /** 响应 tools 变动确认（continue / cancel / snooze_today） */
+    respondToolsChange: (decision: 'continue' | 'cancel' | 'snooze_today') => Promise<void>
     clearPendingQuestion: () => void
     /** 清除指定会话的循环检测警告条（done 收尾 / 警告条关闭时调用） */
     clearLoopWarning: (convId: string) => void
@@ -206,6 +212,13 @@ export interface AgentStore {
         message: string
         messageAttachments?: Array<{ path: string; name: string }>
         messageMetadata?: Record<string, unknown>
+        /**
+         * 旁路「残留运行态」守卫（仅「发送到会话」执行器使用）。
+         * 执行器已用主进程 agentStatus 确认会话非运行，但渲染端 convAgentStates
+         * 可能残留 paused/thinking/running，旧守卫会静默 no-op 导致 agent 永不启动。
+         * 普通调用点（InputArea / MessageActions）不传，行为不变。
+         */
+        force?: boolean
     }) => Promise<void>
 
     abortAgent: (conversationId: string) => Promise<void>

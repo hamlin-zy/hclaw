@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
-import {AnimatePresence, motion} from 'framer-motion'
-import {dropdown} from '../lib/motionPresets'
+import {motion} from 'framer-motion'
+import CopyToast from './common/CopyToast'
 import {switchActiveScheme, useModelSchemeStore} from '../stores/modelSchemeStore'
 import type {ModelScheme} from '@shared/types'
 
@@ -216,25 +216,8 @@ export default function SchemeSelector() {
     // createPortal 挂到 body（脱离 .menubar 的 backdrop-filter stacking context）
     return (
         <>
-            {/* Toast 提示 */}
-            <AnimatePresence>
-                {toastMessage && (
-                    <motion.div
-                        {...dropdown}
-                        transition={{duration: 0.2, ease: 'easeOut'}}
-                        className="fixed top-4 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2 rounded-lg bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-sm text-[var(--text-primary)] flex items-center gap-2"
-                        role="status"
-                        aria-live="polite"
-                    >
-                        <svg className="w-4 h-4 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="none"
-                             stroke="currentColor" strokeWidth="2">
-                            <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
-                            <polyline points="22 4 12 14.01 9 11.01"/>
-                        </svg>
-                        {toastMessage}
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            {/* Toast 提示（共享组件，portal 到 body 脱离侧栏卡片包含块） */}
+            <CopyToast visible={toastMessage !== null} message={toastMessage ?? ''}/>
 
             <div ref={dropdownRef} className="relative">
                 {/* 胶囊形状按钮 - 品牌绿边框 */}

@@ -13,6 +13,39 @@ export interface PendingToolResultUpdate {
 
 let toolResultBatches: Record<string, Map<string, PendingToolResultUpdate>> = {}
 
+/** 工具结果截断阈值（单位：字符）。入队侧与 flush 侧共用，保证两侧口径一致。 */
+export const TOOL_RESULT_TRUNCATE_LEN = 2000
+
+/** 截断提示后缀（入队侧与 flush 侧共用；措辞不得改动，否则两侧截断结果不再逐字节相同） */
+export const TOOL_RESULT_TRUNCATE_SUFFIX = '\n\n...(输出过长，完整内容已落库)'
+
+/**
+ * 纯函数：截断单个「工具结果对象」的 output / toolResult 全文（原地不动，返回新对象）。
+ *
+ *  - 只切 output / toolResult（各自独立判断是否超长），error / artifacts / diff 等其余字段原样保留
+ *  - 任一字段超长即置 `_fullOutputStored: true`（语义：内存副本已非全文，完整内容已落库）
+ *  - 未超长时原样返回入参引用（调用方可据此判等，避免无谓重建）
+ *  - 幂等：已截断结果再截断逐字节相同 —— 截断串 = first2000 + 后缀(19 字符)，
+ *    再 slice(0, 2000) 恰好把后缀切掉、重新拼回同一后缀；本函数被入队侧与 flush 侧
+ *    各调用一次，幂等性是「两侧都截断」逐字节等价的前提（有测试锁定）。
+ */
+export function truncateToolResultObject(result: any): any {
+    if (!result || typeof result.output !== 'string') return result
+    const outputTooLong = result.output.length > TOOL_RESULT_TRUNCATE_LEN
+    const toolResultTooLong = typeof result.toolResult === 'string' && result.toolResult.length > TOOL_RESULT_TRUNCATE_LEN
+    if (!outputTooLong && !toolResultTooLong) return result
+    return {
+        ...result,
+        output: outputTooLong
+            ? flatString(result.output.slice(0, TOOL_RESULT_TRUNCATE_LEN)) + TOOL_RESULT_TRUNCATE_SUFFIX
+            : result.output,
+        ...(toolResultTooLong ? {
+            toolResult: flatString(result.toolResult.slice(0, TOOL_RESULT_TRUNCATE_LEN)) + TOOL_RESULT_TRUNCATE_SUFFIX,
+        } : {}),
+        _fullOutputStored: true,
+    }
+}
+
 /** 全局 RAF 调度 */
 let globalToolResultFlushScheduled = false
 
@@ -114,26 +147,12 @@ function applyToolResultEntries(
         //   内存只保留摘要。两个字段都必须截断：normalizeToolResult 为每个结果生成
         //   output + formatToolResult 两份全文，漏掉 toolResult 会使数 MB 原文永久驻留。
         //   slice 后用 flatString 强制扁平复制，避免 SlicedString 钉住整个父串（Issue 2869）。
-        const TRUNCATE_LEN = 2000
+        //   ★ 与入队侧（scheduleToolResultUpdate）共用 truncateToolResultObject（同一口径）；
+        //     入队已截断的串在此处再截断逐字节相同（幂等），故本处保留为兜底/防御，
+        //     覆盖「entry 由外部直接塞入未经入队截断」等旁路。
         const truncatedToolCalls = updatedToolCalls.map((tc: any) => {
-            const r = tc.result as {output?: unknown; toolResult?: string} | undefined
-            if (!r || typeof r.output !== 'string') return tc
-            const outputTooLong = r.output.length > TRUNCATE_LEN
-            const toolResultTooLong = typeof r.toolResult === 'string' && r.toolResult.length > TRUNCATE_LEN
-            if (!outputTooLong && !toolResultTooLong) return tc
-            return {
-                ...tc,
-                result: {
-                    ...r,
-                    output: outputTooLong
-                        ? flatString(r.output.slice(0, TRUNCATE_LEN)) + '\n\n...(输出过长，完整内容已落库)'
-                        : r.output,
-                    ...(toolResultTooLong ? {
-                        toolResult: flatString(r.toolResult!.slice(0, TRUNCATE_LEN)) + '\n\n...(输出过长，完整内容已落库)',
-                    } : {}),
-                    _fullOutputStored: true,
-                } as typeof tc.result,
-            }
+            const truncatedResult = truncateToolResultObject(tc.result)
+            return truncatedResult === tc.result ? tc : ({...tc, result: truncatedResult} as typeof tc)
         })
         if (truncatedToolCalls.some((tc: any, i: number) => tc !== updatedToolCalls[i])) {
             useConversationStore.getState().updateMessageForConv(convId, msgId, {toolCalls: truncatedToolCalls})
@@ -145,7 +164,11 @@ export function scheduleToolResultUpdate(convId: string, msgId: string, toolCall
     const batch = getToolResultBatch(convId)
     // ★ msgId 随 entry 固化：flush 时按 entry 定位消息，与 flush 时刻的
     //   convAgentStates.streamingMessageId 解耦（竞态安全）
-    batch.set(toolCallId, {toolCallId, msgId: msgId || null, result})
+    // ★ 入队即截断：hidden 时只累积不 flush，若不在此截断，全量 result（output +
+    //   toolResult 两份全文）会一直驻留在 Map 中直到可见/done 兜底 —— 小时级后台
+    //   loop（1Hz 心跳不断产出工具结果）下无界累积。此处用与 flush 侧同一纯函数截断，
+    //   flush 侧保留截断作为幂等兜底。
+    batch.set(toolCallId, {toolCallId, msgId: msgId || null, result: truncateToolResultObject(result)})
 
     // ★ 隐藏冻结：窗口 hidden 时只累积，注册一次性 visibilitychange，visible 时合并 flush
     if (typeof document !== 'undefined' && document.hidden) {

@@ -27,6 +27,41 @@ describe('parseCatalogEntriesFromContent', () => {
         expect(parseCatalogEntriesFromContent('No skills are currently available.')).toEqual([])
         expect(parseCatalogEntriesFromContent('<available_skills>\n</available_skills>')).toEqual([])
     })
+
+    it('MCP 目录：从 <available_mcp_tools> 解析 name/description（type=mcp）', () => {
+        const content = `<system-reminder>
+The following MCP tools are available in this session:
+
+<available_mcp_tools>
+- m_github_create_issue: create_issue args: {repo:string*, title:string*}
+- m_playwright_navigate: navigate args: {url:string*}
+</available_mcp_tools>
+
+MCP tools are not declared natively. Call them via the \`call_mcp_tool\` tool:
+</system-reminder>`
+        const entries = parseCatalogEntriesFromContent(content)
+        expect(entries.map(e => e.name)).toEqual(['m_github_create_issue', 'm_playwright_navigate'])
+        expect(entries.every(e => e.type === 'mcp')).toBe(true)
+        expect(entries[0].description).toContain('args: {repo:string*')
+        // 引导段落（含冒号的行）不得被误解析为条目
+        expect(entries).toHaveLength(2)
+    })
+
+    it('两类目录块同时存在 → 合并返回', () => {
+        const content = `<available_skills>
+alpha
+</available_skills>
+<available_mcp_tools>
+- m_a_b: d
+</available_mcp_tools>`
+        const entries = parseCatalogEntriesFromContent(content)
+        expect(entries.map(e => `${e.type}:${e.name}`)).toEqual(['skill:alpha', 'mcp:m_a_b'])
+    })
+
+    it('MCP 空目录（empty 文案）→ 返回 []', () => {
+        expect(parseCatalogEntriesFromContent('No MCP tools are currently available. Do not use MCP tool names from earlier catalogs.')).toEqual([])
+        expect(parseCatalogEntriesFromContent('<available_mcp_tools>\n</available_mcp_tools>')).toEqual([])
+    })
 })
 
 describe('CatalogStatusLine', () => {

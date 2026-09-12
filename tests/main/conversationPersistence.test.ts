@@ -1,7 +1,8 @@
 // 单测注入 fake repo：不需要真实 DB；隔离规则（getHclawDir→tmpdir）仅适用于
 // tests/main/persistence.integration.test.ts（Task 7）。
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
-import {ConversationPersistence} from '../../src/main/persistence/conversationPersistence'
+import {ConversationPersistence, toolCallBlock} from '../../src/main/persistence/conversationPersistence'
+import type {ToolCallPersistable} from '../../src/main/persistence/conversationPersistence'
 import type {BlockDeltaPatch, Message} from '../../src/shared/types'
 
 function fakeRepo() {
@@ -124,6 +125,47 @@ describe('ConversationPersistence', () => {
     expect(repo.writeBlockDelta).not.toHaveBeenCalled()
   })
 
+  // ─── ★ C1 前置：ACK（message-flushed）护栏，不涉及 result 收缩逻辑 ───
+
+  it('★ C1 前置 T1：节流 flush 成功 → 每个 msgId 恰好一次 message-flushed', async () => {
+    const repo = fakeRepo()
+    const p = new ConversationPersistence(repo as never)
+    const acked: string[] = []
+    p.onPersistEvent(e => { if (e.type === 'message-flushed') acked.push(e.msgId) })
+    p.accumulate('c1', 'm1', patch('a'))
+    p.accumulate('c1', 'm2', patch('b'))
+    vi.advanceTimersByTime(30000)
+    expect([...acked].sort()).toEqual(['m1', 'm2'])   // 每条恰好一次
+    p.flush('c1')                                     // 无 dirty 再 flush，不得重复 ACK
+    expect(acked.length).toBe(2)
+  })
+
+  it('★ C1 前置 T2：写失败 → 零 message-flushed，patch 保留（内存态未丢）', async () => {
+    const repo = fakeRepo()
+    repo.writeBlockDelta.mockReturnValue(false)
+    const p = new ConversationPersistence(repo as never)
+    const acked: string[] = []
+    p.onPersistEvent(e => { if (e.type === 'message-flushed') acked.push(e.msgId) })
+    p.accumulate('c1', 'm1', patch('x'))
+    vi.advanceTimersByTime(30000)
+    expect(repo.writeBlockDelta).toHaveBeenCalledTimes(1)
+    expect(acked).toEqual([])                          // 失败不发 ACK
+    repo.writeBlockDelta.mockReturnValue(true)         // patch 保留 → 重试成功才发一次
+    vi.advanceTimersByTime(60000)
+    expect(acked).toEqual(['m1'])
+  })
+
+  it('★ C1 前置 T3：finalizeMessage 成功只发 message-finalized，不发 message-flushed（防双发）', () => {
+    const repo = fakeRepo()
+    const p = new ConversationPersistence(repo as never)
+    const types: string[] = []
+    p.onPersistEvent(e => types.push(e.type))
+    p.accumulate('c1', 'm1', patch('正文'))
+    expect(p.finalizeMessage('c1', 'm1', 9999)).toBe(true)
+    expect(types).toContain('message-finalized')
+    expect(types).not.toContain('message-flushed')
+  })
+
   it('writeNow：单条消息走 writeMessagesDelta（memo/handoff 职责表）', () => {
     const repo = fakeRepo()
     const p = new ConversationPersistence(repo as never)
@@ -171,6 +213,99 @@ describe('ConversationPersistence', () => {
     vi.advanceTimersByTime(30000)
     const sent = (repo.writeBlockDelta.mock.calls[0] as [string, string, BlockDeltaPatch])[2]
     expect(sent.upsertBlocks![0].content).toBe(flat.repeat(100))
+  })
+})
+
+// ─── 剥离 pending 纯内存标记：落库 JSON 逐字节等价契约（TDD，改造前先绿） ───
+describe('record* 剥离 result / resultDurable（data JSON 逐字节不变）', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => {vi.useRealTimers(); vi.restoreAllMocks()})
+
+  // 键顺序刻意非 canonical：id → name → arguments → status → result → resultDurable → reason。
+  // 剥离后期望保留 id/name/arguments/status/reason 的**原始顺序**——排序键或重建字面量都会改变
+  // JSON.stringify 输出顺序，从而被这条断言抓住。
+  function tcWithPending(): ToolCallPersistable {
+    return {
+      id: 't1', name: 'bash', arguments: {cmd: 'ls'}, status: 'success',
+      result: {success: true, output: 'ok'}, resultDurable: true, reason: 'why',
+    } as ToolCallPersistable
+  }
+  const EXPECTED_PERSISTABLE = '{"id":"t1","name":"bash","arguments":{"cmd":"ls"},"status":"success","reason":"why"}'
+
+  it('recordToolCallBlock：tool_call.data 逐字节相等（含键顺序），剥离 result/resultDurable 且保留 status', () => {
+    const repo = fakeRepo()
+    const p = new ConversationPersistence(repo as never)
+    p.recordToolCallBlock('c1', 'm1', tcWithPending())
+    vi.advanceTimersByTime(30000)
+    const sent = (repo.writeBlockDelta.mock.calls[0] as [string, string, BlockDeltaPatch])[2]
+    const block = sent.upsertBlocks![0]
+    expect(block.blockType).toBe('tool_call')
+    expect(block.data).toBe(EXPECTED_PERSISTABLE)
+    expect(block.data).not.toContain('resultDurable')
+    expect(block.data).not.toContain('"result"')
+    expect(JSON.parse(block.data!).status).toBe('success')   // status 属于落库字段，不得误剥
+  })
+
+  it('recordToolResultBlock：tool_call.data 逐字节相等；tool_result.data 只含 {id, result}', () => {
+    const repo = fakeRepo()
+    const p = new ConversationPersistence(repo as never)
+    p.recordToolResultBlock('c1', 'm1', tcWithPending())
+    vi.advanceTimersByTime(30000)
+    const sent = (repo.writeBlockDelta.mock.calls[0] as [string, string, BlockDeltaPatch])[2]
+    const tcBlock = sent.upsertBlocks!.find(b => b.blockType === 'tool_call')!
+    expect(tcBlock.data).toBe(EXPECTED_PERSISTABLE)
+    const trBlock = sent.upsertBlocks!.find(b => b.blockType === 'tool_result')!
+    expect(trBlock.data).toBe('{"id":"t1","result":{"success":true,"output":"ok"}}')
+    expect(Object.keys(JSON.parse(trBlock.data!))).toEqual(['id', 'result'])   // 只含 id + result
+  })
+
+  it('防回归绊线：落库 data 中不含 resultDurable 子串', () => {
+    const repo = fakeRepo()
+    const p = new ConversationPersistence(repo as never)
+    p.recordToolCallBlock('c1', 'm1', tcWithPending())
+    p.recordToolResultBlock('c1', 'm2', {...tcWithPending(), id: 't2'} as ToolCallPersistable)
+    vi.advanceTimersByTime(30000)
+    for (const call of repo.writeBlockDelta.mock.calls as Array<[string, string, BlockDeltaPatch]>) {
+      for (const b of call[2].upsertBlocks ?? []) {
+        if (b.data != null) expect(b.data).not.toContain('resultDurable')
+      }
+    }
+  })
+
+  it('入参不含 result/resultDurable：输出与现状一致（整对象序列化）', () => {
+    const repo = fakeRepo()
+    const p = new ConversationPersistence(repo as never)
+    const tc = {id: 't2', name: 'grep', arguments: {pattern: 'x'}, status: 'running'} as ToolCallPersistable
+    p.recordToolCallBlock('c1', 'm1', tc)
+    vi.advanceTimersByTime(30000)
+    const sent = (repo.writeBlockDelta.mock.calls[0] as [string, string, BlockDeltaPatch])[2]
+    expect(sent.upsertBlocks![0].data).toBe(JSON.stringify(tc))
+  })
+
+  it('显式 result: undefined：键被剥离，data 不含 result；recordToolResultBlock 该入参提前返回不落块', () => {
+    const repo = fakeRepo()
+    const p = new ConversationPersistence(repo as never)
+    const tc = {id: 't3', name: 'bash', arguments: {}, status: 'running', result: undefined} as ToolCallPersistable
+    p.recordToolCallBlock('c1', 'm1', tc)
+    p.recordToolResultBlock('c1', 'm2', tc)   // result === undefined → return
+    vi.advanceTimersByTime(30000)
+    const calls = repo.writeBlockDelta.mock.calls as Array<[string, string, BlockDeltaPatch]>
+    const m1Call = calls.find(([, m]) => m === 'm1')!
+    expect(m1Call[2].upsertBlocks![0].data).toBe('{"id":"t3","name":"bash","arguments":{},"status":"running"}')
+    expect(calls.find(([, m]) => m === 'm2')).toBeUndefined()
+  })
+
+  it('toolCallBlock 构造：字段与顺序固定（record* 两处共用，仅 timestamp 由调用方传入）', () => {
+    const block = toolCallBlock('m1', tcWithPending(), 123, 2)
+    expect(Object.keys(block)).toEqual(
+      ['id', 'messageId', 'blockType', 'content', 'sequence', 'timestamp', 'data', 'turnIndex'],
+    )
+    expect(block.id).toBe('m1-tc-t1')
+    expect(block.content).toBeNull()
+    expect(block.sequence).toBe(0)
+    expect(block.timestamp).toBe(123)
+    expect(block.turnIndex).toBe(2)
+    expect(block.data).toBe(EXPECTED_PERSISTABLE)
   })
 })
 

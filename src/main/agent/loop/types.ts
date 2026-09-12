@@ -10,7 +10,7 @@ import type {
     HClawAgentType,
     MCPServer
 } from '@shared/types'
-import type {ModelRole} from '@shared/types'
+import type {ModelRole, RunMode} from '@shared/types'
 import type {AgentDefinition} from '@shared/agent'
 import type {LlmTraceContextKind} from '@shared/types/llmTrace'
 
@@ -93,6 +93,12 @@ export interface RunParams {
     agentTemplates?: AgentTemplate[]
     requestConfirmation?: (message: string) => Promise<'allow' | 'always' | 'deny'>
     askUserQuestion?: (question: string, options?: string[], multiSelect?: boolean) => Promise<string>
+    /**
+     * tools 集变动确认（本轮将注入的 tools 与上一轮不同 → prompt 缓存前缀失配，
+     * 全部历史缓存作废）。返回 'cancel' 则本轮不发送请求直接结束；
+     * 'snooze_today' 语义为继续且今日内不再提示（由 worker 侧落库 snooze 日期）。
+     */
+    confirmToolsChange?: (info: {added: string[]; removed: string[]; previous: string[]; current: string[]}) => Promise<'continue' | 'cancel' | 'snooze_today'>
     /** 通过渠道发送消息（Worker → Main IPC），返回发送确认结果 */
     channelSend?: (channelId: string, toUser: string, text: string, contextToken?: string, fileType?: string) => Promise<{ success: boolean; error?: string }>
     conversationTitle?: string
@@ -114,4 +120,9 @@ export interface RunParams {
     pendingInjectedMessages?: ChatMessage[]
     /** LLM 循环检测静默指纹队列（渲染端"这是误判"经 worker 传入；gate 逐轮 shift 消费） */
     pendingSilences?: string[]
+    /**
+     * 作用域权限模式覆盖：仅本 loop 的工具判定使用，不改写进程级 permissionEngine.mode。
+     * 子代理路径固定传 'auto'（子会话无确认通道，且治理改由 Agent 的 tools/disallowedTools 承担）。
+     */
+    permissionModeOverride?: RunMode
 }

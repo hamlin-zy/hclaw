@@ -37,6 +37,7 @@ import {getUserCommandStore, UpsertPluginOverrideInput, UserCommandData} from '.
 import {getPresetCommand, getPresetCommandMarkdownFiles, commandToMarkdown} from '../command/presetCommands';
 import {loadCommands, getCommandsDir} from '../agent/commandLoader';
 import type {CommandDefinition} from '@shared/types';
+import {getCommandNameError} from '@shared/commandName';
 import {versionManager} from './versionManager';
 import type {VersionInfo, SwitchResult} from './versionManager';
 import {broadcastToOtherWindows} from '../utils/windowBroadcast';
@@ -810,6 +811,10 @@ async function handleCreateCommand(
   input: { name: string; description?: string; content: string; args?: Array<{ name: string; description?: string; required?: boolean; default?: string }>; enabled?: boolean }
 ): Promise<{success: boolean; error?: string}> {
   try {
+    const nameError = getCommandNameError(input.name)
+    if (nameError) {
+      return {success: false, error: nameError}
+    }
     const markdown = commandToMarkdown({
       name: input.name,
       description: input.description || '',
@@ -838,6 +843,12 @@ async function handleUpdateCommand(
   updates: { name?: string; description?: string; content?: string; args?: Array<{ name: string; description?: string; required?: boolean; default?: string }>; enabled?: boolean }
 ): Promise<{success: boolean; error?: string}> {
   try {
+    if (updates.name !== undefined) {
+      const nameError = getCommandNameError(updates.name)
+      if (nameError) {
+        return {success: false, error: nameError}
+      }
+    }
     const commandName = id.startsWith('user:') ? id.slice(5) : id
     const cmdsDir = getCommandsDir()
     const filePath = path.join(cmdsDir, `${commandName}.md`)

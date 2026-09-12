@@ -38,7 +38,7 @@ export function ensureAgentToolTaskId(convId: string, toolCallId: string | undef
         )
         convStore.updateMessageForConv(convId, msg!.id, {toolCalls: updatedToolCalls})
         // 同步运行时状态（toolCallsStore），使弹窗/卡片立即响应
-        useToolCallsStore.getState().updateToolCall(toolCallId, {taskId: childConvId})
+        useToolCallsStore.getState().updateToolCall(toolCallId, {taskId: childConvId}, convId)
         // ★ 重建 contentBlocks（其 tool_use 块持有 toolCall 副本，不重建则渲染层读到的
         //   仍是无 taskId 的旧副本，导致 Normal/Compact 卡片运行中不显示跳转按钮）
         updateMessageContentBlocks(convId)
@@ -93,7 +93,7 @@ export function handleAgentProgress(ctx: StreamCtx) {
                 outputTokens: event.outputTokens ?? 0,
                 totalTokens: event.totalTokens ?? 0,
             },
-        })
+        }, convId)
     }
 }
 

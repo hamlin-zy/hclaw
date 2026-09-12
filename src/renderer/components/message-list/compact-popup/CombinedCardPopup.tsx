@@ -300,14 +300,13 @@ const ToolSubCard = memo(function ToolSubCard({
 
     // 统计 & 按名称分组（合并遍历，一轮搞定）
     const {chips, dotClass, isAgentGroup, isRunning, agentTc} = useMemo(() => {
-        let error = 0, running = 0
+        let running = 0
         const typeMap = new Map<string, {total: number; error: number; isAgent: boolean; isSkill: boolean}>()
         for (const tc of toolCalls) {
             const state = toolStates[tc.id]
             const status = state?.status ?? tc.status
             // 全局统计
-            if (status === 'error') error++
-            else if (status === 'running') running++
+            if (status === 'running') running++
             const displayName = resolveToolDisplayName(tc)
             if (!typeMap.has(displayName)) typeMap.set(displayName, {total: 0, error: 0, isAgent: tc.name === 'agent', isSkill: isSkillToolCall(tc)})
             const entry = typeMap.get(displayName)!
@@ -315,13 +314,11 @@ const ToolSubCard = memo(function ToolSubCard({
             if (status === 'error') entry.error++
         }
         const isRunning = running > 0
-        const hasError = error > 0
         const chips = Array.from(typeMap.entries()).map(([name, v]) => ({name, ...v}))
+        // 仅区分运行中（闪烁）/ 已完成（不闪烁），不区分成功失败
         const dotClass = isRunning
             ? 'bg-[var(--info)] animate-pulse'
-            : hasError
-                ? 'bg-[var(--error)]'
-                : 'bg-[var(--success)]'
+            : 'bg-[var(--success)]'
         // 单 agent 工具（跳转按钮只对单个 agent 调用显示）
         const agentTc = toolCalls.length === 1 && toolCalls[0].name === 'agent' ? toolCalls[0] : null
         return {chips, dotClass, isAgentGroup: toolCalls.length > 0 && toolCalls.every(tc => tc.name === 'agent'), isRunning, agentTc}
@@ -339,24 +336,21 @@ const ToolSubCard = memo(function ToolSubCard({
         return null
     }, [toolCalls, toolStates])
 
-    // ★ agent 工具：运行中点击直接跳转子会话实时观看（流式详情在子会话中展示）；
-    //   完成后点击仍打开三级弹窗看完整结果
-    const handleCardClick = () => {
-        if (agentTc && isRunning) {
-            const runtimeTaskId = toolStates[agentTc.id]?.taskId ?? agentTc.taskId
-            if (runtimeTaskId) {
-                onJumpToChild(runtimeTaskId)
-                return
-            }
-        }
-        onOpenToolPopup(toolCalls)
-    }
-
     // 运行时 taskId 从 toolCallsStore 实时读取（弹窗 toolCalls 是打开时的快照，
     // 运行中才补写的 taskId 只存在于运行时状态）
     const runtimeTaskId = agentTc
         ? toolStates[agentTc.id]?.taskId ?? agentTc.taskId
         : undefined
+
+    // ★ agent 工具：运行中点击直接跳转子会话实时观看（流式详情在子会话中展示）；
+    //   完成后点击仍打开三级弹窗看完整结果
+    const handleCardClick = () => {
+        if (agentTc && isRunning && runtimeTaskId) {
+            onJumpToChild(runtimeTaskId)
+            return
+        }
+        onOpenToolPopup(toolCalls)
+    }
     const handleJumpToChild = (e: React.MouseEvent) => {
         e.stopPropagation()
         if (runtimeTaskId) onJumpToChild(runtimeTaskId)

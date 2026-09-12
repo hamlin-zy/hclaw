@@ -24,6 +24,7 @@ import {agentTool} from './builtin/agentTool'
 import {skillTool} from './builtin/skillTool'
 import {describeSkillsTool} from './builtin/describeSkillsTool'
 import {listAgentsTool} from './builtin/listAgentsTool'
+import {callMcpTool} from './builtin/callMcpTool'
 
 import {taskCreateTool} from './builtin/taskCreateTool'
 import {taskUpdateTool} from './builtin/taskUpdateTool'
@@ -59,6 +60,7 @@ export function registerBuiltinTools(): void {
       skillTool,
       describeSkillsTool,
       listAgentsTool,
+      callMcpTool,
 
       taskCreateTool,
       taskUpdateTool,

@@ -1,13 +1,15 @@
 /**
- * Bash 工具 — 执行 shell 命令（增强版）
+ * Bash 工具 — 执行 shell 命令（持久化会话池版）
  *
  * 核心改进：
- * 1. 使用 spawn 替代 exec — 无 maxBuffer 限制，支持流式输出
- * 2. 智能错误处理 — 区分超时/信号/退出码，输出与错误分离
- * 3. 安全命令包装 — PowerShell UTF-8 设置不再破坏命令语法
- * 4. 健壮编码回退 — 多层编码尝试 + 乱码检测
- * 5. 进程树清理 — 超时时终止子进程树，防止孤儿进程
+ * 1. 持久化 Shell 会话池（shellPool/）— 常驻 shell 进程消除每命令 0.5-3s 的 spawn 启动税；
+ *    完成判定使用一次性 nonce 标记（__HCLAW_END_<uuid>__:<exitCode>），流式扫描 stdout
+ * 2. 智能错误处理 — 区分超时/信号/退出码；错误分析抽为纯函数 buildExitErrorMessage 复用
+ * 3. 安全命令包装 — PowerShell Out-String -Width 4096 包装保留
+ * 4. 健壮编码回退 — 多层编码尝试 + 乱码检测；持久化会话强制 UTF-8 输出
+ * 5. 进程树清理 — 超时/abort/会话死亡时终止子进程树，池条目销毁，下次自动重建
  * 6. 输出截断保护 — 防止极端输出撑爆内存
+ * 7. 回退开关 — 环境变量 HCLAW_PERSISTENT_SHELL=0 时走旧的一次性 spawn 路径
  */
 
 import {z} from 'zod'
@@ -16,6 +18,7 @@ import iconv from 'iconv-lite'
 import type {Tool, ToolContext, ToolResult} from '../types'
 import {isDangerousCommandPattern, isSafeCommandPrefix} from '../../permissions/dangerousPatterns'
 import {parseFileWriteTargets, detectFileEncoding, alignFileEncoding} from './encodingGuard'
+import {acquireSession, stripProtocolMarkers} from '../shellPool/pool'
 import * as fsSync from 'fs'
 import path from 'path'
 
@@ -312,6 +315,36 @@ const SIGNAL_NAMES: Record<number, string> = {
   15: 'SIGTERM',
 }
 
+/**
+ * 退出码错误分析（纯函数，旧 spawn 路径与持久化会话路径共用）
+ */
+function buildExitErrorMessage(exitCode: number | null, signal: string | null): string {
+  if (exitCode === null && signal) {
+    const sigName = SIGNAL_NAMES[Number(signal)] || `SIG${signal}`
+    return `进程被信号终止: ${sigName}`
+  }
+  if (exitCode === 124) {
+    // timeout 命令的退出码（如果命令内部使用了 timeout）
+    return `命令超时 (exit code: ${exitCode})`
+  }
+  if (exitCode === 126) {
+    return `命令不可执行: 权限不足或文件不是可执行文件`
+  }
+  if (exitCode === 127) {
+    return `命令未找到: 请检查命令拼写或确认程序已安装`
+  }
+  return `命令执行失败 (exit code: ${exitCode})`
+}
+
+/** 非零退出码的结果构建：有输出视为部分成功，返回输出内容 */
+function failureResult(exitCode: number | null, signal: string | null, output: string): ToolResult<string> {
+  const errorMessage = buildExitErrorMessage(exitCode, signal)
+  if (output) {
+    return {success: false, output, error: errorMessage}
+  }
+  return {success: false, output: '', error: errorMessage}
+}
+
 export const bashTool: Tool<BashInput, string> = {
   name: 'bash',
   description: `在用户的工作目录中执行 shell 命令。
@@ -406,7 +439,80 @@ ${
         }
       }
     
-    return new Promise((resolve) => {
+    // ── 持久化会话池路径（HCLAW_PERSISTENT_SHELL=0 回退旧 spawn；cmd.exe 不支持协议） ──
+    const usePersistent = process.env.HCLAW_PERSISTENT_SHELL !== '0' && shellInfo.name !== 'cmd'
+    if (usePersistent) {
+      try {
+        const session = await acquireSession({workingDir: context.workingDir, shellInfo, env})
+        const res = await session.run({
+          command,
+          timeout,
+          abortSignal: context.abortSignal ?? null,
+        })
+
+        // ── 编码守卫：检测编码漂移并自动对齐 ──
+        for (const targetPath of writeTargets) {
+          const originalEnc = originalEncodings.get(targetPath)
+          if (originalEnc && fsSync.existsSync(targetPath)) {
+            try {
+              await alignFileEncoding(targetPath, originalEnc)
+            } catch {
+              // 静默跳过
+            }
+          }
+        }
+
+        // 持久化会话已强制 UTF-8 输出（会话初始化探针验证），解码固定 utf8
+        let output = smartDecode(res.output, '65001')
+        output = stripProtocolMarkers(output)
+        // ── ANSI 转义码剥离兜底：部分工具无视 NO_COLOR/FORCE_COLOR 硬编码颜色，
+        //    在此统一剥离（CSI 序列 + OSC 序列），保证进入上下文的输出干净 ──
+        output = output.replace(ANSI_ESCAPE_RE, '')
+
+        if (res.status === 'ok') {
+          if (res.exitCode === 0) {
+            return {success: true, output: output || '(no output)'}
+          }
+          return failureResult(res.exitCode, res.signal, output)
+        }
+        if (res.status === 'timeout') {
+          return {success: false, output, error: `命令执行超时 (${timeout}ms)`}
+        }
+        if (res.status === 'aborted') {
+          return {success: false, output, error: '已中止'}
+        }
+        // dead：shell 进程退出但未见 END 标记（如用户命令含 exit）
+        // exit 0 → 视为成功（与旧行为一致）；非零 → 错误分析 + 会话重置提示
+        if ((res.exitCode ?? 0) === 0 && !res.signal) {
+          return {success: true, output: output || '(no output)'}
+        }
+        const errorMessage = buildExitErrorMessage(res.exitCode, res.signal)
+        return {
+          success: false,
+          output,
+          error: `${errorMessage}\n\nShell 会话已重置，下一条命令将自动重启会话。`,
+        }
+      } catch {
+        // 池初始化/执行异常 → 回退旧 spawn 路径
+      }
+    }
+
+    return runLegacyCommand(command, context, env, timeout, writeTargets, originalEncodings)
+  },
+}
+
+/**
+ * 旧路径：每条命令一次性 spawn shell（HCLAW_PERSISTENT_SHELL=0 回退 / 池异常兜底）
+ */
+function runLegacyCommand(
+    command: string,
+    context: ToolContext,
+    env: NodeJS.ProcessEnv,
+    timeout: number,
+    writeTargets: string[],
+    originalEncodings: Map<string, string>,
+): Promise<ToolResult<string>> {
+  return new Promise((resolve) => {
       let settled = false
       let timer: NodeJS.Timeout | null = null
 
@@ -494,7 +600,6 @@ ${
 
         // 分析失败原因
         let errorMessage: string
-        let _success = false
 
         if (exitCode === null && signal) {
           // 被信号终止
@@ -588,7 +693,6 @@ ${
         }
       }
     })
-  },
 }
 
 /** 导出 shell 信息供系统提示和前端使用 */

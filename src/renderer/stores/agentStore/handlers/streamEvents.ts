@@ -10,7 +10,7 @@ import {handleToolUse, handleToolsStart, handleToolStart, handleToolProgress, ha
 import {handleAgentProgress, handleSubagentProgress, handleSubagentStart, handleSubagentDone} from './streamSubAgents'
 import {handleSkillStart, handleSkillPhase, handleSkillReferenceLoaded, handleSkillScriptStart, handleSkillScriptOutput, handleSkillScriptDone, handleSkillLog, handleSkillEnd} from './streamSkills'
 import {handleModeChange, handleTasksUpdate, handleLlmCallDone, handleCommandStart} from './streamSystem'
-import {handleDone, handleError, handleAskUser, handleWarning, handlePermissionRulesUpdated, handlePermissionConfirm, handleUserMessageInjected, handleLoopSuspected, handleLoopEscalated} from './streamInteraction'
+import {handleDone, handleError, handleAskUser, handleWarning, handlePermissionRulesUpdated, handlePermissionConfirm, handleToolsChangeConfirm, handleUserMessageInjected, handleLoopSuspected, handleLoopEscalated} from './streamInteraction'
 
 type SetFn = (...args: any[]) => any
 type GetFn = () => AgentStore
@@ -70,6 +70,7 @@ export async function handleStreamEventImpl(set: SetFn, get: GetFn, payload: Age
         case 'loop_escalated':         handleLoopEscalated(ctx);           break
         case 'permission-rules-updated': await handlePermissionRulesUpdated(ctx); break
         case 'permission_confirm':     await handlePermissionConfirm(ctx); break
+        case 'tools_change_confirm':   await handleToolsChangeConfirm(ctx); break
         case 'user_message_injected':  handleUserMessageInjected(ctx);    break
     }
 }

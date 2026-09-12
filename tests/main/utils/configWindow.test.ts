@@ -165,10 +165,10 @@ describe('configWindow 注册表', () => {
         expect(state.created[0].options.additionalArguments).toEqual(['--hclaw-dialog=task-history'])
     })
 
-    it('about 用专属尺寸 400x430，其他用 DIALOG_CONFIG initialWidth', () => {
+    it('about 用专属尺寸 400x516，其他用 DIALOG_CONFIG initialWidth', () => {
         openConfigWindow('about')
         expect(state.created[0].options.width).toBe(400)
-        expect(state.created[0].options.height).toBe(430)
+        expect(state.created[0].options.height).toBe(516)
     })
 
     it('closeConfigWindow 关闭指定类型窗口', () => {

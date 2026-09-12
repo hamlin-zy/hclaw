@@ -13,27 +13,50 @@ interface CatalogStatusLineProps {
 }
 
 /**
- * 从 catalog 消息 content 的 <available_skills> 块解析条目（fallback 用）：
+ * 从 catalog 消息 content 解析条目（fallback 用）：
  * metadata.catalogEntries 为空时（新目录消息不再携带完整 entries），
  * 从消息正文恢复条目列表供状态行计数/展开展示。
- * 兼容 full 模式行 `- [type] \`name\`: desc | trigger` 与 names 模式逗号索引。
+ *
+ * 支持两类目录块（可同时存在，各自独立消息）：
+ * - `<available_skills>`：兼容 full 模式行 `- [type] \`name\`: desc | trigger` 与 names 模式逗号索引
+ * - `<available_mcp_tools>`：`- m_server_tool: desc args: {...}`（catalog 通道的 MCP 工具目录）
  */
 export function parseCatalogEntriesFromContent(content: string): CatalogEntry[] {
+    const entries: CatalogEntry[] = []
+
     const block = content.split('<available_skills>')[1]?.split('</available_skills>')[0]
+    if (block) {
+        for (const raw of block.split('\n')) {
+            const line = raw.trim()
+            if (!line) continue
+            const fullMatch = line.match(/^- \[(\w+)\] `([^`]+)`/)
+            if (fullMatch) {
+                const desc = line.slice(fullMatch[0].length).replace(/^[:\s]+/, '')
+                entries.push({name: fullMatch[2], type: 'skill', description: desc})
+                continue
+            }
+            for (const name of line.split(',')) {
+                const n = name.trim()
+                if (n) entries.push({name: n, type: 'skill', description: ''})
+            }
+        }
+    }
+
+    entries.push(...parseMcpEntriesFromContent(content))
+    return entries
+}
+
+/** 解析 `<available_mcp_tools>` 块（MCP 工具目录，catalog 通道专有） */
+export function parseMcpEntriesFromContent(content: string): CatalogEntry[] {
+    const block = content.split('<available_mcp_tools>')[1]?.split('</available_mcp_tools>')[0]
     if (!block) return []
     const entries: CatalogEntry[] = []
     for (const raw of block.split('\n')) {
         const line = raw.trim()
         if (!line) continue
-        const fullMatch = line.match(/^- \[(\w+)\] `([^`]+)`/)
-        if (fullMatch) {
-            const desc = line.slice(fullMatch[0].length).replace(/^[:\s]+/, '')
-            entries.push({name: fullMatch[2], type: 'skill', description: desc})
-            continue
-        }
-        for (const name of line.split(',')) {
-            const n = name.trim()
-            if (n) entries.push({name: n, type: 'skill', description: ''})
+        const m = line.match(/^- ([^\s:]+):\s*(.*)$/)
+        if (m) {
+            entries.push({name: m[1], type: 'mcp', description: m[2]})
         }
     }
     return entries

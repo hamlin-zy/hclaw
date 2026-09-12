@@ -2,6 +2,8 @@ import {useEffect, useState} from 'react'
 
 interface WindowTitleBarProps {
     title: string
+    /** 次级文字（如绝对路径），比主标题更浅、更小 */
+    subtitle?: string
 }
 
 function MinimizeIcon() {
@@ -38,7 +40,7 @@ function CloseIcon() {
 }
 
 /** 独立无边框窗口的自定义标题栏：拖拽区 + 窗口控制按钮（最小化/最大化/关闭） */
-export default function WindowTitleBar({title}: WindowTitleBarProps) {
+export default function WindowTitleBar({title, subtitle}: WindowTitleBarProps) {
     const [isMaximized, setIsMaximized] = useState(false)
 
     useEffect(() => {
@@ -53,7 +55,8 @@ export default function WindowTitleBar({title}: WindowTitleBarProps) {
             <div className="titlebar-content">
                 <div className="titlebar-left no-drag">
                     <div className="logo-container">
-                        <span className="logo-text">{title}</span>
+                        <span className="logo-text" data-testid="titlebar-title">{title}</span>
+                        {subtitle && <span style={{fontSize: 10, color: 'var(--text-muted)', fontWeight: 'normal', marginLeft: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60vw'}} title={subtitle} data-testid="titlebar-subtitle">{subtitle}</span>}
                     </div>
                 </div>
                 <div className="titlebar-center drag-region"/>

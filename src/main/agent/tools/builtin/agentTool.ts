@@ -271,9 +271,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
         //    强制 LLM 修正后重试（不静默回退 General）
         const template = agentRegistry.find(args.agent)
         if (!template || !template.enabled) {
-            const available = (agentRegistry.getEnabled() || [])
-                .filter(a => !a.id.startsWith('cmd:') && a.name)
-                .map(a => a.name!)
+            const available = getSelectableAgentNames()
             return {
                 success: false,
                 output: '',
@@ -292,14 +290,12 @@ export const agentTool: Tool<AgentToolInput, string> = {
         const settings = systemSettingsRepo.getJson<import('@shared/types').SystemSettings>('settings')
         const maxDepth = settings?.subagent?.maxDepth ?? 3
         const parentConvId = context.conversationId
-        if (parentConvId) {
-            const currentDepth = getRecursionDepth(parentConvId)
-            if (currentDepth >= maxDepth) {
-                return {
-                    success: false,
-                    output: '',
-                    error: `已达到最大子 Agent 嵌套深度 (${maxDepth})，无法继续派生`,
-                }
+        const currentDepth = parentConvId ? getRecursionDepth(parentConvId) : 0
+        if (parentConvId && currentDepth >= maxDepth) {
+            return {
+                success: false,
+                output: '',
+                error: `已达到最大子 Agent 嵌套深度 (${maxDepth})，无法继续派生`,
             }
         }
 
@@ -362,7 +358,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
             childConvId,
             parentConvId: parentConvId || '(none)',
             agentType: agentName,
-            depth: parentConvId ? getRecursionDepth(parentConvId) + 1 : 1,
+            depth: currentDepth + 1,
             task: args.task.slice(0, 80),
         })
 
@@ -389,12 +385,19 @@ export const agentTool: Tool<AgentToolInput, string> = {
             toolCallId: context.toolCallId,
         })
 
-        // ⑦ 强制权限模式为 auto（子会话不弹确认框）
+        // ⑦ 构建子会话生效的 Agent 定义
+        //   ★ 治理模型：子代理一律以 auto 运行（permissionModeOverride 作用域下发，见 ⑩），
+        //     不受父会话 safe/auto 影响；越权工具靠 Agent 定义的 tools（白名单）/
+        //     disallowedTools（黑名单）拦截（executor.ts 中早于权限检查、且与 mode 无关）。
         // ★ disallowedTools 必须显式传递：agentTemplateToDefinition 返回的 agentDefinition
         //   包含 disallowedTools，但此处重构 effectiveAgentDef 时曾遗漏该字段，
         //   导致 agent 级黑名单（Layer 3）在子 Agent 派发路径完全失效。
         //   tools 字段（白名单）不能替代黑名单——两者是互补的纵深防御：
         //   白名单可能被 args.tools 覆盖为 ['*']，此时黑名单是唯一防线。
+        // ★ session_handoff 对子会话一律禁用：子 Agent 的产出要回喂 agentTool，
+        //   而 session_handoff 会创建独立顶层新会话并把子任务移交给它 —— 子 Agent 随即结束，
+        //   父 Agent 拿到的却是"已完成"的空/半成品结果（交接门已对子会话短路，此处防模型自发调用）。
+        //   黑名单比白名单更可靠：args.tools 可能把白名单覆盖为 ['*']。
         const effectiveAgentDef: AgentDefinition = {
             source: 'user' as const,
             agentType: agentName,
@@ -403,8 +406,9 @@ export const agentTool: Tool<AgentToolInput, string> = {
             systemPromptTemplate: effectiveAgentDefinition.systemPromptTemplate || '',
             renderedSystemPrompt: '',
             tools: effectiveAgentDefinition.tools || args.tools,
-            disallowedTools: effectiveAgentDefinition.disallowedTools,
-            permissionMode: 'auto',
+            disallowedTools: [
+                ...new Set([...(effectiveAgentDefinition.disallowedTools ?? []), 'session_handoff']),
+            ],
         }
 
         // ⑧ 构建 agentLoop 参数（当前进程/线程中运行）
@@ -461,6 +465,10 @@ export const agentTool: Tool<AgentToolInput, string> = {
         //   begin 退化为 UUID 占位，后续事件带 id 也被忽略，双 id 并存）。
         sendChildAgentEvent(childConvId, {type: 'begin', messageId: childAcc.assistantMsgId})
 
+        // ⑩ 子代理作用域权限模式：固定 auto，经 RunParams.permissionModeOverride 下发到
+        //    本 loop 的 ToolContext → permissionEngine.check(tool, args, modeOverride)。
+        //    ★ 绝不翻转共享引擎（permissionEngine 是 worker 线程级单例，父子 loop 共享；
+        //      翻转会连带父会话，同批并行工具也会互相踩）。auto 只在本子 loop 内生效。
         try {
             for await (const event of agentLoop({
                 sessionId: childConvId,
@@ -476,6 +484,8 @@ export const agentTool: Tool<AgentToolInput, string> = {
                 // 子会话标识：loop 内 selectModelForTurn 据此在未显式 modelRole 时默认轻量模型
                 traceContext: 'subAgent' as const,
                 agentDefinition: effectiveAgentDef,
+                // ★ 子代理一律 auto：作用域覆盖，不改写共享引擎（见 ⑩）
+                permissionModeOverride: 'auto' as const,
                 conversationTitle: `子 Agent: ${args.task.slice(0, 50)}`,
                 abortSignal: context.abortSignal,
                 // 运行中注入的用户消息队列（子会话版，与 worker 主会话同构）

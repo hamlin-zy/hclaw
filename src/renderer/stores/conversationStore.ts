@@ -4,6 +4,12 @@ import type {ConversationSummary, Message, ContentBlock} from '@shared/types'
 import {useAgentStore, createDefaultConvData} from './agentStore'
 import {fuzzyFilter} from '../lib/search'
 import {collectDescendants} from './conversationTree'
+import {flatString} from '../utils/flatString'
+
+// ★ 内存优化 D2：flatString 已迁至叶子模块（src/renderer/utils/flatString.ts）以消除
+//   toolCallsStore → conversationStore → agentStore/* → toolCallsStore 循环依赖。
+//   此处 re-export 保持既有导入方（agentStore/index.ts、toolResultBatch.ts 等）不变。
+export {flatString}
 
 interface WorkspaceInfo {
   lastOpenedAt: number
@@ -91,12 +97,6 @@ interface ConversationStore {
 /** 默认 agent 空闲状态（切换会话时后备） */
 
 const TOOL_RESULT_MEMORY_CAP = 2000
-
-/** 生成扁平字符串副本。V8 的 slice/substring 对长串返回 SlicedString（引用整个父串，
- *  Chromium Issue 2869），截断大字符串后若不强制复制，被截掉的父串无法被 GC 释放。 */
-export function flatString(s: string): string {
-    return s.split('').join('')
-}
 
 /** 截断提示后缀（output 与 toolResult 共用） */
 const TRUNCATE_SUFFIX = '\n\n*(输出过长，已截断。展开加载完整内容)*'
@@ -283,6 +283,10 @@ function isDisplayMode(v: unknown): v is 'detailed' | 'compact' | 'ultra-compact
  * 会话级模式初始化（会话激活时调用）：读取 conv.meta 的
  * permissionMode/displayMode，回退全局默认后写入 agentStore 顶层字段。
  * 渲染层 4 处消费点统一读顶层，无需改动。
+ *
+ * 安全模式：子会话（parentConvId 非空）不写自己的 permissionMode（主进程 IPC 亦硬拒绝），
+ * 其显示值由 ConvModeSegs 固定呈现为「自动」——子代理一律以 auto 运行，实际治理由
+ * 该 Agent 的 tools/disallowedTools 承担。此处无显式值即回退全局默认，与主会话同路径。
  */
 export async function applyConvModesToAgentStore(convId: string): Promise<void> {
     let meta: Record<string, unknown> | null = null
@@ -346,7 +350,8 @@ async function switchActiveConversation(id: string | null) {
                 // paused + pending 双态（ask_user / permission 阻塞）视同运行中，
                 // 否则进入会话时内存流式消息不合并，气泡只显示 DB 陈旧快照
                 const isBlockedPending = agentStatus === 'paused'
-                    && !!(agentConvData?.pendingQuestion || agentConvData?.pendingPermissionConfirm)
+                    && !!(agentConvData?.pendingQuestion || agentConvData?.pendingPermissionConfirm
+                        || agentConvData?.pendingToolsChangeConfirm)
                 const isRunning = agentStatus === 'running' || agentStatus === 'thinking' || isBlockedPending
                 if (isRunning) {
                     const {messagesMap} = useConversationStore.getState()
@@ -1066,7 +1071,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               if (agentConv?.agentState?.status === 'running' ||
                   agentConv?.agentState?.status === 'thinking') return true
               if (agentConv?.pendingPermissionConfirm ||
-                  agentConv?.pendingQuestion) return true
+                  agentConv?.pendingQuestion ||
+                  agentConv?.pendingToolsChangeConfirm) return true
               const lastActive = state.conversationLastActiveAt[id] ?? 0
               return now - lastActive < TEN_MIN_MS
           })
@@ -1223,7 +1229,6 @@ if (typeof window !== 'undefined') {
         // ★ 渠道消息专用：主动 reloadMessages 时，从 DB 重新加载消息列表
         // 渠道消息是先写 DB 再通知 UI，不存在未持久化的问题，可以安全地 reload
         if (data.reloadMessages && data.id === activeConversationId) {
-            console.log(`[DEBUG:UI] reloadMessages triggered for conv=${data.id.slice(0, 12)}`)
             useConversationStore.getState().loadMessages(data.id)
         }
 

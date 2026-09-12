@@ -19,6 +19,10 @@ import {IDLE_STATE, DEFAULT_TOP_LEVEL, createDefaultConvData} from './defaultSta
 // 完整内容已通过块级增量落库到 DB，内存只需保留最近窗口供渲染
 const STREAM_BUFFER_MAX_CHARS = 50000      // ~50KB 文本缓冲
 const STREAM_BLOCKS_MAX_COUNT = 200        // 最大块数
+// ★ 思考内容上限：thinkingContent 此前无上限，思考型长 loop 下 flushThinkingBatch
+//   的 prevContent + batch 全量重拼会无界增长。与 streamBuffer 同量级（思考文本
+//   体量通常远小于正文，50K 足够容纳「最近窗口」），完整思考已由主进程块级落库。
+const THINKING_CONTENT_MAX_CHARS = 50000
 
 // 保持与旧 import 路径兼容（conversationStore 等外部引用）
 export {createDefaultConvData}
@@ -51,6 +55,7 @@ export const useAgentStore = create<AgentStore>()(
             toolPopupData: null,
             combinedPopupData: null,
             pendingPermissionConfirm: null,
+            pendingToolsChangeConfirm: null,
             tasks: [],
             permissionRules: [],
             permissionMode: 'safe',
@@ -81,6 +86,14 @@ export const useAgentStore = create<AgentStore>()(
                     const blocks = updates.streamBlocks
                     if (Array.isArray(blocks) && blocks.length > STREAM_BLOCKS_MAX_COUNT) {
                         newData.streamBlocks = blocks.slice(-STREAM_BLOCKS_MAX_COUNT)
+                    }
+                }
+                if (updates.thinkingContent !== undefined) {
+                    const tc = updates.thinkingContent
+                    if (typeof tc === 'string' && tc.length > THINKING_CONTENT_MAX_CHARS) {
+                        // 与 streamBuffer 同模式：flatString 强制扁平复制，避免 slice(-N)
+                        // 产生的 SlicedString 钉住父串；保留尾部（最近思考），完整内容已落库
+                        newData.thinkingContent = flatString(tc.slice(-THINKING_CONTENT_MAX_CHARS))
                     }
                 }
 
@@ -195,8 +208,10 @@ export const useAgentStore = create<AgentStore>()(
             // ── 会话级权限模式（方案B：安全模式会话级，写 meta + 广播目标 worker） ──
             setConvPermissionMode: async (convId, mode) => {
                 try {
-                    await window.electronAPI?.agentSetConvPermissionMode?.(convId, mode)
-                    set({permissionMode: mode})
+                    const res = await window.electronAPI?.agentSetConvPermissionMode?.(convId, mode)
+                    // 主进程拒绝（如子会话只读继承：error='inherited'）时不改本地状态，
+                    // 避免 UI 显示一个未被接受的新值。
+                    if (res?.success !== false) set({permissionMode: mode})
                 } catch { /* 静默处理 */ }
             },
 
@@ -269,6 +284,25 @@ export const useAgentStore = create<AgentStore>()(
                 const convId = useConversationStore.getState().activeConversationId
                 set({pendingQuestion: null})
                 if (convId) get().updateConvData(convId, {pendingQuestion: null})
+            },
+
+            // ── tools 变动确认（prompt 缓存重建成本） ──────────
+            respondToolsChange: async (decision) => {
+                const {pendingToolsChangeConfirm} = get()
+                if (!pendingToolsChangeConfirm?.requestId) return
+
+                const convId = useConversationStore.getState().activeConversationId
+                if (!convId) return
+
+                try {
+                    await window.electronAPI?.agentRespondToolsChange?.({
+                        conversationId: convId,
+                        requestId: pendingToolsChangeConfirm.requestId,
+                        decision,
+                    })
+                    set({pendingToolsChangeConfirm: null})
+                    get().updateConvData(convId, {pendingToolsChangeConfirm: null})
+                } catch { /* 静默处理错误 */ }
             },
 
             clearLoopWarning: (convId) => {
@@ -377,21 +411,32 @@ export const useAgentStore = create<AgentStore>()(
                         // 统一播种：快照 v2 → 声明式指令 → 执行
                         const instruction = buildSeedInstruction(snapshot, msgs)
                         applySeedInstruction(convId, instruction)
+                        // ★ 应用会话级补丁：恢复运行态 + 阻塞双态（含 pendingToolsChangeConfirm）。
+                        //   缺此步，刷新后阻塞弹窗不重现 → 无限等待的 worker 无人应答 → 永久死锁。
+                        get().updateConvData(convId, instruction.convPatch)
 
                         syncConvToTopLevel(convId)
                         console.log(`[agentStore] 已恢复 Agent 会话: ${convId}${snapshot ? `, 消息: ${snapshot.streamingMessageId}` : '（等待首个流事件）'}`)
                     }
 
-                    get().recoverSessionsCleanup()
+                    // ★ keepRunning：主进程探活返回 allRunning 的会话仍真实存活，
+                    //   其 running/阻塞态是刚播种的权威状态，cleanup 不得抹除；
+                    //   仅清理 worker 已死、状态陈旧的残留会话（保持 cleanup 原有作用）。
+                    get().recoverSessionsCleanup(new Set(status.allRunning))
                 } catch (err) {
                     console.error('[agentStore] recoverSessions 失败:', err)
                 }
             },
 
-            recoverSessionsCleanup: () => {
+            recoverSessionsCleanup: (keepRunning) => {
                 const convStates = get().convAgentStates
                 const convStore = useConversationStore.getState()
                 for (const [convId, data] of Object.entries(convStates)) {
+                    // 已被主进程探活确认仍存活的会话：保留其运行/阻塞态（含刚播种的
+                    // pendingToolsChangeConfirm / pendingQuestion / pendingPermissionConfirm），
+                    // 跳过清理，否则刷新恢复链路会被本函数当场抹掉。
+                    if (keepRunning?.has(convId)) continue
+
                     const isBusy = data.agentState.status === 'running' || data.agentState.status === 'thinking'
                     if (!isBusy) continue
 

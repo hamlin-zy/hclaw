@@ -33,6 +33,15 @@ const TOOLTIP_STYLE: React.CSSProperties = {
     fontSize: '11px',
     fontWeight: 400,
     whiteSpace: 'pre-line',
+    // 宽度取内容自然宽（max-content），不再走 shrink-to-fit。
+    // 根因：position:fixed + 仅设 left 时 width:auto 的可用宽度 = 视口宽 − left，
+    // 贴窗口右缘的按钮（如 Project Manager 的「刷新」IconButton，left ≈ innerWidth − 21）
+    // 会把浮层压到 ~20px，中文被压到 min-content 逐字换行（竖排两个字）。
+    // max-content 使宽度与 left 剩余空间解耦；长文案仍由 maxWidth 触发换行
+    // （whiteSpace:'pre-line' 保持不变，多行长 label 正常显示）。
+    width: 'max-content',
+    // 防御性上限：超长文案在极窄窗口下不溢出视口（左右各留 1/2 边缘间距）
+    maxWidth: 'min(320px, calc(100vw - 16px))',
     borderRadius: '4px',
     pointerEvents: 'none',
     zIndex: 2147483647,
@@ -61,20 +70,30 @@ type ClampSide = 'left' | 'right' | 'leftEdge' | null
  * 不会出现 above/below 那种以触发元素为界的钳制语义）。
  */
 
-/** 水平定位：left 放置右缘锚定触发元素左缘（x 即锚点），钳制时改锚窗口内缘 */
-function tooltipLeft(tooltip: NonNullable<TooltipState>, clamped: ClampSide): number {
-    if (clamped === 'right') return window.innerWidth - TOOLTIP_EDGE_MARGIN
+/** 水平定位：left 放置右缘锚定触发元素左缘（x 即锚点），钳制时改锚窗口内缘。
+ *  右缘钳制返回 'auto'——配合 {@link tooltipRight} 改用右缘锚定，使浮层从右缘
+ *  向左展开（shrink-to-fit 可用宽度 = 视口宽 − right，而非 视口宽 − left），
+ *  否则贴右缘时只剩几 px 可用宽度。 */
+function tooltipLeft(tooltip: NonNullable<TooltipState>, clamped: ClampSide): number | 'auto' {
+    if (clamped === 'right') return 'auto'
     if (clamped === 'leftEdge') return TOOLTIP_EDGE_MARGIN
     if (clamped === 'left') return tooltip.minX
     return tooltip.x
 }
 
-/** transform 由放置方向 + 钳制状态共同决定（Y 位移保留：仅取消 X 位移） */
+/** 右缘锚定偏移：仅右缘钳制路径使用（此时 left:auto），向右缘内缩 TOOLTIP_EDGE_MARGIN */
+function tooltipRight(clamped: ClampSide): number | 'auto' {
+    return clamped === 'right' ? TOOLTIP_EDGE_MARGIN : 'auto'
+}
+
+/** transform 由放置方向 + 钳制状态共同决定（Y 位移保留：仅取消 X 位移）。
+ *  右缘钳制已改用右缘锚定（left:auto），X 方向无需任何位移，仅保留上/下翻转。 */
 function tooltipTransform(tooltip: NonNullable<TooltipState>, clamped: ClampSide): string {
     if (tooltip.placement === 'left') return 'translate(-100%, -50%)'
     if (tooltip.placement === 'right') return 'translateY(-50%)'
-    if (clamped === 'left') return tooltip.placement === 'above' ? 'translateY(-100%)' : 'none'
-    if (clamped === 'right') return tooltip.placement === 'above' ? 'translate(-100%, -100%)' : 'translateX(-100%)'
+    if (clamped === 'left' || clamped === 'right') {
+        return tooltip.placement === 'above' ? 'translateY(-100%)' : 'none'
+    }
     return tooltip.placement === 'above' ? 'translate(-50%, -100%)' : 'translateX(-50%)'
 }
 
@@ -238,8 +257,10 @@ export default function TooltipPortal() {
                 opacity: tooltip ? 1 : 0,
                 top: tooltip?.y ?? -9999,
                 // 左缘钳制：与触发元素左缘对齐，取消 X 位移（Y 位移保留）
-                // 右缘钳制：右对齐窗口内缘（translateX(-100%)），Y 位移保留
+                // 右缘钳制：left:auto + right:TOOLTIP_EDGE_MARGIN 从右缘向左展开
+                //（可用宽度变为整个视口宽，不再被「视口宽 − left」压到 min-content）
                 left: tooltip ? tooltipLeft(tooltip, clamped) : -9999,
+                right: tooltipRight(clamped),
                 transform: tooltip ? tooltipTransform(tooltip, clamped) : 'translateX(-50%)',
             }}
         >

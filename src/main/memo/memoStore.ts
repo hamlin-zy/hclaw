@@ -189,8 +189,8 @@ class MemoStore {
         if (!resolved.startsWith(path.resolve(pendingRoot) + path.sep)) return att
         const destDir = path.join(memoDir(workspacePath), 'attachments', memoId)
         fs.mkdirSync(destDir, {recursive: true})
-        // 防路径穿越：fileName 只取 basename；源文件已被迁移走（重复提交旧 attachments）则仅更新 storedPath
-        const dest = path.join(destDir, path.basename(att.fileName))
+        // 防路径穿越：fileName 只取 basename；用 attId 前缀保证唯一，防止同名文件互相覆盖
+        const dest = path.join(destDir, `${att.id}_${path.basename(att.fileName)}`)
         if (!fs.existsSync(resolved)) {
             logger.warn('[MemoStore] pending file missing on migrate, skip rename', {storedPath: resolved, memoId})
             return {...att, storedPath: dest}
@@ -213,8 +213,9 @@ class MemoStore {
         }
         fs.mkdirSync(destDir, {recursive: true})
         // 防路径穿越：fileName 只取 basename，禁止 ..\..\x 或绝对路径逃逸 destDir
+        // 用 attId 前缀保证唯一，防止同名文件互相覆盖
         const safeName = path.basename(input.fileName)
-        const storedPath = path.join(destDir, safeName)
+        const storedPath = path.join(destDir, `${id}_${safeName}`)
         fs.copyFileSync(input.srcPath, storedPath)
         return {id, fileName: safeName, storedPath, mime: input.mime, kind}
     }

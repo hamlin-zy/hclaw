@@ -175,7 +175,7 @@ function registerRunningTool(toolCallId: string, timeoutMs?: number, convId?: st
     }
     const store = useToolCallsStore.getState()
     if (store.states[toolCallId]) {
-        store.updateToolCall(toolCallId, updates)
+        store.updateToolCall(toolCallId, updates, convId)
     } else {
         store.registerToolCall(toolCallId, updates, convId)
     }
@@ -207,12 +207,12 @@ export function handleToolProgress(ctx: StreamCtx) {
     if (!existingState || existingState.status === 'pending') {
         useToolCallsStore.getState().registerToolCall(event.toolCallId, {status: 'running', progress: event.progress}, convId)
     } else {
-        useToolCallsStore.getState().updateToolCall(event.toolCallId, {progress: event.progress})
+        useToolCallsStore.getState().updateToolCall(event.toolCallId, {progress: event.progress}, convId)
     }
 }
 
 export function handleToolDetail(ctx: StreamCtx) {
-    const {get, isAgentAborted, event} = ctx
+    const {get, convId, isAgentAborted, event} = ctx
     if (isAgentAborted) return
     if (!event.toolCallId) return
     const state = get()
@@ -222,7 +222,7 @@ export function handleToolDetail(ctx: StreamCtx) {
         detailStatus: event.status,
         progressPercent: typeof event.progress === 'number' ? event.progress : undefined,
         eta: event.eta,
-    })
+    }, convId)
 }
 
 export function handleToolResult(ctx: StreamCtx) {
@@ -248,10 +248,10 @@ export function handleToolResult(ctx: StreamCtx) {
             ensureAgentToolTaskId(convId, event.toolCallId, meta.childConvId)
         }
 
-        useToolCallsStore.getState().setToolResult(event.toolCallId, result)
+        useToolCallsStore.getState().setToolResult(event.toolCallId, result, convId)
         const tc = targetMsg.toolCalls.find(tc => tc.id === event.toolCallId)
         if (event.skillName && tc) {
-            useToolCallsStore.getState().updateToolCall(event.toolCallId, {skillName: event.skillName} as any)
+            useToolCallsStore.getState().updateToolCall(event.toolCallId, {skillName: event.skillName} as any, convId)
         }
         // ★ 即时清理：工具完成后运行时 key 立即删除（不再等会话结束），
         //   long loop 期间每个工具完成即释放。渲染层回退到消息内静态 toolCall
@@ -296,9 +296,9 @@ export function handleToolResult(ctx: StreamCtx) {
  *   不递减 runningToolCount、不落库——这些由正式 tool_result 负责。
  */
 export function handleToolCompleted(ctx: StreamCtx) {
-    const {event} = ctx
+    const {convId, event} = ctx
     if (!event.toolCallId || !event.result) return
-    useToolCallsStore.getState().setToolResult(event.toolCallId, normalizeToolResult(event.result))
+    useToolCallsStore.getState().setToolResult(event.toolCallId, normalizeToolResult(event.result), convId)
 }
 
 export function handleToolDenied(ctx: StreamCtx) {

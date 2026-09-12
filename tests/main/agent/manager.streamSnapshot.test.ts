@@ -81,6 +81,7 @@ describe('buildStreamSnapshot v2 — 状态覆盖面扩展', () => {
         expect(snap.subAgentStream).toEqual({})
         expect(snap.pendingQuestion).toBeNull()
         expect(snap.pendingPermissionConfirm).toBeNull()
+        expect(snap.pendingToolsChangeConfirm).toBeNull()
         expect(snap.runningToolCount).toBe(0)
         expect(snap.executingToolsMessage).toBeNull()
     })
@@ -128,6 +129,21 @@ describe('buildStreamSnapshot v2 — 状态覆盖面扩展', () => {
         expect(snap.pendingPermissionConfirm).toBeNull()
     })
 
+    it('tools_change_confirm 进入快照（刷新后弹窗重现的权威事实源），done 后清空', () => {
+        let pending = accumulateStreamEvent(null, 'conv-test', {
+            type: 'tools_change_confirm', requestId: 'r-tools', added: ['write_file'], removed: ['read_file'],
+        })
+        let snap = buildStreamSnapshot(pending)!
+        expect(snap.pendingToolsChangeConfirm).toMatchObject({
+            requestId: 'r-tools',
+            added: ['write_file'],
+            removed: ['read_file'],
+        })
+        pending = accumulateStreamEvent(pending, 'conv-test', {type: 'done', reason: 'completed'})
+        snap = buildStreamSnapshot(pending)!
+        expect(snap.pendingToolsChangeConfirm).toBeNull()
+    })
+
     it('runningToolCount 随 tools_start/tool_completed 维护并进快照', () => {
         let pending = accumulateStreamEvent(null, 'conv-test', {type: 'tools_start', toolCount: 2})
         pending = accumulateStreamEvent(pending, 'conv-test', {type: 'tool_use', toolCall: {id: 'tc-x', name: 'bash', arguments: {}}})
@@ -150,6 +166,7 @@ describe('buildStreamSnapshot v2 — 状态覆盖面扩展', () => {
         void snap.progressLog
         void snap.subAgentStream
         void snap.toolStates
+        void snap.pendingToolsChangeConfirm
         expect(true).toBe(true)
     })
 })

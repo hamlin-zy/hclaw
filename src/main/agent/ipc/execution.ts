@@ -91,6 +91,16 @@ export function registerHandlers(): void {
         return {success: true}
     })
 
+    // 响应 tools 变动确认（prompt 缓存重建成本门）
+    ipcMain.handle('agent-respond-tools-change', async (_event, params: {
+        conversationId: string
+        requestId: string
+        decision: 'continue' | 'cancel' | 'snooze_today'
+    }) => {
+        agentManager.respondToolsChange(params.conversationId, params.requestId, params.decision)
+        return {success: true}
+    })
+
     // ── 消息 LLM 统计更新 ──
     ipcMain.handle('message:updateLlmStats', async (_event, params: {
         conversationId: string
