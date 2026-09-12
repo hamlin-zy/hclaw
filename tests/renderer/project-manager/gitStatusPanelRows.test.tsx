@@ -42,7 +42,7 @@ describe('GitStatusPanel 行结构（spec §7）', () => {
 
   it('未跟踪分组保留，且它的文件行也走 TreeRow', () => {
     render(<GitStatusPanel workspace="/ws" />)
-    expect(screen.getByText(/Untracked/)).toBeInTheDocument()
+    expect(screen.getByText(/未跟踪文件/)).toBeInTheDocument()
     expect(screen.getByRole('treeitem', {name: 'c.ts'})).toHaveTextContent('c.ts')
   })
 
@@ -51,7 +51,7 @@ describe('GitStatusPanel 行结构（spec §7）', () => {
     const section = container.querySelector('.pm-untracked-section')
     expect(section).not.toBeNull()
     // 未跟踪的组标题与文件行都必须落在该作用域内，否则灰调覆盖不到
-    expect(section!).toHaveTextContent(/Untracked/)
+    expect(section!).toHaveTextContent(/未跟踪文件/)
     expect(section!.querySelector('[role="treeitem"][aria-label="c.ts"]')).not.toBeNull()
     // 已跟踪变更不得被卷进未跟踪作用域
     expect(section!.querySelector('[role="treeitem"][aria-label="src/a.ts"]')).toBeNull()
@@ -75,34 +75,34 @@ describe('GitStatusPanel 行结构（spec §7）', () => {
 
   it('底部统计行按 spec §7 的格式', () => {
     render(<GitStatusPanel workspace="/ws" />)
-    expect(screen.getByTestId('pm-changes-summary')).toHaveTextContent('3 files changed · 46 + · 4 −')
+    expect(screen.getByTestId('pm-changes-summary')).toHaveTextContent('已更改 3 个文件 · +46 · −4')
   })
 
   it('无变更时显示空态', () => {
     useGitStatusStore.setState({summary: {statusMap: {}, additions: 0, deletions: 0, updatedAt: 0} as never})
     render(<GitStatusPanel workspace="/ws" />)
-    expect(screen.getByText('Working tree clean')).toBeInTheDocument()
+    expect(screen.getByText('工作区干净')).toBeInTheDocument()
   })
 
   it('分组标题带对应状态色的徽章', () => {
     render(<GitStatusPanel workspace="/ws" />)
-    expect(screen.getByText(/M Modified/)).toHaveClass('pm-c--M')
+    expect(screen.getByText(/已修改/)).toHaveClass('pm-c--M')
   })
 
   it('所有分组标题都走 pm-group-title（spec §7 加粗）且不沾文件行装饰', () => {
     render(<GitStatusPanel workspace="/ws" />)
-    for (const re of [/M Modified/, /A Added/, /Untracked/]) {
+    for (const re of [/已修改/, /已新增/, /未跟踪文件/]) {
       expect(screen.getByText(re)).toHaveClass('pm-group-title')
     }
     // pm-file-name 的装饰（M 加粗 / D 删除线 / ?? 斜体）是文件行专用，聚合标题不得沾
-    expect(screen.getByText(/A Added/)).not.toHaveClass('pm-file-name')
-    expect(screen.getByText(/Untracked/)).not.toHaveClass('pm-file-name')
+    expect(screen.getByText(/已新增/)).not.toHaveClass('pm-file-name')
+    expect(screen.getByText(/未跟踪文件/)).not.toHaveClass('pm-file-name')
   })
 
   it('A1 未跟踪分组标题的无障碍名不含 ??', () => {
     render(<GitStatusPanel workspace="/ws" />)
-    const row = screen.getByRole('treeitem', {name: /^Untracked \(/})
-    expect(row).toHaveAttribute('aria-label', 'Untracked (1)')
+    const row = screen.getByRole('treeitem', {name: /^未跟踪文件 \(/})
+    expect(row).toHaveAttribute('aria-label', '未跟踪文件 (1)')
     expect(screen.queryByText(/\?\?/)).toBeNull()
   })
 

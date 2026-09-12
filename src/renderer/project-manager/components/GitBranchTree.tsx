@@ -23,6 +23,7 @@ import {SearchInput} from '../ui/SearchInput'
 import {TreeRow} from '../ui/TreeRow'
 import {EmptyState} from '../ui/EmptyState'
 import {ContextMenu} from '../ui/ContextMenu'
+import {confirm} from '../../components/ConfirmDialog'
 
 interface MenuState { x: number, y: number, node: BranchTreeNode }
 
@@ -33,8 +34,6 @@ interface RowProps {
   onBranchClick: (n: BranchTreeNode) => void
   onBranchContextMenu: (n: BranchTreeNode, e: React.MouseEvent) => void
 }
-
-const ROW_TITLE = '右键：Checkout（本窗口禁用）/ Copy name / Copy hash / Compare with HEAD'
 
 /**
  * 分支行的显示名：远端分支剥掉 `<remoteName>/` 前缀（spec §8.2 示意中 `origin` 组下直接列 `main`/`develop`）。
@@ -84,7 +83,6 @@ function branchRow(n: BranchTreeNode, depth: number, props: RowProps, ariaLabel 
         </span>
       }
       ariaLabel={ariaLabel}
-      title={ROW_TITLE}
       onClick={() => props.onBranchClick(n)}
       onContextMenu={ev => props.onBranchContextMenu(n, ev)}
     />
@@ -216,8 +214,8 @@ function LocalGroup({list, ...props}: {list: BranchTreeNode[]} & RowProps) {
         depth={0}
         hasChildren
         expanded={open}
-        label={<span className="pm-group-title">Local</span>}
-        ariaLabel="Local"
+        label={<span className="pm-group-title">本地分支</span>}
+        ariaLabel="本地分支"
         onClick={() => setOpen(v => !v)}
         onToggle={() => setOpen(v => !v)}
       />
@@ -253,8 +251,8 @@ function RemoteGroups({branches, ...props}: {branches: BranchTreeNode[]} & RowPr
         depth={0}
         hasChildren
         expanded={open}
-        label={<span className="pm-group-title">{`Remote (${branches.length})`}</span>}
-        ariaLabel="Remote"
+        label={<span className="pm-group-title">{`远程分支 (${branches.length})`}</span>}
+        ariaLabel="远程分支"
         onClick={() => setOpen(v => !v)}
         onToggle={() => setOpen(v => !v)}
       />
@@ -343,6 +341,47 @@ export function GitBranchTree() {
     },
   }
 
+  /** 删除分支：本地未合并时先提示，二次确认后强制删除；远端分支显式写明 remoteName/name 避免误删本地。 */
+  const deleteBranch = async (n: BranchTreeNode) => {
+    const pm = window.electronAPI?.projectManager
+    if (!pm || !ws) return
+    const isRemote = n.type === 'remote'
+    const name = isRemote ? displayName(n) : n.name
+    const label = isRemote ? `${n.remoteName ?? 'origin'}/${name}` : name
+    const ok = await confirm({
+      title: '删除分支',
+      message: isRemote
+        ? `确定删除远程分支 ${label}？该操作会推送到远端，且无法从回收站恢复。`
+        : `确定删除本地分支 ${label}？未合并的提交可能丢失，且无法从回收站恢复。`,
+      confirmText: '删除',
+      confirmVariant: 'danger',
+    })
+    if (!ok) return
+    try {
+      await pm.gitDeleteBranch(ws, {name, isRemote, remoteName: n.remoteName, force: false})
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      // 仅本地分支会因「未合并」被 git 拒绝：主进程已产出 locale 无关的稳定标记「未合并」，
+      // 命中后二次确认再强制删除（勿改回匹配 git 英文 stderr，中文 locale 下会失效）
+      if (!isRemote && /未合并/.test(msg)) {
+        const force = await confirm({
+          title: '分支未合并',
+          message: `分支 ${label} 尚未完全合并，强制删除将丢失未合并的提交。确定强制删除？`,
+          confirmText: '强制删除',
+          confirmVariant: 'danger',
+        })
+        if (!force) return
+        try {
+          await pm.gitDeleteBranch(ws, {name, isRemote: false, force: true})
+        } catch (e2) {
+          await confirm({title: '删除失败', message: e2 instanceof Error ? e2.message : String(e2), confirmText: '知道了'})
+        }
+        return
+      }
+      await confirm({title: '删除失败', message: msg, confirmText: '知道了'})
+    }
+  }
+
   return (
     <PanelCard testId="pm-branches">
       <PanelHeader title="分支" count={nodes.length} testId="pm-branches-header" />
@@ -351,7 +390,7 @@ export function GitBranchTree() {
         <SearchInput
           value={query}
           onChange={setQuery}
-          placeholder="Branch or tag"
+          placeholder="分支或标签"
           ariaLabel="搜索分支或标签"
           testId="pm-branch-search"
         />
@@ -360,7 +399,7 @@ export function GitBranchTree() {
         <BranchGroup label={`HEAD (${headName})`} list={headList} prefix="HEAD " {...rowProps} />
         <LocalGroup list={filtered.filter(n => n.type === 'local')} {...rowProps} />
         <RemoteGroups branches={filtered.filter(n => n.type === 'remote')} {...rowProps} />
-        <BranchGroup label="Tags" list={filtered.filter(n => n.type === 'tag')} {...rowProps} />
+        <BranchGroup label="标签" list={filtered.filter(n => n.type === 'tag')} {...rowProps} />
         {nodes.length === 0 && <EmptyState text="正在检测仓库…" />}
         {/* 过滤后没有任何命中（query 为空时 filtered 恒等于 nodes，不会走到这里） */}
         {nodes.length > 0 && filtered.length === 0 && <EmptyState text="无匹配分支" testId="pm-branches-empty" />}
@@ -371,10 +410,13 @@ export function GitBranchTree() {
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
-            {label: 'Checkout', disabled: true, reason: '本窗口不支持 Checkout'},
-            {label: 'Copy name', onClick: () => void navigator.clipboard.writeText(menu.node.name)},
-            {label: 'Copy revision number', onClick: () => void navigator.clipboard.writeText(menu.node.hash)},
-            {label: 'Compare with HEAD', disabled: !selectedHash, reason: '需先在 Commit 列表选中一个 commit'},
+            {label: '检出', disabled: true, reason: '本窗口不支持检出'},
+            {label: '复制分支名', onClick: () => void navigator.clipboard.writeText(menu.node.name)},
+            {label: '复制版本号', onClick: () => void navigator.clipboard.writeText(menu.node.hash)},
+            {label: '与 HEAD 比较', disabled: !selectedHash, reason: '需先在 Commit 列表选中一个 commit'},
+            // 仅本地/远程分支可删：tag 会被 git 报「branch not found」，当前分支会被 git 拒绝；
+            // 与上方「检出」「与 HEAD 比较」一致，用 disabled + reason 而非隐藏。
+            {label: '删除分支', danger: true, disabled: menu.node.type === 'tag' || menu.node.isCurrent, reason: '标签与当前分支不支持删除', onClick: () => void deleteBranch(menu.node)},
           ]}
         />
       )}

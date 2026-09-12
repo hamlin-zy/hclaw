@@ -9,6 +9,8 @@ export interface ContextMenuItem {
   disabled?: boolean
   /** disabled 时的原因提示 */
   reason?: string
+  /** 删除类不可逆操作，用危险色渲染 */
+  danger?: boolean
 }
 
 export interface ContextMenuProps {
@@ -62,7 +64,7 @@ export function ContextMenu({x, y, items, onClose}: ContextMenuProps) {
             ref={el => { itemRefs.current[index] = el }}
             type="button"
             role="menuitem"
-            className="pm-context-menu-item"
+            className={`pm-context-menu-item${item.danger ? ' pm-context-menu-item--danger' : ''}`}
             disabled={item.disabled}
             title={item.disabled ? item.reason : undefined}
             onClick={() => {

@@ -9,6 +9,14 @@ import {useGitLogStore} from '../../../src/renderer/project-manager/stores/gitLo
 import {useGitStatusStore} from '../../../src/renderer/project-manager/stores/gitStatusStore'
 import {useWorkspaceStore} from '../../../src/renderer/project-manager/stores/workspaceStore'
 
+// ConfirmDialog 真实实现依赖 window 事件 + 用户点击才会 resolve，删除分支的 confirm 必须打桩
+vi.mock('../../../src/renderer/components/ConfirmDialog', () => ({
+  confirm: vi.fn(async () => true),
+  default: () => null,
+}))
+import {confirm} from '../../../src/renderer/components/ConfirmDialog'
+const confirmMock = vi.mocked(confirm)
+
 const makeBranch = (over: Record<string, unknown>) => ({
   name: 'b', hash: 'h', type: 'local', isCurrent: false, isRemote: false, ...over,
 })
@@ -16,6 +24,8 @@ const makeBranch = (over: Record<string, unknown>) => ({
 beforeEach(() => {
   useWorkspaceStore.setState({workspacePath: '/ws'})
   useGitLogStore.setState({selectedBranch: null, selectedHash: null, entries: []})
+  confirmMock.mockReset()
+  confirmMock.mockResolvedValue(true)
   ;(window as any).electronAPI = {
     projectManager: {
       // 远端分支的 name 是完整短 ref（origin/develop），remoteName 是首段（origin）
@@ -30,20 +40,21 @@ beforeEach(() => {
         makeBranch({name: 'v1.0', type: 'tag', hash: 'h7'}),
       ]),
       gitLog: vi.fn(async () => []),
+      gitDeleteBranch: vi.fn(async () => {}),
     },
   }
 })
 
 describe('分支搜索框隔离性（spec §8.1 / §16.2）', () => {
-  it('有独立的搜索框，占位文案为 Branch or tag', async () => {
+  it('有独立的搜索框，占位文案为 分支或标签', async () => {
     render(<GitBranchTree />)
-    expect(await screen.findByPlaceholderText('Branch or tag')).toBeInTheDocument()
+    expect(await screen.findByPlaceholderText('分支或标签')).toBeInTheDocument()
   })
 
   it('输入即过滤分支列表（前端本地过滤，无防抖）', async () => {
     render(<GitBranchTree />)
     await screen.findByRole('treeitem', {name: 'main'})
-    fireEvent.change(screen.getByPlaceholderText('Branch or tag'), {target: {value: 'login'}})
+    fireEvent.change(screen.getByPlaceholderText('分支或标签'), {target: {value: 'login'}})
     expect(screen.getByRole('treeitem', {name: 'feature/login'})).toBeInTheDocument()
     expect(screen.queryByRole('treeitem', {name: 'develop'})).toBeNull()
   })
@@ -51,7 +62,7 @@ describe('分支搜索框隔离性（spec §8.1 / §16.2）', () => {
   it('过滤忽略大小写，且匹配子串', async () => {
     render(<GitBranchTree />)
     await screen.findByRole('treeitem', {name: 'main'})
-    fireEvent.change(screen.getByPlaceholderText('Branch or tag'), {target: {value: 'LOGIN'}})
+    fireEvent.change(screen.getByPlaceholderText('分支或标签'), {target: {value: 'LOGIN'}})
     expect(screen.getByRole('treeitem', {name: 'feature/login'})).toBeInTheDocument()
   })
 
@@ -60,7 +71,7 @@ describe('分支搜索框隔离性（spec §8.1 / §16.2）', () => {
     await screen.findByRole('treeitem', {name: 'main'})
     // 查询为空：不高亮
     expect(container.querySelector('.pm-search-match')).toBeNull()
-    fireEvent.change(screen.getByPlaceholderText('Branch or tag'), {target: {value: 'LOGIN'}})
+    fireEvent.change(screen.getByPlaceholderText('分支或标签'), {target: {value: 'LOGIN'}})
     // 只有 feature/login 命中；高亮元素内容取原串大小写（login，而非输入的 LOGIN）
     const matches = container.querySelectorAll('.pm-search-match')
     expect(matches).toHaveLength(1)
@@ -91,7 +102,7 @@ describe('分支搜索框隔离性（spec §8.1 / §16.2）', () => {
     useGitLogStore.setState({applyFilters: applyFilters as never})
     render(<GitBranchTree />)
     await screen.findByRole('treeitem', {name: 'main'})
-    fireEvent.change(screen.getByPlaceholderText('Branch or tag'), {target: {value: 'dev'}})
+    fireEvent.change(screen.getByPlaceholderText('分支或标签'), {target: {value: 'dev'}})
     expect(applyFilters).not.toHaveBeenCalled()
   })
 
@@ -106,7 +117,7 @@ describe('分支搜索框隔离性（spec §8.1 / §16.2）', () => {
   it('清除按钮恢复完整列表', async () => {
     render(<GitBranchTree />)
     await screen.findByRole('treeitem', {name: 'main'})
-    const input = screen.getByPlaceholderText('Branch or tag')
+    const input = screen.getByPlaceholderText('分支或标签')
     fireEvent.change(input, {target: {value: 'login'}})
     fireEvent.click(screen.getByRole('button', {name: '清除'}))
     expect(screen.getByRole('treeitem', {name: 'develop'})).toBeInTheDocument()
@@ -115,7 +126,7 @@ describe('分支搜索框隔离性（spec §8.1 / §16.2）', () => {
   it('过滤后无命中时显示空态', async () => {
     render(<GitBranchTree />)
     await screen.findByRole('treeitem', {name: 'main'})
-    fireEvent.change(screen.getByPlaceholderText('Branch or tag'), {target: {value: 'zzzz'}})
+    fireEvent.change(screen.getByPlaceholderText('分支或标签'), {target: {value: 'zzzz'}})
     expect(screen.getByText('无匹配分支')).toBeInTheDocument()
   })
 })
@@ -141,8 +152,8 @@ describe('Remote 二级分组（spec §8.2）', () => {
   it('缩进三级递进：顶层组 8 / 直系分支 13 / Remote 二级 26 / 二级下分支 39（spec §8.2 / §13.3）', async () => {
     render(<GitBranchTree />)
     await screen.findByRole('treeitem', {name: 'main'})
-    expect(screen.getByRole('treeitem', {name: 'Remote'})).toHaveStyle({paddingLeft: '8px'})
-    expect(screen.getByRole('treeitem', {name: 'Local'})).toHaveStyle({paddingLeft: '8px'})
+    expect(screen.getByRole('treeitem', {name: '远程分支'})).toHaveStyle({paddingLeft: '8px'})
+    expect(screen.getByRole('treeitem', {name: '本地分支'})).toHaveStyle({paddingLeft: '8px'})
     expect(screen.getByRole('treeitem', {name: 'origin'})).toHaveStyle({paddingLeft: '26px'})
     expect(screen.getByRole('treeitem', {name: 'develop'})).toHaveStyle({paddingLeft: '13px'})
     expect(screen.getByRole('treeitem', {name: 'origin/develop'})).toHaveStyle({paddingLeft: '39px'})
@@ -152,7 +163,7 @@ describe('Remote 二级分组（spec §8.2）', () => {
     ;(window as any).electronAPI.projectManager.gitBranches = vi.fn(async () => [makeBranch({name: 'main', isCurrent: true})])
     render(<GitBranchTree />)
     await screen.findByRole('treeitem', {name: 'main'})
-    expect(screen.queryByRole('treeitem', {name: 'Remote'})).toBeNull()
+    expect(screen.queryByRole('treeitem', {name: '远程分支'})).toBeNull()
     expect(screen.queryByRole('treeitem', {name: 'origin'})).toBeNull()
   })
 })
@@ -194,7 +205,7 @@ describe('分支名目录化（IDEA Git Branches 行为）', () => {
     fireEvent.click(screen.getByRole('treeitem', {name: 'feature'}))
     expect(screen.queryByRole('treeitem', {name: 'feature/login'})).toBeNull()
     // 输入查询 → 命中深处叶子，祖先目录被强制展开
-    const input = screen.getByPlaceholderText('Branch or tag')
+    const input = screen.getByPlaceholderText('分支或标签')
     fireEvent.change(input, {target: {value: 'login'}})
     expect(screen.getByRole('treeitem', {name: 'feature'})).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('treeitem', {name: 'feature/login'})).toBeInTheDocument()
@@ -250,9 +261,9 @@ describe('Checkout 文案（spec §5）', () => {
   it('右键菜单 Checkout 仍禁用，reason 不再是「窗口只读」', async () => {
     render(<GitBranchTree />)
     fireEvent.contextMenu(await screen.findByRole('treeitem', {name: 'main'}))
-    const item = screen.getByRole('menuitem', {name: 'Checkout'})
+    const item = screen.getByRole('menuitem', {name: '检出'})
     expect(item).toBeDisabled()
-    expect(item).toHaveAttribute('title', '本窗口不支持 Checkout')
+    expect(item).toHaveAttribute('title', '本窗口不支持检出')
   })
 
   it('refsVersion 变化时重新拉取分支（commit/push 后 tip 不陈旧）', async () => {
@@ -261,5 +272,83 @@ describe('Checkout 文案（spec §5）', () => {
     const before = ((window as any).electronAPI.projectManager.gitBranches as ReturnType<typeof vi.fn>).mock.calls.length
     act(() => { useGitStatusStore.getState().bumpRefs() })
     await waitFor(() => expect(((window as any).electronAPI.projectManager.gitBranches as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(before))
+  })
+})
+
+describe('删除分支（danger）', () => {
+  it('本地分支菜单含「删除分支」，确认后调用 gitDeleteBranch（isRemote:false）', async () => {
+    render(<GitBranchTree />)
+    fireEvent.contextMenu(await screen.findByRole('treeitem', {name: 'develop'}))
+    const item = screen.getByRole('menuitem', {name: '删除分支'})
+    expect(item).toHaveClass('pm-context-menu-item--danger')
+    fireEvent.click(item)
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({title: '删除分支', confirmVariant: 'danger'})))
+    await waitFor(() => expect((window as any).electronAPI.projectManager.gitDeleteBranch).toHaveBeenCalledWith('/ws', {name: 'develop', isRemote: false, remoteName: undefined, force: false}))
+  })
+
+  it('取消确认时不调用 gitDeleteBranch', async () => {
+    confirmMock.mockResolvedValue(false)
+    render(<GitBranchTree />)
+    fireEvent.contextMenu(await screen.findByRole('treeitem', {name: 'develop'}))
+    fireEvent.click(screen.getByRole('menuitem', {name: '删除分支'}))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled())
+    expect((window as any).electronAPI.projectManager.gitDeleteBranch).not.toHaveBeenCalled()
+  })
+
+  it('本地分支未合并（主进程标记「未合并」）时二次确认后强制删除', async () => {
+    const del = vi.fn()
+      .mockRejectedValueOnce(new Error('分支未合并，需强制删除'))
+      .mockResolvedValueOnce(undefined)
+    ;(window as any).electronAPI.projectManager.gitDeleteBranch = del
+    render(<GitBranchTree />)
+    fireEvent.contextMenu(await screen.findByRole('treeitem', {name: 'develop'}))
+    fireEvent.click(screen.getByRole('menuitem', {name: '删除分支'}))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(2))
+    expect(del).toHaveBeenLastCalledWith('/ws', {name: 'develop', isRemote: false, force: true})
+  })
+
+  it('失败原因不含「未合并」→ 不弹强制删除，直接弹「删除失败」', async () => {
+    const del = vi.fn().mockRejectedValueOnce(new Error('error: Cannot delete branch checked out'))
+    ;(window as any).electronAPI.projectManager.gitDeleteBranch = del
+    render(<GitBranchTree />)
+    fireEvent.contextMenu(await screen.findByRole('treeitem', {name: 'develop'}))
+    fireEvent.click(screen.getByRole('menuitem', {name: '删除分支'}))
+    await waitFor(() => expect(confirmMock).toHaveBeenLastCalledWith(expect.objectContaining({title: '删除失败'})))
+    // 只删一次（force:false），未进入强制删除分支
+    expect(del).toHaveBeenCalledTimes(1)
+    expect(del).toHaveBeenCalledWith('/ws', {name: 'develop', isRemote: false, remoteName: undefined, force: false})
+  })
+
+  it('远程分支「删除分支」：文案明确写出远程分支名，opts 带 isRemote/remoteName', async () => {
+    render(<GitBranchTree />)
+    fireEvent.contextMenu(await screen.findByRole('treeitem', {name: 'origin/main'}))
+    fireEvent.click(screen.getByRole('menuitem', {name: '删除分支'}))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '删除分支',
+      message: expect.stringContaining('删除远程分支 origin/main'),
+    })))
+    await waitFor(() => expect((window as any).electronAPI.projectManager.gitDeleteBranch).toHaveBeenCalledWith('/ws', {name: 'main', isRemote: true, remoteName: 'origin', force: false}))
+  })
+
+  it('tag 节点「删除分支」禁用并给出 reason（不做无意义的 branch -d）', async () => {
+    render(<GitBranchTree />)
+    fireEvent.contextMenu(await screen.findByRole('treeitem', {name: 'v1.0'}))
+    const item = screen.getByRole('menuitem', {name: '删除分支'})
+    expect(item).toBeDisabled()
+    expect(item).toHaveAttribute('title', '标签与当前分支不支持删除')
+  })
+
+  it('当前分支（HEAD）「删除分支」禁用并给出 reason', async () => {
+    render(<GitBranchTree />)
+    fireEvent.contextMenu(await screen.findByRole('treeitem', {name: 'main'}))
+    expect(screen.getByRole('menuitem', {name: '删除分支'})).toBeDisabled()
+  })
+
+  it('非当前本地分支与远程分支「删除分支」可用', async () => {
+    render(<GitBranchTree />)
+    fireEvent.contextMenu(await screen.findByRole('treeitem', {name: 'develop'}))
+    expect(screen.getByRole('menuitem', {name: '删除分支'})).toBeEnabled()
+    fireEvent.contextMenu(screen.getByRole('treeitem', {name: 'origin/develop'}))
+    expect(screen.getByRole('menuitem', {name: '删除分支'})).toBeEnabled()
   })
 })

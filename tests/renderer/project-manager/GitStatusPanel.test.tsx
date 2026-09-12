@@ -34,6 +34,8 @@ beforeEach(() => {
     gitRmCached: vi.fn(async () => {}),
     gitCommit: vi.fn(async () => {}),
     gitPush: vi.fn(async () => {}),
+    deletePath: vi.fn(async () => {}),
+    gitDiscard: vi.fn(async () => {}),
     gitDiffFile: vi.fn(async () => ({filePath: 'm.ts', oldContent: '', newContent: '', diffType: 'working-tree', oldRef: 'HEAD', newRef: 'worktree', additions: 0, deletions: 0})),
     readFile: vi.fn(async () => ({path: 'u.txt', size: 1, content: 'x', isBinary: false, isImage: false, decodeError: false, mimeType: '', truncated: false, mtime: 0, hash: 'h'})),
   }}
@@ -49,8 +51,8 @@ beforeEach(() => {
 describe('GitStatusPanel', () => {
   it('渲染分组与统计', () => {
     render(<GitStatusPanel workspace="/ws" />)
-    expect(screen.getByText(/M Modified/)).toBeInTheDocument()
-    expect(screen.getByText(/Untracked/)).toBeInTheDocument()
+    expect(screen.getByText(/已修改/)).toBeInTheDocument()
+    expect(screen.getByText(/未跟踪文件/)).toBeInTheDocument()
     expect(screen.getByText('m.ts')).toBeInTheDocument()
   })
   it('双击已跟踪文件打开 Diff tab', async () => {
@@ -62,7 +64,7 @@ describe('GitStatusPanel', () => {
   })
   it('双击 Untracked 标题批量 add 前弹确认', async () => {
     render(<GitStatusPanel workspace="/ws" />)
-    fireEvent.doubleClick(screen.getByText(/Untracked/))
+    fireEvent.doubleClick(screen.getByText(/未跟踪文件/))
     await waitFor(() => expect(confirmMock).toHaveBeenCalled())
     expect((window as any).electronAPI.projectManager.gitAdd).not.toHaveBeenCalled()
   })
@@ -156,7 +158,7 @@ describe('GitStatusPanel', () => {
     let resolveAdd: (v: unknown) => void = () => {}
     api.gitAdd.mockImplementation(() => new Promise(res => { resolveAdd = res }))
     const {rerender} = render(<GitStatusPanel workspace="/ws" />)
-    fireEvent.doubleClick(screen.getByText(/Untracked/))
+    fireEvent.doubleClick(screen.getByText(/未跟踪文件/))
     await waitFor(() => expect(api.gitAdd).toHaveBeenCalled())
     rerender(<GitStatusPanel workspace="/ws2" />)
     resolveAdd(undefined)
@@ -362,5 +364,46 @@ describe('变更列表头部手动刷新（C）', () => {
     useGitStatusStore.setState({loading: true})
     render(<GitStatusPanel workspace="/ws" />)
     expect(screen.getByRole('button', {name: '刷新'})).toBeDisabled()
+  })
+})
+
+describe('GitStatusPanel 右键删除/丢弃（danger）', () => {
+  it('未跟踪文件菜单含「删除文件」，确认后调用 deletePath', async () => {
+    confirmMock.mockResolvedValue(true)
+    render(<GitStatusPanel workspace="/ws" />)
+    fireEvent.contextMenu(screen.getByRole('treeitem', {name: 'u.txt'}))
+    const item = screen.getByRole('menuitem', {name: '删除文件'})
+    expect(item).toHaveClass('pm-context-menu-item--danger')
+    fireEvent.click(item)
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '删除文件', confirmVariant: 'danger',
+    })))
+    await waitFor(() => expect((window as any).electronAPI.projectManager.deletePath).toHaveBeenCalledWith('/ws', 'u.txt'))
+  })
+
+  it('已跟踪文件菜单含「丢弃更改」与「删除文件」', async () => {
+    render(<GitStatusPanel workspace="/ws" />)
+    fireEvent.contextMenu(screen.getByRole('treeitem', {name: 'm.ts'}))
+    expect(screen.getByRole('menuitem', {name: '丢弃更改'})).toHaveClass('pm-context-menu-item--danger')
+    expect(screen.getByRole('menuitem', {name: '删除文件'})).toHaveClass('pm-context-menu-item--danger')
+  })
+
+  it('「丢弃更改」确认后调用 gitDiscard（带 status）', async () => {
+    confirmMock.mockResolvedValue(true)
+    render(<GitStatusPanel workspace="/ws" />)
+    fireEvent.contextMenu(screen.getByRole('treeitem', {name: 'm.ts'}))
+    fireEvent.click(screen.getByRole('menuitem', {name: '丢弃更改'}))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '丢弃更改', confirmText: '丢弃', confirmVariant: 'danger',
+    })))
+    await waitFor(() => expect((window as any).electronAPI.projectManager.gitDiscard).toHaveBeenCalledWith('/ws', 'm.ts', 'M'))
+  })
+
+  it('取消确认时不调用 gitDiscard', async () => {
+    render(<GitStatusPanel workspace="/ws" />)
+    fireEvent.contextMenu(screen.getByRole('treeitem', {name: 'm.ts'}))
+    fireEvent.click(screen.getByRole('menuitem', {name: '丢弃更改'}))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled())
+    expect((window as any).electronAPI.projectManager.gitDiscard).not.toHaveBeenCalled()
   })
 })

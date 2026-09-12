@@ -8,7 +8,7 @@ export function StatusBar({branchName}: {branchName: string}) {
   return (
     <div className="pm-status-bar">
       <span className="pm-status-bar-path" title={ws}>{name}{branchName && `  ◉ ${branchName}`}</span>
-      <span>{summary ? `${Object.keys(summary.statusMap).length} files changed · ${summary.additions}+ ${summary.deletions}-` : ''}</span>
+      <span>{summary ? `已更改 ${Object.keys(summary.statusMap).length} 个文件 · +${summary.additions} −${summary.deletions}` : ''}</span>
       <span>{summary ? new Date(summary.updatedAt).toLocaleTimeString() : ''}</span>
     </div>
   )

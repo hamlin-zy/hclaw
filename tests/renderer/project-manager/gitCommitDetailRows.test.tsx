@@ -65,13 +65,13 @@ describe('GitCommitDetail 行结构（spec §10）', () => {
   it('顶部改动摘要保留', async () => {
     useGitLogStore.setState({selectedHash: 'a'.repeat(40), entries: [entry({message: 'm'})]} as never)
     render(<GitCommitDetail workspace="/ws" />)
-    expect(await screen.findByText(/2 files changed/)).toBeInTheDocument()
+    expect(await screen.findByText(/已更改 2 个文件/)).toBeInTheDocument()
   })
 
   it('底部 message/body 区保留：body 走 .pm-detail-body（pre-wrap 由样式承担）', async () => {
     useGitLogStore.setState({selectedHash: 'a'.repeat(40), entries: [entry({body: '第一行\n第二行'})]} as never)
     const {container} = render(<GitCommitDetail workspace="/ws" />)
-    await screen.findByText(/2 files changed/)
+    await screen.findByText(/已更改 2 个文件/)
     const body = container.querySelector('.pm-detail-body')
     expect(body).not.toBeNull()
     expect(body).toHaveTextContent('第一行')

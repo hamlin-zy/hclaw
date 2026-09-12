@@ -2915,6 +2915,9 @@ html.bg-enabled,
 }
 .pm-context-menu-item:hover:not(:disabled) { background: var(--brand-muted); }
 .pm-context-menu-item:disabled { color: var(--text-muted); cursor: not-allowed; }
+/* 删除类不可逆操作：危险色（--error 四主题各一份，见令牌层 §3.1） */
+.pm-context-menu-item--danger { color: var(--error); }
+.pm-context-menu-item--danger:hover:not(:disabled) { background: var(--error-muted); }
 
 .pm-session-picker { display: flex; flex-direction: column; gap: 4px; }
 .pm-session-picker-input {

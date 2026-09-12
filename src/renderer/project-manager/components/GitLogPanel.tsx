@@ -116,8 +116,8 @@ export function GitLogPanel() {
           submitLabel="查找"
         />
         <ToggleChip label=".*" active={regex} onToggle={() => setRegex(v => !v)} title="正则" />
-        <ToggleChip label="Cc" active={caseSensitive} onToggle={() => setCaseSensitive(v => !v)} title="区分大小写" />
-        <ToggleChip label="Co" active={wholeWord} onToggle={() => setWholeWord(v => !v)} title="全词匹配" />
+        <ToggleChip label="Aa" active={caseSensitive} onToggle={() => setCaseSensitive(v => !v)} title="区分大小写" />
+        <ToggleChip label="全词" active={wholeWord} onToggle={() => setWholeWord(v => !v)} title="全词匹配" />
         <ToggleChip label="筛选" active={showAdvanced} onToggle={() => setShowAdvanced(v => !v)} title="作者 / 路径 / 日期" />
         <IconButton icon={ArrowDownUp} label={sortAsc ? '升序' : '降序'} onClick={() => setSortAsc(v => !v)} />
         <IconButton icon={RefreshCw} label="刷新" onClick={() => void loadInitial(ws)} />
@@ -185,7 +185,7 @@ export function GitLogPanel() {
           min={PANE_SPECS.detail.min}
           max={PANE_SPECS.detail.max}
           onResizeEnd={px => commitSize('detail', px)}
-          label="Commit 详情宽度"
+          label="提交详情宽度"
           testId="pm-split-detail"
           first={commitColumn}
           second={<GitCommitDetail workspace={ws} />}

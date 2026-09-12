@@ -89,7 +89,7 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
             hasChildren
             expanded={isOpen}
             icon={<FOLDER_SPEC.Icon size={13} color={FOLDER_SPEC.color} aria-hidden="true" />}
-            label={<span className="pm-group-title">{dir === '.' ? '(root)' : `${dir} (${dirFiles.length})`}</span>}
+            label={<span className="pm-group-title">{dir === '.' ? '（根目录）' : `${dir} (${dirFiles.length})`}</span>}
             onClick={() => toggleDir(dir)}
             onToggle={() => toggleDir(dir)}
             ariaLabel={dir === '.' ? '根目录' : dir}
@@ -105,7 +105,7 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
     void window.electronAPI?.projectManager.gitDiffFile(reqWs, f.path).then(diffData => {
       // 归属守卫：期间切了 workspace / 组件已卸载 → 丢弃，不写 tab
       if (!isCurrent(reqWs)) return
-      openDiffTab({filePath: f.path, title: `Diff: ${f.path}`, diffType: 'working-tree', diffData})
+      openDiffTab({filePath: f.path, title: `差异：${f.path}`, diffType: 'working-tree', diffData})
     })
       .catch(() => {
         if (!isCurrent(reqWs)) return
@@ -162,6 +162,41 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
     if (typeof api?.openPath === 'function') void api.openPath(absPath(workspace, f.path))
     else copyPath(f) // 降级：无 shell 能力时仅复制路径
   }
+  /** 丢弃更改（不可逆）：把工作区文件恢复到 HEAD / 索引状态。M/A/R 会丢掉未提交修改。 */
+  const discardChanges = async (f: GitStatus) => {
+    const risky = f.status === 'M' || f.status === 'A' || f.status === 'R'
+    const ok = await confirm({
+      title: '丢弃更改',
+      message: risky
+        ? `确定丢弃 ${f.path} 的更改？未提交的修改将丢失，且无法从回收站恢复。`
+        : `确定丢弃 ${f.path} 的更改？`,
+      confirmText: '丢弃',
+      confirmVariant: 'danger',
+    })
+    if (!ok) return
+    const reqWs = workspace
+    try {
+      await window.electronAPI?.projectManager?.gitDiscard(reqWs, f.path, f.status)
+    } catch (e) {
+      if (isCurrent(reqWs)) await confirm({title: '丢弃失败', message: errText(e), confirmText: '知道了'})
+    }
+  }
+  /** 删除文件（不可逆，走系统回收站）：会同时影响 git 状态。 */
+  const deleteFile = async (f: GitStatus) => {
+    const ok = await confirm({
+      title: '删除文件',
+      message: `确定删除 ${f.path}？该文件将移入系统回收站（可从回收站恢复），这会影响仓库的 git 状态。`,
+      confirmText: '删除',
+      confirmVariant: 'danger',
+    })
+    if (!ok) return
+    const reqWs = workspace
+    try {
+      await window.electronAPI?.projectManager?.deletePath(reqWs, f.path)
+    } catch (e) {
+      if (isCurrent(reqWs)) await confirm({title: '删除失败', message: errText(e), confirmText: '知道了'})
+    }
+  }
 
   const changed = summary ? Object.keys(summary.statusMap).length : 0
   /** 手动刷新：自动推送链路（工作区 watcher + gitdir watcher）不可用时给用户的兜底入口。
@@ -202,7 +237,7 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
 
     const msg = await confirmWithInput({
       title: '提交',
-      inputLabel: 'Commit message',
+      inputLabel: '提交信息',
       message: '将提交所有已跟踪文件的变更（git commit -a）。未跟踪文件需先加入 Git 跟踪。',
       placeholder: '简要描述本次提交',
       multiline: true,
@@ -241,7 +276,7 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
     bumpRefs()
   }
   const groups: Array<[string, VcsStatus, GitStatus[]]> = [
-    ['M Modified', 'M', g.modified], ['A Added', 'A', g.added], ['D Deleted', 'D', g.deleted], ['R Renamed', 'R', g.renamed],
+    ['已修改', 'M', g.modified], ['已新增', 'A', g.added], ['已删除', 'D', g.deleted], ['已重命名', 'R', g.renamed],
   ]
 
   /** 可见文件行的显示顺序（目录展开时才计入其文件），供 Shift 区间选 */
@@ -310,7 +345,7 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
         actions={<IconButton icon={RefreshCw} label="刷新" disabled={loading} onClick={reloadStatus} />}
       />
       {!summary
-        ? <EmptyState text="Working tree clean" />
+        ? <EmptyState text="工作区干净" />
         : (
           <div role="tree" className="pm-tree-scroll">
             {groups.map(([label, status, files]) => files.length > 0 && (
@@ -322,7 +357,7 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
             {g.untracked.length > 0 && (
               // 未跟踪分组：与上方「已跟踪变更」树用横线 + 灰色调分开（.pm-untracked-section）
               <div className="pm-untracked-section" data-testid="pm-untracked-section">
-                {renderGroupTitle(`Untracked (${g.untracked.length})`, '??', () => { void batchAdd() })}
+                {renderGroupTitle(`未跟踪文件 (${g.untracked.length})`, '??', () => { void batchAdd() })}
                 {renderDirGroup(g.untracked)}
               </div>
             )}
@@ -330,7 +365,7 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
         )}
       {summary && (
         <div className="pm-changes-summary" data-testid="pm-changes-summary">
-          {changed ? `${changed} files changed · ${summary.additions} + · ${summary.deletions} −` : 'Working tree clean'}
+          {changed ? `已更改 ${changed} 个文件 · +${summary.additions} · −${summary.deletions}` : '工作区干净'}
         </div>
       )}
       {summary && changed > 0 && (
@@ -374,6 +409,7 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
             {label: '文件树中显示', onClick: () => showInTree(menu.file)},
             {label: '系统打开', onClick: () => openInSystem(menu.file)},
             {label: '复制路径', onClick: () => copyPath(menu.file)},
+            {label: '删除文件', danger: true, onClick: () => void deleteFile(menu.file)},
             {label: '加入 Git 跟踪', onClick: () => void addSingle(menu.file)},
           ] : [
             {
@@ -387,6 +423,8 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
             {label: '文件树中显示', onClick: () => showInTree(menu.file)},
             {label: '系统打开', onClick: () => openInSystem(menu.file)},
             {label: '复制路径', onClick: () => copyPath(menu.file)},
+            {label: '丢弃更改', danger: true, onClick: () => void discardChanges(menu.file)},
+            {label: '删除文件', danger: true, onClick: () => void deleteFile(menu.file)},
             {label: '移出 Git 跟踪', onClick: () => void removeTracked(menu.file)},
           ]}
         />

@@ -267,7 +267,7 @@ describe('ProjectManagerApp', () => {
     expect(screen.getByRole('separator', {name: '文件树宽度'})).toHaveAttribute('aria-orientation', 'vertical')
     expect(screen.getByRole('separator', {name: '变更列表宽度'})).toHaveAttribute('aria-orientation', 'vertical')
     expect(screen.getByRole('separator', {name: '分支宽度'})).toHaveAttribute('aria-orientation', 'vertical')
-    expect(screen.getByRole('separator', {name: 'Commit 详情宽度'})).toHaveAttribute('aria-orientation', 'vertical')
+    expect(screen.getByRole('separator', {name: '提交详情宽度'})).toHaveAttribute('aria-orientation', 'vertical')
     expect(screen.getByRole('separator', {name: 'Git 区高度'})).toHaveAttribute('aria-orientation', 'horizontal')
   })
 
@@ -312,8 +312,8 @@ describe('ProjectManagerApp', () => {
     render(<ProjectManagerApp />)
     const header = screen.getByTestId('pm-git-header')
     // 注意：变更列表底部的 pm-changes-summary 文案格式相同，所以必须限定在头部摘要里查
-    await waitFor(() => expect(header).toHaveTextContent('1 files changed · 0 + · 0 −'))
-    expect(header).not.toHaveTextContent('Working tree clean')
+    await waitFor(() => expect(header).toHaveTextContent('已更改 1 个文件 · +0 · −0'))
+    expect(header).not.toHaveTextContent('工作区干净')
   })
 
   it('Git 区折叠态持久化（重挂载后仍折叠）', () => {
@@ -391,5 +391,35 @@ describe('TooltipPortal 接管原生 title（spec §13.7）', () => {
     // 移出后恢复 title，不留后遗症
     fireEvent.mouseOut(el, {relatedTarget: document.body})
     expect(el).toHaveAttribute('title', '/ws')
+  })
+})
+describe('ProjectManagerApp 外部删除清理标签', () => {
+  const captureOnFileChanged = () => {
+    let handler: ((ws: string, payload: {path: string, type: string}) => void) | null = null
+    ;(window.electronAPI!.projectManager.onFileChanged as ReturnType<typeof vi.fn>).mockImplementation((cb: typeof handler) => {
+      handler = cb
+      return () => {}
+    })
+    return () => handler
+  }
+
+  it('unlink：外部删除文件后关闭对应残留标签', () => {
+    const getHandler = captureOnFileChanged()
+    render(<ProjectManagerApp />)
+    act(() => { useEditorTabStore.getState().openFileTab({path: 'a.ts', title: 'a.ts', content: 'x', hash: 'h1'}) })
+    expect(useEditorTabStore.getState().tabs).toHaveLength(1)
+    act(() => { getHandler()?.('/ws', {path: 'a.ts', type: 'unlink'}) })
+    expect(useEditorTabStore.getState().tabs).toHaveLength(0)
+  })
+
+  it('unlinkDir：目录删除按前缀关闭其下所有标签', () => {
+    const getHandler = captureOnFileChanged()
+    render(<ProjectManagerApp />)
+    act(() => {
+      useEditorTabStore.getState().openFileTab({path: 'src/a.ts', title: 'a.ts', content: 'x', hash: 'h1'})
+      useEditorTabStore.getState().openFileTab({path: 'b.ts', title: 'b.ts', content: 'x', hash: 'h2'})
+    })
+    act(() => { getHandler()?.('/ws', {path: 'src', type: 'unlinkDir'}) })
+    expect(useEditorTabStore.getState().tabs.map(t => t.filePath)).toEqual(['b.ts'])
   })
 })

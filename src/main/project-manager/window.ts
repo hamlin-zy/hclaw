@@ -10,9 +10,9 @@ import {getBranches} from './git/branches'
 import {getGitAuthors, assertValidAuthorRef} from './git/authors'
 import {getShowCommit} from './git/showCommit'
 import {gitExec} from './git/gitExec'
-import {gitAdd, gitRmCached, gitCommit, gitPush} from './git/operations'
+import {gitAdd, gitRmCached, gitCommit, gitPush, gitDiscardChanges, gitDeleteBranch} from './git/operations'
 import {assertValidHash, assertValidRef} from './git/validation'
-import {assertInWorkspace, deleteGitRepoCache, listDirectory, readFileForViewer} from './fileSystem'
+import {assertInWorkspace, deleteGitRepoCache, deletePath, listDirectory, readFileForViewer} from './fileSystem'
 import {startWatcher, stopWatcher} from './watcher'
 import {getMainWindow} from '../window'
 import {handleSendToConversation, resolveSendToConversationAck} from './sendToConversation'
@@ -128,6 +128,21 @@ export function initProjectManagerIPC(): void {
   safeHandle('pm:git-push', async (_e, ws: string) => {
     await gitPush(ws)
     sendToWindow('pm:status-changed', ws, await getGitStatusCached(ws))
+  })
+  safeHandle('pm:delete-path', async (_e, ws: string, relPath: string) => {
+    // 路径校验在 deletePath 内部经 assertInWorkspace 完成（词法校验，不依赖文件存在）
+    await deletePath(ws, relPath)
+    sendToWindow('pm:status-changed', ws, await getGitStatusCached(ws))
+  })
+  safeHandle('pm:git-discard', async (_e, ws: string, filePath: string, status: string) => {
+    await gitDiscardChanges(ws, filePath, status)
+    sendToWindow('pm:status-changed', ws, await getGitStatusCached(ws))
+  })
+  safeHandle('pm:git-delete-branch', async (_e, ws: string, opts: {name: string; isRemote: boolean; remoteName?: string; force?: boolean}) => {
+    await gitDeleteBranch(ws, opts)
+    // 分支删除同时影响工作区状态与 refs（commit 列表 / 分支树），两个事件都要广播
+    sendToWindow('pm:status-changed', ws, await getGitStatusCached(ws))
+    sendToWindow('pm:refs-changed', ws, undefined)
   })
   safeHandle('open-project-manager', (_e, workspacePath: string) => {
     openProjectManagerWindow(workspacePath)

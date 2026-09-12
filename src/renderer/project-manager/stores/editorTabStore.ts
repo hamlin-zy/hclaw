@@ -32,6 +32,8 @@ interface EditorTabStore {
   openDiffTab(input: OpenDiffInput): void
   closeTab(id: string): void
   closeOther(id: string): void
+  /** 关闭 filePath 命中给定路径的标签（目录删除时按 `<dir>/` 前缀匹配） */
+  closeTabsForPaths(paths: string | string[]): void
   closeAll(): void
   closeLeft(id: string): void
   closeRight(id: string): void
@@ -84,6 +86,28 @@ export const useEditorTabStore = create<EditorTabStore>()((set, get) => ({
   closeOther(id) {
     // 保留目标 tab、pinned tab 及当前激活 tab（行为以测试 closeOther 保留 pinned 与自身 为准）
     set(s => ({tabs: s.tabs.filter(t => t.id === id || t.pinned || t.id === s.activeTabId)}))
+  },
+
+  closeTabsForPaths(paths) {
+    const list = Array.isArray(paths) ? paths : [paths]
+    // 命中给定路径本身；目录删除时按 `<dir>/` 前缀匹配其下所有文件
+    const matches = (filePath?: string): boolean => {
+      if (!filePath) return false
+      for (const p of list) {
+        if (!p) continue
+        if (filePath === p) return true
+        const dir = p.endsWith('/') ? p : `${p}/`
+        if (filePath.startsWith(dir)) return true
+      }
+      return false
+    }
+    set(s => {
+      const tabs = s.tabs.filter(t => !matches(t.filePath))
+      if (tabs.length === s.tabs.length) return s
+      // 激活 tab 被关闭时回退到剩余标签之一（与 closeTab 一致：取末位）
+      const activeRemoved = s.activeTabId !== null && !tabs.some(t => t.id === s.activeTabId)
+      return {tabs, activeTabId: activeRemoved ? (tabs[tabs.length - 1]?.id ?? null) : s.activeTabId}
+    })
   },
 
   closeAll() {

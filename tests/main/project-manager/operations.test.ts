@@ -9,8 +9,14 @@ vi.mock('../../../src/main/project-manager/git/status', () => ({
   invalidateStatusCache: vi.fn(),
   getGitStatusCached: vi.fn(async () => ({statusMap: {}, additions: 0, deletions: 0, updatedAt: 0})),
 }))
-import {gitAdd, gitRmCached, gitCommit, gitPush} from '../../../src/main/project-manager/git/operations'
+// operations.ts 的 gitDiscardChanges 依赖 fileSystem.deletePath（`??` 走回收站）；
+// 整个模块 mock 掉，既隔离 electron 依赖又可断言删除调用
+vi.mock('../../../src/main/project-manager/fileSystem', () => ({
+  deletePath: vi.fn(async () => {}),
+}))
+import {gitAdd, gitRmCached, gitCommit, gitPush, gitDiscardChanges, gitDeleteBranch} from '../../../src/main/project-manager/git/operations'
 import {invalidateStatusCache} from '../../../src/main/project-manager/git/status'
+import {deletePath} from '../../../src/main/project-manager/fileSystem'
 
 describe('gitAdd', () => {
   beforeEach(() => { mockGit.mockReset(); (invalidateStatusCache as ReturnType<typeof vi.fn>).mockClear() })
@@ -165,5 +171,120 @@ describe('gitPush', () => {
     mockGitResult.mockResolvedValue({code: 128, stdout: '', stderr: ''})
     await gitPush('/ws').catch(() => {})
     expect(invalidateStatusCache).not.toHaveBeenCalled()
+  })
+})
+
+describe('gitDiscardChanges', () => {
+  beforeEach(() => {
+    mockGit.mockReset(); mockGitResult.mockReset()
+    ;(invalidateStatusCache as ReturnType<typeof vi.fn>).mockClear()
+    ;(deletePath as ReturnType<typeof vi.fn>).mockClear()
+  })
+
+  it('?? 未跟踪 → 走 deletePath（回收站），不起 git 子进程', async () => {
+    await gitDiscardChanges('/ws', 'new.ts', '??')
+    expect(deletePath).toHaveBeenCalledWith('/ws', 'new.ts')
+    expect(mockGit).not.toHaveBeenCalled()
+    expect(invalidateStatusCache).toHaveBeenCalledWith('/ws')
+  })
+
+  it('D 已删除 → git checkout HEAD --（从 HEAD 恢复）', async () => {
+    mockGit.mockResolvedValue('')
+    await gitDiscardChanges('/ws', 'gone.ts', 'D')
+    expect(mockGit).toHaveBeenCalledWith('/ws', ['checkout', 'HEAD', '--', 'gone.ts'])
+    expect(invalidateStatusCache).toHaveBeenCalledWith('/ws')
+  })
+
+  it('M 修改 → git checkout --', async () => {
+    mockGit.mockResolvedValue('')
+    await gitDiscardChanges('/ws', 'mod.ts', 'M')
+    expect(mockGit).toHaveBeenCalledWith('/ws', ['checkout', '--', 'mod.ts'])
+  })
+
+  it('未知 status 不抛错，退化为 git checkout --', async () => {
+    mockGit.mockResolvedValue('')
+    await expect(gitDiscardChanges('/ws', 'x.ts', 'Z')).resolves.toBeUndefined()
+    expect(mockGit).toHaveBeenCalledWith('/ws', ['checkout', '--', 'x.ts'])
+  })
+})
+
+describe('gitDeleteBranch', () => {
+  beforeEach(() => {
+    mockGit.mockReset(); mockGitResult.mockReset()
+    ;(invalidateStatusCache as ReturnType<typeof vi.fn>).mockClear()
+  })
+
+  it('本地分支不带 force → git branch -d', async () => {
+    mockGit.mockResolvedValue('')
+    await gitDeleteBranch('/ws', {name: 'feature/x', isRemote: false})
+    expect(mockGit).toHaveBeenCalledWith('/ws', ['branch', '-d', 'feature/x'])
+    expect(invalidateStatusCache).toHaveBeenCalledWith('/ws')
+  })
+
+  it('本地分支 force → git branch -D', async () => {
+    mockGit.mockResolvedValue('')
+    await gitDeleteBranch('/ws', {name: 'feature/x', isRemote: false, force: true})
+    expect(mockGit).toHaveBeenCalledWith('/ws', ['branch', '-D', 'feature/x'])
+  })
+
+  it('远程分支剥离 origin/ 前缀 → push origin --delete main（120s 超时）', async () => {
+    mockGit.mockResolvedValue('')
+    await gitDeleteBranch('/ws', {name: 'origin/main', isRemote: true, remoteName: 'origin'})
+    expect(mockGit).toHaveBeenCalledWith('/ws', ['push', 'origin', '--delete', 'main'], 120_000)
+  })
+
+  it('远程分支缺 remoteName → 抛中文错误且不调 git', async () => {
+    await expect(gitDeleteBranch('/ws', {name: 'main', isRemote: true})).rejects.toThrow('缺少远程仓库名')
+    expect(mockGit).not.toHaveBeenCalled()
+  })
+
+  // D1：ref 校验（防御纵深）—— 前导 `-` 的名字会被 git 当选项解析
+  it('前导短横线的分支名 → 抛无效 ref 且不执行任何 git 命令', async () => {
+    await expect(gitDeleteBranch('/ws', {name: '-x', isRemote: false})).rejects.toThrow('无效的 git ref')
+    await expect(gitDeleteBranch('/ws', {name: '--delete', isRemote: false})).rejects.toThrow('无效的 git ref')
+    expect(mockGit).not.toHaveBeenCalled()
+    expect(mockGitResult).not.toHaveBeenCalled()
+  })
+
+  it('远程分支名 / remoteName 前导短横线 → 抛无效 ref 且不执行任何 git 命令', async () => {
+    await expect(gitDeleteBranch('/ws', {name: '--force', isRemote: true, remoteName: 'origin'})).rejects.toThrow('无效的 git ref')
+    await expect(gitDeleteBranch('/ws', {name: 'origin/main', isRemote: true, remoteName: '-x'})).rejects.toThrow('无效的 git ref')
+    expect(mockGit).not.toHaveBeenCalled()
+    expect(mockGitResult).not.toHaveBeenCalled()
+  })
+
+  // D2：未合并的稳定判据（locale 无关）
+  it('branch -d 失败 + is-ancestor 非 0 → 抛「未合并」（供渲染层触发强制删除）', async () => {
+    mockGit.mockRejectedValue(new Error("git branch -d feature/x: error: the branch 'feature/x' is not fully merged"))
+    mockGitResult.mockResolvedValue({code: 1, stdout: '', stderr: ''})
+    await expect(gitDeleteBranch('/ws', {name: 'feature/x', isRemote: false})).rejects.toThrow('未合并')
+    expect(mockGitResult).toHaveBeenCalledWith('/ws', ['merge-base', '--is-ancestor', 'feature/x', 'HEAD'])
+  })
+
+  it('branch -d 失败 + is-ancestor 为 0（其它原因失败）→ 抛原始错误、不含「未合并」', async () => {
+    mockGit.mockRejectedValue(new Error('git branch -d feature/x: error: Cannot delete branch checked out at /other'))
+    mockGitResult.mockResolvedValue({code: 0, stdout: '', stderr: ''})
+    const err = (await gitDeleteBranch('/ws', {name: 'feature/x', isRemote: false}).catch(e => e as Error)) as Error
+    expect(err.message).toContain('Cannot delete branch')
+    expect(err.message).not.toContain('未合并')
+  })
+
+  it('is-ancestor 复核 code === -1（git 不可用）→ 保守按「未合并」处理', async () => {
+    mockGit.mockRejectedValue(new Error('git branch -d feature/x: boom'))
+    mockGitResult.mockResolvedValue({code: -1, stdout: '', stderr: ''})
+    await expect(gitDeleteBranch('/ws', {name: 'feature/x', isRemote: false})).rejects.toThrow('未合并')
+  })
+
+  it('force → 直接 branch -D，不做 is-ancestor 复核', async () => {
+    mockGit.mockResolvedValue('')
+    await gitDeleteBranch('/ws', {name: 'feature/x', isRemote: false, force: true})
+    expect(mockGit).toHaveBeenCalledWith('/ws', ['branch', '-D', 'feature/x'])
+    expect(mockGitResult).not.toHaveBeenCalled()
+  })
+
+  it('删除成功时不做 is-ancestor 复核', async () => {
+    mockGit.mockResolvedValue('')
+    await gitDeleteBranch('/ws', {name: 'feature/x', isRemote: false})
+    expect(mockGitResult).not.toHaveBeenCalled()
   })
 })
