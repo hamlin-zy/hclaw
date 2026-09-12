@@ -51,6 +51,75 @@ function toCRLF(content: string, useCRLF: boolean): string {
     return useCRLF ? content.replace(/\n/g, '\r\n') : content
 }
 
+// ---------------------------------------------------------------------------
+// Diff 窗口化：避免对大文件全文做 Myers diff
+// ---------------------------------------------------------------------------
+
+/** diff 窗口：替换点前后各取多少行上下文 */
+const DIFF_WINDOW_LINES = 200
+/** 超过该大小的文件直接输出简化描述，不做 diff */
+const DIFF_MAX_CONTENT_LENGTH = 500 * 1024
+
+/** 从 idx 向前找第 n 个换行之前的行首偏移 */
+function lineStartBefore(s: string, idx: number, n: number): number {
+    let i = idx
+    for (let k = 0; k < n && i > 0; k++) {
+        const prev = s.lastIndexOf('\n', i - 1)
+        if (prev === -1) return 0
+        i = prev
+    }
+    return i === 0 ? 0 : i + 1
+}
+
+/** 从 idx 向后跨 n 个换行的偏移 */
+function lineEndAfter(s: string, idx: number, n: number): number {
+    let i = idx
+    for (let k = 0; k < n; k++) {
+        const next = s.indexOf('\n', i)
+        if (next === -1) return s.length
+        i = next + 1
+    }
+    return i
+}
+
+/**
+ * 窗口化 patch：仅对替换点前后各 ~200 行做 diff，
+ * hunk 头行号加上窗口前置偏移，保证与全文 patch 行号一致。
+ * 文件超过 DIFF_MAX_CONTENT_LENGTH 时输出简化描述。
+ */
+function createWindowedPatch(oldContent: string, newContent: string, oldString: string): string {
+    const matchStart = oldContent.indexOf(oldString)
+    if (matchStart === -1) return ''
+
+    if (oldContent.length > DIFF_MAX_CONTENT_LENGTH) {
+        const line = oldContent.slice(0, matchStart).split('\n').length
+        return `replaced ${oldString.length} chars at line ${line}`
+    }
+
+    const lastMatch = oldContent.lastIndexOf(oldString)
+    const matchEnd = lastMatch + oldString.length
+    // 前缀（matchStart 之前）与后缀（matchEnd 之后）内容未变，可据此推算新内容中的对应位置
+    const newMatchEnd = newContent.length - (oldContent.length - matchEnd)
+
+    const wStart = lineStartBefore(oldContent, matchStart, DIFF_WINDOW_LINES)
+    const oldWinEnd = Math.min(oldContent.length, lineEndAfter(oldContent, matchEnd, DIFF_WINDOW_LINES))
+    const newWinEnd = Math.min(newContent.length, lineEndAfter(newContent, newMatchEnd, DIFF_WINDOW_LINES))
+
+    const oldWin = oldContent.slice(wStart, oldWinEnd)
+    const newWin = newContent.slice(wStart, newWinEnd)
+
+    const lineOffset = wStart === 0 ? 0 : oldContent.slice(0, wStart).split('\n').length - 1
+    let patch = diff.createPatch('file', oldWin, newWin)
+    if (lineOffset > 0) {
+        patch = patch.replace(
+            /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm,
+            (_m, a, b, c, d) =>
+                `@@ -${Number(a) + lineOffset}${b !== undefined ? ',' + b : ''} +${Number(c) + lineOffset}${d !== undefined ? ',' + d : ''} @@`,
+        )
+    }
+    return patch
+}
+
 /**
  * 流式处理大文件替换
  * 逐行读取，避免内存溢出
@@ -126,11 +195,8 @@ async function streamEditLargeFile(
       const lineEnding = detectCRLF(sampleBuffer.toString('utf-8', 0, bytesRead)) ? '\r\n' : '\n'
 
     let replaced = 0
-    let lineCount = 0
 
     for await (const line of rl) {
-      lineCount++
-
       if (replaceAll) {
           const newLine = line.split(normalizedOldString).join(normalizedNewString)
         if (newLine !== line) replaced++
@@ -142,10 +208,6 @@ async function streamEditLargeFile(
       } else {
           output.write(line + lineEnding)
       }
-
-      // 进度日志（每 10000 行）
-      if (lineCount % 10000 === 0) {
-              }
     }
 
     rl.close()
@@ -223,9 +285,14 @@ export const fileEditTool: Tool<FileEditInput, string> = {
       }
 
       // 小文件：内存处理
-      const content = await fs.readFile(absPath, 'utf-8')
+      const rawBuffer = await fs.readFile(absPath)
 
-      const normalizedContent = normalizeLineEndings(content)
+      // Buffer 头部 4KB 探测行尾风格（复用流式分支思路）
+      // LF-only 文件可跳过全文 normalizeLineEndings/toCRLF 及 diff 前后的全文 replace
+      const hasCRLF = rawBuffer.subarray(0, 4096).includes('\r\n', 'latin1')
+      const content = rawBuffer.toString('utf-8')
+
+      const normalizedContent = hasCRLF ? normalizeLineEndings(content) : content
       const normalizedOldString = normalizeLineEndings(oldString)
       const normalizedNewString = normalizeLineEndings(newString)
 
@@ -247,11 +314,13 @@ export const fileEditTool: Tool<FileEditInput, string> = {
         }
       }
 
-      // 恢复原始行尾风格：保持 CRLF 文件不被静默转为 LF
-      const finalContent = toCRLF(newContent, detectCRLF(content))
+      // 恢复原始行尾风格：保持 CRLF 文件不被静默转为 LF（LF-only 文件跳过全文 replace）
+      const finalContent = hasCRLF ? toCRLF(newContent, true) : newContent
 
-      // 生成 Diff（基于原始内容比较，diff 统一用 LF 对比）
-      const patch = diff.createPatch(filePath, content.replace(/\r\n/g, '\n'), finalContent.replace(/\r\n/g, '\n'))
+      // 生成 Diff（基于原始内容比较，diff 统一用 LF 对比；LF-only 文件免全文 replace）
+      const oldForDiff = hasCRLF ? content.replace(/\r\n/g, '\n') : content
+      const newForDiff = hasCRLF ? finalContent.replace(/\r\n/g, '\n') : finalContent
+      const patch = createWindowedPatch(oldForDiff, newForDiff, normalizedOldString)
 
       // 简化输出：省略文件头（Index/===/---/+++），从第一个 hunk 头 @@ 开始
       // 文件路径已由 file_edit 参数区展示；indexOf('\n@@')+1 精确指向首个 hunk

@@ -62,6 +62,8 @@ vi.mock('../../../../src/main/agent/loop/setup', async () => {
         filterToolsForDegrade: async () => [],
         filterTools: async () => [],
         buildSystemPrompt: async () => 'SYS',
+        // MCP 注入通道：mock 为恒等（本用例不关心 MCP 过滤）
+        applyMcpCatalogChannel: (tools: any[]) => tools,
     }
 })
 

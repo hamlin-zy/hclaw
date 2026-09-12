@@ -132,7 +132,7 @@ export async function executeTool(
 
       // 权限引擎为懒初始化（check 是同步方法），执行前确保 mode/rules 已加载
       await permissionEngine.ensureReady()
-      const permResult = permissionEngine.check(tool, toolCall.arguments)
+      const permResult = permissionEngine.check(tool, toolCall.arguments, context.permissionMode)
     
     let userApproved = false
     if (!permResult.allowed && !tool.autoApprove) {
@@ -208,10 +208,7 @@ export async function executeTool(
     }
 
     if (sandboxOp) {
-        const _sandboxInfo = sandboxOp.type === 'command_execute'
-            ? sandboxOp.command
-            : sandboxOp.path
-                const sandboxResult = localSandbox.check(sandboxOp)
+        const sandboxResult = localSandbox.check(sandboxOp)
         
         if (!sandboxResult.allowed) {
                         return {
@@ -224,7 +221,12 @@ export async function executeTool(
         }
 
         // 如果权限引擎已经请求过确认并获得了批准，或工具是 autoApprove，则跳过沙盒确认
-        const needsSandboxConfirm = sandboxResult.needsConfirmation && !userApproved && !tool.autoApprove
+        // 子代理 loop 以作用域 auto 运行且没有 requestConfirmation 通道（permissionModeOverride
+        // 不会污染主会话）："auto + 无法发起确认" 等价于 "无需确认，直接放行"，与
+        // permissionEngine.check() 在 auto 下短路放行的语义对齐。主会话有 requestConfirmation
+        // 且 permissionMode 为 undefined，不会命中此条件，原有弹窗确认流程逐字不变。
+        const autoWithoutConfirmation = context.permissionMode === 'auto' && !context.requestConfirmation
+        const needsSandboxConfirm = sandboxResult.needsConfirmation && !userApproved && !tool.autoApprove && !autoWithoutConfirmation
 
         if (needsSandboxConfirm && !context.requestConfirmation) {
             if (sandboxResult.riskLevel === 'high') {
@@ -268,8 +270,6 @@ export async function executeTool(
     const toolDef = toolRegistry.getToolDefinition(toolCall.name)
     if (toolDef) {
         const coercionResult = coerceToolParams(toolCall.arguments, toolDef)
-        if (coercionResult.warnings.length > 0) {
-                    }
         toolCall.arguments = coercionResult.params
     }
 
@@ -345,10 +345,11 @@ const SIZE_TRUNCATE_THRESHOLD = 15000 // 字符数截断阈值
 /**
  * 各工具的差异化截断阈值（字符数）
  *
- * bash 工具内部已有 2MB 输出上限（bashTool.ts MAX_OUTPUT_SIZE + TRUNCATION_NOTE），
- * 若 executor 层再用 15KB 兜底截断，会把 bash 内部辛辛苦苦收集的完整输出
- * 砍到只剩 15KB —— 比内部上限小 130 倍，用户观察到的"bash 输出被截断"即源于此。
- * 因此 bash 的 executor 层阈值与内部上限对齐（2MB），内部截断是唯一截断点。
+ * bash 工具一旦解除豁免，即回落到通用 15KB 截断阈值（SIZE_TRUNCATE_THRESHOLD）。
+ * 注意：bash 工具内部仍有 2MB 硬上限（bashTool.ts MAX_OUTPUT_SIZE + TRUNCATION_NOTE），
+ * 该上限只防内存失控；真正对 LLM 生效的可见上限是这里的 15KB。
+ * 这意味着 bash 的大输出会在 executor 层被砍到 15KB —— 这是刻意的取舍：
+ * 让模型看到被明确标记的截断结果，而不是被塞入 2MB 撑爆上下文。
  *
  * agent 工具同理：output 是子 Agent 的完整工作报告（主 Agent 汇总的依据），
  * 截断会直接导致工作报告总结不完整，因此豁免通用 15KB 截断。
@@ -368,15 +369,15 @@ const SIZE_TRUNCATE_THRESHOLD = 15000 // 字符数截断阈值
  * 否则 LLM 看到"[结果已截断] 共 X 行"，误以为 MCP 结果集不完整。
  * 其余工具维持通用阈值。
  */
+// executor 层对 MCP 结果的 128KB 截断阈值（产品规格）：
+// MCP 结果路径无内部上限，此阈值即 MCP 结果的唯一截断点。
+const MCP_SIZE_TRUNCATE_THRESHOLD = 128 * 1024
+
 const TOOL_SIZE_TRUNCATE_THRESHOLDS: Record<string, number> = {
-    bash: 2 * 1024 * 1024,
     agent: Infinity,
     skill: Infinity,
     list_agents: Infinity,
 }
-// executor 层对 MCP 结果的 128KB 截断阈值（产品规格）：
-// MCP 结果路径无内部上限，此阈值即 MCP 结果的唯一截断点。
-const MCP_SIZE_TRUNCATE_THRESHOLD = 128 * 1024
 
 export function checkResultSize(toolName: string, result: ToolResult): ToolResult {
     // 只检查字符串类型的输出
@@ -386,7 +387,9 @@ export function checkResultSize(toolName: string, result: ToolResult): ToolResul
 
     const output = result.output
     const length = output.length
-    const isMcpTool = toolName.startsWith('m_') || toolName.startsWith('mp_')
+    // ★ call_mcp_tool（catalog 通道的 MCP 通用调用器）与原生 MCP 工具（m_/mp_）同源同待遇：
+    //   128KB 截断阈值 + 不附加「结果较大」警告尾巴（见 TOOL_SIZE_TRUNCATE_THRESHOLDS 注释）。
+    const isMcpTool = toolName.startsWith('m_') || toolName.startsWith('mp_') || toolName === 'call_mcp_tool'
     const truncateThreshold = TOOL_SIZE_TRUNCATE_THRESHOLDS[toolName] ??
         (isMcpTool ? MCP_SIZE_TRUNCATE_THRESHOLD : SIZE_TRUNCATE_THRESHOLD)
 

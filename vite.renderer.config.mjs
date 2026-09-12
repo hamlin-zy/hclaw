@@ -16,6 +16,7 @@ export default defineConfig({
           input: {
               main: path.resolve(__dirname, 'src/renderer/index.html'),
               dialogWindow: path.resolve(__dirname, 'src/renderer/dialogWindow.html'),
+              projectManager: path.resolve(__dirname, 'src/renderer/main_window/projectManager.html'),
           },
           output: {
               manualChunks: (id) => {

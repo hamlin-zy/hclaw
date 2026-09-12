@@ -140,6 +140,8 @@ export async function handleDone(ctx: StreamCtx) {
         executingToolsMessage: null,
         // ★ 收尾即清循环警告条（含 loop_detected 路径，与 aborted 同款收尾）
         loopWarning: undefined,
+        // ★ 收尾即清 tools 变动确认阻塞态（abort/异常收尾时避免弹窗残留）
+        pendingToolsChangeConfirm: null,
     })
 
     // ★ 段边界落库（done 收尾 flush）已随渲染端落库退出（Phase 3）删除。
@@ -159,10 +161,11 @@ export async function handleDone(ctx: StreamCtx) {
         }
     }
 
-    // ★ 空占位清理（aborted/loop_detected）：若本轮 assistant 消息无任何内容（首 token 前
-    //   即终止），移除空白气泡。abortAgentImpl 已即时清理，此处兜底 handleDone 直发路径
-    //   （如 onWorkerExit 安全网 / loop_detected 收尾），幂等无害。
-    if (event.reason === 'aborted' || event.reason === 'loop_detected') {
+    // ★ 空占位清理（aborted/loop_detected/tools_change_cancelled）：若本轮 assistant 消息
+    //   无任何内容（首 token 前即终止），移除空白气泡。abortAgentImpl 已即时清理，此处兜底
+    //   handleDone 直发路径（如 onWorkerExit 安全网 / loop_detected / 取消 tools 变动收尾），
+    //   幂等无害。清理同时经 deleteMessageForConv 下发 IPC 删库行，故刷新后也不会残留空白气泡。
+    if (event.reason === 'aborted' || event.reason === 'loop_detected' || event.reason === 'tools_change_cancelled') {
         removeEmptyAssistantMessage(convId, doneConvData.streamingMessageId)
     }
 
@@ -192,10 +195,15 @@ export function handleError(ctx: StreamCtx) {
         isThinkingAfterTools: false,
         runningToolCount: 0,
         streamingMessageId: null,
+        // ★ 与 done/abort 对称：run 出错/worker 异常退出时清除 tools 变动确认阻塞态，
+        //   否则弹窗状态残留，下一个 run 正常流式输出时幽灵弹窗仍在。
+        pendingToolsChangeConfirm: null,
     })
     set((state: any) => ({
         errorMessage: state.errorMessage || errorMessage,
         agentState: {...state.agentState, status: 'error'},
+        // ★ 顶层镜像字段（ToolsChangeModal 读取顶层 pendingToolsChangeConfirm）一并清理
+        pendingToolsChangeConfirm: null,
     }))
 
     // ★ 与 done/injected 对称：flush 前先补 endedAt（防无 endedAt 快照覆盖主进程 final 写）。
@@ -393,11 +401,45 @@ export async function handlePermissionConfirm(ctx: StreamCtx) {
     })
 }
 
+/**
+ * tools 变动确认（prompt 缓存重建成本门）
+ *
+ * 本轮将注入的 tools 与上一轮不同 → 请求前缀从 tools 段失配，已积累的 prompt 缓存
+ * 全部作废。挂起为 paused 阻塞态，弹窗由用户决定继续/取消。
+ */
+export async function handleToolsChangeConfirm(ctx: StreamCtx) {
+    const {convId, isAgentAborted, event} = ctx
+    if (isAgentAborted) return
+    const requestId = event.requestId || `tools-${Date.now()}`
+    const added: string[] = event.added || []
+    const removed: string[] = event.removed || []
+
+    try {
+        await handleConvEvent({
+            eventConversationId: convId,
+            pendingKey: 'pendingToolsChangeConfirm',
+            pendingValue: {requestId, added, removed},
+            // ★ 活跃会话同时镜像到顶层：ToolsChangeModal 读取的是顶层 pendingToolsChangeConfirm
+            //   渲染弹窗，而 respondToolsChange 也只从顶层读 requestId。缺此步弹窗永不出现 →
+            //   renderer 永不应答 → worker 侧无限等待 → 会话死锁（刷新恢复另见 recoverySeeding）。
+            onTopLevelUpdate: () => {
+                useAgentStore.setState({pendingToolsChangeConfirm: {requestId, added, removed}})
+            },
+            // 独立弹窗，不改写消息内容
+            onActiveUpdate: () => { /* no-op */ },
+            onInactiveUpdate: () => { /* no-op */ },
+        })
+    } catch (e) {
+        // 弹窗状态已由 handleConvEvent 前置写入 per-conv；此处仅兜底记录，避免中断事件流
+        console.warn('[streamInteraction] tools_change_confirm 处理异常', e)
+    }
+}
+
 // ── 多会话事件处理辅助 ──────────────────────────────
 
 interface ConvEventHandlerParams {
     eventConversationId: string
-    pendingKey: 'pendingQuestion' | 'pendingPermissionConfirm'
+    pendingKey: 'pendingQuestion' | 'pendingPermissionConfirm' | 'pendingToolsChangeConfirm'
     pendingValue: any
     onTopLevelUpdate?: () => void
     onActiveUpdate: (convStore: ReturnType<typeof useConversationStore.getState>, convState: ConvAgentData) => void | Promise<void>

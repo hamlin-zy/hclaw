@@ -12,7 +12,7 @@ import type {ModelConfig} from '../model/types'
 import type {ModelAdapter} from '../model/index'
 import type {ToolContext, ToolDefinitionForLLM} from '../tools/types'
 import type {LoopState as AgentLoopState} from '../state'
-import type {ModelRole} from '@shared/types'
+import type {ModelRole, RunMode} from '@shared/types'
 import type {RunParams, LlmStreamResult, ToolExecutionResult} from './types'
 
 import {LLMCaller, isContextLengthError as checkContextLengthError, parsePlannedCommands} from './llmCaller'
@@ -34,6 +34,7 @@ import {resolveContextUsageTokens} from '../context'
 import {resolveModelParams} from '@shared/modelParams'
 import {modelMetaRegistry} from '../../modelMetaRegistry'
 import {withLlmTraceStream, type LlmTraceCallContext} from '../../utils/llmTraceRecorder'
+import {recordLastSentToolNames} from './toolsSentRecord'
 
 const toolRegistry = getToolRegistry()
 
@@ -241,7 +242,12 @@ export async function* executeLlmCallWithRetry(
 
             // ── mid-loop 交接门（每轮 LLM 调用评估一次）──
             // 估算仅在首次 attempt 执行；注入在每次 attempt 重新追加（messagesToSend 每次重建）。
-            if (!handoffGateEvaluated) {
+            // ★ 子会话（agentTool in-process loop，traceContext='subAgent'）不参与交接门：
+            //   注入会诱导模型调用 session_handoff，controller 随即强制结束本轮并以 done 收尾
+            //   → agentTool 立刻按成功返回，父 Agent 拿到空/半成品结果，子任务却被甩到独立顶层
+            //   新会话；graceful-stop 档位则变成伪失败。两者都破坏 agentTool 的返回语义。
+            //   子会话真溢出时仍由下方 context_length 分支给出明确失败信号（见本文件错误文案）。
+            if (!handoffGateEvaluated && params.traceContext !== 'subAgent') {
                 handoffGateEvaluated = true
                 const windowTokens = resolvedParams.maxContextTokens.value
                 // 分子：优先上一轮请求的真实 usage（B1 后消息不再携带 llmStats，须走本模块记录），
@@ -318,6 +324,14 @@ export async function* executeLlmCallWithRetry(
 
             // ★ 400 降级（degraded=true）：恢复白名单后完整工具集（含 analyze_image）
             const toolsToSend = degraded ? preCapabilityToolDefinitions : availableToolDefinitions
+
+            // ★ 记录「本轮实际发送」的 tools：下一轮 tools 变动门以此为准比较。
+            //   必须写在实际发送处而非 controller 门槛处——降级路径实际发的是
+            //   preCapabilityToolDefinitions，若门槛处仍记 availableToolDefinitions，
+            //   基线会与实际发送不一致，导致下一轮误拦截/漏拦截。
+            if (params.sessionId) {
+                recordLastSentToolNames(params.sessionId, toolsToSend.map(t => t.name))
+            }
 
             // ── 非视觉模型/降级：过滤消息中的 image_url ──
             // ★ 判定与工具侧同源（supportsImageInput）：元数据优先，命名模式回退
@@ -510,7 +524,7 @@ export async function* executeLlmCallWithRetry(
             // ── 检查 plannedCommands 权限 ──
             if (plannedCommands && plannedCommands.length > 0 && requestConfirmation) {
                 const permissionPassed = yield* checkPlannedCommandsPermission(
-                    plannedCommands, requestConfirmation,
+                    plannedCommands, requestConfirmation, params.permissionModeOverride,
                 )
                 if (!permissionPassed) return null
             }
@@ -608,8 +622,10 @@ export async function* executeLlmCallWithRetry(
 export async function* checkPlannedCommandsPermission(
     plannedCommands: string[],
     requestConfirmation: (message: string) => Promise<'allow' | 'always' | 'deny'>,
+    /** 作用域模式覆盖（子代理路径）：须与工具执行判定同源，否则预检与实际执行错配 */
+    modeOverride?: RunMode,
 ): AsyncGenerator<AgentStreamEvent, boolean> {
-    const checkResult = permissionEngine.checkPlannedCommands(plannedCommands)
+    const checkResult = permissionEngine.checkPlannedCommands(plannedCommands, modeOverride)
 
     if (checkResult.needsConfirmation && checkResult.confirmationMessage) {
         const confirmed = await requestConfirmation(checkResult.confirmationMessage)
@@ -779,6 +795,8 @@ export interface ExecuteToolCallsParams {
     allowedToolNames?: ReadonlySet<string>
     /** 当前 Agent 禁止使用的工具名集合（运行时黑名单校验，undefined = 不限制） */
     disallowedToolNames?: ReadonlySet<string>
+    /** 作用域权限模式覆盖（子代理路径固定 'auto'）：透传到 ToolContext，不改写引擎状态 */
+    permissionModeOverride?: RunMode
 }
 
 /**
@@ -791,7 +809,8 @@ export async function* executeToolCalls(
     ctx: ExecuteToolCallsParams,
 ): AsyncGenerator<AgentStreamEvent, ToolExecutionResult> {
     const {toolExecutor, collectedToolCalls, state, workingDir, abortSignal,
-        requestConfirmation, askUserQuestion, channelSend, onEvent, sessionId, allowedToolNames, disallowedToolNames} = ctx
+        requestConfirmation, askUserQuestion, channelSend, onEvent, sessionId, allowedToolNames, disallowedToolNames,
+        permissionModeOverride} = ctx
 
     // 通知 UI 工具执行即将开始（停止 thinking 动画 + 显示执行状态）
     yield {type: 'tools_start', toolCount: collectedToolCalls.length}
@@ -806,6 +825,7 @@ export async function* executeToolCalls(
         conversationId: sessionId,
         allowedToolNames,
         disallowedToolNames,
+        permissionMode: permissionModeOverride,
         sendMessage: (msg: any) => {
             if (!onEvent) return
             switch (msg.type) {
@@ -848,7 +868,7 @@ export async function* executeToolCalls(
     }
 
     const needsSerial =
-        toolExecutor.hasConfirmationRequired(collectedToolCalls, toolRegistry) ||
+        toolExecutor.hasConfirmationRequired(collectedToolCalls, toolRegistry, permissionModeOverride) ||
         collectedToolCalls.some(tc => tc.name === 'file_edit' || tc.name === 'ask_user')
 
     const results = needsSerial

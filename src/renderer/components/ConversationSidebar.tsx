@@ -512,48 +512,20 @@ export function WorkspaceSelector() {
 
   return (
     <div ref={ref} className="relative">
-      <button
-        onClick={() => {
-          const next = !isOpen
-          setIsOpen(next)
-          if (next) requestAnimationFrame(positionDrawer)
-        }}
-        aria-expanded={isOpen}
-        aria-haspopup="listbox"
-        aria-label="选择工作目录"
-        className="w-full flex items-center justify-between p-2 pl-2.5 -ml-2 rounded-xl hover:bg-gray-100/60 dark:hover:bg-white/5 transition-colors duration-200 group focus:outline-none focus:bg-gray-100/80 dark:focus:bg-white/10"
-       data-name="conversation-sidebar-workspace-select-button">
-          <div className="flex items-center gap-3 overflow-hidden w-[85%]">
-              <div className="w-8 h-8 rounded-[10px] bg-white dark:bg-[#1E1E1E] border border-gray-200/80 dark:border-white/10 shadow-sm flex items-center justify-center shrink-0 group-hover:border-gray-300 dark:group-hover:border-white/20 transition-colors">
-                  <svg className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-gray-200 transition-colors"
-                       viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-                  </svg>
-              </div>
-              <div className="flex flex-col items-start overflow-hidden text-left w-full">
-              {/* 名称行：项目名 + git 徽章同行流式排列，min-w-0 + truncate 溢出隐藏，不挤压右侧 › */}
-              <div className="flex items-center gap-1.5 w-full min-w-0">
-                  <span
-                      className={`font-semibold text-gray-900 dark:text-gray-100 text-[13px] tracking-tight truncate shrink-0 max-w-[65%] ${!currentWorkspacePath ? 'text-gray-400 dark:text-gray-500' : ''}`}
-                      title={currentWorkspacePath || ''}>
-                      {displayName}
-                  </span>
-                  {currentWorkspacePath && <GitBranchBadge branch={gitBranch}/>}
-              </div>
-              {currentWorkspacePath && (
-                  <span className="w-full min-w-0">
-                      <span className="text-[11px] text-gray-400 dark:text-gray-500 font-medium truncate block w-full">{currentWorkspacePath}</span>
-                  </span>
-              )}
-              </div>
-          </div>
-          <svg
-              className={`w-4 h-4 shrink-0 transition-transform duration-200 ${isOpen ? 'text-gray-600 dark:text-gray-300 rotate-180' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300'}`}
-              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-              {/* 向右箭头（>）；展开时 rotate-180 指向左，隐喻"抽屉从右侧展开/收回" */}
-              <polyline points="9 18 15 12 9 6"/>
-          </svg>
-      </button>
+      <div className="flex items-center">
+        <WorkspaceFolderButton />
+        <WorkspaceNameButton
+          isOpen={isOpen}
+          onToggle={() => {
+            const next = !isOpen
+            setIsOpen(next)
+            if (next) requestAnimationFrame(positionDrawer)
+          }}
+          currentWorkspacePath={currentWorkspacePath}
+          gitBranch={gitBranch}
+          displayName={displayName}
+        />
+      </div>
 
       {isOpen && (
         <WorkspaceDrawerPortal
@@ -563,6 +535,76 @@ export function WorkspaceSelector() {
         />
       )}
     </div>
+  )
+}
+
+/** 打开项目管理窗口的入口按钮（仅文件夹图标，点击经 IPC 打开 pm 窗口） */
+export function WorkspaceFolderButton() {
+  const currentWorkspacePath = useConversationStore((s) => s.currentWorkspacePath)
+  const disabled = !currentWorkspacePath
+  return (
+    <button
+      onClick={() => {
+        if (currentWorkspacePath) window.electronAPI?.projectManager?.openProjectManager(currentWorkspacePath)
+      }}
+      disabled={disabled}
+      aria-disabled={disabled}
+      title={disabled ? '未选择工作目录' : undefined}
+      aria-label="打开项目管理窗口"
+      data-name="conversation-sidebar-workspace-folder-button"
+      className={`flex items-center justify-center shrink-0 p-1 rounded-xl transition-colors duration-200 group focus:outline-none focus:bg-gray-100/80 dark:focus:bg-white/10 ${disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-100/60 dark:hover:bg-white/5 focus:bg-gray-100/80 dark:focus:bg-white/10'}`}>
+      {/* 装饰性图标容器：从 WorkspaceNameButton 外提至此，作为独立入口按钮内容 */}
+      <div className="w-8 h-8 rounded-[10px] bg-white dark:bg-[#1E1E1E] border border-gray-200/80 dark:border-white/10 shadow-sm flex items-center justify-center shrink-0 group-hover:border-gray-300 dark:group-hover:border-white/20 transition-colors">
+        <svg className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-gray-200 transition-colors"
+             viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+        </svg>
+      </div>
+    </button>
+  )
+}
+
+/** 工作目录名称按钮（展开/收起工作区切换抽屉） */
+function WorkspaceNameButton({isOpen, onToggle, currentWorkspacePath, gitBranch, displayName}: {
+  isOpen: boolean
+  onToggle: () => void
+  currentWorkspacePath: string | null
+  gitBranch: string | null
+  displayName: string
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      aria-expanded={isOpen}
+      aria-haspopup="listbox"
+      aria-label="选择工作目录"
+      className="flex-1 min-w-0 flex items-center justify-between p-2 pl-1 rounded-xl hover:bg-gray-100/60 dark:hover:bg-white/5 transition-colors duration-200 group focus:outline-none focus:bg-gray-100/80 dark:focus:bg-white/10"
+      data-name="conversation-sidebar-workspace-select-button">
+      <div className="flex items-center overflow-hidden w-[85%]">
+          <div className="flex flex-col items-start overflow-hidden text-left w-full">
+          {/* 名称行：项目名 + git 徽章同行流式排列，min-w-0 + truncate 溢出隐藏，不挤压右侧 › */}
+          <div className="flex items-center gap-1.5 w-full min-w-0">
+              <span
+                  className={`font-semibold text-gray-900 dark:text-gray-100 text-[13px] tracking-tight truncate shrink-0 max-w-[65%] ${!currentWorkspacePath ? 'text-gray-400 dark:text-gray-500' : ''}`}
+                  title={currentWorkspacePath || ''}>
+                  {displayName}
+              </span>
+              {currentWorkspacePath && <GitBranchBadge branch={gitBranch}/>}
+          </div>
+          {currentWorkspacePath && (
+              <span className="w-full min-w-0">
+                  <span className="text-[11px] text-gray-400 dark:text-gray-500 font-medium truncate block w-full">{currentWorkspacePath}</span>
+              </span>
+          )}
+          </div>
+      </div>
+      <svg
+          className={`w-4 h-4 shrink-0 transition-transform duration-200 ${isOpen ? 'text-gray-600 dark:text-gray-300 rotate-180' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300'}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+          {/* 向右箭头（>）；展开时 rotate-180 指向左，隐喻"抽屉从右侧展开/收回" */}
+          <polyline points="9 18 15 12 9 6"/>
+      </svg>
+    </button>
   )
 }
 
@@ -786,6 +828,28 @@ function isToday(ts: number): boolean {
 }
 
 /**
+ * 计算某时间戳所在的日期分组路径 key 集合（含所有祖先 + 日组本身）。
+ * 与 groupByDateHierarchy + ConversationDateGroup 的 key 拼接规则对齐：
+ * - 本月（本年 + 本月）：日组顶层，仅 [`{m}月{d}日`]
+ * - 本年其他月：[`{m}月`, `{m}月/{m}月{d}日`]
+ * - 往年：[`{y}年`, `{y}年/{m}月`, `{y}年/{m}月/{m}月{d}日`]
+ * 返回空数组表示无有效时间戳或无需展开（如今天会话在平铺区，不套组头）。
+ */
+function getDatePathKeysForTimestamp(ts: number, now: number = Date.now()): string[] {
+    if (!ts) return []
+    const d = new Date(ts)
+    const n = new Date(now)
+    const y = d.getFullYear()
+    const m0 = d.getMonth()
+    const ny = n.getFullYear()
+    const nm0 = n.getMonth()
+    const dayLabel = `${m0 + 1}月${d.getDate()}日`
+    if (y === ny && m0 === nm0) return [dayLabel]
+    if (y === ny) return [`${m0 + 1}月`, `${m0 + 1}月/${dayLabel}`]
+    return [`${y}年`, `${y}年/${m0 + 1}月`, `${y}年/${m0 + 1}月/${dayLabel}`]
+}
+
+/**
  * 会话历史日期分组节点：递归渲染 year→month→day，day 叶子用 renderItems 回调渲染会话条目。
  * 组头默认折叠，点组头展开/收起。视觉对齐备忘录 GroupNode（chevron + label + 条目数）。
  */
@@ -861,9 +925,8 @@ export function ConversationList() {
     const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set())
     const [dateGroupExpanded, setDateGroupExpanded] = useState<Set<string>>(new Set())
     const listRef = useRef<HTMLDivElement>(null)
-    // 跨天信号：午夜自动刷新日期分组（今天/历史）
-    // 返回值无需使用：hook 内部状态变化即触发本组件重渲染，重新计算 isToday 分组
-    useDayBoundaryTick()
+    // 跨天信号：午夜自动刷新日期分组（今天/历史），并作为下方"自动展开激活会话分组"的 effect 依赖
+    const dayTick = useDayBoundaryTick()
 
     // 监听全局点击以关闭菜单
     // ★ 注意：不监听 window 的 scroll 事件。原因见 tasks/01-context-menu-close.md：
@@ -993,6 +1056,36 @@ export function ConversationList() {
             return next
         })
     }, [activeConversationId])
+
+    // 用 ref 缓存 filtered，供下方 effect 读取但避免把它加入依赖数组
+    const filteredRef = useRef(filtered)
+    useEffect(() => { filteredRef.current = filtered }, [filtered])
+
+    // ★ 自动展开激活会话所在的日期分组：
+    //   场景 1：跨天（dayTick 自增），激活会话从"今天平铺区"迁入"历史分组"，
+    //           其日期路径 key 首次生成、默认折叠，此处补齐展开。
+    //   场景 2：首次打开应用（activeConversationId 由 null 变为实际 ID），
+    //           若激活会话在历史分组，同样补齐展开。
+    //   场景 3：用户切换会话（activeConversationId 变化），展开新激活会话所在分组。
+    // 只依赖 [activeConversationId, dayTick]：
+    //   - 用户手动折叠后 activeConversationId 未变 → 不触发 → 尊重用户意图
+    //   - filtered 变化不需要触发（激活会话的 createdAt 是稳定的）
+    // 今天平铺区始终可见，无需展开任何分组；仅对历史分组的会话补齐路径。
+    useEffect(() => {
+        if (!activeConversationId) return
+        const activeConv = filteredRef.current.find(c => c.id === activeConversationId)
+        if (!activeConv) return
+        const t = activeConv.createdAt ?? activeConv.updatedAt ?? 0
+        if (!t || isToday(t)) return
+        const keys = getDatePathKeysForTimestamp(t)
+        if (keys.length === 0) return
+        setDateGroupExpanded(prev => {
+            if (keys.every(k => prev.has(k))) return prev
+            const next = new Set(prev)
+            for (const k of keys) next.add(k)
+            return next
+        })
+    }, [activeConversationId, dayTick])
 
   // 日期分组：置顶脱离、今天平铺、历史按层级（默认折叠）
   // ★ 必须在早期 return 之前定义（见上方 Hooks 规则注释）
@@ -1411,7 +1504,11 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
     const isRunning = !isActive && (agentStatus === 'running' || agentStatus === 'thinking' || childRunningStates)
     const hasPendingQuestion = !!convData?.pendingQuestion
     const hasPermissionConfirm = !!convData?.pendingPermissionConfirm
-    const hasPending = hasPendingQuestion || hasPermissionConfirm
+    // ★ tools 变动门同样是「无限等待用户决策」的阻塞态：缺此标识时，后台会话被
+    //   handleConvEvent 置为 paused（运行脉冲只认 running/thinking）→ 侧栏看起来
+    //   完全空闲。去掉 120s 自动放行后，这是用户唯一的可发现线索。
+    const hasToolsChangeConfirm = !!convData?.pendingToolsChangeConfirm
+    const hasPending = hasPendingQuestion || hasPermissionConfirm || hasToolsChangeConfirm
 
     // 当外部触发重命名时，重置内部状态
     useEffect(() => {
@@ -1534,6 +1631,8 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                         {hasPendingQuestion && <StatusBadge type="error">待确认</StatusBadge>}
                         {hasPermissionConfirm && !hasPendingQuestion &&
                             <StatusBadge type="warning">权限确认</StatusBadge>}
+                        {hasToolsChangeConfirm && !hasPendingQuestion && !hasPermissionConfirm &&
+                            <StatusBadge type="warning">工具确认</StatusBadge>}
                         <div
                             className={`text-[11px] whitespace-nowrap shrink-0 transition-colors ${isActive ? 'font-medium text-[var(--brand-primary)] opacity-70' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-400'}`}>
                             {getRelativeTime(timestamp)}

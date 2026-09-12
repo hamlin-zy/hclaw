@@ -153,10 +153,10 @@ export function reconcileStreamingContent(convId: string): void {
     const convData = useAgentStore.getState().convAgentStates[convId]
     const msgId = convData?.streamingMessageId
     const status = convData?.agentState?.status
-    // paused + pending 双态（ask_user / permission_confirm 阻塞）视同运行中：
+    // paused + pending 双态（ask_user / permission_confirm / tools_change_confirm 阻塞）视同运行中：
     // 阻塞等输入时同样需要重建 contentBlocks，否则进入会话只显示 DB 陈旧半成品
     const isBlockedPending = status === 'paused'
-        && !!(convData?.pendingQuestion || convData?.pendingPermissionConfirm)
+        && !!(convData?.pendingQuestion || convData?.pendingPermissionConfirm || convData?.pendingToolsChangeConfirm)
     if (!msgId || (status !== 'running' && status !== 'thinking' && !isBlockedPending)) return
 
     const convStore = useConversationStore.getState()

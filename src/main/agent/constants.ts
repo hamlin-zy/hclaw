@@ -22,6 +22,10 @@ export const WORKER_MESSAGE_TYPES = {
     PERMISSION_CONFIRM: 'permission-confirm',
     /** 权限确认结果 (Main -> Worker) */
     USER_CONFIRMATION_RESULT: 'user-confirmation-result',
+    /** 请求 tools 变动确认（prompt 缓存重建成本）(Worker -> Main) */
+    TOOLS_CHANGE_CONFIRM: 'tools-change-confirm',
+    /** tools 变动确认结果 (Main -> Worker) */
+    TOOLS_CHANGE_RESULT: 'tools-change-result',
     /** 向用户提问，等待回答 (Worker -> Main) */
     ASK_USER_QUESTION: 'ask-user-question',
     /** 用户回答结果 (Main -> Worker) */

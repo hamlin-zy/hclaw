@@ -11,6 +11,7 @@
 import {executeTool, type ExecuteToolCall, type ExecuteToolResult, resolveToolTimeoutMs} from '../tools/executor'
 import {permissionEngine} from '../tools/permission'
 import type {ToolContext} from '../tools/types'
+import type {RunMode} from '@shared/types'
 
 import type {AgentStreamEvent} from '../stream'
 import {createToolResultMessage, addMessage} from '../state'
@@ -158,16 +159,20 @@ export class ToolExecutor {
     }
 
     /**
-     * 检查是否有工具需要确认
+     * 检查是否有工具需要确认（决定本批串行还是并行执行）
+     *
+     * @param modeOverride 作用域权限模式覆盖：必须与 executor 实际执行时的判定口径一致，
+     *   否则会出现「预检说不用确认、实际执行需要确认」的串并行错配。子代理路径固定传 'auto'。
      */
     hasConfirmationRequired(
         toolCalls: ExecuteToolCall[],
-        toolRegistry: { get: (name: string) => any }
+        toolRegistry: { get: (name: string) => any },
+        modeOverride?: RunMode,
     ): boolean {
         return toolCalls.some(tc => {
             const tool = toolRegistry.get(tc.name)
             if (!tool) return false
-            const permResult = permissionEngine.check(tool, tc.arguments)
+            const permResult = permissionEngine.check(tool, tc.arguments, modeOverride)
             return !permResult.allowed
         })
     }

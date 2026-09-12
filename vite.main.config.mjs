@@ -32,7 +32,7 @@ export default defineConfig({
       },
   },
     ssr: {
-        external: ['electron', '@photostructure/sqlite', 'esbuild'],
+        external: ['electron', '@photostructure/sqlite', 'esbuild', '@vscode/ripgrep'],
         noExternal: true,
   },
     plugins: [
@@ -159,6 +159,7 @@ export default defineConfig({
                         'axios',
                         'form-data',
                         'combined-stream',
+                        '@vscode/ripgrep',
                     ],
                     alias: {
                         '@shared': path.resolve(__dirname, 'src/shared'),

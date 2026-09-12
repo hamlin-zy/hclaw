@@ -354,10 +354,18 @@ export class PermissionEngine {
     return false
   }
 
-  /** 检查工具调用权限（同步；调用方须已通过 ensureReady() 完成初始化，否则基于默认 mode/rules 决策） */
-  check(tool: Tool, args: any): PermissionResult {
+    /**
+     * 检查工具调用权限（同步；调用方须已通过 ensureReady() 完成初始化，否则基于默认 mode/rules 决策）
+     *
+     * @param modeOverride 作用域模式覆盖（子代理路径）：只影响本次判定，**不写回** this.mode。
+     *   permissionEngine 为 worker 线程级单例、父子 loop 共享，翻转 this.mode 会波及父会话与
+     *   同批并行的其他工具调用，故子代理的 auto 语义必须通过参数作用域下发。
+     *   规则优先级与危险命令硬拦截不受影响（下面逻辑与 mode 无关）。
+     */
+  check(tool: Tool, args: any, modeOverride?: RunMode): PermissionResult {
+      const mode = modeOverride ?? this.mode
       // Auto 模式下首次调用时警告危险规则
-      if (this.mode === 'auto' && !this._dangerousRulesWarned) {
+      if (mode === 'auto' && !this._dangerousRulesWarned) {
         const _dangerous = this.getDangerousPermissions()
         this._dangerousRulesWarned = true
       }
@@ -410,7 +418,7 @@ export class PermissionEngine {
     }
 
       // 2. auto 模式：所有工具自动放行
-    if (this.mode === 'auto') {
+    if (mode === 'auto') {
       return { allowed: true }
     }
 
@@ -421,7 +429,7 @@ export class PermissionEngine {
       }
 
       // 5. safe 模式：非破坏性工具放行，破坏性工具需确认
-    if (this.mode === 'safe' && !tool.isDestructive) {
+    if (mode === 'safe' && !tool.isDestructive) {
       return { allowed: true }
     }
 
@@ -526,11 +534,13 @@ export class PermissionEngine {
      * 3. 只要有一个命令需要确认，整个检查就需要用户确认
      *
      * @param plannedCommands LLM 返回的命令列表（如 ['git add', 'dir', 'ls -al']）
+     * @param modeOverride 作用域模式覆盖（子代理路径）：只影响本次判定，不写回 this.mode
      * @returns 检查结果
      */
-    checkPlannedCommands(plannedCommands: string[]): PlannedCommandsCheckResult {
+    checkPlannedCommands(plannedCommands: string[], modeOverride?: RunMode): PlannedCommandsCheckResult {
+        const mode = modeOverride ?? this.mode
         // Auto 模式：所有非危险命令自动放行
-        if (this.mode === 'auto') {
+        if (mode === 'auto') {
             // 但仍需检查危险命令
             const deniedCommands: string[] = []
             for (const cmd of plannedCommands) {

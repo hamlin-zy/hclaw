@@ -35,6 +35,8 @@ export interface StreamSnapshot {
     pendingQuestion: ConvPendingQuestion | null
     /** permission_confirm 阻塞态（null = 无） */
     pendingPermissionConfirm: ConvPendingPermission | null
+    /** tools 变动确认阻塞态（null = 无；无限等待用户决策，刷新后须重现弹窗） */
+    pendingToolsChangeConfirm: ConvPendingToolsChange | null
     /** 运行中工具数（主进程由 toolCalls.status==='running' 派生） */
     runningToolCount: number
     /** 工具执行区提示文案：主进程恒 null，渲染端播种时亦置 null（UI 文案不跨进程） */
@@ -51,6 +53,12 @@ export interface ConvPendingQuestion {
 export interface ConvPendingPermission {
     question: string
     requestId?: string
+}
+
+export interface ConvPendingToolsChange {
+    requestId: string
+    added: string[]
+    removed: string[]
 }
 
 export interface RecoveryPlan {

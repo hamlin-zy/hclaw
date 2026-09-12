@@ -59,7 +59,7 @@ describe('runCatalogPreStep state machine（追加式）', () => {
              metadata: {sourceKind: 'capability-catalog', catalogDigest: 'd2'}},
         ]
         const st = restoreCatalogState(msgs as any)
-        expect(st.lastDigest).toBe('d2')
+        expect(st.lastSkillDigest).toBe('d2')
         expect(st.incompleteStreak).toBe(0)
     })
 
@@ -71,6 +71,6 @@ describe('runCatalogPreStep state machine（追加式）', () => {
         const r = runCatalogPreStep(emptyLoop(), cs, null, undefined, false)
         expect(r.state.messages.length).toBe(0)
         expect(r.catalogState.incompleteStreak).toBe(1)
-        expect(r.catalogState.lastDigest).toBeUndefined()
+        expect(r.catalogState.lastSkillDigest).toBeUndefined()
     })
 })

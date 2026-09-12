@@ -206,3 +206,161 @@ describe('resolveMcpDisplayName', () => {
     expect(resolveMcpDisplayName('', servers)).toBeNull()
   })
 })
+
+// ─── §9.5 显示名解析（§8.1 修复） ──────────────────────────────
+
+describe('parseMcpToolName(knownServerNames)', () => {
+  it('19. 长 serverName（10 位）精确剥离：toolName === navigate_page', () => {
+    expect(parseMcpToolName('m_playwright_navigate_page', ['playwright'])).toEqual({
+      shortId: null,
+      toolName: 'navigate_page',
+      serverName: 'playwright',
+    })
+  })
+
+  it('20. 6 位 serverName 不再被误判为 shortId', () => {
+    const parsed = parseMcpToolName('m_github_create_issue', ['github'])
+    expect(parsed).toEqual({shortId: null, toolName: 'create_issue', serverName: 'github'})
+    expect(parsed?.shortId).not.toBe('github')
+  })
+
+  it('mp_ 前缀插件 server 同样精确剥离', () => {
+    expect(parseMcpToolName('mp_github_create_or_update_file', ['github'])).toEqual({
+      shortId: null,
+      toolName: 'create_or_update_file',
+      serverName: 'github',
+    })
+  })
+
+  it('旧 mcp_<serverName>_ 形式亦可剥离', () => {
+    expect(parseMcpToolName('mcp_GitHub_create_issue', ['GitHub'])).toEqual({
+      shortId: null,
+      toolName: 'create_issue',
+      serverName: 'GitHub',
+    })
+  })
+
+  it('服务器名互为前缀时取最长匹配', () => {
+    expect(parseMcpToolName('m_github_enterprise_create_issue', ['github', 'github_enterprise'])).toEqual({
+      shortId: null,
+      toolName: 'create_issue',
+      serverName: 'github_enterprise',
+    })
+  })
+
+  it('serverName 按注册时的净化规则比较（空格 → 下划线）', () => {
+    expect(parseMcpToolName('m_My_Server_do_thing', ['My Server'])).toEqual({
+      shortId: null,
+      toolName: 'do_thing',
+      serverName: 'My Server',
+    })
+  })
+
+  it('列表未命中时回退到 6 位 hash 正则（shortId 形式仍可解析）', () => {
+    expect(parseMcpToolName('m_6x7vml_navigate_page', ['github'])).toEqual({
+      shortId: '6x7vml',
+      toolName: 'navigate_page',
+    })
+  })
+
+  it('剩余段异常（空 / 前导下划线）时回退，不误剥离', () => {
+    // 服务器名命中前缀但剩余为空 → 回退 hash 正则 / fallback
+    expect(parseMcpToolName('m_github_', ['github'])).toEqual({
+      shortId: null,
+      toolName: 'github_',
+    })
+    // 剩余含前导下划线（异常）→ 跳过前缀匹配，回退到原有 hash 正则
+    expect(parseMcpToolName('m_github__tool', ['github'])).toEqual({
+      shortId: 'github',
+      toolName: '_tool',
+    })
+  })
+})
+
+describe('parseMcpToolName 向后兼容（不传 / 空列表）', () => {
+  it('21. 不传 knownServerNames → 维持原有行为', () => {
+    // 旧格式 mcp_<6位hash>_*
+    expect(parseMcpToolName('mcp_6x7vml_navigate_page')).toEqual({
+      shortId: '6x7vml',
+      toolName: 'navigate_page',
+    })
+    // 新格式 hash fallback
+    expect(parseMcpToolName('m_6x7vml_navigate_page')).toEqual({
+      shortId: '6x7vml',
+      toolName: 'navigate_page',
+    })
+    // 6 位 serverName 仍被当作 hash（未提供列表时的既有行为，不做改变）
+    expect(parseMcpToolName('m_github_create_issue')).toEqual({
+      shortId: 'github',
+      toolName: 'create_issue',
+    })
+    // 长 serverName 走 fallback
+    expect(parseMcpToolName('m_playwright_navigate_page')).toEqual({
+      shortId: null,
+      toolName: 'playwright_navigate_page',
+    })
+  })
+
+  it('21. 传入空列表 → 同样维持原有行为', () => {
+    expect(parseMcpToolName('mcp_6x7vml_navigate_page', [])).toEqual({
+      shortId: '6x7vml',
+      toolName: 'navigate_page',
+    })
+    expect(parseMcpToolName('m_github_create_issue', [])).toEqual({
+      shortId: 'github',
+      toolName: 'create_issue',
+    })
+  })
+
+  it('非法名仍返回 null', () => {
+    expect(parseMcpToolName('file_read', ['github'])).toBeNull()
+    expect(parseMcpToolName('', ['github'])).toBeNull()
+  })
+})
+
+describe('extractMcpToolName(knownServerNames)', () => {
+  it('22. 传入列表时精确剥离 server 前缀（长名不再残留）', () => {
+    expect(extractMcpToolName('m_playwright_navigate_page', ['playwright'])).toBe('navigate_page')
+    expect(extractMcpToolName('m_github_create_issue', ['github'])).toBe('create_issue')
+    expect(extractMcpToolName('mp_github_create_or_update_file', ['github'])).toBe('create_or_update_file')
+    expect(extractMcpToolName('mcp_GitHub_create_issue', ['GitHub'])).toBe('create_issue')
+  })
+
+  it('互为前缀时取最长匹配', () => {
+    expect(extractMcpToolName('m_github_enterprise_create_issue', ['github', 'github_enterprise'])).toBe('create_issue')
+  })
+
+  it('未命中时维持原有剥离行为', () => {
+    expect(extractMcpToolName('m_6x7vml_navigate_page', ['github'])).toBe('navigate_page')
+    expect(extractMcpToolName('m_playwright_navigate_page', ['github'])).toBe('playwright_navigate_page')
+  })
+
+  it('不传 / 空列表 → 与现有行为一致', () => {
+    // 6 位被当 hash 剥掉（侥幸正确）
+    expect(extractMcpToolName('m_github_create_issue')).toBe('create_issue')
+    // 长名残留 server 名（信息不足，可接受）
+    expect(extractMcpToolName('m_playwright_navigate_page')).toBe('playwright_navigate_page')
+    expect(extractMcpToolName('m_playwright_navigate_page', [])).toBe('playwright_navigate_page')
+  })
+
+  it('非 MCP 名返回 null', () => {
+    expect(extractMcpToolName('file_read', ['github'])).toBeNull()
+    expect(extractMcpToolName('', ['github'])).toBeNull()
+  })
+})
+
+describe('resolveMcpDisplayName 回归（23. 行为不变）', () => {
+  const servers = [
+    {id: 'codegraph', name: 'CodeGraph', tools: [{name: 'codegraph_explore'}, {name: 'query'}]},
+    {id: 'plugin:github', name: 'GitHub', tools: [{name: 'create_or_update_file'}, {name: 'navigate_page'}]},
+  ]
+
+  it('统一格式 / 旧格式 / shortId 匹配结果保持不变', () => {
+    expect(resolveMcpDisplayName('m_CodeGraph_codegraph_explore', servers)).toBe('m_CodeGraph_codegraph_explore')
+    expect(resolveMcpDisplayName('mcp_CodeGraph_codegraph_explore', servers)).toBe('m_CodeGraph_codegraph_explore')
+    expect(resolveMcpDisplayName(`mcp_${shortenServerId('codegraph')}_codegraph_explore`, servers)).toBe(
+      'm_CodeGraph_codegraph_explore',
+    )
+    expect(resolveMcpDisplayName('m_Unknown_foo', servers)).toBeNull()
+  })
+})

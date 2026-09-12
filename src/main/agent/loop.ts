@@ -23,7 +23,6 @@ import type {AgentDefinition} from '@shared/agent'
 import {permissionEngine} from './tools/permission'
 import {setAgentToolConfig} from './tools/builtin/agentTool'
 import {setSkillToolConfig} from './tools/builtin/skillTool'
-import {permissionRulesManager} from './permissions/permissionRule'
 import {runtimeConfigManager} from './runtimeConfigManager'
 
 // ─── 参数 ──────────────────────────────────────────────
@@ -50,6 +49,8 @@ export interface AgentLoopParams {
   agentTemplates?: import('@shared/types').AgentTemplate[]
   requestConfirmation?: (message: string) => Promise<'allow' | 'always' | 'deny'>
   askUserQuestion?: (question: string, options?: string[], multiSelect?: boolean) => Promise<string>
+  /** tools 集变动确认（prompt 缓存重建成本）；返回 'cancel' 阻断本轮发送 */
+  confirmToolsChange?: (info: {added: string[]; removed: string[]; previous: string[]; current: string[]}) => Promise<'continue' | 'cancel' | 'snooze_today'>
   channelSend?: (channelId: string, toUser: string, text: string, contextToken?: string, fileType?: string) => Promise<{ success: boolean; error?: string }>
   conversationTitle?: string
   onEvent?: (event: any) => void
@@ -73,6 +74,11 @@ export interface AgentLoopParams {
   pendingInjectedMessages?: ChatMessage[]
   /** LLM 循环检测静默指纹队列（渲染端"这是误判"经 worker 传入；gate 逐轮 shift 消费） */
   pendingSilences?: string[]
+  /**
+   * 作用域权限模式覆盖：仅本 loop 的工具判定使用，不改写进程级 permissionEngine.mode。
+   * 子代理路径固定传 'auto'（子会话无确认通道，治理改由 Agent 的 tools/disallowedTools 承担）。
+   */
+  permissionModeOverride?: import('@shared/types').RunMode
 }
 
 // ─── 模式切换事件 ────────────────────────────────────────
@@ -115,6 +121,7 @@ export async function* agentLoop(
     messageMetadata,
     modelRole,
     traceContext,
+    confirmToolsChange,
   } = params
 
   // 使用动态更新的 settings（而非解构时捕获的静态引用）
@@ -123,22 +130,6 @@ export async function* agentLoop(
   // 设置权限引擎的工作目录
   const workingDir = runtimeConfigManager.getWorkingDir() || initialWorkingDir || ''
   permissionEngine.setWorkingDir(workingDir)
-
-  // 权限模式管理
-  const initialPermissionContext = await permissionRulesManager.getContext()
-  let currentPermissionMode: import('@shared/types').RunMode = initialPermissionContext.mode
-
-  if (agentDefinition && agentDefinition.permissionMode) {
-    const targetMode = agentDefinition.permissionMode
-    if (targetMode !== currentPermissionMode) {
-      await permissionRulesManager.applyUpdate({
-        type: 'setMode',
-        mode: targetMode
-      })
-      currentPermissionMode = targetMode
-      yield {type: 'mode_change', mode: 'auto'}
-    }
-  }
 
   // 设置工具模块级配置
   setAgentToolConfig()
@@ -182,7 +173,10 @@ export async function* agentLoop(
     pendingInjectedMessages: params.pendingInjectedMessages,
     // 传递 LLM 循环检测静默指纹队列
     pendingSilences: params.pendingSilences,
+    // 传递 tools 变动确认回调（prompt 缓存重建成本门）
+    confirmToolsChange,
     modelRole,
     traceContext,
+    permissionModeOverride: params.permissionModeOverride,
   })
 }

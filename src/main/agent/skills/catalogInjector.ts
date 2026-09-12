@@ -13,12 +13,19 @@ import type {
 } from '@shared/types/message'
 import {SOURCE_KIND_CATALOG} from '@shared/types/message'
 import {skillRegistry} from './registry'
+import {getAllMcpToolMeta, type McpToolMeta} from '../mcp/discovery'
+import type {MCPToolDefinition} from '../mcp/types'
 import {createLogger} from '../logger'
 
 const logger = createLogger('catalogInjector')
 
 /** 描述字段最大长度（沿用原 buildCapabilityIndex 的截断规则） */
 const MAX_DESC_CHARS = 200
+
+/** MCP 工具描述截断上限（与 MAX_DESC_CHARS 对齐） */
+const MAX_MCP_TOOL_DESC_CHARS = 200
+/** 单个 MCP 工具 schema 渲染上限（超出截断，模型可依赖 server 侧报错自纠） */
+const MAX_MCP_SCHEMA_CHARS = 300
 
 const SOURCE_RANK: Record<string, number> = {user: 100, plugin: 200, builtin: 300}
 
@@ -42,14 +49,18 @@ function truncateDesc(desc: string): string {
 }
 
 export interface CatalogSnapshot {
-    entries: CatalogEntry[]
+    /** 技能条目（原 entries） */
+    skills: CatalogEntry[]
+    /** MCP 工具条目（仅 catalog 通道下非空） */
+    mcpTools: CatalogEntry[]
     /** 所有数据源读取成功 */
     complete: boolean
 }
 
 /**
  * 收集当前启用的 skills（复审后仅此一源；agents 走 list_agents 工具，
- * commands 移出模型通道）。逐源 try/catch，失败置 complete=false。
+ * commands 移出模型通道）与 MCP 工具条目（独立 digest/消息）。
+ * 逐源 try/catch，失败置 complete=false。
  */
 export function collectCatalogSnapshot(): CatalogSnapshot {
   const entries: CatalogEntry[] = []
@@ -76,7 +87,68 @@ export function collectCatalogSnapshot(): CatalogSnapshot {
     logger.warn('[catalogInjector] skill source failed', {error: String(err)})
     complete = false
   }
-  return {entries: sortEntries(entries), complete}
+  return {
+    skills: sortEntries(entries),
+    mcpTools: collectMcpEntries(),
+    complete,
+  }
+}
+
+/**
+ * 收集 MCP 工具条目（catalog 通道专用）。
+ *
+ * 名称直接用 proxy 注册名（与 call_mcp_tool 的 name 参数一致），描述携带紧凑 schema：
+ * mcpSchemaToZod 已丢失大部分约束（§4.7），故必须读原始 rawInputSchema。
+ */
+function collectMcpEntries(): CatalogEntry[] {
+  try {
+    const entries: CatalogEntry[] = []
+    for (const meta of getAllMcpToolMeta()) {
+      if (!meta.proxyName?.trim()) continue
+      const desc = truncateMcpDesc(extractMetaDescription(meta))
+      const schema = formatCompactSchema(meta.rawInputSchema)
+      entries.push({
+        name: meta.proxyName,
+        type: 'mcp',
+        description: schema ? `${desc} args: ${schema}` : desc,
+      })
+    }
+    return sortEntries(entries)
+  } catch (err) {
+    logger.warn('[catalogInjector] mcp source failed', {error: String(err)})
+    return []
+  }
+}
+
+/** MCP 工具描述：优先用 MCP 侧原始 description（§6.4.4），缺失时回退到原始工具名 */
+function extractMetaDescription(meta: McpToolMeta): string {
+  return meta.description?.trim() || meta.rawToolName
+}
+
+/** 截断 MCP 工具描述到 MAX_MCP_TOOL_DESC_CHARS */
+function truncateMcpDesc(desc: string): string {
+  return desc.length <= MAX_MCP_TOOL_DESC_CHARS ? desc : desc.slice(0, MAX_MCP_TOOL_DESC_CHARS)
+}
+
+/**
+ * 原始 JSON Schema → 紧凑参数说明（`{repo:string*, title:string?, ...}`）。
+ * `*` = required，`?` = optional。超出 MAX_MCP_SCHEMA_CHARS 截断。
+ */
+export function formatCompactSchema(schema: MCPToolDefinition['inputSchema'] | undefined): string {
+  const properties = schema?.properties || {}
+  const required = new Set(schema?.required || [])
+  const parts: string[] = []
+  for (const [key, rawProp] of Object.entries(properties)) {
+    const prop = rawProp as {type?: string; enum?: unknown[]}
+    const type = prop.type === 'array'
+      ? 'array'
+      : prop.enum?.length
+        ? `${prop.type || 'string'}(${prop.enum.map(v => String(v)).join('|')})`
+        : prop.type || 'any'
+    parts.push(`${key}:${type}${required.has(key) ? '*' : '?'}`)
+  }
+  const out = `{${parts.join(', ')}}`
+  return out.length <= MAX_MCP_SCHEMA_CHARS ? out : `${out.slice(0, MAX_MCP_SCHEMA_CHARS)}…`
 }
 
 /**
@@ -89,6 +161,18 @@ export function computeDigest(input: {mode: 'names' | 'full'; entries: CatalogEn
     .map(e => JSON.stringify([e.name, e.type, e.description, e.trigger ?? '']))
     .join('\n')
   return createHash('sha256').update(`${input.mode}\n${payload}`).digest('hex')
+}
+
+/**
+ * MCP 目录 digest（与 skills 目录独立门控：MCP 频繁变动不应重发技能目录）。
+ * 不参与 `fullSkillDescriptions` 模式（MCP 条目恒定携带紧凑 schema）。
+ * ★ 必须覆盖 name/description（含 schema 文本）：漏字段会导致"目录变了但不替换"。
+ */
+export function computeMcpDigest(entries: CatalogEntry[]): string {
+  const payload = entries
+    .map(e => JSON.stringify([e.name, e.type, e.description]))
+    .join('\n')
+  return createHash('sha256').update(`mcp\n${payload}`).digest('hex')
 }
 
 const INDEX_DELEGATION_RULES = `Delegation rules:
@@ -150,6 +234,36 @@ function renderFullEntryLine(e: CatalogEntry): string {
   return e.trigger ? `${base} | ${e.trigger}` : base
 }
 
+/**
+ * 渲染 MCP 工具目录正文（user 角色，<system-reminder> 包裹）。
+ *
+ * 与 skills 目录解耦：条目恒定携带紧凑 schema（不随 fullSkillDescriptions 变化），
+ * 且显式引导模型「不要直接调用 MCP 工具名」（历史里可能残留 native 通道的调用习惯）。
+ */
+export function renderMcpCatalogContent(
+  entries: CatalogEntry[],
+  kind: 'first' | 'replacement' | 'empty',
+): string {
+  if (kind === 'empty') {
+    return `<system-reminder>
+No MCP tools are currently available. Do not use MCP tool names from earlier catalogs.
+</system-reminder>`
+  }
+
+  const listing = `\n<available_mcp_tools>\n${entries.map(e => `- ${e.name}: ${e.description}`).join('\n')}\n</available_mcp_tools>\n`
+  const replacementNote = kind === 'replacement'
+    ? '\nThis list replaces every earlier MCP tool list in this session.\n'
+    : ''
+
+  return `<system-reminder>
+The following MCP tools are available in this session:
+${listing}${replacementNote}
+MCP tools are not declared natively. Call them via the \`call_mcp_tool\` tool:
+  call_mcp_tool({name: "<tool name from the list>", args: {...}})
+The list above is the source of truth; do not call MCP tool names directly.
+</system-reminder>`
+}
+
 export interface PublishDecision {
   action: 'none' | 'publish'
   content?: string
@@ -169,26 +283,36 @@ export interface PublishDecision {
  * | 相同 | 无 | publish（异常态重发布，first 文案；空目录不发）|
  * | 不同 | 无 | publish（first 文案；空目录不发消息）|
  * | 不同 | 有 | publish（追加新消息；replacement / empty 文案）|
+ *
+ * skills / MCP 两源共用本决策表（各自独立 digest、独立消息），差异全部经参数注入：
+ * 条目来源、digest 算法、正文渲染、metadata 种类、降级告警文案。
  */
-export function decidePublish(
-  snapshot: CatalogSnapshot,
-  mode: 'names' | 'full',
-  lastDigest: string | undefined,
-  hasPublished: boolean,
+function decideCatalogPublish(params: {
+  /** 数据源快照是否完整 */
+  complete: boolean
+  entries: CatalogEntry[]
+  /** 摘要算法（惰性求值：与两源原有实现一样，仅在通过完整性门控后才计算） */
+  computeDigest: () => string
+  lastDigest: string | undefined
+  hasPublished: boolean
   incompleteStreak: number
-): {decision: PublishDecision; nextIncompleteStreak: number} {
+  catalogKind: 'skills' | 'mcp'
+  /** 残缺快照忍满 3 轮、照常发布时的告警文案（按数据源区分） */
+  degradedLog: string
+  render: (entries: CatalogEntry[], kind: 'first' | 'replacement' | 'empty') => string
+}): {decision: PublishDecision; nextIncompleteStreak: number} {
   // —— 第一段：完整性门控 ——
-  if (!snapshot.complete) {
-    if (incompleteStreak < 3) {
-      return {decision: {action: 'none'}, nextIncompleteStreak: incompleteStreak + 1}
+  if (!params.complete) {
+    if (params.incompleteStreak < 3) {
+      return {decision: {action: 'none'}, nextIncompleteStreak: params.incompleteStreak + 1}
     }
-    logger.warn('[catalogInjector] catalog degraded: publishing incomplete snapshot', {streak: incompleteStreak})
+    logger.warn(params.degradedLog, {streak: params.incompleteStreak})
   }
-  const nextIncompleteStreak = snapshot.complete ? 0 : incompleteStreak + 1
+  const nextIncompleteStreak = params.complete ? 0 : params.incompleteStreak + 1
 
   // —— 第二段：决策（追加式，spec §3.1：变化即追加新消息，旧字节不动）——
-  const entries = snapshot.entries
-  const digest = computeDigest({mode, entries})
+  const {entries, lastDigest, hasPublished} = params
+  const digest = params.computeDigest()
   if (lastDigest && digest === lastDigest && hasPublished) {
     return {decision: {action: 'none'}, nextIncompleteStreak}
   }
@@ -200,8 +324,8 @@ export function decidePublish(
     return {
       decision: {
         action: 'publish',
-        content: renderCatalogContent(entries, mode, 'first'),
-        metadata: makeMetadata(digest),
+        content: params.render(entries, 'first'),
+        metadata: makeMetadata(digest, params.catalogKind),
       },
       nextIncompleteStreak,
     }
@@ -211,17 +335,62 @@ export function decidePublish(
   return {
     decision: {
       action: 'publish',
-      content: renderCatalogContent(entries, mode, kind),
-      metadata: makeMetadata(digest),
+      content: params.render(entries, kind),
+      metadata: makeMetadata(digest, params.catalogKind),
     },
     nextIncompleteStreak,
   }
 }
 
-function makeMetadata(digest: string): CatalogMetadata {
+/** skills 目录发布决策（决策表见 decideCatalogPublish） */
+export function decidePublish(
+  snapshot: CatalogSnapshot,
+  mode: 'names' | 'full',
+  lastDigest: string | undefined,
+  hasPublished: boolean,
+  incompleteStreak: number
+): {decision: PublishDecision; nextIncompleteStreak: number} {
+  return decideCatalogPublish({
+    complete: snapshot.complete,
+    entries: snapshot.skills,
+    computeDigest: () => computeDigest({mode, entries: snapshot.skills}),
+    lastDigest,
+    hasPublished,
+    incompleteStreak,
+    catalogKind: 'skills',
+    degradedLog: '[catalogInjector] catalog degraded: publishing incomplete snapshot',
+    render: (entries, kind) => renderCatalogContent(entries, mode, kind),
+  })
+}
+
+function makeMetadata(digest: string, catalogKind: 'skills' | 'mcp' = 'skills'): CatalogMetadata {
   return {
     sourceKind: SOURCE_KIND_CATALOG,
     catalogEntries: [],
     catalogDigest: digest,
+    catalogKind,
   }
+}
+
+/**
+ * MCP 目录发布决策（与 skills 决策表同构，独立 digest）。
+ * 完整性门控沿用同一 incompleteStreak（快照残缺时不发布，最多忍 3 轮）。
+ */
+export function decideMcpPublish(
+  snapshot: CatalogSnapshot,
+  lastDigest: string | undefined,
+  hasPublished: boolean,
+  incompleteStreak: number,
+): {decision: PublishDecision; nextIncompleteStreak: number} {
+  return decideCatalogPublish({
+    complete: snapshot.complete,
+    entries: snapshot.mcpTools,
+    computeDigest: () => computeMcpDigest(snapshot.mcpTools),
+    lastDigest,
+    hasPublished,
+    incompleteStreak,
+    catalogKind: 'mcp',
+    degradedLog: '[catalogInjector] mcp catalog degraded: publishing incomplete snapshot',
+    render: renderMcpCatalogContent,
+  })
 }

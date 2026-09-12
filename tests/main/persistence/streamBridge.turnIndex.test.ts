@@ -236,4 +236,41 @@ describe('persistStreamEvent — think 块落库内容为段内增量（重建�
     expect(thinkCalls.map(c => c.args[3])).toEqual(['段1', '段2'])
     expect(new Set(thinkCalls.map(c => c.args[2])).size).toBe(2)
   })
+
+  /**
+   * ★S1 护栏：think 段结束（转出 think 态）时释放段累积字符串。
+   * 释放本身是内存行为，从公开 API 不可直接观测；本用例锁定"释放不得破坏
+   * 段边界语义"这一不变量：下一段必须从 0 重新累加（绝不携带上一段全文），
+   * 且段 id 递增、同段内仍为覆盖语义。
+   */
+  it('think 段结束释放 accum：下一段从 0 重新累加且段 id 递增（text 转出）', () => {
+    const {p, calls} = makeRecorder()
+
+    // 段 1：同段多次增量 → 段内累积 A → AB
+    persistStreamEvent(p, 'c1', 'm1', pending(), {type: 'thinking', content: 'A'})
+    persistStreamEvent(p, 'c1', 'm1', pending(), {type: 'thinking', content: 'B'})
+    // 段结束：text 事件转出 think 态（此处释放 accum）
+    persistStreamEvent(p, 'c1', 'm1', pending(), {type: 'text', content: '正文'})
+    // 段 2：必须从 0 重新累加，绝不能是 'ABC'
+    persistStreamEvent(p, 'c1', 'm1', pending(), {type: 'thinking', content: 'C'})
+
+    const thinkCalls = calls.filter(c => c.method === 'recordThinkBlock')
+    expect(thinkCalls.map(c => c.args[3])).toEqual(['A', 'AB', 'C'])
+    // 段 id：第 1 段固定 think-m1-1（覆盖语义），第 2 段递增为 think-m1-2
+    expect(thinkCalls.map(c => c.args[2])).toEqual(['think-m1-1', 'think-m1-1', 'think-m1-2'])
+  })
+
+  it('think 段结束释放 accum：tool_result 转出同样从 0 重新累加', () => {
+    const {p, calls} = makeRecorder()
+    const tc = {id: 'tc-1', name: 'bash', arguments: {}, status: 'running'}
+
+    persistStreamEvent(p, 'c1', 'm1', pending(), {type: 'thinking', content: 'X'})
+    persistStreamEvent(p, 'c1', 'm1', pending({toolCalls: [tc]}), {type: 'tool_use', toolCall: tc})
+    persistStreamEvent(p, 'c1', 'm1', pending({toolCalls: [tc]}), {type: 'tool_result', toolCallId: 'tc-1', toolName: 'bash', result: {output: 'ok', success: true}})
+    persistStreamEvent(p, 'c1', 'm1', pending(), {type: 'thinking', content: 'Y'})
+
+    const thinkCalls = calls.filter(c => c.method === 'recordThinkBlock')
+    expect(thinkCalls.map(c => c.args[3])).toEqual(['X', 'Y'])
+    expect(thinkCalls.map(c => c.args[2])).toEqual(['think-m1-1', 'think-m1-2'])
+  })
 })

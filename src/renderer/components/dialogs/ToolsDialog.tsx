@@ -31,7 +31,8 @@ const TOOL_CATEGORIES = [
         name: '数据查询',
         tools: ['hclaw_db_query']
     }
-    // vision/audio 分组已移除：analyze_image / speech_to_text 为能力驱动工具，永久常开
+    // vision/audio 分组已移除：analyze_image / speech_to_text 为能力驱动工具，永久常开；
+    // call_mcp_tool（MCP 调用唯一通道）同属能力驱动工具，同样不出现在此列表
 ]
 
 // 工具中文描述映射

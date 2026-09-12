@@ -25,6 +25,16 @@ const api = (): any => window.electronAPI
 /** 断言最近一次查询参数 */
 const lastQuery = (): any => api().usageStatsQuery.mock.calls.at(-1)[0]
 
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+/** 本地 yyyy-mm-dd（与组件 formatLocalDate 同口径） */
+const fmtLocal = (d: Date): string => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+/** 取相对今天 n 天的 Date（n 为负向过去） */
+const daysFromToday = (n: number): Date => {
+    const d = new Date()
+    d.setDate(d.getDate() + n)
+    return d
+}
+
 beforeEach(() => {
     vi.stubGlobal('electronAPI', {
         usageStatsQuery: vi.fn().mockResolvedValue(mockStats),
@@ -166,32 +176,71 @@ describe('UsageWindow 全局用量窗口', () => {
         })
     })
 
-    it('自定义范围：点击自定义 → 显示日期选择器；选择范围 → 带 customStart/customEnd 查询', async () => {
+    it('自定义范围：点击自定义 → 显示 DatePicker（无原生 date 输入）；选择范围 → 带 customStart/customEnd 查询', async () => {
         render(<UsageWindow />)
         await waitFor(() => expect(api().usageStatsQuery).toHaveBeenCalled())
         // 初始不显示日期选择器
         expect(screen.queryByTestId('custom-range-picker')).toBeNull()
         fireEvent.click(screen.getByText('自定义'))
-        // 显示开始/结束日期输入（默认最近 7 天）
-        expect(screen.getByTestId('custom-range-picker')).toBeTruthy()
-        const start = screen.getByTestId('custom-start') as HTMLInputElement
-        const end = screen.getByTestId('custom-end') as HTMLInputElement
+        const picker = screen.getByTestId('custom-range-picker')
+        expect(picker).toBeTruthy()
+        // 已替换为自研 DatePicker：窗口内不再有原生 <input type="date">
+        expect(picker.querySelectorAll('input[type="date"]')).toHaveLength(0)
+        const start = screen.getByLabelText('起始日期') as HTMLInputElement
+        const end = screen.getByLabelText('结束日期') as HTMLInputElement
         expect(start.value).toBeTruthy()
         expect(end.value).toBeTruthy()
-        // 修改开始日 2026-08-10：end 仍为默认（今天）→ 跨度 >1 天 → 按天
+        // 修改开始日 2026-08-10（DatePicker 手输后 blur 提交，end 仍为默认今天 → 跨度 >1 天 → 按天）
         fireEvent.change(start, {target: {value: '2026-08-10'}})
+        fireEvent.blur(start)
         await waitFor(() => {
             expect(lastQuery()).toMatchObject({range: 'custom', customStart: '2026-08-10', granularity: 'day'})
         })
         // 修改结束日 2026-08-11：10 ~ 11 相邻两天（≤1 天）→ 按小时
         fireEvent.change(end, {target: {value: '2026-08-11'}})
+        fireEvent.blur(end)
         await waitFor(() => {
             expect(lastQuery()).toMatchObject({range: 'custom', customStart: '2026-08-10', customEnd: '2026-08-11', granularity: 'hour'})
         })
         // 跨度 >1 天（10 ~ 13）→ 按天
         fireEvent.change(end, {target: {value: '2026-08-13'}})
+        fireEvent.blur(end)
         await waitFor(() => {
             expect(lastQuery()).toMatchObject({range: 'custom', customStart: '2026-08-10', customEnd: '2026-08-13', granularity: 'day'})
+        })
+    })
+
+    it('自定义范围约束保留：结束不可选未来、起始不可晚于结束（DatePicker min/max）', async () => {
+        render(<UsageWindow />)
+        await waitFor(() => expect(api().usageStatsQuery).toHaveBeenCalled())
+        fireEvent.click(screen.getByText('自定义'))
+        const start = screen.getByLabelText('起始日期') as HTMLInputElement
+        const end = screen.getByLabelText('结束日期') as HTMLInputElement
+
+        // 结束 max=今天：明天手输不提交，blur 还原
+        const endBefore = end.value
+        fireEvent.change(end, {target: {value: fmtLocal(daysFromToday(1))}})
+        expect(end.value).toBe(fmtLocal(daysFromToday(1))) // 保留到 blur
+        fireEvent.blur(end)
+        expect(end.value).toBe(endBefore)
+
+        // 把结束设为 3 天前 → 起始 max 收敛为 3 天前
+        fireEvent.change(end, {target: {value: fmtLocal(daysFromToday(-3))}})
+        fireEvent.blur(end)
+        await waitFor(() => {
+            expect(lastQuery()).toMatchObject({range: 'custom', customEnd: fmtLocal(daysFromToday(-3))})
+        })
+        // 起始=1 天前（晚于结束）→ 不提交、blur 还原
+        const startBefore = start.value
+        fireEvent.change(start, {target: {value: fmtLocal(daysFromToday(-1))}})
+        expect(lastQuery()).not.toMatchObject({customStart: fmtLocal(daysFromToday(-1))})
+        fireEvent.blur(start)
+        expect(start.value).toBe(startBefore)
+        // 起始=5 天前（早于结束）→ 正常提交
+        fireEvent.change(start, {target: {value: fmtLocal(daysFromToday(-5))}})
+        fireEvent.blur(start)
+        await waitFor(() => {
+            expect(lastQuery()).toMatchObject({range: 'custom', customStart: fmtLocal(daysFromToday(-5))})
         })
     })
 
@@ -199,8 +248,12 @@ describe('UsageWindow 全局用量窗口', () => {
         render(<UsageWindow />)
         await waitFor(() => expect(api().usageStatsQuery).toHaveBeenCalled())
         fireEvent.click(screen.getByText('自定义'))
-        fireEvent.change(screen.getByTestId('custom-start'), {target: {value: '2026-08-10'}})
-        fireEvent.change(screen.getByTestId('custom-end'), {target: {value: '2026-08-10'}})
+        const start = screen.getByLabelText('起始日期') as HTMLInputElement
+        const end = screen.getByLabelText('结束日期') as HTMLInputElement
+        fireEvent.change(start, {target: {value: '2026-08-10'}})
+        fireEvent.blur(start)
+        fireEvent.change(end, {target: {value: '2026-08-10'}})
+        fireEvent.blur(end)
         await waitFor(() => {
             expect(lastQuery()).toMatchObject({range: 'custom', granularity: 'hour'})
         })

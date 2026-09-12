@@ -1,9 +1,20 @@
-import {describe, expect, it, vi, afterEach} from 'vitest'
+import {describe, expect, it, vi, afterEach, beforeEach} from 'vitest'
 import {isImageUnsupportedError, shouldRetryAttempt, executeLlmCallWithRetry, type ExecuteLlmCallParams} from '../../../../src/main/agent/loop/execute'
 import {PreprocessCache} from '../../../../src/main/agent/loop/preprocessCache'
 import * as modelCapability from '../../../../src/main/agent/modelCapability'
 import type {ChatMessage, ModelAdapter, StreamChunk} from '../../../../src/main/agent/model/types'
 import type {ToolDefinitionForLLM} from '../../../../src/main/agent/tools/types'
+
+// tools 发送记录（toolsSentRecord）落 system_settings；单测中替换为内存桩，
+// 以便断言「实际发送」名单（降级路径应为 preCapability 集）。
+const recordCalls = vi.hoisted(() => ({calls: [] as Array<{sessionId: string; names: string[]}>}))
+vi.mock('../../../../src/main/agent/loop/toolsSentRecord', () => ({
+    recordLastSentToolNames: (sessionId: string, names: string[]) => {
+        recordCalls.calls.push({sessionId, names})
+    },
+    getLastSentToolNames: () => undefined,
+    isSameToolNameSequence: () => true,
+}))
 
 describe('isImageUnsupportedError（400 降级触发判定）', () => {
   afterEach(() => vi.restoreAllMocks())
@@ -49,6 +60,7 @@ describe('shouldRetryAttempt 回归（降级后重试仍恒 true）', () => {
 
 describe('executeLlmCallWithRetry 400 降级自愈（生成器级，mock adapter）', () => {
   afterEach(() => vi.restoreAllMocks())
+  beforeEach(() => { recordCalls.calls.length = 0 })
 
   const MODEL_ID = 'deepseek-v4-flash'
 
@@ -153,5 +165,12 @@ describe('executeLlmCallWithRetry 400 降级自愈（生成器级，mock adapter
     // ★ 消息侧同源：supportsImageInput 以当前模型 id 被调用（降级场景消息侧路径仍在执行）；
     //   第二参为 modelConfig.modelTypes（未配置时 undefined）
     expect(supportsSpy).toHaveBeenCalledWith(MODEL_ID, undefined)
+
+    // ★ tools 发送记录（缺陷修复）：基线须为「实际发送」名单——
+    //   attempt 1 记录 available 集；attempt 2 降级后记录 preCapability 集（含 analyze_image）。
+    expect(recordCalls.calls).toEqual([
+      {sessionId: 'test-session', names: ['file_read']},
+      {sessionId: 'test-session', names: ['file_read', 'analyze_image']},
+    ])
   })
 })

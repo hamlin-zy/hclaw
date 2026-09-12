@@ -25,6 +25,8 @@ const DISP_MODES: Array<{id: DisplayMode; label: string}> = [
 ]
 
 const permTitle = (id: RunMode) => (id === 'auto' ? '自动模式：全程自动执行' : '安全模式：破坏性操作需确认')
+/** 子会话安全模式只读说明：子代理固定 auto，治理交由 Agent 的白/黑名单 */
+const PERM_FIXED_TITLE = '子代理固定以自动模式运行；可用工具由该 Agent 的允许/禁用列表控制'
 const DISP_TITLES: Record<DisplayMode, string> = {
     detailed: '详细模式',
     compact: '简洁模式：思考块折叠',
@@ -48,12 +50,18 @@ function CollapsedSeg<T extends string>({
     onSelect,
     title,
     groupLabel,
+    readOnly = false,
+    readOnlyTitle,
 }: {
     options: Array<{id: T; label: string}>
     activeId: T
     onSelect: (id: T) => void
     title: (id: T) => string
     groupLabel: string
+    /** 只读：不弹选项层、不响应点击，仅静态展示当前选中项（用于子会话安全模式） */
+    readOnly?: boolean
+    /** 只读时的胶囊 title 说明 */
+    readOnlyTitle?: string
 }) {
     const pillRef = useRef<HTMLSpanElement>(null)
     const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -83,16 +91,23 @@ function CollapsedSeg<T extends string>({
         <span
             className="seg-collapsed"
             data-name={`conv-mode-collapsed-${groupLabel}`}
-            onMouseEnter={openPop}
-            onMouseLeave={scheduleHide}
+            onMouseEnter={readOnly ? undefined : openPop}
+            onMouseLeave={readOnly ? undefined : scheduleHide}
         >
-            {/* 当前选中项胶囊（无原生 title，避免干扰选项弹层） */}
-            <span ref={pillRef} className="seg-collapsed-pill" role="button" tabIndex={0} aria-label={groupLabel}>
+            {/* 当前选中项胶囊（无原生 title，避免干扰选项弹层；只读态带说明 title） */}
+            <span
+                ref={pillRef}
+                className="seg-collapsed-pill"
+                role={readOnly ? undefined : 'button'}
+                tabIndex={readOnly ? undefined : 0}
+                aria-label={groupLabel}
+                title={readOnly ? readOnlyTitle : undefined}
+            >
                 {active?.label}
             </span>
 
-            {/* hover 上弹其余选项（Portal 到 body，向上弹出不被 overflow 裁剪） */}
-            {open && pos && createPortal(
+            {/* hover 上弹其余选项（Portal 到 body，向上弹出不被 overflow 裁剪）；只读态不弹 */}
+            {!readOnly && open && pos && createPortal(
                 <span
                     className="seg-pop"
                     role="listbox"
@@ -138,17 +153,33 @@ export default function ConvModeSegs() {
     const setConvPermissionMode = useAgentStore((s) => s.setConvPermissionMode)
     const setConvDisplayMode = useAgentStore((s) => s.setConvDisplayMode)
     const activeConversationId = useConversationStore((s) => s.activeConversationId)
+    // 子会话判定：复用工作区会话列表按 id 查 parentConvId（与 usePrimaryRole 同口径，不新建机制）
+    const isChildSession = useConversationStore((s) =>
+        !!s.activeConversationId &&
+        Object.values(s.workspaces ?? {}).some(ws =>
+            ws?.conversations.some(c => c.id === s.activeConversationId && !!c.parentConvId),
+        ),
+    )
     const availWidth = useContext(ModeSpaceContext)
+
+    // 子会话显示值固定为「自动」：子代理一律以 auto 运行（作用域覆盖，不随父会话），
+    // 不读取任何继承值。安全模式组保持只读，仅静态展示。
+    const permDisplay: RunMode = isChildSession ? 'auto' : permissionMode
 
     if (!activeConversationId) return null
 
-    // 挤压等级阈值 ≈ 11px 字体下各形态实测宽度（安全组2按钮+显示组3按钮+分隔+间隙）：
-    // 完整展开约 240px；两组折叠单选约 110px；单组折叠单选约 54px。
+    // 挤压等级阈值 = 各形态真实占宽（Electron + 编译 CSS 实测；11px 字体下 CJK 字宽
+    // 恒为 1em，与字体无关，故可硬编码）：
+    //   完整展开 = 安全组(2×42+4) + gap4 + 显示组(3×42+4) + gap4 + 分隔(1+6×2) + gap4 = 243
+    //   两组折叠 = 胶囊46 + gap4 + 胶囊46 + gap4 + 分隔13 + gap4                    = 117
+    //   单组折叠 = 胶囊46 + gap4 + 分隔13 + gap4                                    = 67
+    //   （胶囊 46 = 容器 padding2×2 + 内胶囊 padding10×2 + 文本 2×11）
+    // 阈值低于真实占宽会在边界区间渲染溢出（胶囊被容器裁掉一截），故必须取实测值。
     // availWidth 为 null（未测量）时视为空间充足，回退为完整展开（旧行为）。
     const resolveLevel = (w: number | null): number => {
-        if (w == null || w >= 240) return 0
-        if (w >= 110) return 1
-        if (w >= 54) return 2
+        if (w == null || w >= 243) return 0
+        if (w >= 117) return 1
+        if (w >= 67) return 2
         return 3
     }
     const level = resolveLevel(availWidth)
@@ -164,9 +195,10 @@ export default function ConvModeSegs() {
                                 key={m.id}
                                 data-v={m.id}
                                 data-name={`conv-mode-perm-${m.id}`}
-                                className={permissionMode === m.id ? 'active' : ''}
-                                onClick={() => setConvPermissionMode(activeConversationId, m.id)}
-                                title={permTitle(m.id)}
+                                className={permDisplay === m.id ? 'active' : ''}
+                                onClick={isChildSession ? undefined : () => setConvPermissionMode(activeConversationId, m.id)}
+                                title={isChildSession ? PERM_FIXED_TITLE : permTitle(m.id)}
+                                aria-disabled={isChildSession || undefined}
                             >
                                 {m.label}
                             </button>
@@ -194,10 +226,12 @@ export default function ConvModeSegs() {
                     {level === 1 && (
                         <CollapsedSeg
                             options={PERM_MODES}
-                            activeId={permissionMode}
+                            activeId={permDisplay}
                             onSelect={(id) => setConvPermissionMode(activeConversationId, id)}
                             title={permTitle}
                             groupLabel="安全模式"
+                            readOnly={isChildSession}
+                            readOnlyTitle={PERM_FIXED_TITLE}
                         />
                     )}
                     <CollapsedSeg

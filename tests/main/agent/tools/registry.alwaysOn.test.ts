@@ -33,18 +33,19 @@ describe('ALWAYS_ON_TOOLS 豁免', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     registry = new ToolRegistry()
-    for (const name of ['analyze_image', 'speech_to_text', 'bash']) registry.register(makeTool(name))
+    for (const name of ['analyze_image', 'speech_to_text', 'call_mcp_tool', 'bash']) registry.register(makeTool(name))
   })
   afterEach(() => vi.restoreAllMocks())
 
   it('豁免工具 DB enabled=0 → getToolDefinitions 仍含（恒启用）', async () => {
     repoMock.toolRepo.getAllToolEnabledMap.mockReturnValue(
-      new Map([['analyze_image', false], ['bash', true]]),
+      new Map([['analyze_image', false], ['call_mcp_tool', false], ['bash', true]]),
     )
     const defs = await registry.getToolDefinitions()
     const names = defs.map(d => d.name)
     expect(names).toContain('analyze_image')
     expect(names).toContain('speech_to_text')
+    expect(names).toContain('call_mcp_tool')
     expect(names).toContain('bash')
   })
 
@@ -62,10 +63,11 @@ describe('ALWAYS_ON_TOOLS 豁免', () => {
     const names = tools.map(t => t.name)
     expect(names).toContain('analyze_image')
     expect(names).toContain('speech_to_text')
+    expect(names).toContain('call_mcp_tool')
     expect(names).toContain('bash')
   })
 
-  it('ALWAYS_ON_TOOLS 恰好两个（契约锁定）', () => {
-    expect(Array.from(ALWAYS_ON_TOOLS).sort()).toEqual(['analyze_image', 'speech_to_text'])
+  it('ALWAYS_ON_TOOLS 恰好三个（契约锁定）', () => {
+    expect(Array.from(ALWAYS_ON_TOOLS).sort()).toEqual(['analyze_image', 'call_mcp_tool', 'speech_to_text'])
   })
 })

@@ -378,8 +378,10 @@ describe('MemoPanel · 条目交互', () => {
 
         for (const row of screen.getAllByTestId('memo-item')) {
             expect(row.className).toContain('rounded-[18px]')
-            expect(row.className).toContain('hover:bg-gray-50')
-            expect(row.className).toContain('dark:hover:bg-white/5')
+            // 1c1cd2d 卡片化改造后 hover 走主题变量，不再用 Tailwind 字面色
+            expect(row.className).toContain('hover:bg-[var(--surface-muted)]')
+            expect(row.className).not.toContain('hover:bg-gray-50')
+            expect(row.className).not.toContain('dark:hover:bg-white/5')
             expect(row.className).not.toContain('bg-[var(--surface)]')
             expect(row.className).not.toContain('border-b')
         }

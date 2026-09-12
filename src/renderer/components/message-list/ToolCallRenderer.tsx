@@ -113,6 +113,15 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
     // MCP 工具显示名（注册名即显示名：m_/mp_<serverName>_<toolName>）
     const mcpServers = useMcpStore(s => s.mcpServers)
     const mcpDisplayName = useMemo(() => {
+        // catalog 通道：call_mcp_tool 卡片以其 args.name 指向的真实 MCP 工具作展示名
+        if (toolCall.name === 'call_mcp_tool') {
+            const rawTarget = (toolCall.arguments as any)?.name
+            if (typeof rawTarget !== 'string' || !rawTarget) return null
+            return resolveMcpDisplayName(rawTarget, mcpServers)
+                ?? extractMcpToolName(rawTarget, mcpServers.map(s => s.name))
+                ?? rawTarget
+        }
+
         if (!isMcpToolName(toolCall.name)) return null
 
         // 优先用 resolveMcpDisplayName 精确匹配（支持新旧两种格式）
@@ -120,11 +129,11 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
         if (resolved) return resolved
 
         // 兜底：至少去掉 hash 部分，显示 m_..._<工具名>
-        const toolOnly = extractMcpToolName(toolCall.name)
+        const toolOnly = extractMcpToolName(toolCall.name, mcpServers.map(s => s.name))
         if (toolOnly) return `m_..._${toolOnly}`
 
         return null
-    }, [toolCall.name, mcpServers])
+    }, [toolCall.name, toolCall.arguments, mcpServers])
 
     // 获取工具摘要（FilePath 或 Command）
     const summary = useMemo(() => {
@@ -347,10 +356,9 @@ function computeGroupStats(toolCalls: ToolCall[]) {
     }
 
     const total = toolCalls.length
-    const hasError = errorCount > 0
     const isRunning = runningCount > 0
 
-    return { successCount, errorCount, runningCount, pendingCount, total, hasError, isRunning, minCountdown }
+    return { successCount, errorCount, runningCount, pendingCount, total, isRunning, minCountdown }
 }
 
 /**
@@ -386,12 +394,10 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
     const stats = computeGroupStats(toolCalls)
     const typeCounts = computeTypeCounts(toolCalls)
 
-    // 圆点颜色
+    // 圆点颜色：仅区分运行中（闪烁）/ 已完成（不闪烁），不区分成功失败
     const dotClass = stats.isRunning
         ? 'bg-[var(--info)] animate-pulse'
-        : stats.hasError
-            ? 'bg-[var(--error)]'
-            : 'bg-[var(--success)]'
+        : 'bg-[var(--success)]'
 
     // 生成工具芯片列表
     const chips: { name: string; total: number; error: number }[] = []
@@ -541,12 +547,10 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
         return Array.from(map.entries()).map(([name, v]) => ({ name, ...v }))
     }, [toolCalls])
 
-    // 圆点颜色（基于工具状态）
+    // 圆点颜色：仅区分运行中（闪烁）/ 已完成（不闪烁），不区分成功失败
     const dotClass = stats.isRunning
         ? 'bg-[var(--info)] animate-pulse'
-        : stats.hasError
-            ? 'bg-[var(--error)]'
-            : 'bg-[var(--success)]'
+        : 'bg-[var(--success)]'
 
     const handleClick = () => {
         openCombinedPopup({ items: items as any[], thinkCount, toolCalls: toolCalls as any[], convId, messageId })
@@ -603,7 +607,14 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
 
 
 export default memo(ToolCallRendererBase, (prevProps, nextProps) => {
-    if (prevProps.toolCall.id !== nextProps.toolCall.id) return false
+    // ★ 消息内静态 toolCall 变化时必须重渲染：tool_result 落库后消息副本由
+    //   running → success/error（result 一并写入），而对应的运行时 key 已被
+    //   handleToolResult 的 clearToolCall 删除。此时下方运行时对比读取的是
+    //   「当前」store 快照，两侧同为 undefined → 被误判为"相等"，卡片永久停在
+    //   「执行中」，直到切换会话重挂载才刷新。
+    //   消息重建对未变化的 toolCall 保持对象引用（conversationStore.updateMessageForConv
+    //   不克隆 toolCalls 元素），故引用不等 ⇔ 该工具的数据确有变化，可安全据此重渲染。
+    if (prevProps.toolCall !== nextProps.toolCall) return false
 
     // ★ 运行时状态对比：toolCallsStore 的 status / timeoutMs / startedAt 变化时
     //   必须触发重渲染（模式切换、倒计时起点注册、超时注入等场景），
