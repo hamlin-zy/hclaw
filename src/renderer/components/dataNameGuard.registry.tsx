@@ -12,6 +12,11 @@ import ThinkingEffortSelector from './ThinkingEffortSelector'
 import TodoStrip from './TodoStrip'
 import MetricBadge from './MetricBadge'
 import AskUserModal from './AskUserModal'
+import AgentsDialog from './dialogs/AgentsDialog'
+import ModelSchemeDialog from './dialogs/ModelSchemeDialog'
+import ScheduleDialog from './dialogs/ScheduleDialog'
+import PermissionConfirmModal from './PermissionConfirmModal'
+import PermissionRulesPanel from './PermissionRulesPanel'
 
 const noop = () => {}
 
@@ -60,6 +65,26 @@ export const GUARD_COMPONENTS: GuardEntry[] = [
     {
         name: 'AskUserModal',
         render: () => <AskUserModal />,
+    },
+    {
+        name: 'AgentsDialog',
+        render: () => <AgentsDialog />,
+    },
+    {
+        name: 'ScheduleDialog',
+        render: () => <ScheduleDialog />,
+    },
+    {
+        name: 'ModelSchemeDialog',
+        render: () => <ModelSchemeDialog />,
+    },
+    {
+        name: 'PermissionConfirmModal',
+        render: () => <PermissionConfirmModal />,
+    },
+    {
+        name: 'PermissionRulesPanel',
+        render: () => <PermissionRulesPanel />,
     },
 ]
 

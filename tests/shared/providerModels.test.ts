@@ -203,10 +203,6 @@ describe('增强解析器：保留价格与上下文（改造方向）', () => {
     expect(claude.pricing?.completion).toBeCloseTo(0.00005, 9)
   })
 
-  it('OpenRouter 对未知模型也 100% 提供 context_length + pricing（412/412）', async () => {
-    // 此用例基于 2026-06 实际拉取的 412 个模型全量统计：
-    // context_length: 412/412 (100.0%)、pricing: 412/412 (100.0%)
-    // 保留为文档化断言，避免 CI 依赖网络。
-    expect(true).toBe(true)
-  })
+  // 2026-06 实测：OpenRouter 对未知模型 412/412 提供 context_length 与 pricing（100%）。
+  // 此结论需联网复验，故不作为 CI 断言。
 })

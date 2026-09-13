@@ -1,6 +1,6 @@
 // 通用树行（spec §4 / §6.5 / §13.1）。
 //
-// ⚠️ aria / DOM 契约必须与 common/TreeNode 保持一致——现有渲染层测试大量使用
+// aria / DOM 契约必须与 common/TreeNode 保持一致——现有渲染层测试大量使用
 // getByRole('treeitem', {name}) 与 row.querySelector('[role="button"]')：
 //   行元素 = <button type="button" role="treeitem" aria-selected aria-expanded aria-label>
 //   chevron = <span role="button" tabIndex={-1}>（由 TreeChevron 提供）

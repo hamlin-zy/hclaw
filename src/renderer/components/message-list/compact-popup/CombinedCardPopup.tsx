@@ -10,7 +10,7 @@
  *     └─ 工具子卡片 → 点击 → CompactToolPopup (level-2，即现有的工具详情弹窗)
  */
 
-import {memo, useCallback, useEffect, useMemo, useState} from 'react'
+import {memo, useCallback, useEffect, useMemo, useState, type ReactNode} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {fade, scaleFade, collapse} from '../../../lib/motionPresets'
 import type {ToolCall, ThinkBlock as ThinkBlockType} from '@shared/types'
@@ -20,7 +20,9 @@ import {useConversationStore} from '../../../stores/conversationStore'
 import {useDraggableDialog} from '../../../hooks/useDraggableDialog'
 import MarkdownRenderer from '../MarkdownRenderer'
 import type {CombinedItem} from '../ToolCallRenderer'
+import {buildDisplaySegments, resolveGroupByAnchor} from '../utils/displaySegments'
 import {resolveAgentDisplayName, isSkillToolCall, resolveToolDisplayName} from '../utils/messageUtils'
+import {AgentIcon, RemoveIcon, SkillIcon} from '../../icons'
 
 /**
  * 聚合卡片弹窗 — 全局单例
@@ -56,6 +58,20 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
         return map
     }, [liveMessage?.contentBlocks])
 
+    // ★ 实时重推导聚合组（pull 模型）：按 anchor 从最新消息重算 items/toolCalls/thinkCount，
+    //   修复「打开后新出现的思考块/工具调用永不渲染」；找不到 anchor 时回退快照。
+    const anchorToolCallId = combinedPopupData?.anchorToolCallId
+    const anchorBlockId = combinedPopupData?.anchorBlockId
+    const derived = useMemo(
+        () => (liveMessage
+            ? resolveGroupByAnchor(buildDisplaySegments(liveMessage, true), {toolCallId: anchorToolCallId, blockId: anchorBlockId})
+            : null),
+        [liveMessage, anchorToolCallId, anchorBlockId],
+    )
+    const items: CombinedItem[] = derived?.items ?? (combinedPopupData?.items as CombinedItem[] | undefined) ?? []
+    const popupToolCalls = derived?.toolCalls ?? combinedPopupData?.toolCalls ?? []
+    const popupThinkCount = derived?.thinkCount ?? combinedPopupData?.thinkCount ?? 0
+
     // ★ 所有 hooks 无条件声明
     const {dialogRef, position, isDragging, handleDragStart} = useDraggableDialog({visible: !!combinedPopupData})
 
@@ -67,7 +83,6 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
         return () => window.removeEventListener('keydown', onKeyDown)
     }, [closeCombinedPopup])
 
-    // 无条件 hooks，调用方可安全忽略返回值
     // 用于 tool 子卡片点击打开 CompactToolPopup
     const handleOpenToolPopup = useCallback((toolCalls: ToolCall[]) => {
         // ★ 目标工具调用中含 running 状态的 agent 卡片 → 跳转子会话（有 taskId）或忽略点击，
@@ -101,20 +116,25 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
             isAgent,
             agentDisplayName: agentTc ? resolveAgentDisplayName(agentTc) : null,
             agentTypeLabel: agentTc ? ((agentTc.arguments as any)?.agentType ?? null) : null,
+            // 让 L2 弹窗也能实时重推导（anchor 定位到该 tools 子项）
+            convId: combinedPopupData?.convId,
+            messageId: combinedPopupData?.messageId,
+            anchorToolCallId: toolCalls[0]?.id,
         })
-    }, [openToolPopup])
+    }, [openToolPopup, combinedPopupData?.convId, combinedPopupData?.messageId])
 
     // ★ 订阅工具运行时状态：子 Agent 完成后 status/success 变化需驱动标题与子卡片实时刷新
     const toolStates = useToolCallsStore((s) => s.states)
 
     // 构造弹窗标题 — 合并计算与统计，减少遍历
-    const displayTitle = useMemo(() => {
-        if (!combinedPopupData) return ''
-        const {toolCalls, thinkCount} = combinedPopupData
-        const parts: string[] = []
+    const displayTitle = useMemo<ReactNode>(() => {
+        if (!combinedPopupData) return null
+        const toolCalls = popupToolCalls
+        const thinkCount = popupThinkCount
+        const parts: ReactNode[] = []
         if (thinkCount > 0) parts.push(`思考 ${thinkCount}`)
         const map = new Map<string, {total: number; success: number; isAgent: boolean; isSkill: boolean}>()
-        for (const tc of toolCalls || []) {
+        for (const tc of toolCalls) {
             const state = toolStates[tc.id]
             const status = state?.status ?? tc.status
             const displayName = resolveToolDisplayName(tc)
@@ -124,15 +144,19 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
             if (status === 'success') entry.success++
         }
         map.forEach((v, k) => {
-            parts.push(`${v.isAgent ? '🤖' : v.isSkill ? '🛠️' : ''}${k} ${v.success}/${v.total}`
+            parts.push(
+                <span key={k} className="inline-flex items-center gap-0.5">
+                    {v.isAgent && <AgentIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)]"/>}
+                    {v.isSkill && <SkillIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)]"/>}
+                    <span>{`${k} ${v.success}/${v.total}`}</span>
+                </span>
             )
         })
-        return parts.join(' · ')
-    }, [combinedPopupData, toolStates])
+        if (parts.length === 0) return null
+        return parts.flatMap((p, i): ReactNode[] => (i > 0 ? [' · ', p] : [p]))
+    }, [combinedPopupData, popupToolCalls, popupThinkCount, toolStates])
 
     if (!combinedPopupData) return null
-
-    const {items, toolCalls} = combinedPopupData
 
     const POPUP_WIDTH = 520
 
@@ -155,11 +179,11 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
                     >
                         {/* Header */}
                         <div onMouseDown={handleDragStart} onTouchStart={handleDragStart}
-                            className={`flex items-center justify-between px-4 py-3 border-b border-[var(--border)] shrink-0 select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}>
+                            className={`flex items-center justify-between px-4 py-3 border-b border-[var(--border-muted)] shrink-0 select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}>
                             <h4 className="text-[13px] font-medium text-[var(--text-primary)] flex items-center gap-2 min-w-0 flex-1">
-                                <span className="truncate">{displayTitle || '详情'}</span>
-                                {toolCalls?.length > 0 && (
-                                    <span className="text-[10px] text-[var(--text-muted)] font-normal shrink-0">{toolCalls.length} 个调用</span>
+                                <span className="truncate inline-flex items-center gap-0.5">{displayTitle ?? '详情'}</span>
+                                {popupToolCalls?.length > 0 && (
+                                    <span className="text-[10px] text-[var(--text-muted)] font-normal shrink-0">{popupToolCalls.length} 个调用</span>
                                 )}
                             </h4>
                             {/* 回到父会话：当前活跃会话 ≠ 弹窗父会话（用户跳转到了子会话）时显示 */}
@@ -178,7 +202,7 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
                                 </button>
                             )}
                             <button onClick={closeCombinedPopup}
-                                className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-primary)] transition-colors cursor-pointer" data-name="combined-card-popup-close-button">✕</button>
+                                className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--text-muted)] hover:bg-[var(--surface-overlay)] hover:text-[var(--text-primary)] transition-colors cursor-pointer" data-name="combined-card-popup-close-button"><RemoveIcon className="w-4 h-4"/></button>
                         </div>
 
                         {/* Body */}
@@ -210,17 +234,17 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
                                 return null
                             })}
 
-                            {items.length === 0 && toolCalls?.length > 0 && (
-                                <div className="text-xs text-[var(--text-muted)] text-center py-8">
+                            {items.length === 0 && popupToolCalls?.length > 0 && (
+                                <div className="text-xs text-[var(--text-secondary)] text-center py-8">
                                     没有内容
                                 </div>
                             )}
                         </div>
 
                         {/* Footer */}
-                        <div className="flex justify-end px-3 py-2 border-t border-[var(--border)] shrink-0">
+                        <div className="flex justify-end px-3 py-2 border-t border-[var(--border-muted)] shrink-0">
                             <button onClick={closeCombinedPopup}
-                                className="px-3 py-1 text-[10px] rounded-md bg-[var(--surface-muted)] text-[var(--text-muted)] hover:bg-[var(--surface-elevated)] transition-colors cursor-pointer" data-name="combined-card-popup-footer-close-button">关闭</button>
+                                className="px-3 py-1 text-[10px] rounded-md bg-[var(--surface-muted)] text-[var(--text-secondary)] hover:bg-[var(--surface-overlay)] transition-colors cursor-pointer" data-name="combined-card-popup-footer-close-button">关闭</button>
                         </div>
                     </motion.div>
                 </motion.div>
@@ -241,7 +265,7 @@ const ThinkBlockInPopup = memo(function ThinkBlockInPopup({thinkBlock}: {thinkBl
         <div className="mb-3">
             <button
                 onClick={() => setExpanded(!expanded)}
-                className="flex items-center gap-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer w-full text-left bg-none border-none p-0 font-inherit"
+                className="flex items-center gap-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer w-full text-left bg-none border-none p-0 font-inherit"
              data-name="combined-card-popup-toggle-expanded-button">
                 <svg
                     className={`w-3 h-3 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
@@ -361,7 +385,7 @@ const ToolSubCard = memo(function ToolSubCard({
             onClick={handleCardClick}
             className="w-full flex items-center gap-2 px-3 py-2 my-1.5 rounded-lg text-left transition-colors
                 border border-[var(--border)] bg-[var(--surface-muted)]
-                hover:bg-[var(--surface-elevated)] hover:border-[var(--border-emphasis)] cursor-pointer"
+                hover:bg-[var(--surface-overlay)] hover:border-[var(--border-emphasis)] cursor-pointer"
          data-name="combined-card-popup-agent-card-button">
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`}/>
 
@@ -369,10 +393,10 @@ const ToolSubCard = memo(function ToolSubCard({
                 {chips.map((chip) => (
                     <span key={chip.name}
                         className="flex items-center gap-1 px-1.5 py-0.5 rounded
-                            bg-[rgba(255,255,255,0.05)] text-[var(--text-secondary)] shrink-0"
+                            bg-[var(--chip-bg)] border border-[var(--chip-border)] text-[var(--text-secondary)] shrink-0"
                     >
-                        {chip.isAgent && <span className="text-[var(--brand-primary)] mr-0.5">🤖</span>}
-                        {chip.isSkill && <span className="text-[var(--brand-primary)] mr-0.5">🛠️</span>}
+                        {chip.isAgent && <AgentIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)] mr-0.5"/>}
+                        {chip.isSkill && <SkillIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)] mr-0.5"/>}
                         <span className="font-mono font-semibold">{chip.name}</span>
                         <span className={chip.error > 0 ? 'text-[var(--error)]' : 'text-[var(--success)]'}>
                             {chip.total - chip.error}/{chip.total}

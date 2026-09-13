@@ -1,7 +1,7 @@
 /**
  * CommandBadge — 命令激活状态徽标（卡片式重设计）
  *
- * 在消息列表中标记命令激活结果（⚡ 成功 / ⚡ 失败）。
+ * 在消息列表中标记命令激活结果（成功 / 失败）。
  * 仅表示命令是否被成功识别并激活，不反映任何后续执行进度或结果。
  *
  * 设计语言：
@@ -13,6 +13,7 @@
 import {memo} from 'react'
 import {motion} from 'framer-motion'
 import type {CommandExecution} from '@shared/types'
+import {CommandIcon} from './icons'
 
 interface CommandBadgeProps {
     commandName: string
@@ -22,7 +23,7 @@ interface CommandBadgeProps {
 }
 
 /* ─── 状态配置 ───────────────────────────────────────────
- * loading / running / done 均为同一终态（⚡ 已激活），仅 error 区分。
+ * loading / running / done 均为同一终态（已激活），仅 error 区分。
  */
 const OK_COLOR = 'text-[var(--success)]'
 const ERROR_COLOR = 'text-[var(--error)]'
@@ -54,7 +55,7 @@ export const CommandBadge = memo(function CommandBadge({
             {/* 图标 */}
             <span className={`flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-md
                 bg-[var(--surface-muted)] ${color}`}>
-                ⚡
+                <CommandIcon className="w-3.5 h-3.5"/>
             </span>
 
             {/* 命令名 + 参数 — 等宽字体 */}

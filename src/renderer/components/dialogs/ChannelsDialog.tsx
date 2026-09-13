@@ -12,6 +12,7 @@ import React, {useCallback, useEffect, useRef, useState} from 'react'
 import {Switch} from '../common/Switch'
 import {useChannelStore} from '../../stores/channelStore'
 import {FeishuIcon, WeChatIcon} from './ChannelIcons'
+import {SuccessIcon, ErrorIcon} from '../icons'
 import type {ChannelConfig, ChannelType} from '@shared/types'
 import type {LoginPhase} from '../../stores/wechatLoginStore'
 import {useWechatLoginStore} from '../../stores/wechatLoginStore'
@@ -53,7 +54,10 @@ function Toast({message, type, onClose}: { message: string; type: 'success' | 'e
             animate-[fade-in-up_0.2s_ease-out]
             ${type === 'success' ? 'bg-[#10B981] text-white' : 'bg-[#EF4444] text-white'}`}
             onClick={onClose} data-name="channels-dialog-div">
-            {type === 'success' ? '✅ ' : '❌ '}{message}
+            <span className="flex items-center gap-1.5">
+                {type === 'success' ? <SuccessIcon className="w-4 h-4 shrink-0"/> : <ErrorIcon className="w-4 h-4 shrink-0"/>}
+                {message}
+            </span>
         </div>
     )
 }
@@ -305,7 +309,7 @@ export default function ChannelsDialog() {
 
     return (
         <div className="p-4 space-y-3">
-            <p className="text-xs text-[var(--text-muted)]">接入各平台，通过聊天渠道与 Agent 交互</p>
+            <p className="text-xs text-[var(--text-secondary)]">接入各平台，通过聊天渠道与 Agent 交互</p>
 
             {CHANNEL_DEFS.map((def, i) => {
                 const ch = getChannel(def.type)

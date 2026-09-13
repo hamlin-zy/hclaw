@@ -155,7 +155,7 @@ function signFile(filePath) {
 
   console.log(`[sign] Signing ${path.basename(filePath)} using "${method}" method...`);
 
-  let args = [];
+  let args;
 
   if (method === 'cert') {
     // PFX/P12 证书方式

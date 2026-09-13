@@ -29,7 +29,7 @@ import {extractTextContent} from '../utils/contentUtils'
 import {parseCommandText} from './commandTextParser'
 import {setAgentToolConfig} from '../tools/builtin/agentTool'
 import {setSkillToolConfig} from '../tools/builtin/skillTool'
-import {isMcpToolName} from '@shared/utils/mcpShortId'
+import {isMcpToolName} from '@shared/mcp/naming'
 import {filterToolsForAgent} from '../tools/filter'
 import {filterToolsByAgentType, getAgentToolRestrictions} from '../agentTypes/configs'
 import {supportsImageInput} from '../modelCapability'
@@ -181,6 +181,14 @@ function findEffectiveOverride(convId: string): ModelOverride | null {
 }
 
 /**
+ * 未显式指定 modelRole 时的默认起始角色：
+ * 主会话 primary；agentTool 子会话（traceContext='subAgent'）lightweight。
+ */
+export function defaultRoleForTrace(traceContext?: string): ModelRole {
+    return traceContext === 'subAgent' ? 'lightweight' : 'primary'
+}
+
+/**
  * 根据「会话 override → 显式 modelRole → 默认降级链」三级决策选择模型
  * - 会话 override：绕过角色直接解析该模型（directModel），失效则降级默认 primary + warning
  *   ★ 优先级最高：agentTool 子会话创建时已把 modelRole 固化为子会话 override
@@ -190,14 +198,6 @@ function findEffectiveOverride(convId: string): ModelOverride | null {
  * - 默认：primary 角色（fallback 链 primary→lightweight→reasoning，见 modelSelector）
  * - 图片消息：loop 始终使用当前决策模型，图片分析由 analyze_image 内置工具调用视觉理解模型处理
  */
-/**
- * 未显式指定 modelRole 时的默认起始角色：
- * 主会话 primary；agentTool 子会话（traceContext='subAgent'）lightweight。
- */
-export function defaultRoleForTrace(traceContext?: string): ModelRole {
-    return traceContext === 'subAgent' ? 'lightweight' : 'primary'
-}
-
 export function* selectModelForTurn(
     schemeConfig: RunParams['schemeConfig'],
     sessionId?: string,
@@ -376,12 +376,12 @@ export async function filterTools(
 ): Promise<ToolDefinitionForLLM[]> {
     const preCapability = baseTools ?? await filterToolsForDegrade(agentDefinition, agentType)
 
-    // ★ 能力驱动过滤（精确名匹配，不误伤 MCP 前缀工具）
-    if (supportsImageInput(modelId, customModelTypes)) {
-        return preCapability.filter(d => d.name !== 'analyze_image')
-    }
-
-    return preCapability
+    // ★ 能力驱动过滤（精确名匹配，不误伤 MCP 前缀工具）：
+    //   具备视觉 → 暴露 load_image、隐藏 analyze_image；否则反之（两分支互斥）。
+    const supportsImg = supportsImageInput(modelId, customModelTypes)
+    return preCapability.filter(d =>
+        supportsImg ? d.name !== 'analyze_image' : d.name !== 'load_image',
+    )
 }
 
 // ─── 系统提示词构建 ────────────────────────────────────────
@@ -398,8 +398,9 @@ export interface BuildSystemPromptParams {
     /** 数据库缓存的系统提示词，无新指令时直接复用，跳过完整构建 */
     cachedSystemPrompt?: string | null
     /**
-     * 当前 system 签名（f(workingDir, agentType, agentDefinition, customInstructions)），
-     * 由 controller 计算并写入缓存载荷。缓存复用守卫：签名一致才复用。
+     * 当前 system 签名（f(workingDir, agentType, customInstructions)；agentDefinition
+     * 已移出 system，不入签名），由 controller 计算并写入缓存载荷。
+     * 缓存复用守卫：签名一致才复用。
      */
     cacheSignature?: string | null
     /** 缓存载荷中记录的构建时签名；与 cacheSignature 不一致 → 强制重建 */
@@ -421,8 +422,9 @@ export async function buildSystemPrompt(params: BuildSystemPromptParams): Promis
         cachedSignature,
     } = params
 
-    // ★ 缓存命中：无新命令、DB 有缓存、且 system 签名（agentType / agentDefinition /
-    //   customInstructions / workingDir）与缓存构建时一致 → 跳过整个构建。
+    // ★ 缓存命中：无新命令、DB 有缓存、且 system 签名（workingDir / agentType /
+    //   customInstructions；agentDefinition 已移出 system，不入签名）与缓存构建时一致
+    //   → 跳过整个构建。
     //   日期/权限模式已移出 system，签名不含它们，system 可跨天、跨权限模式复用。
     if (!commandContext && cachedSystemPrompt && cacheSignature != null && cacheSignature === cachedSignature) {
         logger.info('[AgentLoop] cache hit: reusing cached system prompt')

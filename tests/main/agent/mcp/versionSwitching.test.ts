@@ -1,5 +1,6 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest'
 import {buildNpxVersionArgs} from '@/main/agent/mcp/versionUtils'
+import {createSeededVersionStore} from './helpers/seededVersionStore'
 
 // vi.hoisted for shared mock state
 const {cpMock, mcpServiceMock, mcpWorkerManagerMock, pluginVersionManagerMock} = vi.hoisted(() => ({
@@ -38,7 +39,6 @@ vi.mock('@/main/agent/mcp/mcpWorkerManager', () => ({mcpWorkerManager: mcpWorker
 vi.mock('@/main/services/mcpService', () => ({mcpService: mcpServiceMock}))
 vi.mock('@/main/plugin/versionManager', () => ({versionManager: pluginVersionManagerMock}))
 vi.mock('@/main/agent/logger', () => ({createLogger: () => ({info: vi.fn(), warn: vi.fn(), error: vi.fn()})}))
-vi.mock('@/main/agent/mcp/bootstrap', () => ({}))
 vi.mock('@/main/config/mcpConfig', () => ({readMcpConfig: () => [], writeMcpConfig: () => true}))
 
 import {McpVersionManager} from '@/main/agent/mcp/versionManager'
@@ -70,21 +70,24 @@ describe('buildNpxVersionArgs', () => {
 
 describe('McpVersionManager.switchVersion', () => {
   let manager: McpVersionManager
+  let seeded: ReturnType<typeof createSeededVersionStore>
 
   beforeEach(() => {
     vi.clearAllMocks()
-    manager = new McpVersionManager()
-    // Pre-populate versionMap for npx test
-    ;(manager as any).versionMap.set('mcp-npx', {
-      current: '1.0.0', latest: '2.0.0', hasUpdate: true,
-      sourceType: 'npx', lastChecked: Date.now(),
-      availableVersions: ['1.0.0', '1.5.0', '2.0.0'],
+    // Seed persisted version state before construction (versionMap is private now)
+    seeded = createSeededVersionStore({
+      'mcp-npx': {
+        current: '1.0.0', latest: '2.0.0', hasUpdate: true,
+        sourceType: 'npx', lastChecked: Date.now(),
+        availableVersions: ['1.0.0', '1.5.0', '2.0.0'],
+      },
+      'mcp-plugin': {
+        current: 'v1.0', latest: 'v2.0', hasUpdate: true,
+        sourceType: 'plugin', lastChecked: Date.now(),
+        availableVersions: ['v1.0', 'v1.5', 'v2.0'],
+      },
     })
-    ;(manager as any).versionMap.set('mcp-plugin', {
-      current: 'v1.0', latest: 'v2.0', hasUpdate: true,
-      sourceType: 'plugin', lastChecked: Date.now(),
-      availableVersions: ['v1.0', 'v1.5', 'v2.0'],
-    })
+    manager = new McpVersionManager({store: seeded.store})
   })
 
   it('switches npx server by modifying args and restarting', async () => {
@@ -106,7 +109,7 @@ describe('McpVersionManager.switchVersion', () => {
     // Verify restart was called
     expect(mcpWorkerManagerMock.restartServer).toHaveBeenCalledWith('mcp-npx')
     // Verify versionMap reflects the re-probed state (detect mock: pinned current, latest from execAsync stdout)
-    const meta = (manager as any).versionMap.get('mcp-npx')
+    const meta = seeded.getSnapshot()['mcp-npx']
     expect(meta.current).toBe('1.5.0')
     expect(meta.latest).toBe('2.0.0')
   })
@@ -119,7 +122,7 @@ describe('McpVersionManager.switchVersion', () => {
     })
     mcpServiceMock.update.mockReturnValue(true)
     mcpWorkerManagerMock.restartServer.mockResolvedValue({success: false})
-    const oldMeta = {...(manager as any).versionMap.get('mcp-npx')}
+    const oldMeta = {...seeded.getSnapshot()['mcp-npx']}
 
     const result = await manager.switchVersion('mcp-npx', '2.0.0')
 
@@ -130,7 +133,7 @@ describe('McpVersionManager.switchVersion', () => {
     const secondCall = mcpServiceMock.update.mock.calls[1]
     expect(secondCall[1].args).toEqual(['-y', '@upstash/context7-mcp'])
     // Verify versionMap restored to pre-switch state
-    expect((manager as any).versionMap.get('mcp-npx')).toEqual(oldMeta)
+    expect(seeded.getSnapshot()['mcp-npx']).toEqual(oldMeta)
   })
 
   it('returns success with optimistic versionMap state when re-probe fails', async () => {
@@ -152,7 +155,7 @@ describe('McpVersionManager.switchVersion', () => {
       args: expect.arrayContaining(['@upstash/context7-mcp@2.0.0']),
     }))
     // versionMap reflects optimistic state: pinned version, no update available
-    const meta = (manager as any).versionMap.get('mcp-npx')
+    const meta = seeded.getSnapshot()['mcp-npx']
     expect(meta.current).toBe('2.0.0')
     expect(meta.hasUpdate).toBe(false)
     expect(meta.availableVersions).toEqual(['1.0.0', '1.5.0', '2.0.0'])
@@ -175,7 +178,7 @@ describe('McpVersionManager.switchVersion', () => {
     expect(result.success).toBe(true)
     expect(pluginVersionManagerMock.switchVersion).toHaveBeenCalledWith('ecc', 'v2.0')
     // Verify versionMap reflects pluginVersionManager cache
-    const meta = (manager as any).versionMap.get('mcp-plugin')
+    const meta = seeded.getSnapshot()['mcp-plugin']
     expect(meta.current).toBe('v2.0')
     expect(meta.latest).toBe('v2.0')
     expect(meta.hasUpdate).toBe(false)
@@ -184,20 +187,26 @@ describe('McpVersionManager.switchVersion', () => {
   })
 
   it('rejects url sourceType', async () => {
-    ;(manager as any).versionMap.set('mcp-url', {
-      current: null, latest: null, hasUpdate: null,
-      sourceType: 'url', lastChecked: Date.now(), availableVersions: [],
+    seeded = createSeededVersionStore({
+      'mcp-url': {
+        current: null, latest: null, hasUpdate: null,
+        sourceType: 'url', lastChecked: Date.now(), availableVersions: [],
+      },
     })
+    manager = new McpVersionManager({store: seeded.store})
     const result = await manager.switchVersion('mcp-url', '1.0.0')
     expect(result.success).toBe(false)
     expect(result.error).toBe('unsupported_source_type')
   })
 
   it('rejects binary sourceType (upgrade detection disabled)', async () => {
-    ;(manager as any).versionMap.set('mcp-binary', {
-      current: null, latest: null, hasUpdate: null,
-      sourceType: 'binary', lastChecked: Date.now(), availableVersions: [],
+    seeded = createSeededVersionStore({
+      'mcp-binary': {
+        current: null, latest: null, hasUpdate: null,
+        sourceType: 'binary', lastChecked: Date.now(), availableVersions: [],
+      },
     })
+    manager = new McpVersionManager({store: seeded.store})
     const result = await manager.switchVersion('mcp-binary', '1.0.0')
     expect(result.success).toBe(false)
     expect(result.error).toBe('unsupported_source_type')

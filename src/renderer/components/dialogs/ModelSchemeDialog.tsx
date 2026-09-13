@@ -10,6 +10,9 @@ import {
 } from '../../stores/modelSchemeStore'
 import {useLLMStore} from '../../stores/llmStore'
 import {createDefaultRoles, MODEL_ROLE_INFO, resolveRoleDisplay} from '@shared/modelSchemeHelpers'
+import {AudioFileIcon, BrainIcon, ChatIcon, ImageFileIcon, InfoIcon, TargetIcon, VideoFileIcon} from '../icons'
+import type {IconProps} from '../icons'
+import type {ComponentType} from 'react'
 import {getEffortOptions} from '@shared/thinkingEffort'
 import ThemedSelect, {type ThemedSelectOption} from '../ThemedSelect'
 
@@ -77,6 +80,18 @@ const MODEL_TYPE_CONFIG = [
 ] as const
 
 const MODEL_TYPE_ICON_MAP = Object.fromEntries(MODEL_TYPE_CONFIG.map(t => [t.value, t.icon]))
+
+// ─── Role Icons ──────────────────────────────────────────────────────────────
+// MODEL_ROLE_INFO.icon 是持久化字符串字段（ModelSchemeRole.icon），不能存组件；
+// 展示层在此按 role 映射到图标库，末尾 fallback 覆盖自定义 role。
+const ROLE_ICONS: Record<string, ComponentType<IconProps>> = {
+    primary: TargetIcon,
+    lightweight: ChatIcon,
+    reasoning: BrainIcon,
+    image_understanding: ImageFileIcon,
+    audio_understanding: AudioFileIcon,
+    video_understanding: VideoFileIcon,
+}
 
 // ─── Role Groups by Model Type ───────────────────────────────────────────────
 
@@ -228,7 +243,8 @@ export default function ModelSchemeDialog() {
         const activeModel = activeProvider?.models.find(m => m.id === llmState.activeModelId)
 
         const id = createFromPreset(presetId)
-        if (id && activeProvider && activeModel) {
+        if (!id) return
+        if (activeProvider && activeModel) {
             // 用当前激活的 provider/model 初始化 primary 角色
             updateScheme(id, {
                 roles: (schemes.find(s => s.id === id)?.roles || []).map(r =>
@@ -237,14 +253,10 @@ export default function ModelSchemeDialog() {
                         : r
                 ),
             })
-            setSelectedSchemeId(id)
-            setIsEditingName(true)
-            setShowPresetPicker(false)
-        } else if (id) {
-            setSelectedSchemeId(id)
-            setIsEditingName(true)
-            setShowPresetPicker(false)
         }
+        setSelectedSchemeId(id)
+        setIsEditingName(true)
+        setShowPresetPicker(false)
     }
 
     // 渲染时优先使用本地草稿
@@ -303,7 +315,7 @@ export default function ModelSchemeDialog() {
                     </button>
                     <button
                         onClick={() => setShowPresetPicker(!showPresetPicker)}
-                        className="w-full px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-50 rounded transition-colors flex items-center justify-center gap-1"
+                        className="w-full px-2 py-1.5 text-xs text-gray-500 hover:bg-[var(--surface-overlay)] rounded transition-colors flex items-center justify-center gap-1"
                      data-name="model-scheme-dialog-toggle-preset-picker-button">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                              strokeWidth="2">
@@ -323,14 +335,16 @@ export default function ModelSchemeDialog() {
                                 className="overflow-hidden"
                             >
                                 <div className="py-1 space-y-0.5">
-                                    {presetTemplates.map((preset, i) => (
+                                    {presetTemplates.map((preset, i) => {
+                                        const PresetIcon = preset.icon
+                                        return (
                                         <button
                                             key={preset.id}
                                             onClick={() => handleCreateFromPreset(preset.id)}
-                                            className="w-full px-2 py-1.5 text-left text-xs rounded hover:bg-gray-50 transition-colors"
+                                            className="w-full px-2 py-1.5 text-left text-xs rounded hover:bg-[var(--surface-overlay)] transition-colors"
                                          data-name={`model-scheme-dialog-preset-${i}`}>
                                             <div className="flex items-center gap-1.5">
-                                                <span>{preset.icon}</span>
+                                                <PresetIcon className="w-3.5 h-3.5 shrink-0"/>
                                                 <div>
                                                     <div className="text-gray-700">{preset.name}</div>
                                                     <div
@@ -338,7 +352,8 @@ export default function ModelSchemeDialog() {
                                                 </div>
                                             </div>
                                         </button>
-                                    ))}
+                                        )
+                                    })}
                                 </div>
                             </motion.div>
                         )}
@@ -384,7 +399,7 @@ export default function ModelSchemeDialog() {
                                 {!isEditingName && (
                                     <button
                                         onClick={() => setIsEditingName(true)}
-                                        className="p-0.5 text-gray-300 hover:text-brand-500 transition-colors"
+                                        className="p-0.5 text-[var(--text-muted)] hover:text-brand-500 transition-colors"
                                         title="重命名"
                                      data-name="model-scheme-dialog-rename-button">
                                         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -406,7 +421,7 @@ export default function ModelSchemeDialog() {
                                         setLocalScheme({...displayScheme, description: e.target.value})
                                     }
                                     placeholder="可选的方案描述..."
-                                    className="w-full px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-md text-gray-700 placeholder-gray-300 focus:border-brand-300 focus:outline-none"
+                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--surface-muted)] border border-gray-200 rounded-md text-gray-700 placeholder-gray-300 focus:border-brand-300 focus:outline-none"
                                 data-name="model-scheme-dialog-description-input"/>
                             </div>
 
@@ -538,7 +553,7 @@ function SchemeListItem({
             className={`w-full group px-2.5 py-2 rounded transition-colors flex items-center justify-between cursor-pointer ${
                 isSelected
                     ? 'bg-[var(--brand-muted)] text-[var(--brand-primary)]'
-                    : 'text-gray-700 hover:bg-gray-50'
+                    : 'text-gray-700 hover:bg-[var(--surface-overlay)]'
             }`}
          data-name="model-scheme-dialog-div">
             <div className="flex items-center gap-1.5 min-w-0">
@@ -574,7 +589,7 @@ function SchemeListItem({
                         e.stopPropagation()
                         duplicateScheme(scheme.id)
                     }}
-                    className="p-0.5 text-gray-300 hover:text-brand-500 transition-colors"
+                    className="p-0.5 text-[var(--text-muted)] hover:text-brand-500 transition-colors"
                     title="克隆此方案"
                  data-name="model-scheme-dialog-clone-button">
                     <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -594,7 +609,7 @@ function SchemeListItem({
                 ) : (
                     <button
                         onClick={handleDelete}
-                        className="p-0.5 text-gray-300 hover:text-red-400 transition-colors"
+                        className="p-0.5 text-[var(--text-muted)] hover:text-red-400 transition-colors"
                         title="删除"
                      data-name="model-scheme-dialog-delete-button">
                         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -621,6 +636,7 @@ function RoleConfigEditor({
 }) {
     const {providers} = useLLMStore()
     const roleDisplay = resolveRoleDisplay(role)
+    const RoleIcon = ROLE_ICONS[role.role] || InfoIcon
     const isText = config.modelType === 'text'
 
     const selectedProvider = providers.find((p) => p.id === config.endpointId)
@@ -689,7 +705,7 @@ function RoleConfigEditor({
             {/* Header: icon + name + description + toggle */}
             <div className="flex items-start justify-between gap-2">
                 <div className="flex items-start gap-2 min-w-0">
-                    <span className="text-base mt-0.5 shrink-0">{roleDisplay.icon}</span>
+                    <RoleIcon className="w-4 h-4 mt-0.5 shrink-0 text-gray-400"/>
                     <div className="min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
                             <div className="text-sm font-medium text-gray-800 leading-tight">{roleDisplay.name}</div>

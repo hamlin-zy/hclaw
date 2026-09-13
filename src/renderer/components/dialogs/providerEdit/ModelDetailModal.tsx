@@ -6,7 +6,7 @@
  * - 运行时参数：留空 = 不落库，placeholder 显示兜底值（来源经 resolveModelParams）
  * - 「确定」：validateModelDetailDraft 门禁 → commitRow 折算价格 → commitModelDetail
  *   组装 → onConfirm(next)（父级不落库，随外层「保存」一并持久化）
- * - 「取消」/遮罩/✕ 直接 onClose 丢弃全部编辑
+ * - 「取消」/遮罩/关闭按钮 直接 onClose 丢弃全部编辑
  */
 import {useEffect, useMemo, useState} from 'react'
 import type {ModelType, ProviderModel} from '@shared/types'
@@ -15,6 +15,7 @@ import {tokenToPerM} from '@shared/pricing'
 import {commitRow, displayEnteredCell, reverseHintPrice, formatPrice, type PriceEdits, type PriceField} from '../../../lib/priceEditing'
 import {commitModelDetail, validateModelDetailDraft, type ModelDetailDraft} from '../../../lib/modelDetailCommit'
 import {resolveModelParams, DEFAULT_MAX_CONTEXT_TOKENS} from '@shared/modelParams'
+import {RemoveIcon} from '../../icons'
 
 const PRICE_FIELDS: Array<{key: PriceField; label: string}> = [
   {key: 'input', label: '输入价'},
@@ -69,7 +70,7 @@ function InfoTip({children}: {children: React.ReactNode}) {
         const top = Math.min(pos.y + 6, window.innerHeight - H - pad)
         return (
           <span
-            className="fixed z-[100001] block w-[230px] rounded-lg bg-gray-800 px-2.5 py-2 text-left text-[11px] font-normal leading-relaxed tracking-normal text-gray-200 pointer-events-none"
+            className="fixed z-[100001] block w-[230px] rounded-lg bg-gray-800 px-2.5 py-2 text-left text-[11px] font-normal leading-relaxed tracking-normal text-[var(--text-secondary)] pointer-events-none"
             style={{left, top}}>
             {children}
           </span>
@@ -216,7 +217,7 @@ export function ModelDetailModal({open, providerName, model, settingsDefaults, r
     // 价格折算（录入即真）：commitRow 返回 undefined = 无价（不注入 pricing）
     const pricing = commitRow(localModel.pricing, priceEdits, currency, rate)
     const next = commitModelDetail(localModel, draft)
-    onConfirm(pricing !== undefined ? {...next, pricing} : {...next, pricing: undefined})
+    onConfirm({...next, pricing})
     onClose()
   }
 
@@ -228,7 +229,7 @@ export function ModelDetailModal({open, providerName, model, settingsDefaults, r
           <div>
             <h2 className="text-[15px] font-semibold text-gray-700">{providerName} / {model.name}</h2>
           </div>
-          <button onClick={onClose} className="rounded-md px-1.5 py-0.5 text-lg leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-600" data-name="model-detail-modal-close">✕</button>
+          <button onClick={onClose} className="rounded-md px-1.5 py-0.5 leading-none text-gray-400 hover:bg-[var(--surface-overlay)] hover:text-gray-600 flex items-center" data-name="model-detail-modal-close"><RemoveIcon className="w-4 h-4"/></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -268,7 +269,7 @@ export function ModelDetailModal({open, providerName, model, settingsDefaults, r
             <div className="mb-1.5 flex items-center justify-between">
               <label className="text-xs font-medium text-gray-500">价格（{curSymbol} / 百万 token）</label>
               <div className="flex items-center gap-2">
-                <span className="text-[9px] text-gray-300">按实时汇率 {formatPrice(rate)} 折算自 OpenRouter 美元价</span>
+                <span className="text-[9px] text-[var(--text-secondary)]">按实时汇率 {formatPrice(rate)} 折算自 OpenRouter 美元价</span>
                 <div className="flex overflow-hidden rounded-md border border-gray-200 text-[10px]">
                   {(['USD', 'CNY'] as Currency[]).map(c => (
                     <button key={c} onClick={() => setCurrency(c)} data-name={`model-detail-currency-${c}`}
@@ -294,9 +295,9 @@ export function ModelDetailModal({open, providerName, model, settingsDefaults, r
                         className={'w-full rounded-lg border border-gray-200 px-2.5 py-[7px] pr-6 text-right text-[13px] text-gray-700 outline-none transition-colors focus:border-brand-300 ' +
                           (cell.placeholder ? 'border-dashed placeholder:text-cyan-700 placeholder:opacity-80' : '')}
                       />
-                      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-300">{curSymbol}</span>
+                      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[var(--text-secondary)]">{curSymbol}</span>
                     </div>
-                    <div className="mt-0.5 text-right text-[9px] text-gray-300">{reverseHint(key)}</div>
+                    <div className="mt-0.5 text-right text-[9px] text-[var(--text-secondary)]">{reverseHint(key)}</div>
                   </div>
                 )
               })}
@@ -317,7 +318,7 @@ export function ModelDetailModal({open, providerName, model, settingsDefaults, r
 
           <div className="mb-3.5 grid grid-cols-3 gap-2.5">
             <div>
-              <div className="mb-1.5 flex items-center gap-1 text-xs font-medium text-gray-500">最大上下文 <span className="text-[10px] font-normal text-gray-300">tokens</span>
+              <div className="mb-1.5 flex items-center gap-1 text-xs font-medium text-gray-500">最大上下文 <span className="text-[10px] font-normal text-[var(--text-secondary)]">tokens</span>
                 <InfoTip><b className="font-semibold text-amber-400">影响实际请求。</b>用于自动交接阈值判断。优先级：自定义填写 → OpenRouter 匹配 → 1M 兜底。</InfoTip>
               </div>
               <input value={draft.maxContextTokens} inputMode="numeric" placeholder={ctxPh}
@@ -325,11 +326,11 @@ export function ModelDetailModal({open, providerName, model, settingsDefaults, r
                 data-name="model-detail-max-context"
                 className={'w-full rounded-lg border border-gray-200 px-2.5 py-[7px] text-[13px] text-gray-700 outline-none transition-colors focus:border-brand-300 ' + sourceClass(resolved.maxContextTokens.source)} />
               {resolved.maxContextTokens.source !== 'openrouter' && (
-                <div className="mt-1 text-[10px] leading-snug text-gray-300">无匹配兜底 {DEFAULT_MAX_CONTEXT_TOKENS}</div>
+                <div className="mt-1 text-[10px] leading-snug text-[var(--text-secondary)]">无匹配兜底 {DEFAULT_MAX_CONTEXT_TOKENS}</div>
               )}
             </div>
             <div>
-              <div className="mb-1.5 flex items-center gap-1 text-xs font-medium text-gray-500">温度 <span className="text-[10px] font-normal text-gray-300">0–2</span>
+              <div className="mb-1.5 flex items-center gap-1 text-xs font-medium text-gray-500">温度 <span className="text-[10px] font-normal text-[var(--text-secondary)]">0–2</span>
                 <InfoTip><b className="font-semibold text-amber-400">影响实际请求。</b>采样温度。优先级：自定义填写 → 系统设置「默认温度」。推理模型自动忽略此参数。</InfoTip>
               </div>
               <input value={draft.temperature} inputMode="decimal" placeholder={tempPh}
@@ -338,7 +339,7 @@ export function ModelDetailModal({open, providerName, model, settingsDefaults, r
                 className={'w-full rounded-lg border border-gray-200 px-2.5 py-[7px] text-[13px] text-gray-700 outline-none transition-colors focus:border-brand-300 ' + sourceClass(resolved.temperature.source)} />
             </div>
             <div>
-              <div className="mb-1.5 flex items-center gap-1 text-xs font-medium text-gray-500">最大输出 <span className="text-[10px] font-normal text-gray-300">tokens</span>
+              <div className="mb-1.5 flex items-center gap-1 text-xs font-medium text-gray-500">最大输出 <span className="text-[10px] font-normal text-[var(--text-secondary)]">tokens</span>
                 <InfoTip><b className="font-semibold text-amber-400">影响实际请求。</b>单次响应输出上限，超限被截断。优先级：自定义填写 → 系统设置「默认最大 Token 数」。</InfoTip>
               </div>
               <input value={draft.maxOutputTokens} inputMode="numeric" placeholder={outPh}
@@ -351,11 +352,11 @@ export function ModelDetailModal({open, providerName, model, settingsDefaults, r
 
         {/* 底部 */}
         <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">
-          <span className="max-w-[260px] text-[10px] leading-relaxed text-gray-300">
+          <span className="max-w-[260px] text-[10px] leading-relaxed text-[var(--text-secondary)]">
             {(error ?? liveError) && <span className="text-red-500">{error ?? liveError}</span>}
           </span>
           <div className="flex gap-2">
-            <button onClick={onClose} data-name="model-detail-cancel" className="rounded-lg px-3.5 py-[7px] text-[13px] text-gray-500 hover:bg-gray-100">取消</button>
+            <button onClick={onClose} data-name="model-detail-cancel" className="rounded-lg px-3.5 py-[7px] text-[13px] text-gray-500 hover:bg-[var(--surface-overlay)]">取消</button>
             <button onClick={handleConfirm} disabled={liveError !== null} data-name="model-detail-confirm"
               className="rounded-lg bg-brand-500 px-[18px] py-[7px] text-[13px] font-medium text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-40">确定</button>
           </div>

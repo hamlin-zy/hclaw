@@ -21,6 +21,13 @@ const POOL_WITH_VISION = [
     makeToolDefinition('analyze_image'),
 ]
 
+// 能力互斥池：同时含 analyze_image 与 load_image
+const POOL_WITH_BOTH = [
+    ...POOL,
+    makeToolDefinition('analyze_image'),
+    makeToolDefinition('load_image'),
+]
+
 function planDefinition(): AgentDefinition {
     return {
         source: 'user',
@@ -71,6 +78,7 @@ describe('filterTools 分派逻辑', () => {
         // 清理能力过滤用例注册的工具（registry 为全局单例）
         toolRegistry.unregister('analyze_image')
         toolRegistry.unregister('mcp__server__analyze_image')
+        toolRegistry.unregister('load_image')
     })
 
     it('agentDefinition 存在 → 按 agent 白名单过滤（Plan 只读 3 工具）', async () => {
@@ -134,6 +142,25 @@ describe('filterTools 分派逻辑', () => {
         const result = await filterTools(planDefinition(), 'General', 'any-model')
         expect(result.map(t => t.name).sort()).toEqual(['file_read', 'glob', 'grep'])
     })
+
+    it('多模态模型 → 暴露 load_image、隐藏 analyze_image', async () => {
+        vi.spyOn(modelCapability, 'supportsImageInput').mockReturnValue(true)
+        if (!toolRegistry.has('load_image')) toolRegistry.register(makeTool('load_image'))
+        if (!toolRegistry.has('analyze_image')) toolRegistry.register(makeTool('analyze_image'))
+        vi.spyOn(toolRegistry, 'getToolDefinitions').mockResolvedValue(POOL_WITH_BOTH)
+        const names = (await filterTools(undefined, 'General', 'm', undefined, POOL_WITH_BOTH)).map(t => t.name)
+        expect(names).toContain('load_image')
+        expect(names).not.toContain('analyze_image')
+    })
+
+    it('非多模态模型 → 隐藏 load_image、保留 analyze_image', async () => {
+        vi.spyOn(modelCapability, 'supportsImageInput').mockReturnValue(false)
+        if (!toolRegistry.has('load_image')) toolRegistry.register(makeTool('load_image'))
+        vi.spyOn(toolRegistry, 'getToolDefinitions').mockResolvedValue(POOL_WITH_BOTH)
+        const names = (await filterTools(undefined, 'General', 'm', undefined, POOL_WITH_BOTH)).map(t => t.name)
+        expect(names).toContain('analyze_image')
+        expect(names).not.toContain('load_image')
+    })
 })
 
 describe('filterToolsForDegrade（400 降级恢复用白名单后列表）', () => {
@@ -154,6 +181,7 @@ describe('filterToolsForDegrade（400 降级恢复用白名单后列表）', () 
         // 清理能力过滤用例注册的工具（registry 为全局单例）
         toolRegistry.unregister('analyze_image')
         toolRegistry.unregister('mcp__server__analyze_image')
+        toolRegistry.unregister('load_image')
     })
 
     it('filterToolsForDegrade：不含能力过滤（多模态模型仍含 analyze_image）', async () => {

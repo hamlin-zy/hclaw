@@ -360,13 +360,20 @@ export function DiffViewer({data, viewMode, navSignal, onSelectionChange}: {data
     })
   }, [])
 
+  // 进入 side-by-side 时，把虚拟化状态**重新对齐**到滚动容器的真实位置。
+  // 依赖 viewMode 而不只是挂载：sbs 与 inline/unified 共用同一个 `.pm-diff-scroll` 节点，
+  // 但只有 sbs 分支挂了 onScroll。用户在 inline/unified 下纵向滚动（或浏览器因内容高度变化
+  // 对 scrollTop 重新钳制）时，DOM 的 scrollTop 变了而 React 的 vScroll 没变；切回 sbs 时
+  // 若不再同步，虚拟化窗口仍按旧的 vScroll 计算 → 渲染行被放到视口之外（顶部撑高块独占视口）
+  // → 整片空白，直到用户滚动一下触发 onScroll 才恢复。这里在每次 viewMode 变化后、paint 前
+  // 同步，保证「渲染窗口 ≡ scrollTop」这一不变量在模式切换后立即成立。
   useLayoutEffect(() => {
     const el = sbsScrollRef.current
     if (!el) return
     setVScroll(el.scrollTop)
     setVHeight(el.clientHeight)
     return () => { if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0 } }
-  }, [])
+  }, [viewMode])
 
   // 切 diff 文件（data 变化）时重置虚拟化状态：
   // vScroll 从上一个文件残留 → 可见范围超出新文件的行数 → 内容空白
@@ -444,13 +451,8 @@ export function DiffViewer({data, viewMode, navSignal, onSelectionChange}: {data
 
     return () => {
       ro?.disconnect()
-      contentWSetRef.current = false
-      geomSetRef.current = false
-      maxSxSetRef.current = false
-      scroller.style.removeProperty('--pm-diff-content-w')
-      scroller.style.removeProperty('--pm-diff-view-w')
-      scroller.style.removeProperty('--pm-diff-half')
-      scroller.style.removeProperty('--pm-diff-max-sx')
+      // 与 measure() 内部的清场逻辑同源：复位三个标记并抹掉已写的变量
+      clearAll()
     }
     // tokens 也要重测：注释等着色片段带 font-style: italic，可能微调字宽
   }, [viewMode, data, tokens, vHeight])

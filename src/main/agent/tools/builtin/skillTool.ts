@@ -88,7 +88,7 @@ function findSkill(nameOrId: string): SkillDefinition | undefined {
 
 export const skillTool: Tool<SkillToolInput, SkillToolOutput> = {
   name: SKILL_TOOL_NAME,
-  description: '调用技能来执行特定任务。当用户请求匹配技能时使用此工具。Names shown in the session catalog are an index only; call describe_skills when you need details before invoking.',
+  description: '调用技能来执行特定任务。当用户请求匹配技能时使用此工具。Names shown in the session catalog are an index only; when you already know the exact skill name, call describe_skills passing it in `names` to fetch its details before invoking.',
   inputSchema,
 
   async execute(args: SkillToolInput, _context: ToolContext): Promise<ToolResult<SkillToolOutput>> {

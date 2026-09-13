@@ -73,20 +73,28 @@ describe('GitStatusPanel 行结构（spec §7）', () => {
     expect(css.match(/^\.pm-untracked-section \{/gm) ?? []).toHaveLength(1)
   })
 
-  it('底部统计行按 spec §7 的格式', () => {
+  it('底部统计行已移除（统计只留在头部摘要与状态栏，不在面板内重复）', () => {
     render(<GitStatusPanel workspace="/ws" />)
-    expect(screen.getByTestId('pm-changes-summary')).toHaveTextContent('已更改 3 个文件 · +46 · −4')
+    expect(screen.queryByTestId('pm-changes-summary')).toBeNull()
+    expect(screen.getByRole('tree')).toBeInTheDocument()
   })
 
-  it('无变更时显示空态', () => {
+  it('无变更时显示空态（含提示语与图标）', () => {
     useGitStatusStore.setState({summary: {statusMap: {}, additions: 0, deletions: 0, updatedAt: 0} as never})
     render(<GitStatusPanel workspace="/ws" />)
-    expect(screen.getByText('工作区干净')).toBeInTheDocument()
+    expect(screen.getByText('工作区干净 · 没有待提交的改动')).toBeInTheDocument()
+    expect(document.querySelector('.pm-empty-state-icon')).not.toBeNull()
+    // 空态下计数不渲染（0 是噪声）
+    expect(document.querySelector('.pm-panel-header-count')).toBeNull()
   })
 
-  it('分组标题带对应状态色的徽章', () => {
+  it('分组标题是中性结构标签（不挂状态色；颜色只留给文件行与状态字母）', () => {
     render(<GitStatusPanel workspace="/ws" />)
-    expect(screen.getByText(/已修改/)).toHaveClass('pm-c--M')
+    for (const re of [/已修改/, /已新增/, /未跟踪文件/]) {
+      const title = screen.getByText(re)
+      expect(title).toHaveClass('pm-group-title')
+      expect(title.className).not.toMatch(/pm-c--/)
+    }
   })
 
   it('所有分组标题都走 pm-group-title（spec §7 加粗）且不沾文件行装饰', () => {

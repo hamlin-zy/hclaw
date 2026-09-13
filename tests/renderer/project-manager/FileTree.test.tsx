@@ -68,8 +68,13 @@ describe('FileTree', () => {
     ])
     render(<FileTree />)
     expect(await screen.findByText('src')).toBeInTheDocument()
-    // 状态色走令牌（.pm-c--M → var(--vcs-modified)），不再写死 Darcula hex
-    expect(screen.getByText('a.ts')).toHaveStyle({color: 'var(--vcs-modified)'})
+    // 状态色走令牌（.pm-c--M → var(--vcs-modified)）且只落在状态字母上；
+    // 文件名不染**状态**色，改按**文件类型**着色（.pm-file-name.pm-ft--code → var(--ft-code)）
+    const fileName = screen.getByText('a.ts')
+    expect(fileName).toHaveClass('pm-c--M')
+    expect(fileName).toHaveClass('pm-ft--code')
+    expect(fileName).toHaveStyle({color: 'var(--ft-code)'})
+    expect(document.querySelector('.pm-status-badge')).toHaveStyle({color: 'var(--vcs-modified)'})
   })
 
   it('根节点存在（workspace 基名 "ws"）且默认展开', async () => {

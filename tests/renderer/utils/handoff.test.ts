@@ -19,4 +19,14 @@ describe('buildHandoffMessage（发送前交接模板）', () => {
     expect(result).toContain('总结当前对话历史，准备交接(session_handoff)到新会话执行：')
     expect(result).toContain('【重要】若希望新会话自动启动特定技能/代理')
   })
+  it('含「复用清单」段要求与 toolCallId 回读指引', () => {
+    const result = buildHandoffMessage('继续任务')
+    expect(result).toContain('复用清单')
+    expect(result).toContain('toolCallId')
+  })
+  it('复用清单约束为只写指针、禁止新建交接文件', () => {
+    const result = buildHandoffMessage('继续任务')
+    expect(result).toContain('只写指针')
+    expect(result).toContain('严禁为交接新建')
+  })
 })

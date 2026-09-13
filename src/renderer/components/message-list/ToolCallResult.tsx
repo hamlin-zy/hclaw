@@ -23,7 +23,7 @@ export default function ToolCallResult({output, toolCallName}: ToolCallResultPro
 
     return (
         <div>
-            <span data-find-exclude className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">
+            <span data-find-exclude className="text-[10px] text-[var(--text-secondary)] uppercase tracking-wide">
                 {toolCallName === 'file_edit' ? '执行结果' : '输出'}
             </span>
             <div
@@ -47,28 +47,14 @@ export default function ToolCallResult({output, toolCallName}: ToolCallResultPro
 
 /** 判断输出内容是否为音频 URL */
 function isAudioOutput(output: string): boolean {
-    if (!output) return false
     const audioExtensions = ['.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a', '.wma']
     const lowerOutput = output.toLowerCase()
 
-    // 检查是否包含音频扩展名
-    for (const ext of audioExtensions) {
-        if (lowerOutput.includes(ext)) {
-            return true
-        }
-    }
-
-    // 检查是否为 HTTP/HTTPS URL（常见 CDN 音频链接）
-    if (/^https?:\/\/.+\.(mp3|wav|flac|aac|ogg|m4a)(\?.*)?$/i.test(output)) {
-        return true
-    }
+    // 检查是否包含音频扩展名（涵盖常见 CDN 直链）
+    if (audioExtensions.some((ext) => lowerOutput.includes(ext))) return true
 
     // 检查是否包含 Success. Audio URLs 或类似的成功标记
-    if (/Success.*Audio/i.test(output) || /Audio.*URL/i.test(output)) {
-        return true
-    }
-
-    return false
+    return /Success.*Audio/i.test(output) || /Audio.*URL/i.test(output)
 }
 
 /** 从输出中提取音频 URL */
@@ -99,14 +85,7 @@ function extractFileName(output: string): string {
     const url = extractAudioUrl(output)
     if (!url) return 'Audio'
 
-    try {
-        // 从 URL 中提取文件名
-        const urlParts = url.split('/')
-        const lastPart = urlParts[urlParts.length - 1]
-        // 移除查询参数
-        const fileName = lastPart.split('?')[0]
-        return fileName || 'Audio'
-    } catch {
-        return 'Audio'
-    }
+    // 从 URL 中提取文件名，并移除查询参数
+    const lastPart = url.split('/').pop() ?? ''
+    return lastPart.split('?')[0] || 'Audio'
 }

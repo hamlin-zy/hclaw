@@ -60,7 +60,7 @@ const AudioPlayer = memo(function AudioPlayer({url, fileName}: { url: string; fi
             // 从 URL 提取本地路径
             let filePath = ''
             try {
-                // ⚠️ URL.pathname 返回百分号编码形式，必须 decodeURIComponent
+                // URL.pathname 返回百分号编码形式，必须 decodeURIComponent
                 // 否则含空格/中文的路径会找不到文件
                 filePath = decodeURIComponent(new URL(url).pathname).replace(/^[/\\]+/, '')
             } catch {
@@ -175,9 +175,9 @@ const AudioPlayer = memo(function AudioPlayer({url, fileName}: { url: string; fi
     // 加载中：仅显示精简占位（IPC 极快，不会闪烁太久）
     if (loading) {
         return (
-            <div className="my-2 p-3 rounded-lg bg-[var(--surface-muted)]/40 border border-[var(--border)]/30">
+            <div className="my-2 p-3 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)]">
                 {fileName && (
-                    <div className="text-xs text-[var(--text-muted)] mb-2 truncate font-mono">{fileName}</div>
+                    <div className="text-xs text-[var(--text-secondary)] mb-2 truncate font-mono">{fileName}</div>
                 )}
                 <div className="flex items-center justify-center py-4">
                     <div
@@ -188,7 +188,7 @@ const AudioPlayer = memo(function AudioPlayer({url, fileName}: { url: string; fi
     }
 
     return (
-        <div className="my-2 p-3 rounded-lg bg-[var(--surface-muted)]/40 border border-[var(--border)]/30">
+        <div className="my-2 p-3 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)]">
             <audio
                 ref={audioRef}
                 src={src}
@@ -199,7 +199,7 @@ const AudioPlayer = memo(function AudioPlayer({url, fileName}: { url: string; fi
             />
 
             {fileName && (
-                <div className="text-xs text-[var(--text-muted)] mb-2 truncate flex items-center gap-1">
+                <div className="text-xs text-[var(--text-secondary)] mb-2 truncate flex items-center gap-1">
                     <svg className="w-4 h-4 text-pink-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                         <path
                             d="M18 3a1 1 0 00-1.196-.98l-10 2A1 1 0 006 5v9.114A4.369 4.369 0 005 14c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V7.82l8-1.6v5.78A4.37 4.37 0 0015 12c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V3z"/>
@@ -270,7 +270,7 @@ const VideoPlayer = memo(function VideoPlayer({url, caption, width, height}: {
     height?: number;
 }) {
     return (
-        <div className="my-2 rounded-lg overflow-hidden border border-[var(--border)]/30 bg-black/20">
+        <div className="my-2 rounded-lg overflow-hidden border border-[var(--border)] bg-black/20">
             <video
                 controls
                 className="w-full max-h-[70vh] object-contain"
@@ -285,7 +285,7 @@ const VideoPlayer = memo(function VideoPlayer({url, caption, width, height}: {
                 您的浏览器不支持视频播放
             </video>
             {caption && (
-                <div className="px-3 py-2 text-xs text-[var(--text-muted)] border-t border-[var(--border)]/20">
+                <div className="px-3 py-2 text-xs text-[var(--text-secondary)] border-t border-[var(--border-muted)]">
                     {caption}
                 </div>
             )}
@@ -312,7 +312,7 @@ const ImageRenderer = memo(function ImageRenderer({url, caption, width, height}:
                 {/* Loading state */}
                 {!loaded && !error && (
                     <div
-                        className="flex items-center justify-center h-32 rounded-lg bg-[var(--surface-muted)]/30 border border-[var(--border)]/20">
+                        className="flex items-center justify-center h-32 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)]">
                         <div
                             className="w-6 h-6 border-2 border-[var(--border)] border-t-[var(--brand-primary)] rounded-full animate-spin"/>
                     </div>
@@ -321,7 +321,7 @@ const ImageRenderer = memo(function ImageRenderer({url, caption, width, height}:
                 {/* Error state */}
                 {error && (
                     <div
-                        className="flex flex-col items-center justify-center h-32 rounded-lg bg-[var(--surface-muted)]/30 border border-[var(--border)]/20 text-[var(--text-muted)]">
+                        className="flex flex-col items-center justify-center h-32 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--text-muted)]">
                         <svg className="w-8 h-8 mb-1 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                                   d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
@@ -333,7 +333,7 @@ const ImageRenderer = memo(function ImageRenderer({url, caption, width, height}:
                 <img
                     src={url}
                     alt={caption || ''}
-                    className={`rounded-lg border border-[var(--border)]/20 object-contain cursor-pointer transition-opacity hover:opacity-90 ${loaded ? '' : 'hidden'}`}
+                    className={`rounded-lg border border-[var(--border)] object-contain cursor-pointer transition-opacity hover:opacity-90 ${loaded ? '' : 'hidden'}`}
                     style={{
                         maxWidth: '100%',
                         maxHeight: width && height ? `${Math.min(height, 600)}px` : '400px',
@@ -349,7 +349,7 @@ const ImageRenderer = memo(function ImageRenderer({url, caption, width, height}:
                 data-name="media-player-img"/>
 
                 {caption && loaded && (
-                    <div className="mt-1 text-xs text-[var(--text-muted)] text-center">{caption}</div>
+                    <div className="mt-1 text-xs text-[var(--text-secondary)] text-center">{caption}</div>
                 )}
             </div>
 

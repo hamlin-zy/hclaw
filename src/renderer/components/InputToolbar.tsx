@@ -121,9 +121,9 @@ export default function InputToolbar({
     }, [])
 
     return (
-        <div ref={toolbarRef} data-name="input-toolbar" className="flex items-center justify-between px-2 py-1 border-t border-[var(--border)]" role="status" aria-live="polite">
+        <div ref={toolbarRef} data-name="input-toolbar" className="flex items-center justify-between px-2 py-1 border-t border-[var(--border-muted)]" role="status" aria-live="polite">
             {/* 状态区：flex-1 吃满剩余；文案 span 自身可收缩（min-w-0），挤不下时用省略号截断 */}
-            <div data-name="input-toolbar-status" className="flex items-center gap-2 text-xs text-[var(--text-muted)] flex-1 min-w-0 overflow-hidden">
+            <div data-name="input-toolbar-status" className="flex items-center gap-2 text-xs text-[var(--text-secondary)] flex-1 min-w-0 overflow-hidden">
                 <span className="inline-flex items-center gap-2 whitespace-nowrap min-w-0">
                 {/* 模型 + 阶段状态（"模型 思考中/响应中"）已合并至消息气泡底部
                     （MessageList statusNote），运行态不再于输入栏显示文案/脉冲点 */}

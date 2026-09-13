@@ -122,4 +122,8 @@ describe('hclawDbQueryTool', () => {
         expect(r.success).toBe(false)
         expect(r.error).toContain('nope')
     })
+
+    it('工具描述含交接复用 toolCallId 回读配方', () => {
+        expect(hclawDbQueryTool.description).toContain('toolCallId')
+    })
 })

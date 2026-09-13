@@ -176,7 +176,7 @@ export function computeMcpDigest(entries: CatalogEntry[]): string {
 }
 
 const INDEX_DELEGATION_RULES = `Delegation rules:
-- skill: call the \`skill\` tool with the exact skill name before taking task actions. Names are an index only \u2014 call \`describe_skills\` when a name looks relevant but you need to know what it does before invoking it.
+- skill: call the \`skill\` tool with the exact skill name before taking task actions. Names are an index only \u2014 call \`describe_skills\` passing the exact name(s) in \`names\` when a name looks relevant but you need to know what it does before invoking it.
 - agent: no roster is provided in this session. When delegation might help, call \`list_agents\` first, then delegate via the \`agent\` tool by exact name.`
 
 const FULL_DELEGATION_RULES = `Delegation rules:

@@ -43,11 +43,44 @@ function pluginNameOf(server: {id: string}): string {
   return server.id.split(':')[1] || ''
 }
 
+export interface McpVersionStore {
+  getAll(): Record<string, VersionMeta>
+  setAll(meta: Record<string, VersionMeta>): void
+}
+
 export class McpVersionManager {
-  /** 内存缓存: serverId → VersionMeta */
+  /** 内存缓存: serverId → VersionMeta
+   *  约定：禁止直接 set/delete，统一走 setMeta/deleteMeta 以触发 persist()
+   *  （唯一例外：getAllVersionMeta 的 stale 批量清理 —— 集中 delete 后单次 persist，避免 O(M²) 写回） */
   private versionMap = new Map<string, VersionMeta>()
   /** 去重锁：防止并发 startupCheck */
-  public isChecking = false
+  private isChecking = false
+  /** 可选持久化后端；缺省 = 纯内存（行为与改造前逐字节等价） */
+  private readonly store?: McpVersionStore
+
+  constructor(options?: { store?: McpVersionStore }) {
+    this.store = options?.store
+    if (this.store) {
+      this.versionMap = new Map(Object.entries(this.store.getAll()))
+    }
+  }
+
+  /** 单一写回点：任何 versionMap 变更后必须经此写回 store（无 store 时为空操作） */
+  private persist(): void {
+    this.store?.setAll(Object.fromEntries(this.versionMap))
+  }
+
+  /** 唯一的 meta 写入入口（内部会 persist） */
+  private setMeta(serverId: string, meta: VersionMeta): void {
+    this.versionMap.set(serverId, meta)
+    this.persist()
+  }
+
+  /** 唯一的 meta 删除入口（内部会 persist） */
+  private deleteMeta(serverId: string): void {
+    this.versionMap.delete(serverId)
+    this.persist()
+  }
 
   /**
    * 推断 MCP 服务的来源类型。
@@ -329,27 +362,26 @@ export class McpVersionManager {
       }
 
       await Promise.all(servers.map(async (server) => {
-          try {
-            const meta = await this.detect(server)
-            this.versionMap.set(server.id, meta)
-            logger.info('startupCheck.server', {
-              id: server.id, sourceType: meta.sourceType,
-              current: meta.current, latest: meta.latest, hasUpdate: meta.hasUpdate,
-            })
-          } catch (err) {
-            // Per-server failure: write null meta (distinguishes "detected but failed" from "not detected")
-            const sourceType = this.inferSourceType(server)
-            this.versionMap.set(server.id, {
-              current: null, latest: null, hasUpdate: null,
-              sourceType, lastChecked: Date.now(),
-            })
-            logger.warn('startupCheck.server.failed', {
-              id: server.id,
-              error: errMsg(err),
-            })
-          }
-        }),
-      )
+        try {
+          const meta = await this.detect(server)
+          this.setMeta(server.id, meta)
+          logger.info('startupCheck.server', {
+            id: server.id, sourceType: meta.sourceType,
+            current: meta.current, latest: meta.latest, hasUpdate: meta.hasUpdate,
+          })
+        } catch (err) {
+          // Per-server failure: write null meta (distinguishes "detected but failed" from "not detected")
+          const sourceType = this.inferSourceType(server)
+          this.setMeta(server.id, {
+            current: null, latest: null, hasUpdate: null,
+            sourceType, lastChecked: Date.now(),
+          })
+          logger.warn('startupCheck.server.failed', {
+            id: server.id,
+            error: errMsg(err),
+          })
+        }
+      }))
 
       const result = this.getAllVersionMeta()
       logger.info('startupCheck.done', {cachedCount: this.versionMap.size})
@@ -393,11 +425,19 @@ export class McpVersionManager {
       mcpService.list().filter(s => s.enabled).map(s => s.id)
     )
 
-    // Cleanup stale entries
+    // Cleanup stale entries — collect first, then delete in one pass and
+    // persist once (avoids one full store write-back per stale key).
+    const staleKeys: string[] = []
     for (const key of this.versionMap.keys()) {
       if (!currentServerIds.has(key)) {
-        this.versionMap.delete(key)
+        staleKeys.push(key)
       }
+    }
+    for (const key of staleKeys) {
+      this.versionMap.delete(key)
+    }
+    if (staleKeys.length > 0) {
+      this.persist()
     }
 
     return Object.fromEntries(this.versionMap)
@@ -494,7 +534,7 @@ export class McpVersionManager {
       const restartResult = await mcpWorkerManager.restartServer(serverId)
       if (!restartResult.success) {
         // Roll back versionMap — preserve red dot
-        this.versionMap.set(serverId, oldMeta)
+        this.setMeta(serverId, oldMeta)
         logger.warn('upgradeNpx: restart failed, rolling back', {serverId})
         return {success: false, error: 'restart failed'}
       }
@@ -502,11 +542,11 @@ export class McpVersionManager {
       // Re-probe version after restart (delay 2s for process readiness)
       await new Promise(r => setTimeout(r, 2000))
       const newMeta = await this.detect({...server, args: argsForDetect})
-      this.versionMap.set(serverId, newMeta)
+      this.setMeta(serverId, newMeta)
       logger.info('upgradeNpx: success', {serverId, newCurrent: newMeta.current})
       return {success: true}
     } catch (err) {
-      this.versionMap.set(serverId, oldMeta)
+      this.setMeta(serverId, oldMeta)
       return {success: false, error: errMsg(err)}
     }
   }
@@ -552,7 +592,7 @@ export class McpVersionManager {
    */
   private syncPluginMeta(serverId: string, pluginName: string, withAvailableVersions: boolean): void {
     const versionInfo = pluginVersionManager.getVersions(pluginName)
-    this.versionMap.set(serverId, {
+    this.setMeta(serverId, {
       current: versionInfo?.current ?? null,
       latest: versionInfo?.latest ?? null,
       hasUpdate: versionInfo?.hasUpdate ?? null,
@@ -566,7 +606,7 @@ export class McpVersionManager {
    * Switch a server to a specific version.
    *   npx:     modify args to pin version → update mcpService → restart → re-probe
    *   plugin:  delegate to pluginVersionManager.switchVersion
-   *   binary:  if pkgName+pkgManager set, run install command via that manager;
+   *   binary:  if pkgName is set, run install command via the detected manager;
    *            else reject (unknown source)
    *   url/unknown: not supported
    */
@@ -626,7 +666,7 @@ export class McpVersionManager {
         if (!mcpService.update(serverId, {args: oldArgs})) {
           logger.error('switchNpxVersion: rollback write failed', {serverId})
         }
-        this.versionMap.set(serverId, oldMeta)
+        this.setMeta(serverId, oldMeta)
         logger.warn('switchNpxVersion: restart failed, rolling back', {serverId})
         return {success: false, error: 'restart failed — args rolled back'}
       }
@@ -636,11 +676,11 @@ export class McpVersionManager {
         await new Promise(r => setTimeout(r, 2000))
         const updatedServer = mcpService.get(serverId) || server
         const newMeta = await this.detect({...updatedServer, args: newArgs})
-        this.versionMap.set(serverId, newMeta)
+        this.setMeta(serverId, newMeta)
       } catch (probeErr) {
         // Re-probe failed but server is running the new version.
         // Set optimistic versionMap state reflecting the pinned version.
-        this.versionMap.set(serverId, {
+        this.setMeta(serverId, {
           ...oldMeta,
           current: targetVersion,
           hasUpdate: false,
@@ -663,7 +703,7 @@ export class McpVersionManager {
       } catch (rollbackErr) {
         logger.error('switchNpxVersion: rollback threw', {serverId, error: rollbackErr})
       }
-      this.versionMap.set(serverId, oldMeta)
+      this.setMeta(serverId, oldMeta)
       return {success: false, error: errMsg(err)}
     }
   }

@@ -33,7 +33,7 @@ describe('ALWAYS_ON_TOOLS 豁免', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     registry = new ToolRegistry()
-    for (const name of ['analyze_image', 'speech_to_text', 'call_mcp_tool', 'bash']) registry.register(makeTool(name))
+    for (const name of ['analyze_image', 'speech_to_text', 'call_mcp_tool', 'load_image', 'bash']) registry.register(makeTool(name))
   })
   afterEach(() => vi.restoreAllMocks())
 
@@ -67,7 +67,7 @@ describe('ALWAYS_ON_TOOLS 豁免', () => {
     expect(names).toContain('bash')
   })
 
-  it('ALWAYS_ON_TOOLS 恰好三个（契约锁定）', () => {
-    expect(Array.from(ALWAYS_ON_TOOLS).sort()).toEqual(['analyze_image', 'call_mcp_tool', 'speech_to_text'])
+  it('ALWAYS_ON_TOOLS 恰好四个（契约锁定）', () => {
+    expect(Array.from(ALWAYS_ON_TOOLS).sort()).toEqual(['analyze_image', 'call_mcp_tool', 'load_image', 'speech_to_text'])
   })
 })

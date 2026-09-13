@@ -159,7 +159,7 @@ function ProviderCard({ provider, isActive, onSelect, onEdit, onRemove }: {
           {/* 编辑按钮 */}
           <button
             onClick={onEdit}
-            className="p-1.5 text-gray-400 hover:text-brand-500 rounded-md hover:bg-gray-100 transition-colors"
+            className="p-1.5 text-gray-400 hover:text-brand-500 rounded-md hover:bg-[var(--surface-overlay)] transition-colors"
             title="编辑"
             aria-label={`编辑 ${provider.name}`}
            data-name="llmconfig-dialog-edit-button">
@@ -186,7 +186,7 @@ function ProviderCard({ provider, isActive, onSelect, onEdit, onRemove }: {
           ) : (
             <button
               onClick={() => setConfirmRemove(true)}
-              className="p-1.5 text-gray-400 hover:text-red-500 rounded-md hover:bg-gray-100 transition-colors"
+              className="p-1.5 text-gray-400 hover:text-red-500 rounded-md hover:bg-[var(--surface-overlay)] transition-colors"
               title="删除"
               aria-label={`删除 ${provider.name}`}
              data-name="llmconfig-dialog-delete-button">
@@ -213,8 +213,8 @@ function ProviderCard({ provider, isActive, onSelect, onEdit, onRemove }: {
                     key={model.id}
                     className={`inline-flex items-center px-2 py-0.5 text-[11px] leading-tight rounded-md border whitespace-nowrap ${
                       model.enabled
-                        ? 'bg-gray-50 text-gray-600 border-gray-200'
-                        : 'bg-gray-50/50 text-gray-400 border-gray-100'
+                        ? 'bg-[var(--surface-muted)] text-gray-600 border-gray-200'
+                        : 'bg-[var(--surface-muted)] text-gray-400 border-gray-100'
                     }`}
                   >
                     {model.name}

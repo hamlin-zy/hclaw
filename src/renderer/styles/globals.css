@@ -1,3 +1,68 @@
+/* ========================================
+   Self-hosted fonts — 自托管，不依赖 Google Fonts CDN
+   ------------------------------------------------------------
+   Latin-only 子集（CJK 由系统字体回退承担，见 body 的 font-family）。
+   此前 'Inter' / 'JetBrains Mono' 由三个 HTML 入口以 <link> 从
+   fonts.googleapis.com 拉取：境内网络不可达时静默回退到 system-ui，
+   且 mono 栈从未真正引用过 JetBrains Mono。自托管后渲染确定，
+   并去掉了渲染进程的第三方网络依赖。
+   ======================================== */
+@font-face {
+    font-family: 'IBM Plex Sans';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('../assets/fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'IBM Plex Sans';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('../assets/fonts/ibm-plex-sans-latin-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'IBM Plex Sans';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('../assets/fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'IBM Plex Sans';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('../assets/fonts/ibm-plex-sans-latin-700-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('../assets/fonts/jetbrains-mono-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('../assets/fonts/jetbrains-mono-latin-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('../assets/fonts/jetbrains-mono-latin-600-normal.woff2') format('woff2');
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -76,26 +141,69 @@
 :root {
     /* Surface colors — clean, minimal */
     --surface: #ffffff;
-    --surface-muted: #f9fafb;
+    --surface-muted: #f1f3f5;
     --surface-elevated: #ffffff;
-    --surface-overlay: #f3f4f6;
+    --surface-overlay: #e2e5ea;
+    /* chrome（侧栏/窗口外框）：比内容面下沉一档。存在这层之后，「线」才不必承担分隔职责 */
+    --surface-chrome: #f6f7f9;
 
-    /* Text colors — soft contrast, easy on eyes */
+    /* Text colors — 阶梯按可读性下限校准：secondary ≥4.5:1（正文级），muted ≥3.2:1（图标/次要）
+       旧值 #888888(3.54:1) / #aaaaaa(2.32:1) 低于正文可读下限
+
+       ── --text-muted 的用途契约（务必遵守，不要靠"再扫一遍"兜底）──
+       它是 **AA 豁免档**，只允许用于「删掉也不丢信息」的东西：
+         图标、装饰线、placeholder、disabled 态、水印、进度轨道、纯分隔符。
+       凡承载信息（数值、时间、作者、类型、状态、说明文案）——无论字号多小——一律用
+       --text-secondary：它在四主题上按「surface / surface-muted / surface-elevated / 选中态」
+       四种底逐组合实测 ≥4.5:1（见 `npm run audit:contrast`），全部达标。
+       --text-muted 在四主题 surface 上是 3.28 / 4.22 / 3.34 / 3.31:1，**四主题都不达 4.5:1**；
+       浅色下也**没有**"既 AA 达标又与 secondary 可区分"的中间档（白底 4.5:1 的最浅灰是
+       #767676，与 secondary #737373 只差 3 个灰阶），所以不要把 muted 提亮来"修"它。
+
+       审计：`npm run audit:muted` 会按这条契约把 624 处调用点分成 INFO（应迁移）/
+       DECOR（豁免）/ UNKNOWN，报告落在 tmp/muted-text-audit.md。
+
+       ── --text-brand / --text-danger / --vcs-* 同为**文字级**令牌 ──
+       三者已按「四主题 × surface / surface-muted / surface-elevated / 选中态」逐组合实测 ≥4.5:1，
+       故可安全承载 commit hash、分支名、状态字母、删除/危险标签等小字。
+       但它们**只保证作文字时达标**，不得用它们做装饰底色
+       （浅底色上的白字/深字对比度另算）。审计：`npm run audit:contrast`。 */
     --text-primary: #333333;
-    --text-secondary: #888888;
-    --text-muted: #aaaaaa;
+    --text-secondary: #6e6e6e;
+    --text-muted: #8e8e8e;
     --text-inverse: #ffffff;
 
-    /* Border colors — subtle, minimal */
-    --border: #e5e7eb;
-    --border-muted: #f3f4f6;
-    --border-emphasis: #d1d5db;
+    /* Border colors — 三档分层：元素轮廓 / 结构分隔线 / 交互态。
+       1px 细线的观感由**绝对**亮度差主导，浅色底不能拿相对 Δ 去对齐深色族：
+       深色族 --border（白 6% over #1e1e1e）绝对 Δ 仅 0.0117，照搬会把它做成硬规则线。
+       浅色取经验可辨的绝对量级，并按角色拉开距离：
+       --border Δ0.50（可见但不重） / --border-muted Δ0.22（安静分隔线） / --border-emphasis Δ1.30（hover·checked·focus） */
+    --border: #d2d5dc;
+    --border-muted: #e7eaed;
+    --border-emphasis: #a9b1bc;
+
+    /* Neutral tokens — chip / track（四主题命名统一：浅色用实色，深色用白色叠加） */
+    /* 中性芯片：浅色下卡片底已是 muted，芯片必须比卡片亮一档（= surface）才能分离，
+       描边按 Δ≈0.5 校准，保证即使芯片落在 surface 上仍可辨识 */
+    --chip-bg: #ffffff;
+    --chip-border: #d3d5dd;
+    --track: #ced2d9;
+    --track-strong: #9fa8b4;
 
     /* Brand colors — teal (based on #01795d) */
     --brand-primary: #1ac094;
     --brand-hover: #0da47a;
     --brand-muted: rgba(26, 192, 148, 0.10);
     --brand-border: rgba(26, 192, 148, 0.32);
+    /* 主 CTA 实底：品牌色本身的亮度不足以承白字（#1ac094 on white 白字仅 2.33:1），
+       故取同色相的深档 --brand-ink，白字 4.96:1。避免用近黑（那是主题外的颜色）。 */
+    --brand-ink: #0d7f63;
+    --brand-ink-hover: #0a6b53;
+
+    /* 焦点指示器：WCAG 1.4.11 要求非文本 UI 指示器与相邻色 ≥3:1。
+       --brand-primary(#1ac094) 在白底只有 2.33:1，键盘用户看不见焦点环，
+       故单列一档「对当前主题的 surface / surface-muted 都 ≥3:1」的颜色。 */
+    --focus-ring: #0d7f63;
 
     /* Status colors */
     --success: #10b981;
@@ -147,13 +255,33 @@
     --z-overlay: 1080;
     --z-elevated: 1090;
 
-    /* Shadows — flat/minimal for VS Code aesthetic */
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04);
-    --shadow-elevated: 0 1px 3px rgba(0, 0, 0, 0.06);
-    --shadow-overlay: 0 2px 8px rgba(0, 0, 0, 0.08);
+    /* Shadows — flat/minimal for VS Code aesthetic（浅色加深层信号，作为边界的视觉兜底） */
+    --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --shadow-elevated: 0 2px 6px rgba(15, 23, 42, 0.09), 0 4px 12px rgba(15, 23, 42, 0.05);
+    --shadow-overlay: 0 8px 24px rgba(15, 23, 42, 0.13), 0 2px 6px rgba(15, 23, 42, 0.07);
 
-    /* ==== Project Manager：VCS 状态色（实值令牌，§3.1）==== */
+    /* ==== Project Manager：文字级令牌（实值令牌，§3.1）====
+       --text-brand / --vcs-* 只用作文本色，四主题 × surface/surface-muted/选中态均实测 ≥4.5:1。
+       逐主题字面值，不走 var(--warning/success/...) 别名（别名在部分主题下不达标）。 */
+    --text-brand: #117d61;
+    --vcs-modified: #b45309;
+    --vcs-added: #047857;
+    --vcs-deleted: #c53030;
     --vcs-renamed: #7c3aed;
+    --vcs-untracked: #0969da;
+    /* 危险文字（删除/不可逆操作标签）：不复用功能色 --error（作文字仅 3.76:1），取 --vcs-deleted 同值 */
+    --text-danger: #c53030;
+
+    /* ==== Project Manager：文件类型色（图标 + 文件名共用，IDEA 式着色）====
+       同属**文字级**令牌：四主题各一份字面值，在 surface / surface-muted /
+       surface-elevated / 选中层上均实测 ≥4.5:1。审计：scripts/audit-contrast.mjs 的 INK_TOKENS。
+       code 蓝 / test 绿 / style 青 / markup 橙 / data 紫 / image 玫 */
+    --ft-code: #2563eb;
+    --ft-test: #15803d;
+    --ft-style: #0e7490;
+    --ft-markup: #c2410c;
+    --ft-data: #6d28d9;
+    --ft-image: #be185d;
 
     /* ==== Project Manager：语法色（实值令牌，§3.3）==== */
     --code-keyword: #af00db;
@@ -166,8 +294,8 @@
     --code-punct: #383a42;
 }
 
-/* Flat card overrides for VS Code aesthetic */
-.shadow-sm {
+/* Flat card overrides for VS Code aesthetic（仅深色主题压平；浅色保留 shadow 作为深度兜底） */
+:is(.dark, .yuanshandai) .shadow-sm {
     box-shadow: none !important;
 }
 
@@ -175,19 +303,8 @@
     border-radius: 6px;
 }
 
-/* VS Code style scrollbar */
-::-webkit-scrollbar-thumb {
-    background: #c1c1c1;
-    border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: #a0a0a0;
-}
-
-* {
-    scrollbar-color: #c1c1c1 transparent;
-}
+/* 说明：滚动条样式统一由下方「Scrollbar — Refined & Minimal」段落定义，
+   此处原有的 #c1c1c1 硬编码版本已被其覆盖且与主题令牌冲突，删除以免误导。 */
 
 /* ========================================
    Dark Theme — VS Code / Cursor-Style Pure Gray
@@ -198,10 +315,12 @@
     --surface-muted: #252526;
     --surface-elevated: #2d2d2d;
     --surface-overlay: #333333;
+    /* chrome：比内容面再暗一档（recessed），与既有 --surface 阶梯同向 */
+    --surface-chrome: #1a1a1a;
 
     /* Text colors */
     --text-primary: #d4d4d4;
-    --text-secondary: #969696;
+    --text-secondary: #9e9e9e;
     --text-muted: #808080;
     --text-inverse: #1e1e1e;
 
@@ -210,11 +329,19 @@
     --border-muted: rgba(255, 255, 255, 0.03);
     --border-emphasis: rgba(255, 255, 255, 0.10);
 
+    /* Neutral tokens — chip / track（精确复现既有白色叠加观感，深色令牌值不许改动） */
+    --chip-bg: rgba(255, 255, 255, 0.05);
+    --chip-border: rgba(255, 255, 255, 0.07);
+    --track: rgba(255, 255, 255, 0.15);
+    --track-strong: var(--text-muted);
+
     /* Brand colors — teal for dark mode */
     --brand-primary: #2dd4a8;
     --brand-hover: #1ac094;
     --brand-muted: rgba(26, 192, 148, 0.18);
     --brand-border: rgba(45, 212, 168, 0.35);
+    /* 焦点指示器：深底上亮档已足够（on surface 8.81:1 / on surface-muted 8.09:1） */
+    --focus-ring: #2dd4a8;
 
     /* Status colors */
     --success: #10b981;
@@ -256,8 +383,23 @@
     --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.4),
     0 0 1px rgba(255, 255, 255, 0.05) inset;
 
-    /* ==== Project Manager：VCS 状态色（实值令牌，§3.1）==== */
-    --vcs-renamed: #a78bfa;
+    /* ==== Project Manager：文字级令牌（实值令牌，§3.1）==== */
+    --text-brand: #2dd4a8;
+    --vcs-modified: #d4a021;
+    --vcs-added: #10b981;
+    --vcs-deleted: #d58a8a;
+    --vcs-renamed: #a88dfa;
+    --vcs-untracked: #76a0df;
+    /* 危险文字：不复用 --error（作文字 3.30:1），取 --vcs-deleted 同值 */
+    --text-danger: #d58a8a;
+
+    /* 文件类型色（图标 + 文件名共用）：深底上取亮档 */
+    --ft-code: #60a5fa;
+    --ft-test: #4ade80;
+    --ft-style: #22d3ee;
+    --ft-markup: #fb923c;
+    --ft-data: #c4b5fd;
+    --ft-image: #f472b6;
 
     /* ==== Project Manager：语法色（实值令牌，§3.3）==== */
     --code-keyword: #c586c0;
@@ -277,14 +419,13 @@
    :root 上算出的值会原样交给 .dark 后代，不会按主题重算。
    ======================================== */
 :where(:root, .dark, .yuanshandai, .shiyangjin) {
-    /* VCS 状态色（§3.1）—— 引用各主题自己的语义色 */
-    --vcs-modified: var(--warning);
-    --vcs-added: var(--success);
-    --vcs-deleted: var(--error);
-    --vcs-untracked: var(--info);
+    /* VCS 状态色（§3.1）与 --text-brand 已改为**逐主题字面值**，各自定义在四个主题块内
+       （不再在此做 var(--warning/success/error/info) 别名：语义色是给底色/粗线用的，
+       作 12px 文字在 3/4 主题下不达 WCAG AA 4.5:1）。 */
 
-    /* 目录图标色（§6.1，brand-primary 85%） */
-    --icon-folder: color-mix(in srgb, var(--brand-primary) 85%, transparent);
+    /* 目录图标色（§6.1）：中性色。彩色只留给「状态字母 / DAG 点 / 当前分支」等信号，
+       目录图标是结构装饰，不承载状态。 */
+    --icon-folder: var(--text-secondary);
 
     /* Diff 色（§3.2）—— 13% / 30% 是唯一调参旋钮 */
     --diff-added-bg: color-mix(in srgb, var(--success) 13%, transparent);
@@ -322,200 +463,225 @@
 
 /* ========================================
    Theme Override: Hardcoded Tailwind Classes
-   — All themes share the same overrides, deduplicated via :is()
+   — 「读令牌」的映射与主题无关 → 全局生效；
+     「需要白色叠加」的语义 → 交给令牌承担（--chip-* / --track-*），
+     因为白叠在暖白底上不可见。
    ======================================== */
 
-/* Background surfaces */
-:is(.dark, .yuanshandai, .shiyangjin) :is(.bg-white, .bg-gray-50),
-:is(.dark, .yuanshandai, .shiyangjin) :is(input, textarea).bg-white {
+/* Background surfaces —— 仅深色底主题需把白底工具类拉回语义面（浅色底板本就近白） */
+:is(.dark, .yuanshandai) :is(.bg-white, .bg-gray-50),
+:is(.dark, .yuanshandai) :is(input, textarea).bg-white {
     background-color: var(--surface) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .bg-gray-100 {
+:is(.dark, .yuanshandai) .bg-gray-100 {
     background-color: var(--surface-muted) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) :is(.dark\:bg-gray-800),
-:is(.dark, .yuanshandai, .shiyangjin).bg-gray-900 {
+:is(.dark, .yuanshandai) :is(.dark\:bg-gray-800),
+:is(.dark, .yuanshandai).bg-gray-900 {
     background-color: var(--surface) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) :is(.dark\:bg-gray-900),
-:is(.dark, .yuanshandai, .shiyangjin).bg-gray-900 {
+:is(.dark, .yuanshandai) :is(.dark\:bg-gray-900),
+:is(.dark, .yuanshandai).bg-gray-900 {
     background-color: var(--surface-muted) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) :is(.bg-gray-50\/50, .bg-gray-50\/30) {
+:is(.dark, .yuanshandai) :is(.bg-gray-50\/50, .bg-gray-50\/30) {
     background-color: var(--surface-muted) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .bg-gray-200 {
-    background-color: rgba(255, 255, 255, 0.15) !important;
+/* 灰阶填充：旧值白色叠加在浅色主题会刷到暖白底上不可见 → 改由 --track 令牌承担 */
+.bg-gray-200 {
+    background-color: var(--track) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .bg-gray-300 {
-    background-color: var(--text-muted) !important;
+.bg-gray-300 {
+    background-color: var(--track-strong) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) :is(.bg-brand-50) {
+:is(.dark, .yuanshandai) :is(.bg-brand-50) {
     background-color: var(--brand-muted) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .bg-brand-500 {
+:is(.dark, .yuanshandai) .bg-brand-500 {
     background-color: var(--brand-primary) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) :is(.bg-amber-50) {
+:is(.dark, .yuanshandai) :is(.bg-amber-50) {
     background-color: rgba(251, 191, 36, 0.1) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .bg-green-100 {
+:is(.dark, .yuanshandai) .bg-green-100 {
     background-color: var(--success-muted) !important;
 }
 
 /* Toggle switch thumb — keep white in dark mode */
-:is(.dark, .yuanshandai, .shiyangjin) :is(.bg-gray-200, .bg-brand-500) .rounded-full.bg-white {
+:is(.dark, .yuanshandai) :is(.bg-gray-200, .bg-brand-500) .rounded-full.bg-white {
     background-color: #ffffff !important;
 }
 
 /* 原生日期选择器：暗色主题下日历弹层使用暗色配色（color-scheme 影响原生控件渲染） */
-:is(.dark, .yuanshandai, .shiyangjin) input[type="date"] {
+:is(.dark, .yuanshandai) input[type="date"] {
     color-scheme: dark;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .bg-gray-200 .rounded-full.bg-white {
+:is(.dark, .yuanshandai) .bg-gray-200 .rounded-full.bg-white {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
 }
 
-/* Border colors */
-:is(.dark, .yuanshandai, .shiyangjin) .border-gray-100 {
+/* Border colors —— 纯令牌映射，与主题无关 */
+.border-gray-100 {
     border-color: var(--border-muted) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .border-gray-200 {
+.border-gray-200 {
     border-color: var(--border) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .border-gray-300 {
+.border-gray-300 {
     border-color: var(--border-emphasis) !important;
 }
 
-/* Text colors */
-:is(.dark, .yuanshandai, .shiyangjin) .text-gray-300 {
-    color: var(--text-secondary) !important;
-}
-
-:is(.dark, .yuanshandai, .shiyangjin) :is(.text-gray-400, .text-gray-500) {
+/* Text colors —— 灰阶映射按「层级 rank」对应语义令牌，全局生效：
+   gray-300/400 = 最弱（图标/提示）→ muted；gray-500 = 次级正文 → secondary */
+.text-gray-300 {
     color: var(--text-muted) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .text-gray-600 {
+.text-gray-400 {
+    color: var(--text-muted) !important;
+}
+
+.text-gray-500 {
     color: var(--text-secondary) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) :is(.text-gray-700, .text-gray-800, .text-gray-900) {
+/* 深色族保持既有观感：gray-300 在深色底上历史上映射 secondary，
+   本次不改动已验收的深色主题亮度（浅色侧才需要把它压到 muted） */
+:is(.dark, .yuanshandai) .text-gray-300 {
+    color: var(--text-secondary) !important;
+}
+
+/* 深色底主题专用正文色（浅色下 Tailwind 原值已可读，无需干预） */
+:is(.dark, .yuanshandai) .text-gray-600 {
+    color: var(--text-secondary) !important;
+}
+
+:is(.dark, .yuanshandai) :is(.text-gray-700, .text-gray-800, .text-gray-900) {
     color: var(--text-primary) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) :is(.text-brand-500, .text-brand-400, .text-brand-600) {
+:is(.dark, .yuanshandai) :is(.text-brand-500, .text-brand-400, .text-brand-600) {
     color: var(--brand-primary) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .text-amber-600 {
+:is(.dark, .yuanshandai) .text-amber-600 {
     color: var(--warning) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .text-green-600 {
+:is(.dark, .yuanshandai) .text-green-600 {
     color: var(--success) !important;
 }
 
-/* Hover states */
-:is(.dark, .yuanshandai, .shiyangjin) :is(.hover\:bg-gray-50, .hover\:bg-gray-100):hover {
+/* Hover states —— hover 反馈浅色同样需要可见，故改为全局 */
+:is(.hover\:bg-gray-50, .hover\:bg-gray-100):hover {
     background-color: var(--surface-muted) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .hover\:border-gray-200:hover {
+.hover\:border-gray-200:hover {
     border-color: var(--border) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .hover\:border-gray-300:hover {
+.hover\:border-gray-300:hover {
     border-color: var(--border-emphasis) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .hover\:text-gray-600:hover {
+:is(.dark, .yuanshandai) .hover\:text-gray-600:hover {
     color: var(--text-secondary) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .hover\:text-gray-700:hover {
+:is(.dark, .yuanshandai) .hover\:text-gray-700:hover {
     color: var(--text-primary) !important;
 }
 
-/* Focus states */
-:is(.dark, .yuanshandai, .shiyangjin) .ring-gray-200 {
+/* Focus states —— 仅深色底主题需重写 ring/focus 边框色 */
+:is(.dark, .yuanshandai) .ring-gray-200 {
     --tw-ring-color: var(--border) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .focus\:border-gray-200:focus {
+:is(.dark, .yuanshandai) .focus\:border-gray-200:focus {
     border-color: var(--border) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .focus\:border-gray-300:focus {
+:is(.dark, .yuanshandai) .focus\:border-gray-300:focus {
     border-color: var(--border-emphasis) !important;
 }
 
-/* Placeholders */
-:is(.dark, .yuanshandai, .shiyangjin) :is(.placeholder-gray-400, .placeholder-gray-500)::placeholder {
+/* Placeholders —— 令牌映射，与主题无关 */
+:is(.placeholder-gray-400, .placeholder-gray-500)::placeholder {
     color: var(--text-muted) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .placeholder-gray-300::placeholder {
+.placeholder-gray-300::placeholder {
     color: var(--text-muted) !important;
 }
 
 /* Dividers */
-:is(.dark, .yuanshandai, .shiyangjin) .divide-gray-100 > * + * {
+.divide-gray-100 > * + * {
     border-color: var(--border-muted) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .divide-gray-200 > * + * {
+.divide-gray-200 > * + * {
     border-color: var(--border) !important;
 }
 
-/* Shadows */
-:is(.dark, .yuanshandai, .shiyangjin) .shadow-sm {
+/* Shadows —— 仅深色底主题需压深阴影色 */
+:is(.dark, .yuanshandai) .shadow-sm {
     --tw-shadow-color: rgba(0, 0, 0, 0.3) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .shadow-xl {
+:is(.dark, .yuanshandai) .shadow-xl {
     --tw-shadow-color: rgba(0, 0, 0, 0.5) !important;
 }
 
-/* Overlays */
-:is(.dark, .yuanshandai, .shiyangjin) .bg-black\/30 {
+/* Overlays —— 仅深色底主题需更重的遮罩 */
+:is(.dark, .yuanshandai) .bg-black\/30 {
     background-color: rgba(0, 0, 0, 0.6) !important;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) .bg-black\/10 {
+:is(.dark, .yuanshandai) .bg-black\/10 {
     background-color: rgba(0, 0, 0, 0.3) !important;
 }
 
 /* Range slider */
-:is(.dark, .yuanshandai, .shiyangjin) input[type="range"] {
+:is(.dark, .yuanshandai) input[type="range"] {
     accent-color: var(--brand-primary) !important;
 }
 
-/* Input/select/text field base overrides */
-:is(.dark, .yuanshandai, .shiyangjin) :is(input, select, textarea) {
-    background-color: var(--surface);
+/* Input/select/text field base overrides
+   ⚠️ 只做兜底、绝不覆盖组件意图：带任何 bg-* / border-* 工具类的输入元素不受本规则影响。
+   旧写法 `:is(.dark,…) :is(input,select,textarea)` 特异性 (0,1,1) 无条件压过工具类 (0,1,0)，
+   导致除 .dark 外所有主题的输入框一律退化成 --surface（与容器同色 → 边界消失）。
+   现在改为全局生效（四主题均已定义语义令牌），且各属性用各自的 :not([class*=…]) 守卫。 */
+:is(input, select, textarea) {
     color: var(--text-primary);
+}
+
+:is(input, select, textarea):not([class*="bg-"]) {
+    background-color: var(--surface);
+}
+
+:is(input, select, textarea):not([class*="border-"]) {
     border-color: var(--border);
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) :is(input, textarea)::placeholder {
+:is(.dark, .yuanshandai) :is(input, textarea)::placeholder {
     color: var(--text-muted);
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) select option {
+:is(.dark, .yuanshandai) select option {
     background-color: var(--surface-elevated);
     color: var(--text-primary);
 }
@@ -533,11 +699,11 @@ input[type="number"]::-webkit-inner-spin-button {
     margin: 0;
 }
 
-/* Checkbox — custom styling */
-:is(.dark, .yuanshandai, .shiyangjin) input[type="checkbox"]:not(.sr-only) {
+/* Checkbox — custom styling（全局：浅色底也需要足够的描边步长才可见） */
+input[type="checkbox"]:not(.sr-only) {
     -webkit-appearance: none;
     appearance: none;
-    border: 1.5px solid rgba(255, 255, 255, 0.2);
+    border: 1.5px solid var(--border-emphasis);
     border-radius: 3px;
     background-color: transparent;
     cursor: pointer;
@@ -545,11 +711,11 @@ input[type="number"]::-webkit-inner-spin-button {
     transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) input[type="checkbox"]:not(.sr-only):hover {
-    border-color: rgba(255, 255, 255, 0.35);
+input[type="checkbox"]:not(.sr-only):hover {
+    border-color: var(--text-muted);
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) input[type="checkbox"]:not(.sr-only):checked {
+input[type="checkbox"]:not(.sr-only):checked {
     background-color: var(--brand-primary);
     border-color: var(--brand-primary);
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 6.5L5.5 9L9.5 3' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
@@ -558,12 +724,12 @@ input[type="number"]::-webkit-inner-spin-button {
     background-repeat: no-repeat;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) input[type="checkbox"]:not(.sr-only):focus-visible {
-    outline: 2px solid var(--brand-primary);
+input[type="checkbox"]:not(.sr-only):focus-visible {
+    outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
 }
 
-:is(.dark, .yuanshandai, .shiyangjin) input[type="checkbox"]:not(.sr-only):disabled {
+input[type="checkbox"]:not(.sr-only):disabled {
     opacity: 0.4;
     cursor: not-allowed;
 }
@@ -601,7 +767,7 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
   background-color: var(--surface);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
@@ -633,14 +799,9 @@ body {
   background-clip: padding-box;
 }
 
-/* Dark mode scrollbar - cursor-dark style */
-.dark ::-webkit-scrollbar-thumb {
-    background: #424242;
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-    background: #555555;
-}
+/* 滚动条：不再按主题硬编码颜色——base 规则已用 --border-emphasis / --text-muted，
+   这两档本身就是主题相关的。原先 dark / yuanshandai / shiyangjin 各自覆盖一组 hex
+   （shiyangjin 的 #D4C5C2 在 #FCEEEC 上只有 1.48:1，几乎不可见），且与令牌体系脱节。 */
 
 /* Firefox scrollbar */
 * {
@@ -648,8 +809,29 @@ body {
   scrollbar-color: var(--border-emphasis) transparent;
 }
 
-.dark * {
-    scrollbar-color: #424242 transparent;
+/* ── 浏览器原生表面（craft floor）──
+ * 选区已在各主题定义；插入符此前是浏览器默认黑/白，与主题无关。
+ * 等宽数字用于会被比较或实时跳动的数字（用量、t/s、计数），避免宽度抖动。 */
+input,
+textarea,
+[contenteditable] {
+    caret-color: var(--brand-primary);
+}
+
+[data-name="input-toolbar"],
+[data-testid="memo-stats"],
+[data-name="memo-panel-input"],
+.font-mono,
+code,
+pre,
+kbd {
+    font-variant-numeric: tabular-nums;
+}
+
+/* 数值/计时等需要对齐的文本位置 */
+[data-name="conversation-sidebar-footer"],
+[data-name="todo-strip"] {
+    font-variant-numeric: tabular-nums;
 }
 
 /* ========================================
@@ -671,25 +853,41 @@ body {
     /* Surface colors — blue-gray */
     --surface: #31475d;
     --surface-muted: #3a546f;
-    --surface-elevated: #426078;
+    /* 浮层底不能比 --surface 亮太多：本主题文字调色板已贴 AA 下限（如 --text-secondary 5.41:1），
+       再垫亮一档会让浮层（右键菜单/tooltip/弹窗/作者下拉）文字全部跌破 4.5:1。
+       #384d64 仅比 --surface 亮一档，仍可读出"抬起"，且 ink 令牌全部 ≥5.13:1。 */
+    --surface-elevated: #384d64;
     --surface-overlay: #273c52;
+    --surface-chrome: #2b3f54;
 
     /* Text colors */
     --text-primary: #e8edf2;
-    --text-secondary: #b8c4d0;
+    --text-secondary: #bdc8d3;
     --text-muted: #8a9aad;
     --text-inverse: #1e1e1e;
 
-    /* Border colors */
-    --border: rgba(255, 255, 255, 0.08);
-    --border-muted: rgba(255, 255, 255, 0.04);
-    --border-emphasis: rgba(255, 255, 255, 0.14);
+    /* Border colors（与浅色同目标 Δ 0.50 / 0.22 / 1.30，按自身蓝灰底以白色叠加求解） */
+    --border: rgba(255, 255, 255, 0.083);
+    --border-muted: rgba(255, 255, 255, 0.039);
+    --border-emphasis: rgba(255, 255, 255, 0.187);
+
+    /* Neutral tokens — chip / track（深色底统一用白色叠加，保持既有观感） */
+    --chip-bg: rgba(255, 255, 255, 0.05);
+    --chip-border: rgba(255, 255, 255, 0.10);
+    --track: rgba(255, 255, 255, 0.15);
+    --track-strong: var(--text-muted);
 
     /* Brand colors — muted teal-blue (远山黛: distant mountain indigo) */
     --brand-primary: #5ba8a8;
     --brand-hover: #4a9a9a;
     --brand-muted: rgba(75, 160, 160, 0.18);
     --brand-border: rgba(91, 168, 168, 0.35);
+    /* 主 CTA 实底（白字 6.11:1），替代原先未参与主题的 bg-gray-900 */
+    --brand-ink: #2f6b6b;
+    --brand-ink-hover: #245757;
+    /* 焦点指示器：--brand-ink 是深档，落在深蓝底上仅 1.57:1，故单独取同色相的亮档
+       （on surface 4.21:1 / on surface-muted 3.44:1 / on surface-chrome 4.75:1） */
+    --focus-ring: #6fb8b8;
 
     /* Status colors — adjusted for blue-gray harmony */
     --success: #45a88c;
@@ -701,8 +899,23 @@ body {
     --info: #6a9fd8;
     --info-muted: rgba(106, 159, 216, 0.12);
 
-    /* ==== Project Manager：VCS 状态色（实值令牌，§3.1）==== */
-    --vcs-renamed: #9b8bd8;
+    /* ==== Project Manager：文字级令牌（实值令牌，§3.1）==== */
+    --text-brand: #a4cfcf;
+    --vcs-modified: #e0c390;
+    --vcs-added: #95d3c2;
+    --vcs-deleted: #e7bdbd;
+    --vcs-renamed: #cac2ea;
+    --vcs-untracked: #adcae9;
+    /* 危险文字：不复用 --error（作文字 1.58:1），取 --vcs-deleted 同值 */
+    --text-danger: #e7bdbd;
+
+    /* 文件类型色（图标 + 文件名共用）：与主题其余粉彩同族 */
+    --ft-code: #a8cbe8;
+    --ft-test: #95d3c2;
+    --ft-style: #9ddbdb;
+    --ft-markup: #e8bf94;
+    --ft-data: #d8cff5;
+    --ft-image: #f5c6dc;
 
     /* ==== Project Manager：语法色（实值令牌，§3.3）==== */
     --code-keyword: #d3a6f0;
@@ -743,18 +956,6 @@ body {
 }
 
 /* 远山黛主题滚动条 */
-.yuanshandai ::-webkit-scrollbar-thumb {
-    background: #4a6278;
-}
-
-.yuanshandai ::-webkit-scrollbar-thumb:hover {
-    background: #5d7a91;
-}
-
-.yuanshandai * {
-    scrollbar-color: #4a6278 transparent;
-}
-
 /* 远山黛主题窗口阴影 */
 .yuanshandai .window-container {
     box-shadow:
@@ -774,26 +975,38 @@ body {
 .shiyangjin {
     /* Surface colors — warm pinkish white */
     --surface: #FFF8F7;
-    --surface-muted: #FFF2F0;
+    --surface-muted: #ffe9e5;
     --surface-elevated: #FFFFFF;
-    --surface-overlay: #FFEDEA;
+    --surface-overlay: #ffe0dc;
+    --surface-chrome: #FCEEEC;
 
-    /* Text colors — warm dark */
+    /* Text colors — warm dark（同 :root 口径：secondary ≥4.5:1，muted ≥3.2:1，保持暖色相） */
     --text-primary: #3C2E2D;
-    --text-secondary: #8A7B79;
-    --text-muted: #B6A7A5;
+    --text-secondary: #736664;
+    --text-muted: #9a8583;
     --text-inverse: #FFFFFF;
 
-    /* Border colors — warm & subtle */
-    --border: #F0DDDA;
-    --border-muted: #F5E8E5;
-    --border-emphasis: #C2A29D;
+    /* Border colors — warm & subtle（与 :root 同目标 Δ 0.50 / 0.22 / 1.30，按暖色相求解） */
+    --border: #e0ccca;
+    --border-muted: #f3e1dd;
+    --border-emphasis: #c5a5a1;
+
+    /* Neutral tokens — chip / track（暖色调实色，与浅色主题同一套语义） */
+    --chip-bg: #FFF8F7;
+    --chip-border: #deccca;
+    --track: #dcc9c7;
+    --track-strong: #bd9b96;
 
     /* Brand colors — coral (deepened for readability: #FFAFA8 → #D6756B, +4.6:1 contrast on warm white) */
     --brand-primary: #D6756B;
     --brand-hover: #C9655A;
     --brand-muted: rgba(214, 117, 107, 0.15);
     --brand-border: rgba(214, 117, 107, 0.32);
+    /* 主 CTA 实底：暖色相的深档（白字 5.82:1），不再让近黑块落在暖色主题里 */
+    --brand-ink: #A8463B;
+    --brand-ink-hover: #8f3a30;
+    /* 焦点指示器：暖白底上取深档（on surface 5.56:1 / on surface-muted 5.01:1） */
+    --focus-ring: #A8463B;
 
     /* Status colors — same as light */
     --success: #10b981;
@@ -805,8 +1018,23 @@ body {
     --info: #3b82f6;
     --info-muted: rgba(59, 130, 246, 0.10);
 
-    /* ==== Project Manager：VCS 状态色（实值令牌，§3.1）==== */
-    --vcs-renamed: #8b5cf6;
+    /* ==== Project Manager：文字级令牌（实值令牌，§3.1）==== */
+    --text-brand: #b73f33;
+    --vcs-modified: #9a4708;
+    --vcs-added: #0b6b4a;
+    --vcs-deleted: #b3261e;
+    --vcs-renamed: #763ff4;
+    --vcs-untracked: #0d5bbd;
+    /* 危险文字：不复用 --error（作文字仅 3.76:1），取 --vcs-deleted 同值 */
+    --text-danger: #b3261e;
+
+    /* 文件类型色（图标 + 文件名共用）：暖白底上取深档 */
+    --ft-code: #1d4ed8;
+    --ft-test: #0b6b4a;
+    --ft-style: #0b6070;
+    --ft-markup: #a83a0a;
+    --ft-data: #6d28d9;
+    --ft-image: #be185d;
 
     /* ==== Project Manager：语法色（实值令牌，§3.3）==== */
     --code-keyword: #a0349e;
@@ -840,23 +1068,10 @@ body {
     --glow-success: 0 0 8px rgba(16, 185, 129, 0.2);
     --glow-error: 0 0 8px rgba(196, 92, 92, 0.2);
 
-    /* Shadows — same as light */
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04);
-    --shadow-elevated: 0 1px 3px rgba(0, 0, 0, 0.06);
-    --shadow-overlay: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-/* 十样锦主题滚动条 */
-.shiyangjin ::-webkit-scrollbar-thumb {
-    background: #D4C5C2;
-}
-
-.shiyangjin ::-webkit-scrollbar-thumb:hover {
-    background: #C4B5B2;
-}
-
-.shiyangjin * {
-    scrollbar-color: #D4C5C2 transparent;
+    /* Shadows — warm tinted, deepened for light-surface depth */
+    --shadow-card: 0 1px 2px rgba(60, 46, 45, 0.07);
+    --shadow-elevated: 0 2px 6px rgba(60, 46, 45, 0.10), 0 4px 12px rgba(60, 46, 45, 0.06);
+    --shadow-overlay: 0 8px 24px rgba(60, 46, 45, 0.15), 0 2px 6px rgba(60, 46, 45, 0.08);
 }
 
 /* 十样锦主题选择色 */
@@ -941,9 +1156,9 @@ body {
    Focus States — Accessibility (参考 HClaw-py)
    ======================================== */
 :focus-visible {
-  outline: 2px solid var(--brand-primary);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
-    outline-color: var(--brand-primary);
+    outline-color: var(--focus-ring);
 }
 
 /* 键盘导航焦点描边仅用于无自身边框反馈的控件（button 等）。
@@ -952,9 +1167,9 @@ body {
    checkbox 无边框，仍需 outline（见下方专属规则）。 */
 button:focus-visible,
 select:focus-visible {
-  outline: 2px solid var(--brand-primary);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
-    outline-color: var(--brand-primary);
+    outline-color: var(--focus-ring);
 }
 
 /* 文本输入类：outline 置空，聚焦反馈由组件边框变色（focus:border-brand-*）接管 */
@@ -1235,7 +1450,7 @@ textarea:focus-visible {
     background: var(--surface-muted);
     border-radius: 0.25rem;
     font-size: 0.875rem;
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace;
     color: var(--brand-primary);
 }
 
@@ -2454,17 +2669,23 @@ html.bg-enabled,
  * 调低后背景图能透过毛玻璃显现。 */
 .bg-enabled .app-surface-card {
     background-color: color-mix(in srgb, var(--surface) var(--bg-surface-alpha, 60%), transparent) !important;
-    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
-    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
 }
 
 /* ── 左侧栏容器：降透明度至内部项同级（--bg-surface-alpha-inner = 主层 × 0.7）──
  * 右侧栏修复后内部项用 alpha-inner 承载半透明底色，若左侧栏保持主层 alpha，
  * 左深右浅视觉失衡（用户反馈"左侧比右侧深"）。此处对齐到 ×0.7 同一水平。 */
 .bg-enabled [data-name="left-sidebar-card"].app-surface-card {
-    background-color: color-mix(in srgb, var(--surface) var(--bg-surface-alpha-inner, 45%), transparent) !important;
-    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
-    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    background-color: color-mix(in srgb, var(--surface-chrome) var(--bg-surface-alpha-inner, 45%), transparent) !important;
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
+}
+
+/* 右侧面板（side-panels）与左栏同为 chrome 层，背景图模式下取同一透明度口径 */
+.bg-enabled [data-name="side-panels"].app-surface-card,
+.bg-enabled [data-name="app-right-panel-expand-strip"].app-surface-card {
+    background-color: color-mix(in srgb, var(--surface-chrome) var(--bg-surface-alpha-inner, 45%), transparent) !important;
 }
 
 /* ── 欢迎页快捷键卡片（空会话，无消息滚动容器兜底）──
@@ -2472,8 +2693,8 @@ html.bg-enabled,
  * 背景启用时改为跟随 overlay 滑杆（--bg-surface-alpha），与内容卡片一致 */
 .bg-enabled .welcome-shortcut-card {
     background-color: color-mix(in srgb, var(--surface-muted) var(--bg-surface-alpha, 60%), transparent) !important;
-    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
-    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
 }
 .bg-enabled .welcome-shortcut-card:hover {
     background-color: color-mix(in srgb, var(--surface-muted) calc(var(--bg-surface-alpha, 60%) + 20%), transparent) !important;
@@ -2487,9 +2708,9 @@ html.bg-enabled,
 /* ── TitleBar / MenuBar 半透明 ── */
 .bg-enabled .window-container > .titlebar,
 .bg-enabled .window-container > .menubar {
-    background-color: color-mix(in srgb, var(--surface) 55%, transparent) !important;
-    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
-    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    background-color: color-mix(in srgb, var(--surface-chrome) 55%, transparent) !important;
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
 }
 
 /* ── 菜单栏选择器按钮（运行模式/工作模式/消息显示/模型方案）半透明 ──
@@ -2516,8 +2737,8 @@ html.bg-enabled,
  * 形成真正的毛玻璃质感（文字对比度由气泡底色 + 背景暗部保证）。 */
 :root:not(.dark):not(.yuanshandai) .bg-enabled .message-bubble.assistant {
     background: color-mix(in srgb, var(--surface-elevated) 65%, transparent);
-    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
-    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
 }
 
 /* ── 右侧面板最底层容器（side-panels）全透明 ──
@@ -2535,8 +2756,8 @@ html.bg-enabled,
  * 避免"子面板本体 + 内部项"双层叠加导致右侧栏比左侧栏更深更实。 */
 .bg-enabled .permission-rules-card {
     background-color: transparent !important;
-    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
-    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
 }
 
 /* ── 子面板内部元素（权限规则项等）透明但不 blur ──
@@ -2553,8 +2774,8 @@ html.bg-enabled,
  * 无实底卡片，无需 bg-enabled 半透明覆盖规则。 */
 .bg-enabled .memo-panel-card {
     background-color: color-mix(in srgb, var(--surface) var(--bg-surface-alpha-inner, 45%), transparent) !important;
-    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
-    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
 }
 
 /* ── 消息列表卡片（data-name="message-list-card"）半透明 ──
@@ -2581,8 +2802,8 @@ html.bg-enabled,
  * 模糊跟随 --bg-blur 滑杆。 */
 .bg-enabled [data-name="message-list-scroll-container"] {
     background-color: transparent !important;
-    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
-    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.2);
+    backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
+    -webkit-backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);
 }
 
 /* ── 弹窗/菜单兜底：保持完全不透明，禁止毛玻璃透传 ──
@@ -2720,14 +2941,21 @@ html.bg-enabled,
     min-height: 0;
     overflow: hidden;
 }
-/* 分隔条：命中区 5px、完全透明；鼠标进入不变色、不浮起（用户明确要求） */
+/* 分隔条：命中区 5px、本体完全透明；中缝常驻一条 1px 发丝线（--border-muted），
+   hover 时升为 --border-emphasis。线画在伪元素上（pointer-events: none），
+   不参与命中、不改变命中区宽度，也不做尺寸浮起。 */
 .pm-split-handle {
+    position: relative;
     flex: 0 0 5px;
     background: transparent;
     border: 0;
     padding: 0;
     user-select: none;
 }
+.pm-split-handle::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: var(--border-muted); }
+.pm-split-handle:hover::after { background: var(--border-emphasis); }
+.pm-split-handle--x::after { left: 2px; right: 2px; }
+.pm-split-handle--y::after { top: 2px; bottom: 2px; }
 .pm-split-handle--x { cursor: col-resize; }
 .pm-split-handle--y { cursor: row-resize; }
 
@@ -2741,9 +2969,11 @@ html.bg-enabled,
     min-width: 0;
     min-height: 0;
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    box-shadow: var(--shadow-card);
+    /* 连续工具窗口外壳：面板不再是「卡片」，只是同一张窗口面上的一个分区。
+       外描边 / 圆角 / 投影全部去掉，分区之间只由 .pm-split-handle 的 1px 发丝线分隔。 */
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
     overflow: hidden;
 }
 .pm-panel-header {
@@ -2751,12 +2981,12 @@ html.bg-enabled,
     align-items: center;
     justify-content: space-between;
     gap: 4px;
-    flex: 0 0 22px;
-    height: 22px;
+    flex: 0 0 26px;
+    height: 26px;
     padding: 0 6px 0 4px;
     border-bottom: 1px solid var(--border-muted);
-    font-size: 11px;
-    color: var(--text-secondary);
+    font-size: 12px;
+    color: var(--text-primary);
 }
 .pm-panel-header-main {
     display: flex;
@@ -2777,7 +3007,7 @@ html.bg-enabled,
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.pm-panel-header-count { color: var(--text-muted); flex: 0 0 auto; }
+.pm-panel-header-count { color: var(--text-secondary); flex: 0 0 auto; }
 .pm-panel-header-actions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
 .pm-panel-toolbar {
     display: flex;
@@ -2815,7 +3045,7 @@ html.bg-enabled,
     padding: 0 4px;
     background: var(--surface-muted);
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: 4px;
 }
 .pm-search-icon { color: var(--text-muted); flex: 0 0 auto; }
 .pm-search-input {
@@ -2839,7 +3069,7 @@ html.bg-enabled,
     padding: 0;
     background: transparent;
     border: 0;
-    border-radius: 3px;
+    border-radius: 4px;
     color: var(--text-muted);
     cursor: pointer;
 }
@@ -2852,7 +3082,7 @@ html.bg-enabled,
     padding: 0 6px;
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: 4px;
     font-size: 11px;
     color: var(--text-secondary);
     cursor: pointer;
@@ -2874,12 +3104,16 @@ html.bg-enabled,
     padding: 0;
     background: transparent;
     border: 0;
-    border-radius: 3px;
+    border-radius: 4px;
     color: var(--text-secondary);
     cursor: pointer;
 }
 .pm-icon-btn:hover:not(:disabled) { background: var(--surface-muted); color: var(--text-primary); }
-.pm-icon-btn.is-active { color: var(--brand-primary); background: var(--brand-muted); }
+.pm-icon-btn.is-active {
+    color: var(--text-primary);
+    background: var(--surface-muted);
+    box-shadow: inset 0 0 0 1px var(--border-emphasis);
+}
 .pm-icon-btn:disabled { color: var(--text-muted); cursor: not-allowed; }
 
 .pm-context-menu-backdrop {
@@ -2904,7 +3138,7 @@ html.bg-enabled,
     padding: 0 10px;
     background: transparent;
     border: 0;
-    border-radius: 3px;
+    border-radius: 4px;
     font-size: 12px;
     color: var(--text-primary);
     text-align: left;
@@ -2916,7 +3150,7 @@ html.bg-enabled,
 .pm-context-menu-item:hover:not(:disabled) { background: var(--brand-muted); }
 .pm-context-menu-item:disabled { color: var(--text-muted); cursor: not-allowed; }
 /* 删除类不可逆操作：危险色（--error 四主题各一份，见令牌层 §3.1） */
-.pm-context-menu-item--danger { color: var(--error); }
+.pm-context-menu-item--danger { color: var(--text-danger); }
 .pm-context-menu-item--danger:hover:not(:disabled) { background: var(--error-muted); }
 
 .pm-session-picker { display: flex; flex-direction: column; gap: 4px; }
@@ -2943,7 +3177,7 @@ html.bg-enabled,
     padding: 0 8px;
     background: transparent;
     border: 0;
-    border-radius: 3px;
+    border-radius: 4px;
     font-size: 12px;
     color: var(--text-primary);
     text-align: left;
@@ -2953,6 +3187,7 @@ html.bg-enabled,
     text-overflow: ellipsis;
 }
 .pm-session-picker-item.is-highlight { background: var(--surface-muted); }
+/* 有意例外：浮层下拉的 is-selected 保留品牌色，需与本列表的 keyboard-highlight 区分（对话框内无左条线索）。 */
 .pm-session-picker-item.is-selected { background: var(--brand-muted); color: var(--brand-primary); }
 .pm-session-picker-empty { padding: 8px; font-size: 12px; color: var(--text-muted); text-align: center; }
 
@@ -2961,7 +3196,7 @@ html.bg-enabled,
     align-items: center;
     gap: 4px;
     width: 100%;
-    height: 20px;
+    height: 22px;
     padding: 0 6px 0 4px;      /* 左侧 padding 由内联 style 覆盖（缩进是动态值） */
     box-sizing: border-box;
     background: transparent;
@@ -2972,9 +3207,12 @@ html.bg-enabled,
     text-align: left;
     cursor: pointer;
 }
+/* hover：比选中态更淡的一档（selected = --surface-muted，hover = 其 55% 混 --surface）。
+   两者可辨识，且被选中且被 hover 时 .is-selected 规则在后、同特异性胜出，左条不会被覆盖。 */
+.pm-tree-row:hover { background: color-mix(in srgb, var(--surface-muted) 55%, var(--surface)); }
 .pm-tree-row.is-selected {
-    background: var(--brand-muted);
-    box-shadow: inset 2px 0 0 var(--brand-primary);
+    background: var(--surface-muted);
+    box-shadow: inset 2px 0 0 var(--focus-ring);
 }
 .pm-tree-row-icon {
     flex: 0 0 13px;
@@ -3011,6 +3249,24 @@ html.bg-enabled,
 .pm-status-badge.pm-c--D { text-decoration: line-through; }
 .pm-c--untracked.pm-file-name,
 .pm-status-badge.pm-c--untracked { font-style: italic; }
+/* 文件名不染**状态**色：状态只留给 18px 状态字母，减少同屏色噪声。
+   bold / line-through / italic 三重装饰仍由上方 .pm-c--* 规则保留。 */
+.pm-c--M.pm-file-name,
+.pm-c--A.pm-file-name,
+.pm-c--D.pm-file-name,
+.pm-c--R.pm-file-name,
+.pm-c--untracked.pm-file-name { color: var(--text-primary); }
+
+/* 文件类型着色（IDEA 式）：图标与文件名同色同源，按**类型**而非状态。
+   ⚠️ 必须写成 `.pm-file-name.pm-ft--*`（特异性同样是 0,2,0）并**紧跟在上面那条之后**：
+   两条规则同特异性，靠源码顺序取胜；写成单类 `.pm-ft--*`（0,1,0）会被正文色压死。
+   config / unknown 不在此列——它们不挂 pm-ft--*，文件名保持正文色。 */
+.pm-file-name.pm-ft--code { color: var(--ft-code); }
+.pm-file-name.pm-ft--test { color: var(--ft-test); }
+.pm-file-name.pm-ft--style { color: var(--ft-style); }
+.pm-file-name.pm-ft--markup { color: var(--ft-markup); }
+.pm-file-name.pm-ft--data { color: var(--ft-data); }
+.pm-file-name.pm-ft--image { color: var(--ft-image); }
 
 /* 未跟踪分组（变更列表）：与上方「已跟踪变更」树用横线分开，并整体降为灰色调 ——
    表达「这些文件尚未进入版本控制」，不与 M/A/D/R 的状态色争夺注意力。
@@ -3043,8 +3299,9 @@ html.bg-enabled,
     width: 100%;
     height: 100%;
     min-height: 0;
-    padding: 5px;
-    background: var(--surface-overlay);
+    /* 连续面：画布不再留 5px 填缝 padding，底色与面板同色，读起来是「一个工具窗口」而非「瓷砖网格」 */
+    padding: 0;
+    background: var(--surface);
 }
 .pm-canvas > .pm-split { flex: 1 1 0; min-height: 0; }
 .pm-git-zone {
@@ -3054,10 +3311,12 @@ html.bg-enabled,
     min-height: 0;
 }
 .pm-git-zone > .pm-panel-header {
-    flex: 0 0 22px;
+    flex: 0 0 26px;
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
+    /* 不再伪装成独立卡片：去掉四边描边与圆角，只保留下边一条分隔线 */
+    border: 0;
+    border-radius: 0;
+    border-bottom: 1px solid var(--border-muted);
 }
 .pm-git-zone-body { flex: 1 1 0; min-height: 0; }
 .pm-git-zone-summary { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
@@ -3083,29 +3342,19 @@ html.bg-enabled,
 .pm-tree-scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
 .pm-root-name { font-weight: 600; }
 
-/* 变更列表底部统计行（spec §7）：单行省略，弱化色 */
-.pm-changes-summary {
-    flex: 0 0 auto;
-    padding: 4px 8px;
-    border-top: 1px solid var(--border-muted);
-    color: var(--text-muted);
-    font-size: 11px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* 变更列表底部提交区（spec §2.2）：统计行下方等宽双按钮。
+/* 变更列表底部提交区（spec §2.2）：右对齐的「次级纯文字按钮 + 不撑满的主按钮」。
+   右对齐与标题栏的计数、状态区的统计同侧，视线落点一致。
    颜色全部走令牌；置灰用 .is-disabled + aria-disabled，不用原生 disabled（原生 disabled 不触发 title） */
 .pm-changes-actions {
     flex: 0 0 auto;
     display: flex;
+    justify-content: flex-end;
     gap: 6px;
     padding: 6px 8px;
     border-top: 1px solid var(--border-muted);
 }
 .pm-changes-actions .pm-changes-btn {
-    flex: 1 1 0;
+    flex: 0 0 auto;
     min-width: 0;
     height: 24px;
     padding: 0 6px;
@@ -3113,14 +3362,21 @@ html.bg-enabled,
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text-primary);
+    border-radius: 4px;
+    /* 次级按钮：纯文字，无描边无实底（降噪） */
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
     cursor: pointer;
 }
-.pm-changes-actions .pm-changes-btn:not(.pm-changes-btn--primary):hover:not(.is-disabled) { background: var(--surface-muted); }
+.pm-changes-actions .pm-changes-btn:not(.pm-changes-btn--primary):hover:not(.is-disabled) {
+    background: var(--surface-muted);
+    color: var(--text-primary);
+}
 .pm-changes-actions .pm-changes-btn--primary {
+    flex: 0 0 auto;
+    min-width: 88px;
+    padding: 0 14px;
     border-color: var(--brand-primary);
     background: var(--brand-primary);
     color: var(--text-inverse);
@@ -3131,21 +3387,27 @@ html.bg-enabled,
 }
 
 /* 组标题：变更列表（spec §7）与分支树（GitBranchTree.tsx 的三处组标题）**共用**，改一处即改两处。
-   组名加粗；不与文件行的 pm-file-name 装饰共用。
-   注意：勿在别处重复定义同名 `.pm-group-title` —— 追加的同名规则会把这里的 700 静默降级为 600，
-   并用 color: var(--text-secondary) 覆盖掉 .pm-c--* 状态色（见下方 :2942-2947）。*/
+   组名是结构标签，不承载状态色，统一走 --text-secondary；不与文件行的 pm-file-name 装饰共用。
+   C 方案（目录弱 / 文件强）：字重降为常规 400 —— 「灰 + 700」会糊成一团，
+   层级交给颜色与缩进表达，不再靠加粗；与文件树的目录名（.pm-dir-name）口径一致。
+   注意：勿在别处重复定义同名 `.pm-group-title` —— 追加的同名规则会把这里的字重静默改写。*/
 .pm-group-title {
-    font-weight: 700;
+    font-weight: 400;
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
+/* 文件树的目录名：与上面的分组标题同档（同一套「目录弱 / 文件强」口径），只是结构上落在树行里。
+   ⚠️ 目录名不得挂 .pm-file-name / .pm-c--*（那些带 M 加粗 / D 删除线 / ?? 斜体等状态装饰）。 */
+.pm-dir-name { color: var(--text-secondary); }
+
 /* 分支树当前分支行（spec §8.2：加粗 + 品牌色文字；底色/左竖条由 .pm-tree-row.is-selected 提供）*/
-.pm-c--current { font-weight: 600; color: var(--brand-primary); }
+.pm-c--current { font-weight: 600; color: var(--text-brand); }
 
 /* 分支搜索命中段高亮（spec §8.1：子串包含、忽略大小写，命中的分支高亮匹配段）
-   注意：底色不能用 var(--brand-muted)——它与 .pm-tree-row.is-selected 的底色完全相同，
+   注意：底色不能用 var(--surface-muted)——那就是 .pm-tree-row.is-selected 的选中底色，
    选中某条分支后（查询仍在）高亮会整段消失。这里改用品牌色低透明度底 + 下划线，
    在选中底之上依然可辨，且仍然只走令牌。 */
 .pm-search-match {
@@ -3168,30 +3430,30 @@ html.bg-enabled,
 }
 
 /* 四段式单行（spec §9.1）：rail / hash / subject / refs / author · 相对时间。
-   整行强制单行；行高 24px 是 commit 列表专属尺度（spec §13.2）。 */
+   整行强制单行；行高 26px 是 commit 列表专属尺度（spec §13.2）。 */
 .pm-commit-row {
     display: flex;
     align-items: center;
     gap: 6px;
-    flex: 0 0 24px;
-    height: 24px;
+    flex: 0 0 26px;
+    height: 26px;
     padding: 0 8px 0 2px;
     font-size: 12px;
     white-space: nowrap;
     overflow: hidden;
     cursor: pointer;
     /* 离屏行跳过渲染（CSS 原生懒渲染，与 MessageList.tsx:1133 同策略，不引 @tanstack/react-virtual）。
-       这里 contain-intrinsic-size 的占位高度恒等于真实高度：本规则 height 与 flex-basis 都是显式 24px
+       这里 contain-intrinsic-size 的占位高度必须恒等于真实高度：本规则 height 与 flex-basis 都是显式 26px
        （上下 padding/border 为 0），元素尺寸不是 auto，故 contain-intrinsic-size 只在被跳过渲染时兜底，
-       写错也不会造成滚动定位跳动（与 MessageList 那套测量补偿不同）。 */
+       两者写不一致也会造成滚动定位跳动。 */
     content-visibility: auto;
-    contain-intrinsic-size: auto 24px;
+    contain-intrinsic-size: auto 26px;
 }
-.pm-commit-row:hover { background: var(--surface-muted); }
-/* 选中态：品牌色底 + 左侧 inset 竖条（与 .pm-tree-row.is-selected 同构） */
+.pm-commit-row:hover { background: color-mix(in srgb, var(--surface-muted) 55%, var(--surface)); }
+/* 选中态：中性底 + 左侧 inset 强调条（与 .pm-tree-row.is-selected 同构） */
 .pm-commit-row.is-selected {
-    background: var(--brand-muted);
-    box-shadow: inset 2px 0 0 var(--brand-primary);
+    background: var(--surface-muted);
+    box-shadow: inset 2px 0 0 var(--focus-ring);
 }
 
 /* rail：DAG 轨道 14px，1.5px 竖线 + 7px 圆点（spec §9.3） */
@@ -3221,12 +3483,12 @@ html.bg-enabled,
 .pm-commit-rail-dot.is-merge { background: var(--info); }
 .pm-commit-rail-dot.is-head { background: var(--brand-primary); }
 
-/* hash：等宽 11px、弱化色、固定宽度不参与收缩（spec §9.1） */
+/* hash：等宽 11px、次级色、固定宽度不参与收缩（spec §9.1） */
 .pm-commit-hash {
     flex: 0 0 auto;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 11px;
-    color: var(--text-muted);
+    color: var(--text-secondary);
 }
 
 /* subject：吃掉剩余宽度，单行省略，全文走 title（spec §9.1） */
@@ -3252,17 +3514,17 @@ html.bg-enabled,
     flex: 0 0 auto;
     padding: 0 4px;
     border: 1px solid var(--brand-border);
-    border-radius: 7px;
-    font-size: 10px;
-    line-height: 14px;
-    color: var(--brand-primary);
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 15px;
+    color: var(--text-brand);
 }
 
-/* author · 相对时间：弱化色 10px，钉在右侧（spec §9.1） */
+/* author · 相对时间：次级色 11px，钉在右侧（spec §9.1） */
 .pm-commit-meta {
     flex: 0 0 auto;
-    font-size: 10px;
-    color: var(--text-muted);
+    font-size: 11px;
+    color: var(--text-secondary);
 }
 
 /* 列表尾部提示：没有更早的提交 / 触达 2000 条内存上限 */
@@ -3294,7 +3556,7 @@ html.bg-enabled,
     padding: 0 4px;
     background: var(--surface-muted);
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: 4px;
     color: var(--text-primary);
     font-size: 11px;
     outline: none;
@@ -3308,22 +3570,25 @@ html.bg-enabled,
     flex: 1 1 0;
     min-height: 0;
     overflow: auto;
+    padding-bottom: 8px;   /* 消除文件列表在面板底部被「腰斩」的半行截断 */
     font-size: 12px;
 }
 /* 底部 message/body 区：与滚动区分隔的固定尾栏。
    flex-shrink 必须为 0 + max-height 封顶卡片一半高度：否则长 message 会把上方变更列表挤成 0 高（basis auto 撑开会吃掉全部剩余空间）。 */
 .pm-detail-footer {
     flex: 0 0 auto;
-    max-height: 50%;
+    max-height: min(240px, 40%);
     min-height: 0;
     overflow-y: auto;
-    padding: 4px;
+    padding: 6px 8px;
     border-top: 1px solid var(--border);
     font-size: 12px;
 }
-.pm-detail-message { font-weight: bold; }
+.pm-detail-message { font-size: 13px; font-weight: 600; line-height: 1.5; }
 /* commit body：保留原始换行，长 token 也不撑破面板宽度 */
 .pm-detail-body {
+    font-size: 12px;
+    line-height: 1.6;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
@@ -3334,7 +3599,7 @@ html.bg-enabled,
     padding: 0 6px;
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: 3px;
+    border-radius: 4px;
     color: var(--text-secondary);
     font-size: 11px;
     font-family: inherit;
@@ -3558,7 +3823,7 @@ html.bg-enabled,
     min-height: 26px;
     /* 条底色比激活 tab 的 --surface 深一档，激活态才有对比（原两者同色 → 激活不可见） */
     background: var(--surface-muted);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-muted);
 }
 /* 单行铁律：tab 自身 flex: 0 0 auto + nowrap，溢出由这里横向滚动承担，禁止 flex-wrap */
 .pm-tabbar-scroll {
@@ -3592,7 +3857,8 @@ html.bg-enabled,
     cursor: pointer;
 }
 .pm-tab:hover { background: var(--surface-overlay); color: var(--text-primary); }
-/* 激活 tab（spec §11.4）：品牌色顶部标记 + 加粗 + 与 tabbar 对比的 --surface 底 + 三边描边。
+/* 激活 tab（spec §11.4）：加粗 + 与 tabbar 对比的 --surface 底 + 三边描边。
+   （原品牌色顶部条已移除：彩色只留给状态信号。）
    注：底边不再声明 border-bottom-color —— .pm-tab 的 border-bottom 是 none，该声明恒无效；
    且 tab 嵌在 .pm-tabbar-scroll（overflow-y: hidden）内，负 margin 也会被裁掉，
    真正的「与内容面连通」需改结构，已记入后续项。 */
@@ -3601,10 +3867,8 @@ html.bg-enabled,
     border-color: var(--border-emphasis);
     color: var(--text-primary);
     font-weight: 600;
-    box-shadow: inset 0 2px 0 var(--brand-primary);
 }
-/* diff tab 标题走品牌色：表达「这是差异视图」，不继承文件状态色（spec §11.4） */
-.pm-tab.is-diff .pm-tab-title { color: var(--brand-primary); }
+
 .pm-tab-title {
     white-space: nowrap;
     overflow: hidden;
@@ -3618,7 +3882,7 @@ html.bg-enabled,
     padding: 0;
     background: transparent;
     border: 0;
-    border-radius: 3px;
+    border-radius: 4px;
     font-size: 13px;
     line-height: 1;
     color: var(--text-muted);
@@ -3948,7 +4212,7 @@ html.bg-enabled,
     transition: color 0.15s ease, background-color 0.15s ease;
 }
 .dp-icon-btn:hover { color: var(--text-primary); background: var(--surface-muted); }
-.dp-icon-btn:focus-visible { outline: 2px solid var(--brand-border); outline-offset: -1px; }
+.dp-icon-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
 .dp-icon-btn svg { width: 14px; height: 14px; }
 
 .dp-title {
@@ -3965,7 +4229,7 @@ html.bg-enabled,
     transition: background-color 0.15s ease, color 0.15s ease;
 }
 .dp-title:hover { background: var(--surface-muted); color: var(--brand-primary); }
-.dp-title:focus-visible { outline: 2px solid var(--brand-border); outline-offset: -1px; }
+.dp-title:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
 .dp-title--static { cursor: default; }
 .dp-title--static:hover { background: transparent; color: var(--text-primary); }
 
@@ -3998,7 +4262,7 @@ html.bg-enabled,
     transition: background-color 0.12s ease, color 0.12s ease;
 }
 .dp-day:hover { background: var(--surface-muted); }
-.dp-day:focus-visible { outline: 2px solid var(--brand-border); outline-offset: -1px; }
+.dp-day:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
 .dp-day--muted { color: var(--text-muted); }
 .dp-day--today { font-weight: 600; color: var(--brand-primary); }
 .dp-day--selected {
@@ -4030,7 +4294,7 @@ html.bg-enabled,
     transition: background-color 0.12s ease, color 0.12s ease;
 }
 .dp-cell:hover { background: var(--surface-muted); }
-.dp-cell:focus-visible { outline: 2px solid var(--brand-border); outline-offset: -1px; }
+.dp-cell:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
 .dp-cell--today { color: var(--brand-primary); font-weight: 600; }
 .dp-cell--selected {
     color: var(--surface-elevated);
@@ -4060,7 +4324,7 @@ html.bg-enabled,
     transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 .dp-footer-btn:hover { border-color: var(--border-muted); }
-.dp-footer-btn:focus-visible { outline: 2px solid var(--brand-border); outline-offset: -1px; }
+.dp-footer-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
 .dp-footer-btn--primary {
     color: var(--surface-elevated);
     background: var(--brand-primary);

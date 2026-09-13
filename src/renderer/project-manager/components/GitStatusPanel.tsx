@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react'
-import {RefreshCw} from 'lucide-react'
+import {CheckCircle2, RefreshCw} from 'lucide-react'
 import {useGitStatusStore} from '../stores/gitStatusStore'
 import {useEditorTabStore} from '../stores/editorTabStore'
 import {useFileTreeStore} from '../stores/fileTreeStore'
@@ -13,7 +13,7 @@ import {TreeRow} from '../ui/TreeRow'
 import {StatusBadge} from '../ui/StatusBadge'
 import {EmptyState} from '../ui/EmptyState'
 import {ContextMenu} from '../ui/ContextMenu'
-import {FOLDER_OPEN_SPEC, FOLDER_SPEC, fileIcon} from '../lib/fileIcon'
+import {FOLDER_OPEN_SPEC, FOLDER_SPEC, fileIcon, fileKindClass} from '../lib/fileIcon'
 import {statusClassSuffix, type VcsStatus} from '../lib/statusColor'
 import {absPath} from '../lib/absPath'
 import {applyMultiSelect, modsOf} from '../lib/multiSelect'
@@ -296,13 +296,15 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
   // 选中集合按显示顺序排列，不可见项排末尾（见 lib/visibleOrder.ts）。
 
   const renderFileRow = (f: GitStatus) => {
-    const {Icon, color} = fileIcon(fileNameOf(f.path))
+    const name = fileNameOf(f.path)
+    const {Icon, color} = fileIcon(name)
+    const kindClass = fileKindClass(name)
     return (
       <TreeRow
         key={f.path}
         depth={2}
         icon={<Icon size={13} color={color} aria-hidden="true" />}
-        label={<span className={`pm-c--${statusClassSuffix(f.status)} pm-file-name`}>{fileNameOf(f.path)}</span>}
+        label={<span className={`pm-c--${statusClassSuffix(f.status)} pm-file-name${kindClass ? ` ${kindClass}` : ''}`}>{name}</span>}
         trailing={f.status === '??' ? undefined : <StatusBadge status={f.status} />}
         ariaLabel={f.path}
         title={f.status === 'R' ? `${f.oldPath} → ${f.path}` : f.path}
@@ -329,7 +331,7 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
       hasChildren
       expanded
       icon={<FOLDER_OPEN_SPEC.Icon size={13} color={FOLDER_OPEN_SPEC.color} aria-hidden="true" />}
-      label={<span className={`pm-group-title pm-c--${statusClassSuffix(status)}`}>{label}</span>}
+      label={<span className="pm-group-title">{label}</span>}
       ariaLabel={label}
       onDoubleClick={onDoubleClick}
       title={onDoubleClick ? '双击全部加入跟踪（需确认）' : undefined}
@@ -340,12 +342,12 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
     <PanelCard testId="pm-changes">
       <PanelHeader
         title="变更列表"
-        count={changed}
+        count={changed || undefined}
         testId="pm-changes-header"
         actions={<IconButton icon={RefreshCw} label="刷新" disabled={loading} onClick={reloadStatus} />}
       />
-      {!summary
-        ? <EmptyState text="工作区干净" />
+      {!summary || changed === 0
+        ? <EmptyState icon={CheckCircle2} text="工作区干净 · 没有待提交的改动" />
         : (
           <div role="tree" className="pm-tree-scroll">
             {groups.map(([label, status, files]) => files.length > 0 && (
@@ -363,11 +365,6 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
             )}
           </div>
         )}
-      {summary && (
-        <div className="pm-changes-summary" data-testid="pm-changes-summary">
-          {changed ? `已更改 ${changed} 个文件 · +${summary.additions} · −${summary.deletions}` : '工作区干净'}
-        </div>
-      )}
       {summary && changed > 0 && (
         <div className="pm-changes-actions" data-testid="pm-changes-actions">
           <button

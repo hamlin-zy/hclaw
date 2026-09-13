@@ -36,9 +36,9 @@ describe('TreeRow 单行铁律 §13.1', () => {
     expect(cs.minWidth).toBe('0px')
   })
 
-  it('行高固定 20px', () => {
+  it('行高固定 22px', () => {
     render(<TreeRow label="a" depth={1} />)
-    expect(getComputedStyle(screen.getByRole('treeitem')).height).toBe('20px')
+    expect(getComputedStyle(screen.getByRole('treeitem')).height).toBe('22px')
   })
 })
 

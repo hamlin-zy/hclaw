@@ -20,6 +20,7 @@ import {confirm} from './ConfirmDialog'
 import ThemedSelect from './ThemedSelect'
 import {CopyButton} from './common/CopyButton'
 import type {LlmCallRecord, LlmTraceProjection, TraceFilter} from './llmTrace/types'
+import {RemoveIcon, ToolIcon} from './icons'
 
 type DetailTab = 'request' | 'response' | 'usage' | 'tools'
 type RequestSubTab = 'overview' | 'body'
@@ -211,7 +212,7 @@ export default function LlmLogsWindow() {
     return (
         <div className="h-full flex flex-col">
             {/* ── 顶栏 ── */}
-            <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--border)] shrink-0 flex-wrap">
+            <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--border-muted)] shrink-0 flex-wrap">
                 <h1 className="text-sm font-semibold text-[var(--text-primary)]">LLM 调用日志</h1>
                 {/* 录制状态灯：录制中红色呼吸；点击切换 */}
                 <button
@@ -223,7 +224,7 @@ export default function LlmLogsWindow() {
                             : 'border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                     }`}
                  data-name="llm-logs-window-button">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${recording ? 'bg-[var(--error)] animate-pulse' : pausedReason ? 'bg-[var(--text-muted)]' : 'bg-[var(--text-muted)]'}`} />
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${recording ? 'bg-[var(--error)] animate-pulse' : 'bg-[var(--text-muted)]'}`} />
                     {recording ? '录制中' : pausedReason ? `已暂停 · ${pausedReason}` : '未录制'}
                 </button>
                 <span className="flex-1" />
@@ -238,7 +239,7 @@ export default function LlmLogsWindow() {
             </div>
 
             {/* ── 过滤条 ── */}
-            <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--border)] shrink-0 flex-wrap">
+            <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--border-muted)] shrink-0 flex-wrap">
                 {([['all', '全部状态'], ['failed', '仅失败'], ['retries', '含重试']] as const).map(([key, label], i) => (
                     <button
                         key={key}
@@ -265,7 +266,7 @@ export default function LlmLogsWindow() {
             </div>
 
             {/* ── 摘要条 ── */}
-            <div className="flex gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--surface-muted)]/50 shrink-0 flex-wrap">
+            <div className="flex gap-3 px-4 py-3 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]/50 shrink-0 flex-wrap">
                 <StatCard value={String(stats.calls)} label="总调用" />
                 <StatCard value={String(stats.errors + stats.aborts)} label="失败 / 中断" tone={stats.errors + stats.aborts > 0 ? 'err' : 'ok'} />
                 <StatCard value={fmtCompact(stats.inputTokens)} label="输入 tokens" />
@@ -321,7 +322,7 @@ function StatCard({value, label, tone}: {value: string; label: string; tone?: 'e
                 tone === 'err' ? 'text-[var(--error)]' : tone === 'ok' ? 'text-[var(--success)]' : 'text-[var(--text-primary)]'}`}>
                 {value}
             </div>
-            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{label}</div>
+            <div className="text-[11px] text-[var(--text-secondary)] mt-0.5">{label}</div>
         </div>
     )
 }
@@ -420,7 +421,7 @@ function DetailView({state, tab, onTab, onClose}: {
         [['request', '请求'], ['response', '响应原文'], ['usage', '解析 usage'], ['tools', '工具调用']]
 
     return (
-        <div className="shrink-0 border-t border-[var(--border)] bg-[var(--surface-muted)] flex flex-col" style={{height}}>
+        <div className="shrink-0 border-t border-[var(--border-muted)] bg-[var(--surface-muted)] flex flex-col" style={{height}}>
             {/* 顶部拖拽把手：上下拖调整面板高度，双击恢复默认 */}
             <div
                 className="shrink-0 h-1.5 cursor-row-resize hover:bg-[var(--border)]/60 transition-colors"
@@ -428,7 +429,7 @@ function DetailView({state, tab, onTab, onClose}: {
                 onPointerDown={onResizeStart}
                 onDoubleClick={() => setHeight(Math.round(window.innerHeight * 0.45))}
             />
-            <div className="flex items-center gap-0.5 px-3 pt-1.5 border-b border-[var(--border)] shrink-0">
+            <div className="flex items-center gap-0.5 px-3 pt-1.5 border-b border-[var(--border-muted)] shrink-0">
                 {TABS.map(([key, label], i) => (
                     <button
                         key={key}
@@ -440,12 +441,12 @@ function DetailView({state, tab, onTab, onClose}: {
                         }`}
                      data-name={`llm-logs-window-tab-${i}`}>{label}</button>
                 ))}
-                <span className="font-mono text-[10.5px] text-[var(--text-muted)] ml-2 truncate">{r.id}</span>
+                <span className="font-mono text-[10.5px] text-[var(--text-secondary)] ml-2 truncate">{r.id}</span>
                 <button
                     onClick={onClose}
-                    className="ml-auto p-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                    className="ml-auto p-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer flex items-center"
                     title="关闭详情"
-                 data-name="llm-logs-window-close-detail-button">✕</button>
+                 data-name="llm-logs-window-close-detail-button"><RemoveIcon className="w-3.5 h-3.5"/></button>
             </div>
 
             <div className="flex-1 min-h-0 overflow-auto p-3 font-mono text-xs leading-relaxed">
@@ -469,7 +470,7 @@ function DetailView({state, tab, onTab, onClose}: {
                             : usage
                             ? (
                                 <div className="space-y-2">
-                                    <div className="text-[11px] text-[var(--text-muted)]">
+                                    <div className="text-[11px] text-[var(--text-secondary)]">
                                         解析自 <span className="text-[var(--brand-primary)]">{r.apiStyle}</span> 格式响应（apiStyle 来源：index.jsonl 记录）
                                     </div>
                                     <table className="text-xs">
@@ -644,7 +645,7 @@ function renderToolsTab(r: LlmCallRecord, toolCalls: Array<{name: string; args: 
         <div className="space-y-2">
             {toolCalls.map((tc, i) => (
                 <div key={i} className="rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-2">
-                    <div className="text-[11.5px] font-semibold text-[var(--brand-primary)] mb-1">🔧 {tc.name}</div>
+                    <div className="text-[11.5px] font-semibold text-[var(--brand-primary)] mb-1 flex items-center gap-1"><ToolIcon className="w-3.5 h-3.5"/>{tc.name}</div>
                     {(() => {
                         try { return <JsonTree data={JSON.parse(tc.args)} /> }
                         catch { return <pre className="whitespace-pre-wrap break-all text-[var(--text-primary)]">{tc.args}</pre> }

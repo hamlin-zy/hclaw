@@ -7,9 +7,10 @@
 import {z} from 'zod'
 import type {Tool, ToolContext, ToolResult} from '../types'
 import type {SystemSettings} from '@shared/types'
+import {THEME_SETTINGS} from '@shared/types'
 import {systemSettingsRepo} from '../../../repositories/sqlite/systemSettingsRepository'
 
-const themeSchema = z.enum(['light', 'dark', 'yuanshandai', 'shiyangjin', 'system']).optional()
+const themeSchema = z.enum(THEME_SETTINGS).optional()
 
 const inputSchema = z.object({
     action: z.enum(['get_settings', 'update_settings', 'restart'])

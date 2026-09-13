@@ -15,8 +15,10 @@ import {useConversationStore} from '../../../stores/conversationStore'
 import {useDraggableDialog} from '../../../hooks/useDraggableDialog'
 import {truncate} from '../../../lib/format'
 import {PopupToolCard} from './PopupToolCard'
+import {buildDisplaySegments, resolveToolCallsByAnchor} from '../utils/displaySegments'
 import {StreamEntryCard, mergeTimeline, getLastActiveTime} from '../StreamEntryRenderer'
 import MarkdownRenderer from '../MarkdownRenderer'
+import {AgentIcon, RemoveIcon, SkillIcon} from '../../icons'
 
 /**
  * 紧凑模式 Popup — 全局单例
@@ -35,6 +37,24 @@ const CompactToolPopup = memo(function CompactToolPopup() {
     const expandedCardIds = toolPopupData?.expandedCardIds
     const expandedSet = useMemo(() => new Set(expandedCardIds || []), [expandedCardIds])
 
+    // ★ 实时重推导（pull 模型）：按 anchor 从会话最新消息重算工具调用集，
+    //   修复「打开后新出现的工具调用永不渲染」；找不到 anchor 时回退快照。
+    const convId = toolPopupData?.convId
+    const messageId = toolPopupData?.messageId
+    const anchorToolCallId = toolPopupData?.anchorToolCallId
+    const anchorBlockId = toolPopupData?.anchorBlockId
+    const convMsgs = useConversationStore((s) => (convId ? s.messagesMap[convId] : undefined))
+    const liveMessage = useMemo(() => {
+        if (!messageId || !convMsgs) return null
+        return convMsgs.find((m) => m.id === messageId) || null
+    }, [messageId, convMsgs])
+    const derived = useMemo(
+        () => (liveMessage
+            ? resolveToolCallsByAnchor(buildDisplaySegments(liveMessage, true), {toolCallId: anchorToolCallId, blockId: anchorBlockId})
+            : null),
+        [liveMessage, anchorToolCallId, anchorBlockId],
+    )
+
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') closeToolPopup()
@@ -45,7 +65,9 @@ const CompactToolPopup = memo(function CompactToolPopup() {
 
     if (!toolPopupData) return null
 
-    const {toolCalls, title, isAgent, agentDisplayName, agentTypeLabel, isSkill, skillDisplayName} = toolPopupData
+    const {toolCalls: snapshotToolCalls, title, isAgent, agentDisplayName, agentTypeLabel, isSkill, skillDisplayName} = toolPopupData
+    // ★ L2 弹窗实时重推导：优先使用从最新消息按 anchor 解析出的工具调用集，回退快照
+    const toolCalls = derived ?? snapshotToolCalls
 
     const handleCardToggle = (id: string) => {
         const next = expandedSet.has(id)
@@ -82,15 +104,15 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                     style={{left: position.x, top: position.y, width: `${POPUP_WIDTH}px`, maxHeight: '75vh'}}
                 >
                     <div onMouseDown={handleDragStart} onTouchStart={handleDragStart}
-                        className={`flex items-center justify-between px-4 py-3 border-b border-[var(--border)] shrink-0 select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}>
+                        className={`flex items-center justify-between px-4 py-3 border-b border-[var(--border-muted)] shrink-0 select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}>
                         <h4 className="text-[13px] font-medium text-[var(--text-primary)] flex items-center gap-2 min-w-0 flex-1">
-                            {isAgent && <span className="text-[var(--brand-primary)] shrink-0">🤖</span>}
-                            {isSkill && <span className="text-[var(--brand-primary)] shrink-0">🛠️</span>}
+                            {isAgent && <AgentIcon className="w-4 h-4 shrink-0 text-[var(--brand-primary)]"/>}
+                            {isSkill && <SkillIcon className="w-4 h-4 shrink-0 text-[var(--brand-primary)]"/>}
                             <span className="truncate">{displayTitle}</span>
                             {!isAgent && !isSkill && <span className="text-[10px] text-[var(--text-muted)] font-normal shrink-0">{toolCalls.length} 个调用</span>}
                         </h4>
                         <button onClick={closeToolPopup}
-                            className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--text-muted)] hover:bg-white/[0.08] hover:text-[var(--text-primary)] transition-colors cursor-pointer" data-name="compact-popup-button">✕</button>
+                            className="w-6 h-6 rounded-md flex items-center justify-center text-[var(--text-muted)] hover:bg-[var(--surface-overlay)] hover:text-[var(--text-primary)] transition-colors cursor-pointer" data-name="compact-popup-button"><RemoveIcon className="w-4 h-4"/></button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto px-3 py-3">
@@ -105,7 +127,7 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                     return (
                                         <div key={tc.id} className="rounded-lg border border-[rgba(74,158,255,0.15)] bg-[rgba(74,158,255,0.04)] p-3">
                                             <div className="flex items-center gap-2 mb-2 text-[11px]">
-                                                <span className="text-[var(--brand-primary)]">🤖</span>
+                                                <AgentIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)]"/>
                                                 <span className="text-[var(--text-muted)] font-normal">Agent</span>
                                                 {agentTypeLabel && (
                                                     <span className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)]/30 px-1.5 py-0.5 rounded shrink-0">
@@ -183,7 +205,7 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                     return (
                                         <div key={tc.id} className="rounded-lg border border-[rgba(59,130,246,0.15)] bg-[rgba(59,130,246,0.04)] p-3">
                                             <div className="flex items-center gap-2 mb-2 text-[11px]">
-                                                <span className="text-[var(--brand-primary)]">🛠️</span>
+                                                <SkillIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)]"/>
                                                 <span className="text-[var(--text-muted)] font-normal">Skill</span>
                                                 <span className="font-semibold text-[var(--text-primary)] truncate flex-1">{skillDisplayName || '技能'}</span>
                                                 <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
@@ -200,7 +222,7 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                             </div>
                         ) : (
                             <div className="space-y-0.5">
-                                <div className="text-[9px] text-[var(--text-muted)] px-2 py-1 border-b border-[var(--border)] mb-2">执行顺序 ↓</div>
+                                <div className="text-[9px] text-[var(--text-secondary)] px-2 py-1 border-b border-[var(--border-muted)] mb-2">执行顺序 ↓</div>
                                 {toolCalls.map((tc: any, i: number) => (
                                     <PopupToolCard key={tc.id} toolCall={tc} index={i}
                                         expanded={expandedSet.has(tc.id)} onToggle={handleCardToggle}/>
@@ -209,9 +231,9 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                         )}
                     </div>
 
-                    <div className="flex justify-end px-3 py-2 border-t border-[var(--border)] shrink-0">
+                    <div className="flex justify-end px-3 py-2 border-t border-[var(--border-muted)] shrink-0">
                         <button onClick={closeToolPopup}
-                            className="px-3 py-1 text-[10px] rounded-md bg-[var(--surface-muted)] text-[var(--text-muted)] hover:bg-[var(--surface-elevated)] transition-colors cursor-pointer" data-name="compact-popup-close-button">关闭</button>
+                            className="px-3 py-1 text-[10px] rounded-md bg-[var(--surface-muted)] text-[var(--text-secondary)] hover:bg-[var(--surface-overlay)] transition-colors cursor-pointer" data-name="compact-popup-close-button">关闭</button>
                     </div>
                 </motion.div>
             </motion.div>

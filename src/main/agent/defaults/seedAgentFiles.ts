@@ -2,7 +2,13 @@
  * 首次启动时将内置 Agent .md 定义写入用户配置目录
  *
  * 使用内嵌字符串常量以避免 asar 打包后的文件系统读取问题。
- * 仅在新文件不存在时写入（不覆盖用户修改）。
+ *
+ * 写盘策略（详见 defaults/builtinAgentUpgrade.ts）：
+ *   - `missing` / `corrupt`            → 写入当前模板
+ *   - `user-conflict`                  → 不覆盖（无 source:hclaw 标记的自定义文件）
+ *   - `valid` + 指纹命中 manifest       → 用户未改动 → 整体替换为新模板
+ *   - `valid` + 指纹失配/无基线         → 用户改过或来源不明 → 只做锚点式补丁迁移
+ *   判定不确定一律不动；迁移后做生效校验，失败则回滚。
  *
  * ⚠️ 此文件由生成器维护 — 保持内嵌字符串与 defaults/*.md 一致。
  *    模板字面量中的反引号需转义为 \`。
@@ -12,6 +18,14 @@ import * as fs from 'fs'
 import * as path from 'path'
 import {getHclawDir} from '../../config'
 import {logger} from '../logger'
+import {
+    MANIFEST_FILENAME,
+    contentHash,
+    decideBuiltinTemplateUpgrade,
+    loadManifest,
+    saveManifest,
+    type BuiltinAgentManifestEntry,
+} from './builtinAgentUpgrade'
 
 const AGENTS_DIR = path.join(getHclawDir(), 'agents')
 
@@ -171,23 +185,24 @@ tools: []
 
 const PLAN_MD = `---
 name: Plan Agent
-description: 架构规划者 — 只读分析代码库现状与需求，设计方案权衡，产出可执行的实施计划（步骤/文件/依赖/风险/测试策略）。不修改任何代码。
+description: 架构规划者 — 只读分析代码库现状与需求，设计方案权衡，产出可执行的实施计划（步骤/文件/依赖/风险/测试策略），并将计划落盘为规划文档。不修改任何源码。
 whenToUse: 架构设计、实施计划制定、任务分解、方案权衡、重构规划、技术选型分析
-tags: [planning, read-only, architecture, builtin, source:hclaw]
+tags: [planning, architecture, builtin, source:hclaw]
 enabled: true
-tools: [glob, grep, file_read]
-disallowedTools: [agent, file_edit, file_write, notebook_edit, bash, browser_tool]
+tools: [glob, grep, file_read, file_write]
+disallowedTools: [agent, file_edit, bash]
 ---
 
 你是 HClaw 的 Plan Agent，一名软件架构与规划专家。
 
-=== 只读模式 ===
-你**严格禁止**：
-- 创建、修改、删除任何文件
-- 运行改变系统状态的命令
-- 派发子 Agent
+=== 规划模式 ===
+你的职责是探索代码库、设计方案，并把最终计划**落盘**为规划文档。
+你可以并应当使用 file_write 将计划写入规划文档（如 docs/plans/<name>.md）。
 
-你的职责**仅限**探索代码库并设计实施计划。
+你**严格禁止**：
+- 修改/编辑任何源码或既有文件（无 file_edit，禁止覆盖源码）
+- 运行改变系统状态的命令（无 bash）
+- 派发子 Agent
 
 ## 核心能力
 
@@ -210,7 +225,12 @@ disallowedTools: [agent, file_edit, file_write, notebook_edit, bash, browser_too
 4. **Risk Assessment**: 潜在问题与规避策略
 5. **Testing Strategy**: 如何验证实现
 
-记住：你只能探索和规划。**绝不能**写、编辑或修改任何文件。
+## 落盘要求
+
+完成规划后，**必须**使用 file_write 将计划写入规划文档（默认 \`docs/plans/<slug>.md\`），
+并在回复中给出该文件路径。不得修改或覆盖任何源码与既有文件。
+
+记住：你只负责探索、规划，并把计划写入规划文档；**绝不能**修改或覆盖任何源码与既有文件。
 `
 
 const EXPLORE_MD = `---
@@ -220,7 +240,7 @@ whenToUse: 代码搜索、文件定位、代码库分析、架构梳理、回答
 tags: [search, read-only, exploration, builtin, source:hclaw]
 enabled: true
 tools: [glob, grep, file_read, bash]
-disallowedTools: [agent, file_edit, file_write, notebook_edit]
+disallowedTools: [agent, file_edit, file_write]
 ---
 
 你是 HClaw 的 Explore Agent，一名代码库搜索与探索专家。
@@ -340,7 +360,7 @@ export type BuiltinAgentFileState = 'missing' | 'valid' | 'corrupt' | 'user-conf
  *
  * 行级匹配（非子串匹配），兼容两种写法：
  * 1. 独立键 `source: hclaw`（占一整行，行首行尾无其他内容）
- * 2. `tags:` 行内独立 token `source:hclaw`（内置文件现状：`tags: [implementer, sdd, builtin, source:hclaw]`）
+ * 2. `tags:` 行内独立 token `source:hclaw`（内置文件现状：`tags: [implementer, builtin, source:hclaw]`）
  *
  * `# source:hclaw` 注释、`tags: [custom, mysource:hclawzz]` 等子串均不命中。
  */
@@ -391,39 +411,153 @@ export function seedDefaultAgentFiles(): void {
         fs.mkdirSync(AGENTS_DIR, {recursive: true})
     }
 
+    const manifestPath = path.join(AGENTS_DIR, MANIFEST_FILENAME)
+    const manifest = loadManifest(manifestPath)
+    let manifestDirty = false
+
     for (const [filename, content] of Object.entries(MD_FILES)) {
         const destPath = path.join(AGENTS_DIR, filename)
         const state = classifyBuiltinAgentFile(destPath)
-        switch (state) {
-            case 'missing':
-            case 'corrupt':
-                // 不存在 → 正常种子写入；损坏/不完整 → 重建（覆盖写）
-                // 两分支写盘逻辑相同，仅日志语义不同
-                try {
-                    if (state === 'corrupt') {
-                        logger.warn('[seedAgentFiles] builtin agent file invalid, re-seeding', {filename})
-                    }
-                    fs.writeFileSync(destPath, content, 'utf-8')
-                    logger.info(state === 'corrupt' ? '[seedAgentFiles] re-seeded' : '[seedAgentFiles] seeded', {filename})
-                } catch (err: any) {
-                    logger.warn(
-                        state === 'corrupt' ? '[seedAgentFiles] failed to re-seed' : '[seedAgentFiles] failed to seed',
-                        {filename, error: err?.message},
-                    )
+        const entry = manifest.files[filename]
+
+        // 用户自定义文件占了内置文件名 → 永不触碰
+        if (state === 'user-conflict') {
+            logger.warn(
+                '[seedAgentFiles] user-defined agent file conflicts with builtin filename, skipping builtin template',
+                {filename},
+            )
+            continue
+        }
+
+        if (state === 'missing' || state === 'corrupt') {
+            // 不存在 → 正常种子写入；损坏/不完整 → 重建（覆盖写）
+            // 两分支写盘逻辑相同，仅日志语义不同
+            try {
+                if (state === 'corrupt') {
+                    logger.warn('[seedAgentFiles] builtin agent file invalid, re-seeding', {filename})
                 }
-                break
-
-            case 'valid':
-                // 有效内置文件（含用户修改但保留 source:hclaw 标记）不覆盖
-                break
-
-            case 'user-conflict':
-                // 用户自定义文件占了内置文件名（结构完整但无 source:hclaw）→ 不覆盖，仅告警
+                fs.writeFileSync(destPath, content, 'utf-8')
+                logger.info(state === 'corrupt' ? '[seedAgentFiles] re-seeded' : '[seedAgentFiles] seeded', {filename})
+                manifest.files[filename] = {...entry, pristineHash: contentHash(content), updatedAt: Date.now()}
+                manifestDirty = true
+            } catch (err: any) {
                 logger.warn(
-                    '[seedAgentFiles] user-defined agent file conflicts with builtin filename, skipping builtin template',
-                    {filename},
+                    state === 'corrupt' ? '[seedAgentFiles] failed to re-seed' : '[seedAgentFiles] failed to seed',
+                    {filename, error: err?.message},
                 )
-                break
+            }
+            continue
+        }
+
+        if (upgradeExistingBuiltinFile({filename, destPath, template: content, entry, manifest})) {
+            manifestDirty = true
+        }
+    }
+
+    if (manifestDirty) {
+        try {
+            saveManifest(manifestPath, manifest)
+        } catch (err: any) {
+            // manifest 写失败不阻断启动；下次启动退化为"无基线"保守路径
+            logger.warn('[seedAgentFiles] failed to persist builtin agent manifest', {error: err?.message})
         }
     }
 }
+
+/**
+ * 处理已存在的有效内置模板文件：指纹命中则整体替换，否则只做锚点式补丁迁移。
+ *
+ * BOM 处理：解析/指纹/迁移一律在剥离 BOM 的内容上进行；写盘时按原样恢复 BOM，
+ * 避免对用户文件产生无意义的字节级改动。
+ *
+ * @returns 是否有内容写盘或 manifest 条目更新（供调用方决定是否落盘 manifest）
+ */
+function upgradeExistingBuiltinFile(params: {
+    filename: string
+    destPath: string
+    template: string
+    entry: BuiltinAgentManifestEntry | undefined
+    manifest: {files: Record<string, BuiltinAgentManifestEntry>}
+}): boolean {
+    const {filename, destPath, template, entry, manifest} = params
+
+    let raw: string
+    try {
+        raw = fs.readFileSync(destPath, 'utf-8')
+    } catch (err: any) {
+        logger.warn('[seedAgentFiles] failed to read builtin agent file, leaving untouched', {
+            filename,
+            error: err?.message,
+        })
+        return false
+    }
+
+    const hasBom = raw.startsWith('\uFEFF')
+    const current = hasBom ? raw.slice(1) : raw
+
+    const decision = decideBuiltinTemplateUpgrade(filename, current, template, entry)
+    const prevApplied = entry?.appliedMigrations ?? []
+    const nextEntry: BuiltinAgentManifestEntry = {...entry}
+
+    if (decision.shadowed.length > 0) {
+        // 诊断：存在同语义的低优先级别名键（不生效），迁移只改了真正生效的那个
+        logger.warn('[seedAgentFiles] shadowed alias keys detected during migration', {
+            filename,
+            shadowed: decision.shadowed,
+        })
+    }
+
+    if (decision.verifyFailure) {
+        logger.warn('[seedAgentFiles] builtin template migration rolled back: effectiveness check failed', {
+            filename,
+            reason: decision.verifyFailure,
+            skipped: decision.skippedMigrations,
+        })
+        return false
+    }
+
+    if (decision.action === 'replace' || decision.action === 'migrate') {
+        try {
+            fs.writeFileSync(destPath, hasBom ? `\uFEFF${decision.content}` : decision.content, 'utf-8')
+        } catch (err: any) {
+            logger.warn('[seedAgentFiles] failed to write upgraded builtin agent file', {
+                filename,
+                error: err?.message,
+            })
+            return false
+        }
+    }
+
+    if (decision.action === 'replace') {
+        logger.info('[seedAgentFiles] builtin template replaced (user file unmodified)', {filename})
+        // 整体替换后文件内容完全等于模板 → 记录指纹，供下次升级判定"未改动"
+        nextEntry.pristineHash = contentHash(decision.content)
+        nextEntry.appliedMigrations = []
+    } else if (decision.action === 'migrate') {
+        logger.info('[seedAgentFiles] builtin template migrated in place (user file modified)', {
+            filename,
+            applied: decision.appliedMigrations,
+            skipped: decision.skippedMigrations,
+        })
+        // ★ 安全不变量：锚点迁移过的文件**不记录** pristineHash ——
+        //   文件里可能还有用户自己的改动，标记为"未改动"会导致将来被整体替换覆盖。
+        nextEntry.appliedMigrations = Array.from(new Set([...prevApplied, ...decision.appliedMigrations]))
+    } else if (decision.skippedMigrations.length > 0) {
+        logger.info('[seedAgentFiles] builtin template migrations skipped (anchors not found)', {
+            filename,
+            skipped: decision.skippedMigrations,
+        })
+    }
+
+    const entryChanged =
+        decision.action === 'replace' ||
+        (nextEntry.appliedMigrations?.join(',') ?? '') !== prevApplied.join(',')
+
+    // 未产生变化时不写 manifest 条目，避免每次启动都因 updatedAt 抖动而重写文件
+    if (!entryChanged) return false
+
+    nextEntry.updatedAt = Date.now()
+    manifest.files[filename] = nextEntry
+    return true
+}
+

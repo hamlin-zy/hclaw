@@ -29,7 +29,7 @@ export const ToolCountdown = memo(function ToolCountdown({
 
     const style = cd.urgent
         ? 'bg-[var(--error-muted)]/30 text-[var(--error)] border border-[rgba(239,68,68,0.25)]'
-        : 'bg-[var(--surface-muted)] text-[var(--text-muted)] border border-[var(--border-muted)]'
+        : 'bg-[var(--surface-muted)] text-[var(--text-muted)] border border-[var(--border)]'
 
     return (
         <span className={`${base} ${style}`} title="工具执行超时倒计时" role="timer">

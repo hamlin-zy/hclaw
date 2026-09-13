@@ -69,6 +69,14 @@ export interface ConvAgentData {
         skillDisplayName?: string | null
         /** 当前展开的卡片 ID 列表（跨会话恢复） */
         expandedCardIds?: string[]
+        /** 所属会话 ID（用于从 conversationStore 实时重推导） */
+        convId?: string
+        /** 所属消息 ID（用于实时重推导；缺省时回退快照） */
+        messageId?: string
+        /** 打开弹窗时的 anchor 工具调用 ID（实时重推导定位用） */
+        anchorToolCallId?: string
+        /** 打开弹窗时的 anchor 思考块 ID（实时重推导定位用） */
+        anchorBlockId?: string
     } | null
     /** 当前权限确认的内容（核心权限系统触发） */
     pendingPermissionConfirm: { question: string; requestId?: string } | null
@@ -146,6 +154,14 @@ export interface AgentStore {
         isSkill?: boolean
         skillDisplayName?: string | null
         expandedCardIds?: string[]
+        /** 所属会话 ID（用于从 conversationStore 实时重推导） */
+        convId?: string
+        /** 所属消息 ID（用于实时重推导；缺省时回退快照） */
+        messageId?: string
+        /** 打开弹窗时的 anchor 工具调用 ID（实时重推导定位用） */
+        anchorToolCallId?: string
+        /** 打开弹窗时的 anchor 思考块 ID（实时重推导定位用） */
+        anchorBlockId?: string
     } | null
     /** Agent 需要用户确认权限的内容（核心权限系统触发） */
     pendingPermissionConfirm: { question: string; requestId?: string } | null
@@ -174,6 +190,10 @@ export interface AgentStore {
         toolCalls: any[]
         convId?: string
         messageId?: string
+        /** 打开弹窗时的 anchor 工具调用 ID（实时重推导定位用） */
+        anchorToolCallId?: string
+        /** 打开弹窗时的 anchor 思考块 ID（实时重推导定位用） */
+        anchorBlockId?: string
     } | null
     openCombinedPopup: (data: NonNullable<AgentStore['combinedPopupData']>) => void
     closeCombinedPopup: () => void

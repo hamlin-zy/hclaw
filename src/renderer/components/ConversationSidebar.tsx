@@ -22,6 +22,7 @@ import SchemeSelector from './SchemeSelector'
 import {SIDEBAR_MENU_GROUPS, type SidebarMenuItem} from './sidebar/menuItems'
 import CopyToast from './common/CopyToast'
 import {formatShortcut} from './common/Kbd'
+import type {ThemeName} from '@shared/types'
 
 type SystemStatus =
     'initializing'
@@ -132,8 +133,6 @@ function MenuItemIcon({item, className}: {item: SidebarMenuItem; className: stri
     return <svg className={className} {...item.icon.props}>{item.icon.props.children}</svg>
 }
 
-type ThemeName = 'light' | 'dark' | 'yuanshandai' | 'shiyangjin'
-
 /** 主题按钮 aria-label（展示下一档主题名，与图标联动） */
 function themeNextLabel(theme: ThemeName): string {
     if (theme === 'yuanshandai') return '切换到十样锦模式'
@@ -239,9 +238,9 @@ function SidebarGearMenu({anchorRef}: {anchorRef: RefObject<HTMLDivElement | nul
             <div ref={menuRef} className="fixed z-[9999] py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md shadow-lg min-w-[160px] max-h-[70vh] overflow-y-auto"
                  style={menuStyle}
                  onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-name="conversation-sidebar-div">
-                {SIDEBAR_MENU_GROUPS.map((g) => (
-                    <div key={g.group}>
-                        <div className="px-3 pt-2 pb-1 text-[10px] font-medium text-[var(--text-muted)]">{g.group}</div>
+                {SIDEBAR_MENU_GROUPS.map((g, gi) => (
+                    <div key={g.group} className={gi > 0 ? 'mt-1 border-t border-[var(--border-muted)]' : undefined}>
+                        <div className="px-3 pt-2.5 pb-1 text-[10px] font-medium tracking-wide text-[var(--text-secondary)]">{g.group}</div>
                         {g.items.map((item) => (
                             <button key={item.type} onClick={() => handleItemClick(item.type!)}
                                     className="relative w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors" data-name="conversation-sidebar-button">
@@ -321,7 +320,7 @@ export default function ConversationSidebar() {
                       <ConversationList/>
 
                       {/* Footer：状态行 + 全局控件行 */}
-                      <footer className="px-[var(--space-relaxed)] py-[var(--space-snug)] border-t border-[var(--border)] mt-auto">
+                      <footer className="px-[var(--space-relaxed)] py-[var(--space-snug)] border-t border-[var(--border-muted)] mt-auto">
                           <div className="status-row flex items-center justify-between gap-2">
                               <SystemStatusIndicator/>
                               <button
@@ -354,7 +353,7 @@ export default function ConversationSidebar() {
               )}
 
                     {/* 折叠状态：全部菜单项（与齿轮菜单同源，从底部向上紧凑排列）+ 底部展开按钮
-                        用户要求：18 个选项全显示、从底部往上排；不显示「打开新项目」按钮 */}
+                        用户要求：全部选项全显示、从底部往上排；不显示「打开新项目」按钮 */}
                     {leftCollapsed && (
                         <div className="flex flex-col items-center h-full overflow-hidden">
                             <div data-name="sidebar-collapsed-icons" className="flex flex-col items-center justify-end gap-[var(--space-tight)] flex-1 min-h-0 overflow-y-auto w-full pt-[var(--space-tight)] pb-[8px]">
@@ -420,7 +419,7 @@ function GitBranchBadge({branch, className}: {branch: string | null, className?:
     if (!branch) return null
     return (
         <span
-            className={`inline-flex items-center gap-0.5 min-w-0 flex-initial max-w-[130px] rounded-full bg-gray-100 dark:bg-white/10 px-1.5 py-px text-[11px] font-medium text-gray-500 dark:text-gray-400 overflow-hidden ${className || ''}`}
+            className={`inline-flex items-center gap-0.5 min-w-0 flex-initial max-w-[130px] rounded-full bg-[var(--chip-bg)] border border-[var(--chip-border)] px-1.5 py-px text-[11px] font-medium text-gray-500 dark:text-gray-400 overflow-hidden ${className || ''}`}
             data-tooltip={branch}>
             <svg className="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                  strokeWidth="2" aria-hidden="true">
@@ -552,10 +551,10 @@ export function WorkspaceFolderButton() {
       title={disabled ? '未选择工作目录' : undefined}
       aria-label="打开项目管理窗口"
       data-name="conversation-sidebar-workspace-folder-button"
-      className={`flex items-center justify-center shrink-0 p-1 rounded-xl transition-colors duration-200 group focus:outline-none focus:bg-gray-100/80 dark:focus:bg-white/10 ${disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-100/60 dark:hover:bg-white/5 focus:bg-gray-100/80 dark:focus:bg-white/10'}`}>
+      className={`flex items-center justify-center shrink-0 p-1 rounded-xl transition-colors duration-200 group focus:outline-none focus:bg-[var(--surface-overlay)] ${disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-[var(--surface-overlay)] focus:bg-[var(--surface-overlay)]'}`}>
       {/* 装饰性图标容器：从 WorkspaceNameButton 外提至此，作为独立入口按钮内容 */}
-      <div className="w-8 h-8 rounded-[10px] bg-white dark:bg-[#1E1E1E] border border-gray-200/80 dark:border-white/10 shadow-sm flex items-center justify-center shrink-0 group-hover:border-gray-300 dark:group-hover:border-white/20 transition-colors">
-        <svg className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-gray-200 transition-colors"
+      <div className="w-8 h-8 rounded-[10px] bg-[var(--surface)] border border-[var(--border)] shadow-sm flex items-center justify-center shrink-0 group-hover:border-[var(--border-emphasis)] transition-colors">
+        <svg className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover:text-[var(--text-primary)] transition-colors"
              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
           <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
         </svg>
@@ -578,7 +577,7 @@ function WorkspaceNameButton({isOpen, onToggle, currentWorkspacePath, gitBranch,
       aria-expanded={isOpen}
       aria-haspopup="listbox"
       aria-label="选择工作目录"
-      className="flex-1 min-w-0 flex items-center justify-between p-2 pl-1 rounded-xl hover:bg-gray-100/60 dark:hover:bg-white/5 transition-colors duration-200 group focus:outline-none focus:bg-gray-100/80 dark:focus:bg-white/10"
+      className="flex-1 min-w-0 flex items-center justify-between p-2 pl-1 rounded-xl hover:bg-[var(--surface-overlay)] transition-colors duration-200 group focus:outline-none focus:bg-[var(--surface-overlay)]"
       data-name="conversation-sidebar-workspace-select-button">
       <div className="flex items-center overflow-hidden w-[85%]">
           <div className="flex flex-col items-start overflow-hidden text-left w-full">
@@ -599,7 +598,7 @@ function WorkspaceNameButton({isOpen, onToggle, currentWorkspacePath, gitBranch,
           </div>
       </div>
       <svg
-          className={`w-4 h-4 shrink-0 transition-transform duration-200 ${isOpen ? 'text-gray-600 dark:text-gray-300 rotate-180' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300'}`}
+          className={`w-4 h-4 shrink-0 transition-transform duration-200 ${isOpen ? 'text-gray-600 dark:text-[var(--text-muted)] rotate-180' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-[var(--text-muted)]'}`}
           viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
           {/* 向右箭头（>）；展开时 rotate-180 指向左，隐喻"抽屉从右侧展开/收回" */}
           <polyline points="9 18 15 12 9 6"/>
@@ -766,9 +765,9 @@ function NewChatButton() {
       onClick={handleNew}
       aria-label="新建对话"
       title={`新建会话 (${formatShortcut('Ctrl+N')})`}
-      className="w-full flex items-center justify-center gap-2 py-2.5 bg-gray-900 dark:bg-white/5 border border-transparent dark:border-white/10 text-white dark:text-gray-300 rounded-[18px] text-[13px] font-medium hover:bg-gray-800 dark:hover:bg-white/10 dark:hover:text-gray-100 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.15)] dark:shadow-none transition-all active:scale-[0.98] group"
+      className="w-full flex items-center justify-center gap-2 py-2.5 bg-[var(--brand-ink)] dark:bg-[var(--chip-bg)] border border-transparent dark:border-[var(--border)] text-white dark:text-[var(--text-secondary)] rounded-[18px] text-[13px] font-medium hover:bg-[var(--brand-ink-hover)] dark:hover:bg-[var(--surface-overlay)] dark:hover:text-gray-100 shadow-[0_2px_8px_-2px_rgba(15,23,42,0.18)] dark:shadow-none transition-all active:scale-[0.98] group"
      data-name="conversation-sidebar-new-button">
-        <svg className="w-4 h-4 text-gray-300 dark:text-gray-500 group-hover:text-white dark:group-hover:text-gray-200 transition-colors"
+        <svg className="w-4 h-4 opacity-75 group-hover:opacity-100 dark:opacity-100 dark:text-gray-500 dark:group-hover:text-[var(--text-primary)] transition-opacity"
              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
             <line x1="12" y1="5" x2="12" y2="19"/>
             <line x1="5" y1="12" x2="19" y2="12"/>
@@ -785,7 +784,7 @@ function SearchInput() {
   const setSearchQuery = useConversationStore((s) => s.setSearchQuery)
   return (
     <div className="relative group">
-        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500 group-focus-within:text-gray-600 dark:group-focus-within:text-gray-300 transition-colors"
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500 group-focus-within:text-gray-600 dark:group-focus-within:text-[var(--text-muted)] transition-colors"
              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <circle cx="11" cy="11" r="8"/>
             <line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -795,7 +794,7 @@ function SearchInput() {
         onChange={(e) => setSearchQuery(e.target.value)}
         placeholder="搜索对话..."
         aria-label="搜索对话"
-        className="w-full pl-9 pr-4 py-2 bg-gray-100/60 dark:bg-white/5 rounded-[36px] text-[13px] text-gray-800 dark:text-gray-200 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:bg-white dark:focus:bg-[#1A1A1A] focus:ring-2 focus:ring-gray-200 dark:focus:ring-white/10 focus:border-transparent transition-all hover:bg-gray-100/80 dark:hover:bg-white/10"
+        className="w-full pl-9 pr-4 py-2 bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] border border-[var(--border)] rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-emphasis)] focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/25 transition-all"
       data-name="conversation-sidebar-search-input"/>
     </div>
   )
@@ -872,7 +871,7 @@ function ConversationDateGroup<T extends {createdAt: number}>({group, parentKey,
                 onClick={() => onToggle(key)}
                 aria-label={`${expanded ? '折叠' : '展开'} ${group.label}`}
                 aria-expanded={expanded}
-                className="flex items-center gap-1 w-full py-1.5 hover:bg-gray-50 dark:hover:bg-white/5 rounded-md transition-colors"
+                className="flex items-center gap-1 w-full py-1.5 hover:bg-[var(--surface-muted)] rounded-md transition-colors"
                 style={{paddingLeft: pad}}
             >
                 <svg
@@ -881,8 +880,8 @@ function ConversationDateGroup<T extends {createdAt: number}>({group, parentKey,
                 >
                     <polyline points="9 18 15 12 9 6"/>
                 </svg>
-                <span className="text-[11px] font-medium text-[var(--text-muted)]">{group.label}</span>
-                <span className="text-[10px] text-[var(--text-muted)] opacity-60">· {count}</span>
+                <span className="text-[11px] font-medium text-[var(--text-secondary)]">{group.label}</span>
+                <span className="text-[10px] text-[var(--text-secondary)] opacity-60">· {count}</span>
             </button>
             {expanded && (
                 <div style={{paddingLeft: pad}}>
@@ -1108,7 +1107,7 @@ export function ConversationList() {
                     <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
                 </svg>
         </div>
-            <p className="text-xs text-[var(--text-muted)]">请先选择工作目录</p>
+            <p className="text-xs text-[var(--text-secondary)]">请先选择工作目录</p>
       </div>
     )
   }
@@ -1116,7 +1115,7 @@ export function ConversationList() {
   if (filtered.length === 0) {
     return (
         <div className="flex-1 flex flex-col items-center justify-center p-[var(--space-loose)] text-center">
-            <p className="text-xs text-[var(--text-muted)]">暂无会话</p>
+            <p className="text-xs text-[var(--text-secondary)]">暂无会话</p>
       </div>
     )
   }
@@ -1189,7 +1188,6 @@ export function ConversationList() {
               id={conv.id}
               title={conv.title}
               timestamp={conv.createdAt ?? conv.updatedAt}
-              preview={conv.preview}
               pinned={conv.pinned}
               channel={conv.channel}
               status={conv.status}
@@ -1206,7 +1204,7 @@ export function ConversationList() {
   return (
       <div
           ref={listRef}
-          className="flex-1 overflow-y-auto px-[var(--space-relaxed)] space-y-[1px] py-[var(--space-tight)] scrollbar-thin relative"
+          className="flex-1 overflow-y-auto px-[var(--space-relaxed)] space-y-0.5 py-[var(--space-tight)] scrollbar-thin relative"
       >
           {/* 置顶区：pinned 根会话平铺，不套组头 */}
           {pinnedRoots.length > 0 && renderItems(pinnedRoots)}
@@ -1472,7 +1470,7 @@ function SessionIcon({channel, pinned, isActive}: { channel?: string; pinned?: b
 }
 
 function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpenMenu, pinned, channel, status, indentLevel, childCount, childIds, onParentClick}: {
-    id: string; title: string; preview: string; timestamp: number;
+    id: string; title: string; timestamp: number;
     isRenaming: boolean; onStopRename: () => void;
     onOpenMenu: (x: number, y: number) => void;
     pinned?: boolean;
@@ -1555,7 +1553,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
         'group relative flex items-center justify-between gap-3 px-4 py-2 rounded-[18px] transition-all cursor-pointer',
         isActive
             ? 'bg-green-50 dark:bg-green-500/10 border border-[var(--border)] shadow-sm'
-            : 'bg-transparent border border-transparent hover:bg-gray-50 dark:hover:bg-white/5 active:bg-gray-100 dark:active:bg-white/10',
+            : 'bg-transparent border border-transparent hover:bg-[var(--surface-muted)] active:bg-[var(--surface-overlay)]',
         hasPending && 'ring-1 ring-[var(--error)]/30',
     ].filter(Boolean).join(' ')
 
@@ -1591,8 +1589,8 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                     <span
                         className={`absolute -left-1.5 -top-1.5 min-w-[16px] h-[16px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none px-[3px] z-20 pointer-events-none ${
                             showRunningPulse
-                                ? 'bg-[var(--brand-primary)] text-white shadow-sm ring-1 ring-white/60'
-                                : 'bg-white/10 text-[var(--text-secondary)] border border-white/10'
+                                ? 'bg-[var(--brand-primary)] text-white shadow-sm ring-1 ring-[var(--surface)]'
+                                : 'bg-[var(--chip-bg)] text-[var(--text-secondary)] border border-[var(--chip-border)]'
                         }`}
                     >
                         {childCount}
@@ -1622,7 +1620,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                 ) : (
                     <div
                         title={title}
-                        className={`truncate transition-colors text-[13px] ${isActive ? 'font-medium text-[var(--brand-primary)]' : 'text-gray-600 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-gray-100'}`}>
+                        className={`truncate transition-colors text-[13px] ${isActive ? 'font-medium text-[var(--brand-primary)]' : 'text-gray-600 dark:text-[var(--text-muted)] group-hover:text-gray-900 dark:group-hover:text-gray-100'}`}>
                         {title}
                     </div>
                 )}

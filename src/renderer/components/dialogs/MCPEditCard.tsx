@@ -1,6 +1,7 @@
 import {useState} from 'react'
 import type {MCPServer} from '@shared/types'
 import ThemedSelect from '../ThemedSelect'
+import {SuccessIcon, ErrorIcon} from '../icons'
 
 // ─── Helpers ──────────────────────────────
 
@@ -31,8 +32,7 @@ function KVPairEditor({pairs, onChange, keyPlaceholder = '键名', valuePlacehol
     }
     const addPair = () => onChange([...pairs, {key: '', value: ''}])
     const removePair = (index: number) => {
-        const filtered = pairs.filter((_, i) => i !== index)
-        onChange(filtered.length === 0 ? [] : filtered)
+        onChange(pairs.filter((_, i) => i !== index))
     }
 
     return (
@@ -42,7 +42,7 @@ function KVPairEditor({pairs, onChange, keyPlaceholder = '键名', valuePlacehol
                     <input type="text" value={pair.key} onChange={(e) => updatePair(i, 'key', e.target.value)}
                            placeholder={keyPlaceholder}
                            className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded-lg font-mono focus:border-brand-500 outline-none min-w-0" data-name="mcpedit-card-input"/>
-                    <span className="text-gray-300 text-xs shrink-0">=</span>
+                    <span className="text-[var(--text-muted)] text-xs shrink-0">=</span>
                     <input type="text" value={pair.value} onChange={(e) => updatePair(i, 'value', e.target.value)}
                            placeholder={valuePlaceholder}
                            className="flex-[2] px-2 py-1 text-xs border border-gray-200 rounded-lg font-mono focus:border-brand-500 outline-none min-w-0" data-name={`mcpedit-card-env-value-${i}`}/>
@@ -51,7 +51,7 @@ function KVPairEditor({pairs, onChange, keyPlaceholder = '键名', valuePlacehol
                             const filePath = await window.electronAPI?.selectFilePath?.()
                             if (filePath) updatePair(i, 'value', filePath)
                         }}
-                                className="p-1 text-gray-300 hover:text-brand-500 transition-colors"
+                                className="p-1 text-[var(--text-muted)] hover:text-brand-500 transition-colors"
                                 title="选择文件" data-name="mcpedit-card-button">
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                  strokeWidth="2">
@@ -65,7 +65,7 @@ function KVPairEditor({pairs, onChange, keyPlaceholder = '键名', valuePlacehol
                             const dir = await window.electronAPI?.openFolderDialog?.()
                             if (dir) updatePair(i, 'value', dir)
                         }}
-                                className="p-1 text-gray-300 hover:text-brand-500 transition-colors"
+                                className="p-1 text-[var(--text-muted)] hover:text-brand-500 transition-colors"
                                 title="选择文件夹" data-name={`mcpedit-card-env-pick-folder-${i}`}>
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                  strokeWidth="2">
@@ -74,7 +74,7 @@ function KVPairEditor({pairs, onChange, keyPlaceholder = '键名', valuePlacehol
                         </button>
                     </div>
                     <button onClick={() => removePair(i)}
-                            className="shrink-0 p-1 text-gray-300 hover:text-red-400 transition-colors"
+                            className="shrink-0 p-1 text-[var(--text-muted)] hover:text-red-400 transition-colors"
                             title="删除" data-name={`mcpedit-card-env-remove-pair-${i}`}>
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                              strokeWidth="2.5">
@@ -256,7 +256,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
     return (
         <div className="p-3.5 rounded-xl bg-white border border-brand-200 shadow-sm space-y-3.5">
             {/* Tab Header */}
-            <div className="flex p-0.5 bg-gray-50 rounded-lg border border-gray-100">
+            <div className="flex p-0.5 bg-[var(--surface-muted)] rounded-lg border border-gray-100">
                 <button
                     onClick={() => setActiveTab('manual')}
                     className={`flex-1 py-1 text-[10px] font-bold rounded-md transition-all ${activeTab === 'manual' ? 'bg-white text-brand-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
@@ -328,7 +328,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                     </div>
 
                     {transport === 'stdio' ? (
-                        <div className="space-y-3 p-2.5 bg-gray-50/50 rounded-lg border border-gray-100">
+                        <div className="space-y-3 p-2.5 bg-[var(--surface-muted)] rounded-lg border border-gray-100">
                             <div>
                                 <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">执行命令
                                     (Command)</label>
@@ -375,7 +375,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                             )}
                         </div>
                     ) : (
-                        <div className="space-y-3 p-2.5 bg-gray-50/50 rounded-lg border border-gray-100">
+                        <div className="space-y-3 p-2.5 bg-[var(--surface-muted)] rounded-lg border border-gray-100">
                             <div>
                                 <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">EndPoint
                                     URL</label>
@@ -393,7 +393,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                     )}
 
                     {/* 高级配置 */}
-                    <div className="space-y-3 p-2.5 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                    <div className="space-y-3 p-2.5 bg-[var(--surface-muted)] rounded-lg border border-gray-100/80">
                         <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">高级配置</div>
                         <div>
                             <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">超时 (毫秒)</label>
@@ -409,7 +409,9 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                 <div
                     className={`p-2.5 rounded-lg text-[10px] border flex items-start gap-2 ${testResult.success ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
                     <div className="flex-1 break-all">
-                        {testResult.success ? `✓ 连接成功: 发现 ${testResult.toolCount} 个可用工具` : `✕ 连接失败: ${testResult.error}`}
+                        {testResult.success
+                            ? <span className="flex items-center gap-1"><SuccessIcon className="w-3.5 h-3.5 shrink-0"/>{`连接成功: 发现 ${testResult.toolCount} 个可用工具`}</span>
+                            : <span className="flex items-center gap-1"><ErrorIcon className="w-3.5 h-3.5 shrink-0"/>{`连接失败: ${testResult.error}`}</span>}
                     </div>
                 </div>
             )}

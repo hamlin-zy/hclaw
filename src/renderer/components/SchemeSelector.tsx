@@ -7,14 +7,14 @@ import type {ModelScheme} from '@shared/types'
 
 /** 模型方案的颜色标识 */
 const SCHEME_COLORS = [
-    {dot: 'bg-purple-500', selected: 'border-purple-500/50'},
-    {dot: 'bg-yellow-500', selected: 'border-yellow-500/50'},
-    {dot: 'bg-red-500', selected: 'border-red-500/50'},
-    {dot: 'bg-green-500', selected: 'border-green-500/50'},
-    {dot: 'bg-blue-500', selected: 'border-blue-500/50'},
-    {dot: 'bg-pink-500', selected: 'border-pink-500/50'},
-    {dot: 'bg-orange-500', selected: 'border-orange-500/50'},
-    {dot: 'bg-cyan-500', selected: 'border-cyan-500/50'},
+    'bg-purple-500',
+    'bg-yellow-500',
+    'bg-red-500',
+    'bg-green-500',
+    'bg-blue-500',
+    'bg-pink-500',
+    'bg-orange-500',
+    'bg-cyan-500',
 ]
 
 /**
@@ -89,7 +89,7 @@ function FixedDropdown({
                     {schemes.map((scheme, index) => {
                         const colorIndex = index % SCHEME_COLORS.length
                         const isActive = activeSchemeId === scheme.id
-                        const colors = SCHEME_COLORS[colorIndex]
+                        const dotColor = SCHEME_COLORS[colorIndex]
 
                         return (
                             <button
@@ -104,14 +104,14 @@ function FixedDropdown({
                              data-name="scheme-selector-button">
                                 <div className="flex items-center gap-2.5">
                                     {/* 彩色圆点 */}
-                                    <div className={`w-2 h-2 rounded-full ${colors.dot} ${isActive ? '' : 'opacity-60'}`}/>
+                                    <div className={`w-2 h-2 rounded-full ${dotColor} ${isActive ? '' : 'opacity-60'}`}/>
 
                                     <div className="flex-1 min-w-0">
                                         <div className={`font-medium truncate ${isActive ? 'text-[var(--brand-primary)]' : 'text-[var(--text-primary)]'}`}>
                                             {scheme.name}
                                         </div>
                                         {scheme.description && (
-                                            <div className="text-[10px] text-[var(--text-muted)] truncate mt-0.5">
+                                            <div className="text-[10px] text-[var(--text-secondary)] truncate mt-0.5">
                                                 {scheme.description}
                                             </div>
                                         )}
@@ -129,7 +129,7 @@ function FixedDropdown({
                     })}
 
                     {schemes.length === 0 && (
-                        <div className="px-3 py-4 text-center text-xs text-[var(--text-muted)]">
+                        <div className="px-3 py-4 text-center text-xs text-[var(--text-secondary)]">
                             暂无可用方案
                         </div>
                     )}
@@ -139,7 +139,7 @@ function FixedDropdown({
                     {/* 配置入口 */}
                     <button
                         onClick={onOpenConfig}
-                        className="w-full px-3 py-2.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded-xl flex items-center gap-2.5 transition-colors"
+                        className="w-full px-3 py-2.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded-xl flex items-center gap-2.5 transition-colors"
                      data-name="scheme-selector-open-config-button">
                         <svg
                             className="w-3.5 h-3.5"

@@ -785,4 +785,39 @@ describe('DiffViewer 选区快照外发（onSelectionChange）', () => {
     expect(seen.slice(n).length).toBeGreaterThan(0)
     expect(seen.slice(n).every(s => s === null)).toBe(true)
   })
+
+  // --- 回归：viewMode 切换后虚拟化窗口与 scrollTop 失配（视口整片空白） ---
+  it('内联下改变 scrollTop 再切回并排：渲染窗口须跟随 scrollTop，否则视口空白', async () => {
+    const n = 300
+    const big = {
+      ...data, additions: n, deletions: n,
+      oldContent: Array.from({length: n}, (_, i) => `old line ${i}`).join('\n'),
+      newContent: Array.from({length: n}, (_, i) => `new line ${i}`).join('\n'),
+    }
+    const flushFrame = () => new Promise<void>(r => requestAnimationFrame(() => r()))
+    const {container, rerender} = render(<DiffViewer data={big} viewMode="side-by-side" />)
+    const scroller = container.querySelector('.pm-diff-scroll') as HTMLElement
+    // jsdom 无布局：手动提供视口高度并让 scrollTop 可写
+    Object.defineProperty(scroller, 'clientHeight', {value: 200, configurable: true})
+    let top = 0
+    Object.defineProperty(scroller, 'scrollTop', {get: () => top, set: v => { top = v }, configurable: true})
+
+    await act(async () => { await flushFrame() })
+    scroller.scrollTop = 1000
+    await act(async () => { fireEvent.scroll(scroller); await flushFrame() })
+    await waitFor(() => {
+      const first = container.querySelector('.pm-diff-row [data-row]')?.getAttribute('data-row')
+      expect(Number(first)).toBeGreaterThan(0) // 已虚拟化：渲染窗口不在顶部
+    })
+
+    // 切内联（该分支不监听 scroll），用户滚回顶部
+    rerender(<DiffViewer data={big} viewMode="inline" />)
+    scroller.scrollTop = 0
+
+    // 切回并排：视口在顶部 → 渲染窗口必须从第 0 行开始
+    rerender(<DiffViewer data={big} viewMode="side-by-side" />)
+    await act(async () => { await flushFrame() })
+    await act(async () => { await flushFrame() })
+    expect(Number(container.querySelector('.pm-diff-row [data-row]')?.getAttribute('data-row'))).toBe(0)
+  })
 })

@@ -5,7 +5,9 @@
 
 import {motion} from 'framer-motion'
 import {dropdown} from '../lib/motionPresets'
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {useCallback, useEffect, useMemo, useRef, useState, type ComponentType} from 'react'
+import {SkillIcon, AgentIcon, UserCommandIcon, PluginIcon} from './icons'
+import type {IconProps} from './icons'
 
 interface CommandItem {
     id: string;
@@ -22,12 +24,12 @@ interface Props {
 }
 
 // 源配置：{背景色, 文字色, 标签, 图标}
-const SRC = {
-    skill: {c: 'bg-[#8b5cf6]/10', t: 'text-[#8b5cf6]', l: '技能', i: '🛠️'},
-    agent: {c: 'bg-[#0ea5e9]/10', t: 'text-[#0ea5e9]', l: '代理', i: '🤖'},
-    user: {c: 'bg-[#f97316]/10', t: 'text-[#f97316]', l: '用户', i: '⚡'},
-    plugin: {c: 'bg-[#6b7280]/10', t: 'text-[#6b7280]', l: '插件', i: '⚡'},
-} as const
+const SRC: Record<string, { c: string; t: string; l: string; i: ComponentType<IconProps> }> = {
+    skill: {c: 'bg-[#8b5cf6]/10', t: 'text-[#8b5cf6]', l: '技能', i: SkillIcon},
+    agent: {c: 'bg-[#0ea5e9]/10', t: 'text-[#0ea5e9]', l: '代理', i: AgentIcon},
+    user: {c: 'bg-[#f97316]/10', t: 'text-[#f97316]', l: '用户', i: UserCommandIcon},
+    plugin: {c: 'bg-[#6b7280]/10', t: 'text-[#6b7280]', l: '插件', i: PluginIcon},
+}
 
 const api = () => window.electronAPI
 
@@ -87,11 +89,13 @@ export function InlineCommandPicker({query, onClose, onComplete}: Props) {
     }, [sel])
 
     const onKeyDown = useCallback((e: React.KeyboardEvent) => {
+        // Tab / Enter 同一语义：补全当前选中命令
+        const complete = () => flat[sel] && onComplete(`/${flat[sel].name} `)
         const keyMap: Record<string, () => void> = {
             ArrowDown: () => setSel(i => Math.min(i + 1, flat.length - 1)),
             ArrowUp: () => setSel(i => Math.max(i - 1, 0)),
-            Tab: () => flat[sel] && onComplete(`/${flat[sel].name} `),
-            Enter: () => flat[sel] && onComplete(`/${flat[sel].name} `),
+            Tab: complete,
+            Enter: complete,
             Escape: () => { e.nativeEvent.stopPropagation(); onClose() },
         }
         if (keyMap[e.key]) {
@@ -109,11 +113,11 @@ export function InlineCommandPicker({query, onClose, onComplete}: Props) {
         >
             {/* 头部 */}
             <div
-                className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--border)] bg-[var(--surface-muted)]">
-                <span className="text-[var(--text-muted)] font-mono text-sm font-bold">/</span>
+                className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
+                <span className="text-[var(--text-secondary)] font-mono text-sm font-bold">/</span>
                 <span className="text-[var(--text-primary)] text-sm flex-1 truncate">{query}</span>
                 <kbd
-                    className="px-1.5 py-0.5 text-[10px] bg-[var(--surface)] border border-[var(--border)] rounded text-[var(--text-muted)] font-mono">Tab
+                    className="px-1.5 py-0.5 text-[10px] bg-[var(--surface)] border border-[var(--border)] rounded text-[var(--text-secondary)] font-mono">Tab
                     补全</kbd>
             </div>
 
@@ -125,11 +129,12 @@ export function InlineCommandPicker({query, onClose, onComplete}: Props) {
                             className="inline-block w-4 h-4 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin"/>
                     </div>
                 ) : flat.length === 0 ? (
-                    <div className="p-6 text-center text-sm text-[var(--text-muted)]">
+                    <div className="p-6 text-center text-sm text-[var(--text-secondary)]">
                         {query ? `未找到匹配 "${query}" 的命令` : '暂无可用命令'}
                     </div>
                 ) : groups.map(g => {
                     const cfg = SRC[g.source as keyof typeof SRC] ?? SRC.plugin
+                    const SourceIcon = cfg.i
                     const items = flat.filter(i => i.source === g.source)
                     if (!items.length) return null
                     return (
@@ -143,12 +148,12 @@ export function InlineCommandPicker({query, onClose, onComplete}: Props) {
                                          className={`mx-1 px-2 py-2 rounded-lg cursor-pointer flex items-center gap-2.5 transition-colors
                       ${realIdx === sel ? 'bg-[var(--brand-primary)]/15 border-l-2 border-l-[var(--brand-primary)]' : 'hover:bg-[var(--surface-muted)]'}`} data-name="inline-command-picker-div">
                                         <span
-                                            className={`w-7 h-7 rounded-md flex items-center justify-center text-sm ${cfg.c}`}>{cfg.i}</span>
+                                            className={`w-7 h-7 rounded-md flex items-center justify-center ${cfg.c} ${cfg.t}`}><SourceIcon className="w-4 h-4"/></span>
                                         <div className="flex-1 min-w-0">
                                             <div
                                                 className={`text-sm font-medium truncate ${realIdx === sel ? 'text-[var(--brand-primary)]' : 'text-[var(--text-primary)]'}`}>{item.name}</div>
                                             {item.description && <div
-                                                className="text-[11px] text-[var(--text-muted)] truncate">{item.description}</div>}
+                                                className="text-[11px] text-[var(--text-secondary)] truncate">{item.description}</div>}
                                         </div>
                                         <span
                                             className={`text-[10px] px-1.5 py-0.5 rounded ${cfg.c} ${cfg.t}`}>{cfg.l}</span>
@@ -161,7 +166,7 @@ export function InlineCommandPicker({query, onClose, onComplete}: Props) {
             </div>
 
             {/* 底部快捷键 */}
-            <div className="px-3 py-2 border-t border-[var(--border)] flex gap-4 text-[10px] text-[var(--text-muted)]">
+            <div className="px-3 py-2 border-t border-[var(--border-muted)] flex gap-4 text-[10px] text-[var(--text-secondary)]">
                 {[['↑↓', '导航'], ['Tab', '补全'], ['Esc', '关闭']].map(([k, l]) => (
                     <span key={k}><kbd
                         className="px-1 py-0.5 bg-[var(--surface-muted)] border border-[var(--border)] rounded font-mono">{k}</kbd> {l}</span>

@@ -177,7 +177,7 @@ export default function TodoStrip() {
                     </span>
                     <span className="shrink-0 text-[13px] leading-6 font-medium text-[var(--text-primary)]">待办列表</span>
                     <span
-                        className="flex-1 min-w-0 truncate text-[13px] leading-5 text-[var(--text-muted)] whitespace-nowrap">
+                        className="flex-1 min-w-0 truncate text-[13px] leading-5 text-[var(--text-secondary)] whitespace-nowrap">
                         {progressLabel(tasks)}
                     </span>
                     <span aria-hidden="true"
@@ -210,7 +210,7 @@ export default function TodoStrip() {
 
             {/* 分隔线：待办条与输入区衔接；折叠态隐藏 */}
             {!collapsed && (
-                <div className="h-px bg-[var(--border)] mx-[14px]" aria-hidden="true"/>
+                <div className="h-px bg-[var(--border-muted)] mx-[14px]" aria-hidden="true"/>
             )}
         </div>
     )

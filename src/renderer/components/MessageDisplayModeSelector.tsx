@@ -56,7 +56,6 @@ export default function MessageDisplayModeSelector() {
                     <polyline points="10 9 9 9 8 9"/>
                 </svg>
             ),
-            desc: '当前默认样式',
             color: 'text-green-500',
             hoverColor: 'hover:text-green-400',
         },
@@ -73,7 +72,6 @@ export default function MessageDisplayModeSelector() {
                     <line x1="3" y1="18" x2="3.01" y2="18"/>
                 </svg>
             ),
-            desc: '思考块折叠·工具调用聚合',
             color: 'text-blue-500',
             hoverColor: 'hover:text-blue-400',
         },
@@ -88,7 +86,6 @@ export default function MessageDisplayModeSelector() {
                     <line x1="3" y1="21" x2="10" y2="14"/>
                 </svg>
             ),
-            desc: '工具汇总行·Popup 展开详情',
             color: 'text-orange-500',
             hoverColor: 'hover:text-orange-400',
         },
@@ -144,7 +141,7 @@ export default function MessageDisplayModeSelector() {
                         <div className="bg-[var(--surface-elevated)]/92 backdrop-blur-lg border border-[var(--border)] rounded-2xl shadow-2xl shadow-black/20 overflow-hidden">
                             <div className="p-1.5">
                                 {/* 标题 */}
-                                <div className="px-2.5 py-2 text-[10px] font-medium text-[var(--text-muted)] border-b border-[var(--border)] mb-1">
+                                <div className="px-2.5 py-2 text-[10px] font-medium text-[var(--text-secondary)] border-b border-[var(--border-muted)] mb-1">
                                     消息显示
                                 </div>
 
@@ -163,7 +160,7 @@ export default function MessageDisplayModeSelector() {
                                                 transition-all duration-150 flex items-center gap-2.5
                                                 ${isActive
                                                     ? `bg-[var(--brand-primary)]/15 ${m.color}`
-                                                    : `text-[var(--text-muted)] hover:bg-[var(--surface-muted)] ${m.hoverColor}`
+                                                    : `text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] ${m.hoverColor}`
                                                 }
                                             `}
                                          data-name={`message-display-mode-selector-mode-${i}`}>

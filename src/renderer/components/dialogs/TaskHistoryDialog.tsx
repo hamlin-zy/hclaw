@@ -6,8 +6,6 @@ import type {BatchGroup, BatchSummary} from '../../../main/repositories/sqlite/t
 /** 批次任务明细行（与主进程 BatchWithTasks['tasks'] 对齐，subtasks 本窗口不展示） */
 type TaskRow = {id: string; title: string; description?: string; status: string}
 
-// ─── 视觉常量（沿用 ConversationsDialog 工具栏按钮语言） ───────────
-
 // ─── 任务状态图标（TodoItem 视觉语言：状态图标 + 单行省略） ───────────
 
 function StatusGlyph({status}: { status: string }) {
@@ -186,9 +184,9 @@ function BatchRow({batch, checked, deleting, onToggleCheck}: BatchRowProps) {
             {expanded && (
                 <ul className="m-0 pb-2.5 pl-[68px] pr-5 flex flex-col gap-1.5 max-h-[220px] overflow-y-auto">
                     {loadingTasks ? (
-                        <li className="list-none text-xs text-[var(--text-muted)]">加载中...</li>
+                        <li className="list-none text-xs text-[var(--text-secondary)]">加载中...</li>
                     ) : (tasks?.length ?? 0) === 0 ? (
-                        <li className="list-none text-xs text-[var(--text-muted)]">无任务明细</li>
+                        <li className="list-none text-xs text-[var(--text-secondary)]">无任务明细</li>
                     ) : tasks!.map((task) => (
                         <HistoryTaskItem key={task.id} task={task}/>
                     ))}
@@ -215,10 +213,8 @@ export default function TaskHistoryDialog() {
     const isConvScope = dialogType === 'task-history-conv'
 
     // 缺失 taskConvId 的当前会话模式 → 回退全量视图
-    let scopeConvId: string | undefined
-    if (isConvScope && rawScopeConvId) {
-        scopeConvId = rawScopeConvId
-    } else if (isConvScope) {
+    const scopeConvId = isConvScope ? rawScopeConvId : undefined
+    if (isConvScope && !rawScopeConvId) {
         console.warn('[TaskHistoryDialog] task-history-conv 缺失 --hclaw-task-conv 参数，回退全量视图')
     }
 
@@ -333,7 +329,7 @@ export default function TaskHistoryDialog() {
         if (selectedCount === 0) return
         const ids = Array.from(selectedIds)
 
-        const confirmed = await confirm({
+        await confirm({
             title: '删除任务组',
             message: selectedTaskTotal > 0
                 ? `确定要删除选中的 ${selectedCount} 个任务组吗？\n（共包含 ${selectedTaskTotal} 个任务的明细记录）\n此操作不可撤销。`
@@ -363,7 +359,6 @@ export default function TaskHistoryDialog() {
                 }
             },
         })
-        if (!confirmed) return
     }, [selectedCount, selectedIds, selectedTaskTotal, scopeConvId])
 
     // ── 渲染：加载 / 错误 / 空 ──────────────────────
@@ -372,7 +367,7 @@ export default function TaskHistoryDialog() {
             <div className="flex items-center justify-center py-20">
                 <div className="flex flex-col items-center gap-3">
                     <div className="w-6 h-6 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin"/>
-                    <span className="text-sm text-[var(--text-muted)]">加载中...</span>
+                    <span className="text-sm text-[var(--text-secondary)]">加载中...</span>
                 </div>
             </div>
         )
@@ -390,7 +385,7 @@ export default function TaskHistoryDialog() {
                     </svg>
                     <span className="text-sm text-red-400">{error}</span>
                     <button onClick={reloadRef.current}
-                            className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors" data-name="task-history-dialog-reload-button">
+                            className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors" data-name="task-history-dialog-reload-button">
                         重试
                     </button>
                 </div>
@@ -401,7 +396,7 @@ export default function TaskHistoryDialog() {
     return (
         <div className="flex flex-col h-full min-h-0">
             {/* 工具栏：搜索 + 删除 */}
-            <div className="flex items-center gap-3 px-5 py-3 border-b border-[var(--border)]">
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-[var(--border-muted)]">
                 <div className="relative flex-1 min-w-0 max-w-[280px]">
                     <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]"
                          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -412,13 +407,13 @@ export default function TaskHistoryDialog() {
                         value={filterInput}
                         onChange={(e) => setFilterInput(e.target.value)}
                         placeholder="搜索任务组或任务标题"
-                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--brand-primary)]"
+                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:border-[var(--brand-primary)]"
                     data-name="task-history-dialog-filter-input"/>
                 </div>
 
                 <div className="ml-auto flex items-center gap-3 shrink-0">
                     {selectedCount > 0 && (
-                        <span className="text-xs text-[var(--text-muted)]">已选 {selectedCount} 组</span>
+                        <span className="text-xs text-[var(--text-secondary)]">已选 {selectedCount} 组</span>
                     )}
                     <button
                         onClick={handleDeleteSelected}
@@ -472,7 +467,7 @@ export default function TaskHistoryDialog() {
             <div className="flex flex-1 min-h-0 overflow-hidden">
                 {!scopeConvId && (
                     <aside
-                        className="w-[200px] shrink-0 border-r border-[var(--border-muted)] bg-[var(--surface-muted)] overflow-y-auto py-2">
+                        className="w-[200px] shrink-0 border-r border-[var(--border)] bg-[var(--surface-muted)] overflow-y-auto py-2">
                         <button
                             onClick={() => setSelectedConvId(null)}
                             aria-selected={selectedConvId === null}
@@ -516,14 +511,14 @@ export default function TaskHistoryDialog() {
                                     <circle cx="12" cy="12" r="10"/>
                                     <polyline points="12 6 12 12 16 14"/>
                                 </svg>
-                                <span className="text-sm text-[var(--text-muted)]">
+                                <span className="text-sm text-[var(--text-secondary)]">
                                     {filter ? '没有匹配的任务组' : '暂无历史任务组'}
                                 </span>
                             </div>
                         </div>
                     ) : visibleBatches.length === 0 ? (
                         <div className="h-full flex items-center justify-center">
-                            <span className="text-sm text-[var(--text-muted)]">该会话暂无匹配的任务组</span>
+                            <span className="text-sm text-[var(--text-secondary)]">该会话暂无匹配的任务组</span>
                         </div>
                     ) : (
                         visibleGroups.map((g) => (
@@ -531,7 +526,7 @@ export default function TaskHistoryDialog() {
                                 {/* 分组头：全量模式显示会话标题；单会话视图省略 */}
                                 {!scopeConvId && selectedConvId === null && (
                                     <div
-                                        className="sticky top-0 z-10 px-5 py-1.5 text-xs text-[var(--text-muted)] bg-[var(--surface)] border-b border-[var(--border-muted)] truncate"
+                                        className="sticky top-0 z-10 px-5 py-1.5 text-xs text-[var(--text-secondary)] bg-[var(--surface)] border-b border-[var(--border-muted)] truncate"
                                         title={g.conversationTitle || '(无标题)'}
                                     >
                                         {g.conversationTitle || '(无标题)'}

@@ -6,6 +6,7 @@ import {
     createDefaultPromptScheme,
 } from '@shared/prompts'
 import MarkdownRenderer from '../message-list/MarkdownRenderer'
+import {ToolIcon, TextFileIcon} from '../icons'
 
 // ─── 子组件: 方案列表项 ───────────────────────────────────
 
@@ -29,7 +30,7 @@ function SchemeListItem({
             className={`w-full group px-2 py-1.5 rounded transition-colors flex items-center justify-between cursor-pointer ${
                 isSelected
                     ? 'bg-brand-50 text-brand-600'
-                    : 'text-gray-600 hover:bg-gray-50'
+                    : 'text-gray-600 hover:bg-[var(--surface-overlay)]'
             }`}
          data-name="prompt-config-dialog-div">
             <div className="flex items-center gap-1.5 min-w-0">
@@ -241,7 +242,7 @@ export default function PromptConfigDialog() {
                 </div>
                 <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
                     {schemes.length === 0 ? (
-                        <div className="px-2 py-3 text-[10px] text-gray-300 text-center">
+                        <div className="px-2 py-3 text-[10px] text-[var(--text-secondary)] text-center">
                             暂无方案
                         </div>
                     ) : (
@@ -262,8 +263,7 @@ export default function PromptConfigDialog() {
                 <div className="p-2 border-t border-gray-100 space-y-1">
                     <button
                         onClick={() => {
-                            const defaultScheme = createDefaultPromptScheme('新方案')
-                            const id = addScheme(defaultScheme)
+                            const id = addScheme(createDefaultPromptScheme('新方案'))
                             setSelectedSchemeId(id)
                         }}
                         className="w-full px-2 py-1.5 text-xs text-brand-500 hover:bg-brand-50 rounded transition-colors"
@@ -275,7 +275,7 @@ export default function PromptConfigDialog() {
                             const id = addScheme(createDefaultPromptScheme('默认方案'))
                             setSelectedSchemeId(id)
                         }}
-                        className="w-full px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-50 rounded transition-colors"
+                        className="w-full px-2 py-1.5 text-xs text-gray-500 hover:bg-[var(--surface-overlay)] rounded transition-colors"
                      data-name="prompt-config-dialog-add-default-scheme-button">
                         从默认创建
                     </button>
@@ -339,7 +339,7 @@ export default function PromptConfigDialog() {
                                             className={`w-full px-2 py-1.5 text-left rounded text-xs transition-colors ${
                                                 selectedNodeKey === node.key
                                                     ? 'bg-brand-50 text-brand-600'
-                                                    : 'text-gray-600 hover:bg-gray-50'
+                                                    : 'text-gray-600 hover:bg-[var(--surface-overlay)]'
                                             }`}
                                          data-name={`prompt-config-dialog-node-tab-${i}`}>
                                             <div className="flex items-center justify-between">
@@ -354,7 +354,7 @@ export default function PromptConfigDialog() {
                             </div>
 
                             {/* 编辑器 */}
-                            <div className="flex-1 flex flex-col bg-gray-50/30">
+                            <div className="flex-1 flex flex-col bg-[var(--surface-muted)]">
                                 {selectedNode ? (
                                     <div className="flex-1 flex flex-col p-4 overflow-hidden">
                                         <div className="mb-3">
@@ -379,9 +379,11 @@ export default function PromptConfigDialog() {
                                         <div
                                             className="flex-1 flex flex-col min-h-0 bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
                                             <div
-                                                className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">
-                          {isCustomized(selectedNode.key) ? '✍️ 已修改内容' : '📄 默认内容 (只读)'}
+                                                className="px-3 py-1.5 bg-[var(--surface-muted)] border-b border-gray-100 flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight flex items-center gap-1">
+                          {isCustomized(selectedNode.key)
+                              ? <><ToolIcon className="w-3 h-3 shrink-0"/>已修改内容</>
+                              : <><TextFileIcon className="w-3 h-3 shrink-0"/>默认内容 (只读)</>}
                         </span>
                                                 {!isCustomized(selectedNode.key) && (
                                                     <span className="text-[10px] text-amber-500 italic">
@@ -400,7 +402,7 @@ export default function PromptConfigDialog() {
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="flex-1 flex items-center justify-center text-xs text-gray-300">
+                                    <div className="flex-1 flex items-center justify-center text-xs text-[var(--text-secondary)]">
                                         请选择左侧节点进行编辑
                                     </div>
                                 )}
@@ -413,7 +415,7 @@ export default function PromptConfigDialog() {
                             <button
                                 onClick={handlePreview}
                                 disabled={isPreviewLoading}
-                                className="px-3 py-1 text-xs text-gray-500 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50"
+                                className="px-3 py-1 text-xs text-gray-500 border border-gray-200 rounded-md hover:bg-[var(--surface-overlay)] transition-colors disabled:opacity-50"
                              data-name="prompt-config-dialog-preview-button">
                                 {isPreviewLoading ? '构建中...' : '预览系统提示词'}
                             </button>
@@ -429,10 +431,10 @@ export default function PromptConfigDialog() {
                         </div>
                     </>
                 ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center text-xs text-gray-300 gap-2">
+                    <div className="flex-1 flex flex-col items-center justify-center text-xs text-[var(--text-secondary)] gap-2">
                         <span>请选择或创建一个方案</span>
                         {activePromptSchemeId === null && schemes.length === 0 && (
-                            <span className="text-[10px] text-gray-200">
+                            <span className="text-[10px] text-[var(--text-secondary)]">
                                 当前使用代码默认提示词（无激活方案）
                             </span>
                         )}
@@ -455,7 +457,7 @@ export default function PromptConfigDialog() {
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={handleCopy}
-                                    className="px-2 py-1 text-[10px] text-gray-500 border border-gray-200 rounded hover:bg-gray-50 transition-colors"
+                                    className="px-2 py-1 text-[10px] text-gray-500 border border-gray-200 rounded hover:bg-[var(--surface-overlay)] transition-colors"
                                  data-name="prompt-config-dialog-copy-button">
                                     {copied ? '已复制' : '复制'}
                                 </button>

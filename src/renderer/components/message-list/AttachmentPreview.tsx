@@ -71,7 +71,7 @@ const ImagePreviewCard = memo(function ImagePreviewCard({att}: { att: Attachment
     return (
         <>
             <div
-                className={`attachment-preview-card relative rounded-lg overflow-hidden border border-[var(--border)]/30 ${
+                className={`attachment-preview-card relative rounded-lg overflow-hidden border border-[var(--border)] ${
                     !hasImage ? config.bgColor : 'bg-black/10'
                 } ${hasImage ? 'cursor-pointer' : ''}`}
                 onClick={hasImage ? () => setShowModal(true) : undefined}
@@ -123,7 +123,7 @@ const FileTypeCard = memo(function FileTypeCard({att}: { att: Attachment }) {
     return (
         <div
             onClick={handleOpenFile}
-            className={`attachment-preview-card flex items-center gap-2 px-3 py-2 rounded-lg ${config.bgColor} border border-[var(--border)]/30 cursor-pointer hover:border-[var(--border)]/50 transition-colors`}
+            className={`attachment-preview-card flex items-center gap-2 px-3 py-2 rounded-lg ${config.bgColor} border border-[var(--border)] cursor-pointer hover:border-[var(--border-emphasis)] transition-colors`}
             title={`打开文件: ${att.path || att.name}`}
          data-name="attachment-preview-file-card">
             {/* 首字母 */}
@@ -132,7 +132,7 @@ const FileTypeCard = memo(function FileTypeCard({att}: { att: Attachment }) {
                 <span className="text-[var(--text-primary)] text-xs font-medium truncate max-w-[120px]">
                     {att.name}
                 </span>
-                {att.size > 0 && <span className="text-[var(--text-muted)] text-[10px]">{formatSize(att.size)}</span>}
+                {att.size > 0 && <span className="text-[var(--text-secondary)] text-[10px]">{formatSize(att.size)}</span>}
             </div>
         </div>
     )

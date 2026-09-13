@@ -146,7 +146,7 @@ export function EditorArea() {
   }, [activeTabId])
 
   const pickerItems: ContextMenuItem[] = tabs.map(t => ({
-    label: t.pinned ? `📌 ${t.title}` : t.title,
+    label: t.title,
     onClick: () => setActive(t.id),
   }))
 

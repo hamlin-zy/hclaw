@@ -8,7 +8,7 @@ import {useSendToConversation} from '../ui/SendToConversationProvider'
 import {modsOf} from '../lib/multiSelect'
 
 /**
- * 触底判定的提前量：48px ≈ 2 行（行高 24px）。
+ * 触底判定的提前量：48px ≈ 2 行（commit 行高 26px，故略小于 2 行）。
  * 不用 `scrollTop + clientHeight === scrollHeight` 严格相等：触底滚动事件可能因亚像素误差、
  * 惯性滚动或内容高度在滚动中变化而"恰好"错过最后那一帧，留阈值可稳定触发。
  */

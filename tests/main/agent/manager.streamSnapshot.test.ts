@@ -161,13 +161,18 @@ describe('buildStreamSnapshot v2 — 状态覆盖面扩展', () => {
         expect(JSON.stringify(pending)).toBe(before)
     })
 
-    it('StreamSnapshot 类型包含 v2 必需字段（编译期契约）', () => {
+    it('StreamSnapshot 包含 v2 必需字段（编译期契约 + 运行期键存在）', () => {
         const snap: StreamSnapshot = {...buildStreamSnapshot(createPendingMsg())!}
+        // 编译期守卫：类型标注要求这 4 个字段必填
         void snap.progressLog
         void snap.subAgentStream
         void snap.toolStates
         void snap.pendingToolsChangeConfirm
-        expect(true).toBe(true)
+        // 运行期守卫：buildStreamSnapshot 恒设置这 4 个键
+        const runtimeSnap = buildStreamSnapshot(createPendingMsg())!
+        for (const key of ['progressLog', 'subAgentStream', 'toolStates', 'pendingToolsChangeConfirm'] as const) {
+            expect(key in runtimeSnap).toBe(true)
+        }
     })
 })
 

@@ -23,7 +23,7 @@ export async function startAgentImpl(
 
     clearAllBatches(conversationId)
 
-    // ⚠️ 注意：不要清空 toolCallsStore！
+    // 注意：不要清空 toolCallsStore！
     // 运行时状态（progress、tokenUsage 等）在工具完成时已即时清理（handleToolResult），
     // 此处无需清空；仅保留极少数跨轮次展示场景（如 pending 结果），
     // 渲染层回退到消息内静态 toolCall 数据。

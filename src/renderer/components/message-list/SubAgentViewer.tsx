@@ -10,6 +10,7 @@ import {useCallback, useEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import type {ExtendedToolResult} from '../../stores/toolCallsStore'
 import MarkdownRenderer from './MarkdownRenderer'
+import {AgentIcon} from '../icons'
 
 // ── 类型 ──
 
@@ -126,14 +127,14 @@ export default function SubAgentViewer({
             {/* ── 标题栏（拖拽区域） ── */}
             <div className="h-10 flex items-center justify-between px-3 shrink-0 select-none"
                  style={{
-                     backgroundColor: 'var(--surface-elevated)',
+                     backgroundColor: 'var(--surface-muted)',
                      borderBottom: '1px solid var(--border)',
                      cursor: 'grab'
                  }}
                  onMouseDown={onDragStart}>
                 <div className="flex items-center gap-2 min-w-0">
-                    {/* ★ 代理机器人图标（与全站 agent 卡片 🤖 保持一致，原为齿轮图标） */}
-                    <span className="w-4 h-4 shrink-0 text-[var(--brand-primary)] text-sm leading-none">🤖</span>
+                    {/* ★ 代理机器人图标（与全站 agent 卡片 AgentIcon 保持一致，原为齿轮图标） */}
+                    <AgentIcon className="w-4 h-4 shrink-0 text-[var(--brand-primary)]"/>
                     <span className="text-sm font-semibold truncate" style={{color: 'var(--text-primary)'}}>
                         {title.length > 50 ? title.slice(0, 50) + '...' : title}
                     </span>

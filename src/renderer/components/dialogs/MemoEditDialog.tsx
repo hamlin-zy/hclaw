@@ -16,6 +16,7 @@ import React, {useEffect, useRef, useState} from 'react'
 import CapabilityPicker from '../common/CapabilityPicker'
 import ImagePreviewModal from '../common/ImagePreviewModal'
 import {PrioritySelect} from '../common/PrioritySelect'
+import {AttachmentIcon} from '../icons'
 import type {MemoItem, MemoCapability, MemoAttachment, MemoPriority} from '@shared/types/memo'
 import {toMediaUrl, isImageFileName} from '@/renderer/utils/mediaUrl'
 
@@ -184,9 +185,9 @@ export default function MemoEditDialog() {
         }
     }
 
-    /** 单个附件卡片：图片显示预览缩略图，非图片显示 📎 文件名 chip（修订 2 Task D）。
+    /** 单个附件卡片：图片显示预览缩略图，非图片显示 附件图标+文件名 chip（修订 2 Task D）。
      *  暂存附件（storedPath === 'pending'）尚未落盘、toMediaUrl 会 404 破图，
-     *  统一降级为 📎 文件名 chip（避免 objectURL 的 revoke/内存泄漏负担）。 */
+     *  统一降级为 附件图标+文件名 chip（避免 objectURL 的 revoke/内存泄漏负担）。 */
     const renderAttachmentCard = (a: MemoAttachment) => {
         const isImage = (a.kind === 'image' || isImageFileName(a.fileName)) && a.storedPath !== 'pending'
         return (
@@ -207,11 +208,11 @@ export default function MemoEditDialog() {
                             data-testid="memo-attachment-image"
                             className="w-20 h-20 object-cover"
                         />
-                        <span className="max-w-20 px-1 py-0.5 text-[10px] text-[var(--text-muted)] truncate" title={a.fileName}>{a.fileName}</span>
+                        <span className="max-w-20 px-1 py-0.5 text-[10px] text-[var(--text-secondary)] truncate" title={a.fileName}>{a.fileName}</span>
                     </div>
                 ) : (
                     <span className="inline-flex items-center gap-1 px-1.5 py-1 max-w-40 text-[10px] text-[var(--text-muted)]">
-                        📎 <span className="truncate" title={a.fileName}>{a.fileName}</span>
+                        <AttachmentIcon className="w-3 h-3 shrink-0"/> <span className="truncate" title={a.fileName}>{a.fileName}</span>
                     </span>
                 )}
                 <button
@@ -229,7 +230,7 @@ export default function MemoEditDialog() {
     }
 
     if (loading) {
-        return <div className="p-4 text-sm text-[var(--text-muted)]">加载中...</div>
+        return <div className="p-4 text-sm text-[var(--text-secondary)]">加载中...</div>
     }
     if (loadError) {
         return (
@@ -256,7 +257,7 @@ export default function MemoEditDialog() {
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
                 <div>
                     <div className="flex items-center justify-between mb-1">
-                        <label className="block text-xs text-[var(--text-muted)]">标题</label>
+                        <label className="block text-xs text-[var(--text-secondary)]">标题</label>
                         <PrioritySelect size="md" value={priority} onChange={setPriority}/>
                     </div>
                     <input
@@ -275,7 +276,7 @@ export default function MemoEditDialog() {
                     </div>
                 )}
                 <div>
-                    <label className="block text-xs text-[var(--text-muted)] mb-1">正文</label>
+                    <label className="block text-xs text-[var(--text-secondary)] mb-1">正文</label>
                     <textarea
                         value={content}
                         onChange={(e) => setContent(e.target.value)}
@@ -298,7 +299,7 @@ export default function MemoEditDialog() {
                         title="添加附件"
                         data-testid="memo-add-attachment"
                         onClick={() => fileRef.current?.click()}
-                        className="px-2 py-1 rounded text-xs border border-dashed border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:border-[var(--border-emphasis)]"
+                        className="px-2 py-1 rounded text-xs border border-dashed border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--brand-primary)] hover:border-[var(--border-emphasis)]"
                      data-name="memo-edit-dialog-add-attachment-button">
                         + 添加附件
                     </button>
@@ -323,7 +324,7 @@ export default function MemoEditDialog() {
                 {tip && <div className="text-xs text-red-500">{tip}</div>}
             </div>
             {/* 底部操作栏 */}
-            <div className="shrink-0 flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--border)]">
+            <div className="shrink-0 flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--border-muted)]">
                 <button
                     onClick={() => void discardAndClose()}
                     className="px-3 py-1.5 text-xs rounded bg-[var(--surface-muted)] border border-[var(--border)] hover:bg-[var(--surface-hover)]"

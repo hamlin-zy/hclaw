@@ -12,7 +12,6 @@ interface SessionStats {
     totalCacheReadTokens: number
     toolCallCount: number
     subAgentCount: number
-    subAgentTokens: number
 }
 
 /**
@@ -29,7 +28,6 @@ export default function SessionStats() {
         let totalCacheReadTokens = 0
         let toolCallCount = 0
         let subAgentCount = 0
-        let subAgentTokens = 0
 
         for (const msg of loadedMessages) {
             if (msg.role === 'assistant') {
@@ -48,7 +46,6 @@ export default function SessionStats() {
                 for (const tc of msg.toolCalls || []) {
                     if (tc.name === 'agent' && tc.tokenUsage) {
                         subAgentCount++
-                        subAgentTokens += tc.tokenUsage.totalTokens || 0
                     }
                 }
             }
@@ -60,8 +57,7 @@ export default function SessionStats() {
             totalOutputTokens,
             totalCacheReadTokens,
             toolCallCount,
-            subAgentCount,
-            subAgentTokens
+            subAgentCount
         }
     }, [loadedMessages])
 
@@ -75,7 +71,7 @@ export default function SessionStats() {
     ]
 
     return (
-        <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)] font-medium tabular-nums">
+        <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)] font-medium tabular-nums">
             {stats.map((s, i) => (
                 <span key={i} className="shrink-0">
                     {i > 0 && <span className="mx-1 opacity-40">·</span>}

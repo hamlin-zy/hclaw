@@ -5,7 +5,7 @@ whenToUse: 代码搜索、文件定位、代码库分析、架构梳理、回答
 tags: [search, read-only, exploration, builtin, source:hclaw]
 enabled: true
 tools: [glob, grep, file_read, bash]
-disallowedTools: [agent, file_edit, file_write, notebook_edit]
+disallowedTools: [agent, file_edit, file_write]
 ---
 
 你是 HClaw 的 Explore Agent，一名代码库搜索与探索专家。

@@ -1,8 +1,10 @@
 import {create} from 'zustand'
 import {persist, type PersistStorage} from 'zustand/middleware'
+import type {ComponentType} from 'react'
 import {sqliteStorage} from '../lib/sqliteStorage'
 import {useLLMStore} from './llmStore'
 import {useToolStore} from './toolStore'
+import {BrainIcon, ChartIcon, GroupIcon, TargetIcon} from '../components/icons'
 import {TEXT_MODEL_ROLES} from '@shared/types'
 import type {ModelRole, ModelScheme, ModelSchemeRole, ModelType} from '@shared/types'
 
@@ -15,7 +17,8 @@ export interface SchemePreset {
     id: string
     name: string
     description: string
-    icon: string
+    /** 方案图标组件（描边 SVG，继承 currentColor） */
+    icon: ComponentType<{className?: string}>
     config: {
         primary: {enabled: boolean}
         lightweight: {enabled: boolean}
@@ -29,7 +32,7 @@ export const SCHEME_PRESETS: SchemePreset[] = [
         id: 'balanced',
         name: '平衡方案',
         description: '所有任务使用同一模型，简单配置',
-        icon: '⚖️',
+        icon: GroupIcon,
         config: {
             primary: {enabled: true},
             lightweight: {enabled: false},
@@ -40,7 +43,7 @@ export const SCHEME_PRESETS: SchemePreset[] = [
         id: 'economy',
         name: '经济方案',
         description: '主力用大模型，简单任务用小模型节省成本',
-        icon: '💰',
+        icon: ChartIcon,
         config: {
             primary: {enabled: true},
             lightweight: {enabled: true},
@@ -51,7 +54,7 @@ export const SCHEME_PRESETS: SchemePreset[] = [
         id: 'performance',
         name: '高性能方案',
         description: '主力 + 推理模型，复杂任务自动启用深度推理',
-        icon: '🚀',
+        icon: BrainIcon,
         config: {
             primary: {enabled: true},
             lightweight: {enabled: false},
@@ -62,7 +65,7 @@ export const SCHEME_PRESETS: SchemePreset[] = [
         id: 'full',
         name: '完整方案',
         description: '三种角色全启用，自动根据任务复杂度选择',
-        icon: '🎯',
+        icon: TargetIcon,
         config: {
             primary: {enabled: true},
             lightweight: {enabled: true},
@@ -206,7 +209,7 @@ export const useModelSchemeStore = create<ModelSchemeStore>()(
                     const wasActive = state.activeSchemeId === id
 
                     // 如果删除的是激活方案，选择第一个可用方案
-                    let newActiveId = wasActive
+                    const newActiveId = wasActive
                         ? newSchemes[0]?.id || null
                         : state.activeSchemeId
 

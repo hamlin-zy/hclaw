@@ -3,6 +3,7 @@ import {useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {dropdown} from '../../lib/motionPresets'
 import {Folder, ChevronDown} from 'lucide-react'
+import {CopyButton} from '../common/CopyButton'
 import RepoVersionControl from './RepoVersionControl'
 
 interface RepoLike {
@@ -42,6 +43,7 @@ export default function RepoGroupCard({repo, skillCount, agentCount, children, o
         <div className="flex items-center gap-2 min-w-0">
           <Folder className="w-4 h-4 text-[var(--brand-primary)] shrink-0"/>
           <span className="text-xs font-semibold text-[var(--text-primary)] truncate">{repo.id}</span>
+          <CopyButton name={repo.id} size="sm" />
           <span className="text-[10px] text-[var(--text-muted)] shrink-0">
             {skillCount > 0 && `${skillCount} 个技能`}{skillCount > 0 && agentCount > 0 && ' · '}{agentCount > 0 && `${agentCount} 个代理`}
           </span>

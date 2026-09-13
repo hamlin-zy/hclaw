@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vite/client"],
+    "noEmit": true
+  },
+  "include": [
+    "eslint-rules/**/*.ts",
+    "eslint.config.ts",
+    "vitest*.ts",
+    "scripts/**/*.d.mts"
+  ],
+  "exclude": []
+}

@@ -86,7 +86,9 @@ export const hclawDbQueryTool: Tool<{sql: string}, string> = {
         '不支持 INSERT/UPDATE/DELETE 等写操作。可用于检索历史会话、任务、使用统计等系统数据。\n' +
         '【重要】此工具只针对 HClaw 自身数据库；查询其他数据库请使用用户配置的 MCP 数据库工具。\n' +
         "表结构探查: SELECT name, sql FROM sqlite_master WHERE type='table'。" +
-        '典型表: conversations（会话）、messages（消息）、message_blocks（消息内容块）、tasks（任务）、llm_usage（模型用量）。',
+        '典型表: conversations（会话）、messages（消息）、message_blocks（消息内容块）、tasks（任务）、llm_usage（模型用量）。\n' +
+        '交接复用：按 toolCallId 取回已委派子任务（agent 工具）的结论，toolCallId 见交接总结「复用清单」段。\n' +
+        "SELECT json_extract(data,'$.result.output') AS output, json_extract(data,'$.result._meta.childConvId') AS child_conv FROM message_blocks WHERE block_type='tool_result' AND json_extract(data,'$.id')='<toolCallId>';",
     inputSchema,
     isDestructive: false,
 

@@ -5,7 +5,6 @@
  * 关键：日志不记录 tools，但记录 messages 结构 + systemPrompt。
  * 重建路径必须复现运行时完全相同的 API 请求前缀才能命中缓存。
  */
-const fs = require('fs')
 const Database = require('better-sqlite3')
 const db = new Database('C:/Users/Hamlin/.hclaw/data/hclaw.db', {readonly: true})
 const convId = 'conv-b70458a9-de95-404c-a85e-18b9ea9467af'

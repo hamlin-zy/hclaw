@@ -31,6 +31,8 @@ export const DEFAULT_SETTINGS: SystemSettings = {
         maxRetryDelay: 120000,
         llmTimeout: 600000,
         handoffThresholdRatio: 0.5,
+        handoffThresholdMode: 'ratio',
+        handoffThresholdTokens: 200_000,
         midLoopOverflowMode: 'auto-handoff',
         loopDetection: { mode: 'notify', threshold: 3 },
         defaultPermissionMode: 'safe',
@@ -39,6 +41,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
     model: {
         defaultMaxTokens: DEFAULT_MAX_TOKENS,
         defaultTemperature: 0,
+        imageCompressQuality: 85,
     },
     mcp: {
         mcpTestTimeout: 15000,
@@ -62,6 +65,11 @@ export const DEFAULT_SETTINGS: SystemSettings = {
         mode: 'ask',
     },
     shortcuts: {overrides: {}},
+}
+
+/** 交接阈值签名：比例 / 模式 / 固定 token 任一变化都视为阈值变更（用于恢复"不再提醒"抑制标记） */
+function handoffThresholdSignature(agent: SystemSettings['agent'] | undefined): string {
+    return `${agent?.handoffThresholdRatio ?? 0.5}|${agent?.handoffThresholdMode ?? 'ratio'}|${agent?.handoffThresholdTokens ?? 200_000}`
 }
 
 /** 同步全局权限模式权威键（system_settings.permission_mode）；失败仅告警，不阻断保存流程 */
@@ -162,6 +170,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             subagent: DEFAULT_SETTINGS.subagent,
             channels: DEFAULT_SETTINGS.channels,
             linkOpening: DEFAULT_SETTINGS.linkOpening,
+            shortcuts: DEFAULT_SETTINGS.shortcuts,
+            fullSkillDescriptions: DEFAULT_SETTINGS.fullSkillDescriptions,
         }
         set({pendingSettings: updated, isDirty: true})
     },
@@ -177,7 +187,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
                 throw new Error('数据库写入失败')
             }
             // 在 set({settings}) 之前捕获旧阈值（spec 3.2：仅阈值变更时恢复"不再提醒"抑制标记）
-            const oldThresholdRatio = get().settings?.agent?.handoffThresholdRatio ?? 0.5
+            const oldHandoffSig = handoffThresholdSignature(get().settings?.agent)
 
             // 2. 广播到运行中的 Agent
             const broadcastResult = await window.electronAPI?.settingsUpdate?.(pendingSettings as any)
@@ -212,8 +222,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             }
 
             // 阈值调整后恢复各会话的"不再提醒"抑制标记（spec 3.2：仅阈值变更时恢复）
-            const newThresholdRatio = pendingSettings.agent?.handoffThresholdRatio ?? 0.5
-            if (oldThresholdRatio !== newThresholdRatio) {
+            const newHandoffSig = handoffThresholdSignature(pendingSettings.agent)
+            if (oldHandoffSig !== newHandoffSig) {
                 useConversationStore.getState().clearHandoffDismissals()
             }
 
@@ -239,6 +249,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             ui: {...currentSettings.ui, ...(updates.ui || {})},
             subagent: {...currentSettings.subagent, ...(updates.subagent || {})} as typeof currentSettings.subagent,
             channels: {...currentSettings.channels, ...(updates.channels || {})} as typeof currentSettings.channels,
+            linkOpening: {...currentSettings.linkOpening, ...(updates.linkOpening || {})} as typeof currentSettings.linkOpening,
+            fullSkillDescriptions: updates.fullSkillDescriptions ?? currentSettings.fullSkillDescriptions,
             shortcuts: {...currentSettings.shortcuts, ...(updates.shortcuts || {})},
         }
 

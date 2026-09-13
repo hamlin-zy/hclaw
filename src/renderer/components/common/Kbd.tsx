@@ -76,6 +76,7 @@ export function KbdCombo({keys}: { keys: (string | string[])[] }) {
         if (Array.isArray(item)) {
             return (
                 <React.Fragment key={`g-${index}`}>
+                    {/* eslint-disable-next-line muted-text/informative -- "+" 是键位分隔符（纯分隔，非信息） */}
                     {showSep && <span className="text-[10px] text-[var(--text-muted)] mx-0.5">+</span>}
                     {item.map(k => <Kbd key={k}>{k}</Kbd>)}
                 </React.Fragment>
@@ -83,6 +84,7 @@ export function KbdCombo({keys}: { keys: (string | string[])[] }) {
         }
         return (
             <React.Fragment key={item}>
+                {/* eslint-disable-next-line muted-text/informative -- "+" 是键位分隔符（纯分隔，非信息） */}
                 {showSep && <span className="text-[10px] text-[var(--text-muted)] mx-0.5">+</span>}
                 <Kbd>{item}</Kbd>
             </React.Fragment>

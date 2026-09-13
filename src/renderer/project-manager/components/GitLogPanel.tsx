@@ -21,14 +21,14 @@ import {usePaneSize, type PaneSizeSpecs} from '../hooks/usePaneSize'
  * 过滤栏是 18px 小尺寸（对照 globals.css 的 .pm-commits-input），而 .dp-* 按 12px 默认尺寸书写，
  * 且位于 globals.css 顶部 `@tailwind utilities` 之后——同特异性下后者胜出，普通工具类压不下去，
  * 因此这里用 important 修饰符（`!`）把输入框压到与「作者」「路径」同排一致的尺度：
- * 高 18 / 字号 11 / 行高 16（18 - 2×1px 边框）/ 内边距 0 4px / 圆角 3px / 底色 surface-muted。
+ * 高 18 / 字号 11 / 行高 16（18 - 2×1px 边框）/ 内边距 0 4px / 圆角 4px / 底色 surface-muted。
  * 边框色沿用 .dp-input 的 var(--border)，与 .pm-commits-input 本就一致，无需覆盖。
  * 日历触发按钮是输入框的相邻兄弟节点，className 只能落在输入框上，故用任意变体 [&+button] 一并缩小，
  * 否则 24×24 的按钮会让整行比同排输入框高出一截。
  */
 const DATE_FILTER_INPUT_CLASS = [
-  '!h-[18px] !w-[80px] !px-[4px] !py-0 !text-[11px] !leading-[16px] !rounded-[3px] !bg-surface-muted',
-  '[&+button]:!h-[18px] [&+button]:!w-[18px] [&+button]:!rounded-[3px]',
+  '!h-[18px] !w-[80px] !px-[4px] !py-0 !text-[11px] !leading-[16px] !rounded-[4px] !bg-surface-muted',
+  '[&+button]:!h-[18px] [&+button]:!w-[18px] [&+button]:!rounded-[4px]',
   '[&+button_svg]:!h-[11px] [&+button_svg]:!w-[11px]',
 ].join(' ')
 
@@ -36,8 +36,8 @@ const DATE_FILTER_INPUT_CLASS = [
 // 本实例只管理 branches / detail 两个键——gitHeight 归 ProjectManagerApp 的实例，
 // 折叠标志是跨实例 last-writer-wins，因此这里绝不调用 setGitCollapsed（spec §5.2）。
 const PANE_SPECS: PaneSizeSpecs = {
-  branches: {default: 186, min: 150, max: 380},
-  detail: {default: 236, min: 220, max: 480},
+  branches: {default: 160, min: 150, max: 380},
+  detail: {default: 300, min: 220, max: 480},
 }
 
 export function GitLogPanel() {

@@ -14,7 +14,7 @@ import {IconButton} from '../ui/IconButton'
 import {ContextMenu} from '../ui/ContextMenu'
 import {useSendToConversation} from '../ui/SendToConversationProvider'
 import {EmptyState} from '../ui/EmptyState'
-import {FOLDER_OPEN_SPEC, FOLDER_SPEC, fileIcon} from '../lib/fileIcon'
+import {FOLDER_OPEN_SPEC, FOLDER_SPEC, fileIcon, fileKindClass} from '../lib/fileIcon'
 import {dominantStatus, statusClassSuffix, type VcsStatus} from '../lib/statusColor'
 import {absPath} from '../lib/absPath'
 import {modsOf} from '../lib/multiSelect'
@@ -333,11 +333,15 @@ export function FileTree() {
       const status: VcsStatus = e.ignored ? 'none' : (e.isDir ? dirStatus(e.path) : e.gitStatus)
       const iconSpec = e.isDir ? (isExpanded ? FOLDER_OPEN_SPEC : FOLDER_SPEC) : fileIcon(e.name)
       const Icon = iconSpec.Icon
-      // 被忽略文件与隐藏文件统一弱化；目录不画删除线，所以只有文件走 pm-file-name
+      // 被忽略文件与隐藏文件统一弱化；目录不画删除线，所以只有文件走 pm-file-name。
+      // 目录名不挂状态色：颜色只留给文件行名 + 状态字母（减少同屏色噪声，spec §3.1）。
+      // 目录名走 .pm-dir-name（弱化灰）——与变更列表 / commit 详情的分组标题同档，三处口径统一。
+      // 文件名按**类型**着色（.pm-ft--*，与图标同色），而不是状态色。
       const dim = e.ignored || e.name.startsWith('.')
+      const kindClass = e.isDir ? '' : fileKindClass(e.name)
       const nameClass = e.isDir
-        ? `pm-c--${statusClassSuffix(status)}${dim ? ' pm-dim' : ''}`
-        : `pm-c--${statusClassSuffix(status)} pm-file-name${dim ? ' pm-dim' : ''}`
+        ? `pm-dir-name${dim ? ' pm-dim' : ''}`
+        : `pm-c--${statusClassSuffix(status)} pm-file-name${kindClass ? ` ${kindClass}` : ''}${dim ? ' pm-dim' : ''}`
       return (
         <Fragment key={e.path}>
           <TreeRow

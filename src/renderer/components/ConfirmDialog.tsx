@@ -186,7 +186,7 @@ export default function ConfirmDialog() {
                             onClick={(e) => e.stopPropagation()}
                          data-name="confirm-dialog-div">
                             {/* Header */}
-                            <div className="px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)]">
+                            <div className="px-5 py-4 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)]">
                                 <div className="flex items-center gap-3">
                                     {/* 图标 */}
                                     <div
@@ -234,7 +234,7 @@ export default function ConfirmDialog() {
                                 {inputOptions && (
                                     <div className="mt-3">
                                         {inputOptions.inputLabel && (
-                                            <label htmlFor="confirm-dialog-input" className="block mb-1 text-xs text-[var(--text-muted)]">
+                                            <label htmlFor="confirm-dialog-input" className="block mb-1 text-xs text-[var(--text-secondary)]">
                                                 {inputOptions.inputLabel}
                                             </label>
                                         )}
@@ -252,7 +252,7 @@ export default function ConfirmDialog() {
                                                         void handleConfirm()
                                                     }
                                                 }}
-                                                className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--brand-primary)]"
+                                                className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--focus-ring)] focus:ring-1 focus:ring-[var(--focus-ring)]"
                                              data-name="confirm-dialog-textarea" />
                                         ) : (
                                             <input
@@ -268,7 +268,7 @@ export default function ConfirmDialog() {
                                                         void handleConfirm()
                                                     }
                                                 }}
-                                                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--brand-primary)]"
+                                                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--focus-ring)] focus:ring-1 focus:ring-[var(--focus-ring)]"
                                              data-name="confirm-dialog-input" />
                                         )}
                                     </div>
@@ -276,7 +276,7 @@ export default function ConfirmDialog() {
                             </div>
 
                             {/* Actions */}
-                            <div className="px-5 py-4 border-t border-[var(--border)] bg-[var(--surface-elevated)] flex justify-end gap-3">
+                            <div className="px-5 py-4 border-t border-[var(--border-muted)] bg-[var(--surface-elevated)] flex justify-end gap-3">
                                 <button
                                     onClick={handleCancel}
                                     disabled={isLoading}

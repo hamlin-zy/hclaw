@@ -139,7 +139,7 @@ export default function ThinkingEffortSelector({conversationId}: ThinkingEffortS
                         >
                             <div className="bg-[var(--surface-elevated)]/92 backdrop-blur-lg border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden">
                                 <div className="p-1.5">
-                                    <div className="px-2 py-1.5 text-[10px] font-medium text-[var(--text-muted)] border-b border-[var(--border)] mb-1">
+                                    <div className="px-2 py-1.5 text-[10px] font-medium text-[var(--text-secondary)] border-b border-[var(--border-muted)] mb-1">
                                         思考强度
                                     </div>
                                     {options.map(o => (
@@ -151,7 +151,7 @@ export default function ThinkingEffortSelector({conversationId}: ThinkingEffortS
                                             className={`w-full flex items-center justify-between gap-3 px-2.5 py-1.5 text-left text-xs rounded-lg transition-colors ${
                                                 o.value === effective
                                                     ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]'
-                                                    : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'
+                                                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
                                             }`}
                                         >
                                             <span>{o.label}</span>

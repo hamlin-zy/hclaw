@@ -1,6 +1,8 @@
 import {describe, expect, it, vi, beforeEach} from 'vitest'
 import {McpVersionManager} from '@/main/agent/mcp/versionManager'
 import type {McpServer} from '@/shared/types/mcp'
+import type {VersionMeta} from '@/main/agent/mcp/versionUtils'
+import {createSeededVersionStore} from './helpers/seededVersionStore'
 import {spawn} from 'child_process'
 
 // Mock mcpService — lightweight, just list()
@@ -423,14 +425,20 @@ describe('McpVersionManager.startupCheck', () => {
     expect(result['srv2'].sourceType).toBe('url')
   })
 
-  it('sets isChecking flag during execution and clears after', async () => {
-    const manager = new McpVersionManager()
-    expect((manager as any).isChecking).toBe(false)
-    const promise = manager.startupCheck()
-    // isChecking is true during execution
-    // (if servers are empty, it resolves immediately, so we can't check mid-flight here)
-    await promise
-    expect((manager as any).isChecking).toBe(false)
+  it('startupCheck 结束后锁复位（可连续执行两次）', async () => {
+    mcpMockState.servers = [makeServer({id: 'srv1', enabled: true})]
+    const seeded = createSeededVersionStore()
+    const manager = new McpVersionManager({store: seeded.store})
+    const detectSpy = vi.spyOn(manager as any, 'detect').mockResolvedValue({
+      current: '1.0.0', latest: '1.0.0', hasUpdate: false,
+      sourceType: 'binary', lastChecked: Date.now(),
+    })
+    await manager.startupCheck()
+    const afterFirst = detectSpy.mock.calls.length
+    await manager.startupCheck()
+    expect(detectSpy.mock.calls.length).toBeGreaterThan(afterFirst)
+    expect(seeded.getSetAllCalls()).toBeGreaterThan(0)
+    detectSpy.mockRestore()
   })
 })
 
@@ -449,16 +457,17 @@ describe('McpVersionManager.getAllVersionMeta', () => {
   it('removes stale entries (servers no longer in mcpService)', async () => {
     mcpMockState.servers = [makeServer({id: 'srv1', enabled: true})]
 
-    const manager = new McpVersionManager()
-    // Manually inject stale data
-    ;(manager as any).versionMap.set('stale-srv', {
-      current: '1.0.0', latest: '2.0.0', hasUpdate: true,
-      sourceType: 'binary', lastChecked: Date.now(),
+    const seeded = createSeededVersionStore({
+      'stale-srv': {
+        current: '1.0.0', latest: '2.0.0', hasUpdate: true,
+        sourceType: 'binary', lastChecked: Date.now(),
+      },
+      'srv1': {
+        current: '1.0.0', latest: '2.0.0', hasUpdate: true,
+        sourceType: 'binary', lastChecked: Date.now(),
+      },
     })
-    ;(manager as any).versionMap.set('srv1', {
-      current: '1.0.0', latest: '2.0.0', hasUpdate: true,
-      sourceType: 'binary', lastChecked: Date.now(),
-    })
+    const manager = new McpVersionManager({store: seeded.store})
 
     const result = manager.getAllVersionMeta()
     expect(Object.keys(result)).toContain('srv1')
@@ -469,11 +478,13 @@ describe('McpVersionManager.getAllVersionMeta', () => {
     // Server exists but is disabled — should be removed from versionMeta
     mcpMockState.servers = [makeServer({id: 'srv-disabled', enabled: false})]
 
-    const manager = new McpVersionManager()
-    ;(manager as any).versionMap.set('srv-disabled', {
-      current: '1.0.0', latest: '2.0.0', hasUpdate: true,
-      sourceType: 'binary', lastChecked: Date.now(),
+    const seeded = createSeededVersionStore({
+      'srv-disabled': {
+        current: '1.0.0', latest: '2.0.0', hasUpdate: true,
+        sourceType: 'binary', lastChecked: Date.now(),
+      },
     })
+    const manager = new McpVersionManager({store: seeded.store})
 
     const result = manager.getAllVersionMeta()
     expect(Object.keys(result)).not.toContain('srv-disabled')
@@ -490,22 +501,26 @@ describe('McpVersionManager.upgradeServer', () => {
   })
 
   it('returns unsupported_source_type for url sourceType', async () => {
-    const manager = new McpVersionManager()
-    ;(manager as any).versionMap.set('srv1', {
-      current: null, latest: null, hasUpdate: null,
-      sourceType: 'url', lastChecked: Date.now(),
+    const seeded = createSeededVersionStore({
+      'srv1': {
+        current: null, latest: null, hasUpdate: null,
+        sourceType: 'url', lastChecked: Date.now(),
+      },
     })
+    const manager = new McpVersionManager({store: seeded.store})
     const result = await manager.upgradeServer('srv1')
     expect(result.success).toBe(false)
     expect(result.error).toBe('unsupported_source_type')
   })
 
   it('returns unsupported_source_type for unknown sourceType', async () => {
-    const manager = new McpVersionManager()
-    ;(manager as any).versionMap.set('srv2', {
-      current: null, latest: null, hasUpdate: null,
-      sourceType: 'unknown', lastChecked: Date.now(),
+    const seeded = createSeededVersionStore({
+      'srv2': {
+        current: null, latest: null, hasUpdate: null,
+        sourceType: 'unknown', lastChecked: Date.now(),
+      },
     })
+    const manager = new McpVersionManager({store: seeded.store})
     const result = await manager.upgradeServer('srv2')
     expect(result.success).toBe(false)
     expect(result.error).toBe('unsupported_source_type')
@@ -526,11 +541,13 @@ describe('McpVersionManager.upgradeServer', () => {
     cpMock.spawnResult = {stdout: '2.0.0\n', exitCode: 0, error: null}
     cpMock.execResult = {stdout: '2.0.0\n', stderr: '', error: null}
 
-    const manager = new McpVersionManager()
-    ;(manager as any).versionMap.set('srv-npx', {
-      current: '1.0.0', latest: '2.0.0', hasUpdate: true,
-      sourceType: 'npx', lastChecked: Date.now(),
+    const seeded = createSeededVersionStore({
+      'srv-npx': {
+        current: '1.0.0', latest: '2.0.0', hasUpdate: true,
+        sourceType: 'npx', lastChecked: Date.now(),
+      },
     })
+    const manager = new McpVersionManager({store: seeded.store})
 
     const result = await manager.upgradeServer('srv-npx')
     expect(result.success).toBe(true)
@@ -544,12 +561,12 @@ describe('McpVersionManager.upgradeServer', () => {
     const {mcpWorkerManager} = await import('@/main/agent/mcp/mcpWorkerManager')
     vi.mocked(mcpWorkerManager.restartServer).mockResolvedValue({success: false})
 
-    const manager = new McpVersionManager()
-    const oldMeta = {
+    const oldMeta: VersionMeta = {
       current: '1.0.0', latest: '2.0.0', hasUpdate: true,
       sourceType: 'npx', lastChecked: Date.now(),
     }
-    ;(manager as any).versionMap.set('srv-npx2', oldMeta)
+    const seeded = createSeededVersionStore({'srv-npx2': oldMeta})
+    const manager = new McpVersionManager({store: seeded.store})
 
     const result = await manager.upgradeServer('srv-npx2')
     expect(result.success).toBe(false)
@@ -562,11 +579,13 @@ describe('McpVersionManager.upgradeServer', () => {
     mcpMockState.servers = [
       makeServer({id: 'srv-binary', command: '/bin/server', checkUrl: 'https://example.com'}),
     ]
-    const manager = new McpVersionManager()
-    ;(manager as any).versionMap.set('srv-binary', {
-      current: '1.0.0', latest: '2.0.0', hasUpdate: true,
-      sourceType: 'binary', lastChecked: Date.now(),
+    const seeded = createSeededVersionStore({
+      'srv-binary': {
+        current: '1.0.0', latest: '2.0.0', hasUpdate: true,
+        sourceType: 'binary', lastChecked: Date.now(),
+      },
     })
+    const manager = new McpVersionManager({store: seeded.store})
     const result = await manager.upgradeServer('srv-binary')
     expect(result.success).toBe(false)
     expect(result.error).toBe('unsupported_source_type')
@@ -575,13 +594,15 @@ describe('McpVersionManager.upgradeServer', () => {
 
 describe('getAvailableVersions', () => {
   it('returns cached availableVersions from versionMap', () => {
-    const manager = new McpVersionManager()
-    // Simulate a versionMap entry with availableVersions
-    ;(manager as any).versionMap.set('test-server', {
-      current: '1.0.0', latest: '1.2.0', hasUpdate: true,
-      sourceType: 'npx', lastChecked: Date.now(),
-      availableVersions: ['1.0.0', '1.1.0', '1.2.0'],
+    // Seed a versionMap entry with availableVersions
+    const seeded = createSeededVersionStore({
+      'test-server': {
+        current: '1.0.0', latest: '1.2.0', hasUpdate: true,
+        sourceType: 'npx', lastChecked: Date.now(),
+        availableVersions: ['1.0.0', '1.1.0', '1.2.0'],
+      },
     })
+    const manager = new McpVersionManager({store: seeded.store})
     expect(manager.getAvailableVersions('test-server')).toEqual(['1.0.0', '1.1.0', '1.2.0'])
   })
 
@@ -591,11 +612,13 @@ describe('getAvailableVersions', () => {
   })
 
   it('returns empty array when availableVersions is undefined', () => {
-    const manager = new McpVersionManager()
-    ;(manager as any).versionMap.set('test-server', {
-      current: '1.0.0', latest: '1.2.0', hasUpdate: true,
-      sourceType: 'npx', lastChecked: Date.now(),
+    const seeded = createSeededVersionStore({
+      'test-server': {
+        current: '1.0.0', latest: '1.2.0', hasUpdate: true,
+        sourceType: 'npx', lastChecked: Date.now(),
+      },
     })
+    const manager = new McpVersionManager({store: seeded.store})
     expect(manager.getAvailableVersions('test-server')).toEqual([])
   })
 })

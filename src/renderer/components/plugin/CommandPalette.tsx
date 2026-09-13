@@ -65,7 +65,7 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
   const [paramModalOpen, setParamModalOpen] = useState(false);
   const [selectedCommand, setSelectedCommand] = useState<Command | null>(null);
 
-    // 监听命令列表加载完成，获取所有命令（用于参数弹窗中的 findCommandById）
+  // 监听命令列表加载完成，获取所有命令（用于参数弹窗中的 findCommandById）
   const handleCommandsLoaded = useCallback((commands: Command[]) => {
     setAllCommands(commands);
     setSelectedIndex(0);
@@ -104,20 +104,15 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
     }
   }, [filteredCommands, allCommands, selectedIndex, handleCommandClick]);
 
-  // 重置选中索引当搜索query改变时
+  // 搜索词或 tab 切换时重置选中索引（列表内容已变化）
   useEffect(() => {
     setSelectedIndex(0);
-  }, [searchQuery]);
+  }, [searchQuery, activeTab]);
 
-  // 切换 tab 时重置选中索引（列表内容已变化）
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [activeTab]);
-
-    // 接收 CommandList 过滤后的扁平列表（与 selectedIndex 保持同步）
-    const handleFilteredCommandsChange = useCallback((commands: Command[]) => {
-        setFilteredCommands(commands);
-    }, []);
+  // 接收 CommandList 过滤后的扁平列表（与 selectedIndex 保持同步）
+  const handleFilteredCommandsChange = useCallback((commands: Command[]) => {
+    setFilteredCommands(commands);
+  }, []);
 
   // 参数弹窗回调
   const handleParamSubmit = useCallback((commandId: string, args: string) => {
@@ -196,7 +191,7 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
               onClick={e => e.stopPropagation()}
             >
               {/* Search Input */}
-              <div className="p-4 border-b border-[var(--border)]">
+              <div className="p-4 border-b border-[var(--border-muted)]">
                 <div className="relative">
                   <svg
                     className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-muted)]"
@@ -233,7 +228,7 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
                       className={`px-3 py-1.5 text-sm rounded-lg transition-colors focus:outline-none ${
                         activeTab === tab.id
                           ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)] font-medium'
-                          : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]'
+                          : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]'
                       }`}
                      data-name="command-palette-button">
                       {tab.label}
@@ -254,8 +249,8 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
               />
 
               {/* 键盘操作提示 */}
-              <div className="px-4 py-2 border-t border-[var(--border)]">
-                <div className="text-center text-[10px] text-[var(--text-muted)]">
+              <div className="px-4 py-2 border-t border-[var(--border-muted)]">
+                <div className="text-center text-[10px] text-[var(--text-secondary)]">
                   Alt+←/→ 切换标签 · ↑/↓ 选择 · Enter 执行
                 </div>
               </div>

@@ -1,5 +1,6 @@
 import {Component, type ReactNode, useEffect} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
+import {WarningIcon} from './components/icons'
 import TitleBar from './components/TitleBar'
 import ConversationSidebar from './components/ConversationSidebar'
 import MainWorkspace from './components/MainWorkspace'
@@ -35,8 +36,10 @@ import {registerSendToConversationListener} from './services/sendToConversation'
 import TooltipPortal from './components/common/TooltipPortal'
 import {createGcScheduler} from './lib/gcScheduler'
 import {syncExchangeRate} from './lib/format'
+import {applyThemeClass} from './lib/theme'
 import {registerStoreMemorySources} from './utils/memorySources'
 import {startWatermarkTimer} from './utils/memoryWatermark'
+import {isDarkTheme} from '@shared/types'
 import type {ModelType} from '@shared/types'
 
 /**
@@ -86,7 +89,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
       return (
         <div className="h-screen flex items-center justify-center bg-gray-50">
           <div className="text-center space-y-3">
-            <div className="text-4xl">⚠️</div>
+            <div className="flex justify-center"><WarningIcon className="w-9 h-9 text-amber-500"/></div>
             <h2 className="text-lg font-medium text-gray-700">应用出现了错误</h2>
             <p className="text-sm text-gray-400 max-w-md">{this.state.error?.message}</p>
             <button
@@ -131,10 +134,6 @@ async function handleSchemeInitializationError(
     const schemeStore = useModelSchemeStore.getState()
     let activeScheme = schemeStore.getActiveScheme()
 
-    // Helper: 从 roles 数组中获取指定 role 的配置
-    const getRole = (scheme: typeof activeScheme, role: string) =>
-        scheme?.roles.find(r => r.role === role)
-
     if (!activeScheme) {
         // 创建新的默认方案（从模板生成 roles）
         const newScheme = {
@@ -155,7 +154,7 @@ async function handleSchemeInitializationError(
         console.log('[App] 创建新方案:', activeScheme?.name)
     } else {
         // 修复现有方案的 endpointId（使用 roles 数组结构）
-        const primaryRole = getRole(activeScheme, 'primary')
+        const primaryRole = activeScheme.roles.find(r => r.role === 'primary')
         const needsUpdate =
             !primaryRole ||
             !llmState.providers.find(p => p.id === primaryRole.endpointId) ||
@@ -286,32 +285,9 @@ export default function App() {
   useGlobalHotkeys()
 
   useEffect(() => {
-    document.documentElement.classList.remove('dark', 'yuanshandai', 'shiyangjin')
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark')
-    } else if (theme === 'yuanshandai') {
-      document.documentElement.classList.add('yuanshandai')
-    } else if (theme === 'shiyangjin') {
-      document.documentElement.classList.add('shiyangjin')
-    }
-
-    // ── 清除 index.html 内联脚本注入的 CSS 变量 inline styles ──
-    // index.html 为防首次绘制闪烁，在内联脚本中用 rootStyle.setProperty() 注入了 CSS 变量。
-    // 但这些 inline styles 优先级高于任何 CSS class 定义（包括 :root 和 .dark），
-    // 导致切换主题后 var() 引用的元素仍显示旧值，不会随 class 切换。
-    // 此处全部清除，让 globals.css 的 :root / .dark 选择器接管主题控制。
-    const ROOT_CSS_VARS = [
-      '--surface', '--surface-muted', '--surface-elevated', '--surface-overlay',
-      '--text-primary', '--text-secondary', '--text-muted', '--text-inverse',
-      '--border', '--border-muted', '--border-emphasis',
-      '--brand-primary', '--brand-hover', '--brand-muted',
-      '--success', '--warning', '--error', '--info',
-    ]
-    const rootStyle = document.documentElement.style
-    for (const prop of ROOT_CSS_VARS) {
-      rootStyle.removeProperty(prop)
-    }
-
+    // 单一权威：theme.ts 的 applyThemeClass 负责「切 html class + 清除 index.html 内联变量」。
+    // 切勿在此另建变量清单副本——漏键会让内联值永久压过 .dark（历史事故：--surface-chrome）。
+    applyThemeClass(theme)
     window.electronAPI?.setWindowTheme?.(theme)
   }, [theme])
 
@@ -326,7 +302,7 @@ export default function App() {
       // 气泡后层/卡片毛玻璃的 surface 透明度：跟随 overlay 滑杆，且按主题区分区间。
       // 深色主题（surface 近黑）40-90%；浅色主题（surface 纯白）25-70%——
       // 浅色下若保持同样区间，白色毛玻璃层叠会变成不透明白雾盖住背景图。
-      const isDark = theme === 'dark' || theme === 'yuanshandai'
+      const isDark = isDarkTheme(theme)
       const overlayRatio = (background.overlay ?? 40) / 100
       const alphaPct = isDark
           ? Math.round((0.40 + overlayRatio * 0.50) * 100)
@@ -740,7 +716,7 @@ export default function App() {
             <div
               className="absolute inset-0 z-0 pointer-events-none"
              data-name="background-layer"
-              style={{backgroundImage: `url(${background.imagePath})`, backgroundSize: 'cover', backgroundPosition: 'center'}}
+              style={{backgroundImage: `url(${background.imagePath})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'saturate(0.55) contrast(0.92)'}}
             />
             <div
               className="absolute inset-0 z-0 pointer-events-none"
@@ -755,7 +731,7 @@ export default function App() {
               折叠态紧贴窗口左缘无缝隙（main 去 pl），左上/左下圆角改直角；
               若整个卸载则折叠后只剩 Ctrl+B 可展开（Bug3 根因） */}
           <div
-            className={`app-surface-card bg-[var(--surface)] rounded-lg shadow-card border border-[var(--border)] transition-all ${
+            className={`app-surface-card bg-[var(--surface-chrome)] rounded-lg shadow-card border border-[var(--border)] transition-all ${
                 leftCollapsed ? 'overflow-visible rounded-l-none' : 'overflow-hidden'
             } flex flex-col`}
            data-name="left-sidebar-card"
@@ -764,7 +740,7 @@ export default function App() {
           </div>
           {/* 中间主内容卡片 */}
           <div
-            className="app-surface-card flex-1 flex flex-col min-w-0 transition-all overflow-hidden"
+            className="app-surface-card bg-[var(--surface)] flex-1 flex flex-col min-w-0 transition-all overflow-hidden"
            data-name="main-column">
             <MainWorkspace/>
           </div>
@@ -777,8 +753,8 @@ export default function App() {
             animate={{width: rightCollapsed ? '18px' : 'var(--sidebar-width)'}}
             transition={{duration: 0.2, ease: [0.4, 0, 0.2, 1]}}
             className={`app-surface-card flex-shrink-0 flex ${rightCollapsed
-                ? 'self-end mb-[8px] h-[72px] bg-[var(--surface)] items-center justify-center rounded-l shadow-card border border-r-0 border-[var(--border)]'
-                : 'min-h-0 flex-col h-full rounded-lg shadow-card border border-[var(--border)] overflow-hidden'}`}
+                ? 'self-end mb-[8px] h-[72px] bg-[var(--surface-chrome)] items-center justify-center rounded-l shadow-card border border-r-0 border-[var(--border)]'
+                : 'bg-[var(--surface-chrome)] min-h-0 flex-col h-full rounded-lg shadow-card border border-[var(--border)] overflow-hidden'}`}
             data-name={rightCollapsed ? 'app-right-panel-expand-strip' : 'side-panels'}>
             {rightCollapsed ? (
               <button

@@ -30,9 +30,10 @@ function decl(body: string, name: string): string | null {
 const THEMES = [':root', '.dark', '.yuanshandai', '.shiyangjin'] as const
 const SHARED = ':where(:root, .dark, .yuanshandai, .shiyangjin)'
 
-/** 17 个派生令牌：值由 var()/color-mix() 得出，写在 :where(四主题) 共用规则里（spec §3.1/§3.2/§3.3） */
+/** 13 个派生令牌：值由 var()/color-mix() 得出，写在 :where(四主题) 共用规则里（spec §3.1/§3.2/§3.3）。
+    注：--vcs-* 与 --text-brand 已改为**逐主题字面值**（文字级色值，别名在部分主题下不达 AA），
+    不再属于本清单，见下方「文字级令牌四主题各一份」。 */
 const DERIVED_TOKENS = [
-  '--vcs-modified', '--vcs-added', '--vcs-deleted', '--vcs-untracked',
   '--icon-folder',
   '--diff-added-bg', '--diff-added-strong', '--diff-added-rail',
   '--diff-removed-bg', '--diff-removed-strong', '--diff-removed-rail',
@@ -60,19 +61,20 @@ function pmRuleBodies(): string[] {
 }
 
 describe('令牌层 §2.2 rev3：派生令牌必须放在四主题共用规则里', () => {
-  it('--vcs-* 别名定义在 :where(四主题) 内', () => {
+  it('--vcs-* 不再是 :where(四主题) 里的 var() 别名', () => {
+    // 文字级色值不能复用语义色别名：--warning/--success/--error/--info 是给底色与粗线用的，
+    // 作 12px 文字在 3/4 主题下低于 AA 4.5:1。逐主题字面值定义在四个主题块内。
     const body = ruleBody(SHARED)
-    expect(decl(body, '--vcs-modified')).toBe('var(--warning)')
-    expect(decl(body, '--vcs-added')).toBe('var(--success)')
-    expect(decl(body, '--vcs-deleted')).toBe('var(--error)')
-    expect(decl(body, '--vcs-untracked')).toBe('var(--info)')
+    for (const token of ['--vcs-modified', '--vcs-added', '--vcs-deleted', '--vcs-untracked']) {
+      expect(decl(body, token), `${token} 不应再出现在共用块里`).toBeNull()
+    }
   })
 
-  it('回归守卫：17 个派生令牌全部不得落进 :root（rev3 修正的核心缺陷）', () => {
+  it('回归守卫：13 个派生令牌全部不得落进 :root（rev3 修正的核心缺陷）', () => {
     // :root 特指度 0,1,0 高于 :where(...) 的 0,0,0。一旦某个派生令牌被写进 :root，
     // 它会对**所有**主题生效（浅色值泄漏到深色主题）——这正是 rev3 要根治的缺陷。
-    // 因此逐个遍历全部 17 个，而不是抽样 3 个。
-    expect(DERIVED_TOKENS).toHaveLength(17)
+    // 因此逐个遍历全部 13 个，而不是抽样 3 个。
+    expect(DERIVED_TOKENS).toHaveLength(13)
     const root = ruleBody(':root')
     const shared = ruleBody(SHARED)
     for (const token of DERIVED_TOKENS) {
@@ -99,7 +101,7 @@ describe('令牌层 §2.2 rev3：派生令牌必须放在四主题共用规则�
     expect(decl(body, '--code-match')).toBe('var(--brand-muted)')
     expect(decl(body, '--code-current-line')).toMatch(/var\(--text-primary\)\s*5%/)
     expect(decl(body, '--code-indent-guide')).toMatch(/var\(--text-primary\)\s*9%/)
-    expect(decl(body, '--icon-folder')).toMatch(/var\(--brand-primary\)\s*85%/)
+    expect(decl(body, '--icon-folder')).toBe('var(--text-secondary)')
   })
 
   it('回归护栏：.pm-* 规则消费的每个令牌都能在四套主题下解析（I1 免疫）', () => {
@@ -133,9 +135,39 @@ describe('令牌层 §2.2 rev3：派生令牌必须放在四主题共用规则�
 })
 
 describe('令牌层 §3.1 / §3.3：实值令牌四主题各一份', () => {
-  it('--vcs-renamed 四套主题各一份且逐值正确', () => {
-    expect(THEMES.map(t => decl(ruleBody(t), '--vcs-renamed')))
-      .toEqual(['#7c3aed', '#a78bfa', '#9b8bd8', '#8b5cf6'])
+  // 文字级令牌（--text-brand / --vcs-*）：逐主题字面值，四主题各一份。
+  // 对比度由 `npm run audit:contrast` 门禁（每令牌 × surface / surface-muted ≥ 4.5:1）。
+  const INK_TOKENS = [
+    '--text-brand', '--vcs-modified', '--vcs-added', '--vcs-deleted', '--vcs-renamed', '--vcs-untracked',
+    '--ft-code', '--ft-test', '--ft-style', '--ft-markup', '--ft-data', '--ft-image',
+  ] as const
+
+  it('文字级令牌在四套主题块内各有一份字面 hex', () => {
+    for (const token of INK_TOKENS) {
+      for (const theme of THEMES) {
+        expect(decl(ruleBody(theme), token), `${token} @ ${theme}`).toMatch(/^#[0-9a-fA-F]{6}$/)
+      }
+    }
+  })
+
+  it('文字级令牌逐值正确（§3.1 表）', () => {
+    const expected: Record<(typeof INK_TOKENS)[number], string[]> = {
+      '--text-brand': ['#117d61', '#2dd4a8', '#a4cfcf', '#b73f33'],
+      '--vcs-modified': ['#b45309', '#d4a021', '#e0c390', '#9a4708'],
+      '--vcs-added': ['#047857', '#10b981', '#95d3c2', '#0b6b4a'],
+      '--vcs-deleted': ['#c53030', '#d58a8a', '#e7bdbd', '#b3261e'],
+      '--vcs-renamed': ['#7c3aed', '#a88dfa', '#cac2ea', '#763ff4'],
+      '--vcs-untracked': ['#0969da', '#76a0df', '#adcae9', '#0d5bbd'],
+      '--ft-code': ['#2563eb', '#60a5fa', '#a8cbe8', '#1d4ed8'],
+      '--ft-test': ['#15803d', '#4ade80', '#95d3c2', '#0b6b4a'],
+      '--ft-style': ['#0e7490', '#22d3ee', '#9ddbdb', '#0b6070'],
+      '--ft-markup': ['#c2410c', '#fb923c', '#e8bf94', '#a83a0a'],
+      '--ft-data': ['#6d28d9', '#c4b5fd', '#d8cff5', '#6d28d9'],
+      '--ft-image': ['#be185d', '#f472b6', '#f5c6dc', '#be185d'],
+    }
+    for (const [token, values] of Object.entries(expected)) {
+      expect(THEMES.map(t => decl(ruleBody(t), token)), token).toEqual(values)
+    }
   })
 
   const CODE_TOKENS = [

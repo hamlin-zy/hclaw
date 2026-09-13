@@ -188,7 +188,7 @@ export default function ThemedSelect({
                                                     )}
                                                 </div>
                                                 {opt.hint && (
-                                                    <div className="text-[10px] text-[var(--text-muted)] truncate mt-0.5">
+                                                    <div className="text-[10px] text-[var(--text-secondary)] truncate mt-0.5">
                                                         {opt.hint}
                                                     </div>
                                                 )}
@@ -197,7 +197,7 @@ export default function ThemedSelect({
                                     )
                                 })}
                                 {options.length === 0 && (
-                                    <div className="px-2.5 py-3 text-center text-[11px] text-[var(--text-muted)]">
+                                    <div className="px-2.5 py-3 text-center text-[11px] text-[var(--text-secondary)]">
                                         暂无可选项
                                     </div>
                                 )}

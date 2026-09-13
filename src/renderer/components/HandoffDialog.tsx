@@ -9,6 +9,8 @@ export interface HandoffDialogProps {
   ratio: number
   windowTokens: number
   estimatedTokens: number
+  /** 本次触发所用的交接阈值（token，已按当前模式解析） */
+  thresholdTokens: number
   onChoice: (choice: HandoffChoice) => void
 }
 
@@ -18,12 +20,13 @@ export interface HandoffDialogProps {
  * 样式参照现有 Dialog 组件（如 ConfirmDialog/MCPErrorHelper）的类名约定；
  * CSS 变量沿用项目 token（--surface / --surface-muted / --border / --text-*）。
  */
-export function HandoffDialog({conversationId, ratio, windowTokens, estimatedTokens, onChoice}: HandoffDialogProps) {
+export function HandoffDialog({conversationId, ratio, windowTokens, estimatedTokens, thresholdTokens, onChoice}: HandoffDialogProps) {
   const [dismissSession, setDismissSession] = useState(false)
   const dismissHandoffPrompt = useConversationStore((s) => s.dismissHandoffPrompt)
   const pct = Math.round(ratio * 100)
   const hK = Math.round(estimatedTokens / 1000)
   const wK = Math.round(windowTokens / 1000)
+  const tK = Math.round(thresholdTokens / 1000)
 
   const choose = (choice: HandoffChoice) => {
     if (dismissSession) dismissHandoffPrompt(conversationId)
@@ -36,9 +39,10 @@ export function HandoffDialog({conversationId, ratio, windowTokens, estimatedTok
         <h3 id="handoff-dialog-title" className="mb-2 text-lg font-semibold">上下文接近有效容量</h3>
         <div className="mb-4 space-y-2 text-sm leading-relaxed text-[var(--text-secondary)]">
           <p>
-            当前会话已使用约 <strong className="text-[var(--text-primary)]">{pct}%</strong>
-            （约 {hK}K / {wK}K token）。
+            上下文已用 <strong className="text-[var(--text-primary)]">{hK}K / {wK}K</strong>
+            （{pct}%）。
           </p>
+          <p className="text-xs">接近交接阈值 {tK}K，建议交接。</p>
           <p>继续在本会话执行：工具结果持续累积，可能接近模型有效容量，响应质量下降，甚至触发窗口超限报错。</p>
           <p>交接：自动总结本会话历史并在新会话继续，关键上下文随总结保留。</p>
           <p className="text-xs">（可在 设置 → Agent → 交接引导阈值 调整此提醒的触发线）</p>

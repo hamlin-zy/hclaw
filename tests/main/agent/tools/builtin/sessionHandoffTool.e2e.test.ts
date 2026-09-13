@@ -59,4 +59,16 @@ describe('session_handoff Tool', () => {
         })
         expect(result.success).toBe(true)
     })
+
+    it('handoffSummary 描述含「复用清单」段要求', () => {
+        const shape = (sessionHandoffTool.inputSchema as any).shape
+        const desc = shape.handoffSummary.description
+        expect(desc).toContain('复用清单')
+        expect(desc).toContain('只写指针')
+    })
+
+    it('attachments 描述禁止为交接临时新建文件', () => {
+        const desc = (sessionHandoffTool.inputSchema as any).shape.attachments.description
+        expect(desc).toContain('严禁为交接临时新建')
+    })
 })

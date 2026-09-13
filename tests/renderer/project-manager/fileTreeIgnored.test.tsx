@@ -78,9 +78,9 @@ describe('FileTree 三重编码（spec §6.2）', () => {
     expect(row.querySelector('[data-testid="status-badge"]')).toHaveTextContent('M')
   })
 
-  it('目录按子项最高优先级染色（D > M > R > A > ??），且折叠时就已染色', async () => {
+  it('目录名不挂状态色（即使子项脏、即使折叠，目录行仍是中性结构标签）', async () => {
     // 状态取自 workspace 全量 statusMap（而非已加载子项）——
-    // 目录保持折叠、childrenCache 为空，仍应染色（spec §6.2「不展开就知道哪里脏」）
+    // 目录保持折叠、childrenCache 为空，也**不应**因此染色：颜色只留给文件行名与状态字母。
     useGitStatusStore.setState({
       summary: {
         statusMap: {
@@ -98,7 +98,8 @@ describe('FileTree 三重编码（spec §6.2）', () => {
     // 未展开：子项不在 DOM 中
     expect(screen.queryByRole('treeitem', {name: 'x.ts'})).toBeNull()
     expect(dirRow).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.getByText('src')).toHaveClass('pm-c--M')     // M 优先于 ??
+    // 目录名不再带走任何状态色类（旧行为：按子项最高优先级染色 M）
+    expect(screen.getByText('src').className).not.toMatch(/pm-c--/)
   })
 
   it('被忽略条目无状态色（不参与目录染色）', async () => {

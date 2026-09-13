@@ -12,7 +12,7 @@ import {Component, memo, useEffect, useMemo, useState} from 'react'
 import {createPortal} from 'react-dom'
 import rehypeRaw from 'rehype-raw'
 import MediaPlayer, {extractFileName} from './MediaPlayer'
-import {inferMediaTypeFromUrl} from '@shared/types'
+import {inferMediaTypeFromUrl, isDarkTheme, type ThemeName} from '@shared/types'
 import ImagePreviewModal from '../common/ImagePreviewModal'
 import {useSettingsStore} from '../../stores/settingsStore'
 import LinkContextMenu from '../common/LinkContextMenu'
@@ -53,22 +53,10 @@ function localPathToMediaUrl(src: string): string {
 const remarkPlugins = [remarkGfm, remarkBreaks]
 const rehypePlugins = [rehypeRaw]
 
-// ★ 稳定的 urlTransform 函数引用，避免 useMemo 每次创建新闭包
-const stableUrlTransform = (url: string) => {
-    if (url.startsWith('http://') || url.startsWith('https://') ||
-        url.startsWith('file://') || url.startsWith('hclaw-media://') ||
-        url.startsWith('data:') || url.startsWith('blob:')) {
-        return url
-    }
-    if (url.startsWith('//') || url.startsWith('/') || url.startsWith('./') || url.startsWith('../')) {
-        return url
-    }
-    // Windows 绝对路径如 C:/path
-    if (/^[a-zA-Z]:[/\\]/.test(url)) {
-        return url
-    }
-    return url
-}
+// ★ 稳定的 urlTransform 函数引用，避免 useMemo 每次创建新闭包。
+//   恒等映射：不启用 react-markdown 默认的协议白名单清洗——本地绝对路径 / hclaw-media: /
+//   file: / data: / blob: 等都必须原样保留，故所有输入一律返回原 url。
+const stableUrlTransform = (url: string) => url
 
 // ─── 代码块复制按钮 ─────────────────────────────────────
 
@@ -91,8 +79,8 @@ const CopyButton = memo(function CopyButton({code}: { code: string }) {
             // data-find-exclude：查找功能（MessageList.find）不搜此 UI 按钮文本（复制/已复制）
             data-find-exclude
             className="absolute top-2 right-2 px-2 py-1 text-xs rounded transition-colors
-                bg-[var(--surface-muted)] hover:bg-[var(--surface-elevated)]
-                text-[var(--text-muted)] hover:text-[var(--text-primary)]
+                bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)]
+                text-[var(--text-secondary)] hover:text-[var(--text-primary)]
                 border border-[var(--border)]"
             title="复制代码"
          data-name="markdown-renderer-button">
@@ -177,10 +165,10 @@ function LocalImage({src, alt}: {src: string; alt: string}) {
     if (loading) {
         return (
             <span
-                className="my-2 flex items-center gap-2 p-3 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)]/20">
+                className="my-2 flex items-center gap-2 p-3 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)]">
                 <span
                     className="w-4 h-4 border-2 border-[var(--brand-primary)]/30 border-t-[var(--brand-primary)] rounded-full animate-spin inline-block"/>
-                <span className="text-xs text-[var(--text-muted)]">加载图片中…</span>
+                <span className="text-xs text-[var(--text-secondary)]">加载图片中…</span>
             </span>
         )
     }
@@ -189,8 +177,8 @@ function LocalImage({src, alt}: {src: string; alt: string}) {
     if (error) {
         return (
             <span
-                className="my-2 p-3 rounded-lg border border-[var(--border-muted)] bg-[var(--surface-muted)]/20 text-center inline-block">
-                <span className="text-xs text-[var(--text-muted)]">
+                className="my-2 p-3 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] text-center inline-block">
+                <span className="text-xs text-[var(--text-secondary)]">
                     无法加载图片: {alt || src}
                 </span>
             </span>
@@ -225,14 +213,9 @@ function LocalImage({src, alt}: {src: string; alt: string}) {
 interface MarkdownRendererProps {
     children: string
     isUser?: boolean
-    theme?: 'light' | 'dark' | 'yuanshandai' | 'shiyangjin'
+    theme?: ThemeName
 }
 
-/**
- * 预处理 markdown：将 URL 中的反斜杠转为正斜杠
- * micromark 把 \ 当作转义符，Windows 路径 C:\foo\bar.png 会被吃成 C:foobar.png
- * 在渲染前统一处理，不影响其他 markdown 语法（反斜杠转义仅对 ASCII 标点生效，不对字母生效，但稳妥起见只替换 URL 内的）
- */
 /**
  * 剥离 HTML 标签中的 ref 属性，防止 rehypeRaw 将其作为 React ref 传递
  * React 19 拒绝字符串 ref，会抛出 markRef 错误
@@ -248,6 +231,11 @@ function stripRefAttributes(markdown: string): string {
     )
 }
 
+/**
+ * 预处理 markdown：将 URL 中的反斜杠转为正斜杠
+ * micromark 把 \ 当作转义符，Windows 路径 C:\foo\bar.png 会被吃成 C:foobar.png
+ * 在渲染前统一处理，不影响其他 markdown 语法（反斜杠转义仅对 ASCII 标点生效，不对字母生效，但稳妥起见只替换 URL 内的）
+ */
 function normalizeMarkdownPaths(markdown: string): string {
     if (typeof markdown !== 'string') return ''
     return markdown.replace(/(\]\(|\[)([^)\]]+)(\)|\]\[)/g, (match, prefix, url, suffix) => {
@@ -312,7 +300,7 @@ class MarkdownErrorBoundary extends Component<
     render() {
         if (this.state.hasError) {
             return (
-                <div className="whitespace-pre-wrap break-words font-mono text-sm text-[var(--text-primary)] p-3 rounded-lg bg-[var(--surface-muted)]/30 border border-[var(--border-muted)]">
+                <div className="whitespace-pre-wrap break-words font-mono text-sm text-[var(--text-primary)] p-3 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)]">
                     {this.props.fallback}
                 </div>
             )
@@ -403,9 +391,8 @@ export default MarkdownRenderer
 /**
  * 生成 Markdown 组件配置
  */
-export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuanshandai' | 'shiyangjin', linkMode?: 'builtin' | 'system' | 'ask') {
-    const darkThemes = ['dark', 'yuanshandai']
-    const codeStyle = darkThemes.includes(theme) ? oneDark : oneLight
+export function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 'system' | 'ask') {
+    const codeStyle = isDarkTheme(theme) ? oneDark : oneLight
 
     return {
         // 普通 pre（非代码块中的 pre，react-markdown 会为无语言标注的代码块生成 <pre><code>）
@@ -415,12 +402,20 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
             // 此处直接提取代码文本渲染为块级代码，保留换行；
             // 带语言标注的代码块走 SyntaxHighlighter 分支不受影响。
             const child: any = Array.isArray(children) ? children[0] : children
+            // 带语言标注（```ts 等）：必须把 <code> 子树原样交还给 code 分支，
+            // 否则这里 extract 出纯文本会把 SyntaxHighlighter 和复制按钮一起吞掉。
+            const cls: string = child?.props?.className ?? ''
+            if (/language-\w+/.test(cls)) return <>{children}</>
             const raw = child?.props?.children
             const codeText = typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.join('') : null
             return (
-                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--surface-muted)]/50 p-3 my-3.5 text-sm font-mono leading-[1.6] border border-[var(--border-muted)]">
-                    {codeText != null ? codeText : children}
-                </pre>
+                <div className="relative group my-3.5">
+                    {/* 无语言围栏同样给复制入口，行为与带语言围栏对齐 */}
+                    <CopyButton code={codeText ?? ''}/>
+                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--surface-muted)] p-3 text-sm font-mono leading-[1.6] border border-[var(--border)]">
+                        {codeText != null ? codeText : children}
+                    </pre>
+                </div>
             )
         },
         // 代码块
@@ -447,7 +442,7 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
                     className={`px-1.5 py-0.5 rounded font-mono text-xs whitespace-nowrap ${
                         isUser
                             ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
-                            : 'bg-[var(--surface-muted)]/60 text-[var(--text-secondary)]'
+                            : 'bg-[var(--surface-muted)] text-[var(--text-secondary)]'
                     }`}
                     {...props}
                 >
@@ -463,7 +458,7 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
                     className={`px-1.5 py-0.5 rounded font-mono text-xs whitespace-nowrap ${
                         isUser
                             ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
-                            : 'bg-[var(--surface-muted)]/60 text-[var(--text-secondary)]'
+                            : 'bg-[var(--surface-muted)] text-[var(--text-secondary)]'
                     }`}
                 >
                     {codeString}
@@ -518,11 +513,11 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
             return <h5 className="text-sm font-medium text-[var(--text-secondary)] mt-4 mb-1.5">{children}</h5>
         },
         h6({children}: any) {
-            return <h6 className="text-xs font-medium text-[var(--text-muted)] mt-4 mb-1.5">{children}</h6>
+            return <h6 className="text-xs font-medium text-[var(--text-secondary)] mt-4 mb-1.5">{children}</h6>
         },
         // 水平线
         hr({}: any) {
-            return <hr className="my-4 border-t border-[var(--border)]" />
+            return <hr className="my-4 border-t border-[var(--border-muted)]" />
         },
         // 图片/音频/视频 — 根据扩展名自动选择渲染方式
         img({src, alt, ...props}: any) {
@@ -568,7 +563,7 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
         blockquote({children}: any) {
             return (
                 <blockquote
-                    className="border-l-4 border-[var(--border-muted)] pl-3.5 py-1.5 my-3 bg-[var(--surface-muted)]/50 italic text-[13px] text-[var(--text-muted)] rounded-r-md">
+                    className="border-l-4 border-[var(--border)] pl-3.5 py-1.5 my-3 bg-[var(--surface-muted)] italic text-[13px] text-[var(--text-secondary)] rounded-r-md">
                     {children}
                 </blockquote>
             )
@@ -588,7 +583,9 @@ export function mdComponents(isUser: boolean, theme: 'light' | 'dark' | 'yuansha
             return <tbody className="divide-y divide-[var(--border)]">{children}</tbody>
         },
         tr({children}: any) {
-            return <tr className="even:bg-[var(--surface-muted)]/30">{children}</tr>
+            // 行分隔由 tbody 的 divide-y 承担；此处不再叠加斑马纹——
+            // 斑马纹与表头同为 --surface-muted，会让表头失去「表头」信号（见截图 18-29-51）。
+            return <tr>{children}</tr>
         },
         th({children}: any) {
             return (

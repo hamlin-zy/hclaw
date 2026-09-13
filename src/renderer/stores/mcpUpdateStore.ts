@@ -18,7 +18,6 @@ export const useMcpUpdateStore = createUpdateStore<{
   lastChecked: number
   availableVersions?: string[]
   pkgName?: string
-  pkgManager?: 'npm' | 'pip'
 }>({
   getAllVersionMeta: () => api?.mcp?.getAllVersionMeta?.() ?? Promise.resolve({}),
   setMethodName: 'setMcpUpdates',

@@ -28,7 +28,7 @@ export default function DiffModal() {
             className="fixed inset-6 bg-[var(--surface)] rounded-xl shadow-elevated flex flex-col overflow-hidden z-[var(--z-modal)]"
           >
             {/* Header */}
-              <div className="h-11 px-4 flex items-center justify-between border-b border-[var(--border)] shrink-0">
+              <div className="h-11 px-4 flex items-center justify-between border-b border-[var(--border-muted)] shrink-0">
               <div className="flex items-center gap-2">
                 <StatusBadge status={selectedFileChange.status} />
                   <span className="text-sm font-mono text-[var(--text-primary)]">{selectedFileChange.filePath}</span>

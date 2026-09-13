@@ -9,22 +9,15 @@ import SettingsDialog from '../../../../src/renderer/components/dialogs/Settings
 // 关闭时数值输入禁用，重新开启恢复默认 50%。
 
 const {mockSettingsState, makeSettingsState} = vi.hoisted(() => {
-    function makeSettingsState(ratio: number) {
+    function makeSettingsState(ratio: number, extraAgent: Record<string, unknown> = {}) {
+        const agent = {
+            maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000,
+            llmTimeout: 600000, compactThreshold: 700000, handoffThresholdRatio: ratio,
+            ...extraAgent,
+        }
         return {
-            settings: {
-                ui: {},
-                agent: {
-                    maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000,
-                    llmTimeout: 600000, compactThreshold: 700000, handoffThresholdRatio: ratio,
-                },
-            },
-            pendingSettings: {
-                ui: {},
-                agent: {
-                    maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000,
-                    llmTimeout: 600000, compactThreshold: 700000, handoffThresholdRatio: ratio,
-                },
-            },
+            settings: {ui: {}, agent},
+            pendingSettings: {ui: {}, agent: {...agent}},
             isDirty: false,
             saving: false,
             updatePending: vi.fn((category: string, patch: Record<string, unknown>) => {
@@ -76,11 +69,11 @@ afterEach(() => {
     vi.unstubAllGlobals()
 })
 
-async function openAgentTab() {
+async function openAgentTab(expectLabel = '交接引导阈值 (%)') {
     render(<SettingsDialog/>)
     await waitFor(() => expect(screen.getByRole('button', {name: /Agent 运行/})).toBeTruthy())
     fireEvent.click(screen.getByRole('button', {name: /Agent 运行/}))
-    await waitFor(() => expect(screen.getByText('交接引导阈值 (%)')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(expectLabel)).toBeTruthy())
 }
 
 function getHandoffInput(): HTMLInputElement {
@@ -117,5 +110,43 @@ describe('SettingsDialog：交接引导阈值关闭开关', () => {
         expect(mockSettingsState.current.updatePending).toHaveBeenCalledWith(
             'agent', expect.objectContaining({handoffThresholdRatio: 0.5}),
         )
+    })
+})
+
+describe('SettingsDialog：交接阈值模式（按比例 / 按窗口大小）', () => {
+    function getTokenInput(): HTMLInputElement {
+        const label = screen.getByText('交接阈值大小 (K)')
+        return label.parentElement!.querySelector('input') as HTMLInputElement
+    }
+
+    it('默认按比例：显示百分比输入，隐藏 K 输入', async () => {
+        await openAgentTab()
+        expect(screen.getByText('交接引导阈值 (%)')).toBeTruthy()
+        expect(screen.queryByText('交接阈值大小 (K)')).toBeNull()
+    })
+
+    it('按窗口大小：显示 K 输入（默认 200K，min=50），隐藏百分比输入', async () => {
+        mockSettingsState.set(makeSettingsState(0.5, {handoffThresholdMode: 'tokens'}))
+        await openAgentTab('交接阈值大小 (K)')
+        const input = getTokenInput()
+        expect(input.value).toBe('200')
+        expect(input.min).toBe('50')
+        expect(input.disabled).toBe(false)
+        expect(screen.queryByText('交接引导阈值 (%)')).toBeNull()
+    })
+
+    it('按窗口大小：低于 50 的输入兜底为 50K', async () => {
+        mockSettingsState.set(makeSettingsState(0.5, {handoffThresholdMode: 'tokens'}))
+        await openAgentTab('交接阈值大小 (K)')
+        fireEvent.change(getTokenInput(), {target: {value: '10'}})
+        expect(mockSettingsState.current.updatePending).toHaveBeenCalledWith(
+            'agent', expect.objectContaining({handoffThresholdTokens: 50_000}),
+        )
+    })
+
+    it('按窗口大小模式：总开关关闭（ratio=0）时 K 输入禁用', async () => {
+        mockSettingsState.set(makeSettingsState(0, {handoffThresholdMode: 'tokens'}))
+        await openAgentTab('交接阈值大小 (K)')
+        expect(getTokenInput().disabled).toBe(true)
     })
 })

@@ -75,7 +75,7 @@ export default function ToolsChangeModal() {
                     aria-modal="true"
                     aria-labelledby="tools-change-title"
                 >
-                    <div className="px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)]">
+                    <div className="px-5 py-4 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)]">
                         <div className="flex items-center gap-3">
                             <div
                                 className="w-10 h-10 rounded-full bg-[var(--brand-primary)]/10 flex items-center justify-center shrink-0">
@@ -89,7 +89,7 @@ export default function ToolsChangeModal() {
                                     className="text-sm font-semibold text-[var(--text-primary)]">
                                     工具集变动 — 缓存将重建
                                 </h2>
-                                <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                                <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                                     与本轮之前发送给模型的工具集不同
                                 </p>
                             </div>
@@ -106,7 +106,7 @@ export default function ToolsChangeModal() {
 
                         {added.length > 0 && (
                             <div className="bg-[var(--surface-muted)] rounded-lg p-3 space-y-1.5">
-                                <div className="text-xs font-medium text-[var(--text-muted)]">新增工具</div>
+                                <div className="text-xs font-medium text-[var(--text-secondary)]">新增工具</div>
                                 {added.map((name) => (
                                     <div key={name} className="flex items-center gap-2 text-sm">
                                         <span className="text-green-500 font-mono">+</span>
@@ -118,7 +118,7 @@ export default function ToolsChangeModal() {
 
                         {removed.length > 0 && (
                             <div className="bg-[var(--surface-muted)] rounded-lg p-3 space-y-1.5">
-                                <div className="text-xs font-medium text-[var(--text-muted)]">移除工具</div>
+                                <div className="text-xs font-medium text-[var(--text-secondary)]">移除工具</div>
                                 {removed.map((name) => (
                                     <div key={name} className="flex items-center gap-2 text-sm">
                                         <span className="text-red-500 font-mono">-</span>
@@ -128,7 +128,7 @@ export default function ToolsChangeModal() {
                             </div>
                         )}
 
-                        <label className="flex items-center gap-2 text-sm text-[var(--text-muted)] cursor-pointer select-none">
+                        <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)] cursor-pointer select-none">
                             <input
                                 type="checkbox"
                                 className="w-3.5 h-3.5 rounded accent-[var(--brand-primary)]"
@@ -139,12 +139,12 @@ export default function ToolsChangeModal() {
                         </label>
                     </div>
 
-                    <div className="px-5 py-3 border-t border-[var(--border)] bg-[var(--surface-elevated)] shrink-0">
+                    <div className="px-5 py-3 border-t border-[var(--border-muted)] bg-[var(--surface-elevated)] shrink-0">
                         <div className="flex items-center justify-center gap-2">
                             <button
                                 onClick={handleCancel}
                                 className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
-                  bg-[var(--surface-muted)] text-[var(--text-muted)]
+                  bg-[var(--surface-muted)] text-[var(--text-secondary)]
                   hover:bg-[var(--surface-hover)] border border-[var(--border)]"
                                 data-name="tools-change-modal-cancel-button">
                                 取消

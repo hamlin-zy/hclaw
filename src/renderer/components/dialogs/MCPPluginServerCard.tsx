@@ -60,14 +60,13 @@ export default function MCPPluginServerCard({
                                 <span
                                     className="text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-600 font-medium uppercase border border-blue-100">插件</span>
                                 <span
-                                    className="text-[9px] px-1 py-0.5 rounded bg-gray-50 text-gray-400 font-medium uppercase border border-gray-100">{server.transport}</span>
+                                    className="text-[9px] px-1 py-0.5 rounded bg-[var(--surface-muted)] text-gray-400 font-medium uppercase border border-gray-100">{server.transport}</span>
                                 {versionMeta && (
                                     <MCPVersionBadge
                                         current={versionMeta.current}
                                         latest={versionMeta.latest}
                                         hasUpdate={hasUpdate}
                                         availableVersions={availableVersions}
-                                        pkgManager={versionMeta.pkgManager}
                                         disabled={switching}
                                         onSwitch={handleVersionSwitch}
                                     />
@@ -97,7 +96,7 @@ export default function MCPPluginServerCard({
                         <Switch checked={server.enabled} onChange={onToggle} disabled={isPluginDisabled} />
                         <button
                             onClick={handleCopyConfig}
-                            className="p-1.5 text-gray-300 hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"
+                            className="p-1.5 text-[var(--text-muted)] hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"
                             title={copied ? '已复制' : '复制 JSON 配置'}
                          data-name="mcpplugin-server-card-copy-config-button">
                             {copied ? (
@@ -116,7 +115,7 @@ export default function MCPPluginServerCard({
                                 e.stopPropagation()
                                 onEdit()
                             }}
-                            className="p-1.5 text-gray-300 hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"
+                            className="p-1.5 text-[var(--text-muted)] hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"
                          data-name="mcpplugin-server-card-edit-button">
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                  strokeWidth="2">

@@ -1,5 +1,6 @@
 import {memo, useEffect, useRef, useState} from 'react'
 import {useAgentStore} from '../stores/agentStore'
+import {WarningIcon} from './icons'
 
 interface LoopWarningBannerProps {
     conversationId: string
@@ -51,10 +52,13 @@ const LoopWarningBanner = memo(function LoopWarningBanner({conversationId}: Loop
             onClick={() => setExpanded(e => !e)}
         >
             <div className="flex items-center justify-between gap-2">
-                <span className="truncate">
-                    ⚠ {warning.escalated
-                        ? `循环已持续 ${warning.repeatCount} 轮`
-                        : `疑似循环：${warning.detail[0]?.toolName ?? ''} 等相同调用 × ${warning.repeatCount}`}
+                <span className="flex items-center gap-1 min-w-0">
+                    <WarningIcon className="w-3.5 h-3.5 shrink-0"/>
+                    <span className="truncate">
+                        {warning.escalated
+                            ? `循环已持续 ${warning.repeatCount} 轮`
+                            : `疑似循环：${warning.detail[0]?.toolName ?? ''} 等相同调用 × ${warning.repeatCount}`}
+                    </span>
                 </span>
                 <span className="flex gap-2 shrink-0">
                     <button

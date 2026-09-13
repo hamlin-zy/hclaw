@@ -113,7 +113,7 @@ export default function ConversationsDialog() {
         const toDelete = collectDescendants(allConvs, Array.from(selectedIds))
         const descendantCount = toDelete.length - selectedIds.size
 
-        const confirmed = await confirm({
+        await confirm({
             title: '删除会话',
             message: descendantCount > 0
                 ? `确定要删除选中的 ${selectedCount} 个会话吗？\n（含 ${descendantCount} 个子会话将一并删除）\n此操作不可撤销，关联的消息和记录将一并删除。`
@@ -135,11 +135,9 @@ export default function ConversationsDialog() {
                 }
             },
         })
-        if (!confirmed) return
     }, [selectedCount, selectedIds, deleteConversations, loadData])
 
     // ── 格式化时间（共享工具，与备忘录列表同源） ──────────────────
-    const formatTime = formatRelativeTime
 
     // ── 总计信息 ────────────────────────────────────────────
     const totals = useMemo(() => {
@@ -159,7 +157,7 @@ export default function ConversationsDialog() {
                 <div className="flex flex-col items-center gap-3">
                     <div
                         className="w-6 h-6 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin"/>
-                    <span className="text-sm text-[var(--text-muted)]">加载中...</span>
+                    <span className="text-sm text-[var(--text-secondary)]">加载中...</span>
                 </div>
             </div>
         )
@@ -179,7 +177,7 @@ export default function ConversationsDialog() {
                     <span className="text-sm text-red-400">{error}</span>
                     <button
                         onClick={loadData}
-                        className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
+                        className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
                      data-name="conversations-dialog-button">
                         重试
                     </button>
@@ -197,7 +195,7 @@ export default function ConversationsDialog() {
                          stroke="currentColor" strokeWidth="1.5">
                         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                     </svg>
-                    <span className="text-sm text-[var(--text-muted)]">暂无会话</span>
+                    <span className="text-sm text-[var(--text-secondary)]">暂无会话</span>
                 </div>
             </div>
         )
@@ -207,7 +205,7 @@ export default function ConversationsDialog() {
     return (
         <div className="flex flex-col h-full min-h-0">
             {/* 工具栏 */}
-            <div className="flex items-center gap-3 gap-y-2 px-5 py-3 border-b border-[var(--border)] flex-wrap">
+            <div className="flex items-center gap-3 gap-y-2 px-5 py-3 border-b border-[var(--border-muted)] flex-wrap">
                 {/* 全选 / 反选 */}
                 <button
                     onClick={() => setSelectedIds(new Set(conversations.map((c) => c.id)))}
@@ -255,7 +253,7 @@ export default function ConversationsDialog() {
                 {/* ml-auto 替换 flex-1，换行时不占满整行 */}
                 <div className="ml-auto flex items-center gap-3 shrink-0">
                     {selectedCount > 0 && (
-                        <span className="text-xs text-[var(--text-muted)]">
+                        <span className="text-xs text-[var(--text-secondary)]">
                             已选 {selectedCount} 项
                         </span>
                     )}
@@ -293,7 +291,7 @@ export default function ConversationsDialog() {
 
             {/* 表格头部 */}
             <div
-                className="grid grid-cols-[32px_1fr_80px_80px_140px] gap-2 px-5 py-2 text-xs text-[var(--text-muted)] border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
+                className="grid grid-cols-[32px_1fr_80px_80px_140px] gap-2 px-5 py-2 text-xs text-[var(--text-secondary)] border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
                 <div/>
                 <div>标题</div>
                 <div className="text-right">消息数</div>
@@ -328,15 +326,15 @@ export default function ConversationsDialog() {
                         <div className="flex items-center justify-end text-[var(--text-secondary)] tabular-nums">
                             {conv.blockCount}
                         </div>
-                        <div className="flex items-center justify-end text-[var(--text-muted)] text-xs tabular-nums">
-                            {formatTime(conv.updatedAt)}
+                        <div className="flex items-center justify-end text-[var(--text-secondary)] text-xs tabular-nums">
+                            {formatRelativeTime(conv.updatedAt)}
                         </div>
                     </label>
                 ))}
             </div>
 
             {/* 底部统计 */}
-            <div className="px-5 py-2.5 border-t border-[var(--border)] text-xs text-[var(--text-muted)]">
+            <div className="px-5 py-2.5 border-t border-[var(--border-muted)] text-xs text-[var(--text-secondary)]">
                 共 {totals.conversations} 个会话，{totals.messages} 条消息，{totals.blocks} 个记录块
             </div>
         </div>

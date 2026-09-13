@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useRef, useState} from 'react'
+import {useCallback, useEffect, useRef, useState, type ComponentType} from 'react'
 import {Switch} from '../common/Switch'
 import {useMcpStore} from '../../stores/mcpStore'
 import type {MCPServer} from '@shared/types'
@@ -9,6 +9,8 @@ import MCPEditModal from './MCPEditModal'
 import {useMcpErrorDialog} from './MCPErrorHelper'
 import {useMcpUpdateStore} from '../../stores/mcpUpdateStore'
 import {showToast} from '../../hooks/useMcpVersionSwitch'
+import {SuccessIcon, ErrorIcon, InfoIcon, RemoveIcon} from '../icons'
+import type {IconProps} from '../icons'
 
 type TabType = 'user' | 'plugin'
 
@@ -23,17 +25,18 @@ function Toast({message, type, onClose}: { message: string; type: ToastType; onC
         error: 'bg-[#EF4444] text-white',
         info: 'bg-[#3B82F6] text-white',
     }
-    const icons: Record<ToastType, string> = {
-        success: '✅ ',
-        error: '❌ ',
-        info: 'ℹ️ ',
+    const icons: Record<ToastType, ComponentType<IconProps>> = {
+        success: SuccessIcon,
+        error: ErrorIcon,
+        info: InfoIcon,
     }
+    const ToastIcon = icons[type]
     return (
         <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium
-            animate-[fade-in-up_0.2s_ease-out]
+            animate-[fade-in-up_0.2s_ease-out] flex items-center gap-1.5
             ${styles[type]}`}
             onClick={onClose} data-testid="mcpdialog-toast" data-name="mcpdialog-toast">
-            {icons[type]}{message}
+            <ToastIcon className="w-4 h-4 shrink-0"/>{message}
         </div>
     )
 }
@@ -343,6 +346,7 @@ export default function MCPDialog() {
     // ─── 渲染 ────────────────────────────
 
     return (
+        <>
         <div className="h-full overflow-y-auto p-4 space-y-3 custom-scrollbar">
             {/* Header */}
             <div className="flex items-center justify-between mb-1">
@@ -384,7 +388,7 @@ export default function MCPDialog() {
                             {importing ? '导入中...' : '导入配置'}
                         </button>
                         <button onClick={handleSyncVersions}
-                                className="px-2.5 py-1 text-xs text-brand-500 hover:bg-brand-50 rounded-md transition-colors flex items-center gap-1"
+                                className="px-2.5 py-1 text-xs text-brand-500 hover:bg-brand-50 rounded-md transition-colors flex items-center gap-1" data-name="mcpdialog-sync-versions-button"
                                 title="检测所有 MCP 服务版本">
                             <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <path d="M21 12a9 9 0 11-6.219-8.56"/>
@@ -402,23 +406,28 @@ export default function MCPDialog() {
                     {importResult && (
                         <div className={`p-2 rounded-lg text-[10px] ${importResult.imported > 0 ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-red-50 text-red-700 border border-red-100'}`}>
                             {importResult.imported > 0
-                                ? `✓ 成功导入 ${importResult.imported} 个 MCP 服务器${importResult.skipped > 0 ? `，${importResult.skipped} 个已跳过（重复）` : ''}`
-                                : <div className="font-medium">✕ {importResult.error || '导入失败'}</div>
+                                ? (
+                                    <span className="flex items-center gap-1">
+                                        <SuccessIcon className="w-3.5 h-3.5 shrink-0"/>
+                                        {`成功导入 ${importResult.imported} 个 MCP 服务器${importResult.skipped > 0 ? `，${importResult.skipped} 个已跳过（重复）` : ''}`}
+                                    </span>
+                                )
+                                : <div className="font-medium flex items-center gap-1"><RemoveIcon className="w-3.5 h-3.5 shrink-0"/>{importResult.error || '导入失败'}</div>
                             }
                         </div>
                     )}
 
                     <div className="space-y-2.5">
                         {userMcpServers.length === 0 ? (
-                            <div className="p-8 text-center bg-gray-50/50 rounded-xl border border-dashed border-gray-200">
-                                <svg className="w-10 h-10 mx-auto text-gray-200 mb-3" viewBox="0 0 24 24" fill="none"
+                            <div className="p-8 text-center bg-[var(--surface-muted)] rounded-xl border border-dashed border-gray-200">
+                                <svg className="w-10 h-10 mx-auto text-[var(--text-secondary)] mb-3" viewBox="0 0 24 24" fill="none"
                                      stroke="currentColor" strokeWidth="1.5">
                                     <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
                                     <line x1="8" y1="21" x2="16" y2="21"/>
                                     <line x1="12" y1="17" x2="12" y2="21"/>
                                 </svg>
                                 <p className="text-sm text-gray-400 font-medium">暂无 MCP 服务器</p>
-                                <p className="text-[11px] text-gray-300 mt-1">点击上方按钮添加 MCP 服务器</p>
+                                <p className="text-[11px] text-[var(--text-secondary)] mt-1">点击上方按钮添加 MCP 服务器</p>
                             </div>
                         ) : (
                             userMcpServers.map(server => (
@@ -448,15 +457,15 @@ export default function MCPDialog() {
                     )}
 
                     {pluginMcpServers.length === 0 ? (
-                        <div className="p-8 text-center bg-gray-50/50 rounded-xl border border-dashed border-gray-200">
-                            <svg className="w-10 h-10 mx-auto text-gray-200 mb-3" viewBox="0 0 24 24" fill="none"
+                        <div className="p-8 text-center bg-[var(--surface-muted)] rounded-xl border border-dashed border-gray-200">
+                            <svg className="w-10 h-10 mx-auto text-[var(--text-secondary)] mb-3" viewBox="0 0 24 24" fill="none"
                                  stroke="currentColor" strokeWidth="1.5">
                                 <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
                                 <line x1="8" y1="21" x2="16" y2="21"/>
                                 <line x1="12" y1="17" x2="12" y2="21"/>
                             </svg>
                             <p className="text-sm text-gray-400 font-medium">暂无插件 MCP</p>
-                            <p className="text-[11px] text-gray-300 mt-1">安装带有 MCP 服务器的插件</p>
+                            <p className="text-[11px] text-[var(--text-secondary)] mt-1">安装带有 MCP 服务器的插件</p>
                         </div>
                     ) : (
                         pluginMcpServers.map(server => (
@@ -499,11 +508,14 @@ export default function MCPDialog() {
                 />
             )}
 
-            {toolsModalServer && (
-                <MCPToolsOverlay server={toolsModalServer} onClose={() => setToolsModalServer(null)}/>
-            )}
             <McpErrorOverlay />
             {toast && <Toast message={toast.message} type={toast.type} onClose={clearToast}/>}
         </div>
+        {/* 工具浮层渲染为上面 overflow-y-auto 滚动容器的兄弟节点：对齐 AgentsDialog
+            预览弹窗的已知正确结构，避免 fixed 遮罩被滚动容器困住而盖不满标题栏 */}
+        {toolsModalServer && (
+            <MCPToolsOverlay server={toolsModalServer} onClose={() => setToolsModalServer(null)}/>
+        )}
+        </>
     )
 }

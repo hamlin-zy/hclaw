@@ -89,7 +89,7 @@ export function ShortcutRow({def, current, overrides, onChange, globalFailure}: 
                         ? '按下组合键…'
                         : current.split('+').map((key, i) => (
                             <React.Fragment key={`${key}-${i}`}>
-                                {i > 0 && <span aria-hidden="true" className="text-[10px] text-[var(--text-muted)]">+</span>}
+                                {i > 0 && <span aria-hidden="true" className="text-[10px] text-[var(--text-secondary)]">+</span>}
                                 <Kbd>{key}</Kbd>
                             </React.Fragment>
                         ))}
@@ -99,7 +99,7 @@ export function ShortcutRow({def, current, overrides, onChange, globalFailure}: 
                         onClick={() => onChange(def.id, null)}
                         aria-label={`重置 ${def.label} 为默认快捷键`}
                         title={`重置 ${def.label} 为默认快捷键`}
-                        className="inline-flex items-center text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]
+                        className="inline-flex items-center text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)]
                                    border border-[var(--border-muted)] rounded px-1.5 h-[24px] leading-none
                                    hover:border-[var(--brand-primary)] transition-colors cursor-pointer"
                     >

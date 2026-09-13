@@ -8,7 +8,7 @@ import {TreeRow} from '../ui/TreeRow'
 import {StatusBadge} from '../ui/StatusBadge'
 import {EmptyState} from '../ui/EmptyState'
 import {IconButton} from '../ui/IconButton'
-import {FOLDER_OPEN_SPEC, fileIcon} from '../lib/fileIcon'
+import {FOLDER_OPEN_SPEC, fileIcon, fileKindClass} from '../lib/fileIcon'
 import {applyMultiSelect, modsOf} from '../lib/multiSelect'
 import {menuSendPaths} from '../lib/visibleOrder'
 import {statusClassSuffix} from '../lib/statusColor'
@@ -157,15 +157,17 @@ export function GitCommitDetail({workspace}: {workspace: string}) {
   }
 
   const renderFileRow = (f: GitCommitFile) => {
-    const {Icon, color} = fileIcon(fileNameOf(f.path))
+    const name = fileNameOf(f.path)
+    const {Icon, color} = fileIcon(name)
+    const kindClass = fileKindClass(name)
     return (
       <TreeRow
         key={f.path}
         depth={2}
         icon={<Icon size={13} color={color} aria-hidden="true" />}
         label={
-          <span className={`pm-c--${statusClassSuffix(f.status)} pm-file-name`}>
-            {fileNameOf(f.path)}{loadingPath === f.path ? ' …' : ''}
+          <span className={`pm-c--${statusClassSuffix(f.status)} pm-file-name${kindClass ? ` ${kindClass}` : ''}`}>
+            {name}{loadingPath === f.path ? ' …' : ''}
           </span>
         }
         trailing={<StatusBadge status={f.status} />}

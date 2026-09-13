@@ -57,7 +57,7 @@ function CollapsibleCategory({title, icon, items, limit, isCollapsed, onToggle, 
             <div className="space-y-2 pl-2">
                 {displayItems.map((item, i) => renderItem(item, i))}
                 {needsCollapse && isCollapsed && (
-                    <p className="text-xs text-[var(--text-muted)] text-center py-1">
+                    <p className="text-xs text-[var(--text-secondary)] text-center py-1">
                         还有 {items.length - limit} 项未显示
                     </p>
                 )}
@@ -684,12 +684,12 @@ export default function PluginDialog() {
                                   </div>
                                   {/* Info Section — full width below title row */}
                                   {plugin.manifest.description && (
-                                      <p className="mt-2 text-sm text-[var(--text-muted)] line-clamp-2">
+                                      <p className="mt-2 text-sm text-[var(--text-secondary)] line-clamp-2">
                                           {plugin.manifest.description}
                                       </p>
                                   )}
                                   {plugin.manifest.author && (
-                                      <p className="mt-1 text-xs text-[var(--text-muted)]">
+                                      <p className="mt-1 text-xs text-[var(--text-secondary)]">
                                           by {plugin.manifest.author.name}
                                       </p>
                                   )}
@@ -720,7 +720,7 @@ export default function PluginDialog() {
                           </span>
                                       )}
                                       <span
-                                          className="text-xs px-2 py-0.5 bg-[var(--surface)] text-[var(--text-muted)] rounded">
+                                          className="text-xs px-2 py-0.5 bg-[var(--surface)] text-[var(--text-secondary)] rounded">
                           {plugin.source}
                         </span>
                                   </div>
@@ -743,7 +743,7 @@ export default function PluginDialog() {
                                               }
                                           }
                                       }}
-                                      className="mt-3 flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+                                      className="mt-3 flex items-center gap-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-secondary)] transition-colors"
                                    data-name="plugin-dialog-toggle-details-button">
                                       <svg
                                           className={`w-3 h-3 transition-transform ${expandedPlugin === plugin.name ? 'rotate-180' : ''}`}
@@ -765,7 +765,7 @@ export default function PluginDialog() {
 
                                   {/* Expanded Details Section */}
                                   {expandedPlugin === plugin.name && (
-                                      <div className="mt-4 pt-4 border-t border-[var(--border)] space-y-4">
+                                      <div className="mt-4 pt-4 border-t border-[var(--border-muted)] space-y-4">
                                           {/* Commands */}
                                           {plugin.commands && plugin.commands.length > 0 && (
                                               <CollapsibleCategory
@@ -793,7 +793,7 @@ export default function PluginDialog() {
                                                                   <CopyButton name={cmd.name} size="sm" />
                                                               </div>
                                                               {cmd.description && (
-                                                                  <p className="mt-0.5 text-xs text-[var(--text-muted)] ml-0 line-clamp-2">
+                                                                  <p className="mt-0.5 text-xs text-[var(--text-secondary)] ml-0 line-clamp-2">
                                                                       {cmd.description.length > 120 ? cmd.description.slice(0, 120) + '…' : cmd.description}
                                                                   </p>
                                                               )}
@@ -801,7 +801,7 @@ export default function PluginDialog() {
                                                                   <div className="mt-1 flex flex-wrap gap-1 ml-0">
                                                                       {cmd.args.map((arg, i) => (
                                                                           <span key={i}
-                                                                                className="text-xs px-1.5 py-0.5 bg-[var(--surface-muted)] rounded text-[var(--text-muted)]">
+                                                                                className="text-xs px-1.5 py-0.5 bg-[var(--surface-muted)] rounded text-[var(--text-secondary)]">
                                         {arg.required ? '*' : ''}{arg.name}
                                                                               {arg.description && `: ${arg.description}`}
                                       </span>
@@ -845,17 +845,17 @@ export default function PluginDialog() {
                                                                   )}
                                                               </div>
                                                               {skill.description && (
-                                                                  <p className="mt-0.5 text-xs text-[var(--text-muted)] line-clamp-2">
+                                                                  <p className="mt-0.5 text-xs text-[var(--text-secondary)] line-clamp-2">
                                                                       {skill.description.length > 120 ? skill.description.slice(0, 120) + '…' : skill.description}
                                                                   </p>
                                                               )}
                                                               {skill.allowedTools && skill.allowedTools.length > 0 && (
                                                                   <div className="mt-1 flex flex-wrap gap-1">
                                                                       <span
-                                                                          className="text-xs text-[var(--text-muted)]">允许工具:</span>
+                                                                          className="text-xs text-[var(--text-secondary)]">允许工具:</span>
                                                                       {skill.allowedTools.map((tool, j) => (
                                                                           <span key={j}
-                                                                                className="text-xs px-1.5 py-0.5 bg-[var(--surface-muted)] rounded text-[var(--text-muted)]">
+                                                                                className="text-xs px-1.5 py-0.5 bg-[var(--surface-muted)] rounded text-[var(--text-secondary)]">
                                         {tool}
                                       </span>
                                                                       ))}
@@ -893,13 +893,13 @@ export default function PluginDialog() {
                                                                   <CopyButton name={agent.name} size="sm" />
                                                                   {agent.type && (
                                                                       <span
-                                                                          className="text-xs px-1.5 py-0.5 bg-[var(--surface-muted)] rounded text-[var(--text-muted)]">
+                                                                          className="text-xs px-1.5 py-0.5 bg-[var(--surface-muted)] rounded text-[var(--text-secondary)]">
                                       {agent.type}
                                     </span>
                                                                   )}
                                                               </div>
                                                               {agent.description && (
-                                                                  <p className="mt-0.5 text-xs text-[var(--text-muted)] line-clamp-2">
+                                                                  <p className="mt-0.5 text-xs text-[var(--text-secondary)] line-clamp-2">
                                                                       {agent.description.length > 120 ? agent.description.slice(0, 120) + '…' : agent.description}
                                                                   </p>
                                                               )}
@@ -937,7 +937,7 @@ export default function PluginDialog() {
                                                                   <div className="mt-1 flex flex-wrap gap-1 ml-0">
                                                                       {server.args.map((arg, j) => (
                                                                           <span key={j}
-                                                                                className="text-xs px-1.5 py-0.5 bg-[var(--surface-muted)] rounded text-[var(--text-muted)] font-mono">
+                                                                                className="text-xs px-1.5 py-0.5 bg-[var(--surface-muted)] rounded text-[var(--text-secondary)] font-mono">
                                         {arg}
                                       </span>
                                                                       ))}
@@ -946,11 +946,11 @@ export default function PluginDialog() {
                                                               {server.env && Object.keys(server.env).length > 0 && (
                                                                   <div className="mt-1">
                                                                       <span
-                                                                          className="text-xs text-[var(--text-muted)]">环境变量:</span>
+                                                                          className="text-xs text-[var(--text-secondary)]">环境变量:</span>
                                                                       <div className="flex flex-wrap gap-1 mt-0.5">
                                                                           {Object.entries(server.env).map(([key, val], j) => (
                                                                               <span key={j}
-                                                                                    className="text-xs px-1.5 py-0.5 bg-[var(--surface-muted)] rounded text-[var(--text-muted)] font-mono">
+                                                                                    className="text-xs px-1.5 py-0.5 bg-[var(--surface-muted)] rounded text-[var(--text-secondary)] font-mono">
                                           {key}={val}
                                         </span>
                                                                           ))}
@@ -987,7 +987,7 @@ export default function PluginDialog() {
                                                                       {key}
                                                                   </code>
                                                                   <span
-                                                                      className="text-xs text-[var(--text-muted)]">({config.type})</span>
+                                                                      className="text-xs text-[var(--text-secondary)]">({config.type})</span>
                                                                   {config.required && (
                                                                       <span
                                                                           className="text-xs px-1.5 py-0.5 bg-[var(--error)]/10 text-[var(--error)] rounded">
@@ -999,7 +999,7 @@ export default function PluginDialog() {
                                                                   <p className="mt-0.5 text-xs font-medium text-[var(--text-primary)] ml-0">{config.title}</p>
                                                               )}
                                                               {config.description && (
-                                                                  <p className="mt-0.5 text-xs text-[var(--text-muted)] ml-0">{config.description}</p>
+                                                                  <p className="mt-0.5 text-xs text-[var(--text-secondary)] ml-0">{config.description}</p>
                                                               )}
                                                           </div>
                                                       )
@@ -1008,8 +1008,8 @@ export default function PluginDialog() {
                                           )}
 
                                           {/* Source Path */}
-                                          <div className="pt-2 border-t border-[var(--border)]">
-                                              <p className="text-xs text-[var(--text-muted)] font-mono truncate"
+                                          <div className="pt-2 border-t border-[var(--border-muted)]">
+                                              <p className="text-xs text-[var(--text-secondary)] font-mono truncate"
                                                  title={plugin.path}>
                                                   {plugin.path}
                                               </p>
