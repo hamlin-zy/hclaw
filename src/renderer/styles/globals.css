@@ -2658,6 +2658,19 @@ html.bg-enabled,
     background-color: transparent !important;
 }
 
+/* ── 背景层必须覆盖 window-container 的 1px 描边（否则窗口四周出现白边）──
+ * 背景层/遮罩层是 absolute inset-0，定位基准是 window-container 的 padding box
+ * （边框内沿）；而 window-container 自带 `border: 1px solid var(--border)`，
+ * 于是窗口四周会留下 1px 未被背景图覆盖的环带。此时 window-container/body/html
+ * 均已透明，该环带会直接透出 BrowserWindow 的 backgroundColor
+ * （源码见 src/main/window.ts：浅色分支 #ffffff）→ 表现为 1px 白边。
+ * 用 inset: -1px 把两层撑到容器边框外沿，正好补上这 1px
+ * （-1px 与上面 .window-container 的边框宽度一一对应，改边框宽度需同步改这里）。 */
+.bg-enabled .window-container > [data-name="background-layer"],
+.bg-enabled .window-container > [data-name="background-overlay"] {
+    inset: -1px;
+}
+
 /* ── 内容卡片半透明化：语义 class app-surface-card ──
  * 三列（左侧栏/中间工作区/右侧栏）+ 会话消息卡片 + 输入区容器都带 app-surface-card，
  * 由 App.tsx / ConversationPage.tsx 显式标记，不依赖 Tailwind 类名猜测，
@@ -2941,9 +2954,9 @@ html.bg-enabled,
     min-height: 0;
     overflow: hidden;
 }
-/* 分隔条：命中区 5px、本体完全透明；中缝常驻一条 1px 发丝线（--border-muted），
-   hover 时升为 --border-emphasis。线画在伪元素上（pointer-events: none），
-   不参与命中、不改变命中区宽度，也不做尺寸浮起。 */
+/* 分隔条：命中区 5px、本体完全透明；常态不画线（面板本身已是带描边的圆角卡片，
+   中缝再画一条会变成多余的重线），仅 hover 时亮出一条 1px --border-emphasis。
+   线画在伪元素上（pointer-events: none），不参与命中、不改变命中区宽度，也不做尺寸浮起。 */
 .pm-split-handle {
     position: relative;
     flex: 0 0 5px;
@@ -2952,7 +2965,7 @@ html.bg-enabled,
     padding: 0;
     user-select: none;
 }
-.pm-split-handle::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: var(--border-muted); }
+.pm-split-handle::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: transparent; }
 .pm-split-handle:hover::after { background: var(--border-emphasis); }
 .pm-split-handle--x::after { left: 2px; right: 2px; }
 .pm-split-handle--y::after { top: 2px; bottom: 2px; }
@@ -2969,11 +2982,11 @@ html.bg-enabled,
     min-width: 0;
     min-height: 0;
     background: var(--surface);
-    /* 连续工具窗口外壳：面板不再是「卡片」，只是同一张窗口面上的一个分区。
-       外描边 / 圆角 / 投影全部去掉，分区之间只由 .pm-split-handle 的 1px 发丝线分隔。 */
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
+    /* 圆角卡片：面板浮在 --surface-overlay 画布上（spec §2.3），
+       与 .pm-canvas 的 5px 填缝共同形成卡片间的分隔间隙。 */
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: var(--shadow-card);
     overflow: hidden;
 }
 .pm-panel-header {
@@ -3337,9 +3350,10 @@ html.bg-enabled,
     width: 100%;
     height: 100%;
     min-height: 0;
-    /* 连续面：画布不再留 5px 填缝 padding，底色与面板同色，读起来是「一个工具窗口」而非「瓷砖网格」 */
-    padding: 0;
-    background: var(--surface);
+    /* 画布：留 5px 填缝 + 比卡片低一档的底色，面板才能读成「浮在画布上的圆角卡片」
+       （spec §2.3；padding 与 .pm-panel-card 的 --shadow-card 是配套的，去掉填缝后投影会糊在一起） */
+    padding: 5px;
+    background: var(--surface-overlay);
 }
 .pm-canvas > .pm-split { flex: 1 1 0; min-height: 0; }
 .pm-git-zone {

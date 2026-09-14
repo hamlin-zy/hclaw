@@ -53,7 +53,7 @@ export const MID_LOOP_HANDOFF_PROMPT = `当前任务执行中上下文接近窗�
 - 每条的落点只能是：① 磁盘上已存在的文件完整路径，或 ② 该次 agent 调用的 toolCallId（形如 call_00_xxxx，从你自己的工具调用里原样抄写）；
 - 严禁为交接新建任何文件（包括汇总/笔记类 md）。
 
-【重要】若希望新会话自动启动特定技能/代理，请在调用 session_handoff 时传入 capability 参数（值为技能/代理名，不带 / 前缀）。`
+【重要】若希望新会话自动启动特定技能，可在调用 session_handoff 时传入 capability 参数（值为技能名，不带 / 前缀；填代理名或未匹配到技能时按普通会话继续）。`
 
 export type HandoffGateAction = 'none' | 'inject' | 'stop'
 

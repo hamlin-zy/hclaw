@@ -44,7 +44,7 @@ const inputSchema = z.object({
         ),
     capability: z.string()
         .optional()
-        .describe('可选：新会话要触发的技能/代理名（如 brainstorming），不带 / 前缀；留空时不拼接命令前缀'),
+        .describe('可选：新会话要触发的技能名（如 brainstorming），不带 / 前缀；填代理名或未匹配到技能时视为不指定，按普通会话继续'),
     attachments: z.array(z.object({
         path: z.string().min(1).describe('附件文件的绝对路径'),
         name: z.string().describe('附件文件名（含扩展名）'),
@@ -117,25 +117,30 @@ export const sessionHandoffTool: Tool<SessionHandoffInput, string> = {
         }
 
         // ④ 写入首条 user 消息（交接总结）
-        //    capability 非空时拼接 "/能力名\n" 前缀 → 新会话首条消息触发对应技能/代理命令（detectCommandContext 会解析）
+        //    capability 只解析技能：命中才拼 "/技能规范名\n" 前缀触发新会话技能命令
+        //    （detectCommandContext 可解析）；未命中（含填了代理名）静默不注入，不使交接失败。
         const userMsgId = `msg-${now}-${Math.random().toString(36).slice(2, 8)}`
         const capability = args.capability?.trim()?.replace(/^\/+/, '')
-        const firstMessageContent = capability
-            ? `/${capability}\n${args.handoffSummary}`
-            : args.handoffSummary
 
-        // 命中 skill/agent 时透传 commandId，供 UI 渲染 /能力 徽章（与 loop/setup.ts 同源解析）
+        // 仅技能解析：命中透传 commandId（供 UI 渲染 /技能 徽章，与 loop/setup.ts 同源）。
         // 动态 import：entityCommandResolver 会连带加载 skills loader（config/repositories 等
         // electron 绑定模块），顶层静态加载会破坏本工具的 schema 单测环境。
-        let commandId: string | undefined
+        let skillMatch: Awaited<ReturnType<typeof import('../../entityCommandResolver').resolveSkillCommand>> = null
         if (capability) {
             try {
-                const {resolveEntityCommand} = await import('../../entityCommandResolver')
-                commandId = resolveEntityCommand(capability)?.commandId
+                const {resolveSkillCommand} = await import('../../entityCommandResolver')
+                skillMatch = resolveSkillCommand(capability)
             } catch (err) {
-                logger.debug('[SessionHandoffTool] resolveEntityCommand failed', {error: String(err)})
+                logger.debug('[SessionHandoffTool] resolveSkillCommand failed', {error: String(err)})
             }
         }
+        if (capability && !skillMatch) {
+            logger.debug('[SessionHandoffTool] capability 未匹配到技能，按普通会话交接', {capability})
+        }
+        const firstMessageContent = skillMatch
+            ? `/${skillMatch.name}\n${args.handoffSummary}`
+            : args.handoffSummary
+        const commandId: string | undefined = skillMatch?.commandId
         // 附件 → 双用途构建（共享函数，与 execution.ts 跨 turn 历史重建同源，
         // 保证首轮直传与第二轮重建输出逐字节一致 → KV cache 前缀不断裂）：
         // 1) 落库：content 保持纯文本；metadata.attachments 结构化存储 → MessageList 附件卡片渲染
@@ -182,6 +187,7 @@ export const sessionHandoffTool: Tool<SessionHandoffInput, string> = {
         return {
             success: true,
             output: `新会话『${args.title}』已创建，交接总结已注入，Agent 已自动启动继续工作。`
+                + (capability && !skillMatch ? `\n（capability '${capability}' 未匹配到技能，已按普通会话创建。）` : '')
                 + (startRequested ? '' : '\n（自动启动未成功，可切换到新会话手动发送消息继续）'),
         }
     },

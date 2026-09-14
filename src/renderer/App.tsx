@@ -720,6 +720,7 @@ export default function App() {
             />
             <div
               className="absolute inset-0 z-0 pointer-events-none"
+              data-name="background-overlay"
               style={{backgroundColor: `rgba(0, 0, 0, ${(background.overlay ?? 40) / 100})`}}
             />
           </>
