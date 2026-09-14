@@ -56,6 +56,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     isWin11,
     isDarwin,
     isDevMode,
+    // 冷启动观测：向主进程投递打点（fire-and-forget，不等待返回）
+    startup: {
+        mark: (label: string, data?: Record<string, unknown>) => ipcRenderer.send('startup:mark', label, data),
+    },
   // Window control
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
     getPlatform: () => ipcRenderer.invoke('get-platform'),

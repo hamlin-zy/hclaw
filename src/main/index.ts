@@ -52,8 +52,15 @@ import {mcpVersionManager} from './agent/mcp/versionManager';
 import {getConversationPersistence} from './persistence/conversationPersistence';
 import {registerRepoIPC, initializeRepoSystem} from './repo/ipc';
 import {repoVersionManager} from './repo/versionManager';
+import {trace, flushStartupTraceSync} from './startupTrace';
+
+// ── 冷启动观测：所有 import 求值完成后的第一处打点（模块评估阶段结束）──
+trace('main:module-eval-start', {uptime: process.uptime()})
 
 const logger = createLogger('app')
+
+// ── 冷启动观测：渲染进程打点 IPC（fire-and-forget，仅记录日志，不影响任何行为）──
+ipcMain.on('startup:mark', (_e, label: string, data?: Record<string, unknown>) => trace(label, data))
 
 // ── 全局未捕获异常/拒绝处理器 ──
 process.on('uncaughtException', (err) => {
@@ -211,6 +218,7 @@ channelManager.init();
 initProjectManagerIPC();
 
 app.on('ready', async () => {
+  trace('main:app-ready')
   // DB is initialized at module import time via ./repositories/init
 
   // 注入初始化进度的广播传输（必须在任何 initProgress.stage() 之前）
@@ -349,6 +357,7 @@ app.on('ready', async () => {
   // 稍后由 powerManager.initialize() → loadMcpServersFromPlugin() 回写
   await mcpService.initialize();
   logger.info('init-checkpoint', {step: 'mcpService-done'})
+  trace('main:mcpService-initialized')
 
     // 初始化提示词方案（首次运行时创建默认方案）
     promptSchemeRepo.initializeDefaults();
@@ -358,7 +367,9 @@ app.on('ready', async () => {
   //   task-batches:get-active，注册晚了会报 "No handler registered"
   initTaskBatchIPC();
 
+  trace('main:before-createWindow')
   createWindow();
+  trace('main:after-createWindow')
 
     // 设置自定义应用菜单，移除与渲染进程快捷键冲突的默认加速器（如 Ctrl+N）
     createAppMenu();
@@ -366,7 +377,9 @@ app.on('ready', async () => {
   // MCP 事件转发广播给所有渲染窗口（须在窗口创建后注册）
   registerMCPEventForwarding();
 
+  trace('main:before-createTray')
   createTray();
+  trace('main:after-createTray')
   registerGlobalShortcutsAtStartup();
 
   // ── Async block: Agent/Skills/MCP 顺序初始化 ──
@@ -510,6 +523,7 @@ app.on('before-quit', async () => {
 });
 
 app.on('will-quit', async () => {
+  flushStartupTraceSync();
   globalShortcut.unregisterAll();
   agentManager.abortAll();
   await mcpWorkerManager.shutdown();

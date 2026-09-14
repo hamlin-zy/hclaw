@@ -12,6 +12,7 @@ import type {UpdateResult} from '../shared/types/updater';
 import {readThemeSetting} from './utils/theme';
 import {isDevMode} from './utils/devMode';
 import {createAppWindow} from './utils/windowFactory';
+import {trace} from './startupTrace';
 
 const logger = createLogger('window');
 
@@ -202,6 +203,7 @@ export function updateTitleBarOverlay(theme: ThemeMode): void {
 
 /** 创建主窗口 */
 export const createWindow = (): void => {
+    trace('window:createWindow-enter');
     const icon = getAppIcon();
 
     // ── 读取主题配置，渲染窗口前就确定正确主题，避免闪现 ──
@@ -305,12 +307,19 @@ export const createWindow = (): void => {
         return {action: 'deny'};
     });
 
+    // ── 冷启动观测：webContents 生命周期打点（仅记录，不改行为）──
+    mainWindow.webContents.on('did-start-loading', () => trace('window:did-start-loading'));
+    mainWindow.webContents.on('dom-ready', () => trace('window:dom-ready'));
+    mainWindow.webContents.on('did-finish-load', () => trace('window:did-finish-load'));
+
     // 优化：窗口准备好后再显示，避免白屏闪烁
     mainWindow.once('ready-to-show', () => {
+        trace('window:ready-to-show');
         if (savedState?.shouldMaximize) {
             mainWindow?.maximize();
         }
         mainWindow?.show();
+        trace('window:shown');
     });
 
     // ---- 加载内容 ----

@@ -1,4 +1,4 @@
-import {Component, type ReactNode, useEffect} from 'react'
+import {Component, type ReactNode, useEffect, useRef} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {WarningIcon} from './components/icons'
 import TitleBar from './components/TitleBar'
@@ -283,6 +283,26 @@ export default function App() {
 
   // 注册系统内快捷键（非全局快捷键）
   useGlobalHotkeys()
+
+  // ── 冷启动观测：llm + modelScheme store 首次同时 rehydrate 完成时打点（仅一次）──
+  // persist 的 onRehydrateStorage 直接 mutate state，不触发 subscribe，故用轻量轮询。
+  const storesRehydratedMarkedRef = useRef(false)
+  useEffect(() => {
+    if (storesRehydratedMarkedRef.current) return
+    const check = (): void => {
+      if (
+        useLLMStore.getState().hasRehydrated &&
+        useModelSchemeStore.getState().hasRehydrated
+      ) {
+        storesRehydratedMarkedRef.current = true
+        clearInterval(timer)
+        window.electronAPI?.startup?.mark?.('renderer:stores-rehydrated')
+      }
+    }
+    const timer = setInterval(check, 50)
+    check()
+    return () => clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     // 单一权威：theme.ts 的 applyThemeClass 负责「切 html class + 清除 index.html 内联变量」。

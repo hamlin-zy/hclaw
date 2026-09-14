@@ -11,6 +11,10 @@ declare global {
         isDarwin: boolean
         // 开发模式标识（主进程判定，经 additionalArguments 透传；控制调试类 UI 如"复制会话 ID"）
         isDevMode: boolean
+        // 冷启动观测：向主进程投递打点（fire-and-forget）
+        startup?: {
+            mark: (label: string, data?: Record<string, unknown>) => void
+        }
 
       // Window control
       getAppVersion: () => Promise<string>
