@@ -195,18 +195,28 @@ async function streamEditLargeFile(
       const lineEnding = detectCRLF(sampleBuffer.toString('utf-8', 0, bytesRead)) ? '\r\n' : '\n'
 
     let replaced = 0
+    // 全文匹配计数：与小文件路径（matchCount > 1 && !replaceAll → 拒绝）保持等价语义。
+    // 计数与写入同趟完成；因为最终靠 rename 原子替换，命中歧义时丢弃 temp 即可，
+    // 原文件不受影响 —— 无需为统计多读一遍文件。
+    let matchCount = 0
 
     for await (const line of rl) {
       if (replaceAll) {
-          const newLine = line.split(normalizedOldString).join(normalizedNewString)
+          const parts = line.split(normalizedOldString)
+        matchCount += parts.length - 1
+        const newLine = parts.join(normalizedNewString)
         if (newLine !== line) replaced++
           output.write(newLine + lineEnding)
-      } else if (replaced === 0 && line.includes(normalizedOldString)) {
-        // 只替换第一个匹配
-          output.write(line.replace(normalizedOldString, normalizedNewString) + lineEnding)
-        replaced++
       } else {
-          output.write(line + lineEnding)
+        const lineMatches = line.split(normalizedOldString).length - 1
+        matchCount += lineMatches
+        if (replaced === 0 && lineMatches > 0) {
+          // 只替换第一个匹配（唯一性由下方 matchCount 校验保证）
+            output.write(line.replace(normalizedOldString, normalizedNewString) + lineEnding)
+          replaced++
+        } else {
+            output.write(line + lineEnding)
+        }
       }
     }
 
@@ -219,10 +229,24 @@ async function streamEditLargeFile(
       output.on('error', reject)
     })
 
+    // ── 等价校验：与小文件路径一致 ──
+    // 未命中 / 多命中且未指定 replaceAll → 放弃写入（temp 未 rename，原文件不变）
+    if (matchCount === 0) {
+      try { await fs.unlink(tempPath) } catch { /* ignore */ }
+      return { replaced: 0, error: 'No matching text found' }
+    }
+    if (matchCount > 1 && !replaceAll) {
+      try { await fs.unlink(tempPath) } catch { /* ignore */ }
+      return {
+        replaced: 0,
+        error: `Found ${matchCount} matches, use more specific text or set replaceAll: true`,
+      }
+    }
+
     // 原子替换
     await fs.rename(tempPath, filePath)
 
-    return { replaced }
+    return { replaced: replaceAll ? matchCount : 1 }
   } catch (err: any) {
     // 清理临时文件
     try {
@@ -260,6 +284,16 @@ export const fileEditTool: Tool<FileEditInput, string> = {
     const { filePath, oldString, newString, replaceAll = false } = args
     const { absPath, error: pathError } = resolveAndValidatePath(context.workingDir, filePath)
     if (pathError) return { success: false, output: '', error: pathError }
+
+    // 空 oldString 守卫：空串会命中位置 0（小文件）或逐字符插入（大文件流式路径），
+    // 造成静默的破坏性改写而非报错。此处直接拒绝，避免"看似成功的意外修改"。
+    if (oldString.length === 0) {
+      return {
+        success: false,
+        output: '',
+        error: 'oldString 不能为空。请提供要替换的原文片段（需在文件中唯一匹配）。',
+      }
+    }
 
     try {
       // 检查文件大小

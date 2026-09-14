@@ -23,6 +23,7 @@ import type {
     ToolDefinition,
 } from './types'
 import {isSyntheticToolResult} from '../state'
+import {resolveToolName} from '../tools/toolNameResolver'
 import {logger} from '../logger'
 import {recordingFetch} from '../../utils/llmTraceRecorder'
 
@@ -837,6 +838,7 @@ function extractDotsToolCalls(
     strict = false,
 ): Array<{ id: string; name: string; arguments: string }> {
     const results: Array<{ id: string; name: string; arguments: string }> = []
+    const availableList = [...availableToolNames]
 
     // 匹配完整的 invoke 开闭合块
     const invokeRegex = /<invoke\s+name\s*=\s*["\x27]?([^">\s]+)["\x27]?\s*>([\s\S]*?)<\/invoke>/g
@@ -859,9 +861,13 @@ function extractDotsToolCalls(
         const rawName = match[1].trim()
         const body = match[2]
 
-        // 条件1：工具名必须在已注册集合中（支持别名映射，如 Select-String → grep）
+        // 条件1：工具名必须在已注册集合中。
+        // 名称解析统一走 resolveToolName（别名表 + 归一化同名 + 歧义失败关闭），
+        // DOTS_TOOL_ALIASES 仅保留其独有的**参数转换**语义（如 Select-String 的 path 拆解）。
+        // 注意：resolveToolName 的歧义判定依赖 availableToolNames，此处传入完整注册集合，
+        // 但**不做**跨工具归一化 —— 若解析结果不在本集合内则丢弃该调用。
         const alias = DOTS_TOOL_ALIASES[rawName]
-        const resolvedName = alias?.name ?? rawName
+        const resolvedName = alias?.name ?? resolveToolName(rawName, availableList) ?? rawName
         if (!availableToolNames.has(resolvedName)) continue
 
         // 提取参数: <parameter name=K>V
