@@ -44,9 +44,10 @@ interface FileTreeStore {
   /** 批量写入（全展用）：单次提交，避免逐目录提交触发上百次全树重渲 */
   setChildrenBulk(entries: Record<string, DirEntry[]>, ownerWs?: string): void
   getChildren(path: string): DirEntry[] | undefined
-  invalidateFrom(path: string): void
-  /** 外部变更失效计数；FileTree 订阅它触发「补齐被清掉的目录」重载（见 invalidateFrom） */
-  invalidateTick: number
+  /** 丢弃 path 及其整棵子树的目录缓存。**仅在 unlinkDir（目录已被删除）时由调用方使用**：
+   *  目录已不存在，其子树缓存必须一并丢弃，否则会渲染出不存在的目录。
+   *  其余变更（add/unlink/addDir/change）一律不删缓存，改为父目录原地重取（setChildren）。 */
+  dropSubtree(path: string): void
   select(path: string | null): void
   /** 定位请求目标（POSIX 相对路径）。触发方只写它，FileTree 订阅后执行展开 + 选中 + 滚动（spec §3.1） */
   revealTarget: string | null
@@ -63,7 +64,6 @@ export const useFileTreeStore = create<FileTreeStore>()((set, get) => ({
   selectedPaths: new Set(),
   anchorPath: null,
   revealTarget: null,
-  invalidateTick: 0,
   setWorkspace(ws) {
     if (get().ws === ws) return
     // 跨 workspace：整体失效目录缓存，同时清掉残留的定位请求与选中态
@@ -108,8 +108,11 @@ export const useFileTreeStore = create<FileTreeStore>()((set, get) => ({
     }
     return hit
   },
-  invalidateFrom(path) {
-    // 前缀匹配失效（pm:file-changed 到达时调用）
+  dropSubtree(path) {
+    // 根键保护：'.' 是整棵树的渲染前提（rootLoaded = childrenCache['.'] !== undefined），
+    // 删掉它既无渲染入口也无重取触发器 → 永久骨架屏。语义上根目录也不会被「删除」。
+    if (path === ROOT_KEY) return
+    // 前缀匹配删除：path 自身 + path 的所有后代目录
     set(s => {
       const cache: Record<string, DirEntry[]> = {}
       const order = s.cacheOrder.filter(p => {
@@ -117,7 +120,7 @@ export const useFileTreeStore = create<FileTreeStore>()((set, get) => ({
         cache[p] = s.childrenCache[p]!
         return true
       })
-      return {childrenCache: cache, cacheOrder: order, invalidateTick: s.invalidateTick + 1}
+      return {childrenCache: cache, cacheOrder: order}
     })
   },
   select(path) {

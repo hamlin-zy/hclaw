@@ -31,9 +31,6 @@ const EXPAND_ALL_MAX_DIRS = 400
 /** 全部展开的受控并发度（避免一次打爆 IPC 与文件系统，spec §6.3） */
 const EXPAND_ALL_CONCURRENCY = 4
 
-/** 外部变更后补齐缓存的去抖时长（与 ProjectManagerApp 的外部变更防抖节奏、watcher 的 awaitWriteFinish 一致） */
-const FILE_RELOAD_DEBOUNCE_MS = 500
-
 /** 归一为 POSIX 相对路径（与 statusMap / data-path 同值域，spec §3.1） */
 const normalizeEntryPath = (p: string): string =>
   p.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '')
@@ -98,7 +95,6 @@ export function FileTree() {
   const ws = useWorkspaceStore(s => s.workspacePath)
   const expanded = useFileTreeStore(s => s.expanded)
   const childrenCache = useFileTreeStore(s => s.childrenCache)
-  const invalidateTick = useFileTreeStore(s => s.invalidateTick)
   const setChildren = useFileTreeStore(s => s.setChildren)
   const getChildren = useFileTreeStore(s => s.getChildren)
   const setWorkspace = useFileTreeStore(s => s.setWorkspace)
@@ -200,22 +196,8 @@ export function FileTree() {
     if (getChildren('.') === undefined) loadRoot()
   }, [ws])
 
-  // 外部变更（pm:file-changed）经 invalidateFrom 只清缓存、不重取；这里补齐被清掉的
-  // 「根 + 已展开目录」，否则根目录被失效后整棵树渲染成空
-  //（expanded ⊆ childrenCache 不变量，见 spec §3.1）。
-  // 去抖：watcher 的 pm:file-changed 未去抖，批量变更（git checkout / npm i）会连续到达。
-  useEffect(() => {
-    if (invalidateTick === 0) return
-    const ownerWs = ws
-    const timer = setTimeout(() => {
-      const s = useFileTreeStore.getState()
-      if (!ownerWs || s.ws !== ownerWs) return   // 期间切了 workspace：交给 [ws] effect 重载
-      for (const dir of ['.', ...s.expanded]) {
-        if (s.childrenCache[dir] === undefined) loadDir(dir)
-      }
-    }, FILE_RELOAD_DEBOUNCE_MS)
-    return () => clearTimeout(timer)
-  }, [invalidateTick])
+  // 外部变更（pm:file-changed）的目录刷新由 ProjectManagerApp 以「父目录原地重取」完成（去抖 300ms），
+  // 不再经 store 失效：缓存不会出现缺失窗口，因此文件树无需在此补齐，骨架屏也不会被触发。
 
   // 阶段 1：顺序加载祖先目录 → 展开 → 选中（spec §3.1 的动作序列，顺序不可交换）
   useEffect(() => {
@@ -325,7 +307,7 @@ export function FileTree() {
     else copyPath(e) // 降级：无 shell 能力时仅复制路径
   }
   /** 删除文件/目录（不可逆，走系统回收站）；目录与文件共用同一条 deletePath。
-      刷新由 watcher 的 unlink/unlinkDir → invalidateFrom 自动完成，这里不手动处理。 */
+      刷新由 watcher 的 unlink/unlinkDir → 父目录原地重取自动完成，这里不手动处理。 */
   const deleteEntry = async (e: DirEntry) => {
     const ok = await confirm({
       title: '删除',

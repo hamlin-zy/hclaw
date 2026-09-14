@@ -24,6 +24,9 @@ import {SendToConversationProvider} from './ui/SendToConversationProvider'
 // workspace 基名（跨平台：兼容 \ 与 /）
 const basename = (ws: string) => ws.split(/[\\/]/).filter(Boolean).pop() || ws
 
+/** 目录结构变更 → 父目录原地重取的去抖时长（watcher 推送未去抖，持续写入期间只重取一次） */
+const FILE_TREE_REFRESH_DEBOUNCE_MS = 300
+
 // 模块级常量：specs 引用必须稳定，usePaneSize 内部用 ref 读取
 // 下区的 branches / detail 两个键由 Task 14 的 GitLogPanel 自持实例管理，此实例不碰
 const PANE_SPECS: PaneSizeSpecs = {
@@ -102,9 +105,39 @@ export function ProjectManagerApp() {
     })
     // 外部变更 → file tab 静默重载，按 tab 维度 500ms 防抖（spec §3.4 / §4.2.2）
     const reloadTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    // 文件树刷新：按「受影响的父目录」维度 300ms 防抖，原地重取（绝不删缓存 → 不出现骨架屏）
+    const treeRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    const scheduleDirRefresh = (dir: string) => {
+      const pending = treeRefreshTimers.get(dir)
+      if (pending) clearTimeout(pending)
+      treeRefreshTimers.set(dir, setTimeout(() => {
+        treeRefreshTimers.delete(dir)
+        const st = useFileTreeStore.getState()
+        // 期间切了仓库则放弃
+        if (st.ws !== ws) return
+        // 需要补载/刷新的目录 = 已缓存目录 ∪ expanded ∪ 根 '.'。
+        // - 已缓存：原来的「已加载目录原地重取」。
+        // - expanded：兜住「被 LRU 驱逐（CACHE_LIMIT）却仍处于展开态」的目录——渲染只读
+        //   childrenCache 且不会刷新 LRU 顺序，这类目录一旦被淘汰就会永久空渲染、任何 watcher
+        //   事件都不再自愈。此处命中 expanded 即重新补载（等价旧 tick-effect 的补齐语义，勿删）。
+        // - 根 '.'：整棵树的渲染前提，缺失时也补（同旧语义）。
+        // 三者皆非（未加载且未展开的目录）才跳过：交给展开时的懒加载。
+        const known = st.childrenCache[dir] !== undefined || st.expanded.has(dir) || dir === '.'
+        if (!known) return
+        void pm.listDirectory(ws, dir).then(entries => {
+          if (cancelled || useWorkspaceStore.getState().workspacePath !== ws) return
+          useFileTreeStore.getState().setChildren(dir, entries, ws)   // 原地替换，不删缓存
+        }).catch(() => {})
+      }, FILE_TREE_REFRESH_DEBOUNCE_MS))
+    }
     const offFile = pm.onFileChanged((pushedWs, payload) => {
       if (pushedWs !== ws) return
-      useFileTreeStore.getState().invalidateFrom(payload.path.split('/').slice(0, -1).join('/') || '.')
+      const parentDir = payload.path.split('/').slice(0, -1).join('/') || '.'
+      if (payload.type !== 'change') {
+        // 目录结构变化才需要重取父目录；'change' 只改文件内容，不影响目录条目，完全不触碰文件树
+        if (payload.type === 'unlinkDir') useFileTreeStore.getState().dropSubtree(payload.path)
+        scheduleDirRefresh(parentDir)
+      }
       // 删除（文件 / 目录）→ 关闭对应的残留标签页（外部删文件也能自动清理）
       if (payload.type === 'unlink' || payload.type === 'unlinkDir') {
         useEditorTabStore.getState().closeTabsForPaths(payload.path)
@@ -131,6 +164,7 @@ export function ProjectManagerApp() {
       cancelled = true
       offStatus(); offRefs(); offFile()
       for (const timer of reloadTimers.values()) clearTimeout(timer)
+      for (const timer of treeRefreshTimers.values()) clearTimeout(timer)
     }
   }, [ws])
 

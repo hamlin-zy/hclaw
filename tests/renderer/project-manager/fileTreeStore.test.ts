@@ -29,12 +29,12 @@ describe('fileTreeStore', () => {
     expect(s.childrenCache['new']).toEqual([])
     expect(CACHE_LIMIT).toBe(500)
   })
-  it('invalidateFrom 前缀失效不误杀兄弟前缀', () => {
+  it('dropSubtree 前缀子树被删，兄弟前缀 a vs ab 不误杀', () => {
     useFileTreeStore.getState().setChildren('a', [entry('a/x.ts')])
     useFileTreeStore.getState().setChildren('ab', [entry('ab/y.ts')])
     useFileTreeStore.getState().setChildren('ab/sub', [entry('ab/sub/z.ts')])
     useFileTreeStore.getState().setChildren('b', [entry('b/w.ts')])
-    useFileTreeStore.getState().invalidateFrom('a')
+    useFileTreeStore.getState().dropSubtree('a')
     const s = useFileTreeStore.getState()
     expect(s.childrenCache['a']).toBeUndefined()
     expect(s.childrenCache['ab']).toBeDefined()
@@ -42,18 +42,33 @@ describe('fileTreeStore', () => {
     expect(s.childrenCache['b']).toBeDefined()
     expect(s.cacheOrder).toEqual(['ab', 'ab/sub', 'b'])
   })
-  it('invalidateFrom 后 invalidateTick 自增 1，删除语义不变（保留无关目录）', () => {
-    const before = useFileTreeStore.getState().invalidateTick
+  it('dropSubtree 保留无关目录，可重复调用（不再有 tick 语义）', () => {
     useFileTreeStore.getState().setChildren('a', [entry('a/x.ts')])
     useFileTreeStore.getState().setChildren('keep', [entry('keep/y.ts')])
-    useFileTreeStore.getState().invalidateFrom('a')
+    useFileTreeStore.getState().dropSubtree('a')
     const s = useFileTreeStore.getState()
-    expect(s.invalidateTick).toBe(before + 1)
     expect(s.childrenCache['a']).toBeUndefined()
     expect(s.childrenCache['keep']).toBeDefined()
-    // 每次失效都继续自增（FileTree 依赖 tick 变化触发重载 effect）
-    useFileTreeStore.getState().invalidateFrom('a')
-    expect(useFileTreeStore.getState().invalidateTick).toBe(before + 2)
+    useFileTreeStore.getState().dropSubtree('a')
+    expect(useFileTreeStore.getState().childrenCache['keep']).toBeDefined()
+  })
+  it('dropSubtree(".") 短路：根键是整棵树的渲染前提，绝不能被删', () => {
+    useFileTreeStore.getState().setChildren('.', [entry('src')])
+    useFileTreeStore.getState().setChildren('src', [entry('src/x.ts')])
+    useFileTreeStore.getState().dropSubtree('.')
+    const s = useFileTreeStore.getState()
+    expect(s.childrenCache['.']).toBeDefined()
+    expect(s.childrenCache['src']).toBeDefined()
+  })
+  it('setChildren 原地替换只换目标目录：其它目录缓存对象引用不变', () => {
+    useFileTreeStore.getState().setChildren('a', [entry('a/x.ts')])
+    useFileTreeStore.getState().setChildren('b', [entry('b/y.ts')])
+    const beforeA = useFileTreeStore.getState().childrenCache['a']
+    const beforeB = useFileTreeStore.getState().childrenCache['b']
+    useFileTreeStore.getState().setChildren('a', [entry('a/z.ts')])
+    const s = useFileTreeStore.getState()
+    expect(s.childrenCache['a']).not.toBe(beforeA)   // 目标目录换成新数组
+    expect(s.childrenCache['b']).toBe(beforeB)       // 兄弟目录引用不动
   })
   it('getChildren 命中时刷新 LRU 访问序', () => {
     useFileTreeStore.getState().setChildren('x', [entry('x/f.ts', false)])
