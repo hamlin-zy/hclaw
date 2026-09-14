@@ -9,7 +9,7 @@
  */
 
 import type {ComponentType} from 'react'
-import {ClockIcon, ErrorIcon, LoadingIcon, PauseIcon, SuccessIcon} from '../../icons'
+import {ClockIcon, ErrorIcon, LoadingIcon, PauseIcon, SuccessIcon, WarningIcon} from '../../icons'
 
 /** 单个状态样式配置 */
 interface StatusStyle {
@@ -66,6 +66,14 @@ const STATUS_STYLES: StatusConfig = {
         label: '已取消',
         glowClass: '',
         badgeClass: 'bg-[var(--chip-bg)] border border-[var(--chip-border)] text-[var(--text-muted)]',
+    },
+    truncated: {
+        color: 'text-[var(--warning)]',
+        bg: 'bg-[var(--warning-muted)] border border-[color-mix(in_srgb,var(--warning)_45%,transparent)]',
+        icon: WarningIcon,
+        label: '已达上限',
+        glowClass: '',
+        badgeClass: 'bg-[var(--warning-muted)] text-[var(--warning)]',
     },
 }
 

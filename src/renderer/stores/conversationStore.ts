@@ -164,7 +164,13 @@ function scheduleActiveTruncate(convId: string) {
         activeTruncateTimer = null
         const store = useConversationStore.getState()
         const msgs = store.messagesMap[convId]
-        if (!msgs) return
+        // ★ 目标会话已不存在（删除/缓存释放/非活跃清理）：终止自续期链。
+        //   此前在 `!msgs` 时直接 return 但续期语句在其后无条件执行，会话删除后
+        //   这条 30s 链会永久空转并不断续期。
+        if (!msgs) {
+            activeTruncateConvId = null
+            return
+        }
         let modified = false
         const newMsgs = msgs.map(m => {
             const truncated = truncateLargeResults(m)
@@ -188,6 +194,13 @@ function clearActiveTruncate() {
         activeTruncateTimer = null
         activeTruncateConvId = null
     }
+}
+
+/** 会话释放路径专用：若当前截断链的目标 convId 正是被释放的会话，
+ *  则立即清定时器并置空句柄（否则只能等下一次空转才发现会话已不存在）。 */
+function cancelActiveTruncateFor(ids: string[]): void {
+    if (!activeTruncateConvId || !ids.includes(activeTruncateConvId)) return
+    clearActiveTruncate()
 }
 
 // ─── 单会话内存权重上限（兜底）──────────────────────────
@@ -413,7 +426,8 @@ export function subscribeGitBranchChanges(): () => void {
 
 /**
  * 释放指定会话的全部缓存：messagesMap / hasMoreMap / loadingMoreMap 三个会话级
- * Map 条目 + agentStore.convAgentStates[convId]。
+ * Map 条目 + conversationLastActiveAt / handoffDismissed 两个会话级 Record 条目
+ * + agentStore.convAgentStates[convId]。
  * 供 deleteConversation(s) / cleanupInactiveConversations / onConversationDeleted
  * 统一复用；调用方自行处理 activeConversationId 等状态切换。
  */
@@ -423,19 +437,31 @@ function releaseConvCaches(ids: string[]): void {
     const newMsgMap = {...state.messagesMap}
     const newHasMoreMap = {...state.hasMoreMap}
     const newLoadingMoreMap = {...state.loadingMoreMap}
+    // ★ 两个会话级 Record 必须按 convId 同步删除：conversationLastActiveAt 原先只被
+    //   cleanupInactiveConversations 的 keepIds 过滤（且该 set 仅在 removedIds.length>0
+    //   时执行），handoffDismissed 则完全无人清理 → 删除的会话在这两张表里永久残留。
+    const newLastActiveAt = {...state.conversationLastActiveAt}
+    const newHandoffDismissed = {...state.handoffDismissed}
     for (const id of ids) {
         delete newMsgMap[id]
         delete newHasMoreMap[id]
         delete newLoadingMoreMap[id]
+        delete newLastActiveAt[id]
+        delete newHandoffDismissed[id]
     }
     useConversationStore.setState({
         messagesMap: newMsgMap,
         hasMoreMap: newHasMoreMap,
         loadingMoreMap: newLoadingMoreMap,
+        conversationLastActiveAt: newLastActiveAt,
+        handoffDismissed: newHandoffDismissed,
     })
     for (const id of ids) {
         useAgentStore.getState().removeConvData(id)
     }
+    // ★ 若 30s 截断链正指向被释放的会话（活跃会话被删除时会先切走，但仍需兜底），
+    //   立即终止，避免残留定时器持续空转
+    cancelActiveTruncateFor(ids)
 }
 
 export const useConversationStore = createWithEqualityFn<ConversationStore>()(
@@ -700,10 +726,10 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               }
           })
           if (wasActive) await switchActiveConversation(getFirstRootConversationId())
-          // 删除会话时同步清理 agent 运行时状态（含全部后代子会话）
-          for (const delId of toDelete) {
-              useAgentStore.getState().removeConvData(delId)
-          }
+          // 删除会话时统一释放消息缓存（messagesMap/hasMoreMap/loadingMoreMap）、
+          // 两个会话级 Record（conversationLastActiveAt / handoffDismissed）与 agent
+          // 运行时状态（含全部后代子会话），避免按 convId 的残留
+          releaseConvCaches(toDelete)
       },
 
       deleteConversations: async (ids) => {
@@ -729,9 +755,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               return {messagesMap: newMap, workspaces: newWorkspaces}
           })
           if (wasActiveIncluded) await switchActiveConversation(getFirstRootConversationId())
-          for (const delId of toDelete) {
-              useAgentStore.getState().removeConvData(delId)
-          }
+          // 同上：批量删除也需清两个会话级 Record 与 agent 运行时状态
+          releaseConvCaches(toDelete)
       },
 
       setActiveConversation: async (id) => {
@@ -1129,6 +1154,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           for (const id of removedIds) {
               useAgentStore.getState().removeConvData(id)
           }
+          // 被清理会话若是截断链目标（理论上活跃会话不会被清理，此处仅作对称兜底）
+          cancelActiveTruncateFor(removedIds)
       },
   })
 )

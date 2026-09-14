@@ -31,11 +31,19 @@ export function setAgentManagerRef(ref: typeof agentManagerRef): void {
 export class MCPWorkerManager {
     private worker: Worker | null = null
     private restarting = false
+    /**
+     * 退出中标志：shutdown() 首行置位。
+     * exit/error 处理器先判此标志直接 return，避免 terminate() 导致的非 0 退出
+     * 触发 scheduleRestart()，在应用退出过程中复活 Worker 及其 MCP 子进程。
+     */
+    private shuttingDown = false
     /** 当前 MCP 配置缓存（用于重启时重新传递） */
     private currentConfigs: MCPServerConfig[] = []
     /** 等待 MCP Worker 就绪的 Promise */
     private readyPromise: Promise<void> = Promise.resolve()
     private readyResolve: (() => void) | null = null
+    /** 已排期的崩溃重启定时器句柄（提为字段以便 shutdown 时取消） */
+    private restartTimer: ReturnType<typeof setTimeout> | null = null
 
     /**
      * 等待 restartServer 结果的 Promise 映射: serverId → { resolve, timer }
@@ -48,6 +56,13 @@ export class MCPWorkerManager {
 
     /** 定时清理间隔（毫秒） */
     private cleanupTimer: ReturnType<typeof setInterval> | null = null
+
+    /**
+     * process 'exit' 处理器是否已注册。
+     * init() 可被重复调用（热重载 / 重复初始化路径），而 process.on 不做去重 →
+     * 监听器随调用次数累积、退出一遍重复 killAllTrackedPids。故只注册一次。
+     */
+    private exitHandlerRegistered = false
 
     /**
      * 追踪所有 MCP 子进程 PID（serverId → pid）
@@ -78,6 +93,8 @@ export class MCPWorkerManager {
      * 通过 process.on('exit') 注册确保任何退出路径都能被覆盖
      */
     private registerExitHandler(): void {
+        if (this.exitHandlerRegistered) return   // 幂等：避免重复 init 累积监听器
+        this.exitHandlerRegistered = true
         process.on('exit', () => this.killAllTrackedPids())
     }
 
@@ -131,6 +148,10 @@ export class MCPWorkerManager {
 
     /** 创建并启动 MCP Worker 线程 */
     private spawn(): void {
+        // 覆盖 this.readyPromise 前先 settle 旧的那一个：
+        // 否则上一轮从未 ready 就被替换的 promise 会永久悬挂，调用方闭包与实例无法释放
+        this.readyResolve?.()
+
         this.readyPromise = new Promise((resolve) => {
             this.readyResolve = resolve
         })
@@ -174,9 +195,20 @@ export class MCPWorkerManager {
         })
 
         this.worker.on('error', (_err: Error) => {
+            // Worker 启动期崩溃（error 可能先于 exit 到达）：settle readyPromise，
+            // 否则任何 await waitForReady() 会永久挂起
+            this.readyResolve?.()
+            // 退出过程中不再做任何处理
+            if (this.shuttingDown) return
         })
 
         this.worker.on('exit', (code) => {
+            // 任何退出路径都 settle readyPromise（worker_ready 之前崩溃时唤醒等待方）
+            this.readyResolve?.()
+
+            // shutdown() 中的 terminate() 会以非 0 码退出；此时绝不能再排期重启
+            if (this.shuttingDown) return
+
             if (code !== 0 && !this.restarting) {
                 // Worker 崩溃时，先清理其遗留的子进程，再重启
                 this.killAllTrackedPids()
@@ -209,7 +241,9 @@ export class MCPWorkerManager {
         // 通知所有 Agent Worker：MCP Worker 不可用
         this.broadcastToAgentWorkers({type: 'mcp_worker_unavailable'})
 
-        setTimeout(() => {
+        // 句柄存入实例字段，便于 shutdown() 取消（内联 setTimeout 无法取消）
+        this.restartTimer = setTimeout(() => {
+            this.restartTimer = null
             this.collectConfigs() // 重新收集最新配置
             this.spawn()
             this.restarting = false
@@ -220,16 +254,29 @@ export class MCPWorkerManager {
      * 为 Agent Worker 创建 MessagePort
      * 返回 agentPort，主进程通过 worker.postMessage({ type: 'mcp_port', port: agentPort }, [agentPort]) 发送给 Agent Worker
      */
-    createAgentPort(): { agentPort: import('worker_threads').MessagePort } {
+    createAgentPort(conversationId?: string): { agentPort: import('worker_threads').MessagePort } {
         const {port1, port2} = new MessageChannel()
 
-        // port1 → MCP Worker
+        // port1 → MCP Worker（带 conversationId，供主进程 cleanup 时显式注销）
         if (this.worker) {
-            this.worker.postMessage({type: 'register_agent', port: port1}, [port1])
+            this.worker.postMessage({type: 'register_agent', port: port1, conversationId}, [port1])
         }
 
         // port2 → Agent Worker（由调用者发送）
         return {agentPort: port2}
+    }
+
+    /**
+     * 通知 MCP Worker 注销某会话的 Agent 端口。
+     * 主进程用 worker.terminate() 硬杀 Agent Worker（abort 超时 / cleanup 回收），terminate
+     * 不执行 worker 内 exit 逻辑、也不保证向对端派发 'close' → MCP Worker 侧 agentPorts
+     * 会随运行次数无界增长。故由本方法在 cleanup 路径显式下发注销消息。
+     */
+    unregisterAgent(conversationId: string): void {
+        if (!this.worker) return
+        try {
+            this.worker.postMessage({type: 'unregister_agent', conversationId})
+        } catch { /* MCP Worker 可能已退出 */ }
     }
 
     /**
@@ -312,9 +359,19 @@ export class MCPWorkerManager {
 
     /** 关闭 MCP Worker + 停止定时清理 */
     async shutdown(): Promise<void> {
+        // 首行置位：之后的 exit/error（含下面 terminate 触发的非 0 退出）不再排期重启
+        this.shuttingDown = true
+
         if (this.cleanupTimer) {
             clearInterval(this.cleanupTimer)
             this.cleanupTimer = null
+        }
+
+        // 取消已排期的崩溃重启，否则 5s 后会在退出过程中重新 spawn Worker 与其 MCP 子进程
+        if (this.restartTimer) {
+            clearTimeout(this.restartTimer)
+            this.restartTimer = null
+            this.restarting = false
         }
 
         if (this.worker) {

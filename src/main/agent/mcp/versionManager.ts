@@ -25,7 +25,7 @@ import {
   isValidVersionSpec,
   parseVersionOutput,
 } from './versionUtils'
-import {exec, spawn} from 'child_process'
+import {exec, execFile, spawn} from 'child_process'
 import {promisify} from 'util'
 import path from 'path'
 import {mcpWorkerManager} from './mcpWorkerManager'
@@ -157,10 +157,34 @@ export class McpVersionManager {
       let timedOut = false
       // P0#1 fix: declare child BEFORE setTimeout to avoid TDZ reference
       let child: ReturnType<typeof spawn> | null = null
+      let timer: ReturnType<typeof setTimeout>
 
-      const timer = setTimeout(() => {
+      // 统一结算：保证任何路径只 resolve 一次，并清掉定时器
+      let settled = false
+      const finish = (value: string | null): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(value)
+      }
+
+      timer = setTimeout(() => {
         timedOut = true
-        child?.kill('SIGTERM')
+        const pid = child?.pid
+        if (process.platform === 'win32' && pid) {
+          // Windows 下 shell:true 使 child 实为 cmd.exe，kill 只杀 shell，
+          // 真正的 npx/node/npm 成孤儿并继承管道 → 'close' 可能永不触发。
+          // 故用 taskkill 终止整棵进程树；失败静默（进程可能已退出）。
+          execFile('taskkill', ['/F', '/T', '/PID', String(pid)], () => { /* 静默 */ })
+        } else {
+          try {
+            child?.kill('SIGTERM')
+          } catch {
+            // 进程可能已结束，忽略
+          }
+        }
+        // 到时必结算兜底：不等 'close'，避免 Promise 永久悬挂
+        finish(null)
       }, timeout)
 
       child = spawn(command, args, {
@@ -177,17 +201,15 @@ export class McpVersionManager {
       })
 
       child.on('error', () => {
-        clearTimeout(timer)
-        resolve(null)
+        finish(null)
       })
 
       child.on('close', (code: number) => {
-        clearTimeout(timer)
         if (timedOut || code !== 0) {
-          resolve(null)
+          finish(null)
           return
         }
-        resolve(stdout)
+        finish(stdout)
       })
     })
   }

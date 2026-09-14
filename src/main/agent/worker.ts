@@ -70,9 +70,13 @@ export {syncPermissionRulesToMain}
 /** Phase 2: 从主进程请求 MCP MessagePort（共享 MCP Worker 连接） */
 function requestMcpPort(): Promise<MessagePort | null> {
     return new Promise((resolve) => {
+        let timedOut = false
         // 5 秒超时降级
         const timer = setTimeout(() => {
-            parentPort?.off('message', handler)
+            // ★ 超时后不移除 handler：主进程可能在此之后才把 mcp_port 送达，若此时已无
+            //   handler，该 MessagePort 将无人 close（端口与其监听闭包泄漏）。
+            //   保留一次性 handler，等待迟到的 port 到达后先 close 再自摘。
+            timedOut = true
             resolve(null)
         }, 5000)
 
@@ -80,6 +84,11 @@ function requestMcpPort(): Promise<MessagePort | null> {
             if (msg.type === 'mcp_port' && msg.port) {
                 clearTimeout(timer)
                 parentPort?.off('message', handler)
+                if (timedOut) {
+                    // 迟到分支：原 promise 已 resolve 为 null，此处只关闭端口，不再 resolve
+                    msg.port.close()
+                    return
+                }
                 resolve(msg.port)
             }
         }

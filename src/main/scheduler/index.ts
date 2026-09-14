@@ -43,6 +43,14 @@ const execAsync = promisify(exec)
 
 class SchedulerManager {
   private worker: Worker | null = null
+  /**
+   * 已关闭标志：shutdown() 首行置位。
+   * exit/error 处理器先判此标志直接 return——否则 shutdown() 的 terminate() 产生的
+   * 非 0 exit 会再次触发 restart → shutdown → terminate，形成永久"终止-重建"循环。
+   */
+  private stopped = false
+  /** 已排期的崩溃重启定时器句柄（提为字段以便 shutdown 时取消 + error/exit 去重） */
+  private restartTimer: ReturnType<typeof setTimeout> | null = null
   private activeRuns = new Map<string, AbortController>()
   public scheduleRepo = scheduleRepo
   private convRepo: IConversationRepository
@@ -136,17 +144,31 @@ class SchedulerManager {
       }
     })
 
+      // ★ 崩溃恢复：仅排期一次重启。error 与 exit 可能先后触发（error 后紧跟 exit），
+      //   restartTimer 已存在时直接忽略，避免排两个定时器导致 Worker 双启。
       const restart = () => {
-          setTimeout(() => {
+          if (this.stopped || this.restartTimer) return
+          this.restartTimer = setTimeout(() => {
+              this.restartTimer = null
+              if (this.stopped) return
               this.shutdown();
+              // ★ 重启路径需要复位：shutdown() 置 stopped=true 是供退出场景使用，
+              //   此处紧随其后复位，保持既有崩溃恢复（5s 后重建）行为不变。
+              this.stopped = false
               this.spawnCronWorker()
           }, 5000)
       }
+      // ★ 句柄身份守卫：shutdown() 会 terminate 并置 this.worker=null，被终止 Worker 的
+      //   非 0 exit 在后续 tick 到达时 this.worker 已换新/为 null → 直接忽略，
+      //   杜绝「终止-重建」自激循环（与 mcpWorkerManager.shuttingDown 同类，此处用实例身份）。
+      const spawned = this.worker
       this.worker.on('error', (err: Error) => {
+          if (this.stopped || this.worker !== spawned) return
           console.error('[SchedulerManager] Worker error:', err);
           restart()
       })
     this.worker.on('exit', (code) => {
+      if (this.stopped || this.worker !== spawned) return
       if (code !== 0) {
         logger.warn('worker.exit', {code: String(code)})
         restart()
@@ -481,6 +503,13 @@ class SchedulerManager {
    * 关闭调度管理器：终止所有运行、关闭 Worker 和 Worker 池
    */
   shutdown(): void {
+    // ★ 首行置位：使 exit/error 处理器放弃重启（terminate() 本身会产生非 0 exit）
+    this.stopped = true
+    // 取消已排期的重启定时器，避免退出后 5s 又 spawn 一个新 Worker
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer)
+      this.restartTimer = null
+    }
     for (const [, ac] of this.activeRuns) ac.abort()
     this.activeRuns.clear()
     this.worker?.postMessage({cmd: 'shutdown'})

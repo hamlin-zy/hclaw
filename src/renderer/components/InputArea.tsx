@@ -145,6 +145,29 @@ export default function InputArea({isActive = true}: InputAreaProps) {
     /** 积压附件：用户先发文件后发指令时使用 */
     const [pendingAttachmentFiles, setPendingAttachmentFiles] = useState<AttachedFile[]>([])
 
+    // 镜像最新附件数组，供卸载时释放 blob URL
+    // 用 ref 而非把数组放进 effect 依赖，避免每次附件变更都重挂
+    const attachedFilesRef = useRef(attachedFiles)
+    const pendingAttachmentFilesRef = useRef(pendingAttachmentFiles)
+    useEffect(() => {
+        attachedFilesRef.current = attachedFiles
+    }, [attachedFiles])
+    useEffect(() => {
+        pendingAttachmentFilesRef.current = pendingAttachmentFiles
+    }, [pendingAttachmentFiles])
+
+    // 卸载兜底：释放所有未发送附件的 blob 预览 URL
+    // ★ 这是 previewUrl 的 revoke 责任点之一（另两处：clearAttachedFiles、AttachedFilesBar 单删）。
+    //   覆盖 ToolMenu 上传（所有权已随附件对象移交）与本组件 drop/paste 两条创建路径。
+    //   （与 remove/clear 路径重复 revoke 同一 URL 是无害的）
+    useEffect(() => {
+        return () => {
+            for (const f of [...attachedFilesRef.current, ...pendingAttachmentFilesRef.current]) {
+                if (f.previewUrl) URL.revokeObjectURL(f.previewUrl)
+            }
+        }
+    }, [])
+
     // 清理附件的辅助函数
     const clearAttachedFiles = useCallback(() => {
         attachedFiles.forEach(f => {
@@ -705,6 +728,9 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                         conversationId={activeConversationId ?? ''}
                         onSubmit={handleSubmit}
                         onAbort={handleAbort}
+                        // ★ blob URL 所有权契约：ToolMenu（经 onUploadFile）与下方 drop/paste 路径
+                        //   创建的 previewUrl 统一由本组件的卸载 / clearAttachedFiles / 单删三处 revoke。
+                        //   新增附件入口时勿在来源组件内 revoke。
                         onUploadFile={(files) => setAttachedFiles(prev => [...prev, ...files])}
                         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
                         extraActions={<ConvModeSegs/>}

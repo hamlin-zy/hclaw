@@ -92,6 +92,12 @@ const AudioPlayer = memo(function AudioPlayer({url, fileName}: { url: string; fi
         loadAudio()
         return () => {
             cancelled = true
+            // url 变化时释放旧 Blob URL：React 先跑旧 cleanup 再跑新 effect，
+            // 故此时 revoke 的是上一次的 URL，不会误伤新 URL
+            if (blobUrlRef.current) {
+                URL.revokeObjectURL(blobUrlRef.current)
+                blobUrlRef.current = null
+            }
         }
     }, [url])
 

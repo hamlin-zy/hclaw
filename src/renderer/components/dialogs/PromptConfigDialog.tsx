@@ -107,6 +107,9 @@ export default function PromptConfigDialog() {
     const [isPreviewOpen, setIsPreviewOpen] = useState(false)
     const [isPreviewLoading, setIsPreviewLoading] = useState(false)
     const [copied, setCopied] = useState(false)
+    const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理「已复制」复位定时器
+    useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
     const [sidebarWidth, setSidebarWidth] = useState(160)
 
     const isResizing = useRef(false)
@@ -211,8 +214,9 @@ export default function PromptConfigDialog() {
     const handleCopy = () => {
         if (previewContent) {
             navigator.clipboard.writeText(previewContent)
+            if (copiedTimer.current) clearTimeout(copiedTimer.current)
             setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
+            copiedTimer.current = setTimeout(() => { copiedTimer.current = null; setCopied(false) }, 2000)
         }
     }
 

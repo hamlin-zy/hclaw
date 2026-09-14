@@ -80,7 +80,22 @@ function cleanupExpiredPendingAttachments(): void {
     }
 }
 
-setInterval(cleanupExpiredPendingAttachments, 60 * 1000)
+/**
+ * 过期附件清理定时器句柄。
+ * 提为模块级变量以便 will-quit 时 clearInterval 释放；unref() 保证该定时器
+ * 不会单独阻止进程退出（它是维护性任务，不是进程存活的理由）。
+ */
+let pendingAttachmentsCleanupTimer: ReturnType<typeof setInterval> | null =
+    setInterval(cleanupExpiredPendingAttachments, 60 * 1000)
+pendingAttachmentsCleanupTimer.unref?.()
+
+/** 停止过期附件清理定时器（供 will-quit 调用，幂等） */
+export function stopPendingAttachmentsCleanup(): void {
+    if (pendingAttachmentsCleanupTimer) {
+        clearInterval(pendingAttachmentsCleanupTimer)
+        pendingAttachmentsCleanupTimer = null
+    }
+}
 
 // ─── 消息持久化辅助 ──────────────────────────────────────────
 
@@ -591,7 +606,12 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
                     if (event.reason === 'error' || event.reason === 'aborted') {
                         reject(new Error(`Agent 结束，原因: ${event.reason}`))
                     } else {
-                        resolve(accumulatedText || '(空回复)')
+                        // ★ 达轮数上限被截断：渠道用户此前会收到貌似完整的回复而不知任务未跑完，
+                        //   此处追加一句明确提示（不视为失败，仍返回已产出的部分成果）。
+                        const truncNote = event.reason === 'max_turns_reached'
+                            ? '\n\n⚠️ 本次任务达到轮数上限被截断，可能未完成。可回复"继续"让 Agent 接着做。'
+                            : ''
+                        resolve((accumulatedText || '(空回复)') + truncNote)
                     }
                     break
                 case 'error':

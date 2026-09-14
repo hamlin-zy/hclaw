@@ -17,6 +17,10 @@ vi.mock('electron', () => ({
     on: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
       ipcOns.set(channel, handler)
     }),
+    // safeHandle 幂等注册：先 removeHandler 再 handle（重复 init / 窗口重开场景）
+    removeHandler: vi.fn(),
+    // pm:send-to-conversation:ack 幂等注册：同一引用先 removeListener 再 on（走 EventEmitter）
+    removeListener: vi.fn(),
     listenerCount: vi.fn(() => 0),
   },
 }))

@@ -29,6 +29,15 @@ export class ChannelManager {
     private worker: Worker | null = null
     /** 当前正在运行 Agent 的 conversationId 集合 */
     private runningAgents = new Set<string>()
+    /**
+     * 已关闭标志：shutdown() 置位。
+     * worker.exit 处理器据此判断是否还该排期重启，避免退出过程中（terminate 导致非 0 退出）复活 Worker。
+     */
+    private stopped = false
+    /** 已排期的崩溃重启定时器句柄（提为字段以便 shutdown 时取消） */
+    private restartTimer: NodeJS.Timeout | null = null
+    /** shutdown() 排期的 worker 强制终止定时器句柄（提为字段，重复 shutdown 时先取消旧的，避免句柄泄漏） */
+    private shutdownTimer: NodeJS.Timeout | null = null
 
     /** 等待用户回复的 ask_user 状态 */
     private pendingAskUser = new Map<string, {
@@ -68,9 +77,15 @@ export class ChannelManager {
         })
 
         this.worker.on('exit', (code) => {
+            // shutdown() 后 terminate() 会以非 0 码退出；此时不得再排期重启
+            if (this.stopped) return
             if (code !== 0) {
                 logger.warn('ChannelManager.worker.exit', {code, message: '将在 5s 后重启'})
-                setTimeout(() => this.spawnWorker(), 5000)
+                // 句柄存入实例字段，便于 shutdown() 取消
+                this.restartTimer = setTimeout(() => {
+                    this.restartTimer = null
+                    this.spawnWorker()
+                }, 5000)
             }
         })
 
@@ -250,19 +265,29 @@ export class ChannelManager {
         if (!this.worker) {
             return Promise.resolve({success: false, error: 'Worker not initialized'} as unknown as T)
         }
+        // 局部捕获当前 Worker：worker 重启后 this.worker 指向新实例，
+        // 闭包内若用 this.worker 会摘错对象的监听器
+        const worker = this.worker
         return new Promise<T>((resolve) => {
+            // 保证只结算一次，并让成功/超时两条路径都清掉定时器与监听器
+            let settled = false
+            const finish = (value: T) => {
+                if (settled) return
+                settled = true
+                clearTimeout(timer) // 成功分支也必须清，否则闭包持有 payload/resolve 直到超时
+                worker.removeListener('message', handler)
+                resolve(value)
+            }
             const handler = (msg: WorkerEvent) => {
                 if (msg.type === expectedType && 'channelId' in msg && msg.channelId === payload.channelId) {
-                    this.worker!.removeListener('message', handler)
-                    resolve(msg as unknown as T)
+                    finish(msg as unknown as T)
                 }
             }
-            this.worker!.on('message', handler)
-            this.worker!.postMessage(payload)
-            setTimeout(() => {
-                this.worker!.removeListener('message', handler)
-                resolve({success: false, error: '请求超时'} as unknown as T)
+            const timer = setTimeout(() => {
+                finish({success: false, error: '请求超时'} as unknown as T)
             }, timeoutMs)
+            worker.on('message', handler)
+            worker.postMessage(payload)
         })
     }
 
@@ -339,8 +364,22 @@ export class ChannelManager {
     }
 
     shutdown(): void {
+        // 置位后 worker 的非 0 退出不再排期重启
+        this.stopped = true
+        // 取消已排期的重启，否则退出后会重新拉起 Channel Worker
+        if (this.restartTimer) {
+            clearTimeout(this.restartTimer)
+            this.restartTimer = null
+        }
+        // 幂等：重复调用时先取消上一次排期的终止，避免旧句柄悬空
+        if (this.shutdownTimer) {
+            clearTimeout(this.shutdownTimer)
+            this.shutdownTimer = null
+        }
         this.worker?.postMessage({cmd: 'shutdown'})
-        setTimeout(() => {
+        // 保留 1s 延迟：给 worker 机会处理 shutdown 消息后优雅退出，超时才强制 terminate
+        this.shutdownTimer = setTimeout(() => {
+            this.shutdownTimer = null
             this.worker?.terminate()
             this.worker = null
         }, 1000)

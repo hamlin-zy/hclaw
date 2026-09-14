@@ -385,6 +385,9 @@ async function handleList(
   _event: IpcMainInvokeEvent,
   enabledOnly?: boolean
 ): Promise<LoadedPlugin[]> {
+  // ★ 版本缓存同步点：按当前注册表集合剔除已卸载/重命名插件的残留条目
+  //   （与 repo/ipc.ts 的 repoVersionManager.prune 等价；versionMap 自身无淘汰路径）
+  versionManager.prune(registry.getAll().map(p => p.name));
   if (enabledOnly) {
     return registry.getEnabled();
   }

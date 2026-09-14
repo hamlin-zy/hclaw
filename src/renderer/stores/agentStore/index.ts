@@ -39,6 +39,22 @@ import {abortAgentImpl} from './handlers/abortAgent'
 import {handleStreamEventImpl} from './handlers/streamEvents'
 
 let streamUnsubscribe: (() => void) | null = null
+// ★ 与 streamUnsubscribe 对称：registerStreamListener 内的另两条子订阅也须模块级持有，
+//   否则「重入注册而不调用上一次的 dispose」会叠加监听（每条事件被处理多次）
+let batchesUnsubscribe: (() => void) | null = null
+let persistUnsubscribe: (() => void) | null = null
+
+/** 方案 A：后台窗口 setTimeout 被 Chromium 节流（1s），恢复可见时强制 flush，
+ *  防积压后一次性涌出渲染风暴（spec §4.2 visibilitychange 兜底）。
+ *  ★ 提为模块级具名函数：registerStreamListener 重入时需在函数顶部注销上一轮监听，
+ *    若仍为函数内声明的局部函数，重入时引用不同 → removeEventListener 无法命中，
+ *    监听器会随每次注册不断叠加。 */
+function onVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+        flushAllTextBatches()
+        flushAllThinkingBatches()
+    }
+}
 
 export const useAgentStore = create<AgentStore>()(
     persist(
@@ -309,6 +325,10 @@ export const useAgentStore = create<AgentStore>()(
                 get().updateConvData(convId, {loopWarning: undefined})
             },
 
+            clearTurnLimitNotice: (convId) => {
+                get().updateConvData(convId, {turnLimitNotice: undefined})
+            },
+
             // ── 弹窗管理 ──────────────────────────────
             openToolPopup: (data) => {
                 set({toolPopupData: data})
@@ -451,14 +471,12 @@ export const useAgentStore = create<AgentStore>()(
             // ── 流式监听器注册 ──────────────────────────────
             registerStreamListener: () => {
                 streamUnsubscribe?.()
-                // ★ 方案 A：后台窗口 setTimeout 被 Chromium 节流（1s），恢复可见时强制 flush，
-                //   防积压后一次性涌出渲染风暴（spec §4.2 visibilitychange 兜底）
-                const onVisibilityChange = () => {
-                    if (document.visibilityState === 'visible') {
-                        flushAllTextBatches()
-                        flushAllThinkingBatches()
-                    }
-                }
+                // ★ 子订阅对称注销：重入注册时一并注销上一轮注册的批次/持久化监听
+                batchesUnsubscribe?.()
+                persistUnsubscribe?.()
+                // ★ 与三条 IPC 子订阅对称：visibilitychange 监听也须在重入时先注销，
+                //   否则每次注册都会叠加一个监听器（依赖模块级具名引用才能正确移除）
+                document.removeEventListener('visibilitychange', onVisibilityChange)
                 document.addEventListener('visibilitychange', onVisibilityChange)
                 const unsub = window.electronAPI?.onAgentStream?.((payload: any) => {
                     get().handleStreamEvent(payload)
@@ -477,14 +495,18 @@ export const useAgentStore = create<AgentStore>()(
                     }
                 }) || null
                 streamUnsubscribe = unsub
+                batchesUnsubscribe = unsubBatches
+                persistUnsubscribe = unsubPersist
                 return () => {
                     document.removeEventListener('visibilitychange', onVisibilityChange)
                     flushAllTextBatches()
                     flushAllThinkingBatches()
                     streamUnsubscribe?.()
-                    unsubBatches?.()
-                    unsubPersist?.()
+                    batchesUnsubscribe?.()
+                    persistUnsubscribe?.()
                     streamUnsubscribe = null
+                    batchesUnsubscribe = null
+                    persistUnsubscribe = null
                 }
             },
         }),

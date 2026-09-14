@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter'
 import {oneDark, oneLight} from 'react-syntax-highlighter/dist/esm/styles/prism'
-import {Component, memo, useEffect, useMemo, useState} from 'react'
+import {Component, memo, useEffect, useMemo, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import rehypeRaw from 'rehype-raw'
 import MediaPlayer, {extractFileName} from './MediaPlayer'
@@ -62,12 +62,16 @@ const stableUrlTransform = (url: string) => url
 
 const CopyButton = memo(function CopyButton({code}: { code: string }) {
     const [copied, setCopied] = useState(false)
+    const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理「已复制」复位定时器
+    useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
 
     const handleCopy = async () => {
         try {
             await navigator.clipboard.writeText(code)
+            if (copiedTimer.current) clearTimeout(copiedTimer.current)
             setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
+            copiedTimer.current = setTimeout(() => { copiedTimer.current = null; setCopied(false) }, 2000)
         } catch {
             // 复制失败，静默处理
         }

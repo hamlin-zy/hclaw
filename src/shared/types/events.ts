@@ -90,7 +90,10 @@ export interface AgentStreamEvent {
   /** tool_progress 事件的重试倒计时剩余秒数（retryCountdown） */
   retryCountdown?: number
   result?: { success: boolean; output: unknown; error?: string }
-  reason?: 'completed' | 'aborted' | 'error' | 'loop_detected' | 'tools_change_cancelled'
+  reason?: 'completed' | 'aborted' | 'error' | 'loop_detected' | 'tools_change_cancelled' | 'max_turns_reached'
+  /** done 事件（max_turns_reached）携带：实际轮数 / 上限，供 UI 展示"已达 N 轮上限" */
+  turns?: number
+  maxTurns?: number
   /** loop_suspected/loop_escalated 事件字段 */
   fingerprint?: string
   loopKind?: 'consecutive' | 'period2'
@@ -109,6 +112,8 @@ export interface AgentStreamEvent {
   subAgentProgress?: string
   success?: boolean
   output?: string
+  /** subagent_done 事件：子任务因达轮数上限/循环检测被截断（非失败非成功） */
+  truncated?: boolean
   // Tasks 字段
   tasks?: Task[]
   /** 任务批次字段（tasks_update 事件，存在批次时携带） */

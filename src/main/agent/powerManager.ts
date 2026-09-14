@@ -90,39 +90,62 @@ class PowerManagerImpl {
      */
     private setupEventListeners(): void {
         // 插件启用事件 - 局部刷新该插件的能力
-        eventBus.on(PluginEvents.ENABLED, (pluginName: string) => {
-            if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
-            logger.debug('plugin-enabled', {pluginName})
-            this.refreshPlugin(pluginName, true)
-        })
+        eventBus.on(PluginEvents.ENABLED, this.onPluginEnabled)
 
         // 插件禁用事件 - 同步禁用状态（不调用 removePluginCapabilities，那是卸载用的）
         // handleDisable 会触发 powerManager.refresh() 做全量重载，这里仅做轻量同步
-        eventBus.on(PluginEvents.DISABLED, (pluginName: string) => {
-            if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
-            logger.debug('plugin-disabled', {pluginName})
-            // 轻量同步：仅更新内存中的启用状态，不清除注册表
-            skillRegistry.syncPluginStatus(pluginName, false)
-            agentRegistry.syncPluginStatus(pluginName, false)
-            // Commands: CommandDispatcher.getAllCommands() 在查询时按插件启用状态过滤
-            // 清除该插件的 commandCache（下次 query 时从 PluginRegistry 重读并过滤）
-            const commandDispatcher = CommandDispatcher.getInstance()
-            commandDispatcher.unregisterByPlugin(pluginName)
-        })
+        eventBus.on(PluginEvents.DISABLED, this.onPluginDisabled)
 
         // 插件安装事件 - 触发后台刷新（全量，因为可能有新插件）
-        eventBus.on(PluginEvents.INSTALLED, (pluginPath: string) => {
-            if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
-            logger.debug('plugin-installed', {pluginPath})
-            this.scheduleRefresh()
-        })
+        eventBus.on(PluginEvents.INSTALLED, this.onPluginInstalled)
 
         // 插件卸载事件 - 移除该插件的能力
-        eventBus.on(PluginEvents.UNINSTALLED, (pluginName: string) => {
-            if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
-            logger.debug('plugin-uninstalled', {pluginName})
-            this.removePluginCapabilities(pluginName)
-        })
+        eventBus.on(PluginEvents.UNINSTALLED, this.onPluginUninstalled)
+    }
+
+    // ★ eventBus.on() 返回 void（非 EventEmitter 注销句柄），故 4 个处理器必须以
+    //   具名实例字段持有，disposeEventListeners() 才能用同一引用 off()，
+    //   否则全局 eventBus 永久持有本实例闭包（幂等：off 对已移除 / 未注册的 handler 是 no-op）。
+    private eventsDisposed = false
+
+    private onPluginEnabled = (pluginName: string): void => {
+        if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
+        logger.debug('plugin-enabled', {pluginName})
+        this.refreshPlugin(pluginName, true)
+    }
+
+    private onPluginDisabled = (pluginName: string): void => {
+        if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
+        logger.debug('plugin-disabled', {pluginName})
+        // 轻量同步：仅更新内存中的启用状态，不清除注册表
+        skillRegistry.syncPluginStatus(pluginName, false)
+        agentRegistry.syncPluginStatus(pluginName, false)
+        // Commands: CommandDispatcher.getAllCommands() 在查询时按插件启用状态过滤
+        // 清除该插件的 commandCache（下次 query 时从 PluginRegistry 重读并过滤）
+        const commandDispatcher = CommandDispatcher.getInstance()
+        commandDispatcher.unregisterByPlugin(pluginName)
+    }
+
+    private onPluginInstalled = (pluginPath: string): void => {
+        if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
+        logger.debug('plugin-installed', {pluginPath})
+        this.scheduleRefresh()
+    }
+
+    private onPluginUninstalled = (pluginName: string): void => {
+        if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
+        logger.debug('plugin-uninstalled', {pluginName})
+        this.removePluginCapabilities(pluginName)
+    }
+
+    /** 注销全部 eventBus 订阅（幂等）。由 main 的 will-quit 调用。 */
+    disposeEventListeners(): void {
+        if (this.eventsDisposed) return
+        this.eventsDisposed = true
+        eventBus.off(PluginEvents.ENABLED, this.onPluginEnabled)
+        eventBus.off(PluginEvents.DISABLED, this.onPluginDisabled)
+        eventBus.off(PluginEvents.INSTALLED, this.onPluginInstalled)
+        eventBus.off(PluginEvents.UNINSTALLED, this.onPluginUninstalled)
     }
 
     /**
@@ -778,6 +801,12 @@ class PowerManagerImpl {
 }
 
 export const powerManager = new PowerManagerImpl()
+
+/** 注销 powerManager 单例在全局 eventBus 上的订阅（幂等）。
+ *  供 main 的 app.on('will-quit') 调用。 */
+export function disposePowerManagerEvents(): void {
+    powerManager.disposeEventListeners()
+}
 
 // 兼容旧版本 API（拼写错误保留）
 export const powerManagerV2 = powerManager

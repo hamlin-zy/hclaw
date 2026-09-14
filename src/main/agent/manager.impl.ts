@@ -60,6 +60,8 @@ import {createForwardPayload, extractWorkerErrorMessage} from './manager.streamF
 import {recordLlmUsageEvent, resetUsageMsgState} from '../usageWrite'
 
 import {loadPluginAgents} from './manager.pluginAgents'
+// 会话终态回收循环检测静默名单（模块级 Map，以 sessionId 为 key，无 delete 会无界累积）
+import {clearLoopSilence as clearLoopSilencePatterns} from './loop/loopDetector'
 
 // ─── AgentManager ──────────────────────────────────────
 
@@ -98,14 +100,28 @@ export class AgentManager {
   /** 正常完成（done reason 'completed'）的会话 ID，worker 退出时据此触发任务栏/托盘完成提醒 */
   #completedNormally = new Set<string>()
 
+  /** ★ eventBus 订阅 handler 引用。
+   *  eventBus.on() 返回 void（非 EventEmitter 的注销句柄），故必须自行保存 handler 引用，
+   *  才能在退出时 off()——否则全局 eventBus 长期持有本实例闭包，AgentManager 与其全部
+   *  状态在 will-quit 后仍无法回收。 */
+  private mcpToolsRefreshedHandler: () => void = () => {
+    this.broadcastMcpToolsRefresh()
+  }
+  private capabilityRefreshedHandler: () => void = () => {
+    void this.broadcastCapabilitiesRefresh()
+  }
+
   constructor() {
-    eventBus.on(MCPThemeEvents.TOOLS_REFRESHED, () => {
-      this.broadcastMcpToolsRefresh()
-    })
+    eventBus.on(MCPThemeEvents.TOOLS_REFRESHED, this.mcpToolsRefreshedHandler)
     // 能力刷新（技能/插件启停等）→ 广播最新序列化能力，运行中 Worker 重建本地 registry
-    eventBus.on(CapabilityEvents.REFRESHED, () => {
-      void this.broadcastCapabilitiesRefresh()
-    })
+    eventBus.on(CapabilityEvents.REFRESHED, this.capabilityRefreshedHandler)
+  }
+
+  /** ★ 注销本类在全局 eventBus 上的订阅（幂等，off 对不存在的 handler 是 no-op）。
+   *  由 main will-quit 调用（见 disposeAgentManagerEvents）。 */
+  disposeEvents(): void {
+    eventBus.off(MCPThemeEvents.TOOLS_REFRESHED, this.mcpToolsRefreshedHandler)
+    eventBus.off(CapabilityEvents.REFRESHED, this.capabilityRefreshedHandler)
   }
 
   /**
@@ -140,7 +156,14 @@ export class AgentManager {
     }
     this.streamListeners.get(conversationId)!.add(listener)
     return () => {
-      this.streamListeners.get(conversationId)?.delete(listener)
+      const listeners = this.streamListeners.get(conversationId)
+      if (!listeners) return
+      listeners.delete(listener)
+      // ★ Set 变空时同步删除外层 key：addStreamListener 会为「尚无 worker 的会话」
+      //   建空 Set，而外层 key 此前仅由 cleanup() 删除，cleanup 又需要 worker 存在
+      //   → 这类会话（如启动即订阅、worker 未 spawn 成功）的 key 永久残留。
+      //   仅在本 listener 移除后 Set 确已为空时才删，避免误删仍有其它 listener 的条目。
+      if (listeners.size === 0) this.streamListeners.delete(conversationId)
     }
   }
 
@@ -399,7 +422,7 @@ export class AgentManager {
 
         // MCP MessagePort 请求
         if (msg.type === 'request_mcp_port') {
-          const {agentPort} = mcpWorkerManager.createAgentPort()
+          const {agentPort} = mcpWorkerManager.createAgentPort(conversationId)
           worker.postMessage({type: 'mcp_port', port: agentPort}, [agentPort])
           return
         }
@@ -555,11 +578,14 @@ export class AgentManager {
         //   均不读取；该 msgId 为唯一 UUID 永不复用 → 消息生命周期此刻确定终结即可释放。
         //   失败分支的 patch 由 persistence 层自行重试，与桥接状态无关（防永久残留）。
         resetBridgeMsgState(oldPending.id)
+        // ★ 粒度修正：旧消息的生命周期此刻已确定终结（finalizeMessage 已返回），其
+        //   #rowEnsured 条目的释放与 DB 写入成败无关（失败分支由 persistence 层自行重试，
+        //   不再触碰该容器）。若仍置于成功分支内，finalize 失败时条目会残留到会话级
+        //   cleanup——而该 oldPending.id 是唯一 UUID 永不复用，cleanup 前随对话轮数无界累积。
+        //   故移到 if (finalized) 之外；仅 usage seq 记账（依赖落库成功计数）保留在同条件内。
+        this.#rowEnsured.get(conversationId)?.delete(oldPending.id)
         if (finalized) {
           resetUsageMsgState(oldPending.id)   // ★S5：同条件释放 usage seq 记账
-          // ★ 粒度修正：旧消息已 finalize 终结，删除其在 #rowEnsured 中的条目
-          //   （该 Map 仅在会话级 cleanup 整组删除，否则随对话轮数无界累积）。
-          this.#rowEnsured.get(conversationId)?.delete(oldPending.id)
         }
         if (!finalized) logger.warn('[AgentManager] turn reset finalize 失败，将随重试补齐', {conversationId})
         await this.#mergeAndPersist(conversationId, oldPending, true)
@@ -644,7 +670,7 @@ export class AgentManager {
 
     // done 事件
     if (event.type === 'done') {
-      const doneEvent = event as {type: 'done'; reason: 'completed' | 'aborted' | 'error'}
+      const doneEvent = event as {type: 'done'; reason: 'completed' | 'aborted' | 'error' | 'max_turns_reached'}
       await this.handleDoneEvent(conversationId, doneEvent)
       return
     }
@@ -929,13 +955,15 @@ export class AgentManager {
   /** 处理 done 事件 */
   private async handleDoneEvent(
     conversationId: string,
-    event: {type: 'done'; reason: 'completed' | 'aborted' | 'error'},
+    event: {type: 'done'; reason: 'completed' | 'aborted' | 'error' | 'max_turns_reached'},
   ): Promise<void> {
     // ★ 正常完成标记必须在首个 await 之前：标记消费点是 onWorkerExit 的同步删除
     //   （#completedNormally.delete）。若仍置于 finalize await 之后，worker 在
     //   finalize 期间退出 → delete 落空 → add 随后生效 → 标记永久残留。提前到
     //   首个 await 前行为等价（仅 onWorkerExit 消费，通知逻辑不变）。
-    if (event.reason === 'completed') {
+    // ★ 截断（达轮数上限）同样需要提醒：窗口隐藏时用户无从得知任务停在了上限处。
+    //   notifyUserAttention 只闪烁、不带文案，不会误报「完成」。
+    if (event.reason === 'completed' || event.reason === 'max_turns_reached') {
       this.#completedNormally.add(conversationId)
     }
 
@@ -987,14 +1015,20 @@ export class AgentManager {
     // new start → old exit) would leak the refcount permanently.
     stopUserAttention()
 
+    // ★ 正常完成标记必须在身份守卫之前消费：#completedNormally 的键是会话 ID，
+    //   worker 被替换后旧 worker 的 exit 会走下方守卫早退——若 delete 放在守卫之后，
+    //   该会话的标记永久残留（此后该会话不会再有任何退出事件消费它）。
+    const completedNormally = this.#completedNormally.delete(conversationId)
+
     const currentEntry = this.workers.get(conversationId)
     if (currentEntry && currentEntry.worker !== worker) {
       return
     }
 
-    // ★ 正常完成提醒：done(reason completed) 的 worker 正常退出时触发任务栏/托盘闪烁
-    //   （仅在窗口隐藏/最小化时闪烁；窗口可见时不打扰）。aborted/error/崩溃不触发。
-    if (this.#completedNormally.delete(conversationId)) {
+    // ★ 完成/截断提醒：done(reason completed | max_turns_reached) 的 worker 正常退出时
+    //   触发任务栏/托盘闪烁（仅在窗口隐藏/最小化时闪烁；窗口可见时不打扰）。
+    //   aborted/error/崩溃不触发。截断也算「该回来看一眼」，且闪烁不带文案，不会误报完成。
+    if (completedNormally) {
       notifyUserAttention()
     }
 
@@ -1381,6 +1415,12 @@ export class AgentManager {
     }
   }
 
+  /** 会话终态回收该会话的循环检测静默名单（转发到 loopDetector 模块函数，幂等）。
+   *  与 silenceLoopPattern 对称：不释放则模块级 Map 随会话数无界累积。 */
+  clearLoopSilence(conversationId: string): void {
+    clearLoopSilencePatterns(conversationId)
+  }
+
   /** 更新运行中 Agent 的配置 */
   updateConfig(conversationId: string, modelConfig: ModelConfig): void {
     const entry = this.workers.get(conversationId)
@@ -1614,7 +1654,14 @@ export class AgentManager {
     }
     this.parentToChildren.delete(conversationId)
 
+    const closedEntry = this.workers.get(conversationId)
     this.workers.delete(conversationId)
+    // ★ 回收 MCP Worker 侧本会话的 Agent MessagePort。
+    //   worker.terminate()（abort 超时 / 本 cleanup）不向对端派发 'close'，MCP Worker 的
+    //   agentPorts 会随运行次数无界增长 → 由主进程显式下发注销消息兜底（不依赖 close 事件）。
+    //   仅在确实回收了本会话条目时注销：onWorkerError 无身份守卫，若本会话已被新 worker
+    //   接管，误注销会切断新 worker 的 MCP 通路。
+    if (closedEntry) mcpWorkerManager.unregisterAgent(conversationId)
     // ★ 内存优化 V2：异常终态兜底释放 usage seq 记账。
     // cleanup 只在 worker 崩溃 / abort 超时终止时执行，不经过 finalize 成功分支
     //（仅 handleStreamEvent 的 turn reset 与 #finalizeThenMerge 成功分支才释放），
@@ -1638,6 +1685,9 @@ export class AgentManager {
     this.pendingAssistantMsg.delete(conversationId)
     this.streamingMsgIds.delete(conversationId)
     this.streamListeners.delete(conversationId)
+    // ★ 循环检测静默名单（模块级 Map，key = sessionId）：loopDetector 无 delete 路径，
+    //   不在此释放则条目随会话数无界累积（崩溃 / abort 超时 / onWorkerError / onWorkerExit 都经 cleanup）。
+    this.clearLoopSilence(conversationId)
     this.#completedNormally.delete(conversationId)
 
     // ★ 内存优化 C1：对称退订持久化 ACK 订阅（红线：绝不新增监听器泄漏）
@@ -1687,3 +1737,10 @@ export class AgentManager {
 
 // 导出 singleton
 export const agentManager = new AgentManager()
+
+/** 注销 AgentManager 单例注册在全局 eventBus 上的订阅（幂等）。
+ *  供 main 的 app.on('will-quit') 调用：不注销则全局 eventBus 的 listener 集合
+ *  持续持有本单例闭包，进程退出阶段无法回收。 */
+export function disposeAgentManagerEvents(): void {
+  agentManager.disposeEvents()
+}

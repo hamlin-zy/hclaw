@@ -154,115 +154,7 @@ export async function executeScript(
   })
 }
 
-/**
- * 执行脚本并实时流式输出
- * 
- * @returns 生成器，每次 yield 输出片段
- */
-export async function* executeScriptStream(
-  script: ScriptFile,
-  args: Record<string, unknown>,
-  options?: {
-    cwd?: string
-    timeout?: number
-    env?: Record<string, string>
-  },
-): AsyncGenerator<{type: 'stdout' | 'stderr' | 'done' | 'error'; data: string; result?: ScriptResult}> {
-  const startTime = Date.now()
-  const timeout = options?.timeout ?? getScriptTimeout()
 
-  const scriptDir = path.dirname(script.fullPath)
-  const cwd = options?.cwd || scriptDir
-  const {cmd, cmdArgs} = await buildCommand(script, args)
-
-  if (!fs.existsSync(script.fullPath)) {
-    yield {type: 'error', data: `Script not found: ${script.fullPath}`}
-    return
-  }
-
-  const env: Record<string, string> = {
-    ...process.env,
-    ...options?.env,
-    SKILL_SCRIPT_ARGS: JSON.stringify(args),
-  }
-
-    // SECURITY: shell: false is used for security - we directly invoke interpreters
-    // with script paths as arguments, no shell interpretation needed
-  const proc = spawn(cmd, cmdArgs, {
-    cwd,
-    env,
-      shell: false,
-    windowsHide: true,
-  })
-
-  const timer = setTimeout(() => {
-    proc.kill('SIGTERM')
-  }, timeout)
-
-  let resolved = false
-
-  const waitForClose = new Promise<ScriptResult>((resolve) => {
-    let stdout = ''
-    let stderr = ''
-
-    proc.stdout?.on('data', (data: Buffer) => {
-      const chunk = data.toString()
-      stdout += chunk
-      if (!resolved) {
-        resolve({success: false, output: stdout, exitCode: undefined, duration: Date.now() - startTime})
-        resolved = true
-      }
-    })
-
-    proc.stderr?.on('data', (data: Buffer) => {
-      const chunk = data.toString()
-      stderr += chunk
-      if (!resolved) {
-        resolve({success: false, error: stderr, exitCode: undefined, duration: Date.now() - startTime})
-        resolved = true
-      }
-    })
-
-    proc.on('close', (code) => {
-      clearTimeout(timer)
-      if (!resolved) {
-        resolved = true
-        resolve({
-          success: code === 0,
-          output: stdout.trim() || undefined,
-          error: stderr.trim() || undefined,
-          exitCode: code ?? undefined,
-          duration: Date.now() - startTime,
-        })
-      }
-    })
-
-    proc.on('error', (err) => {
-      clearTimeout(timer)
-      if (!resolved) {
-        resolved = true
-        resolve({
-          success: false,
-          error: err.message,
-          exitCode: -1,
-          duration: Date.now() - startTime,
-        })
-      }
-    })
-  })
-
-  // 使用事件监听来 yield 输出
-  return new Promise<ScriptResult>((resolve) => {
-    proc.stdout?.on('data', (_data: Buffer) => {
-      // 通过事件方式通知
-    })
-
-    // 等待完成
-    waitForClose.then((result) => {
-      resolve(result)
-    })
-  }) as unknown as ScriptResult
-}
 
 // ─── 命令构建 ─────────────────────────────────────────
 
@@ -417,19 +309,12 @@ function commandExists(cmd: string): Promise<boolean> {
       //   当作含引号的文件名导致 ENOENT）。
       const isWin = process.platform === 'win32'
       const proc = isWin
-        ? spawn(`"${cmd}" --version`, {shell: true, windowsHide: true})
-        : spawn(cmd, ['--version'], {windowsHide: true})
-      
-      // 进程启动失败（如命令不存在）
-      proc.on('error', () => resolve(false))
-      
-      // 等待进程退出，根据退出码判断命令是否存在
-      proc.on('close', (code) => {
-        resolve(code === 0)
-      })
-      
+        ? spawn(`"${cmd}" --version`, {shell: true, windowsHide: true, stdio: 'ignore'})
+        : spawn(cmd, ['--version'], {windowsHide: true, stdio: 'ignore'})
+
       // 超时保护：2秒后强制结束检查
-      setTimeout(() => {
+      // 保存句柄，使成功/失败两条路径都能 clearTimeout，避免定时器驻留到触发点。
+      const timer = setTimeout(() => {
         try {
           proc.kill()
         } catch {
@@ -437,6 +322,18 @@ function commandExists(cmd: string): Promise<boolean> {
         }
         resolve(false)
       }, 2000)
+
+      // 进程启动失败（如命令不存在）
+      proc.on('error', () => {
+        clearTimeout(timer)
+        resolve(false)
+      })
+
+      // 等待进程退出，根据退出码判断命令是否存在
+      proc.on('close', (code) => {
+        clearTimeout(timer)
+        resolve(code === 0)
+      })
     } catch {
       resolve(false)
     }

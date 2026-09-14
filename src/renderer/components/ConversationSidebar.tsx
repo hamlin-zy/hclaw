@@ -963,6 +963,9 @@ export function ConversationList() {
     const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set())
     const [dateGroupExpanded, setDateGroupExpanded] = useState<Set<string>>(new Set())
     const listRef = useRef<HTMLDivElement>(null)
+    const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理「已复制 ID」提示复位定时器
+    useEffect(() => () => { if (copyToastTimer.current) clearTimeout(copyToastTimer.current) }, [])
     // 跨天信号：午夜自动刷新日期分组（今天/历史），并作为下方"自动展开激活会话分组"的 effect 依赖
     const dayTick = useDayBoundaryTick()
 
@@ -1278,8 +1281,9 @@ export function ConversationList() {
                           setContextMenu(null)
                           try {
                               await navigator.clipboard.writeText(id)
+                              if (copyToastTimer.current) clearTimeout(copyToastTimer.current)
                               setShowCopyToast(true)
-                              setTimeout(() => setShowCopyToast(false), 1500)
+                              copyToastTimer.current = setTimeout(() => { copyToastTimer.current = null; setShowCopyToast(false) }, 1500)
                           } catch { /* clipboard unavailable */ }
                       }}
                   />

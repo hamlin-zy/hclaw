@@ -198,6 +198,18 @@ class PluginVersionManagerImpl {
   }
 
   /**
+   * 剔除已不在插件注册表中的缓存条目（与 repo/mcp 同族 API 对齐）。
+   * versionMap 无自动淘汰路径：插件被卸载/重命名后其条目不会再被覆盖，
+   * 不 prune 会随历史插件数无界累积。调用点见 plugin/ipc.ts handleList（注册表枚举同步点）。
+   */
+  prune(activeNames: Iterable<string>): void {
+    const keep = activeNames instanceof Set ? activeNames : new Set(activeNames)
+    for (const name of Array.from(this.versionMap.keys())) {
+      if (!keep.has(name)) this.versionMap.delete(name)
+    }
+  }
+
+  /**
    * 导出完整的状态 map（用于推送红点状态）。
    */
   exportMap(): Record<string, VersionInfo> {

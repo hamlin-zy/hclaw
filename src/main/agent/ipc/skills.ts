@@ -219,13 +219,26 @@ export function registerHandlers(): void {
             pendingDeleteDirs.add(skillDir)
             skillRegistry.unregister(skillId)
 
-            // 后台不限时重试删除，不阻塞用户
+            // 后台重试删除，不阻塞用户
+            // 重试上限 30 次（≈60s）：目录被永久锁定时避免无限重试链，
+            // 超限后释放 pendingDeleteDirs 条目，防止集合永久驻留。
+            const MAX_DELETE_ATTEMPTS = 30
+            let attempts = 0
+            let cancelled = false
             const attemptDelete = async (): Promise<void> => {
+                if (cancelled) return
                 try {
                     await fs.rm(skillDir, {recursive: true, force: true})
                     pendingDeleteDirs.delete(skillDir)
                     logger.info(`[skill-remove] background delete succeeded for ${skillDir}`)
                 } catch {
+                    attempts++
+                    if (attempts >= MAX_DELETE_ATTEMPTS) {
+                        cancelled = true
+                        pendingDeleteDirs.delete(skillDir)
+                        logger.warn(`[skill-remove] background delete gave up after ${attempts} attempts for ${skillDir}`)
+                        return
+                    }
                     setTimeout(attemptDelete, 2000)
                 }
             }

@@ -81,6 +81,9 @@ export function CommandList({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
+    // ★ 挂载守卫：卸载后丢弃迟到的 IPC 响应，避免对已卸载组件 setState
+    //   或重挂载时被上一轮旧响应覆盖
+    const aliveRef = useRef(true);
 
     // 加载命令数据
     const loadCommands = async () => {
@@ -131,16 +134,22 @@ export function CommandList({
                 groups.push({label: '代理', source: 'agent', commands: agentCmds});
             }
 
+            if (!aliveRef.current) return; // 代际守卫：组件已卸载，丢弃响应
             setDisplayGroups(groups);
         } catch {
+            if (!aliveRef.current) return;
             setError('加载命令失败');
         } finally {
-            setLoading(false);
+            if (aliveRef.current) setLoading(false);
         }
     };
 
     useEffect(() => {
-        loadCommands();
+        aliveRef.current = true;
+        void loadCommands();
+        return () => {
+            aliveRef.current = false;
+        };
     }, []);
 
     // 通知父组件命令列表变化

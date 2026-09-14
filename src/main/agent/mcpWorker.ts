@@ -107,6 +107,8 @@ function toToolPayload(t: { name: string; description?: string; inputSchema: any
 class McpWorkerService {
     private mcpClient: MCPClient
     private agentPorts = new Set<MessagePort>()
+    /** port → 归属会话 ID。主进程 cleanup 时据此显式注销（见 unregisterAgents） */
+    private agentPortOwner = new Map<MessagePort, string>()
 
     /** 200ms 防抖状态上报 */
     private pendingStatusUpdates: Array<{
@@ -342,9 +344,10 @@ class McpWorkerService {
         }
     }
 
-    /** 注册 Agent Worker MessagePort */
-    registerAgent(port: MessagePort): void {
+    /** 注册 Agent Worker MessagePort（conversationId 用于主进程显式注销） */
+    registerAgent(port: MessagePort, conversationId?: string): void {
         this.agentPorts.add(port)
+        if (conversationId) this.agentPortOwner.set(port, conversationId)
 
         port.on('message', (req: McpWorkerMessage) => {
             switch (req.type) {
@@ -371,9 +374,28 @@ class McpWorkerService {
 
         port.on('close', () => {
             this.agentPorts.delete(port)
+            this.agentPortOwner.delete(port)
         })
 
         port.start()
+    }
+
+    /**
+     * 主进程 cleanup 时显式注销该会话的 Agent 端口。
+     * 唯一原因：主进程用 worker.terminate() 硬杀 Agent Worker，terminate 不执行 worker 内的
+     * exit 逻辑，也不保证向对端派发 'close' → 仅靠 close 注销时 agentPorts 会随运行次数
+     * 无界增长（port 及其监听闭包常驻 MCP Worker）。此路径不依赖对端 close 事件。
+     */
+    unregisterAgents(conversationId: string): void {
+        for (const [port, owner] of this.agentPortOwner) {
+            if (owner !== conversationId) continue
+            this.agentPorts.delete(port)
+            this.agentPortOwner.delete(port)
+            try {
+                port.close()
+            } catch { /* 端口可能已关闭 */
+            }
+        }
     }
 
     /** 处理全量配置替换（内部 diff） */
@@ -572,7 +594,12 @@ service.init(configs).catch(err => {
 parentPort!.on('message', (msg: any) => {
     switch (msg.type) {
         case 'register_agent':
-            if (msg.port) service.registerAgent(msg.port)
+            if (msg.port) service.registerAgent(msg.port, msg.conversationId)
+            break
+
+        // 主进程 cleanup 显式注销（不依赖对端 close 事件）
+        case 'unregister_agent':
+            if (msg.conversationId) service.unregisterAgents(msg.conversationId)
             break
 
         case 'update_servers':

@@ -106,6 +106,9 @@ class TaskStore {
         }
         const convTasks = this.tasksByConv.get(key)
         const hasIncomplete = !!convTasks && this.hasIncompleteTasks(convTasks)
+        // 注：此处 tasksByConv 为空也**不**删除 batchesByConv 的 key——批次是 UI 的可见状态，
+        // 任务被清空后 getActiveBatch 仍须返回该 completed 批次
+        // （回归用例 taskStore.batches.test.ts「clear 场景」）。
         if (!convTasks || convTasks.size === 0 || !hasIncomplete) {
             batch.status = 'completed'
         } else if (batch.status === 'completed') {
@@ -264,8 +267,15 @@ class TaskStore {
 
     /** 删除任务 */
     deleteTask(convId: string | undefined, taskId: string): boolean {
+        const key = convId || 'default'
         const deleted = this.getConvTasks(convId).delete(taskId)
         if (deleted) {
+            // ★ 内层 Map 变空后删除外层 key：否则 tasksByConv 的 key 随会话数无界残留。
+            //   下游对 `tasksByConv.get(key) === undefined` 均有兜底（getBatchTasks 返回 []、
+            //   syncBatchStatus / seedActiveBatch 用可选链判空、getConvTasks 惰性重建），语义不变。
+            if (this.tasksByConv.get(key)?.size === 0) {
+                this.tasksByConv.delete(key)
+            }
             this.syncBatchStatus(convId)
             this.notifyUpdate(convId)
         }

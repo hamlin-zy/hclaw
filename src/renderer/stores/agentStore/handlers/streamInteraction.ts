@@ -45,6 +45,18 @@ export async function handleDone(ctx: StreamCtx) {
     flushPendingStreamBatches(convId, streamingMessageId)
     const doneConvData = get().convAgentStates[convId] || createDefaultConvData()
 
+    // ★ 收尾前同步冲刷 rAF 延迟的 tool_result 批：tool_result 经
+    //   scheduleToolResultUpdate 排队等 requestAnimationFrame，若 done 与工具结果
+    //   同事件循环到达，rAF 尚未触发 → 直接 flush 读到空批，tool_result 延后到
+    //   下一帧才进 dirty map，而 finalizeMessageDelta（end 块）同步先进 → 两次 IPC
+    //   落库使 DB 块序变成 text → end → tool_result（跨 turn 缓存断裂根因）。
+    //   flush 对空批为无操作，可直接调用。
+    // ★ 无条件执行（不置于 streamingMessageId 判断内）：本函数末尾的
+    //   clearConversationRuntimeState → clearAllBatches 会直接 delete 该 convId 的
+    //   toolResultBatches key；若 streamingMessageId 为 null 而批内仍有待 flush 项，
+    //   晚到的 tool_result 会被丢弃、工具卡片停在「处理中」。
+    flushToolResultBatch(convId)
+
     if (doneConvData.streamingMessageId) {
         const endedAt = Date.now()
         convStore.updateMessageForConv(convId, doneConvData.streamingMessageId, {endedAt})
@@ -59,14 +71,6 @@ export async function handleDone(ctx: StreamCtx) {
                 },
             })
         }
-
-        // ★ 收尾前同步冲刷 rAF 延迟的 tool_result 批：tool_result 经
-        //   scheduleToolResultUpdate 排队等 requestAnimationFrame，若 done 与工具结果
-        //   同事件循环到达，rAF 尚未触发 → 直接 flush 读到空批，tool_result 延后到
-        //   下一帧才进 dirty map，而 finalizeMessageDelta（end 块）同步先进 → 两次 IPC
-        //   落库使 DB 块序变成 text → end → tool_result（跨 turn 缓存断裂根因）。
-        //   flush 对空批为无操作，可直接调用。
-        flushToolResultBatch(convId)
 
         const streamBlocks = doneConvData.streamBlocks
         const fullText = doneConvData.streamBuffer
@@ -142,12 +146,18 @@ export async function handleDone(ctx: StreamCtx) {
         loopWarning: undefined,
         // ★ 收尾即清 tools 变动确认阻塞态（abort/异常收尾时避免弹窗残留）
         pendingToolsChangeConfirm: null,
+        // ★ 达轮数上限截断：写入提示条。该提示运行时结束后产生，须留存于界面，
+        //   故此处刻意不清 turnLimitNotice（与上面 loopWarning 的收尾即清策略相反）。
+        ...(event.reason === 'max_turns_reached'
+            ? {turnLimitNotice: {turns: event.turns, maxTurns: event.maxTurns}}
+            : {}),
     })
 
     // ★ 段边界落库（done 收尾 flush）已随渲染端落库退出（Phase 3）删除。
 
-    // loop_detected 与 aborted 走同款收尾（不触发 pendingMessages 续跑）；UI 文案 Task 5 完善
-    if (event.reason !== 'aborted' && event.reason !== 'loop_detected') {
+    // loop_detected / max_turns_reached 与 aborted 走同款收尾（不触发 pendingMessages 续跑）；
+    // 达上限截断先让用户看到提示，再决定是否继续。
+    if (event.reason !== 'aborted' && event.reason !== 'loop_detected' && event.reason !== 'max_turns_reached') {
         const pendingMsgs = get().convAgentStates[convId]?.pendingMessages
         if (pendingMsgs && pendingMsgs.length > 0) {
             const [firstMsg, ...remainingMsgs] = pendingMsgs
@@ -165,7 +175,7 @@ export async function handleDone(ctx: StreamCtx) {
     //   无任何内容（首 token 前即终止），移除空白气泡。abortAgentImpl 已即时清理，此处兜底
     //   handleDone 直发路径（如 onWorkerExit 安全网 / loop_detected / 取消 tools 变动收尾），
     //   幂等无害。清理同时经 deleteMessageForConv 下发 IPC 删库行，故刷新后也不会残留空白气泡。
-    if (event.reason === 'aborted' || event.reason === 'loop_detected' || event.reason === 'tools_change_cancelled') {
+    if (event.reason === 'aborted' || event.reason === 'loop_detected' || event.reason === 'tools_change_cancelled' || event.reason === 'max_turns_reached') {
         removeEmptyAssistantMessage(convId, doneConvData.streamingMessageId)
     }
 
@@ -209,16 +219,19 @@ export function handleError(ctx: StreamCtx) {
     }))
 
     // ★ 与 done/injected 对称：flush 前先补 endedAt（防无 endedAt 快照覆盖主进程 final 写）。
-    //   无流式消息的 error 此分支自然跳过，flush 仍执行。
+    //   无流式消息的 error 此分支自然跳过。
     if (errorMsgId) {
         useConversationStore.getState().updateMessageForConv(convId, errorMsgId, {
             endedAt: Date.now(),
         })
-        // ★ 收尾前同步冲刷 rAF tool_result 批（与 handleDone 同因：确保
-        //   tool_result 先于 end 进入 dirty map 同批落库）
-        flushToolResultBatch(convId)
         // ★ 块级增量收尾（error finalize）已随渲染端落库退出（Phase 3）删除。
     }
+    // ★ 无条件冲刷 rAF tool_result 批（与 handleDone 同因：确保 tool_result 先于 end 进入
+    //   dirty map 同批落库）。不置于 errorMsgId 判断内：本函数末尾的
+    //   clearConversationRuntimeState → clearAllBatches 会 delete 该 convId 的
+    //   toolResultBatches key；若 errorMsgId 为 null 而批内仍有待 flush 项，
+    //   晚到的 tool_result 会被丢弃、工具卡片停在「处理中」。
+    flushToolResultBatch(convId)
     // ★ 即时清理：error 收尾即清（与 handleDone 对称）
     clearConversationRuntimeState(convId)
 }

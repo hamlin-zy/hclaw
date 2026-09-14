@@ -7,7 +7,7 @@
  * - agentManager: 全局 AgentManager 实例
  */
 
-import {agentManager} from './manager'
+import {agentManager, disposeAgentManagerEvents} from './manager'
 import {registerBuiltinTools} from './tools/index'
 import {permissionEngine} from './tools/permission'
 import {powerManager} from './powerManager'
@@ -62,4 +62,4 @@ export function registerAgentIPC(): void {
     registerToolHandlers()
 }
 
-export {agentManager}
+export {agentManager, disposeAgentManagerEvents}

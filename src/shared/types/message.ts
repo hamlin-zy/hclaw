@@ -10,7 +10,7 @@ export interface ToolCall {
   id: string
   name: string
   arguments: Record<string, unknown>
-  status: 'pending' | 'running' | 'success' | 'error' | 'cancelled'
+  status: 'pending' | 'running' | 'success' | 'error' | 'cancelled' | 'truncated'
   /** 此工具的调用时机（assistant 返回内容中的偏移），用于渲染时定位位置 */
   textOffset?: number
   /** 执行进度信息 */

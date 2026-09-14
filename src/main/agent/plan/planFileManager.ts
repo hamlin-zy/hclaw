@@ -151,7 +151,12 @@ export class PlanFileManager {
     if (editor !== 'auto') return editor
     for (const ed of ['code', 'code-insiders', 'vim', 'vi', 'nano'] as EditorType[]) {
       try {
-        spawn(ed, ['--version'], {stdio: 'ignore', windowsHide: true}).unref()
+        const proc = spawn(ed, ['--version'], {stdio: 'ignore', windowsHide: true})
+        // 必须挂 error 监听：未安装编辑器时 spawn 会异步 emit ENOENT 'error'，
+        // 无监听则升级为 uncaughtException（被全局 handler 捕获后 5s 退出进程）。
+        // 空监听保持"探测存在性"语义不变（是否返回该 ed 仍由同步 spawn 是否抛错决定）。
+        proc.on('error', () => { /* 编辑器不存在，忽略 */ })
+        proc.unref()
         return ed
       } catch { /* try next */
       }

@@ -68,7 +68,13 @@ export function getToolResultBatch(convId: string): Map<string, PendingToolResul
 
 export function flushToolResultBatch(convId: string) {
     const batch = toolResultBatches[convId]
-    if (!batch || batch.size === 0) return
+    if (!batch) return
+    // ★ 空 Map 也删 key：原 `!batch || batch.size === 0` 在 size 为 0 时直接 return，
+    //   convId 的空 Map key 永久残留（与 shortcutManager 空 Set 删 key 同一范式）
+    if (batch.size === 0) {
+        delete toolResultBatches[convId]
+        return
+    }
 
     // 即时清理：flush 后即删除会话 batch（新结果经 getToolResultBatch 重建）
     delete toolResultBatches[convId]

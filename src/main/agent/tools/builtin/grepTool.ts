@@ -136,7 +136,6 @@ async function searchWithRipgrep(
     }
 
     child.on('error', () => finish(true))
-    child.on('spawn-error' as any, () => finish(true))
 
     // 取消信号：用户中止 / worker 终止时回收子进程，避免 rg 在后台继续扫描占用资源。
     // 注：不在此处自设超时——工具超时由 executor 的 withToolTimeout 统一裁定（DB 可配，

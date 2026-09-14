@@ -47,7 +47,7 @@ export interface SubAgentStreamEntry {
 
 /** 工具调用运行时状态 */
 export interface ToolCallState {
-    status: 'pending' | 'running' | 'success' | 'error' | 'cancelled'
+    status: 'pending' | 'running' | 'success' | 'error' | 'cancelled' | 'truncated'
     progress?: string
     progressPercent?: number
     eta?: number

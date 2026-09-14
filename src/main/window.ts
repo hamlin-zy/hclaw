@@ -349,8 +349,11 @@ export const createWindow = (): void => {
     }
 
     // ---- 事件监听 ----
-    mainWindow.on('closed', () => {
-        mainWindow = null;
+    // 捕获本窗口身份：setMainWindow() 可被外部重建路径重新赋值，
+    // 闭包若直接写模块级 mainWindow 会把「新窗口」误置为 null，故用身份守卫。
+    const thisWin = mainWindow;
+    thisWin.on('closed', () => {
+        if (mainWindow === thisWin) mainWindow = null;
     });
 
     // 关闭前持久化窗口状态（无论退出还是隐藏到托盘，都先保存）

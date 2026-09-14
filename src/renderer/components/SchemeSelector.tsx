@@ -172,13 +172,17 @@ export default function SchemeSelector() {
     const [isSwitching, setIsSwitching] = useState(false)
     const [toastMessage, setToastMessage] = useState<string | null>(null)
     const dropdownRef = useRef<HTMLDivElement>(null)
+    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理 toast 自动关闭定时器
+    useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
 
     const enabledSchemes = schemes.filter((s) => s.enabled)
     const activeScheme = schemes.find((s) => s.id === activeSchemeId)
 
     const showToast = useCallback((message: string, duration = 3000) => {
+        if (toastTimer.current) clearTimeout(toastTimer.current)
         setToastMessage(message)
-        setTimeout(() => setToastMessage(null), duration)
+        toastTimer.current = setTimeout(() => { toastTimer.current = null; setToastMessage(null) }, duration)
     }, [])
 
     useEffect(() => {

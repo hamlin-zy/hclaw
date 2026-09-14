@@ -94,6 +94,8 @@ export async function startAgentImpl(
             currentModelProvider: undefined,
         },
         errorMessage: null,
+        // ★ 新一轮开始即清上一轮的「达轮数上限」提示条（与 per-conv 复位同处）
+        turnLimitNotice: undefined,
     })
 
     try {

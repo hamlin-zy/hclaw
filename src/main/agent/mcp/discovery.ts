@@ -29,6 +29,31 @@ let mcpPort: MessagePort | null = null
 /** 设置 MCP Worker 的 MessagePort（从 worker.ts 启动时注入） */
 export function setMcpMessagePort(port: MessagePort | null): void {
   mcpPort = port
+  if (port) ensureMcpPortDispatcher(port)
+}
+
+// ─── 共享 mcpPort 的单一分发式 listener ────────────────────────
+//
+// 动机：原实现每次工具调用都在共享 mcpPort 上 port.on('message', handler)，
+// 并发 callId >10 即触发 MaxListenersExceededWarning（NDJSON 端口无上限）。
+// 改为每个 port 只挂一个分发器：按 callId 查表 → 摘除 → resolve；调用方在 finally 摘除。
+
+/** callId → 待定 resolve（跨 port 共用一个表，callId 为随机 UUID 前缀） */
+const pendingMcpCalls = new Map<string, (result: any) => void>()
+/** 已装过分发器的 port（避免重复挂载；WeakSet 允许 port 被回收） */
+const dispatcherInstalled = new WeakSet<MessagePort>()
+
+function ensureMcpPortDispatcher(port: MessagePort): void {
+  if (dispatcherInstalled.has(port)) return
+  dispatcherInstalled.add(port)
+  port.on('message', (msg: any) => {
+    const callId = msg?.callId
+    if (typeof callId !== 'string') return  // server_tools_update 等主动推送无 callId，忽略
+    const resolve = pendingMcpCalls.get(callId)
+    if (!resolve) return
+    pendingMcpCalls.delete(callId)
+    resolve(msg.result)
+  })
 }
 
 /** 获取当前可用的 MCPClient（主进程使用）或 MessagePort（Worker 使用） */
@@ -193,25 +218,20 @@ function createMCPToolProxy(args: {
           if (mcpPort) {
             const callId = crypto.randomUUID().slice(0, 8)
             const port = mcpPort  // local ref for TS narrowing
-            let handler: ((msg: any) => void) | null = null
+            ensureMcpPortDispatcher(port)
             try {
+              // 分发式 listener：不在本调用上 port.on，避免共享端口监听器随并发无界增长
               return await withToolTimeout(
                 new Promise<ToolResult>((resolve) => {
-                  handler = (msg: any) => {
-                    if (msg.callId === callId) {
-                      port.off('message', handler!)
-                      resolve(msg.result)
-                    }
-                  }
-                  port.on('message', handler)
+                  pendingMcpCalls.set(callId, resolve)
                   port.postMessage({type: 'call_tool', callId, serverId, toolName: toolDef.name, args})
                 }),
                 toolFullName,
                 timeoutMs
               )
             } finally {
-              // 超时/异常路径同样移除监听器，避免共享 mcpPort 上泄漏
-              if (handler) port.off('message', handler)
+              // 超时/异常/成功路径统一摘除登记项，避免 pendingMcpCalls 泄漏
+              pendingMcpCalls.delete(callId)
             }
           }
           // 无 MessagePort（MCP Worker 未就绪或崩溃），不注册此工具

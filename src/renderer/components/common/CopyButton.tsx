@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 
 interface CopyButtonProps {
   /** Text to copy to clipboard */
@@ -14,12 +14,16 @@ interface CopyButtonProps {
  */
 export function CopyButton({ name, size = 'md' }: CopyButtonProps) {
   const [copied, setCopied] = useState(false)
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 卸载兜底：清理「已复制」复位定时器
+  useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
 
   const doCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(name)
+      if (copiedTimer.current) clearTimeout(copiedTimer.current)
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      copiedTimer.current = setTimeout(() => { copiedTimer.current = null; setCopied(false) }, 2000)
     } catch {
       /* clipboard unavailable — silently ignore */
     }

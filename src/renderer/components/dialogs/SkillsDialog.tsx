@@ -426,6 +426,10 @@ function SkillCard({
     const {removeSkill, refreshSkills} = useSkillStore()
     const [deleting, setDeleting] = useState(false)
     const [deleteError, setDeleteError] = useState<string | null>(null)
+    // deleteError 自动隐藏定时器（对齐文件内 installMessageTimer 的记账范式）
+    const deleteErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理自动隐藏定时器
+    useEffect(() => () => { if (deleteErrorTimer.current) clearTimeout(deleteErrorTimer.current) }, [])
 
     const handleDelete = useCallback(async (e: React.MouseEvent) => {
         e.stopPropagation()
@@ -445,7 +449,11 @@ function SkillCard({
             onDeleted?.()
         } else {
             setDeleteError(result.error || '删除失败')
-            setTimeout(() => setDeleteError(null), 4000)
+            if (deleteErrorTimer.current) clearTimeout(deleteErrorTimer.current)
+            deleteErrorTimer.current = setTimeout(() => {
+                deleteErrorTimer.current = null
+                setDeleteError(null)
+            }, 4000)
         }
     }, [skill, removeSkill, refreshSkills, onDeleted])
 

@@ -71,10 +71,17 @@ export function stopAllWatchers(): void {
   for (const ws of [...projectWindows.keys()]) void stopWatcher(ws)
 }
 
-// 幂等注册：同 channel 已有 listener 时跳过（避免窗口重开 / 重复 init 覆盖）
+// 幂等注册：重复 init 时先移除旧 handler 再注册（窗口重开 / 重复 init 场景）。
+// ★ 不能用 ipcMain.listenerCount 判定：ipcMain.handle 不写入 EventEmitter 的 listener
+//   列表，listenerCount 恒为 0 → 守卫恒真、无幂等效果，重复 init 会抛
+//   "Attempted to register a second handler for 'xxx'"。对齐 utils/windowFactory.ts:37-40。
 function safeHandle(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown): void {
-  if (!ipcMain.listenerCount(channel)) ipcMain.handle(channel, handler)
+  ipcMain.removeHandler(channel)
+  ipcMain.handle(channel, handler)
 }
+
+/** pm:send-to-conversation:ack 当前注册的 handler（重复 init 时用同一引用先 removeListener） */
+let sendToConversationAckHandler: ((event: Electron.IpcMainEvent, payload: {requestId: string; ok: boolean; error?: string; started?: boolean}) => void) | null = null
 
 export function initProjectManagerIPC(): void {
   // 注：pm:list-directory / pm:read-file 的路径校验在 listDirectory / readFileForViewer
@@ -164,11 +171,16 @@ export function initProjectManagerIPC(): void {
       },
       getMainWindow,
     }))
-  if (!ipcMain.listenerCount('pm:send-to-conversation:ack')) {
-    ipcMain.on('pm:send-to-conversation:ack', (e, p: {requestId: string; ok: boolean; error?: string; started?: boolean}) => {
-      const mw = getMainWindow()
-      if (!mw || mw.isDestroyed() || mw.webContents !== e.sender) return
-      resolveSendToConversationAck(p)
-    })
+  // ★ ipcMain.on 走 EventEmitter，listenerCount 判定确实有效，但其语义是「跳过重复注册」
+  //   而非「替换」：重复 init 时旧 handler 会随守卫一起被保留（旧的闭包残留）。对齐
+  //   safeHandle 的既有正确实现——用同一引用先 removeListener，再注册新 handler。
+  if (sendToConversationAckHandler) {
+    ipcMain.removeListener('pm:send-to-conversation:ack', sendToConversationAckHandler)
   }
+  sendToConversationAckHandler = (e, p) => {
+    const mw = getMainWindow()
+    if (!mw || mw.isDestroyed() || mw.webContents !== e.sender) return
+    resolveSendToConversationAck(p)
+  }
+  ipcMain.on('pm:send-to-conversation:ack', sendToConversationAckHandler)
 }

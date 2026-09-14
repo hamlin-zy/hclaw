@@ -16,7 +16,8 @@ import {createTray} from './tray';
 import {registerGlobalShortcutsAtStartup} from './shortcuts';
 import {createAppMenu} from './menu';
 import {initConversationIPC} from './conversation';
-import {agentManager, initAgent, registerAgentIPC} from './agent';
+import {agentManager, initAgent, registerAgentIPC, disposeAgentManagerEvents} from './agent';
+import {disposePowerManagerEvents} from './agent/powerManager';
 import {registerMCPEventForwarding, registerMCPIPC} from './agent/mcp/ipc';
 import {migrateMcpFromSqlite} from './config/migrateMcpHookFromSqlite';
 import {mcpService} from './services/mcpService';
@@ -24,7 +25,7 @@ import {initLlmTraceIPC} from './utils/llmCallLogStore';
 import {initUsageStatsIPC} from './utils/usageWindow';
 import {initConfigWindowIPC} from './utils/configWindow';
 import {initTaskBatchIPC} from './ipc/taskBatches';
-import {startConfigWatcher} from './config-watcher';
+import {startConfigWatcher, stopConfigWatcher} from './config-watcher';
 import {initProgress, setInitProgressTransport} from './initProgress';
 import {broadcastToAllWindows} from './utils/windowBroadcast';
 import {initializePlugins, registerPluginIPC} from './plugin/ipc';
@@ -41,6 +42,7 @@ import {initToolIPC} from './toolIPC';
 import {initScheduleIPC} from './scheduler/scheduleIPC';
 import {schedulerManager} from './scheduler';
 import {channelManager} from './channel/ChannelManager';
+import {stopPendingAttachmentsCleanup} from './channel/messageHandler';
 import {initChannelIPC} from './channel/channelIPC';
 import {initMemoIPC} from './memo/memoIPC';
 import {initProjectManagerIPC, stopAllWatchers} from './project-manager/window';
@@ -205,6 +207,10 @@ const unsubscribePersistEvent = getConversationPersistence().onPersistEvent(e =>
   const win = getMainWindow();
   try { win?.webContents.send('agent-persist-event', e) } catch { /* 窗口未就绪/已销毁时忽略 */ }
 });
+
+/** registerMCPEventForwarding() 返回的注销函数（须在 will-quit 调用，否则模块级订阅残留）。
+ *  声明在模块作用域：注册点在 app.on('ready') 内，注销点在 will-quit 内。 */
+let unsubscribeMCPEventForwarding: (() => void) | null = null;
 
 registerPluginIPC();
 registerRepoIPC();
@@ -407,7 +413,8 @@ app.on('ready', async () => {
     createAppMenu();
 
   // MCP 事件转发广播给所有渲染窗口（须在窗口创建后注册）
-  registerMCPEventForwarding();
+  // ★ 接住返回的注销函数（此前直接丢弃 → mcpService.onEvent 订阅在 will-quit 后残留）
+  unsubscribeMCPEventForwarding = registerMCPEventForwarding();
 
   registerGlobalShortcutsAtStartup();
   trace('main:shortcuts-registered');
@@ -599,9 +606,21 @@ app.on('will-quit', async () => {
   // 注销模块级事件订阅，避免 will-quit 后残留监听句柄
   try { unsubscribePersistEvent(); } catch { /* ignore */ }
   try { disposeCapabilityIPC(); } catch { /* ignore */ }
+  // ★ 注销各单例注册在全局 eventBus 上的订阅：on() 返回 void（无自动注销句柄），
+  //   不显式 off 则 eventBus 的 listener 集合持续持有这些单例闭包（连同其全部状态）。
+  try { disposeAgentManagerEvents(); } catch { /* ignore */ }
+  try { disposePowerManagerEvents(); } catch { /* ignore */ }
+  // ★ 停止 mcp.json 的 fs.watch（stopConfigWatcher 内部幂等：watcher 为 null 时 no-op）
+  try { stopConfigWatcher(); } catch { /* ignore */ }
+  // ★ MCP 事件转发注销函数（此前注册时丢弃了返回值 → mcpService.onEvent 订阅残留）
+  try { unsubscribeMCPEventForwarding?.(); } catch { /* ignore */ }
   globalShortcut.unregisterAll();
   agentManager.abortAll();
   await mcpWorkerManager.shutdown();
+  // ★ 关闭 Channel Worker（此前 shutdown() 无任何调用者，退出时 Channel worker 进程会被整体带走而非优雅终止）
+  try { channelManager.shutdown(); } catch { /* ignore */ }
+  // ★ 停止 messageHandler 模块级的过期附件清理定时器（否则残留 interval 句柄）
+  try { stopPendingAttachmentsCleanup(); } catch { /* ignore */ }
   // 关闭持久化 Shell 会话池，销毁常驻 shell 进程
   const {disposeAllShellSessions} = await import('./agent/tools/shellPool/pool');
   try { disposeAllShellSessions(); } catch { /* ignore */ }

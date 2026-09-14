@@ -33,7 +33,9 @@ function sweep(): void {
   const now = Date.now()
   for (const [key, entry] of entries) {
     if (!entry.session.alive || now - entry.lastUsed > IDLE_DESTROY_MS) {
-      entry.session.dispose()
+      // dispose 现为 async（等待进程退出不再同步忙等）；kill 仍同步发生，
+      // 此处 fire-and-forget 无需等待
+      void entry.session.dispose()
       entries.delete(key)
     }
   }
@@ -50,7 +52,7 @@ function evictOldest(): void {
     }
   }
   if (oldestKey) {
-    entries.get(oldestKey)!.session.dispose()
+    void entries.get(oldestKey)!.session.dispose()
     entries.delete(oldestKey)
   }
 }
@@ -105,7 +107,8 @@ export async function acquireSession(opts: AcquireOptions): Promise<PersistentSh
 /** 销毁所有池条目（应用退出钩子调用） */
 export function disposeAllShellSessions(): void {
   for (const entry of entries.values()) {
-    entry.session.dispose()
+    // async dispose：kill 同步发起，等待退出异步（应用退出钩子无需阻塞）
+    void entry.session.dispose()
   }
   entries.clear()
   if (sweeper) {

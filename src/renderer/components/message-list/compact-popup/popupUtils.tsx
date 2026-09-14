@@ -1,4 +1,4 @@
-import {memo, useCallback, useState} from 'react'
+import {memo, useCallback, useEffect, useRef, useState} from 'react'
 
 /**
  * 渲染 diff 文本（语法着色行）
@@ -24,12 +24,16 @@ export function renderDiff(diffText: string): React.ReactNode {
  */
 export const CopyButton = memo(function CopyButton({code, label}: { code: string; label?: string }) {
     const [copied, setCopied] = useState(false)
+    const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理「已复制」复位定时器
+    useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
 
     const handleCopy = useCallback(async () => {
         try {
             await navigator.clipboard.writeText(code)
+            if (copiedTimer.current) clearTimeout(copiedTimer.current)
             setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
+            copiedTimer.current = setTimeout(() => { copiedTimer.current = null; setCopied(false) }, 2000)
         } catch {
             // 复制失败，静默处理
         }

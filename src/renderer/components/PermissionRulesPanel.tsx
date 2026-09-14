@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react'
+import {useEffect, useRef, useState} from 'react'
 import {useAgentStore} from '../stores/agentStore'
 
 export default function PermissionRulesPanel() {
@@ -8,6 +8,9 @@ export default function PermissionRulesPanel() {
     const [editTool, setEditTool] = useState('')
     const [isEditing, setIsEditing] = useState(false)
     const [confirmingDelete, setConfirmingDelete] = useState(false)
+    const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理「刷新中」复位定时器
+    useEffect(() => () => { if (refreshTimer.current) clearTimeout(refreshTimer.current) }, [])
 
     useEffect(() => {
         cleanAndFetch()
@@ -19,7 +22,8 @@ export default function PermissionRulesPanel() {
             await window.electronAPI?.agentCleanPermissionRules?.()
             await fetchPermissionRules()
         } finally {
-            setTimeout(() => setIsRefreshing(false), 500)
+            if (refreshTimer.current) clearTimeout(refreshTimer.current)
+            refreshTimer.current = setTimeout(() => { refreshTimer.current = null; setIsRefreshing(false) }, 500)
         }
     }
 
