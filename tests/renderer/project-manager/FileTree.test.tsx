@@ -705,3 +705,108 @@ describe('FileTree 右键删除（danger）', () => {
     await waitFor(() => expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({title: '删除失败', confirmText: '知道了'})))
   })
 })
+
+describe('FileTree 加载态（骨架屏 + 刷新 spin）', () => {
+  it('首层未 resolve 时渲染骨架屏，而不是「目录为空」', async () => {
+    let resolveRoot!: (v: DirEntry[]) => void
+    listDir.mockImplementationOnce(() => new Promise<DirEntry[]>(res => { resolveRoot = res }))
+    render(<FileTree />)
+
+    // 骨架屏自身不再是 role="status"（role="tree" 内不允许），加载语义由 tree 容器 aria-busy 承担
+    expect(screen.getByTestId('pm-filetree-loading')).toBeInTheDocument()
+    const tree = screen.getByRole('tree')
+    expect(tree).toHaveAttribute('aria-busy', 'true')
+    expect(tree).toHaveAttribute('aria-label', '文件树')
+    expect(screen.queryByText('目录为空')).toBeNull()
+
+    resolveRoot([])
+    await act(async () => {})   // 冲刷未决 promise，避免 act 告警
+  })
+
+  it('root resolve 为空数组后骨架屏消失、「目录为空」出现，tree 容器 aria-busy=false', async () => {
+    listDir.mockResolvedValue([])
+    render(<FileTree />)
+
+    await waitFor(() => expect(screen.queryByTestId('pm-filetree-loading')).toBeNull())
+    expect(screen.getByText('目录为空')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('tree')).toHaveAttribute('aria-busy', 'false'))
+  })
+
+  it('点击刷新：按钮 disabled 且图标带 pm-spin；resolve 后恢复且不清空既有条目', async () => {
+    listDir.mockResolvedValue([fileEntry('a.ts', 'a.ts')])
+    render(<FileTree />)
+    expect(await screen.findByRole('treeitem', {name: 'a.ts'})).toBeInTheDocument()
+
+    // 刷新请求挂起：按钮应进入 loading 态
+    let resolveRefresh!: (v: DirEntry[]) => void
+    listDir.mockImplementation(() => new Promise<DirEntry[]>(res => { resolveRefresh = res }))
+    const btn = screen.getByRole('button', {name: '刷新'})
+    fireEvent.click(btn)
+
+    await waitFor(() => expect(btn).toBeDisabled())
+    expect(btn.querySelector('svg')).toHaveClass('pm-spin')
+    // 加载中保留原条目（刷新不清缓存 → 不闪成骨架屏/空态）
+    expect(screen.getByRole('treeitem', {name: 'a.ts'})).toBeInTheDocument()
+    expect(screen.queryByTestId('pm-filetree-loading')).toBeNull()
+
+    resolveRefresh([fileEntry('a.ts', 'a.ts')])
+    await waitFor(() => expect(btn).toBeEnabled())
+    expect(btn.querySelector('svg')).not.toHaveClass('pm-spin')
+    expect(screen.getByRole('treeitem', {name: 'a.ts'})).toBeInTheDocument()
+  })
+
+  it('多目录刷新：整批（根 + 已展开）未全部落定前，按钮持续 disabled + pm-spin', async () => {
+    const rootEntries = [dirEntry('a', 'a'), dirEntry('b', 'b')]
+    listDir.mockImplementation(async (_ws: string, dir: string) =>
+      dir === '.' ? rootEntries : [fileEntry(`${dir}/f.ts`, `${dir}/f.ts`)])
+    render(<FileTree />)
+
+    // 展开 a、b（各自触发懒加载，先让它们全部落定）
+    fireEvent.click((await screen.findByRole('treeitem', {name: 'a'})).querySelector('[role="button"]')!)
+    fireEvent.click(screen.getByRole('treeitem', {name: 'b'}).querySelector('[role="button"]')!)
+    await waitFor(() => expect(useFileTreeStore.getState().expanded.size).toBe(2))
+
+    // 刷新：三个请求（根 + a + b）全部挂起，用 deferred 控制 resolve 顺序
+    const deferred: Record<string, (v: DirEntry[]) => void> = {}
+    listDir.mockImplementation((_ws: string, dir: string) =>
+      new Promise<DirEntry[]>(res => { deferred[dir] = res }))
+    const btn = screen.getByRole('button', {name: '刷新'})
+    fireEvent.click(btn)
+
+    await waitFor(() => expect(btn).toBeDisabled())
+    expect(btn.querySelector('svg')).toHaveClass('pm-spin')
+    expect(Object.keys(deferred).sort()).toEqual(['.', 'a', 'b'])   // 根 + expanded 快照
+
+    // 先 resolve 根：其余仍在飞 → 不得停转/恢复可点（旧实现此处即早停）
+    await act(async () => { deferred['.']!([fileEntry('root.ts', 'root.ts')]) })
+    expect(btn).toBeDisabled()
+    expect(btn.querySelector('svg')).toHaveClass('pm-spin')
+
+    // 再落定一个子目录：仍保持 loading
+    await act(async () => { deferred['a']!([fileEntry('a/f.ts', 'a/f.ts')]) })
+    expect(btn).toBeDisabled()
+    expect(btn.querySelector('svg')).toHaveClass('pm-spin')
+
+    // 最后一个落定 → 整批收敛，恢复可点且停转
+    await act(async () => { deferred['b']!([fileEntry('b/f.ts', 'b/f.ts')]) })
+    await waitFor(() => expect(btn).toBeEnabled())
+    expect(btn.querySelector('svg')).not.toHaveClass('pm-spin')
+  })
+
+  it('刷新批次中单个目录失败（reject）不使 refreshing 卡死', async () => {
+    listDir.mockImplementation(async (_ws: string, dir: string) =>
+      dir === '.' ? [dirEntry('a', 'a')] : [fileEntry('a/f.ts', 'a/f.ts')])
+    render(<FileTree />)
+    fireEvent.click((await screen.findByRole('treeitem', {name: 'a'})).querySelector('[role="button"]')!)
+    await waitFor(() => expect(useFileTreeStore.getState().childrenCache['a']).toBeDefined())
+
+    listDir.mockImplementation((_ws: string, dir: string) =>
+      dir === 'a' ? Promise.reject(new Error('boom')) : Promise.resolve([dirEntry('a', 'a')]))
+    const btn = screen.getByRole('button', {name: '刷新'})
+    fireEvent.click(btn)
+
+    await waitFor(() => expect(btn).toBeDisabled())
+    await waitFor(() => expect(btn).toBeEnabled())   // allSettled：失败也不阻塞收敛
+    expect(btn.querySelector('svg')).not.toHaveClass('pm-spin')
+  })
+})

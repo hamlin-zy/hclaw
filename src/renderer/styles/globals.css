@@ -3032,6 +3032,44 @@ html.bg-enabled,
 }
 .pm-empty-state-icon { color: var(--text-muted); }
 
+/* 加载态：刷新按钮图标持续旋转（loadingDirs 命中时挂 .pm-spin） */
+.pm-spin { animation: pm-spin 0.9s linear infinite; }
+@keyframes pm-spin {
+    to { transform: rotate(360deg); }
+}
+/* 文件树骨架屏：根目录缓存缺失（首开 / 切换 workspace / 外部变更失效）时的占位，替代「目录为空」假空态 */
+.pm-tree-skeleton {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+    padding: 4px 0;
+}
+/* 单行骨架：行高与 TreeRow 对齐，加载完成切回真行时不发生高度跳动 */
+.pm-tree-skeleton-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 22px;
+    padding: 0 8px;
+}
+/* 骨架条：200% 宽渐变横向平移形成 shimmer（色值全部取现有令牌） */
+.pm-tree-skeleton-bar {
+    height: 10px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--surface-muted) 25%, var(--border-muted) 50%, var(--surface-muted) 75%);
+    background-size: 200% 100%;
+    animation: pm-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes pm-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+}
+/* 无障碍：偏好降低动效时关闭循环动画（骨架条保留静态渐变底色，不消失） */
+@media (prefers-reduced-motion: reduce) {
+    .pm-spin { animation: none; }
+    .pm-tree-skeleton-bar { animation: none; }
+}
+
 /* ========================================
    Project Manager：交互原语（spec §4 / §8.1 / §9.2 / §13.6 / §13.7）
    ======================================== */
@@ -3313,10 +3351,9 @@ html.bg-enabled,
 .pm-git-zone > .pm-panel-header {
     flex: 0 0 26px;
     background: var(--surface);
-    /* 不再伪装成独立卡片：去掉四边描边与圆角，只保留下边一条分隔线 */
-    border: 0;
-    border-radius: 0;
-    border-bottom: 1px solid var(--border-muted);
+    /* 轻量卡片（C 方案）：与同层的其它面板一致，恢复四边描边 + 圆角 */
+    border: 1px solid var(--border);
+    border-radius: 6px;
 }
 .pm-git-zone-body { flex: 1 1 0; min-height: 0; }
 .pm-git-zone-summary { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
