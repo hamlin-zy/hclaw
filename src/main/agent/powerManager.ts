@@ -32,6 +32,7 @@ import type {CapabilityEntry} from '../capability/types'
 import type {AgentTemplate} from '@shared/types'
 import type {SkillDefinition} from './skills/types'
 import {logger} from './logger'
+import {initProgress} from '../initProgress'
 import {seedDefaultAgentFiles} from './defaults/seedAgentFiles'
 
 export interface EnabledPower {
@@ -340,12 +341,16 @@ class PowerManagerImpl {
      * 消除 initialize() 和 refresh() 的重复代码
      */
     private async loadAllCapabilities(pluginEnabledMap?: Record<string, boolean>): Promise<void> {
+        // ★ 纯展示层上报：技能/命令属"多条目"阶段，上报开始与结束。
+        //   加载器未暴露逐条回调，故退化为 stage/done（无分母），不重构加载逻辑。
+        initProgress.stage('skill')
+
         // 并行加载所有能力
         await Promise.all([
-            this.loadAgents(),
-            this.loadSkills(pluginEnabledMap),
+            this.loadAgents().then(() => initProgress.done('agent')),
+            this.loadSkills(pluginEnabledMap).then(() => initProgress.done('skill')),
             this.loadMcpServers(),
-            this.loadCommands()
+            this.loadCommands().then(() => initProgress.done('command'))
         ])
     }
 

@@ -1,4 +1,4 @@
-import {app, BrowserWindow, globalShortcut, protocol} from 'electron';
+import {app, BrowserWindow, globalShortcut, ipcMain, protocol} from 'electron';
 import path from 'path';
 import * as fsPromises from 'fs/promises';
 
@@ -21,6 +21,8 @@ import {initUsageStatsIPC} from './utils/usageWindow';
 import {initConfigWindowIPC} from './utils/configWindow';
 import {initTaskBatchIPC} from './ipc/taskBatches';
 import {startConfigWatcher} from './config-watcher';
+import {initProgress, setInitProgressTransport} from './initProgress';
+import {broadcastToAllWindows} from './utils/windowBroadcast';
 import {initializePlugins, registerPluginIPC} from './plugin/ipc';
 import {registerCapabilityIPC} from './capability/ipc';
 import {GoogleAuthService, initGoogleAuthIPC} from './auth/googleAuth';
@@ -211,6 +213,13 @@ initProjectManagerIPC();
 app.on('ready', async () => {
   // DB is initialized at module import time via ./repositories/init
 
+  // 注入初始化进度的广播传输（必须在任何 initProgress.stage() 之前）
+  setInitProgressTransport(broadcastToAllWindows);
+
+  // 渲染进程挂载后主动拉取进度快照：createWindow() 之后立即发出的前几帧
+  // 渲染端监听尚未注册，会被 IPC 丢弃，需要靠这个拉取接口补齐。
+  ipcMain.handle('system:get-init-progress', () => initProgress.getSnapshot());
+
   ensureConfigLayout();
 
   void modelMetaRegistry.init();
@@ -372,7 +381,9 @@ app.on('ready', async () => {
 
   // Step 2: Plugin system - discover plugins only (not internal agents/skills/mcps/commands)
   logger.info('init-checkpoint', {step: 'initializePlugins-start'})
+  initProgress.stage('plugin')
   await initializePlugins();
+  initProgress.done('plugin')
   logger.info('init-checkpoint', {step: 'initializePlugins-done'})
 
   // Plugin version check (fire-and-forget) - fetches latest tags for all git plugins
@@ -402,8 +413,12 @@ app.on('ready', async () => {
 
   // Step 3: Agent + Skills 初始化（含插件 MCP 配置加载 + 缓存回写）
   logger.info('init-checkpoint', {step: 'initAgent-start'})
+  initProgress.stage('agent')
   await initAgent();
+  initProgress.done('agent')
   logger.info('init-checkpoint', {step: 'initAgent-done'})
+  // 主进程侧四段能力加载结束（MCP 阶段由渲染进程自行推导，主进程不管）
+  initProgress.finish()
 
   // 预热 hclaw_db_query 只读连接（数据库已初始化、工具已注册）
   const {initHclawDbQueryConnection} = await import('./agent/tools/builtin/hclawDbQueryConnection');

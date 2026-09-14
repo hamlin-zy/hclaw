@@ -18,6 +18,7 @@ import {useUpdaterStore} from '../stores/updaterStore'
 import {usePluginUpdateStore} from '../stores/pluginUpdateStore'
 import {useRepoUpdateStore} from '../stores/repoUpdateStore'
 import {useMcpUpdateStore} from '../stores/mcpUpdateStore'
+import {useInitProgressStore} from '../stores/initProgressStore'
 import SchemeSelector from './SchemeSelector'
 import {SIDEBAR_MENU_GROUPS, type SidebarMenuItem} from './sidebar/menuItems'
 import CopyToast from './common/CopyToast'
@@ -101,10 +102,46 @@ const STATUS_CONFIG: Record<SystemStatus, { label: string; colorClass: string; d
     },
 }
 
+/* ─── Init Phase Indicator ─── */
+
+/** 初始化阶段文案（动词） */
+const INIT_STAGE_LABELS: Record<string, string> = {
+    plugin: '扫描插件',
+    agent: '加载 Agent',
+    skill: '加载技能',
+    command: '加载命令',
+    mcp: '连接 MCP',
+}
+
+/** 读取启动能力初始化阶段（纯展示，不改动 status 判定） */
+function useInitPhase(): {active: boolean; label: string} {
+    const active = useInitProgressStore((s) => s.active)
+    const stage = useInitProgressStore((s) => s.stage)
+    const done = useInitProgressStore((s) => s.done)
+    const total = useInitProgressStore((s) => s.total)
+
+    if (!active || !stage) return {active: false, label: ''}
+
+    const verb = INIT_STAGE_LABELS[stage] || ''
+    // 有分母才显示 done/total
+    const label = total > 0 ? `${verb} ${done}/${total}` : verb
+    return {active: true, label}
+}
+
 function SystemStatusIndicator() {
     const {status, runningCount} = useSystemStatus()
+    const initPhase = useInitPhase()
 
-    const {label, colorClass, dotClass} = STATUS_CONFIG[status]
+    // 渲染优先级：working > 初始化阶段 > 常规系统状态
+    const showInitPhase = status !== 'working' && initPhase.active
+    const {label, colorClass, dotClass} = showInitPhase
+        ? {
+            label: initPhase.label,
+            // 借用 initializing 的样式
+            colorClass: 'text-[var(--warning)]',
+            dotClass: 'bg-[var(--warning)] animate-pulse',
+        }
+        : STATUS_CONFIG[status]
     const displayLabel = status === 'working' && runningCount > 0
         ? `${label} (${runningCount}个会话)`
         : label

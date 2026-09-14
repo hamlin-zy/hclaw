@@ -20,9 +20,28 @@
  */
 
 import {MessagePort, parentPort, workerData} from 'worker_threads'
+import {cpus} from 'os'
 import {MCPClient} from './mcp/client'
 import type {MCPServerConfig} from './mcp/types'
 import {formatMcpResult} from './mcp/formatResult'
+
+// ─── 首轮启动并发参数 ──────────────────────────────────
+/**
+ * 本地 stdio 池并发度。
+ *
+ * 上限取 6 的理由是「内存与进程创建成本」，不是 CPU：每个 MCP Server 常驻 50–150MB，
+ * 且 Windows 上 npx 经 cmd.exe 包装，每个 Server 实际产生 2–3 个进程，
+ * 冷启动还会触发杀软实时扫描。故只取一半核心数留出余量给 UI 与其余进程。
+ */
+const STDIO_CONCURRENCY = Math.max(2, Math.min(Math.floor(cpus().length / 2), 6))
+/**
+ * 远端池并发度。http/sse/ws 连接廉价、无本地子进程与内存开销，可取 2×，但仍设绝对上限 12。
+ */
+const REMOTE_CONCURRENCY = Math.min(STDIO_CONCURRENCY * 2, 12)
+/** 每个任务真正启动前的随机抖动下限（ms）——避免 npx 冷启动同时打盘 */
+const JITTER_MIN_MS = 100
+/** 每个任务真正启动前的随机抖动上限（ms） */
+const JITTER_MAX_MS = 300
 
 // ─── 类型定义 ──────────────────────────────────────────
 
@@ -169,12 +188,18 @@ class McpWorkerService {
     }
 
     /**
-     * 两轮串行启动所有启用的 MCP Server
+     * 两轮限流并发启动所有启用的 MCP Server
      *
-     * 为什么两轮串行:
-     * - 冷启动时多个 MCP Server 同时 npx/npm install 会导致:
-     *   npm registry 限流、磁盘 IO 争抢、进程数爆炸
-     * - 串行确保每个 Server 独占资源，互不干扰
+     * 为什么限流并发（而非串行）:
+     * - 串行会让「能力可用时间」等于所有 Server 握手时间之和，最慢的一个拖满整个启动窗口；
+     * - 全量并发又会造成 npm registry 限流、磁盘 IO 争抢、进程数爆炸。
+     *   故取受限并发：本地 stdio 走低并发池（见 STDIO_CONCURRENCY 注释：内存/进程成本决定上限），
+     *   远端口走独立高并发池（REMOTE_CONCURRENCY）。
+     *
+     * 为什么按 transport 分池:
+     * - stdio 每个连接都是一个常驻子进程（含 npx/cmd.exe 包装），成本高；
+     * - http/sse/ws 只有网络连接，成本低，可与 stdio 池并行且自身并发更高。
+     * 两个池互相独立、同时推进。
      *
      * 为什么第一轮 0 重试:
      * - 首次下载 npm 包的 Server 本来就慢，重试只会让后面排队的 Server 等更久
@@ -188,8 +213,8 @@ class McpWorkerService {
         const enabled = configs.filter(c => c.enabled)
         const failed: MCPServerConfig[] = []
 
-        // 第一轮: 每个 Server 仅尝试一次，不重试。失败跳过，继续下一个。
-        for (const config of enabled) {
+        // 第一轮: 每个 Server 仅尝试一次，不重试。失败记录后继续，不影响其他 Server。
+        const firstAttempt = async (config: MCPServerConfig): Promise<void> => {
             try {
                 const r = await this.mcpClient.startServer(config, 0) // maxRetries=0: 不重试
                 if (!r.success) {
@@ -201,7 +226,7 @@ class McpWorkerService {
                     failed.push(config)
                 }
             } catch (err: any) {
-                // P6 后 startServer 理论上不抛；此处为兜底，保证 worker_ready 一定发出
+                // P6 后 startServer 理论上不抛；此处为兜底，保证该 Server 不被静默丢弃、worker_ready 一定发出
                 parentPort?.postMessage({
                     type: 'worker_log',
                     level: 'warn',
@@ -211,7 +236,16 @@ class McpWorkerService {
             }
         }
 
-        // ★ 立即上报 worker_ready，UI 可以开始工作（大部分 Server 已就绪）
+        // 按 transport 分池：本地 stdio 低并发、远端高并发；两池并行推进。
+        const stdioConfigs = enabled.filter(c => c.transport === 'stdio')
+        const remoteConfigs = enabled.filter(c => c.transport !== 'stdio')
+        await Promise.all([
+            this.runPool(stdioConfigs, STDIO_CONCURRENCY, firstAttempt),
+            this.runPool(remoteConfigs, REMOTE_CONCURRENCY, firstAttempt),
+        ])
+
+        // ★ 上报时机不变：所有 Server 均已尝试过一轮（部分可能仍在后台重试）。
+        //   并发化后只会更早发出，不会延后。
         parentPort!.postMessage({type: 'worker_ready'})
         this.reportStatus()
 
@@ -224,6 +258,49 @@ class McpWorkerService {
             })
             this.backgroundRetry(failed).catch(() => {})
         }
+    }
+
+    /**
+     * 限流并发池：以 concurrency 条泳道消费 configs，每条泳道串行取下一个任务。
+     *
+     * 正确性保证：
+     * - `cursor++` 在单线程 JS 中同步取号（await 之前），不会出现重复处理或遗漏；
+     * - 泳道数 clamp 到 `[1, configs.length]`，空数组不会空转；
+     * - 任务本身不抛（由 firstAttempt 内部兜底），泳道不会因异常中断而丢任务。
+     *
+     * @param configs 待处理的 Server 配置
+     * @param concurrency 该池的并发度
+     * @param task 单个 Server 的处理函数（需自行吞异常，保证泳道存活）
+     */
+    private runPool(
+        configs: MCPServerConfig[],
+        concurrency: number,
+        task: (config: MCPServerConfig) => Promise<void>,
+    ): Promise<void[]> {
+        let cursor = 0
+        const lane = async (): Promise<void> => {
+            while (true) {
+                const index = cursor++
+                if (index >= configs.length) return
+                const config = configs[index]
+                // ★ 抖动：错开真正的进程创建时刻，避免多个 npx 冷启动同时打盘
+                const jitter = JITTER_MIN_MS + Math.random() * (JITTER_MAX_MS - JITTER_MIN_MS)
+                await new Promise(r => setTimeout(r, jitter))
+                // ★ 泳道必须存活：task 一旦抛出会让 Promise.all reject，
+                //   worker_ready 将永不发出、主进程 readyPromise 悬挂（无超时兜底）
+                try {
+                    await task(config)
+                } catch (err: any) {
+                    parentPort?.postMessage({
+                        type: 'worker_log',
+                        level: 'error',
+                        args: [`[Init] 池任务异常（已隔离，不影响其他 Server）: ${config.id} (${config.name}) ${err?.message ?? String(err)}`],
+                    })
+                }
+            }
+        }
+        const lanes = Math.max(1, Math.min(concurrency, configs.length))
+        return Promise.all(Array.from({length: lanes}, lane))
     }
 
     /**

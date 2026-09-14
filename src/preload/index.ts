@@ -889,6 +889,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
         },
     },
 
+    // 启动能力初始化进度（主进程 → 渲染进程，纯展示）
+    system: {
+        onInitProgress: (callback: (payload: {
+            stage: string
+            done: number
+            total: number
+            finished: boolean
+            completed: boolean
+        }) => void) => {
+            const handler = (_: unknown, payload: any) => callback(payload)
+            ipcRenderer.on('system:init-progress', handler)
+            return () => ipcRenderer.removeListener('system:init-progress', handler)
+        },
+        /** 拉取最后一帧进度快照（补齐挂载前丢失的帧） */
+        getInitProgress: () => ipcRenderer.invoke('system:get-init-progress'),
+    },
+
     // 任务批次（历史任务组窗口数据源）
     taskBatches: {
         getActive: (conversationId: string) => ipcRenderer.invoke('task-batches:get-active', conversationId),

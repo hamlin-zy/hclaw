@@ -363,6 +363,25 @@ declare global {
             onMcpStatusUpdate: (callback: (data: any) => void) => () => void
         }
 
+        // 启动能力初始化进度（主进程广播，纯展示）
+        system?: {
+            onInitProgress: (callback: (payload: {
+                stage: string
+                done: number
+                total: number
+                finished: boolean
+                completed: boolean
+            }) => void) => () => void
+            /** 拉取最后一帧进度快照（补齐挂载前丢失的帧） */
+            getInitProgress: () => Promise<{
+                stage: string
+                done: number
+                total: number
+                finished: boolean
+                completed: boolean
+            } | null>
+        }
+
         // 系统提示词构建（用于测试）
         systemPromptBuild: () => Promise<{ success: boolean; systemPrompt?: string; error?: string }>
 

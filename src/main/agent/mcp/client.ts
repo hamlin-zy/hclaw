@@ -29,6 +29,18 @@ import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/st
 import {WebSocketClientTransport} from '@modelcontextprotocol/sdk/client/websocket.js'
 import {toMcpToolDefinition, toMcpToolCallResult} from './sdkAdapter'
 
+// ─── 超时常量 ──────────────────────────────────────────
+/**
+ * 握手（connect/initialize/listTools）默认超时：15s。
+ * 收敛首轮「能力可用时间」，避免单个卡死的 Server 拖满整个启动窗口。
+ */
+const DEFAULT_CONNECT_TIMEOUT_MS = 15_000
+/**
+ * 请求（运行期工具调用）默认超时：60s。
+ * 工具调用可能合法地跑几分钟，禁止随握手超时一起压缩。
+ */
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
+
 /**
  * 进程控制接缝 —— 把模块级进程工具收进一个可注入对象，便于测试替身。
  * 缺省实现见 defaultProcessController（零新逻辑，纯转发）。
@@ -186,7 +198,7 @@ export class MCPClient {
         { capabilities: {} },
       )
 
-      const testTimeout = transportOptions.connectTimeout ?? 60_000
+      const testTimeout = transportOptions.connectTimeout ?? DEFAULT_CONNECT_TIMEOUT_MS
       const connectPromise = sdkClient.connect(sdkTransport)
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error(`测试连接超时 (${Math.round(testTimeout / 1000)}s)`)), testTimeout)
@@ -254,6 +266,11 @@ export class MCPClient {
   ): Promise<McpConnectResult> {
     let lastError: Error | undefined
 
+    // ★ 握手超时（connect/initialize/listTools 阶段）：只收敛连接建立与能力发现，
+    //   运行期 callTool 不走这里，见 getTransportOptions() 的拆分说明。
+    const connectTimeout =
+      this.getTransportOptions(state.config).connectTimeout ?? DEFAULT_CONNECT_TIMEOUT_MS
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       // ★ 中止检查
       if (state.status === 'stopped') {
@@ -286,8 +303,9 @@ export class MCPClient {
         )
         state.sdkClient = sdkClient
 
-        // ★ SDK 一键握手（initialize + initialized）
-        await sdkClient.connect(state.sdkTransport!)
+        // ★ SDK 一键握手（initialize + initialized）；显式传入握手超时，
+        //   否则 SDK 会退回到内建的 DEFAULT_REQUEST_TIMEOUT_MSEC = 60s，收敛不了首轮能力可用时间。
+        await sdkClient.connect(state.sdkTransport!, {timeout: connectTimeout})
 
         // ★ PID 捕获（仅 stdio 有子进程）
         if (state.sdkTransport instanceof StdioClientTransport) {
@@ -310,9 +328,9 @@ export class MCPClient {
         state.reconnectAttempts = 0
         state.lastErrorTime = undefined
 
-        // ★ 通过 SDK 发现工具
+        // ★ 通过 SDK 发现工具（握手阶段，使用同一个握手超时）
         if (serverCapabilities?.tools) {
-          const { tools } = await sdkClient.listTools()
+          const { tools } = await sdkClient.listTools(undefined, {timeout: connectTimeout})
           state.tools = tools.map(toMcpToolDefinition)
         }
 
@@ -322,7 +340,7 @@ export class MCPClient {
             ToolListChangedNotificationSchema,
             async () => {
               try {
-                const { tools } = await sdkClient.listTools()
+                const { tools } = await sdkClient.listTools(undefined, {timeout: connectTimeout})
                 state.tools = tools.map(toMcpToolDefinition)
                 this.emitStatusChange(state.config.id, this.getServer(state.config.id)!)
               } catch {
@@ -570,14 +588,27 @@ export class MCPClient {
 
   /**
    * 获取 Transport 配置选项
+   *
+   * ★ 超时拆分（原实现把 connectTimeout 与 requestTimeout 共用同一个 serverTimeout 变量）：
+   * - requestTimeout 语义 = 每 server「请求」超时，是 config.timeout 的本义
+   *   （types.ts 注释「请求超时时间」；运行期 discovery.ts 亦按 config.timeout 复用该语义）。
+   *   工具调用可能合法地跑几分钟（跑构建、查数据库），**禁止**随握手一起压缩 → 默认保持 60s。
+   * - connectTimeout 语义 = 仅「连接/初始化握手」阶段（connect/initialize/listTools）→ 独立 15s 默认。
+   *
+   * 覆盖能力：config.timeout 显式给定且小于请求默认值（60s）时，视为用户意图「更短的超时」，同时收紧握手；
+   * 否则握手一律走独立的 15s 默认。
+   * ⚠️ 不能写成 `config?.timeout ?? 15_000`：上游 mcpConfig.ts 会把未设置的 timeout 注入 60_000，
+   *   那样 15s 默认在真实配置下永远不生效。
    */
   private getTransportOptions(config?: MCPServerConfig): MCPTransportOptions {
-    // 优先使用服务器级别的 timeout，否则使用 60 秒默认值
-    const serverTimeout = config?.timeout ?? 60_000
+    const configured = config?.timeout
     return {
-      requestTimeout: serverTimeout,
+      requestTimeout: configured ?? DEFAULT_REQUEST_TIMEOUT_MS,
       shutdownTimeout: 5_000,
-      connectTimeout: serverTimeout,
+      connectTimeout:
+        configured != null && configured < DEFAULT_REQUEST_TIMEOUT_MS
+          ? configured
+          : DEFAULT_CONNECT_TIMEOUT_MS,
     }
   }
 
