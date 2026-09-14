@@ -205,6 +205,7 @@ export function updateTitleBarOverlay(theme: ThemeMode): void {
 export const createWindow = (): void => {
     trace('window:createWindow-enter');
     const icon = getAppIcon();
+    trace('window:icon-decoded', {isEmpty: !icon, size: icon?.getSize()});
 
     // ── 读取主题配置，渲染窗口前就确定正确主题，避免闪现 ──
     const {backgroundColor: initialTheme, rawTheme: rawThemeForRenderer} = readThemeSetting()

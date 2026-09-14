@@ -1,3 +1,7 @@
+// ── 冷启动观测：必须保持为第一条 import（零依赖副作用模块，见文件内注释）──
+// 它记录「主进程模块图开始求值」的时刻，供 startupTrace 量出模块图求值总耗时。
+import './startupAnchor';
+
 import {app, BrowserWindow, globalShortcut, ipcMain, protocol} from 'electron';
 import path from 'path';
 import * as fsPromises from 'fs/promises';
@@ -5,7 +9,7 @@ import * as fsPromises from 'fs/promises';
 // IMPORTANT: Database must be initialized before any other database-dependent modules
 import './repositories/init';
 
-import {ensureConfigLayout, initConfigIPC} from './config';
+import {ensureConfigLayout, initConfigIPC, getHclawDir} from './config';
 import {initBackgroundIPC} from './ipc/background';
 import {createWindow, getMainWindow, initWindowIPC, setIsQuitting, broadcastUpdaterStatus} from './window';
 import {createTray} from './tray';
@@ -52,7 +56,10 @@ import {mcpVersionManager} from './agent/mcp/versionManager';
 import {getConversationPersistence} from './persistence/conversationPersistence';
 import {registerRepoIPC, initializeRepoSystem} from './repo/ipc';
 import {repoVersionManager} from './repo/versionManager';
-import {trace, flushStartupTraceSync} from './startupTrace';
+import {trace, flushStartupTraceSync, setStartupTraceDir} from './startupTrace';
+
+// ── 冷启动观测：注入日志目录（startupTrace 刻意不 import config，避免新增循环依赖）──
+setStartupTraceDir(path.join(getHclawDir(), 'logs'))
 
 // ── 冷启动观测：所有 import 求值完成后的第一处打点（模块评估阶段结束）──
 trace('main:module-eval-start', {uptime: process.uptime()})
