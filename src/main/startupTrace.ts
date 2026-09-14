@@ -10,6 +10,9 @@
  *   - 零功能影响：只做观测，失败必须完全静默（永不抛异常、永不阻塞启动）。
  *   - 非阻塞落盘：fs.promises.appendFile 追加，不 await、失败静默。
  *   - 落盘路径：<注入的 hclawDir>/logs/app.log（未注入时回退 ~/.hclaw/logs）
+ *   - **仅在非生产环境启用**：默认只在 dev（npm run dev / --inspect / --devtools）下打点，
+ *     打包版不写 app.log；需要在打包版上诊断时用环境变量 HCLAW_STARTUP_TRACE=1 临时开启。
+ *     判定走 utils/devMode（零依赖，不引入 config 循环）。
  *
  * 每行格式（便于 grep）：
  *   [2026-09-14T11:20:51.601Z] [+1234.5ms] label {"k":"v"}
@@ -20,6 +23,21 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import {isDevMode} from './utils/devMode'
+
+/**
+ * 是否启用启动打点（惰性求值一次）。
+ *
+ * 生产（打包版）默认关闭：冷启动诊断已完成，不再往用户目录写 app.log。
+ * 需要复测打包版时：`HClaw.exe` 前设置 HCLAW_STARTUP_TRACE=1 即可。
+ */
+let enabledCached: boolean | null = null
+function isTraceEnabled(): boolean {
+    if (enabledCached === null) {
+        enabledCached = isDevMode() || process.env.HCLAW_STARTUP_TRACE === '1'
+    }
+    return enabledCached
+}
 
 /** 首次调用 trace() 的时刻（用于计算相对耗时）；null 表示尚未调用 */
 let t0: number | null = null
@@ -117,8 +135,9 @@ function ensureWatchdog(): void {
     if (typeof timer.unref === 'function') timer.unref()
 }
 
-/** 记录一条启动打点（非阻塞、失败静默、永不抛出） */
+/** 记录一条启动打点（非阻塞、失败静默、永不抛出；生产环境整体关闭） */
 export function trace(label: string, data?: Record<string, unknown>): void {
+    if (!isTraceEnabled()) return
     try {
         const now = Date.now()
         lastTraceLabel = label
@@ -162,6 +181,7 @@ export function trace(label: string, data?: Record<string, unknown>): void {
 
 /** 退出前把缓冲中尚未落盘的行同步刷出（供 app.on('will-quit') 调用） */
 export function flushStartupTraceSync(): void {
+    if (!isTraceEnabled()) return
     if (pendingLines.length === 0) return
     try {
         ensureInitialized()
