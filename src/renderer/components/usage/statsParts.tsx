@@ -1,5 +1,5 @@
 import {Info} from 'lucide-react'
-import type {ReactNode} from 'react'
+import {useState, type MouseEvent as ReactMouseEvent, type ReactNode} from 'react'
 import {getUsdCnyRate, type Currency} from '../../lib/format'
 
 /** 综合百万 Tokens 价格：总成本 / (综合总 tokens / 1_000_000)
@@ -133,12 +133,30 @@ export function getCostDisclaimer(): string {
     return `成本按 OpenRouter 美元单价估算，可能与您使用的服务商价格存在差异；人民币按 1 USD ≈ ${getUsdCnyRate().toFixed(2)} CNY 实时汇率折算，实际费用请以服务商账单为准。`
 }
 
-/** 信息提示（圆圈问号 + hover tooltip），placement 控制展开方向（受限容器内用 top 向上展开） */
+/** InfoTip 浮层宽度（与下方 w-72 保持一致），用于横向锚边判断 */
+const TIP_WIDTH = 288
+/** 浮层与视口边缘的安全间距 */
+const TIP_EDGE_MARGIN = 8
+
+/**
+ * 信息提示（圆圈问号 + hover tooltip）
+ * - placement：纵向展开方向（受限容器内用 top 向上展开）
+ * - 横向锚边随触发器实时位置自动选择：默认右对齐（向左展开）；
+ *   左侧空间不足以容纳 288px 浮层时改为左对齐（向右展开），
+ *   避免触发器贴近窗口左缘（如工具栏「本周 / 本月」）时浮层溢出到窗口外。
+ */
 export function InfoTip({text, placement = 'bottom'}: {text: string; placement?: 'bottom' | 'top'}) {
     // 默认在触发点下方展开（top-full），top 模式改为上方展开（bottom-full）
     const positionClass = placement === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+    const [align, setAlign] = useState<'right' | 'left'>('right')
+    const handleEnter = (e: ReactMouseEvent<HTMLDivElement>) => {
+        const r = e.currentTarget.getBoundingClientRect()
+        const spaceLeft = r.left
+        const spaceRight = window.innerWidth - r.right
+        setAlign(spaceLeft < TIP_WIDTH + TIP_EDGE_MARGIN && spaceRight > spaceLeft ? 'left' : 'right')
+    }
     return (
-        <div className="relative group shrink-0">
+        <div className="relative group shrink-0" onMouseEnter={handleEnter}>
             <span
                 role="img"
                 aria-label="成本口径说明"
@@ -146,7 +164,7 @@ export function InfoTip({text, placement = 'bottom'}: {text: string; placement?:
             >
                 ?
             </span>
-            <div className={`absolute right-0 ${positionClass} w-72 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] shadow-elevated px-3 py-2.5 text-[11px] leading-relaxed text-[var(--text-secondary)] opacity-0 pointer-events-none translate-y-0.5 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-150 z-50`}>
+            <div className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} ${positionClass} w-72 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] shadow-elevated px-3 py-2.5 text-[11px] leading-relaxed text-[var(--text-secondary)] opacity-0 pointer-events-none translate-y-0.5 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-150 z-50`}>
                 {text}
             </div>
         </div>
