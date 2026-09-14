@@ -4,10 +4,11 @@
  * 核心单例，管理所有 Agent/Skill/Command 的统一注册与查询。
  *
  * 关键设计：
- *   1. pluginIndex 按插件名索引 → onPluginStateChange 批量更新 O(n)
- *   2. searchText 预计算 → 搜索时无需每次拼接字符串
- *   3. 幂等注册 → 同 id 重复 register 会覆盖旧条目
- *   4. EventEmitter → 预留订阅/推送机制（Phase 1 不使用）
+ *   1. 对外接口收敛为：只读查询组 + replaceAll 写 seam + onChanged 订阅
+ *   2. 全量投影：由 powerManager.refresh() 收集全部条目后单次 replaceAll 写入
+ *   3. 变更门控：id 集合 + 条目浅签名比对，无变化不发信号
+ *   4. 变更信号载荷仅 { seq }（单调序号），消费端收信号后整表重取
+ *   5. searchText 预计算 → 搜索时无需每次拼接字符串
  */
 
 import { EventEmitter } from 'events'
@@ -23,111 +24,34 @@ export class CapabilityHub extends EventEmitter {
     /** 能力条目主存储：id → entry */
     private entries = new Map<string, CapabilityEntry>()
 
-    /** 插件索引：pluginName → entryIds（用于 onPluginStateChange 批量更新） */
-    private pluginIndex = new Map<string, Set<string>>()
+    /** 单调递增的变更序号，作为 onChanged 信号载荷 */
+    private seq = 0
 
     // ─── 写入 ───────────────────────────────────
 
     /**
-     * 注册单个能力条目（幂等：同 id 覆盖旧值）
+     * 全量替换当前投影（唯一写入口）。
+     *
+     * 与当前投影比对（id 集合 + 每个 entry 的浅签名）：
+     *   - 无变化 → 什么都不做（不发信号、不改状态）
+     *   - 有变化 → 更新存储、seq++、emit { seq }
+     *
+     * 插件归属（pluginName / pluginEnabled）由 entry 自带，无需额外索引。
      */
-    register(entry: CapabilityEntry): void {
-        // 计算搜索文本
-        if (!entry.searchText) {
-            entry.searchText = `${entry.name} ${entry.description}`.toLowerCase()
-        }
-
-        // 清理旧插件索引（如果 id 已存在但插件变了）
-        const old = this.entries.get(entry.id)
-        if (old?.pluginName && old.pluginName !== entry.pluginName) {
-            this.removeFromPluginIndex(old.pluginName, entry.id)
-        }
-
-        this.entries.set(entry.id, entry)
-
-        // 更新插件索引
-        if (entry.pluginName) {
-            this.addToPluginIndex(entry.pluginName, entry.id)
-        }
-    }
-
-    /**
-     * 批量注册（性能优化：批量插入后统一通知）
-     */
-    registerBatch(entries: CapabilityEntry[]): void {
+    replaceAll(entries: CapabilityEntry[]): void {
+        const next = new Map<string, CapabilityEntry>()
         for (const entry of entries) {
             if (!entry.searchText) {
                 entry.searchText = `${entry.name} ${entry.description}`.toLowerCase()
             }
-            this.entries.set(entry.id, entry)
-            if (entry.pluginName) {
-                this.addToPluginIndex(entry.pluginName, entry.id)
-            }
-        }
-    }
-
-    /**
-     * 注销单个能力
-     */
-    unregister(id: string): void {
-        const entry = this.entries.get(id)
-        if (!entry) return
-
-        if (entry.pluginName) {
-            this.removeFromPluginIndex(entry.pluginName, id)
-        }
-        this.entries.delete(id)
-    }
-
-    /**
-     * 注销某插件下的所有能力
-     */
-    unregisterByPlugin(pluginName: string): void {
-        const ids = this.pluginIndex.get(pluginName)
-        if (!ids) return
-
-        for (const id of ids) {
-            this.entries.delete(id)
-        }
-        this.pluginIndex.delete(pluginName)
-    }
-
-    /**
-     * 清空所有条目
-     */
-    clear(): void {
-        this.entries.clear()
-        this.pluginIndex.clear()
-    }
-
-    /**
-     * 清空 + 通知（用于全量刷新场景）
-     */
-    reset(): void {
-        this.clear()
-        this.emit('changed')
-    }
-
-    // ─── 插件状态变更（核心方法）─────────────────
-
-    /**
-     * 插件启用/禁用时调用。
-     * 批量更新该插件下所有条目的 pluginEnabled 字段。
-     *
-     * 复杂度：O(n) where n = 该插件的条目数
-     */
-    onPluginStateChange(pluginName: string, enabled: boolean): void {
-        const ids = this.pluginIndex.get(pluginName)
-        if (!ids || ids.size === 0) return
-
-        for (const id of ids) {
-            const entry = this.entries.get(id)
-            if (entry) {
-                entry.pluginEnabled = enabled
-            }
+            next.set(entry.id, entry)
         }
 
-        this.emit('changed', { reason: 'plugin-state-change', pluginName, enabled })
+        if (!this.hasChanged(next)) return
+
+        this.entries = next
+        this.seq++
+        this.emit('changed', { seq: this.seq })
     }
 
     // ─── 查询 ───────────────────────────────────
@@ -205,7 +129,8 @@ export class CapabilityHub extends EventEmitter {
     }
 
     /**
-     * 按插件分组（用于 SkillsDialog 的"插件"标签）
+     * 按插件分组（用于 SkillsDialog 的"插件"标签）。
+     * 插件归属直接从 entries 派生（entry.pluginName），无独立索引。
      */
     getPluginGroups(type?: CapabilityType): PluginGroup[] {
         const pluginMap = new Map<string, CapabilityEntry[]>()
@@ -266,37 +191,53 @@ export class CapabilityHub extends EventEmitter {
         return this.entries.size
     }
 
-    // ─── 订阅（Phase 1 预留，当前方案 A 不使用） ───
+    // ─── 订阅 ───────────────────────────────────
 
     /**
-     * 注册变更监听器。
+     * 订阅变更信号。载荷仅为 { seq }（单调序号），消费端收信号后整表重取。
      * 返回取消订阅函数。
      */
-    onChange(listener: () => void): () => void {
+    onChanged(listener: (e: { seq: number }) => void): () => void {
         this.on('changed', listener)
         return () => this.off('changed', listener)
     }
 
     // ─── 私有辅助 ───────────────────────────────
 
-    private addToPluginIndex(pluginName: string, id: string): void {
-        const set = this.pluginIndex.get(pluginName)
-        if (set) {
-            set.add(id)
-        } else {
-            this.pluginIndex.set(pluginName, new Set([id]))
+    /**
+     * 比对下一投影是否与当前投影不同（id 集合 + 条目浅签名）。
+     * 浅签名只覆盖影响投影可见性的字段，不序列化 content（技能正文/系统提示，
+     * 可达数十 KB），且不依赖对象键插入顺序。
+     */
+    private hasChanged(next: Map<string, CapabilityEntry>): boolean {
+        if (next.size !== this.entries.size) return true
+        for (const [id, entry] of next) {
+            const current = this.entries.get(id)
+            if (!current) return true
+            if (entrySignature(current) !== entrySignature(entry)) return true
         }
+        return false
     }
+}
 
-    private removeFromPluginIndex(pluginName: string, id: string): void {
-        const set = this.pluginIndex.get(pluginName)
-        if (set) {
-            set.delete(id)
-            if (set.size === 0) {
-                this.pluginIndex.delete(pluginName)
-            }
-        }
-    }
+/**
+ * 条目浅签名：显式拼接关键字段，避免 JSON.stringify(entry) 的两处问题——
+ * ① 整体序列化 content；② 对对象键插入顺序敏感（键序不同会误发信号）。
+ */
+function entrySignature(e: CapabilityEntry): string {
+    return [
+        e.id,
+        e.type,
+        e.name,
+        e.description,
+        e.source,
+        e.enabled,
+        e.pluginName,
+        e.pluginEnabled,
+        (e.allowedTools ?? []).join(','),
+    ]
+        .map(v => (v === undefined ? '' : String(v)))
+        .join('|')
 }
 
 /** 全局单例 */

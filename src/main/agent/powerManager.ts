@@ -24,6 +24,7 @@ import type {PluginMcpOverride} from '../config/mcpConfig'
 import {loadMcpServersFromPlugin} from './mcp/pluginServers'
 import {eventBus, CapabilityEvents, MCPThemeEvents, PluginEvents} from '../common/eventBus'
 import {capabilityMapper} from '../common/capabilityMapper'
+import {createSqliteOwnershipDeps, extractPluginName, resolve} from '../common/pluginOwnership'
 import {PluginRegistry} from '../plugin/registry'
 import {CommandDispatcher} from '../plugin/commands'
 import {capabilityHub} from '../capability/CapabilityHub'
@@ -74,7 +75,6 @@ class PowerManagerImpl {
         eventBus.on(PluginEvents.ENABLED, (pluginName: string) => {
             if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
             logger.debug('plugin-enabled', {pluginName})
-            capabilityHub.onPluginStateChange(pluginName, true)
             this.refreshPlugin(pluginName, true)
         })
 
@@ -86,7 +86,6 @@ class PowerManagerImpl {
             // 轻量同步：仅更新内存中的启用状态，不清除注册表
             skillRegistry.syncPluginStatus(pluginName, false)
             agentRegistry.syncPluginStatus(pluginName, false)
-            capabilityHub.onPluginStateChange(pluginName, false)
             // Commands: CommandDispatcher.getAllCommands() 在查询时按插件启用状态过滤
             // 清除该插件的 commandCache（下次 query 时从 PluginRegistry 重读并过滤）
             const commandDispatcher = CommandDispatcher.getInstance()
@@ -364,10 +363,14 @@ class PowerManagerImpl {
         const agentTemplates = await scanAllAgents()
 
         // 注册所有 Agents
+        const deps = createSqliteOwnershipDeps()
         for (const template of agentTemplates) {
-            // 提取插件名称（如果是插件 Agent）
-            const pluginName = this.extractPluginName(template.id)
-            capabilityMapper.trackCapability(pluginName, template.id)
+            // 归属统一由 pluginOwnership 解析（tag plugin:<name> / id 前缀）
+            const {pluginName} = resolve(
+                {kind: 'agent', id: template.id, tags: template.tags},
+                deps,
+            )
+            capabilityMapper.trackCapability(pluginName ?? undefined, template.id)
 
             agentRegistry.register(template)
         }
@@ -422,7 +425,7 @@ class PowerManagerImpl {
         for (const server of mcpService.list()) {
             const serverId = server.id
             if (serverId) {
-                capabilityMapper.trackCapability(this.extractPluginName(serverId), serverId)
+                capabilityMapper.trackCapability(this.extractMcpPluginName(serverId), serverId)
             }
         }
     }
@@ -570,13 +573,12 @@ class PowerManagerImpl {
      * 在 refresh() 完成后调用，确保 Hub 数据与注册表一致。
      */
     private syncToCapabilityHub(): void {
-        capabilityHub.clear()
         const entries: CapabilityEntry[] = [
             ...this.collectSkillEntries(),
             ...this.collectAgentEntries(),
             ...this.collectCommandEntries(),
         ]
-        capabilityHub.registerBatch(entries)
+        capabilityHub.replaceAll(entries)
         logger.debug('[PowerManager] syncToCapabilityHub', { total: entries.length })
     }
 
@@ -611,18 +613,18 @@ class PowerManagerImpl {
         const registry = PluginRegistry.getInstance()
         for (const a of agentRegistry.getAll()) {
             if (a.id.startsWith('cmd:')) continue // 跳过内部命令条目
-            const pluginTag = a.tags?.find(t => t.startsWith('plugin:'))
-            const pluginName = pluginTag?.replace('plugin:', '')
-            const pluginEnabled = pluginName
-                ? (registry.get(pluginName)?.enabled ?? false)
+            // 归属统一由 pluginOwnership 解析（tag plugin:<name>）
+            const plugin = extractPluginName({kind: 'agent', id: a.id, tags: a.tags})
+            const pluginEnabled = plugin
+                ? (registry.get(plugin)?.enabled ?? false)
                 : undefined
             entries.push({
                 id: a.id,
                 name: a.name,
                 description: a.description || a.userDescription || a.whenToUse || '',
                 type: 'agent',
-                source: pluginName ? 'plugin' : 'builtin',
-                pluginName,
+                source: plugin ? 'plugin' : 'builtin',
+                pluginName: plugin ?? undefined,
                 pluginEnabled,
                 enabled: a.enabled,
                 content: a.systemPrompt,
@@ -639,13 +641,19 @@ class PowerManagerImpl {
             const dispatcher = CommandDispatcher.getInstance()
             // 传入 true 以包含被禁用的命令，让管理界面可显示并重新启用
             const { pluginGroups, userCommands, pluginCommandOverrides } = dispatcher.getAllCommands(true)
-            const registry = PluginRegistry.getInstance()
+            // 归属与启用态统一由 pluginOwnership 解析（command 分支）
+            const deps = createSqliteOwnershipDeps()
 
             // 插件命令
             for (const [pluginName, cmds] of pluginGroups) {
-                const plugin = registry.get(pluginName)
                 for (const cmd of cmds) {
-                    const enabled = pluginCommandOverrides[cmd.id]?.enabled ?? true
+                    // 插件命令的用户覆盖存于 user_commands 表（非 command_overrides），
+                    // 故以覆盖值作为 fileEnabled 传入；插件禁用由 resolve 强制 off。
+                    const fileEnabled = pluginCommandOverrides[cmd.id]?.enabled ?? true
+                    const { pluginEnabled, capabilityEnabled } = resolve(
+                        {kind: 'command', pluginName, id: cmd.id, fileEnabled},
+                        deps,
+                    )
                     entries.push({
                         id: `cmd:${cmd.id}`,
                         name: cmd.name || cmd.id.split(':').pop() || cmd.id,
@@ -653,8 +661,8 @@ class PowerManagerImpl {
                         type: 'command',
                         source: 'plugin',
                         pluginName,
-                        pluginEnabled: plugin?.enabled ?? false,
-                        enabled,
+                        pluginEnabled,
+                        enabled: capabilityEnabled,
                         content: cmd.content,
                         hasArgs: (cmd.args?.length ?? 0) > 0 || /\$ARGUMENTS/gi.test(cmd.content || ''),
                         searchText: '',
@@ -662,15 +670,19 @@ class PowerManagerImpl {
                 }
             }
 
-            // 用户命令（包含被禁用的）
+            // 用户命令（文件命令：无插件归属，pluginName:null）
             for (const cmd of userCommands) {
+                const {capabilityEnabled} = resolve(
+                    {kind: 'command', pluginName: null, id: cmd.id, fileEnabled: cmd.enabled},
+                    deps,
+                )
                 entries.push({
                     id: `cmd:${cmd.id}`,
                     name: cmd.name,
                     description: cmd.description || '',
                     type: 'command',
                     source: 'user',
-                    enabled: cmd.enabled,
+                    enabled: capabilityEnabled,
                     content: cmd.content,
                     hasArgs: (cmd.args?.length ?? 0) > 0 || /\$ARGUMENTS/gi.test(cmd.content || ''),
                     searchText: '',
@@ -702,26 +714,13 @@ class PowerManagerImpl {
     }
 
     /**
-     * 从能力 ID 提取插件名称
-     * 支持 Agent、Skill、MCP 的 ID 格式
+     * 从 MCP server ID 提取插件名称。
+     * 支持 `plugin:{pluginName}:{serverName}`（插件 MCP）与 `mcp_{pluginName}_{serverName}`。
+     * Agent/Skill/Command 的归属判定统一走 common/pluginOwnership，不在此处理。
      */
-    private extractPluginName(id: string): string | undefined {
-        // Agent: plugin:{pluginName}:xxx
-        if (id.startsWith('plugin:')) {
-            const parts = id.split(':')
-            if (parts.length >= 2) {
-                return parts[1]
-            }
-        }
-
-        // MCP: mcp_{pluginName}_{serverName}
-        const mcpMatch = id.match(/^mcp_([^_]+)_.+/)
-        if (mcpMatch) {
-            return mcpMatch[1]
-        }
-
-        // Skill: 直接从 SkillDefinition.pluginName 字段读取，不需要解析 ID
-        return undefined
+    private extractMcpPluginName(id: string): string | undefined {
+        const match = id.match(/^plugin:([^:]+):.+/) ?? id.match(/^mcp_([^_]+)_.+/)
+        return match ? match[1] : undefined
     }
 }
 

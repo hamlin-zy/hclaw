@@ -194,7 +194,7 @@ export default function MemoPanel() {
                     value={keyword}
                     onChange={(e) => setKeyword(e.target.value)}
                     placeholder="搜索备忘录..."
-                    className="w-full px-4 py-2 bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] border border-[var(--border)] rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-emphasis)] focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/25 transition-all"
+                    className="w-full px-4 py-2 bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] border border-[var(--border)] rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-emphasis)] focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] dark-all:focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-all"
                 data-name="memo-panel-input"/>
             </div>
 
@@ -423,7 +423,7 @@ function GroupContextMenu({x, y, count, searching, onDelete, onClose}: {
                     onClose()
                     onDelete()
                 }}
-                className={`${GROUP_MENU_ITEM_CLASS} text-[var(--error)] hover:bg-[var(--error)]/10`}
+                className={`${GROUP_MENU_ITEM_CLASS} text-[var(--error)] hover:bg-[color-mix(in_srgb,var(--error)_10%,transparent)]`}
                 data-name="memo-group-menu-delete-button"
             >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

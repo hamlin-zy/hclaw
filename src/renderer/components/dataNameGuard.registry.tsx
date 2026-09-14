@@ -13,6 +13,9 @@ import TodoStrip from './TodoStrip'
 import MetricBadge from './MetricBadge'
 import AskUserModal from './AskUserModal'
 import AgentsDialog from './dialogs/AgentsDialog'
+import CommandsDialog from './dialogs/CommandsDialog'
+import SkillsDialog from './dialogs/SkillsDialog'
+import PluginDialog from './dialogs/PluginDialog'
 import ModelSchemeDialog from './dialogs/ModelSchemeDialog'
 import ScheduleDialog from './dialogs/ScheduleDialog'
 import PermissionConfirmModal from './PermissionConfirmModal'
@@ -69,6 +72,18 @@ export const GUARD_COMPONENTS: GuardEntry[] = [
     {
         name: 'AgentsDialog',
         render: () => <AgentsDialog />,
+    },
+    {
+        name: 'CommandsDialog',
+        render: () => <CommandsDialog />,
+    },
+    {
+        name: 'SkillsDialog',
+        render: () => <SkillsDialog />,
+    },
+    {
+        name: 'PluginDialog',
+        render: () => <PluginDialog />,
     },
     {
         name: 'ScheduleDialog',

@@ -274,7 +274,7 @@ export default function ScheduleDialog() {
                         onClick={() => setActiveTab(tab.key)}
                         className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
                             activeTab === tab.key
-                                ? 'bg-[var(--brand-primary)]/20 text-[var(--brand-primary)] font-medium'
+                                ? 'bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] text-[var(--brand-primary)] font-medium'
                                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                         }`}
                      data-name="schedule-dialog-button">
@@ -285,8 +285,8 @@ export default function ScheduleDialog() {
                 <button
                     onClick={handleNew}
                     className="px-3 py-1.5 text-xs font-medium rounded-md
-                             bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]
-                             hover:bg-[var(--brand-primary)]/20 transition-colors"
+                             bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]
+                             hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-colors"
                  data-name="schedule-dialog-new-button">
                     新建
                 </button>
@@ -497,7 +497,7 @@ function ScheduleCard({
 
                     {/* 第二行：Cron + 类型 + 目标 */}
                     <div className="flex items-center gap-2 mt-1">
-                        <code className="text-[10px] font-mono text-[var(--brand-primary)] bg-[var(--brand-primary)]/5 px-1 py-0.5 rounded whitespace-nowrap">
+                        <code className="text-[10px] font-mono text-[var(--brand-primary)] bg-[color-mix(in_srgb,var(--brand-primary)_5%,transparent)] px-1 py-0.5 rounded whitespace-nowrap">
                             {highlightText(schedule.cronExpression, searchQuery)}
                         </code>
                         <span className={`text-[10px] px-1 py-0.5 rounded whitespace-nowrap ${
@@ -565,8 +565,8 @@ function ScheduleCard({
                         onClick={onToggleConversation}
                         className={`p-1.5 rounded transition-colors ${
                             isConversationExpanded
-                                ? 'text-[var(--brand-primary)] bg-[var(--brand-primary)]/10'
-                                : 'text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10'
+                                ? 'text-[var(--brand-primary)] bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)]'
+                                : 'text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)]'
                         }`}
                         title="执行记录"
                      data-name="schedule-dialog-history-button">
@@ -579,7 +579,7 @@ function ScheduleCard({
                     {/* 编辑 */}
                     <button
                         onClick={onEdit}
-                        className="p-1.5 text-[var(--text-muted)] hover:text-[var(--brand-primary)] rounded hover:bg-[var(--brand-primary)]/10 transition-colors"
+                        className="p-1.5 text-[var(--text-muted)] hover:text-[var(--brand-primary)] rounded hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] transition-colors"
                         title="编辑"
                      data-name="schedule-dialog-edit-button">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -644,7 +644,7 @@ function ConversationsPanel({scheduleId, scheduleName, taskType}: ConversationsP
                     "<strong className="text-[var(--brand-primary)]">{scheduleName}</strong>" 查看执行记录
                 </div>
                 <div className="mt-2 flex justify-center">
-                    <svg className="w-8 h-8 text-[var(--text-muted)]/20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+                    <svg className="w-8 h-8 text-[color-mix(in_srgb,var(--text-muted)_50%,transparent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
                         <circle cx="12" cy="12" r="10"/>
                         <path d="M12 6v6l4 2"/>
                     </svg>
@@ -758,7 +758,7 @@ function ScriptLogPanel({scheduleId}: { scheduleId: string }) {
                                         onClick={() => handleView(log.path)}
                                         className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
                                             isExpanded
-                                                ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
+                                                ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
                                                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                         }`}
                                      data-name="schedule-dialog-toggle-runs-button">

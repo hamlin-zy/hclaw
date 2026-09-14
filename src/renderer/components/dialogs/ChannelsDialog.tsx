@@ -92,7 +92,7 @@ function ConfigFields({channel, savedConfig, onSave}: {
                     <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">{f.label}</label>
                     <input type={f.secret ? 'password' : 'text'} value={fields[f.key] || ''}
                            onChange={e => change(f.key, e.target.value)} placeholder={f.placeholder}
-                           className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/20" data-name="channels-dialog-input"/>
+                           className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] dark-all:focus:ring-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]" data-name="channels-dialog-input"/>
                 </div>
             ))}
             <button onClick={() => {

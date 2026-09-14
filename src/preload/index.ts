@@ -882,6 +882,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         getPluginGroups: (type?: string) => ipcRenderer.invoke('capability:plugin-groups', type),
         getStats: () => ipcRenderer.invoke('capability:stats'),
         get: (id: string) => ipcRenderer.invoke('capability:get', id),
+        onCapabilityChanged: (callback: (data: {seq: number}) => void) => {
+            const handler = (_: unknown, data: {seq: number}) => callback(data)
+            ipcRenderer.on('capability:changed', handler)
+            return () => ipcRenderer.removeListener('capability:changed', handler)
+        },
     },
 
     // 任务批次（历史任务组窗口数据源）

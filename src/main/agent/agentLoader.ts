@@ -10,6 +10,7 @@ import {buildAgentTemplateFromRaw, type RawAgentConfig} from './utils/configExtr
 import {parseMarkdownFrontmatter} from './utils/agentFrontmatter'
 import {logger} from './logger'
 import {addAgentLoadError, resetAgentLoadErrors} from './agentLoadErrors'
+import {createSqliteOwnershipDeps, resolve} from '../common/pluginOwnership'
 
 /**
  * 本地 Agent 加载器
@@ -412,33 +413,8 @@ export async function scanAgentsFromPlugins(): Promise<
 }
 
 // ─── Agent 覆盖状态持久化（SQLite） ───────────────────────────
-// 用户可通过 UI 切换插件 Agent 的启用状态，该覆盖保存在 agent_overrides 表中，
-// 不被插件更新影响。
-
-interface AgentOverrides {
-    [agentId: string]: {
-        enabled: boolean
-        updatedAt: number
-    }
-}
-
-function readAgentOverridesSync(): AgentOverrides {
-    try {
-        const db = getDatabase()
-        const rows = db.prepare('SELECT agent_id, enabled, updated_at FROM agent_overrides').all() as Array<{
-            agent_id: string
-            enabled: number
-            updated_at: number
-        }>
-        const overrides: AgentOverrides = {}
-        for (const row of rows) {
-            overrides[row.agent_id] = {enabled: row.enabled === 1, updatedAt: row.updated_at}
-        }
-        return overrides
-    } catch {
-        return {}
-    }
-}
+// 用户可通过 UI 切换 Agent 的启用状态，该覆盖保存在 agent_overrides 表中，
+// 归属与启用判定统一由 common/pluginOwnership 负责（此处不再自行解析）。
 
 /**
  * 扫描所有 agent（本地 + 插件），并自动应用 agents.json 中的用户覆盖
@@ -476,28 +452,16 @@ export async function scanAllAgents(): Promise<AgentTemplate[]> {
 
     const allTemplates = [...localTemplates, ...pluginTemplates]
 
-    // 应用 agent_overrides 中的用户覆盖（对所有 Agent 生效，不限于插件）
-    // 但已禁用插件的 Agent 强制 disabled，覆盖不生效
-    const overrides = readAgentOverridesSync()
-    const disabledPlugins = PluginRegistry.getInstance().getDisabledNames()
-
-    // 无覆盖且无禁用插件 → 无需遍历
-    if (Object.keys(overrides).length === 0 && disabledPlugins.size === 0) return allTemplates
-
+    // 应用启用态：插件禁用 > agent_overrides 表值 > 文件默认（统一由 pluginOwnership 判定）
+    const deps = createSqliteOwnershipDeps()
     let appliedCount = 0
     for (const template of allTemplates) {
-        // 已禁用插件的 Agent 强制 disabled（通过 tags 中 plugin:xxx 提取插件名）
-        const pluginTag = template.tags?.find(t => t.startsWith('plugin:'))
-        if (pluginTag) {
-            const pluginName = pluginTag.replace('plugin:', '')
-            if (disabledPlugins.has(pluginName)) {
-                template.enabled = false
-                continue
-            }
-        }
-        const override = overrides[template.id]
-        if (override !== undefined) {
-            template.enabled = override.enabled
+        const {capabilityEnabled} = resolve(
+            {kind: 'agent', id: template.id, tags: template.tags, fileEnabled: template.enabled},
+            deps,
+        )
+        if (capabilityEnabled !== template.enabled) {
+            template.enabled = capabilityEnabled
             appliedCount++
         }
     }

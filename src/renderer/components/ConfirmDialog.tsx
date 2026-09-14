@@ -149,9 +149,11 @@ export default function ConfirmDialog() {
 
     // 配置按钮样式
     const confirmVariants = {
-        danger: 'bg-red-500 hover:bg-red-600 text-white',
-        warning: 'bg-orange-500 hover:bg-orange-600 text-white',
-        primary: 'bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/80 text-white',
+        // Tailwind 3.4 无法对 var() 任意值套 `/NN` 不透明度（withAlphaVariable.parseColor 只认 hex/rgb/hsl，
+        // var() 返回 null → 整条 utility 被省略）。故压下变暗一律用 color-mix 显式写。
+        danger: 'bg-[var(--error)] hover:bg-[color-mix(in_srgb,var(--error)_85%,black)] text-white',
+        warning: 'bg-[var(--warning)] hover:bg-[color-mix(in_srgb,var(--warning)_85%,black)] text-white',
+        primary: 'bg-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_85%,black)] text-white',
     }
 
     const variant = options?.confirmVariant || 'primary'
@@ -190,20 +192,23 @@ export default function ConfirmDialog() {
                                 <div className="flex items-center gap-3">
                                     {/* 图标 */}
                                     <div
+                                        // 图标底：danger 用 --error-muted（四主题齐备的淡底令牌）；
+                                        // warning / primary 用 color-mix(...,10%) 取基色 10%——因为
+                                        // `bg-[var(--x)]/10` 在 Tailwind 3.4 下零产出（parseColor 不认 var()）。
                                         className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
-                                            variant === 'danger' ? 'bg-red-500/10' :
-                                            variant === 'warning' ? 'bg-orange-500/10' :
-                                            'bg-[var(--brand-primary)]/10'
+                                            variant === 'danger' ? 'bg-[var(--error-muted)]' :
+                                            variant === 'warning' ? 'bg-[color-mix(in_srgb,var(--warning)_10%,transparent)]' :
+                                            'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)]'
                                         }`}
                                     >
                                         {variant === 'danger' ? (
-                                            <svg className="w-5 h-5 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <svg className="w-5 h-5 text-[var(--error)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                 <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m8 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
                                                 <line x1="10" y1="11" x2="10" y2="17"/>
                                                 <line x1="14" y1="11" x2="14" y2="17"/>
                                             </svg>
                                         ) : variant === 'warning' ? (
-                                            <svg className="w-5 h-5 text-orange-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <svg className="w-5 h-5 text-[var(--warning)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                 <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
                                                 <line x1="12" y1="9" x2="12" y2="13"/>
                                                 <line x1="12" y1="17" x2="12.01" y2="17"/>

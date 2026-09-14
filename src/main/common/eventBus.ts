@@ -88,8 +88,6 @@ export const CapabilityEvents = {
     LOADED: 'capability:loaded',
     /** 能力已刷新 */
     REFRESHED: 'capability:refreshed',
-    /** 能力注册表已清空 */
-    CLEARED: 'capability:cleared',
 } as const
 
 /**

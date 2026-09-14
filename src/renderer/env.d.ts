@@ -782,6 +782,7 @@ declare global {
                 bySource: Record<'builtin' | 'user' | 'plugin', number>
             }>
             get: (id: string) => Promise<import('./capabilityTypes').CapabilityEntry | null>
+            onCapabilityChanged: (callback: (data: {seq: number}) => void) => () => void
         }
 
     }

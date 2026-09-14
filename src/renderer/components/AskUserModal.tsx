@@ -240,7 +240,7 @@ export default function AskUserModal() {
                                             className={`w-full text-left px-4 py-3 rounded-lg border transition-all text-sm ${
                                                 isSelected
                                                     ? 'border-[var(--brand-primary)] bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
-                                                    : 'border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-primary)] hover:border-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)] disabled:cursor-not-allowed'
+                                                    : 'border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-primary)] hover:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] disabled:cursor-not-allowed'
                                             }`}
                                         >
                                             <div className="flex items-center gap-3">
@@ -291,7 +291,7 @@ export default function AskUserModal() {
                                 disabled={!canSubmit || isSubmitting}
                                 className={`px-6 py-2 text-sm font-medium rounded-lg transition-all ${
                                     canSubmit && !isSubmitting
-                                        ? 'bg-[var(--brand-primary)] text-white hover:bg-[color-mix(in_srgb,var(--brand-primary)_80%,transparent)]'
+                                        ? 'bg-[var(--brand-primary)] text-white hover:bg-[color-mix(in_srgb,var(--brand-primary)_85%,black)]'
                                         : 'bg-[var(--surface-muted)] text-[var(--text-muted)] cursor-not-allowed'
                                 }`}
                             >

@@ -91,7 +91,7 @@ export default function ToolCallHeader({
         <span
             className={`flex items-center justify-center w-5 h-5 rounded-full shrink-0 ${
                 isRunning
-                    ? 'bg-[var(--info)]/15 animate-pulse ring-2 ring-[var(--info)]/30'
+                    ? 'bg-[color-mix(in_srgb,var(--info)_15%,transparent)] animate-pulse ring-2 ring-[color-mix(in_srgb,var(--info)_30%,transparent)]'
                     : ''
             }`}>
             {isRunning ? (
@@ -167,7 +167,7 @@ export default function ToolCallHeader({
             <span className="text-[var(--text-muted)] shrink-0">Agent</span>
             {agentTypeLabel && (
                 <span
-                    className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)]/30 px-1.5 py-0.5 rounded shrink-0">
+                    className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)] px-1.5 py-0.5 rounded shrink-0">
                     {agentTypeLabel}
                 </span>
             )}
@@ -181,7 +181,7 @@ export default function ToolCallHeader({
         <span className="font-mono font-semibold text-[var(--text-primary)]">Agent</span>
     ) : toolCall.name === 'skill' && skillDisplayName ? (
         <span className="font-semibold text-[var(--brand-primary)] flex items-center gap-1">
-            <span className="text-[var(--brand-primary)]/60 font-normal inline-flex items-center gap-1">
+            <span className="text-[color-mix(in_srgb,var(--brand-primary)_70%,transparent)] font-normal inline-flex items-center gap-1">
                 <SkillIcon className="w-3.5 h-3.5"/>
                 Skill
             </span>
@@ -201,7 +201,7 @@ export default function ToolCallHeader({
                     // 前缀（m_ 或 mp_）用品牌色，服务名用品牌色+下划线，工具名用主色
                     if (i === 0) {
                         return (
-                            <span key={i} className="text-[var(--brand-primary)]/70">
+                            <span key={i} className="text-[color-mix(in_srgb,var(--brand-primary)_70%,transparent)]">
                                 {part}
                                 {i < parts.length - 1 ? '_' : ''}
                             </span>

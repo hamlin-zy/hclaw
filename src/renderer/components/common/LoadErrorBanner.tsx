@@ -23,7 +23,7 @@ export default function LoadErrorBanner({errors, title, tip}: Props) {
     if (errors.length === 0 || dismissed) return null
 
     return (
-        <div className="mx-4 mt-2 px-3 py-2 text-xs rounded-md bg-[var(--warning)]/10 text-[var(--warning)] border border-[var(--warning)]/20">
+        <div className="mx-4 mt-2 px-3 py-2 text-xs rounded-md bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] text-[var(--warning)] border border-[color-mix(in_srgb,var(--warning)_20%,transparent)]">
             <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2 font-medium">
                     <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -36,7 +36,7 @@ export default function LoadErrorBanner({errors, title, tip}: Props) {
                 </div>
                 <button
                     onClick={() => setDismissed(true)}
-                    className="p-0.5 rounded hover:bg-[var(--warning)]/20 transition-colors"
+                    className="p-0.5 rounded hover:bg-[color-mix(in_srgb,var(--warning)_20%,transparent)] transition-colors"
                     title="关闭"
                  data-name="load-error-banner-button">
                     <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

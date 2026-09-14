@@ -15,7 +15,7 @@ export default function AttachedFilesBar({files, onRemove, onPreview, onOpenFile
     if (files.length === 0) return null
 
     return (
-        <div className="px-3 py-2 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]/30">
+        <div className="px-3 py-2 border-b border-[var(--border-muted)] bg-[color-mix(in_srgb,var(--surface-muted)_30%,transparent)]">
             <div className="flex items-center gap-2 min-h-[48px]">
                 {/* 文件列表 */}
                 <div className="flex items-center gap-2 flex-1 overflow-x-auto">

@@ -641,7 +641,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
             {needsSession && (
                 <div role="alert"
                      data-name="input-area-hint"
-                     className="mb-2 px-3 py-2 rounded-lg bg-[var(--warning)]/10 border border-[var(--warning)] text-xs text-[var(--warning)]">
+                     className="mb-2 px-3 py-2 rounded-lg bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] border border-[var(--warning)] text-xs text-[var(--warning)]">
                     请先在左侧选择一个工作目录和会话，或点击「新建对话」
                 </div>
             )}

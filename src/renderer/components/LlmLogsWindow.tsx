@@ -220,7 +220,7 @@ export default function LlmLogsWindow() {
                     title={recording ? '点击停止录制' : '点击开始录制'}
                     className={`inline-flex items-center gap-1.5 py-0.5 px-2.5 rounded-full text-xs border cursor-pointer select-none transition-colors ${
                         recording
-                            ? 'border-[var(--error)]/45 text-[var(--error)]'
+                            ? 'border-[color-mix(in_srgb,var(--error)_45%,transparent)] text-[var(--error)]'
                             : 'border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                     }`}
                  data-name="llm-logs-window-button">
@@ -266,7 +266,7 @@ export default function LlmLogsWindow() {
             </div>
 
             {/* ── 摘要条 ── */}
-            <div className="flex gap-3 px-4 py-3 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]/50 shrink-0 flex-wrap">
+            <div className="flex gap-3 px-4 py-3 border-b border-[var(--border-muted)] bg-[color-mix(in_srgb,var(--surface-muted)_50%,transparent)] shrink-0 flex-wrap">
                 <StatCard value={String(stats.calls)} label="总调用" />
                 <StatCard value={String(stats.errors + stats.aborts)} label="失败 / 中断" tone={stats.errors + stats.aborts > 0 ? 'err' : 'ok'} />
                 <StatCard value={fmtCompact(stats.inputTokens)} label="输入 tokens" />
@@ -424,7 +424,7 @@ function DetailView({state, tab, onTab, onClose}: {
         <div className="shrink-0 border-t border-[var(--border-muted)] bg-[var(--surface-muted)] flex flex-col" style={{height}}>
             {/* 顶部拖拽把手：上下拖调整面板高度，双击恢复默认 */}
             <div
-                className="shrink-0 h-1.5 cursor-row-resize hover:bg-[var(--border)]/60 transition-colors"
+                className="shrink-0 h-1.5 cursor-row-resize hover:bg-[color-mix(in_srgb,var(--border)_60%,transparent)] transition-colors"
                 title="拖动调整高度，双击恢复默认"
                 onPointerDown={onResizeStart}
                 onDoubleClick={() => setHeight(Math.round(window.innerHeight * 0.45))}
@@ -569,8 +569,8 @@ function RequestOverview({record: r, url, headers}: {
                     <span
                         className={`font-mono text-[10.5px] py-px px-1.5 rounded border ${
                             r.statusCode >= 200 && r.statusCode < 300
-                                ? 'border-[var(--success)]/45 text-[var(--success)]'
-                                : 'border-[var(--error)]/45 text-[var(--error)]'
+                                ? 'border-[color-mix(in_srgb,var(--success)_45%,transparent)] text-[var(--success)]'
+                                : 'border-[color-mix(in_srgb,var(--error)_45%,transparent)] text-[var(--error)]'
                         }`}
                     >
                         HTTP {r.statusCode}

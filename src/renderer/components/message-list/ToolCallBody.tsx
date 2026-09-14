@@ -68,13 +68,13 @@ export default function ToolCallBody({
                     <div className="mt-1 space-y-1">
                         <div className="flex items-start gap-1">
                             <span
-                                className="text-[10px] px-2 py-1 rounded-md font-mono whitespace-pre-wrap bg-[var(--error-muted)]/40 border border-[rgba(196,92,92,0.15)] text-[var(--error)]">
+                                className="text-[10px] px-2 py-1 rounded-md font-mono whitespace-pre-wrap bg-[var(--error-muted)] border border-[rgba(196,92,92,0.15)] text-[var(--error)]">
                                 - {truncate(String((toolCall.arguments as any).oldString), 500)}
                             </span>
                         </div>
                         <div className="flex items-start gap-1">
                             <span
-                                className="text-[10px] px-2 py-1 rounded-md font-mono whitespace-pre-wrap bg-[var(--success-muted)]/40 border border-[rgba(16,185,129,0.15)] text-[var(--success)]">
+                                className="text-[10px] px-2 py-1 rounded-md font-mono whitespace-pre-wrap bg-[var(--success-muted)] border border-[rgba(16,185,129,0.15)] text-[var(--success)]">
                                 + {truncate(String((toolCall.arguments as any).newString ?? ''), 500)}
                             </span>
                         </div>
@@ -90,7 +90,7 @@ export default function ToolCallBody({
                 <div>
                     <span data-find-exclude className="text-[10px] text-[var(--text-secondary)] uppercase tracking-wide">写入内容</span>
                     <pre
-                        className="text-[11px] text-[var(--text-secondary)] max-h-48 overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed p-2 mt-1 bg-[var(--success-muted)]/20 border border-[rgba(16,185,129,0.12)] rounded-md">
+                        className="text-[11px] text-[var(--text-secondary)] max-h-48 overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed p-2 mt-1 bg-[var(--success-muted)] border border-[rgba(16,185,129,0.12)] rounded-md">
                         {truncate(String(toolCall.result.artifacts[0].content), 2000)}
                     </pre>
                 </div>
@@ -148,7 +148,7 @@ export default function ToolCallBody({
                                                 <div className={`w-2 h-2 rounded-full ${
                                                     isRunning && isLast
                                                         ? 'bg-[var(--info)] animate-pulse'
-                                                        : 'bg-[var(--text-muted)]/40'
+                                                        : 'bg-[color-mix(in_srgb,var(--text-muted)_40%,transparent)]'
                                                 }`}/>
                                                 {i < entries.length - 1 && (
                                                     <div className="w-px h-3 bg-[var(--border-muted)]"/>

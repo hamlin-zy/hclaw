@@ -284,7 +284,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                     onClick={() => handleSelectModel(item.key)}
                     className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 text-left text-[11px] transition-colors ${
                       isActive
-                        ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]'
+                        ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--brand-primary)]'
                         : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'
                     }`}
                    data-name="cache-rate-tooltip-button">

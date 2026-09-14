@@ -126,7 +126,7 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
                             data-idx={i}
                             onClick={() => onPick(p)}
                             className={`mx-1 px-2 py-2 rounded-lg cursor-pointer flex items-center gap-2.5 transition-colors ${
-                                i === sel ? 'bg-[var(--brand-primary)]/15 border-l-2 border-l-[var(--brand-primary)]' : 'hover:bg-[var(--surface-muted)]'
+                                i === sel ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] border-l-2 border-l-[var(--brand-primary)]' : 'hover:bg-[var(--surface-muted)]'
                             }`}
                             data-name="phrase-picker-item"
                         >

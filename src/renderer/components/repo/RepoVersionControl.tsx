@@ -93,11 +93,11 @@ export default function RepoVersionControl({repoId, current, loading, onVersionS
           ...(versionData?.branches || []).map(b => ({value: b, label: b})),
         ]}
       />
-      {updateMap[repoId] && <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-red-500" />}
+      {updateMap[repoId] && <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-[var(--error)]" />}
       <button
         onClick={handleSync}
         disabled={syncing}
-        className="px-1.5 py-1.5 text-xs font-medium rounded-md bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="px-1.5 py-1.5 text-xs font-medium rounded-md bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         data-name="repo-sync-versions-button">
         <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />
       </button>

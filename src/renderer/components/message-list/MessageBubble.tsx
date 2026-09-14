@@ -267,7 +267,7 @@ const MessageBubble = memo(function MessageBubble({message, statusNote, isAgentR
                     <div className="flex items-center gap-2 mb-2">
                         <div className="flex items-center gap-1.5">
                             <div
-                                className="w-4 h-4 rounded bg-gradient-to-br from-[var(--brand-primary)] to-[var(--brand-primary)]/60 flex items-center justify-center">
+                                className="w-4 h-4 rounded bg-gradient-to-br from-[var(--brand-primary)] to-[color-mix(in_srgb,var(--brand-primary)_60%,transparent)] flex items-center justify-center">
                                 <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="none"
                                      stroke="currentColor" strokeWidth="3">
                                     <path d="M12 2L2 7l10 5 10-5-10-5z"/>

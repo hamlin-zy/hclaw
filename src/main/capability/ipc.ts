@@ -11,6 +11,7 @@
 
 import { ipcMain } from 'electron'
 import { capabilityHub } from './CapabilityHub'
+import { broadcastToAllWindows } from '../utils/windowBroadcast'
 import type { CapabilityFilter, CapabilityType } from './types'
 
 /** 注册所有 CapabilityHub 的 IPC handlers */
@@ -45,20 +46,10 @@ export function registerCapabilityIPC(): void {
         return capabilityHub.get(id) ?? null
     })
 
-    // ── 从外部模块调用的写入入口 ──
-    // (预留: 由 powerManager、plugin IPC 等在 refresh 后调用)
-    ipcMain.handle('capability:register-batch', (_event, entries: any[]) => {
-        capabilityHub.registerBatch(entries)
-        return { success: true, count: entries.length }
-    })
-
-    ipcMain.handle('capability:on-plugin-state-change', (_event, pluginName: string, enabled: boolean) => {
-        capabilityHub.onPluginStateChange(pluginName, enabled)
-        return { success: true }
-    })
-
-    ipcMain.handle('capability:clear', () => {
-        capabilityHub.clear()
-        return { success: true }
+    // ── 变更通知（Hub → 渲染进程）──
+    // 写入唯一入口为 capabilityHub.replaceAll（由 powerManager.refresh 调用）。
+    // Hub 检测到投影变化时 emit { seq }，这里广播给所有窗口，消费端整表重取。
+    capabilityHub.onChanged(({ seq }) => {
+        broadcastToAllWindows('capability:changed', { seq })
     })
 }

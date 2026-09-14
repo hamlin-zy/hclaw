@@ -73,7 +73,7 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
     return (
         <div className={`rounded-lg overflow-hidden mb-1.5 border transition-colors ${
             effectiveStatus === 'error'
-                ? 'border-[rgba(239,68,68,0.2)] bg-[var(--error-muted)]/15'
+                ? 'border-[rgba(239,68,68,0.2)] bg-[var(--error-muted)]'
                 : 'border-[var(--border)] bg-[var(--surface-muted)]'
         }`}>
             <button onClick={() => onToggle(toolCall.id)}
@@ -125,7 +125,7 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
                     {errorLine && (
                         <div className="relative group select-text">
                             <span className="text-[9px] text-[var(--error)] uppercase tracking-wide">错误</span>
-                            <pre className="text-[10px] text-[var(--error)] font-mono whitespace-pre-wrap break-all leading-relaxed mt-1 p-2 bg-[var(--error-muted)]/20 rounded border border-[rgba(239,68,68,0.12)] max-h-48 overflow-x-hidden overflow-y-auto select-text">{String(errorLine)}</pre>
+                            <pre className="text-[10px] text-[var(--error)] font-mono whitespace-pre-wrap break-all leading-relaxed mt-1 p-2 bg-[var(--error-muted)] rounded border border-[rgba(239,68,68,0.12)] max-h-48 overflow-x-hidden overflow-y-auto select-text">{String(errorLine)}</pre>
                             <CopyButton code={String(errorLine)} label="复制错误"/>
                         </div>
                     )}

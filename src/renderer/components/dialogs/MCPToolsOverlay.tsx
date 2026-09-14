@@ -220,7 +220,7 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                                 <h2 className="text-sm font-bold text-[var(--text-primary)] truncate">{server.name}</h2>
                                 <span className={`px-1.5 py-0.5 rounded text-2xs font-semibold uppercase border shrink-0 ${
                                     isPlugin
-                                        ? 'bg-[var(--brand-muted)] text-[var(--brand-primary)] border-[var(--brand-primary)]/20'
+                                        ? 'bg-[var(--brand-muted)] text-[var(--brand-primary)] border-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]'
                                         : 'bg-[var(--surface-muted)] text-[var(--text-muted)] border-[var(--border)]'
                                 }`}>
                                     {isPlugin ? '插件' : server.transport}
@@ -293,7 +293,7 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                         <>
                             <section>
                                 <h4 className="text-2xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">来源插件</h4>
-                                <div className="p-3 rounded-lg bg-[var(--brand-muted)] border border-[var(--brand-primary)]/20 text-xs text-[var(--brand-primary)] font-medium">
+                                <div className="p-3 rounded-lg bg-[var(--brand-muted)] border border-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] text-xs text-[var(--brand-primary)] font-medium">
                                     插件: {pluginName}
                                 </div>
                             </section>

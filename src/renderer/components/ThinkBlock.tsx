@@ -31,7 +31,7 @@ const ThinkBlock = memo(function ThinkBlock({thinkBlock, defaultExpanded}: {
             ariaLabel="思考过程"
         >
             <div
-                className="mt-[var(--space-snug)] pl-[var(--space-relaxed)] border-l-2 border-[var(--border-emphasis)] bg-[var(--brand-muted)]/30 rounded-r-lg p-[var(--space-relaxed)]">
+                className="mt-[var(--space-snug)] pl-[var(--space-relaxed)] border-l-2 border-[var(--border-emphasis)] bg-[var(--brand-muted)] rounded-r-lg p-[var(--space-relaxed)]">
                 {isEmptyThinking ? (
                     <div className="flex items-center gap-[var(--space-snug)] text-xs text-[var(--brand-primary)]">
                         <ThinkingDot/>

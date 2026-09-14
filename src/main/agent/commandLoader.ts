@@ -12,9 +12,9 @@ import * as fsPromises from 'fs/promises'
 import * as path from 'path'
 import yaml from 'js-yaml'
 import {getHclawDir} from '../config'
-import {getDatabase} from '../repositories/sqlite'
 import type {CommandDefinition} from '@shared/types'
 import {logger} from './logger'
+import {createSqliteOwnershipDeps, resolve} from '../common/pluginOwnership'
 
 // ─── 常量 ────────────────────────────────────────────────
 
@@ -22,15 +22,6 @@ const COMMANDS_DIR = path.join(getHclawDir(), 'commands')
 const SUPPORTED_EXTENSIONS = new Set(['.md'])
 
 // ─── 类型 ────────────────────────────────────────────────
-
-/** 命令覆盖记录 */
-interface CommandOverride {
-  enabled: boolean
-  updatedAt: number
-}
-
-/** 命令覆盖表 */
-type CommandOverrides = Record<string, CommandOverride>
 
 // ─── 解析函数 ─────────────────────────────────────────────
 
@@ -171,29 +162,6 @@ async function scanCommandDirectory(dir: string): Promise<CommandDefinition[]> {
   return commands
 }
 
-// ─── DB Override ─────────────────────────────────────────
-
-/**
- * 从 command_overrides 表读取覆盖配置
- */
-function readCommandOverridesSync(): CommandOverrides {
-  try {
-    const db = getDatabase()
-    const rows = db.prepare('SELECT command_id, enabled, updated_at FROM command_overrides').all() as Array<{
-      command_id: string
-      enabled: number
-      updated_at: number
-    }>
-    const overrides: CommandOverrides = {}
-    for (const row of rows) {
-      overrides[row.command_id] = {enabled: row.enabled === 1, updatedAt: row.updated_at}
-    }
-    return overrides
-  } catch {
-    return {}
-  }
-}
-
 // ─── 公开接口 ─────────────────────────────────────────────
 
 /**
@@ -213,13 +181,17 @@ export async function loadCommands(): Promise<CommandDefinition[]> {
   // 扫描目录
   const allCommands = await scanCommandDirectory(COMMANDS_DIR)
 
-  // 应用 DB override
-  const overrides = readCommandOverridesSync()
+  // 应用启用态：插件禁用 > command_overrides 表值 > 文件默认
+  // （文件命令无插件归属，pluginName 传 null；统一由 pluginOwnership 判定）
+  const deps = createSqliteOwnershipDeps()
   let appliedCount = 0
   for (const cmd of allCommands) {
-    const override = overrides[cmd.id]
-    if (override !== undefined) {
-      cmd.enabled = override.enabled
+    const {capabilityEnabled} = resolve(
+      {kind: 'command', id: cmd.id, pluginName: null, fileEnabled: cmd.enabled},
+      deps,
+    )
+    if (capabilityEnabled !== cmd.enabled) {
+      cmd.enabled = capabilityEnabled
       appliedCount++
     }
   }

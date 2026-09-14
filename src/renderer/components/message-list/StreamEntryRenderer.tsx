@@ -510,7 +510,7 @@ export function ProgressTimeline({logs, variant, isRunning}: ProgressTimelinePro
                             <div className={`w-2 h-2 rounded-full ${
                                 isRunning && isLast
                                     ? 'bg-[var(--info)] animate-pulse'
-                                    : 'bg-[var(--text-muted)]/40'
+                                    : 'bg-[color-mix(in_srgb,var(--text-muted)_40%,transparent)]'
                             }`}/>
                             {i < logs.length - 1 && (
                                 <div className="w-px h-3 bg-[var(--border-muted)]"/>

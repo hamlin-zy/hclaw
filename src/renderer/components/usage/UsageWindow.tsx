@@ -531,7 +531,7 @@ export default function UsageWindow() {
                                                     <span
                                                         onMouseDown={(e) => startResize(e, col, columns[idx + 1]?.col ?? columns[idx - 1]?.col)}
                                                         onClick={(e) => e.stopPropagation()}
-                                                        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-[var(--brand-primary)]/30"
+                                                        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)]"
                                                         data-name="usage-window-col-resizer"
                                                     />
                                                 </th>

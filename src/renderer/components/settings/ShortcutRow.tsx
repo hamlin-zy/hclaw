@@ -67,7 +67,7 @@ export function ShortcutRow({def, current, overrides, onChange, globalFailure}: 
         <div
             ref={rowRef}
             className="flex flex-wrap items-center justify-between gap-y-1 px-4 py-2.5
-                       hover:bg-[var(--surface-muted)]/40 transition-colors"
+                       hover:bg-[color-mix(in_srgb,var(--surface-muted)_40%,transparent)] transition-colors"
         >
             <span className="text-sm text-[var(--text-primary)]">{def.label}</span>
             <div className="flex items-center gap-2 shrink-0 ml-4">

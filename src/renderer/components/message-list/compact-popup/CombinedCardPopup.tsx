@@ -294,7 +294,7 @@ const ThinkBlockInPopup = memo(function ThinkBlockInPopup({thinkBlock}: {thinkBl
                                 正在思考...
                             </div>
                         ) : (
-                            <div className="mt-2 pl-4 border-l-2 border-[var(--border-emphasis)] bg-[var(--brand-muted)]/30 rounded-r-lg p-3 max-h-64 overflow-x-hidden overflow-y-auto break-all">
+                            <div className="mt-2 pl-4 border-l-2 border-[var(--border-emphasis)] bg-[var(--brand-muted)] rounded-r-lg p-3 max-h-64 overflow-x-hidden overflow-y-auto break-all">
                                 <MarkdownRenderer>{thinkBlock.content}</MarkdownRenderer>
                             </div>
                         )}

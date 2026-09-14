@@ -22,10 +22,21 @@ const WINDOWS_RESERVED_NAMES = new Set<string>([
 ])
 
 /**
- * 返回命令名称的校验错误（中文，供 UI 直接展示），合法时返回 null。
- * @param name 待校验的命令名称
+ * 与已有命令重名时的统一错误文案。
+ * 主进程（权威防线）与渲染端共用，避免两处文案漂移。
  */
-export function getCommandNameError(name: string): string | null {
+export const DUPLICATE_COMMAND_NAME_ERROR = '已存在同名命令，请修改命令名'
+
+/**
+ * 返回命令名称的校验错误（中文，供 UI 直接展示），合法时返回 null。
+ *
+ * 校验分两步：先语法（空/字符/保留名），再可选查重。
+ * 查重大小写不敏感——Windows 文件名不区分大小写，`Foo` 与 `foo` 会映射到同一文件。
+ *
+ * @param name 待校验的命令名称
+ * @param existingNames 已存在的命令名称集合；缺省时跳过查重（行为与旧版一致）
+ */
+export function getCommandNameError(name: string, existingNames?: readonly string[]): string | null {
     if (!name) {
         return '命令名称不能为空'
     }
@@ -35,13 +46,20 @@ export function getCommandNameError(name: string): string | null {
     if (WINDOWS_RESERVED_NAMES.has(name.toUpperCase())) {
         return '该名称是系统保留名（如 CON、NUL、COM1），请换一个名称'
     }
+    if (existingNames && existingNames.length > 0) {
+        const lower = name.toLowerCase()
+        if (existingNames.some(existing => existing.toLowerCase() === lower)) {
+            return DUPLICATE_COMMAND_NAME_ERROR
+        }
+    }
     return null
 }
 
 /**
  * 判断命令名称是否合法。
  * @param name 待校验的命令名称
+ * @param existingNames 已存在的命令名称集合；缺省时只做语法校验
  */
-export function isValidCommandName(name: string): boolean {
-    return getCommandNameError(name) === null
+export function isValidCommandName(name: string, existingNames?: readonly string[]): boolean {
+    return getCommandNameError(name, existingNames) === null
 }

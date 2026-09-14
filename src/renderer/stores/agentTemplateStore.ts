@@ -1,10 +1,14 @@
 import {create} from 'zustand'
 import type {AgentTemplate} from '@shared/types'
+import {applyOptimistic} from './applyOptimistic'
 
 /**
  * Agent 模版 Store
  *
  * 管理预设和自定义的 Agent 模版（提示词、工具集、关联技能等）。
+ *
+ * 写操作中带「乐观更新 + 失败回滚」语义的切换（单条 / 批量）统一走 applyOptimistic，
+ * 错误形态规范化为字符串。
  */
 
 interface AgentTemplateStore {
@@ -105,37 +109,32 @@ export const useAgentTemplateStore = create<AgentTemplateStore>()(
             const template = get().templates.find(t => t.id === id)
             if (!template) return
             const newEnabled = !template.enabled
-            set(state => ({
-                templates: state.templates.map(t =>
-                    t.id === id ? {...t, enabled: newEnabled, updatedAt: Date.now()} : t,
-                ),
-            }))
-            try {
-                await window.electronAPI?.agentsUpdate?.(id, {enabled: newEnabled})
-            } catch {
-                set(state => ({
+            const prev = get().templates
+            await applyOptimistic<AgentTemplate[], unknown>({
+                snapshot: () => set({templates: prev}),
+                mutate: () => set(state => ({
                     templates: state.templates.map(t =>
-                        t.id === id ? {...t, enabled: template.enabled, updatedAt: template.updatedAt} : t,
+                        t.id === id ? {...t, enabled: newEnabled, updatedAt: Date.now()} : t,
                     ),
-                }))
-            }
+                })),
+                persist: async () => window.electronAPI?.agentsUpdate?.(id, {enabled: newEnabled}),
+            })
         },
 
         toggleTemplateBatch: async (templateIds, enabled) => {
             if (templateIds.length === 0) return
             const prev = get().templates
-            set(state => ({
-                templates: state.templates.map(t =>
-                    templateIds.includes(t.id) ? {...t, enabled, updatedAt: Date.now()} : t,
-                ),
-            }))
-            try {
-                const result = await window.electronAPI?.agentsToggleBatch?.({templateIds, enabled})
-                if (result?.templates) {
-                    set({templates: result.templates})
-                }
-            } catch {
-                set({templates: prev})
+            const result = await applyOptimistic<AgentTemplate[], {templates?: AgentTemplate[]}>({
+                snapshot: () => set({templates: prev}),
+                mutate: () => set(state => ({
+                    templates: state.templates.map(t =>
+                        templateIds.includes(t.id) ? {...t, enabled, updatedAt: Date.now()} : t,
+                    ),
+                })),
+                persist: async () => (await window.electronAPI?.agentsToggleBatch?.({templateIds, enabled})) as {templates?: AgentTemplate[]},
+            })
+            if (result.ok && result.data?.templates) {
+                set({templates: result.data.templates})
             }
         },
 

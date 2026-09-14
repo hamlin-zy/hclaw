@@ -434,7 +434,7 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
                     <span className="flex items-center gap-1.5 text-[11px] min-w-0 flex-1">
                         <span className="text-[var(--text-muted)] font-normal">Agent</span>
                         {agentTypeLabel && (
-                            <span className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)]/30 px-1.5 py-0.5 rounded shrink-0">
+                            <span className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)] px-1.5 py-0.5 rounded shrink-0">
                                 {agentTypeLabel}
                             </span>
                         )}

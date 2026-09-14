@@ -141,7 +141,7 @@ export function useMcpErrorDialog(opts?: {
                                 </button>
                                 <button
                                     onClick={handleHelp}
-                                    className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/80 text-white transition-colors"
+                                    className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_85%,black)] text-white transition-colors"
                                  data-name="mcperror-helper-help-button">
                                     帮我检查
                                 </button>

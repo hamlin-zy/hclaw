@@ -275,7 +275,7 @@ function CallRow({record: r, selected, onClick}: {
                 <OutputIcon className={`w-3 h-3 shrink-0 text-[var(--text-muted)] transition-transform ${selected ? 'rotate-90' : ''}`}/>
             </div>
             {selected && r.error && (
-                <div className="mx-3 my-1 py-2 px-3 rounded-md font-mono text-xs bg-[var(--error-muted)] border border-[var(--error)]/35 text-[var(--error)]">
+                <div className="mx-3 my-1 py-2 px-3 rounded-md font-mono text-xs bg-[var(--error-muted)] border border-[color-mix(in_srgb,var(--error)_45%,transparent)] text-[var(--error)]">
                     {r.error.message}
                 </div>
             )}

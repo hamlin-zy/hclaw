@@ -124,7 +124,7 @@ export default function PermissionModeSelector() {
                         onMouseDown={(e) => e.stopPropagation()}
                     >
                         {/* 毛玻璃面板 */}
-                        <div className="bg-[var(--surface-elevated)]/92 backdrop-blur-lg border border-[var(--border)] rounded-2xl shadow-2xl shadow-black/20 overflow-hidden">
+                        <div className="bg-[color-mix(in_srgb,var(--surface-elevated)_92%,transparent)] backdrop-blur-lg border border-[var(--border)] rounded-2xl shadow-2xl shadow-black/20 overflow-hidden">
                             <div className="p-1.5">
                                 {/* 标题 */}
                                 <div className="px-2.5 py-2 text-[10px] font-medium text-[var(--text-secondary)] border-b border-[var(--border-muted)] mb-1">
@@ -145,7 +145,7 @@ export default function PermissionModeSelector() {
                                                 w-full px-2.5 py-2.5 text-left text-xs rounded-xl
                                                 transition-all duration-150 flex items-center gap-2.5
                                                 ${isActive
-                                                    ? `bg-[var(--brand-primary)]/15 ${m.color}`
+                                                    ? `bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] ${m.color}`
                                                     : `text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] ${m.hoverColor}`
                                                 }
                                             `}

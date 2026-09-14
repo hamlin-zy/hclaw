@@ -210,6 +210,11 @@
     --warning: #f59e0b;
     --error: #ef4444;
     --error-muted: rgba(239, 68, 68, 0.10);
+    /* 补齐浅色缺失的 muted 键：与 .shiyangjin 同口径（alpha 0.10）。
+       此前仅暗色系主题定义，默认浅色下这 3 个令牌解析为空 → 相关淡底/描边一直透明。 */
+    --success-muted: rgba(16, 185, 129, 0.10);
+    --warning-muted: rgba(245, 158, 11, 0.10);
+    --info-muted: rgba(59, 130, 246, 0.10);
     --info: #3b82f6;
 
     /* Semantic tag colors */
@@ -2702,8 +2707,8 @@ html.bg-enabled,
 }
 
 /* ── 欢迎页快捷键卡片（空会话，无消息滚动容器兜底）──
- * 默认 Tailwind 原子类 bg-[var(--surface-muted)]/40 透明度写死，
- * 背景启用时改为跟随 overlay 滑杆（--bg-surface-alpha），与内容卡片一致 */
+ * 静息态是实底 bg-[var(--surface-muted)]（不带不透明度）；背景图启用时由本规则接管，
+ * 改跟随 overlay 滑杆（--bg-surface-alpha），与内容卡片一致 */
 .bg-enabled .welcome-shortcut-card {
     background-color: color-mix(in srgb, var(--surface-muted) var(--bg-surface-alpha, 60%), transparent) !important;
     backdrop-filter: blur(var(--bg-blur, 16px)) saturate(1.05);

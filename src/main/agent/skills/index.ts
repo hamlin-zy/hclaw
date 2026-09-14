@@ -40,7 +40,7 @@ export type {
 export { skillRegistry } from './registry'
 export { loadSkillsFromDirectory, loadSkillsFromPlugins, loadSkillsFromPluginDirectory } from './loader'
 export { serializeSkill, serializeSkills } from './loader'
-export { applySkillOverrides, writeSkillOverride, writeSkillOverrides, readSkillOverridesSync } from './loader'
+export { applySkillOverrides, writeSkillOverride, writeSkillOverrides } from './loader'
 export { skillEventBus } from './eventBus'
 export type { SkillEvent, SkillEventType, SkillEventCallback } from './eventBus'
 

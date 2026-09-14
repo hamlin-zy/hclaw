@@ -146,7 +146,7 @@ export function InlineCommandPicker({query, onClose, onComplete}: Props) {
                                 return (
                                     <div key={item.id} data-idx={realIdx} onClick={() => onComplete(`/${item.name} `)}
                                          className={`mx-1 px-2 py-2 rounded-lg cursor-pointer flex items-center gap-2.5 transition-colors
-                      ${realIdx === sel ? 'bg-[var(--brand-primary)]/15 border-l-2 border-l-[var(--brand-primary)]' : 'hover:bg-[var(--surface-muted)]'}`} data-name="inline-command-picker-div">
+                      ${realIdx === sel ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] border-l-2 border-l-[var(--brand-primary)]' : 'hover:bg-[var(--surface-muted)]'}`} data-name="inline-command-picker-div">
                                         <span
                                             className={`w-7 h-7 rounded-md flex items-center justify-center ${cfg.c} ${cfg.t}`}><SourceIcon className="w-4 h-4"/></span>
                                         <div className="flex-1 min-w-0">

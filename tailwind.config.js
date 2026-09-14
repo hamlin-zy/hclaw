@@ -1,5 +1,8 @@
+const plugin = require('tailwindcss/plugin')
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  // 保持 darkMode:'class' 不变：既有 dark: 变体语义（只命中 .dark）不得改动。
   darkMode: 'class',
   future: {
     respectDefaultRingColorOpacity: false,
@@ -142,5 +145,19 @@ module.exports = {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    plugin(({ addVariant }) => {
+      // dark-all：深色主题变体，同时命中 .dark 与 .yuanshandai 两个深色主题（覆盖「所有深色主题」）。
+      // 与内建 dark: 的区别（语义不同，勿混用）：darkMode:'class' 下 dark: 只命中 .dark，**不命中 .yuanshandai**；
+      // 焦点环等需要在「所有深色主题」降档的场景必须用 dark-all:（如 dark-all:focus-visible:ring-[...]）。
+      // 命名刻意避开 dark-theme：它与 dark: 仅一字之差且语义相反，是真实认知陷阱；dark-all 读作
+      // 「所有深色主题」，差异自名字可见。
+      //
+      // ⚠ 本选择器列表必须与 `src/shared/types/theme.ts` 的 `DARK_THEMES` 同步；新增深色主题时两处都要改。
+      //    （themeTokenSync.test.ts 的「勿重写主题名清单」护栏只 walk src/** 的 .ts/.tsx，扫不到本文件的选择器串；
+      //      漏改的兜底是 tokenCompliance.capabilityPages.test.ts 的变体生效断言——它遍历 DARK_THEMES，
+      //      本列表缺哪个主题，产物就缺 `.${主题} .dark-all\:...`，断言即变红。）
+      addVariant('dark-all', ['.dark &', '.yuanshandai &'])
+    }),
+  ],
 }

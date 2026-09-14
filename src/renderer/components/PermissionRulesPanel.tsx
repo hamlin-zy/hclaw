@@ -139,7 +139,7 @@ export default function PermissionRulesPanel() {
                             <div
                                 key={rule.tool}
                                 onClick={() => handleEditClick(rule)}
-                                className="p-2.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] shadow-sm group cursor-pointer hover:border-[var(--brand-primary)]/30 hover:shadow-sm transition-all"
+                                className="p-2.5 rounded-lg bg-[var(--surface)] border border-[var(--border)] shadow-sm group cursor-pointer hover:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] hover:shadow-sm transition-all"
                              data-name="permission-rules-panel-div">
                                 <div className="flex items-center gap-1.5">
                                     <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)] shrink-0"/>
@@ -152,7 +152,7 @@ export default function PermissionRulesPanel() {
                                             e.stopPropagation()
                                             removePermissionRule(rule.tool)
                                         }}
-                                        className="text-[var(--error)] opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:bg-[var(--error)]/10 rounded shrink-0"
+                                        className="text-[var(--error)] opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:bg-[color-mix(in_srgb,var(--error)_10%,transparent)] rounded shrink-0"
                                         title="删除规则"
                                      data-name={`permission-rules-panel-rule-delete-${i}`}>
                                         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none"
@@ -162,7 +162,7 @@ export default function PermissionRulesPanel() {
                                         </svg>
                                     </button>
                                     <span
-                                        className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--success)]/10 text-[var(--success)] font-medium shrink-0">
+                                        className="text-[10px] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)] font-medium shrink-0">
                                         始终允许
                                     </span>
                                 </div>
@@ -179,7 +179,7 @@ export default function PermissionRulesPanel() {
                     )}
 
                     <div className="pt-4 border-t border-[var(--border-muted)]">
-                        <div className="p-3 rounded-lg bg-[var(--brand-primary)]/5 border border-[var(--brand-primary)]/10">
+                        <div className="p-3 rounded-lg bg-[color-mix(in_srgb,var(--brand-primary)_5%,transparent)] border border-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)]">
                             <p className="text-[11px] text-[var(--brand-primary)] font-medium mb-1">提示</p>
                             <p className="text-[10px] text-[var(--text-secondary)] leading-relaxed">
                                 点击规则可编辑匹配模式。删除规则后，再次调用该工具将需要手动确认。
@@ -202,7 +202,7 @@ export default function PermissionRulesPanel() {
                         {/* 弹窗 Header */}
                         <div className="px-5 py-4 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)]">
                             <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-[var(--brand-primary)]/10 flex items-center justify-center shrink-0">
+                                <div className="w-8 h-8 rounded-full bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] flex items-center justify-center shrink-0">
                                     <svg className="w-4 h-4 text-[var(--brand-primary)]" viewBox="0 0 24 24"
                                          fill="none" stroke="currentColor" strokeWidth="2">
                                         <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
@@ -242,7 +242,7 @@ export default function PermissionRulesPanel() {
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <span className="text-sm font-mono font-medium text-[var(--text-primary)] break-all">{editingRule?.tool}</span>
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--success)]/10 text-[var(--success)] font-medium shrink-0">始终允许</span>
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)] font-medium shrink-0">始终允许</span>
                                     </div>
                                 </div>
                             )}
@@ -279,7 +279,7 @@ export default function PermissionRulesPanel() {
                                         <button
                                             onClick={handleDelete}
                                             className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
-                                                bg-[var(--error)] text-white hover:bg-[var(--error)]/80"
+                                                bg-[var(--error)] text-white hover:bg-[color-mix(in_srgb,var(--error)_85%,black)]"
                                          data-name="permission-rules-panel-confirm-delete-button">
                                             确认删除
                                         </button>
@@ -290,7 +290,7 @@ export default function PermissionRulesPanel() {
                                     <button
                                         onClick={handleDelete}
                                         className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
-                                            text-[var(--error)] hover:bg-[var(--error)]/10 border border-[var(--border)] hover:border-[var(--error)]/30"
+                                            text-[var(--error)] hover:bg-[color-mix(in_srgb,var(--error)_10%,transparent)] border border-[var(--border)] hover:border-[color-mix(in_srgb,var(--error)_30%,transparent)]"
                                      data-name="permission-rules-panel-delete-button">
                                         删除规则
                                     </button>
@@ -309,7 +309,7 @@ export default function PermissionRulesPanel() {
                                                 disabled={!editTool.trim()}
                                                 className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
                                                     bg-[var(--brand-primary)] text-white
-                                                    hover:bg-[var(--brand-primary)]/80 disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    hover:bg-[color-mix(in_srgb,var(--brand-primary)_85%,black)] disabled:opacity-40 disabled:cursor-not-allowed"
                                              data-name="permission-rules-panel-save-edit-button">
                                                 保存
                                             </button>
@@ -317,8 +317,8 @@ export default function PermissionRulesPanel() {
                                             <button
                                                 onClick={() => setIsEditing(true)}
                                                 className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
-                                                    bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]
-                                                    hover:bg-[var(--brand-primary)]/20 border border-[var(--brand-primary)]/20"
+                                                    bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]
+                                                    hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] border border-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]"
                                              data-name="permission-rules-panel-edit-button">
                                                 编辑
                                             </button>
