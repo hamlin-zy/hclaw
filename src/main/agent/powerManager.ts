@@ -42,8 +42,24 @@ export interface EnabledPower {
     mcps: MCPServerState[]
 }
 
+/** 冷启动观测：从调用栈提取 refresh() 的外部触发者（仅用于归因，失败返回空串） */
+function callerHint(): string {
+    try {
+        const lines = (new Error().stack ?? '').split('\n')
+        const frame = lines.find(l => l.includes('.js:') && !l.includes('powerManager'))
+        return frame?.trim().slice(0, 140) ?? ''
+    } catch {
+        return ''
+    }
+}
+
 class PowerManagerImpl {
     private initialized = false
+    /** initialize() 完成时 resolve；供 IPC 等路径「等初始化完成后直接读注册表」，避免重复全量扫描 */
+    private resolveInitialized: (() => void) | null = null
+    private initializedPromise: Promise<void> = new Promise<void>(resolve => {
+        this.resolveInitialized = resolve
+    })
     /** 执行队列 - 确保串行执行，防止并发 */
     private executionQueue: Promise<void> = Promise.resolve()
     /** 防抖定时器 ID */
@@ -120,6 +136,7 @@ class PowerManagerImpl {
             try {
                 await this.loadAllCapabilities(pluginEnabledMap)
                 this.initialized = true
+                this.resolveInitialized?.()
                 const stats = await this.getStats()
                 logger.debug('initialize', {success: true, stats})
             } catch (error) {
@@ -150,12 +167,25 @@ class PowerManagerImpl {
         this.initialized = false
     }
 
+    /** 是否已完成首次全量初始化 */
+    isInitialized(): boolean {
+        return this.initialized
+    }
+
+    /** 等待首次全量初始化完成（已完成后立即 resolve） */
+    whenInitialized(): Promise<void> {
+        return this.initializedPromise
+    }
+
     /**
      * 刷新所有能力（响应插件状态变更）
      * 使用 serialized 队列防止并发重复刷新
      */
     async refresh(): Promise<void> {
         await this.serialized(async () => {
+            // 冷启动观测：记录触发者（打包后调用栈里是 .vite/main/<chunk>.js:<line>），
+            // 用于归因启动期「谁又触发了一整轮全量能力扫描」。
+            trace('cap:refresh-enter', {caller: callerHint()})
             logger.debug('refresh', {status: 'starting'})
             try {
                 capabilityMapper.clear()

@@ -46,7 +46,6 @@ import {initProjectManagerIPC, stopAllWatchers} from './project-manager/window';
 import {initPhraseIPC} from './phrase/phraseIPC';
 import {memoStore} from './memo/memoStore';
 import {createLogger} from './agent/logger';
-import {powerManager} from './agent/powerManager';
 import {mcpWorkerManager} from './agent/mcp/mcpWorkerManager';
 import {runtimeConfigManager} from './agent/runtimeConfigManager';
 import {setConfigBridge} from './agent/common/configBridge';
@@ -224,6 +223,31 @@ initChannelIPC();
 channelManager.init();
 initProjectManagerIPC();
 
+/**
+ * 等待主窗口真正可见（BrowserWindow 的 'show' 事件），最多 timeoutMs。
+ *
+ * 用途：把重活（插件/能力/MCP 初始化）排到窗口首帧之后。
+ * Electron 主进程与浏览器进程同线程，能力加载里的同步 fs/DB 段会连续饿死事件循环
+ * （实测 main:loop-stall gapMs=5050），渲染进程 spawn 与 ready-to-show 的 IPC
+ * 会一起被推迟 —— 现象就是「托盘先出现，主窗口几秒后才出来」。
+ *
+ * 超时兜底：窗口因故未能显示（显示失败等）时不能让启动流程永久挂起。
+ */
+function waitForWindowShown(timeoutMs: number): Promise<void> {
+    const win = getMainWindow();
+    if (!win || win.isDestroyed() || win.isVisible()) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+        let timer: NodeJS.Timeout;
+        const done = (): void => {
+            clearTimeout(timer);
+            win.removeListener('show', done);
+            resolve();
+        };
+        timer = setTimeout(done, timeoutMs);
+        win.once('show', done);
+    });
+}
+
 app.on('ready', async () => {
   trace('main:app-ready')
   // DB is initialized at module import time via ./repositories/init
@@ -384,11 +408,26 @@ app.on('ready', async () => {
   // MCP 事件转发广播给所有渲染窗口（须在窗口创建后注册）
   registerMCPEventForwarding();
 
+  registerGlobalShortcutsAtStartup();
+  trace('main:shortcuts-registered');
+
+  // ── 窗口优先：先让主窗口的首帧落地，再开始插件/能力/MCP 初始化 ──
+  // 窗口「创建」虽然在这个 async 块之前，但窗口「可见」取决于渲染进程首帧；
+  // 而下面这段初始化里的同步段会连续饿死主线程（实测 main:loop-stall gapMs=5050），
+  // 把 renderer spawn 与 ready-to-show 的 IPC 一起推迟 —— 用户看到的就是
+  // 「托盘已经出来了，主窗口却要几秒后才出现」。
+  // 改为首帧落地后再跑重活；进度经 initProgress 广播给渲染端（左下角「初始化阶段」文案）。
+  const windowGateStart = Date.now();
+  await waitForWindowShown(8000);
+  trace('main:window-gate-released', {waitedMs: Date.now() - windowGateStart});
+
+  // ── 托盘延后到窗口可见之后 ──
+  // new Tray() 是同步的 Shell_NotifyIcon 调用，实测阻塞 25ms ~ 2.6s（随系统/explorer 负载剧烈波动）。
+  // 它若排在窗口之前，会把渲染进程 spawn 一并推迟 —— 这正是「托盘先出现、主窗口几秒后才出」的成因之一。
+  // 移到窗口可见之后：窗口优先，托盘紧随其后，不再影响首帧。
   trace('main:before-createTray')
   createTray();
   trace('main:after-createTray')
-  registerGlobalShortcutsAtStartup();
-  trace('main:shortcuts-registered');
 
   // ── 冷启动观测：事件循环阻塞探针 ──
   // 0ms 定时器若不能及时派发，说明主线程被同步代码连续占用（渲染进程 spawn /
@@ -452,6 +491,10 @@ app.on('ready', async () => {
   initProgress.done('agent')
   logger.info('init-checkpoint', {step: 'initAgent-done'})
   trace('main:agent-initialized');
+  // initAgent 已被推迟到「窗口可见」之后，而渲染端在挂载时会拉一次工具列表
+  // （schemeSync/modelSchemeStore → toolStore.loadTools），那次拉取可能早于
+  // registerBuiltinTools() → 这里补一次广播让渲染端重取（原顺序下内置工具先于渲染端加载，无需）。
+  broadcastToAllWindows('tools-changed');
   // 主进程侧四段能力加载结束（MCP 阶段由渲染进程自行推导，主进程不管）
   initProgress.finish()
 
@@ -494,8 +537,9 @@ app.on('ready', async () => {
   // Scheduler system initialization (loads enabled schedules into worker)
   schedulerManager.init()
 
-    // Post-startup warmup
-    setTimeout(() => powerManager.refresh().catch(() => {}), 0)
+    // 注意：此处曾有一次 `setTimeout(powerManager.refresh(), 0)` 的「启动预热」。
+    // initAgent() 已经 await 过 powerManager.initialize()（完整走一遍 loadAllCapabilities），
+    // 紧接着再整跑一轮全量 refresh 属纯重复（实测 4.1s 后台 I/O），故移除。
 
   // §4.2 崩溃恢复：启动完成时全库扫描一次未 finalize 的 assistant 消息，
   // 逐会话补终态（只做一次，不循环；§8 已接受增量丢失风险）

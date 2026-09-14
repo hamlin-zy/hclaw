@@ -63,9 +63,15 @@ async function doSkillRefresh<T>(fn: () => Promise<T>): Promise<T> {
         await withTimeout(skillRefreshLock, SKILL_REFRESH_TIMEOUT_MS)
     }
 
-    // 创建新的刷新任务 - 通过 powerManager.refresh() 统一刷新所有能力
-    skillRefreshLock = powerManager.refresh().catch(err => {
-        logger.error('[SkillsRefresh] powerManager.refresh failed', {error: String(err)})
+    // 创建新的刷新任务 - 通过 powerManager 统一刷新所有能力
+    // 冷启动时 powerManager 尚未 initialize（随后 initAgent() 会做一次完整加载），
+    // 此时不再重复全量扫描（且此刻扫出的能力集不含插件），改为等 initialize 完成后
+    // 直接读注册表——结果更完整，且省掉一整轮重复 I/O 与事件循环饥饿。
+    skillRefreshLock = (powerManager.isInitialized()
+        ? powerManager.refresh()
+        : withTimeout(powerManager.whenInitialized(), SKILL_REFRESH_TIMEOUT_MS)
+    ).catch(err => {
+        logger.error('[SkillsRefresh] powerManager refresh/wait failed', {error: String(err)})
     })
 
     try {

@@ -92,6 +92,8 @@ function safeStringify(data: Record<string, unknown>): string {
 let watchdogStarted = false
 let lastWatchdogAt = 0
 let lastTraceLabel = ''
+/** 上一次「准点」心跳时刻的业务标签 —— 饥饿发生在它之后 */
+let labelAtLastTick = ''
 
 function ensureWatchdog(): void {
     if (watchdogStarted) return
@@ -102,11 +104,15 @@ function ensureWatchdog(): void {
         const gap = now - lastWatchdogAt
         lastWatchdogAt = now
         if (gap > 150) {
+            // 归因口径：lastTickLabel 才是「饥饿开始前最后一个业务打点」；
+            // currentLabel 是恢复后的标签（易误导，仅作参考）。
+            const before = labelAtLastTick
             const culprit = lastTraceLabel
-            trace('main:loop-stall', {gapMs: gap, lastLabel: culprit})
-            // 还原：不让看门狗自身的打点覆盖「饥饿前最后一个业务打点」
+            trace('main:loop-stall', {gapMs: gap, lastTickLabel: before, currentLabel: culprit})
+            // 还原：不让看门狗自身的打点覆盖业务标签
             lastTraceLabel = culprit
         }
+        labelAtLastTick = lastTraceLabel
     }, 25)
     if (typeof timer.unref === 'function') timer.unref()
 }

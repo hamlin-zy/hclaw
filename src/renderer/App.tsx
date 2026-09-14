@@ -347,11 +347,14 @@ export default function App() {
         await Promise.all([
           useConversationStore.getState().loadConversations(),
           useSettingsStore.getState().loadSettings(),
-          useSkillStore.getState().refreshSkills(),
           // ★ 历史 /能力 消息降级渲染依赖 agent 能力名集合，
           //   缺失会导致重启后 agent 类命令（如 /code-simplifier）无法渲染徽章
           useAgentTemplateStore.getState().init(),
         ])
+
+        // 能力刷新独立发起：其 IPC 在主进程侧可能要等 powerManager 初始化（冷启动可达数秒），
+        // 若并入上方 Promise.all 会把同组的 reloadShortcutBindings / resolveAndApplyTheme 一起拖后。
+        void useSkillStore.getState().refreshSkills()
 
         // settings hydration 完成 → 初始化 shortcutManager 快捷键绑定表
         reloadShortcutBindings()
