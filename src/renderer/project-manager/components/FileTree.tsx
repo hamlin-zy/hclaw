@@ -11,6 +11,7 @@ import {PanelHeader} from '../ui/PanelHeader'
 import {TreeRow} from '../ui/TreeRow'
 import {StatusBadge} from '../ui/StatusBadge'
 import {IconButton} from '../ui/IconButton'
+import {usePaneReorderOptional} from '../hooks/usePaneReorder'
 import {ContextMenu} from '../ui/ContextMenu'
 import {useSendToConversation} from '../ui/SendToConversationProvider'
 import {EmptyState} from '../ui/EmptyState'
@@ -93,6 +94,7 @@ function TreeSkeleton() {
 }
 
 export function FileTree() {
+  const reorder = usePaneReorderOptional()
   const ws = useWorkspaceStore(s => s.workspacePath)
   const expanded = useFileTreeStore(s => s.expanded)
   const childrenCache = useFileTreeStore(s => s.childrenCache)
@@ -481,6 +483,8 @@ export function FileTree() {
         title="文件树"
         count={rootChildren.length}
         testId="pm-filetree-header"
+        // 面板换序：拖动标题栏空白区（动作区被 PanelHeader 内部排除）。隔离渲染时 reorder 为 null
+        onHeaderMouseDown={reorder ? e => reorder.beginDrag('fileTree', e) : undefined}
         actions={
           <>
             <IconButton

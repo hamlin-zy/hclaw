@@ -423,3 +423,91 @@ describe('ProjectManagerApp 外部删除清理标签', () => {
     expect(useEditorTabStore.getState().tabs.map(t => t.filePath)).toEqual(['b.ts'])
   })
 })
+
+
+describe('上半区三列拖动换序', () => {
+  const colIds = () =>
+    Array.from(document.querySelectorAll('.pm-pane-col')).map(el => el.getAttribute('data-pane-id'))
+
+  it('拖动文件树标题栏到最右：列序变化 + order 落盘 + 尺寸键不受影响 + 重挂载保持', () => {
+    localStorage.setItem('pm:layout:/ws', JSON.stringify({sizes: {fileTree: 300}, gitCollapsed: false}))
+    const first = render(<ProjectManagerApp />)
+    expect(colIds()).toEqual(['fileTree', 'editor', 'changes'])
+
+    act(() => {
+      fireEvent.mouseDown(screen.getByTestId('pm-filetree-header'), {clientX: 10})
+      document.dispatchEvent(new MouseEvent('mousemove', {clientX: 1000, bubbles: true}))
+    })
+    act(() => { document.dispatchEvent(new MouseEvent('mouseup', {bubbles: true})) })
+
+    const stored = JSON.parse(localStorage.getItem('pm:layout:/ws')!)
+    expect(stored.order).toEqual(['editor', 'changes', 'fileTree'])
+    expect(stored.sizes.fileTree).toBe(300)   // 换序不重算 / 不擦除尺寸
+
+    first.unmount()
+    render(<ProjectManagerApp />)
+    expect(colIds()).toEqual(['editor', 'changes', 'fileTree'])
+  })
+
+  it('变更列表标题栏同样可拖：拖到最左写入 [changes, fileTree, editor]', () => {
+    render(<ProjectManagerApp />)
+    act(() => {
+      fireEvent.mouseDown(screen.getByTestId('pm-changes-header'), {clientX: 1000})
+      document.dispatchEvent(new MouseEvent('mousemove', {clientX: 10, bubbles: true}))
+    })
+    act(() => { document.dispatchEvent(new MouseEvent('mouseup', {bubbles: true})) })
+    expect(colIds()).toEqual(['changes', 'fileTree', 'editor'])
+    expect(JSON.parse(localStorage.getItem('pm:layout:/ws')!).order).toEqual(['changes', 'fileTree', 'editor'])
+  })
+
+  it('拖动期间分隔条仍为 5 条（placeholder / 把手不得冒充 separator 角色）', () => {
+    render(<ProjectManagerApp />)
+    expect(screen.getAllByRole('separator')).toHaveLength(5)
+    act(() => {
+      fireEvent.mouseDown(screen.getByTestId('pm-filetree-header'), {clientX: 10})
+      document.dispatchEvent(new MouseEvent('mousemove', {clientX: 1000, bubbles: true}))
+    })
+    expect(screen.getAllByRole('separator')).toHaveLength(5)
+    expect(document.querySelector('.pm-pane-placeholder')).not.toBeNull()
+    act(() => { document.dispatchEvent(new MouseEvent('mouseup', {bubbles: true})) })
+    expect(screen.getAllByRole('separator')).toHaveLength(5)
+  })
+
+  it('点编辑区标签仍切换激活 tab（换序把手未吞掉点击）', () => {
+    render(<ProjectManagerApp />)
+    act(() => {
+      useEditorTabStore.getState().openFileTab({path: 'a.ts', title: 'a.ts', content: 'x', hash: 'h1'})
+      useEditorTabStore.getState().openFileTab({path: 'b.ts', title: 'b.ts', content: 'y', hash: 'h2'})
+    })
+    const aId = useEditorTabStore.getState().tabs.find(t => t.title === 'a.ts')!.id
+    expect(useEditorTabStore.getState().activeTabId).not.toBe(aId)
+    fireEvent.click(screen.getByTestId('editor-tab-a.ts'))
+    expect(useEditorTabStore.getState().activeTabId).toBe(aId)
+
+    // 把手存在（有 PaneRow 上下文）但点击它是纯粹的空操作，不改变任何 tab 状态
+    const handle = screen.getByTestId('pm-editor-drag-handle')
+    fireEvent.mouseDown(handle, {clientX: 500})
+    fireEvent.mouseUp(handle, {clientX: 500})
+    fireEvent.click(handle)
+    expect(useEditorTabStore.getState().activeTabId).toBe(aId)
+  })
+
+  it('拖动换序不 remount 面板子树（编辑器卡片与文件树根节点是同一 DOM 节点）', () => {
+    render(<ProjectManagerApp />)
+    const treeCard = document.querySelector('.pm-pane-col[data-pane-id="fileTree"] .pm-panel-card')!
+    const editorCard = screen.getByTestId('pm-card-editor')
+    act(() => {
+      fireEvent.mouseDown(screen.getByTestId('pm-filetree-header'), {clientX: 10})
+      document.dispatchEvent(new MouseEvent('mousemove', {clientX: 1000, bubbles: true}))
+    })
+    act(() => { document.dispatchEvent(new MouseEvent('mouseup', {bubbles: true})) })
+    expect(document.querySelector('.pm-pane-col[data-pane-id="fileTree"] .pm-panel-card')).toBe(treeCard)
+    expect(screen.getByTestId('pm-card-editor')).toBe(editorCard)
+  })
+
+  it('本仓库记录的 order 为非法值时回落默认顺序渲染', () => {
+    localStorage.setItem('pm:layout:/ws', JSON.stringify({order: ['editor', 'editor', 'changes']}))
+    render(<ProjectManagerApp />)
+    expect(colIds()).toEqual(['fileTree', 'editor', 'changes'])
+  })
+})

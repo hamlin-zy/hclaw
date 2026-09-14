@@ -8,6 +8,7 @@ import {confirm, confirmWithInput} from '../../components/ConfirmDialog'
 import {useGitLogStore} from '../stores/gitLogStore'
 import {PanelCard} from '../ui/PanelCard'
 import {PanelHeader} from '../ui/PanelHeader'
+import {usePaneReorderOptional} from '../hooks/usePaneReorder'
 import {IconButton} from '../ui/IconButton'
 import {TreeRow} from '../ui/TreeRow'
 import {StatusBadge} from '../ui/StatusBadge'
@@ -30,6 +31,7 @@ const parentDir = (p: string) => p.split('/').slice(0, -1).join('/') || '.'
 interface MenuState { x: number, y: number, file: GitStatus }
 
 export function GitStatusPanel({workspace}: {workspace: string}) {
+  const reorder = usePaneReorderOptional()
   const {summary, grouped, refresh} = useGitStatusStore()
   const bumpRefs = useGitStatusStore(s => s.bumpRefs)
   const loading = useGitStatusStore(s => s.loading)
@@ -344,6 +346,8 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
         title="变更列表"
         count={changed || undefined}
         testId="pm-changes-header"
+        // 面板换序：拖动标题栏空白区（动作区被 PanelHeader 内部排除）。隔离渲染时 reorder 为 null
+        onHeaderMouseDown={reorder ? e => reorder.beginDrag('changes', e) : undefined}
         actions={<IconButton icon={RefreshCw} label="刷新" disabled={loading} onClick={reloadStatus} />}
       />
       {!summary || changed === 0

@@ -36,6 +36,9 @@ typecheck*.txt
 # 编译输出
 out/
 
+# app.asar 手动解包副本（打包调试/冒烟测试用，可重新解包生成）
+.asar-temp/
+
 # 测试覆盖率报告
 coverage/
 
@@ -65,7 +68,7 @@ config/google-oauth.local.json
 # 自定义域名部署副本（本地构建用，不提交）
 website-h/
 
-# 本地任务跟踪（根因分析等，不提交）
-tasks/
+# 本地任务跟踪（根因分析等，不提交）——仅限项目根目录，避免误伤 tests/**/tasks/
+/tasks/
 
 docs/superpowers/

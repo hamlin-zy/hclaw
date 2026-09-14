@@ -2973,6 +2973,52 @@ html.bg-enabled,
 .pm-split-handle--y { cursor: row-resize; }
 
 /* ========================================
+   Project Manager：上半区三列换序（拖动标题栏交换 文件树 / 编辑区 / 变更列表）
+   ======================================== */
+/* 扁平 row：列以 key={paneId} 渲染，重排只是数组换序 → React 移动 DOM 节点、保留组件实例
+   （嵌套 SplitPane 会因 JSX 结构随顺序变化而整棵 remount，故不再使用）。
+   尺寸语义与 .pm-split 一致：width/height 100% 让它在 .pm-split-flex（block 容器）里撑满。 */
+.pm-pane-row {
+    position: relative;
+    display: flex;
+    width: 100%;
+    height: 100%;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+}
+.pm-pane-col {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+/* 被拖列本身就是 ghost：抬升 + 不吃指针事件；水平跟手位移由内联 transform 每帧写入（不走 state） */
+.pm-pane-col.is-dragging {
+    z-index: 5;
+    pointer-events: none;
+    box-shadow: var(--shadow-card);
+}
+/* 落点高亮 = 让位后的空槽（被拖列已用 transform 跟随指针离开该槽），故无需第二个插入指示器 */
+.pm-pane-placeholder {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border: 1px dashed var(--border-emphasis);
+    border-radius: 6px;
+    background: var(--surface-overlay);
+    opacity: .5;
+    pointer-events: none;
+}
+/* 拖动期全局：拖过其它文本/按钮时光标不跳变、不产生误选中；mouseup / 卸载 / Escape 时移除 */
+.pm-is-pane-reordering,
+.pm-is-pane-reordering * {
+    cursor: grabbing !important;
+    user-select: none !important;
+}
+
+/* ========================================
    Project Manager：面板骨架原语（spec §2.3 / §4 / §5.4 / §13.5）
    ======================================== */
 .pm-panel-card {
@@ -3001,6 +3047,8 @@ html.bg-enabled,
     font-size: 12px;
     color: var(--text-primary);
 }
+/* 拖动标题栏即可换序（仅在传入 onHeaderMouseDown 时才加这个类） */
+.pm-panel-header.is-pane-drag-source { cursor: grab; }
 .pm-panel-header-main {
     display: flex;
     align-items: center;
@@ -3890,6 +3938,15 @@ html.bg-enabled,
     flex: 0 0 auto;
     padding: 0 3px;
     border-left: 1px solid var(--border);
+}
+/* 编辑区换序把手 = 标签栏右侧空白区（scroll 与 picker 之间的常驻 gutter，不新增标题栏）。
+   flex:1 让它吃掉 tab 之后的剩余空白；标签溢出时收缩几乎全由 scroll 承担，
+   min-width 保底 14px → 退化成一条窄把手而不是"没有把手"。 */
+.pm-tabbar-drag {
+    flex: 1 1 auto;
+    min-width: 14px;
+    align-self: stretch;
+    cursor: grab;
 }
 .pm-tab {
     display: flex;

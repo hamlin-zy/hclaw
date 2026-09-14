@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react'
+import {useEffect, useState, type ReactNode} from 'react'
 import {useWorkspaceStore} from './stores/workspaceStore'
 import {useGitStatusStore} from './stores/gitStatusStore'
 import {useGitLogStore} from './stores/gitLogStore'
@@ -10,9 +10,11 @@ import {GitStatusPanel} from './components/GitStatusPanel'
 import {GitLogPanel} from './components/GitLogPanel'
 import {StatusBar} from './components/StatusBar'
 import {SplitPane} from './ui/SplitPane'
+import {PaneRow} from './ui/PaneRow'
 import {PanelCard} from './ui/PanelCard'
 import {PanelHeader} from './ui/PanelHeader'
 import {usePaneSize, GIT_HEIGHT_KEY, COLLAPSED_GIT_HEIGHT, type PaneSizeSpecs} from './hooks/usePaneSize'
+import {usePaneOrder, type PaneId} from './hooks/paneOrder'
 import {useThemeSync} from '../lib/theme'
 import WindowTitleBar from '../components/common/WindowTitleBar'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -45,6 +47,8 @@ export function ProjectManagerApp() {
 
   // 本实例是 gitHeight 键的 owner，因此也是唯一允许调 setGitCollapsed 的实例
   const {sizes, gitCollapsed, commitSize, setGitCollapsed} = usePaneSize(ws, PANE_SPECS)
+  // 上半区三列顺序（按 workspace 分键持久化）。与 sizes 共用一条记录但各自 patch 自己的键
+  const {order, commitOrder} = usePaneOrder(ws)
   const summary = useGitStatusStore(s => s.summary)
   const gitMax = gitMaxHeight()
   // 折叠高度必须从 gitCollapsed 推导，不能读 sizes[GIT_HEIGHT_KEY]：
@@ -130,6 +134,13 @@ export function ProjectManagerApp() {
     }
   }, [ws])
 
+  // 面板内容在外层构造并保持 element 身份：换序时 PaneRow 只移动 DOM 节点，不重建这些子树
+  const panes: Record<PaneId, ReactNode> = {
+    fileTree: <FileTree />,
+    editor: <PanelCard testId="pm-card-editor"><EditorArea /></PanelCard>,
+    changes: <GitStatusPanel workspace={ws} />,
+  }
+
   return (
     <SendToConversationProvider>
       <div className="h-screen flex flex-col bg-[var(--surface)] text-[var(--text-primary)] font-['Inter',sans-serif]">
@@ -153,30 +164,16 @@ export function ProjectManagerApp() {
               label="Git 区高度"
               testId="pm-split-git"
               first={
-                <SplitPane
-                  axis="x"
-                  fixed="first"
-                  size={sizes.fileTree}
-                  min={PANE_SPECS.fileTree.min}
-                  max={PANE_SPECS.fileTree.max}
-                  onResizeEnd={px => commitSize('fileTree', px)}
-                  label="文件树宽度"
-                  testId="pm-split-tree"
-                  first={<FileTree />}
-                  second={
-                    <SplitPane
-                      axis="x"
-                      fixed="second"
-                      size={sizes.changes}
-                      min={PANE_SPECS.changes.min}
-                      max={PANE_SPECS.changes.max}
-                      onResizeEnd={px => commitSize('changes', px)}
-                      label="变更列表宽度"
-                      testId="pm-split-changes"
-                      first={<PanelCard testId="pm-card-editor"><EditorArea /></PanelCard>}
-                      second={<GitStatusPanel workspace={ws} />}
-                    />
-                  }
+                // 上半区：扁平三列（列顺序可拖动交换）。原来两层嵌套 SplitPane 会让顺序变化变成
+                // 不同的 JSX 结构 → 面板子树整棵 remount，故改为 key={paneId} 的扁平列。
+                <PaneRow
+                  order={order}
+                  sizes={sizes}
+                  specs={PANE_SPECS}
+                  onResizeEnd={commitSize}
+                  onReorder={commitOrder}
+                  testId="pm-pane-row"
+                  panes={panes}
                 />
               }
               second={

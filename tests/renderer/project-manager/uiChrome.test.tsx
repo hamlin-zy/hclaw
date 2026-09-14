@@ -55,6 +55,35 @@ describe('PanelHeader', () => {
     render(<PanelHeader title="文件树" actions={<span>动作区</span>} testId="h" />)
     expect(screen.getByText('动作区')).toBeInTheDocument()
   })
+
+  // 面板换序（拖动标题栏）：onHeaderMouseDown 是可选 prop，不传时 DOM / 类名与改造前逐字节一致
+  it('传了 onHeaderMouseDown：根节点带 is-pane-drag-source，空白区按下触发回调', () => {
+    const onHeaderMouseDown = vi.fn()
+    render(<PanelHeader title="文件树" testId="h" onHeaderMouseDown={onHeaderMouseDown} />)
+    const root = screen.getByTestId('h')
+    expect(root).toHaveClass('pm-panel-header', 'is-pane-drag-source')
+    fireEvent.mouseDown(root, {clientX: 10})
+    expect(onHeaderMouseDown).toHaveBeenCalledTimes(1)
+  })
+
+  it('未传 onHeaderMouseDown：根节点不含 is-pane-drag-source，且不挂 mousedown 行为', () => {
+    render(<PanelHeader title="文件树" testId="h" />)
+    expect(screen.getByTestId('h').getAttribute('class')).toBe('pm-panel-header')
+  })
+
+  it('mousedown 落在动作区后代（IconButton 等）不触发换序回调', () => {
+    const onHeaderMouseDown = vi.fn()
+    render(
+      <PanelHeader
+        title="文件树"
+        testId="h"
+        onHeaderMouseDown={onHeaderMouseDown}
+        actions={<button type="button">刷新</button>}
+      />,
+    )
+    fireEvent.mouseDown(screen.getByRole('button', {name: '刷新'}), {clientX: 10})
+    expect(onHeaderMouseDown).not.toHaveBeenCalled()
+  })
 })
 
 describe('PanelToolbar', () => {

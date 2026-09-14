@@ -12,10 +12,25 @@ export interface PanelHeaderProps {
   onToggle?: () => void
   actions?: React.ReactNode
   testId?: string
+  /**
+   * 面板换序起手（拖动标题栏空白区）。仅在传了它时才挂监听、才加 `is-pane-drag-source`
+   * （`cursor: grab`），因此不接线时 DOM 与类名与改造前逐字节一致。
+   * 点击落在 `.pm-panel-header-actions`（5+1 个 IconButton）内时**不**起手。
+   */
+  onHeaderMouseDown?: (e: React.MouseEvent) => void
 }
 
-export function PanelHeader({title, count, expanded, onToggle, actions, testId}: PanelHeaderProps) {
+export function PanelHeader({title, count, expanded, onToggle, actions, testId, onHeaderMouseDown}: PanelHeaderProps) {
   const collapsible = typeof expanded === 'boolean' && typeof onToggle === 'function'
+  const dragSource = typeof onHeaderMouseDown === 'function'
+
+  const onRootMouseDown = dragSource
+    ? (e: React.MouseEvent) => {
+      // 动作区（IconButton）自有的点击语义完全不受影响
+      if (e.target instanceof Element && e.target.closest('.pm-panel-header-actions')) return
+      onHeaderMouseDown(e)
+    }
+    : undefined
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -25,7 +40,11 @@ export function PanelHeader({title, count, expanded, onToggle, actions, testId}:
   }
 
   return (
-    <div className="pm-panel-header" data-testid={testId}>
+    <div
+      className={dragSource ? 'pm-panel-header is-pane-drag-source' : 'pm-panel-header'}
+      data-testid={testId}
+      onMouseDown={onRootMouseDown}
+    >
       <div
         className={collapsible ? 'pm-panel-header-main is-collapsible' : 'pm-panel-header-main'}
         role={collapsible ? 'button' : undefined}
