@@ -3,11 +3,17 @@
  * 交互：文字过滤 · Tab 选中/进入目录 · ← 返回 · Enter 确认 · Esc 关闭
  */
 
-import {Fragment, useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {Fragment, useCallback, useEffect, useMemo, useRef, useState, type ComponentType} from 'react'
 import {motion} from 'framer-motion'
 import {dropdown} from '../lib/motionPresets'
 import {useConversationStore} from '../stores/conversationStore'
 import {fuzzyMatch} from '../lib/search'
+import {
+    ImageFileIcon, CodeFileIcon, PaletteFileIcon, WebFileIcon, DataFileIcon, TextFileIcon,
+    DocFileIcon, VideoFileIcon, AudioFileIcon, ArchiveFileIcon, ScriptFileIcon, ToolIcon,
+    FolderIcon, AttachmentIcon, RemoveIcon,
+} from './icons'
+import type {IconProps} from './icons'
 
 interface FileEntry {
     name: string;
@@ -24,16 +30,17 @@ interface Props {
     onConfirm: (badgeText: string) => void
 }
 
-const FILE_ICONS = new Map([
-    ['png', '🖼️'], ['jpg', '🖼️'], ['jpeg', '🖼️'], ['gif', '🖼️'], ['webp', '🖼️'], ['svg', '🖼️'],
-    ['ts', '📄'], ['tsx', '📄'], ['js', '📄'], ['jsx', '📄'], ['py', '📄'], ['rs', '📄'], ['go', '📄'],
-    ['css', '🎨'], ['html', '🌐'], ['json', '📋'], ['yaml', '📋'], ['md', '📝'], ['txt', '📝'],
-    ['pdf', '📄'], ['csv', '📊'], ['xlsx', '📊'],
-    ['mp4', '🎬'], ['mp3', '🎵'], ['wav', '🎵'],
-    ['zip', '📦'], ['sh', '⚙️'], ['exe', '⚡'],
-])
+const FILE_ICONS: Record<string, ComponentType<IconProps>> = {
+    png: ImageFileIcon, jpg: ImageFileIcon, jpeg: ImageFileIcon, gif: ImageFileIcon, webp: ImageFileIcon, svg: ImageFileIcon,
+    ts: CodeFileIcon, tsx: CodeFileIcon, js: CodeFileIcon, jsx: CodeFileIcon, py: CodeFileIcon, rs: CodeFileIcon, go: CodeFileIcon,
+    css: PaletteFileIcon, html: WebFileIcon, json: DataFileIcon, yaml: DataFileIcon, md: TextFileIcon, txt: TextFileIcon,
+    pdf: DocFileIcon, csv: DataFileIcon, xlsx: DataFileIcon,
+    mp4: VideoFileIcon, mp3: AudioFileIcon, wav: AudioFileIcon,
+    zip: ArchiveFileIcon, sh: ScriptFileIcon, exe: ToolIcon,
+}
 
-const fileIcon = (name: string) => FILE_ICONS.get(name.split('.').pop()?.toLowerCase() ?? '') ?? '📄'
+const fileIcon = (name: string): ComponentType<IconProps> =>
+    FILE_ICONS[name.split('.').pop()?.toLowerCase() ?? ''] ?? TextFileIcon
 
 export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, onConfirm}: Props) {
     const ws = useConversationStore(s => s.currentWorkspacePath)
@@ -86,29 +93,21 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
 
     const onKeyDown = useCallback((e: React.KeyboardEvent) => {
         const item = filtered[sel]
+        // Tab / Enter 同一语义：目录进入、文件切换选中
+        const activate = () => {
+            if (!item) return
+            if (item.isDirectory) {
+                onNavigate(item.name)
+                setBadges([])
+            } else {
+                toggleBadge(item.name)
+            }
+        }
         const keyMap: Record<string, () => void> = {
             ArrowDown: () => setSel(i => Math.min(i + 1, filtered.length - 1)),
             ArrowUp: () => setSel(i => Math.max(i - 1, 0)),
-            Tab: () => {
-                if (item) {
-                    if (item.isDirectory) {
-                        onNavigate(item.name)
-                        setBadges([])
-                    } else {
-                        toggleBadge(item.name)
-                    }
-                }
-            },
-            Enter: () => {
-                if (item) {
-                    if (item.isDirectory) {
-                        onNavigate(item.name)
-                        setBadges([])
-                    } else {
-                        toggleBadge(item.name)
-                    }
-                }
-            },
+            Tab: activate,
+            Enter: activate,
             ArrowLeft: () => currentNav && onGoBack(),
             Escape: () => onClose(),
         }
@@ -122,8 +121,8 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
     if (!ws) return (
         <motion.div {...dropdown}
                     className="absolute left-0 top-full mt-1.5 w-[420px] bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl z-50 p-6 text-center">
-            <p className="text-sm text-[var(--text-muted)]">请先选择一个工作目录</p>
-            <p className="text-xs text-[var(--text-muted)] mt-1">左侧边栏可选择或新建</p>
+            <p className="text-sm text-[var(--text-secondary)]">请先选择一个工作目录</p>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">左侧边栏可选择或新建</p>
         </motion.div>
     )
 
@@ -137,19 +136,19 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
         >
             {/* 头部 */}
             <div
-                className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--border)] bg-[var(--surface-muted)]">
-                <span className="text-[var(--text-muted)] font-mono text-sm font-bold">#</span>
+                className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
+                <span className="text-[var(--text-secondary)] font-mono text-sm font-bold">#</span>
                 <span className="text-[var(--text-primary)] text-sm flex-1 truncate">
           {currentNav && <span className="text-[var(--text-muted)]">#{currentNav}/</span>}{query}
         </span>
-                <span className="text-[10px] text-[var(--text-muted)] truncate max-w-[120px]"
+                <span className="text-[10px] text-[var(--text-secondary)] truncate max-w-[120px]"
                       title={fullPath}>{fullPath}</span>
             </div>
 
             {/* 面包屑 */}
             {segments.length > 0 && (
                 <div
-                    className="flex items-center gap-1 px-3 py-1.5 border-b border-[var(--border)] text-[11px] text-[var(--text-muted)]">
+                    className="flex items-center gap-1 px-3 py-1.5 border-b border-[var(--border-muted)] text-[11px] text-[var(--text-secondary)]">
                     <button onClick={() => {
                         onNavigate('..');
                         setBadges([])
@@ -168,13 +167,13 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
             {/* 已选徽章 */}
             {badges.length > 0 && (
                 <div
-                    className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-[var(--border)] bg-[var(--surface-muted)]/50">
+                    className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]/50">
                     {badges.map((n, i) => (
                         <span key={n}
                               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 text-[var(--brand-primary)]">
-              📎<span>{n}</span>
+              <AttachmentIcon className="w-3 h-3"/><span>{n}</span>
               <button onClick={() => setBadges(p => p.filter(x => x !== n))}
-                      className="w-3.5 h-3.5 rounded-full bg-[var(--brand-primary)]/20 hover:bg-red-500/30 flex items-center justify-center text-[9px] transition-colors" data-name={`file-picker-badge-remove-${i}`}>✕</button>
+                      className="w-3.5 h-3.5 rounded-full bg-[var(--brand-primary)]/20 hover:bg-red-500/30 flex items-center justify-center text-[9px] transition-colors" data-name={`file-picker-badge-remove-${i}`}><RemoveIcon className="w-2.5 h-2.5"/></button>
             </span>
                     ))}
                     <button onClick={() => onConfirm(badges.map(n => `[${n}]`).join(' ') + ' ')}
@@ -192,16 +191,18 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
                             className="inline-block w-4 h-4 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin"/>
                     </div>
                 ) : filtered.length === 0 ? (
-                    <div className="p-6 text-center text-sm text-[var(--text-muted)]">
+                    <div className="p-6 text-center text-sm text-[var(--text-secondary)]">
                         {query ? `未找到匹配 "${query}" 的文件` : '目录为空'}
                     </div>
-                ) : filtered.map((e, i) => (
+                ) : filtered.map((e, i) => {
+                    const FileGlyph = e.isDirectory ? FolderIcon : fileIcon(e.name)
+                    return (
                     <div key={e.path} data-fi={i}
                          onClick={() => e.isDirectory ? (onNavigate(e.name), setBadges([])) : toggleBadge(e.name)}
                          className={`mx-1 px-2.5 py-2 rounded-lg cursor-pointer flex items-center gap-2.5 transition-colors
               ${i === sel ? 'bg-[var(--brand-primary)]/15 border-l-2 border-l-[var(--brand-primary)]' : 'hover:bg-[var(--surface-muted)]'}`}
                      data-name="file-picker-div">
-                        <span className="text-base shrink-0">{e.isDirectory ? '📁' : fileIcon(e.name)}</span>
+                        <span className="text-base shrink-0"><FileGlyph className="w-4 h-4"/></span>
                         <span
                             className={`flex-1 text-sm font-medium truncate ${i === sel ? 'text-[var(--brand-primary)]' : 'text-[var(--text-primary)]'}`}>{e.name}</span>
                         <span className="flex items-center gap-1.5 shrink-0">
@@ -210,15 +211,16 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
                             {badges.includes(e.name) && <span
                                 className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]">已选</span>}
                             {i === sel && <span
-                                className="text-[10px] text-[var(--text-muted)]">{e.isDirectory ? 'Tab 进入' : 'Tab 选中'}</span>}
+                                className="text-[10px] text-[var(--text-secondary)]">{e.isDirectory ? 'Tab 进入' : 'Tab 选中'}</span>}
             </span>
                     </div>
-                ))}
+                    )
+                })}
             </div>
 
             {/* 底部 */}
             <div
-                className="px-3 py-2 border-t border-[var(--border)] flex items-center gap-3 text-[10px] text-[var(--text-muted)] flex-wrap">
+                className="px-3 py-2 border-t border-[var(--border-muted)] flex items-center gap-3 text-[10px] text-[var(--text-secondary)] flex-wrap">
                 {[['↑↓', '导航'], ['Tab', '选中/进入'], ['←', '返回'], ['Esc', '关闭']].map(([k, l]) => (
                     <span key={k}><kbd
                         className="px-1 py-0.5 bg-[var(--surface-muted)] border border-[var(--border)] rounded font-mono">{k}</kbd> {l}</span>

@@ -46,7 +46,9 @@ const TOOLTIP_STYLE: React.CSSProperties = {
     pointerEvents: 'none',
     zIndex: 2147483647,
     transition: 'opacity 0.15s ease-out',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    // 曾硬编码系统字体栈（-apple-system/...），与 body（globals.css:729）不一致：
+    // PM tooltip 大量是中文，系统栈缺失 CJK 回退，改为与应用字体栈对齐（含 CJK 回退）。
+    fontFamily: "'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans SC', sans-serif",
 }
 
 type TooltipPlacement = 'above' | 'below' | 'right' | 'left'

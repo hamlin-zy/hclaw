@@ -22,7 +22,7 @@ export default function TitleBar({className = ''}: TitleBarProps) {
 
     return (
         <header
-            className={`titlebar relative z-10 ${className}`}
+            className={`titlebar bg-[var(--surface-chrome)] relative z-10 ${className}`}
             role="banner"
         >
             {/* 拖拽区域 + 内容 */}
@@ -38,7 +38,7 @@ export default function TitleBar({className = ''}: TitleBarProps) {
                             height="32"
                             draggable={false}
                         />
-                        <span className="logo-text">HClaw <span className="text-[10px] text-[var(--text-muted)] font-normal ml-1">v{appVersion} by Hamlin</span></span>
+                        <span className="logo-text">HClaw <span className="text-[10px] text-[var(--text-secondary)] font-normal ml-1">v{appVersion} by Hamlin</span></span>
                     </div>
                 </div>
 

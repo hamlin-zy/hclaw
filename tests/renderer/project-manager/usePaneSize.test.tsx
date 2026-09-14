@@ -134,6 +134,31 @@ describe('usePaneSize', () => {
     expect(result.current.sizes).toEqual({fileTree: 200, changes: 210, branches: 186, detail: 236, gitHeight: 236})
   })
 
+  // 与 paneOrder.ts 共用一条 localStorage 记录：尺寸写入是 read-modify-write，绝不能把 order 擦掉
+  it('commitSize 不擦除记录里的 order', () => {
+    localStorage.setItem(paneLayoutKey('/ws'), JSON.stringify({order: ['editor', 'fileTree', 'changes'], sizes: {fileTree: 200}}))
+    const {result} = renderHook(() => usePaneSize('/ws', SPECS))
+    act(() => result.current.commitSize('fileTree', 320))
+    const stored = JSON.parse(localStorage.getItem(paneLayoutKey('/ws'))!)
+    expect(stored.order).toEqual(['editor', 'fileTree', 'changes'])
+    expect(stored.sizes.fileTree).toBe(320)
+  })
+
+  it('setGitCollapsed 不擦除记录里的 order', () => {
+    localStorage.setItem(paneLayoutKey('/ws'), JSON.stringify({order: ['changes', 'editor', 'fileTree'], sizes: {fileTree: 200}}))
+    const {result} = renderHook(() => usePaneSize('/ws', SPECS))
+    act(() => result.current.setGitCollapsed(true))
+    const stored = JSON.parse(localStorage.getItem(paneLayoutKey('/ws'))!)
+    expect(stored.order).toEqual(['changes', 'editor', 'fileTree'])
+  })
+
+  it('readPaneLayout 透传 order（整体覆盖写盘时不会丢字段）', () => {
+    localStorage.setItem(paneLayoutKey('/ws'), JSON.stringify({order: ['editor', 'fileTree', 'changes'], sizes: {}}))
+    expect(readPaneLayout('/ws', SPECS).order).toEqual(['editor', 'fileTree', 'changes'])
+    localStorage.setItem(paneLayoutKey('/ws'), JSON.stringify({sizes: {}}))
+    expect(readPaneLayout('/ws', SPECS).order).toBeUndefined()
+  })
+
   it('patchPaneLayout 按 key 合并，不擦掉别的实例写的键', () => {
     // 模拟两个 usePaneSize 实例：先用整体写盘铺一份含 branches 的布局
     writePaneLayout('/ws', {sizes: {fileTree: 200, branches: 300}, gitCollapsed: false, gitHeightBeforeCollapse: 236})

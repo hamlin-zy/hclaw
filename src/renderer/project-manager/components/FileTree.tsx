@@ -11,10 +11,11 @@ import {PanelHeader} from '../ui/PanelHeader'
 import {TreeRow} from '../ui/TreeRow'
 import {StatusBadge} from '../ui/StatusBadge'
 import {IconButton} from '../ui/IconButton'
+import {usePaneReorderOptional} from '../hooks/usePaneReorder'
 import {ContextMenu} from '../ui/ContextMenu'
 import {useSendToConversation} from '../ui/SendToConversationProvider'
 import {EmptyState} from '../ui/EmptyState'
-import {FOLDER_OPEN_SPEC, FOLDER_SPEC, fileIcon} from '../lib/fileIcon'
+import {FOLDER_OPEN_SPEC, FOLDER_SPEC, fileIcon, fileKindClass} from '../lib/fileIcon'
 import {dominantStatus, statusClassSuffix, type VcsStatus} from '../lib/statusColor'
 import {absPath} from '../lib/absPath'
 import {modsOf} from '../lib/multiSelect'
@@ -51,7 +52,49 @@ const cssEscape = (v: string): string =>
 
 interface MenuState { x: number, y: number, entry: DirEntry }
 
+/** 骨架屏行数（纯占位，固定 6 行即可覆盖首屏可视区） */
+const SKELETON_ROWS = 6
+
+/**
+ * 文件树骨架屏：根目录缓存缺失（首开 / 重载 / 切换 workspace / 外部变更失效）时占位，
+ * 避免被误渲染成「目录为空」而看起来整棵树消失。
+ * 缩进按行递增（复刻 TreeRow 的层级观感），宽度为固定递减值（不用随机数，保证可快照/可测试）。
+ * 注意：本组件位于 role="tree" 容器内，ARIA 只允许 treeitem/group 作受拥有元素，
+ * 故自身不带 role="status"/aria-busy；容器级 loading 语义由 tree 容器的 aria-busy 承担。
+ */
+function TreeSkeleton() {
+  return (
+    <div
+      className="pm-tree-skeleton"
+      data-testid="pm-filetree-loading"
+    >
+      {/* 视觉隐藏的加载文案：仅供读屏，不占布局 */}
+      <span
+        style={{
+          position: 'absolute',
+          width: 1,
+          height: 1,
+          padding: 0,
+          margin: -1,
+          overflow: 'hidden',
+          clip: 'rect(0 0 0 0)',
+          whiteSpace: 'nowrap',
+          border: 0,
+        }}
+      >
+        加载中…
+      </span>
+      {Array.from({length: SKELETON_ROWS}, (_, depth) => (
+        <div key={depth} className="pm-tree-skeleton-row" style={{paddingLeft: 8 + depth * 12}}>
+          <span className="pm-tree-skeleton-bar" style={{width: `${64 - depth * 6}%`}} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function FileTree() {
+  const reorder = usePaneReorderOptional()
   const ws = useWorkspaceStore(s => s.workspacePath)
   const expanded = useFileTreeStore(s => s.expanded)
   const childrenCache = useFileTreeStore(s => s.childrenCache)
@@ -71,6 +114,12 @@ export function FileTree() {
   const clearReveal = useFileTreeStore(s => s.clearReveal)
   const [revealing, setRevealing] = useState(false)
   const [expandingAll, setExpandingAll] = useState(false)
+  // 刷新批次在飞：根 + 全部已展开目录的请求尚未全部落定（见 refreshTree）
+  const [refreshing, setRefreshing] = useState(false)
+  // 正在进行 listDirectory 的目录集合（驱动骨架屏与刷新按钮 spin/disabled）
+  const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set())
+  // 同一目录的并发加载计数：先完成者不能提前清除 loading，须等计数归零
+  const loadingCountsRef = useRef<Record<string, number>>({})
   const [resolvedReveal, setResolvedReveal] = useState<{path: string} | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   // 当前激活 tab 的文件路径：file 与 diff tab 都携带 filePath（见 editorTabStore.openDiffTab，
@@ -100,8 +149,27 @@ export function FileTree() {
   // 唯一加载路径：可等待版本（reveal 需顺序等待祖先加载完成）
   const loadDirAsync = async (path: string): Promise<void> => {
     const owner = ws
-    const entries = await window.electronAPI?.projectManager.listDirectory(owner, path) ?? []
-    setChildren(path, entries, owner)
+    // in-flight 计数 +1：并发请求同一目录时，先完成者不得提前清除 loading
+    loadingCountsRef.current[path] = (loadingCountsRef.current[path] ?? 0) + 1
+    setLoadingDirs(prev => new Set(prev).add(path))
+    try {
+      const entries = await window.electronAPI?.projectManager.listDirectory(owner, path) ?? []
+      setChildren(path, entries, owner)
+    } finally {
+      // -1；仅当计数归零才从 loadingDirs 移除
+      const left = (loadingCountsRef.current[path] ?? 1) - 1
+      if (left > 0) {
+        loadingCountsRef.current[path] = left
+      } else {
+        delete loadingCountsRef.current[path]
+        setLoadingDirs(prev => {
+          if (!prev.has(path)) return prev
+          const next = new Set(prev)
+          next.delete(path)
+          return next
+        })
+      }
+    }
   }
 
   const loadDir = (path: string) => { void loadDirAsync(path) }
@@ -112,6 +180,19 @@ export function FileTree() {
   }
 
   const loadRoot = () => loadDir('.')
+
+  /** 刷新：根 + 全部已展开目录一起重取，让嵌套目录的陈旧内容一并刷新。
+   *  不主动清缓存（清缓存会把树瞬间打回骨架屏），保持 loadDir 的归属校验语义不变。
+   *  按钮 loading 态必须等**整批**请求落定才结束：只跟根的话，几十个已展开目录的刷新
+   *  会在根一落地就停转/恢复可点，而其余请求仍在飞（用户误以为已完成）。 */
+  const refreshTree = () => {
+    const dirs = ['.', ...useFileTreeStore.getState().expanded]
+    setRefreshing(true)
+    // allSettled（非 all）：单个目录失败不得让 refreshing 永久卡死
+    void Promise.allSettled(dirs.map(d => loadDirAsync(d))).then(() => {
+      if (mountedRef.current) setRefreshing(false)   // 卸载安全：卸载后不再 setState
+    })
+  }
 
   useEffect(() => {
     // 归属切换：清理上一 workspace 的目录缓存，再加载新根目录
@@ -333,11 +414,15 @@ export function FileTree() {
       const status: VcsStatus = e.ignored ? 'none' : (e.isDir ? dirStatus(e.path) : e.gitStatus)
       const iconSpec = e.isDir ? (isExpanded ? FOLDER_OPEN_SPEC : FOLDER_SPEC) : fileIcon(e.name)
       const Icon = iconSpec.Icon
-      // 被忽略文件与隐藏文件统一弱化；目录不画删除线，所以只有文件走 pm-file-name
+      // 被忽略文件与隐藏文件统一弱化；目录不画删除线，所以只有文件走 pm-file-name。
+      // 目录名不挂状态色：颜色只留给文件行名 + 状态字母（减少同屏色噪声，spec §3.1）。
+      // 目录名走 .pm-dir-name（弱化灰）——与变更列表 / commit 详情的分组标题同档，三处口径统一。
+      // 文件名按**类型**着色（.pm-ft--*，与图标同色），而不是状态色。
       const dim = e.ignored || e.name.startsWith('.')
+      const kindClass = e.isDir ? '' : fileKindClass(e.name)
       const nameClass = e.isDir
-        ? `pm-c--${statusClassSuffix(status)}${dim ? ' pm-dim' : ''}`
-        : `pm-c--${statusClassSuffix(status)} pm-file-name${dim ? ' pm-dim' : ''}`
+        ? `pm-dir-name${dim ? ' pm-dim' : ''}`
+        : `pm-c--${statusClassSuffix(status)} pm-file-name${kindClass ? ` ${kindClass}` : ''}${dim ? ' pm-dim' : ''}`
       return (
         <Fragment key={e.path}>
           <TreeRow
@@ -375,6 +460,9 @@ export function FileTree() {
     })
 
   const rootChildren = childrenCache['.'] ?? []
+  // 缓存是否存在才是「已加载」的判据：缺失 ≠ 空目录（缺失时正在加载或即将加载 → 骨架屏）
+  const rootLoaded = childrenCache['.'] !== undefined
+  const rootLoading = loadingDirs.has('.')
   const rootLabel = basename(ws)
 
   // 仅排除目录（含目录集合已在 hasDirSelected 分支置灰）；
@@ -395,6 +483,8 @@ export function FileTree() {
         title="文件树"
         count={rootChildren.length}
         testId="pm-filetree-header"
+        // 面板换序：拖动标题栏空白区（动作区被 PanelHeader 内部排除）。隔离渲染时 reorder 为 null
+        onHeaderMouseDown={reorder ? e => reorder.beginDrag('fileTree', e) : undefined}
         actions={
           <>
             <IconButton
@@ -416,11 +506,18 @@ export function FileTree() {
               onClick={() => { void expandAll() }}
             />
             <IconButton icon={ChevronsDownUp} label="全部折叠" onClick={collapseAll} />
-            <IconButton icon={RefreshCw} label="刷新" onClick={loadRoot} />
+            <IconButton
+              icon={RefreshCw}
+              label="刷新"
+              spin={rootLoading || expandingAll || refreshing}
+              disabled={rootLoading || refreshing}
+              onClick={refreshTree}
+            />
           </>
         }
       />
-      <div role="tree" className="pm-tree-scroll" ref={containerRef}>
+      {/* 容器级加载态：根缓存未就绪即整树 busy（role="tree" 内不得放 role="status"，见 TreeSkeleton） */}
+      <div role="tree" aria-label="文件树" aria-busy={!rootLoaded} className="pm-tree-scroll" ref={containerRef}>
         <TreeRow
           depth={0}
           icon={<FOLDER_OPEN_SPEC.Icon size={13} color={FOLDER_OPEN_SPEC.color} aria-hidden="true" />}
@@ -435,7 +532,9 @@ export function FileTree() {
           trailing={rootChildren.length > 0 ? String(rootChildren.length) : undefined}
         />
         {rootExpanded && renderEntries('.', 1)}
-        {rootChildren.length === 0 && <EmptyState text="目录为空" />}
+        {/* 未加载（缺失缓存）→ 骨架屏；已加载且确实为空 → 空态。二者互斥 */}
+        {!rootLoaded && <TreeSkeleton />}
+        {rootLoaded && rootChildren.length === 0 && <EmptyState text="目录为空" />}
       </div>
       {menu && (
         <ContextMenu

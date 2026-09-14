@@ -34,6 +34,22 @@ const agentState = vi.hoisted(() => ({
     answerQuestion: vi.fn(),
     modelOverride: {endpointId: 'p1', modelId: 'm1'},
     setModelOverride: vi.fn(),
+    // PermissionRulesPanel（无 selector 调用，解构 permissionRules + 增删查函数）
+    // fix round 1：填充非空规则以激活「规则行」分支（删除按钮行级 data-name）
+    permissionRules: [
+        {tool: 'bash:git*', action: 'allow', createdAt: 2, pattern: 'git*'},
+        {tool: 'read:src/**', action: 'allow', createdAt: 1},
+    ] as Array<{ tool: string; action: string; createdAt?: number; pattern?: string }>,
+    fetchPermissionRules: vi.fn(async () => {}),
+    removePermissionRule: vi.fn(async () => {}),
+    addPermissionRule: vi.fn(async () => {}),
+    // PermissionConfirmModal（shouldShow 依赖 pendingPermissionConfirm.requestId）
+    pendingPermissionConfirm: {
+        requestId: 'req-1',
+        question: '需要确认以下命令：\n\n- ls -la\n- git status\n\n',
+    },
+    respondQuestion: vi.fn(),
+    abortAgent: vi.fn(async () => {}),
 }))
 
 vi.mock('../../../src/renderer/stores/agentStore', () => ({
@@ -61,15 +77,68 @@ vi.mock('../../../src/renderer/stores/modelSchemeStore', () => {
         enabled: true,
         roles: [
             {role: 'primary', enabled: true, endpointId: 'p1', modelId: 'm1'},
+            {role: 'lightweight', enabled: true, endpointId: 'p1', modelId: 'm1'},
+            {role: 'reasoning', enabled: true, endpointId: 'p1', modelId: 'm1'},
+            {role: 'image_understanding', enabled: false, endpointId: '', modelId: ''},
+            {role: 'audio_understanding', enabled: false, endpointId: '', modelId: ''},
+            {role: 'video_understanding', enabled: false, endpointId: '', modelId: ''},
         ],
     }
-    const state = () => ({schemes: [activeScheme], activeSchemeId: 'scheme-1'})
+    // 稳定引用：无 selector 调用（ModelSchemeDialog / SchemeListItem）返回同一对象，
+    // 避免每次渲染产生新引用触发 effect 无限重渲染
+    const state = {
+        schemes: [activeScheme],
+        activeSchemeId: 'scheme-1',
+        presetTemplates: [],
+        addScheme: vi.fn(() => 'scheme-1'),
+        updateScheme: vi.fn(() => true),
+        removeScheme: vi.fn(async () => {}),
+        createFromPreset: vi.fn(() => null),
+        duplicateScheme: vi.fn(() => null),
+    }
     return {
         useModelSchemeStore: Object.assign(
-            vi.fn((selector: any) => (selector ? selector(state()) : null)),
-            {getState: vi.fn(() => ({...state(), getActiveScheme: () => activeScheme}))},
+            vi.fn((selector?: any) => (selector ? selector(state) : state)),
+            {getState: vi.fn(() => ({...state, getActiveScheme: () => activeScheme}))},
         ),
+        switchActiveScheme: vi.fn(async () => ({})),
     }
+})
+
+// fix round 1：scheduleStore 仅在 ScheduleDialog 使用；填充 1 条任务以激活「任务卡片」分支
+// （卡片内 switch / 立即执行 / 执行记录 / 编辑 / 删除 5 个交互元素）
+vi.mock('../../../src/renderer/stores/scheduleStore', () => {
+    const schedule = {
+        id: 'sched-1',
+        name: '每日构建',
+        description: '构建并测试',
+        cronExpression: '0 2 * * *',
+        taskType: 'agent',
+        taskTarget: 'build-agent',
+        taskArgs: [],
+        taskPrompt: '',
+        enabled: true,
+        paused: false,
+        lastRunAt: Date.now(),
+        lastRunStatus: 'success',
+        lastRunConversationId: null,
+        runCount: 3,
+        createdAt: 1,
+        updatedAt: 1,
+        workspaceId: null,
+    }
+    // 稳定引用：无 selector 调用返回同一对象，避免 effect 无限重渲染
+    const state = {
+        schedules: [schedule],
+        loading: false,
+        loadSchedules: vi.fn(async () => {}),
+        create: vi.fn(async () => ({success: true})),
+        update: vi.fn(async () => ({success: true})),
+        delete: vi.fn(async () => ({success: true})),
+        stop: vi.fn(async () => {}),
+        runNow: vi.fn(async () => ({success: true})),
+    }
+    return {useScheduleStore: (selector?: any) => (selector ? selector(state) : state)}
 })
 
 // ── 重组件 mock：jsdom 下成本高，与现有测试同策略 ──

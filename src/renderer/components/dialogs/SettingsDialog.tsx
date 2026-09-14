@@ -1,15 +1,20 @@
-import {useCallback, useEffect, useRef, useState} from 'react'
+import {useCallback, useEffect, useRef, useState, type ComponentType} from 'react'
 import {Kbd, KbdCombo} from '../common/Kbd'
 import {Switch} from '../common/Switch'
 import ImagePreviewModal from '../common/ImagePreviewModal'
 import {useSettingsStore} from '../../stores/settingsStore'
 import {useThemeStore} from '../../stores/themeStore'
 import {applyThemeClass} from '../../lib/theme'
-import {SystemSettings} from '@shared/types'
+import {SystemSettings, isDarkTheme, type ThemeSetting} from '@shared/types'
 import {confirm} from '../ConfirmDialog'
 import ThemedSelect from '../ThemedSelect'
 import {ShortcutRow} from '../settings/ShortcutRow'
 import {SHORTCUT_DEFS, mergeOverrides, type ShortcutAction} from '../../../shared/shortcuts'
+import {
+    SettingsIcon, AgentIcon, SplitIcon, BrainIcon, LinkIcon, KeyboardIcon,
+    LayoutIcon, CommandIcon, SuccessIcon, GlobeIcon,
+} from '../icons'
+import type {IconProps} from '../icons'
 
 type Category = keyof SystemSettings | 'shortcuts'
 
@@ -19,10 +24,7 @@ function clampPositive(value: number | undefined, fallback: number): number {
     return value
 }
 
-/** 深色系主题（dark/远山黛）遮罩默认更暗，保证可读性 */
-function isDarkTheme(theme: string): boolean {
-    return theme === 'dark' || theme === 'yuanshandai'
-}
+/** 深色系主题（dark/远山黛）遮罩默认更暗，保证可读性 —— 判定口径见 @shared/types 的 isDarkTheme */
 
 export default function SettingsDialog() {
     const {
@@ -107,7 +109,7 @@ export default function SettingsDialog() {
     const current = pendingSettings || settings
 
     // 背景启用时加载历史图片列表（数据目录 data/backgrounds/ 下的图片）
-    // ⚠️ 必须放在 current 定义之后（useEffect 闭包引用 current）
+    // 注意：必须放在 current 定义之后（useEffect 闭包引用 current）
     useEffect(() => {
         if (!current.ui.background?.enabled) {
             setHistoryImages([])
@@ -222,7 +224,11 @@ export default function SettingsDialog() {
                         : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                 }`}
              data-name="settings-dialog-button">
-                {resetFeedback === `${category}-tab` ? '✓ 已恢复默认' : '恢复本页默认'}
+                <span className="inline-flex items-center gap-1">
+                    {resetFeedback === `${category}-tab`
+                        ? <><SuccessIcon className="w-3 h-3 shrink-0"/>已恢复默认</>
+                        : '恢复本页默认'}
+                </span>
             </button>
         </div>
     )
@@ -282,18 +288,46 @@ export default function SettingsDialog() {
                         ariaLabel="交接引导"
                         onChange={(checked) => updatePending('agent', {handoffThresholdRatio: checked ? 0.5 : 0})}
                     />
-                    <span className="text-xs font-medium text-[var(--text-muted)]">交接引导</span>
+                    <span className="text-xs font-medium text-[var(--text-secondary)]">交接引导</span>
                 </div>
             </div>
-            <NumberField
-                label="交接引导阈值 (%)"
-                description="发送消息时，若当前会话上下文占用超过此比例，将弹窗询问是否交接到新会话；单次任务执行中上下文超过此比例时，也会按下方「单轮内溢出处理」触发自动交接或优雅停止。默认 50%。设 0 同时关闭发送前弹窗与单轮内保护（不推荐——可能裸报窗口超限错误）。"
-                value={Math.round((current.agent.handoffThresholdRatio ?? 0.5) * 100)}
-                onChange={(v) => updatePending('agent', {handoffThresholdRatio: Math.min(100, Math.max(0, Math.round(v))) / 100})}
-                min={0}
-                fallback={50}
-                disabled={(current.agent.handoffThresholdRatio ?? 0.5) === 0}
-            />
+            <div className="flex items-center justify-between gap-4 text-sm">
+                <div className="flex shrink-0 items-center gap-3">
+                    <span className="font-medium">交接阈值模式</span>
+                    <ThemedSelect
+                        value={current.agent.handoffThresholdMode ?? 'ratio'}
+                        onChange={(v) => updatePending('agent', {handoffThresholdMode: v as 'ratio' | 'tokens'})}
+                        options={[{value: 'ratio', label: '按比例'}, {value: 'tokens', label: '按窗口大小'}]}
+                        ariaLabel="交接阈值模式"
+                    />
+                </div>
+                <span className="flex-1 text-right text-xs text-[var(--text-secondary)]">
+                    {(current.agent.handoffThresholdMode ?? 'ratio') === 'ratio'
+                        ? '阈值 = 当前模型窗口 × 比例。'
+                        : '阈值 = 固定 token 数（不随各模型窗口变化）。'}
+                </span>
+            </div>
+            {(current.agent.handoffThresholdMode ?? 'ratio') === 'ratio' ? (
+                <NumberField
+                    label="交接引导阈值 (%)"
+                    description="发送消息时，若当前会话上下文占用超过此比例，将弹窗询问是否交接到新会话；单次任务执行中上下文超过此比例时，也会按下方「单轮内溢出处理」触发自动交接或优雅停止。默认 50%。设 0 同时关闭发送前弹窗与单轮内保护（不推荐——可能裸报窗口超限错误）。"
+                    value={Math.round((current.agent.handoffThresholdRatio ?? 0.5) * 100)}
+                    onChange={(v) => updatePending('agent', {handoffThresholdRatio: Math.min(100, Math.max(0, Math.round(v))) / 100})}
+                    min={0}
+                    fallback={50}
+                    disabled={(current.agent.handoffThresholdRatio ?? 0.5) === 0}
+                />
+            ) : (
+                <NumberField
+                    label="交接阈值大小 (K)"
+                    description="按固定 token 数触发：发送消息或单次任务执行中，上下文超过此值即按下方「单轮内溢出处理」提示/交接。单位为 K（千 token），最低 50K，默认 200K。阈值恒定，不受各模型窗口差异影响。"
+                    value={Math.round((current.agent.handoffThresholdTokens ?? 200_000) / 1000)}
+                    onChange={(v) => updatePending('agent', {handoffThresholdTokens: (Number.isFinite(v) ? Math.max(50, Math.round(v)) : 200) * 1000})}
+                    min={50}
+                    fallback={200}
+                    disabled={(current.agent.handoffThresholdRatio ?? 0.5) === 0}
+                />
+            )}
             <div className="grid grid-cols-1 gap-2">
                 <label className="flex items-center justify-between text-sm">
                     <span>
@@ -387,12 +421,12 @@ export default function SettingsDialog() {
             />
             <div className="flex items-center justify-between py-2">
                 <div>
-                    <label className="text-xs text-[var(--text-muted)]">启用优先级调度 (priorityEnabled)</label>
-                    <p className="text-[10px] text-[var(--text-muted)]">启用后可根据任务优先级调整调度顺序</p>
+                    <label className="text-xs text-[var(--text-secondary)]">启用优先级调度 (priorityEnabled)</label>
+                    <p className="text-[10px] text-[var(--text-secondary)]">启用后可根据任务优先级调整调度顺序</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <Switch checked={current.subagent?.priorityEnabled ?? false} onChange={(checked) => updatePending('subagent', {priorityEnabled: checked})} />
-                    <span className={`ml-2 text-xs font-medium ${current.subagent?.priorityEnabled ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)]'}`}>
+                    <span className={`ml-2 text-xs font-medium ${current.subagent?.priorityEnabled ? 'text-[var(--brand-primary)]' : 'text-[var(--text-secondary)]'}`}>
                         {current.subagent?.priorityEnabled ? '已启用' : '已禁用'}
                     </span>
                 </div>
@@ -412,7 +446,7 @@ export default function SettingsDialog() {
                 fallback={8000}
             />
             <div className="space-y-1">
-                <label className="text-xs text-[var(--text-muted)]">默认温度 (temperature)</label>
+                <label className="text-xs text-[var(--text-secondary)]">默认温度 (temperature)</label>
                 <div className="flex items-center gap-3">
                     <input
                         type="range"
@@ -428,7 +462,7 @@ export default function SettingsDialog() {
                         min="0"
                         max="2"
                         step="0.1"
-                        className="w-16 bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded px-2 py-1.5 text-sm text-center outline-none focus:border-[var(--brand)]"
+                        className="w-16 bg-[var(--surface-muted)] border border-[var(--border)] rounded px-2 py-1.5 text-sm text-center outline-none focus:border-[var(--brand)]"
                         value={current.model.defaultTemperature}
                         onChange={(e) => {
                             const v = parseFloat(e.target.value)
@@ -440,7 +474,38 @@ export default function SettingsDialog() {
                         }}
                     data-name="settings-dialog-temperature-input"/>
                 </div>
-                <p className="text-[10px] text-[var(--text-muted)]">0 = 确定性输出，2 = 高随机性。建议代码任务使用 0。</p>
+                <p className="text-[10px] text-[var(--text-secondary)]">0 = 确定性输出，2 = 高随机性。建议代码任务使用 0。</p>
+            </div>
+            <div className="space-y-1">
+                <label className="text-xs text-[var(--text-secondary)]">图片压缩质量 (imageCompressQuality)</label>
+                <div className="flex items-center gap-3">
+                    <input
+                        type="range"
+                        min="1"
+                        max="100"
+                        step="1"
+                        className="flex-1 accent-[var(--brand)]"
+                        value={current.model.imageCompressQuality ?? 85}
+                        onChange={(e) => updatePending('model', {imageCompressQuality: parseInt(e.target.value)})}
+                    data-name="settings-dialog-image-quality-input"/>
+                    <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        step="1"
+                        className="w-16 bg-[var(--surface-muted)] border border-[var(--border)] rounded px-2 py-1.5 text-sm text-center outline-none focus:border-[var(--brand)]"
+                        value={current.model.imageCompressQuality ?? 85}
+                        onChange={(e) => {
+                            const v = parseInt(e.target.value)
+                            if (!isNaN(v) && v >= 1) updatePending('model', {imageCompressQuality: Math.min(100, v)})
+                        }}
+                        onBlur={(e) => {
+                            const v = parseInt(e.target.value)
+                            if (isNaN(v) || v < 1) updatePending('model', {imageCompressQuality: 85})
+                        }}
+                    data-name="settings-dialog-image-quality-number-input"/>
+                </div>
+                <p className="text-[10px] text-[var(--text-secondary)]">数值越高越清晰，体积、耗时与计费 token 越大。仅影响 load_image 加载的图片；未超过体积/尺寸阈值的小图不会被重新编码。</p>
             </div>
         </div>
     )
@@ -467,10 +532,10 @@ export default function SettingsDialog() {
             })
         }
 
-        const GROUP_ORDER: { title: string; icon: string; group?: '面板 & 窗口' | '输入 & 会话' | '全局' }[] = [
-            {title: '面板 & 窗口', icon: '⊞', group: '面板 & 窗口'},
-            {title: '输入 & 会话', icon: '⌨', group: '输入 & 会话'},
-            {title: '全局', icon: '🌐', group: '全局'},
+        const GROUP_ORDER: { title: string; icon: ComponentType<IconProps>; group?: '面板 & 窗口' | '输入 & 会话' | '全局' }[] = [
+            {title: '面板 & 窗口', icon: LayoutIcon, group: '面板 & 窗口'},
+            {title: '输入 & 会话', icon: KeyboardIcon, group: '输入 & 会话'},
+            {title: '全局', icon: GlobeIcon, group: '全局'},
         ]
 
         type ShortcutEntry = { label: string; keys: React.ReactNode }
@@ -488,21 +553,23 @@ export default function SettingsDialog() {
             '全局': [],
         }
 
-        const STATIC_TAIL: { title: string; icon: string; items: ShortcutEntry[] } = {
+        const STATIC_TAIL: { title: string; icon: ComponentType<IconProps>; items: ShortcutEntry[] } = {
             title: 'Agent & 权限',
-            icon: '⚡',
+            icon: CommandIcon,
             items: [
                 {label: '中断 Agent 执行', keys: <Kbd>Esc</Kbd>},
                 {label: '允许当前工具调用', keys: <Kbd>Enter</Kbd>},
             ],
         }
 
+        const TailIcon = STATIC_TAIL.icon
+
         return (
             <div className="space-y-5 pb-2">
                 <div className="flex items-stretch justify-between gap-3">
                     <div
                         className="flex-1 flex items-center gap-2 bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded-lg px-3 py-2">
-                        <span aria-hidden="true" className="text-sm opacity-50 shrink-0">⌨</span>
+                        <span aria-hidden="true" className="opacity-50 shrink-0 flex items-center"><KeyboardIcon className="w-4 h-4"/></span>
                         <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
                             点击绑定框可自定义，修改立即生效。全局快捷键在应用外也可触发。
                         </p>
@@ -510,23 +577,23 @@ export default function SettingsDialog() {
                     <button
                         onClick={handleResetAll}
                         className="shrink-0 self-start text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]
-                                   border border-[var(--border-muted)] hover:border-[var(--border-emphasis)]
-                                   hover:bg-[var(--surface-muted)]/60
+                                   border border-[var(--border)] hover:border-[var(--border-emphasis)]
+                                   hover:bg-[var(--surface-muted)]
                                    rounded-md px-2.5 py-1.5 transition-colors cursor-pointer"
                     >
                         全部恢复默认
                     </button>
                 </div>
                 <div className="grid grid-cols-1 gap-4">
-                    {GROUP_ORDER.map(({title, icon, group}) => (
+                    {GROUP_ORDER.map(({title, icon: GroupIcon, group}) => (
                         <div
                             key={title}
                             className="border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden"
                         >
                             <div
-                                className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]/40">
-                                <span className="text-xs opacity-60">{icon}</span>
-                                <h4 className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+                                className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
+                                <span className="opacity-60 flex items-center"><GroupIcon className="w-3.5 h-3.5"/></span>
+                                <h4 className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
                                     {title}
                                 </h4>
                             </div>
@@ -544,7 +611,7 @@ export default function SettingsDialog() {
                                 {(STATIC_ITEMS[title] ?? []).map((item) => (
                                     <div
                                         key={item.label}
-                                        className="flex items-center justify-between px-4 py-2.5 hover:bg-[var(--surface-muted)]/40 transition-colors"
+                                        className="flex items-center justify-between px-4 py-2.5 hover:bg-[var(--surface-muted)] transition-colors"
                                     >
                                         <span className="text-sm text-[var(--text-primary)]">{item.label}</span>
                                         <div className="flex items-center gap-1 shrink-0 ml-4">
@@ -558,9 +625,9 @@ export default function SettingsDialog() {
                     <div
                         className="border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden">
                         <div
-                            className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]/40">
-                            <span className="text-xs opacity-60">{STATIC_TAIL.icon}</span>
-                            <h4 className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+                            className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
+                            <span className="opacity-60 flex items-center"><TailIcon className="w-3.5 h-3.5"/></span>
+                            <h4 className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
                                 {STATIC_TAIL.title}
                             </h4>
                         </div>
@@ -568,7 +635,7 @@ export default function SettingsDialog() {
                             {STATIC_TAIL.items.map((item) => (
                                 <div
                                     key={item.label}
-                                    className="flex items-center justify-between px-4 py-2.5 hover:bg-[var(--surface-muted)]/40 transition-colors"
+                                    className="flex items-center justify-between px-4 py-2.5 hover:bg-[var(--surface-muted)] transition-colors"
                                 >
                                     <span className="text-sm text-[var(--text-primary)]">{item.label}</span>
                                     <div className="flex items-center gap-1 shrink-0 ml-4">
@@ -587,11 +654,11 @@ export default function SettingsDialog() {
         <div className="space-y-[var(--space-relaxed)]">
             {renderResetSectionButton('ui')}
             <div className="space-y-1">
-                <label className="text-xs text-[var(--text-muted)]">系统配置目录</label>
+                <label className="text-xs text-[var(--text-secondary)]">系统配置目录</label>
                 <div className="flex gap-2">
                     <input
                         type="text"
-                        className="flex-1 bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded px-3 py-1.5 text-sm outline-none focus:border-[var(--brand)] font-mono"
+                        className="flex-1 bg-[var(--surface-muted)] border border-[var(--border)] rounded px-3 py-1.5 text-sm outline-none focus:border-[var(--brand)] font-mono"
                         value={hclawDir}
                         onChange={(e) => setHclawDir(e.target.value)}
                         onBlur={() => {
@@ -602,7 +669,7 @@ export default function SettingsDialog() {
                         placeholder="默认：~/.hclaw"
                     data-name="settings-dialog-hclaw-dir-input"/>
                     <button
-                        className="px-2.5 py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-[var(--surface-muted)] rounded border border-[var(--border-muted)] transition-colors whitespace-nowrap"
+                        className="px-2.5 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--surface-muted)] rounded border border-[var(--border)] transition-colors whitespace-nowrap"
                         onClick={async () => {
                             const dir = await window.electronAPI?.openFolderDialog()
                             if (dir) {
@@ -615,7 +682,7 @@ export default function SettingsDialog() {
                         浏览
                     </button>
                     <button
-                        className="px-2.5 py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-[var(--surface-muted)] rounded border border-[var(--border-muted)] transition-colors"
+                        className="px-2.5 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--surface-muted)] rounded border border-[var(--border)] transition-colors"
                         onClick={() => {
                             setHclawDir('')
                             saveHclawDir('')
@@ -625,14 +692,14 @@ export default function SettingsDialog() {
                         重置
                     </button>
                 </div>
-                <p className="text-[10px] text-[var(--text-muted)]">修改后重启应用生效。留空表示使用默认路径 ~/.hclaw</p>
+                <p className="text-[10px] text-[var(--text-secondary)]">修改后重启应用生效。留空表示使用默认路径 ~/.hclaw</p>
             </div>
             <div className="space-y-1">
-                <label className="text-xs text-[var(--text-muted)]">外观</label>
+                <label className="text-xs text-[var(--text-secondary)]">外观</label>
                 <ThemedSelect
                     fullWidth
                     value={current.ui.theme}
-                    onChange={(v) => updatePending('ui', {theme: v as 'light' | 'dark' | 'yuanshandai' | 'shiyangjin' | 'system'})}
+                    onChange={(v) => updatePending('ui', {theme: v as ThemeSetting})}
                     options={[
                         {value: 'system', label: '跟随系统'},
                         {value: 'light', label: `浅色模式${current.ui.background?.enabled ? '（背景开启时不可用）' : ''}`, disabled: !!current.ui.background?.enabled},
@@ -650,7 +717,7 @@ export default function SettingsDialog() {
                数据仍存 agent 分类（SystemSettings.agent.defaultPermissionMode 等，
                agent 分类的 reset 按钮不再重置此项） */}
             <div className="space-y-1">
-                <label className="text-xs text-[var(--text-muted)] whitespace-nowrap">新会话默认安全模式</label>
+                <label className="text-xs text-[var(--text-secondary)] whitespace-nowrap">新会话默认安全模式</label>
                 <ThemedSelect
                     fullWidth
                     value={current.agent.defaultPermissionMode ?? 'safe'}
@@ -658,10 +725,10 @@ export default function SettingsDialog() {
                     options={[{value: 'auto', label: '自动模式（全程自动执行）'}, {value: 'safe', label: '安全模式（破坏性操作需确认）'}]}
                     ariaLabel="新会话默认安全模式"
                 />
-                <p className="text-[10px] text-[var(--text-muted)]">无会话级覆盖时回退此值</p>
+                <p className="text-[10px] text-[var(--text-secondary)]">无会话级覆盖时回退此值</p>
             </div>
             <div className="space-y-1">
-                <label className="text-xs text-[var(--text-muted)] whitespace-nowrap">新会话默认显示模式</label>
+                <label className="text-xs text-[var(--text-secondary)] whitespace-nowrap">新会话默认显示模式</label>
                 <ThemedSelect
                     fullWidth
                     value={current.agent.defaultDisplayMode ?? 'detailed'}
@@ -669,16 +736,16 @@ export default function SettingsDialog() {
                     options={[{value: 'detailed', label: '详细模式'}, {value: 'compact', label: '简洁模式'}, {value: 'ultra-compact', label: '极简模式'}]}
                     ariaLabel="新会话默认显示模式"
                 />
-                <p className="text-[10px] text-[var(--text-muted)]">无会话级覆盖时回退此值</p>
+                <p className="text-[10px] text-[var(--text-secondary)]">无会话级覆盖时回退此值</p>
             </div>
             <div className="flex items-center justify-between py-2 border-t border-[var(--border-muted)]">
                 <div>
-                    <label className="text-xs text-[var(--text-muted)]">技能目录详细描述</label>
-                    <p className="text-[10px] text-[var(--text-muted)]">开启=完整描述，关闭=仅名称索引，省 token</p>
+                    <label className="text-xs text-[var(--text-secondary)]">技能目录详细描述</label>
+                    <p className="text-[10px] text-[var(--text-secondary)]">开启=完整描述，关闭=仅名称索引，省 token</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <Switch checked={current.fullSkillDescriptions ?? false} onChange={(checked) => updatePending('fullSkillDescriptions', checked as any)} />
-                    <span className={`ml-2 text-xs font-medium ${current.fullSkillDescriptions ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)]'}`}>
+                    <span className={`ml-2 text-xs font-medium ${current.fullSkillDescriptions ? 'text-[var(--brand-primary)]' : 'text-[var(--text-secondary)]'}`}>
                         {current.fullSkillDescriptions ? '已启用' : '已禁用'}
                     </span>
                 </div>
@@ -686,8 +753,8 @@ export default function SettingsDialog() {
             <div className="space-y-3 border-t border-[var(--border-muted)] pt-3">
                 <div className="flex items-center justify-between">
                     <div>
-                        <label className="text-xs text-[var(--text-muted)]">本地图片背景</label>
-                        <p className="text-[10px] text-[var(--text-muted)]">将本地图片作为整个窗口背景，内容层毛玻璃显示</p>
+                        <label className="text-xs text-[var(--text-secondary)]">本地图片背景</label>
+                        <p className="text-[10px] text-[var(--text-secondary)]">将本地图片作为整个窗口背景，内容层毛玻璃显示</p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                         <Switch
@@ -701,7 +768,7 @@ export default function SettingsDialog() {
                                 }
                             })}
                         />
-                        <span className={`ml-2 text-xs font-medium ${current.ui.background?.enabled ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)]'}`}>
+                        <span className={`ml-2 text-xs font-medium ${current.ui.background?.enabled ? 'text-[var(--brand-primary)]' : 'text-[var(--text-secondary)]'}`}>
                             {current.ui.background?.enabled ? '已启用' : '已禁用'}
                         </span>
                     </div>
@@ -769,7 +836,7 @@ export default function SettingsDialog() {
                         {/* 历史图片缩略图条 */}
                         {historyImages.length > 0 && (
                             <div className="space-y-1.5">
-                                <label className="text-[11px] text-[var(--text-muted)]">历史图片</label>
+                                <label className="text-[11px] text-[var(--text-secondary)]">历史图片</label>
                                 <div className="flex gap-2 overflow-x-auto pb-1">
                                     {historyImages.map((img, i) => {
                                         const isActive = current.ui.background?.imagePath === img.path
@@ -827,8 +894,8 @@ export default function SettingsDialog() {
                         {/* 遮罩强度 */}
                         <div className="space-y-1">
                             <div className="flex justify-between">
-                                <label className="text-[11px] text-[var(--text-muted)]">遮罩强度</label>
-                                <span className="text-[11px] text-[var(--text-muted)]">{current.ui.background.overlay}%</span>
+                                <label className="text-[11px] text-[var(--text-secondary)]">遮罩强度</label>
+                                <span className="text-[11px] text-[var(--text-secondary)]">{current.ui.background.overlay}%</span>
                             </div>
                             <input
                                 type="range" min={0} max={100} value={current.ui.background.overlay}
@@ -842,8 +909,8 @@ export default function SettingsDialog() {
                         {/* 模糊强度 */}
                         <div className="space-y-1">
                             <div className="flex justify-between">
-                                <label className="text-[11px] text-[var(--text-muted)]">模糊强度</label>
-                                <span className="text-[11px] text-[var(--text-muted)]">{current.ui.background.blur}px</span>
+                                <label className="text-[11px] text-[var(--text-secondary)]">模糊强度</label>
+                                <span className="text-[11px] text-[var(--text-secondary)]">{current.ui.background.blur}px</span>
                             </div>
                             <input
                                 type="range" min={0} max={40} value={current.ui.background.blur}
@@ -857,7 +924,7 @@ export default function SettingsDialog() {
                 )}
             </div>
             <div className="space-y-1">
-                <label className="text-xs text-[var(--text-muted)]">链接打开方式</label>
+                <label className="text-xs text-[var(--text-secondary)]">链接打开方式</label>
                 <ThemedSelect
                     fullWidth
                     value={current.linkOpening?.mode ?? 'ask'}
@@ -874,12 +941,12 @@ export default function SettingsDialog() {
             {renderResetSectionButton('channels')}
             <div className="flex items-center justify-between py-2">
                 <div>
-                    <label className="text-xs text-[var(--text-muted)]">连接后发送打招呼信息</label>
-                    <p className="text-[10px] text-[var(--text-muted)]">渠道连接成功后，自动发送问候消息给登录用户</p>
+                    <label className="text-xs text-[var(--text-secondary)]">连接后发送打招呼信息</label>
+                    <p className="text-[10px] text-[var(--text-secondary)]">渠道连接成功后，自动发送问候消息给登录用户</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <Switch checked={current.channels?.sendGreeting ?? true} onChange={(checked) => updatePending('channels', {sendGreeting: checked})} />
-                    <span className={`ml-2 text-xs font-medium ${current.channels?.sendGreeting ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)]'}`}>
+                    <span className={`ml-2 text-xs font-medium ${current.channels?.sendGreeting ? 'text-[var(--brand-primary)]' : 'text-[var(--text-secondary)]'}`}>
                         {current.channels?.sendGreeting ? '已启用' : '已禁用'}
                     </span>
                 </div>
@@ -900,28 +967,31 @@ export default function SettingsDialog() {
         <div className="flex flex-col h-full overflow-hidden">
             <div className="flex h-full overflow-hidden">
                 {/* Sidebar Tabs */}
-                <div className="w-40 border-r border-[var(--border-muted)] p-2 space-y-1 bg-[var(--surface-muted)]/30">
-                    {[
-                        {id: 'ui', label: '通用设置', icon: '⚙️'},
-                        {id: 'agent', label: 'Agent 运行', icon: '🤖'},
-                        {id: 'subagent', label: '子 Agent', icon: '🔀'},
-                        {id: 'model', label: '模型参数', icon: '🧠'},
-                        {id: 'channels', label: '渠道配置', icon: '🔗'},
-                        {id: 'shortcuts', label: '快捷键', icon: '⌨️'},
-                    ].map((tab, i) => (
+                <div className="w-40 border-r border-[var(--border)] p-2 space-y-1 bg-[var(--surface-muted)]">
+                    {([
+                        {id: 'ui', label: '通用设置', icon: SettingsIcon},
+                        {id: 'agent', label: 'Agent 运行', icon: AgentIcon},
+                        {id: 'subagent', label: '子 Agent', icon: SplitIcon},
+                        {id: 'model', label: '模型参数', icon: BrainIcon},
+                        {id: 'channels', label: '渠道配置', icon: LinkIcon},
+                        {id: 'shortcuts', label: '快捷键', icon: KeyboardIcon},
+                    ] as Array<{ id: string; label: string; icon: ComponentType<IconProps> }>).map((tab, i) => {
+                        const TabIcon = tab.icon
+                        return (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id as Category)}
                             className={`w-full text-left px-3 py-2.5 rounded text-xs transition-colors ${
                                 activeTab === tab.id
                                     ? 'bg-[var(--surface-muted)] text-[var(--text-primary)] font-medium shadow-sm'
-                                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
+                                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                             }`}
                          data-name={`settings-dialog-tab-${i}`}>
-                            <span className="mr-2.5">{tab.icon}</span>
+                            <span className="mr-2.5 inline-flex align-middle"><TabIcon className="w-3.5 h-3.5"/></span>
                             {tab.label}
                         </button>
-                    ))}
+                        )
+                    })}
                 </div>
 
                 {/* Content Area */}
@@ -944,7 +1014,11 @@ export default function SettingsDialog() {
                                         : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--error)] hover:border-[var(--error)]'
                                 }`}
                              data-name="settings-dialog-reset-all-button">
-                                {resetFeedback === 'all' ? '✓ 已恢复全部默认' : '恢复全部默认'}
+                                <span className="inline-flex items-center gap-1">
+                                    {resetFeedback === 'all'
+                                        ? <><SuccessIcon className="w-3 h-3 shrink-0"/>已恢复全部默认</>
+                                        : '恢复全部默认'}
+                                </span>
                             </button>
                         </div>
                     </div>
@@ -964,7 +1038,7 @@ export default function SettingsDialog() {
             {isDirty && (
                 <div
                     className="flex items-center justify-end gap-2 px-6 py-3 border-t border-[var(--border-muted)] bg-[var(--surface)] shrink-0">
-                    <span className="text-[11px] text-[var(--text-muted)] mr-auto">
+                    <span className="text-[11px] text-[var(--text-secondary)] mr-auto">
                         有未保存的更改
                     </span>
                     <button
@@ -986,7 +1060,6 @@ export default function SettingsDialog() {
     )
 }
 
-/** 快捷键展示用的小组件 */
 /** 带校验的数字输入框：空值/0 时显示 fallback 值，触发视觉警告 */
 function NumberField({
                          label,
@@ -1015,7 +1088,7 @@ function NumberField({
 
     return (
         <div className="space-y-1">
-            <label className="text-xs text-[var(--text-muted)]">{label}</label>
+            <label className="text-xs text-[var(--text-secondary)]">{label}</label>
             <input
                 type="number"
                 step={decimals > 0 ? `0.${'0'.repeat(decimals - 1)}1` : 1}
@@ -1025,7 +1098,7 @@ function NumberField({
                 className={`w-full bg-[var(--surface-muted)] border rounded px-3 py-1.5 text-sm outline-none transition-colors ${
                     isDangerous
                         ? 'border-red-500 focus:border-red-500'
-                        : 'border-[var(--border-muted)] focus:border-[var(--brand)]'
+                        : 'border-[var(--border)] focus:border-[var(--brand)]'
                 }`}
                 value={value}
                 onChange={(e) => {
@@ -1036,7 +1109,7 @@ function NumberField({
             {isDangerous && (
                 <p className="text-[10px] text-red-500">值无效，已还原为 {fallback}</p>
             )}
-            <p className="text-[10px] text-[var(--text-muted)]">{description}</p>
+            <p className="text-[10px] text-[var(--text-secondary)]">{description}</p>
         </div>
     )
 }

@@ -69,12 +69,12 @@ const AudioPreviewPlayer = memo(function AudioPreviewPlayer({url, fileName}: Aud
     const progressPercent = duration ? (currentTime / duration) * 100 : 0
 
     return (
-        <div className="mt-2 p-3 rounded-lg bg-[var(--surface-muted)]/40 border border-[var(--border)]/30">
+        <div className="mt-2 p-3 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)]">
             <audio ref={audioRef} src={url} onTimeUpdate={onTimeUpdate} onLoadedMetadata={onLoadedMetadata}
                    onEnded={onEnded}/>
 
             {fileName && (
-                <div className="text-xs text-[var(--text-muted)] mb-2 truncate flex items-center gap-1">
+                <div className="text-xs text-[var(--text-secondary)] mb-2 truncate flex items-center gap-1">
                     <svg className="w-4 h-4 text-pink-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                         <path
                             d="M18 3a1 1 0 00-1.196-.98l-10 2A1 1 0 006 5v9.114A4.369 4.369 0 005 14c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V7.82l8-1.6v5.78A4.37 4.37 0 0015 12c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V3z"/>

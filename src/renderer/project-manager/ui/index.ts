@@ -1,6 +1,8 @@
 // 面板原语统一出口
 export {SplitPane} from './SplitPane'
 export type {SplitPaneProps} from './SplitPane'
+export {PaneRow} from './PaneRow'
+export type {PaneRowProps} from './PaneRow'
 export {PanelCard} from './PanelCard'
 export type {PanelCardProps} from './PanelCard'
 export {PanelHeader} from './PanelHeader'

@@ -73,7 +73,7 @@ export function StatRow({label, value, valueClass, bordered = false}: {label: st
 export function KpiCard({label, value, accent}: {label: string; value: string; accent?: boolean}) {
     return (
         <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
-            <div className="truncate text-[10px] text-[var(--text-muted)]">{label}</div>
+            <div className="truncate text-[10px] text-[var(--text-secondary)]">{label}</div>
             <div className={`mt-0.5 truncate text-base font-semibold tabular-nums ${accent ? 'text-[var(--brand-primary)]' : 'text-[var(--text-primary)]'}`}>
                 {value}
             </div>
@@ -84,7 +84,7 @@ export function KpiCard({label, value, accent}: {label: string; value: string; a
 /** 分组标题 */
 export function GroupTitle({children}: {children: ReactNode}) {
     return (
-        <div className="pt-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] first:pt-0">
+        <div className="pt-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-secondary)] first:pt-0">
             {children}
         </div>
     )
@@ -118,7 +118,7 @@ export function ClientStatsNotice({centered = false}: {centered?: boolean}) {
     return (
         <div className={`flex items-center gap-1.5 rounded-lg bg-[var(--surface-muted)] px-3 py-2 ${centered ? 'justify-center' : ''}`}>
             <Info className="w-3.5 h-3.5 shrink-0 text-[var(--text-muted)]"/>
-            <span className="text-[11px] text-[var(--text-muted)]">统计数据为客户端侧记录，仅供对照，实际用量以服务商官网为准</span>
+            <span className="text-[11px] text-[var(--text-secondary)]">统计数据为客户端侧记录，仅供对照，实际用量以服务商官网为准</span>
         </div>
     )
 }

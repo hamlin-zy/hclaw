@@ -1,5 +1,6 @@
 import {useState} from 'react'
 import type {MCPServer} from '@shared/types'
+import {CopyButton} from '../common/CopyButton'
 import MarkdownRenderer from '../message-list/MarkdownRenderer'
 
 // ─── 工具函数 ──────────────────────────────
@@ -84,6 +85,8 @@ function ToolCard({tool, serverName, isPlugin}: {
                         <span className="px-1.5 py-0.5 rounded bg-[var(--brand-muted)] text-[var(--brand-primary)] text-2xs font-semibold shrink-0">
                             TOOL
                         </span>
+                        {/* 与服务卡片一致：工具全名可一键复制（供 Agent 提示词/调试粘贴） */}
+                        <CopyButton name={`${isPlugin ? 'mp_' : 'm_'}${serverName}_${tool.name}`} size="sm"/>
                     </div>
                     {/* 折叠时最多 2 行，展开时全文 */}
                     <div className={`text-xs text-[var(--text-secondary)] leading-relaxed ${!expanded ? 'line-clamp-2' : ''}`}>
@@ -185,9 +188,12 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
     const isPlugin = server.id.startsWith('plugin:')
     const pluginName = isPlugin ? server.id.split(':')[1] || 'unknown' : ''
 
+    // 结构对齐 AgentsDialog 的 AgentPreviewModal（同窗口、遮罩已知正确）：
+    // 由 MCPDialog 渲染为「滚动容器的兄弟节点」，避免被 MCPDialog 的
+    // overflow-y-auto 容器困住，导致 fixed inset-0 遮罩盖不满标题栏那一条。
     return (
         <div
-            className="fixed inset-0 z-modal flex items-center justify-center"
+            className="fixed inset-0 z-[100] flex items-center justify-center"
             onClick={onClose}
          data-name="mcptools-overlay-backdrop">
             {/* 遮罩层 */}
@@ -196,10 +202,10 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
             {/* 弹窗 */}
             <div
                 onClick={e => e.stopPropagation()}
-                className="relative w-[600px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col"
+                className="relative w-[600px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col overflow-hidden"
              data-name="mcptools-overlay-panel">
                 {/* ─── Header ──────────────────────────────── */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] shrink-0 bg-[var(--surface-elevated)]">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-muted)] shrink-0 bg-[var(--surface-elevated)]">
                     <div className="flex items-center gap-3 min-w-0">
                         {/* 状态指示灯 */}
                         <div className={`w-3 h-3 rounded-full shrink-0 ${
@@ -257,7 +263,6 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                         </div>
                     </section>
 
-                    <div className="border-t border-[var(--border-muted)]"/>
 
                     {/* 连接信息 */}
                     <section>
@@ -275,7 +280,7 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                                     server.status === 'connected' ? 'text-green-500' :
                                         server.status === 'error' ? 'text-red-400' :
                                             server.status === 'connecting' || server.status === 'reconnecting' ? 'text-yellow-400' :
-                                                'text-[var(--text-muted)]'
+                                                'text-[var(--text-secondary)]'
                                 }`}>
                                     {statusLabel(server.status)}
                                 </div>
@@ -286,7 +291,6 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                     {/* 插件来源 */}
                     {isPlugin && (
                         <>
-                            <div className="border-t border-[var(--border-muted)]"/>
                             <section>
                                 <h4 className="text-2xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">来源插件</h4>
                                 <div className="p-3 rounded-lg bg-[var(--brand-muted)] border border-[var(--brand-primary)]/20 text-xs text-[var(--brand-primary)] font-medium">
@@ -296,7 +300,6 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                         </>
                     )}
 
-                    <div className="border-t border-[var(--border-muted)]"/>
 
                     {/* 工具列表 */}
                     <section>
@@ -320,7 +323,7 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                             </div>
                         ) : (
                             <div className="p-8 text-center border border-dashed border-[var(--border)] rounded-lg bg-[var(--surface-muted)]">
-                                <p className="text-xs text-[var(--text-muted)]">尚未发现可用工具</p>
+                                <p className="text-xs text-[var(--text-secondary)]">尚未发现可用工具</p>
                             </div>
                         )}
                     </section>
@@ -328,7 +331,6 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                     {/* 错误详情 */}
                     {server.status === 'error' && server.errorDetail && (
                         <>
-                            <div className="border-t border-[var(--border-muted)]"/>
                             <section>
                                 <h4 className="text-2xs font-semibold text-red-400 uppercase tracking-wider mb-2">错误详情</h4>
                                 <div className="p-3 rounded-lg bg-red-50 border border-red-100 text-xs text-red-600 break-all font-mono leading-relaxed">

@@ -125,6 +125,25 @@ function TrendBar({value, max, label, isToday}: {value: number; max: number; lab
     )
 }
 
+/** 明细表共有列（两视图共用）；会话列 tip 因两视图数据口径不同而异 */
+const detailColumns = (view: View): Array<{col: SortCol; label: string; tip?: string}> => [
+    {col: 'conversations', label: '主/子会话', tip: view === 'provider'
+        ? '按「会话 × 模型」组合计数后跨模型累加（非去重会话数）；主/子按 conversations.meta.parentConvId 区分，同一会话切换过多个模型或服务商时会在每个模型/服务商下各计一次'
+        : '组内去重会话数，格式 主/子：主 = parentConvId 为空的会话数，子 = parentConvId 非空的子会话数（同一会话切换模型会分别计入其他模型；历史 llm_stats 回填数据不含会话维度）'},
+    {col: 'avgSessionCost', label: '平均会话成本', tip: '成本 ÷ 会话数（当前维度行的合计成本 ÷ 该行会话数）；会话数为 0 或无成本时不计'},
+    {col: 'request', label: '请求'},
+    {col: 'avgTtft', label: '平均首字', tip: 'Σ首字延迟 ÷ 携带首字延迟的调用数（秒）'},
+    {col: 'avgThroughput', label: '平均吞吐', tip: 'Σ输出 tokens ÷ Σ解码时长（t/s）'},
+    {col: 'avgCacheHit', label: '平均缓存命中率', tip: '缓存命中 ÷ (输入 + 缓存命中)，与 KPI 口径一致'},
+    {col: 'input', label: '输入'},
+    {col: 'output', label: '输出'},
+    {col: 'cache', label: '缓存命中'},
+    {col: 'total', label: '合计'},
+    {col: 'price', label: '综合价格/M', tip: '总成本 USD ÷ (综合总 tokens / 1,000,000)，综合总 tokens = 输入 + 输出 + 缓存读取 + 缓存写入'},
+    {col: 'cost', label: '成本', tip: getCostDisclaimer()},
+    {col: 'pct', label: '占比'},
+]
+
 export default function UsageWindow() {
     // 独立窗口为独立渲染进程：挂载时同步主进程实时汇率（与主窗口 App.tsx 同源），
     // 否则 CNY 成本换算 / InfoTip 口径文案恒为默认 7.2，与右键菜单用量统计弹窗不一致
@@ -266,32 +285,13 @@ export default function UsageWindow() {
         setSort(s => s?.col === col ? {col, dir: (s.dir * -1) as 1 | -1} : {col, dir: SORT_DEFAULT_DIR[col]})
     }
 
-/** 明细表共有列（两视图共用）；会话列 tip 因两视图数据口径不同而异 */
-const detailColumns = (view: View): Array<{col: SortCol; label: string; tip?: string}> => [
-    {col: 'conversations', label: '主/子会话', tip: view === 'provider'
-        ? '按「会话 × 模型」组合计数后跨模型累加（非去重会话数）；主/子按 conversations.meta.parentConvId 区分，同一会话切换过多个模型或服务商时会在每个模型/服务商下各计一次'
-        : '组内去重会话数，格式 主/子：主 = parentConvId 为空的会话数，子 = parentConvId 非空的子会话数（同一会话切换模型会分别计入其他模型；历史 llm_stats 回填数据不含会话维度）'},
-    {col: 'avgSessionCost', label: '平均会话成本', tip: '成本 ÷ 会话数（当前维度行的合计成本 ÷ 该行会话数）；会话数为 0 或无成本时不计'},
-    {col: 'request', label: '请求'},
-    {col: 'avgTtft', label: '平均首字', tip: 'Σ首字延迟 ÷ 携带首字延迟的调用数（秒）'},
-    {col: 'avgThroughput', label: '平均吞吐', tip: 'Σ输出 tokens ÷ Σ解码时长（t/s）'},
-    {col: 'avgCacheHit', label: '平均缓存命中率', tip: '缓存命中 ÷ (输入 + 缓存命中)，与 KPI 口径一致'},
-    {col: 'input', label: '输入'},
-    {col: 'output', label: '输出'},
-    {col: 'cache', label: '缓存命中'},
-    {col: 'total', label: '合计'},
-    {col: 'price', label: '综合价格/M', tip: '总成本 USD ÷ (综合总 tokens / 1,000,000)，综合总 tokens = 输入 + 输出 + 缓存读取 + 缓存写入'},
-    {col: 'cost', label: '成本', tip: getCostDisclaimer()},
-    {col: 'pct', label: '占比'},
-]
-
-// 分组明细列定义：首列（及模型视图的第二列）按视图切换，其余列两视图共用
-const columns: Array<{col: SortCol; label: string; tip?: string}> = [
-    ...(view === 'provider'
-        ? [{col: 'name' as SortCol, label: '服务商'}]
-        : [{col: 'provider' as SortCol, label: '服务商'}, {col: 'name' as SortCol, label: '模型ID'}]),
-    ...detailColumns(view),
-]
+    // 分组明细列定义：首列（及模型视图的第二列）按视图切换，其余列两视图共用
+    const columns: Array<{col: SortCol; label: string; tip?: string}> = [
+        ...(view === 'provider'
+            ? [{col: 'name' as SortCol, label: '服务商'}]
+            : [{col: 'provider' as SortCol, label: '服务商'}, {col: 'name' as SortCol, label: '模型ID'}]),
+        ...detailColumns(view),
+    ]
 
     const breakdown = data?.breakdown ?? []
     // 明细表过滤（纯前端，仅影响明细行；KPI/趋势保持全量口径）
@@ -299,10 +299,10 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
     const sortedBreakdown = useMemo(() => {
         if (!sort) return filteredBreakdown
         const {col, dir} = sort
-        const text = (b: UsageBreakdown): string =>
-            col === 'provider' ? (b.providerName || b.providerType || '')
-                : col === 'name' ? (view === 'provider' ? (b.providerName || providerDisplayName(b.key)) : b.key)
-                    : (b.providerName || b.providerType || '')
+        // 文本列仅 name / provider（由 TEXT_SORT_COLS 保证），其余列走数值分支
+        const text = (b: UsageBreakdown): string => col === 'provider'
+            ? (b.providerName || b.providerType || '')
+            : (view === 'provider' ? (b.providerName || providerDisplayName(b.key)) : b.key)
         // 行级均值列的排序键（与单元格展示同口径；无法计算时按 0 处理）
         const num = (b: UsageBreakdown): number => {
             switch (col) {
@@ -330,7 +330,7 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
     return (
         <div className="h-full flex flex-col">
             {/* 工具栏：时间范围（含自定义日历）+ 分组视图 + 货币切换 + 刷新 */}
-            <div className="flex items-center gap-3 px-5 py-2.5 border-b border-[var(--border)] shrink-0 flex-wrap">
+            <div className="flex items-center gap-3 px-5 py-2.5 border-b border-[var(--border-muted)] shrink-0 flex-wrap">
                 <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
                     {RANGE_OPTIONS.map(({range: r, label, tip}) => (
                         <span key={r} className="flex items-center gap-0.5">
@@ -357,7 +357,7 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                                 className={CUSTOM_DATE_INPUT_CLS}
                             />
                         </span>
-                        <span className="text-xs text-[var(--text-muted)]">至</span>
+                        <span className="text-xs text-[var(--text-secondary)]">至</span>
                         {/* 结束：不早于起始（min=start），且不可选未来（max=今天） */}
                         <span className="contents" data-testid="custom-end" data-name="usage-window-range-end-input">
                             <DatePicker
@@ -424,7 +424,7 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                     </div>
                 )}
                 {!data && !error && (
-                    <div className="rounded-lg border border-[var(--border)] py-12 flex items-center justify-center gap-2 text-sm text-[var(--text-muted)]">
+                    <div className="rounded-lg border border-[var(--border)] py-12 flex items-center justify-center gap-2 text-sm text-[var(--text-secondary)]">
                         <div className="w-4 h-4 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin"/>
                         加载中…
                     </div>
@@ -435,37 +435,37 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                         <section className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)]">
                             <div className="grid grid-cols-2 md:grid-cols-6">
                                 <div className="p-4">
-                                    <div className="flex items-center gap-1 text-[11px] text-[var(--text-muted)]">
+                                    <div className="flex items-center gap-1 text-[11px] text-[var(--text-secondary)]">
                                         总成本
                                         <InfoTip text={getCostDisclaimer()}/>
                                     </div>
                                     <div className="mt-1 text-2xl font-semibold tabular-nums leading-none text-[var(--brand-primary)]">
                                         {formatCost(data.kpi.totalCostUsd, currency)}
                                     </div>
-                                    <div className="mt-1.5 text-[10px] text-[var(--text-muted)]">
+                                    <div className="mt-1.5 text-[10px] text-[var(--text-secondary)]">
                                         {currency === 'USD' ? '美元计价' : `按 1 USD ≈ ${usdCnyRate.toFixed(2)} CNY`}
                                     </div>
                                 </div>
                                 <div className="p-4 border-l border-[var(--border)]">
-                                    <div className="text-[11px] text-[var(--text-muted)]">总 token</div>
+                                    <div className="text-[11px] text-[var(--text-secondary)]">总 token</div>
                                     <div className="mt-1 text-xl font-semibold tabular-nums leading-none text-[var(--text-primary)]">{formatTokenCompact(data.kpi.totalTokens)}</div>
                                 </div>
                                 <div className="p-4 border-l border-[var(--border)]">
-                                    <div className="text-[11px] text-[var(--text-muted)]">LLM 请求</div>
+                                    <div className="text-[11px] text-[var(--text-secondary)]">LLM 请求</div>
                                     <div className="mt-1 text-xl font-semibold tabular-nums leading-none text-[var(--text-primary)]">{data.kpi.requestCount} 次</div>
                                 </div>
                                 <div className="p-4 border-l border-[var(--border)]">
-                                    <div className="text-[11px] text-[var(--text-muted)]">缓存命中率</div>
+                                    <div className="text-[11px] text-[var(--text-secondary)]">缓存命中率</div>
                                     <div className="mt-1 text-xl font-semibold tabular-nums leading-none text-[var(--text-primary)]">{data.kpi.cacheHitRate != null ? `${data.kpi.cacheHitRate}%` : '—'}</div>
                                 </div>
                                 <div className="p-4 border-l border-[var(--border)]">
-                                    <div className="text-[11px] text-[var(--text-muted)]">平均吞吐</div>
+                                    <div className="text-[11px] text-[var(--text-secondary)]">平均吞吐</div>
                                     <div className="mt-1 text-xl font-semibold tabular-nums leading-none text-[var(--text-primary)]">
                                         {avgDecodeRate != null ? `${formatTokensPerSecond(avgDecodeRate)} t/s` : '—'}
                                     </div>
                                 </div>
                                 <div className="p-4 border-l border-[var(--border)]">
-                                    <div className="text-[11px] text-[var(--text-muted)]">平均首字</div>
+                                    <div className="text-[11px] text-[var(--text-secondary)]">平均首字</div>
                                     <div className="mt-1 text-xl font-semibold tabular-nums leading-none text-[var(--text-primary)]">
                                         {avgTtftSeconds != null ? `${avgTtftSeconds.toFixed(1)}s` : '—'}
                                     </div>
@@ -475,12 +475,12 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
 
                         {/* 趋势 */}
                         <section className="rounded-lg border border-[var(--border)] overflow-hidden">
-                            <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border)] bg-[var(--surface-muted)]">
+                            <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
                                 <div className="text-xs font-semibold text-[var(--text-primary)]">Token 消耗趋势</div>
-                                <div className="text-[11px] text-[var(--text-muted)]">{granularity === 'hour' ? '按小时' : '按天'}</div>
+                                <div className="text-[11px] text-[var(--text-secondary)]">{granularity === 'hour' ? '按小时' : '按天'}</div>
                             </div>
                             <div className="px-4 pt-4 pb-2">
-                                <div className="flex items-end gap-2 h-32 border-b border-[var(--border)]">
+                                <div className="flex items-end gap-2 h-32 border-b border-[var(--border-muted)]">
                                     {data.trend.map((t, i) => (
                                         <TrendBar key={`${granularity}-${t.day}`} value={t.inputTokens + t.outputTokens + t.cacheReadTokens}
                                                   max={maxTrend} label={trendLabel(t.day, granularity)} isToday={i === data.trend.length - 1}/>
@@ -491,21 +491,21 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
 
                         {/* 分组明细表 */}
                         <section className="rounded-lg border border-[var(--border)]">
-                            <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-[var(--border)] bg-[var(--surface-muted)] flex-wrap">
+                            <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)] flex-wrap">
                                 <div className="text-xs font-semibold text-[var(--text-primary)]">
                                     {view === 'provider' ? '服务商明细' : '模型明细'}
                                 </div>
                                 <UsageFilterBar view={view} rows={breakdown} filter={filter} onChange={setFilter}/>
-                                <div className="text-[11px] text-[var(--text-muted)]">
+                                <div className="text-[11px] text-[var(--text-secondary)]">
                                     {filteredBreakdown.length !== breakdown.length
                                         ? `${filteredBreakdown.length} / ${breakdown.length} 项`
                                         : `${breakdown.length} 项`}
                                 </div>
                             </div>
                             {data.breakdown.length === 0 ? (
-                                <div className="py-12 text-center text-sm text-[var(--text-muted)]">暂无用量数据</div>
+                                <div className="py-12 text-center text-sm text-[var(--text-secondary)]">暂无用量数据</div>
                             ) : filteredBreakdown.length === 0 ? (
-                                <div className="py-12 text-center text-sm text-[var(--text-muted)]">无符合过滤条件的数据</div>
+                                <div className="py-12 text-center text-sm text-[var(--text-secondary)]">无符合过滤条件的数据</div>
                             ) : (
                                 <table ref={tableRef} className="w-full table-fixed text-xs">
                                     <colgroup>
@@ -514,7 +514,7 @@ const columns: Array<{col: SortCol; label: string; tip?: string}> = [
                                         ))}
                                     </colgroup>
                                     <thead>
-                                        <tr className="bg-[var(--surface-muted)] text-[var(--text-muted)] border-b border-[var(--border)]">
+                                        <tr className="bg-[var(--surface-muted)] text-[var(--text-muted)] border-b border-[var(--border-muted)]">
                                             {columns.map(({col, label, tip}, idx) => (
                                                 <th key={col}
                                                     onClick={() => toggleSort(col)}

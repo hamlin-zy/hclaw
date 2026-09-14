@@ -191,8 +191,17 @@ class McpWorkerService {
         // 第一轮: 每个 Server 仅尝试一次，不重试。失败跳过，继续下一个。
         for (const config of enabled) {
             try {
-                await this.mcpClient.startServer(config, 0) // maxRetries=0: 不重试
+                const r = await this.mcpClient.startServer(config, 0) // maxRetries=0: 不重试
+                if (!r.success) {
+                    parentPort?.postMessage({
+                        type: 'worker_log',
+                        level: 'warn',
+                        args: [`[Init] ${config.id} (${config.name}) 首轮失败: ${r.error}`],
+                    })
+                    failed.push(config)
+                }
             } catch (err: any) {
+                // P6 后 startServer 理论上不抛；此处为兜底，保证 worker_ready 一定发出
                 parentPort?.postMessage({
                     type: 'worker_log',
                     level: 'warn',
@@ -229,13 +238,22 @@ class McpWorkerService {
                     level: 'info',
                     args: [`[Init] 后台重试: ${config.id} (${config.name})...`],
                 })
-                await this.mcpClient.startServer(config) // maxRetries=5 (默认)
-                parentPort?.postMessage({
-                    type: 'worker_log',
-                    level: 'info',
-                    args: [`[Init] 后台修复成功: ${config.id} (${config.name})`],
-                })
+                const r = await this.mcpClient.startServer(config) // maxRetries=5 (默认)
+                if (r.success) {
+                    parentPort?.postMessage({
+                        type: 'worker_log',
+                        level: 'info',
+                        args: [`[Init] 后台修复成功: ${config.id} (${config.name})`],
+                    })
+                } else {
+                    parentPort?.postMessage({
+                        type: 'worker_log',
+                        level: 'error',
+                        args: [`[Init] 后台修复失败: ${config.id} (${config.name}): ${r.error}`],
+                    })
+                }
             } catch (err: any) {
+                // P6 后理论上不抛；兜底
                 parentPort?.postMessage({
                     type: 'worker_log',
                     level: 'error',
@@ -304,12 +322,13 @@ class McpWorkerService {
         )
         for (let i = 0; i < toStart.length; i += UPDATE_BATCH_SIZE) {
             const batch = toStart.slice(i, i + UPDATE_BATCH_SIZE)
+            // 批次启动失败有意吞：由后续 refresh 通知补偿（P6 后 startServer 恒 resolve，
+            // Promise.allSettled 已接管 rejection）。
             await Promise.allSettled(batch
                 // ★ 二次检查：step 1 的 await 期间 restartServer 可能已将 server 加入 pendingRestarts
                 // （TOCTOU 防护——filter 计算在 await 之前，pendingRestarts 变化在 await 期间）
                 .filter(c => !this.pendingRestarts.has(c.id))
-                .map(c => this.mcpClient.startServer(c).catch(() => {
-                }))
+                .map(c => this.mcpClient.startServer(c))
             )
             if (i + UPDATE_BATCH_SIZE < toStart.length) {
                 await new Promise(r => setTimeout(r, BATCH_DELAY_MS))
@@ -354,7 +373,7 @@ class McpWorkerService {
                 name: s.config.name,
                 status: s.status,
                 // ★ 用 getEffectiveTools（已过滤 denyList）：agent worker 的 mcpClient 是
-                //   MessagePort，filterDeniedTools 无法拿到 denyList，只能在源头过滤，
+                //   MessagePort（无 denyList 视图），发现期 deny 过滤的唯一实现点就是这里，
                 //   否则被用户明确 deny 的工具仍会被注册进 registry 并广告给模型。
                 tools: this.mcpClient.getEffectiveTools(s.config.id).map(toToolPayload),
                 userDescription: s.config.userDescription,
@@ -422,12 +441,16 @@ class McpWorkerService {
             // 兜底用 Worker 内存中的缓存的配置
             const cfg = config ?? this.mcpClient.getServer(serverId)?.config
             if (cfg) {
-                await this.mcpClient.startServer(cfg)
-                parentPort?.postMessage({type: 'restart_complete', serverId, success: true})
+                const r = await this.mcpClient.startServer(cfg)
+                parentPort?.postMessage({
+                    type: 'restart_complete', serverId, success: r.success,
+                    ...(r.error ? {error: r.error} : {}),
+                })
             } else {
                 parentPort?.postMessage({type: 'restart_complete', serverId, success: false, error: '配置丢失'})
             }
         } catch (err: any) {
+            // 防御性兜底：P6 后 startServer 不抛（恒 resolve），此处覆盖配置读取等非连接异常
             parentPort?.postMessage({type: 'worker_log', level: 'error', args: [`[restartServer] ${serverId} failed: ${err.message}`]})
             parentPort?.postMessage({type: 'restart_complete', serverId, success: false, error: err.message})
         } finally {
@@ -443,8 +466,8 @@ class McpWorkerService {
         const toolsPayload = {
             id: server.config.id,
             name: server.config.name,
-            // 用 getEffectiveTools 剔除 denyList 工具：Agent Worker 内无法访问 denyList
-            // （filterDeniedTools 走 getCurrentClient()，在 worker 里只有 MessagePort），
+            // 用 getEffectiveTools 剔除 denyList 工具：Agent Worker 内只有 MessagePort，
+            // 无 denyList 视图；发现期 deny 过滤的唯一实现点就是这里，
             // 若此处下发未过滤列表，被 deny 的工具会被重新注册进 registry 并出现在能力目录。
             tools: this.mcpClient.getEffectiveTools(serverId).map(toToolPayload),
             userDescription: server.config.userDescription,

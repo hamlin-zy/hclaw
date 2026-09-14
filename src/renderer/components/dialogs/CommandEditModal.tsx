@@ -8,6 +8,7 @@
 import {useCallback, useEffect, useState} from 'react'
 import {UserCommand, useUserCommandStore} from '../../stores/userCommandStore'
 import {getCommandNameError} from '@shared/commandName'
+import {RemoveIcon} from '../icons'
 
 /** 出错字段，用于把校验提示定位到对应输入项 */
 type ErrorField = 'name' | 'content' | 'args' | 'general'
@@ -162,7 +163,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                 onClick={e => e.stopPropagation()}
              data-name="command-edit-modal-div">
                 {/* 标题 */}
-                <div className="px-5 py-3 border-b border-[var(--border)]">
+                <div className="px-5 py-3 border-b border-[var(--border-muted)]">
                     <h3 className="text-sm font-medium text-[var(--text-primary)]">
                         {isNew ? '新建命令' : '编辑命令'}
                     </h3>
@@ -172,7 +173,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                 <div className="px-5 py-4 space-y-3 max-h-[70vh] overflow-y-auto">
                     {/* 名称 */}
                     <div>
-                        <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">命令名称</label>
+                        <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">命令名称</label>
                         <input type="text" value={name} onChange={e => setName(e.target.value)}
                                placeholder="例如: explain"
                                className={`${inputClass} ${error && errorField === 'name' ? 'border-[var(--error)]' : ''}`}
@@ -181,13 +182,13 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                             <p role="alert"
                                className="mt-1 text-[11px] text-[var(--error)]">{error}</p>
                         ) : (
-                            <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">允许中英文、数字、下划线和连字符</p>
+                            <p className="mt-0.5 text-[10px] text-[var(--text-secondary)]">允许中英文、数字、下划线和连字符</p>
                         )}
                     </div>
 
                     {/* 描述 */}
                     <div>
-                        <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">描述 <span
+                        <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">描述 <span
                             className="opacity-60">(可选)</span></label>
                         <input type="text" value={description} onChange={e => setDescription(e.target.value)}
                                placeholder="简短描述命令用途" className={inputClass} data-name="command-edit-modal-description-input"/>
@@ -195,7 +196,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
 
                     {/* 模板内容 */}
                     <div>
-                        <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">
+                        <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">
                             模板内容
                         </label>
                         <textarea
@@ -208,7 +209,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                                      border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]
                                      font-mono resize-y"
                         data-name="command-edit-modal-textarea"/>
-                        <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">
+                        <p className="mt-0.5 text-[10px] text-[var(--text-secondary)]">
                             使用 <code className="text-[var(--brand-primary)]">$ARGUMENTS</code> 作为用户输入占位符
                             {content.length > 0 && (
                                 <span className="float-right">{content.length}/2000</span>
@@ -219,7 +220,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                     {/* 参数定义 */}
                     <div>
                         <div className="flex items-center justify-between mb-1">
-                            <label className="text-[11px] font-medium text-[var(--text-muted)]">
+                            <label className="text-[11px] font-medium text-[var(--text-secondary)]">
                                 参数定义 <span className="text-[var(--text-muted)]">(可选)</span>
                             </label>
                             {args.length < 5 && (
@@ -233,7 +234,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                         </div>
                         <div className="space-y-1.5">
                             {args.length === 0 && (
-                                <p className="text-[10px] text-[var(--text-muted)]">暂未定义参数</p>
+                                <p className="text-[10px] text-[var(--text-secondary)]">暂未定义参数</p>
                             )}
                             {args.map((arg, i) => (
                                 <div key={i} className="flex items-center gap-2">
@@ -245,14 +246,14 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                                            onChange={e => updateArg(i, 'default', e.target.value)}
                                            placeholder="默认值"
                                            className="w-20 px-2 py-1 text-[10px] bg-[var(--surface-muted)] rounded text-[var(--text-primary)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]" data-name={`command-edit-modal-arg-default-input-${i}`}/>
-                                    <label className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]">
+                                    <label className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
                                         <input type="checkbox" checked={arg.required || false}
                                                onChange={e => updateArg(i, 'required', e.target.checked)}
                                                className="w-3 h-3 rounded accent-[var(--brand-primary)]" data-name={`command-edit-modal-arg-required-checkbox-${i}`}/>
                                         必填
                                     </label>
                                     <button onClick={() => removeArg(i)}
-                                            className="text-[var(--text-muted)] hover:text-[var(--error)] text-xs px-1" data-name={`command-edit-modal-remove-arg-button-${i}`}>✕
+                                            className="text-[var(--text-muted)] hover:text-[var(--error)] text-xs px-1" data-name={`command-edit-modal-remove-arg-button-${i}`}><RemoveIcon className="w-3 h-3 inline"/>
                                     </button>
                                 </div>
                             ))}
@@ -270,13 +271,13 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
 
                 {/* 按钮 */}
                 <div
-                    className="flex items-center justify-between gap-2 px-5 py-3 border-t border-[var(--border)] bg-[var(--surface-muted)]">
+                    className="flex items-center justify-between gap-2 px-5 py-3 border-t border-[var(--border-muted)] bg-[var(--surface-muted)]">
                     <div>
                         {!isNew && (
                             <button
                                 onClick={handleReset}
                                 disabled={resetting}
-                                className="px-3 py-1.5 text-xs rounded-md text-[var(--text-muted)] hover:text-[var(--warning)] hover:bg-[var(--warning)]/10 transition-colors disabled:opacity-50"
+                                className="px-3 py-1.5 text-xs rounded-md text-[var(--text-secondary)] hover:text-[var(--warning)] hover:bg-[var(--warning)]/10 transition-colors disabled:opacity-50"
                              data-name="command-edit-modal-reset-button">
                                 {resetting ? '重置中...' : '重置为默认'}
                             </button>
@@ -285,7 +286,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                     <div className="flex gap-2">
                     <button
                         onClick={onCancel}
-                        className="px-3 py-1.5 text-xs rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)] transition-colors"
+                        className="px-3 py-1.5 text-xs rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)] transition-colors"
                      data-name="command-edit-modal-cancel-button">
                         取消
                     </button>

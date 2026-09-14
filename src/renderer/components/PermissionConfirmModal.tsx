@@ -162,7 +162,7 @@ export default function PermissionConfirmModal() {
                         </svg>
                     </div>
 
-                    <div className="px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)]">
+                    <div className="px-5 py-4 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)]">
                         <div className="flex items-center gap-3">
                             <div
                                 className="w-10 h-10 rounded-full bg-[var(--brand-primary)]/10 flex items-center justify-center shrink-0">
@@ -177,7 +177,7 @@ export default function PermissionConfirmModal() {
                                     className="text-sm font-semibold text-[var(--text-primary)]">
                                     Agent 需要确认权限
                                 </h2>
-                                <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                                <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                                     即将执行以下命令，请确认
                                 </p>
                             </div>
@@ -206,14 +206,14 @@ export default function PermissionConfirmModal() {
                             </div>
                         )}
 
-                        <p className="text-xs text-[var(--text-muted)] text-center">
+                        <p className="text-xs text-[var(--text-secondary)] text-center">
                             按 <kbd
                             className="px-1.5 py-0.5 bg-[var(--surface-muted)] rounded border border-[var(--border)] font-mono text-[10px]">Enter</kbd> 允许执行，
                             或点击下方按钮选择
                         </p>
                     </div>
 
-                    <div className="px-5 py-3 border-t border-[var(--border)] bg-[var(--surface-elevated)] shrink-0">
+                    <div className="px-5 py-3 border-t border-[var(--border-muted)] bg-[var(--surface-elevated)] shrink-0">
                         <div className="flex items-center justify-center gap-2">
                             <button
                                 onClick={handleAbort}
@@ -225,10 +225,9 @@ export default function PermissionConfirmModal() {
                                 终止
                             </button>
                             <button
-                                ref={allowButtonRef}
                                 onClick={() => respondQuestion('deny')}
                                 className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
-                  bg-[var(--surface-muted)] text-[var(--text-muted)]
+                  bg-[var(--surface-muted)] text-[var(--text-secondary)]
                   hover:bg-[var(--surface-hover)] border border-[var(--border)]"
                              data-name="permission-confirm-modal-deny-button">
                                 拒绝
@@ -242,6 +241,7 @@ export default function PermissionConfirmModal() {
                                 始终允许
                             </button>
                             <button
+                                ref={allowButtonRef}
                                 onClick={() => respondQuestion('allow')}
                                 className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
                   bg-[var(--brand-primary)] text-white

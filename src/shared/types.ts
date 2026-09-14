@@ -6,6 +6,7 @@
  */
 
 // ─── Layer 1 — zero internal deps ──────────────────────
+export * from './types/theme'
 export * from './types/message'
 export * from './types/permissions'
 export * from './types/settings'

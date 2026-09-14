@@ -62,7 +62,7 @@ function ToolCard({tool, serverName}: {tool: ToolDefinitionForLLM; serverName?: 
                         {tool.description || '无描述'}
                     </p>
                     {hasParams && (
-                        <p className="text-[10px] text-[var(--text-muted)] mt-1">
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1">
                             参数: {Object.keys(properties).length} 个
                             {required.length > 0 && (
                                 <span className="text-[var(--warning)]"> (必填: {required.join(', ')})</span>
@@ -83,7 +83,7 @@ function ToolCard({tool, serverName}: {tool: ToolDefinitionForLLM; serverName?: 
 
             {/* 展开内容：参数详情 */}
             {isExpanded && hasParams && (
-                <div className="border-t border-[var(--border)] bg-[var(--surface-muted)] p-3">
+                <div className="border-t border-[var(--border-muted)] bg-[var(--surface-muted)] p-3">
                     <table className="w-full text-[10px]">
                         <thead>
                             <tr className="text-[var(--text-muted)]">
@@ -117,10 +117,10 @@ function ToolCard({tool, serverName}: {tool: ToolDefinitionForLLM; serverName?: 
 
                     {/* 原始 JSON Schema */}
                     <details className="mt-3">
-                        <summary className="text-[10px] text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)]">
+                        <summary className="text-[10px] text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-secondary)]">
                             查看原始 Schema
                         </summary>
-                        <pre className="mt-1 p-2 bg-[var(--surface)] rounded text-[9px] text-[var(--text-muted)] overflow-x-auto">
+                        <pre className="mt-1 p-2 bg-[var(--surface)] rounded text-[9px] text-[var(--text-secondary)] overflow-x-auto">
                             {JSON.stringify(tool.inputSchema, null, 2)}
                         </pre>
                     </details>
@@ -166,7 +166,7 @@ export default function ToolListDialog() {
         return (
             <div className="flex items-center justify-center h-40">
                 <div className="animate-spin w-6 h-6 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full" />
-                <span className="ml-3 text-sm text-[var(--text-muted)]">加载中...</span>
+                <span className="ml-3 text-sm text-[var(--text-secondary)]">加载中...</span>
             </div>
         )
     }
@@ -207,8 +207,8 @@ export default function ToolListDialog() {
     return (
         <div className="h-full overflow-hidden flex flex-col">
             {/* 统计信息栏 */}
-            <div className="shrink-0 bg-[var(--surface)] border-b border-[var(--border)] p-3">
-                <div className="flex items-center gap-4 text-xs text-[var(--text-muted)]">
+            <div className="shrink-0 bg-[var(--surface)] border-b border-[var(--border-muted)] p-3">
+                <div className="flex items-center gap-4 text-xs text-[var(--text-secondary)]">
                     <span>
                         内置工具: <strong className="text-[var(--text-primary)]">{tools.length}</strong>
                         {totalParams > 0 && (
@@ -234,14 +234,14 @@ export default function ToolListDialog() {
             </div>
 
             {/* Tab 切换 */}
-            <div className="shrink-0 flex border-b border-[var(--border)]">
+            <div className="shrink-0 flex border-b border-[var(--border-muted)]">
                 <button
                     type="button"
                     onClick={() => setActiveTab('builtin')}
                     className={`px-4 py-2 text-xs font-medium transition-colors ${
                         activeTab === 'builtin'
                             ? 'text-[var(--brand-primary)] border-b-2 border-[var(--brand-primary)]'
-                            : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                            : 'text-[var(--text-secondary)] hover:text-[var(--text-secondary)]'
                     }`}
                  data-name="tool-list-dialog-builtin-tab-button">
                     内置工具 ({tools.length})
@@ -252,7 +252,7 @@ export default function ToolListDialog() {
                     className={`px-4 py-2 text-xs font-medium transition-colors ${
                         activeTab === 'mcp'
                             ? 'text-[var(--brand-primary)] border-b-2 border-[var(--brand-primary)]'
-                            : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                            : 'text-[var(--text-secondary)] hover:text-[var(--text-secondary)]'
                     }`}
                  data-name="tool-list-dialog-mcp-tab-button">
                     MCP 工具 ({mcpToolCount})
@@ -271,7 +271,7 @@ export default function ToolListDialog() {
                         </div>
                     ) : (
                         <div className="p-6 text-center bg-[var(--surface-muted)] rounded-lg border border-dashed border-[var(--border)]">
-                            <p className="text-sm text-[var(--text-muted)]">暂无内置工具</p>
+                            <p className="text-sm text-[var(--text-secondary)]">暂无内置工具</p>
                         </div>
                     )
                 ) : (
@@ -305,7 +305,7 @@ export default function ToolListDialog() {
                                         }`}>
                                             {server.status === 'connected' ? '已连接' : server.status}
                                         </span>
-                                        <span className="text-xs text-[var(--text-muted)]">
+                                        <span className="text-xs text-[var(--text-secondary)]">
                                             ({server.tools.length} 个工具)
                                         </span>
                                     </div>
@@ -324,7 +324,7 @@ export default function ToolListDialog() {
                                                         ))}
                                                     </div>
                                                 ) : (
-                                                    <p className="text-xs text-[var(--text-muted)] italic">无工具</p>
+                                                    <p className="text-xs text-[var(--text-secondary)] italic">无工具</p>
                                                 )}
                                             </motion.div>
                                         )}
@@ -334,7 +334,7 @@ export default function ToolListDialog() {
                         </div>
                     ) : (
                         <div className="p-6 text-center bg-[var(--surface-muted)] rounded-lg border border-dashed border-[var(--border)]">
-                            <p className="text-sm text-[var(--text-muted)]">暂无 MCP 服务器</p>
+                            <p className="text-sm text-[var(--text-secondary)]">暂无 MCP 服务器</p>
                         </div>
                     )
                 )}

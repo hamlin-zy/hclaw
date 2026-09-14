@@ -11,6 +11,7 @@ import {toolRegistry} from './registry'
 
 // 内置工具
 import {analyzeImageTool} from './builtin/analyzeImageTool'
+import {loadImageTool} from './builtin/loadImageTool'
 import {speechToTextTool} from './builtin/speechToTextTool'
 import {bashTool} from './builtin/bashTool'
 import {fileReadTool} from './builtin/fileReadTool'
@@ -47,6 +48,7 @@ export { setAgentToolConfig } from './builtin/agentTool'
 export function registerBuiltinTools(): void {
   toolRegistry.registerAll([
       analyzeImageTool,
+      loadImageTool,
       speechToTextTool,
     bashTool,
     fileReadTool,

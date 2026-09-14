@@ -1,8 +1,9 @@
 /**
  * System settings, prompt configuration, menu dialogs, channels, and subagent config.
  *
- * Layer 1 — no internal sub-file dependencies.
+ * Layer 1 — 仅依赖同为 Layer 1 的 ./theme（零依赖），无环。
  */
+import type {ThemeSetting} from './theme'
 
 // ─── Prompt configuration ──────────────────────────────
 
@@ -96,10 +97,10 @@ export interface SubagentConfig {
 }
 
 export interface UiBackground {
-    enabled: boolean
-    imagePath: string
-    overlay: number
-    blur: number
+  enabled: boolean
+  imagePath: string
+  overlay: number
+  blur: number
 }
 
 export interface SystemSettings {
@@ -109,8 +110,12 @@ export interface SystemSettings {
     initialRetryDelay: number
     maxRetryDelay: number
     llmTimeout: number
-    /** 发送前交接引导阈值（0-1；0 = 关闭引导）。默认 0.5 */
+    /** 发送前交接引导阈值（0-1；0 = 关闭引导）。默认 0.5；ratio=0 为跨模式的全局关闭哨兵 */
     handoffThresholdRatio: number
+    /** 交接阈值口径。默认 'ratio'（按窗口比例）；'tokens' 按固定 token 数 */
+    handoffThresholdMode?: 'ratio' | 'tokens'
+    /** 按窗口大小模式的固定阈值（token）。默认 200_000；仅 mode='tokens' 生效，下限 50_000 */
+    handoffThresholdTokens?: number
     /** loop 内接近窗口上限时的行为。默认 'auto-handoff' */
     midLoopOverflowMode: 'auto-handoff' | 'graceful-stop'
     /** LLM 循环检测档位。默认 'notify'；'off' 时零开销 */
@@ -127,12 +132,17 @@ export interface SystemSettings {
   model: {
     defaultMaxTokens: number
     defaultTemperature: number
+    /**
+     * 图片压缩质量（1-100，整数）。默认 85，代码层 clamp 到 1-100（UI 下限建议 40）。
+     * 仅影响 load_image 加载的图片；未超过体积/尺寸阈值的小图不会被重新编码。
+     */
+    imageCompressQuality?: number
   }
   mcp: {
     mcpTestTimeout: number
   }
   ui: {
-    theme: 'light' | 'dark' | 'yuanshandai' | 'shiyangjin' | 'system'
+    theme: ThemeSetting
     background?: UiBackground
   }
   subagent?: SubagentConfig

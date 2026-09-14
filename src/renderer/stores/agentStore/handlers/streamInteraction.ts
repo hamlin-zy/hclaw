@@ -225,7 +225,7 @@ export async function handleAskUser(ctx: StreamCtx) {
     const {convId, isAgentAborted, event} = ctx
     if (isAgentAborted) return
     const {question = '', requestId, options, multiSelect = false} = event as any
-    const questionText = `\n\n> 🤔 **待确认**: ${question}`
+    const questionText = `\n\n> **待确认**: ${question}`
     const updateContent = (convState: ConvAgentData) => ({
         content: convState.streamBuffer + questionText,
     })
@@ -337,7 +337,7 @@ export function handleWarning(ctx: StreamCtx) {
         useConversationStore.getState().addMessage({
             id,
             role: 'assistant',
-            content: `> ⚠️ **配置警告**\n> ${msg}`,
+            content: `> **配置警告**\n> ${msg}`,
         })
         set({streamingMessageId: id})
     }
@@ -346,6 +346,16 @@ export function handleWarning(ctx: StreamCtx) {
 export async function handlePermissionRulesUpdated(ctx: StreamCtx) {
     const {get} = ctx
     await get().fetchPermissionRules()
+}
+
+/** 剥离拼接进消息正文的历史权限/命令确认提示行（无匹配时原样返回，幂等） */
+function stripPermissionConfirmText(content: string): string {
+    return content
+        .replace(/\n\n> \u26A0\uFE0F \*\*权限确认\*\*:[^\n]*/g, '')
+        .replace(/\n\n\u26A0\uFE0F 权限确认[^\n]*/g, '')
+        .replace(/\n\n\u26A0\uFE0F 命令确认[^\n]*\n[\s\S]*$/g, '')
+        .replace(/\n\n> \u26A0\uFE0F 命令确认[^\n]*/g, '')
+        .trim()
 }
 
 export async function handlePermissionConfirm(ctx: StreamCtx) {
@@ -371,12 +381,7 @@ export async function handlePermissionConfirm(ctx: StreamCtx) {
             convStore.updateMessage(convState.streamingMessageId!, {permissionConfirm})
             const currentMsg = convStore.loadedMessages.find(m => m.id === convState.streamingMessageId)
             if (currentMsg?.content) {
-                const cleanedContent = currentMsg.content
-                    .replace(/\n\n> ⚠️ \*\*权限确认\*\*:[^\n]*/g, '')
-                    .replace(/\n\n⚠️ 权限确认[^\n]*/g, '')
-                    .replace(/\n\n⚠️ 命令确认[^\n]*\n[\s\S]*$/g, '')
-                    .replace(/\n\n> ⚠️ 命令确认[^\n]*/g, '')
-                    .trim()
+                const cleanedContent = stripPermissionConfirmText(currentMsg.content)
                 if (cleanedContent !== currentMsg.content) {
                     convStore.updateMessage(convState.streamingMessageId!, {content: cleanedContent})
                 }
@@ -387,12 +392,7 @@ export async function handlePermissionConfirm(ctx: StreamCtx) {
             const inactiveMsgs = convStore.messagesMap[convId] || []
             const currentMsg = inactiveMsgs.find(m => m.id === convState.streamingMessageId)
             if (currentMsg?.content) {
-                const cleanedContent = currentMsg.content
-                    .replace(/\n\n> ⚠️ \*\*权限确认\*\*:[^\n]*/g, '')
-                    .replace(/\n\n⚠️ 权限确认[^\n]*/g, '')
-                    .replace(/\n\n⚠️ 命令确认[^\n]*\n[\s\S]*$/g, '')
-                    .replace(/\n\n> ⚠️ 命令确认[^\n]*/g, '')
-                    .trim()
+                const cleanedContent = stripPermissionConfirmText(currentMsg.content)
                 if (cleanedContent !== currentMsg.content) {
                     convStore.updateMessageForConv(convId, convState.streamingMessageId!, {content: cleanedContent})
                 }

@@ -9,8 +9,8 @@ import {MessagePort, parentPort, workerData} from 'worker_threads'
 import {agentLoop} from './loop'
 import {registerBuiltinTools} from './tools/index'
 import {permissionEngine} from './tools/permission'
-import {registerMCPTools, setMcpMessagePort, unregisterMCPTools, clearAllMcpToolMeta} from './mcp/discovery'
-import {isMcpToolName} from '@shared/utils/mcpShortId'
+import {registerMCPTools, registerAllMcpTools, setMcpMessagePort, unregisterMCPTools, clearAllMcpToolMeta} from './mcp/discovery'
+import {isMcpToolName} from '@shared/mcp/naming'
 import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import {promptResolver} from './prompts/resolver'
 import {WORKER_MESSAGE_TYPES} from './constants'
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
         return
     }
 
-// 加载全局系统设置（从主进程传递，不再从本地文件读取）
+    // 加载全局系统设置（从主进程传递，不再从本地文件读取）
     let currentSettings: import('@shared/types').SystemSettings = params.settings || {
         agent: {
             maxTurns: 500,
@@ -109,6 +109,8 @@ async function main(): Promise<void> {
             maxRetryDelay: 120000,
             llmTimeout: 600000,
             handoffThresholdRatio: 0.5,
+            handoffThresholdMode: 'ratio',
+            handoffThresholdTokens: 200_000,
             midLoopOverflowMode: 'auto-handoff',
             loopDetection: { mode: 'notify', threshold: 3 },
         },
@@ -173,7 +175,6 @@ async function main(): Promise<void> {
         runtimeConfigManager.syncFromMain({mode: convMode})
     }
 
-// 加载提示词配置
     // 创建 AbortController 用于接收主进程的终止信号
     const abortController = new AbortController()
 
@@ -185,38 +186,28 @@ async function main(): Promise<void> {
             const scheme = promptSchemeRepo.getById(activeId)
             if (scheme) {
                 promptResolver.loadScheme(scheme)
-                
-            } else {
-                
             }
-        } else {
-            
         }
-    } catch (err: any) {
-        const _nodeErr = err as NodeJS.ErrnoException
-        
+    } catch {
+        // 提示词方案加载失败不阻塞启动（保持原容错语义）
     }
 
     // 注意：记忆引擎现在在主进程初始化（见 initAgent）
     // Worker 中的工具通过 IPC 调用主进程的 engine
-    const _power = runtimeConfigManager.getConfig()
 
     // 加载能力（优先使用主进程传递的序列化能力列表）
     try {
         if (params.capabilities) {
             // 新模式：直接应用主进程传递的能力列表
-
             await applySerializedCapabilitiesInWorker(params.capabilities)
         } else {
-            // 兼容模式：如果没有传递 capabilities，则使用旧的加载方式
-            // 修复 P1-1: 保留初始化但不赋值给变量（向后兼容）
+            // 兼容模式：未传递 capabilities 时退回旧的加载方式（初始化 PowerManager）
             const {powerManager} = await import('./powerManager')
             await powerManager.initialize()
-            // power 变量保留用于后续扩展，目前仅做初始化
-            const _power = await powerManager.getAllEnabledPower()
+            await powerManager.getAllEnabledPower()
         }
     } catch {
-        
+        // 能力加载失败不阻塞启动（保持原容错语义）
     }
 
     // ── 在 Worker 中注册工具 ──
@@ -234,12 +225,17 @@ async function main(): Promise<void> {
             // 从 MCP Worker 获取已连接的服务器工具列表
             const servers = await listMcpServersFromWorker(mcpPort)
 
-            // 仅注册已连接的 MCP 工具
-            for (const server of servers) {
-                if (server.tools && server.tools.length > 0) {
-                    registerMCPTools(server.id, server.tools as any, server.userDescription, server.name)
-                }
-            }
+            // 仅注册已连接的 MCP 工具（批量入口：全体一次分配，与传入顺序无关）
+            registerAllMcpTools(
+                servers
+                    .filter((server) => server.tools && server.tools.length > 0)
+                    .map((server) => ({
+                        id: server.id,
+                        name: server.name,
+                        userDescription: server.userDescription,
+                        tools: server.tools as any,
+                    })),
+            )
 
             // 监听 MCP Worker 的工具更新通知
             mcpPort.on('message', (msg: any) => {
@@ -267,7 +263,6 @@ async function main(): Promise<void> {
 
     // 注册清理函数（进程退出时）
     process.on('exit', () => {
-        
         if (mcpPort) {
             try {
                 mcpPort.close()
@@ -320,7 +315,7 @@ async function main(): Promise<void> {
     try {
         // ── 方案更新同步机制 ──
         // 确保方案切换完成后再继续 LLM 调用
-        let schemeUpdatePromise = Promise.resolve()
+        const schemeUpdatePromise = Promise.resolve()
         // 处理权限确认请求的 Promise 映射
         const confirmationRequests = new Map<string, (result: 'allow' | 'always' | 'deny') => void>()
 
@@ -539,14 +534,19 @@ async function main(): Promise<void> {
                                 tr.unregister(tool.name)
                             }
                         }
-                        // 元数据映射同步清空（随后由 registerMCPTools 重建）
+                        // 元数据映射同步清空（随后由 registerAllMcpTools 重建）
                         clearAllMcpToolMeta()
-                        // 重新注册
-                        for (const server of servers) {
-                            if (server.tools && server.tools.length > 0) {
-                                registerMCPTools(server.id, server.tools as any, server.userDescription, server.name)
-                            }
-                        }
+                        // 重新注册（批量入口）
+                        registerAllMcpTools(
+                            servers
+                                .filter((server) => server.tools && server.tools.length > 0)
+                                .map((server) => ({
+                                    id: server.id,
+                                    name: server.name,
+                                    userDescription: server.userDescription,
+                                    tools: server.tools as any,
+                                })),
+                        )
                     }
                 } catch (err: any) {
                     logger.info('[MCP] MCP tools refresh failed:', err.message)
@@ -608,9 +608,6 @@ async function main(): Promise<void> {
         if (params.taskBatchSnapshot?.batch) {
             taskStore.seedActiveBatch(params.conversationId, params.taskBatchSnapshot.batch, params.taskBatchSnapshot.tasks || [])
         }
-
-    // 注册清理函数（进程退出时）
-    
 
     // 运行 Agent Loop，传递 abortSignal 和 askUserQuestion
         let lastRuleCount = (await permissionEngine.getRules()).length

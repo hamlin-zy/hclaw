@@ -28,6 +28,8 @@ import {useDayBoundaryTick} from '../../hooks/useDayBoundaryTick'
 import {sortActiveMemos, groupProcessedByDate, renumberGroup, countGroupItems, collectGroupMemoIds} from './memoSort'
 import type {ProcessedDateGroup} from './memoSort'
 import type {MemoCapability, MemoItem} from '@shared/types/memo'
+import {SkillIcon, AgentIcon, CommandIcon, AttachmentIcon} from '../icons'
+import type {IconProps} from '../icons'
 
 const PENDING_TAB = 'pending' as const
 const HISTORY_TAB = 'history' as const
@@ -168,8 +170,8 @@ export default function MemoPanel() {
     return (
         <div className="memo-panel-card flex flex-col h-full text-[var(--text-primary)]">
             {/* 顶部：标题 + 新建 */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)] shrink-0">
-                <span className="text-xs font-medium text-[var(--text-muted)]">备忘录</span>
+            <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-muted)] shrink-0">
+                <span className="text-xs font-medium text-[var(--text-secondary)]">备忘录</span>
                 <button
                     // 走全局 TooltipPortal：data-tooltip-placement="left" 使 tooltip
                     // 向左展开（按钮贴面板右缘，向右展开会溢出屏幕）
@@ -192,12 +194,12 @@ export default function MemoPanel() {
                     value={keyword}
                     onChange={(e) => setKeyword(e.target.value)}
                     placeholder="搜索备忘录..."
-                    className="w-full px-4 py-2 bg-gray-100/60 dark:bg-white/5 rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:bg-white dark:focus:bg-[#1A1A1A] focus:ring-2 focus:ring-gray-200 dark:focus:ring-white/10 focus:border-transparent transition-all hover:bg-gray-100/80 dark:hover:bg-white/10"
+                    className="w-full px-4 py-2 bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] border border-[var(--border)] rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-emphasis)] focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/25 transition-all"
                 data-name="memo-panel-input"/>
             </div>
 
             {/* Tab：待办 | 历史 */}
-            <div className="flex shrink-0 border-b border-[var(--border)]" data-name="memo-panel-tabs">
+            <div className="flex shrink-0 border-b border-[var(--border-muted)]" data-name="memo-panel-tabs">
                 <TabButton active={tab === PENDING_TAB} onClick={() => setTab(PENDING_TAB)}>
                     待办
                 </TabButton>
@@ -207,17 +209,17 @@ export default function MemoPanel() {
             </div>
 
             {/* 列表区 */}
-            <div className="flex-1 overflow-y-auto px-[var(--space-relaxed)] py-[var(--space-tight)] space-y-[1px]">
+            <div className="flex-1 overflow-y-auto px-[var(--space-relaxed)] py-[var(--space-snug)] space-y-1.5">
                 {loading && memos.length === 0 && (
-                    <div className="p-4 text-center text-xs text-[var(--text-muted)]">加载中...</div>
+                    <div className="p-4 text-center text-xs text-[var(--text-secondary)]">加载中...</div>
                 )}
                 {!loading && tab === PENDING_TAB && activeList.length === 0 && (
-                    <div className="p-4 text-center text-xs text-[var(--text-muted)]">
+                    <div className="p-4 text-center text-xs text-[var(--text-secondary)]">
                         {searching ? '无匹配的备忘录' : '暂无备忘录'}
                     </div>
                 )}
                 {!loading && tab === HISTORY_TAB && historyGroups.length === 0 && (
-                    <div className="p-4 text-center text-xs text-[var(--text-muted)]">
+                    <div className="p-4 text-center text-xs text-[var(--text-secondary)]">
                         {searching ? '无匹配的历史' : '暂无历史'}
                     </div>
                 )}
@@ -229,7 +231,7 @@ export default function MemoPanel() {
                             <MemoItemRow key={m.id} item={m} onOpen={() => openEdit(m.id)}/>
                         ))
                     ) : (
-                        <Reorder.Group axis="y" values={renderOrder} onReorder={handleReorder} className="space-y-[1px]">
+                        <Reorder.Group axis="y" values={renderOrder} onReorder={handleReorder} className="space-y-1.5">
                             {renderOrder.map((id) => {
                                 const m = memos.find((x) => x.id === id)
                                 if (!m) return null
@@ -278,7 +280,6 @@ export default function MemoPanel() {
                 <GroupContextMenu
                     x={groupMenu.x}
                     y={groupMenu.y}
-                    label={groupMenu.label}
                     count={groupMenu.ids.length}
                     searching={searching}
                     onDelete={() => void handleDeleteGroup()}
@@ -287,7 +288,7 @@ export default function MemoPanel() {
             )}
 
             {/* 底部统计 + 折叠按钮 */}
-            <div className="shrink-0 px-3 py-2 border-t border-[var(--border)] flex items-center justify-between gap-2">
+            <div className="shrink-0 px-3 py-2 border-t border-[var(--border-muted)] flex items-center justify-between gap-2">
                 <div data-testid="memo-stats" className="text-2xs text-[var(--text-muted)]">
                     <span className={tab === PENDING_TAB ? 'text-[var(--brand-primary)] font-medium' : ''}>
                         待处理 {activeCount}
@@ -317,7 +318,7 @@ function TabButton({active, onClick, children}: {active: boolean; onClick: () =>
     return (
         <button
             onClick={onClick}
-            className={`flex-1 py-2 text-xs font-medium transition-colors ${active ? 'text-[var(--brand-primary)] border-b-2 border-[var(--brand-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
+            className={`flex-1 py-2 text-xs font-medium transition-colors ${active ? 'text-[var(--brand-primary)] border-b-2 border-[var(--brand-primary)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
         >
             {children}
         </button>
@@ -345,7 +346,7 @@ function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen, onGroupMen
                 onContextMenu={(e) => onGroupMenu(e, group)}
                 aria-label={`${expanded ? '折叠' : '展开'} ${group.label}`}
                 aria-expanded={expanded}
-                className="flex items-center gap-1 w-full py-1.5 hover:bg-gray-50 dark:hover:bg-white/5 rounded transition-colors"
+                className="flex items-center gap-1 w-full py-1.5 hover:bg-[var(--surface-muted)] rounded transition-colors"
                 style={{paddingLeft: `${depth * 16 + 4}px`}}
             >
                 <svg
@@ -355,10 +356,10 @@ function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen, onGroupMen
                     <polyline points="9 18 15 12 9 6"/>
                 </svg>
                 <span className="text-xs font-medium text-[var(--text-secondary)]">{group.label}</span>
-                <span className="text-[10px] text-[var(--text-muted)]">· {count}</span>
+                <span className="text-[10px] text-[var(--text-secondary)]">· {count}</span>
             </button>
             {expanded && (
-                <div style={{paddingLeft: `${depth * 16 + 4}px`}}>
+                <div className="space-y-1.5" style={{paddingLeft: `${depth * 16 + 4}px`}}>
                     {group.kind === 'day'
                         ? group.items.map((m) => (
                             <MemoItemRow key={m.id} item={m} onOpen={() => onOpen(m.id)} processed/>
@@ -389,10 +390,9 @@ const GROUP_MENU_ITEM_CLASS = 'w-full flex items-center gap-2.5 px-3.5 py-2 text
  * 样式对齐会话列表 GlobalContextMenu：surface 面板 + border-emphasis + shadow-elevated，
  * 删除项 error 红色变体；定位做视口边界收敛。
  */
-function GroupContextMenu({x, y, label, count, searching, onDelete, onClose}: {
+function GroupContextMenu({x, y, count, searching, onDelete, onClose}: {
     x: number
     y: number
-    label: string
     count: number
     searching: boolean
     onDelete: () => void
@@ -440,10 +440,10 @@ function GroupContextMenu({x, y, label, count, searching, onDelete, onClose}: {
  * 能力徽章类型样式：与 MessageList 用户消息 `/{能力}` 渲染（UserCommandBubble
  * TYPE_STYLE）同构——图标 chip + 能力名着色 + 类型标签，配色保持一致
  */
-export const CAP_STYLE: Record<MemoCapability['type'], {icon: string; color: string; bg: string; label: string}> = {
-    skill: {icon: '🛠️', color: 'text-[#8b5cf6]', bg: 'bg-[#8b5cf6]/10', label: '技能'},
-    agent: {icon: '🤖', color: 'text-[#0ea5e9]', bg: 'bg-[#0ea5e9]/10', label: '代理'},
-    command: {icon: '⚡', color: 'text-[#f97316]', bg: 'bg-[#f97316]/10', label: '命令'},
+export const CAP_STYLE: Record<MemoCapability['type'], {icon: React.ComponentType<IconProps>; color: string; bg: string; label: string}> = {
+    skill: {icon: SkillIcon, color: 'text-[#8b5cf6]', bg: 'bg-[#8b5cf6]/10', label: '技能'},
+    agent: {icon: AgentIcon, color: 'text-[#0ea5e9]', bg: 'bg-[#0ea5e9]/10', label: '代理'},
+    command: {icon: CommandIcon, color: 'text-[#f97316]', bg: 'bg-[#f97316]/10', label: '命令'},
 }
 
 /** 能力徽章行（标题上方）：图标 + 名称 + 类型标签，样式复用 UserCommandBubble 惯例 */
@@ -452,7 +452,7 @@ function CapabilityBadge({capability}: {capability: MemoCapability}) {
     return (
         <div className="flex items-center gap-1.5 mb-1" data-testid="memo-capability-badge">
             <span className={`flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-md text-xs ${style.bg}`}>
-                {style.icon}
+                <style.icon className="w-3.5 h-3.5"/>
             </span>
             <span className={`text-xs font-medium truncate ${style.color}`}>
                 {capability.name}
@@ -508,7 +508,7 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
             data-testid="memo-item"
             data-memo-id={item.id}
             onClick={onOpen}
-            className={`group relative p-2.5 rounded-[18px] border border-[var(--border)] bg-[var(--surface-muted)]/60 cursor-pointer transition-all hover:bg-[var(--surface-muted)] active:bg-[var(--surface-muted)] ${processed ? 'opacity-50' : ''}`}
+            className={`group relative p-2.5 rounded-[18px] border border-[var(--border)] bg-[var(--surface-muted)] cursor-pointer transition-all hover:bg-[var(--surface-muted)] active:bg-[var(--surface-muted)] ${processed ? 'opacity-50' : ''}`}
          data-name="memo-panel-div">
             {/* 能力徽章/标题/时间等文字内容占满整行；操作按钮绝对定位覆盖，不预留宽度 */}
             <div className="min-w-0">
@@ -526,7 +526,7 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
                         />
                     )}
                 </div>
-                <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
+                <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--text-secondary)]">
                     {item.pinned && !processed && (
                         <span title="已置顶" aria-label="已置顶">
                             <svg className="w-3 h-3 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="currentColor">
@@ -536,7 +536,14 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
                     )}
                     <span title={`创建于 ${new Date(item.createdAt).toLocaleString()}`}>{formatRelativeTime(item.createdAt)}</span>
                     {item.attachments.length > 0 && (
-                        <span title={`${item.attachments.length} 个附件`}>📎 {item.attachments.length}</span>
+                        <span
+                            title={`${item.attachments.length} 个附件`}
+                            data-name="memo-attachment-count"
+                            className="inline-flex items-center gap-0.5"
+                        >
+                            <AttachmentIcon className="w-3 h-3"/>
+                            {item.attachments.length}
+                        </span>
                     )}
                     {processed && <span>已处理</span>}
                 </div>

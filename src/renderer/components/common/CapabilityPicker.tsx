@@ -89,7 +89,7 @@ export default function CapabilityPicker({selected, onSelect}: {
             try {
                 const pluginCmds = await window.electronAPI?.plugin?.getCommands?.()
                 if (pluginCmds) {
-                    for (const [, cmds] of Object.entries<any[]>(pluginCmds)) {
+                    for (const [, cmds] of Object.entries(pluginCmds)) {
                         for (const cmd of cmds) {
                             const key = cmd.name?.toLowerCase() || cmd.id?.toLowerCase()
                             if (key && !seen.has(key)) {
@@ -106,7 +106,7 @@ export default function CapabilityPicker({selected, onSelect}: {
                 const key = s.name.toLowerCase()
                 if (!seen.has(key)) {
                     seen.add(key)
-                    items.push({id: s.name, name: s.name, description: (s as any).description || '', sourceLabel: 'Skill', sourceColor: 'bg-purple-500/10 text-purple-500'})
+                    items.push({id: s.name, name: s.name, description: s.description || '', sourceLabel: 'Skill', sourceColor: 'bg-purple-500/10 text-purple-500'})
                 }
             }
 
@@ -210,19 +210,17 @@ export default function CapabilityPicker({selected, onSelect}: {
             </div>
             <div ref={listRef} className="mt-1.5 max-h-40 overflow-y-auto rounded-md border border-[var(--border)]">
                 {loading ? (
-                    <div className="p-3 text-center text-[10px] text-[var(--text-muted)]">加载中...</div>
+                    <div className="p-3 text-center text-[10px] text-[var(--text-secondary)]">加载中...</div>
                 ) : displayItems.length === 0 ? (
-                    <div className="p-3 text-center text-[10px] text-[var(--text-muted)]">
+                    <div className="p-3 text-center text-[10px] text-[var(--text-secondary)]">
                         {search ? '未找到匹配的能力' : '暂无可用能力'}
                     </div>
                 ) : (
                     displayItems.map((cap, i) => (
                         <button
                             key={cap.id}
-                            onClick={() => {
-                                pickCapability(cap)
-                            }}
-                            className={`w-full text-left px-3 py-2 text-xs border-b border-[var(--border)] last:border-b-0 transition-colors ${
+                            onClick={() => pickCapability(cap)}
+                            className={`w-full text-left px-3 py-2 text-xs border-b border-[var(--border-muted)] last:border-b-0 transition-colors ${
                                 selected === cap.name
                                     ? 'bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400'
                                     : i === highlightIndex
@@ -237,7 +235,7 @@ export default function CapabilityPicker({selected, onSelect}: {
                                 <span className="font-medium">{cap.name}</span>
                             </div>
                             {cap.description && (
-                                <div className="mt-0.5 text-[10px] text-[var(--text-muted)] truncate">{cap.description}</div>
+                                <div className="mt-0.5 text-[10px] text-[var(--text-secondary)] truncate">{cap.description}</div>
                             )}
                         </button>
                     ))

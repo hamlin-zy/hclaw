@@ -195,7 +195,7 @@ export default function AskUserModal() {
                     <div
                         onMouseDown={handleDragStart}
                         onTouchStart={handleDragStart}
-                        className={`px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)] select-none ${
+                        className={`px-5 py-4 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)] select-none ${
                             isDragging ? 'cursor-grabbing' : 'cursor-grab'
                         }`}
                     >
@@ -212,7 +212,7 @@ export default function AskUserModal() {
                                 <h2 id="ask-user-title" className="text-sm font-semibold text-[var(--text-primary)]">
                                     Agent 需要您的输入
                                 </h2>
-                                <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                                <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                                     {hasOptions ? (multiSelect ? '可多选' : '单选') : '请输入您的回答'}
                                 </p>
                             </div>
@@ -269,7 +269,7 @@ export default function AskUserModal() {
                     </div>
 
                     {/* Input + Actions */}
-                    <div className="px-5 py-4 border-t border-[var(--border)] bg-[var(--surface-elevated)] space-y-3">
+                    <div className="px-5 py-4 border-t border-[var(--border-muted)] bg-[var(--surface-elevated)] space-y-3">
                         <div>
                             <textarea
                                 ref={inputRef}

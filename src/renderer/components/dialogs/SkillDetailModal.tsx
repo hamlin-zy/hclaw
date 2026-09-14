@@ -196,7 +196,7 @@ export default function SkillDetailModal({
                             onClick={e => e.stopPropagation()}
                          data-name="skill-detail-modal-div">
                             {/* Header */}
-                            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)]">
+                            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)]">
                                 <h2 className="text-base font-semibold text-[var(--text-primary)]">
                                     {mode === 'create' ? '创建新技能' : (mode === 'edit' ? '编辑技能' : '技能详情')}
                                 </h2>
@@ -210,13 +210,13 @@ export default function SkillDetailModal({
 
                             {/* Tab buttons (preview/edit) */}
                             {mode !== 'create' && (
-                                <div className="flex items-center justify-end gap-2 px-5 py-3 border-b border-[var(--border)]">
+                                <div className="flex items-center justify-end gap-2 px-5 py-3 border-b border-[var(--border-muted)]">
                                     <button
                                         onClick={() => setMode('preview')}
                                         className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                                             mode === 'preview'
                                                 ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
-                                                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
+                                                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                         }`}
                                      data-name="skill-detail-modal-preview-tab-button">
                                         <Eye className="w-3.5 h-3.5"/>
@@ -228,7 +228,7 @@ export default function SkillDetailModal({
                                             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                                                 mode === 'edit'
                                                     ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
-                                                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
+                                                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                             }`}
                                          data-name="skill-detail-modal-edit-tab-button">
                                             <Edit3 className="w-3.5 h-3.5"/>
@@ -243,7 +243,7 @@ export default function SkillDetailModal({
                                 {/* 元信息区域 */}
                                 <div className="mb-6">
                                     <div>
-                                        <h4 className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1">名称</h4>
+                                        <h4 className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-1">名称</h4>
                                         {mode === 'edit' || mode === 'create' ? (
                                             <input
                                                 value={editName}
@@ -257,7 +257,7 @@ export default function SkillDetailModal({
                                 </div>
 
                                 <div className="mb-6">
-                                    <h4 className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1">描述</h4>
+                                    <h4 className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-1">描述</h4>
                                     {mode === 'edit' || mode === 'create' ? (
                                         <textarea
                                             value={editDescription}
@@ -274,7 +274,7 @@ export default function SkillDetailModal({
 
                                 {skill?.allowedTools && skill.allowedTools.length > 0 && (
                                     <div className="mb-6">
-                                        <h4 className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">允许的工具</h4>
+                                        <h4 className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">允许的工具</h4>
                                         <div className="flex flex-wrap gap-2">
                                             {skill.allowedTools.map(tool => (
                                                 <span
@@ -290,19 +290,16 @@ export default function SkillDetailModal({
 
                                 {skill?.source && (
                                     <div className="mb-6">
-                                        <h4 className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1">来源</h4>
+                                        <h4 className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-1">来源</h4>
                                         <div className="text-sm text-[var(--text-secondary)]">
                                             {skill.source === 'builtin' ? '内置' : skill.source === 'plugin' ? '插件' : '自定义'}
                                         </div>
                                     </div>
                                 )}
 
-                                {/* 分隔线 */}
-                                <div className="border-t border-[var(--border)] my-6" />
-
                                 {/* 内容区域 */}
                                 <div>
-                                    <h4 className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-2">技能内容 (SKILL.MD)</h4>
+                                    <h4 className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">技能内容 (SKILL.MD)</h4>
                                     {mode === 'edit' || mode === 'create' ? (
                                         <textarea
                                             value={content}
@@ -321,12 +318,11 @@ export default function SkillDetailModal({
                                 {/* 扩展资源 */}
                                 {skill?.extensions && (skill.extensions.references?.length > 0 || skill.extensions.scripts?.length > 0) && (
                                     <>
-                                        <div className="border-t border-[var(--border)] my-6" />
                                         <div>
-                                            <h4 className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-2">扩展资源</h4>
+                                            <h4 className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">扩展资源</h4>
                                             {skill.extensions.references?.length > 0 && (
                                                 <div className="mb-3">
-                                                    <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">参考文档</div>
+                                                    <div className="text-[10px] text-[var(--text-secondary)] uppercase tracking-wider mb-1">参考文档</div>
                                                     <ul className="space-y-1">
                                                         {skill.extensions.references.map(ref => (
                                                             <li key={ref.name} className="text-xs text-[var(--text-secondary)]">
@@ -338,7 +334,7 @@ export default function SkillDetailModal({
                                             )}
                                             {skill.extensions.scripts?.length > 0 && (
                                                 <div>
-                                                    <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">脚本</div>
+                                                    <div className="text-[10px] text-[var(--text-secondary)] uppercase tracking-wider mb-1">脚本</div>
                                                     <ul className="space-y-1">
                                                         {skill.extensions.scripts.map(script => (
                                                             <li key={script.name} className="text-xs text-[var(--text-secondary)]">
@@ -362,7 +358,7 @@ export default function SkillDetailModal({
 
                             {/* Footer (仅在编辑/创建模式下显示） */}
                             {(mode === 'edit' || mode === 'create') && (
-                                <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-[var(--border)] bg-[var(--surface-elevated)]">
+                                <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-[var(--border-muted)] bg-[var(--surface-elevated)]">
                                     <button
                                         onClick={handleCancel}
                                         className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"

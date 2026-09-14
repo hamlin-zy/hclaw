@@ -10,7 +10,6 @@
  */
 const Database = require('better-sqlite3')
 const db = new Database('C:/Users/Hamlin/.hclaw/data/hclaw.db', {readonly: true})
-const convId = 'conv-b70458a9-de95-404c-a85e-18b9ea9467af'
 
 // 简化重建（仅验证 skill system 恢复逻辑，turnIndex 分组从简）
 function rebuildTurnIndex(blocks) {

@@ -237,7 +237,7 @@ export function registerMCPIPC(): void {
 
     // 测试连接
     ipcMain.handle('mcp:test-connection', async (_event, config: MCPServerConfig) => {
-                try {
+        try {
             const result = await mcpClient.testConnection(config)
             return result
         } catch (err: any) {
@@ -286,8 +286,8 @@ export function registerMCPIPC(): void {
             mcpService.updateStatus(serverId, 'connecting')
             const result = await mcpWorkerManager.restartServer(serverId)
             if (!result.success) {
-                mcpService.updateStatus(serverId, 'error', '重启失败')
-                return fail(new Error('重启失败'))
+                mcpService.updateStatus(serverId, 'error', result.error ?? '重启失败')
+                return fail(new Error(result.error ?? '重启失败'))
             }
             return ok()
         } catch (err: any) {

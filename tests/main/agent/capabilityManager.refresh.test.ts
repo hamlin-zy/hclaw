@@ -20,16 +20,12 @@ const mocks = vi.hoisted(() => {
   return {
     skillRegistry: makeRegistry(),
     agentRegistry: makeRegistry(),
-    trackCapability: vi.fn(),
   }
 })
 
 vi.mock('@/main/agent/skills', () => ({skillRegistry: mocks.skillRegistry}))
 vi.mock('@/main/agent/agentRegistry', () => ({agentRegistry: mocks.agentRegistry}))
 vi.mock('@/main/agent/powerManager', () => ({powerManager: {}}))
-vi.mock('@/main/agent/common/capabilityMapper', () => ({
-  capabilityMapper: {clear: vi.fn(), trackCapability: mocks.trackCapability, removePlugin: vi.fn(), getStats: vi.fn()},
-}))
 vi.mock('@/main/agent/logger', () => ({
   logger: {debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn()},
 }))

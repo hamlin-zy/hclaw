@@ -7,7 +7,7 @@
  * 数据源：CapabilityHub（统一能力中心）作为主要入口，配合插件 override 接口。
  */
 
-import React, {useCallback, useEffect, useMemo, useState} from 'react'
+import {useCallback, useEffect, useMemo, useState} from 'react'
 import {clsx} from 'clsx'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
@@ -19,6 +19,7 @@ import {confirm} from '../ConfirmDialog'
 import {fuzzyFilter} from '../../lib/search'
 import {Folder, Search, Trash2, ChevronDown, Plus, X} from 'lucide-react'
 import type {CapabilityEntry} from '../../capabilityTypes'
+import {CommandIcon} from '../icons'
 
 // ─── 类型定义 ─────────────────────────────────────────
 
@@ -290,10 +291,10 @@ export default function CommandsDialog() {
     return (
         <div className="flex flex-col h-full min-h-[400px]">
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-muted)]">
                 <h3 className="text-sm font-semibold text-[var(--text-primary)]">命令管理</h3>
                 <div className="flex items-center gap-2">
-                    <span className="text-xs text-[var(--text-muted)]">
+                    <span className="text-xs text-[var(--text-secondary)]">
                         {activeTab === 'local' ? `${localCount} 个本地命令` : `${pluginCount} 个插件命令`}
                     </span>
                     {activeTab === 'local' && (
@@ -308,7 +309,7 @@ export default function CommandsDialog() {
                             </button>
                             <button
                                 onClick={handleResetPresets}
-                                className="px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 rounded-md transition-colors"
+                                className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 rounded-md transition-colors"
                                 title="重新生成预设命令文件（commit-msg）"
                              data-name="commands-dialog-reset-presets-button">
                                 重置预设
@@ -327,7 +328,7 @@ export default function CommandsDialog() {
                         className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
                             activeTab === tab
                                 ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] font-medium'
-                                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
+                                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                         }`}
                      data-name={`commands-dialog-tab-${i}`}>
                         {tab === 'local' ? '本地' : '插件'}
@@ -376,7 +377,7 @@ export default function CommandsDialog() {
                 {loading ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
                         <div className="inline-block w-5 h-5 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin"/>
-                        <p className="mt-3 text-sm text-[var(--text-muted)]">加载中...</p>
+                        <p className="mt-3 text-sm text-[var(--text-secondary)]">加载中...</p>
                     </div>
                 ) : activeTab === 'local' ? (
                     <LocalCommandList
@@ -425,7 +426,7 @@ function LocalCommandList({
         return (
             <div className="flex flex-col items-center justify-center py-12 text-center">
                 <X className="w-10 h-10 text-[var(--text-muted)]/30 mb-3"/>
-                <p className="text-sm text-[var(--text-muted)]">
+                <p className="text-sm text-[var(--text-secondary)]">
                     {searchQuery ? '未找到匹配的命令' : '暂无本地命令，点击上方按钮新建'}
                 </p>
             </div>
@@ -512,7 +513,7 @@ function LocalCommandCard({
                                                 e.stopPropagation()
                                                 window.electronAPI?.showItemInFolder?.(userCommand.filePath)
                                             }}
-                                            className="p-1 text-gray-300 hover:text-[var(--brand-primary)] transition-colors"
+                                            className="p-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors"
                                             title="打开所在目录"
                                          data-name="commands-dialog-open-folder-button">
                                             <Folder className="w-4 h-4"/>
@@ -521,7 +522,7 @@ function LocalCommandCard({
                                     {onEdit && (
                                         <button
                                             onClick={e => { e.stopPropagation(); onEdit?.() }}
-                                            className="p-1 text-gray-300 hover:text-[var(--brand-primary)] transition-colors"
+                                            className="p-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors"
                                             title="编辑"
                                          data-name="commands-dialog-edit-button">
                                             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -532,7 +533,7 @@ function LocalCommandCard({
                                     {onDelete && (
                                         <button
                                             onClick={e => { e.stopPropagation(); onDelete?.() }}
-                                            className="p-1 text-gray-300 hover:text-[var(--error)] transition-colors"
+                                            className="p-1 text-[var(--text-muted)] hover:text-[var(--error)] transition-colors"
                                             title="删除"
                                          data-name="commands-dialog-delete-button">
                                             <Trash2 className="w-4 h-4"/>
@@ -547,7 +548,7 @@ function LocalCommandCard({
                     </div>
                     {/* Description */}
                     {description && (
-                        <p className="text-sm text-[var(--text-muted)] mt-1.5 line-clamp-2">{description}</p>
+                        <p className="text-sm text-[var(--text-secondary)] mt-1.5 line-clamp-2">{description}</p>
                     )}
                 </div>
             </div>
@@ -574,7 +575,7 @@ function PluginGroupList({
         return (
             <div className="flex flex-col items-center justify-center py-12 text-center">
                 <X className="w-10 h-10 text-[var(--text-muted)]/30 mb-3"/>
-                <p className="text-sm text-[var(--text-muted)]">暂无插件命令</p>
+                <p className="text-sm text-[var(--text-secondary)]">暂无插件命令</p>
             </div>
         )
     }
@@ -628,13 +629,13 @@ function PluginGroupCard({
         >
             {/* Plugin header */}
             <div
-                className="flex items-center justify-between px-3 py-2 bg-[var(--surface-muted)]/50 cursor-pointer select-none"
+                className="flex items-center justify-between px-3 py-2 bg-[var(--surface-muted)] cursor-pointer select-none"
                 onClick={() => setCollapsed(c => !c)}
              data-name="commands-dialog-plugin-group-header">
                 <div className="flex items-center gap-2">
                     <Folder className="w-4 h-4 text-[var(--brand-primary)]"/>
                     <span className="text-xs font-semibold text-[var(--text-primary)]">{group.pluginName}</span>
-                    <span className="text-[10px] text-[var(--text-muted)]">{group.commands.length} 个命令</span>
+                    <span className="text-[10px] text-[var(--text-secondary)]">{group.commands.length} 个命令</span>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                     <button
@@ -716,7 +717,7 @@ function PluginCommandCard({
                                    ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
                                    : 'bg-[var(--surface)] text-[var(--text-muted)]'
                                }`}>
-                    ⚡
+                    <CommandIcon className="w-4 h-4"/>
                 </span>
 
                 {/* Info */}
@@ -736,7 +737,7 @@ function PluginCommandCard({
                         )}
                     </div>
                     {command.description && (
-                        <div className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">{command.description}</div>
+                        <div className="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">{command.description}</div>
                     )}
                 </div>
 
@@ -791,14 +792,14 @@ function CommandPreviewModal({command, onClose}: {
                 className="relative w-[580px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col overflow-hidden"
              data-name="commands-dialog-preview-panel">
                 {/* Header */}
-                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border)] flex items-center justify-between">
+                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border-muted)] flex items-center justify-between">
                     <div className="flex items-center gap-3 min-w-0">
                         <span className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-xs font-bold ${
                             command.enabled
                                 ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
                                 : 'bg-[var(--surface)] text-[var(--text-muted)]'
                         }`}>
-                            ⚡
+                            <CommandIcon className="w-4 h-4"/>
                         </span>
                         <div className="min-w-0">
                             <h3 className="text-sm font-semibold text-[var(--text-primary)] truncate">
@@ -846,7 +847,7 @@ function CommandPreviewModal({command, onClose}: {
                                             <span className="text-[10px] text-[var(--error)]">必填</span>
                                         )}
                                         {arg.default !== undefined && (
-                                            <span className="text-[10px] text-[var(--text-muted)]">
+                                            <span className="text-[10px] text-[var(--text-secondary)]">
                                                 默认: {arg.default}
                                             </span>
                                         )}
@@ -883,7 +884,7 @@ function CommandPreviewModal({command, onClose}: {
                 </div>
 
                 {/* Footer */}
-                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-t border-[var(--border)] flex items-center justify-end">
+                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-t border-[var(--border-muted)] flex items-center justify-end">
                     <button
                         onClick={() => onClose()}
                         className="px-4 py-2 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-all"

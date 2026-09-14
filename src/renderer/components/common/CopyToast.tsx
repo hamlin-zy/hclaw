@@ -1,6 +1,7 @@
 import {memo} from 'react'
 import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
+import {SuccessIcon} from '../icons'
 
 /**
  * 全局顶部居中轻提示（portal 到 body，避免被祖先 backdrop-filter 的包含块困住）
@@ -30,7 +31,7 @@ const CopyToast = memo(function CopyToast({visible, message = '已复制'}: { vi
                     role="status"
                     aria-live="polite"
                 >
-                    <span className="text-[var(--brand-primary)] mr-1.5">✔</span>
+                    <SuccessIcon className="w-4 h-4 text-[var(--brand-primary)] mr-1.5"/>
                     {message}
                 </motion.div>
             )}

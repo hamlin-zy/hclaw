@@ -11,6 +11,7 @@ import type {DiffSelectionSnapshot, DiffViewMode} from './DiffViewer'
 import {ContextMenu, type ContextMenuItem} from '../ui/ContextMenu'
 import {useSendToConversation} from '../ui/SendToConversationProvider'
 import {IconButton} from '../ui/IconButton'
+import {usePaneReorderOptional} from '../hooks/usePaneReorder'
 import {ToggleChip} from '../ui/ToggleChip'
 import {EmptyState} from '../ui/EmptyState'
 import {computeTabScrollLeft} from '../utils/tabScroll'
@@ -40,6 +41,8 @@ function isMarkdownPath(path: string): boolean {
 }
 
 export function EditorArea() {
+  // 面板换序把手（标签栏右侧空白区）。隔离渲染（无 PaneRow 上下文）时为 null → 不渲染 gutter
+  const reorder = usePaneReorderOptional()
   const {tabs, activeTabId, reloadTabContent, openDiffTab, setActive} = useEditorTabStore()
   const ws = useWorkspaceStore(s => s.workspacePath)
   const active = tabs.find(t => t.id === activeTabId)
@@ -146,7 +149,7 @@ export function EditorArea() {
   }, [activeTabId])
 
   const pickerItems: ContextMenuItem[] = tabs.map(t => ({
-    label: t.pinned ? `📌 ${t.title}` : t.title,
+    label: t.title,
     onClick: () => setActive(t.id),
   }))
 
@@ -197,6 +200,15 @@ export function EditorArea() {
         <div className="pm-tabbar-scroll" role="tablist" ref={tabScrollRef}>
           {tabs.map(t => <EditorTab key={t.id} tab={t} />)}
         </div>
+        {/* 编辑区把手 = 标签栏右侧空白区（不新增标题栏）。它是 scroll 的**兄弟**节点、不在 tablist 内、
+            不接任何 click 处理器 ⇒ 点 tab / 横向滚动 / hover 完全不变；标签溢出时靠 min-width 保底 14px。 */}
+        {reorder && (
+          <div
+            className="pm-tabbar-drag"
+            data-testid="pm-editor-drag-handle"
+            onMouseDown={e => reorder.beginDrag('editor', e)}
+          />
+        )}
         <div className="pm-tabbar-picker" ref={pickerRef} data-testid="editor-tab-picker" onClick={openPicker}>
           {/* label 同时是 aria-label 与 title（IconButton 契约），tooltip 由 TooltipPortal 接管 */}
           <IconButton icon={ChevronDown} label="已打开文件" />

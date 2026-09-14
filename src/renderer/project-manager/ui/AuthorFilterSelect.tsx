@@ -208,7 +208,7 @@ export function AuthorFilterSelect({
           }}
           className="z-[100002]"
         >
-          <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden max-h-[240px] overflow-y-auto">
+          <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-[6px] shadow-[var(--shadow-overlay)] overflow-hidden max-h-[240px] overflow-y-auto">
             <div className="p-1.5 flex flex-col">
               {filtered.map((a, i) => (
                 <button
@@ -220,19 +220,19 @@ export function AuthorFilterSelect({
                   aria-selected={i === activeIdx}
                   className={`w-full px-2.5 py-2 text-left text-[11px] rounded-lg transition-colors ${
                     i === activeIdx
-                      ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)] font-medium'
+                      ? 'bg-[var(--brand-muted)] text-[var(--text-brand)] font-medium'
                       : 'text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                   }`}
                   data-testid={`pm-author-option-${i}`}
                 >
                   <span className="block truncate">{a.name || a.email}</span>
-                  <span className="block truncate text-[10px] text-[var(--text-muted)] mt-0.5">
+                  <span className="block truncate text-[11px] text-[var(--text-secondary)] mt-0.5">
                     {a.email}{a.email && a.commits > 0 ? ' · ' : ''}{a.commits > 0 ? `${a.commits} 次提交` : ''}
                   </span>
                 </button>
               ))}
               {filtered.length === 0 && (
-                <div className="px-2.5 py-3 text-center text-[11px] text-[var(--text-muted)]">
+                <div className="px-2.5 py-3 text-center text-[11px] text-[var(--text-secondary)]">
                   {emptyStateText(loading, lastToken !== '', error)}
                 </div>
               )}

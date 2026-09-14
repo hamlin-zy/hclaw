@@ -183,7 +183,7 @@ export class AgentManager {
 
     // 加载配置
     const defaultSettings: SystemSettings = {
-      agent: {maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000, llmTimeout: 600000, handoffThresholdRatio: 0.5, midLoopOverflowMode: 'auto-handoff', loopDetection: { mode: 'notify', threshold: 3 }},
+      agent: {maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000, llmTimeout: 600000, handoffThresholdRatio: 0.5, handoffThresholdMode: 'ratio', handoffThresholdTokens: 200_000, midLoopOverflowMode: 'auto-handoff', loopDetection: { mode: 'notify', threshold: 3 }},
       model: {defaultMaxTokens: DEFAULT_MAX_TOKENS, defaultTemperature: 0},
       mcp: {mcpTestTimeout: 15000},
       ui: {theme: 'system'},
@@ -681,14 +681,6 @@ export class AgentManager {
     }
   }
 
-  /**
-   * 合并 pending assistant 消息并写入 SQLite（核心方法）
-   *
-   * 使用 UPSERT 只写入/更新该条 assistant 消息及其 blocks，
-   * 不再做 DELETE ALL + REINSERT ALL，避免并发写入导致消息丢失。
-   *
-   * @param isFinal - 是否为最终写入（done/error），会影响 thinkBlock 状态和 endedAt
-   */
   /** done/error/afterExit 收尾：★顺序强制——先 finalize（end 块落库 + 事件），
    *  成功后清理桥接段号状态，再跑 #mergeAndPersist（此时 merge 必走"已有 blocks"
    *  修复分支，绝无全量写 → 防两套 text 块正文重复，★P3）。 */
@@ -705,6 +697,14 @@ export class AgentManager {
     await this.#mergeAndPersist(conversationId, pending, true)
   }
 
+  /**
+   * 合并 pending assistant 消息并写入 SQLite（核心方法）
+   *
+   * 使用 UPSERT 只写入/更新该条 assistant 消息及其 blocks，
+   * 不再做 DELETE ALL + REINSERT ALL，避免并发写入导致消息丢失。
+   *
+   * @param isFinal - 是否为最终写入（done/error），会影响 thinkBlock 状态和 endedAt
+   */
   async #mergeAndPersist(
     conversationId: string,
     pending: PendingAssistantMsg | null | undefined,
@@ -1072,7 +1072,7 @@ export class AgentManager {
           result: normalized,
           // ★ 内存优化 C1（收尾）：该条目此前已收缩（resultDurable）却又收到带全文的
           //   tool_result（重复/迟到投递，防御场景）→ 必须清除 durable 标记，否则下方
-          //   shrinkDurableToolResults 的守卫（manager.impl.ts:1243）会一直跳过本条目，
+          //   shrinkDurableToolResults 的守卫（tc.resultDurable 检查）会一直跳过本条目，
           //   新写入的全文将永久驻留主进程内存（对抗用例 Y2 实测复现）。
           //   安全性：清除后仍需等下一次 message-flushed ACK 才收缩，而本次事件随后即由
           //   persistStreamEvent→recordToolResultBlock 把 result 字节快照进 flush patch
@@ -1606,7 +1606,8 @@ export class AgentManager {
     this.workers.delete(conversationId)
     // ★ 内存优化 V2：异常终态兜底释放 usage seq 记账。
     // cleanup 只在 worker 崩溃 / abort 超时终止时执行，不经过 finalize 成功分支
-    //（:532 / :678 才释放），若此处直接 delete pending，当前 pending 的 seq 记账
+    //（仅 handleStreamEvent 的 turn reset 与 #finalizeThenMerge 成功分支才释放），
+    // 若此处直接 delete pending，当前 pending 的 seq 记账
     // 将永不释放（key 是每条 assistant 消息唯一 UUID，不复用 → 漏删即永久残留）。
     // resetUsageMsgState 幂等：正常 completed 路径已释放过，重复调用仅 delete no-op +
     // 有界 Set 去重，不报错、不改变行为。

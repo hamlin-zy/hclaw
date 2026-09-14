@@ -5,6 +5,7 @@
 
 import {memo, useEffect, useCallback, useState, useRef} from 'react'
 import {createPortal} from 'react-dom'
+import {SuccessIcon} from '../icons'
 
 interface ContextMenuState {
     visible: boolean
@@ -25,6 +26,9 @@ interface Transform {
     translateY: number
     rotation: number
 }
+
+/** 顶部工具栏圆形按钮统一样式 */
+const TOOL_BTN = 'w-10 h-10 flex items-center justify-center rounded-full bg-[var(--chip-bg)] border border-[var(--chip-border)] hover:bg-[var(--surface-overlay)] text-[var(--text-primary)] transition-colors active:scale-95'
 
 const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: ImagePreviewModalProps) {
     const [transform, setTransform] = useState<Transform>({
@@ -61,6 +65,12 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
     // 关闭右键菜单（需要在 keyboard useEffect 之前定义）
     const closeContextMenu = useCallback(() => {
         setContextMenu(prev => ({...prev, visible: false}))
+    }, [])
+
+    // 展示“已复制”提示，2 秒后自动隐藏
+    const showCopied = useCallback(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
     }, [])
 
     // 键盘事件
@@ -154,7 +164,7 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
         resetTransform()
     }, [resetTransform])
     
-    // 点击背景关闭（仅当没有拖拽时）
+    // 点击背景（非子元素）关闭
     const handleBackdropClick = useCallback((e: React.MouseEvent) => {
         if (e.target === e.currentTarget) {
             onClose()
@@ -177,25 +187,22 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
             const buffer = Array.from(new Uint8Array(arrayBuffer))
             const result = await window.electronAPI?.clipboardWriteImage({buffer})
             if (result?.success) {
-                setCopied(true)
-                setTimeout(() => setCopied(false), 2000)
+                showCopied()
             } else {
                 // 回退：复制图片 URL
                 await navigator.clipboard.writeText(src)
-                setCopied(true)
-                setTimeout(() => setCopied(false), 2000)
+                showCopied()
             }
         } catch {
             // 回退：复制图片 URL
             try {
                 await navigator.clipboard.writeText(src)
-                setCopied(true)
-                setTimeout(() => setCopied(false), 2000)
+                showCopied()
             } catch {
                 // 完全失败，静默忽略
             }
         }
-    }, [src, closeContextMenu])
+    }, [src, closeContextMenu, showCopied])
     
     // 禁止背景滚动
     useEffect(() => {
@@ -223,7 +230,7 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
             <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 px-4 py-2 rounded-full bg-black/60 backdrop-blur-sm z-10">
                 <button
                     onClick={() => zoom(-0.25)}
-                    className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors active:scale-95"
+                    className={TOOL_BTN}
                     title="缩小 (-)"
                  data-name="image-preview-modal-button">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -233,17 +240,17 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                 <span className="text-white/80 text-sm w-16 text-center font-mono">{Math.round(transform.scale * 100)}%</span>
                 <button
                     onClick={() => zoom(0.25)}
-                    className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors active:scale-95"
+                    className={TOOL_BTN}
                     title="放大 (+)"
                  data-name="image-preview-modal-zoom-in-button">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
                 </button>
-                <div className="w-px h-6 bg-white/20 mx-1" />
+                <div className="w-px h-6 bg-[var(--border-emphasis)] mx-1" />
                 <button
                     onClick={() => rotate(-90)}
-                    className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors active:scale-95"
+                    className={TOOL_BTN}
                     title="逆时针旋转 (R)"
                  data-name="image-preview-modal-rotate-left-button">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -252,17 +259,17 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                 </button>
                 <button
                     onClick={() => rotate(90)}
-                    className="w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors active:scale-95"
+                    className={TOOL_BTN}
                     title="顺时针旋转 (r)"
                  data-name="image-preview-modal-rotate-right-button">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" transform="scale(-1, 1) translate(-24, 0)" />
                     </svg>
                 </button>
-                <div className="w-px h-6 bg-white/20 mx-1" />
+                <div className="w-px h-6 bg-[var(--border-emphasis)] mx-1" />
                 <button
                     onClick={resetTransform}
-                    className="px-3 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white text-sm transition-colors active:scale-95 font-medium"
+                    className="px-3 h-10 flex items-center justify-center rounded-full bg-[var(--chip-bg)] border border-[var(--chip-border)] hover:bg-[var(--surface-overlay)] text-[var(--text-primary)] text-sm transition-colors active:scale-95 font-medium"
                     title="重置 (0)"
                  data-name="image-preview-modal-reset-button">
                     重置
@@ -335,8 +342,8 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                             复制到剪贴板
                         </button>
                         <button
-                            onClick={() => { navigator.clipboard.writeText(src); closeContextMenu(); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-                            className="w-full px-4 py-2.5 text-sm text-left text-[var(--text-muted)] hover:bg-[var(--surface-muted)] flex items-center gap-2.5 transition-colors"
+                            onClick={() => { navigator.clipboard.writeText(src); closeContextMenu(); showCopied() }}
+                            className="w-full px-4 py-2.5 text-sm text-left text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] flex items-center gap-2.5 transition-colors"
                          data-name="image-preview-modal-copy-image-path-button">
                             <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
@@ -349,8 +356,9 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
 
             {/* 复制成功提示 */}
             {copied && (
-                <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[10002] px-6 py-3 rounded-xl bg-black/80 text-white text-sm font-medium backdrop-blur-sm animate-[fadeIn_0.15s_ease-out]">
-                    ✓ 已复制到剪贴板
+                <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[10002] px-6 py-3 rounded-xl bg-black/80 text-white text-sm font-medium backdrop-blur-sm animate-[fadeIn_0.15s_ease-out] inline-flex items-center gap-2">
+                    <SuccessIcon className="w-4 h-4"/>
+                    已复制到剪贴板
                 </div>
             )}
         </div>,

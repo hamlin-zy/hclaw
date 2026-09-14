@@ -24,20 +24,20 @@ export interface MCPServerConfig {
   url?: string
   /** HTTP headers */
   headers?: Record<string, string>
-    /** 工作目录（stdio 模式启动子进程时使用） */
-    cwd?: string
-    /** 工具调用超时（毫秒），默认 60000 */
-    timeout?: number
-    /** 自动批准的工具名称列表 — 调用这些工具时无需用户确认 */
-    autoApprove?: string[]
-    /** 拒绝调用的工具名称列表 — Agent 禁止调用这些工具 */
-    denyList?: string[]
+  /** 工作目录（stdio 模式启动子进程时使用） */
+  cwd?: string
+  /** 工具调用超时（毫秒），默认 60000 */
+  timeout?: number
+  /** 自动批准的工具名称列表 — 调用这些工具时无需用户确认 */
+  autoApprove?: string[]
+  /** 拒绝调用的工具名称列表 — Agent 禁止调用这些工具 */
+  denyList?: string[]
   /** 是否自动启动 */
   autoStart?: boolean
-    /** 是否启用 */
-    enabled: boolean
-    /** 用户自定义描述，用于指导 Agent 何时使用此服务器 */
-    userDescription?: string
+  /** 是否启用 */
+  enabled: boolean
+  /** 用户自定义描述，用于指导 Agent 何时使用此服务器 */
+  userDescription?: string
 }
 
 // ─── 服务器连接状态 ────────────────────────────────────
@@ -55,10 +55,10 @@ export interface MCPServerState {
   resources: MCPResource[]
   /** 错误信息 */
   error?: string
-    /** 重连尝试次数 */
-    reconnectAttempts?: number
-    /** 最近一次错误时间戳 */
-    lastErrorTime?: number
+  /** 重连尝试次数 */
+  reconnectAttempts?: number
+  /** 最近一次错误时间戳 */
+  lastErrorTime?: number
 }
 
 // ─── MCP 工具定义 ──────────────────────────────────────
@@ -114,4 +114,21 @@ export interface MCPToolCallResult {
     resource?: { uri: string; mimeType?: string; text?: string }
   }>
   isError?: boolean
+}
+
+// ─── Transport 配置 ────────────────────────────────────
+
+/**
+ * Transport 配置选项
+ *
+ * 注意: MCPTransport 接口已被 @modelcontextprotocol/sdk 替代，
+ * 仅保留 MCPTransportOptions 供 testConnection() 的超时配置使用。
+ */
+export interface MCPTransportOptions {
+  /** 请求超时时间（毫秒），默认 60000 */
+  requestTimeout?: number
+  /** 关闭连接超时时间（毫秒），默认 5000 */
+  shutdownTimeout?: number
+  /** 连接超时时间（毫秒），默认 60000 */
+  connectTimeout?: number
 }

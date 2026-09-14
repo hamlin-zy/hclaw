@@ -17,6 +17,11 @@ export interface PaneLayout {
   gitCollapsed: boolean
   /** 折叠前记住的 Git 区高度，用于展开时还原 */
   gitHeightBeforeCollapse: number
+  /**
+   * 上半区三列顺序（paneOrder.ts 的 PaneId[]）。**可选**：声明为可选是为了 既有调用点
+   * （writePaneLayout 等）不必改签名；生产写入一律走 patchPaneLayout 的 order 键。
+   */
+  order?: string[]
 }
 
 /** Git 区高度在 sizes 里的键名 */
@@ -81,6 +86,8 @@ export function readPaneLayout(workspacePath: string, specs: PaneSizeSpecs): Pan
     gitHeightBeforeCollapse: gitSpec
       ? clampPane(stored.gitHeightBeforeCollapse, gitSpec)
       : fallback.gitHeightBeforeCollapse,
+    // 原样透传：将来若有代码用 writePaneLayout 整体覆盖，也不会把 order 丢掉
+    ...(Array.isArray(stored.order) ? {order: stored.order} : {}),
   }
 }
 

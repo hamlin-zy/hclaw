@@ -4,7 +4,19 @@
 
 import type {ToolCall} from '@shared/types'
 import {truncate} from '../../../lib/format'
-import {isMcpToolName} from '@shared/utils/mcpShortId'
+import {isMcpToolName} from '@shared/mcp/naming'
+
+/** MCP 工具参数摘要的字段优先级顺序 */
+const MCP_SUMMARY_FIELDS = ['thought', 'query', 'command', 'url', 'filePath', 'pattern', 'text'] as const
+
+/** 按优先级取参数中首个非空字符串字段 */
+function firstStringField(args: Record<string, unknown>, fields: readonly string[]): string | null {
+    for (const field of fields) {
+        const v = args[field]
+        if (typeof v === 'string' && v) return v
+    }
+    return null
+}
 
 /**
  * 将值转换为字符串，失败返回 null
@@ -51,10 +63,8 @@ export function getToolSummary(tc: ToolCall): string | null {
         return target ? truncate(target, 60) : null
     }
     if (isMcpToolName(tc.name)) {
-        for (const field of ['thought', 'query', 'command', 'url', 'filePath', 'pattern', 'text']) {
-            const v = args[field]
-            if (v && typeof v === 'string') return truncate(v, 60)
-        }
+        const hit = firstStringField(args, MCP_SUMMARY_FIELDS)
+        if (hit) return truncate(hit, 60)
         const keys = Object.keys(args).filter((k) => k !== 'reason')
         if (keys.length > 0) return keys.slice(0, 3).join(', ')
     }
@@ -74,10 +84,8 @@ export function getToolArgSummary(tc: ToolCall): string | null {
     // catalog 通道：展示实际 MCP 工具名
     if (tc.name === 'call_mcp_tool') return truncate(toStringOrNull(args.name) || '', 50)
     if (isMcpToolName(tc.name)) {
-        for (const field of ['thought', 'query', 'command', 'url', 'filePath', 'pattern', 'text']) {
-            const v = args[field]
-            if (v && typeof v === 'string') return truncate(v, 50)
-        }
+        const hit = firstStringField(args, MCP_SUMMARY_FIELDS)
+        if (hit) return truncate(hit, 50)
     }
     return null
 }
@@ -179,8 +187,7 @@ export function getToolDescription(tc: ToolCall): string | null {
         return cmd ? `执行命令: ${truncate(cmd, 50)}` : null
     }
     if (isMcpToolName(tc.name)) {
-        const keyFields = ['thought', 'query', 'command', 'url', 'filePath', 'pattern', 'text']
-        for (const field of keyFields) {
+        for (const field of MCP_SUMMARY_FIELDS) {
             if (args[field]) return truncate(String(args[field]), 60)
         }
     }

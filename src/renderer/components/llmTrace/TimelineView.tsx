@@ -7,6 +7,7 @@
  */
 import {useCallback, useMemo, useRef, useState} from 'react'
 import type {LlmCallRecord, LlmTraceProjection, TimelineNode, TraceFilter} from './types'
+import {OutputIcon} from '../icons'
 
 interface TimelineViewProps {
     projection: LlmTraceProjection
@@ -103,7 +104,7 @@ export function TimelineView({projection, filter, onOpenDetail, conversationTitl
 
     if (groups.length === 0) {
         return (
-            <div className="flex-1 flex items-center justify-center text-sm text-[var(--text-muted)]">
+            <div className="flex-1 flex items-center justify-center text-sm text-[var(--text-secondary)]">
                 暂无符合条件的调用记录
             </div>
         )
@@ -114,11 +115,11 @@ export function TimelineView({projection, filter, onOpenDetail, conversationTitl
             {groups.map(([convId, turns]) => (
                 <div key={convId}>
                     {/* conversation 头 */}
-                    <div className="flex items-baseline gap-2.5 mt-4 mb-2 pb-1.5 border-b border-dashed border-[var(--border)] first:mt-0">
+                    <div className="flex items-baseline gap-2.5 mt-4 mb-2 pb-1.5 border-b border-dashed border-[var(--border-muted)] first:mt-0">
                         <span className="font-semibold text-[13px] text-[var(--text-primary)]">
                             {convHeaderLabel(conversationTitles, convId)}
                         </span>
-                        <span className="text-[11px] font-mono text-[var(--text-muted)]">
+                        <span className="text-[11px] font-mono text-[var(--text-secondary)]">
                             {[...turns.values()].reduce((s, l) => s + l.length, 0)} 次调用 · {turns.size} 个 turn
                         </span>
                         {conversationPaths?.get(convId) && (
@@ -126,7 +127,7 @@ export function TimelineView({projection, filter, onOpenDetail, conversationTitl
                                 onClick={() => copyConvPath(convId)}
                                 title="复制日志落盘路径"
                              data-name="timeline-conv-copy"
-                                className="ml-auto text-[11px] cursor-pointer select-none rounded border border-[var(--border)] px-1.5 py-px text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors">
+                                className="ml-auto text-[11px] cursor-pointer select-none rounded border border-[var(--border)] px-1.5 py-px text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors">
                                 {copiedConvId === convId ? '已复制' : '复制路径'}
                             </button>
                         )}
@@ -211,7 +212,7 @@ function RetryCard({attempts, onOpenDetail}: {
                 <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[last.status]}`} title={STATUS_TXT[last.status]} />
                 <span className="font-mono text-[11px] text-[var(--text-muted)] w-16 shrink-0 tabular-nums">{fmtTime(last.ts)}</span>
                 <span className="font-mono text-[11px] py-0.5 px-2 rounded bg-[var(--brand-muted)] text-[var(--brand-primary)] whitespace-nowrap">{last.model}</span>
-                <span className="text-[10.5px] py-px px-1.5 rounded border border-[var(--border)] text-[var(--text-muted)] whitespace-nowrap">{last.context}</span>
+                <span className="text-[10.5px] py-px px-1.5 rounded border border-[var(--border)] text-[var(--text-secondary)] whitespace-nowrap">{last.context}</span>
                 {last.truncated && (
                     <span className="text-[10.5px] py-px px-1.5 rounded bg-[var(--warning-muted)] text-[var(--warning)]" title="响应流中断，文件不完整">截断</span>
                 )}
@@ -221,7 +222,7 @@ function RetryCard({attempts, onOpenDetail}: {
                 <span className="ml-auto flex gap-3.5 font-mono text-[11px] text-[var(--text-secondary)] whitespace-nowrap tabular-nums">
                     <span>{fmtMs(last.totalMs)} <span className="text-[var(--text-muted)]">TTFB {fmtMs(last.firstByteMs)}</span></span>
                 </span>
-                <span className={`text-[10px] text-[var(--text-muted)] transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+                <OutputIcon className={`w-3 h-3 shrink-0 text-[var(--text-muted)] transition-transform ${open ? 'rotate-90' : ''}`}/>
             </div>
             {open && (
                 <div className="ml-4">
@@ -261,7 +262,7 @@ function CallRow({record: r, selected, onClick}: {
                 <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[r.status]}`} title={STATUS_TXT[r.status]} />
                 <span className="font-mono text-[11px] text-[var(--text-muted)] w-16 shrink-0 tabular-nums">{fmtTime(r.ts)}</span>
                 <span className="font-mono text-[11px] py-0.5 px-2 rounded bg-[var(--brand-muted)] text-[var(--brand-primary)] whitespace-nowrap">{r.model}</span>
-                <span className="text-[10.5px] py-px px-1.5 rounded border border-[var(--border)] text-[var(--text-muted)] whitespace-nowrap">{r.context}</span>
+                <span className="text-[10.5px] py-px px-1.5 rounded border border-[var(--border)] text-[var(--text-secondary)] whitespace-nowrap">{r.context}</span>
                 {r.attempt > 0 && (
                     <span className="text-[10.5px] font-mono py-px px-1.5 rounded bg-[var(--error-muted)] text-[var(--error)]">attempt {r.attempt}</span>
                 )}
@@ -271,7 +272,7 @@ function CallRow({record: r, selected, onClick}: {
                 <span className="ml-auto flex gap-3.5 font-mono text-[11px] text-[var(--text-secondary)] whitespace-nowrap tabular-nums">
                     <span>{fmtMs(r.totalMs)} <span className="text-[var(--text-muted)]">TTFB {fmtMs(r.firstByteMs)}</span></span>
                 </span>
-                <span className={`text-[10px] text-[var(--text-muted)] transition-transform ${selected ? 'rotate-90' : ''}`}>▶</span>
+                <OutputIcon className={`w-3 h-3 shrink-0 text-[var(--text-muted)] transition-transform ${selected ? 'rotate-90' : ''}`}/>
             </div>
             {selected && r.error && (
                 <div className="mx-3 my-1 py-2 px-3 rounded-md font-mono text-xs bg-[var(--error-muted)] border border-[var(--error)]/35 text-[var(--error)]">

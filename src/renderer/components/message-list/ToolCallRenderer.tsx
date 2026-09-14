@@ -15,8 +15,9 @@
  */
 
 import {memo, useCallback, useMemo, useState} from 'react'
-import type {ToolCall, ThinkBlock as ThinkBlockType} from '@shared/types'
+import type {ToolCall} from '@shared/types'
 import {getToolSummary, resolveAgentDisplayName, resolveSkillDisplayName, resolveToolDisplayName, isSkillToolCall} from './utils/messageUtils'
+import type {CombinedItem} from './utils/displaySegments'
 import {getFullStatusConfig} from './config/toolStatusConfig'
 import {useToolCallsStore} from '../../stores/toolCallsStore'
 import {useModelSchemeStore} from '../../stores/modelSchemeStore'
@@ -24,11 +25,12 @@ import {useLLMStore} from '../../stores/llmStore'
 import {useAgentStore} from '../../stores/agentStore'
 import {useConversationStore} from '../../stores/conversationStore'
 import {useMcpStore} from '../../stores/mcpStore'
-import {resolveMcpDisplayName, extractMcpToolName, isMcpToolName} from '@shared/utils/mcpShortId'
+import {resolveMcpDisplayName, extractMcpToolName, isMcpToolName} from '@shared/mcp/naming'
 import SubAgentViewer from './SubAgentViewer'
 import ToolCallHeader from './ToolCallHeader'
 import ToolCallBody from './ToolCallBody'
 import ToolCountdown from './ToolCountdown'
+import {AgentIcon, SkillIcon} from '../icons'
 
 interface ToolCallRendererProps {
     toolCall: ToolCall
@@ -118,7 +120,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
             const rawTarget = (toolCall.arguments as any)?.name
             if (typeof rawTarget !== 'string' || !rawTarget) return null
             return resolveMcpDisplayName(rawTarget, mcpServers)
-                ?? extractMcpToolName(rawTarget, mcpServers.map(s => s.name))
+                ?? extractMcpToolName(rawTarget, mcpServers)
                 ?? rawTarget
         }
 
@@ -129,7 +131,7 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
         if (resolved) return resolved
 
         // 兜底：至少去掉 hash 部分，显示 m_..._<工具名>
-        const toolOnly = extractMcpToolName(toolCall.name, mcpServers.map(s => s.name))
+        const toolOnly = extractMcpToolName(toolCall.name, mcpServers)
         if (toolOnly) return `m_..._${toolOnly}`
 
         return null
@@ -180,6 +182,31 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
         setViewerOpen(true)
     }
 
+    // 两种模式共享的头部 props（仅展开态与模式标记不同，见下）
+    const headerProps = {
+        toolCall,
+        onOpenViewer: handleOpenViewer,
+        onJumpToSession: effectiveTaskId ? handleJumpToSession : undefined,
+        cfg,
+        isRunning,
+        hasProgress,
+        progressPercent,
+        effectiveStatus,
+        effectiveProgress,
+        effectiveAgentProgress,
+        effectiveEta,
+        timeoutMs: effectiveTimeoutMs,
+        startedAt: effectiveStartedAt,
+        agentDisplayName,
+        agentTypeLabel,
+        skillDisplayName,
+        mcpDisplayName,
+        summary,
+        terminalDisplay,
+        isSubAgent: effectiveIsSubAgent,
+        hasOutput,
+    }
+
     return (
         <div
             className={`my-2 rounded-lg text-xs overflow-hidden transition-all duration-200 ${cfg.bg} ${
@@ -189,58 +216,18 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
             {/* ── Compact 模式：精简行 ── */}
             {isCompact ? (
                 <ToolCallHeader
-                    toolCall={toolCall}
+                    {...headerProps}
                     expanded={false}
                     onToggleExpanded={() => {}}
-                    onOpenViewer={handleOpenViewer}
-                    onJumpToSession={effectiveTaskId ? handleJumpToSession : undefined}
-                    cfg={cfg}
-                    isRunning={isRunning}
-                    hasProgress={hasProgress}
-                    progressPercent={progressPercent}
-                    effectiveStatus={effectiveStatus}
-                    effectiveProgress={effectiveProgress}
-                    effectiveAgentProgress={effectiveAgentProgress}
-                    effectiveEta={effectiveEta}
-                    timeoutMs={effectiveTimeoutMs}
-                    startedAt={effectiveStartedAt}
-                    agentDisplayName={agentDisplayName}
-                    agentTypeLabel={agentTypeLabel}
-                    skillDisplayName={skillDisplayName}
-                    mcpDisplayName={mcpDisplayName}
-                    summary={summary}
-                    terminalDisplay={terminalDisplay}
-                    isSubAgent={effectiveIsSubAgent}
-                    hasOutput={hasOutput}
                     isCompact={true}
                 />
             ) : (
                 /* ── Normal 模式：展开式卡片 ── */
                 <>
                     <ToolCallHeader
-                        toolCall={toolCall}
+                        {...headerProps}
                         expanded={expanded}
                         onToggleExpanded={() => setExpanded(!expanded)}
-                        onOpenViewer={handleOpenViewer}
-                        onJumpToSession={effectiveTaskId ? handleJumpToSession : undefined}
-                        cfg={cfg}
-                        isRunning={isRunning}
-                        hasProgress={hasProgress}
-                        progressPercent={progressPercent}
-                        effectiveStatus={effectiveStatus}
-                        effectiveProgress={effectiveProgress}
-                        effectiveAgentProgress={effectiveAgentProgress}
-                        effectiveEta={effectiveEta}
-                        timeoutMs={effectiveTimeoutMs}
-                        startedAt={effectiveStartedAt}
-                        agentDisplayName={agentDisplayName}
-                        agentTypeLabel={agentTypeLabel}
-                        skillDisplayName={skillDisplayName}
-                        mcpDisplayName={mcpDisplayName}
-                        summary={summary}
-                        terminalDisplay={terminalDisplay}
-                        isSubAgent={effectiveIsSubAgent}
-                        hasOutput={hasOutput}
                         isCompact={false}
                     />
 
@@ -302,6 +289,8 @@ interface UltraCompactToolGroupProps {
     isSkill?: boolean
     /** Skill 显示名 */
     skillDisplayName?: string | null
+    /** 所属消息 ID（用于 L2 弹窗从最新消息实时重推导） */
+    messageId?: string
 }
 
 /**
@@ -385,8 +374,10 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
     agentTypeLabel,
     isSkill,
     skillDisplayName,
+    messageId,
 }: UltraCompactToolGroupProps) {
     const openToolPopup = useAgentStore((s) => s.openToolPopup)
+    const convId = useConversationStore((s) => s.activeConversationId) || ''
 
     // 订阅运行时状态：工具开始/结束/超时信息注入时重渲染概要行（倒计时文本由 ToolCountdown 自刷新）
     useToolCallsRuntimeVersion()
@@ -412,6 +403,9 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
             agentTypeLabel,
             isSkill,
             skillDisplayName,
+            convId,
+            messageId,
+            anchorToolCallId: toolCalls[0]?.id,
         })
     }
 
@@ -422,14 +416,14 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
                 onClick={handleClick}
                 className="w-full flex items-start gap-2 px-3 py-1.5 my-1 rounded-lg text-left transition-colors
                     border border-[var(--border)] bg-[var(--surface-muted)]
-                    hover:bg-[var(--surface-elevated)] hover:border-[var(--border-emphasis)]"
+                    hover:bg-[var(--surface-overlay)] hover:border-[var(--border-emphasis)]"
              data-name="tool-call-renderer-button">
                 {/* Agent / Skill 特殊图标 */}
                 {isAgent && (
-                    <span className="text-[var(--brand-primary)] text-xs shrink-0 self-center">🤖</span>
+                    <AgentIcon className="w-3.5 h-3.5 text-[var(--brand-primary)] shrink-0 self-center"/>
                 )}
                 {isSkill && (
-                    <span className="text-[var(--brand-primary)] text-xs shrink-0 self-center">🛠️</span>
+                    <SkillIcon className="w-3.5 h-3.5 text-[var(--brand-primary)] shrink-0 self-center"/>
                 )}
 
                 {/* 状态圆点 */}
@@ -461,7 +455,7 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
                         {chips.map((chip) => (
                             <span key={chip.name}
                                 className="flex items-center gap-1 px-1.5 py-0.5 rounded
-                                    bg-[rgba(255,255,255,0.05)] text-[var(--text-secondary)] shrink-0"
+                                    bg-[var(--chip-bg)] border border-[var(--chip-border)] text-[var(--text-secondary)] shrink-0"
                             >
                                 <span className="font-mono font-semibold">{chip.name}</span>
                                 <span className={chip.error > 0 ? 'text-[var(--error)]' : 'text-[var(--success)]'}>
@@ -488,21 +482,11 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
 })
 
 
-/**
- * 使用 memo 包装组件，禁用子元素重渲染
- * 性能优化：只依赖 toolCall.id，当其他字段（result、progress）变化时，
- * 由 toolCallsStore 单独管理，不触发整个工具卡片重渲染
- */
 // ──
-// CombinedItem 类型（由 InterleavedContent 导出，此处重新定义以避免循环引用）
+// CombinedItem 类型：由 utils/displaySegments 定义，此处 re-export 保持既有 import 方兼容
 // ──
 
-export interface CombinedItem {
-    type: 'think' | 'tools'
-    thinkBlock?: ThinkBlockType
-    blockId?: string
-    toolCalls?: ToolCall[]
-}
+export type {CombinedItem}
 
 interface UltraCompactCombinedGroupProps {
     items: CombinedItem[]
@@ -527,12 +511,16 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
     const openCombinedPopup = useAgentStore((s) => s.openCombinedPopup)
     const convId = useConversationStore((s) => s.activeConversationId) || ''
 
+    // ★ 订阅运行时状态：仅状态变化（toolCalls 引用未变）时也必须刷新错误计数，
+    //   故作为 chips/stats 的依赖，而非在 useMemo 内 getState（会导致陈旧计数）。
+    const toolStates = useToolCallsStore((s) => s.states)
+
     // 订阅运行时状态：工具开始/结束/超时信息注入时重渲染概要行（倒计时文本由 ToolCountdown 自刷新）
     useToolCallsRuntimeVersion()
 
     const stats = computeGroupStats(toolCalls)
 
-    // 生成工具芯片列表（解析 agent 名称，含 🤖 标识；解析 skill 名称，含 🛠️ 标识）
+    // 生成工具芯片列表（解析 agent 名称，用 AgentIcon 标识；解析 skill 名称，用 SkillIcon 标识）
     const chips = useMemo(() => {
         const map = new Map<string, { total: number; error: number; isAgent: boolean; isSkill: boolean }>()
         for (const tc of toolCalls) {
@@ -540,12 +528,11 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
             if (!map.has(displayName)) map.set(displayName, { total: 0, error: 0, isAgent: tc.name === 'agent', isSkill: isSkillToolCall(tc) })
             const entry = map.get(displayName)!
             entry.total++
-            const state = useToolCallsStore.getState().states[tc.id]
-            const status = state?.status ?? tc.status
+            const status = toolStates[tc.id]?.status ?? tc.status
             if (status === 'error') entry.error++
         }
         return Array.from(map.entries()).map(([name, v]) => ({ name, ...v }))
-    }, [toolCalls])
+    }, [toolCalls, toolStates])
 
     // 圆点颜色：仅区分运行中（闪烁）/ 已完成（不闪烁），不区分成功失败
     const dotClass = stats.isRunning
@@ -553,7 +540,15 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
         : 'bg-[var(--success)]'
 
     const handleClick = () => {
-        openCombinedPopup({ items: items as any[], thinkCount, toolCalls: toolCalls as any[], convId, messageId })
+        openCombinedPopup({
+            items: items as any[],
+            thinkCount,
+            toolCalls: toolCalls as any[],
+            convId,
+            messageId,
+            anchorToolCallId: toolCalls[0]?.id,
+            anchorBlockId: items.find((it) => it.type === 'think')?.blockId,
+        })
     }
 
     return (
@@ -561,7 +556,7 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
             onClick={handleClick}
             className="w-full flex items-start gap-2 px-3 py-1.5 my-1 rounded-lg text-left transition-colors
                 border border-[var(--border)] bg-[var(--surface-muted)]
-                hover:bg-[var(--surface-elevated)] hover:border-[var(--border-emphasis)]"
+                hover:bg-[var(--surface-overlay)] hover:border-[var(--border-emphasis)]"
          data-name="tool-call-renderer-toggle-expanded-button">
             {/* 状态圆点 */}
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 self-center ${dotClass}`}/>
@@ -579,10 +574,10 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
                 {chips.map((chip) => (
                     <span key={chip.name}
                         className="flex items-center gap-1 px-1.5 py-0.5 rounded
-                            bg-[rgba(255,255,255,0.05)] text-[var(--text-secondary)] shrink-0"
+                            bg-[var(--chip-bg)] border border-[var(--chip-border)] text-[var(--text-secondary)] shrink-0"
                     >
-                        {chip.isAgent && <span className="text-[var(--brand-primary)]">🤖</span>}
-                        {chip.isSkill && <span className="text-[var(--brand-primary)]">🛠️</span>}
+                        {chip.isAgent && <AgentIcon className="w-3.5 h-3.5 text-[var(--brand-primary)]"/>}
+                        {chip.isSkill && <SkillIcon className="w-3.5 h-3.5 text-[var(--brand-primary)]"/>}
                         <span className="font-mono font-semibold">{chip.name}</span>
                         <span className={chip.error > 0 ? 'text-[var(--error)]' : 'text-[var(--success)]'}>
                             {chip.total - chip.error}/{chip.total}

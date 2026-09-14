@@ -34,13 +34,17 @@ const inputSchema = z.object({
             '交接总结全文，将作为新会话的首条用户消息。必须包含以下结构：\n'
             + '## 任务目标（一句话描述当前任务）\n'
             + '## 已完成进度（关键里程碑，引用文件/命令）\n'
+            + '## 复用清单（只写指针，禁止把内容抄进总结；无则写"无"；这些已完成，勿重复派发）\n'
+            + '   - 每条的落点只能是：① 磁盘上已存在的文件完整路径；② 该次 agent 调用的 toolCallId\n'
+            + '   - 严禁为交接新建任何文件（包括汇总/笔记类 md）；严禁复述子任务正文\n'
+            + '   - 每条一行：一句话结论 + 落点\n'
             + '## 遗留问题（当前阻塞点 / 未完成事项）\n'
             + '## 下一步计划（新会话应从何处继续，明确第一步动作）\n'
             + '## 关键上下文（相关文件路径 / 已运行命令 / 重要决策 / 注意事项）'
         ),
     capability: z.string()
         .optional()
-        .describe('可选：新会话要触发的技能/代理名（如 brainstorming），不带 / 前缀；留空时不拼接命令前缀'),
+        .describe('可选：新会话要触发的技能名（如 brainstorming），不带 / 前缀；填代理名或未匹配到技能时视为不指定，按普通会话继续'),
     attachments: z.array(z.object({
         path: z.string().min(1).describe('附件文件的绝对路径'),
         name: z.string().describe('附件文件名（含扩展名）'),
@@ -48,7 +52,7 @@ const inputSchema = z.object({
     }))
         .optional()
         .describe(
-            '可选：需带到新会话的附件（当前会话用户提交的附件中挑选，由你自主决定）。'
+            '可选：需带到新会话的附件（从本会话工作区内**已存在**的文件中挑选，含用户提交的附件与已产出的成果文件；严禁为交接临时新建文件）。'
             + '附件会作为新会话首条用户消息的附件展示并进入首轮模型上下文（图片可直接被视觉模型查看）。'
             + '仅传仍然有效的本地文件路径；无需携带附件时省略此字段',
         ),
@@ -113,25 +117,30 @@ export const sessionHandoffTool: Tool<SessionHandoffInput, string> = {
         }
 
         // ④ 写入首条 user 消息（交接总结）
-        //    capability 非空时拼接 "/能力名\n" 前缀 → 新会话首条消息触发对应技能/代理命令（detectCommandContext 会解析）
+        //    capability 只解析技能：命中才拼 "/技能规范名\n" 前缀触发新会话技能命令
+        //    （detectCommandContext 可解析）；未命中（含填了代理名）静默不注入，不使交接失败。
         const userMsgId = `msg-${now}-${Math.random().toString(36).slice(2, 8)}`
         const capability = args.capability?.trim()?.replace(/^\/+/, '')
-        const firstMessageContent = capability
-            ? `/${capability}\n${args.handoffSummary}`
-            : args.handoffSummary
 
-        // 命中 skill/agent 时透传 commandId，供 UI 渲染 /能力 徽章（与 loop/setup.ts 同源解析）
+        // 仅技能解析：命中透传 commandId（供 UI 渲染 /技能 徽章，与 loop/setup.ts 同源）。
         // 动态 import：entityCommandResolver 会连带加载 skills loader（config/repositories 等
         // electron 绑定模块），顶层静态加载会破坏本工具的 schema 单测环境。
-        let commandId: string | undefined
+        let skillMatch: Awaited<ReturnType<typeof import('../../entityCommandResolver').resolveSkillCommand>> = null
         if (capability) {
             try {
-                const {resolveEntityCommand} = await import('../../entityCommandResolver')
-                commandId = resolveEntityCommand(capability)?.commandId
+                const {resolveSkillCommand} = await import('../../entityCommandResolver')
+                skillMatch = resolveSkillCommand(capability)
             } catch (err) {
-                logger.debug('[SessionHandoffTool] resolveEntityCommand failed', {error: String(err)})
+                logger.debug('[SessionHandoffTool] resolveSkillCommand failed', {error: String(err)})
             }
         }
+        if (capability && !skillMatch) {
+            logger.debug('[SessionHandoffTool] capability 未匹配到技能，按普通会话交接', {capability})
+        }
+        const firstMessageContent = skillMatch
+            ? `/${skillMatch.name}\n${args.handoffSummary}`
+            : args.handoffSummary
+        const commandId: string | undefined = skillMatch?.commandId
         // 附件 → 双用途构建（共享函数，与 execution.ts 跨 turn 历史重建同源，
         // 保证首轮直传与第二轮重建输出逐字节一致 → KV cache 前缀不断裂）：
         // 1) 落库：content 保持纯文本；metadata.attachments 结构化存储 → MessageList 附件卡片渲染
@@ -178,6 +187,7 @@ export const sessionHandoffTool: Tool<SessionHandoffInput, string> = {
         return {
             success: true,
             output: `新会话『${args.title}』已创建，交接总结已注入，Agent 已自动启动继续工作。`
+                + (capability && !skillMatch ? `\n（capability '${capability}' 未匹配到技能，已按普通会话创建。）` : '')
                 + (startRequested ? '' : '\n（自动启动未成功，可切换到新会话手动发送消息继续）'),
         }
     },

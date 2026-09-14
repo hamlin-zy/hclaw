@@ -68,7 +68,7 @@ export default function PendingQuestionCard({isPaused, pendingQuestion, onSelect
                             ))}
                         </div>
                     ) : (
-                        <p className="text-xs text-[var(--text-muted)] text-center">请在下方输入框输入回答后发送</p>
+                        <p className="text-xs text-[var(--text-secondary)] text-center">请在下方输入框输入回答后发送</p>
                     )}
                 </motion.div>
             )}

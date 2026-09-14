@@ -349,7 +349,11 @@ describe('MemoPanel · 条目交互', () => {
         expect(row.textContent).toContain('购物清单')
         expect(row.textContent).toContain('daily-task')
         expect(row.textContent).toContain('技能')
-        expect(row.textContent).toContain('📎 1')
+        const attachCount = row.querySelector('[data-name="memo-attachment-count"]')
+        expect(attachCount).toBeTruthy()
+        expect(attachCount!.textContent).toContain('1')
+        // 附件角标使用 AttachmentIcon（SVG），不再用 📎 emoji
+        expect(attachCount!.querySelector('svg')).toBeTruthy()
         expect(row.textContent).not.toContain('牛奶')
         expect(screen.queryByPlaceholderText('记录备忘...')).toBeNull()
         expect(screen.queryByText('保存')).toBeNull()
@@ -393,8 +397,11 @@ describe('MemoPanel · 条目交互', () => {
 
         const input = screen.getByPlaceholderText('搜索备忘录...')
         expect(input.className).toContain('rounded-[36px]')
-        expect(input.className).toContain('bg-gray-100/60')
-        expect(input.className).toContain('dark:bg-white/5')
+        expect(input.className).toContain('bg-[var(--surface-muted)]')
+        expect(input.className).toContain('border border-[var(--border)]')
+        expect(input.className).toContain('placeholder-[var(--text-secondary)]')
+        // 新契约：聚焦只改边框/描边，不得丢掉填充（旧实现用 focus:bg-white 覆盖）
+        expect(input.className).not.toContain('focus:bg-white')
     })
 
     it('右缘按钮 tooltip：title 走全局 TooltipPortal，data-tooltip-placement=left 向左展开', () => {

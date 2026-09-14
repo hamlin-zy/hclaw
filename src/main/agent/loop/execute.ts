@@ -20,6 +20,7 @@ import {selectModelForTurn, defaultRoleForTrace} from './setup'
 import {ToolExecutor} from './toolExecutor'
 import {addMessage} from '../state'
 import {PreprocessCache} from './preprocessCache'
+import {injectLoadedImages} from '../utils/loadImageInjection'
 import {logger} from '../logger'
 import {permissionEngine} from '../tools/permission'
 import {isThirdPartyAnthropicAPI} from '../model/utils'
@@ -35,17 +36,24 @@ import {resolveModelParams} from '@shared/modelParams'
 import {modelMetaRegistry} from '../../modelMetaRegistry'
 import {withLlmTraceStream, type LlmTraceCallContext} from '../../utils/llmTraceRecorder'
 import {recordLastSentToolNames} from './toolsSentRecord'
+import {resolveHandoffThresholdTokens} from '@shared/handoffThreshold'
 
 const toolRegistry = getToolRegistry()
 
 // ── mid-loop 交接门（取代自动截断）：接近窗口上限时的溢出保护 ──
-// 触发线复用用户配置 handoffThresholdRatio（默认 0.5；0 = 关闭 loop 级保护）。
+// 触发线经 resolveHandoffThresholdTokens 统一解析为 token 阈值（支持「按比例 / 按窗口大小」两种模式；
+// 默认 0.5 比例；0 = 关闭 loop 级保护）。门只消费这一个 token 值，不关心模式。
 // 不再硬编码 0.9（用户 2026-08-18 拍板：完全尊重用户配置）。
 
 /** mid-loop 专用交接指令（与发送前模板不同——无用户新输入，交接进行中的任务） */
 export const MID_LOOP_HANDOFF_PROMPT = `当前任务执行中上下文接近窗口上限，请总结对话历史与任务进度，准备交接(session_handoff)到新会话继续执行当前任务。
 
-【重要】若希望新会话自动启动特定技能/代理，请在调用 session_handoff 时传入 capability 参数（值为技能/代理名，不带 / 前缀）。`
+【要求】总结必须含「复用清单」段，只列新会话仍会用到的已委派子任务（无则写"无"；这些已完成，勿重复派发）：
+- 只写指针，禁止把子任务正文抄进总结；
+- 每条的落点只能是：① 磁盘上已存在的文件完整路径，或 ② 该次 agent 调用的 toolCallId（形如 call_00_xxxx，从你自己的工具调用里原样抄写）；
+- 严禁为交接新建任何文件（包括汇总/笔记类 md）。
+
+【重要】若希望新会话自动启动特定技能，可在调用 session_handoff 时传入 capability 参数（值为技能名，不带 / 前缀；填代理名或未匹配到技能时按普通会话继续）。`
 
 export type HandoffGateAction = 'none' | 'inject' | 'stop'
 
@@ -68,12 +76,11 @@ const handoffInjectedBySession = new Set<string>()
 
 export function evaluateHandoffGate(
     usageTokens: number,
-    windowTokens: number,
-    thresholdRatio: number,
+    thresholdTokens: number,
     mode: 'auto-handoff' | 'graceful-stop',
 ): HandoffGateAction {
-    if (thresholdRatio <= 0) return 'none' // 0 = 关闭 loop 级保护（用户自担超窗风险）
-    if (usageTokens <= thresholdRatio * windowTokens) return 'none'
+    if (!(thresholdTokens > 0)) return 'none' // 0 = 关闭 loop 级保护（用户自担超窗风险）
+    if (usageTokens <= thresholdTokens) return 'none'
     return mode === 'auto-handoff' ? 'inject' : 'stop'
 }
 
@@ -230,7 +237,9 @@ export async function* executeLlmCallWithRetry(
 
             // ── 归一化消息历史（增量缓存） ──
             const normalizedMessages = preprocessCache.process(state.messages || [])
-            let messagesToSend: ChatMessage[] = normalizedMessages
+            // ★ 请求期图片注入：仅作用于 messagesToSend，不写回 state/DB（R1）；每次 attempt 重算（R2）。
+            //   非视觉/降级由下方既有 sanitizeMessagesForModel 自动剥离注入的 image_url。
+            let messagesToSend: ChatMessage[] = await injectLoadedImages(normalizedMessages)
 
             // spec §6.3：运行时参数统一解析（handoff gate 与 adapter.chat 共用本次结果）。
             // 每次 attempt 解析一次：重试可能切换模型，参数须跟随最新 modelConfig。
@@ -259,8 +268,7 @@ export async function* executeLlmCallWithRetry(
                 const agentSettings = getSettings()?.agent
                 const action = evaluateHandoffGate(
                     usageTokens,
-                    windowTokens,
-                    agentSettings?.handoffThresholdRatio ?? 0.5,
+                    resolveHandoffThresholdTokens(agentSettings, windowTokens),
                     agentSettings?.midLoopOverflowMode ?? 'auto-handoff',
                 )
                 if (action === 'stop') {

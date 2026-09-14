@@ -77,7 +77,7 @@ function AgentCard({template, onEdit, onDelete, onToggle, onPreview, readOnly}: 
                 "group relative flex flex-col gap-4 rounded-xl border p-5 transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/50",
                 template.enabled
                     ? "bg-[var(--surface)] border-[var(--border)] hover:border-[var(--border-muted)] hover:shadow-sm"
-                    : "bg-[var(--surface-muted)]/20 border-[var(--border)] opacity-60"
+                    : "bg-[var(--surface-muted)] border-[var(--border)] opacity-60"
             )}
          data-name="agents-dialog-button-role">
             {/* Icon + Content (title row with buttons | tags | description — full width) */}
@@ -187,7 +187,7 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                 className="relative w-[580px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col overflow-hidden"
              data-name="agents-dialog-detail-panel">
                 {/* Header */}
-                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border)] flex items-center justify-between">
+                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border-muted)] flex items-center justify-between">
                     <div className="flex items-center gap-3 min-w-0">
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]">
                             <Layers className="w-4 h-4"/>
@@ -279,7 +279,7 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                             </>
                         ) : (
                             <div>
-                                <span className="inline-flex items-center rounded px-2 py-1 text-[10px] font-medium bg-[var(--surface-muted)] text-[var(--text-muted)] border border-[var(--border)]">未限制（继承全部可用工具）</span>
+                                <span className="inline-flex items-center rounded px-2 py-1 text-[10px] font-medium bg-[var(--surface-muted)] text-[var(--text-secondary)] border border-[var(--border)]">未限制（继承全部可用工具）</span>
                             </div>
                         )}
                     </div>
@@ -300,7 +300,7 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                 </div>
 
                 {/* Footer */}
-                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-t border-[var(--border)] flex items-center justify-end gap-3">
+                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-t border-[var(--border-muted)] flex items-center justify-end gap-3">
                     {onEdit && (
                         <button
                             onClick={() => onEdit()}
@@ -484,7 +484,7 @@ export default function AgentsDialog() {
     return (
         <div className="h-full flex flex-col bg-[var(--surface)] overflow-hidden">
             {/* 头部区域 */}
-            <div className="relative px-6 py-5 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)]/40 overflow-hidden">
+            <div className="relative px-6 py-5 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)] overflow-hidden">
                 {/* 背景装饰光晕 */}
                 <div className="absolute top-0 right-0 -mr-20 -mt-20 h-40 w-40 rounded-full bg-[var(--brand-primary)]/5 blur-[60px] pointer-events-none"/>
 
@@ -493,7 +493,7 @@ export default function AgentsDialog() {
                         <h2 className="text-lg font-bold tracking-tight text-[var(--text-primary)]">
                             Agent 管理
                         </h2>
-                        <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                             预设或自定义专用 Agent 工作流 · {templates.length} 个 Agent · {enabledCount} 个已启用
                         </p>
                     </div>
@@ -558,7 +558,7 @@ export default function AgentsDialog() {
             )}
 
             {/* 工具栏区域 */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 bg-[var(--surface-muted)]/20 border-b border-[var(--border-muted)]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 bg-[var(--surface-muted)] border-b border-[var(--border-muted)]">
                 {/* Tab 切换 */}
                 <div className="inline-flex items-center gap-1 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] p-1 shadow-inner">
                     <button
@@ -613,7 +613,7 @@ export default function AgentsDialog() {
                         placeholder="按名称搜索..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="block w-full rounded-lg border border-[var(--border)] bg-[var(--surface-muted)]/50 py-2 pl-9 pr-8 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] shadow-sm focus:border-[var(--brand-primary)]/50 focus:bg-[var(--surface-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all"
+                        className="block w-full rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] py-2 pl-9 pr-8 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] shadow-sm focus:border-[var(--brand-primary)]/50 focus:bg-[var(--surface-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all"
                     data-name="agents-dialog-input"/>
                     {searchQuery && (
                         <button
@@ -638,14 +638,14 @@ export default function AgentsDialog() {
             {/* 主内容区域 */}
             <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                 {displayTemplates.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-24 text-center border border-dashed border-[var(--border)] rounded-xl bg-[var(--surface-muted)]/20">
+                    <div className="flex flex-col items-center justify-center py-24 text-center border border-dashed border-[var(--border)] rounded-xl bg-[var(--surface-muted)]">
                         <div className="w-16 h-16 rounded-xl bg-[var(--surface-muted)] flex items-center justify-center mb-4">
                             <Layers className="w-8 h-8 text-[var(--text-muted)] opacity-30"/>
                         </div>
                         <h3 className="text-sm font-medium text-[var(--text-primary)]">
                             {activeTab === 'local' ? '暂无自定义 Agent' : activeTab === 'repo' ? '暂无仓库 Agent' : '暂无插件 Agent'}
                         </h3>
-                        <p className="text-xs text-[var(--text-muted)] mt-1.5">
+                        <p className="text-xs text-[var(--text-secondary)] mt-1.5">
                             {activeTab === 'local' ? '点击右上方按钮开始创建' : activeTab === 'repo' ? '在上方输入 Git 仓库地址安装，Agent 将归入对应仓库分组' : '插件 Agent 可通过插件系统安装'}
                         </p>
                     </div>
@@ -682,10 +682,10 @@ export default function AgentsDialog() {
                                 const sortedGroups = sortReposByUpdate(agentGroups.grouped, repoUpdateMap)
                                 if (sortedGroups.length === 0) {
                                     return (
-                                        <div className="flex flex-col items-center justify-center py-24 text-center border border-dashed border-[var(--border)] rounded-xl bg-[var(--surface-muted)]/20">
+                                        <div className="flex flex-col items-center justify-center py-24 text-center border border-dashed border-[var(--border)] rounded-xl bg-[var(--surface-muted)]">
                                             <Layers className="w-8 h-8 text-[var(--text-muted)] opacity-30 mb-3"/>
-                                            <p className="text-sm text-[var(--text-muted)]">暂无仓库 Agent</p>
-                                            <p className="text-xs text-[var(--text-muted)]/60 mt-1.5">在上方输入 Git 仓库地址安装，Agent 将归入对应仓库分组</p>
+                                            <p className="text-sm text-[var(--text-secondary)]">暂无仓库 Agent</p>
+                                            <p className="text-xs text-[var(--text-secondary)]/60 mt-1.5">在上方输入 Git 仓库地址安装，Agent 将归入对应仓库分组</p>
                                         </div>
                                     )
                                 }
@@ -712,7 +712,7 @@ export default function AgentsDialog() {
                                 <div className="space-y-3">
                                     {agentGroups.localAgents.length > 0 && (
                                         <div className="space-y-1.5">
-                                            <div className="text-xs font-semibold text-[var(--text-muted)]">本地代理</div>
+                                            <div className="text-xs font-semibold text-[var(--text-secondary)]">本地代理</div>
                                             <AnimatePresence initial={false}>
                                                 {agentGroups.localAgents.map(renderCard)}
                                             </AnimatePresence>
@@ -839,7 +839,7 @@ function PluginAgentGroup({pluginName, agents, toggleTemplate, toggleTemplateBat
         >
             {/* 插件标题栏 */}
             <div
-                className="flex items-center justify-between px-3 py-2 bg-[var(--surface-muted)]/50 cursor-pointer"
+                className="flex items-center justify-between px-3 py-2 bg-[var(--surface-muted)] cursor-pointer"
                 onClick={() => setCollapsed(c => !c)}
              data-name="agents-dialog-plugin-group-header">
                 <div className="flex items-center gap-2">
@@ -848,7 +848,7 @@ function PluginAgentGroup({pluginName, agents, toggleTemplate, toggleTemplateBat
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                     </svg>
                     <span className="text-xs font-semibold text-[var(--text-primary)]">{pluginName}</span>
-                    <span className="text-[10px] text-[var(--text-muted)]">{agents.length} 个 Agent</span>
+                    <span className="text-[10px] text-[var(--text-secondary)]">{agents.length} 个 Agent</span>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                     <button
@@ -1011,7 +1011,7 @@ function TagInput({value, onChange, placeholder, emptyHint, inputId, suggestions
                 onClick={e => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}
             >
                 {value.length === 0 && (
-                    <span className="text-xs text-[var(--text-muted)] px-1">{emptyHint}</span>
+                    <span className="text-xs text-[var(--text-secondary)] px-1">{emptyHint}</span>
                 )}
                 {value.map(tag => (
                     <span
@@ -1101,7 +1101,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                 className="relative w-[580px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col overflow-hidden"
              data-name="agents-dialog-form-panel">
                 {/* Header */}
-                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border)] flex items-center justify-between">
+                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border-muted)] flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-[var(--text-primary)]">
                         {editingId ? '编辑 Agent' : '创建 Agent'}
                     </h3>
@@ -1147,7 +1147,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
                             何时使用
-                            <span className="ml-1 text-[9px] font-normal normal-case text-[var(--text-muted)]">（帮助 LLM 识别何时触发此 Agent）</span>
+                            <span className="ml-1 text-[9px] font-normal normal-case text-[var(--text-secondary)]">（帮助 LLM 识别何时触发此 Agent）</span>
                         </label>
                         <input
                             type="text"
@@ -1176,7 +1176,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
                             可用工具
-                            <span className="ml-1 text-[9px] font-normal normal-case text-[var(--text-muted)]">（输入后按回车或逗号添加）</span>
+                            <span className="ml-1 text-[9px] font-normal normal-case text-[var(--text-secondary)]">（输入后按回车或逗号添加）</span>
                         </label>
                         <TagInput
                             value={form.allowedTools || []}
@@ -1192,7 +1192,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
                             禁用工具
-                            <span className="ml-1 text-[9px] font-normal normal-case text-[var(--text-muted)]">（输入后按回车或逗号添加）</span>
+                            <span className="ml-1 text-[9px] font-normal normal-case text-[var(--text-secondary)]">（输入后按回车或逗号添加）</span>
                         </label>
                         <TagInput
                             value={form.disallowedTools || []}
@@ -1206,7 +1206,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                 </div>
 
                 {/* Footer */}
-                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-t border-[var(--border)] flex items-center justify-end gap-3">
+                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-t border-[var(--border-muted)] flex items-center justify-end gap-3">
                     <button
                         onClick={() => onCancel()}
                         className="px-4 py-2 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-all"

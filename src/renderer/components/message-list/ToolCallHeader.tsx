@@ -5,8 +5,11 @@
  * 支持 compact（精简）和 normal（详细）两种模式
  */
 
+import type {ComponentType} from 'react'
 import type {ToolCall} from '@shared/types'
 import ToolCountdown from './ToolCountdown'
+import {SkillIcon} from '../icons'
+import type {IconProps} from '../icons'
 
 interface ToolCallHeaderProps {
     toolCall: ToolCall
@@ -20,7 +23,7 @@ interface ToolCallHeaderProps {
     cfg: {
         color: string
         bg: string
-        icon: string
+        icon: ComponentType<IconProps>
         label: string
     }
 
@@ -83,6 +86,7 @@ export default function ToolCallHeader({
     isCompact,
 }: ToolCallHeaderProps) {
     // ── 状态指示器（圆点/图标） ──
+    const StatusIcon = cfg.icon
     const statusIndicator = (
         <span
             className={`flex items-center justify-center w-5 h-5 rounded-full shrink-0 ${
@@ -93,7 +97,7 @@ export default function ToolCallHeader({
             {isRunning ? (
                 <span className="w-2.5 h-2.5 rounded-full bg-[var(--info)]"/>
             ) : (
-                <span className={`text-sm ${cfg.color}`}>{cfg.icon}</span>
+                <StatusIcon className={`w-4 h-4 ${cfg.color}`}/>
             )}
         </span>
     )
@@ -123,12 +127,12 @@ export default function ToolCallHeader({
         <>
             {summary && (
                 <span
-                    className={`text-[var(--text-muted)] truncate flex-1 font-mono opacity-80 ${isCompact ? '' : 'border-l border-[var(--border-muted)]'} pl-2 ml-1`}>
+                    className={`text-[var(--text-muted)] truncate flex-1 font-mono opacity-80 ${isCompact ? '' : 'border-l border-[var(--border)]'} pl-2 ml-1`}>
                     {summary}
                 </span>
             )}
             {terminalDisplay && !summary && (
-                <span className="text-[10px] px-1 py-0.5 rounded bg-[var(--surface-muted)] text-[var(--text-muted)]">
+                <span className="text-[10px] px-1 py-0.5 rounded bg-[var(--surface-muted)] text-[var(--text-secondary)]">
                     {terminalDisplay}
                 </span>
             )}
@@ -177,11 +181,17 @@ export default function ToolCallHeader({
         <span className="font-mono font-semibold text-[var(--text-primary)]">Agent</span>
     ) : toolCall.name === 'skill' && skillDisplayName ? (
         <span className="font-semibold text-[var(--brand-primary)] flex items-center gap-1">
-            <span className="text-[var(--brand-primary)]/60 font-normal">🛠️ Skill</span>
+            <span className="text-[var(--brand-primary)]/60 font-normal inline-flex items-center gap-1">
+                <SkillIcon className="w-3.5 h-3.5"/>
+                Skill
+            </span>
             <span>{skillDisplayName}</span>
         </span>
     ) : toolCall.name === 'skill' ? (
-        <span className="font-mono font-semibold text-[var(--brand-primary)]">🛠️ Skill</span>
+        <span className="font-mono font-semibold text-[var(--brand-primary)] inline-flex items-center gap-1">
+            <SkillIcon className="w-3.5 h-3.5"/>
+            Skill
+        </span>
     ) : mcpDisplayName ? (
         /* MCP 工具：显示可读的服务名_工具名（如 m_GitHub_navigate_page） */
         <span className="font-semibold text-[var(--text-primary)] font-mono text-xs">
@@ -221,7 +231,7 @@ export default function ToolCallHeader({
     // ── 进度条（有百分比时显示） ──
     const progressBar = hasProgress ? (
         <div className="flex-1 mx-3 flex items-center gap-2">
-            <div className="w-full rounded-full h-1.5 bg-[rgba(255,255,255,0.05)] overflow-hidden">
+            <div className="w-full rounded-full h-1.5 bg-[var(--track)] overflow-hidden">
                 <div
                     className="h-1.5 rounded-full transition-all duration-300"
                     style={{
@@ -231,7 +241,7 @@ export default function ToolCallHeader({
                     }}
                 />
             </div>
-            <span className="text-[10px] text-[var(--text-muted)] whitespace-nowrap">
+            <span className="text-[10px] text-[var(--text-secondary)] whitespace-nowrap">
                 {progressPercent}%
                 {effectiveEta !== undefined && ` (${Math.ceil(effectiveEta)}s)`}
             </span>
@@ -266,7 +276,7 @@ export default function ToolCallHeader({
     return (
         <button
             onClick={onToggleExpanded}
-            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-white/[0.02] transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--surface-overlay)] transition-colors text-left"
          data-name="tool-call-header-toggle-expanded-button">
             {statusIndicator}
             {toolDisplayName}
@@ -275,7 +285,7 @@ export default function ToolCallHeader({
             {progressText}
             {metaSection}
             {/* Expand arrow */}
-            <span className="text-[var(--text-muted)] text-[10px]" aria-hidden="true">
+            <span className="text-[var(--text-secondary)] text-[10px]" aria-hidden="true">
                 {expanded ? '▾' : '▸'}
             </span>
         </button>

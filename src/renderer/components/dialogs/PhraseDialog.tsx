@@ -65,7 +65,7 @@ export default function PhraseDialog() {
 
     return (
         <div className="flex flex-col h-full text-[var(--text-primary)]" data-testid="phrase-dialog">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border)]">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-muted)]">
                 <div className="relative flex-1">
                     <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" aria-hidden="true">
                         <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
@@ -89,7 +89,7 @@ export default function PhraseDialog() {
                 )}
 
                 {filtered.length === 0 && editingId === null ? (
-                    <div className="text-center text-sm text-[var(--text-muted)] py-10">
+                    <div className="text-center text-sm text-[var(--text-secondary)] py-10">
                         {phrases.length === 0
                             ? '还没有快捷短语，点击右上角「新增」创建第一条'
                             : `未找到匹配 "${query}" 的短语`}
@@ -104,7 +104,7 @@ export default function PhraseDialog() {
                                     <span className="flex-1 min-w-0 truncate text-sm text-[var(--text-primary)]">{p.content}</span>
                                     <button
                                         onClick={e => { e.stopPropagation(); void doRemove(p) }}
-                                        className="opacity-0 group-hover:opacity-100 text-xs text-[var(--text-muted)] hover:text-red-500"
+                                        className="opacity-0 group-hover:opacity-100 text-xs text-[var(--text-secondary)] hover:text-red-500"
                                         data-name="phrase-dialog-delete-button"
                                     >删除</button>
                                 </div>

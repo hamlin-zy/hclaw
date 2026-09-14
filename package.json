@@ -1,6 +1,6 @@
 {
   "name": "hclaw",
-  "version": "0.5.13",
+  "version": "0.5.14",
   "description": "HClaw",
   "main": ".vite/main/index.js",
   "type": "commonjs",
@@ -23,6 +23,12 @@
     "make:all": "npm run build:prod && electron-builder --win --mac --linux",
     "publish": "electron-builder --win --publish always",
     "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit",
+    "typecheck:tools": "tsc -p tsconfig.tools.json --noEmit",
+    "lint:tools": "eslint eslint-rules eslint.config.ts scripts \"*.js\" \"*.mjs\" \"*.ts\" \".dependency-cruiser.js\"",
+    "verify": "npm run typecheck && npm run typecheck:tools && npm run lint && npm run lint:tools && npm run test && npm run build && npm run audit:muted && npm run audit:contrast",
+    "audit:muted": "node scripts/audit-muted-text.mjs",
+    "audit:contrast": "node scripts/audit-contrast.mjs",
     "postinstall": "patch-package && echo 'Native modules handled by @photostructure/sqlite'",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -73,6 +79,7 @@
     "rehype-raw": "^7.0.0",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
+    "sharp": "^0.34.5",
     "simple-git": "^3.36.0",
     "use-sync-external-store": "^1.6.0",
     "zod": "^4.3.6",
@@ -105,12 +112,12 @@
     "jsdom": "^30.0.1",
     "patch-package": "^8.0.1",
     "postcss": "^8.4.35",
-    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.11",
     "vitest": "^4.1.5",
     "weixin-agent-sdk": "^0.5.0"
   },
-  "config": {}
+  "config": {},
+  "//verify": "verify 故意不含 lint:deps：.dependency-cruiser 有 1 条既有循环依赖违规（非本分支引入），收口标准是「不劣化于基线」而非 exit 0，需人工判读，故单列 `npm run lint:deps` 而不进 verify。"
 }

@@ -32,7 +32,7 @@ export default function BrowserShellWindow() {
                             className="w-8 h-8 rounded-full border-2 border-[var(--border)] border-t-[var(--brand-primary)] animate-spin"
                             data-name="builtin-browser-loading"
                         />
-                        <span className="text-xs text-[var(--text-muted)]">页面加载中…</span>
+                        <span className="text-xs text-[var(--text-secondary)]">页面加载中…</span>
                     </div>
                 )}
             </div>

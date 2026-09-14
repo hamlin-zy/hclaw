@@ -54,8 +54,6 @@ export default function MainWorkspace() {
             <div className="flex-1 relative min-h-0">
                 {!activeConversationId ? (
                     <EmptyStateCard message="请在左侧选择一个工作目录和会话"/>
-                ) : renderableIds.length === 0 ? (
-                    <EmptyStateCard message="暂无会话，请在左侧创建一个新会话"/>
                 ) : (
                     renderableIds.map(id => (
                         <div
@@ -74,7 +72,7 @@ export default function MainWorkspace() {
                 <div
                     className="shrink-0 bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] overflow-hidden">
                     <div className="h-28 flex items-center justify-center">
-                        <div className="text-[var(--text-muted)] text-sm">选择一个会话后开始对话</div>
+                        <div className="text-[var(--text-secondary)] text-sm">选择一个会话后开始对话</div>
                     </div>
                 </div>
             )}

@@ -87,7 +87,7 @@ export default function ConfigDialogWindow() {
                 {config
                     ? <config.Component/>
                     : (
-                        <div className="h-full flex items-center justify-center text-sm text-[var(--text-muted)]">
+                        <div className="h-full flex items-center justify-center text-sm text-[var(--text-secondary)]">
                             未知配置类型: {dialogType}
                         </div>
                     )}

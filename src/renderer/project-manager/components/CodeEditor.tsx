@@ -96,7 +96,7 @@ const themedTheme = EditorView.theme({
   '&.cm-editor .cm-searchMatch': {backgroundColor: 'var(--code-match)'},
   '&.cm-editor .cm-searchMatch.cm-searchMatch-selected': {
     backgroundColor: 'var(--code-match)',
-    outline: '1px solid var(--brand-primary)',
+    outline: '1px solid var(--focus-ring)',
   },
   '&.cm-editor .cm-matchingBracket': {
     backgroundColor: 'var(--code-match)',

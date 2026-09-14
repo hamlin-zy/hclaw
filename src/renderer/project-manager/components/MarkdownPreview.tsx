@@ -7,6 +7,7 @@ import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter'
 import {oneDark, oneLight} from 'react-syntax-highlighter/dist/esm/styles/prism'
 import LinkContextMenu from '../../components/common/LinkContextMenu'
 import {resolveMarkdownImageSrc} from '../utils/mdImageSrc'
+import {DARK_THEMES} from '@shared/types/theme'
 
 /**
  * 只读 Markdown 预览（项目管理窗口专用）。
@@ -45,9 +46,7 @@ import {resolveMarkdownImageSrc} from '../utils/mdImageSrc'
  */
 const LINK_OPENING_MODE: 'builtin' | 'system' | 'ask' = 'ask'
 
-/** 深色主题集合（与 lib/theme.ts 的 applyThemeClass 同源）：class 挂在 <html> 上 */
-const DARK_THEMES = ['dark', 'yuanshandai']
-
+/** 深色主题集合（唯一权威 @shared/types/theme）：class 挂在 <html> 上 */
 function isDarkTheme(): boolean {
   const el = document.documentElement
   return DARK_THEMES.some(t => el.classList.contains(t))

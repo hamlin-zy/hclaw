@@ -68,9 +68,9 @@ describe('Commit 行四段式（spec §9.1 / G9）', () => {
     expect(cs.minWidth).toBe('0px')
   })
 
-  it('行高 24px（commit 列表专属尺度，spec §13.2）', () => {
+  it('行高 26px（commit 列表专属尺度，spec §13.2）', () => {
     render(<GitDagGraph sortAsc={false} />)
-    expect(getComputedStyle(screen.getByTestId('pm-commit-row')).height).toBe('24px')
+    expect(getComputedStyle(screen.getByTestId('pm-commit-row')).height).toBe('26px')
   })
 
   it('subject 全文走 tooltip', () => {

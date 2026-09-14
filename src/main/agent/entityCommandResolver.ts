@@ -73,3 +73,17 @@ export function resolveEntityCommand(name: string): {
 
     return null
 }
+
+/**
+ * 仅解析技能（skill）的命令模板；用于「capability 只支持技能」的调用方
+ * （session_handoff）。不查 agent 注册表 —— agent 命中会被调用方视为未命中。
+ * 返回规范名 name（而非调用方传入的原文），供 `/name` 前缀拼装，保证新会话
+ * detectCommandContext 必然可解析。
+ */
+export function resolveSkillCommand(name: string): {template: string; commandId: string; name: string} | null {
+    const skill = skillRegistry.find(name)
+    if (skill?.enabled) {
+        return {template: buildSkillCommandTemplate(skill), commandId: `skill:${skill.id}`, name: skill.name}
+    }
+    return null
+}

@@ -109,10 +109,7 @@ describe('memoStore attachments', () => {
         expect(fs.existsSync(staleDir)).toBe(false)
     })
 
-    it('createSession 之外：附件 20 个上限由 UI 层拦截（此处仅单条上传）', async () => {
-        // 占位断言：上限逻辑在渲染层（spec §9），主进程不做限制
-        expect(true).toBe(true)
-    })
+    // 注：附件 20 个上限由渲染层拦截（spec §9），主进程不做限制，故此处无对应用例。
 
     it('同名附件迁移不互相覆盖：5个同名文件 create 后各自独立', async () => {
         const store = await freshStore()

@@ -305,7 +305,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
             <div className="w-full max-w-xl bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl overflow-hidden"
                  onClick={e => e.stopPropagation()} data-name="schedule-edit-modal-div">
-                <div className="px-5 py-3 border-b border-[var(--border)] flex items-center justify-between">
+                <div className="px-5 py-3 border-b border-[var(--border-muted)] flex items-center justify-between">
                     <h3 className="text-sm font-medium text-[var(--text-primary)]">
                         {!initial?.id ? '新建定时任务' : '编辑定时任务'}
                     </h3>
@@ -344,7 +344,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                             ]}
                             ariaLabel="工作目录"
                         />
-                        <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">定时任务创建的会话将归属于此工作目录</p>
+                        <p className="mt-0.5 text-[10px] text-[var(--text-secondary)]">定时任务创建的会话将归属于此工作目录</p>
                     </div>
 
                     {/* 模式选择 */}
@@ -355,7 +355,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                     className={`flex-1 px-3 py-2 text-xs rounded-lg border transition-colors ${
                                         mode === 'capability'
                                             ? 'bg-green-50 dark:bg-green-500/10 border-[var(--border)] shadow-sm text-green-600 dark:text-green-400 font-medium'
-                                            : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
+                                            : 'border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                     }`} data-name="schedule-edit-modal-capability-mode-button">
                                 <div className="font-medium">可用能力</div>
                                 <div className="text-[10px] opacity-70 mt-0.5">从 Agent / Skill / 命令中选择</div>
@@ -364,7 +364,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                     className={`flex-1 px-3 py-2 text-xs rounded-lg border transition-colors ${
                                         mode === 'script'
                                             ? 'bg-green-50 dark:bg-green-500/10 border-[var(--border)] shadow-sm text-green-600 dark:text-green-400 font-medium'
-                                            : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
+                                            : 'border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                     }`} data-name="schedule-edit-modal-script-mode-button">
                                 <div className="font-medium">本地脚本</div>
                                 <div className="text-[10px] opacity-70 mt-0.5">执行本地文件系统中的脚本</div>
@@ -389,7 +389,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                     浏览
                                 </button>
                             </div>
-                            <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{scriptTypeHint}</p>
+                            <p className="mt-0.5 text-[10px] text-[var(--text-secondary)]">{scriptTypeHint}</p>
                             <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange}
                                    accept={platform === 'win32' ? '.bat,.ps1,.cmd,.exe' : '.sh,.zsh,.bash'} data-name="schedule-edit-modal-file-input"/>
                         </div>
@@ -412,7 +412,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                       : '告诉 AI 要做什么，例如：请对 src/main 目录下的所有 TypeScript 文件做代码审查'}
                                   className="w-full px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)] resize-none min-h-[80px] overflow-hidden" data-name="schedule-edit-modal-textarea"/>
                         {mode !== 'script' && (
-                            <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">作为 Agent 的初始指令。留空则使用能力本身的默认行为。</p>
+                            <p className="mt-0.5 text-[10px] text-[var(--text-secondary)]">作为 Agent 的初始指令。留空则使用能力本身的默认行为。</p>
                         )}
                     </div>
 
@@ -425,7 +425,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                             <span className="flex-1 min-w-0">
                                 <span className="text-[var(--text-muted)]">频率: </span>
                                 <span className="text-[var(--text-primary)] font-medium">{cronHuman}</span>
-                                <code className="ml-1.5 text-[10px] text-[var(--text-muted)] font-mono">({cronExpr})</code>
+                                <code className="ml-1.5 text-[10px] text-[var(--text-secondary)] font-mono">({cronExpr})</code>
                             </span>
                             <svg className={`w-3.5 h-3.5 text-[var(--text-muted)] shrink-0 transition-transform ${cronExpanded ? 'rotate-180' : ''}`}
                                  viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -540,7 +540,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                                    onChange={e => updateCron({customExpr: e.target.value})}
                                                    placeholder="0 9 * * 1-5"
                                                    className="w-full px-3 py-1.5 text-xs font-mono bg-[var(--surface)] rounded border border-[var(--border)] text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]" data-name="schedule-edit-modal-custom-cron-input"/>
-                                            <p className="mt-1 text-[10px] text-[var(--text-muted)]">
+                                            <p className="mt-1 text-[10px] text-[var(--text-secondary)]">
                                                 格式: 分 时 日 月 周 &nbsp;
                                                 <span className="text-[var(--brand-primary)] cursor-pointer"
                                                       onClick={() => window.electronAPI?.openExternal?.('https://crontab.guru/')} data-name="schedule-edit-modal-span">crontab.guru 查看帮助 ↗</span>
@@ -563,9 +563,9 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                     )}
                 </div>
 
-                <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border)] bg-[var(--surface-muted)]">
+                <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-muted)] bg-[var(--surface-muted)]">
                     <button onClick={onClose}
-                            className="px-3 py-1.5 text-xs rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)] transition-colors" data-name="schedule-edit-modal-cancel-button">取消</button>
+                            className="px-3 py-1.5 text-xs rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)] transition-colors" data-name="schedule-edit-modal-cancel-button">取消</button>
                     <button onClick={handleSave}
                             className="px-4 py-1.5 text-xs font-medium rounded-md bg-[var(--brand-primary)] text-white hover:opacity-90 transition-opacity" data-name="schedule-edit-modal-save-button">保存</button>
                 </div>

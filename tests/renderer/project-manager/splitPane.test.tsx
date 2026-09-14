@@ -150,7 +150,15 @@ describe('分隔条样式契约（spec §5.3）', () => {
     expect(CSS).toMatch(/\.pm-split-handle--y\s*\{[^}]*cursor\s*:\s*row-resize/)
   })
 
-  it('回归守卫：不得有 hover 浮动反馈（用户明确要求）', () => {
-    expect(CSS).not.toMatch(/\.pm-split-handle:hover/)
+  // 契约更新：命中区仍 5px / 本体仍透明，但 hover 会在**中缝**浮出一条 1px 提示线。
+  // 该提示画在伪元素上（pointer-events: none），因此不改变命中区宽度、也不做尺寸浮起。
+  it('回归守卫：hover 提示只走伪元素中缝，命中区宽度与本体透明不变', () => {
+    expect(CSS).toMatch(/\.pm-split-handle::after\s*\{[^}]*pointer-events\s*:\s*none/)
+    expect(CSS).toMatch(/\.pm-split-handle:hover::after\s*\{[^}]*background\s*:\s*var\(--border-emphasis\)/)
+    // 竖条左右各留 2px → 呈现 1px 中缝；横条同理
+    expect(CSS).toMatch(/\.pm-split-handle--x::after\s*\{[^}]*left\s*:\s*2px;[^}]*right\s*:\s*2px/)
+    expect(CSS).toMatch(/\.pm-split-handle--y::after\s*\{[^}]*top\s*:\s*2px;[^}]*bottom\s*:\s*2px/)
+    // 本体不得有 hover 背景（那是「浮起」的旧观感，用户明确否决）
+    expect(CSS).not.toMatch(/\.pm-split-handle:hover\s*\{/)
   })
 })

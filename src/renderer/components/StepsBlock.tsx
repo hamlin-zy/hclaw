@@ -58,7 +58,7 @@ const StepItem = memo(function StepItem({step, depth, index}: { step: StepNode; 
                     step.status === 'running' ? 'bg-[var(--info)]/10 text-[var(--info)]'
                         : step.status === 'success' ? 'text-[var(--success)]'
                             : step.status === 'error' ? 'bg-[var(--error)]/10 text-[var(--error)]'
-                                : 'text-[var(--text-muted)]'
+                                : 'text-[var(--text-secondary)]'
                 }`}
                 style={{paddingLeft: `${depth * 16 + 8}px`}}
             >
@@ -86,7 +86,7 @@ const StepsBlock = memo(function StepsBlock({stepsBlock}: { stepsBlock: StepsBlo
         <button
           onClick={() => setIsUltraExpanded(!isUltraExpanded)}
           aria-expanded={isUltraExpanded}
-          className="flex items-center gap-[var(--space-snug)] text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+          className="flex items-center gap-[var(--space-snug)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
          data-name="steps-block-button">
           <svg
             className={`w-2.5 h-2.5 transition-transform duration-200 ${isUltraExpanded ? 'rotate-90' : ''}`}

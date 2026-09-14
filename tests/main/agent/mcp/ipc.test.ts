@@ -1,3 +1,11 @@
+/**
+ * 批 4 · #17 mcp:restart-server 错误透传（controller 终审修复波补录 DoD#6）
+ *
+ * 变异验证记录（批 4 · P6）
+ * #17 变异：`ipc.ts` restart handler 的 `result.error ?? '重启失败'` 改回固定 `'重启失败'`
+ *      → ✅实测红：#17（AssertionError：fail/updateStatus 收到固定 '重启失败' 而非 'X'）
+ *      控制器实测：仅 #17 红，其余 10 绿。
+ */
 import {describe, expect, it, vi, beforeEach} from 'vitest'
 import {ipcMain, BrowserWindow} from 'electron'
 
@@ -8,6 +16,17 @@ const mockVersionMeta = vi.hoisted(() => ({
   upgradeResult: {success: true} as any,
   availableVersions: [] as string[],
   switchResult: {success: true} as any,
+}))
+
+const mockMcpService = vi.hoisted(() => ({
+  list: vi.fn(() => [] as any[]),
+  get: vi.fn(() => undefined as any),
+  updateStatus: vi.fn(),
+}))
+
+const mockMcpWorkerManager = vi.hoisted(() => ({
+  restartServer: vi.fn((_serverId: string) =>
+    Promise.resolve({success: true} as {success: boolean; error?: string})),
 }))
 
 vi.mock('@/main/agent/mcp/versionManager', () => ({
@@ -22,14 +41,6 @@ vi.mock('@/main/agent/mcp/versionManager', () => ({
   },
 }))
 
-vi.mock('@/main/agent/mcp/versionUtils', () => ({
-  parseNpmPackage: () => null,
-  compareVersions: () => null,
-  parseVersionOutput: () => null,
-  parseCheckUrlResponse: () => null,
-  stripV: (s: string) => s,
-}))
-
 vi.mock('electron', () => ({
   ipcMain: {
     handle: vi.fn(),
@@ -40,7 +51,7 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('@/main/services/mcpService', () => ({
-  mcpService: {list: () => [], get: () => undefined},
+  mcpService: mockMcpService,
 }))
 
 vi.mock('@/main/utils/windowBroadcast', () => ({
@@ -52,7 +63,7 @@ vi.mock('@/main/agent/logger', () => ({
 }))
 
 vi.mock('@/main/agent/mcp/mcpWorkerManager', () => ({
-  mcpWorkerManager: {restartServer: vi.fn().mockResolvedValue({success: true})},
+  mcpWorkerManager: mockMcpWorkerManager,
 }))
 
 vi.mock('@/main/plugin/versionManager', () => ({
@@ -180,5 +191,32 @@ describe('mcp:switch-version', () => {
     const result = await handler({}, 'srv-1', '2.0.0')
     expect(result.success).toBe(false)
     expect(String(result.error)).toContain('boom')
+  })
+})
+
+describe('mcp:restart-server 错误透传（批 4 · #17）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    registerMCPIPC()
+  })
+
+  function getHandler() {
+    const calls = (ipcMain.handle as any).mock.calls
+    const entry = calls.find(([channel]: any[]) => channel === 'mcp:restart-server')
+    expect(entry).toBeDefined()
+    return entry![1]
+  }
+
+  it('#17 失败时把 Worker 的 error 透传给 updateStatus 与 fail（前缀用 toContain）', async () => {
+    mockMcpService.get.mockReturnValue({id: 's1', name: 's1'})
+    mockMcpWorkerManager.restartServer.mockResolvedValueOnce({success: false, error: 'X'})
+
+    const handler = getHandler()
+    const result = await handler({}, 's1')
+
+    expect(mockMcpService.updateStatus).toHaveBeenCalledWith('s1', 'error', 'X')
+    expect(result.success).toBe(false)
+    // ipc.ts:18 的 fail = String(err) → 'Error: X'，故用 toContain 而非全等
+    expect(String(result.error)).toContain('X')
   })
 })

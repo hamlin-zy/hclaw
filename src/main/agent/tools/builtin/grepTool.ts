@@ -36,10 +36,7 @@ export const grepTool: Tool<GrepInput, string> = {
     const {
       pattern,
       directory,
-      filePattern,
-      maxResults = 50,
       caseInsensitive = false,
-      maxDepth,
     } = args
 
     const searchDir = directory

@@ -15,6 +15,7 @@ import {resolveAgentDefinitionForTurn} from './agentTemplateConverter'
 import {createConversationRepository} from '../repositories'
 import {logger} from './logger'
 import {convertAssistantHistoryMessage} from './ipc/historyConverter'
+import {injectLoadedImages} from './utils/loadImageInjection'
 import {getUsableTextRoles} from '@shared/modelSchemeHelpers'
 import type {SystemSettings} from '@shared/types'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
@@ -217,7 +218,9 @@ export async function startAgentCore(params: CoreStartParams, origin: StartOrigi
 
     // DB 读回顺序即插入顺序（timestamp ASC, rowid ASC），CT/catalog 等真实持久化
     // 消息已按真实位置落库，无需重定位
-    const messages = convertedMessages
+    // ★ R3：重启/跨轮重建时，用与 loop 侧同一个派生函数把 load_image 快照重新注入为
+    //   合成 user 消息（不写 DB；仅请求构建态，R1）。无变更时返回原引用，行为不变。
+    const messages = await injectLoadedImages(convertedMessages)
     // suppressUserMessage: true 时由渠道调用方已自行落库/推送 user 消息，
     // 本次仅以 DB 历史重建上下文，不重推 params.message
     if (!params.suppressUserMessage) {

@@ -10,9 +10,11 @@ export interface IconButtonProps {
   pressed?: boolean
   disabled?: boolean
   size?: number
+  /** 传入表示这是加载中按钮，图标会持续旋转（.pm-spin） */
+  spin?: boolean
 }
 
-export function IconButton({icon: Icon, label, onClick, pressed, disabled = false, size = 14}: IconButtonProps) {
+export function IconButton({icon: Icon, label, onClick, pressed, disabled = false, size = 14, spin}: IconButtonProps) {
   const isToggle = typeof pressed === 'boolean'
   return (
     <button
@@ -24,7 +26,7 @@ export function IconButton({icon: Icon, label, onClick, pressed, disabled = fals
       disabled={disabled}
       onClick={onClick}
     >
-      <Icon size={size} aria-hidden="true" />
+      <Icon size={size} aria-hidden="true" className={spin ? 'pm-spin' : undefined} />
     </button>
   )
 }

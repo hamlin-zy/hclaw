@@ -4,7 +4,27 @@ import type {DirEntry} from '@shared/types/project-manager'
 import {registerMemorySource} from '../../utils/memoryWatermark'
 import {applyMultiSelect} from '../lib/multiSelect'
 
-export const CACHE_LIMIT = 500   // 目录缓存 LRU 上限（大仓全量展开防常驻数十 MB）
+/** 目录缓存 LRU 上限（大仓全量展开防常驻数十 MB）。
+ *  语义为「**除根外**的目录缓存上限」：根键 '.' 被固定保留、永不驱逐（见 evictOverflow）。 */
+export const CACHE_LIMIT = 500
+
+/** 根目录缓存键：整棵树的渲染前提，被驱逐会让 FileTree 的 rootLoaded 永久为 false（骨架屏驻留）。 */
+const ROOT_KEY = '.'
+
+/**
+ * LRU 淘汰：从 order 头部起驱逐最久未用者，但**固定保留根键 '.'**。
+ * 原因：根是整棵树的渲染前提（rootLoaded = childrenCache['.'] !== undefined），
+ * 一旦被挤出缓存，既无渲染入口也无重取触发器 → 永久骨架屏。
+ * '.' 可能不在 order 中（尚未加载），此时按普通 LRU 直接驱逐；order 只剩根键时提前结束。
+ */
+const evictOverflow = (order: string[], cache: Record<string, DirEntry[]>): void => {
+  while (order.length > CACHE_LIMIT) {
+    const idx = order.findIndex(p => p !== ROOT_KEY)
+    if (idx === -1) break               // 只剩根键：无可驱逐项，宁可超限也不丢根
+    const [evict] = order.splice(idx, 1)
+    delete cache[evict]
+  }
+}
 
 interface FileTreeStore {
   /** 当前缓存归属的 workspace；缓存键仍是相对路径，切 ws 时整体失效 */
@@ -61,11 +81,8 @@ export const useFileTreeStore = create<FileTreeStore>()((set, get) => ({
     set(s => {
       const cache = {...s.childrenCache, [path]: entries}
       const order = [...s.cacheOrder.filter(p => p !== path), path]
-      // LRU 淘汰最久未访问
-      while (order.length > CACHE_LIMIT) {
-        const evict = order.shift()!
-        delete cache[evict]
-      }
+      // LRU 淘汰最久未访问（固定保留根键，见 evictOverflow）
+      evictOverflow(order, cache)
       return {childrenCache: cache, cacheOrder: order}
     })
   },
@@ -79,10 +96,7 @@ export const useFileTreeStore = create<FileTreeStore>()((set, get) => ({
       const cache = {...s.childrenCache, ...entries}
       const incoming = new Set(paths)
       const order = [...s.cacheOrder.filter(p => !incoming.has(p)), ...paths]   // 批量路径统一移到 LRU 尾部
-      while (order.length > CACHE_LIMIT) {
-        const evict = order.shift()!
-        delete cache[evict]
-      }
+      evictOverflow(order, cache)   // 同样固定保留根键
       return {childrenCache: cache, cacheOrder: order}
     })
   },

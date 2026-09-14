@@ -27,6 +27,11 @@ type LoadState =
     | { status: 'error'; message: string }
     | { status: 'done'; data: ConversationUsageStats }
 
+/** 总 token = 输入 + 输出 + 缓存命中 + 缓存写入（含全部 token 流量） */
+function totalTokens(d: ConversationUsageStats): number {
+    return d.totalInputTokens + d.totalOutputTokens + d.totalCacheReadTokens + d.totalCacheWriteTokens
+}
+
 /** 会话用量统计弹窗
  * App 级渲染（App.tsx），CustomEvent 触发，与 ConfirmDialog 同体系
  */
@@ -100,10 +105,6 @@ export default function UsageStatsDialog() {
         return () => document.removeEventListener('keydown', onEsc)
     }, [options, handleClose])
 
-    // 总 token = 输入 + 输出 + 缓存命中 + 缓存写入（含全部 token 流量）
-    const totalTokens = (d: ConversationUsageStats) =>
-        d.totalInputTokens + d.totalOutputTokens + d.totalCacheReadTokens + d.totalCacheWriteTokens
-
     const renderBody = () => {
         if (load.status === 'loading') {
             return (
@@ -149,7 +150,7 @@ export default function UsageStatsDialog() {
                         <rect x="3" y="14" width="7" height="7" rx="1.5"/>
                         <rect x="14" y="14" width="7" height="7" rx="1.5"/>
                     </svg>
-                    <span className="text-xs text-[var(--text-muted)]">统计范围</span>
+                    <span className="text-xs text-[var(--text-secondary)]">统计范围</span>
                     <span className="ml-auto text-xs font-medium text-[var(--text-primary)] tabular-nums">{scope}</span>
                 </div>
 
@@ -185,11 +186,11 @@ export default function UsageStatsDialog() {
                 </div>
 
                 {/* 分组用量（会话运行期间切换服务商/模型的用量下钻） */}
-                {load.status === 'done' && load.data.breakdown.length > 0 && (
+                {load.data.breakdown.length > 0 && (
                     <>
                         <div className="my-3 border-t border-dashed border-[var(--border-dashed)]"/>
                         <div className="flex items-center justify-between pt-2 pb-1">
-                            <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">分组用量</span>
+                            <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-secondary)]">分组用量</span>
                             <div className="flex gap-0.5 p-0.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border-muted)]">
                                 <button onClick={() => setGroupView('provider')}
                                         className={`px-2 py-0.5 text-[11px] rounded-md transition-colors ${groupView === 'provider' ? 'bg-[var(--surface-elevated)] shadow-sm' : 'text-[var(--text-muted)]'}`} data-name="usage-stats-dialog-group-provider-button">
@@ -241,17 +242,17 @@ export default function UsageStatsDialog() {
                                                 请求 <b className="text-[var(--text-primary)]">{b.requestCount}</b> 次 · 合计 <b className="text-[var(--text-primary)]">{formatTokenCount(b.totalTokens)}</b>
                                             </div>
                                             <div className="grid grid-cols-5 gap-2 mt-2 pt-2 border-t border-[var(--border-muted)]">
-                                                <div><div className="text-[9px] text-[var(--text-muted)]">输入</div><div className="text-xs tabular-nums">{formatTokenCount(b.inputTokens)}</div></div>
-                                                <div><div className="text-[9px] text-[var(--text-muted)]">输出</div><div className="text-xs tabular-nums">{formatTokenCount(b.outputTokens)}</div></div>
-                                                <div><div className="text-[9px] text-[var(--text-muted)]">缓存命中</div><div className="text-xs tabular-nums">{b.cacheReadTokens > 0 ? formatTokenCount(b.cacheReadTokens) : '—'}</div></div>
+                                                <div><div className="text-[9px] text-[var(--text-secondary)]">输入</div><div className="text-xs tabular-nums">{formatTokenCount(b.inputTokens)}</div></div>
+                                                <div><div className="text-[9px] text-[var(--text-secondary)]">输出</div><div className="text-xs tabular-nums">{formatTokenCount(b.outputTokens)}</div></div>
+                                                <div><div className="text-[9px] text-[var(--text-secondary)]">缓存命中</div><div className="text-xs tabular-nums">{b.cacheReadTokens > 0 ? formatTokenCount(b.cacheReadTokens) : '—'}</div></div>
                                                 <div>
-                                                    <div className="text-[9px] text-[var(--text-muted)]">综合价格/M</div>
+                                                    <div className="text-[9px] text-[var(--text-secondary)]">综合价格/M</div>
                                                     <div className="text-xs tabular-nums text-[var(--brand-primary)]">
                                                         {formatPricePerMillionTokens(b.costUsd, b.inputTokens, b.outputTokens, b.cacheReadTokens, b.cacheWriteTokens, currency)}
                                                     </div>
                                                 </div>
                                                 <div>
-                                                    <div className="flex items-center gap-0.5 text-[9px] text-[var(--text-muted)]">
+                                                    <div className="flex items-center gap-0.5 text-[9px] text-[var(--text-secondary)]">
                                                         成本
                                                         <InfoTip text={getCostDisclaimer()} placement="top"/>
                                                     </div>
@@ -297,7 +298,7 @@ export default function UsageStatsDialog() {
                             <div
                                 onMouseDown={handleDragStart}
                                 onTouchStart={handleDragStart}
-                                className={`px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)] select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                                className={`px-5 py-4 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)] select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-[var(--brand-muted)]">
@@ -311,7 +312,7 @@ export default function UsageStatsDialog() {
                                         <h2 id="usage-stats-title" className="text-sm font-semibold text-[var(--text-primary)] truncate">
                                             用量统计 · {options.title}
                                         </h2>
-                                        <p className="text-xs text-[var(--text-muted)] mt-0.5">会话 token 消耗与缓存概览</p>
+                                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">会话 token 消耗与缓存概览</p>
                                     </div>
                                     <button
                                         onClick={handleClose}

@@ -347,7 +347,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
 
             {/* 分区 2：Token 统计表 */}
             <div className="border-t border-dashed border-[var(--border-emphasis)] mt-1.5 pt-1.5">
-              <div className="grid grid-cols-[3rem_1fr_1fr] gap-x-3 gap-y-0.5 text-[10px] text-[var(--text-muted)]">
+              <div className="grid grid-cols-[3rem_1fr_1fr] gap-x-3 gap-y-0.5 text-[10px] text-[var(--text-secondary)]">
                 <span/><span className="text-right">累计</span><span className="text-right">当前</span>
               </div>
               <div className="grid grid-cols-[3rem_1fr_1fr] gap-x-3 gap-y-0.5 text-[11px]">
@@ -373,7 +373,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
           </>
         ) : (
           /* 生效模型无历史数据（会话有其他模型数据）→ 空态提示，历史模型仍可切换 */
-          <div className="py-3 text-center text-[11px] text-[var(--text-muted)]">该模型暂无请求数据</div>
+          <div className="py-3 text-center text-[11px] text-[var(--text-secondary)]">该模型暂无请求数据</div>
         )}
       </div>
     </div>
@@ -384,7 +384,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
       <span
        data-name="input-toolbar-cache-rate"
         ref={triggerRef}
-        className="flex items-center gap-1 text-sm text-[var(--text-muted)] cursor-help tabular-nums leading-none whitespace-nowrap"
+        className="flex items-center gap-1 text-sm text-[var(--text-secondary)] cursor-help tabular-nums leading-none whitespace-nowrap"
         onMouseEnter={scheduleShow}
         onMouseLeave={scheduleHide}
       >

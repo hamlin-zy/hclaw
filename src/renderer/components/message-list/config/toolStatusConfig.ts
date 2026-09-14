@@ -8,11 +8,15 @@
  * 统一数据源，避免重复维护。
  */
 
+import type {ComponentType} from 'react'
+import {ClockIcon, ErrorIcon, LoadingIcon, PauseIcon, SuccessIcon} from '../../icons'
+
 /** 单个状态样式配置 */
 interface StatusStyle {
     color: string
     bg: string
-    icon: string
+    /** 状态图标组件（描边 SVG，继承 currentColor） */
+    icon: ComponentType<{className?: string}>
     label: string
     glowClass: string
     badgeClass: string
@@ -25,24 +29,24 @@ type StatusConfig = Record<string, StatusStyle>
 const STATUS_STYLES: StatusConfig = {
     pending: {
         color: 'text-[var(--text-muted)]',
-        bg: 'bg-[var(--surface-elevated)]/50 border border-[rgba(255,255,255,0.04)]',
-        icon: '●',
+        bg: 'bg-[var(--chip-bg)] border border-[var(--chip-border)]',
+        icon: ClockIcon,
         label: '待执行',
         glowClass: '',
-        badgeClass: 'bg-[var(--surface-elevated)]/50 text-[var(--text-muted)]',
+        badgeClass: 'bg-[var(--chip-bg)] border border-[var(--chip-border)] text-[var(--text-muted)]',
     },
     running: {
         color: 'text-[var(--info)]',
-        bg: 'bg-[var(--info-muted)]/30 border border-[rgba(91,141,217,0.25)]',
-        icon: '●',
+        bg: 'bg-[var(--info-muted)]/30 border border-[rgba(91,141,217,0.38)]',
+        icon: LoadingIcon,
         label: '执行中',
-        glowClass: 'ring-2 ring-[var(--info)]/20 ring-offset-1 ring-offset-[var(--surface)]',
+        glowClass: 'shadow-[0_0_0_3px_rgba(91,141,217,0.08)]',
         badgeClass: 'bg-[var(--info-muted)]/30 text-[var(--info)]',
     },
     success: {
         color: 'text-[var(--success)]',
         bg: 'bg-[var(--success-muted)]/30 border border-[rgba(16,185,129,0.2)]',
-        icon: '✔',
+        icon: SuccessIcon,
         label: '成功',
         glowClass: '',
         badgeClass: 'bg-[var(--success-muted)]/30 text-[var(--success)]',
@@ -50,18 +54,18 @@ const STATUS_STYLES: StatusConfig = {
     error: {
         color: 'text-[var(--error)]',
         bg: 'bg-[var(--error-muted)]/30 border border-[rgba(196,92,92,0.2)]',
-        icon: '✗',
+        icon: ErrorIcon,
         label: '失败',
         glowClass: '',
         badgeClass: 'bg-[var(--error-muted)]/30 text-[var(--error)]',
     },
     cancelled: {
         color: 'text-[var(--text-muted)]',
-        bg: 'bg-[var(--surface-elevated)]/40 border border-[rgba(255,255,255,0.08)]',
-        icon: '■',
+        bg: 'bg-[var(--chip-bg)] border border-[var(--chip-border)]',
+        icon: PauseIcon,
         label: '已取消',
         glowClass: '',
-        badgeClass: 'bg-[var(--surface-elevated)]/40 text-[var(--text-muted)]',
+        badgeClass: 'bg-[var(--chip-bg)] border border-[var(--chip-border)] text-[var(--text-muted)]',
     },
 }
 

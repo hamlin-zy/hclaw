@@ -295,7 +295,7 @@ describe('MemoEditDialog', () => {
         expect(area.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
 
-    it('图片附件渲染 <img> 预览（hclaw-media:// URL），非图片渲染 📎 chip', async () => {
+    it('图片附件渲染 <img> 预览（hclaw-media:// URL），非图片渲染附件图标 chip', async () => {
         stubWindow({memoId: 'memo-1'})
         h.memoApi.getById.mockResolvedValue({
             ok: true,
@@ -312,7 +312,8 @@ describe('MemoEditDialog', () => {
         const img = screen.getByTestId('memo-attachment-image') as HTMLImageElement
         expect(img.getAttribute('src')).toBe('hclaw-media:///E:/p/photo.PNG')
         expect(screen.getByText('notes.pdf')).toBeTruthy()
-        expect(screen.getByText('📎')).toBeTruthy()
+        // 附件图标改为描边 SVG（AttachmentIcon），不再用 📎 emoji
+        expect(screen.getByText('notes.pdf').parentElement!.querySelector('svg')).toBeTruthy()
     })
 
     it('点击附件卡片 × → removeAttachment；暂存附件触发 discardPending', async () => {
@@ -330,7 +331,7 @@ describe('MemoEditDialog', () => {
         expect(screen.queryByTestId('memo-attachment-card')).toBeNull()
     })
 
-    it('暂存附件（storedPath=pending）即使是图片也降级为 📎 chip，不渲染 <img>（避免 404 破图）', async () => {
+    it('暂存附件（storedPath=pending）即使是图片也降级为附件图标 chip，不渲染 <img>（避免 404 破图）', async () => {
         stubWindow({workspace: P})
         h.memoApi.uploadAttachment.mockResolvedValue({ok: true, data: {id: 'att-pend-img', fileName: 'pend.png', storedPath: 'pending', mime: 'image/png', kind: 'image'}})
         render(<MemoEditDialog/>)
@@ -340,7 +341,7 @@ describe('MemoEditDialog', () => {
         await waitFor(() => expect(screen.getByTestId('memo-attachment-card')).toBeTruthy())
 
         expect(screen.queryByTestId('memo-attachment-image')).toBeNull()
-        expect(screen.getByText('📎')).toBeTruthy()
+        expect(screen.getByText('pend.png').parentElement!.querySelector('svg')).toBeTruthy()
         expect(screen.getByText('pend.png')).toBeTruthy()
     })
 

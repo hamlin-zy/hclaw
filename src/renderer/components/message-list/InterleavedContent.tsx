@@ -21,37 +21,22 @@ import {memo, useEffect, useMemo, useRef, useState} from 'react'
 import {useThemeStore} from '../../stores/themeStore'
 import {useAgentStore} from '../../stores/agentStore'
 import {useConversationStore} from '../../stores/conversationStore'
-import type {Message, ToolCall, ThinkBlock as ThinkBlockType, MediaBlock} from '@shared/types'
+import type {Message, ThemeName} from '@shared/types'
 import {isUltraCompactMode} from '../../lib/displayMode'
 import ThinkBlock from '../ThinkBlock'
 import MarkdownRenderer from './MarkdownRenderer'
 import ToolCallRenderer, {UltraCompactToolGroup, UltraCompactCombinedGroup} from './ToolCallRenderer'
-import {getToolDescription, resolveAgentDisplayName, resolveSkillDisplayName, isSkillToolCall} from './utils/messageUtils'
+import {resolveAgentDisplayName, resolveSkillDisplayName, isSkillToolCall} from './utils/messageUtils'
+import {buildDisplaySegments, type Segment, type CombinedItem} from './utils/displaySegments'
 import MediaPlayer from './MediaPlayer'
+
+// 外部引用兼容：CombinedItem 现由 utils/displaySegments 定义
+export type {CombinedItem}
 
 interface InterleavedContentProps {
     message: Message
     isUser: boolean
 }
-
-/**
- * 交错片段类型
- */
-type Segment =
-    | { type: 'text'; content: string }
-    | { type: 'tool'; toolCall: ToolCall }
-    | { type: 'tool-with-reason'; reason: string; toolCall: ToolCall }
-    | { type: 'tool-group'; toolCalls: ToolCall[] }
-    | { type: 'think-thread'; thinkBlock: ThinkBlockType; blockId: string }
-    | { type: 'media'; mediaBlock: MediaBlock }
-    | { type: 'combined-group'; items: CombinedItem[]; thinkCount: number; toolCalls: ToolCall[] }
-
-/**
- * 聚合卡片中的有序条目（思考块或工具组）
- */
-export type CombinedItem =
-    | { type: 'think'; thinkBlock: ThinkBlockType; blockId: string }
-    | { type: 'tools'; toolCalls: ToolCall[] }
 
 /**
  * 增量渲染：流式期间对齐浏览器绘制节奏（rAF）渲染，避免 200ms 节流带来的"逐块冒出"卡顿。
@@ -71,7 +56,7 @@ export type CombinedItem =
  *   - 标签页隐藏时冻结渲染（不提交 setState、零 markdown 解析），恢复可见时合并渲染最新内容一次。
  */
 export function ThrottledMarkdown({content, isUser, theme}: {
-    content: string; isUser: boolean; theme: 'light' | 'dark' | 'yuanshandai' | 'shiyangjin'
+    content: string; isUser: boolean; theme: ThemeName
 }) {
     // ★ 修复：只订阅当前活跃会话的流式状态（原实现遍历全部会话，
     //   任一会话流式时，所有消息块的 ThrottledMarkdown 都会启动 rAF 循环，
@@ -168,61 +153,6 @@ const ThinkBlockMemo = memo(ThinkBlock, (prev, next) =>
 )
 
 /**
- * 【旧路径】从扁平字段（text + toolCalls.textOffset）构建交错片段。
- *
- * 后向兼容：旧消息没有 contentBlocks，通过 textOffset 属性确定工具调用在文本中的插入位置。
- * 当所有数据生产者迁移到 contentBlocks 后，此函数可移除。
- *
- * @param text   消息全文（message.content）
- * @param sorted 已按 textOffset 升序排列的工具调用列表
- * @returns 按时间序交错的片段数组
- */
-function buildSegmentsFromFlatFields(text: string, sorted: ToolCall[]): Segment[] {
-    const segs: Segment[] = []
-    let lastEnd = 0
-
-    for (const tc of sorted) {
-        const offset = tc.textOffset ?? lastEnd
-        if (offset > lastEnd) {
-            segs.push({type: 'text', content: text.slice(lastEnd, offset)})
-        }
-
-        // reason 只有在紧贴前一段末尾（无间隔文本）时才渲染为 tool-with-reason
-        if (tc.reason && lastEnd === offset) {
-            segs.push({type: 'tool-with-reason', reason: tc.reason, toolCall: tc})
-        } else {
-            segs.push({type: 'tool', toolCall: tc})
-        }
-        lastEnd = offset
-    }
-
-    // 剩余文本
-    if (lastEnd < text.length) {
-        segs.push({type: 'text', content: text.slice(lastEnd)})
-    }
-
-    // 兜底：没有任何文本段但有工具调用（textOffset 都为 0 或未设）
-    if (segs.length === 0 && sorted.length > 0) {
-        if (text) segs.push({type: 'text', content: text})
-        sorted.forEach((tc) => {
-            if (tc.reason) {
-                segs.push({type: 'tool-with-reason', reason: tc.reason, toolCall: tc})
-            } else {
-                // 尝试自动生成描述作为 reason
-                const desc = getToolDescription(tc)
-                if (desc) {
-                    segs.push({type: 'tool-with-reason', reason: desc, toolCall: tc})
-                } else {
-                    segs.push({type: 'tool', toolCall: tc})
-                }
-            }
-        })
-    }
-
-    return segs
-}
-
-/**
  * 交错内容组件
  */
 export default function InterleavedContent({message, isUser}: InterleavedContentProps) {
@@ -230,141 +160,17 @@ export default function InterleavedContent({message, isUser}: InterleavedContent
     const text = typeof message.content === 'string' ? message.content : ''
     const calls = message.toolCalls || []
 
-    // 按 textOffset 排序（仅旧路径使用）
-    const sorted = useMemo(() => [...calls].sort((a, b) => (a.textOffset ?? 0) - (b.textOffset ?? 0)), [calls])
-
-    // 构建交错片段
-    const segments = useMemo(() => {
-        // ── 新路径：使用 contentBlocks 有序渲染 ──────────────────────────────
-        if (message.contentBlocks && message.contentBlocks.length > 0) {
-            const segs: Segment[] = []
-            for (const cb of message.contentBlocks) {
-                switch (cb.type) {
-                    case 'think':
-                        if (cb.thinkBlock) {
-                            segs.push({type: 'think-thread', thinkBlock: cb.thinkBlock, blockId: cb.id})
-                        }
-                        break
-                    case 'text':
-                        if (cb.text) {
-                            segs.push({type: 'text', content: typeof cb.text === 'string' ? cb.text : ''})
-                        }
-                        break
-                    case 'tool_use':
-                        if (cb.toolCall) {
-                            const tc = cb.toolCall
-                            if (tc.reason) {
-                                segs.push({type: 'tool-with-reason', reason: tc.reason, toolCall: tc})
-                            } else {
-                                segs.push({type: 'tool', toolCall: tc})
-                            }
-                        }
-                        break
-                    case 'media':
-                        if (cb.media) {
-                            segs.push({type: 'media', mediaBlock: cb.media})
-                        }
-                        break
-                }
-            }
-            return segs
-        }
-
-        // ── 旧路径：使用 textOffset 交错（后向兼容） ─────────────────────────
-        return buildSegmentsFromFlatFields(text, sorted)
-    }, [message.contentBlocks, sorted, text])
-
-    // ── 紧凑模式：工具聚合 + 思考块合并 ──
     const displayMode = useAgentStore((s) => s.messageDisplayMode)
-    const processedSegments = useMemo(() => {
-        if (!isUltraCompactMode(displayMode)) return segments
-
-        // Step 1: 将连续 tool 片段聚合成 tool-group
-        const grouped: Segment[] = []
-        let toolGroup: ToolCall[] = []
-
-        const flushGroup = () => {
-            if (toolGroup.length > 0) {
-                grouped.push({type: 'tool-group', toolCalls: toolGroup})
-                toolGroup = []
-            }
-        }
-
-        for (const seg of segments) {
-            if (seg.type === 'tool') {
-                // Agent 工具：先 flush 当前组，再单独成组
-                if (seg.toolCall.name === 'agent') {
-                    flushGroup()
-                    grouped.push({type: 'tool-group', toolCalls: [seg.toolCall]})
-                } else {
-                    toolGroup.push(seg.toolCall)
-                }
-            } else {
-                // 非 tool 片段：flush 当前组再添加
-                flushGroup()
-                grouped.push(seg)
-            }
-        }
-        flushGroup()
-
-        // Step 2: 按正文分段，每段内连续的 think + tool 合并为一个聚合组
-        //
-        // ★ 修复：空白 text（trim 后为空，如 '\n\n\n'）在紧凑模式下不作为分隔符，
-        //   避免把「无正文」的连续 think+tool 切成多个聚合组——
-        //   用户期望没有正文时整个消息合并为一个组。
-        const result: Segment[] = []
-        let i = 0
-        while (i < grouped.length) {
-            const seg = grouped[i]
-            // text 作为分隔符；但空白文本不产生分隔（直接跳过）
-            if (seg.type === 'text') {
-                if (seg.content.trim()) {
-                    result.push(seg)
-                }
-                i++
-                continue
-            }
-            // 收集连续的 think-thread + tool-group（遇实质 text 即停）
-            if (seg.type === 'think-thread' || seg.type === 'tool-group') {
-                const items: CombinedItem[] = []
-                let thinkCount = 0
-                const allToolCalls: ToolCall[] = []
-
-                while (i < grouped.length) {
-                    const s = grouped[i]
-                    if (s.type === 'think-thread') {
-                        items.push({type: 'think', thinkBlock: s.thinkBlock, blockId: s.blockId})
-                        thinkCount++
-                        i++
-                    } else if (s.type === 'tool-group') {
-                        items.push({type: 'tools', toolCalls: s.toolCalls})
-                        allToolCalls.push(...s.toolCalls)
-                        i++
-                    } else if (s.type === 'text' && !s.content.trim()) {
-                        // 空白文本：跳过，不打断聚合
-                        i++
-                    } else {
-                        // 有实质内容的 text 或其他 → 分段边界，停止收集
-                        break
-                    }
-                }
-
-                if (items.length > 0) {
-                    result.push({type: 'combined-group', items, thinkCount, toolCalls: allToolCalls})
-                }
-            } else {
-                result.push(seg)
-                i++
-            }
-        }
-
-        return result
-    }, [segments, displayMode])
+    // 构建展示片段（基础交错 + 极简模式聚合），与弹窗实时重推导共用同一纯函数
+    const processedSegments = useMemo(
+        () => buildDisplaySegments(message, isUltraCompactMode(displayMode)),
+        [message, displayMode],
+    )
 
     // Early return: 如果没有内容且没有 contentBlocks（含 think/tool_use 等非文本块）
     if (calls.length === 0 && !text && !message.contentBlocks?.length) return null
     // 防御性兜底：即使 contentBlocks 非空，但 segments 为空且无文本无工具调用 → 空白气泡，返回 null
-    if (segments.length === 0 && !text && calls.length === 0) return null
+    if (processedSegments.length === 0 && !text && calls.length === 0) return null
 
     const renderSegment = (seg: Segment, i: number) => {
         switch (seg.type) {
@@ -382,7 +188,7 @@ export default function InterleavedContent({message, isUser}: InterleavedContent
                         {/* data-find-scope：reason 是正文叙事的一部分（工具卡片的 arguments/result 不 scope） */}
                         <div
                             data-find-scope
-                            className="text-[var(--text-secondary)] mb-2 italic bg-[var(--surface-muted)]/50 p-2 rounded-lg border border-[var(--border-muted)]">{seg.reason}</div>
+                            className="text-[var(--text-secondary)] mb-2 italic bg-[var(--surface-muted)] p-2 rounded-lg border border-[var(--border)]">{seg.reason}</div>
                         <ToolCallRenderer toolCall={seg.toolCall}/>
                     </div>
                 )
@@ -396,6 +202,7 @@ export default function InterleavedContent({message, isUser}: InterleavedContent
                     <UltraCompactToolGroup
                         key={`tg-${i}`}
                         toolCalls={seg.toolCalls}
+                        messageId={message.id}
                         isAgent={isAgent}
                         agentDisplayName={agentTc ? resolveAgentDisplayName(agentTc) : null}
                         agentTypeLabel={agentTc ? ((agentTc.arguments as any)?.agentType ?? null) : null}

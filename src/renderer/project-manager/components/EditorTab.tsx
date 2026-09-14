@@ -1,6 +1,7 @@
 import {useState} from 'react'
 import {useEditorTabStore, type EditorTabState} from '../stores/editorTabStore'
 import {ContextMenu, type ContextMenuItem} from '../ui/ContextMenu'
+import {AttachmentIcon} from '../../components/icons'
 
 /**
  * 单个编辑器 tab（spec §11.4）：文件 tab 普通样式、diff tab 标题走 --brand-primary、
@@ -42,7 +43,7 @@ export function EditorTab({tab}: {tab: EditorTabState}) {
         onContextMenu={e => { e.preventDefault(); setMenu({x: e.clientX, y: e.clientY}) }}
       >
         <span className="pm-tab-title">
-          {tab.pinned ? '📌 ' : ''}{tab.statusBadge ? `[${tab.statusBadge}] ` : ''}{tab.title}
+          {tab.pinned && <AttachmentIcon className="mr-0.5 inline-block w-3 h-3 align-text-bottom"/>}{tab.statusBadge ? `[${tab.statusBadge}] ` : ''}{tab.title}
         </span>
         <button
           type="button"

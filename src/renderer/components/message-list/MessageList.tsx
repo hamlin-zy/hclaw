@@ -407,7 +407,7 @@ function WelcomeMessage() {
             <p className="text-[var(--text-muted)] max-w-md mx-auto">
                 智能对话助手，帮助您完成各种任务
             </p>
-            <p className="text-xs text-[var(--text-muted)] pt-2">
+            <p className="text-xs text-[var(--text-secondary)] pt-2">
                 试试这些快捷键，快速上手操作
             </p>
             <div className="grid grid-cols-2 gap-2.5 max-w-[360px] mx-auto">
@@ -415,10 +415,10 @@ function WelcomeMessage() {
                     <div
                         key={label}
                         className="welcome-shortcut-card flex items-center justify-between gap-2 px-3 py-2 rounded-lg
-                                   bg-[var(--surface-muted)]/40 border border-[var(--border-muted)]
-                                   hover:bg-[var(--surface-muted)]/60 transition-colors"
+                                   bg-[var(--surface-muted)] border border-[var(--border)]
+                                   hover:bg-[var(--surface-overlay)] transition-colors"
                     >
-                        <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">{label}</span>
+                        <span className="text-xs text-[var(--text-secondary)] whitespace-nowrap">{label}</span>
                         <KbdCombo keys={keys}/>
                     </div>
                 ))}
@@ -484,18 +484,18 @@ const LoadMoreTrigger = memo(function LoadMoreTrigger({
     return (
         <div ref={ref} className="flex items-center justify-center py-4">
             {loading ? (
-                <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
                     <div
                         className="w-3 h-3 rounded-full border-2 border-[var(--border)] border-t-[var(--brand-primary)] animate-spin"/>
                     加载历史消息...
                 </div>
             ) : hasMore ? (
                 <button onClick={onLoadMore}
-                        className="text-xs text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors cursor-pointer" data-name="message-list-button">
+                        className="text-xs text-[var(--text-secondary)] hover:text-[var(--brand-primary)] transition-colors cursor-pointer" data-name="message-list-button">
                     加载更多历史消息
                 </button>
             ) : conversationId ? (
-                <div className="text-xs text-[var(--text-muted)] opacity-50">— 已加载全部历史消息 —</div>
+                <div className="text-xs text-[var(--text-secondary)] opacity-50">— 已加载全部历史消息 —</div>
             ) : null}
         </div>
     )
@@ -1199,7 +1199,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                                         transition={{duration: 0.15}}
                                         onClick={() => goToOriginConversation(originParentConvId)}
                                         aria-label="←父会话"
-                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:border-[var(--brand-primary)] transition-all cursor-pointer"
+                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--brand-primary)] hover:border-[var(--brand-primary)] transition-all cursor-pointer"
                                     >
                                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                              strokeWidth="2" aria-hidden="true">
@@ -1215,7 +1215,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                                         transition={{duration: 0.15}}
                                         onClick={() => goToOriginConversation(originHandoffFromId)}
                                         aria-label="←前会话"
-                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:border-[var(--brand-primary)] transition-all cursor-pointer"
+                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--brand-primary)] hover:border-[var(--brand-primary)] transition-all cursor-pointer"
                                     >
                                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                              strokeWidth="2" aria-hidden="true">

@@ -28,7 +28,7 @@ export default function MCPEditModal({ server, onSave, onCancel, onTestError }: 
             <div onClick={e => e.stopPropagation()}
                  className="relative w-[580px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col overflow-hidden" data-name="mcpedit-modal-panel">
                 {/* 标题栏 */}
-                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border)] flex items-center justify-between">
+                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border-muted)] flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-[var(--text-primary)]">{title}</h3>
                     <button onClick={onCancel}
                             className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded transition-colors" data-name="mcpedit-modal-button">

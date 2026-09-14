@@ -154,10 +154,10 @@ export default function SkillsDialog() {
   return (
       <div className="h-full flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-muted)]">
               <h3 className="text-sm font-semibold text-[var(--text-primary)]">Skills 管理</h3>
               <div className="flex items-center gap-2">
-                  <span className="text-xs text-[var(--text-muted)]">{skills.length} 个技能 · {enabledCount} 个已启用</span>
+                  <span className="text-xs text-[var(--text-secondary)]">{skills.length} 个技能 · {enabledCount} 个已启用</span>
                   <button
                       onClick={openCreateSkill}
                       className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20 transition-colors"
@@ -244,7 +244,7 @@ export default function SkillsDialog() {
                       className={`relative px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                           activeTab === tab
                               ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
-                              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
+                              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                       }`}
                    data-name={`skills-dialog-tab-${i}`}>
                       {tab === 'local' && '本地'}
@@ -277,14 +277,14 @@ export default function SkillsDialog() {
               {dataLoading && !initialized ? (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                       <RefreshCw className="w-8 h-8 text-[var(--text-muted)]/20 mb-3 animate-spin"/>
-                      <p className="text-sm text-[var(--text-muted)]">正在加载技能列表...</p>
-                      <p className="text-xs text-[var(--text-muted)]/60 mt-1">扫描磁盘中，请稍候</p>
+                      <p className="text-sm text-[var(--text-secondary)]">正在加载技能列表...</p>
+                      <p className="text-xs text-[var(--text-secondary)]/60 mt-1">扫描磁盘中，请稍候</p>
                   </div>
               ) : filteredSkills.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                       <Folder className="w-10 h-10 text-[var(--text-muted)]/30 mb-3"/>
-                      <p className="text-sm text-[var(--text-muted)]">暂无技能</p>
-                      <p className="text-xs text-[var(--text-muted)]/60 mt-1">安装 Skills 以扩展 Agent 功能</p>
+                      <p className="text-sm text-[var(--text-secondary)]">暂无技能</p>
+                      <p className="text-xs text-[var(--text-secondary)]/60 mt-1">安装 Skills 以扩展 Agent 功能</p>
                   </div>
               ) : activeTab === 'plugin' ? (
                   <PluginGroupedList
@@ -332,8 +332,8 @@ export default function SkillsDialog() {
                           ) : (
                               <div className="flex flex-col items-center justify-center py-12 text-center">
                                   <Folder className="w-10 h-10 text-[var(--text-muted)]/30 mb-3"/>
-                                  <p className="text-sm text-[var(--text-muted)]">暂无仓库技能</p>
-                                  <p className="text-xs text-[var(--text-muted)]/60 mt-1">在上方输入 Git 仓库地址安装，技能将归入对应仓库分组</p>
+                                  <p className="text-sm text-[var(--text-secondary)]">暂无仓库技能</p>
+                                  <p className="text-xs text-[var(--text-secondary)]/60 mt-1">在上方输入 Git 仓库地址安装，技能将归入对应仓库分组</p>
                               </div>
                           )
                       }
@@ -356,8 +356,8 @@ export default function SkillsDialog() {
                       ) : (
                           <div className="flex flex-col items-center justify-center py-12 text-center">
                               <Folder className="w-10 h-10 text-[var(--text-muted)]/30 mb-3"/>
-                              <p className="text-sm text-[var(--text-muted)]">暂无本地技能</p>
-                              <p className="text-xs text-[var(--text-muted)]/60 mt-1">本地技能已全部归入仓库分组，可在「仓库」tab 查看</p>
+                              <p className="text-sm text-[var(--text-secondary)]">暂无本地技能</p>
+                              <p className="text-xs text-[var(--text-secondary)]/60 mt-1">本地技能已全部归入仓库分组，可在「仓库」tab 查看</p>
                           </div>
                       )
                   })()
@@ -460,7 +460,7 @@ function SkillCard({
                                         e.stopPropagation()
                                         window.electronAPI?.showItemInFolder?.(skill.filePath!)
                                     }}
-                                    className="p-1 text-gray-300 hover:text-[var(--brand-primary)] transition-colors"
+                                    className="p-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors"
                                     title="打开所在目录"
                                  data-name="skills-dialog-open-folder-button">
                                     <Folder className="w-4 h-4"/>
@@ -470,7 +470,7 @@ function SkillCard({
                                 <button
                                     onClick={handleDelete}
                                     disabled={deleting}
-                                    className="p-1 text-gray-300 hover:text-[var(--error)] transition-colors disabled:opacity-30"
+                                    className="p-1 text-[var(--text-muted)] hover:text-[var(--error)] transition-colors disabled:opacity-30"
                                     title="删除技能"
                                  data-name="skills-dialog-delete-button">
                                     <Trash2 className="w-4 h-4"/>
@@ -492,7 +492,7 @@ function SkillCard({
                         </div>
                     </div>
                     {/* Description — full width */}
-                    <p className="text-sm text-[var(--text-muted)] mt-1.5 line-clamp-2">{skill.description}</p>
+                    <p className="text-sm text-[var(--text-secondary)] mt-1.5 line-clamp-2">{skill.description}</p>
                     {deleteError && (
                         <p className="text-xs text-[var(--error)] mt-1">{deleteError}</p>
                     )}

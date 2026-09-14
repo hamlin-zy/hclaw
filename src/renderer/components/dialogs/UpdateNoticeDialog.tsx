@@ -119,7 +119,7 @@ export default function UpdateNoticeDialog() {
         <button
           onClick={handleLater}
           className="w-full px-3 py-2 rounded-lg text-xs
-            text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]
+            text-[var(--text-secondary)] hover:text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]
             transition-colors"
          data-name="update-notice-dialog-later-button">
           稍后更新

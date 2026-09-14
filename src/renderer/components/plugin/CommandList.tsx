@@ -7,6 +7,7 @@ import {fuzzyFilter} from '../../lib/search';
 import {CopyButton} from '../common/CopyButton';
 import {Command} from './CommandPalette';
 import {getPaletteEmptyText, PaletteSource, PaletteTab} from '../../lib/paletteTabs';
+import {AgentIcon, CommandIcon, PluginIcon, SkillIcon} from '../icons';
 
 interface DisplayCommand extends Command {
     source: 'plugin' | 'user' | 'skill' | 'agent';
@@ -21,27 +22,27 @@ interface DisplayGroup {
 }
 
 /** Source-specific visual config: icon, header/icon-ring/tag class, and tag label */
-const SOURCE_STYLE: Record<string, { icon: string; header: string; iconRing: string; tag: string }> = {
+const SOURCE_STYLE: Record<string, { icon: React.ComponentType<{ className?: string }>; header: string; iconRing: string; tag: string }> = {
     user: {
-        icon: '⚡',
+        icon: CommandIcon,
         header: 'text-[var(--brand-primary)] bg-[var(--brand-muted)]',
         iconRing: 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]',
         tag: 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]',
     },
     skill: {
-        icon: '🛠️',
+        icon: SkillIcon,
         header: 'text-[#8b5cf6] bg-[#8b5cf6]/10',
         iconRing: 'bg-[#8b5cf6]/10 text-[#8b5cf6]',
         tag: 'bg-[#8b5cf6]/10 text-[#8b5cf6]',
     },
     agent: {
-        icon: '🤖',
+        icon: AgentIcon,
         header: 'text-[#0ea5e9] bg-[#0ea5e9]/10',
         iconRing: 'bg-[#0ea5e9]/10 text-[#0ea5e9]',
         tag: 'bg-[#0ea5e9]/10 text-[#0ea5e9]',
     },
     plugin: {
-        icon: '⚡',
+        icon: PluginIcon,
         header: 'text-[var(--text-muted)] bg-[var(--surface-muted)]',
         iconRing: 'bg-[var(--surface-muted)] text-[var(--text-muted)]',
         tag: 'bg-[var(--surface-muted)] text-[var(--text-muted)]',
@@ -145,12 +146,7 @@ export function CommandList({
     // 通知父组件命令列表变化
     useEffect(() => {
         if (!loading && displayGroups.length > 0 && onCommandsLoaded) {
-            const flatCommands = displayGroups.flatMap(g =>
-                g.commands.map(({id, name, description, hasArgs, content, source}) => ({
-                    id, name, description, hasArgs, content, source
-                }))
-            );
-            onCommandsLoaded(flatCommands);
+            onCommandsLoaded(displayGroups.flatMap(g => g.commands.map(toPaletteCommand)));
         }
     }, [loading, displayGroups, onCommandsLoaded]);
 
@@ -214,9 +210,7 @@ export function CommandList({
     // 扁平命令列表（与父组件保持 selectedIndex 同步）
     const filteredFlatCommands = useMemo(() => {
         if (loading) return [];
-        return flatCommands.map(({id, name, description, hasArgs, content, source}) => ({
-            id, name, description, hasArgs, content, source
-        }));
+        return flatCommands.map(toPaletteCommand);
     }, [flatCommands, loading]);
 
     useEffect(() => {
@@ -230,7 +224,7 @@ export function CommandList({
         <div className="p-8 text-center">
             <div
                 className="inline-block w-6 h-6 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin"/>
-            <div className="mt-2 text-sm text-[var(--text-muted)]">加载中...</div>
+            <div className="mt-2 text-sm text-[var(--text-secondary)]">加载中...</div>
         </div>
     );
 
@@ -244,7 +238,7 @@ export function CommandList({
 
     if (flatCommands.length === 0) return (
         <div className="p-8 text-center">
-            <div className="text-sm text-[var(--text-muted)]">
+            <div className="text-sm text-[var(--text-secondary)]">
                 {getPaletteEmptyText(tab, !!searchQuery.trim())}
             </div>
         </div>
@@ -254,6 +248,7 @@ export function CommandList({
         <div ref={scrollRef} className="max-h-96 overflow-y-auto">
             {flatCommands.map((cmd, flatIdx) => {
                 const style = SOURCE_STYLE[cmd.source] ?? SOURCE_STYLE.plugin
+                const SourceIcon = style.icon
                 const tagLabel = SOURCE_TAG_LABEL[cmd.source]
                 const isSelected = flatIdx === selectedIndex
 
@@ -262,11 +257,11 @@ export function CommandList({
                         key={cmd.id}
                         data-flat-index={flatIdx}
                         onClick={() => onCommandClick(cmd)}
-                        className={`w-full px-4 py-2.5 flex items-center gap-3 text-left transition-colors focus:outline-none border-b border-[var(--border)] last:border-0 ${isSelected ? 'bg-[var(--brand-primary)]/20 border-l-2 border-l-[var(--brand-primary)]' : 'hover:bg-[var(--surface-muted)]'}`}
+                        className={`w-full px-4 py-2.5 flex items-center gap-3 text-left transition-colors focus:outline-none border-b border-[var(--border-muted)] last:border-0 ${isSelected ? 'bg-[var(--brand-primary)]/20 border-l-2 border-l-[var(--brand-primary)]' : 'hover:bg-[var(--surface-muted)]'}`}
                      data-name={`command-list-command-item-${flatIdx}`}>
                     <span
                         className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-sm ${isSelected ? 'bg-[var(--brand-primary)] text-white' : style.iconRing}`}>
-                      {style.icon}
+                      <SourceIcon className="w-4 h-4"/>
                     </span>
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1">
@@ -282,7 +277,7 @@ export function CommandList({
                             </div>
                             {cmd.description && (
                                 <div
-                                    className="text-sm text-[var(--text-muted)] truncate">{cmd.description}</div>
+                                    className="text-sm text-[var(--text-secondary)] truncate">{cmd.description}</div>
                             )}
                         </div>
                     </button>
@@ -330,6 +325,11 @@ function mapToDisplayCommand(source: 'plugin' | 'user') {
         pluginName,
         enabled: true,
     });
+}
+
+// 辅助函数：剥出父组件所需的精简命令字段（DisplayCommand 的 pluginName/enabled 不下发）
+function toPaletteCommand({id, name, description, hasArgs, content, source}: DisplayCommand) {
+    return {id, name, description, hasArgs, content, source};
 }
 
 export default CommandList;

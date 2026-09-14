@@ -22,6 +22,7 @@ describe('toolStore 对 ALWAYS_ON_TOOLS 的 no-op', () => {
       tools: [
         {id: 'analyze_image', name: 'analyze_image', description: '', enabled: false, timeout: null},
         {id: 'call_mcp_tool', name: 'call_mcp_tool', description: '', enabled: false, timeout: null},
+        {id: 'load_image', name: 'load_image', description: '', enabled: false, timeout: null},
         {id: 'bash', name: 'bash', description: '', enabled: true, timeout: null},
       ],
     })
@@ -29,6 +30,8 @@ describe('toolStore 对 ALWAYS_ON_TOOLS 的 no-op', () => {
     expect(setEnabled).not.toHaveBeenCalledWith('analyze_image', expect.anything())
     store.toggleTool('call_mcp_tool')
     expect(setEnabled).not.toHaveBeenCalledWith('call_mcp_tool', expect.anything())
+    store.toggleTool('load_image')
+    expect(setEnabled).not.toHaveBeenCalledWith('load_image', expect.anything())
     // 非豁免工具正常
     store.toggleTool('bash')
     expect(setEnabled).toHaveBeenCalledWith('bash', false)
@@ -41,7 +44,7 @@ describe('toolStore 对 ALWAYS_ON_TOOLS 的 no-op', () => {
     expect(setEnabled).not.toHaveBeenCalled()
   })
 
-  it('ALWAYS_ON_TOOLS 契约（三个工具）', () => {
-    expect(Array.from(ALWAYS_ON_TOOLS).sort()).toEqual(['analyze_image', 'call_mcp_tool', 'speech_to_text'])
+  it('ALWAYS_ON_TOOLS 契约（四个工具）', () => {
+    expect(Array.from(ALWAYS_ON_TOOLS).sort()).toEqual(['analyze_image', 'call_mcp_tool', 'load_image', 'speech_to_text'])
   })
 })

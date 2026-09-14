@@ -60,7 +60,8 @@ for (const m of msgs) {
     // user 消息 content 在 metadata.content（message_blocks 无块）
     const meta = db.prepare("SELECT metadata FROM messages WHERE id = ?").get(m.id)
     let content = ''
-    try { content = JSON.parse(meta.metadata).content || '' } catch {}
+    // 尽力解析：metadata 非法 JSON 时退化为空 content
+    try { content = JSON.parse(meta.metadata).content || '' } catch { /* best-effort */ }
     rebuilt.push({role:'user', content})
     continue
   }

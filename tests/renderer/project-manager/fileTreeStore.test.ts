@@ -73,6 +73,67 @@ describe('fileTreeStore', () => {
     expect(Object.keys(s.childrenCache)).toEqual(['p'])
   })
 
+  describe('LRU 固定保留根键 "."（CACHE_LIMIT 语义 = 除根外的目录上限）', () => {
+    it('写入 >CACHE_LIMIT 个目录后 "." 仍在缓存，且键数不超过 CACHE_LIMIT', () => {
+      useFileTreeStore.getState().setChildren('.', [entry('a.ts', false)])
+      fillCache(CACHE_LIMIT + 5)   // 远超上限，必然触发多轮淘汰
+
+      const s = useFileTreeStore.getState()
+      expect(s.childrenCache['.']).toBeDefined()
+      expect(Object.keys(s.childrenCache).length).toBeLessThanOrEqual(CACHE_LIMIT)
+      expect(s.cacheOrder.length).toBeLessThanOrEqual(CACHE_LIMIT)
+      expect(s.cacheOrder).toContain('.')
+      // 淘汰按 LRU：最旧的若干条被驱逐，最新的仍在
+      expect(s.childrenCache['d0000']).toBeUndefined()
+      expect(s.childrenCache[`d${String(CACHE_LIMIT + 4).padStart(4, '0')}`]).toBeDefined()
+    })
+
+    it('驱逐的确实是最久未用者（根键除外）：越界 1 条只驱逐队首非根项', () => {
+      useFileTreeStore.getState().setChildren('.', [])
+      fillCache(CACHE_LIMIT)   // '.' + 500 个目录 = 501 → 越界 1
+
+      const s = useFileTreeStore.getState()
+      expect(s.cacheOrder.length).toBe(CACHE_LIMIT)
+      expect(s.cacheOrder[0]).toBe('.')                 // 根未被驱逐，仍在序首（最旧位）
+      expect(s.childrenCache['.']).toBeDefined()
+      expect(s.childrenCache['d0000']).toBeUndefined()  // 队首非根项才是被驱逐者
+      expect(s.childrenCache['d0001']).toBeDefined()
+    })
+
+    it('根键被 getChildren 访问移到队尾后，仍不会被驱逐', () => {
+      useFileTreeStore.getState().setChildren('.', [])
+      fillCache(CACHE_LIMIT)          // 501 → 驱逐 d0000
+      expect(useFileTreeStore.getState().getChildren('.')).toEqual([])   // '.' 移到队尾（最新）
+      const order = useFileTreeStore.getState().cacheOrder
+      expect(order[order.length - 1]).toBe('.')
+      useFileTreeStore.getState().setChildren('extra', [])
+      const s = useFileTreeStore.getState()
+      expect(s.childrenCache['.']).toBeDefined()
+      expect(s.cacheOrder.length).toBe(CACHE_LIMIT)
+      expect(s.childrenCache['extra']).toBeDefined()
+    })
+
+    it('setChildrenBulk 同样固定保留根键 "."', () => {
+      useFileTreeStore.getState().setChildren('.', [])
+      const bulk: Record<string, DirEntry[]> = {}
+      for (let i = 0; i < CACHE_LIMIT + 5; i++) bulk[`b${String(i).padStart(4, '0')}`] = []
+      useFileTreeStore.getState().setChildrenBulk(bulk)
+
+      const s = useFileTreeStore.getState()
+      expect(s.childrenCache['.']).toBeDefined()
+      expect(Object.keys(s.childrenCache).length).toBeLessThanOrEqual(CACHE_LIMIT)
+      expect(s.childrenCache['b0000']).toBeUndefined()   // 最久未用者被驱逐
+    })
+
+    it('"." 不在 order 中（未加载）时淘汰行为不受影响，且不会凭空造出根键', () => {
+      fillCache(CACHE_LIMIT + 1)   // 无根键：越界 1 条 → 正常驱逐最旧者
+      const s = useFileTreeStore.getState()
+      expect(s.childrenCache['.']).toBeUndefined()
+      expect(s.cacheOrder.length).toBe(CACHE_LIMIT)
+      expect(s.childrenCache['d0000']).toBeUndefined()
+    })
+  })
+
   describe('setChildrenBulk（全展单次提交）', () => {
     it('一次写入多条：合并进缓存且 order 去重后统一置尾', () => {
       useFileTreeStore.getState().setChildren('old', [])

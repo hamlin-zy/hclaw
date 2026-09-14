@@ -57,7 +57,7 @@ export function PrioritySelect({value, onChange, size = 'sm', disabled = false}:
                     setOpen(o => !o)
                 }}
                 className={clsx(
-                    'inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors cursor-pointer',
+                    'inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-secondary)] hover:text-[var(--brand-primary)] transition-colors cursor-pointer',
                     size === 'sm' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-xs',
                 )}
             >

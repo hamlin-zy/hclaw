@@ -262,7 +262,7 @@ export default function ScheduleDialog() {
     return (
         <div className="flex flex-col h-full min-h-[400px]">
             {/* ── Tab 切换 ── */}
-            <div className="flex gap-1 px-4 pt-3 pb-2 border-b border-[var(--border)]">
+            <div className="flex gap-1 px-4 pt-3 pb-2 border-b border-[var(--border-muted)]">
                 {([
                     {key: 'all' as TabType, label: '全部'},
                     {key: 'enabled' as TabType, label: '启用'},
@@ -275,7 +275,7 @@ export default function ScheduleDialog() {
                         className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
                             activeTab === tab.key
                                 ? 'bg-[var(--brand-primary)]/20 text-[var(--brand-primary)] font-medium'
-                                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
+                                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                         }`}
                      data-name="schedule-dialog-button">
                         {tab.label}
@@ -293,7 +293,7 @@ export default function ScheduleDialog() {
             </div>
 
             {/* ── 搜索条 ── */}
-            <div className="px-4 py-2 border-b border-[var(--border)]">
+            <div className="px-4 py-2 border-b border-[var(--border-muted)]">
                 <div className="relative">
                     <svg
                         className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]"
@@ -320,13 +320,13 @@ export default function ScheduleDialog() {
                     <div className="p-8 text-center">
                         <div
                             className="inline-block w-5 h-5 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin"/>
-                        <div className="mt-2 text-xs text-[var(--text-muted)]">加载中...</div>
+                        <div className="mt-2 text-xs text-[var(--text-secondary)]">加载中...</div>
                     </div>
                 ) : (
                     <div className="py-1">
                         {filteredSchedules.length === 0 ? (
                             <div className="p-8 text-center">
-                                <div className="text-xs text-[var(--text-muted)]">
+                                <div className="text-xs text-[var(--text-secondary)]">
                                     {searchQuery ? '未找到匹配的定时任务' : '暂无定时任务，点击上方"新建"创建'}
                                 </div>
                             </div>
@@ -363,14 +363,14 @@ export default function ScheduleDialog() {
             </div>
 
             {/* ── 底部统计栏 ── */}
-            <div className="flex items-center justify-between px-4 py-2 border-t border-[var(--border)] bg-[var(--surface-muted)]">
-                <div className="flex gap-4 text-[10px] text-[var(--text-muted)]">
+            <div className="flex items-center justify-between px-4 py-2 border-t border-[var(--border-muted)] bg-[var(--surface-muted)]">
+                <div className="flex gap-4 text-[10px] text-[var(--text-secondary)]">
                     <span>总数: <strong className="text-[var(--text-primary)]">{stats.total}</strong></span>
                     <span className="text-blue-500">运行中: <strong>{stats.running}</strong></span>
                     <span className="text-gray-400">禁用: <strong>{stats.disabled}</strong></span>
                     <span className="text-red-500">失败: <strong>{stats.failed}</strong></span>
                 </div>
-                <div className="text-[10px] text-[var(--text-muted)]">
+                <div className="text-[10px] text-[var(--text-secondary)]">
                     {filteredSchedules.length !== schedules.length
                         ? `已筛选 ${filteredSchedules.length} / 共 ${schedules.length} 个任务`
                         : `共 ${schedules.length} 个定时任务`
@@ -505,27 +505,27 @@ function ScheduleCard({
                         }`}>
                             {TASK_TYPE_LABEL[schedule.taskType] || schedule.taskType}
                         </span>
-                        <span className="text-[10px] text-[var(--text-muted)] truncate">
+                        <span className="text-[10px] text-[var(--text-secondary)] truncate">
                             {highlightText(schedule.taskTarget, searchQuery)}
                         </span>
                     </div>
 
                     {/* 描述 */}
                     {schedule.description && (
-                        <div className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">
+                        <div className="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">
                             {highlightText(schedule.description, searchQuery)}
                         </div>
                     )}
 
                     {/* 执行信息 */}
                     <div className="flex items-center gap-3 mt-1">
-                        <span className="text-[10px] text-[var(--text-muted)]">
+                        <span className="text-[10px] text-[var(--text-secondary)]">
                             上次: <span className={getLastRunStatusColor(schedule.lastRunStatus)}>
                                 {getLastRunStatusLabel(schedule.lastRunStatus)}
                             </span>
                             <span className="ml-1">{formatTime(schedule.lastRunAt)}</span>
                         </span>
-                        <span className="text-[10px] text-[var(--text-muted)]">
+                        <span className="text-[10px] text-[var(--text-secondary)]">
                             执行 <strong className="text-[var(--text-primary)]">{schedule.runCount}</strong> 次
                         </span>
                     </div>
@@ -632,14 +632,14 @@ function ConversationsPanel({scheduleId, scheduleName, taskType}: ConversationsP
 
     // Agent/Skill/Command：提示到会话列表搜索
     return (
-        <div className="mx-4 mb-1 rounded-md border border-[var(--border)] bg-[var(--surface-muted)]/50 overflow-hidden">
-            <div className="px-3 py-2 border-b border-[var(--border)] bg-[var(--surface-muted)]">
-                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+        <div className="mx-4 mb-1 rounded-md border border-[var(--border)] bg-[var(--surface-muted)] overflow-hidden">
+            <div className="px-3 py-2 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
+                <span className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
                     执行记录
                 </span>
             </div>
             <div className="p-4 text-center">
-                <div className="text-[10px] text-[var(--text-muted)] leading-relaxed">
+                <div className="text-[10px] text-[var(--text-secondary)] leading-relaxed">
                     请在<strong className="text-[var(--text-primary)]">会话列表</strong>搜索
                     "<strong className="text-[var(--brand-primary)]">{scheduleName}</strong>" 查看执行记录
                 </div>
@@ -710,9 +710,9 @@ function ScriptLogPanel({scheduleId}: { scheduleId: string }) {
     }
 
     return (
-        <div className="mx-4 mb-1 rounded-md border border-[var(--border)] bg-[var(--surface-muted)]/50 overflow-hidden">
-            <div className="px-3 py-2 border-b border-[var(--border)] bg-[var(--surface-muted)]">
-                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+        <div className="mx-4 mb-1 rounded-md border border-[var(--border)] bg-[var(--surface-muted)] overflow-hidden">
+            <div className="px-3 py-2 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
+                <span className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
                     脚本执行记录
                 </span>
             </div>
@@ -720,17 +720,16 @@ function ScriptLogPanel({scheduleId}: { scheduleId: string }) {
             {loading ? (
                 <div className="p-4 text-center">
                     <div className="inline-block w-4 h-4 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin"/>
-                    <div className="mt-1.5 text-[10px] text-[var(--text-muted)]">加载执行记录...</div>
+                    <div className="mt-1.5 text-[10px] text-[var(--text-secondary)]">加载执行记录...</div>
                 </div>
             ) : logs.length === 0 ? (
                 <div className="p-4 text-center">
-                    <div className="text-[10px] text-[var(--text-muted)]">暂无脚本执行记录</div>
+                    <div className="text-[10px] text-[var(--text-secondary)]">暂无脚本执行记录</div>
                 </div>
             ) : (
                 <div className="divide-y divide-[var(--border)]">
                     {logs.map((log, idx) => {
                         const d = new Date(log.startTime)
-                        const pad = (n: number) => String(n).padStart(2, '0')
                         const timeStr = `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
                         const isExpanded = expandedLog === log.path
 
@@ -748,7 +747,7 @@ function ScriptLogPanel({scheduleId}: { scheduleId: string }) {
                                     </span>
 
                                     {/* 文件大小 */}
-                                    <span className="text-[10px] text-[var(--text-muted)]">
+                                    <span className="text-[10px] text-[var(--text-secondary)]">
                                         {formatSize(log.size)}
                                     </span>
 
@@ -772,7 +771,7 @@ function ScriptLogPanel({scheduleId}: { scheduleId: string }) {
                                 {/* 展开的日志内容 */}
                                 {isExpanded && (
                                     <div className="px-3 pb-2">
-                                        <pre className="text-[10px] text-[var(--text-muted)] font-mono bg-black/20 rounded p-2 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap break-all">
+                                        <pre className="text-[10px] text-[var(--text-secondary)] font-mono bg-black/20 rounded p-2 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap break-all">
                                             {logContent || '加载中...'}
                                         </pre>
                                     </div>

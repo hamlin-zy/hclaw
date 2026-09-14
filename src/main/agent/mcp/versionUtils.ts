@@ -4,7 +4,6 @@
  */
 
 export type SourceType = 'npx' | 'plugin' | 'binary' | 'url' | 'unknown'
-export type PackageManager = 'npm' | 'pip'
 
 export interface VersionMeta {
   current: string | null
@@ -14,9 +13,8 @@ export interface VersionMeta {
   lastChecked: number
   availableVersions?: string[]
   // For binary servers whose binary resolves to a known npm/pip package:
-  // when set, the server is upgradable via that package manager.
+  // when set, the server is upgradable via the detected package manager.
   pkgName?: string
-  pkgManager?: PackageManager
   // For pip-managed servers: the python executable used for detection, so
   // installs use the same environment (`python -m pip` vs bare `pip`).
   pythonCmd?: string
@@ -27,7 +25,7 @@ export function stripV(s: string): string {
   return s.replace(/^v/i, '').trim()
 }
 
-/** npx/npm 侧不作为包名消费的 CLI flags（parseNpmPackage / parseNpmPackageSpec / buildNpxVersionArgs 共用） */
+/** npx/npm 侧不作为包名消费的 CLI flags（parseNpmPackageSpec / buildNpxVersionArgs 共用） */
 const NPM_SKIP_FLAGS: ReadonlySet<string> = new Set(['-y', '--yes', '-p', '--package', '--', '--quiet', '--silent'])
 
 /** npm exec/run 子命令 token 需要跳过时返回起始下标 1，否则 0 */
@@ -48,28 +46,6 @@ function firstNonFlagArg(args: string[], startIndex = 0): string | null {
     if (arg.startsWith('-')) continue
     return arg
   }
-  return null
-}
-
-/**
- * Parse npm package name from npx/npm command + args.
- * Handles: @scope/pkg@version, pkg@latest, -y/-p/--yes flags, npm exec/run.
- * Returns null if no package name can be extracted.
- */
-export function parseNpmPackage(command: string, args: string[]): string | null {
-  // 注意：不能直接复用 firstNonFlagArg —— stripped 为空时需继续向后搜索，
-  // 语义与 parseNpmPackageSpec 的"取第一个非 flag 参数"不同。
-  for (let i = argsStartIndex(command, args); i < args.length; i++) {
-    const arg = args[i]
-    if (NPM_SKIP_FLAGS.has(arg)) continue
-    if (arg.startsWith('-')) continue
-
-    // Found the first non-flag argument — this should be the package name
-    // Strip @version or @latest suffix
-    const stripped = arg.replace(/@[^/@]*$/, '')
-    if (stripped) return stripped
-  }
-
   return null
 }
 
@@ -195,36 +171,4 @@ export function buildNpxVersionArgs(args: string[], pkgName: string, targetVersi
   }
 
   throw new Error(`Package ${pkgName} not found in args`)
-}
-
-/**
- * Parse checkUrl response body to extract latest version.
- * Priority: JSON tag_name (stripV) → JSON version field → regex semver match.
- */
-export function parseCheckUrlResponse(body: string): string | null {
-  const trimmed = body.trim()
-  if (!trimmed) return null
-
-  // Try JSON parsing
-  try {
-    const json = JSON.parse(trimmed)
-
-    // Priority 1: GitHub releases API tag_name
-    if (typeof json.tag_name === 'string' && json.tag_name) {
-      return stripV(json.tag_name)
-    }
-
-    // Priority 2: custom version field
-    if (typeof json.version === 'string' && json.version) {
-      return stripV(json.version)
-    }
-  } catch {
-    // Not JSON, fall through to regex
-  }
-
-  // Priority 3: regex match for semver-like pattern
-  const match = trimmed.match(/\d+\.\d+\.\d+[^\s]*/)
-  if (match) return match[0]
-
-  return null
 }

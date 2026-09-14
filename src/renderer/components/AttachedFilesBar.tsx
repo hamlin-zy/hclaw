@@ -15,7 +15,7 @@ export default function AttachedFilesBar({files, onRemove, onPreview, onOpenFile
     if (files.length === 0) return null
 
     return (
-        <div className="px-3 py-2 border-b border-[var(--border)] bg-[var(--surface-muted)]/30">
+        <div className="px-3 py-2 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]/30">
             <div className="flex items-center gap-2 min-h-[48px]">
                 {/* 文件列表 */}
                 <div className="flex items-center gap-2 flex-1 overflow-x-auto">
@@ -56,7 +56,7 @@ export default function AttachedFilesBar({files, onRemove, onPreview, onOpenFile
                             </button>
                             {/* 文件名提示 */}
                             <span
-                                className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[9px] text-[var(--text-muted)] whitespace-nowrap truncate max-w-[48px]"
+                                className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[9px] text-[var(--text-secondary)] whitespace-nowrap truncate max-w-[48px]"
                                 title={file.name}>
                                 {file.name.length > 6 ? file.name.slice(0, 6) + '...' : file.name}
                             </span>

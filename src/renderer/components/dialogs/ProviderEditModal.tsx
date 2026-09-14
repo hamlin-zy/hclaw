@@ -30,6 +30,7 @@ import ThemedSelect from '../ThemedSelect'
 import ThemedCombobox from '../ThemedCombobox'
 import {useSettingsStore} from '../../stores/settingsStore'
 import {ModelDetailModal} from './providerEdit/ModelDetailModal'
+import {SettingsIcon} from '../icons'
 
 interface ProviderEditModalProps {
   mode: 'add' | 'edit'
@@ -549,7 +550,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
           {/* Header */}
           <div className="sticky top-0 bg-white z-10 px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-800">{isEdit ? '编辑服务商' : '添加服务商'}</h3>
-            <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 transition-colors" data-name="provider-edit-modal-button">
+            <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-[var(--surface-overlay)] transition-colors" data-name="provider-edit-modal-button">
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M18 6L6 18M6 6l12 12"/>
               </svg>
@@ -565,11 +566,8 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                 {CARD_PRESETS.map((p, i) => (
                   <button key={p.id} onClick={() => {
                     setProviderType(p.id)
-                    if (p.id === 'google') {
-                      // 切到 Google 保持当前 authType
-                    } else {
-                      setAuthType('api-key')
-                    }
+                    // 切到 Google 保持当前 authType
+                    if (p.id !== 'google') setAuthType('api-key')
                     if (!isEdit) {
                       setName(p.name)
                       setBaseUrl(p.baseUrl)
@@ -640,7 +638,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
             )}
 
             {/* ollama：本地服务提示 */}
-            {providerType === 'ollama' && (              <div className="text-[10px] text-gray-400 px-3 py-2 rounded-md bg-gray-50 border border-gray-100">
+            {providerType === 'ollama' && (              <div className="text-[10px] text-gray-400 px-3 py-2 rounded-md bg-[var(--surface-muted)] border border-gray-100">
                 Ollama 为本地服务，无需 API 凭据与 Base URL 校验；请确认本地服务已启动并可访问。
               </div>
             )}
@@ -709,7 +707,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                     <button onClick={handleGoogleLogin} className="text-[10px] text-brand-500 font-medium hover:underline shrink-0" data-name="provider-edit-modal-relogin-button">重新登录</button>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-gray-50/50 border border-gray-200 rounded-md">
+                  <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-[var(--surface-muted)] border border-gray-200 rounded-md">
                     <span className="text-[10px] text-gray-400">尚未授权，授权后可获取模型列表并测试</span>
                     <button onClick={handleGoogleLogin} disabled={isLoggingIn}
                       className="shrink-0 px-2.5 py-0.5 bg-brand-50 border border-brand-200 rounded text-[10px] text-brand-600 font-medium hover:bg-brand-100 transition-colors disabled:opacity-50" data-name="provider-edit-modal-google-login-button">
@@ -751,12 +749,12 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                   }`} data-name="provider-edit-modal-base-url-input"/>
                 {/* 自定义请求头入口：N>0 绿色标识已配置 */}
                 <button type="button" onClick={openHeadersModal}
-                  className={`shrink-0 px-2 py-1 text-xs border rounded-md bg-white transition-colors whitespace-nowrap ${
+                  className={`shrink-0 px-2 py-1 text-xs border rounded-md bg-white transition-colors whitespace-nowrap inline-flex items-center gap-1 ${
                     customHeaders.length > 0
                       ? 'border-emerald-300 text-emerald-600 hover:border-emerald-400 hover:bg-emerald-50/50'
                       : 'border-gray-200 text-brand-500 hover:border-brand-300 hover:bg-brand-50/50'
                   }`} data-name="provider-edit-modal-custom-headers-button">
-                  ⚙ 自定义请求头 ({customHeaders.length})
+                  <SettingsIcon className="w-3.5 h-3.5"/>自定义请求头 ({customHeaders.length})
                 </button>
                 </div>
                 {!isEdit && !baseUrl.trim() && <div className="text-[10px] text-red-400 mt-0.5">API Base URL 不能为空</div>}
@@ -924,7 +922,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
               {/* 标题 */}
               <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
                 <h4 className="text-[13px] font-semibold text-gray-800">自定义请求头</h4>
-                <button onClick={() => setShowHeadersModal(false)} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 transition-colors" data-name="provider-edit-modal-custom-headers-close-button">
+                <button onClick={() => setShowHeadersModal(false)} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-[var(--surface-overlay)] transition-colors" data-name="provider-edit-modal-custom-headers-close-button">
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
                 </button>
               </div>
@@ -962,7 +960,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                           error={rowInvalid}
                           ariaLabel="系统变量"/>
                         <button type="button" title="删除" onClick={() => setHeadersDraft(prev => prev.filter(x => x.id !== h.id))}
-                          className="shrink-0 p-1 text-gray-300 hover:text-red-400 transition-colors" data-name="provider-edit-modal-header-delete-button">
+                          className="shrink-0 p-1 text-[var(--text-muted)] hover:text-red-400 transition-colors" data-name="provider-edit-modal-header-delete-button">
                           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
                         </button>
                       </div>

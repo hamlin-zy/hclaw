@@ -92,7 +92,8 @@ describe('分支搜索框隔离性（spec §8.1 / §16.2）', () => {
     const background = (body: string) => body.match(/background\s*:\s*([^;]+);/)?.[1].trim()
     const selected = background(bodyOf('.pm-tree-row.is-selected'))
     const match = background(bodyOf('.pm-search-match'))
-    expect(selected).toBe('var(--brand-muted)')
+    // 选中态已中性化：中性底 + 左强调条（不再用品牌色底）
+    expect(selected).toBe('var(--surface-muted)')
     expect(match).not.toBe(selected)
     expect(match).not.toContain('--brand-muted')
   })

@@ -19,6 +19,13 @@ const MAX_WIDTH_RATIO = 0.9
 
 type ResizeEdge = 'right' | 'bottom' | 'left' | 'top'
 
+const CURSOR_MAP: Record<ResizeEdge, string> = {
+    right: 'ew-resize',
+    bottom: 'ns-resize',
+    left: 'ew-resize',
+    top: 'ns-resize',
+}
+
 /** 可拖拽悬浮 Modal — 内部业务 Dialog 通过 flex-1 铺满，跟随大小变化 */
 export default function MenuDialog({isOpen, title, onClose, children, maxWidth = 580, minWidth = DEFAULT_MIN_WIDTH, origin, dialogKey, initialHeight}: MenuDialogProps) {
     const [width, setWidth] = useState(maxWidth)
@@ -83,21 +90,33 @@ export default function MenuDialog({isOpen, title, onClose, children, maxWidth =
         document.body.style.userSelect = ''
     }, [handleDragMove])
 
-    // ─── 四边调整大小 ───────────────────────────────────────
+    // ─── 拖拽调整大小（四边 + 右下角共用）───────────────────
 
-    const CURSOR_MAP: Record<ResizeEdge, string> = {
-        right: 'ew-resize',
-        bottom: 'ns-resize',
-        left: 'ew-resize',
-        top: 'ns-resize',
-    }
-
-    const handleResizeStart = useCallback((edge: ResizeEdge, e: React.MouseEvent) => {
+    /** 统一 body 样式与 mousemove/mouseup 生命周期，onMove 只负责按增量改尺寸 */
+    const beginResize = useCallback((e: React.MouseEvent, cursor: string, onMove: (deltaX: number, deltaY: number) => void) => {
         e.preventDefault()
         e.stopPropagation()
 
         const startX = e.clientX
         const startY = e.clientY
+
+        document.body.style.userSelect = 'none'
+        document.body.style.cursor = cursor
+
+        const onMouseMove = (ev: MouseEvent) => onMove(ev.clientX - startX, ev.clientY - startY)
+
+        const onMouseUp = () => {
+            document.removeEventListener('mousemove', onMouseMove)
+            document.removeEventListener('mouseup', onMouseUp)
+            document.body.style.userSelect = ''
+            document.body.style.cursor = 'default'
+        }
+
+        document.addEventListener('mousemove', onMouseMove)
+        document.addEventListener('mouseup', onMouseUp)
+    }, [])
+
+    const handleResizeStart = useCallback((edge: ResizeEdge, e: React.MouseEvent) => {
         const startW = cardRef.current?.offsetWidth ?? width
         const startH = cardRef.current?.offsetHeight ?? height
         const startPosX = position.x
@@ -105,13 +124,7 @@ export default function MenuDialog({isOpen, title, onClose, children, maxWidth =
         const maxW = Math.floor(window.innerWidth * MAX_WIDTH_RATIO)
         const maxH = Math.floor(window.innerHeight * 0.85)
 
-        document.body.style.userSelect = 'none'
-        document.body.style.cursor = CURSOR_MAP[edge]
-
-        const onMouseMove = (e: MouseEvent) => {
-            const deltaX = e.clientX - startX
-            const deltaY = e.clientY - startY
-
+        beginResize(e, CURSOR_MAP[edge], (deltaX, deltaY) => {
             let newW = startW
             let newH = startH
             let newX = startPosX
@@ -134,52 +147,22 @@ export default function MenuDialog({isOpen, title, onClose, children, maxWidth =
             setWidth(newW)
             setHeight(newH)
             setPosition({x: newX, y: newY})
-        }
-
-        const onMouseUp = () => {
-            document.removeEventListener('mousemove', onMouseMove)
-            document.removeEventListener('mouseup', onMouseUp)
-            document.body.style.userSelect = ''
-            document.body.style.cursor = 'default'
-        }
-
-        document.addEventListener('mousemove', onMouseMove)
-        document.addEventListener('mouseup', onMouseUp)
-    }, [width, height, position])
+        })
+    }, [width, height, position, minWidth, beginResize])
 
     // ─── 右下角同时调整宽高 ─────────────────────────────────
 
     const handleCornerResizeStart = useCallback((e: React.MouseEvent) => {
-        e.preventDefault()
-        e.stopPropagation()
-
-        const startX = e.clientX
-        const startY = e.clientY
         const startW = cardRef.current?.offsetWidth ?? width
         const startH = cardRef.current?.offsetHeight ?? height
         const maxW = Math.floor(window.innerWidth * MAX_WIDTH_RATIO)
         const maxH = Math.floor(window.innerHeight * 0.85)
 
-        document.body.style.userSelect = 'none'
-        document.body.style.cursor = 'se-resize'
-
-        const onMouseMove = (e: MouseEvent) => {
-            const deltaX = e.clientX - startX
-            const deltaY = e.clientY - startY
+        beginResize(e, 'se-resize', (deltaX, deltaY) => {
             setWidth(Math.max(minWidth, Math.min(maxW, startW + deltaX)))
             setHeight(Math.max(MIN_HEIGHT, Math.min(maxH, startH + deltaY)))
-        }
-
-        const onMouseUp = () => {
-            document.removeEventListener('mousemove', onMouseMove)
-            document.removeEventListener('mouseup', onMouseUp)
-            document.body.style.userSelect = ''
-            document.body.style.cursor = 'default'
-        }
-
-        document.addEventListener('mousemove', onMouseMove)
-        document.addEventListener('mouseup', onMouseUp)
-    }, [width, height])
+        })
+    }, [width, height, minWidth, beginResize])
 
     // ─── 展开动画的原点 ────────────────────────────────────
 
@@ -244,7 +227,7 @@ export default function MenuDialog({isOpen, title, onClose, children, maxWidth =
 
                         {/* 标题栏 — 拖拽把手 */}
                         <div
-                            className="h-12 px-4 flex items-center justify-between border-b border-[var(--border)] shrink-0 cursor-grab active:cursor-grabbing select-none"
+                            className="h-12 px-4 flex items-center justify-between border-b border-[var(--border-muted)] shrink-0 cursor-grab active:cursor-grabbing select-none"
                             onMouseDown={handleDragStart}
                         >
                             <h2 className="text-sm font-semibold text-[var(--text-primary)]">{title}</h2>

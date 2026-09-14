@@ -42,7 +42,7 @@ export class MCPWorkerManager {
      * 由 IPC handler 设置，Worker 的 restart_complete 消息触发
      */
     private restartWaiters: Map<string, {
-        resolve: (result: { success: boolean; merged?: boolean }) => void
+        resolve: (result: { success: boolean; error?: string; merged?: boolean }) => void
         timer: ReturnType<typeof setTimeout>
     }> = new Map()
 
@@ -250,11 +250,11 @@ export class MCPWorkerManager {
      *
      * @returns Promise，在 Worker 完成重启后 resolve（超时 60s 拒绝）
      */
-    restartServer(serverId: string): Promise<{ success: boolean }> {
+    restartServer(serverId: string): Promise<{ success: boolean; error?: string }> {
         const latest = mcpService.get(serverId)
         if (!latest) {
             logger.warn('[MCPWorkerManager] restartServer: 找不到服务器', {serverId})
-            return Promise.resolve({ success: false })
+            return Promise.resolve({ success: false, error: '服务器不存在' })
         }
         this.worker?.postMessage({
             type: 'restart_server',
@@ -267,7 +267,7 @@ export class MCPWorkerManager {
             const timer = setTimeout(() => {
                 this.restartWaiters.delete(serverId)
                 logger.warn('[MCPWorkerManager] restartServer 超时', {serverId})
-                resolve({ success: false })
+                resolve({ success: false, error: '重启超时' })
             }, 60_000) // 60 秒超时
 
             this.restartWaiters.set(serverId, { resolve, timer })
@@ -275,12 +275,12 @@ export class MCPWorkerManager {
     }
 
     /** 处理 Worker 回传的 restart_complete 消息 */
-    private handleRestartComplete(serverId: string, success: boolean, _error?: string, _merged?: boolean): void {
+    private handleRestartComplete(serverId: string, success: boolean, error?: string, _merged?: boolean): void {
         const waiter = this.restartWaiters.get(serverId)
         if (waiter) {
             clearTimeout(waiter.timer)
             this.restartWaiters.delete(serverId)
-            waiter.resolve({ success })
+            waiter.resolve({ success, error })
         }
         // merged=true 表示此请求被合并到已有的重启中，无需额外操作
     }

@@ -5,6 +5,24 @@
  */
 
 import React, {memo, useEffect, useRef, useState} from 'react'
+import {
+  SkillIcon,
+  TargetIcon,
+  LoadingIcon,
+  SuccessIcon,
+  ErrorIcon,
+  InfoIcon,
+  BookIcon,
+  ClipboardIcon,
+  ChartIcon,
+  ClockIcon,
+  RefreshIcon,
+  PauseIcon,
+  OutputIcon,
+  DebugIcon,
+  WarningIcon,
+} from '../icons'
+import type {IconProps} from '../icons'
 
 // ─── 类型定义 ─────────────────────────────────────────
 
@@ -144,7 +162,7 @@ export const SkillBubble = memo(function SkillBubble({
         }}
         onClick={handleToggle}
        data-name="skill-bubble-div">
-        <span style={{fontSize: 18}}>🔧</span>
+        <SkillIcon className="w-5 h-5"/>
         <span style={{flex: 1, fontWeight: 600, color: '#1e293b'}}>
           {skillName}
         </span>
@@ -219,7 +237,7 @@ function StatusBadge({config}: { config: ReturnType<typeof getStatusConfig> }) {
       color: 'white',
       background: config.bgColor,
     }}>
-      <span>{config.icon}</span>
+      <config.Icon className="w-3.5 h-3.5"/>
       <span>{config.label}</span>
     </span>
   )
@@ -303,8 +321,9 @@ function PhaseSection({
 function ReferencesSection({references}: {references: SkillReferenceState}) {
   return (
     <div style={{marginBottom: 12}}>
-      <div style={{fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 8}}>
-        📚 参考文档
+      <div style={{fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6}}>
+        <BookIcon className="w-3.5 h-3.5"/>
+        参考文档
       </div>
       <div style={{display: 'flex', flexWrap: 'wrap', gap: 6}}>
         {references.loaded.map(ref => (
@@ -320,8 +339,8 @@ function ReferencesSection({references}: {references: SkillReferenceState}) {
 
 function ReferenceTag({name, status}: {name: string; status: 'loaded' | 'pending'}) {
   const config = status === 'loaded'
-    ? {bg: '#dcfce7', color: '#166534', icon: '✅'}
-    : {bg: '#fef3c7', color: '#92400e', icon: '⏳'}
+    ? {bg: '#dcfce7', color: '#166534', Icon: SuccessIcon}
+    : {bg: '#fef3c7', color: '#92400e', Icon: LoadingIcon}
 
   return (
     <span style={{
@@ -334,16 +353,16 @@ function ReferenceTag({name, status}: {name: string; status: 'loaded' | 'pending
       background: config.bg,
       color: config.color,
     }}>
-      <span>{config.icon}</span>
+      <config.Icon className="w-3.5 h-3.5"/>
       <span>{name}</span>
     </span>
   )
 }
 
 function ScriptSection({script}: {script: SkillScriptState}) {
-  const statusIcon = script.status === 'running' ? '🔄'
-    : script.status === 'done' ? '✅'
-    : script.status === 'error' ? '❌' : '⏸️'
+  const StatusIcon = script.status === 'running' ? RefreshIcon
+    : script.status === 'done' ? SuccessIcon
+    : script.status === 'error' ? ErrorIcon : PauseIcon
 
   return (
     <div style={{
@@ -356,7 +375,7 @@ function ScriptSection({script}: {script: SkillScriptState}) {
       color: '#e2e8f0',
     }}>
       <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
-        <span>{statusIcon}</span>
+        <StatusIcon className="w-3.5 h-3.5"/>
         <span>执行: {script.name}</span>
         {script.status === 'running' && <Spinner />}
       </div>
@@ -394,7 +413,7 @@ function LogsSection({
   onToggle: () => void
     containerRef: React.RefObject<HTMLDivElement | null>
 }) {
-  const iconMap: Record<string, string> = {info: 'ℹ️', warn: '⚠️', error: '❌', output: '📤', debug: '🔍'}
+  const iconMap: Record<string, React.ComponentType<IconProps>> = {info: InfoIcon, warn: WarningIcon, error: ErrorIcon, output: OutputIcon, debug: DebugIcon}
   const colorMap: Record<string, string> = {
     info: '#3b82f6',
     warn: '#f59e0b',
@@ -420,7 +439,8 @@ function LogsSection({
           cursor: 'pointer',
         }}
        data-name="skill-bubble-button">
-        📋 执行日志 ({logs.length})
+        <ClipboardIcon className="w-3.5 h-3.5"/>
+        <span>执行日志 ({logs.length})</span>
         <ChevronIcon expanded={expanded} />
       </button>
 
@@ -437,19 +457,22 @@ function LogsSection({
             fontSize: 12,
           }}
         >
-          {logs.map((log, i) => (
+          {logs.map((log, i) => {
+            const LogIcon = iconMap[log.type]
+            return (
             <div key={i} style={{display: 'flex', gap: 8, marginBottom: 4}}>
               <span style={{color: '#64748b', flexShrink: 0}}>
                 {new Date(log.timestamp).toLocaleTimeString()}
               </span>
               <span style={{color: colorMap[log.type] || '#e2e8f0', flexShrink: 0}}>
-                {iconMap[log.type] || '•'}
+                {LogIcon ? <LogIcon className="w-3.5 h-3.5"/> : '•'}
               </span>
               <span style={{color: '#e2e8f0', wordBreak: 'break-all'}}>
                 {log.message}
               </span>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
@@ -464,8 +487,9 @@ function ResultSection({result}: {result: SkillResult}) {
       borderRadius: 8,
       border: '1px solid #bbf7d0',
     }}>
-      <div style={{fontSize: 13, fontWeight: 600, color: '#166534', marginBottom: 8}}>
-        📊 执行结果
+      <div style={{fontSize: 13, fontWeight: 600, color: '#166534', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6}}>
+        <ChartIcon className="w-3.5 h-3.5"/>
+        执行结果
       </div>
       <div
         style={{fontSize: 14, color: '#1e293b', whiteSpace: 'pre-wrap'}}
@@ -484,7 +508,7 @@ function ErrorSection({error}: {error: SkillError}) {
       border: '1px solid #fecaca',
     }}>
       <div style={{display: 'flex', alignItems: 'center', gap: 8, color: '#dc2626'}}>
-        <span>❌</span>
+        <ErrorIcon className="w-4 h-4"/>
         <span style={{fontWeight: 600}}>{error.phase}</span>
       </div>
       <div style={{marginTop: 8, fontSize: 14, color: '#7f1d1d'}}>
@@ -523,7 +547,10 @@ function ExecutionTime({
       display: 'flex',
       justifyContent: 'space-between',
     }}>
-      <span>⏱️ 执行时间</span>
+      <span style={{display: 'inline-flex', alignItems: 'center', gap: 6}}>
+        <ClockIcon className="w-3.5 h-3.5"/>
+        执行时间
+      </span>
       <span style={{fontFamily: 'monospace'}}>
         {timeStr}
         {status === 'executing' && ' (进行中)'}
@@ -543,16 +570,16 @@ function CollapsedSummary({
   result?: SkillResult
   error?: SkillError
 }) {
-  let text = ''
+  let content: React.ReactNode = null
 
   if (status === 'done' && result) {
-    text = `✅ ${result.type === 'script_output' ? '脚本执行完成' : '技能执行完成'}`
+    content = <><SuccessIcon className="w-3.5 h-3.5"/> {result.type === 'script_output' ? '脚本执行完成' : '技能执行完成'}</>
   } else if (status === 'error' && error) {
-    text = `❌ ${error.message}`
+    content = <><ErrorIcon className="w-3.5 h-3.5"/> {error.message}</>
   } else if (progress) {
-    text = `🛠️ ${progress.label || '执行中'}: ${progress.current}/${progress.total}`
+    content = <><SkillIcon className="w-3.5 h-3.5"/> {progress.label || '执行中'}: {progress.current}/{progress.total}</>
   } else {
-    text = `⏳ ${status}`
+    content = <><LoadingIcon className="w-3.5 h-3.5"/> {status}</>
   }
 
   return (
@@ -561,8 +588,11 @@ function CollapsedSummary({
       fontSize: 13,
       color: '#64748b',
       background: '#f8fafc',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
     }}>
-      {text}
+      {content}
     </div>
   )
 }
@@ -586,16 +616,16 @@ function Spinner() {
 
 // ─── 辅助函数 ──────────────────────────────────────────────
 
-const STATUS_CONFIGS: Record<string, {icon: string; label: string; bgColor: string}> = {
-  matched:   {icon: '🎯', label: '已匹配',   bgColor: '#6366f1'},
-  loading:   {icon: '⏳', label: '加载中',   bgColor: '#f59e0b'},
-  executing: {icon: '🛠️', label: '执行中',   bgColor: '#3b82f6'},
-  done:      {icon: '✅', label: '完成',      bgColor: '#10b981'},
-  error:     {icon: '❌', label: '错误',      bgColor: '#ef4444'},
+const STATUS_CONFIGS: Record<string, {Icon: React.ComponentType<IconProps>; label: string; bgColor: string}> = {
+  matched:   {Icon: TargetIcon,  label: '已匹配',   bgColor: '#6366f1'},
+  loading:   {Icon: LoadingIcon, label: '加载中',   bgColor: '#f59e0b'},
+  executing: {Icon: SkillIcon,   label: '执行中',   bgColor: '#3b82f6'},
+  done:      {Icon: SuccessIcon, label: '完成',      bgColor: '#10b981'},
+  error:     {Icon: ErrorIcon,   label: '错误',      bgColor: '#ef4444'},
 }
 
-function getStatusConfig(status: string): {icon: string; label: string; bgColor: string} {
-  return STATUS_CONFIGS[status] || {icon: '•', label: status, bgColor: '#64748b'}
+function getStatusConfig(status: string): {Icon: React.ComponentType<IconProps>; label: string; bgColor: string} {
+  return STATUS_CONFIGS[status] || {Icon: InfoIcon, label: status, bgColor: '#64748b'}
 }
 
 function formatContent(content: string): string {

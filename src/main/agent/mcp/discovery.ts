@@ -18,6 +18,7 @@ import type {MCPToolDefinition} from './types'
 import {mcpClient as mainProcessMcpClient} from './client'
 import {createTimeoutResult, ToolTimeoutError, withToolTimeout} from '../tools/toolTimeout'
 import {formatMcpResult} from './formatResult'
+import {buildMcpToolNameCandidates} from '@shared/mcp/naming'
 
 // ─── MessagePort 注入（Phase 2）────────────────────────────────
 //
@@ -27,47 +28,15 @@ let mcpPort: MessagePort | null = null
 
 /** 设置 MCP Worker 的 MessagePort（从 worker.ts 启动时注入） */
 export function setMcpMessagePort(port: MessagePort | null): void {
-    mcpPort = port
+  mcpPort = port
 }
 
 /** 获取当前可用的 MCPClient（主进程使用）或 MessagePort（Worker 使用） */
 function getCurrentClient(): any {
-    return mcpPort || mainProcessMcpClient
+  return mcpPort || mainProcessMcpClient
 }
 
 // formatMcpResult 已抽取到 ./formatResult.ts，此处通过 import 共用
-
-// ─── 服务器 ID 缩短 ────────────────────────────────────────────
-
-/**
- * 将 MCP 服务器 ID 缩短为 6 字符哈希前缀
- * 避免工具名过长（如 mcp_plugin_github_my-server_list_issues → mcp_a3f2b1_list_issues）
- *
- * 内部维护 serverId ↔ shortId 双向映射，确保同一 serverId 始终映射到同一 shortId
- */
-const shortIdMap = new Map<string, string>()
-const reverseShortIdMap = new Map<string, string>()
-
-function shortenServerId(serverId: string): string {
-  const cached = shortIdMap.get(serverId)
-  if (cached) return cached
-
-  let hash = 5381
-  for (let i = 0; i < serverId.length; i++) {
-    hash = ((hash << 5) + hash) + serverId.charCodeAt(i)
-    hash |= 0
-  }
-  const shortId = (Math.abs(hash) >>> 0).toString(36).slice(0, 6)
-
-  shortIdMap.set(serverId, shortId)
-  reverseShortIdMap.set(shortId, serverId)
-  return shortId
-}
-
-/** 从 shortId 反查原始 serverId */
-export function resolveServerId(shortId: string): string | undefined {
-  return reverseShortIdMap.get(shortId)
-}
 
 // ─── MCP 工具元数据映射（proxy 注册名 ↔ 原始身份/原始 schema）─────
 //
@@ -177,143 +146,91 @@ export async function getMcpToolPermission(serverId: string, rawToolName: string
   }
 }
 
-// ─── 工具名净化 ───────────────────────────────────────────────
-
-/**
- * 净化工具名称，确保符合 OpenAI/Anthropic 的 function.name 模式要求
- * 模式要求: ^[a-zA-Z0-9_-]+$
- *
- * 将非法字符替换为下划线，移除前缀或后缀下划线
- */
-function sanitizeToolName(name: string): string {
-    return name
-        .replace(/[^a-zA-Z0-9_-]/g, '_')   // 非法字符 → 下划线
-        .replace(/_+/g, '_')                // 连续下划线 → 单下划线
-        .replace(/^_|_$/g, '')              // 移除首尾下划线
-}
-
 // ─── 为每个 MCP 工具创建代理 ──────────────────────────────────
 
-/**
- * 已使用的工具名集合，用于检测新格式下的命名冲突
- */
-const usedToolNames = new Set<string>()
+function createMCPToolProxy(args: {
+  serverId: string
+  toolDef: MCPToolDefinition
+  proxyName: string
+  serverName?: string
+}): {tool: Tool; meta: McpToolMeta} {
+  const {serverId, toolDef, proxyName, serverName} = args
+  const isWorker = !!parentPort
 
-/**
- * 生成 MCP 工具注册名
- *
- * 格式统一为 UI 展示同名：
- * - 普通 MCP: m_<服务器名>_<工具名>（如 m_codegraph_codegraph_explore）
- * - 插件 MCP: mp_<服务器名>_<工具名>（如 mp_github_create_or_update_file）
- * - 服务器名不可用时 fallback 到 m_/mp_<shortId>_<工具名>
- *
- * 此命名与 LLM 看到的 function name 完全一致，消除 LLM "去前缀" 行为。
- */
-function buildMcpToolName(serverId: string, serverName: string | undefined, toolName: string): string {
-    const isPlugin = serverId.startsWith('plugin:')
-    const prefix = isPlugin ? 'mp_' : 'm_'
-    const safeName = serverName ? sanitizeToolName(serverName) : ''
-
-    // 尝试用 serverName 作为前缀（可读）
-    if (safeName) {
-        const candidate = `${prefix}${safeName}_${toolName}`
-        if (!usedToolNames.has(candidate)) {
-            usedToolNames.add(candidate)
-            return candidate
-        }
-    }
-
-    // fallback: 用 shortId（唯一但不可读）
-    const shortId = shortenServerId(serverId)
-    const fallback = `${prefix}${shortId}_${toolName}`
-    usedToolNames.add(fallback)
-    return fallback
-}
-
-function createMCPToolProxy(
-  serverId: string,
-  toolDef: MCPToolDefinition,
-  serverName?: string,
-): {tool: Tool; proxyName: string; meta: McpToolMeta} {
-    const isWorker = !!parentPort
-
-    let userDesc: string | undefined
-    let autoApprove = false
-    if (!isWorker) {
-        const server = mainProcessMcpClient.getServer(serverId)
-        userDesc = server?.config.userDescription
-        autoApprove = mainProcessMcpClient.isToolAutoApproved(serverId, toolDef.name)
-    }
+  let userDesc: string | undefined
+  let autoApprove = false
+  if (!isWorker) {
+    const server = mainProcessMcpClient.getServer(serverId)
+    userDesc = server?.config.userDescription
+    autoApprove = mainProcessMcpClient.isToolAutoApproved(serverId, toolDef.name)
+  }
 
   const inputSchema = mcpSchemaToZod(toolDef.inputSchema)
-  const rawName = buildMcpToolName(serverId, serverName, toolDef.name)
-  const proxyName = sanitizeToolName(rawName)
-    const baseDesc = `[MCP:${serverId}] ${userDesc ? `场景说明: ${userDesc}\n` : ''}`
+  const baseDesc = `[MCP:${serverId}] ${userDesc ? `场景说明: ${userDesc}\n` : ''}`
 
   const tool: Tool = {
     name: proxyName,
-      description: `${baseDesc}${toolDef.description || toolDef.name}`,
+    description: `${baseDesc}${toolDef.description || toolDef.name}`,
     inputSchema,
     isDestructive: false,
-      autoApprove,
+    autoApprove,
 
-      /**
-       * Phase 2 优化:
-       * - Worker 线程: 通过 MessagePort 直连 MCP Worker（共享连接池）
-       * - 无 MessagePort 时: 返回错误（不自建连接）
-       * - 主进程: 直接调 mainProcessMcpClient（仅用于 UI 侧 MCP IPC）
-       */
+    /**
+     * Phase 2 优化:
+     * - Worker 线程: 通过 MessagePort 直连 MCP Worker（共享连接池）
+     * - 无 MessagePort 时: 返回错误（不自建连接）
+     * - 主进程: 直接调 mainProcessMcpClient（仅用于 UI 侧 MCP IPC）
+     */
     async execute(args: Record<string, unknown>, _context: ToolContext): Promise<ToolResult> {
-          // 获取 MCP 服务器的超时配置（默认 60 秒）
-          const serverConfig = !isWorker ? mainProcessMcpClient.getServer(serverId)?.config : null
-          const timeoutMs = serverConfig?.timeout != null ? serverConfig.timeout : 60_000
-          const toolFullName = rawName
+      // 获取 MCP 服务器的超时配置（默认 60 秒）
+      const serverConfig = !isWorker ? mainProcessMcpClient.getServer(serverId)?.config : null
+      const timeoutMs = serverConfig?.timeout != null ? serverConfig.timeout : 60_000
+      const toolFullName = proxyName
 
-          try {
-              // Worker 线程：通过 MessagePort 调 MCP Worker
-              if (isWorker) {
-                  if (mcpPort) {
-                      const callId = crypto.randomUUID().slice(0, 8)
-                      const port = mcpPort  // local ref for TS narrowing
-                      return await withToolTimeout(
-                          new Promise<ToolResult>((resolve) => {
-                              const handler = (msg: any) => {
-                                  if (msg.callId === callId) {
-                                      port.off('message', handler)
-                                      resolve(msg.result)
-                                  }
-                              }
-                              port.on('message', handler)
-                              port.postMessage({type: 'call_tool', callId, serverId, toolName: toolDef.name, args})
-                          }),
-                          toolFullName,
-                          timeoutMs
-                      )
+      try {
+        // Worker 线程：通过 MessagePort 调 MCP Worker
+        if (isWorker) {
+          if (mcpPort) {
+            const callId = crypto.randomUUID().slice(0, 8)
+            const port = mcpPort  // local ref for TS narrowing
+            return await withToolTimeout(
+              new Promise<ToolResult>((resolve) => {
+                const handler = (msg: any) => {
+                  if (msg.callId === callId) {
+                    port.off('message', handler)
+                    resolve(msg.result)
                   }
-                  // 无 MessagePort（MCP Worker 未就绪或崩溃），不注册此工具
-                  return {success: false, output: null, error: 'MCP Worker 不可用，工具未注册'}
-              }
-
-              // 主进程：直接调用（带超时保护）
-              return await withToolTimeout(
-                  mainProcessMcpClient.callTool(serverId, toolDef.name, args).then(formatMcpResult),
-                  toolFullName,
-                  timeoutMs
-              )
-          } catch (err: any) {
-              // 处理超时错误
-              if (err instanceof ToolTimeoutError) {
-                  return createTimeoutResult(toolFullName, err.timeoutMs)
-              }
-              logger.error('[MCP Discovery] callTool failed', {error: err.message, tool: toolFullName})
-              return {success: false, output: null, error: `MCP 工具调用失败: ${err.message}`}
+                }
+                port.on('message', handler)
+                port.postMessage({type: 'call_tool', callId, serverId, toolName: toolDef.name, args})
+              }),
+              toolFullName,
+              timeoutMs
+            )
           }
+          // 无 MessagePort（MCP Worker 未就绪或崩溃），不注册此工具
+          return {success: false, output: null, error: 'MCP Worker 不可用，工具未注册'}
+        }
+
+        // 主进程：直接调用（带超时保护）
+        return await withToolTimeout(
+          mainProcessMcpClient.callTool(serverId, toolDef.name, args).then(formatMcpResult),
+          toolFullName,
+          timeoutMs
+        )
+      } catch (err: any) {
+        // 处理超时错误
+        if (err instanceof ToolTimeoutError) {
+          return createTimeoutResult(toolFullName, err.timeoutMs)
+        }
+        logger.error('[MCP Discovery] callTool failed', {error: err.message, tool: toolFullName})
+        return {success: false, output: null, error: `MCP 工具调用失败: ${err.message}`}
+      }
     },
   }
 
   return {
     tool,
-    proxyName,
     meta: {
       proxyName,
       serverId,
@@ -373,56 +290,132 @@ function mcpSchemaToZod(
   return z.object(shape)
 }
 
+// ─── 命名分配（层 2：冲突消解）─────────────────────────────────
+
+/** 待分配的服务器（含工具清单与展示字段） */
+export interface McpServerWithTools {
+  id: string
+  name: string
+  /** 透传至 proxy.description 的「场景说明」前缀 */
+  userDescription?: string
+  tools: MCPToolDefinition[]
+}
+
+/**
+ * 纯分配：给定"要分配的服务器集合"与"已占用名字快照"，产出每个 (serverId, rawToolName) 的 proxyName。
+ * 不读写任何模块状态。导出仅为可单测（test-only 接缝）。
+ *
+ * 四条规则，顺序固定、不可交换：
+ * 1. 确定性排序 —— servers 按 id 升序；同一 server 内 tools 按 name 升序。
+ * 2. 逐项取第一个未占用候选 —— 函数内先做快照 takenLocal = new Map(taken)。
+ *    → "字典序定胜负"由此自然涌现（同名组里 id 最小者拿候选1）。
+ * 3. 候选耗尽兜底 —— 全部候选都被占用时，取**最后一个候选 c** 追加 `${c}_${n}`（n 从 2 递增）直到空闲。
+ * 4. 自身旧名视为可复用 —— 由**调用方**在构造 taken 时剔除；本函数内部**不**剔除。
+ */
+export function allocateMcpToolNames(
+  servers: McpServerWithTools[],
+  taken: ReadonlyMap<string, string>,
+): Map<string, Map<string, string>> {
+  const takenLocal = new Map(taken)
+  const result = new Map<string, Map<string, string>>()
+
+  const orderedServers = [...servers].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  for (const server of orderedServers) {
+    const nameMap = new Map<string, string>()
+    result.set(server.id, nameMap)
+
+    const orderedTools = [...server.tools].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    for (const toolDef of orderedTools) {
+      const candidates = buildMcpToolNameCandidates({
+        serverId: server.id,
+        serverName: server.name,
+        toolName: toolDef.name,
+      })
+
+      let chosen = candidates.find((c) => !takenLocal.has(c))
+      if (!chosen) {
+        // 规则 3：全部候选被占用 → 取最后一个候选追加确定性后缀
+        const base = candidates[candidates.length - 1]
+        let n = 2
+        while (takenLocal.has(`${base}_${n}`)) n++
+        chosen = `${base}_${n}`
+      }
+
+      takenLocal.set(chosen, server.id)
+      nameMap.set(toolDef.name, chosen)
+    }
+  }
+  return result
+}
+
+/** 构造"已占用名字快照"，并剔除本批 serverId 自身旧名（规则 4 的调用方职责） */
+function buildTakenMap(selfServerIds: Iterable<string>): Map<string, string> {
+  const selfIds = new Set(selfServerIds)
+  const taken = new Map<string, string>()
+  for (const [proxyName, meta] of mcpToolMeta) {
+    if (!selfIds.has(meta.serverId)) taken.set(proxyName, meta.serverId)
+  }
+  return taken
+}
+
 // ─── 公开 API ──────────────────────────────────────────
 
 /**
- * 过滤 denyList 中的工具
+ * 注册 MCP Server 的所有工具到 ToolRegistry
+ *
+ * ★ 契约：传入的 `tools` 必须是**最终清单**（已按 denyList 过滤）。
+ *   本函数不做任何 permit 过滤 —— 发现期的 deny 过滤唯一实现点是
+ *   `MCPClient.getEffectiveTools`（client.ts），活调用方 worker.ts 的 tools
+ *   即来自 MCP Worker 下发的 getEffectiveTools 输出（mcpWorker.ts:359 / :449）。
  */
-function filterDeniedTools(serverId: string, tools: MCPToolDefinition[]): MCPToolDefinition[] {
-    const mcp = getCurrentClient()
-    const deniedNames = mcp.getDeniedToolNames?.(serverId) ?? []
-    if (!deniedNames.length) return tools
-
-    const filtered = tools.filter(t => !mcp.isToolDenied(serverId, t.name))
-    if (filtered.length !== tools.length) {
-        logger.debug(`[MCP] ${serverId}: 过滤 ${tools.length - filtered.length} 个被 denyList 禁止的工具`)
-    }
-    return filtered
-}
-
-/** 注册 MCP Server 的所有工具到 ToolRegistry */
 export function registerMCPTools(
-    serverId: string,
-    tools?: MCPToolDefinition[],
-    userDescription?: string,
-    serverName?: string,
+  serverId: string,
+  tools?: MCPToolDefinition[],
+  userDescription?: string,
+  serverName?: string,
 ): number {
-    let serverTools = tools
-    let finalUserDesc = userDescription
-    let finalServerName = serverName
+  let serverTools = tools
+  let finalUserDesc = userDescription
+  let finalServerName = serverName
 
-    if (!serverTools) {
-        const mcp = getCurrentClient()
-        const server = mcp.getServer?.(serverId)
-        if (!server) return 0
-        serverTools = server.tools
-        finalUserDesc = server.config.userDescription
-        finalServerName = finalServerName || server.name
-    }
+  if (!serverTools) {
+    const mcp = getCurrentClient()
+    const server = mcp.getServer?.(serverId)
+    if (!server) return 0
+    serverTools = server.tools
+    finalUserDesc = server.config.userDescription
+    finalServerName = finalServerName || server.name
+  }
 
-    if (!serverTools?.length) return 0
+  if (!serverTools?.length) return 0
 
-    serverTools = filterDeniedTools(serverId, serverTools)
+  // 步骤 1（F4）：先注销自身旧名 —— 释放旧 proxyName、清除孤儿注册项（组 4 / 组 8 的修复点）
+  unregisterMCPTools(serverId)
+
+  // 步骤 2/3：构造 taken（已剔除本服务器自身旧名）→ 分配
+  const taken = buildTakenMap([serverId])
+  const alloc = allocateMcpToolNames(
+    [{id: serverId, name: finalServerName ?? '', userDescription: finalUserDesc, tools: serverTools}],
+    taken,
+  )
+  const nameMap = alloc.get(serverId) ?? new Map<string, string>()
 
   let registered = 0
-    for (const toolDef of serverTools) {
-    const {tool: proxy, proxyName, meta} = createMCPToolProxy(serverId, toolDef, finalServerName)
-        if (finalUserDesc) {
-            proxy.description = `[MCP:${serverId}] 场景说明: ${finalUserDesc}\n${toolDef.description || toolDef.name}`
-        }
+  for (const toolDef of serverTools) {
+    const proxyName = nameMap.get(toolDef.name)
+    if (!proxyName) continue
+    const {tool: proxy, meta} = createMCPToolProxy({
+      serverId,
+      toolDef,
+      proxyName,
+      serverName: finalServerName,
+    })
+    if (finalUserDesc) {
+      proxy.description = `[MCP:${serverId}] 场景说明: ${finalUserDesc}\n${toolDef.description || toolDef.name}`
+    }
     toolRegistry.register(proxy)
-    // 元数据与 registry 同生共死：proxy 名是唯一 key（注册名可能因冲突回退到 shortId，
-    // 不能靠 buildMcpToolName 二次推导）
+    // 元数据与 registry 同生共死：proxyName 是唯一 key（由 allocateMcpToolNames 分配，
+    // 不得二次推导）
     mcpToolMeta.set(proxyName, meta)
     registered++
   }
@@ -430,39 +423,63 @@ export function registerMCPTools(
 }
 
 /**
+ * 批量注册：一次分配全体服务器的工具名（字典序确定性），与传入顺序无关。
+ * 步骤：0 按 id 去重（保留首次出现）→ 1 逐 server 先注销自身旧名（F4）
+ *      → 2 构造 taken → 3 allocateMcpToolNames → 4 注册（透传 name / userDescription）
+ */
+export function registerAllMcpTools(servers: McpServerWithTools[]): number {
+  // 规则 0：按 id 去重（保留首次出现；防重复 id 造成后者覆盖前者 + 二次占名）
+  const seen = new Set<string>()
+  const uniq: McpServerWithTools[] = []
+  for (const s of servers) {
+    if (seen.has(s.id)) continue
+    seen.add(s.id)
+    uniq.push(s)
+  }
+
+  // 步骤 1（F4）：逐 server 先注销自身旧名（释放旧名 + 清孤儿注册项）
+  for (const s of uniq) unregisterMCPTools(s.id)
+
+  // 步骤 2/3：分配
+  const taken = buildTakenMap(uniq.map((s) => s.id))
+  const alloc = allocateMcpToolNames(uniq, taken)
+
+  // 步骤 4：注册
+  let registered = 0
+  for (const s of uniq) {
+    const nameMap = alloc.get(s.id) ?? new Map<string, string>()
+    for (const toolDef of s.tools) {
+      const proxyName = nameMap.get(toolDef.name)
+      if (!proxyName) continue
+      const {tool: proxy, meta} = createMCPToolProxy({
+        serverId: s.id,
+        toolDef,
+        proxyName,
+        serverName: s.name,
+      })
+      if (s.userDescription) {
+        proxy.description = `[MCP:${s.id}] 场景说明: ${s.userDescription}\n${toolDef.description || toolDef.name}`
+      }
+      toolRegistry.register(proxy)
+      mcpToolMeta.set(proxyName, meta)
+      registered++
+    }
+  }
+  return registered
+}
+
+/**
  * 注销 MCP Server 的所有工具
  *
- * ★ 优先按元数据映射（proxyName 精确匹配）注销：buildMcpToolName 依赖模块级
- *   usedToolNames 去重集合，二次调用同一 (serverId, toolName) 会返回 fallback
- *   shortId 名（与注册名不同），导致注销失效。元数据表持有注册时的真实 proxyName。
+ * proxyName 精确匹配注销：mcpToolMeta 是注册名的**唯一来源**（注册时由 allocateMcpToolNames 写入）。
+ * 元数据缺失（如未经过注册入口）时直接返回 0 —— P1 之后不存在"按名推导"的第二条路径。
  */
-export function unregisterMCPTools(serverId: string, tools?: MCPToolDefinition[], serverName?: string): number {
-    let unregistered = 0
-    for (const [proxyName, meta] of mcpToolMeta) {
-        if (meta.serverId !== serverId) continue
-        toolRegistry.unregister(proxyName)
-        mcpToolMeta.delete(proxyName)
-        unregistered++
-    }
-    if (unregistered > 0) return unregistered
-
-    // 兜底：元数据缺失（如未经过 registerMCPTools 的历史路径）仍按旧逻辑推导名称
-    let serverTools = tools
-    let finalServerName = serverName
-    if (!serverTools) {
-        const mcp = getCurrentClient()
-        const server = mcp.getServer?.(serverId)
-        if (!server) return 0
-        serverTools = server.tools
-        finalServerName = finalServerName || server.name
-    }
-
-    if (!serverTools?.length) return 0
-    serverTools = filterDeniedTools(serverId, serverTools)
-
-    for (const toolDef of serverTools) {
-        const rawName = buildMcpToolName(serverId, finalServerName, toolDef.name)
-    toolRegistry.unregister(sanitizeToolName(rawName))
+export function unregisterMCPTools(serverId: string, _tools?: MCPToolDefinition[], _serverName?: string): number {
+  let unregistered = 0
+  for (const [proxyName, meta] of mcpToolMeta) {
+    if (meta.serverId !== serverId) continue
+    toolRegistry.unregister(proxyName)
+    mcpToolMeta.delete(proxyName)
     unregistered++
   }
   return unregistered

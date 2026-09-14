@@ -62,10 +62,8 @@ export default function PermissionModeSelector() {
                     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
                 </svg>
             ),
-            desc: '全程自动执行',
             color: 'text-yellow-500',
             hoverColor: 'hover:text-yellow-400',
-            bgColor: 'bg-yellow-500',
         },
         {
             id: 'safe',
@@ -75,10 +73,8 @@ export default function PermissionModeSelector() {
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                 </svg>
             ),
-            desc: '有保护，更安全',
             color: 'text-red-500',
             hoverColor: 'hover:text-red-400',
-            bgColor: 'bg-red-500',
         },
     ]
 
@@ -131,7 +127,7 @@ export default function PermissionModeSelector() {
                         <div className="bg-[var(--surface-elevated)]/92 backdrop-blur-lg border border-[var(--border)] rounded-2xl shadow-2xl shadow-black/20 overflow-hidden">
                             <div className="p-1.5">
                                 {/* 标题 */}
-                                <div className="px-2.5 py-2 text-[10px] font-medium text-[var(--text-muted)] border-b border-[var(--border)] mb-1">
+                                <div className="px-2.5 py-2 text-[10px] font-medium text-[var(--text-secondary)] border-b border-[var(--border-muted)] mb-1">
                                     运行模式
                                 </div>
 
@@ -150,7 +146,7 @@ export default function PermissionModeSelector() {
                                                 transition-all duration-150 flex items-center gap-2.5
                                                 ${isActive
                                                     ? `bg-[var(--brand-primary)]/15 ${m.color}`
-                                                    : `text-[var(--text-muted)] hover:bg-[var(--surface-muted)] ${m.hoverColor}`
+                                                    : `text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] ${m.hoverColor}`
                                                 }
                                             `}
                                          data-name={`permission-mode-selector-mode-${i}`}>

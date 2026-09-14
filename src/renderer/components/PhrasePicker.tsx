@@ -76,7 +76,8 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
             Enter: () => { const p = filtered[sel]; if (p) onPick(p) },
             Escape: () => onClose(),
         }
-        if (keyMap[e.key]) { e.preventDefault(); e.stopPropagation(); keyMap[e.key]() }
+        const handler = keyMap[e.key]
+        if (handler) { e.preventDefault(); e.stopPropagation(); handler() }
     }
 
     const rect = open ? anchorRef.current?.getBoundingClientRect() : undefined
@@ -99,7 +100,7 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
                 onKeyDown={onKeyDown}
                 data-name="phrase-picker-panel"
             >
-                <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--border)] bg-[var(--surface-muted)]">
+                <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
                     <svg className="w-4 h-4 text-[var(--text-muted)] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" aria-hidden="true">
                         <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
                     </svg>
@@ -114,7 +115,7 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
 
                 <div ref={listRef} className="max-h-64 overflow-y-auto py-1">
                     {filtered.length === 0 ? (
-                        <div className="p-6 text-center text-sm text-[var(--text-muted)]">
+                        <div className="p-6 text-center text-sm text-[var(--text-secondary)]">
                             {phrases.length === 0
                                 ? '暂无快捷短语，可在「切换菜单 → 快捷短语」中管理'
                                 : `未找到匹配 "${query}" 的短语`}
@@ -136,7 +137,7 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
                     ))}
                 </div>
 
-                <div className="px-3 py-2 border-t border-[var(--border)] flex gap-4 text-[10px] text-[var(--text-muted)]">
+                <div className="px-3 py-2 border-t border-[var(--border-muted)] flex gap-4 text-[10px] text-[var(--text-secondary)]">
                     {[['↑↓', '导航'], ['Enter', '粘贴'], ['Esc', '关闭']].map(([k, l]) => (
                         <span key={k}><kbd className="px-1 py-0.5 bg-[var(--surface-muted)] border border-[var(--border)] rounded font-mono">{k}</kbd> {l}</span>
                     ))}

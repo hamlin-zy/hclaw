@@ -97,6 +97,8 @@ vi.mock('@/main/agent/powerManager', () => ({
 }))
 
 import {McpVersionManager} from '@/main/agent/mcp/versionManager'
+import type {VersionMeta} from '@/main/agent/mcp/versionUtils'
+import {createSeededVersionStore} from './helpers/seededVersionStore'
 import {broadcastToAllWindows} from '@/main/utils/windowBroadcast'
 
 function makeServer(overrides: any = {}): any {
@@ -140,32 +142,43 @@ describe('McpVersionManager integration', () => {
     expect(broadcastToAllWindows).toHaveBeenCalledWith('mcp:status-update', expect.any(Object))
   })
 
-  it('isChecking prevents concurrent startupCheck', async () => {
-    const manager = new McpVersionManager()
-    expect(manager.isChecking).toBe(false)
+  it('releases the lock so startupCheck can re-enter (can run twice)', async () => {
+    mockState.servers = [makeServer({id: 'srv1', enabled: true})]
+    const seeded = createSeededVersionStore()
+    const manager = new McpVersionManager({store: seeded.store})
+    const detectSpy = vi.spyOn(manager, 'detect').mockResolvedValue({
+      current: '1.0.0', latest: '1.0.0', hasUpdate: false,
+      sourceType: 'binary', lastChecked: Date.now(),
+    })
 
-    // With empty servers, startupCheck resolves immediately
+    // First call performs detection while holding the lock.
     const result1 = await manager.startupCheck()
-    expect(manager.isChecking).toBe(false)
+    const afterFirst = detectSpy.mock.calls.length
+    expect(afterFirst).toBe(1)
 
-    // Second call should also succeed (no lock held)
+    // Lock must be released: a second call re-enters the detect path instead
+    // of early-returning at the isChecking guard.
     const result2 = await manager.startupCheck()
+    expect(detectSpy.mock.calls.length).toBeGreaterThan(afterFirst)
     expect(result2).toEqual(result1)
+    expect(seeded.getSetAllCalls()).toBeGreaterThan(0)
+    detectSpy.mockRestore()
   })
 
   it('getAllVersionMeta removes stale entries', async () => {
     mockState.servers = [makeServer({id: 'srv-active'})]
 
-    const manager = new McpVersionManager()
-    // Inject stale data
-    ;(manager as any).versionMap.set('stale', {
-      current: '1.0.0', latest: '2.0.0', hasUpdate: true,
-      sourceType: 'binary', lastChecked: Date.now(),
+    const seeded = createSeededVersionStore({
+      'stale': {
+        current: '1.0.0', latest: '2.0.0', hasUpdate: true,
+        sourceType: 'binary', lastChecked: Date.now(),
+      },
+      'srv-active': {
+        current: '1.0.0', latest: '2.0.0', hasUpdate: true,
+        sourceType: 'binary', lastChecked: Date.now(),
+      },
     })
-    ;(manager as any).versionMap.set('srv-active', {
-      current: '1.0.0', latest: '2.0.0', hasUpdate: true,
-      sourceType: 'binary', lastChecked: Date.now(),
-    })
+    const manager = new McpVersionManager({store: seeded.store})
 
     const result = manager.getAllVersionMeta()
     expect(result['srv-active']).toBeDefined()
@@ -173,22 +186,26 @@ describe('McpVersionManager integration', () => {
   })
 
   it('upgradeServer rejects url sourceType', async () => {
-    const manager = new McpVersionManager()
-    ;(manager as any).versionMap.set('srv-url', {
-      current: null, latest: null, hasUpdate: null,
-      sourceType: 'url', lastChecked: Date.now(),
+    const seeded = createSeededVersionStore({
+      'srv-url': {
+        current: null, latest: null, hasUpdate: null,
+        sourceType: 'url', lastChecked: Date.now(),
+      },
     })
+    const manager = new McpVersionManager({store: seeded.store})
     const result = await manager.upgradeServer('srv-url')
     expect(result.success).toBe(false)
     expect(result.error).toBe('unsupported_source_type')
   })
 
   it('upgradeServer rejects unknown sourceType', async () => {
-    const manager = new McpVersionManager()
-    ;(manager as any).versionMap.set('srv-unknown', {
-      current: null, latest: null, hasUpdate: null,
-      sourceType: 'unknown', lastChecked: Date.now(),
+    const seeded = createSeededVersionStore({
+      'srv-unknown': {
+        current: null, latest: null, hasUpdate: null,
+        sourceType: 'unknown', lastChecked: Date.now(),
+      },
     })
+    const manager = new McpVersionManager({store: seeded.store})
     const result = await manager.upgradeServer('srv-unknown')
     expect(result.success).toBe(false)
     expect(result.error).toBe('unsupported_source_type')
@@ -288,13 +305,14 @@ describe('switchVersion integration', () => {
         }),
       ]
 
-      const manager = new McpVersionManager()
-      // Seed version cache (as startupCheck would)
-      ;(manager as any).versionMap.set('srv-npx', {
-        current: '1.0.0', latest: '2.0.0', hasUpdate: true,
-        sourceType: 'npx', lastChecked: Date.now(),
-        availableVersions: ['1.0.0', '1.5.0', '2.0.0'],
+      const seeded = createSeededVersionStore({
+        'srv-npx': {
+          current: '1.0.0', latest: '2.0.0', hasUpdate: true,
+          sourceType: 'npx', lastChecked: Date.now(),
+          availableVersions: ['1.0.0', '1.5.0', '2.0.0'],
+        },
       })
+      const manager = new McpVersionManager({store: seeded.store})
 
       const resultP = manager.switchVersion('srv-npx', '1.5.0')
       // switchNpxVersion waits 2s before re-probing after restart
@@ -315,7 +333,7 @@ describe('switchVersion integration', () => {
       expect(server.args).toEqual(['-y', 'some-mcp-server@1.5.0'])
 
       // versionMap updated with new current
-      const meta = (manager as any).versionMap.get('srv-npx')
+      const meta = seeded.getSnapshot()['srv-npx']
       expect(meta.current).toBe('1.5.0')
       expect(meta.sourceType).toBe('npx')
     } finally {
@@ -332,12 +350,14 @@ describe('switchVersion integration', () => {
       tags: ['v1.0.0', 'v2.0.0'], branches: [],
     })
 
-    const manager = new McpVersionManager()
-    ;(manager as any).versionMap.set('plugin:myplugin:srv1', {
-      current: '1.0.0', latest: '2.0.0', hasUpdate: true,
-      sourceType: 'plugin', lastChecked: Date.now(),
-      availableVersions: ['v1.0.0', 'v2.0.0'],
+    const seeded = createSeededVersionStore({
+      'plugin:myplugin:srv1': {
+        current: '1.0.0', latest: '2.0.0', hasUpdate: true,
+        sourceType: 'plugin', lastChecked: Date.now(),
+        availableVersions: ['v1.0.0', 'v2.0.0'],
+      },
     })
+    const manager = new McpVersionManager({store: seeded.store})
 
     const result = await manager.switchVersion('plugin:myplugin:srv1', 'v2.0')
 
@@ -345,7 +365,7 @@ describe('switchVersion integration', () => {
     expect(mockState.pluginSwitchCalls).toEqual([['myplugin', 'v2.0']])
 
     // versionMap updated from pluginVersionManager cache
-    const meta = (manager as any).versionMap.get('plugin:myplugin:srv1')
+    const meta = seeded.getSnapshot()['plugin:myplugin:srv1']
     expect(meta.current).toBe('v2.0')
     expect(meta.sourceType).toBe('plugin')
   })
@@ -359,12 +379,14 @@ describe('switchVersion integration', () => {
     mockState.servers = [
       makeServer({id: 'srv-npx', command: 'npx', args: ['-y', 'pkg@1.0.0']}),
     ]
-    const manager = new McpVersionManager()
-    ;(manager as any).versionMap.set('srv-npx', {
-      current: '1.0.0', latest: '2.0.0', hasUpdate: true,
-      sourceType: 'npx', lastChecked: Date.now(),
-      availableVersions: [],
+    const seeded = createSeededVersionStore({
+      'srv-npx': {
+        current: '1.0.0', latest: '2.0.0', hasUpdate: true,
+        sourceType: 'npx', lastChecked: Date.now(),
+        availableVersions: [],
+      },
     })
+    const manager = new McpVersionManager({store: seeded.store})
 
     vi.useFakeTimers()
     try {
@@ -388,13 +410,13 @@ describe('switchVersion integration', () => {
       }),
     ]
 
-    const manager = new McpVersionManager()
-    const oldMeta = {
+    const oldMeta: VersionMeta = {
       current: '1.0.0', latest: '2.0.0', hasUpdate: true,
       sourceType: 'npx', lastChecked: Date.now(),
       availableVersions: ['1.0.0', '1.5.0'],
     }
-    ;(manager as any).versionMap.set('srv-npx', oldMeta)
+    const seeded = createSeededVersionStore({'srv-npx': oldMeta})
+    const manager = new McpVersionManager({store: seeded.store})
 
     const result = await manager.switchVersion('srv-npx', '1.5.0')
 
@@ -411,7 +433,7 @@ describe('switchVersion integration', () => {
     })
 
     // versionMap preserved old meta
-    const meta = (manager as any).versionMap.get('srv-npx')
+    const meta = seeded.getSnapshot()['srv-npx']
     expect(meta).toEqual(oldMeta)
   })
 })

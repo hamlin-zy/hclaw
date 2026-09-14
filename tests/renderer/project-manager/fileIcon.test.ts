@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest'
-import {fileIcon, KIND_SPEC, FOLDER_SPEC, FOLDER_OPEN_SPEC, ROOT_SPEC} from '../../../src/renderer/project-manager/lib/fileIcon'
+import {fileIcon, fileKind, fileKindClass, KIND_SPEC, FOLDER_SPEC, FOLDER_OPEN_SPEC, ROOT_SPEC} from '../../../src/renderer/project-manager/lib/fileIcon'
 
 describe('fileIcon §6.1 扩展名 → 图标 + 颜色令牌', () => {
   it.each([
@@ -41,5 +41,47 @@ describe('fileIcon §6.1 扩展名 → 图标 + 颜色令牌', () => {
     const icons = Object.values(KIND_SPEC).map(s => s.Icon)
     // unknown 与 config 故意共用 File / Settings 之外的不同图标：config=Settings, unknown=File
     expect(new Set(icons).size).toBe(icons.length)
+  })
+})
+
+describe('fileKind：测试文件单独成类（IDEA 式绿色）', () => {
+  it.each([
+    ['Foo.test.tsx', 'test'], ['foo.test.ts', 'test'], ['a.spec.mjs', 'test'],
+    ['b.SPEC.js', 'test'], ['c.test.cjs', 'test'],
+  ])('%s → %s', (name, kind) => {
+    expect(fileKind(name)).toBe(kind)
+    expect(fileIcon(name)).toBe(KIND_SPEC.test)
+  })
+
+  it('中缀只对代码类生效，不误伤其它类别', () => {
+    expect(fileKind('a.test.json')).toBe('data')
+    expect(fileKind('README.test.md')).toBe('markup')
+    expect(fileKind('main.ts')).toBe('code')
+    expect(fileKind('styles.test.css')).toBe('style')
+  })
+
+  it('KIND_SPEC.test 用专属颜色令牌（不与他人共用）', () => {
+    expect(KIND_SPEC.test.color).toBe('var(--ft-test)')
+    expect(KIND_SPEC.code.color).toBe('var(--ft-code)')
+  })
+})
+
+describe('fileKindClass：类型 → 文件名着色类', () => {
+  it.each([
+    ['a.ts', 'pm-ft--code'],
+    ['a.test.ts', 'pm-ft--test'],
+    ['a.css', 'pm-ft--style'],
+    ['README.md', 'pm-ft--markup'],
+    ['package.json', 'pm-ft--data'],
+    ['a.png', 'pm-ft--image'],
+  ])('%s → %s', (name, cls) => {
+    expect(fileKindClass(name)).toBe(cls)
+  })
+
+  it('config / unknown 不着色（空串，文件名保持正文色）', () => {
+    expect(fileKindClass('.gitignore')).toBe('')
+    expect(fileKindClass('.env')).toBe('')
+    expect(fileKindClass('noext')).toBe('')
+    expect(fileKindClass('a.xyz')).toBe('')
   })
 })

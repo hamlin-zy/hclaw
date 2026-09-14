@@ -13,6 +13,7 @@ import InputToolbar from './InputToolbar'
 import ConvModeSegs from './ConvModeSegs'
 import {CommandPalette} from './plugin/CommandPalette'
 import {HandoffDialog, type HandoffChoice} from './HandoffDialog'
+import {resolveHandoffThresholdTokens} from '@shared/handoffThreshold'
 import {buildHandoffMessage} from '../utils/handoff'
 import {deriveConversationTitle} from '../utils/conversationTitle'
 import {useSettingsStore} from '../stores/settingsStore'
@@ -92,6 +93,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
         ratio: number
         windowTokens: number
         estimatedTokens: number
+        thresholdTokens: number
         onChoice: (c: HandoffChoice) => void
     } | null>(null)
     // 输入历史导航
@@ -276,18 +278,21 @@ export default function InputArea({isActive = true}: InputAreaProps) {
             }
         } else {
             // ── 空闲分支（重构）：先做发送前交接检查，通过后才 addMessage ──
-            const threshold = useSettingsStore.getState().settings?.agent?.handoffThresholdRatio ?? 0.5
+            const handoffAgent = useSettingsStore.getState().settings?.agent
+            const handoffEnabled = (handoffAgent?.handoffThresholdRatio ?? 0.5) > 0 // ratio=0 = 总开关关闭
             const dismissed = useConversationStore.getState().handoffDismissed[convId]
             let finalText = text
             let finalMetadata = options?.metadata
 
-            if (threshold > 0 && !dismissed && !handoffPromptOpenRef.current) {
+            if (handoffEnabled && !dismissed && !handoffPromptOpenRef.current) {
                 handoffPromptOpenRef.current = true
                 try {
                     const usage = await window.electronAPI?.contextGetUsage(convId)
-                    if (usage && usage.ratio >= threshold) {
+                    // 阈值经统一解析为 token（按比例 = 窗口 × 比例；按窗口大小 = 固定值）
+                    const thresholdTokens = resolveHandoffThresholdTokens(handoffAgent, usage?.windowTokens ?? 0)
+                    if (usage && thresholdTokens > 0 && usage.estimatedTokens >= thresholdTokens) {
                         const choice = await new Promise<HandoffChoice>((resolve) => {
-                            setHandoffPrompt({...usage, conversationId: convId, onChoice: resolve})
+                            setHandoffPrompt({...usage, thresholdTokens, conversationId: convId, onChoice: resolve})
                         })
                         setHandoffPrompt(null)
                         // 取消：此时 addMessage / setInput 均未执行 → 消息保留在输入框（spec 3.2）
@@ -602,7 +607,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
 
     return (
         <div
-            className="px-3 pt-3 pb-0 bg-[var(--surface)] flex flex-col"
+            className="px-4 pt-3 pb-0 bg-[var(--surface)] flex flex-col w-full"
             data-input-area
             data-name="input-area-root"
         >
@@ -734,6 +739,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                         ratio={handoffPrompt.ratio}
                         windowTokens={handoffPrompt.windowTokens}
                         estimatedTokens={handoffPrompt.estimatedTokens}
+                        thresholdTokens={handoffPrompt.thresholdTokens}
                         onChoice={handoffPrompt.onChoice}
                     />,
                     document.body,

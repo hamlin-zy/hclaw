@@ -92,14 +92,14 @@ export default function PermissionRulesPanel() {
                 className="permission-rules-card flex-1 min-h-0 flex flex-col"
             >
                 {/* Header */}
-                <div className="px-3 py-2.5 border-b border-[var(--border)] flex items-center justify-between shrink-0">
+                <div className="px-3 py-2.5 border-b border-[var(--border-muted)] flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-1.5">
                         <svg className="w-3.5 h-3.5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none"
                              stroke="currentColor" strokeWidth="2" aria-hidden="true">
                             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                         </svg>
                         <span className="text-xs font-medium text-[var(--text-secondary)]">权限规则</span>
-                        <span className="text-[10px] text-[var(--text-muted)] ml-1">({sortedRules.length})</span>
+                        <span className="text-[10px] text-[var(--text-secondary)] ml-1">({sortedRules.length})</span>
                     </div>
                     <div className="flex items-center gap-1">
                         <button
@@ -132,7 +132,7 @@ export default function PermissionRulesPanel() {
                                  fill="none" stroke="currentColor" strokeWidth="1.5">
                                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                             </svg>
-                            <p className="text-xs text-[var(--text-muted)]">暂无自动放行规则</p>
+                            <p className="text-xs text-[var(--text-secondary)]">暂无自动放行规则</p>
                         </div>
                     ) : (
                         sortedRules.map((rule, i) => (
@@ -169,7 +169,7 @@ export default function PermissionRulesPanel() {
                                 {rule.pattern && (
                                     <div className="mt-1.5 pl-3">
                                         <span
-                                            className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface-muted)] text-[var(--text-muted)] font-mono truncate max-w-full block">
+                                            className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface-muted)] text-[var(--text-secondary)] font-mono truncate max-w-full block">
                                             {rule.pattern}
                                         </span>
                                     </div>
@@ -181,7 +181,7 @@ export default function PermissionRulesPanel() {
                     <div className="pt-4 border-t border-[var(--border-muted)]">
                         <div className="p-3 rounded-lg bg-[var(--brand-primary)]/5 border border-[var(--brand-primary)]/10">
                             <p className="text-[11px] text-[var(--brand-primary)] font-medium mb-1">提示</p>
-                            <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
+                            <p className="text-[10px] text-[var(--text-secondary)] leading-relaxed">
                                 点击规则可编辑匹配模式。删除规则后，再次调用该工具将需要手动确认。
                             </p>
                         </div>
@@ -200,7 +200,7 @@ export default function PermissionRulesPanel() {
                         onClick={(e) => e.stopPropagation()}
                      data-name="permission-rules-panel-edit-panel">
                         {/* 弹窗 Header */}
-                        <div className="px-5 py-4 border-b border-[var(--border)] bg-[var(--surface-elevated)]">
+                        <div className="px-5 py-4 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)]">
                             <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-full bg-[var(--brand-primary)]/10 flex items-center justify-center shrink-0">
                                     <svg className="w-4 h-4 text-[var(--brand-primary)]" viewBox="0 0 24 24"
@@ -229,7 +229,7 @@ export default function PermissionRulesPanel() {
                                         autoFocus
                                         spellCheck={false}
                                     data-name="permission-rules-panel-input"/>
-                                    <p className="mt-1.5 text-[10px] text-[var(--text-muted)] leading-relaxed">
+                                    <p className="mt-1.5 text-[10px] text-[var(--text-secondary)] leading-relaxed">
                                         支持 <code className="text-[var(--brand-primary)]">*</code> 通配符，如
                                         <code className="text-[var(--brand-primary)]"> bash:git*</code> 匹配所有以 git 开头的 bash 命令
                                     </p>
@@ -238,7 +238,7 @@ export default function PermissionRulesPanel() {
                                 // ── 浏览模式 ──
                                 <div className="p-3 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)]">
                                     <div className="flex items-center gap-1.5 mb-2">
-                                        <span className="text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wider">匹配模式</span>
+                                        <span className="text-[10px] text-[var(--text-secondary)] font-medium uppercase tracking-wider">匹配模式</span>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <span className="text-sm font-mono font-medium text-[var(--text-primary)] break-all">{editingRule?.tool}</span>
@@ -249,14 +249,14 @@ export default function PermissionRulesPanel() {
 
                             <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-muted)] p-3">
                                 <div className="w-2 h-2 rounded-full bg-[var(--success)] shrink-0"/>
-                                <span className="text-xs text-[var(--text-muted)]">
+                                <span className="text-xs text-[var(--text-secondary)]">
                                     动作: <span className="text-[var(--success)] font-medium">始终允许</span>
                                 </span>
                             </div>
                         </div>
 
                         {/* 弹窗 Footer */}
-                        <div className="px-5 py-3 border-t border-[var(--border)] bg-[var(--surface-elevated)] flex items-center justify-between">
+                        <div className="px-5 py-3 border-t border-[var(--border-muted)] bg-[var(--surface-elevated)] flex items-center justify-between">
                             {confirmingDelete ? (
                                 // ── 删除确认 ──
                                 <div className="flex items-center justify-between w-full">
@@ -271,7 +271,7 @@ export default function PermissionRulesPanel() {
                                         <button
                                             onClick={() => setConfirmingDelete(false)}
                                             className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
-                                                bg-[var(--surface-muted)] text-[var(--text-muted)]
+                                                bg-[var(--surface-muted)] text-[var(--text-secondary)]
                                                 hover:bg-[var(--surface-hover)] border border-[var(--border)]"
                                          data-name="permission-rules-panel-cancel-delete-button">
                                             取消
@@ -298,7 +298,7 @@ export default function PermissionRulesPanel() {
                                         <button
                                             onClick={handleCancel}
                                             className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
-                                                bg-[var(--surface-muted)] text-[var(--text-muted)]
+                                                bg-[var(--surface-muted)] text-[var(--text-secondary)]
                                                 hover:bg-[var(--surface-hover)] border border-[var(--border)]"
                                          data-name="permission-rules-panel-cancel-edit-button">
                                             {isEditing ? '取消' : '关闭'}

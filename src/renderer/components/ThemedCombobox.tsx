@@ -179,7 +179,7 @@ export default function ThemedCombobox({
                                     </button>
                                 ))}
                                 {filtered.length === 0 && (
-                                    <div className="px-2.5 py-3 text-center text-[11px] text-[var(--text-muted)]">
+                                    <div className="px-2.5 py-3 text-center text-[11px] text-[var(--text-secondary)]">
                                         无匹配建议
                                     </div>
                                 )}

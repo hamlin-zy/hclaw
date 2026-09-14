@@ -14,6 +14,7 @@
 import type {ProgressEntry, SubAgentStreamEntry} from '../../stores/toolCallsStore'
 import {truncate} from '../../lib/format'
 import MarkdownRenderer from './MarkdownRenderer'
+import {ThinkingIcon, ToolIcon, SuccessIcon, ErrorIcon} from '../icons'
 
 // ── 类型 ─────────────────────────────────────────────
 
@@ -171,7 +172,9 @@ function renderThinking(
     if (variant === 'popup') {
         return (
             <div className="flex items-start gap-2 pl-4 py-1 text-[10px]">
-                <span className="shrink-0 mt-0.5" style={{color: 'rgba(251,191,36,0.7)'}}>💭</span>
+                <span className="shrink-0 mt-0.5" style={{color: 'rgba(251,191,36,0.7)'}}>
+                    <ThinkingIcon className="w-3 h-3"/>
+                </span>
                 <span className="flex-1 leading-relaxed whitespace-pre-wrap line-clamp-3"
                       style={{color: 'var(--text-secondary)'}}>{entry.content}</span>
             </div>
@@ -239,9 +242,9 @@ function renderToolStart(entry: SubAgentStreamEntry, variant: RenderVariant) {
     if (variant === 'viewer') {
         return (
             <div className="rounded-lg border overflow-hidden"
-                 style={{borderColor: 'var(--border)', backgroundColor: 'var(--surface-muted)'}}>
+                 style={{borderColor: 'var(--border)', backgroundColor: 'var(--surface)'}}>
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium" style={{
-                    backgroundColor: 'var(--surface-elevated)',
+                    backgroundColor: 'var(--surface-muted)',
                     borderBottom: '1px solid var(--border)',
                     color: 'var(--info)'
                 }}>
@@ -267,7 +270,9 @@ function renderToolStart(entry: SubAgentStreamEntry, variant: RenderVariant) {
     if (variant === 'popup') {
         return (
             <div className="flex items-center gap-2 pl-4 py-1 text-[10px]">
-                <span className="shrink-0" style={{color: 'var(--info)'}}>🔧</span>
+                <span className="shrink-0" style={{color: 'var(--info)'}}>
+                    <ToolIcon className="w-3 h-3"/>
+                </span>
                 <span className="font-medium truncate" style={{color: 'var(--info)'}}>{entry.toolName || '工具调用'}</span>
                 {hasArgs && (
                     <span className="text-[var(--text-muted)] truncate">
@@ -284,9 +289,9 @@ function renderToolStart(entry: SubAgentStreamEntry, variant: RenderVariant) {
     // detailed
     return (
         <div className="rounded-lg border overflow-hidden"
-             style={{borderColor: 'var(--border)', backgroundColor: 'var(--surface-muted)'}}>
+             style={{borderColor: 'var(--border)', backgroundColor: 'var(--surface)'}}>
             <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium" style={{
-                backgroundColor: 'var(--surface-elevated)',
+                backgroundColor: 'var(--surface-muted)',
                 borderBottom: '1px solid var(--border)',
                 color: 'var(--info)'
             }}>
@@ -319,7 +324,7 @@ function renderToolResult(entry: SubAgentStreamEntry, variant: RenderVariant) {
                 backgroundColor: isErr ? 'rgba(196,92,92,0.04)' : 'rgba(16,185,129,0.04)'
             }}>
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium" style={{
-                    backgroundColor: 'var(--surface-elevated)',
+                    backgroundColor: 'var(--surface-muted)',
                     borderBottom: `1px solid ${isErr ? 'rgba(196,92,92,0.2)' : 'rgba(16,185,129,0.2)'}`,
                     color: isErr ? 'var(--error)' : 'var(--success)'
                 }}>
@@ -350,11 +355,11 @@ function renderToolResult(entry: SubAgentStreamEntry, variant: RenderVariant) {
                 backgroundColor: isErr ? 'rgba(196,92,92,0.03)' : 'rgba(16,185,129,0.03)'
             }}>
                 <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium" style={{
-                    backgroundColor: 'var(--surface-elevated)',
+                    backgroundColor: 'var(--surface-muted)',
                     borderBottom: `1px solid ${isErr ? 'rgba(196,92,92,0.15)' : 'rgba(16,185,129,0.15)'}`,
                     color: isErr ? 'var(--error)' : 'var(--success)'
                 }}>
-                    <span>{isErr ? '❌' : '✓'}</span>
+                    <span>{isErr ? <ErrorIcon className="w-3 h-3"/> : <SuccessIcon className="w-3 h-3"/>}</span>
                     <span>{entry.toolName || '工具结果'}</span>
                     {isErr && <span className="ml-auto">失败</span>}
                 </div>
@@ -375,7 +380,7 @@ function renderToolResult(entry: SubAgentStreamEntry, variant: RenderVariant) {
             backgroundColor: isErr ? 'rgba(196,92,92,0.04)' : 'rgba(16,185,129,0.04)'
         }}>
             <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium" style={{
-                backgroundColor: 'var(--surface-elevated)',
+                backgroundColor: 'var(--surface-muted)',
                 borderBottom: `1px solid ${isErr ? 'rgba(196,92,92,0.2)' : 'rgba(16,185,129,0.2)'}`,
                 color: isErr ? 'var(--error)' : 'var(--success)'
             }}>
@@ -424,7 +429,9 @@ function renderError(entry: SubAgentStreamEntry, variant: RenderVariant) {
     if (variant === 'popup') {
         return (
             <div className="flex items-start gap-2 pl-4 py-1 text-[10px]">
-                <span className="shrink-0 mt-0.5" style={{color: 'var(--error)'}}>❌</span>
+                <span className="shrink-0 mt-0.5" style={{color: 'var(--error)'}}>
+                    <ErrorIcon className="w-3 h-3"/>
+                </span>
                 <span className="flex-1" style={{color: 'var(--error)'}}>{entry.content}</span>
             </div>
         )

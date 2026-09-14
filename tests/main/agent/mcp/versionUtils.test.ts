@@ -1,11 +1,11 @@
 import {describe, expect, it} from 'vitest'
 import {
-  parseNpmPackage,
   parseNpmPackageSpec,
   compareVersions,
   parseVersionOutput,
-  parseCheckUrlResponse,
   stripV,
+  isValidVersionSpec,
+  compareVersionAsc,
 } from '@/main/agent/mcp/versionUtils'
 
 describe('stripV', () => {
@@ -14,59 +14,6 @@ describe('stripV', () => {
     expect(stripV('V1.2.3')).toBe('1.2.3')
     expect(stripV('1.2.3')).toBe('1.2.3')
     expect(stripV('')).toBe('')
-  })
-})
-
-describe('parseNpmPackage', () => {
-  it('extracts simple package name', () => {
-    expect(parseNpmPackage('npx', ['@modelcontextprotocol/server-filesystem'])).toBe('@modelcontextprotocol/server-filesystem')
-  })
-
-  it('extracts scoped package with version', () => {
-    expect(parseNpmPackage('npx', ['@scope/pkg@1.2.0'])).toBe('@scope/pkg')
-  })
-
-  it('extracts scoped package with @latest', () => {
-    expect(parseNpmPackage('npx', ['@scope/pkg@latest'])).toBe('@scope/pkg')
-  })
-
-  it('extracts non-scoped package with version', () => {
-    expect(parseNpmPackage('npx', ['pkg@1.2.0'])).toBe('pkg')
-  })
-
-  it('extracts non-scoped package with @latest', () => {
-    expect(parseNpmPackage('npx', ['pkg@latest'])).toBe('pkg')
-  })
-
-  it('skips npx flags -y / -p / --yes', () => {
-    expect(parseNpmPackage('npx', ['-y', 'pkg'])).toBe('pkg')
-    expect(parseNpmPackage('npx', ['--yes', 'pkg'])).toBe('pkg')
-    expect(parseNpmPackage('npx', ['-p', 'pkg'])).toBe('pkg')
-  })
-
-  it('skips multiple flags before package name', () => {
-    expect(parseNpmPackage('npx', ['-y', '-p', 'pkg'])).toBe('pkg')
-  })
-
-  it('returns null for empty args', () => {
-    expect(parseNpmPackage('npx', [])).toBeNull()
-  })
-
-  it('returns null for args with only flags', () => {
-    expect(parseNpmPackage('npx', ['-y'])).toBeNull()
-  })
-
-  it('works with full path npx command', () => {
-    expect(parseNpmPackage('/usr/local/bin/npx', ['pkg'])).toBe('pkg')
-  })
-
-  it('works with npm command', () => {
-    expect(parseNpmPackage('npm', ['exec', 'pkg'])).toBe('pkg')
-  })
-
-  it('skips npm exec / run flags', () => {
-    expect(parseNpmPackage('npm', ['exec', '--', 'pkg'])).toBe('pkg')
-    expect(parseNpmPackage('npm', ['run', 'pkg'])).toBe('pkg')
   })
 })
 
@@ -131,36 +78,6 @@ describe('parseVersionOutput', () => {
   })
 })
 
-describe('parseCheckUrlResponse', () => {
-  it('parses GitHub releases API tag_name', () => {
-    const body = JSON.stringify({tag_name: 'v2.0.0', name: 'Release 2.0.0'})
-    expect(parseCheckUrlResponse(body)).toBe('2.0.0')
-  })
-
-  it('parses custom JSON version field', () => {
-    const body = JSON.stringify({version: '3.1.0'})
-    expect(parseCheckUrlResponse(body)).toBe('3.1.0')
-  })
-
-  it('falls back to regex match when no known fields', () => {
-    const body = 'Some text with version 4.5.6 embedded'
-    expect(parseCheckUrlResponse(body)).toBe('4.5.6')
-  })
-
-  it('returns null when no version found', () => {
-    expect(parseCheckUrlResponse('no version here')).toBeNull()
-  })
-
-  it('returns null for empty body', () => {
-    expect(parseCheckUrlResponse('')).toBeNull()
-  })
-
-  it('prefers tag_name over version field', () => {
-    const body = JSON.stringify({tag_name: 'v1.0.0', version: '0.9.0'})
-    expect(parseCheckUrlResponse(body)).toBe('1.0.0')
-  })
-})
-
 describe('parseNpmPackageSpec', () => {
   it('extracts pinned version from scoped package', () => {
     const result = parseNpmPackageSpec('npx', ['-y', '@upstash/context7-mcp@2.1.4', '--api-key', 'xxx'])
@@ -185,5 +102,40 @@ describe('parseNpmPackageSpec', () => {
   it('returns null for no package found', () => {
     const result = parseNpmPackageSpec('npx', ['-y'])
     expect(result).toEqual({pkgName: '', version: null})
+  })
+})
+
+describe('isValidVersionSpec', () => {
+  it('accepts plain and v-prefixed version specs', () => {
+    expect(isValidVersionSpec('1.2.3')).toBe(true)
+    expect(isValidVersionSpec('v1.2.3')).toBe(true)
+    expect(isValidVersionSpec('1.2.3-beta+build')).toBe(true)
+  })
+
+  it('rejects specs containing shell metacharacters', () => {
+    expect(isValidVersionSpec('1.2.3; rm -rf /')).toBe(false)
+    expect(isValidVersionSpec('1.2.3 && echo pwned')).toBe(false)
+    expect(isValidVersionSpec('1.2.3|cat')).toBe(false)
+    expect(isValidVersionSpec('$(whoami)')).toBe(false)
+    expect(isValidVersionSpec('`id`')).toBe(false)
+    expect(isValidVersionSpec('1.2.3>out')).toBe(false)
+  })
+})
+
+describe('compareVersionAsc', () => {
+  it('orders numeric segments numerically, not lexicographically', () => {
+    expect(compareVersionAsc('0.0.10', '0.0.2')).toBeGreaterThan(0)
+    expect(compareVersionAsc('0.0.2', '0.0.10')).toBeLessThan(0)
+    expect(compareVersionAsc('0.2.0', '0.10.0')).toBeLessThan(0)
+  })
+
+  it('returns 0 for equal versions', () => {
+    expect(compareVersionAsc('1.2.3', '1.2.3')).toBe(0)
+    expect(compareVersionAsc('1.2.3', 'v1.2.4')).toBeLessThan(0)
+  })
+
+  it('sorts a version list ascending', () => {
+    const sorted = ['0.0.10', '0.0.2', '0.1.0', '0.0.1'].sort(compareVersionAsc)
+    expect(sorted).toEqual(['0.0.1', '0.0.2', '0.0.10', '0.1.0'])
   })
 })

@@ -39,8 +39,8 @@ export const CopyButton = memo(function CopyButton({code, label}: { code: string
         <button
             onClick={handleCopy}
             className="absolute top-2 right-2 px-2 py-1 text-[10px] rounded transition-colors
-                bg-[var(--surface-muted)] hover:bg-[var(--surface-elevated)]
-                text-[var(--text-muted)] hover:text-[var(--text-primary)]
+                bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)]
+                text-[var(--text-secondary)] hover:text-[var(--text-primary)]
                 border border-[var(--border)] opacity-0 group-hover:opacity-100"
             title={label || '复制'}
          data-name="popup-utils-button">

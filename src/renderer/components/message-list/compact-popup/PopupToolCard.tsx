@@ -5,7 +5,7 @@ import {memo, useMemo} from 'react'
 import type {ToolCall} from '@shared/types'
 import {useToolCallsStore} from '../../../stores/toolCallsStore'
 import {useMcpStore} from '../../../stores/mcpStore'
-import {parseMcpToolName, buildMcpShortIdMap, resolveMcpDisplayName, extractMcpToolName, isMcpToolName} from '@shared/utils/mcpShortId'
+import {resolveMcpDisplayName, extractMcpToolName, isMcpToolName} from '@shared/mcp/naming'
 import {getToolArgSummary, getToolDetail} from '../utils/messageUtils'
 import {getCompactStatusConfig} from '../config/toolStatusConfig'
 import {truncate} from '../../../lib/format'
@@ -40,11 +40,6 @@ function getSkillDetail(tc: ToolCall): string | null {
     return Object.keys(cleaned).length > 0 ? JSON.stringify(cleaned, null, 2) : null
 }
 
-/**
- * 工具调用状态配置（简约版，仅用于 Popup 卡片）
- */
-const statusConfig = getCompactStatusConfig
-
 export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expanded, onToggle}: {
     toolCall: ToolCall; index: number; expanded: boolean; onToggle: (id: string) => void
 }) {
@@ -52,7 +47,8 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
     const runtimeState = useToolCallsStore((s) => s.states[toolCall.id])
     const effectiveStatus = runtimeState?.status ?? toolCall.status
     const effectiveResult = runtimeState?.result ?? toolCall.result
-    const cfg = statusConfig(effectiveStatus)
+    const cfg = getCompactStatusConfig(effectiveStatus)
+    const StatusIcon = cfg.icon
     const argSummary = getToolArgSummary(toolCall)
     const detail = isSkillTool ? getSkillDetail(toolCall) : getToolDetail(toolCall)
     const hasOutput = !!effectiveResult?.output && effectiveStatus !== 'running'
@@ -62,25 +58,10 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
     const mcpServers = useMcpStore(s => s.mcpServers)
     const mcpDisplayName = useMemo(() => {
         if (!isMcpToolName(toolCall.name)) return null
-        const serverNames = mcpServers.map(s => s.name)
-        const parsed = parseMcpToolName(toolCall.name, serverNames)
-        if (!parsed) return null
-
-        // 旧格式：通过 shortId 反查
-        if (parsed.shortId) {
-            const shortIdMap = buildMcpShortIdMap(mcpServers)
-            const info = shortIdMap.get(parsed.shortId)
-            if (info) {
-                const prefix = info.isPlugin ? 'mp_' : 'm_'
-                return `${prefix}${info.name}_${parsed.toolName}`
-            }
-        }
-
-        // 新格式或兜底：通过 mcpServers 匹配
+        // 统一解析：候选段命中 / legacy hash 反查都在 naming 层内部完成（含 serverId 反查）
         const resolved = resolveMcpDisplayName(toolCall.name, mcpServers)
         if (resolved) return resolved
-
-        const toolOnly = extractMcpToolName(toolCall.name, serverNames)
+        const toolOnly = extractMcpToolName(toolCall.name, mcpServers)
         return toolOnly ? `m_..._${toolOnly}` : null
     }, [toolCall.name, mcpServers])
 
@@ -96,13 +77,15 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
                 : 'border-[var(--border)] bg-[var(--surface-muted)]'
         }`}>
             <button onClick={() => onToggle(toolCall.id)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.03] transition-colors" data-name="popup-tool-card-button">
+                className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-overlay)] transition-colors" data-name="popup-tool-card-button">
                 <span className="text-[10px] text-[var(--text-muted)] w-5 shrink-0 text-right font-mono">#{index + 1}</span>
-                <span className={`text-xs w-4 text-center shrink-0 ${cfg.color}`}>{cfg.icon}</span>
+                <span className={`w-4 h-4 shrink-0 inline-flex items-center justify-center ${cfg.color}`}>
+                    <StatusIcon className="w-3.5 h-3.5"/>
+                </span>
                 <span className="font-semibold text-[var(--text-primary)] text-[11px] shrink-0">
                     {isSkillTool ? 'Skill' : ''}<span className={isSkillTool ? 'font-mono' : 'font-mono font-semibold'}>{isSkillTool && displayName ? ` ${displayName}` : displayName}</span>
                 </span>
-                {argSummary && <span className="text-[10px] text-[var(--text-muted)] truncate flex-1 min-w-0 ml-1">{argSummary}</span>}
+                {argSummary && <span className="text-[10px] text-[var(--text-secondary)] truncate flex-1 min-w-0 ml-1">{argSummary}</span>}
                 {/* 执行超时倒计时（运行中且有超时信息时显示） */}
                 {effectiveStatus === 'running' && (
                     <ToolCountdown
@@ -116,24 +99,24 @@ export const PopupToolCard = memo(function PopupToolCard({toolCall, index, expan
                      style={{transform: expanded ? 'rotate(90deg)' : 'none'}}>▸</span>
             </button>
             {expanded && (
-                <div className="border-t border-[var(--border)] px-4 py-2.5 bg-[var(--surface-muted)] space-y-2 select-text">
+                <div className="border-t border-[var(--border-muted)] px-4 py-2.5 bg-[var(--surface-muted)] space-y-2 select-text">
                     {detail && (
                         <div className="relative group select-text">
-                            <span className="text-[9px] text-[var(--text-muted)] uppercase tracking-wide">{toolCall.name === 'bash' ? '命令' : isSkillTool ? '输入' : '参数'}</span>
-                            <pre className="text-[10px] text-[var(--text-primary)] font-mono whitespace-pre-wrap break-all leading-relaxed mt-1 p-2 bg-[var(--surface-overlay)] rounded border border-[var(--border-muted)] max-h-48 overflow-x-hidden overflow-y-auto select-text">{detail}</pre>
+                            <span className="text-[9px] text-[var(--text-secondary)] uppercase tracking-wide">{toolCall.name === 'bash' ? '命令' : isSkillTool ? '输入' : '参数'}</span>
+                            <pre className="text-[10px] text-[var(--text-primary)] font-mono whitespace-pre-wrap break-all leading-relaxed mt-1 p-2 bg-[var(--surface-overlay)] rounded border border-[var(--border)] max-h-48 overflow-x-hidden overflow-y-auto select-text">{detail}</pre>
                             <CopyButton code={detail} label="复制参数"/>
                         </div>
                     )}
                     {toolCall.name === 'file_edit' && effectiveResult?.diff && (
                         <div>
-                            <span className="text-[9px] text-[var(--text-muted)] uppercase tracking-wide">变更差异</span>
-                            <pre className="text-[10px] font-mono whitespace-pre-wrap break-all leading-relaxed mt-1 p-2 bg-[var(--surface-overlay)] rounded border border-[var(--border-muted)] max-h-64 overflow-x-hidden overflow-y-auto select-text">{renderDiff(String(effectiveResult.diff))}</pre>
+                            <span className="text-[9px] text-[var(--text-secondary)] uppercase tracking-wide">变更差异</span>
+                            <pre className="text-[10px] font-mono whitespace-pre-wrap break-all leading-relaxed mt-1 p-2 bg-[var(--surface-overlay)] rounded border border-[var(--border)] max-h-64 overflow-x-hidden overflow-y-auto select-text">{renderDiff(String(effectiveResult.diff))}</pre>
                         </div>
                     )}
                     {hasOutput && !(effectiveResult as any)?.diff && (
                         <div className="relative group select-text">
-                            <span className="text-[9px] text-[var(--text-muted)] uppercase tracking-wide">{toolCall.name === 'file_edit' ? '执行结果' : '输出'}</span>
-                            <div className="text-[10px] text-[var(--text-primary)] leading-relaxed mt-1 p-2 bg-[var(--surface-overlay)] rounded border border-[var(--border-muted)] max-h-48 overflow-x-hidden overflow-y-auto break-all select-text">
+                            <span className="text-[9px] text-[var(--text-secondary)] uppercase tracking-wide">{toolCall.name === 'file_edit' ? '执行结果' : '输出'}</span>
+                            <div className="text-[10px] text-[var(--text-primary)] leading-relaxed mt-1 p-2 bg-[var(--surface-overlay)] rounded border border-[var(--border)] max-h-48 overflow-x-hidden overflow-y-auto break-all select-text">
                                 <MarkdownRenderer>{truncate(formatOutput(effectiveResult!.output), 4000)}</MarkdownRenderer>
                             </div>
                             <CopyButton code={formatOutput(effectiveResult!.output)} label="复制输出"/>

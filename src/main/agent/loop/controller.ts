@@ -216,7 +216,8 @@ export function carryForwardCommandId(
 interface CachePayload {
     core: string
     /**
-     * system 签名（f(workingDir, agentType, agentDefinition, customInstructions)）。
+     * system 签名（f(workingDir, agentType, customInstructions)；agentDefinition
+     * 已移出 system（方案 A），不入签名）。
      * 复用守卫：签名一致才复用 core；签名不含日期/权限模式（二者已移出 system，
      * system 可跨天、跨权限模式复用，避免唯一 cache_control 断点失效）。
      */
@@ -540,7 +541,9 @@ export class AgentLoopController {
             )
             // ★ MCP 通道过滤：两条独立产物都必须过滤（降级路径实际发送 preCapability），
             //   只过滤一处会让 400 降级把 MCP 工具放回 tools 数组 → 断缓存 + 误报变动弹窗。
+            // ★ 400 降级 = 图片通道不可用：恢复 analyze_image，且绝不暴露 load_image。
             const preCapabilityToolDefinitions = applyMcpCatalogChannel(preCapabilityBase, callMcpToolDef)
+                .filter(d => d.name !== 'load_image')
             const availableToolDefinitions = applyMcpCatalogChannel(availableBase, callMcpToolDef)
             logger.debug(
                 `[AgentLoop] setup model:${selection.modelConfig.model} provider:${selection.modelConfig.provider} tools:${availableToolDefinitions.length}`,

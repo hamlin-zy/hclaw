@@ -41,7 +41,7 @@ export default function SystemPromptDialog() {
         return (
             <div className="flex items-center justify-center h-40">
                 <div className="animate-spin w-6 h-6 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full" />
-                <span className="ml-3 text-sm text-[var(--text-muted)]">构建中...</span>
+                <span className="ml-3 text-sm text-[var(--text-secondary)]">构建中...</span>
             </div>
         )
     }
@@ -73,8 +73,8 @@ export default function SystemPromptDialog() {
     return (
         <div className="h-full flex flex-col">
             {/* 工具栏 */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] shrink-0">
-                <span className="text-xs text-[var(--text-muted)]">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-muted)] shrink-0">
+                <span className="text-xs text-[var(--text-secondary)]">
                     共 {data.systemPrompt?.length || 0} 字符
                 </span>
                 <button

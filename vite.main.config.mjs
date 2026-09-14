@@ -32,7 +32,8 @@ export default defineConfig({
       },
   },
     ssr: {
-        external: ['electron', '@photostructure/sqlite', 'esbuild', '@vscode/ripgrep'],
+        // 原生模块必须 external（禁止 bundle .node）；与 copy-native-node-modules 的拷贝清单一一对应
+        external: ['electron', '@photostructure/sqlite', 'esbuild', '@vscode/ripgrep', 'sharp'],
         noExternal: true,
   },
     plugins: [
@@ -113,7 +114,8 @@ export default defineConfig({
                         // EPERM 等复制失败必须终止构建，不能静默跳过——残留的残缺拷贝
                         // 会被 electron-builder 打进 asar，导致运行时模块解析失败。
                         throw new Error(`[copy-native-modules] Failed to copy ${pkg} to ${dest} (${err.code || err.message}). ` +
-                            `Check that no running HClaw process / antivirus is locking files in node_modules, then retry.`);
+                            `Check that no running HClaw process / antivirus is locking files in node_modules, then retry.`,
+                            { cause: err });
                     }
                     // 完整性校验：被 ssr.external 引用的包必须有 package.json 入口，
                     // 否则 Node 会 fallback 到 <pkg>/index.js 并在运行时报错。

@@ -65,7 +65,6 @@ export default function MCPUserServerCard({
                                         latest={versionMeta.latest}
                                         hasUpdate={hasUpdate}
                                         availableVersions={availableVersions}
-                                        pkgManager={versionMeta.pkgManager}
                                         disabled={switching}
                                         onSwitch={handleVersionSwitch}
                                     />
@@ -85,9 +84,8 @@ export default function MCPUserServerCard({
                             <button
                                 onClick={async (e) => {
                                     e.stopPropagation()
-                                    // Legacy binary (no package manager detected) → show manual instructions.
-                                    // Auto-upgradable binary (pkgManager set) → normal upgrade flow.
-                                    const isLegacyBinary = sourceType === 'binary' && !versionMeta?.pkgManager
+                                    // Legacy binary (本地二进制安装，无包管理器元数据) → 展示手动升级步骤。
+                                    const isLegacyBinary = sourceType === 'binary'
                                     // 仅需弹窗展示说明，确认结果不参与分支
                                     await confirm({
                                         title: isLegacyBinary ? '查看手动升级步骤' : '确认升级',
@@ -136,7 +134,7 @@ export default function MCPUserServerCard({
                         <Switch checked={server.enabled} onChange={onToggle} />
                         <button
                             onClick={handleCopyConfig}
-                            className="p-1.5 text-gray-300 hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"
+                            className="p-1.5 text-[var(--text-muted)] hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"
                             title={copied ? '已复制' : '复制 JSON 配置'}
                          data-name="mcpuser-server-card-copy-config-button">
                             {copied ? (
@@ -152,7 +150,7 @@ export default function MCPUserServerCard({
                         </button>
                         <button
                             onClick={onEdit}
-                            className="p-1.5 text-gray-300 hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"
+                            className="p-1.5 text-[var(--text-muted)] hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"
                          data-name="mcpuser-server-card-edit-button">
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                  strokeWidth="2">
@@ -161,18 +159,15 @@ export default function MCPUserServerCard({
                         </button>
                         <button
                             onClick={async () => {
-                                const confirmed = await confirm({
+                                await confirm({
                                     title: '确认删除',
                                     message: `确定要删除 MCP 服务器「${server.name}」吗？此操作无法撤销。`,
                                     confirmText: '删除',
                                     confirmVariant: 'danger',
-                                    onConfirm: () => {
-                                        onDelete()
-                                    }
+                                    onConfirm: onDelete,
                                 })
-                                if (!confirmed) return
                             }}
-                            className="p-1.5 text-gray-300 hover:text-red-400 hover:bg-red-50 rounded-md transition-all"
+                            className="p-1.5 text-[var(--text-muted)] hover:text-red-400 hover:bg-red-50 rounded-md transition-all"
                          data-name="mcpuser-server-card-delete-button">
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                  strokeWidth="2">
