@@ -456,7 +456,9 @@ class PowerManagerImpl {
      */
     private async loadCommands(): Promise<void> {
         // 加载命令
+        trace('cap:commands-refresh-enter')
         await CommandDispatcher.getInstance().refresh()
+        trace('cap:commands-refresh-done')
 
         // 将命令注册为 AgentTemplate（供 agent 工具降级查找）
         this.registerCommandsAsAgents()

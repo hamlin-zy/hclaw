@@ -23,6 +23,7 @@ import type {
 import {findDangerousPermissions} from './dangerousPatterns'
 import {createPermissionRepository} from '../../repositories'
 import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
+import {trace} from '../../startupTrace'
 
 /**
  * 权限上下文管理器（简化版，单一规则源）
@@ -46,6 +47,7 @@ export class PermissionRulesManager {
         if (this.isInitialized) return
         this.isInitialized = true
         await this.loadFromDatabase()
+        trace('perm:rules-loaded')
     }
 
     /**
@@ -101,7 +103,9 @@ export class PermissionRulesManager {
     /** 应用权限更新（内存 + 落库） */
     async applyUpdate(update: PermissionUpdate): Promise<ToolPermissionContext> {
         const context = await this.applyUpdateToContext(update)
+        trace('perm:update-applied')
         await this.saveToDatabase(update)
+        trace('perm:saved')
         return context
     }
 
@@ -334,6 +338,7 @@ export class PermissionRulesManager {
         } catch (err) {
             logger.error('[PermissionRulesManager] saveToDatabase: failed to save rules', {error: err})
         }
+        trace('perm:rules-written')
 
         // 保存配置到 system_settings
         try {
@@ -353,6 +358,7 @@ export class PermissionRulesManager {
         } catch (err) {
             logger.error('[PermissionRulesManager] saveToDatabase: failed to save config', {error: err})
         }
+        trace('perm:settings-written')
     }
 
     /**

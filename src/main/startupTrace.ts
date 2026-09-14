@@ -81,10 +81,42 @@ function safeStringify(data: Record<string, unknown>): string {
     }
 }
 
+/**
+ * ── 事件循环饥饿看门狗 ──
+ *
+ * 25ms 心跳；若两次心跳间隔远大于 25ms，说明主线程被同步代码连续占用（Electron 主进程
+ * 与浏览器进程同线程，期间渲染进程 spawn、ready-to-show 的 IPC 全部被推迟）。
+ * 触发时记录 gapMs（饥饿时长）与 lastTraceLabel（饥饿前最后一个打点），
+ * 从而把「窗口为什么晚出现」精确定位到某一次调用。
+ */
+let watchdogStarted = false
+let lastWatchdogAt = 0
+let lastTraceLabel = ''
+
+function ensureWatchdog(): void {
+    if (watchdogStarted) return
+    watchdogStarted = true
+    lastWatchdogAt = Date.now()
+    const timer = setInterval(() => {
+        const now = Date.now()
+        const gap = now - lastWatchdogAt
+        lastWatchdogAt = now
+        if (gap > 150) {
+            const culprit = lastTraceLabel
+            trace('main:loop-stall', {gapMs: gap, lastLabel: culprit})
+            // 还原：不让看门狗自身的打点覆盖「饥饿前最后一个业务打点」
+            lastTraceLabel = culprit
+        }
+    }, 25)
+    if (typeof timer.unref === 'function') timer.unref()
+}
+
 /** 记录一条启动打点（非阻塞、失败静默、永不抛出） */
 export function trace(label: string, data?: Record<string, unknown>): void {
     try {
         const now = Date.now()
+        lastTraceLabel = label
+        ensureWatchdog()
         if (t0 === null) t0 = now
 
         let payload = data
