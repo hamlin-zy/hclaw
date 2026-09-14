@@ -265,6 +265,14 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
         try {
             const result = await pluginApi()?.uninstall?.(name)
             if (result?.success) {
+                // 卸载成功后该插件的能力明细/版本数据条目不应残留（条目级创建、无删除路径）
+                set((s) => {
+                    const capabilityDetails = {...s.capabilityDetails}
+                    const versionData = {...s.versionData}
+                    delete capabilityDetails[name]
+                    delete versionData[name]
+                    return {capabilityDetails, versionData}
+                })
                 await get().loadPlugins()
                 return {success: true}
             }
@@ -331,6 +339,14 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
         try {
             const result = await pluginApi()?.reset?.(name)
             if (result?.success) {
+                // 重置即抹掉该插件的本地改动，缓存的能力明细/版本数据条目一并移除
+                set((s) => {
+                    const capabilityDetails = {...s.capabilityDetails}
+                    const versionData = {...s.versionData}
+                    delete capabilityDetails[name]
+                    delete versionData[name]
+                    return {capabilityDetails, versionData}
+                })
                 await get().loadPlugins()
                 return {success: true}
             }

@@ -88,7 +88,14 @@ export async function acquireSession(opts: AcquireOptions): Promise<PersistentSh
       opts.shellInfo,
       opts.env ?? process.env,
       opts.workingDir,
-      () => entries.delete(key),
+    // 身份校验式删除：仅当池中该 key 仍指向本次创建的会话时才移除。
+    // 旧会话迟到的 close 回调（dispose/超时/退出）不得误删同名 key 的新会话。
+    // onDead 可被多次调用，语义不变（条件不满足时为无操作）。
+      () => {
+        if (entries.get(key)?.session === session) {
+          entries.delete(key)
+        }
+      },
   )
   await session.init()
   entries.set(key, {session, lastUsed: Date.now()})

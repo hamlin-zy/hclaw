@@ -33,6 +33,11 @@ export default function MenuDialog({isOpen, title, onClose, children, maxWidth =
     const [position, setPosition] = useState({x: 0, y: 0})
     const cardRef = useRef<HTMLDivElement>(null)
     const dragRef = useRef({isDragging: false, startX: 0, startY: 0, posX: 0, posY: 0})
+    // 当前调整大小拖拽的终结回调；供卸载兜底调用，避免卸载后残留 document 监听与 body 内联样式
+    const resizeCleanupRef = useRef<(() => void) | null>(null)
+
+    // 卸载兜底：调整大小进行中卸载时移除 document 监听并复位 body 样式
+    useEffect(() => () => { resizeCleanupRef.current?.() }, [])
 
     // 打开时居中
     useEffect(() => {
@@ -110,8 +115,10 @@ export default function MenuDialog({isOpen, title, onClose, children, maxWidth =
             document.removeEventListener('mouseup', onMouseUp)
             document.body.style.userSelect = ''
             document.body.style.cursor = 'default'
+            resizeCleanupRef.current = null
         }
 
+        resizeCleanupRef.current = onMouseUp
         document.addEventListener('mousemove', onMouseMove)
         document.addEventListener('mouseup', onMouseUp)
     }, [])

@@ -43,6 +43,15 @@ let timedOut = false
 let settled = false
 let timer: ReturnType<typeof setTimeout> | null = null
 
+// 已注册监听器的注销函数（模块级持有，供 dispose 统一释放，避免 HMR/重复 import 叠加）
+const listenerUnsubs: Array<() => void> = []
+let listenersRegistered = false
+
+/** 记录监听器返回的注销函数（IPC 通道不可用时返回 undefined，忽略即可） */
+function trackUnsub(unsub: unknown): void {
+    if (typeof unsub === 'function') listenerUnsubs.push(unsub as () => void)
+}
+
 export const useInitProgressStore = create<InitProgressState>(() => ({
     stage: null,
     done: 0,
@@ -115,6 +124,9 @@ interface MainProgressPayload {
 /** 注册 IPC / store 监听（模块顶层同步注册，避免错过早期事件） */
 function registerInitListeners(): void {
     if (typeof window === 'undefined') return
+    // 幂等守卫：HMR / 重复 import 时避免订阅叠加
+    if (listenersRegistered) return
+    listenersRegistered = true
 
     // 主进程四段能力加载进度
     const applyMainProgress = (payload: MainProgressPayload | null | undefined): void => {
@@ -135,7 +147,7 @@ function registerInitListeners(): void {
         refresh()
     }
 
-    window.electronAPI?.system?.onInitProgress?.(applyMainProgress)
+    trackUnsub(window.electronAPI?.system?.onInitProgress?.(applyMainProgress))
 
     // 挂载后补拉一次快照：createWindow() 之后立即发出的前几帧
     // 因渲染端尚未注册监听而被 IPC 丢弃，靠这里补齐
@@ -144,16 +156,16 @@ function registerInitListeners(): void {
         ?.catch(() => { /* 拉取失败不影响展示 */ })
 
     // MCP 阶段已开始信号（复用现有 mcp:status-changed 通道）
-    window.electronAPI?.mcp?.onStatusChanged?.(() => {
+    trackUnsub(window.electronAPI?.mcp?.onStatusChanged?.(() => {
         if (!mcpStarted) {
             mcpStarted = true
             armTimeout()
         }
         refresh()
-    })
+    }))
 
     // 复用 mcpStore 的 server 列表与实时状态，推导 MCP 进度
-    useMcpStore.subscribe((state) => {
+    trackUnsub(useMcpStore.subscribe((state) => {
         const servers = state.mcpServers || []
         // 口径必须对称：分子分母都只看启用项，否则被禁用但仍短暂停留在
         // 'connected' 的服务器会让 done 提前达标，提示过早消失
@@ -164,7 +176,18 @@ function registerInitListeners(): void {
         mcpTotal = total
         mcpDone = done
         refresh()
-    })
+    }))
+}
+
+/** 注销 init 进度相关的全部监听（供 HMR / 模块卸载调用；幂等，可重复调用） */
+export function disposeInitProgressListeners(): void {
+    for (const unsub of listenerUnsubs) {
+        try {
+            unsub()
+        } catch { /* 忽略重复注销 */ }
+    }
+    listenerUnsubs.length = 0
+    listenersRegistered = false
 }
 
 registerInitListeners()

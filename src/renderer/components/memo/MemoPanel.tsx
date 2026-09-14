@@ -78,6 +78,10 @@ export default function MemoPanel() {
     const [dragOrder, setDragOrder] = useState<string[] | null>(null)
     // 拖拽期间抑制条目 click（Reorder 松开鼠标时 pointerup 仍会派发 click，误开编辑窗口）
     const dragActiveRef = useRef(false)
+    // 拖拽抑制解除定时器（松手后下一帧才解除，避免 click 误触编辑）
+    const dragSuppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理未触发的抑制解除定时器
+    useEffect(() => () => { if (dragSuppressTimerRef.current) clearTimeout(dragSuppressTimerRef.current) }, [])
     const renderOrder = dragOrder ?? activeList.map((m) => m.id)
     const idsToMemos = (ids: string[]): MemoItem[] =>
         ids.map((id) => memos.find((m) => m.id === id)).filter(Boolean) as MemoItem[]
@@ -243,7 +247,8 @@ export default function MemoPanel() {
                                         onDragEnd={() => {
                                             void handleDragEnd()
                                             // click 在 pointerup 后同步派发，下一帧才解除抑制，避免松手误触编辑
-                                            setTimeout(() => { dragActiveRef.current = false }, 0)
+                                            if (dragSuppressTimerRef.current) clearTimeout(dragSuppressTimerRef.current)
+                                            dragSuppressTimerRef.current = setTimeout(() => { dragSuppressTimerRef.current = null; dragActiveRef.current = false }, 0)
                                         }}
                                         // 拖拽提起视觉：轻微缩放 + 阴影，松手回弹
                                         whileDrag={{scale: 1.02, boxShadow: '0 4px 12px rgba(0,0,0,0.15)'}}

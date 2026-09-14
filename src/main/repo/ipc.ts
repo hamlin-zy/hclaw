@@ -39,7 +39,9 @@ export function registerRepoIPC(): void {
 
   ipcMain.handle('repo:list', async () => {
     const inputs = collectCapabilityInputs()
-    return repoRegistry.discover(undefined, inputs)
+    const repos = await repoRegistry.discover(undefined, inputs)
+    repoVersionManager.prune(repos.map(r => r.id))
+    return repos
   })
 
   ipcMain.handle('repo:get-versions', async (_e, repoId: string) => {
@@ -75,6 +77,7 @@ export async function initializeRepoSystem(): Promise<GitRepo[]> {
   try {
     const inputs = collectCapabilityInputs()
     const repos = await repoRegistry.discover(undefined, inputs)
+    repoVersionManager.prune(repos.map(r => r.id))
     const metas = await repoVersionManager.startupCheck(repos)
     logger.info('repo-startup-done', {repos: repos.length, updates: Object.keys(metas).filter(k => metas[k].hasUpdate).length})
     return repos

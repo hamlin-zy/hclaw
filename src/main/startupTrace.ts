@@ -49,6 +49,12 @@ let initialized = false
 const pendingLines: string[] = []
 
 /**
+ * 缓冲上限：仅在写盘持续失败（appendFile 永不 resolve）时才会增长。
+ * 超限丢弃最旧行，避免无界内存增长；默认（写盘成功）路径下缓冲恒为个位数，行为不变。
+ */
+const MAX_PENDING_LINES = 1000
+
+/**
  * 由主进程入口注入的日志根目录（见文件头：刻意不 import config 以避开循环依赖）。
  * 入口在首条打点前调用 setStartupTraceDir(path.join(getHclawDir(), 'logs'))，
  * 因此正常启动路径下始终使用真实的 hclaw 目录（含用户自定义路径）。
@@ -166,6 +172,10 @@ export function trace(label: string, data?: Record<string, unknown>): void {
 
         ensureInitialized()
         pendingLines.push(line)
+        // 写盘持续失败时缓冲无界 → 丢弃最旧行封顶（正常路径不会触发）
+        if (pendingLines.length > MAX_PENDING_LINES) {
+            pendingLines.splice(0, pendingLines.length - MAX_PENDING_LINES)
+        }
 
         // 异步落盘确认后从缓冲移除（成功/失败都移除，避免 flush 重复写）
         const drop = (): void => {

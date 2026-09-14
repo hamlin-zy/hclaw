@@ -26,18 +26,28 @@ export class ToolTimeoutError extends Error {
  * @param promise 工具执行 Promise
  * @param toolName 工具名称（用于错误信息）
  * @param timeoutMs 超时时间（毫秒）
+ * @param onTimeout 超时触发时的取消回调（用于通知工具停止后台工作，如杀子进程 / 中止网络请求）
  * @returns 工具执行结果，超时则返回超时错误
  */
 export async function withToolTimeout<T = any>(
     promise: Promise<ToolResult<T>>,
     toolName: string,
     timeoutMs: number,
+    onTimeout?: () => void,
 ): Promise<ToolResult<T>> {
     let timeoutId: ReturnType<typeof setTimeout> | null = null
 
     const timeoutPromise = new Promise<ToolResult<T>>((_, reject) => {
         timeoutId = setTimeout(() => {
+            // 顺序刻意固定：先 reject 再取消。
+            // 先 reject 保证 Promise.race 的结果确定为 ToolTimeoutError（与既有行为一致，
+            // 不受工具如何响应 abort 影响）；随后触发取消回调，让工具停止后台工作。
             reject(new ToolTimeoutError(toolName, timeoutMs))
+            try {
+                onTimeout?.()
+            } catch {
+                /* 取消回调失败不影响超时结果 */
+            }
         }, timeoutMs)
     })
 

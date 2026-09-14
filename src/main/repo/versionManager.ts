@@ -34,6 +34,17 @@ export class RepoVersionManager {
     return this.versionMap.get(repoId)
   }
 
+  /**
+   * 裁剪缓存中已不存在的仓库（discover 后调用）。
+   * 只删不在 activeIds 中的 id：现存仓库的读取结果不受影响。
+   */
+  prune(activeIds: Iterable<string>): void {
+    const keep = activeIds instanceof Set ? activeIds : new Set(activeIds)
+    for (const id of [...this.versionMap.keys()]) {
+      if (!keep.has(id)) this.versionMap.delete(id)
+    }
+  }
+
   async warmCache(repoId: string, repoPath: string): Promise<RepoVersionInfo> {
     // 插件仓库版本由 PluginVersionManager 管理，不混入 repo versionMap
     const repo = repoRegistry.get(repoId)

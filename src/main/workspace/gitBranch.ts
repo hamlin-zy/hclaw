@@ -69,6 +69,8 @@ let lastHeadContent: string | null = null
 
 async function emitBranchChanged(cwd: string, headContent: string | null): Promise<void> {
     const branch = await getGitBranch(cwd)
+    // 代际校验：await 期间 watch 已停止或切换到其它 cwd → 丢弃过期广播
+    if (cwd !== watchCwd) return
     broadcastToAllWindows(GIT_BRANCH_CHANNEL, branch)
     void headContent
 }
@@ -86,6 +88,8 @@ function clearAll(): void {
  * fs.watch 失败（如 .git 不存在、权限不足）时降级为 3s 轮询。
  */
 export function startGitBranchWatch(cwd: string): void {
+    // 同一 cwd 已有活跃 fs.watch → 早退：避免重复 stop/start 重建句柄、吞掉窗口内的变更
+    if (watchCwd === cwd && fsWatcher) return
     stopGitBranchWatch()
     watchCwd = cwd
 
@@ -125,10 +129,12 @@ export function startGitBranchWatch(cwd: string): void {
             lastHeadContent = content
             void emitBranchChanged(watchCwd, content)
         }, 3000)
+        // 轮询不应单独阻止进程退出
+        pollTimer.unref?.()
     }
 }
 
-/** 停止监听（工作区关闭/切换前调用） */
+/** 停止监听（工作区切换 / 应用退出前调用；watch 为单例，属主是主窗口） */
 export function stopGitBranchWatch(): void {
     clearAll()
 }

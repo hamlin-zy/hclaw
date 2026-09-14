@@ -37,6 +37,12 @@ interface KnownCapabilityNames {
 let knownCapsCache: KnownCapabilityNames | null = null
 let knownCapsPromise: Promise<KnownCapabilityNames> | null = null
 
+/** 能力集合变更时失效模块级缓存（缓存与单飞 Promise 一并置空），下次访问重新拉取 */
+export function invalidateKnownCapabilityNames(): void {
+    knownCapsCache = null
+    knownCapsPromise = null
+}
+
 function fetchKnownCapabilityNames(): Promise<KnownCapabilityNames> {
     if (knownCapsCache) return Promise.resolve(knownCapsCache)
     if (!knownCapsPromise) {
@@ -55,6 +61,7 @@ function fetchKnownCapabilityNames(): Promise<KnownCapabilityNames> {
                     : [],
             }
             knownCapsCache = result
+            knownCapsPromise = null  // 成功分支归空，避免长期持有 Promise.all 闭包
             return result
         }).catch(() => {
             knownCapsPromise = null  // 失败允许重试

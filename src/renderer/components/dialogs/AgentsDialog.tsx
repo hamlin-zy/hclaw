@@ -330,6 +330,7 @@ export default function AgentsDialog() {
     const [repoUrl, setRepoUrl] = useState('')
     const [repoInstalling, setRepoInstalling] = useState(false)
     const [repoMessage, setRepoMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+    const repoMessageTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const [repoList, setRepoList] = useState<any[]>([])
 
     const refreshRepoList = useCallback(() => {
@@ -339,6 +340,9 @@ export default function AgentsDialog() {
     useEffect(() => {
         refreshRepoList()
     }, [refreshRepoList])
+
+    // 卸载兜底：清理 repoMessage 自动隐藏定时器
+    useEffect(() => () => { if (repoMessageTimer.current) clearTimeout(repoMessageTimer.current) }, [])
 
     const handleRepoInstall = useCallback(async () => {
         if (!repoUrl.trim()) return
@@ -352,7 +356,8 @@ export default function AgentsDialog() {
                 await syncFromDisk()
                 refreshRepoList()
                 setRepoUrl('')
-                setTimeout(() => setRepoMessage(null), 3000)
+                if (repoMessageTimer.current) clearTimeout(repoMessageTimer.current)
+                repoMessageTimer.current = setTimeout(() => { repoMessageTimer.current = null; setRepoMessage(null) }, 3000)
             } else {
                 setRepoMessage({type: 'error', text: `安装失败: ${result?.error || '未知错误'}`})
             }

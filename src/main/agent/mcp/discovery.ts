@@ -193,20 +193,26 @@ function createMCPToolProxy(args: {
           if (mcpPort) {
             const callId = crypto.randomUUID().slice(0, 8)
             const port = mcpPort  // local ref for TS narrowing
-            return await withToolTimeout(
-              new Promise<ToolResult>((resolve) => {
-                const handler = (msg: any) => {
-                  if (msg.callId === callId) {
-                    port.off('message', handler)
-                    resolve(msg.result)
+            let handler: ((msg: any) => void) | null = null
+            try {
+              return await withToolTimeout(
+                new Promise<ToolResult>((resolve) => {
+                  handler = (msg: any) => {
+                    if (msg.callId === callId) {
+                      port.off('message', handler!)
+                      resolve(msg.result)
+                    }
                   }
-                }
-                port.on('message', handler)
-                port.postMessage({type: 'call_tool', callId, serverId, toolName: toolDef.name, args})
-              }),
-              toolFullName,
-              timeoutMs
-            )
+                  port.on('message', handler)
+                  port.postMessage({type: 'call_tool', callId, serverId, toolName: toolDef.name, args})
+                }),
+                toolFullName,
+                timeoutMs
+              )
+            } finally {
+              // 超时/异常路径同样移除监听器，避免共享 mcpPort 上泄漏
+              if (handler) port.off('message', handler)
+            }
           }
           // 无 MessagePort（MCP Worker 未就绪或崩溃），不注册此工具
           return {success: false, output: null, error: 'MCP Worker 不可用，工具未注册'}

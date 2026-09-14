@@ -169,6 +169,7 @@ export function watchRefDirs(commonDir: string, onChange: () => void): {close: (
       closed = true
       for (const t of rebuildTimers.values()) clearTimeout(t)
       rebuildTimers.clear()
+      attempts.clear()
       for (const dir of [...watchers.keys()]) closeOne(dir)
     },
   }

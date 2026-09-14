@@ -411,6 +411,33 @@ export function subscribeGitBranchChanges(): () => void {
     return () => unsub?.()
 }
 
+/**
+ * 释放指定会话的全部缓存：messagesMap / hasMoreMap / loadingMoreMap 三个会话级
+ * Map 条目 + agentStore.convAgentStates[convId]。
+ * 供 deleteConversation(s) / cleanupInactiveConversations / onConversationDeleted
+ * 统一复用；调用方自行处理 activeConversationId 等状态切换。
+ */
+function releaseConvCaches(ids: string[]): void {
+    if (!ids.length) return
+    const state = useConversationStore.getState()
+    const newMsgMap = {...state.messagesMap}
+    const newHasMoreMap = {...state.hasMoreMap}
+    const newLoadingMoreMap = {...state.loadingMoreMap}
+    for (const id of ids) {
+        delete newMsgMap[id]
+        delete newHasMoreMap[id]
+        delete newLoadingMoreMap[id]
+    }
+    useConversationStore.setState({
+        messagesMap: newMsgMap,
+        hasMoreMap: newHasMoreMap,
+        loadingMoreMap: newLoadingMoreMap,
+    })
+    for (const id of ids) {
+        useAgentStore.getState().removeConvData(id)
+    }
+}
+
 export const useConversationStore = createWithEqualityFn<ConversationStore>()(
   (set, get) => ({
       currentWorkspacePath: null,
@@ -1259,5 +1286,10 @@ if (typeof window !== 'undefined') {
             updates.messagesMap = newMap
         }
         useConversationStore.setState(updates)
+
+        // ★ 无论被删会话是否激活，统一释放其消息缓存（messagesMap/hasMoreMap/loadingMoreMap）
+        //   与 agent 运行时数据；否则非激活会话（后台流式/子会话/其他工作区）的缓存会永久残留。
+        //   （messagesMap 在激活分支已删，此处对 ids 统一 delete 幂等。）
+        releaseConvCaches(ids)
     })
 }

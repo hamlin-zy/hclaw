@@ -51,7 +51,7 @@ export const grepTool: Tool<GrepInput, string> = {
     }
 
     try {
-      let output = await searchWithRipgrep(args, searchDir, context.workingDir)
+      let output = await searchWithRipgrep(args, searchDir, context.workingDir, context.abortSignal)
       if (output === null) {
         // rg 不可用：回退到 JS 遍历实现
         output = await searchWithJs(args, searchDir, context.workingDir)
@@ -84,6 +84,7 @@ async function searchWithRipgrep(
   args: GrepInput,
   searchDir: string,
   rootDir: string,
+  abortSignal?: AbortSignal | null,
 ): Promise<string | null> {
   const { pattern, filePattern, maxResults = 50, caseInsensitive = false, maxDepth } = args
 
@@ -107,11 +108,26 @@ async function searchWithRipgrep(
     let buffer = ''
     let settled = false
 
+    const killChild = () => {
+      try { child.kill() } catch { /* ignore */ }
+    }
+
+    // 统一收尾：移除 abort 监听（正常 / 异常 / 取消均经此）
+    const cleanup = () => {
+      if (abortSignal) abortSignal.removeEventListener('abort', onAbort)
+    }
+
+    // 取消：仅杀 rg 子进程，结果仍走既有 close 处理路径（不新增结果分支、不改退出码语义）
+    const onAbort = () => {
+      killChild()
+    }
+
     const finish = (fallback: boolean) => {
       if (settled) return
       settled = true
+      cleanup()
       if (fallback) {
-        try { child.kill() } catch { /* ignore */ }
+        killChild()
         resolve(null)
         return
       }
@@ -121,6 +137,17 @@ async function searchWithRipgrep(
 
     child.on('error', () => finish(true))
     child.on('spawn-error' as any, () => finish(true))
+
+    // 取消信号：用户中止 / worker 终止时回收子进程，避免 rg 在后台继续扫描占用资源。
+    // 注：不在此处自设超时——工具超时由 executor 的 withToolTimeout 统一裁定（DB 可配，
+    // 超时返回 ToolTimeoutError）；内设定时器会与之竞态并把超时降级为「部分结果成功」。
+    if (abortSignal) {
+      if (abortSignal.aborted) {
+        killChild()
+      } else {
+        abortSignal.addEventListener('abort', onAbort, {once: true})
+      }
+    }
 
     child.stdout.on('data', (chunk: Buffer) => {
       buffer += chunk.toString('utf-8')

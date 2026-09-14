@@ -53,6 +53,9 @@ export function openProjectManagerWindow(workspacePath: string): BrowserWindow {
     // 不做兜底清理的话，每个打开过的工作区会永久占一个 Map key（见 watcher 的 refcount 范式）。
     deleteGitRepoCache(workspacePath)
     invalidateStatusCache(workspacePath)
+    // 注：不在此处停止 git 分支监听。该 watch 的唯一属主是主窗口（conversationStore 的
+    // workspace:getGitBranch / setCurrent 驱动），项目管理窗口从不调用它；在此停止只会在
+    // 「本窗口工作区恰等于主窗口当前工作区」时误停主窗口的监听。生命周期收口在 before-quit。
   })
   startWatcher(workspacePath, sendToWindow)
   return win

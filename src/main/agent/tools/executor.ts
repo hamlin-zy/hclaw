@@ -331,12 +331,34 @@ export async function executeTool(
       // 获取工具超时时间（优先使用数据库配置，否则使用默认值）
       const timeoutMs = resolveToolTimeoutMs(tool.name, parseResult.data) ?? 60000
 
-      // 使用超时包装器执行工具
-      const result = await withToolTimeout(
-          tool.execute(parseResult.data, { ...context, toolCallId: toolCall.id }),
-          tool.name,
-          timeoutMs
-      )
+      // 超时取消传播：为本次调用派生独立 AbortSignal（桥接 worker 级 abortSignal），
+      // 超时触发时 abort → 工具能据此停止后台工作（子进程 / 网络请求 / 长任务），
+      // 而不是被 withToolTimeout 抛下后继续在后台运行（典型：rg 子进程无人回收）。
+      const toolAbort = new AbortController()
+      const parentSignal = context.abortSignal
+      const onParentAbort = () => toolAbort.abort()
+      if (parentSignal) {
+          if (parentSignal.aborted) toolAbort.abort()
+          else parentSignal.addEventListener('abort', onParentAbort, {once: true})
+      }
+
+      // 使用超时包装器执行工具（超出时先由包装器判定超时，再 abort 取消工具）
+      const result = await (async () => {
+          try {
+              return await withToolTimeout(
+                  tool.execute(parseResult.data, {
+                      ...context,
+                      abortSignal: toolAbort.signal,
+                      toolCallId: toolCall.id,
+                  }),
+                  tool.name,
+                  timeoutMs,
+                  () => toolAbort.abort(),
+              )
+          } finally {
+              if (parentSignal) parentSignal.removeEventListener('abort', onParentAbort)
+          }
+      })()
 
       // ── 结果大小检查（兜底机制） ──
       const checkedResult = checkResultSize(toolCall.name, result)

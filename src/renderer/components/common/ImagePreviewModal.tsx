@@ -43,6 +43,9 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
     const lastPos = useRef({x: 0, y: 0})
     const [contextMenu, setContextMenu] = useState<ContextMenuState>({visible: false, x: 0, y: 0})
     const [copied, setCopied] = useState(false)
+    const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理「已复制」复位定时器
+    useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
     
     // 重置到初始状态
     const resetTransform = useCallback(() => {
@@ -69,8 +72,9 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
 
     // 展示“已复制”提示，2 秒后自动隐藏
     const showCopied = useCallback(() => {
+        if (copiedTimer.current) clearTimeout(copiedTimer.current)
         setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
+        copiedTimer.current = setTimeout(() => { copiedTimer.current = null; setCopied(false) }, 2000)
     }, [])
 
     // 键盘事件

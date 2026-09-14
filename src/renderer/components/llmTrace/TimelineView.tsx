@@ -5,7 +5,7 @@
  * attempt 徽章/耗时+TTFB。重试（同 conversation+turn+step 多 attempt）合并为
  * 单卡片：主体显示最后一次 attempt + 红色「重试 N 次」徽章，展开内联列出全部尝试。
  */
-import {useCallback, useMemo, useRef, useState} from 'react'
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import type {LlmCallRecord, LlmTraceProjection, TimelineNode, TraceFilter} from './types'
 import {OutputIcon} from '../icons'
 
@@ -77,6 +77,9 @@ export function TimelineView({projection, filter, onOpenDetail, conversationTitl
     const [expandedId, setExpandedId] = useState<string | null>(null)
     const [copiedConvId, setCopiedConvId] = useState<string | null>(null)
     const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    // 卸载兜底：清理「已复制」复位定时器
+    useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current) }, [])
 
     /** 复制会话日志落盘路径到剪贴板，按钮短暂显示「已复制」1.5s */
     const copyConvPath = useCallback(async (convId: string) => {

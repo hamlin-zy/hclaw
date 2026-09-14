@@ -550,9 +550,16 @@ export class AgentManager {
         // setMessageEnded），绝无全量写；若顺序颠倒，merge 在 blocks==0 时全量写
         // offset 型块，finalize 再补插 seq 型块 → 同消息两套 text 块 → 读回正文重复。
         const finalized = getConversationPersistence().finalizeMessage(conversationId, oldPending.id, Date.now())
+        // ★ 桥接状态释放与 DB 写入成败解耦：finalizeMessage 已返回（其内部数据读取
+        //   结束），而 6 个桥接容器仅供 persistStreamEvent 写路径使用、finalize/flush
+        //   均不读取；该 msgId 为唯一 UUID 永不复用 → 消息生命周期此刻确定终结即可释放。
+        //   失败分支的 patch 由 persistence 层自行重试，与桥接状态无关（防永久残留）。
+        resetBridgeMsgState(oldPending.id)
         if (finalized) {
-          resetBridgeMsgState(oldPending.id)
           resetUsageMsgState(oldPending.id)   // ★S5：同条件释放 usage seq 记账
+          // ★ 粒度修正：旧消息已 finalize 终结，删除其在 #rowEnsured 中的条目
+          //   （该 Map 仅在会话级 cleanup 整组删除，否则随对话轮数无界累积）。
+          this.#rowEnsured.get(conversationId)?.delete(oldPending.id)
         }
         if (!finalized) logger.warn('[AgentManager] turn reset finalize 失败，将随重试补齐', {conversationId})
         await this.#mergeAndPersist(conversationId, oldPending, true)
@@ -688,8 +695,9 @@ export class AgentManager {
     const pending = this.pendingAssistantMsg.get(conversationId)
     if (pending) {
       const finalized = getConversationPersistence().finalizeMessage(conversationId, pending.id, Date.now())
+      // ★ 同 turn reset：桥接状态与 DB 成败解耦，finalizeMessage 返回后即可释放（msgId 永不复用）
+      resetBridgeMsgState(pending.id)
       if (finalized) {
-        resetBridgeMsgState(pending.id)
         resetUsageMsgState(pending.id)   // ★S5：同条件释放 usage seq 记账
       }
       if (!finalized) logger.warn('[AgentManager] 收尾 finalize 失败，将随重试补齐', {conversationId})
@@ -923,15 +931,18 @@ export class AgentManager {
     conversationId: string,
     event: {type: 'done'; reason: 'completed' | 'aborted' | 'error'},
   ): Promise<void> {
+    // ★ 正常完成标记必须在首个 await 之前：标记消费点是 onWorkerExit 的同步删除
+    //   （#completedNormally.delete）。若仍置于 finalize await 之后，worker 在
+    //   finalize 期间退出 → delete 落空 → add 随后生效 → 标记永久残留。提前到
+    //   首个 await 前行为等价（仅 onWorkerExit 消费，通知逻辑不变）。
+    if (event.reason === 'completed') {
+      this.#completedNormally.add(conversationId)
+    }
+
     try {
       await this.#finalizeThenMerge(conversationId)
     } catch (err) {
       logger.error('[AgentManager] 持久化异常', {error: err})
-    }
-
-    // ★ 正常完成标记：worker 退出时（onWorkerExit）据此触发任务栏/托盘完成提醒
-    if (event.reason === 'completed') {
-      this.#completedNormally.add(conversationId)
     }
 
     this.forwardToRenderer(conversationId, event)
@@ -1614,7 +1625,16 @@ export class AgentManager {
     const pendingBeforeCleanup = this.pendingAssistantMsg.get(conversationId)
     if (pendingBeforeCleanup?.id) {
       resetUsageMsgState(pendingBeforeCleanup.id)
+      // ★ 桥接状态兜底释放（与 resetUsageMsgState 对称）：cleanup 只在崩溃 / abort
+      //   超时 / onWorkerError / onWorkerExit 执行，不经过 finalize 成功分支。此前
+      //   resetBridgeMsgState 仅在 finalize 成功时调用 → 以 msgId 为键的 6 个桥接容器
+      //   （尤以 thinkSegAccumByMsg 值为整段 thinking 文本）永久残留。finalize/flush
+      //   均不读取桥接状态，该 id 为唯一 UUID 永不复用 → 此处释放不早于任何数据依赖。
+      resetBridgeMsgState(pendingBeforeCleanup.id)
     }
+    // 注：循环检测提醒的引用计数不做按会话递减释放——attention.ts 的计数全局无归属，
+    // 按会话递减会在「本会话 cleanup 时全局计数已被窗口 focus 归零」时误停其它会话的
+    // 合法提醒；该计数由窗口 focus 的 clearUserAttention() 归零兜底（既有语义）。
     this.pendingAssistantMsg.delete(conversationId)
     this.streamingMsgIds.delete(conversationId)
     this.streamListeners.delete(conversationId)

@@ -198,6 +198,8 @@ export function handleError(ctx: StreamCtx) {
         // ★ 与 done/abort 对称：run 出错/worker 异常退出时清除 tools 变动确认阻塞态，
         //   否则弹窗状态残留，下一个 run 正常流式输出时幽灵弹窗仍在。
         pendingToolsChangeConfirm: null,
+        // ★ 与 done/abort 对称：终态清除循环检测警告条，避免陈旧 banner 常驻
+        loopWarning: undefined,
     })
     set((state: any) => ({
         errorMessage: state.errorMessage || errorMessage,

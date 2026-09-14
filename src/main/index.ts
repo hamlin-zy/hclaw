@@ -28,7 +28,8 @@ import {startConfigWatcher} from './config-watcher';
 import {initProgress, setInitProgressTransport} from './initProgress';
 import {broadcastToAllWindows} from './utils/windowBroadcast';
 import {initializePlugins, registerPluginIPC} from './plugin/ipc';
-import {registerCapabilityIPC} from './capability/ipc';
+import {registerCapabilityIPC, disposeCapabilityIPC} from './capability/ipc';
+import {stopGitBranchWatch} from './workspace/gitBranch';
 import {GoogleAuthService, initGoogleAuthIPC} from './auth/googleAuth';
 import {initProviderIPC} from './llmProviderIPC';
 import {modelMetaRegistry} from './modelMetaRegistry';
@@ -197,7 +198,7 @@ initConversationIPC();
 // 落库回执事件广播（§3.4 双通道第 2 条）：flush 级回执（message-finalized /
 // persist-degraded），仅携带变更引用，不带全量消息（§3.6-6）。
 // UI 流式 chunk 级事件保持现状不动（7.5）。
-getConversationPersistence().onPersistEvent(e => {
+const unsubscribePersistEvent = getConversationPersistence().onPersistEvent(e => {
   // ★ C1 前置：message-flushed 是进程内 ACK 信号（仅供主进程侧消费，渲染端不消费），
   // 每次节流 flush 都会发，若透传会产生大量无意义 IPC。故显式白名单只转发既有渲染端事件。
   if (e.type !== 'message-finalized' && e.type !== 'persist-degraded') return
@@ -584,6 +585,8 @@ app.on('activate', () => {
 app.on('before-quit', async () => {
   setIsQuitting(true);
   stopAllWatchers();
+  // 停止全局 git 分支 watch（.git/HEAD 的 fs.watch / 降级轮询）
+  stopGitBranchWatch();
 
   // §4.3 退出边界：全部会话未 flush 增量同步落库
   try { getConversationPersistence().flushAllSync() } catch (err) {
@@ -593,6 +596,9 @@ app.on('before-quit', async () => {
 
 app.on('will-quit', async () => {
   flushStartupTraceSync();
+  // 注销模块级事件订阅，避免 will-quit 后残留监听句柄
+  try { unsubscribePersistEvent(); } catch { /* ignore */ }
+  try { disposeCapabilityIPC(); } catch { /* ignore */ }
   globalShortcut.unregisterAll();
   agentManager.abortAll();
   await mcpWorkerManager.shutdown();

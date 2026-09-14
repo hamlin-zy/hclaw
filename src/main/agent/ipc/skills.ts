@@ -50,7 +50,13 @@ const SKILL_REFRESH_TIMEOUT_MS = 15000
  * 用于 refresh 超时兜底：不因个别能力加载挂死而卡住 IPC 响应。
  */
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | void> {
-    return Promise.race([promise, new Promise<void>(resolve => setTimeout(resolve, timeoutMs))])
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<void>(resolve => {
+        timer = setTimeout(resolve, timeoutMs)
+    })
+    return Promise.race([promise, timeout]).finally(() => {
+        if (timer) clearTimeout(timer)
+    })
 }
 
 /**

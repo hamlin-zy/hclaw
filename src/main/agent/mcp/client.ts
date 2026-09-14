@@ -189,6 +189,7 @@ export class MCPClient {
     error?: string
   }> {
     let sdkClient: Client | undefined
+    let connectTimeoutTimer: NodeJS.Timeout | undefined
     try {
       const transportOptions = this.getTransportOptions(config)
       const sdkTransport = this.transportFactory(config)
@@ -200,9 +201,9 @@ export class MCPClient {
 
       const testTimeout = transportOptions.connectTimeout ?? DEFAULT_CONNECT_TIMEOUT_MS
       const connectPromise = sdkClient.connect(sdkTransport)
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`测试连接超时 (${Math.round(testTimeout / 1000)}s)`)), testTimeout)
-      )
+      const timeout = new Promise<never>((_, reject) => {
+        connectTimeoutTimer = setTimeout(() => reject(new Error(`测试连接超时 (${Math.round(testTimeout / 1000)}s)`)), testTimeout)
+      })
       await Promise.race([connectPromise, timeout])
 
       const { tools } = await sdkClient.listTools()
@@ -210,6 +211,7 @@ export class MCPClient {
     } catch (err: any) {
       return { success: false, error: err.message }
     } finally {
+      if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer)
       try { await sdkClient?.close() } catch {}
     }
   }

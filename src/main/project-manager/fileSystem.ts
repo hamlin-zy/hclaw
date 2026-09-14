@@ -72,16 +72,18 @@ export function resetGitRepoCache(): void {
  * 必须用 delete 而非 clear：其它已打开工作区的缓存条目仍然有效，不应被连带清空。
  */
 export function deleteGitRepoCache(workspace: string): void {
-  gitRepoCache.delete(workspace)
+  gitRepoCache.delete(resolve(workspace))
 }
 
 async function isGitRepo(workspace: string): Promise<boolean> {
-  const cached = gitRepoCache.get(workspace)
+  // key 归一化：`.`/`..`/尾分隔符/大小写等价写法指向同一目录，避免同一 workspace 多份缓存条目永久残留
+  const key = resolve(workspace)
+  const cached = gitRepoCache.get(key)
   if (cached !== undefined) return cached
   // code 128 = 非 git 仓库；-1 = git 未安装（ENOENT）。两者都按"不是仓库"处理。
   const {code} = await gitExecResult(workspace, ['rev-parse', '--is-inside-work-tree'])
   const ok = code === 0
-  gitRepoCache.set(workspace, ok)
+  gitRepoCache.set(key, ok)
   return ok
 }
 
