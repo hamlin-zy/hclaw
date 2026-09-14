@@ -388,6 +388,7 @@ app.on('ready', async () => {
   createTray();
   trace('main:after-createTray')
   registerGlobalShortcutsAtStartup();
+  trace('main:shortcuts-registered');
 
   // ── Async block: Agent/Skills/MCP 顺序初始化 ──
   //
@@ -400,11 +401,13 @@ app.on('ready', async () => {
   // 以确保 collectConfigs() 能读到全部配置。
 
   // Step 2: Plugin system - discover plugins only (not internal agents/skills/mcps/commands)
+  trace('main:before-initializePlugins');
   logger.info('init-checkpoint', {step: 'initializePlugins-start'})
   initProgress.stage('plugin')
   await initializePlugins();
   initProgress.done('plugin')
   logger.info('init-checkpoint', {step: 'initializePlugins-done'})
+  trace('main:plugins-initialized');
 
   // Plugin version check (fire-and-forget) - fetches latest tags for all git plugins
   // Results are pushed to renderer via plugin:status-update event
@@ -437,6 +440,7 @@ app.on('ready', async () => {
   await initAgent();
   initProgress.done('agent')
   logger.info('init-checkpoint', {step: 'initAgent-done'})
+  trace('main:agent-initialized');
   // 主进程侧四段能力加载结束（MCP 阶段由渲染进程自行推导，主进程不管）
   initProgress.finish()
 
@@ -445,9 +449,11 @@ app.on('ready', async () => {
   initHclawDbQueryConnection();
 
   // Step 4: MCP Worker 初始化（此时 mcpService 缓存已包含所有 MCP 配置）
+  trace('main:before-mcpWorker-init');
   mcpWorkerManager.init().catch((err: any) => {
     logger.info('[MCP] MCP Worker init failed:', err.message);
   });
+  trace('main:after-mcpWorker-init-call');
 
   // MCP version check (fire-and-forget) — probes --version / npm view / checkUrl
   // Results broadcast to all windows via mcp:status-update
@@ -495,6 +501,7 @@ app.on('ready', async () => {
   }
 
   // Startup complete
+  trace('main:ready-block-done');
   logger.info('[App] HClaw ready');
 
   // 启动时静默检查更新（fire-and-forget，不阻塞主窗口显示）

@@ -309,8 +309,17 @@ export const createWindow = (): void => {
     });
 
     // ── 冷启动观测：webContents 生命周期打点（仅记录，不改行为）──
-    mainWindow.webContents.on('did-start-loading', () => trace('window:did-start-loading'));
-    mainWindow.webContents.on('dom-ready', () => trace('window:dom-ready'));
+    // 附 rendererPid：可用 Get-CimInstance Win32_Process 查出渲染进程的真实创建时刻，
+    // 从而把「did-start-loading → preload 执行」拆成「渲染进程 spawn(OS) + Chromium 初始化 + preload」。
+    const rendererPid = (): number | undefined => {
+        try {
+            return mainWindow?.webContents.getOSProcessId() || undefined;
+        } catch {
+            return undefined;
+        }
+    };
+    mainWindow.webContents.on('did-start-loading', () => trace('window:did-start-loading', {rendererPid: rendererPid()}));
+    mainWindow.webContents.on('dom-ready', () => trace('window:dom-ready', {rendererPid: rendererPid()}));
     mainWindow.webContents.on('did-finish-load', () => trace('window:did-finish-load'));
 
     // 优化：窗口准备好后再显示，避免白屏闪烁
