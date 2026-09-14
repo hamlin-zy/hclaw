@@ -33,6 +33,7 @@ import type {AgentTemplate} from '@shared/types'
 import type {SkillDefinition} from './skills/types'
 import {logger} from './logger'
 import {initProgress} from '../initProgress'
+import {trace} from '../startupTrace'
 import {seedDefaultAgentFiles} from './defaults/seedAgentFiles'
 
 export interface EnabledPower {
@@ -344,14 +345,25 @@ class PowerManagerImpl {
         // ★ 纯展示层上报：技能/命令属"多条目"阶段，上报开始与结束。
         //   加载器未暴露逐条回调，故退化为 stage/done（无分母），不重构加载逻辑。
         initProgress.stage('skill')
+        trace('cap:loadAll-enter')
 
         // 并行加载所有能力
         await Promise.all([
-            this.loadAgents().then(() => initProgress.done('agent')),
-            this.loadSkills(pluginEnabledMap).then(() => initProgress.done('skill')),
-            this.loadMcpServers(),
-            this.loadCommands().then(() => initProgress.done('command'))
+            this.loadAgents().then(() => {
+                trace('cap:loadAgents-done')
+                initProgress.done('agent')
+            }),
+            this.loadSkills(pluginEnabledMap).then(() => {
+                trace('cap:loadSkills-done')
+                initProgress.done('skill')
+            }),
+            this.loadMcpServers().then(() => trace('cap:loadMcpServers-done')),
+            this.loadCommands().then(() => {
+                trace('cap:loadCommands-done')
+                initProgress.done('command')
+            })
         ])
+        trace('cap:loadAll-done')
     }
 
     /**
@@ -363,9 +375,11 @@ class PowerManagerImpl {
 
         // 首次启动时将内置 Agent .md 写入用户配置目录
         seedDefaultAgentFiles()
+        trace('cap:agents-seeded')
 
         // 扫描所有 Agents（本地 + 插件）
         const agentTemplates = await scanAllAgents()
+        trace('cap:agents-scanned', {count: agentTemplates.length})
 
         // 注册所有 Agents
         const deps = createSqliteOwnershipDeps()
@@ -390,9 +404,11 @@ class PowerManagerImpl {
 
         // 加载本地 Skills
         await loadSkillsFromDirectory()
+        trace('cap:skills-local-done', {count: skillRegistry.getAll().length})
 
         // 加载插件 Skills
         await loadSkillsFromPlugins()
+        trace('cap:skills-plugins-done', {count: skillRegistry.getAll().length})
 
         // Worker 线程中：同步插件 Skills 启用状态
         if (pluginEnabledMap) {

@@ -390,6 +390,15 @@ app.on('ready', async () => {
   registerGlobalShortcutsAtStartup();
   trace('main:shortcuts-registered');
 
+  // ── 冷启动观测：事件循环阻塞探针 ──
+  // 0ms 定时器若不能及时派发，说明主线程被同步代码连续占用（渲染进程 spawn /
+  // ready-to-show 的 IPC 都会被推迟）；若 delayMs 很小，则说明该阶段是纯 I/O 等待，
+  // 不阻塞事件循环 —— 窗口延迟就要从别处找原因。
+  const loopProbe = (at: string): void => {
+    const t = Date.now();
+    setTimeout(() => trace('main:loop-probe', {at, delayMs: Date.now() - t}), 0);
+  };
+
   // ── Async block: Agent/Skills/MCP 顺序初始化 ──
   //
   // 架构说明：
@@ -402,6 +411,7 @@ app.on('ready', async () => {
 
   // Step 2: Plugin system - discover plugins only (not internal agents/skills/mcps/commands)
   trace('main:before-initializePlugins');
+  loopProbe('plugins');
   logger.info('init-checkpoint', {step: 'initializePlugins-start'})
   initProgress.stage('plugin')
   await initializePlugins();
@@ -436,6 +446,7 @@ app.on('ready', async () => {
 
   // Step 3: Agent + Skills 初始化（含插件 MCP 配置加载 + 缓存回写）
   logger.info('init-checkpoint', {step: 'initAgent-start'})
+  loopProbe('initAgent');
   initProgress.stage('agent')
   await initAgent();
   initProgress.done('agent')
