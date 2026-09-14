@@ -123,8 +123,10 @@ function useInitPhase(): {active: boolean; label: string} {
     if (!active || !stage) return {active: false, label: ''}
 
     const verb = INIT_STAGE_LABELS[stage] || ''
-    // 有分母才显示 done/total
-    const label = total > 0 ? `${verb} ${done}/${total}` : verb
+    // 有分母显示 done/total；无分母补省略号——「加载技能」这类纯动词短语看起来
+    // 像已结束的静态文案，加省略号才有「进行中」的语感。
+    // 省略号沿用 STATUS_CONFIG 的写法（'初始化...' / '工作中...'），保持同款视觉。
+    const label = total > 0 ? `${verb} ${done}/${total}` : `${verb}...`
     return {active: true, label}
 }
 
