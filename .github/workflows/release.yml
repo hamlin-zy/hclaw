@@ -34,7 +34,9 @@ jobs:
   # 创建草稿 Release（仅 tag push 时执行）
   # ============================================
   create-draft:
-    if: startsWith(github.ref, 'refs/tags/v')
+    # 强推(force push)重写历史时不触发：避免批量强推 tag 引发全量重建 Release
+    # github.event.forced 仅在 push 事件存在；workflow_dispatch 下为 null，!null = true
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && !github.event.forced }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
