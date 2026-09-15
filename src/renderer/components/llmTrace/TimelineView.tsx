@@ -5,9 +5,10 @@
  * attempt 徽章/耗时+TTFB。重试（同 conversation+turn+step 多 attempt）合并为
  * 单卡片：主体显示最后一次 attempt + 红色「重试 N 次」徽章，展开内联列出全部尝试。
  */
-import {useCallback, useMemo, useRef, useState} from 'react'
+import {useCallback, useMemo, useState} from 'react'
 import type {LlmCallRecord, LlmTraceProjection, TimelineNode, TraceFilter} from './types'
 import {OutputIcon} from '../icons'
+import {useTransientFlag} from '../../hooks/useTransientFlag'
 
 interface TimelineViewProps {
     projection: LlmTraceProjection
@@ -76,7 +77,8 @@ function fmtTime(ts: number): string {
 export function TimelineView({projection, filter, onOpenDetail, conversationTitles, conversationPaths}: TimelineViewProps) {
     const [expandedId, setExpandedId] = useState<string | null>(null)
     const [copiedConvId, setCopiedConvId] = useState<string | null>(null)
-    const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 「已复制」反馈 1.5s 后复位（延时值刻意与其他复制点不同）
+    const [copiedFlash, flashCopied] = useTransientFlag(1500)
 
     /** 复制会话日志落盘路径到剪贴板，按钮短暂显示「已复制」1.5s */
     const copyConvPath = useCallback(async (convId: string) => {
@@ -84,9 +86,8 @@ export function TimelineView({projection, filter, onOpenDetail, conversationTitl
         if (!p) return
         try { await navigator.clipboard.writeText(p) } catch { /* 剪贴板不可用时静默 */ }
         setCopiedConvId(convId)
-        if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
-        copyTimerRef.current = setTimeout(() => setCopiedConvId(null), 1500)
-    }, [conversationPaths])
+        flashCopied()
+    }, [conversationPaths, flashCopied])
 
     // 过滤 + 分组：conversation → turn，组内按 ts 排序
     const groups = useMemo(() => {
@@ -128,7 +129,7 @@ export function TimelineView({projection, filter, onOpenDetail, conversationTitl
                                 title="复制日志落盘路径"
                              data-name="timeline-conv-copy"
                                 className="ml-auto text-[11px] cursor-pointer select-none rounded border border-[var(--border)] px-1.5 py-px text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors">
-                                {copiedConvId === convId ? '已复制' : '复制路径'}
+                                {copiedFlash && copiedConvId === convId ? '已复制' : '复制路径'}
                             </button>
                         )}
                     </div>
@@ -275,7 +276,7 @@ function CallRow({record: r, selected, onClick}: {
                 <OutputIcon className={`w-3 h-3 shrink-0 text-[var(--text-muted)] transition-transform ${selected ? 'rotate-90' : ''}`}/>
             </div>
             {selected && r.error && (
-                <div className="mx-3 my-1 py-2 px-3 rounded-md font-mono text-xs bg-[var(--error-muted)] border border-[var(--error)]/35 text-[var(--error)]">
+                <div className="mx-3 my-1 py-2 px-3 rounded-md font-mono text-xs bg-[var(--error-muted)] border border-[color-mix(in_srgb,var(--error)_45%,transparent)] text-[var(--error)]">
                     {r.error.message}
                 </div>
             )}

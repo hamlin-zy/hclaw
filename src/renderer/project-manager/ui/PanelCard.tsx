@@ -2,7 +2,7 @@
 import React from 'react'
 import clsx from 'clsx'
 
-export interface PanelCardProps {
+interface PanelCardProps {
   children: React.ReactNode
   className?: string
   testId?: string

@@ -1,5 +1,5 @@
 import {createWithEqualityFn} from 'zustand/traditional'
-import type {ConversationSummary, Message, ContentBlock} from '@shared/types'
+import type {ConversationSummary, Message, ContentBlock, ToolCall} from '@shared/types'
 
 import {useAgentStore, createDefaultConvData} from './agentStore'
 import {fuzzyFilter} from '../lib/search'
@@ -105,8 +105,14 @@ const TRUNCATE_SUFFIX = '\n\n*(输出过长，已截断。展开加载完整内�
  *  幂等短路由 _fullOutputStored 标记承担：已截断过则跳过，避免双重截断提示。
  *  ★ 同时截断 output 与 toolResult 两个字段：normalizeToolResult 会为每个工具结果
  *    生成两份全文（output + formatToolResult 副本），只截 output 会导致 toolResult
- *    中的数 MB 原文永久驻留（堆快照实测 175MB）。 */
-function truncateLargeResults(message: Message): Message {
+ *    中的数 MB 原文永久驻留（堆快照实测 175MB）。
+ *  ★★ 缺陷 D2 修复：必须一并改写 contentBlocks 中指向被截断 ToolCall 的块。
+ *    blocksToMessage（src/main/repositories/sqlite/messageBlockHelper.ts:288-294）把
+ *    同一个 ToolCall 对象同时 push 进 message.toolCalls 与 message.contentBlocks。
+ *    此前只重建 toolCalls，contentBlocks[].toolCall.result 仍指向含全文的旧对象 →
+ *    截断产生新 tc 后内存一点没省（堆快照持有链走的正是 contentBlocks）。
+ *    此处按 ToolCall id 匹配改写，并让两条路径复用同一截断后对象（引用一致、幂等）。 */
+export function truncateLargeResults(message: Message): Message {
     if (!message.toolCalls || message.toolCalls.length === 0) return message
     // ★ 快速扫描（零分配）：先确认确有需截断的项才重建数组。水合/翻页常对大量消息调用，
     //   绝大多数消息无需截断，此前无条件 map 会为每条消息新建 toolCalls 数组（虽被 GC 但
@@ -120,6 +126,8 @@ function truncateLargeResults(message: Message): Message {
     })
     if (!needsTruncate) return message
     let modified = false
+    // ★ D2：记录被截断 ToolCall 的 id → 新对象，供 contentBlocks 按 id 同步改写
+    const rewritten = new Map<string, ToolCall>()
     const truncated = message.toolCalls.map(tc => {
         const result = tc.result as {output?: unknown; toolResult?: string; _fullOutputStored?: boolean} | undefined
         if (!result || typeof result.output !== 'string') return tc
@@ -128,7 +136,7 @@ function truncateLargeResults(message: Message): Message {
         const toolResultTooLong = typeof result.toolResult === 'string' && result.toolResult.length > TOOL_RESULT_MEMORY_CAP
         if (!outputTooLong && !toolResultTooLong) return tc
         modified = true
-        return {
+        const newTc = {
             ...tc,
             result: {
                 ...result,
@@ -142,8 +150,29 @@ function truncateLargeResults(message: Message): Message {
                 _outputTruncatedLength: result.output.length,
             } as typeof tc.result,
         }
+        rewritten.set(tc.id, newTc)
+        return newTc
     })
-    return modified ? { ...message, toolCalls: truncated } : message
+    if (!modified) return message
+
+    // ★ D2：contentBlocks 与 toolCalls 常引用同一 ToolCall 对象。只改 toolCalls 会让
+    //   contentBlocks 仍持有含全文的旧对象 → 截断形同虚设。此处按 id 换成截断后对象，
+    //   未命中的块保持原引用（React.memo bail out 依赖）。
+    let newBlocks = message.contentBlocks
+    // modified 为真 ⟺ 至少一个 tc 命中截断并写入 rewritten，故原先的 `rewritten.size > 0` 是恒真条件
+    if (message.contentBlocks?.length) {
+        let blocksChanged = false
+        const mapped = message.contentBlocks.map(block => {
+            if (block.type !== 'tool_use' || !block.toolCall) return block
+            const newTc = rewritten.get(block.toolCall.id)
+            if (!newTc || newTc === block.toolCall) return block
+            blocksChanged = true
+            return {...block, toolCall: newTc}
+        })
+        if (blocksChanged) newBlocks = mapped
+    }
+    // 未命中块改写时不下发 contentBlocks 键（与 {...message, toolCalls} 等价：仍持有原引用）
+    return {...message, toolCalls: truncated, ...(newBlocks === message.contentBlocks ? {} : {contentBlocks: newBlocks})}
 }
 
 /** 主动截断活跃会话的大工具结果（不等待 flushDirtyMessages）。
@@ -164,7 +193,13 @@ function scheduleActiveTruncate(convId: string) {
         activeTruncateTimer = null
         const store = useConversationStore.getState()
         const msgs = store.messagesMap[convId]
-        if (!msgs) return
+        // ★ 目标会话已不存在（删除/缓存释放/非活跃清理）：终止自续期链。
+        //   此前在 `!msgs` 时直接 return 但续期语句在其后无条件执行，会话删除后
+        //   这条 30s 链会永久空转并不断续期。
+        if (!msgs) {
+            activeTruncateConvId = null
+            return
+        }
         let modified = false
         const newMsgs = msgs.map(m => {
             const truncated = truncateLargeResults(m)
@@ -190,9 +225,47 @@ function clearActiveTruncate() {
     }
 }
 
+/** 会话释放路径专用：若当前截断链的目标 convId 正是被释放的会话，
+ *  则立即清定时器并置空句柄（否则只能等下一次空转才发现会话已不存在）。 */
+function cancelActiveTruncateFor(ids: string[]): void {
+    if (!activeTruncateConvId || !ids.includes(activeTruncateConvId)) return
+    clearActiveTruncate()
+}
+
+/** `loadMessagesInitial` 的 in-flight 去重表（convId → 在途 Promise）。
+ *  三条路径会对同一 convId 并发发起首屏水合：`switchActiveConversation`（用户切会话）、
+ *  `preloadConversation`（侧栏 hover）、`loadConversations` 的批量预热（并发 5）。
+ *  无去重时底层 `conversationReadTail` 会被重复发起（同一批 SQLite 查询叠加，且后到的
+ *  响应会覆盖先到的）。共享同一 Promise 后三者天然复用同一次读取。
+ *  settle 后立即清理——它只是「在途」标记，不是消息缓存（缓存由 messagesMap 承担）。 */
+const initialLoadInFlight = new Map<string, Promise<void>>()
+
+/** `loadConversations` 的并发锁（in-flight 去重）。三个调用点会在同一 tick 内并发触发，
+ *  无锁时会重复发起 conversationList 与整批预热。settle 后释放。
+ *  与 initialLoadInFlight 共用同一张「单槽锁」表（key 为下方哨兵值）。 */
+const LOAD_CONVERSATIONS_LOCK = '__loadConversations__'
+const loadConversationsInFlight = new Map<string, Promise<void>>()
+
+/**
+ * in-flight 去重：同一 key 的并发调用复用同一 Promise，settle 后自动清标记。
+ *
+ * 两个刻意为之的细节（勿改成 `async` 包装或提前删标记）：
+ *  1. 返回的不是 `async` 函数的返回值——`async` 会把结果再包一层新 Promise，
+ *     使并发调用拿到不同引用（去重语义仍在，但调用方无法按引用判断「同一请求」）。
+ *  2. 登记的是 `guarded`（`.finally` 之后才 resolve），故不存在
+ *     「已 settle 但标记仍在」的窗口。
+ */
+function dedupeInFlight<T>(inFlight: Map<string, Promise<T>>, key: string, run: () => Promise<T>): Promise<T> {
+    const existing = inFlight.get(key)
+    if (existing) return existing
+    const guarded = run().finally(() => { inFlight.delete(key) })
+    inFlight.set(key, guarded)
+    return guarded
+}
+
 // ─── 单会话内存权重上限（兜底）──────────────────────────
 // 长会话/重工具输出会话在非活跃时可能无界增长，本函数作为兜底：
-// 权重超限的非活跃会话先 flush dirty，再 evict 最旧的 30% 消息。
+// 权重超限的非活跃会话先截断大工具结果（幂等），再 evict 最旧的 30% 消息。
 
 const CONVERSATION_WEIGHT_CAP = 500
 
@@ -243,6 +316,68 @@ async function maybeTrimConversation(convId: string): Promise<void> {
         messagesMap: { ...state.messagesMap, [convId]: kept },
         hasMoreMap: { ...state.hasMoreMap, [convId]: true },
     }))
+}
+
+// ─── messagesMap 数量约束 + LRU 淘汰（缺陷 D1）──────────────
+// 现象：loadConversations 的预热循环对当前工作区全部会话调 loadMessagesInitial，
+// 把整库消息（含工具结果）灌进 messagesMap。此前只有单会话权重（CONVERSATION_WEIGHT_CAP）
+// 与 10 分钟不活跃清理兜底，二者对"预热进来但从未被渲染"的会话均失效
+// → 渲染进程 JS 堆实测 1154.7MB、messagesMap 持有 1976 个 conv-* 键。
+//
+// 新策略：用「数量」而非字节预算约束驻留（两套淘汰策略并存会互相打架、难以推理）：
+//  · 预热：只预热最近更新的 PRELOAD_MAX_CONVERSATIONS 个会话（loadConversations）。
+//  · 驻留：messagesMap 键数上限 MAX_MESSAGES_MAP_SIZE，超出即按最后激活时间 LRU 淘汰，
+//    触发点为用户主动切换会话（switchActiveConversation）。
+//  · 互补：预热进内存的会话同时登记进 renderedConversationIds（markConversationRendered），
+//    使既有的 cleanupInactiveConversations（10 分钟不活跃清理）也能回收它们。
+// 淘汰只针对非活跃会话，且完整内容在 DB，切回会话时 loadMessagesInitial 重新水合 → 不损体验。
+
+/** 启动预热的最大会话数（按 updatedAt 降序取最近更新者） */
+const PRELOAD_MAX_CONVERSATIONS = 10
+
+/** messagesMap 内存中会话总数上限（超限按 LRU 淘汰） */
+const MAX_MESSAGES_MAP_SIZE = 20
+
+/** 会话是否处于「不可驱逐」状态：正在流式（running/thinking）——驱逐会打断正在进行的会话。
+ *  注意口径**小于** cleanupInactiveConversations 的保护集（后者另含 pendingPermissionConfirm /
+ *  pendingQuestion / pendingToolsChangeConfirm 三种待交互态），勿据此推断清理逻辑。 */
+function isProtectedConv(convId: string): boolean {
+    const st = useAgentStore.getState().convAgentStates[convId]?.agentState?.status
+    return st === 'running' || st === 'thinking'
+}
+
+/** 驱逐若干会话的全部渲染端缓存：releaseConvCaches 负责 messagesMap / hasMoreMap /
+ *  loadingMoreMap / conversationLastActiveAt / handoffDismissed 五张会话级表、agentStore
+ *  运行时数据，并终止指向它们的 30s 截断自续期链。
+ *  此处再补 renderedConversationIds（LRU 已渲染表）的移除——否则被驱逐 id 仍留在
+ *  cleanupInactiveConversations 的输入集中，其后续过滤会为悬空 id 空转。 */
+function evictConversations(ids: string[]): void {
+    if (!ids.length) return
+    releaseConvCaches(ids)
+    const removed = new Set(ids)
+    useConversationStore.setState(state => ({
+        renderedConversationIds: state.renderedConversationIds.filter(id => !removed.has(id)),
+    }))
+}
+
+/** messagesMap 数量上限执行：键数超过 MAX_MESSAGES_MAP_SIZE 时，按「最后激活时间」升序
+ *  驱逐最久未激活的会话，直到回到上限。activeConversationId 与 running/thinking 会话
+ *  永不被驱逐（否则打断当前视图 / 流式）。被驱逐会话可从 DB 重新水合。 */
+function enforceMessagesMapSizeLimit(): void {
+    const state = useConversationStore.getState()
+    const ids = Object.keys(state.messagesMap)
+    if (ids.length <= MAX_MESSAGES_MAP_SIZE) return
+
+    const candidates = ids
+        .filter(id => id !== state.activeConversationId)
+        .filter(id => !isProtectedConv(id))
+        .sort((a, b) => (state.conversationLastActiveAt[a] ?? 0) - (state.conversationLastActiveAt[b] ?? 0))
+
+    const overBy = ids.length - MAX_MESSAGES_MAP_SIZE
+    const removedIds = candidates.slice(0, overBy)
+    if (removedIds.length === 0) return
+
+    evictConversations(removedIds)
 }
 
 /** 默认 agent 空闲状态（切换会话时后备） */
@@ -359,7 +494,12 @@ async function switchActiveConversation(id: string | null) {
                     const targetIds = new Set(targetMsgs.map(m => m.id))
                     const merged = [...sqliteMsgs.filter(m => !targetIds.has(m.id)), ...targetMsgs]
                         .sort((a, b) => a.timestamp - b.timestamp)
-                    useConversationStore.setState({messagesMap: {...messagesMap, [id]: merged}, loadedMessages: merged})
+                    // messagesMap 按 convId 键写（不污染其他会话）；
+                    // loadedMessages 是全局镜像 → 必须按当前 active 条件写（见下方竞态说明）
+                    useConversationStore.setState(state => ({
+                        messagesMap: {...messagesMap, [id]: merged},
+                        loadedMessages: state.activeConversationId === id ? merged : state.loadedMessages,
+                    }))
                 }
             }
         }
@@ -371,6 +511,17 @@ async function switchActiveConversation(id: string | null) {
         //   完整 contentBlocks，修复"切回运行中会话只渲染 thinking、无正文/工具调用"。
         agentStore.reconcileStreamingContent?.(id)
         agentStore.updateConvData(id, agentStore.convAgentStates[id] ?? DEFAULT_AGENT_STATE)
+        // ★ 竞态防护（active 校验）：上面的 `await store.loadMessagesInitial(id)` 之后，
+        //   activeConversationId 可能已被后续切换改写。以下三处写的是「全局」状态，不是
+        //   按 convId 键写的会话级数据，迟到响应会把新活跃会话的全局状态顶掉：
+        //     · applyConvModesToAgentStore(id) → agentStore 顶层 permissionMode/messageDisplayMode
+        //     · refreshActiveBatch?.(id)      → 全局待办批次
+        //     · scheduleActiveTruncate(id)    → 全局唯一的 30s 截断定时器（会清掉新会话的）
+        //   触发场景：A→B→A 快速切换时 B 的迟到响应。MAX_MESSAGES_MAP_SIZE=20 的 LRU 淘汰
+        //   提高了异步分支（驱逐 + 重新水合）的触发频率，使该竞态更易暴露。
+        //   仍按 convId 键写的（updateConvData / reconcileStreamingContent / messagesMap[id]）
+        //   不在此列——它们不会污染其他会话，保留执行。
+        if (useConversationStore.getState().activeConversationId !== id) return
         // 会话级模式初始化（meta → 全局默认回退）
         void applyConvModesToAgentStore(id)
         // ★ 主动水合待办批次：切换会话时从 DB 查询活跃批次，
@@ -380,9 +531,11 @@ async function switchActiveConversation(id: string | null) {
     } else {
         useConversationStore.setState({ activeConversationId: null, loadedMessages: [] })
     }
-    // 为新活跃会话启动定时截断
-    if (id) {
+    // 为新活跃会话启动定时截断（active 校验同上方：迟到响应不得抢占定时器）
+    if (id && useConversationStore.getState().activeConversationId === id) {
         scheduleActiveTruncate(id)
+        // ★ D1：切换后该会话刚被标为最新活跃，立即执行数量上限淘汰
+        enforceMessagesMapSizeLimit()
     }
 }
 
@@ -409,6 +562,47 @@ export function subscribeGitBranchChanges(): () => void {
         useConversationStore.setState({gitBranch: branch})
     })
     return () => unsub?.()
+}
+
+/**
+ * 释放指定会话的全部缓存：messagesMap / hasMoreMap / loadingMoreMap 三个会话级
+ * Map 条目 + conversationLastActiveAt / handoffDismissed 两个会话级 Record 条目
+ * + agentStore.convAgentStates[convId]。
+ * 供 deleteConversation(s) / cleanupInactiveConversations / onConversationDeleted
+ * / evictConversations（messagesMap 数量上限 LRU 淘汰）统一复用；
+ * 调用方自行处理 activeConversationId 等状态切换。
+ */
+function releaseConvCaches(ids: string[]): void {
+    if (!ids.length) return
+    const state = useConversationStore.getState()
+    const newMsgMap = {...state.messagesMap}
+    const newHasMoreMap = {...state.hasMoreMap}
+    const newLoadingMoreMap = {...state.loadingMoreMap}
+    // ★ 两个会话级 Record 必须按 convId 同步删除：conversationLastActiveAt 原先只被
+    //   cleanupInactiveConversations 的 keepIds 过滤（且该 set 仅在 removedIds.length>0
+    //   时执行），handoffDismissed 则完全无人清理 → 删除的会话在这两张表里永久残留。
+    const newLastActiveAt = {...state.conversationLastActiveAt}
+    const newHandoffDismissed = {...state.handoffDismissed}
+    for (const id of ids) {
+        delete newMsgMap[id]
+        delete newHasMoreMap[id]
+        delete newLoadingMoreMap[id]
+        delete newLastActiveAt[id]
+        delete newHandoffDismissed[id]
+    }
+    useConversationStore.setState({
+        messagesMap: newMsgMap,
+        hasMoreMap: newHasMoreMap,
+        loadingMoreMap: newLoadingMoreMap,
+        conversationLastActiveAt: newLastActiveAt,
+        handoffDismissed: newHandoffDismissed,
+    })
+    for (const id of ids) {
+        useAgentStore.getState().removeConvData(id)
+    }
+    // ★ 若 30s 截断链正指向被释放的会话（活跃会话被删除时会先切走，但仍需兜底），
+    //   立即终止，避免残留定时器持续空转
+    cancelActiveTruncateFor(ids)
 }
 
 export const useConversationStore = createWithEqualityFn<ConversationStore>()(
@@ -673,10 +867,10 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               }
           })
           if (wasActive) await switchActiveConversation(getFirstRootConversationId())
-          // 删除会话时同步清理 agent 运行时状态（含全部后代子会话）
-          for (const delId of toDelete) {
-              useAgentStore.getState().removeConvData(delId)
-          }
+          // 删除会话时统一释放消息缓存（messagesMap/hasMoreMap/loadingMoreMap）、
+          // 两个会话级 Record（conversationLastActiveAt / handoffDismissed）与 agent
+          // 运行时状态（含全部后代子会话），避免按 convId 的残留
+          releaseConvCaches(toDelete)
       },
 
       deleteConversations: async (ids) => {
@@ -702,9 +896,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               return {messagesMap: newMap, workspaces: newWorkspaces}
           })
           if (wasActiveIncluded) await switchActiveConversation(getFirstRootConversationId())
-          for (const delId of toDelete) {
-              useAgentStore.getState().removeConvData(delId)
-          }
+          // 同上：批量删除也需清两个会话级 Record 与 agent 运行时状态
+          releaseConvCaches(toDelete)
       },
 
       setActiveConversation: async (id) => {
@@ -902,22 +1095,38 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       },
 
       /** 增量加载：只加载最近 N 条消息（默认 50，确保切换会话时看到完整上下文） */
-      loadMessagesInitial: async (convId, pageSize = 50) => {
-          const result = await window.electronAPI?.conversationReadTail?.(convId, pageSize) || {
-              messages: [],
-              totalCount: 0
-          }
-          // ★ 内存泄漏修复：从 DB 水合的大工具结果必须在进 messagesMap 前截断。
-          //   DB（message_blocks.tool_result.data）存的是完整 result，供主进程 LLM 上下文
-          //   完整复原（execution.ts:72 readMessages）与缓存命中率——此处只在渲染内存副本上
-          //   截断，绝不动 DB，故不影响 LLM 通路。_fullOutputStored 幂等短路避免重复截断。
-          const msgs = (result.messages as Message[]).map(m => truncateLargeResults(m))
-          const totalCount = result.totalCount
-          set(state => ({
-              messagesMap: {...state.messagesMap, [convId]: msgs},
-              loadedMessages: convId === state.activeConversationId ? msgs : state.loadedMessages,
-              hasMoreMap: {...state.hasMoreMap, [convId]: msgs.length < totalCount},
-          }))
+      loadMessagesInitial: (convId, pageSize = 50) => {
+          // ★ in-flight 去重（对照 loadMoreMessages 的 loadingMoreMap 守卫）：
+          //   同一 convId 的并发调用复用同一 Promise，不再发起第二次 IPC/DB 读取。
+          //   switchActiveConversation / preloadConversation / 批量预热均走本入口。
+          //   「非 async + 同一 Promise 引用 + settle 后清标记」由 dedupeInFlight 统一保证。
+          return dedupeInFlight(initialLoadInFlight, convId, async () => {
+              const result = await window.electronAPI?.conversationReadTail?.(convId, pageSize) || {
+                  messages: [],
+                  totalCount: 0
+              }
+              // ★ 内存泄漏修复：从 DB 水合的大工具结果必须在进 messagesMap 前截断。
+              //   DB（message_blocks.tool_result.data）存的是完整 result，供主进程 LLM 上下文
+              //   完整复原（execution.ts:72 readMessages）与缓存命中率——此处只在渲染内存副本上
+              //   截断，绝不动 DB，故不影响 LLM 通路。_fullOutputStored 幂等短路避免重复截断。
+              const msgs = (result.messages as Message[]).map(m => truncateLargeResults(m))
+              const totalCount = result.totalCount
+              set(state => ({
+                  messagesMap: {...state.messagesMap, [convId]: msgs},
+                  loadedMessages: convId === state.activeConversationId ? msgs : state.loadedMessages,
+                  hasMoreMap: {...state.hasMoreMap, [convId]: msgs.length < totalCount},
+                  // ★ 刚从 DB 水合 = 一次会话活跃 → 登记活跃时间戳。
+                  //   否则紧随其后的数量上限淘汰会把「本次刚加载的会话」（在
+                  //   conversationLastActiveAt 中无记录 → 视为最久未激活）立刻驱逐回去，
+                  //   形成「加载即驱逐」的空转（被驱逐会话的时间戳已被 releaseConvCaches 删除）。
+                  conversationLastActiveAt: {...state.conversationLastActiveAt, [convId]: Date.now()},
+              }))
+              // ★ 不变量：写回后立即执行数量上限约束。
+              //   写回本身可能把键数顶到 MAX_MESSAGES_MAP_SIZE 之上（驱逐后 / 期间其他会话
+              //   已把 messagesMap 填满）——只在 switchActiveConversation 末尾 enforce 覆盖不到
+              //   这条迟到写回路径，会永久破坏「上限 20」的不变量。
+              enforceMessagesMapSizeLimit()
+          })
       },
 
       /** 加载更早的消息（追加到 messagesMap 头部） */
@@ -977,72 +1186,102 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
 
       // ── Init ───────────────────────────────────────────
 
-      loadConversations: async () => {
-          const currentWorkspace = await window.electronAPI?.workspace?.getCurrent()
-          const currentWorkspacePath = currentWorkspace?.path || null
-          // 启动加载：拉取当前工作区 git 分支（主进程侧同时建立 watch）
-          void refreshGitBranch(currentWorkspacePath)
-          const allMetas = await window.electronAPI?.conversationList?.() || []
+      loadConversations: () => {
+          // ★ 并发锁（in-flight 去重）：三个调用点（App.tsx 启动、ConversationsDialog
+          //   打开、onConversationCreated 兜底）会在同一 tick 内并发触发本方法。
+          //   无锁时会重复发起 conversationList + 整批预热（同一批 SQLite 查询叠加），
+          //   并让下方的 active 改写竞争执行。并发调用复用同一 Promise
+          //   （「非 async + 同一引用 + settle 后释放」由 dedupeInFlight 统一保证）。
+          return dedupeInFlight(loadConversationsInFlight, LOAD_CONVERSATIONS_LOCK, async () => {
+              const currentWorkspace = await window.electronAPI?.workspace?.getCurrent()
+              const currentWorkspacePath = currentWorkspace?.path || null
+              // 启动加载：拉取当前工作区 git 分支（主进程侧同时建立 watch）
+              void refreshGitBranch(currentWorkspacePath)
+              const allMetas = await window.electronAPI?.conversationList?.() || []
 
-          const workspaces: Record<string, WorkspaceInfo> = {}
-          for (const meta of allMetas as any[]) {
-              const wsPath = meta.workspacePath
-              if (!wsPath) continue
-              if (!workspaces[wsPath]) workspaces[wsPath] = {
-                  lastOpenedAt: meta.updatedAt || Date.now(),
-                  conversations: []
-              }
-              const summary: ConversationSummary = {
-                  id: meta.id,
-                  title: meta.title,
-                  preview: meta.preview || '',
-                  createdAt: meta.createdAt,
-                  updatedAt: meta.updatedAt,
-                  pinned: meta.pinned,
-                  channel: meta.channel,
-                  status: meta.status,
-                  parentConvId: meta.parentConvId,
-                  handoffFromConvId: meta.handoffFromConvId,
-              }
-              if (!workspaces[wsPath].conversations.find(c => c.id === summary.id)) {
-                  workspaces[wsPath].conversations.push(summary)
-              }
-          }
-
-          for (const ws of Object.values(workspaces)) {
-              ws.conversations.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-          }
-
-          set({workspaces, currentWorkspacePath})
-
-          if (currentWorkspacePath && workspaces[currentWorkspacePath]?.conversations[0]) {
-              // ★ 仅激活并渲染根会话（非子会话）。
-              //   列表按 updatedAt 排序，而 agent 工具创建的子会话 updatedAt 较新常排在前，
-              //   若直接取 conversations[0] 会错误激活/渲染子会话。
-              const convs = workspaces[currentWorkspacePath].conversations
-              const idSet = new Set(convs.map(c => c.id))
-              const root = convs.find(c => isRootConversation(c, idSet)) ?? convs[0]
-              set({activeConversationId: root.id})
-              get().markConversationRendered(root.id)
-              await get().loadMessagesInitial(root.id)
-          }
-
-          // ★ 后台批量预加载当前工作区所有其他会话的前 2 条消息
-          // 并发控制：每批 5 个，避免瞬间发起大量 SQLite 查询
-          if (currentWorkspacePath && workspaces[currentWorkspacePath]) {
-              const convs = workspaces[currentWorkspacePath].conversations
-              const toPreload = convs.filter(c => {
-                  const existing = get().messagesMap[c.id]
-                  return !existing || existing.length === 0
-              })
-              const concurrency = 5
-              ;(async () => {
-                  for (let i = 0; i < toPreload.length; i += concurrency) {
-                      const batch = toPreload.slice(i, i + concurrency)
-                      await Promise.allSettled(batch.map(c => get().loadMessagesInitial(c.id)))
+              const workspaces: Record<string, WorkspaceInfo> = {}
+              for (const meta of allMetas as any[]) {
+                  const wsPath = meta.workspacePath
+                  if (!wsPath) continue
+                  if (!workspaces[wsPath]) workspaces[wsPath] = {
+                      lastOpenedAt: meta.updatedAt || Date.now(),
+                      conversations: []
                   }
-              })()
-          }
+                  const summary: ConversationSummary = {
+                      id: meta.id,
+                      title: meta.title,
+                      preview: meta.preview || '',
+                      createdAt: meta.createdAt,
+                      updatedAt: meta.updatedAt,
+                      pinned: meta.pinned,
+                      channel: meta.channel,
+                      status: meta.status,
+                      parentConvId: meta.parentConvId,
+                      handoffFromConvId: meta.handoffFromConvId,
+                  }
+                  if (!workspaces[wsPath].conversations.find(c => c.id === summary.id)) {
+                      workspaces[wsPath].conversations.push(summary)
+                  }
+              }
+
+              for (const ws of Object.values(workspaces)) {
+                  ws.conversations.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+              }
+
+              set({workspaces, currentWorkspacePath})
+
+              if (currentWorkspacePath && workspaces[currentWorkspacePath]?.conversations[0]) {
+                  // ★ 仅激活并渲染根会话（非子会话）。
+                  //   列表按 updatedAt 排序，而 agent 工具创建的子会话 updatedAt 较新常排在前，
+                  //   若直接取 conversations[0] 会错误激活/渲染子会话。
+                  const convs = workspaces[currentWorkspacePath].conversations
+                  const idSet = new Set(convs.map(c => c.id))
+                  const root = convs.find(c => isRootConversation(c, idSet)) ?? convs[0]
+                  // ★ 仅在「当前没有活跃会话」时才自动选中根会话（应用启动时 activeConversationId
+                  //   为 null，行为不变）。此前每次调用都无条件改写 active：onConversationCreated
+                  //   的兜底刷新 / ConversationsDialog 打开会打断用户正在看的会话并重新水合其消息。
+                  if (!get().activeConversationId) {
+                      set({activeConversationId: root.id})
+                      get().markConversationRendered(root.id)
+                      await get().loadMessagesInitial(root.id)
+                  }
+              }
+
+              // ★ 后台预热当前工作区最近更新的若干会话（不是全部！见下方注释）
+              // 并发控制：每批 5 个，避免瞬间发起大量 SQLite 查询
+              if (currentWorkspacePath && workspaces[currentWorkspacePath]) {
+                  const convs = workspaces[currentWorkspacePath].conversations
+                  // ★ 缺陷 D1：预热数量收敛到 PRELOAD_MAX_CONVERSATIONS。
+                  //   此前对当前工作区全部会话调 loadMessagesInitial，把整库消息（含工具
+                  //   结果）灌进 messagesMap → 堆快照实测 1976 个 conv-* 键 / 1116MB 字符串。
+                  //   排序依据 ConversationSummary.updatedAt（最近更新/活跃时间，
+                  //   src/shared/types/infra.ts:123；touchConversation / updateConversationMeta
+                  //   均以它记录会话最近活跃），按降序取最近更新的前 10 个。
+                  //   仅限当前工作区（保持原筛选范围）。
+                  const toPreload = convs
+                      .filter(c => {
+                          const existing = get().messagesMap[c.id]
+                          return !existing || existing.length === 0
+                      })
+                      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+                      .slice(0, PRELOAD_MAX_CONVERSATIONS)
+                  const concurrency = 5
+                  ;(async () => {
+                      for (let i = 0; i < toPreload.length; i += concurrency) {
+                          const batch = toPreload.slice(i, i + concurrency)
+                          // ★ 预加载进内存的会话必须登记到 LRU 缓存表。
+                          //   cleanupInactiveConversations 的输入集是 renderedConversationIds，
+                          //   此前预热循环从不调 markConversationRendered → 集合差恒空 → 这批
+                          //   会话永不被回收。登记后 10 分钟不活跃清理即可回收它们，
+                          //   与 messagesMap 数量上限（MAX_MESSAGES_MAP_SIZE）互补。
+                          await Promise.allSettled(batch.map(async c => {
+                              await get().loadMessagesInitial(c.id)
+                              get().markConversationRendered(c.id)
+                          }))
+                      }
+                  })()
+              }
+          })
       },
 
 
@@ -1102,6 +1341,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           for (const id of removedIds) {
               useAgentStore.getState().removeConvData(id)
           }
+          // 被清理会话若是截断链目标（理论上活跃会话不会被清理，此处仅作对称兜底）
+          cancelActiveTruncateFor(removedIds)
       },
   })
 )
@@ -1251,13 +1492,16 @@ if (typeof window !== 'undefined') {
 
         const updates: any = {workspaces}
 
-        // 激活会话被删除：清理激活态与消息缓存（由 UI 回退到空会话页）
+        // 激活会话被删除：清空激活态（由 UI 回退到空会话页）。
+        // messagesMap 条目不在此处删——随后 releaseConvCaches(ids) 会统一释放同一批 id。
         if (state.activeConversationId && idSet.has(state.activeConversationId)) {
             updates.activeConversationId = null
-            const newMap = {...state.messagesMap}
-            for (const id of ids) delete newMap[id]
-            updates.messagesMap = newMap
         }
         useConversationStore.setState(updates)
+
+        // ★ 无论被删会话是否激活，统一释放其消息缓存（messagesMap/hasMoreMap/loadingMoreMap）
+        //   与 agent 运行时数据；否则非激活会话（后台流式/子会话/其他工作区）的缓存会永久残留。
+        //   （messagesMap 在激活分支已删，此处对 ids 统一 delete 幂等。）
+        releaseConvCaches(ids)
     })
 }

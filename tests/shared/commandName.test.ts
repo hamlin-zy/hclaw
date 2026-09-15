@@ -79,3 +79,36 @@ describe('getCommandNameError', () => {
         expect(reservedError).not.toBe(charError)
     })
 })
+
+describe('getCommandNameError 查重（existingNames）', () => {
+    it('命中已有命令名 → 返回统一文案', () => {
+        expect(getCommandNameError('daily', ['daily', 'other'])).toBe('已存在同名命令，请修改命令名')
+    })
+
+    it('查重大小写不敏感（Windows 文件名不区分大小写）', () => {
+        expect(getCommandNameError('Daily', ['daily'])).toBe('已存在同名命令，请修改命令名')
+        expect(getCommandNameError('DAILY', ['Daily'])).toBe('已存在同名命令，请修改命令名')
+        expect(getCommandNameError('日报', ['日报'])).toBe('已存在同名命令，请修改命令名')
+    })
+
+    it('不命中 → 返回 null', () => {
+        expect(getCommandNameError('fresh', ['daily', 'other'])).toBeNull()
+        expect(getCommandNameError('fresh', [])).toBeNull()
+    })
+
+    it('existingNames 缺省时行为不变（只做语法校验）', () => {
+        expect(getCommandNameError('daily')).toBeNull()
+        expect(getCommandNameError('daily report')).toBe('命令名称只能包含中英文、数字、下划线或连字符')
+    })
+
+    it('语法错误优先于查重', () => {
+        expect(getCommandNameError('daily report', ['daily report'])).toBe('命令名称只能包含中英文、数字、下划线或连字符')
+        expect(getCommandNameError('', ['anything'])).toBe('命令名称不能为空')
+    })
+
+    it('isValidCommandName 同步支持查重', () => {
+        expect(isValidCommandName('daily', ['daily'])).toBe(false)
+        expect(isValidCommandName('daily', ['other'])).toBe(true)
+        expect(isValidCommandName('daily')).toBe(true)
+    })
+})

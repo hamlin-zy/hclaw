@@ -19,7 +19,7 @@ export default function ToolCallError({error}: ToolCallErrorProps) {
         <div>
             <span className="text-[10px] text-[var(--error)] uppercase tracking-wide">错误</span>
             <pre
-                className="text-[11px] text-[var(--error)] whitespace-pre-wrap font-mono leading-relaxed p-2 mt-1 bg-[var(--error-muted)]/20 border border-[rgba(196,92,92,0.12)] rounded-md">
+                className="text-[11px] text-[var(--error)] whitespace-pre-wrap font-mono leading-relaxed p-2 mt-1 bg-[var(--error-muted)] border border-[rgba(196,92,92,0.12)] rounded-md">
                 {error}
             </pre>
         </div>

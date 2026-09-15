@@ -84,8 +84,6 @@ export type RawOption = string | number | boolean | Record<string, unknown>
 export type NormalizedQuestion = {ok: true; value: string} | {ok: false; error: string}
 
 const MAX_QUESTION_LEN = 500
-const MAX_OPTIONS = 10
-const MAX_OPTION_LEN = 60
 
 export function normalizeQuestion(raw: string | number): NormalizedQuestion {
     const value = typeof raw === 'number' ? String(raw) : raw
@@ -148,17 +146,9 @@ export function normalizeOptions(raw: string | RawOption[] | undefined): string[
     // ── 统一清洗：trim + 过滤空串/纯空白 ──
     items = items.map(s => s.trim()).filter(s => s.length > 0)
 
-    // ── 单选项超长截断（UI 有 CSS ellipsis 兜底，这里防撑爆） ──
-    if (items.some(s => s.length > MAX_OPTION_LEN)) {
-        console.warn(`[askUserTool] 部分选项超过 ${MAX_OPTION_LEN} 字符，已截断`)
-        items = items.map(s => (s.length > MAX_OPTION_LEN ? s.slice(0, MAX_OPTION_LEN) : s))
-    }
-
-    // ── 选项数量上限 ──
-    if (items.length > MAX_OPTIONS) {
-        console.warn(`[askUserTool] 选项数量超过 ${MAX_OPTIONS} 个，已截断`)
-        items = items.slice(0, MAX_OPTIONS)
-    }
+    // ── 选项不设长度与数量上限，原样透传给 UI ──
+    // UI 侧 AskUserModal 没有 ellipsis/truncate 兜底，因此绝不能在 UI 之前再次静默截断，
+    // 否则信息丢失且不回报 LLM（2026-09-15 移除 MAX_OPTION_LEN / MAX_OPTIONS）。
 
     // ── 全部被过滤 → undefined（弹窗降级为自由输入，不渲染按钮） ──
     return items.length > 0 ? items : undefined

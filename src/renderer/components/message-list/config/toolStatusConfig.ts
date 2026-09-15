@@ -9,7 +9,7 @@
  */
 
 import type {ComponentType} from 'react'
-import {ClockIcon, ErrorIcon, LoadingIcon, PauseIcon, SuccessIcon} from '../../icons'
+import {ClockIcon, ErrorIcon, LoadingIcon, PauseIcon, SuccessIcon, WarningIcon} from '../../icons'
 
 /** 单个状态样式配置 */
 interface StatusStyle {
@@ -37,27 +37,27 @@ const STATUS_STYLES: StatusConfig = {
     },
     running: {
         color: 'text-[var(--info)]',
-        bg: 'bg-[var(--info-muted)]/30 border border-[rgba(91,141,217,0.38)]',
+        bg: 'bg-[var(--info-muted)] border border-[rgba(91,141,217,0.38)]',
         icon: LoadingIcon,
         label: '执行中',
         glowClass: 'shadow-[0_0_0_3px_rgba(91,141,217,0.08)]',
-        badgeClass: 'bg-[var(--info-muted)]/30 text-[var(--info)]',
+        badgeClass: 'bg-[var(--info-muted)] text-[var(--info)]',
     },
     success: {
         color: 'text-[var(--success)]',
-        bg: 'bg-[var(--success-muted)]/30 border border-[rgba(16,185,129,0.2)]',
+        bg: 'bg-[var(--success-muted)] border border-[rgba(16,185,129,0.2)]',
         icon: SuccessIcon,
         label: '成功',
         glowClass: '',
-        badgeClass: 'bg-[var(--success-muted)]/30 text-[var(--success)]',
+        badgeClass: 'bg-[var(--success-muted)] text-[var(--success)]',
     },
     error: {
         color: 'text-[var(--error)]',
-        bg: 'bg-[var(--error-muted)]/30 border border-[rgba(196,92,92,0.2)]',
+        bg: 'bg-[var(--error-muted)] border border-[rgba(196,92,92,0.2)]',
         icon: ErrorIcon,
         label: '失败',
         glowClass: '',
-        badgeClass: 'bg-[var(--error-muted)]/30 text-[var(--error)]',
+        badgeClass: 'bg-[var(--error-muted)] text-[var(--error)]',
     },
     cancelled: {
         color: 'text-[var(--text-muted)]',
@@ -66,6 +66,14 @@ const STATUS_STYLES: StatusConfig = {
         label: '已取消',
         glowClass: '',
         badgeClass: 'bg-[var(--chip-bg)] border border-[var(--chip-border)] text-[var(--text-muted)]',
+    },
+    truncated: {
+        color: 'text-[var(--warning)]',
+        bg: 'bg-[var(--warning-muted)] border border-[color-mix(in_srgb,var(--warning)_45%,transparent)]',
+        icon: WarningIcon,
+        label: '已达上限',
+        glowClass: '',
+        badgeClass: 'bg-[var(--warning-muted)] text-[var(--warning)]',
     },
 }
 
@@ -85,4 +93,3 @@ export function getCompactStatusConfig(status: string) {
     }
 }
 
-export type {StatusStyle}

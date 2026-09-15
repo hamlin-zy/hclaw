@@ -33,6 +33,7 @@ import {PluginRegistry} from '../../plugin/registry'
 import {logger} from '../logger'
 import {getDatabase} from '../../repositories/sqlite'
 import {addLoadError, resetLoadErrors} from './loadErrors'
+import {createSqliteOwnershipDeps, resolve} from '../../common/pluginOwnership'
 
 const SKILL_FILE = 'SKILL.md'
 
@@ -664,24 +665,6 @@ function parseTriggers(triggers: unknown): string[] | undefined {
 // 用户通过 UI 切换技能的启用状态后，覆盖值写入 skill_overrides 表，
 // 后续加载技能时从表中读取覆盖值，优先于文件中的 enabled 字段。
 
-/** 从 SQLite 读取所有 skill_overrides */
-export function readSkillOverridesSync(): Map<string, boolean> {
-    try {
-        const db = getDatabase()
-        const rows = db.prepare('SELECT skill_id, enabled FROM skill_overrides').all() as Array<{
-            skill_id: string
-            enabled: number
-        }>
-        const map = new Map<string, boolean>()
-        for (const row of rows) {
-            map.set(row.skill_id, row.enabled === 1)
-        }
-        return map
-    } catch {
-        return new Map()
-    }
-}
-
 /** 写入单个 skill 的覆盖状态 */
 export function writeSkillOverride(skillId: string, enabled: boolean): void {
     try {
@@ -710,23 +693,18 @@ export function writeSkillOverrides(overrides: Array<{ skillId: string; enabled:
 
 /** 从 skillRegistry 中的所有技能应用 skill_overrides 覆盖 */
 export function applySkillOverrides(): void {
-    const overrides = readSkillOverridesSync()
-    const disabledPlugins = PluginRegistry.getInstance().getDisabledNames()
-
-    // 无覆盖且无禁用插件 → 无需遍历
-    if (overrides.size === 0 && disabledPlugins.size === 0) return
+    // 启用态判定统一由 pluginOwnership 负责：插件禁用 > skill_overrides 表值 > 文件默认
+    const deps = createSqliteOwnershipDeps()
 
     const allSkills = skillRegistry.getAll()
     let appliedCount = 0
     for (const skill of allSkills) {
-        // 已禁用插件的技能强制 disabled，不允许覆盖重新启用
-        if (skill.pluginName && disabledPlugins.has(skill.pluginName)) {
-            skill.enabled = false
-            continue
-        }
-        const overrideEnabled = overrides.get(skill.id)
-        if (overrideEnabled !== undefined) {
-            skill.enabled = overrideEnabled
+        const {capabilityEnabled} = resolve(
+            {kind: 'skill', id: skill.id, pluginName: skill.pluginName, fileEnabled: skill.enabled},
+            deps,
+        )
+        if (capabilityEnabled !== skill.enabled) {
+            skill.enabled = capabilityEnabled
             appliedCount++
         }
     }

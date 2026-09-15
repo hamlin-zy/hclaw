@@ -37,7 +37,7 @@ export function resolveAndApplyTheme(theme: string): void {
 }
 
 /** localStorage 同步缓存，防止启动时主题闪烁 */
-export function syncThemeToCache(theme: ThemeName): void {
+function syncThemeToCache(theme: ThemeName): void {
     try {
         localStorage.setItem(THEME_CACHE_KEY, theme)
     } catch { /* 安全兜底 */

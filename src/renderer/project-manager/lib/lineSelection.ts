@@ -24,7 +24,7 @@
  */
 
 /** 一行的文档信息（CodeMirror `Line` 的结构子集） */
-export interface LineInfo {
+interface LineInfo {
   from: number
   to: number
   number: number
@@ -32,14 +32,14 @@ export interface LineInfo {
 }
 
 /** 文档的最小接口（CodeMirror `Text` 的结构子集） */
-export interface LineDoc {
+interface LineDoc {
   lines: number
   line(n: number): LineInfo
   lineAt(pos: number): LineInfo
 }
 
 /** 视图的最小接口（CodeMirror `EditorView` 的结构子集） */
-export interface LineSelectionView {
+interface LineSelectionView {
   state: {doc: LineDoc}
   posAtCoords(coords: {x: number, y: number}): number | null
   dispatch(spec: unknown): void
@@ -48,13 +48,13 @@ export interface LineSelectionView {
 }
 
 /** 把若干文档区间折算成 CodeMirror 选区（由调用方注入，避免 lib 依赖 @codemirror/state） */
-export type SelectionFactory = (ranges: {from: number, to: number}[]) => unknown
+type SelectionFactory = (ranges: {from: number, to: number}[]) => unknown
 
-export interface ClipboardLike {
+interface ClipboardLike {
   writeText(text: string): Promise<void> | void
 }
 
-export interface LineSelectionOptions {
+interface LineSelectionOptions {
   createSelection: SelectionFactory
   /**
    * 额外的 dispatch 载荷（如行级装饰的 StateEffect）——由调用方注入，lib 不依赖 @codemirror。

@@ -26,13 +26,16 @@ export default function RepoVersionControl({repoId, current, loading, onVersionS
 
   // 挂载时自动加载版本信息，保证下拉框默认显示当前版本（而非空白）
   useEffect(() => {
-    void loadVersionInfo()
+    let cancelled = false
+    void loadVersionInfo(() => cancelled)
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoId])
 
-  const loadVersionInfo = async () => {
+  const loadVersionInfo = async (isCancelled: () => boolean = () => false) => {
     const api = window.electronAPI as any
     const info = await api?.repo?.getVersions?.(repoId)
+    if (isCancelled()) return // 代际守卫：repoId 变更后丢弃旧请求结果
     if (info) setVersionData({tags: info.tags || [], branches: info.branches || [], current: info.current || '', latest: info.latest || '', loading: false})
   }
 
@@ -93,11 +96,11 @@ export default function RepoVersionControl({repoId, current, loading, onVersionS
           ...(versionData?.branches || []).map(b => ({value: b, label: b})),
         ]}
       />
-      {updateMap[repoId] && <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-red-500" />}
+      {updateMap[repoId] && <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-[var(--error)]" />}
       <button
         onClick={handleSync}
         disabled={syncing}
-        className="px-1.5 py-1.5 text-xs font-medium rounded-md bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="px-1.5 py-1.5 text-xs font-medium rounded-md bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         data-name="repo-sync-versions-button">
         <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />
       </button>

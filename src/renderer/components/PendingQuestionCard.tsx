@@ -43,7 +43,7 @@ export default function PendingQuestionCard({isPaused, pendingQuestion, onSelect
             {isPaused && (
                 <motion.div
                     {...dropdown}
-                    className="bg-[var(--info)]/5 border border-[var(--info)]/20 rounded-lg p-3 mb-2"
+                    className="bg-[color-mix(in_srgb,var(--info)_5%,transparent)] border border-[color-mix(in_srgb,var(--info)_20%,transparent)] rounded-lg p-3 mb-2"
                 >
                     <div className="flex items-center gap-2 mb-2 text-[var(--info)]">
                         <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"

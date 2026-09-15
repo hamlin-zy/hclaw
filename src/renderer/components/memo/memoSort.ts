@@ -13,7 +13,7 @@ import {MEMO_PRIORITY_WEIGHT} from '@shared/types/memo'
 const priorityWeight = (p?: MemoPriority): number => MEMO_PRIORITY_WEIGHT[p ?? 'normal']
 
 /** 组内比较器（待办用）：pinned 优先 → priority 权重 → sortIndex desc → createdAt asc */
-export function compareWithinGroup(a: MemoItem, b: MemoItem): number {
+function compareWithinGroup(a: MemoItem, b: MemoItem): number {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
     const pa = priorityWeight(a.priority)
     const pb = priorityWeight(b.priority)

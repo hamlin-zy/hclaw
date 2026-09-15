@@ -80,6 +80,11 @@ function startBlinking(opts?: {force?: boolean}): void {
   if (!win || win.isDestroyed()) return
 
   // 窗口获焦 → 立即停止提醒（循环检测警告条可点击窗口触发）
+  // 单槽位：赋值前先移除旧句柄，避免重复 startBlinking 时旧 once 监听残留
+  if (focusHandler) {
+    try { win.removeListener('focus', focusHandler) } catch { /* ignore */ }
+    focusHandler = null
+  }
   focusHandler = () => clearUserAttention()
   win.once('focus', focusHandler)
 

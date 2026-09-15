@@ -180,7 +180,7 @@ export default function InputToolbar({
                         title={canSend ? '发送 (Enter)' : undefined}
                         className={`shrink-0 p-1 rounded-md transition-all ${
                             canSend
-                                ? 'bg-[var(--brand-primary)] text-white hover:bg-[var(--brand-primary)]/80'
+                                ? 'bg-[var(--brand-primary)] text-white hover:bg-[color-mix(in_srgb,var(--brand-primary)_85%,black)]'
                                 : 'text-[var(--text-muted)] cursor-not-allowed'
                         }`}
                         aria-label={canSend ? '发送消息' : '无法发送'}

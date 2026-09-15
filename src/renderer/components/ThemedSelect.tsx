@@ -119,10 +119,10 @@ export default function ThemedSelect({
                 aria-haspopup="listbox"
                 className={`flex items-center justify-between gap-1.5 px-2 py-1.5 text-[11px] bg-[var(--surface)] border rounded text-left transition-colors focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
                     error
-                        ? 'border-red-300 focus:border-red-400'
+                        ? 'border-[var(--error)] focus:border-[var(--focus-ring)]'
                         : open
-                            ? 'border-brand-300'
-                            : 'border-gray-200 hover:border-gray-300 focus:border-brand-300'
+                            ? 'border-[var(--brand-border)] focus:border-[var(--focus-ring)]'
+                            : 'border-[var(--border)] hover:border-[var(--border-emphasis)] focus:border-[var(--focus-ring)]'
                 } ${fullWidth ? 'w-full' : 'w-auto max-w-full whitespace-nowrap'} ${className}`}
              data-name="themed-select-button">
                 <span className={`truncate ${selected ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}>
@@ -159,7 +159,7 @@ export default function ThemedSelect({
                         className="z-[100002]"
                     >
                         <div className={`${bgEnabled
-                            ? 'bg-[var(--surface-elevated)]/92 backdrop-blur-lg'
+                            ? 'bg-[color-mix(in_srgb,var(--surface-elevated)_92%,transparent)] backdrop-blur-lg'
                             : 'bg-[var(--surface-elevated)]'} border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden max-h-[240px] overflow-y-auto`}>
                             <div className="p-1.5 flex flex-col">
                                 {options.map((opt, i) => {
@@ -175,7 +175,7 @@ export default function ThemedSelect({
                                                 aria-selected={isActive}
                                                 className={`w-full px-2.5 py-2 text-left text-[11px] rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                                                     isActive
-                                                        ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)] font-medium'
+                                                        ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--brand-primary)] font-medium'
                                                         : 'text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                                 }`}
                                              data-name={`themed-select-option-${i}`}>

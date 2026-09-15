@@ -11,7 +11,17 @@
 
 import { ipcMain } from 'electron'
 import { capabilityHub } from './CapabilityHub'
+import { broadcastToAllWindows } from '../utils/windowBroadcast'
 import type { CapabilityFilter, CapabilityType } from './types'
+
+/** capabilityHub.onChanged 订阅的注销句柄（供 will-quit 释放） */
+let unsubscribeCapabilityChanged: (() => void) | null = null
+
+/** 注销 CapabilityHub → 渲染进程的变更订阅（幂等；will-quit 调用） */
+export function disposeCapabilityIPC(): void {
+    unsubscribeCapabilityChanged?.()
+    unsubscribeCapabilityChanged = null
+}
 
 /** 注册所有 CapabilityHub 的 IPC handlers */
 export function registerCapabilityIPC(): void {
@@ -45,20 +55,12 @@ export function registerCapabilityIPC(): void {
         return capabilityHub.get(id) ?? null
     })
 
-    // ── 从外部模块调用的写入入口 ──
-    // (预留: 由 powerManager、plugin IPC 等在 refresh 后调用)
-    ipcMain.handle('capability:register-batch', (_event, entries: any[]) => {
-        capabilityHub.registerBatch(entries)
-        return { success: true, count: entries.length }
-    })
-
-    ipcMain.handle('capability:on-plugin-state-change', (_event, pluginName: string, enabled: boolean) => {
-        capabilityHub.onPluginStateChange(pluginName, enabled)
-        return { success: true }
-    })
-
-    ipcMain.handle('capability:clear', () => {
-        capabilityHub.clear()
-        return { success: true }
+    // ── 变更通知（Hub → 渲染进程）──
+    // 写入唯一入口为 capabilityHub.replaceAll（由 powerManager.refresh 调用）。
+    // Hub 检测到投影变化时 emit { seq }，这里广播给所有窗口，消费端整表重取。
+    // 先注销旧订阅再重订阅：重复 register 时不残留句柄
+    unsubscribeCapabilityChanged?.()
+    unsubscribeCapabilityChanged = capabilityHub.onChanged(({ seq }) => {
+        broadcastToAllWindows('capability:changed', { seq })
     })
 }

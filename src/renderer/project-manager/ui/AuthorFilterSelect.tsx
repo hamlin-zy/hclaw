@@ -10,7 +10,7 @@ const PANEL_MAX_H = 240
  * 重名（同名不同 email）时用 email 消歧，否则用作者名；
  * 无名字（git 解析不出 ident 的兜底形态）时退回 email。
  */
-export function authorFilterValue(a: GitAuthor, all: GitAuthor[]): string {
+function authorFilterValue(a: GitAuthor, all: GitAuthor[]): string {
   const ambiguous = all.some(o => o !== a && o.name === a.name)
   if (ambiguous && a.email) return a.email
   return a.name || a.email
@@ -48,7 +48,7 @@ function emptyStateText(loading: boolean, hasToken: boolean, error: boolean): st
   return '仓库暂无作者'
 }
 
-export interface AuthorFilterSelectProps {
+interface AuthorFilterSelectProps {
   /** 逗号分隔的原始作者过滤串（自由手输 + 下拉追加共用同一个值） */
   value: string
   onChange: (value: string) => void

@@ -26,8 +26,8 @@ const SOURCE_STYLE: Record<string, { icon: React.ComponentType<{ className?: str
     user: {
         icon: CommandIcon,
         header: 'text-[var(--brand-primary)] bg-[var(--brand-muted)]',
-        iconRing: 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]',
-        tag: 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]',
+        iconRing: 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]',
+        tag: 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]',
     },
     skill: {
         icon: SkillIcon,
@@ -81,6 +81,9 @@ export function CommandList({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
+    // ★ 挂载守卫：卸载后丢弃迟到的 IPC 响应，避免对已卸载组件 setState
+    //   或重挂载时被上一轮旧响应覆盖
+    const aliveRef = useRef(true);
 
     // 加载命令数据
     const loadCommands = async () => {
@@ -131,16 +134,22 @@ export function CommandList({
                 groups.push({label: '代理', source: 'agent', commands: agentCmds});
             }
 
+            if (!aliveRef.current) return; // 代际守卫：组件已卸载，丢弃响应
             setDisplayGroups(groups);
         } catch {
+            if (!aliveRef.current) return;
             setError('加载命令失败');
         } finally {
-            setLoading(false);
+            if (aliveRef.current) setLoading(false);
         }
     };
 
     useEffect(() => {
-        loadCommands();
+        aliveRef.current = true;
+        void loadCommands();
+        return () => {
+            aliveRef.current = false;
+        };
     }, []);
 
     // 通知父组件命令列表变化
@@ -257,7 +266,7 @@ export function CommandList({
                         key={cmd.id}
                         data-flat-index={flatIdx}
                         onClick={() => onCommandClick(cmd)}
-                        className={`w-full px-4 py-2.5 flex items-center gap-3 text-left transition-colors focus:outline-none border-b border-[var(--border-muted)] last:border-0 ${isSelected ? 'bg-[var(--brand-primary)]/20 border-l-2 border-l-[var(--brand-primary)]' : 'hover:bg-[var(--surface-muted)]'}`}
+                        className={`w-full px-4 py-2.5 flex items-center gap-3 text-left transition-colors focus:outline-none border-b border-[var(--border-muted)] last:border-0 ${isSelected ? 'bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] border-l-2 border-l-[var(--brand-primary)]' : 'hover:bg-[var(--surface-muted)]'}`}
                      data-name={`command-list-command-item-${flatIdx}`}>
                     <span
                         className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-sm ${isSelected ? 'bg-[var(--brand-primary)] text-white' : style.iconRing}`}>

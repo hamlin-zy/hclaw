@@ -845,7 +845,7 @@ export default function SettingsDialog() {
                                                 <div
                                                     className={`w-16 h-10 rounded border bg-cover bg-center cursor-pointer transition-all ${
                                                         isActive
-                                                            ? 'border-[var(--brand-primary)] ring-2 ring-[var(--brand-primary)]/30'
+                                                            ? 'border-[var(--brand-primary)] ring-2 ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)]'
                                                             : 'border-[var(--border)] hover:border-[var(--brand-primary)]'
                                                     }`}
                                                     style={{backgroundImage: `url(${img.path})`}}

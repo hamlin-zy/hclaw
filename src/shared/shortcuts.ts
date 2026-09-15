@@ -13,9 +13,26 @@ export type ShortcutAction =
 export type ShortcutScope = 'global' | 'app'
 export type ShortcutGroup = '面板 & 窗口' | '输入 & 会话' | '全局'
 
-export interface ShortcutDef {
-    id: ShortcutAction
+/**
+ * accelerator 来源的最小结构面：`default` 是统一键位，`darwin` 是可选的 macOS 覆盖
+ * （缺省则落回 `default`）。PM 窗口的键位层与共享层共用这一形状，故匹配 / 冲突检测只有一份实现。
+ */
+/** 键盘事件的跨进程最小结构面（DOM KeyboardEvent / 测试桩共用）：匹配与冲突判定只依赖这 5 个字段 */
+export type KeyboardEventLike = {
+    ctrlKey: boolean
+    metaKey: boolean
+    shiftKey: boolean
+    altKey: boolean
+    key: string
+}
+
+export interface AcceleratorSource<Id extends string = string> {
+    id: Id
     default: string
+    darwin?: string
+}
+
+export interface ShortcutDef extends AcceleratorSource<ShortcutAction> {
     scope: ShortcutScope
     label: string
     group: ShortcutGroup
@@ -73,10 +90,7 @@ export function normalizeAccelerator(acc: string): string | null {
 }
 
 /** 键盘事件 → accelerator；非法返回 null */
-export function eventToAccelerator(
-    e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean; key: string },
-    isMac: boolean,
-): string | null {
+export function eventToAccelerator(e: KeyboardEventLike, isMac: boolean): string | null {
     // mac: ctrl 与 meta 等价；非 mac 仅 ctrl
     const coc = isMac ? (e.ctrlKey || e.metaKey) : e.ctrlKey
     if (!isMac && e.metaKey) return null
@@ -88,11 +102,7 @@ export function eventToAccelerator(
 }
 
 /** 事件是否匹配某 accelerator */
-export function matchEvent(
-    e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean; key: string },
-    acc: string,
-    isMac: boolean,
-): boolean {
+export function matchEvent(e: KeyboardEventLike, acc: string, isMac: boolean): boolean {
     const norm = normalizeAccelerator(acc)
     if (!norm) return false
     const evAcc = eventToAccelerator(e, isMac)
@@ -113,13 +123,38 @@ export function mergeOverrides(overrides?: Record<string, string>): Record<Short
     return result
 }
 
-/** 冲突组：accelerator → 同键 action 列表（仅 >1 项） */
-export function findConflicts(effective: Record<ShortcutAction, string>): Record<string, ShortcutAction[]> {
-    const byAcc: Record<string, ShortcutAction[]> = {}
-    for (const def of SHORTCUT_DEFS) {
+/**
+ * 冲突组：accelerator → 同键 id 列表（仅 >1 项）。同键时按 `defs` 声明序取第一个生效。
+ * 不传 `defs` 时以主窗口 `SHORTCUT_DEFS` 为准（`Id` 落回 `ShortcutAction`）；
+ * PM 窗口等自定义键位层显式传入自己的定义表，由 `Id` 推导出对应的 action 联合。
+ */
+export function findConflicts<Id extends string = ShortcutAction>(
+    effective: Record<string, string>,
+    defs?: readonly AcceleratorSource<Id>[],
+): Record<string, Id[]> {
+    const list: readonly AcceleratorSource<string>[] = defs ?? SHORTCUT_DEFS
+    const byAcc: Record<string, string[]> = {}
+    for (const def of list) {
         const acc = normalizeAccelerator(effective[def.id])
         if (!acc) continue
         ;(byAcc[acc] ??= []).push(def.id)
     }
-    return Object.fromEntries(Object.entries(byAcc).filter(([, ids]) => ids.length > 1))
+    return Object.fromEntries(Object.entries(byAcc).filter(([, ids]) => ids.length > 1)) as Record<string, Id[]>
+}
+
+/**
+ * 平台相关的默认 accelerator：mac 上取 `darwin` 覆盖（非法则忽略），其余一律落回 `default`。
+ * 现有定义都不带 `darwin`，因此主窗口的求值结果与今天完全一致。
+ */
+export function platformDefault(def: AcceleratorSource, isMac: boolean): string {
+    if (!isMac || !def.darwin) return def.default
+    return normalizeAccelerator(def.darwin) ?? def.default
+}
+
+/** 定义表 → 当前平台的有效默认绑定 */
+export function resolveDefaults<Id extends string>(
+    defs: readonly AcceleratorSource<Id>[],
+    isMac: boolean,
+): Record<Id, string> {
+    return Object.fromEntries(defs.map(d => [d.id, platformDefault(d, isMac)])) as Record<Id, string>
 }

@@ -253,11 +253,16 @@ export default function UsageWindow() {
     // ── 明细表列宽：table-fixed + colgroup（%），手动拖动按列名覆盖；视图切换时重置 ──
     const [widths, setWidths] = useState<Partial<Record<SortCol, number>>>({})
     const tableRef = useRef<HTMLTableElement>(null)
+    // 当前列宽拖拽的终结回调（移除 window 监听）；供卸载兜底调用，避免窗口外松开导致监听器累积
+    const resizeCleanupRef = useRef<(() => void) | null>(null)
     useEffect(() => {
         setSort(null)
         setFilter(EMPTY_USAGE_FILTER)
         setWidths({})
     }, [view])
+
+    // 卸载兜底：拖拽进行中卸载时移除残留的 window 监听
+    useEffect(() => () => { resizeCleanupRef.current?.() }, [])
 
     /** 列宽拖拽：目标列与相邻列（右侧优先，末列取左侧）互换宽度，合计不变；stopPropagation 避免触发排序 */
     const startResize = (e: React.MouseEvent, col: SortCol, neighbor: SortCol | undefined) => {
@@ -276,9 +281,15 @@ export default function UsageWindow() {
         const onUp = () => {
             window.removeEventListener('mousemove', onMove)
             window.removeEventListener('mouseup', onUp)
+            window.removeEventListener('blur', onUp)
+            window.removeEventListener('pointercancel', onUp)
+            resizeCleanupRef.current = null
         }
+        resizeCleanupRef.current = onUp
         window.addEventListener('mousemove', onMove)
         window.addEventListener('mouseup', onUp)
+        window.addEventListener('blur', onUp)
+        window.addEventListener('pointercancel', onUp)
     }
 
     const toggleSort = (col: SortCol) => {
@@ -531,7 +542,7 @@ export default function UsageWindow() {
                                                     <span
                                                         onMouseDown={(e) => startResize(e, col, columns[idx + 1]?.col ?? columns[idx - 1]?.col)}
                                                         onClick={(e) => e.stopPropagation()}
-                                                        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-[var(--brand-primary)]/30"
+                                                        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)]"
                                                         data-name="usage-window-col-resizer"
                                                     />
                                                 </th>

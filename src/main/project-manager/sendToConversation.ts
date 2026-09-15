@@ -101,8 +101,12 @@ export async function handleSendToConversation(
   win.focus()
 
   return await new Promise<SendToConversationResult>(resolve => {
+    // 同 requestId 覆盖：先清掉旧 timer，避免其成为孤儿并在超时时误删新 entry
+    const prev = pending.get(value.requestId)
+    if (prev) clearTimeout(prev.timer)
     const timer = setTimeout(() => {
-      pending.delete(value.requestId)
+      // 仅当仍是当前 entry 时才删除（双保险，防旧 timer 误删新 entry）
+      if (pending.get(value.requestId)?.timer === timer) pending.delete(value.requestId)
       resolve({ok: false, error: '主窗口未响应'})
     }, ACK_TIMEOUT_MS)
     pending.set(value.requestId, {resolve, timer})

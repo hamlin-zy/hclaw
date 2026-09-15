@@ -60,7 +60,7 @@ export function patchPaneOrder(workspacePath: string, order: PaneId[]): void {
   patchPaneLayout(workspacePath, {order})
 }
 
-export interface UsePaneOrderResult {
+interface UsePaneOrderResult {
   order: PaneId[]
   /** 拖动结束提交一次（内部归一化并持久化） */
   commitOrder(next: PaneId[]): void

@@ -43,7 +43,7 @@ interface StreamBlockEntry {
  * 纯函数：从 streamBlocks + streamBuffer 组装 ContentBlock[]。
  * 供 done/abort/流式重建三路径共用，保证排序一致性和 id 稳定性。
  */
-export function assembleContentBlocks(params: {
+function assembleContentBlocks(params: {
     streamingMsgId: string | null
     streamBlocks: StreamBlockEntry[]
     fullText: string

@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useState} from 'react'
-import {AnimatePresence, motion} from 'framer-motion'
-import {fade, scaleFade} from '../../lib/motionPresets'
 import {useSkillStore} from '../../stores/skillStore'
+import {Modal} from '../common/Modal'
+import {StatusBadge} from '../common/StatusBadge'
 import type {Skill} from '@shared/types'
 import {X, Eye, Edit3, Save} from 'lucide-react'
 
@@ -101,14 +101,7 @@ export default function SkillDetailModal({
         setEditDescription(parsed.description || skill?.description || '')
     }, [initialMode, skill, parseFrontmatter])
 
-    // 按 ESC 关闭弹窗
-    useEffect(() => {
-        const handleEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose()
-        }
-        document.addEventListener('keydown', handleEsc)
-        return () => document.removeEventListener('keydown', handleEsc)
-    }, [onClose])
+    // Esc 关闭由共享 Modal 外壳统一处理（见 common/Modal.tsx）
 
     const handleSave = useCallback(async () => {
         setIsSaving(true)
@@ -175,27 +168,14 @@ export default function SkillDetailModal({
     const canEdit = skill?.source === 'user' || !skill?.source || mode === 'create'
 
     return (
-        <AnimatePresence>
-            {isOpen && (
-                <>
-                    {/* 背景遮罩 — 不绑定关闭事件，防止意外丢失表单数据 */}
-                    <motion.div
-                        {...fade}
-                        transition={{duration: 0.15}}
-                        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[99998]"
-                    />
-                    
-                    {/* 弹窗主体 */}
-                    <motion.div
-                        {...scaleFade}
-                        transition={{duration: 0.15}}
-                        className="fixed inset-0 flex items-center justify-center p-4 z-[99999] pointer-events-none"
-                    >
-                        <div
-                            className="w-full max-w-3xl max-h-[90vh] bg-[var(--surface)] rounded-xl shadow-elevated overflow-hidden pointer-events-auto flex flex-col"
-                            onClick={e => e.stopPropagation()}
-                         data-name="skill-detail-modal-div">
-                            {/* Header */}
+        <Modal
+            open={isOpen}
+            onClose={onClose}
+            size="lg"
+            closeOnOverlay={mode === 'preview'}
+            ariaLabel={mode === 'create' ? '创建新技能' : mode === 'edit' ? '编辑技能' : '技能详情'}
+        >
+            {/* Header */}
                             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)]">
                                 <h2 className="text-base font-semibold text-[var(--text-primary)]">
                                     {mode === 'create' ? '创建新技能' : (mode === 'edit' ? '编辑技能' : '技能详情')}
@@ -215,7 +195,7 @@ export default function SkillDetailModal({
                                         onClick={() => setMode('preview')}
                                         className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                                             mode === 'preview'
-                                                ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
+                                                ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
                                                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                         }`}
                                      data-name="skill-detail-modal-preview-tab-button">
@@ -227,7 +207,7 @@ export default function SkillDetailModal({
                                             onClick={handleEdit}
                                             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                                                 mode === 'edit'
-                                                    ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
+                                                    ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
                                                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                             }`}
                                          data-name="skill-detail-modal-edit-tab-button">
@@ -297,6 +277,13 @@ export default function SkillDetailModal({
                                     </div>
                                 )}
 
+                                {skill && (
+                                    <div className="mb-6">
+                                        <h4 className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-1">状态</h4>
+                                        <StatusBadge enabled={skill.enabled}/>
+                                    </div>
+                                )}
+
                                 {/* 内容区域 */}
                                 <div>
                                     <h4 className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">技能内容 (SKILL.MD)</h4>
@@ -350,7 +337,7 @@ export default function SkillDetailModal({
 
                                 {/* 错误提示 */}
                                 {error && (
-                                    <div className="mt-4 px-3 py-2 text-xs rounded-md bg-[var(--error)]/10 text-[var(--error)] border border-[var(--error)]/20">
+                                    <div className="mt-4 px-3 py-2 text-xs rounded-md bg-[color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)] border border-[color-mix(in_srgb,var(--error)_20%,transparent)]">
                                         {error}
                                     </div>
                                 )}
@@ -368,7 +355,7 @@ export default function SkillDetailModal({
                                     <button
                                         onClick={handleSave}
                                         disabled={isSaving}
-                                        className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--brand-primary)] text-white hover:bg-[var(--brand-primary)]/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                        className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--brand-primary)] text-white hover:bg-[color-mix(in_srgb,var(--brand-primary)_85%,black)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                      data-name="skill-detail-modal-save-button">
                                         {isSaving ? (
                                             <>
@@ -384,10 +371,6 @@ export default function SkillDetailModal({
                                     </button>
                                 </div>
                             )}
-                        </div>
-                    </motion.div>
-                </>
-            )}
-        </AnimatePresence>
+        </Modal>
     )
 }

@@ -81,18 +81,44 @@ describe('ProjectManagerApp', () => {
     refreshSpy.mockRestore(); markSpy.mockRestore()
   })
 
-  it('file-changed 相对路径前缀命中：失效受影响目录缓存，保留无关目录', () => {
+  it('file-changed change 事件完全不触碰文件树缓存（引用不变）', async () => {
     const entry = (name: string, path: string, isDir: boolean) => ({name, path, isDir, size: 1, gitStatus: 'none' as const, hasChildren: isDir, ignored: false})
+    useFileTreeStore.getState().setWorkspace('/ws')
     useFileTreeStore.getState().setChildren('a', [entry('b', 'a/b', true)])
     useFileTreeStore.getState().setChildren('a/b', [entry('c.txt', 'a/b/c.txt', false)])
     useFileTreeStore.getState().setChildren('z', [entry('z.txt', 'z/z.txt', false)])
     render(<ProjectManagerApp />)
+    // 等 FileTree 的根加载落地，否则这次异步写入会改变 childrenCache 引用，断言失真
+    await waitFor(() => expect(useFileTreeStore.getState().childrenCache['.']).toBeDefined())
+    const before = useFileTreeStore.getState().childrenCache
     const cb = vi.mocked(window.electronAPI!.projectManager.onFileChanged).mock.calls[0][0]
     act(() => cb('/ws', {path: 'a/b/c.txt', type: 'change'}))
-    const {childrenCache} = useFileTreeStore.getState()
-    expect(childrenCache['a/b']).toBeUndefined()   // 变更文件父目录失效
-    expect(childrenCache['a']).toBeDefined()       // 更上级目录不受影响
-    expect(childrenCache['z']).toBeDefined()       // 无关目录保留
+    // change 只影响文件内容（走 file tab 静默重载），不影响目录条目：整个缓存对象引用不变
+    expect(useFileTreeStore.getState().childrenCache).toBe(before)
+  })
+
+  it('change 事件零重取；add 事件去抖后仅原地重取父目录一次', async () => {
+    const listDirectory = vi.mocked(window.electronAPI!.projectManager.listDirectory)
+    const entry = (name: string, path: string, isDir: boolean) => ({name, path, isDir, size: 1, gitStatus: 'none' as const, hasChildren: isDir, ignored: false})
+    useFileTreeStore.getState().setWorkspace('/ws')
+    // 预置「根已加载」缓存：FileTree 首开加载因此被跳过，本用例只观测 file-changed 的重取行为
+    useFileTreeStore.getState().setChildren('.', [entry('a.ts', 'a.ts', false)], '/ws')
+    render(<ProjectManagerApp />)
+    await act(async () => { await Promise.resolve() })
+    listDirectory.mockClear()
+    const cb = vi.mocked(window.electronAPI!.projectManager.onFileChanged).mock.calls[0][0]
+    const rootRef = useFileTreeStore.getState().childrenCache['.']
+
+    // 连续 20 次 change（最高频、不改目录结构）：不重取、不失效
+    for (let i = 0; i < 20; i++) act(() => cb('/ws', {path: 'a.ts', type: 'change'}))
+    await new Promise(r => setTimeout(r, 400))   // 越过 300ms 去抖窗口，确认没有任何目录重取
+    expect(listDirectory).not.toHaveBeenCalled()
+    expect(useFileTreeStore.getState().childrenCache['.']).toBe(rootRef)
+
+    // 一次根目录 add：去抖后仅重取受影响的父目录（根）一次，且是原地替换（不删缓存）
+    act(() => cb('/ws', {path: 'new.ts', type: 'add'}))
+    await waitFor(() => expect(listDirectory).toHaveBeenCalledWith('/ws', '.'))
+    expect(listDirectory).toHaveBeenCalledTimes(1)
   })
 
   it('file-changed 后 500ms 防抖取最新 tab 快照，hash 变化触发重载', async () => {
@@ -509,5 +535,96 @@ describe('上半区三列拖动换序', () => {
     localStorage.setItem('pm:layout:/ws', JSON.stringify({order: ['editor', 'editor', 'changes']}))
     render(<ProjectManagerApp />)
     expect(colIds()).toEqual(['fileTree', 'editor', 'changes'])
+  })
+})
+
+describe('文件树外部变更全链路（pm:file-changed → handler → store → FileTree DOM）', () => {
+  const entry = (name: string, path: string, isDir: boolean) => ({name, path, isDir, size: 1, gitStatus: 'none' as const, hasChildren: isDir, ignored: false})
+
+  // 本用例承担「文件树闪烁」回归防护：必须真正经过 onFileChanged 回调链路，
+  // 否则（仅直接 setChildren）新旧代码都不会产生「缓存缺失窗口」，抓不住回归。
+  it('根已加载后连续 20 次 change：骨架屏始终不出现、既有行不卸载', async () => {
+    const listDirectory = vi.mocked(window.electronAPI!.projectManager.listDirectory)
+    listDirectory.mockImplementation(async (_ws: string, dir: string) =>
+      dir === '.' ? [entry('a.ts', 'a.ts', false), entry('src', 'src', true)] : [entry('x.ts', 'src/x.ts', false)])
+    render(<ProjectManagerApp />)
+    const row = await screen.findByRole('treeitem', {name: 'a.ts'})
+    const cb = vi.mocked(window.electronAPI!.projectManager.onFileChanged).mock.calls[0][0]
+
+    // 连续 20 次根目录文件的 change：最高频、不改目录结构 → 不得触发任何失效/重载
+    for (let i = 0; i < 20; i++) {
+      act(() => cb('/ws', {path: 'a.ts', type: 'change'}))
+      expect(screen.queryByTestId('pm-filetree-loading')).toBeNull()
+      expect(row).toBeInTheDocument()
+    }
+
+    // 根级 add / unlink：去抖落地前后同样无骨架屏、既有行不卸载，且确实重取了根
+    for (const type of ['add', 'unlink'] as const) {
+      const before = listDirectory.mock.calls.filter(c => c[0] === '/ws' && c[1] === '.').length
+      act(() => cb('/ws', {path: 'new.ts', type}))
+      expect(screen.queryByTestId('pm-filetree-loading')).toBeNull()
+      expect(row).toBeInTheDocument()
+      await waitFor(() =>
+        expect(listDirectory.mock.calls.filter(c => c[0] === '/ws' && c[1] === '.').length).toBeGreaterThan(before),
+        {timeout: 2000})
+      expect(screen.queryByTestId('pm-filetree-loading')).toBeNull()
+      expect(row).toBeInTheDocument()
+      expect(screen.getByRole('treeitem', {name: 'src'})).toBeInTheDocument()
+    }
+  })
+
+  // C6 回归：LRU 淘汰后仍处于 expanded 的目录必须能自愈（旧 tick-effect 的等价语义）
+  it('C6 被 LRU 淘汰且仍 expanded 的目录，经 add 事件去抖后自愈补载', async () => {
+    const listDirectory = vi.mocked(window.electronAPI!.projectManager.listDirectory)
+    listDirectory.mockImplementation(async (_ws: string, dir: string) =>
+      dir === '.' ? [entry('src', 'src', true)] : [entry('x.ts', 'src/x.ts', false)])
+    useFileTreeStore.getState().setWorkspace('/ws')
+    render(<ProjectManagerApp />)
+    await waitFor(() => expect(useFileTreeStore.getState().childrenCache['.']).toBeDefined())
+
+    // 构造 LRU 淘汰：先缓存 'src' 并置为展开，再灌入 600 个目录把 'src' 挤出（CACHE_LIMIT=500）
+    act(() => {
+      useFileTreeStore.getState().setChildren('src', [entry('x.ts', 'src/x.ts', false)], '/ws')
+      useFileTreeStore.setState({expanded: new Set(['src'])})
+      const bulk: Record<string, ReturnType<typeof entry>[]> = {}
+      for (let i = 0; i < 600; i++) bulk[`d${String(i).padStart(4, '0')}`] = []
+      useFileTreeStore.getState().setChildrenBulk(bulk, '/ws')
+    })
+    // 前置：'src' 确实被淘汰，且仍在 expanded（渲染读不到缓存 → 旧代码永久空渲染）
+    expect(useFileTreeStore.getState().childrenCache['src']).toBeUndefined()
+    expect(useFileTreeStore.getState().expanded.has('src')).toBe(true)
+
+    listDirectory.mockClear()
+    const cb = vi.mocked(window.electronAPI!.projectManager.onFileChanged).mock.calls[0][0]
+    act(() => cb('/ws', {path: 'src/new.ts', type: 'add'}))
+    await waitFor(() => expect(useFileTreeStore.getState().childrenCache['src']).toBeDefined(), {timeout: 2000})
+    expect(listDirectory).toHaveBeenCalledWith('/ws', 'src')
+  })
+
+  // 附带②：嵌套 unlinkDir 的集成断言（dropSubtree 前缀删除 + 只重取父目录）
+  it('嵌套 unlinkDir("a/b")：砍掉 a/b 子树、只重取父目录 a，兄弟前缀 ab 保留', async () => {
+    const listDirectory = vi.mocked(window.electronAPI!.projectManager.listDirectory)
+    listDirectory.mockResolvedValue([])
+    useFileTreeStore.getState().setWorkspace('/ws')
+    render(<ProjectManagerApp />)
+    await waitFor(() => expect(useFileTreeStore.getState().childrenCache['.']).toBeDefined())
+    act(() => {
+      const s = useFileTreeStore.getState()
+      s.setChildren('a', [entry('b', 'a/b', true)], '/ws')
+      s.setChildren('a/b', [entry('c', 'a/b/c', true)], '/ws')
+      s.setChildren('a/b/c', [entry('f.ts', 'a/b/c/f.ts', false)], '/ws')
+      s.setChildren('ab', [entry('y.ts', 'ab/y.ts', false)], '/ws')
+    })
+    listDirectory.mockClear()
+    const cb = vi.mocked(window.electronAPI!.projectManager.onFileChanged).mock.calls[0][0]
+    act(() => cb('/ws', {path: 'a/b', type: 'unlinkDir'}))
+
+    const st = useFileTreeStore.getState()
+    expect(st.childrenCache['a/b']).toBeUndefined()
+    expect(st.childrenCache['a/b/c']).toBeUndefined()
+    expect(st.childrenCache['a']).toBeDefined()
+    expect(st.childrenCache['ab']).toBeDefined()          // 'ab' 不被 'a' 前缀误杀
+    await waitFor(() => expect(listDirectory).toHaveBeenCalledWith('/ws', 'a'), {timeout: 2000})
+    expect(listDirectory).not.toHaveBeenCalledWith('/ws', 'a/b')
   })
 })

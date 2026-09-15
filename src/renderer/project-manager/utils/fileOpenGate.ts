@@ -7,11 +7,11 @@ import type {FileContentResult} from '@shared/types/project-manager'
 
 export const BIG_FILE_LIMIT = 5 * 1024 * 1024
 
-export function bigFileTitle(size: number): string {
+function bigFileTitle(size: number): string {
   return `文件过大（${(size / 1024 / 1024).toFixed(1)} MB）`
 }
 
-export interface OpenFileTabInput {
+interface OpenFileTabInput {
   path: string
   title: string
   content: string

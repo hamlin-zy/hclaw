@@ -83,7 +83,7 @@ const COMMAND_ALIASES: Record<string, string> = {
     '/mod': '/mode',
 }
 
-export class ChannelCommandManager {
+class ChannelCommandManager {
     /** 处理渠道消息，返回是否命中指令 */
     handle(_channelId: string, text: string, context?: {
         binding?: any

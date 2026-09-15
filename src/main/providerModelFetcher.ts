@@ -15,13 +15,13 @@ import {withOpenCodeHeaders} from './utils/opencodeHeaders'
 
 const FETCH_TIMEOUT_MS = 15000
 
-export interface OAuthTokens {
+interface OAuthTokens {
   accessToken: string
   refreshToken: string
   expiryDate: number
 }
 
-export interface FetchModelsParams {
+interface FetchModelsParams {
   type: ProviderType
   baseUrl?: string
   apiKey?: string
@@ -31,15 +31,15 @@ export interface FetchModelsParams {
   expiryDate?: number
 }
 
-export type FetchModelsResult =
+type FetchModelsResult =
   | {success: true; data: {id: string; modelType?: ModelType}[]; oauthTokens?: OAuthTokens}
   | {success: false; error: string; code: FetchErrorCode}
 
-export interface RefreshTokenDeps {
+interface RefreshTokenDeps {
   refreshGoogleToken?: (refreshToken: string) => Promise<{accessToken: string; expiryDate: number}>
 }
 
-export const FETCH_ERROR_MESSAGES: Record<FetchErrorCode, string> = {
+const FETCH_ERROR_MESSAGES: Record<FetchErrorCode, string> = {
   auth: 'API Key 无效或无权限',
   unsupported: '该服务商不支持自动获取，请手动添加模型',
   network: '无法连接，请检查 Base URL 与网络',
@@ -157,7 +157,7 @@ export async function fetchProviderModels(
   return {success: true, data: toModelEntries(models), oauthTokens}
 }
 
-export interface ModelTestParams {
+interface ModelTestParams {
   type: ProviderType
   baseUrl?: string
   apiKey?: string
@@ -171,11 +171,11 @@ export interface ModelTestParams {
   features?: ProviderFeatures
 }
 
-export type ModelTestResult =
+type ModelTestResult =
   | {success: true; latencyMs: number; oauthTokens?: OAuthTokens}
   | {success: false; error: string}
 
-export interface FetcherDeps extends RefreshTokenDeps {
+interface FetcherDeps extends RefreshTokenDeps {
   createAdapter?: (config: ModelConfig) => ModelAdapter
 }
 

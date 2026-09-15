@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from 'react'
+import {useCallback, useEffect, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {collapse} from '../../lib/motionPresets'
 
@@ -136,6 +136,9 @@ export default function ToolListDialog() {
     const [error, setError] = useState<string | null>(null)
     const [activeTab, setActiveTab] = useState<'builtin' | 'mcp'>('builtin')
     const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set())
+    // ★ 挂载守卫：弹窗关闭/卸载后丢弃迟到的 IPC 响应，避免对已卸载组件 setState
+    //   或重开时被上一轮旧响应覆盖
+    const aliveRef = useRef(true)
     const toggleServer = (id: string) => {
         setExpandedServers(prev => {
             const next = new Set(prev)
@@ -150,16 +153,22 @@ export default function ToolListDialog() {
         setError(null)
         try {
             const result = await window.electronAPI?.toolMcpList?.()
+            if (!aliveRef.current) return // 代际守卫：组件已卸载，丢弃响应
             setData(result as ToolMcpListResult)
         } catch (err) {
+            if (!aliveRef.current) return
             setError(err instanceof Error ? err.message : String(err))
         } finally {
-            setIsLoading(false)
+            if (aliveRef.current) setIsLoading(false)
         }
     }, [])
 
     useEffect(() => {
-        loadData()
+        aliveRef.current = true
+        void loadData()
+        return () => {
+            aliveRef.current = false
+        }
     }, [loadData])
 
     if (isLoading) {
@@ -174,7 +183,7 @@ export default function ToolListDialog() {
     if (error) {
         return (
             <div className="p-4">
-                <div className="p-4 bg-[var(--error-muted)] rounded-lg border border-[var(--error)]/20">
+                <div className="p-4 bg-[var(--error-muted)] rounded-lg border border-[color-mix(in_srgb,var(--error)_20%,transparent)]">
                     <h4 className="text-sm font-medium text-[var(--error)] mb-2">加载失败</h4>
                     <pre className="text-xs text-[var(--error)] whitespace-pre-wrap break-all">{error}</pre>
                 </div>
@@ -185,7 +194,7 @@ export default function ToolListDialog() {
     if (!data?.success) {
         return (
             <div className="p-4">
-                <div className="p-4 bg-[var(--warning-muted)] rounded-lg border border-[var(--warning)]/20">
+                <div className="p-4 bg-[var(--warning-muted)] rounded-lg border border-[color-mix(in_srgb,var(--warning)_20%,transparent)]">
                     <h4 className="text-sm font-medium text-[var(--warning)] mb-2">获取失败</h4>
                     <pre className="text-xs text-[var(--warning)] whitespace-pre-wrap break-all">
                         {data?.error || '未知错误'}
@@ -341,7 +350,7 @@ export default function ToolListDialog() {
             </div>
 
             {/* 提示信息 */}
-            <div className="shrink-0 p-3 bg-[var(--info-muted)]/50 rounded-none border-t border-[var(--info)]/20">
+            <div className="shrink-0 p-3 bg-[var(--info-muted)] rounded-none border-t border-[color-mix(in_srgb,var(--info)_20%,transparent)]">
                 <p className="text-[10px] text-[var(--info)]">
                     <strong>用途说明：</strong>此列表展示实际传递给 LLM 的工具定义，包括名称、描述和参数 Schema。
                     检查是否存在不合理的描述、缺失的参数说明或工具数量异常。

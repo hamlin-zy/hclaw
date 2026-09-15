@@ -228,7 +228,6 @@ export const useMcpStore = create<McpStore>()(
           name: 'mcp',
           storage: sqliteStorage as PersistStorage<McpStore>,
           version: 1,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onRehydrateStorage: () => {
               return (state: any) => {
                   if (state) {

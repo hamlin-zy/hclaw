@@ -1,14 +1,20 @@
-import {useCallback, useEffect, useMemo, useState} from 'react'
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import {clsx} from 'clsx'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
-import {AnimatePresence, motion} from 'framer-motion'
-import {dropdown} from '../../lib/motionPresets'
+import {StatusBadge} from '../common/StatusBadge'
+import {Modal} from '../common/Modal'
+import {EmptyState} from '../common/EmptyState'
+import {CapabilityCard} from '../common/CapabilityCard'
+import PluginGroupCard from '../common/PluginGroupCard'
+import {UpdateDot} from '../common/UpdateDot'
+import {AnimatePresence} from 'framer-motion'
 import {confirm} from '../ConfirmDialog'
 import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
+import {useCapabilityRefresh} from '../../hooks/useCapabilityRefresh'
 import {useToolStore} from '../../stores/toolStore'
 import type {AgentTemplate} from '@shared/types'
 import {fuzzyFilter} from '../../lib/search'
@@ -61,6 +67,44 @@ function AgentCard({template, onEdit, onDelete, onToggle, onPreview, readOnly}: 
     readOnly?: boolean
 }) {
 
+    const tags = displayTags(template.tags)
+
+    const actions = (
+        <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()} data-name="agents-dialog-div">
+            <Switch checked={template.enabled} onChange={onToggle}/>
+            <div className="flex items-center gap-1 pl-2 border-l border-[var(--border)]">
+                <button
+                    onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                    disabled={readOnly}
+                    className={clsx(
+                        "p-1.5 rounded-md transition-all",
+                        readOnly
+                            ? "text-[color-mix(in_srgb,var(--text-muted)_50%,transparent)] cursor-not-allowed"
+                            : "text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)]"
+                    )}
+                    title="编辑"
+                    aria-label="编辑"
+                 data-name="agents-dialog-button">
+                    <Edit2 className="w-4 h-4"/>
+                </button>
+                <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                    disabled={readOnly}
+                    className={clsx(
+                        "p-1.5 rounded-md transition-all",
+                        readOnly
+                            ? "text-[color-mix(in_srgb,var(--text-muted)_50%,transparent)] cursor-not-allowed"
+                            : "text-[var(--text-muted)] hover:text-[var(--error)] hover:bg-[color-mix(in_srgb,var(--error)_10%,transparent)]"
+                    )}
+                    title="删除"
+                    aria-label="删除"
+                 data-name="agents-dialog-agent-delete-button">
+                    <Trash2 className="w-4 h-4"/>
+                </button>
+            </div>
+        </div>
+    )
+
     return (
         <div
             role="button"
@@ -74,84 +118,38 @@ function AgentCard({template, onEdit, onDelete, onToggle, onPreview, readOnly}: 
                 }
             }}
             className={clsx(
-                "group relative flex flex-col gap-4 rounded-xl border p-5 transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/50",
-                template.enabled
-                    ? "bg-[var(--surface)] border-[var(--border)] hover:border-[var(--border-muted)] hover:shadow-sm"
-                    : "bg-[var(--surface-muted)] border-[var(--border)] opacity-60"
+                "relative cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)]",
+                !template.enabled && "opacity-60"
             )}
          data-name="agents-dialog-button-role">
-            {/* Icon + Content (title row with buttons | tags | description — full width) */}
-            <div className="flex items-start gap-4">
-                {/* Agent 图标 */}
-                <div className={clsx(
-                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors",
-                    template.enabled
-                        ? "bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]"
-                        : "bg-[var(--surface-muted)] text-[var(--text-muted)]"
-                )}>
-                    <Layers className="w-5 h-5"/>
-                </div>
-
-                {/* Content Area */}
-                <div className="flex-1 min-w-0">
-                    {/* Title Row: name + action buttons */}
-                    <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-1 min-w-0">
-                            <h3 className="text-sm font-semibold tracking-tight text-[var(--text-primary)] group-hover:text-[var(--text-primary)] transition-colors truncate">
-                                {template.name}
-                            </h3>
-                            <CopyButton name={template.name} />
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()} data-name="agents-dialog-div">
-                            <Switch checked={template.enabled} onChange={onToggle}/>
-                            <div className="flex items-center gap-1 pl-2 border-l border-[var(--border)]">
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                                    disabled={readOnly}
-                                    className={clsx(
-                                        "p-1.5 rounded-md transition-all",
-                                        readOnly
-                                            ? "text-[var(--text-muted)]/50 cursor-not-allowed"
-                                            : "text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10"
-                                    )}
-                                    title="编辑"
-                                    aria-label="编辑"
-                                 data-name="agents-dialog-button">
-                                    <Edit2 className="w-4 h-4"/>
-                                </button>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                                    disabled={readOnly}
-                                    className={clsx(
-                                        "p-1.5 rounded-md transition-all",
-                                        readOnly
-                                            ? "text-[var(--text-muted)]/50 cursor-not-allowed"
-                                            : "text-[var(--text-muted)] hover:text-[var(--error)] hover:bg-[var(--error)]/10"
-                                    )}
-                                    title="删除"
-                                    aria-label="删除"
-                                 data-name="agents-dialog-agent-delete-button">
-                                    <Trash2 className="w-4 h-4"/>
-                                </button>
-                            </div>
-                        </div>
+            <CapabilityCard
+                title={
+                    <span className="flex min-w-0 items-center gap-2">
+                        <span className={clsx(
+                            "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors",
+                            template.enabled
+                                ? "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]"
+                                : "bg-[var(--surface-muted)] text-[var(--text-muted)]"
+                        )}>
+                            <Layers className="w-4 h-4"/>
+                        </span>
+                        <span className="truncate">{template.name}</span>
+                    </span>
+                }
+                badges={<CopyButton name={template.name}/>}
+                actions={actions}
+            >
+                {tags.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-1.5">
+                        {tags.map(tag => (
+                            <span key={tag} className={getTagClass(tag)}>{tag}</span>
+                        ))}
                     </div>
-
-                    {/* Tags */}
-                    {template.tags && template.tags.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                            {displayTags(template.tags).map(tag => (
-                                <span key={tag} className={getTagClass(tag)}>{tag}</span>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* 描述 — full width */}
-                    <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)] line-clamp-2">
-                        {template.description || '暂无描述'}
-                    </p>
-                </div>
-            </div>
+                )}
+                <p className="text-sm leading-relaxed text-[var(--text-secondary)] line-clamp-2">
+                    {template.description || '暂无描述'}
+                </p>
+            </CapabilityCard>
         </div>
     )
 }
@@ -164,32 +162,12 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
     onEdit?: () => void
     readOnly?: boolean
 }) {
-    // Esc 关闭（对齐 SkillDetailModal 的键盘交互契约）
-    useEffect(() => {
-        const handler = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose()
-        }
-        document.addEventListener('keydown', handler)
-        return () => document.removeEventListener('keydown', handler)
-    }, [onClose])
-
     return (
-        <div
-            className="fixed inset-0 z-[100] flex items-center justify-center"
-            onClick={() => onClose()}
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Agent 详情：${agent.name}`}
-         data-name="agents-dialog-detail-overlay">
-            <div className="absolute inset-0 bg-black/50"/>
-            <div
-                onClick={e => e.stopPropagation()}
-                className="relative w-[580px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col overflow-hidden"
-             data-name="agents-dialog-detail-panel">
+        <Modal open onClose={onClose} size="md" ariaLabel={`Agent 详情：${agent.name}`}>
                 {/* Header */}
                 <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border-muted)] flex items-center justify-between">
                     <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]">
                             <Layers className="w-4 h-4"/>
                         </div>
                         <div className="min-w-0">
@@ -269,7 +247,7 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                                             <span
                                                 key={tool}
                                                 aria-label={`禁止使用 ${tool}`}
-                                                className="inline-flex items-center rounded px-2 py-1 text-[10px] font-medium bg-[var(--surface-muted)] text-[var(--text-secondary)] border border-[var(--border)] line-through decoration-[var(--error)]/60"
+                                                className="inline-flex items-center rounded px-2 py-1 text-[10px] font-medium bg-[var(--surface-muted)] text-[var(--text-secondary)] border border-[var(--border)] line-through decoration-[color-mix(in_srgb,var(--error)_60%,transparent)]"
                                             >
                                                 {tool}
                                             </span>
@@ -283,19 +261,9 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                             </div>
                         )}
                     </div>
-                    <div className="space-y-2">
-                        <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">状态</label>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="text-[10px] text-[var(--text-muted)] w-14 shrink-0">状态</span>
-                            <span className={clsx(
-                                "inline-flex items-center rounded px-2 py-1 text-[10px] font-medium",
-                                agent.enabled
-                                    ? "bg-[var(--tag-dev-bg)] text-[var(--tag-dev-text)] border border-[var(--tag-dev-border)]"
-                                    : "bg-[var(--surface-muted)] text-[var(--text-muted)] border border-[var(--border)]"
-                            )}>
-                                {agent.enabled ? '已启用' : '已禁用'}
-                            </span>
-                        </div>
+                    <div className="space-y-1.5">
+                        <label className="block text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">状态</label>
+                        <StatusBadge enabled={agent.enabled}/>
                     </div>
                 </div>
 
@@ -308,8 +276,8 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                             className={clsx(
                                 "px-4 py-2 rounded-lg text-xs font-bold transition-colors",
                                 readOnly
-                                    ? "bg-[var(--surface-muted)] text-[var(--text-muted)]/50 cursor-not-allowed"
-                                    : "bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20"
+                                    ? "bg-[var(--surface-muted)] text-[color-mix(in_srgb,var(--text-muted)_50%,transparent)] cursor-not-allowed"
+                                    : "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]"
                             )}
                          data-name="agents-dialog-detail-edit-button">
                             编辑
@@ -322,8 +290,7 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                         关闭
                     </button>
                 </div>
-            </div>
-        </div>
+        </Modal>
     )
 }
 
@@ -363,6 +330,9 @@ export default function AgentsDialog() {
     const [repoUrl, setRepoUrl] = useState('')
     const [repoInstalling, setRepoInstalling] = useState(false)
     const [repoMessage, setRepoMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+    const repoMessageTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // syncStatus 自动隐藏定时器（独立 ref，不与 repoMessageTimer 复用）
+    const syncStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const [repoList, setRepoList] = useState<any[]>([])
 
     const refreshRepoList = useCallback(() => {
@@ -372,6 +342,11 @@ export default function AgentsDialog() {
     useEffect(() => {
         refreshRepoList()
     }, [refreshRepoList])
+
+    // 卸载兜底：清理 repoMessage 自动隐藏定时器
+    useEffect(() => () => { if (repoMessageTimer.current) clearTimeout(repoMessageTimer.current) }, [])
+    // 卸载兜底：清理 syncStatus 自动隐藏定时器
+    useEffect(() => () => { if (syncStatusTimer.current) clearTimeout(syncStatusTimer.current) }, [])
 
     const handleRepoInstall = useCallback(async () => {
         if (!repoUrl.trim()) return
@@ -385,7 +360,8 @@ export default function AgentsDialog() {
                 await syncFromDisk()
                 refreshRepoList()
                 setRepoUrl('')
-                setTimeout(() => setRepoMessage(null), 3000)
+                if (repoMessageTimer.current) clearTimeout(repoMessageTimer.current)
+                repoMessageTimer.current = setTimeout(() => { repoMessageTimer.current = null; setRepoMessage(null) }, 3000)
             } else {
                 setRepoMessage({type: 'error', text: `安装失败: ${result?.error || '未知错误'}`})
             }
@@ -396,9 +372,19 @@ export default function AgentsDialog() {
         }
     }, [repoUrl, syncFromDisk, refreshRepoList])
 
-    useEffect(() => {
-        init()
-    }, [init])
+    // 首次经 init（带 initialized 守卫，避免跨挂载重复扫描）；后续由 capability:changed 触发 force 重扫
+    const loadedRef = useRef(false)
+    const loadData = useCallback(async () => {
+        if (loadedRef.current) {
+            await syncFromDisk()
+        } else {
+            await init()
+        }
+        loadedRef.current = true
+    }, [init, syncFromDisk])
+
+    // 挂载即拉取 + 订阅 capability:changed 自动重取（与 CommandsDialog 试点一致）
+    useCapabilityRefresh(loadData)
 
     const localTemplates = templates.filter(t => !t.tags?.some(tag => tag.startsWith('plugin:')))
     const pluginTemplates = templates.filter(t => t.tags?.some(tag => tag.startsWith('plugin:')))
@@ -471,13 +457,21 @@ export default function AgentsDialog() {
     }
 
     const handleSync = async () => {
+        // 结果提示 3s 后隐藏：ref 记账 + 先清旧定时器（对齐 repoMessageTimer 范例）
+        const scheduleClearSyncStatus = () => {
+            if (syncStatusTimer.current) clearTimeout(syncStatusTimer.current)
+            syncStatusTimer.current = setTimeout(() => {
+                syncStatusTimer.current = null
+                setSyncStatus(null)
+            }, 3000)
+        }
         const res = await syncFromDisk()
         if (res.success) {
             setSyncStatus(`已同步 ${res.count} 个 Agent`)
-            setTimeout(() => setSyncStatus(null), 3000)
+            scheduleClearSyncStatus()
         } else {
             setSyncStatus(`同步失败: ${res.error}`)
-            setTimeout(() => setSyncStatus(null), 3000)
+            scheduleClearSyncStatus()
         }
     }
 
@@ -486,7 +480,7 @@ export default function AgentsDialog() {
             {/* 头部区域 */}
             <div className="relative px-6 py-5 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)] overflow-hidden">
                 {/* 背景装饰光晕 */}
-                <div className="absolute top-0 right-0 -mr-20 -mt-20 h-40 w-40 rounded-full bg-[var(--brand-primary)]/5 blur-[60px] pointer-events-none"/>
+                <div className="absolute top-0 right-0 -mr-20 -mt-20 h-40 w-40 rounded-full bg-[color-mix(in_srgb,var(--brand-primary)_5%,transparent)] blur-[60px] pointer-events-none"/>
 
                 <div className="relative flex items-center justify-between">
                     <div>
@@ -502,7 +496,7 @@ export default function AgentsDialog() {
                         <button
                             onClick={handleSync}
                             disabled={loading}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                          data-name="agents-dialog-sync-button">
                             <RefreshCw className={clsx("h-3.5 w-3.5", loading && "animate-spin")}/>
                             {syncStatus || '同步'}
@@ -513,7 +507,7 @@ export default function AgentsDialog() {
                                 setEditingId(null)
                                 setShowModal(true)
                             }}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20 transition-colors"
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-colors"
                          data-name="agents-dialog-add-button">
                             <Plus className="h-3.5 w-3.5"/>
                             创建
@@ -536,7 +530,7 @@ export default function AgentsDialog() {
                 <button
                     onClick={handleRepoInstall}
                     disabled={repoInstalling || !repoUrl.trim()}
-                    className="flex-shrink-0 px-2 py-1 text-xs font-medium rounded-md border border-[var(--border)] text-[var(--brand-primary)] hover:border-[var(--brand-primary)]/50 hover:bg-[var(--brand-primary)]/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-shrink-0 px-2 py-1 text-xs font-medium rounded-md border border-[var(--border)] text-[var(--brand-primary)] hover:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                  data-name="agents-dialog-repo-install-button">
                     {repoInstalling ? '安装中...' : '安装仓库'}
                 </button>
@@ -546,8 +540,8 @@ export default function AgentsDialog() {
             {repoMessage && (
                 <div className={`mx-6 mt-2 px-3 py-2 text-xs rounded-md flex items-center gap-2 ${
                     repoMessage.type === 'success'
-                        ? 'bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20'
-                        : 'bg-[var(--error)]/10 text-[var(--error)] border border-[var(--error)]/20'
+                        ? 'bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)] border border-[color-mix(in_srgb,var(--success)_20%,transparent)]'
+                        : 'bg-[color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)] border border-[color-mix(in_srgb,var(--error)_20%,transparent)]'
                 }`}>
                     {repoMessage.type === 'success'
                         ? <Check className="w-3.5 h-3.5 flex-shrink-0"/>
@@ -566,7 +560,7 @@ export default function AgentsDialog() {
                         className={clsx(
                             "rounded-md px-4 py-1.5 text-xs font-medium transition-all duration-200 whitespace-nowrap",
                             activeTab === 'local'
-                                ? "bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] shadow-sm"
+                                ? "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] shadow-sm"
                                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         )}
                      data-name="agents-dialog-local-tab-button">
@@ -577,22 +571,22 @@ export default function AgentsDialog() {
                         className={clsx(
                             "relative rounded-md px-4 py-1.5 text-xs font-medium transition-all duration-200 whitespace-nowrap",
                             activeTab === 'repo'
-                                ? "bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] shadow-sm"
+                                ? "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] shadow-sm"
                                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         )}
                      data-name="agents-dialog-repo-tab-button">
                         仓库
                         {/* 仓库 tab 红点：存在可升级仓库时提示 */}
-                        {repoHasUpdate && (
-                            <span className="absolute top-1.5 right-1 w-1.5 h-1.5 rounded-full bg-red-500" />
-                        )}
+                        <span className="absolute top-1.5 right-1 flex">
+                            <UpdateDot show={repoHasUpdate} title="有可升级仓库"/>
+                        </span>
                     </button>
                     <button
                         onClick={() => setActiveTab('plugin')}
                         className={clsx(
                             "rounded-md px-4 py-1.5 text-xs font-medium transition-all duration-200 whitespace-nowrap",
                             activeTab === 'plugin'
-                                ? "bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] shadow-sm"
+                                ? "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] shadow-sm"
                                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         )}
                      data-name="agents-dialog-plugin-tab-button">
@@ -613,7 +607,7 @@ export default function AgentsDialog() {
                         placeholder="按名称搜索..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="block w-full rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] py-2 pl-9 pr-8 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] shadow-sm focus:border-[var(--brand-primary)]/50 focus:bg-[var(--surface-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all"
+                        className="block w-full rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] py-2 pl-9 pr-8 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] shadow-sm focus:border-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)] focus:bg-[var(--surface-muted)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all"
                     data-name="agents-dialog-input"/>
                     {searchQuery && (
                         <button
@@ -638,16 +632,12 @@ export default function AgentsDialog() {
             {/* 主内容区域 */}
             <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                 {displayTemplates.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-24 text-center border border-dashed border-[var(--border)] rounded-xl bg-[var(--surface-muted)]">
-                        <div className="w-16 h-16 rounded-xl bg-[var(--surface-muted)] flex items-center justify-center mb-4">
-                            <Layers className="w-8 h-8 text-[var(--text-muted)] opacity-30"/>
-                        </div>
-                        <h3 className="text-sm font-medium text-[var(--text-primary)]">
-                            {activeTab === 'local' ? '暂无自定义 Agent' : activeTab === 'repo' ? '暂无仓库 Agent' : '暂无插件 Agent'}
-                        </h3>
-                        <p className="text-xs text-[var(--text-secondary)] mt-1.5">
-                            {activeTab === 'local' ? '点击右上方按钮开始创建' : activeTab === 'repo' ? '在上方输入 Git 仓库地址安装，Agent 将归入对应仓库分组' : '插件 Agent 可通过插件系统安装'}
-                        </p>
+                    <div className="border border-dashed border-[var(--border)] rounded-xl bg-[var(--surface-muted)]">
+                        <EmptyState
+                            icon={<Layers className="w-8 h-8 opacity-30"/>}
+                            title={activeTab === 'local' ? '暂无自定义 Agent' : activeTab === 'repo' ? '暂无仓库 Agent' : '暂无插件 Agent'}
+                            hint={activeTab === 'local' ? '点击右上方按钮开始创建' : activeTab === 'repo' ? '在上方输入 Git 仓库地址安装，Agent 将归入对应仓库分组' : '插件 Agent 可通过插件系统安装'}
+                        />
                     </div>
                 ) : (
                     <div className="flex flex-col gap-4">
@@ -682,10 +672,12 @@ export default function AgentsDialog() {
                                 const sortedGroups = sortReposByUpdate(agentGroups.grouped, repoUpdateMap)
                                 if (sortedGroups.length === 0) {
                                     return (
-                                        <div className="flex flex-col items-center justify-center py-24 text-center border border-dashed border-[var(--border)] rounded-xl bg-[var(--surface-muted)]">
-                                            <Layers className="w-8 h-8 text-[var(--text-muted)] opacity-30 mb-3"/>
-                                            <p className="text-sm text-[var(--text-secondary)]">暂无仓库 Agent</p>
-                                            <p className="text-xs text-[var(--text-secondary)]/60 mt-1.5">在上方输入 Git 仓库地址安装，Agent 将归入对应仓库分组</p>
+                                        <div className="border border-dashed border-[var(--border)] rounded-xl bg-[var(--surface-muted)]">
+                                            <EmptyState
+                                                icon={<Layers className="w-8 h-8 opacity-30"/>}
+                                                title="暂无仓库 Agent"
+                                                hint="在上方输入 Git 仓库地址安装，Agent 将归入对应仓库分组"
+                                            />
                                         </div>
                                     )
                                 }
@@ -782,6 +774,7 @@ function PluginAgentGroupList({templates, toggleTemplate, toggleTemplateBatch, h
     onPreview?: (t: AgentTemplate) => void
     isReadOnly: boolean
 }) {
+    const [collapsedMap, setCollapsedMap] = useState<Record<string, boolean>>({})
     // 从 plugin:xxx 标签提取插件名，按插件分组（暂不过滤禁用插件，等 Hub 完全接入后统一处理）
     const groups = useMemo(() => {
         const map = new Map<string, AgentTemplate[]>()
@@ -800,106 +793,45 @@ function PluginAgentGroupList({templates, toggleTemplate, toggleTemplateBatch, h
     return (
         <div className="space-y-3">
             <AnimatePresence initial={false}>
-                {groups.map(group => (
-                    <PluginAgentGroup
-                        key={group.name}
-                        pluginName={group.name}
-                        agents={group.agents}
-                        toggleTemplate={toggleTemplate}
-                        toggleTemplateBatch={toggleTemplateBatch}
-                        handleDeleteWithConfirm={handleDeleteWithConfirm}
-                        startEdit={startEdit}
-                        onPreview={onPreview}
-                        isReadOnly={isReadOnly}
-                    />
-                ))}
+                {groups.map(group => {
+                    const pluginName = group.name
+                    const agents = group.agents
+                    const collapsed = collapsedMap[pluginName] ?? true
+                    const allEnabled = agents.every(a => a.enabled)
+                    return (
+                        <PluginGroupCard
+                            key={pluginName}
+                            title={pluginName}
+                            countLabel={`${agents.length} 个 Agent`}
+                            collapsed={collapsed}
+                            onToggleCollapse={() => setCollapsedMap(m => ({...m, [pluginName]: !(m[pluginName] ?? true)}))}
+                            allEnabled={allEnabled}
+                            onToggleBatch={() => {
+                                const target = !allEnabled
+                                const ids = agents.filter(a => a.enabled !== target).map(a => a.id)
+                                void toggleTemplateBatch(ids, target)
+                            }}
+                            headerDataName="agents-dialog-plugin-group-header"
+                            batchDataName="agents-dialog-batch-toggle-button"
+                        >
+                            <div className="p-2 space-y-1.5 border-t border-[var(--border-muted)]">
+                                {agents.map(agent => (
+                                    <AgentCard
+                                        key={agent.id}
+                                        template={agent}
+                                        onEdit={() => startEdit(agent)}
+                                        onDelete={() => handleDeleteWithConfirm(agent.id, agent.name)}
+                                        onToggle={() => toggleTemplate(agent.id)}
+                                        onPreview={() => onPreview?.(agent)}
+                                        readOnly={isReadOnly}
+                                    />
+                                ))}
+                            </div>
+                        </PluginGroupCard>
+                    )
+                })}
             </AnimatePresence>
         </div>
-    )
-}
-
-function PluginAgentGroup({pluginName, agents, toggleTemplate, toggleTemplateBatch, handleDeleteWithConfirm, startEdit, onPreview, isReadOnly}: {
-    pluginName: string
-    agents: AgentTemplate[]
-    toggleTemplate: (id: string) => void
-    toggleTemplateBatch: (templateIds: string[], enabled: boolean) => Promise<void>
-    handleDeleteWithConfirm: (id: string, name: string) => void
-    startEdit: (t: AgentTemplate) => void
-    onPreview?: (t: AgentTemplate) => void
-    isReadOnly: boolean
-}) {
-    const [collapsed, setCollapsed] = useState(true)
-
-    return (
-        <motion.div
-            layout
-            {...dropdown}
-            transition={{duration: 0.15}}
-            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden"
-        >
-            {/* 插件标题栏 */}
-            <div
-                className="flex items-center justify-between px-3 py-2 bg-[var(--surface-muted)] cursor-pointer"
-                onClick={() => setCollapsed(c => !c)}
-             data-name="agents-dialog-plugin-group-header">
-                <div className="flex items-center gap-2">
-                    <svg className="w-4 h-4 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="none"
-                         stroke="currentColor" strokeWidth="2">
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                    </svg>
-                    <span className="text-xs font-semibold text-[var(--text-primary)]">{pluginName}</span>
-                    <span className="text-[10px] text-[var(--text-secondary)]">{agents.length} 个 Agent</span>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                        onClick={async e => {
-                            e.stopPropagation()
-                            const allEnabled = agents.every(a => a.enabled)
-                            const targetEnabled = !allEnabled
-                            const ids = agents.filter(a => a.enabled !== targetEnabled).map(a => a.id)
-                            if (ids.length > 0) {
-                                await toggleTemplateBatch(ids, targetEnabled)
-                            }
-                        }}
-                        className="text-[10px] font-medium text-[var(--brand-primary)] hover:text-[var(--brand-primary)]/80 transition-colors flex-shrink-0"
-                     data-name="agents-dialog-batch-toggle-button">
-                        {agents.every(a => a.enabled) ? '全部禁用' : '全部启用'}
-                    </button>
-                    <svg
-                        className={`w-4 h-4 text-[var(--text-muted)] transition-transform duration-300 ${collapsed ? '' : 'rotate-180'}`}
-                        viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </div>
-            </div>
-
-            {/* 插件下的 Agent 列表 */}
-            <AnimatePresence initial={false}>
-                {!collapsed && (
-                    <motion.div
-                        initial={{opacity: 0, height: 0}}
-                        animate={{opacity: 1, height: 'auto'}}
-                        exit={{opacity: 0, height: 0}}
-                        transition={{duration: 0.2, ease: 'easeInOut'}}
-                        style={{overflow: 'hidden'}}
-                    >
-                        <div className="p-2 space-y-2 border-t border-[var(--border-muted)]">
-                            {agents.map(agent => (
-                                <AgentCard
-                                    key={agent.id}
-                                    template={agent}
-                                    onEdit={() => startEdit(agent)}
-                                    onDelete={() => handleDeleteWithConfirm(agent.id, agent.name)}
-                                    onToggle={() => toggleTemplate(agent.id)}
-                                    onPreview={() => onPreview?.(agent)}
-                                    readOnly={isReadOnly}
-                                />
-                            ))}
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </motion.div>
     )
 }
 
@@ -1007,7 +939,7 @@ function TagInput({value, onChange, placeholder, emptyHint, inputId, suggestions
                 </ul>
             )}
             <div
-                className="w-full min-h-[42px] px-2 py-1.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] focus-within:border-[var(--brand-primary)] focus-within:ring-1 focus-within:ring-[var(--brand-primary)]/30 transition-all flex flex-wrap items-center gap-1.5 cursor-text"
+                className="w-full min-h-[42px] px-2 py-1.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] focus-within:border-[var(--brand-primary)] focus-within:ring-1 focus-within:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all flex flex-wrap items-center gap-1.5 cursor-text"
                 onClick={e => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}
             >
                 {value.length === 0 && (
@@ -1091,15 +1023,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
     }
 
     return (
-        <div
-            className="fixed inset-0 z-[100] flex items-center justify-center"
-            onClick={() => onCancel()}
-         data-name="agents-dialog-form-overlay">
-            <div className="absolute inset-0 bg-black/50"/>
-            <div
-                onClick={e => e.stopPropagation()}
-                className="relative w-[580px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col overflow-hidden"
-             data-name="agents-dialog-form-panel">
+        <Modal open onClose={onCancel} size="md" ariaLabel={editingId ? '编辑 Agent' : '创建 Agent'}>
                 {/* Header */}
                 <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border-muted)] flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-[var(--text-primary)]">
@@ -1125,7 +1049,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             value={form.name}
                             onChange={e => setForm({...form, name: e.target.value})}
                             placeholder="如：安全审计专家"
-                            className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all"
+                            className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all"
                         data-name="agents-dialog-name-input"/>
                     </div>
 
@@ -1139,7 +1063,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             value={form.description}
                             onChange={e => setForm({...form, description: e.target.value})}
                             placeholder="该 Agent 主要负责什么任务？"
-                            className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all"
+                            className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all"
                         data-name="agents-dialog-description-input"/>
                     </div>
 
@@ -1154,7 +1078,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             value={form.whenToUse || ''}
                             onChange={e => setForm({...form, whenToUse: e.target.value})}
                             placeholder="如：代码审查、安全审计、性能优化时使用"
-                            className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all"
+                            className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all"
                         data-name="agents-dialog-when-to-use-input"/>
                     </div>
 
@@ -1168,7 +1092,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             onChange={e => setForm({...form, systemPrompt: e.target.value})}
                             rows={8}
                             placeholder="详细定义该 Agent 的角色、知识边界、行动规则和输出格式要求..."
-                            className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm font-mono text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all resize-none"
+                            className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm font-mono text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all resize-none"
                         data-name="agents-dialog-textarea"/>
                     </div>
 
@@ -1221,7 +1145,6 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                         {editingId ? '保存修改' : '立即创建'}
                     </button>
                 </div>
-            </div>
-        </div>
+        </Modal>
     )
 }

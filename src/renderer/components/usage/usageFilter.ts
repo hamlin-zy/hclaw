@@ -47,7 +47,7 @@ function parseBoundM(s: string): number | null {
 }
 
 /** 单行是否满足过滤条件 */
-export function matchesFilter(b: UsageBreakdown, f: UsageFilterState): boolean {
+function matchesFilter(b: UsageBreakdown, f: UsageFilterState): boolean {
     if (f.provider !== '' && breakdownProviderLabel(b) !== f.provider) return false
     if (f.model !== '' && b.key !== f.model) return false
     const min = parseBoundM(f.totalMinM)

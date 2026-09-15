@@ -12,7 +12,7 @@
  *   便于单测验证门控时序。
  */
 
-export interface GcSchedulerDeps {
+interface GcSchedulerDeps {
     /** 页面是否隐藏（document.hidden 语义） */
     isHidden: () => boolean
     /** 当前时间戳 */

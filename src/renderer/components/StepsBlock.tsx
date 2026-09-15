@@ -55,9 +55,9 @@ const StepItem = memo(function StepItem({step, depth, index}: { step: StepNode; 
         >
             <div
                 className={`flex items-center gap-[var(--space-snug)] px-[var(--space-relaxed)] py-1 rounded text-xs ${
-                    step.status === 'running' ? 'bg-[var(--info)]/10 text-[var(--info)]'
+                    step.status === 'running' ? 'bg-[color-mix(in_srgb,var(--info)_10%,transparent)] text-[var(--info)]'
                         : step.status === 'success' ? 'text-[var(--success)]'
-                            : step.status === 'error' ? 'bg-[var(--error)]/10 text-[var(--error)]'
+                            : step.status === 'error' ? 'bg-[color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)]'
                                 : 'text-[var(--text-secondary)]'
                 }`}
                 style={{paddingLeft: `${depth * 16 + 8}px`}}
@@ -95,7 +95,7 @@ const StepsBlock = memo(function StepsBlock({stepsBlock}: { stepsBlock: StepsBlo
             <polyline points="9 18 15 12 9 6" />
           </svg>
           <span className="font-medium">执行步骤</span>
-          <span className="px-1.5 py-0.5 rounded text-2xs bg-[var(--success)]/10 text-[var(--success)] font-medium">
+          <span className="px-1.5 py-0.5 rounded text-2xs bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)] font-medium">
             {stepsBlock.completedCount}/{stepsBlock.totalCount}
           </span>
         </button>
@@ -124,7 +124,7 @@ const StepsBlock = memo(function StepsBlock({stepsBlock}: { stepsBlock: StepsBlo
     <CollapsibleSection
       title="执行步骤"
       headerContent={
-        <span className="px-1.5 py-0.5 rounded text-2xs bg-[var(--success)]/10 text-[var(--success)] font-medium">
+        <span className="px-1.5 py-0.5 rounded text-2xs bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)] font-medium">
           {stepsBlock.completedCount}/{stepsBlock.totalCount}
         </span>
       }

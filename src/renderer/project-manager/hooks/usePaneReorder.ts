@@ -13,9 +13,9 @@ import type {PaneId} from './paneOrder'
 /** 与 .pm-split-handle 的命中区宽度一致（flex: 0 0 5px） */
 export const HANDLE_W = 5
 /** 起手阈值：小于它视为误触，不进 dragging、不写任何 DOM/state */
-export const DRAG_THRESHOLD = 3
+const DRAG_THRESHOLD = 3
 
-export interface PaneSlot {
+interface PaneSlot {
   id: PaneId
   left: number
   width: number
@@ -63,7 +63,7 @@ export function movePane(order: PaneId[], id: PaneId, index: number): PaneId[] {
   return [...rest.slice(0, clamped), id, ...rest.slice(clamped)]
 }
 
-export function sameOrder(a: PaneId[], b: PaneId[]): boolean {
+function sameOrder(a: PaneId[], b: PaneId[]): boolean {
   return a.length === b.length && a.every((x, i) => x === b[i])
 }
 

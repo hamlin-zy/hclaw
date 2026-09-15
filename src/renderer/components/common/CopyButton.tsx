@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 
 interface CopyButtonProps {
   /** Text to copy to clipboard */
@@ -14,12 +14,16 @@ interface CopyButtonProps {
  */
 export function CopyButton({ name, size = 'md' }: CopyButtonProps) {
   const [copied, setCopied] = useState(false)
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 卸载兜底：清理「已复制」复位定时器
+  useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
 
   const doCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(name)
+      if (copiedTimer.current) clearTimeout(copiedTimer.current)
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      copiedTimer.current = setTimeout(() => { copiedTimer.current = null; setCopied(false) }, 2000)
     } catch {
       /* clipboard unavailable — silently ignore */
     }
@@ -46,12 +50,12 @@ export function CopyButton({ name, size = 'md' }: CopyButtonProps) {
       tabIndex={0}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      className="p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 transition-all flex-shrink-0 cursor-pointer"
+      className="p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] transition-all flex-shrink-0 cursor-pointer"
       title={copied ? '已复制' : '复制名称'}
       aria-label={copied ? '已复制' : '复制名称'}
      data-name="copy-button-button-role">
       {copied ? (
-        <svg className={`${iconSize} text-green-500`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg className={`${iconSize} text-[var(--success)]`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M20 6L9 17l-5-5" />
         </svg>
       ) : (

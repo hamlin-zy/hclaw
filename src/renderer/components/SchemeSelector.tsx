@@ -3,6 +3,7 @@ import {createPortal} from 'react-dom'
 import {motion} from 'framer-motion'
 import CopyToast from './common/CopyToast'
 import {switchActiveScheme, useModelSchemeStore} from '../stores/modelSchemeStore'
+import {useResetTimeout} from '../hooks/useResetTimeout'
 import type {ModelScheme} from '@shared/types'
 
 /** 模型方案的颜色标识 */
@@ -83,7 +84,7 @@ function FixedDropdown({
             className="fixed z-[9999] min-w-[200px] max-w-[280px]"
         >
             {/* 下拉面板 - 毛玻璃效果 */}
-            <div className="bg-[var(--surface-elevated)]/92 backdrop-blur-lg border border-[var(--border)] rounded-2xl shadow-2xl shadow-black/20 overflow-hidden">
+            <div className="bg-[color-mix(in_srgb,var(--surface-elevated)_92%,transparent)] backdrop-blur-lg border border-[var(--border)] rounded-2xl shadow-2xl shadow-black/20 overflow-hidden">
                 <div className="p-1.5 flex flex-col">
                     {/* 方案列表 */}
                     {schemes.map((scheme, index) => {
@@ -98,7 +99,7 @@ function FixedDropdown({
                                 disabled={isSwitching}
                                 className={`w-full px-3 py-2.5 text-left text-xs rounded-xl transition-all disabled:opacity-50 ${
                                     isActive
-                                        ? `bg-[var(--brand-primary)]/15`
+                                        ? `bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)]`
                                         : 'hover:bg-[var(--surface-muted)]'
                                 }`}
                              data-name="scheme-selector-button">
@@ -172,14 +173,16 @@ export default function SchemeSelector() {
     const [isSwitching, setIsSwitching] = useState(false)
     const [toastMessage, setToastMessage] = useState<string | null>(null)
     const dropdownRef = useRef<HTMLDivElement>(null)
+    // toast 自动关闭定时器（重置式：仅最后一次生效，卸载自动清理）
+    const scheduleToastClose = useResetTimeout()
 
     const enabledSchemes = schemes.filter((s) => s.enabled)
     const activeScheme = schemes.find((s) => s.id === activeSchemeId)
 
     const showToast = useCallback((message: string, duration = 3000) => {
         setToastMessage(message)
-        setTimeout(() => setToastMessage(null), duration)
-    }, [])
+        scheduleToastClose(() => setToastMessage(null), duration)
+    }, [scheduleToastClose])
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
@@ -230,7 +233,7 @@ export default function SchemeSelector() {
                         transition-all duration-200
                         disabled:opacity-50 disabled:cursor-not-allowed
                         ${isActive
-                            ? 'bg-[var(--brand-primary)]/10'
+                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)]'
                             : 'hover:bg-[var(--surface-muted)] bg-[var(--surface)]'
                         }
                     `}

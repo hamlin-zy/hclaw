@@ -5,19 +5,33 @@
  * 以及插件命令的查看、预览、启用/禁用管理。
  *
  * 数据源：CapabilityHub（统一能力中心）作为主要入口，配合插件 override 接口。
+ *
+ * 改造要点（B 阶段试点）：
+ *   - 预览弹层复用 Modal（Esc / 统一遮罩 / aria / 焦点回归）
+ *   - 卡片骨架复用 CapabilityCard，差异走 slot
+ *   - 三态复用 AsyncBoundary + EmptyState，删除静默 catch，改为可见错误 + 重试
+ *   - 插件分组折叠态提升为受控 state，刷新只替换数据不重建组件
+ *   - 接入 useCapabilityRefresh，capability:changed 后自动重取
  */
 
-import {useCallback, useEffect, useMemo, useState} from 'react'
+import {useCallback, useMemo, useRef, useState} from 'react'
 import {clsx} from 'clsx'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
+import {StatusBadge} from '../common/StatusBadge'
+import {Modal} from '../common/Modal'
+import {AsyncBoundary} from '../common/AsyncBoundary'
+import {CapabilityCard} from '../common/CapabilityCard'
+import PluginGroupCard from '../common/PluginGroupCard'
 import {AnimatePresence, motion} from 'framer-motion'
 import {dropdown} from '../../lib/motionPresets'
 import {useUserCommandStore} from '../../stores/userCommandStore'
+import {toErrorMessage} from '../../stores/applyOptimistic'
+import {useCapabilityRefresh} from '../../hooks/useCapabilityRefresh'
 import {CommandEditModal} from './CommandEditModal'
 import {confirm} from '../ConfirmDialog'
 import {fuzzyFilter} from '../../lib/search'
-import {Folder, Search, Trash2, ChevronDown, Plus, X} from 'lucide-react'
+import {Folder, Search, Trash2, Plus, X} from 'lucide-react'
 import type {CapabilityEntry} from '../../capabilityTypes'
 import {CommandIcon} from '../icons'
 
@@ -45,12 +59,16 @@ export default function CommandsDialog() {
     const {commands: userCommands, loadCommands, deleteCommand, toggleCommand} = useUserCommandStore()
 
     const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
     const [capabilities, setCapabilities] = useState<CapabilityEntry[]>([])
     const [pluginCommandOverrides, setPluginCommandOverrides] = useState<
         Record<string, { enabled: boolean; edited?: boolean }>
     >({})
     const [searchQuery, setSearchQuery] = useState('')
     const [activeTab, setActiveTab] = useState<TabType>('local')
+
+    // 折叠态提升为受控 state（按 groupId=pluginName）：刷新只替换数据，不重建组件 → 折叠不丢
+    const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
 
     // 编辑弹窗状态
     const [editModalOpen, setEditModalOpen] = useState(false)
@@ -68,12 +86,11 @@ export default function CommandsDialog() {
 
     // ─── 数据加载 ─────────────────────────────────────
 
-    useEffect(() => {
-        loadData()
-    }, [])
+    // 首次加载展示 loading；后续（刷新 / 订阅触发）静默替换数据，避免列表卸载重建
+    const loadedRef = useRef(false)
 
-    const loadData = async () => {
-        setLoading(true)
+    const loadData = useCallback(async () => {
+        if (!loadedRef.current) setLoading(true)
         try {
             // 1. 加载用户命令（用于本地命令的 CRUD）
             await loadCommands()
@@ -101,12 +118,18 @@ export default function CommandsDialog() {
                     setPluginCommandOverrides(overrideMap)
                 }
             }
-        } catch {
-            // silent
+            setError(null)
+        } catch (err) {
+            // 可见错误 + 重试（取代原静默 catch）
+            setError(toErrorMessage(err))
         } finally {
+            loadedRef.current = true
             setLoading(false)
         }
-    }
+    }, [loadCommands])
+
+    // 挂载即拉取 + 订阅 capability:changed 自动重取（Q13 接线落地）
+    useCapabilityRefresh(loadData)
 
     // ─── 过滤逻辑 ─────────────────────────────────────
 
@@ -171,14 +194,9 @@ export default function CommandsDialog() {
     }, [])
 
     const handleToggle = useCallback(async (id: string, enabled: boolean) => {
+        // 乐观改写 store；主进程 toggle 会刷新 CapabilityHub → 广播 capability:changed → 本页订阅自动重取
         const result = await toggleCommand(id, enabled)
-        if (result?.success) {
-            // 主进程已刷新 CapabilityHub，这里重新拉取最新数据
-            const caps = await window.electronAPI?.capability?.getByType?.('command')
-            if (Array.isArray(caps)) {
-                setCapabilities(caps as CapabilityEntry[])
-            }
-        }
+        if (!result.success) setError(result.error || '切换命令状态失败')
     }, [toggleCommand])
 
     const handleDelete = useCallback(async (cmd: typeof userCommands[0]) => {
@@ -191,9 +209,12 @@ export default function CommandsDialog() {
         if (!confirmed) return
         const result = await deleteCommand(cmd.id)
         if (!result.success) {
-            console.error('Failed to delete command:', result.error)
+            setError(result.error || '删除命令失败')
+            return
         }
-    }, [deleteCommand])
+        // 删除不触发 hub 广播，主动刷新列表
+        void loadData()
+    }, [deleteCommand, loadData])
 
     const handleResetPresets = useCallback(async () => {
         const confirmed = await confirm({
@@ -203,20 +224,23 @@ export default function CommandsDialog() {
             confirmVariant: 'warning',
         })
         if (!confirmed) return
-        const api = window.electronAPI
-        const result = await api?.command?.resetPresets?.()
-        if (result?.success) {
-            loadData()
-        } else {
-            console.error('Failed to reset presets:', result?.error)
+        try {
+            const result = await window.electronAPI?.command?.resetPresets?.()
+            if (result?.success) {
+                void loadData()
+            } else {
+                setError(result?.error || '重置预设失败')
+            }
+        } catch (err) {
+            setError(toErrorMessage(err))
         }
     }, [loadData])
 
     const handleEditModalSave = useCallback(() => {
         setEditModalOpen(false)
         setEditingCommand(null)
-        loadData()
-    }, [])
+        void loadData()
+    }, [loadData])
 
     // ─── 插件命令操作 ─────────────────────────────────
 
@@ -238,35 +262,31 @@ export default function CommandsDialog() {
     const handlePluginToggle = useCallback(async (cmd: PluginCapability, enabled: boolean) => {
         try {
             await setPluginOverride(cmd, enabled)
-            // 直接更新本地状态，避免 loadData 触发 loading → 卸载 → 重建导致折叠状态丢失
-            setPluginCommandOverrides(prev => ({
-                ...prev,
-                [cmd.id]: { enabled, edited: prev[cmd.id]?.edited },
-            }))
-        } catch {
-            // silent
+            // 统一刷新：折叠态已受控，刷新只替换数据不丢折叠
+            await loadData()
+        } catch (err) {
+            setError(toErrorMessage(err))
         }
-    }, [setPluginOverride])
+    }, [setPluginOverride, loadData])
 
     const handlePluginBatchToggle = useCallback(async (group: PluginGroupData, targetEnabled: boolean) => {
-        const updates: Record<string, { enabled: boolean; edited?: boolean }> = {}
-        for (const cmd of group.commands) {
-            const overrideState = pluginCommandOverrides[cmd.id]
-            const isEnabled = overrideState ? overrideState.enabled !== false : true
-            if (isEnabled !== targetEnabled) {
-                try {
+        try {
+            for (const cmd of group.commands) {
+                const overrideState = pluginCommandOverrides[cmd.id]
+                const isEnabled = overrideState ? overrideState.enabled !== false : true
+                if (isEnabled !== targetEnabled) {
                     await setPluginOverride(cmd, targetEnabled)
-                    updates[cmd.id] = { enabled: targetEnabled, edited: pluginCommandOverrides[cmd.id]?.edited }
-                } catch {
-                    // silent
                 }
             }
+            await loadData()
+        } catch (err) {
+            setError(toErrorMessage(err))
         }
-        // 直接更新本地状态，避免 loadData 触发 loading → 卸载 → 重建
-        if (Object.keys(updates).length > 0) {
-            setPluginCommandOverrides(prev => ({ ...prev, ...updates }))
-        }
-    }, [pluginCommandOverrides, setPluginOverride])
+    }, [pluginCommandOverrides, setPluginOverride, loadData])
+
+    const toggleGroupCollapsed = useCallback((pluginName: string) => {
+        setCollapsedGroups(prev => ({...prev, [pluginName]: !(prev[pluginName] ?? true)}))
+    }, [])
 
     // ─── 预览 ────────────────────────────────────────
 
@@ -301,7 +321,7 @@ export default function CommandsDialog() {
                         <>
                             <button
                                 onClick={handleNew}
-                                className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20 transition-colors"
+                                className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)] hover:bg-[color-mix(in_srgb,var(--success)_20%,transparent)] transition-colors"
                                 title="创建新命令"
                              data-name="commands-dialog-button">
                                 <Plus className="w-3.5 h-3.5"/>
@@ -309,7 +329,7 @@ export default function CommandsDialog() {
                             </button>
                             <button
                                 onClick={handleResetPresets}
-                                className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 rounded-md transition-colors"
+                                className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] rounded-md transition-colors"
                                 title="重新生成预设命令文件（commit-msg）"
                              data-name="commands-dialog-reset-presets-button">
                                 重置预设
@@ -327,7 +347,7 @@ export default function CommandsDialog() {
                         onClick={() => setActiveTab(tab)}
                         className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
                             activeTab === tab
-                                ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] font-medium'
+                                ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] font-medium'
                                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                         }`}
                      data-name={`commands-dialog-tab-${i}`}>
@@ -356,6 +376,7 @@ export default function CommandsDialog() {
             {editModalOpen && (
                 <CommandEditModal
                     command={editingCommand}
+                    existingNames={userCommands.map(c => c.name)}
                     onSave={handleEditModalSave}
                     onCancel={() => {
                         setEditModalOpen(false)
@@ -374,30 +395,36 @@ export default function CommandsDialog() {
 
             {/* 命令列表 */}
             <div className="flex-1 overflow-y-auto">
-                {loading ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-center">
-                        <div className="inline-block w-5 h-5 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin"/>
-                        <p className="mt-3 text-sm text-[var(--text-secondary)]">加载中...</p>
-                    </div>
-                ) : activeTab === 'local' ? (
-                    <LocalCommandList
-                        capabilities={filteredLocal}
-                        userCommands={userCommands}
-                        searchQuery={searchQuery}
-                        onEdit={handleEdit}
-                        onToggle={handleToggle}
-                        onDelete={handleDelete}
-                        onPreview={handlePreview}
-                    />
-                ) : (
-                    <PluginGroupList
-                        groups={pluginGroups}
-                        pluginCommandOverrides={pluginCommandOverrides}
-                        onToggle={handlePluginToggle}
-                        onBatchToggle={handlePluginBatchToggle}
-                        onPreview={handlePreview}
-                    />
-                )}
+                <AsyncBoundary
+                    loading={loading}
+                    error={error}
+                    onRetry={() => void loadData()}
+                    empty={activeTab === 'local' ? filteredLocal.length === 0 : pluginGroups.length === 0}
+                    emptyTitle={activeTab === 'local'
+                        ? (searchQuery.trim() ? '未找到匹配的命令' : '暂无本地命令，点击上方按钮新建')
+                        : '暂无插件命令'}
+                >
+                    {activeTab === 'local' ? (
+                        <LocalCommandList
+                            capabilities={filteredLocal}
+                            userCommands={userCommands}
+                            onEdit={handleEdit}
+                            onToggle={handleToggle}
+                            onDelete={handleDelete}
+                            onPreview={handlePreview}
+                        />
+                    ) : (
+                        <PluginGroupList
+                            groups={pluginGroups}
+                            pluginCommandOverrides={pluginCommandOverrides}
+                            collapsedGroups={collapsedGroups}
+                            onToggleCollapse={toggleGroupCollapsed}
+                            onToggle={handlePluginToggle}
+                            onBatchToggle={handlePluginBatchToggle}
+                            onPreview={handlePreview}
+                        />
+                    )}
+                </AsyncBoundary>
             </div>
         </div>
     )
@@ -408,7 +435,6 @@ export default function CommandsDialog() {
 function LocalCommandList({
                               capabilities,
                               userCommands,
-                              searchQuery,
                               onEdit,
                               onToggle,
                               onDelete,
@@ -416,23 +442,11 @@ function LocalCommandList({
                           }: {
     capabilities: CapabilityEntry[]
     userCommands: any[]
-    searchQuery: string
     onEdit: (cmd: any) => void
     onToggle: (id: string, enabled: boolean) => void
     onDelete: (cmd: any) => void
     onPreview: (name: string, desc: string | undefined, content: string | undefined, args: any[] | undefined, enabled: boolean, source: 'user' | 'plugin' | 'builtin') => void
 }) {
-    if (capabilities.length === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-                <X className="w-10 h-10 text-[var(--text-muted)]/30 mb-3"/>
-                <p className="text-sm text-[var(--text-secondary)]">
-                    {searchQuery ? '未找到匹配的命令' : '暂无本地命令，点击上方按钮新建'}
-                </p>
-            </div>
-        )
-    }
-
     return (
         <div className="p-2 space-y-1.5">
             <AnimatePresence initial={false}>
@@ -478,6 +492,53 @@ function LocalCommandCard({
     const {enabled, name, description, source} = capability
     const isUser = source === 'user'
 
+    const actions = (
+        <div
+            className="flex items-center gap-1.5"
+            onClick={e => e.stopPropagation()}
+            data-name="commands-dialog-row-actions">
+            {isUser && (
+                <>
+                    {userCommand?.filePath && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                window.electronAPI?.showItemInFolder?.(userCommand.filePath)
+                            }}
+                            className="p-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors"
+                            title="打开所在目录"
+                         data-name="commands-dialog-open-folder-button">
+                            <Folder className="w-4 h-4"/>
+                        </button>
+                    )}
+                    {onEdit && (
+                        <button
+                            onClick={e => { e.stopPropagation(); onEdit?.() }}
+                            className="p-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors"
+                            title="编辑"
+                         data-name="commands-dialog-edit-button">
+                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+                            </svg>
+                        </button>
+                    )}
+                    {onDelete && (
+                        <button
+                            onClick={e => { e.stopPropagation(); onDelete?.() }}
+                            className="p-1 text-[var(--text-muted)] hover:text-[var(--error)] transition-colors"
+                            title="删除"
+                         data-name="commands-dialog-delete-button">
+                            <Trash2 className="w-4 h-4"/>
+                        </button>
+                    )}
+                </>
+            )}
+            {onToggle && (
+                <Switch checked={enabled} onChange={onToggle}/>
+            )}
+        </div>
+    )
+
     return (
         <motion.div
             layout
@@ -486,71 +547,19 @@ function LocalCommandCard({
         >
             <div
                 onClick={onPreview}
-                className={`rounded-xl border transition-all cursor-pointer overflow-hidden ${
-                    enabled
-                        ? 'bg-[var(--surface)] border-[var(--border)] hover:border-[var(--border-muted)]'
-                        : 'bg-[var(--surface)] border-[var(--border)] opacity-60'
-                }`}
+                className={clsx('cursor-pointer', !enabled && 'opacity-60')}
              data-name="commands-dialog-div">
-                <div className="p-3">
-                    {/* Title Row */}
-                    <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1 min-w-0">
-                            <span className={`text-sm font-semibold truncate ${
-                                enabled ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'
-                            }`}>
-                                {name}
-                            </span>
+                <CapabilityCard
+                    title={name}
+                    description={description}
+                    badges={
+                        <>
                             <CopyButton name={name}/>
                             <SourceBadge source={source}/>
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()} data-name="commands-dialog-row-actions">
-                            {isUser && (
-                                <>
-                                    {userCommand?.filePath && (
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                window.electronAPI?.showItemInFolder?.(userCommand.filePath)
-                                            }}
-                                            className="p-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors"
-                                            title="打开所在目录"
-                                         data-name="commands-dialog-open-folder-button">
-                                            <Folder className="w-4 h-4"/>
-                                        </button>
-                                    )}
-                                    {onEdit && (
-                                        <button
-                                            onClick={e => { e.stopPropagation(); onEdit?.() }}
-                                            className="p-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors"
-                                            title="编辑"
-                                         data-name="commands-dialog-edit-button">
-                                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
-                                            </svg>
-                                        </button>
-                                    )}
-                                    {onDelete && (
-                                        <button
-                                            onClick={e => { e.stopPropagation(); onDelete?.() }}
-                                            className="p-1 text-[var(--text-muted)] hover:text-[var(--error)] transition-colors"
-                                            title="删除"
-                                         data-name="commands-dialog-delete-button">
-                                            <Trash2 className="w-4 h-4"/>
-                                        </button>
-                                    )}
-                                </>
-                            )}
-                            {onToggle && (
-                                <Switch checked={enabled} onChange={onToggle}/>
-                            )}
-                        </div>
-                    </div>
-                    {/* Description */}
-                    {description && (
-                        <p className="text-sm text-[var(--text-secondary)] mt-1.5 line-clamp-2">{description}</p>
-                    )}
-                </div>
+                        </>
+                    }
+                    actions={actions}
+                />
             </div>
         </motion.div>
     )
@@ -561,129 +570,62 @@ function LocalCommandCard({
 function PluginGroupList({
                              groups,
                              pluginCommandOverrides,
+                             collapsedGroups,
+                             onToggleCollapse,
                              onToggle,
                              onBatchToggle,
                              onPreview,
                          }: {
     groups: PluginGroupData[]
     pluginCommandOverrides: Record<string, { enabled: boolean; edited?: boolean }>
+    collapsedGroups: Record<string, boolean>
+    onToggleCollapse: (pluginName: string) => void
     onToggle: (cmd: PluginCapability, enabled: boolean) => void
     onBatchToggle: (group: PluginGroupData, targetEnabled: boolean) => void
     onPreview: (name: string, desc: string | undefined, content: string | undefined, args: any[] | undefined, enabled: boolean, source: 'user' | 'plugin' | 'builtin') => void
 }) {
-    if (groups.length === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-                <X className="w-10 h-10 text-[var(--text-muted)]/30 mb-3"/>
-                <p className="text-sm text-[var(--text-secondary)]">暂无插件命令</p>
-            </div>
-        )
-    }
-
     return (
         <div className="p-2 space-y-3">
             <AnimatePresence initial={false}>
-                {groups.map(group => (
-                    <PluginGroupCard
-                        key={group.pluginName}
-                        group={group}
-                        pluginCommandOverrides={pluginCommandOverrides}
-                        onToggle={onToggle}
-                        onBatchToggle={onBatchToggle}
-                        onPreview={onPreview}
-                    />
-                ))}
+                {groups.map(group => {
+                    const allEnabled = group.commands.every(cmd => {
+                        const overrideState = pluginCommandOverrides[cmd.id]
+                        return overrideState ? overrideState.enabled !== false : true
+                    })
+                    return (
+                        <PluginGroupCard
+                            key={group.pluginName}
+                            title={group.pluginName}
+                            countLabel={`${group.commands.length} 个命令`}
+                            collapsed={collapsedGroups[group.pluginName] ?? true}
+                            onToggleCollapse={() => onToggleCollapse(group.pluginName)}
+                            allEnabled={allEnabled}
+                            onToggleBatch={() => onBatchToggle(group, !allEnabled)}
+                            headerDataName="commands-dialog-plugin-group-header"
+                            batchDataName="commands-dialog-batch-toggle-button"
+                        >
+                            <div className="border-t border-[var(--border-muted)]">
+                                {group.commands.map(cmd => {
+                                    const overrideState = pluginCommandOverrides[cmd.id]
+                                    const isEnabled = overrideState ? overrideState.enabled !== false : true
+                                    return (
+                                        <PluginCommandCard
+                                            key={cmd.id}
+                                            command={cmd}
+                                            isEnabled={isEnabled}
+                                            onToggle={(enabled) => onToggle(cmd, enabled)}
+                                            onPreview={() => onPreview(
+                                                cmd.name, cmd.description, cmd.content, cmd.args, isEnabled, 'plugin'
+                                            )}
+                                        />
+                                    )
+                                })}
+                            </div>
+                        </PluginGroupCard>
+                    )
+                })}
             </AnimatePresence>
         </div>
-    )
-}
-
-// ─── 插件分组卡片 ─────────────────────────────────────
-
-function PluginGroupCard({
-                             group,
-                             pluginCommandOverrides,
-                             onToggle,
-                             onBatchToggle,
-                             onPreview,
-                         }: {
-    group: PluginGroupData
-    pluginCommandOverrides: Record<string, { enabled: boolean; edited?: boolean }>
-    onToggle: (cmd: PluginCapability, enabled: boolean) => void
-    onBatchToggle: (group: PluginGroupData, targetEnabled: boolean) => void
-    onPreview: (name: string, desc: string | undefined, content: string | undefined, args: any[] | undefined, enabled: boolean, source: 'user' | 'plugin' | 'builtin') => void
-}) {
-    const [collapsed, setCollapsed] = useState(true)
-
-    const allEnabled = group.commands.every(cmd => {
-        const overrideState = pluginCommandOverrides[cmd.id]
-        return overrideState ? overrideState.enabled !== false : true
-    })
-
-    return (
-        <motion.div
-            layout
-            {...dropdown}
-            transition={{duration: 0.15}}
-            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden"
-        >
-            {/* Plugin header */}
-            <div
-                className="flex items-center justify-between px-3 py-2 bg-[var(--surface-muted)] cursor-pointer select-none"
-                onClick={() => setCollapsed(c => !c)}
-             data-name="commands-dialog-plugin-group-header">
-                <div className="flex items-center gap-2">
-                    <Folder className="w-4 h-4 text-[var(--brand-primary)]"/>
-                    <span className="text-xs font-semibold text-[var(--text-primary)]">{group.pluginName}</span>
-                    <span className="text-[10px] text-[var(--text-secondary)]">{group.commands.length} 个命令</span>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                        onClick={async e => {
-                            e.stopPropagation()
-                            await onBatchToggle(group, !allEnabled)
-                        }}
-                        className="text-[10px] font-medium text-[var(--brand-primary)] hover:text-[var(--brand-primary)]/80 transition-colors flex-shrink-0"
-                     data-name="commands-dialog-batch-toggle-button">
-                        {allEnabled ? '全部禁用' : '全部启用'}
-                    </button>
-                    <ChevronDown
-                        className={`w-4 h-4 text-[var(--text-muted)] transition-transform duration-300 ${collapsed ? '' : 'rotate-180'}`}
-                    />
-                </div>
-            </div>
-
-            {/* Commands list */}
-            <AnimatePresence initial={false}>
-                {!collapsed && (
-                    <motion.div
-                        initial={{opacity: 0, height: 0}}
-                        animate={{opacity: 1, height: 'auto'}}
-                        exit={{opacity: 0, height: 0}}
-                        transition={{duration: 0.2, ease: 'easeInOut'}}
-                        style={{overflow: 'hidden'}}
-                    >
-                        <div className="border-t border-[var(--border-muted)]">
-                            {group.commands.map(cmd => {
-                                const overrideState = pluginCommandOverrides[cmd.id]
-                                const isEnabled = overrideState ? overrideState.enabled !== false : true
-                                return (
-                                    <PluginCommandCard
-                                        key={cmd.id}
-                                        command={cmd}
-                                        isEnabled={isEnabled}
-                                        onToggle={(enabled) => onToggle(cmd, enabled)}
-                                        onPreview={() => onPreview(
-                                            cmd.name, cmd.description, cmd.content, cmd.args, isEnabled, 'plugin'
-                                        )}
-                                    />
-                                )
-                            })}
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </motion.div>
     )
 }
 
@@ -700,6 +642,15 @@ function PluginCommandCard({
     onToggle: (enabled: boolean) => void
     onPreview: () => void
 }) {
+    const actions = (
+        <div
+            className="flex items-center gap-1"
+            onClick={e => e.stopPropagation()}
+            data-name="commands-dialog-command-actions">
+            <Switch checked={isEnabled} onChange={onToggle}/>
+        </div>
+    )
+
     return (
         <motion.div
             layout
@@ -708,43 +659,32 @@ function PluginCommandCard({
         >
             <div
                 onClick={onPreview}
-                className={`flex items-center gap-3 px-4 py-2.5 mx-1 rounded-md transition-colors cursor-pointer
-                            ${isEnabled ? 'hover:bg-[var(--surface-muted)]' : 'opacity-50'}`}
+                className={clsx('mx-1 cursor-pointer', !isEnabled && 'opacity-50')}
              data-name="commands-dialog-plugin-command-card">
-                {/* Icon */}
-                <span className={`flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-xs
-                               ${isEnabled
-                                   ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
-                                   : 'bg-[var(--surface)] text-[var(--text-muted)]'
-                               }`}>
-                    <CommandIcon className="w-4 h-4"/>
-                </span>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1">
-                    <span className={`text-sm font-semibold truncate ${
-                        isEnabled ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'
-                    }`}>
-                        {command.name}
-                    </span>
-                        <CopyButton name={command.name}/>
-                        <SourceBadge source="plugin"/>
-                        {!isEnabled && (
-                            <span className="text-[10px] px-1 py-0.5 rounded bg-[var(--error)]/10 text-[var(--error)]">
-                                已禁用
+                <CapabilityCard
+                    title={
+                        <span className="flex min-w-0 items-center gap-2">
+                            <span className={clsx(
+                                'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg',
+                                isEnabled
+                                    ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
+                                    : 'bg-[var(--surface-muted)] text-[var(--text-muted)]',
+                            )}>
+                                <CommandIcon className="w-3.5 h-3.5"/>
                             </span>
-                        )}
-                    </div>
-                    {command.description && (
-                        <div className="text-[11px] text-[var(--text-secondary)] truncate mt-0.5">{command.description}</div>
-                    )}
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()} data-name="commands-dialog-command-actions">
-                    <Switch checked={isEnabled} onChange={onToggle}/>
-                </div>
+                            <span className="truncate">{command.name}</span>
+                        </span>
+                    }
+                    description={command.description}
+                    badges={
+                        <>
+                            <CopyButton name={command.name}/>
+                            <SourceBadge source="plugin"/>
+                            {!isEnabled && <StatusBadge enabled={false}/>}
+                        </>
+                    }
+                    actions={actions}
+                />
             </div>
         </motion.div>
     )
@@ -756,7 +696,7 @@ function SourceBadge({source}: { source: 'builtin' | 'user' | 'plugin' }) {
     const config: Record<string, { label: string; className: string }> = {
         builtin: {
             label: '内置',
-            className: 'bg-[var(--info)]/10 text-[var(--info)]',
+            className: 'bg-[color-mix(in_srgb,var(--info)_10%,transparent)] text-[var(--info)]',
         },
         user: {
             label: '用户',
@@ -764,7 +704,7 @@ function SourceBadge({source}: { source: 'builtin' | 'user' | 'plugin' }) {
         },
         plugin: {
             label: '插件',
-            className: 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]',
+            className: 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]',
         },
     }
     const {label, className} = config[source] || {label: source, className: 'bg-[var(--surface)] text-[var(--text-muted)]'}
@@ -782,117 +722,101 @@ function CommandPreviewModal({command, onClose}: {
     onClose: () => void
 }) {
     return (
-        <div
-            className="fixed inset-0 z-[100] flex items-center justify-center"
-            onClick={() => onClose()}
-         data-name="commands-dialog-preview-overlay">
-            <div className="absolute inset-0 bg-black/50"/>
-            <div
-                onClick={e => e.stopPropagation()}
-                className="relative w-[580px] max-h-[85vh] bg-[var(--surface)] rounded-xl shadow-elevated border border-[var(--border)] flex flex-col overflow-hidden"
-             data-name="commands-dialog-preview-panel">
-                {/* Header */}
-                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border-muted)] flex items-center justify-between">
-                    <div className="flex items-center gap-3 min-w-0">
-                        <span className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-xs font-bold ${
-                            command.enabled
-                                ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
-                                : 'bg-[var(--surface)] text-[var(--text-muted)]'
-                        }`}>
-                            <CommandIcon className="w-4 h-4"/>
-                        </span>
-                        <div className="min-w-0">
-                            <h3 className="text-sm font-semibold text-[var(--text-primary)] truncate">
-                                {command.name}
-                            </h3>
-                            <SourceBadge source={command.source}/>
-                        </div>
+        <Modal open onClose={onClose} size="md" ariaLabel={`命令预览：${command.name}`}>
+            {/* Header */}
+            <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border-muted)] flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                    <span className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-xs font-bold ${
+                        command.enabled
+                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
+                            : 'bg-[var(--surface)] text-[var(--text-muted)]'
+                    }`}>
+                        <CommandIcon className="w-4 h-4"/>
+                    </span>
+                    <div className="min-w-0">
+                        <h3 className="text-sm font-semibold text-[var(--text-primary)] truncate">
+                            {command.name}
+                        </h3>
+                        <SourceBadge source={command.source}/>
                     </div>
-                    <button
-                        onClick={() => onClose()}
-                        className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded transition-colors"
-                     data-name="commands-dialog-preview-close-button">
-                        <X className="w-4 h-4"/>
-                    </button>
                 </div>
+                <button
+                    onClick={() => onClose()}
+                    className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] rounded transition-colors"
+                 data-name="commands-dialog-preview-close-button">
+                    <X className="w-4 h-4"/>
+                </button>
+            </div>
 
-                {/* Body */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5">
-                    {command.description && (
-                        <div className="space-y-1.5">
-                            <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
-                                描述
-                            </label>
-                            <p className="text-sm text-[var(--text-primary)] leading-relaxed">
-                                {command.description}
-                            </p>
-                        </div>
-                    )}
-
-                    {command.args && command.args.length > 0 && (
-                        <div className="space-y-1.5">
-                            <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
-                                参数 ({command.args.length})
-                            </label>
-                            <div className="space-y-1.5">
-                                {command.args.map((arg: any, i: number) => (
-                                    <div key={i} className="flex items-center gap-2 text-sm">
-                                        <code className="px-1.5 py-0.5 rounded text-xs font-mono bg-[var(--surface-muted)] text-[var(--brand-primary)]">
-                                            {arg.name}
-                                        </code>
-                                        {arg.description && (
-                                            <span className="text-xs text-[var(--text-secondary)]">{arg.description}</span>
-                                        )}
-                                        {arg.required && (
-                                            <span className="text-[10px] text-[var(--error)]">必填</span>
-                                        )}
-                                        {arg.default !== undefined && (
-                                            <span className="text-[10px] text-[var(--text-secondary)]">
-                                                默认: {arg.default}
-                                            </span>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5">
+                {command.description && (
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
-                            内容 (Content)
+                            描述
                         </label>
-                        <div className="rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] p-3 max-h-64 overflow-y-auto custom-scrollbar">
-                            <pre className="text-xs font-mono text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap break-words">
-                                {command.content || '(空)'}
-                            </pre>
+                        <p className="text-sm text-[var(--text-primary)] leading-relaxed">
+                            {command.description}
+                        </p>
+                    </div>
+                )}
+
+                {command.args && command.args.length > 0 && (
+                    <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                            参数 ({command.args.length})
+                        </label>
+                        <div className="space-y-1.5">
+                            {command.args.map((arg: any, i: number) => (
+                                <div key={i} className="flex items-center gap-2 text-sm">
+                                    <code className="px-1.5 py-0.5 rounded text-xs font-mono bg-[var(--surface-muted)] text-[var(--brand-primary)]">
+                                        {arg.name}
+                                    </code>
+                                    {arg.description && (
+                                        <span className="text-xs text-[var(--text-secondary)]">{arg.description}</span>
+                                    )}
+                                    {arg.required && (
+                                        <span className="text-[10px] text-[var(--error)]">必填</span>
+                                    )}
+                                    {arg.default !== undefined && (
+                                        <span className="text-[10px] text-[var(--text-secondary)]">
+                                            默认: {arg.default}
+                                        </span>
+                                    )}
+                                </div>
+                            ))}
                         </div>
                     </div>
+                )}
 
-                    <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
-                            状态
-                        </label>
-                        <span className={clsx(
-                            "inline-flex items-center rounded px-2 py-1 text-[11px] font-semibold",
-                            command.enabled
-                                ? "bg-[var(--tag-dev-bg)] text-[var(--tag-dev-text)] ring-1 ring-inset ring-[var(--tag-dev-border)]"
-                                : "bg-[var(--surface-muted)] text-[var(--text-muted)] ring-1 ring-inset ring-[var(--border)]"
-                        )}>
-                            {command.enabled ? '已启用' : '已禁用'}
-                        </span>
+                <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                        内容 (Content)
+                    </label>
+                    <div className="rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] p-3 max-h-64 overflow-y-auto custom-scrollbar">
+                        <pre className="text-xs font-mono text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap break-words">
+                            {command.content || '(空)'}
+                        </pre>
                     </div>
                 </div>
 
-                {/* Footer */}
-                <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-t border-[var(--border-muted)] flex items-center justify-end">
-                    <button
-                        onClick={() => onClose()}
-                        className="px-4 py-2 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-all"
-                     data-name="commands-dialog-preview-footer-close-button">
-                        关闭
-                    </button>
+                <div className="space-y-1.5">
+                    <label className="block text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                        状态
+                    </label>
+                    <StatusBadge enabled={command.enabled}/>
                 </div>
             </div>
-        </div>
+
+            {/* Footer */}
+            <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-t border-[var(--border-muted)] flex items-center justify-end">
+                <button
+                    onClick={() => onClose()}
+                    className="px-4 py-2 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-all"
+                 data-name="commands-dialog-preview-footer-close-button">
+                    关闭
+                </button>
+            </div>
+        </Modal>
     )
 }

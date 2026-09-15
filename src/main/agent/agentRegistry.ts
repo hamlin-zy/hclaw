@@ -4,6 +4,7 @@
 
 import type {AgentTemplate} from '@shared/types'
 import type {ICapabilityRegistry} from '../common/registry'
+import {extractPluginName} from '../common/pluginOwnership'
 
 class AgentRegistryImpl implements ICapabilityRegistry<AgentTemplate> {
     private agents: Map<string, AgentTemplate> = new Map()
@@ -83,8 +84,8 @@ class AgentRegistryImpl implements ICapabilityRegistry<AgentTemplate> {
      */
     syncPluginStatus(pluginName: string, enabled: boolean): void {
         for (const agent of this.agents.values()) {
-            const pluginTag = agent.tags?.find(tag => tag.startsWith('plugin:'))
-            if (pluginTag?.replace('plugin:', '') === pluginName) {
+            // 归属统一由 pluginOwnership 解析（tag plugin:<name>）
+            if (extractPluginName({kind: 'agent', id: agent.id, tags: agent.tags}) === pluginName) {
                 agent.enabled = enabled
             }
         }

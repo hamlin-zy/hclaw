@@ -630,36 +630,32 @@ describe('FileTree 未跟踪行徽章（R1 作用范围守卫）', () => {
   })
 })
 
-describe('FileTree 外部变更后补齐缓存（invalidateFrom → invalidateTick）', () => {
-  it('根目录被失效后自动重取，行不消失', async () => {
-    listDir.mockResolvedValue([fileEntry('a.ts', 'a.ts')])
-    render(<FileTree />)
-    expect(await screen.findByRole('treeitem', {name: 'a.ts'})).toBeInTheDocument()
-
-    listDir.mockClear()
-    act(() => { useFileTreeStore.getState().invalidateFrom('.') })
-    // 锁定 bug 现象：invalidateFrom 只清缓存不重取 → 根行在，子项消失
-    expect(screen.queryByRole('treeitem', {name: 'a.ts'})).toBeNull()
-
-    // 去抖 500ms 后应自动补齐根目录，行重新出现
-    await waitFor(() => expect(listDir).toHaveBeenCalledWith('/ws', '.'), {timeout: 2000})
-    expect(await screen.findByRole('treeitem', {name: 'a.ts'})).toBeInTheDocument()
-  })
-
-  it('已展开子目录被失效后自动重取，子项不消失', async () => {
+describe('FileTree 外部变更刷新不闪骨架屏（实时变更回归）', () => {
+  it('根已加载 + 子目录已展开时，连续 add/unlink 的原地刷新全程无骨架屏、既有行不卸载', async () => {
     listDir.mockImplementation(async (_ws: string, dir: string) =>
-      dir === '.' ? [dirEntry('src', 'src')] : [fileEntry('x.ts', 'src/x.ts')])
+      dir === '.' ? [dirEntry('src', 'src'), fileEntry('a.ts', 'a.ts')] : [fileEntry('x.ts', 'src/x.ts')])
     render(<FileTree />)
-    const srcRow = await screen.findByRole('treeitem', {name: 'src'})
-    fireEvent.click(srcRow.querySelector('[role="button"]')!)
-    expect(await screen.findByRole('treeitem', {name: 'x.ts'})).toBeInTheDocument()
+    await screen.findByRole('treeitem', {name: 'a.ts'})
+    fireEvent.click(screen.getByRole('treeitem', {name: 'src'}).querySelector('[role="button"]')!)
+    const xRow = await screen.findByRole('treeitem', {name: 'x.ts'})
 
-    listDir.mockClear()
-    act(() => { useFileTreeStore.getState().invalidateFrom('src') })
-    expect(screen.queryByRole('treeitem', {name: 'x.ts'})).toBeNull()
-
-    await waitFor(() => expect(listDir).toHaveBeenCalledWith('/ws', 'src'), {timeout: 2000})
-    expect(await screen.findByRole('treeitem', {name: 'x.ts'})).toBeInTheDocument()
+    // ⚠️ 本用例只是「store 原地写 → 渲染无骨架屏」的冒烟用例，**不承担本次（LRU 淘汰后仍展开）
+    // 回归防护职责**：它直接调 setChildren、从不经过 pm:file-changed 回调，新旧代码都不会出现
+    // 「缓存缺失窗口」，因此抓不住该回归。真正经过「事件 → handler → store → DOM」整条链路的
+    // 防护断言在 ProjectManagerApp.test.tsx（describe「文件树外部变更全链路」）。
+    // 这里把事件落地后的 store 写入直接投递出来，断言缓存始终存在 → 骨架屏一次都不得出现、
+    // 既有行不得被卸载（DOM 引用仍连接在文档树上）。
+    for (let i = 0; i < 20; i++) {
+      act(() => {
+        // 已有条目 x.ts 始终保留（原地替换后 key 不变 → 其行不得被卸载），每次多一个新增条目
+        useFileTreeStore.getState().setChildren(
+          'src', [fileEntry('x.ts', 'src/x.ts'), fileEntry(`f${i}.ts`, `src/f${i}.ts`)], '/ws')
+        useFileTreeStore.getState().setChildren('.', [dirEntry('src', 'src'), fileEntry('a.ts', 'a.ts')], '/ws')
+      })
+      expect(screen.queryByTestId('pm-filetree-loading')).toBeNull()
+      expect(xRow).toBeInTheDocument()
+      expect(screen.getByRole('treeitem', {name: 'a.ts'})).toBeInTheDocument()
+    }
   })
 })
 

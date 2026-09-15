@@ -76,20 +76,14 @@ export const PluginEvents = {
     INSTALLED: 'plugin:installed',
     /** 插件已卸载 */
     UNINSTALLED: 'plugin:uninstalled',
-    /** 插件配置已更新 */
-    CONFIG_UPDATED: 'plugin:config-updated',
 } as const
 
 /**
  * 能力相关事件类型
  */
 export const CapabilityEvents = {
-    /** 能力已加载 */
-    LOADED: 'capability:loaded',
     /** 能力已刷新 */
     REFRESHED: 'capability:refreshed',
-    /** 能力注册表已清空 */
-    CLEARED: 'capability:cleared',
 } as const
 
 /**

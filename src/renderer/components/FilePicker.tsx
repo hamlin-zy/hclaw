@@ -49,10 +49,14 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
     const [sel, setSel] = useState(0)
     const [badges, setBadges] = useState<string[]>([])
     const listRef = useRef<HTMLDivElement>(null)
+    // ★ 请求序号守卫：快速切换目录时旧响应可能晚于新响应返回，
+    //   用递增序号标记「当前有效请求」，过期响应一律丢弃（不 setEntries/setLoading）
+    const reqIdRef = useRef(0)
 
     const fullPath = currentNav ? `${ws}/${currentNav}` : ws ?? ''
 
     const loadDir = useCallback(async (dir: string) => {
+        const id = ++reqIdRef.current
         if (!dir) {
             setEntries([]);
             setLoading(false);
@@ -61,15 +65,17 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
         setLoading(true)
         try {
             const r = await window.electronAPI?.workspaceReadDir?.(dir)
+            if (id !== reqIdRef.current) return // 代际守卫：已被更新的目录请求取代
             const list: FileEntry[] = Array.isArray(r) ? r : []
             list.sort((a, b) => a.isDirectory === b.isDirectory
                 ? a.name.localeCompare(b.name)
                 : a.isDirectory ? -1 : 1)
             setEntries(list)
         } catch {
+            if (id !== reqIdRef.current) return
             setEntries([])
         } finally {
-            setLoading(false)
+            if (id === reqIdRef.current) setLoading(false)
         }
     }, [])
 
@@ -167,17 +173,17 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
             {/* 已选徽章 */}
             {badges.length > 0 && (
                 <div
-                    className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]/50">
+                    className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-[var(--border-muted)] bg-[color-mix(in_srgb,var(--surface-muted)_50%,transparent)]">
                     {badges.map((n, i) => (
                         <span key={n}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 text-[var(--brand-primary)]">
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] border border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] text-[var(--brand-primary)]">
               <AttachmentIcon className="w-3 h-3"/><span>{n}</span>
               <button onClick={() => setBadges(p => p.filter(x => x !== n))}
-                      className="w-3.5 h-3.5 rounded-full bg-[var(--brand-primary)]/20 hover:bg-red-500/30 flex items-center justify-center text-[9px] transition-colors" data-name={`file-picker-badge-remove-${i}`}><RemoveIcon className="w-2.5 h-2.5"/></button>
+                      className="w-3.5 h-3.5 rounded-full bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] hover:bg-red-500/30 flex items-center justify-center text-[9px] transition-colors" data-name={`file-picker-badge-remove-${i}`}><RemoveIcon className="w-2.5 h-2.5"/></button>
             </span>
                     ))}
                     <button onClick={() => onConfirm(badges.map(n => `[${n}]`).join(' ') + ' ')}
-                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[var(--brand-primary)] text-white hover:bg-[var(--brand-primary)]/90 transition-colors" data-name="file-picker-insert-badges-button">
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-[var(--brand-primary)] text-white hover:bg-[color-mix(in_srgb,var(--brand-primary)_85%,black)] transition-colors" data-name="file-picker-insert-badges-button">
                         确认 ({badges.length})
                     </button>
                 </div>
@@ -200,7 +206,7 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
                     <div key={e.path} data-fi={i}
                          onClick={() => e.isDirectory ? (onNavigate(e.name), setBadges([])) : toggleBadge(e.name)}
                          className={`mx-1 px-2.5 py-2 rounded-lg cursor-pointer flex items-center gap-2.5 transition-colors
-              ${i === sel ? 'bg-[var(--brand-primary)]/15 border-l-2 border-l-[var(--brand-primary)]' : 'hover:bg-[var(--surface-muted)]'}`}
+              ${i === sel ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] border-l-2 border-l-[var(--brand-primary)]' : 'hover:bg-[var(--surface-muted)]'}`}
                      data-name="file-picker-div">
                         <span className="text-base shrink-0"><FileGlyph className="w-4 h-4"/></span>
                         <span
@@ -209,7 +215,7 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
               {e.isDirectory &&
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#a855f7]/10 text-[#a855f7]">目录</span>}
                             {badges.includes(e.name) && <span
-                                className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]">已选</span>}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]">已选</span>}
                             {i === sel && <span
                                 className="text-[10px] text-[var(--text-secondary)]">{e.isDirectory ? 'Tab 进入' : 'Tab 选中'}</span>}
             </span>

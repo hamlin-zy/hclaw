@@ -1,5 +1,14 @@
 export {}
 
+/** 启动能力初始化进度负载：主进程广播帧与 `getInitProgress` 快照共用同一形状 */
+interface InitProgressPayload {
+    stage: string
+    done: number
+    total: number
+    finished: boolean
+    completed: boolean
+}
+
 declare global {
   interface Window {
     electronAPI?: {
@@ -11,6 +20,10 @@ declare global {
         isDarwin: boolean
         // 开发模式标识（主进程判定，经 additionalArguments 透传；控制调试类 UI 如"复制会话 ID"）
         isDevMode: boolean
+        // 冷启动观测：向主进程投递打点（fire-and-forget）
+        startup?: {
+            mark: (label: string, data?: Record<string, unknown>) => void
+        }
 
       // Window control
       getAppVersion: () => Promise<string>
@@ -361,6 +374,13 @@ declare global {
             getAvailableVersions: (serverId: string) => Promise<string[]>
             switchVersion: (serverId: string, version: string) => Promise<{ success: boolean; error?: string }>
             onMcpStatusUpdate: (callback: (data: any) => void) => () => void
+        }
+
+        // 启动能力初始化进度（主进程广播，纯展示）
+        system?: {
+            onInitProgress: (callback: (payload: InitProgressPayload) => void) => () => void
+            /** 拉取最后一帧进度快照（补齐挂载前丢失的帧） */
+            getInitProgress: () => Promise<InitProgressPayload | null>
         }
 
         // 系统提示词构建（用于测试）
@@ -782,6 +802,7 @@ declare global {
                 bySource: Record<'builtin' | 'user' | 'plugin', number>
             }>
             get: (id: string) => Promise<import('./capabilityTypes').CapabilityEntry | null>
+            onCapabilityChanged: (callback: (data: { seq: number }) => void) => () => void
         }
 
     }

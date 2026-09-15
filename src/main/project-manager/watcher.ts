@@ -1,13 +1,15 @@
 // src/main/project-manager/watcher.ts
 import chokidar, {type FSWatcher} from 'chokidar'
 import {statSync, watch as fsWatch} from 'fs'
-import {isAbsolute, join, relative} from 'path'
+import {isAbsolute, join, relative, resolve} from 'path'
 import {getGitStatusCached, invalidateStatusCache} from './git/status'
 import {gitExec} from './git/gitExec'
 
 /** 主进程 → 渲染进程的推送回调（window.ts 里绑定到具体窗口） */
 type SendToWindow = (channel: string, workspace: string, data: unknown) => void
 
+// key 一律用 resolve(workspace)（见 startWatcher 注释）：同一目录的两种写法（`E:\ws` / `E:\ws\`）
+// 必须落到同一条目，否则 refs 永不归零 → chokidar 实例与 OS 句柄成倍、Map key 永久残留。
 const watchers = new Map<string, {watcher: FSWatcher, refs: number, dispose?: () => void}>()
 
 const IGNORED = [
@@ -127,7 +129,7 @@ export function watchRefDirs(commonDir: string, onChange: () => void): {close: (
       watchOne(dir)
     }, delay)
     // 轮询不应单独阻止进程退出
-    t.unref?.()
+    t.unref()
     rebuildTimers.set(dir, t)
   }
 
@@ -169,6 +171,7 @@ export function watchRefDirs(commonDir: string, onChange: () => void): {close: (
       closed = true
       for (const t of rebuildTimers.values()) clearTimeout(t)
       rebuildTimers.clear()
+      attempts.clear()
       for (const dir of [...watchers.keys()]) closeOne(dir)
     },
   }
@@ -243,7 +246,10 @@ async function startGitWatcher(
 }
 
 export function startWatcher(workspace: string, sendToWindow: SendToWindow): void {
-  const existing = watchers.get(workspace)
+  // key 归一化（与 fileSystem.ts 的 gitRepoCache 同一约定）。只归一化 key：
+  // chokidar 的 root 与 relative() 基准仍用原始 workspace，推送路径/行为保持不变。
+  const key = resolve(workspace)
+  const existing = watchers.get(key)
   if (existing) {
     existing.refs += 1
     return
@@ -283,7 +289,7 @@ export function startWatcher(workspace: string, sendToWindow: SendToWindow): voi
     if (closed) { void gw.close(); return }
     gitWatcher = gw
   }).catch(() => {})   // 非 git 仓库已在内部返回 null，这里只是兜底
-  watchers.set(workspace, {watcher, refs: 1, dispose: () => {
+  watchers.set(key, {watcher, refs: 1, dispose: () => {
     closed = true
     if (timer) {
       clearTimeout(timer)
@@ -297,16 +303,18 @@ export function startWatcher(workspace: string, sendToWindow: SendToWindow): voi
 }
 
 export async function stopWatcher(workspace: string): Promise<void> {
-  const entry = watchers.get(workspace)
+  // 与 startWatcher 用同一归一化 key，否则递减落到不存在的条目上 → refcount 失衡、句柄不释放
+  const key = resolve(workspace)
+  const entry = watchers.get(key)
   if (!entry) return
   entry.refs -= 1
   if (entry.refs <= 0) {
     entry.dispose?.()   // 内部同时关闭 git 内部 watcher
     await entry.watcher.close()
-    watchers.delete(workspace)
+    watchers.delete(key)
   }
 }
 
 export function getWatcherCount(workspace: string): number {
-  return watchers.has(workspace) ? 1 : 0
+  return watchers.has(resolve(workspace)) ? 1 : 0
 }

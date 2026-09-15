@@ -8,7 +8,7 @@ export function registerMemorySource(name: string, fn: SourceFn): () => void {
     return () => {sources.delete(name)}
 }
 
-export function collectWatermark(): Record<string, number> {
+function collectWatermark(): Record<string, number> {
     const perf = performance as any
     const out: Record<string, number> = perf.memory
         ? {heapUsedMB: Math.round(perf.memory.usedJSHeapSize / 1048576)}

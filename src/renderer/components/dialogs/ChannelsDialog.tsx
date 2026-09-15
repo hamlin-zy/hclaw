@@ -92,7 +92,7 @@ function ConfigFields({channel, savedConfig, onSave}: {
                     <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">{f.label}</label>
                     <input type={f.secret ? 'password' : 'text'} value={fields[f.key] || ''}
                            onChange={e => change(f.key, e.target.value)} placeholder={f.placeholder}
-                           className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/20" data-name="channels-dialog-input"/>
+                           className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] dark-all:focus:ring-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]" data-name="channels-dialog-input"/>
                 </div>
             ))}
             <button onClick={() => {
@@ -245,16 +245,32 @@ export default function ChannelsDialog() {
     const [expandedType, setExpandedType] = useState<ChannelType | null>(null)
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
     const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 连接成功后延迟刷新列表的定时器：与 toastTimer 分开持有。
+    // 二者语义不同（toast 是「后一条覆盖前一条」，刷新是待执行的业务动作），
+    // 复用同一 ref 会互相 clearTimeout：扫码登录成功时会把待触发的 clearToast 清掉
+    // 导致 toast 永久驻留，反之也会把待触发的 loadChannels 清掉导致列表不刷新。
+    const loadTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     // 清除 toast 定时器
     const clearToast = () => {
-        if (toastTimer.current) clearTimeout(toastTimer.current)
+        if (toastTimer.current) {
+            clearTimeout(toastTimer.current)
+            toastTimer.current = null
+        }
         setToast(null)
     }
 
     useEffect(() => {
         loadChannels()
     }, [loadChannels])
+
+    // 卸载兜底：清除未触发的 toast / 加载定时器
+    useEffect(() => {
+        return () => {
+            if (toastTimer.current) clearTimeout(toastTimer.current)
+            if (loadTimer.current) clearTimeout(loadTimer.current)
+        }
+    }, [])
 
     const getChannel = useCallback((type: ChannelType): ChannelConfig | undefined =>
         channels.find(c => c.type === type), [channels])
@@ -270,7 +286,8 @@ export default function ChannelsDialog() {
 
         if (result.success) {
             setToast({message: '配置已保存', type: 'success'})
-            setTimeout(clearToast, 2000)
+            if (toastTimer.current) clearTimeout(toastTimer.current)
+            toastTimer.current = setTimeout(clearToast, 2000)
 
             // 保存成功后自动尝试连接（保存到 DB 后自动启动）
             // 注意：ChannelManager 已在应用启动时自动连接 enabled=true 的渠道，
@@ -281,10 +298,12 @@ export default function ChannelsDialog() {
                     const startResult: any = await (window as any).electronAPI?.channel?.startWorker?.(channelId)
                     if (startResult?.success) {
                         setToast({message: '正在连接...', type: 'success'})
-                        setTimeout(clearToast, 2000)
+                        if (toastTimer.current) clearTimeout(toastTimer.current)
+                        toastTimer.current = setTimeout(clearToast, 2000)
                     } else {
                         setToast({message: `连接失败: ${startResult?.error || '未知错误'}`, type: 'error'})
-                        setTimeout(clearToast, 3000)
+                        if (toastTimer.current) clearTimeout(toastTimer.current)
+                        toastTimer.current = setTimeout(clearToast, 3000)
                     }
                 } catch {
                     // 静默，不影响保存成功提示
@@ -292,7 +311,8 @@ export default function ChannelsDialog() {
             }
         } else {
             setToast({message: `保存失败: ${result.error || '未知错误'}`, type: 'error'})
-            setTimeout(clearToast, 3000)
+            if (toastTimer.current) clearTimeout(toastTimer.current)
+            toastTimer.current = setTimeout(clearToast, 3000)
         }
     }
 
@@ -303,8 +323,9 @@ export default function ChannelsDialog() {
     }
 
     const handleConnected = useCallback(() => {
-        // 登录成功后刷新列表
-        setTimeout(() => loadChannels(), 500)
+        // 登录成功后刷新列表（用独立 loadTimer，避免被 toast 的 clearTimeout 误清）
+        if (loadTimer.current) clearTimeout(loadTimer.current)
+        loadTimer.current = setTimeout(() => loadChannels(), 500)
     }, [loadChannels])
 
     return (

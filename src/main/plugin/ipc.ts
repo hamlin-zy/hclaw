@@ -19,6 +19,7 @@ import {skillRegistry} from '../agent/skills';
 import {buildSkillCommandTemplate} from '../agent/skills/guidance';
 import {serializeSkills} from '../agent/skills/loader';
 import {agentRegistry} from '../agent/agentRegistry';
+import {extractPluginName} from '../common/pluginOwnership';
 import {resolveEntityCommand, buildAgentCommandTemplate} from '../agent/entityCommandResolver';
 import {mcpService} from '../services/mcpService';
 import {getHclawDir} from '../config';
@@ -37,7 +38,7 @@ import {getUserCommandStore, UpsertPluginOverrideInput, UserCommandData} from '.
 import {getPresetCommand, getPresetCommandMarkdownFiles, commandToMarkdown} from '../command/presetCommands';
 import {loadCommands, getCommandsDir} from '../agent/commandLoader';
 import type {CommandDefinition} from '@shared/types';
-import {getCommandNameError} from '@shared/commandName';
+import {getCommandNameError, DUPLICATE_COMMAND_NAME_ERROR} from '@shared/commandName';
 import {versionManager} from './versionManager';
 import type {VersionInfo, SwitchResult} from './versionManager';
 import {broadcastToOtherWindows} from '../utils/windowBroadcast';
@@ -47,6 +48,26 @@ const logger = createLogger('plugin')
 /** 统一错误格式化 */
 function asError(err: unknown): string {
     return err instanceof Error ? err.message : String(err)
+}
+
+/**
+ * 在命令目录中查找同名命令文件（`${name}.md`），返回其绝对路径，未命中返回 null。
+ *
+ * 大小写不敏感：Windows 文件名不区分大小写，`Foo.md` 与 `foo.md` 会互相覆盖。
+ * 目录不可读时按「未命中」处理，交由调用方后续的写入/存在性检查兜底。
+ */
+function findCommandFileByName(dir: string, name: string): string | null {
+    const target = `${name}.md`.toLowerCase()
+    try {
+        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.isFile() && entry.name.toLowerCase() === target) {
+                return path.join(dir, entry.name)
+            }
+        }
+    } catch {
+        // 目录不存在/不可读：视为无既有命令
+    }
+    return null
 }
 
 // Singleton instances
@@ -96,7 +117,7 @@ async function handleReset(
  * Initialize the plugin system components
  * Called once during main process startup
  */
-export function initializePluginSystem(): void {
+function initializePluginSystem(): void {
   if (initialized) {
     return;
   }
@@ -227,9 +248,8 @@ async function handleInstall(
     logger.info('install', {pluginName: loadedPlugin.name, path: result.path})
     registry.register(loadedPlugin);
 
-    // CRITICAL: Explicitly set enabled state to ensure in-memory state is correct
-    // This is necessary because loadSkillsFromPlugins() looks up plugins by directory name,
-    // and if the directory name doesn't match manifest.name, the lookup would fail
+    // 按规范插件 ID（manifest.name）显式置为启用：PluginRegistry 以 name 为键，
+    // 归属/启用判定统一走 common/pluginOwnership（目录名/路径仅作定位，不参与归属）。
     registry.updateEnabled(loadedPlugin.name, true);
     logger.debug('install', {pluginName: loadedPlugin.name, registryState: registry.getAll().map(p => `${p.name}=${p.enabled}`)})
 
@@ -309,6 +329,14 @@ async function refreshPowerManagerAndGetCapabilities(): Promise<{ skills: unknow
 }
 
 /**
+ * 刷新 CapabilityHub，使能力变更立即同步给所有窗口。
+ * 命令/命令覆盖的写 handler 统一走此入口，避免同构刷新块散落各处。
+ */
+async function refreshCapabilities(): Promise<void> {
+  await powerManager.refresh()
+}
+
+/**
  * Enable a plugin by name
  */
 async function handleEnable(
@@ -326,9 +354,9 @@ async function handleEnable(
   pluginsConfig = enablePluginInConfig(name, pluginsConfig);
   savePluginsConfig(pluginsConfig);
 
-  // 注：不需要手动调用 capabilityHub.onPluginStateChange，
-  // refreshPowerManagerAndGetCapabilities → powerManager.refresh → syncToCapabilityHub
-  // 会 clear + 重建整个 Hub，状态自然正确
+  // 注：不需要手动同步 Hub，refreshPowerManagerAndGetCapabilities → powerManager.refresh
+  // → syncToCapabilityHub → capabilityHub.replaceAll 会整表重建；归属/启用态统一由
+  // common/pluginOwnership 判定，状态自然正确
 
   const {skills, agents} = await refreshPowerManagerAndGetCapabilities();
   return { success: true, skills, agents };
@@ -352,7 +380,7 @@ async function handleDisable(
   pluginsConfig = disablePluginInConfig(name, pluginsConfig);
   savePluginsConfig(pluginsConfig);
 
-  // 注：不需要手动调用 capabilityHub.onPluginStateChange，同上
+  // 注：不需要手动同步 Hub，同上
 
   const {skills, agents} = await refreshPowerManagerAndGetCapabilities();
   return { success: true, skills, agents };
@@ -365,6 +393,9 @@ async function handleList(
   _event: IpcMainInvokeEvent,
   enabledOnly?: boolean
 ): Promise<LoadedPlugin[]> {
+  // ★ 版本缓存同步点：按当前注册表集合剔除已卸载/重命名插件的残留条目
+  //   （与 repo/ipc.ts 的 repoVersionManager.prune 等价；versionMap 自身无淘汰路径）
+  versionManager.prune(registry.getAll().map(p => p.name));
   if (enabledOnly) {
     return registry.getEnabled();
   }
@@ -681,14 +712,11 @@ function mapRegistryToCommands<T extends { id: string; name: string }>(
 async function handleGetAgentCommands(
     _event: IpcMainInvokeEvent
 ): Promise<Array<{ id: string; name: string; description: string }>> {
-    // 过滤掉禁用插件的 Agent（通过 tags 中 plugin:xxx 提取插件名，与 syncPluginStatus 保持一致）
+    // 过滤掉禁用插件的 Agent（归属统一由 pluginOwnership 解析，与 syncPluginStatus 保持一致）
     const disabledPlugins = PluginRegistry.getInstance().getDisabledNames()
     const eligibleAgents = agentRegistry.getEnabled().filter(a => {
-        const pluginTag = a.tags?.find(t => t.startsWith('plugin:'))
-        if (pluginTag) {
-            const pluginName = pluginTag.replace('plugin:', '')
-            if (disabledPlugins.has(pluginName)) return false
-        }
+        const pluginName = extractPluginName({kind: 'agent', id: a.id, tags: a.tags})
+        if (pluginName !== null && disabledPlugins.has(pluginName)) return false
         return true
     })
     return mapRegistryToCommands('agent', eligibleAgents,
@@ -827,7 +855,14 @@ async function handleCreateCommand(
     if (!filePath.startsWith(getCommandsDir())) {
       return {success: false, error: 'Invalid command name'}
     }
+    // 查重：目录内已存在同名文件（大小写不敏感）→ 拒绝，避免静默覆盖已有命令
+    if (findCommandFileByName(getCommandsDir(), input.name)) {
+      return {success: false, error: DUPLICATE_COMMAND_NAME_ERROR}
+    }
     fs.writeFileSync(filePath, markdown, 'utf-8')
+
+    await refreshCapabilities()
+
     return {success: true}
   } catch (err) {
     return {success: false, error: asError(err)}
@@ -857,6 +892,15 @@ async function handleUpdateCommand(
       return {success: false, error: 'Command not found'}
     }
 
+    // 改名冲突检查：目标名已被「另一个」命令文件占用 → 拒绝。
+    // 大小写不敏感的改名（Foo → foo，Windows 上同一文件）不算冲突。
+    if (updates.name !== undefined && updates.name !== commandName) {
+      const conflictPath = findCommandFileByName(cmdsDir, updates.name)
+      if (conflictPath && path.basename(conflictPath, '.md').toLowerCase() !== commandName.toLowerCase()) {
+        return {success: false, error: DUPLICATE_COMMAND_NAME_ERROR}
+      }
+    }
+
     // Read existing content and merge updates
     const existingContent = fs.readFileSync(filePath, 'utf-8')
     const match = existingContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/)
@@ -883,6 +927,8 @@ async function handleUpdateCommand(
     } else {
       fs.writeFileSync(filePath, newContent, 'utf-8')
     }
+
+    await refreshCapabilities()
 
     return {success: true}
   } catch (err) {
@@ -916,6 +962,8 @@ async function handleDeleteCommand(
       db.prepare('DELETE FROM command_overrides WHERE command_id = ?').run(commandName)
       saveDatabase()
     } catch { /* ignore db cleanup errors */ }
+
+    await refreshCapabilities()
 
     return {success: true}
   } catch (err) {
@@ -989,6 +1037,11 @@ async function handleImportCommands(
       imported++
     }
 
+    // 仅在实际写入新命令后刷新 CapabilityHub，避免无变更时的全量刷新
+    if (imported > 0) {
+      await refreshCapabilities()
+    }
+
     return {success: true, imported, skipped}
   } catch (err) {
     return {success: false, imported: 0, skipped: 0, error: asError(err)}
@@ -1056,6 +1109,9 @@ async function handleResetPresets(
             }
             fs.writeFileSync(filePath, content, 'utf-8')
         }
+
+        await refreshCapabilities()
+
         return {success: true}
     } catch (err) {
         return {success: false, error: asError(err)}
@@ -1100,6 +1156,9 @@ async function handleUpsertPluginCommandOverride(
 ): Promise<{ success: boolean; error?: string }> {
     try {
         getUserCommandStore().upsertPluginOverride(input);
+
+        await refreshCapabilities()
+
         return {success: true};
     } catch (err) {
         return {success: false, error: asError(err)};
@@ -1115,6 +1174,12 @@ async function handleDeletePluginCommandOverride(
 ): Promise<{ success: boolean; error?: string }> {
     try {
         const result = getUserCommandStore().deletePluginOverride(pluginCommandId);
+
+        // 仅在实际删除覆盖后刷新 CapabilityHub，避免无变更时的全量刷新
+        if (result) {
+            await refreshCapabilities()
+        }
+
         return {success: result};
     } catch (err) {
         return {success: false, error: asError(err)};

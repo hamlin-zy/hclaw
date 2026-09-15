@@ -23,6 +23,7 @@ import type {
 import {findDangerousPermissions} from './dangerousPatterns'
 import {createPermissionRepository} from '../../repositories'
 import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
+import {trace} from '../../startupTrace'
 
 /**
  * 权限上下文管理器（简化版，单一规则源）
@@ -46,6 +47,7 @@ export class PermissionRulesManager {
         if (this.isInitialized) return
         this.isInitialized = true
         await this.loadFromDatabase()
+        trace('perm:rules-loaded')
     }
 
     /**
@@ -98,10 +100,24 @@ export class PermissionRulesManager {
         return this.getContext()
     }
 
-    /** 应用权限更新（内存 + 落库） */
+    /**
+     * 应用权限更新（内存 + 落库）
+     *
+     * 无实际变化时跳过落库：启动路径上的 setMode('safe') 在 DB 已是 safe 时，
+     * transitionMode 直接返回原 context（同一引用），此时写库是纯冗余 ——
+     * 而首次写库会同步阻塞主进程事件循环（1GB 库实测 ~3.9s），
+     * 进而推迟渲染进程 spawn 与窗口首帧。语义上「内存不变 ⇒ 无需持久化」成立。
+     */
     async applyUpdate(update: PermissionUpdate): Promise<ToolPermissionContext> {
+        const before = this.context
         const context = await this.applyUpdateToContext(update)
+        trace('perm:update-applied')
+        if (this.context === before) {
+            trace('perm:save-skipped', {type: update.type})
+            return context
+        }
         await this.saveToDatabase(update)
+        trace('perm:saved')
         return context
     }
 
@@ -334,6 +350,7 @@ export class PermissionRulesManager {
         } catch (err) {
             logger.error('[PermissionRulesManager] saveToDatabase: failed to save rules', {error: err})
         }
+        trace('perm:rules-written')
 
         // 保存配置到 system_settings
         try {
@@ -353,6 +370,7 @@ export class PermissionRulesManager {
         } catch (err) {
             logger.error('[PermissionRulesManager] saveToDatabase: failed to save config', {error: err})
         }
+        trace('perm:settings-written')
     }
 
     /**

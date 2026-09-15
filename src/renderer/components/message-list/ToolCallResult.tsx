@@ -27,7 +27,7 @@ export default function ToolCallResult({output, toolCallName}: ToolCallResultPro
                 {toolCallName === 'file_edit' ? '执行结果' : '输出'}
             </span>
             <div
-                className="text-[11px] text-[var(--text-secondary)] max-h-64 overflow-y-auto p-2 mt-1 bg-[var(--success-muted)]/15 border border-[rgba(16,185,129,0.1)] rounded-md">
+                className="text-[11px] text-[var(--text-secondary)] max-h-64 overflow-y-auto p-2 mt-1 bg-[var(--success-muted)] border border-[rgba(16,185,129,0.1)] rounded-md">
                 <MarkdownRenderer>{toolCallName === 'agent' ? output : truncate(output, 4000)}</MarkdownRenderer>
             </div>
             {/* 音频预览播放器（当输出包含音频 URL 时显示） */}

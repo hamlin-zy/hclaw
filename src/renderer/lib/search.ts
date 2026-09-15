@@ -11,7 +11,7 @@
  */
 
 // ─── 评分常量 ─────────────────────────────────────────
-export const SEARCH_RANK = {
+const SEARCH_RANK = {
     NAME_PREFIX: 100,     // 名称前缀匹配
     NAME_SUBSTRING: 80,   // 名称包含匹配
     NAME_FUZZY: 60,       // 名称模糊子序列匹配

@@ -1,6 +1,6 @@
 import {getDatabase, saveDatabase} from './index'
 
-export interface ToolRecord {
+interface ToolRecord {
     id: string
     name: string
     description: string
@@ -30,14 +30,7 @@ export function getToolDefaultTimeout(toolId: string): number {
     return DEFAULT_TIMEOUTS[toolId] ?? 60000
 }
 
-/**
- * 获取工具的超时时间（优先使用数据库配置，否则使用默认值）
- */
-export function getToolTimeout(toolId: string, dbTimeout: number | null | undefined): number {
-    return dbTimeout ?? getToolDefaultTimeout(toolId)
-}
-
-export class SqliteToolRepository {
+class SqliteToolRepository {
     /** getTimeout 进程内缓存（null 值用包装对象区分"未缓存"） */
     private timeoutCache = new Map<string, { value: number | null }>()
 

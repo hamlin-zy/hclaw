@@ -120,12 +120,6 @@ export function getMcpPluginOverride(serverId: string): PluginMcpOverride | null
     return overrides[serverId] || null
 }
 
-/** 获取插件 MCP 服务器的启用状态（默认 true） */
-export function getMcpPluginEnabled(serverId: string): boolean {
-    const overrides = readMcpPluginOverrides()
-    return overrides[serverId]?.enabled ?? true
-}
-
 /** 设置插件 MCP 服务器的覆盖配置（合并写入，不会删除未提供的字段） */
 export function setMcpPluginOverride(serverId: string, override: Partial<PluginMcpOverride>): boolean {
     try {

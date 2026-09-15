@@ -3,7 +3,7 @@
 // 按 workspace 分开存：不同仓库的目录结构差异很大，共用一套尺寸会互相干扰。
 import {useCallback, useRef, useState} from 'react'
 
-export interface PaneSizeSpec {
+interface PaneSizeSpec {
   default: number
   min: number
   max: number
@@ -11,7 +11,7 @@ export interface PaneSizeSpec {
 
 export type PaneSizeSpecs = Record<string, PaneSizeSpec>
 
-export interface PaneLayout {
+interface PaneLayout {
   /** 各分栏的尺寸（px）；Git 区高度也在这里（键为 GIT_HEIGHT_KEY） */
   sizes: Record<string, number>
   gitCollapsed: boolean
@@ -45,7 +45,7 @@ export function clampPane(raw: unknown, spec: PaneSizeSpec): number {
   return Math.min(spec.max, Math.max(spec.min, n))
 }
 
-export function defaultLayout(specs: PaneSizeSpecs): PaneLayout {
+function defaultLayout(specs: PaneSizeSpecs): PaneLayout {
   return {
     sizes: Object.fromEntries(Object.entries(specs).map(([key, spec]) => [key, spec.default])),
     gitCollapsed: false,
@@ -124,7 +124,7 @@ export function patchPaneLayout(workspacePath: string, patch: Partial<PaneLayout
   }
 }
 
-export interface UsePaneSizeResult {
+interface UsePaneSizeResult {
   sizes: Record<string, number>
   gitCollapsed: boolean
   /** 拖动结束 / 键盘调整时提交一次（内部夹紧并持久化） */

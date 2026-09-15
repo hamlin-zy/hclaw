@@ -12,6 +12,7 @@ import type {UpdateResult} from '../shared/types/updater';
 import {readThemeSetting} from './utils/theme';
 import {isDevMode} from './utils/devMode';
 import {createAppWindow} from './utils/windowFactory';
+import {trace} from './startupTrace';
 
 const logger = createLogger('window');
 
@@ -55,15 +56,15 @@ type ThemeMode = 'light' | 'dark';
 // ========================================
 
 /** 标题栏高度 (px) - 必须与 CSS --titlebar-height 一致 */
-export const TITLEBAR_HEIGHT = 33;
+const TITLEBAR_HEIGHT = 33;
 
 /** 窗口最小尺寸 */
-export const WINDOW_MIN_WIDTH = 700;
-export const WINDOW_MIN_HEIGHT = 700;
+const WINDOW_MIN_WIDTH = 700;
+const WINDOW_MIN_HEIGHT = 700;
 
 /** 窗口默认尺寸（在足够大的屏幕上使用的最大尺寸） */
-export const WINDOW_DEFAULT_WIDTH = 1400;
-export const WINDOW_DEFAULT_HEIGHT = 900;
+const WINDOW_DEFAULT_WIDTH = 1400;
+const WINDOW_DEFAULT_HEIGHT = 900;
 
 /** 窗口占屏幕工作区的比例（0~1），用于自适应缩放 */
 const WINDOW_SCREEN_RATIO = 0.75;
@@ -169,11 +170,6 @@ export function setMainWindow(win: BrowserWindow | null): void {
     mainWindow = win;
 }
 
-/** 获取退出标记 */
-export function getIsQuitting(): boolean {
-    return isQuitting;
-}
-
 /** 设置退出标记 */
 export function setIsQuitting(value: boolean): void {
     isQuitting = value;
@@ -184,7 +180,7 @@ export function setIsQuitting(value: boolean): void {
 // ========================================
 
 /** 更新窗口控制按钮 Overlay（Windows 专用） */
-export function updateTitleBarOverlay(theme: ThemeMode): void {
+function updateTitleBarOverlay(theme: ThemeMode): void {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
     // 确保在 Windows 平台上执行
@@ -202,7 +198,9 @@ export function updateTitleBarOverlay(theme: ThemeMode): void {
 
 /** 创建主窗口 */
 export const createWindow = (): void => {
+    trace('window:createWindow-enter');
     const icon = getAppIcon();
+    trace('window:icon-decoded', {isEmpty: !icon, size: icon?.getSize()});
 
     // ── 读取主题配置，渲染窗口前就确定正确主题，避免闪现 ──
     const {backgroundColor: initialTheme, rawTheme: rawThemeForRenderer} = readThemeSetting()
@@ -305,12 +303,28 @@ export const createWindow = (): void => {
         return {action: 'deny'};
     });
 
+    // ── 冷启动观测：webContents 生命周期打点（仅记录，不改行为）──
+    // 附 rendererPid：可用 Get-CimInstance Win32_Process 查出渲染进程的真实创建时刻，
+    // 从而把「did-start-loading → preload 执行」拆成「渲染进程 spawn(OS) + Chromium 初始化 + preload」。
+    const rendererPid = (): number | undefined => {
+        try {
+            return mainWindow?.webContents.getOSProcessId() || undefined;
+        } catch {
+            return undefined;
+        }
+    };
+    mainWindow.webContents.on('did-start-loading', () => trace('window:did-start-loading', {rendererPid: rendererPid()}));
+    mainWindow.webContents.on('dom-ready', () => trace('window:dom-ready', {rendererPid: rendererPid()}));
+    mainWindow.webContents.on('did-finish-load', () => trace('window:did-finish-load'));
+
     // 优化：窗口准备好后再显示，避免白屏闪烁
     mainWindow.once('ready-to-show', () => {
+        trace('window:ready-to-show');
         if (savedState?.shouldMaximize) {
             mainWindow?.maximize();
         }
         mainWindow?.show();
+        trace('window:shown');
     });
 
     // ---- 加载内容 ----
@@ -330,8 +344,11 @@ export const createWindow = (): void => {
     }
 
     // ---- 事件监听 ----
-    mainWindow.on('closed', () => {
-        mainWindow = null;
+    // 捕获本窗口身份：setMainWindow() 可被外部重建路径重新赋值，
+    // 闭包若直接写模块级 mainWindow 会把「新窗口」误置为 null，故用身份守卫。
+    const thisWin = mainWindow;
+    thisWin.on('closed', () => {
+        if (mainWindow === thisWin) mainWindow = null;
     });
 
     // 关闭前持久化窗口状态（无论退出还是隐藏到托盘，都先保存）

@@ -153,7 +153,7 @@ function renderSegs(segs: Seg[] | undefined, side: 'added' | 'removed', text: st
 }
 
 /** 词级差异切分 × 语法着色切分「求交」后的最小渲染单元 */
-export type Atom = {text: string, changed: boolean, cls: string}
+type Atom = {text: string, changed: boolean, cls: string}
 
 /**
  * 把两个切分求交成一组扁平原子：
@@ -162,7 +162,7 @@ export type Atom = {text: string, changed: boolean, cls: string}
  * 两个切分各自都是**无损覆盖整行**的，求交后仍无损 —— 这是硬不变量，任一侧对不上就返回 null，
  * 调用方退回原渲染路径（宁可不着色，不可错位、不可丢字）。
  */
-export function toAtoms(
+function toAtoms(
   segs: Seg[] | undefined,
   tokens: LineToken[],
   lineText: string,

@@ -4,8 +4,6 @@ import {FileConfigRepository} from './sqlite/configRepository'
 import {SqliteMessageBlockRepository} from './sqlite/messageBlockRepository'
 // SqliteMcpRepository removed - MCP config migrated to file system (mcp.json)
 import {SqlitePluginRepository} from './sqlite/pluginRepository'
-import {SqliteAccountRepository} from './sqlite/accountRepository'
-import {SqliteProviderModelRepository, SqliteProviderRepository} from './sqlite/llmProviderRepository'
 import {initDatabaseSync} from './sqlite'
 import type {
   IConversationRepository,
@@ -55,27 +53,6 @@ export function createMessageBlockRepository(): IMessageBlockRepository {
  */
 export function createPluginRepository() {
   return new SqlitePluginRepository()
-}
-
-/**
- * Create an account repository instance (SQLite only).
- */
-export function createAccountRepository() {
-  return new SqliteAccountRepository()
-}
-
-/**
- * Create a provider repository instance (SQLite only).
- */
-export function createProviderRepository() {
-  return new SqliteProviderRepository()
-}
-
-/**
- * Create a provider model repository instance (SQLite only).
- */
-export function createProviderModelRepository() {
-  return new SqliteProviderModelRepository()
 }
 
 // Re-export types for convenience

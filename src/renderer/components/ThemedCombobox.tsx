@@ -171,7 +171,7 @@ export default function ThemedCombobox({
                                         aria-selected={i === activeIdx}
                                         className={`w-full px-2.5 py-2 text-left text-[11px] rounded-lg transition-colors ${
                                             i === activeIdx
-                                                ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)] font-medium'
+                                                ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--brand-primary)] font-medium'
                                                 : 'text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                         }`}
                                      data-name={`themed-combobox-option-${i}`}>

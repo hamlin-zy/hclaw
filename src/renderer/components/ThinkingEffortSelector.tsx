@@ -111,7 +111,7 @@ export default function ThinkingEffortSelector({conversationId}: ThinkingEffortS
                 ref={buttonRef}
                 data-name="thinking-effort-trigger"
                 onClick={() => setOpen(v => !v)}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/60 focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface)] ${
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)] dark-all:focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface)] ${
                     open
                         ? 'border-[var(--brand-primary)] bg-[var(--brand-muted)] text-[var(--brand-primary)]'
                         : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:border-[var(--border-emphasis)] hover:bg-[var(--surface-muted)] active:bg-[var(--surface-overlay)]'
@@ -137,7 +137,7 @@ export default function ThinkingEffortSelector({conversationId}: ThinkingEffortS
                             onMouseDown={(e) => e.stopPropagation()}
                             ref={panelRef}
                         >
-                            <div className="bg-[var(--surface-elevated)]/92 backdrop-blur-lg border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden">
+                            <div className="bg-[color-mix(in_srgb,var(--surface-elevated)_92%,transparent)] backdrop-blur-lg border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden">
                                 <div className="p-1.5">
                                     <div className="px-2 py-1.5 text-[10px] font-medium text-[var(--text-secondary)] border-b border-[var(--border-muted)] mb-1">
                                         思考强度
@@ -150,7 +150,7 @@ export default function ThinkingEffortSelector({conversationId}: ThinkingEffortS
                                             title={o.hint}
                                             className={`w-full flex items-center justify-between gap-3 px-2.5 py-1.5 text-left text-xs rounded-lg transition-colors ${
                                                 o.value === effective
-                                                    ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]'
+                                                    ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--brand-primary)]'
                                                     : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
                                             }`}
                                         >

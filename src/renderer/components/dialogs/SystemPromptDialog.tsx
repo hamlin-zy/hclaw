@@ -49,7 +49,7 @@ export default function SystemPromptDialog() {
     if (error) {
         return (
             <div className="p-4">
-                <div className="p-4 bg-[var(--error-muted)] rounded-lg border border-[var(--error)]/20">
+                <div className="p-4 bg-[var(--error-muted)] rounded-lg border border-[color-mix(in_srgb,var(--error)_20%,transparent)]">
                     <h4 className="text-sm font-medium text-[var(--error)] mb-2">构建失败</h4>
                     <pre className="text-xs text-[var(--error)] whitespace-pre-wrap break-all">{error}</pre>
                 </div>
@@ -60,7 +60,7 @@ export default function SystemPromptDialog() {
     if (!data?.success) {
         return (
             <div className="p-4">
-                <div className="p-4 bg-[var(--warning-muted)] rounded-lg border border-[var(--warning)]/20">
+                <div className="p-4 bg-[var(--warning-muted)] rounded-lg border border-[color-mix(in_srgb,var(--warning)_20%,transparent)]">
                     <h4 className="text-sm font-medium text-[var(--warning)] mb-2">构建失败</h4>
                     <pre className="text-xs text-[var(--warning)] whitespace-pre-wrap break-all">
                         {data?.error || '未知错误'}

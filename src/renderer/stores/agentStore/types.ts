@@ -7,22 +7,6 @@ export interface AgentStreamPayload {
     event: AgentStreamEvent
 }
 
-// ─── LLM 消息格式 ────────────────────────────────────────
-// 与主进程 ChatMessage 类型对齐
-
-export interface LLMMessage {
-    role: 'user' | 'assistant' | 'tool'
-    content: string
-    toolCalls?: Array<{
-        id: string
-        name: string
-        arguments: Record<string, unknown>
-    }>
-    toolCallId?: string
-    toolResult?: string
-    isError?: boolean
-}
-
 // ─── 多会话独立 Agent 状态 ────────────────────────────
 /** 每个会话独立的运行时数据，包括流式缓冲区、消息 ID、agent 状态等 */
 export interface ConvAgentData {
@@ -99,6 +83,13 @@ export interface ConvAgentData {
         threshold: number
         detail: Array<{ toolName: string; argsPreview: string; turnNo: number }>
         escalated: boolean
+    }
+    /** 轮数上限截断提示条（done reason=max_turns_reached 时写入）。
+     *  ★ 与 loopWarning 不同：本提示在运行结束后才产生，须留存于界面，
+     *    仅在「下一 run 开始」或「用户关闭」时清除，绝不在 done 收尾路径清除。 */
+    turnLimitNotice?: {
+        turns?: number
+        maxTurns?: number
     }
     /** 工具执行开始时的临时提示消息（如"工具执行中..."），tool_start 后清除；
      *  重试等待时对象结构（label + urgent 紧迫态），字符串分支保留兼容 */
@@ -220,6 +211,8 @@ export interface AgentStore {
     clearPendingQuestion: () => void
     /** 清除指定会话的循环检测警告条（done 收尾 / 警告条关闭时调用） */
     clearLoopWarning: (convId: string) => void
+    /** 清除指定会话的轮数上限截断提示条（下一 run 开始 / 用户关闭时调用） */
+    clearTurnLimitNotice: (convId: string) => void
 
     setPendingPermissionConfirm: (confirm: { question: string; requestId?: string } | null) => void
 

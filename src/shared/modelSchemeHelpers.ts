@@ -8,23 +8,6 @@ import type {LLMProvider, ModelRole, ModelRoleConfig, ModelScheme, ModelSchemeRo
 import {TEXT_MODEL_ROLES} from './types'
 
 /**
- * 检查 scheme 是否使用 roles 数组结构
- */
-export function hasRolesArray(scheme: unknown): scheme is ModelScheme {
-    return Array.isArray((scheme as ModelScheme)?.roles)
-}
-
-/**
- * 从 scheme 中获取指定角色的配置
- */
-export function getRoleFromScheme(
-    scheme: ModelScheme,
-    role: string
-): ModelSchemeRole | undefined {
-    return scheme.roles.find((r) => r.role === role)
-}
-
-/**
  * 获取角色配置
  * 返回 ModelRoleConfig 格式以便统一处理
  */
@@ -39,52 +22,6 @@ export function getRoleConfig(
         enabled: roleObj.enabled,
         thinkingEffort: roleObj.thinkingEffort,
     } : undefined
-}
-
-/**
- * 更新 scheme 中指定角色的配置
- */
-export function updateRoleInScheme(
-    scheme: ModelScheme,
-    role: string,
-    updates: Partial<Omit<ModelSchemeRole, 'id' | 'role'>>
-): ModelScheme {
-    return {
-        ...scheme,
-        roles: scheme.roles.map((r) =>
-            r.role === role ? {...r, ...updates, id: r.id, role: r.role} : r
-        ),
-    }
-}
-
-/**
- * 获取方案的主要角色配置
- */
-export function getPrimaryRoleConfig(
-    scheme: ModelScheme
-): ModelRoleConfig | undefined {
-    return getRoleConfig(scheme, 'primary')
-}
-
-/**
- * 获取默认启用的角色配置（用于 fallback）
- */
-export function getEnabledRole(
-    scheme: ModelScheme,
-    preferredRole: ModelRole
-): ModelRoleConfig | undefined {
-    const config = getRoleConfig(scheme, preferredRole)
-    if (config?.enabled) return config
-
-    // Fallback to primary
-    return getRoleConfig(scheme, 'primary')
-}
-
-/**
- * 获取完整的角色列表
- */
-export function getAllRoles(scheme: ModelScheme): ModelSchemeRole[] {
-    return scheme.roles
 }
 
 /**

@@ -52,10 +52,10 @@ export default function DiffModal() {
 
 function StatusBadge({ status }: { status: string }) {
   const config: Record<string, { label: string; className: string }> = {
-      added: {label: '新增', className: 'bg-[var(--success)]/10 text-[var(--success)]'},
-      modified: {label: '修改', className: 'bg-[var(--warning)]/10 text-[var(--warning)]'},
-      deleted: {label: '删除', className: 'bg-[var(--error)]/10 text-[var(--error)]'},
-      renamed: {label: '重命名', className: 'bg-[var(--info)]/10 text-[var(--info)]'},
+      added: {label: '新增', className: 'bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)]'},
+      modified: {label: '修改', className: 'bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] text-[var(--warning)]'},
+      deleted: {label: '删除', className: 'bg-[color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)]'},
+      renamed: {label: '重命名', className: 'bg-[color-mix(in_srgb,var(--info)_10%,transparent)] text-[var(--info)]'},
   }
   const { label, className } = config[status] || config.modified
   return <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${className}`}>{label}</span>

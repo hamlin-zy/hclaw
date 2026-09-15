@@ -8,160 +8,123 @@
  * - 卸载插件
  *
  * 注意：此组件作为 MenuDialog 的内容渲染，不包含遮罩或弹窗逻辑
+ *
+ * 改造要点（B 阶段平移，对齐 CommandsDialog 试点）：
+ *   - 插件列表 / 真实计数 / 能力详情 / 版本下拉 数据下沉 pluginStore，组件只留 UI 态
+ *   - 启停不再跨 store 直写 skill/agent（A 阶段已由 powerManager.refresh 广播 capability:changed）
+ *   - 接入 useCapabilityRefresh，能力变更后自动重取列表
+ *   - 折叠统一走 common/CollapsibleSection（分类区只在内部保留「预览 N 条」差异）
+ *   - 三态复用 AsyncBoundary + EmptyState；卡片骨架复用 CapabilityCard
  */
 
-import React, {useCallback, useEffect, useState} from 'react'
+import React, {useEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
+import {StatusBadge} from '../common/StatusBadge'
+import {UpdateDot} from '../common/UpdateDot'
+import {AsyncBoundary} from '../common/AsyncBoundary'
+import {CapabilityCard} from '../common/CapabilityCard'
+import CollapsibleSection from '../common/CollapsibleSection'
 import LinkContextMenu from '../common/LinkContextMenu'
-import {useSkillStore} from '../../stores/skillStore'
-import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
+import {usePluginStore} from '../../stores/pluginStore'
 import {usePluginUpdateStore} from '../../stores/pluginUpdateStore'
 import {useSettingsStore} from '../../stores/settingsStore'
+import {useCapabilityRefresh} from '../../hooks/useCapabilityRefresh'
 import {confirm} from '../ConfirmDialog'
 import ThemedSelect from '../ThemedSelect'
 
-// 可折叠类别子组件
-interface CollapsibleCategoryProps {
+const GIT_SOURCES = ['github', 'gitee', 'gitlab']
+const CATEGORY_PREVIEW_LIMIT = 3
+
+// 可折叠类别子组件：折叠骨架复用 common/CollapsibleSection，
+// 仅保留「预览 N 条 + 展开全部」这一层业务差异（共享件不支持 limit，未扩其接口）。
+interface CategorySectionProps {
     title: string
     icon: React.ReactNode
     items: unknown[]
     limit: number
-    isCollapsed: boolean
-    onToggle: () => void
+    /** 受控展开态（整块），由父级按 pluginName:category 记忆 */
+    expanded: boolean
+    onToggleExpanded: (expanded: boolean) => void
     renderItem: (item: unknown, index: number) => React.ReactNode
 }
 
-function CollapsibleCategory({title, icon, items, limit, isCollapsed, onToggle, renderItem}: CollapsibleCategoryProps) {
-    const needsCollapse = items.length > limit
-    const displayItems = needsCollapse && isCollapsed ? items.slice(0, limit) : items
+function CategorySection({title, icon, items, limit, expanded, onToggleExpanded, renderItem}: CategorySectionProps) {
+    const [previewExpanded, setPreviewExpanded] = useState(false)
+    const needsPreview = items.length > limit
+    const displayItems = needsPreview && !previewExpanded ? items.slice(0, limit) : items
 
     return (
-        <div>
-            <div className="flex items-center justify-between mb-2">
-                <h5 className="text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1">
+        <CollapsibleSection
+            title={title}
+            defaultExpanded={expanded}
+            onToggle={onToggleExpanded}
+            headerContent={
+                <span className="flex items-center gap-1 text-[var(--text-muted)]">
                     {icon}
-                    {title}
-                    <span className="text-[var(--text-muted)]">({items.length})</span>
-                </h5>
-                {needsCollapse && (
+                    <span>({items.length})</span>
+                </span>
+            }
+        >
+            <div className="space-y-2 pl-2">
+                {displayItems.map(renderItem)}
+                {needsPreview && !previewExpanded && (
                     <button
-                        onClick={onToggle}
-                        className="text-xs text-[var(--brand-primary)] hover:text-[var(--brand-primary)]/80 transition-colors"
-                     data-name="plugin-dialog-button">
-                        {isCollapsed ? `展开全部` : '收起'}
+                        onClick={() => setPreviewExpanded(true)}
+                        className="text-xs text-[var(--brand-primary)] hover:text-[color-mix(in_srgb,var(--brand-primary)_80%,transparent)] transition-colors"
+                        data-name="plugin-dialog-expand-category-button">
+                        展开全部（还有 {items.length - limit} 项未显示）
+                    </button>
+                )}
+                {needsPreview && previewExpanded && (
+                    <button
+                        onClick={() => setPreviewExpanded(false)}
+                        className="text-xs text-[var(--brand-primary)] hover:text-[color-mix(in_srgb,var(--brand-primary)_80%,transparent)] transition-colors"
+                        data-name="plugin-dialog-collapse-category-button">
+                        收起
                     </button>
                 )}
             </div>
-            <div className="space-y-2 pl-2">
-                {displayItems.map((item, i) => renderItem(item, i))}
-                {needsCollapse && isCollapsed && (
-                    <p className="text-xs text-[var(--text-secondary)] text-center py-1">
-                        还有 {items.length - limit} 项未显示
-                    </p>
-                )}
-            </div>
-        </div>
+        </CollapsibleSection>
     )
 }
 
-// Plugin type (mirrored from main process)
-interface PluginManifest {
-  name: string
-  version?: string
-  description?: string
-  author?: { name: string; email?: string }
-  repository?: string
-  homepage?: string
-    userConfig?: Record<string, {
-        type: 'string' | 'number' | 'boolean'
-        title?: string
-        description?: string
-        required?: boolean
-        sensitive?: boolean
-        default?: unknown
-        min?: number
-        max?: number
-    }>
-}
-
-// Extended interface with full capability details
-interface PluginCapabilityDetails {
-    commands?: Array<{
-        id: string
-        name: string
-        description?: string
-        args?: Array<{ name: string; description?: string; required?: boolean; default?: string }>
-    }>
-    skills?: Array<{
-        name: string
-        description: string
-        allowedTools?: string[]
-        userInvocable?: boolean
-    }>
-    agents?: Array<{
-        name: string
-        description: string
-        type?: string
-    }>
-    mcpServers?: Array<{
-        command: string
-        args?: string[]
-        env?: Record<string, string>
-    }>
-    userConfig?: Record<string, {
-        type: string
-        title?: string
-        description?: string
-        required?: boolean
-    }>
-}
-
-interface LoadedPlugin extends PluginCapabilityDetails {
-  name: string
-  source: string
-  path: string
-  manifest: PluginManifest
-  enabled: boolean
-  isBuiltin: boolean
-}
-
 export default function PluginDialog() {
-  const [plugins, setPlugins] = useState<LoadedPlugin[]>([])
-  const [loading, setLoading] = useState(true)
-  const [installUrl, setInstallUrl] = useState('')
-  const [installing, setInstalling] = useState(false)
-  const [installError, setInstallError] = useState<string | null>(null)
-  const [installSuccess, setInstallSuccess] = useState<string | null>(null)
-    const [expandedPlugin, setExpandedPlugin] = useState<string | null>(null)
+    // ── 插件数据（store） ──
+    const plugins = usePluginStore(s => s.plugins)
+    const loading = usePluginStore(s => s.loading)
+    const error = usePluginStore(s => s.error)
+    const realCounts = usePluginStore(s => s.realCounts)
+    const capabilityDetails = usePluginStore(s => s.capabilityDetails)
+    const versionData = usePluginStore(s => s.versionData)
+    const loadPlugins = usePluginStore(s => s.loadPlugins)
+    const loadCapabilityDetails = usePluginStore(s => s.loadCapabilityDetails)
+    const loadVersionInfo = usePluginStore(s => s.loadVersionInfo)
+    const syncVersions = usePluginStore(s => s.syncVersions)
+    const switchVersion = usePluginStore(s => s.switchVersion)
+    const installPlugin = usePluginStore(s => s.installPlugin)
+    const uninstallPlugin = usePluginStore(s => s.uninstallPlugin)
+    const togglePlugin = usePluginStore(s => s.togglePlugin)
+    const reloadPlugins = usePluginStore(s => s.reloadPlugins)
+    const resetPlugin = usePluginStore(s => s.resetPlugin)
+
+    // ── 纯 UI / 动作瞬时态 ──
+    const [installUrl, setInstallUrl] = useState('')
+    const [installing, setInstalling] = useState(false)
+    const [installError, setInstallError] = useState<string | null>(null)
+    const [installSuccess, setInstallSuccess] = useState<string | null>(null)
     // Track which plugin is currently being toggled (enable/disable)
     const [togglingPlugin, setTogglingPlugin] = useState<string | null>(null)
     // Track which plugin is currently being reset
     const [resettingPlugin, setResettingPlugin] = useState<string | null>(null)
     // Track update/reset result messages (per-plugin)
     const [updateResult, setUpdateResult] = useState<{name: string; message: string; isError: boolean} | null>(null)
+    const updateResultTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理「更新结果」自动消失定时器
+    useEffect(() => () => { if (updateResultTimer.current) clearTimeout(updateResultTimer.current) }, [])
     // Track collapsed state for each category in each plugin, key: "pluginName:category"
     const [categoryCollapsed, setCategoryCollapsed] = useState<Record<string, boolean>>({})
-    // Real capability counts from authoritative registries (skillRegistry/agentRegistry/mcpService),
-    // overriding PluginLoader's simplified scan which may miss skills/agents in non-standard paths.
-    const [realCounts, setRealCounts] = useState<Record<string, { skills: number; agents: number; mcps: number }>>({})
-    // Real capability details for expanded view (fetched from authoritative registries on demand)
-    const [capabilityDetails, setCapabilityDetails] = useState<Record<string, {
-        skills: Array<{ name: string; description?: string; userInvocable?: boolean; allowedTools?: string[] }>
-        agents: Array<{ name: string; description?: string; type?: string }>
-        mcps: Array<{ command: string; args?: string[]; env?: Record<string, string> }>
-    }>>({})
-    const CATEGORY_PREVIEW_LIMIT = 3
-
-    // ── 版本管理状态 ──
-    const [versionData, setVersionData] = useState<Record<string, {
-        tags: string[]
-        branches: string[]
-        current: string
-        latest: string
-        loading: boolean
-    }>>({})
     const [syncingVersion, setSyncingVersion] = useState<string | null>(null)
     const [switchingVersion, setSwitchingVersion] = useState<string | null>(null)
     const pluginUpdateMap = usePluginUpdateStore(s => s.updateMap)
@@ -185,41 +148,8 @@ export default function PluginDialog() {
         }
     }
 
-  /** Fetch version info for a plugin, populating the version dropdown */
-  const loadVersionInfo = useCallback(async (name: string) => {
-    try {
-      const api = window.electronAPI as any
-      const versions = await api?.plugin?.getVersions?.(name)
-      if (versions) {
-        setVersionData(prev => ({
-          ...prev,
-          [name]: {...versions, loading: false},
-        }))
-      }
-    } catch {
-      // Silently ignore — version dropdown just won't show
-    }
-  }, [])
-
-  const loadPlugins = useCallback(async () => {
-    try {
-      setLoading(true)
-      const api = window.electronAPI as any
-      const list = await api?.plugin?.list()
-      setPlugins(list || [])
-        // Fetch real capability counts from authoritative registries (single IPC call)
-        const counts = await api?.plugin?.getRealCounts?.()
-        setRealCounts(counts || {})
-    } catch {
-        // Error silently ignored
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    loadPlugins()
-  }, [loadPlugins])
+  // 挂载即拉取 + capability:changed 后自动重取（A 阶段广播口径）
+  useCapabilityRefresh(loadPlugins)
 
   // ── 订阅插件版本状态推送（独立窗口打开即同步红点，运行中接收跨窗口广播） ──
   useEffect(() => {
@@ -238,12 +168,12 @@ export default function PluginDialog() {
   // 使下拉框默认值始终使用当前 tag 名称而非 manifest.version
   useEffect(() => {
     if (loading) return
-    const gitSources: string[] = ['github', 'gitee', 'gitlab']
-    const gitPlugins = plugins.filter(p => gitSources.includes(p.source))
-    for (const p of gitPlugins) {
-      loadVersionInfo(p.name)
+    for (const p of plugins) {
+      if (GIT_SOURCES.includes(p.source) && !versionData[p.name]) {
+        void loadVersionInfo(p.name, p.manifest.version)
+      }
     }
-  }, [loading, plugins, loadVersionInfo])
+  }, [loading, plugins, versionData, loadVersionInfo])
 
   const handleInstall = async () => {
     if (!installUrl.trim()) return
@@ -252,38 +182,14 @@ export default function PluginDialog() {
     setInstallError(null)
     setInstallSuccess(null)
 
-    try {
-      const api = window.electronAPI as any
-      const result = await api?.plugin?.install(installUrl)
-      if (result?.success) {
-        setInstallSuccess(`插件安装成功！`)
-        setInstallUrl('')
-        await loadPlugins()
-          // 刷新 agents 列表，让新插件的 agents 立即可用
-          useAgentTemplateStore.getState().syncFromDisk()
-      } else if (result?.error) {
-          setInstallError(getErrorMessage(result.error))
-      } else {
-          setInstallError('安装失败')
-      }
-    } catch (err) {
-      setInstallError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setInstalling(false)
+    const result = await installPlugin(installUrl)
+    if (result.success) {
+      setInstallSuccess(`插件安装成功！`)
+      setInstallUrl('')
+    } else {
+      setInstallError(result.error)
     }
-  }
-
-  /**
-   * Extract a human-readable error message from a PluginError object.
-   */
-  const getErrorMessage = (error: any): string => {
-    if (!error || typeof error === 'string') return String(error ?? '未知错误')
-    return error.message ||
-        (error.type === 'manifest-not-found' ? `Manifest not found: ${error.path}` :
-            error.type === 'manifest-invalid' ? `Invalid manifest: ${error.errors?.join(', ')}` :
-                error.type === 'plugin-not-found' ? `Plugin not found: ${error.name}` :
-                    error.type === 'dependency-unsatisfied' ? `Missing dependencies: ${error.deps?.join(', ')}` :
-                        String(error))
+    setInstalling(false)
   }
 
   const handleUninstall = async (name: string) => {
@@ -297,26 +203,11 @@ export default function PluginDialog() {
     })
     if (!confirmed) return
 
-    try {
-      const api = window.electronAPI as any
-        const result = await api?.plugin?.uninstall(name)
-        if (result?.success) {
-            await loadPlugins()
-            // 刷新 agents 列表，清理已卸载插件的 agents
-            useAgentTemplateStore.getState().syncFromDisk()
-        } else {
-            await confirm({
-                title: '卸载失败',
-                message: getErrorMessage(result?.error),
-                confirmText: '确定',
-                confirmVariant: 'danger',
-                onConfirm: async () => {},
-            })
-        }
-    } catch (err) {
+    const result = await uninstallPlugin(name)
+    if (!result.success) {
         await confirm({
-            title: '卸载异常',
-            message: getErrorMessage(err),
+            title: '卸载失败',
+            message: result.error,
             confirmText: '确定',
             confirmVariant: 'danger',
             onConfirm: async () => {},
@@ -327,71 +218,34 @@ export default function PluginDialog() {
   const handleToggle = async (name: string, enabled: boolean) => {
     setTogglingPlugin(name)
     try {
-      const api = window.electronAPI as any
-        let result: { success: boolean; error?: string; skills?: unknown[]; agents?: unknown[] }
-      if (enabled) {
-          result = await api?.plugin?.enable(name)
-      } else {
-          result = await api?.plugin?.disable(name)
-      }
-
-        // 检查操作结果
-        if (result?.success) {
-            // 用返回的最新 skills 和 agents 列表更新 store
-            if (result.skills) {
-                useSkillStore.setState({ skills: result.skills as any })
-            }
-            if (result.agents) {
-                useAgentTemplateStore.setState({ templates: result.agents as any })
-            }
-            await loadPlugins()
-        } else {
+        const result = await togglePlugin(name, enabled)
+        // 主进程已广播 capability:changed，其它页自行刷新；此处仅报错本页动作失败
+        if (!result.success) {
             await confirm({
                 title: '操作失败',
-                message: result?.error || '未知错误',
+                message: result.error,
                 confirmText: '确定',
                 confirmVariant: 'danger',
                 onConfirm: async () => {},
             })
         }
-    } catch (err) {
-        await confirm({
-            title: '操作异常',
-            message: err instanceof Error ? err.message : String(err),
-            confirmText: '确定',
-            confirmVariant: 'danger',
-            onConfirm: async () => {},
-        })
     } finally {
         setTogglingPlugin(null)
     }
   }
 
   const handleReload = async () => {
-    try {
-      const api = window.electronAPI as any
-        const result = await api?.plugin?.reload()
-        if (result?.success && result.plugins) {
-            setPlugins(result.plugins)
-        } else if (result?.error) {
-            // Error silently
-        }
-    } catch {
-        // Error silently ignored
-    }
-  }
-
-  /** Sync skills/agents stores after update — deduplicated helper */
-  const syncAfterUpdate = async (result: Record<string, unknown>) => {
-    await loadPlugins()
-    if (result.skills) useSkillStore.setState({ skills: result.skills as any })
-    if (result.agents) useAgentTemplateStore.setState({ templates: result.agents as any })
+    await reloadPlugins()
   }
 
   /** Show result message, auto-dismiss after 5s */
   const showUpdateMessage = (name: string, message: string, isError: boolean) => {
-    setUpdateResult({ name, message, isError })
-    setTimeout(() => setUpdateResult(prev => prev?.name === name ? null : prev), 5000)
+    setUpdateResult({name, message, isError})
+    if (updateResultTimer.current) clearTimeout(updateResultTimer.current)
+    updateResultTimer.current = setTimeout(() => {
+      updateResultTimer.current = null
+      setUpdateResult(prev => prev?.name === name ? null : prev)
+    }, 5000)
   }
 
   const handleReset = async (name: string) => {
@@ -407,36 +261,24 @@ export default function PluginDialog() {
     setResettingPlugin(name)
     setUpdateResult(null)
     try {
-      const api = window.electronAPI as any
-      const result = await api?.plugin?.reset(name)
-
-      if (result?.success) {
+      const result = await resetPlugin(name)
+      if (result.success) {
         showUpdateMessage(name, '还原成功（本地修改已丢弃）', false)
-        await syncAfterUpdate(result)
       } else {
-        const errorMsg = result?.error?.message || result?.error?.type || '未知错误'
-        showUpdateMessage(name, `还原失败: ${errorMsg}`, true)
+        showUpdateMessage(name, `还原失败: ${result.error}`, true)
       }
-    } catch (err) {
-      showUpdateMessage(name, `还原异常: ${err instanceof Error ? err.message : String(err)}`, true)
     } finally {
       setResettingPlugin(null)
     }
   }
-
   /** 「同步版本」按钮 — 只 fetch tags，不切换版本 */
   const handleSyncVersions = async (name: string) => {
     setSyncingVersion(name)
     try {
-      const api = window.electronAPI as any
-      const result = await api?.plugin?.syncVersions?.(name)
-      if (result?.versionInfo) {
-        setVersionData(prev => ({
-          ...prev,
-          [name]: {...result.versionInfo, loading: false},
-        }))
+      const result = await syncVersions(name)
+      if (result.success) {
         // 更新红点状态
-        if (result.versionInfo.hasUpdate) {
+        if (result.versionInfo?.hasUpdate) {
           usePluginUpdateStore.getState().setPluginUpdates({
             ...pluginUpdateMap,
             [name]: true,
@@ -444,10 +286,8 @@ export default function PluginDialog() {
         }
         showUpdateMessage(name, '版本列表已同步', false)
       } else {
-        showUpdateMessage(name, '同步失败', true)
+        showUpdateMessage(name, result.error || '同步失败', true)
       }
-    } catch (err) {
-      showUpdateMessage(name, `同步异常: ${err instanceof Error ? err.message : String(err)}`, true)
     } finally {
       setSyncingVersion(null)
     }
@@ -467,43 +307,32 @@ export default function PluginDialog() {
 
     setSwitchingVersion(name)
     try {
-      const api = window.electronAPI as any
-      const result = await api?.plugin?.switchVersion?.(name, targetRef)
-      if (result?.success) {
+      const result = await switchVersion(name, targetRef)
+      if (result.success) {
         showUpdateMessage(name, `版本已切换至 ${targetRef}`, false)
-        // 更新下拉状态
+        // 更新红点
         if (result.versionInfo) {
-          setVersionData(prev => ({
-            ...prev,
-            [name]: {...result.versionInfo, loading: false},
-          }))
-          // 更新红点
           usePluginUpdateStore.getState().setPluginUpdates({
             ...pluginUpdateMap,
-            [name]: result.versionInfo.hasUpdate,
+            [name]: result.versionInfo.hasUpdate ?? false,
           })
         }
-        // 刷新插件列表和 agent 列表
-        await loadPlugins()
-        useAgentTemplateStore.getState().syncFromDisk()
       } else {
-        showUpdateMessage(name, `切换失败: ${result?.error || '未知错误'}`, true)
+        showUpdateMessage(name, `切换失败: ${result.error}`, true)
       }
-    } catch (err) {
-      showUpdateMessage(name, `切换异常: ${err instanceof Error ? err.message : String(err)}`, true)
     } finally {
       setSwitchingVersion(null)
     }
   }
 
-    const toggleCategory = (pluginName: string, category: string) => {
+    const setCategoryExpanded = (pluginName: string, category: string, expanded: boolean) => {
         const key = `${pluginName}:${category}`
-        setCategoryCollapsed(prev => ({...prev, [key]: !prev[key]}))
+        setCategoryCollapsed(prev => ({...prev, [key]: !expanded}))
     }
 
     const isCategoryCollapsed = (pluginName: string, category: string) => {
         const key = `${pluginName}:${category}`
-        return categoryCollapsed[key] !== false // default collapsed
+        return categoryCollapsed[key] === true // 默认展开：首屏展示前 N 条预览，折叠由用户显式触发
     }
 
   return (
@@ -513,7 +342,7 @@ export default function PluginDialog() {
           <div className="flex-1 overflow-y-auto p-4">
               {/* Install Section */}
               <div className="mb-6">
-                  <div className="mb-3 p-3 bg-[var(--info)]/10 border border-[var(--border)] rounded-lg text-xs text-[var(--text-secondary)]">
+                  <div className="mb-3 p-3 bg-[color-mix(in_srgb,var(--info)_10%,transparent)] border border-[var(--border)] rounded-lg text-xs text-[var(--text-secondary)]">
                       安装和更新插件需要系统已安装 <strong>Git</strong>。
                       支持 GitHub、Gitee、GitLab 等公开仓库地址。
                   </div>
@@ -527,12 +356,12 @@ export default function PluginDialog() {
                           placeholder="输入仓库地址，如 https://github.com/obra/superpowers 或 https://gitee.com/user/repo"
                           className="flex-1 px-4 py-2.5 bg-[var(--surface-muted)] rounded-lg border border-[var(--border)]
                        text-[var(--text-primary)] placeholder-[var(--text-muted)]
-                       focus:outline-none focus:border-[var(--brand-primary)]/50 focus:ring-1 focus:ring-[var(--brand-primary)]/30 transition-all"
+                       focus:outline-none focus:border-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)] focus:ring-1 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all"
                       data-name="plugin-dialog-input"/>
                       <button
                           onClick={handleInstall}
                           disabled={installing || !installUrl.trim()}
-                          className="px-4 py-2.5 border border-[var(--border)] text-[var(--brand-primary)] hover:border-[var(--brand-primary)]/50 hover:bg-[var(--brand-primary)]/10
+                          className="px-4 py-2.5 border border-[var(--border)] text-[var(--brand-primary)] hover:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)]
                        disabled:opacity-50 disabled:cursor-not-allowed
                        font-medium rounded-lg transition-colors flex items-center gap-2 text-xs"
                        data-name="plugin-dialog-install-button">
@@ -567,48 +396,40 @@ export default function PluginDialog() {
               <div>
                   <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-3">已安装插件</h3>
 
-                  {loading ? (
-                      <div className="flex items-center justify-center py-8">
-                          <div
-                              className="w-6 h-6 border-2 border-[var(--brand-primary)] border-t-transparent rounded-full animate-spin"/>
-                      </div>
-                  ) : plugins.length === 0 ? (
-                      <div className="py-8 text-center text-[var(--text-muted)]">
-                          暂无已安装插件
-                      </div>
-                  ) : (
+                  <AsyncBoundary
+                      loading={loading}
+                      error={error}
+                      onRetry={() => void loadPlugins()}
+                      empty={plugins.length === 0}
+                      emptyTitle="暂无已安装插件"
+                      emptyHint="在上方输入仓库地址安装插件。"
+                      loadingText="加载插件列表..."
+                  >
                       <div className="space-y-3">
                           {plugins.map(plugin => (
-                              <div
+                              <CapabilityCard
                                   key={plugin.name}
-                                  className="p-4 bg-[var(--surface-muted)] rounded-lg border border-[var(--border)]"
-                              >
-                                  {/* Title Row: name + version + disabled badge | three buttons */}
-                                  <div className="flex items-center justify-between gap-4">
-                                      <div className="flex items-center gap-1 min-w-0">
-                                            {(() => {
-                                                const repoUrl = plugin.manifest.repository || plugin.manifest.homepage
-                                                const nameClass = repoUrl
-                                                    ? 'text-[var(--brand-primary)] hover:underline cursor-pointer'
-                                                    : 'text-[var(--text-primary)]'
-                                                return (
-                                                    <h4
-                                                        className={`font-medium truncate ${nameClass}`}
-                                                        onClick={(e) => handlePluginNameClick(repoUrl, e)}
-                                                        title={repoUrl || undefined}
-                                                     data-name="plugin-dialog-h4">
-                                                        {plugin.manifest.name || plugin.name}
-                                                    </h4>
-                                                )
-                                            })()}
+                                  title={(() => {
+                                      const repoUrl = plugin.manifest.repository || plugin.manifest.homepage
+                                      return (
+                                          <span
+                                              className={repoUrl ? 'cursor-pointer text-[var(--brand-primary)] hover:underline' : undefined}
+                                              onClick={(e) => handlePluginNameClick(repoUrl, e)}
+                                              title={repoUrl || undefined}
+                                              data-name="plugin-dialog-h4">
+                                              {plugin.manifest.name || plugin.name}
+                                          </span>
+                                      )
+                                  })()}
+                                  badges={
+                                      <>
                                           <CopyButton name={plugin.manifest.name || plugin.name} size="sm" />
                                           {plugin.manifest.version && (
-                                              <div className="relative inline-flex items-center"
+                                              <span className="relative inline-flex items-center"
                                                    onClickCapture={() => {
                                                        // Lazy-load version data on first click
                                                        if (!versionData[plugin.name]) {
-                                                           setVersionData(prev => ({...prev, [plugin.name]: {tags: [], branches: [], current: plugin.manifest.version || '', latest: '', loading: true}}))
-                                                           loadVersionInfo(plugin.name)
+                                                           void loadVersionInfo(plugin.name, plugin.manifest.version)
                                                        }
                                                    }}
                                               >
@@ -631,42 +452,39 @@ export default function PluginDialog() {
                                                   })()}
                                                 />
                                                 {/* 更新红点 */}
-                                                {pluginUpdateMap[plugin.name] && (
-                                                  <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-red-500" />
-                                                )}
-                                              </div>
+                                                <span className="absolute -top-1 -right-1">
+                                                    <UpdateDot show={!!pluginUpdateMap[plugin.name]} title="有新版本可用"/>
+                                                </span>
+                                              </span>
                                           )}
-                                          {!plugin.enabled && (
-                                              <span
-                                                  className="text-xs text-[var(--warning)] px-1.5 py-0.5 bg-[var(--warning)]/10 rounded">
-                            已禁用
-                          </span>
-                                          )}
-                                      </div>
-                                      <div className="flex items-center gap-0 flex-shrink-0">
+                                          {!plugin.enabled && <StatusBadge enabled={false}/>}
+                                      </>
+                                  }
+                                  actions={
+                                      <>
                                           <Switch
                                               checked={plugin.enabled}
                                               onChange={() => handleToggle(plugin.name, !plugin.enabled)}
                                               disabled={togglingPlugin !== null}
                                               loading={togglingPlugin === plugin.name}
                                           />
-                                          {['github', 'gitee', 'gitlab'].includes(plugin.source) && (
+                                          {GIT_SOURCES.includes(plugin.source) && (
                                               <button
                                                   onClick={() => handleSyncVersions(plugin.name)}
                                                   disabled={syncingVersion !== null}
                                                   className="px-1.5 py-1.5 text-xs font-medium rounded-md
-                                                     bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/20
+                                                     bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]
                                                      transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                data-name="plugin-dialog-sync-versions-button">
                                                   {syncingVersion === plugin.name ? '同步中...' : '同步版本'}
                                               </button>
                                           )}
-                                          {['github', 'gitee', 'gitlab'].includes(plugin.source) && (
+                                          {GIT_SOURCES.includes(plugin.source) && (
                                               <button
                                                   onClick={() => handleReset(plugin.name)}
                                                   disabled={resettingPlugin !== null}
                                                   className="px-1.5 py-1.5 text-xs font-medium rounded-md
-                                                     bg-[var(--warning)]/10 text-[var(--warning)] hover:bg-[var(--warning)]/20
+                                                     bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] text-[var(--warning)] hover:bg-[color-mix(in_srgb,var(--warning)_20%,transparent)]
                                                      transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                data-name="plugin-dialog-reset-plugin-button">
                                                   {resettingPlugin === plugin.name ? '还原中...' : '还原'}
@@ -675,47 +493,44 @@ export default function PluginDialog() {
                                           <button
                                               onClick={() => handleUninstall(plugin.name)}
                                               className="px-1.5 py-1.5 text-xs font-medium rounded-md
-                                 bg-[var(--error)]/10 text-[var(--error)] hover:bg-[var(--error)]/20
+                                 bg-[color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)] hover:bg-[color-mix(in_srgb,var(--error)_20%,transparent)]
                                  transition-colors"
                                            data-name="plugin-dialog-uninstall-button">
                                               卸载
                                           </button>
-                                      </div>
-                                  </div>
-                                  {/* Info Section — full width below title row */}
-                                  {plugin.manifest.description && (
-                                      <p className="mt-2 text-sm text-[var(--text-secondary)] line-clamp-2">
-                                          {plugin.manifest.description}
-                                      </p>
-                                  )}
-                                  {plugin.manifest.author && (
-                                      <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                                          by {plugin.manifest.author.name}
-                                      </p>
-                                  )}
-                                  <div className="mt-2 flex flex-wrap gap-2">
+                                      </>
+                                  }
+                                  description={
+                                      <>
+                                          {plugin.manifest.description && (
+                                              <p className="line-clamp-2">{plugin.manifest.description}</p>
+                                          )}
+                                          {plugin.manifest.author && (
+                                              <p className="mt-1">by {plugin.manifest.author.name}</p>
+                                          )}
+                                          <span className="mt-2 flex flex-wrap gap-2">
                                       {plugin.commands && plugin.commands.length > 0 && (
                                           <span
-                                              className="text-xs px-2 py-0.5 bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] rounded">
+                                              className="text-xs px-2 py-0.5 bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] rounded">
                             {plugin.commands.length} 命令
                           </span>
                                       )}
                                       {/* Real counts from authoritative registries (one scan), NOT from PluginLoader's simplified parsing */}
                                       {(realCounts[plugin.name]?.skills ?? plugin.skills?.length ?? 0) > 0 && (
                                           <span
-                                              className="text-xs px-2 py-0.5 bg-[var(--success)]/10 text-[var(--success)] rounded">
+                                              className="text-xs px-2 py-0.5 bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)] rounded">
                             {realCounts[plugin.name]?.skills ?? plugin.skills?.length ?? 0} 技能
                           </span>
                                       )}
                                       {(realCounts[plugin.name]?.agents ?? 0) > 0 && (
                                           <span
-                                              className="text-xs px-2 py-0.5 bg-[var(--info)]/10 text-[var(--info)] rounded">
+                                              className="text-xs px-2 py-0.5 bg-[color-mix(in_srgb,var(--info)_10%,transparent)] text-[var(--info)] rounded">
                             {realCounts[plugin.name]?.agents ?? 0} Agent
                           </span>
                                       )}
                                       {(realCounts[plugin.name]?.mcps ?? plugin.mcpServers?.length ?? 0) > 0 && (
                                           <span
-                                              className="text-xs px-2 py-0.5 bg-[var(--warning)]/10 text-[var(--warning)] rounded">
+                                              className="text-xs px-2 py-0.5 bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] text-[var(--warning)] rounded">
                             {realCounts[plugin.name]?.mcps ?? plugin.mcpServers?.length ?? 0} MCP
                           </span>
                                       )}
@@ -723,52 +538,30 @@ export default function PluginDialog() {
                                           className="text-xs px-2 py-0.5 bg-[var(--surface)] text-[var(--text-secondary)] rounded">
                           {plugin.source}
                         </span>
-                                  </div>
-                                  {/* Expand/Collapse Button */}
-                                  <button
-                                      onClick={async () => {
-                                          if (expandedPlugin === plugin.name) {
-                                              setExpandedPlugin(null)
-                                          } else {
-                                              setExpandedPlugin(plugin.name)
-                                              // Fetch real capability details from authoritative registries
-                                              if (!capabilityDetails[plugin.name]) {
-                                                  try {
-                                                      const api = window.electronAPI as any
-                                                      const details = await api?.plugin?.getCapabilityDetails?.(plugin.name)
-                                                      if (details) {
-                                                          setCapabilityDetails(prev => ({...prev, [plugin.name]: details}))
-                                                      }
-                                                  } catch { /* ignore */ }
-                                              }
-                                          }
-                                      }}
-                                      className="mt-3 flex items-center gap-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-secondary)] transition-colors"
-                                   data-name="plugin-dialog-toggle-details-button">
-                                      <svg
-                                          className={`w-3 h-3 transition-transform ${expandedPlugin === plugin.name ? 'rotate-180' : ''}`}
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="2"
-                                          viewBox="0 0 24 24"
-                                      >
-                                          <path d="M19 9l-7 7-7-7"/>
-                                      </svg>
-                                      {expandedPlugin === plugin.name ? '收起详情' : '查看详情'}
-                                  </button>
+                                          </span>
+                                      </>
+                                  }
+                              >
                                   {/* Update Result Message */}
                                   {updateResult?.name === plugin.name && (
-                                      <div className={`mt-2 mb-1 text-xs ${updateResult.isError ? 'text-[var(--error)]' : 'text-[var(--success)]'}`}>
+                                      <div className={`mb-2 text-xs ${updateResult.isError ? 'text-[var(--error)]' : 'text-[var(--success)]'}`}>
                                           {updateResult.message}
                                       </div>
                                   )}
 
-                                  {/* Expanded Details Section */}
-                                  {expandedPlugin === plugin.name && (
-                                      <div className="mt-4 pt-4 border-t border-[var(--border-muted)] space-y-4">
+                                  {/* Expanded Details Section — 展开时懒加载权威注册表明细 */}
+                                  <CollapsibleSection
+                                      title="查看详情"
+                                      defaultExpanded={false}
+                                      ariaLabel={`${plugin.manifest.name || plugin.name} 详情`}
+                                      onToggle={(expanded) => {
+                                          if (expanded) void loadCapabilityDetails(plugin.name)
+                                      }}
+                                  >
+                                      <div className="pt-2 space-y-4">
                                           {/* Commands */}
                                           {plugin.commands && plugin.commands.length > 0 && (
-                                              <CollapsibleCategory
+                                              <CategorySection
                                                   title="命令"
                                                   icon={<svg className="w-3 h-3" fill="none" stroke="currentColor"
                                                              strokeWidth="2" viewBox="0 0 24 24">
@@ -777,8 +570,8 @@ export default function PluginDialog() {
                                                   </svg>}
                                                   items={plugin.commands}
                                                   limit={CATEGORY_PREVIEW_LIMIT}
-                                                  isCollapsed={isCategoryCollapsed(plugin.name, 'commands')}
-                                                  onToggle={() => toggleCategory(plugin.name, 'commands')}
+                                                  expanded={!isCategoryCollapsed(plugin.name, 'commands')}
+                                                  onToggleExpanded={(expanded) => setCategoryExpanded(plugin.name, 'commands', expanded)}
                                                   renderItem={(item: unknown) => {
                                                       const cmd = item as typeof plugin.commands[0]
                                                       return (
@@ -819,7 +612,7 @@ export default function PluginDialog() {
                                             const skills = capabilityDetails[plugin.name]?.skills || plugin.skills || []
                                             if (skills.length === 0) return null
                                             return (
-                                              <CollapsibleCategory
+                                              <CategorySection
                                                   title="技能"
                                                   icon={<svg className="w-3 h-3" fill="none" stroke="currentColor"
                                                              strokeWidth="2" viewBox="0 0 24 24">
@@ -827,8 +620,8 @@ export default function PluginDialog() {
                                                   </svg>}
                                                   items={skills}
                                                   limit={CATEGORY_PREVIEW_LIMIT}
-                                                  isCollapsed={isCategoryCollapsed(plugin.name, 'skills')}
-                                                  onToggle={() => toggleCategory(plugin.name, 'skills')}
+                                                  expanded={!isCategoryCollapsed(plugin.name, 'skills')}
+                                                  onToggleExpanded={(expanded) => setCategoryExpanded(plugin.name, 'skills', expanded)}
                                                   renderItem={(item: unknown) => {
                                                       const skill = item as { name: string; description?: string; userInvocable?: boolean; allowedTools?: string[] }
                                                       return (
@@ -839,7 +632,7 @@ export default function PluginDialog() {
                                                                   <CopyButton name={skill.name} size="sm" />
                                                                   {skill.userInvocable && (
                                                                       <span
-                                                                          className="text-xs px-1.5 py-0.5 bg-[var(--success)]/10 text-[var(--success)] rounded">
+                                                                          className="text-xs px-1.5 py-0.5 bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)] rounded">
                                       可调用
                                     </span>
                                                                   )}
@@ -872,7 +665,7 @@ export default function PluginDialog() {
                                             const agents = capabilityDetails[plugin.name]?.agents || plugin.agents || []
                                             if (agents.length === 0) return null
                                             return (
-                                              <CollapsibleCategory
+                                              <CategorySection
                                                   title="Agent"
                                                   icon={<svg className="w-3 h-3" fill="none" stroke="currentColor"
                                                              strokeWidth="2" viewBox="0 0 24 24">
@@ -881,8 +674,8 @@ export default function PluginDialog() {
                                                   </svg>}
                                                   items={agents}
                                                   limit={CATEGORY_PREVIEW_LIMIT}
-                                                  isCollapsed={isCategoryCollapsed(plugin.name, 'agents')}
-                                                  onToggle={() => toggleCategory(plugin.name, 'agents')}
+                                                  expanded={!isCategoryCollapsed(plugin.name, 'agents')}
+                                                  onToggleExpanded={(expanded) => setCategoryExpanded(plugin.name, 'agents', expanded)}
                                                   renderItem={(item: unknown) => {
                                                       const agent = item as { name: string; description?: string; type?: string }
                                                       return (
@@ -914,7 +707,7 @@ export default function PluginDialog() {
                                             const mcps = capabilityDetails[plugin.name]?.mcps || plugin.mcpServers || []
                                             if (mcps.length === 0) return null
                                             return (
-                                              <CollapsibleCategory
+                                              <CategorySection
                                                   title="MCP 服务器"
                                                   icon={<svg className="w-3 h-3" fill="none" stroke="currentColor"
                                                              strokeWidth="2" viewBox="0 0 24 24">
@@ -923,8 +716,8 @@ export default function PluginDialog() {
                                                   </svg>}
                                                   items={mcps}
                                                   limit={CATEGORY_PREVIEW_LIMIT}
-                                                  isCollapsed={isCategoryCollapsed(plugin.name, 'mcpServers')}
-                                                  onToggle={() => toggleCategory(plugin.name, 'mcpServers')}
+                                                  expanded={!isCategoryCollapsed(plugin.name, 'mcpServers')}
+                                                  onToggleExpanded={(expanded) => setCategoryExpanded(plugin.name, 'mcpServers', expanded)}
                                                   renderItem={(item: unknown) => {
                                                       const server = item as { command: string; args?: string[]; env?: Record<string, string> }
                                                       return (
@@ -965,7 +758,7 @@ export default function PluginDialog() {
                                           })()}
                                           {/* User Config */}
                                           {plugin.manifest.userConfig && Object.keys(plugin.manifest.userConfig).length > 0 && (
-                                              <CollapsibleCategory
+                                              <CategorySection
                                                   title="用户配置"
                                                   icon={<svg className="w-3 h-3" fill="none" stroke="currentColor"
                                                              strokeWidth="2" viewBox="0 0 24 24">
@@ -975,8 +768,8 @@ export default function PluginDialog() {
                                                   </svg>}
                                                   items={Object.entries(plugin.manifest.userConfig)}
                                                   limit={CATEGORY_PREVIEW_LIMIT}
-                                                  isCollapsed={isCategoryCollapsed(plugin.name, 'userConfig')}
-                                                  onToggle={() => toggleCategory(plugin.name, 'userConfig')}
+                                                  expanded={!isCategoryCollapsed(plugin.name, 'userConfig')}
+                                                  onToggleExpanded={(expanded) => setCategoryExpanded(plugin.name, 'userConfig', expanded)}
                                                   renderItem={(item: unknown) => {
                                                       const [key, config] = item as [string, typeof plugin.manifest.userConfig[string]]
                                                       return (
@@ -990,7 +783,7 @@ export default function PluginDialog() {
                                                                       className="text-xs text-[var(--text-secondary)]">({config.type})</span>
                                                                   {config.required && (
                                                                       <span
-                                                                          className="text-xs px-1.5 py-0.5 bg-[var(--error)]/10 text-[var(--error)] rounded">
+                                                                          className="text-xs px-1.5 py-0.5 bg-[color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)] rounded">
                                       必填
                                     </span>
                                                                   )}
@@ -1015,11 +808,11 @@ export default function PluginDialog() {
                                               </p>
                                           </div>
                                       </div>
-                                  )}
-                              </div>
+                                  </CollapsibleSection>
+                              </CapabilityCard>
                           ))}
                       </div>
-                  )}
+                  </AsyncBoundary>
               </div>
           </div>
           {/* LinkContextMenu for 'ask' mode — 点击插件名跳转仓库 */}

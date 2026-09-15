@@ -124,16 +124,6 @@ export function getChannelMediaDir(channelId: string): string {
 }
 
 /**
- * 获取带日期子目录的会话附件存储目录
- * 路径: {dataDir}/channels/{channelId}/attachments/{conversationId}/{yyyyMMdd}/
- */
-export function getChannelMediaDirWithDate(channelId: string, conversationId: string, date?: string): string {
-    const dateStr = date || new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const dir = path.join(CHANNELS_BASE(), channelId, 'attachments', conversationId, dateStr);
-    return ensureDir(dir, 'session media with date');
-}
-
-/**
  * 获取指定渠道的会话附件存储目录（无日期子目录）
  * 路径: {dataDir}/channels/{channelId}/attachments/{conversationId}/
  */

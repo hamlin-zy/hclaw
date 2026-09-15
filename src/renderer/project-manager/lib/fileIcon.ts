@@ -9,9 +9,9 @@
 import {Braces, File, FileCode, FileImage, FileText, FileType, FlaskConical, Folder, FolderOpen, Settings} from 'lucide-react'
 import type {LucideIcon} from 'lucide-react'
 
-export type FileIconKind = 'code' | 'test' | 'style' | 'markup' | 'data' | 'image' | 'config' | 'unknown'
+type FileIconKind = 'code' | 'test' | 'style' | 'markup' | 'data' | 'image' | 'config' | 'unknown'
 
-export interface FileIconSpec {
+interface FileIconSpec {
   Icon: LucideIcon
   /** CSS 颜色令牌，形如 `var(--ft-code)` */
   color: string
@@ -34,7 +34,7 @@ export const KIND_SPEC: Record<FileIconKind, FileIconSpec> = {
  * config / unknown 返回空串：文件名保持正文色，不参与着色。
  * 注意：这些类必须与 `.pm-file-name` 同时挂在标签上（见 globals.css 的同特异性顺序约定）。
  */
-export const KIND_NAME_CLASS: Record<FileIconKind, string> = {
+const KIND_NAME_CLASS: Record<FileIconKind, string> = {
   code: 'pm-ft--code',
   test: 'pm-ft--test',
   style: 'pm-ft--style',
@@ -47,7 +47,7 @@ export const KIND_NAME_CLASS: Record<FileIconKind, string> = {
 
 
 /** 扩展名（小写，不含点）→ 类别 */
-export const EXT_KIND: Record<string, FileIconKind> = {
+const EXT_KIND: Record<string, FileIconKind> = {
   ts: 'code', tsx: 'code', js: 'code', jsx: 'code', mjs: 'code', cjs: 'code',
   py: 'code', go: 'code', rs: 'code', java: 'code',
   css: 'style', scss: 'style', less: 'style',
@@ -57,7 +57,7 @@ export const EXT_KIND: Record<string, FileIconKind> = {
 }
 
 /** 无扩展名的点文件按完整文件名精确匹配 */
-export const NAME_KIND: Record<string, FileIconKind> = {
+const NAME_KIND: Record<string, FileIconKind> = {
   '.gitignore': 'config',
   '.env': 'config',
   '.editorconfig': 'config',

@@ -25,12 +25,6 @@ const formatTime = (seconds: number): string => {
     return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-
-/** 判断 URL 是否为本地协议 */
-export function isLocalMediaUrl(url: string): boolean {
-    return url.startsWith('hclaw-media://')
-}
-
 /**
  * 音频播放器
  * 通过 IPC 读取原始 Buffer → Blob → createObjectURL 生成 blob: URL
@@ -92,15 +86,14 @@ const AudioPlayer = memo(function AudioPlayer({url, fileName}: { url: string; fi
         loadAudio()
         return () => {
             cancelled = true
+            // url 变化时释放旧 Blob URL：React 先跑旧 cleanup 再跑新 effect，
+            // 故此时 revoke 的是上一次的 URL，不会误伤新 URL
+            if (blobUrlRef.current) {
+                URL.revokeObjectURL(blobUrlRef.current)
+                blobUrlRef.current = null
+            }
         }
     }, [url])
-
-    // 卸载时释放 Blob URL
-    useEffect(() => {
-        return () => {
-            if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
-        }
-    }, [])
 
     const togglePlay = useCallback(() => {
         const audio = audioRef.current

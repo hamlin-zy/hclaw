@@ -3,8 +3,7 @@ import type {PhraseItem} from '@shared/types/phrase'
 import {usePhraseStore} from '../stores/phraseStore'
 import {matchEvent} from '@shared/shortcuts'
 import {shortcutManager} from '../services/shortcutManager'
-
-const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0
+import {IS_MAC} from '../lib/platform'
 
 /** 在 value 的 [selectionStart, selectionEnd) 区间插入 text，返回新值与新光标位置 */
 export function insertAtCursor(value: string, selectionStart: number, selectionEnd: number, text: string): {value: string; cursor: number} {
@@ -33,7 +32,7 @@ export function pickPhraseInto(
 export function usePhrasePicker() {
     const [open, setOpen] = useState(false)
     const openOnShortcut = (e: React.KeyboardEvent) => {
-        if (matchEvent(e as unknown as KeyboardEvent, shortcutManager.getBinding('togglePhrasePicker'), isMac)) {
+        if (matchEvent(e as unknown as KeyboardEvent, shortcutManager.getBinding('togglePhrasePicker'), IS_MAC)) {
             // 阻断合成事件继续冒泡到 document 级监听器，防止快捷键双触发
             e.stopPropagation()
             e.preventDefault()

@@ -69,3 +69,71 @@ describe('CommandEditModal 名称校验', () => {
         expect(onSave).not.toHaveBeenCalled()
     })
 })
+
+describe('CommandEditModal 新建撞名即时提示', () => {
+    const existing = ['daily', '日报']
+
+    it('输入已存在的名称 → 立即内联报错，无需提交', () => {
+        render(<CommandEditModal command={null} existingNames={existing} onSave={vi.fn()} onCancel={vi.fn()}/>)
+
+        fireEvent.change(getNameInput(), {target: {value: 'daily'}})
+
+        const alert = screen.getByRole('alert')
+        expect(alert.textContent).toBe('已存在同名命令，请修改命令名')
+        expect(getNameInput().className).toContain('border-[var(--error)]')
+        expect(mockStoreState.createCommand).not.toHaveBeenCalled()
+    })
+
+    it('查重大小写不敏感（Daily 命中 daily）', () => {
+        render(<CommandEditModal command={null} existingNames={existing} onSave={vi.fn()} onCancel={vi.fn()}/>)
+        fireEvent.change(getNameInput(), {target: {value: 'Daily'}})
+        expect(screen.getByRole('alert').textContent).toBe('已存在同名命令，请修改命令名')
+    })
+
+    it('名称不重复 → 无错误', () => {
+        render(<CommandEditModal command={null} existingNames={existing} onSave={vi.fn()} onCancel={vi.fn()}/>)
+        fireEvent.change(getNameInput(), {target: {value: 'brand-new'}})
+        expect(screen.queryByRole('alert')).toBeNull()
+    })
+
+    it('撞名时点击保存 → 前端拦截，不调用 createCommand', async () => {
+        const onSave = vi.fn()
+        render(<CommandEditModal command={null} existingNames={existing} onSave={onSave} onCancel={vi.fn()}/>)
+
+        fireEvent.change(getNameInput(), {target: {value: 'daily'}})
+        fireEvent.change(screen.getByPlaceholderText(/命令模板/), {target: {value: '内容'}})
+        fireEvent.click(screen.getByText('保存'))
+
+        await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('已存在同名命令，请修改命令名'))
+        expect(mockStoreState.createCommand).not.toHaveBeenCalled()
+        expect(onSave).not.toHaveBeenCalled()
+    })
+
+    it('编辑模式排除自身原名 → 保持原名不报错', () => {
+        const editing = {id: 'user:daily', name: 'daily', content: 'BODY', enabled: true} as any
+        render(<CommandEditModal command={editing} existingNames={existing} onSave={vi.fn()} onCancel={vi.fn()}/>)
+        expect(screen.queryByRole('alert')).toBeNull()
+    })
+
+    it('编辑模式改名为另一个已有命令 → 报错', () => {
+        const editing = {id: 'user:daily', name: 'daily', content: 'BODY', enabled: true} as any
+        render(<CommandEditModal command={editing} existingNames={existing} onSave={vi.fn()} onCancel={vi.fn()}/>)
+
+        fireEvent.change(getNameInput(), {target: {value: '日报'}})
+        expect(screen.getByRole('alert').textContent).toBe('已存在同名命令，请修改命令名')
+    })
+})
+
+describe('CommandEditModal 后端错误回显（纵深防御）', () => {
+    it('主进程返回撞名错误时仍展示（不因前端校验而假设后端不拒绝）', async () => {
+        mockStoreState.createCommand.mockResolvedValueOnce({success: false, error: '已存在同名命令，请修改命令名'})
+        render(<CommandEditModal command={null} onSave={vi.fn()} onCancel={vi.fn()}/>)
+
+        fireEvent.change(getNameInput(), {target: {value: 'free'}})
+        fireEvent.change(screen.getByPlaceholderText(/命令模板/), {target: {value: '内容'}})
+        fireEvent.click(screen.getByText('保存'))
+
+        const alert = await screen.findByRole('alert')
+        expect(alert.textContent).toContain('已存在同名命令，请修改命令名')
+    })
+})

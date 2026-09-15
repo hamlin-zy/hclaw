@@ -43,6 +43,9 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
     const lastPos = useRef({x: 0, y: 0})
     const [contextMenu, setContextMenu] = useState<ContextMenuState>({visible: false, x: 0, y: 0})
     const [copied, setCopied] = useState(false)
+    const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理「已复制」复位定时器
+    useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
     
     // 重置到初始状态
     const resetTransform = useCallback(() => {
@@ -69,8 +72,9 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
 
     // 展示“已复制”提示，2 秒后自动隐藏
     const showCopied = useCallback(() => {
+        if (copiedTimer.current) clearTimeout(copiedTimer.current)
         setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
+        copiedTimer.current = setTimeout(() => { copiedTimer.current = null; setCopied(false) }, 2000)
     }, [])
 
     // 键盘事件
@@ -334,7 +338,7 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                     >
                         <button
                             onClick={copyImageToClipboard}
-                            className="w-full px-4 py-2.5 text-sm text-left text-[var(--text-primary)] hover:bg-[var(--brand-primary)]/10 flex items-center gap-2.5 transition-colors"
+                            className="w-full px-4 py-2.5 text-sm text-left text-[var(--text-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] flex items-center gap-2.5 transition-colors"
                          data-name="image-preview-modal-copy-image-button">
                             <svg className="w-4 h-4 text-[var(--brand-primary)] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />

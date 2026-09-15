@@ -4,13 +4,14 @@
  * CapabilityHub 是系统中所有「可用能力」的统一注册与查询中心。
  * 它将分散在 skillRegistry、agentRegistry、CommandDispatcher 中的能力
  * 抽象为统一的 CapabilityEntry，提供：
- *   - 单一写入入口（幂等注册）
- *   - 插件状态变更的批量同步
+ *   - 全量投影（replaceAll 单一写 seam）
  *   - 统一查询接口（按类型/来源/启用状态过滤）
+ *   - 变更订阅（onChanged）
  *
  * 设计原则：
- *   - Hub 不关心持久化（overrides 等由 Loader 层负责）
- *   - Hub 只维护内存状态 + 索引
+ *   - Hub 对外仅 只读 query + replaceAll + onChanged；不持久化
+ *     （overrides 等持久化由 Loader 层负责）
+ *   - Hub 只维护内存状态
  *   - Hub 通过 EventEmitter 通知订阅者状态变更
  */
 

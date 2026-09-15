@@ -11,22 +11,22 @@ export type AgentSource = 'built-in' | 'user'
 /**
  * Agent 类型（可扩展，不再局限于 4 种）
  */
-export type AgentType = string
+type AgentType = string
 
 /**
  * Agent 隔离模式
  */
-export type AgentIsolationMode = 'worktree' | 'none'
+type AgentIsolationMode = 'worktree' | 'none'
 
 /**
  * Agent 权限模式（可覆盖全局设置）
  */
-export type AgentPermissionMode = 'auto' | 'safe'
+type AgentPermissionMode = 'auto' | 'safe'
 
 /**
  * 基础 Agent 定义接口
  */
-export interface BaseAgentDefinition {
+interface BaseAgentDefinition {
   /** 唯一标识符（如 'plan', 'explore'） */
   agentType: AgentType
 
@@ -82,7 +82,7 @@ export interface BaseAgentDefinition {
  * 提示词通过 systemPromptTemplate 字段提供（支持 {working_dir} 等模板变量），
  * 在运行时由 renderSystemPrompt() 渲染。
  */
-export interface BuiltInAgentDefinition extends BaseAgentDefinition {
+interface BuiltInAgentDefinition extends BaseAgentDefinition {
   source: 'built-in'
 
   /** 初始化回调（Agent 启动时调用） */
@@ -92,7 +92,7 @@ export interface BuiltInAgentDefinition extends BaseAgentDefinition {
 /**
  * User Agent 定义（静态模板）
  */
-export interface UserAgentDefinition extends BaseAgentDefinition {
+interface UserAgentDefinition extends BaseAgentDefinition {
   source: 'user'
 
   /** 渲染后的系统提示词（模板占位符替换后的结果） */
@@ -103,34 +103,6 @@ export interface UserAgentDefinition extends BaseAgentDefinition {
  * 联合类型
  */
 export type AgentDefinition = BuiltInAgentDefinition | UserAgentDefinition
-
-/**
- * 类型守卫
- */
-export function isBuiltInAgent(agent: AgentDefinition): agent is BuiltInAgentDefinition {
-  return agent.source === 'built-in'
-}
-
-export function isUserAgent(agent: AgentDefinition): agent is UserAgentDefinition {
-  return agent.source === 'user'
-}
-
-/**
- * Agent 加载结果
- */
-export interface AgentLoadResult {
-  /** 所有可用的 Agent 定义 */
-  allAgents: AgentDefinition[]
-
-  /** 活跃的 Agent 定义（去重后，user 优先级高于 built-in） */
-  activeAgents: AgentDefinition[]
-
-  /** 加载失败的文件（如果有） */
-  failedFiles?: Array<{ path: string; error: string }>
-
-  /** 允许的 Agent 类型（用于权限控制） */
-  allowedAgentTypes?: AgentType[]
-}
 
 /**
  * 提示词渲染参数

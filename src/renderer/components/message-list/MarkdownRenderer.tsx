@@ -16,6 +16,7 @@ import {inferMediaTypeFromUrl, isDarkTheme, type ThemeName} from '@shared/types'
 import ImagePreviewModal from '../common/ImagePreviewModal'
 import {useSettingsStore} from '../../stores/settingsStore'
 import LinkContextMenu from '../common/LinkContextMenu'
+import {useTransientFlag} from '../../hooks/useTransientFlag'
 // toMediaUrl 逻辑复刻（避免在渲染进程引入模块依赖）
 // 将本地文件路径转换为 hclaw-media:// URL
 // URL 格式: hclaw-media://local/E:/path/to/file.mp3
@@ -61,13 +62,12 @@ const stableUrlTransform = (url: string) => url
 // ─── 代码块复制按钮 ─────────────────────────────────────
 
 const CopyButton = memo(function CopyButton({code}: { code: string }) {
-    const [copied, setCopied] = useState(false)
+    const [copied, flashCopied] = useTransientFlag(2000)
 
     const handleCopy = async () => {
         try {
             await navigator.clipboard.writeText(code)
-            setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
+            flashCopied()
         } catch {
             // 复制失败，静默处理
         }
@@ -167,7 +167,7 @@ function LocalImage({src, alt}: {src: string; alt: string}) {
             <span
                 className="my-2 flex items-center gap-2 p-3 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)]">
                 <span
-                    className="w-4 h-4 border-2 border-[var(--brand-primary)]/30 border-t-[var(--brand-primary)] rounded-full animate-spin inline-block"/>
+                    className="w-4 h-4 border-2 border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] border-t-[var(--brand-primary)] rounded-full animate-spin inline-block"/>
                 <span className="text-xs text-[var(--text-secondary)]">加载图片中…</span>
             </span>
         )
@@ -391,7 +391,7 @@ export default MarkdownRenderer
 /**
  * 生成 Markdown 组件配置
  */
-export function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 'system' | 'ask') {
+function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 'system' | 'ask') {
     const codeStyle = isDarkTheme(theme) ? oneDark : oneLight
 
     return {
@@ -441,7 +441,7 @@ export function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'buil
                 <code
                     className={`px-1.5 py-0.5 rounded font-mono text-xs whitespace-nowrap ${
                         isUser
-                            ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
+                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
                             : 'bg-[var(--surface-muted)] text-[var(--text-secondary)]'
                     }`}
                     {...props}
@@ -457,7 +457,7 @@ export function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'buil
                 <code
                     className={`px-1.5 py-0.5 rounded font-mono text-xs whitespace-nowrap ${
                         isUser
-                            ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
+                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
                             : 'bg-[var(--surface-muted)] text-[var(--text-secondary)]'
                     }`}
                 >
@@ -530,10 +530,10 @@ export function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'buil
         },
         // 列表（次级色正文 + 品牌色序号）
         ul({children}: any) {
-            return <ul className="my-2.5 ml-4 list-disc space-y-1 text-[var(--text-primary)] marker:text-[var(--brand-primary)]/70">{children}</ul>
+            return <ul className="my-2.5 ml-4 list-disc space-y-1 text-[var(--text-primary)] marker:text-[color-mix(in_srgb,var(--brand-primary)_70%,transparent)]">{children}</ul>
         },
         ol({children}: any) {
-            return <ol className="my-2.5 ml-4 list-decimal space-y-1 text-[var(--text-primary)] marker:text-[var(--brand-primary)]/70">{children}</ol>
+            return <ol className="my-2.5 ml-4 list-decimal space-y-1 text-[var(--text-primary)] marker:text-[color-mix(in_srgb,var(--brand-primary)_70%,transparent)]">{children}</ol>
         },
         // 列表项
         li({children, checked, ref: _ref, ...props}: any) {

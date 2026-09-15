@@ -27,6 +27,9 @@ const unwrap = <T,>(res?: {ok: boolean; data?: T; error?: string}): T | null => 
     return null
 }
 
+/** 最近一次 load 请求的工作区（竞态守卫基准，见 load 内注释） */
+let activeWorkspacePath = ''
+
 /** 打开新建备忘录编辑窗口（MemoPanel 新建按钮与 Ctrl+Shift+N 快捷键共用） */
 export function openMemoCreateWindow(workspacePath: string) {
     void window.electronAPI?.openConfigWindow?.('memo-edit', [`--hclaw-memo-workspace=${encodeURIComponent(workspacePath)}`])
@@ -38,9 +41,14 @@ export const useMemoStore = create<MemoStoreState>((set, get) => ({
     error: null,
 
     load: async (workspacePath: string) => {
+        // ★ 竞态守卫：本 store 不持有「当前工作区」状态字段（memos 仅存条目、各自带
+        //   workspacePath），故用模块级变量记录最近一次请求的工作区。await 回来后若
+        //   已被更新的工作区请求取代，则丢弃过期响应（旧工作区数据不得覆盖新工作区）。
+        activeWorkspacePath = workspacePath
         set({loading: true})
         try {
             const res = await window.electronAPI?.memo.list(workspacePath)
+            if (activeWorkspacePath !== workspacePath) return // 工作区已切换：丢弃
             const data = unwrap<MemoItem[]>(res)
             if (data) {
                 set({memos: data, error: null})
@@ -48,7 +56,7 @@ export const useMemoStore = create<MemoStoreState>((set, get) => ({
                 set({memos: [], error: res?.error || '加载备忘录失败'})
             }
         } finally {
-            set({loading: false})
+            if (activeWorkspacePath === workspacePath) set({loading: false})
         }
     },
 

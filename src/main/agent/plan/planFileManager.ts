@@ -121,7 +121,7 @@ export class PlanFileManager {
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, {recursive: true})
         fs.writeFileSync(filePath, '', 'utf-8')
       }
-      const editorCommand = this.resolveEditor(editor)
+      const editorCommand = resolveEditorCommand(editor)
       if (!editorCommand) throw new Error('无法确定编辑器命令')
       const proc = spawn(editorCommand, [filePath], {detached: true, stdio: 'ignore', windowsHide: true, shell: process.platform === 'win32'})
       proc.unref()
@@ -146,18 +146,28 @@ export class PlanFileManager {
       return {}
     }, '删除失败') as { success: boolean; error?: string }
   }
+}
 
-  private resolveEditor(editor: EditorType): string | null {
-    if (editor !== 'auto') return editor
-    for (const ed of ['code', 'code-insiders', 'vim', 'vi', 'nano'] as EditorType[]) {
-      try {
-        spawn(ed, ['--version'], {stdio: 'ignore', windowsHide: true}).unref()
-        return ed
-      } catch { /* try next */
-      }
-    }
-    return null
-  }
+// ─── 编辑器命令解析 ─────────────────────────────────────
+
+/** `auto` 的确定性回退编辑器（Windows 下经 shell 启动，见 openInEditor 的 shell 选项） */
+const AUTO_EDITOR: EditorType = 'code'
+
+/**
+ * 解析编辑器命令（纯函数：不查 PATH、不 spawn 进程）。
+ *
+ * `auto` 恒为 `code`——这与旧实现**实际行为**完全一致，只是不再假装探测：
+ * 旧实现对候选列表逐个 `spawn(ed, ['--version'])` 并在同步 try/catch 里判断“是否抛错”，
+ * 但 spawn 对 ENOENT 只会**异步** emit('error')、不抛同步异常，故 try/catch 永不触发、
+ * 循环恒在首项 `code` 处返回（`auto ≡ code`）。同时那个进程还带一个空 error 监听，
+ * 专门吞掉“编辑器不存在”的 ENOENT，使死探测更难被发现。
+ *
+ * 收敛方式的选择依据：探测要真正生效必须改为异步（spawn + 'error'/'spawn' 事件），
+ * 那会改变 openInEditor 的同步返回契约（返回值形状不可变，约束 A），故此处只做等价的
+ * 确定性收敛：删掉不可达候选列表与随之而来的空 error 监听。
+ */
+export function resolveEditorCommand(editor: EditorType): string | null {
+  return editor === 'auto' ? AUTO_EDITOR : editor
 }
 
 // ─── 快捷工厂 ──────────────────────────────────────────
@@ -175,10 +185,6 @@ export function writePlan(content: string, workingDir?: string, useLocalPath?: b
 
 export function planExists(workingDir?: string, checkLocalOnly?: boolean): boolean {
   return new PlanFileManager(workingDir).planExists(checkLocalOnly)
-}
-
-export function openPlanInEditor(editor?: EditorType, workingDir?: string): EditorOpenResult | EditorOpenError {
-  return new PlanFileManager(workingDir).openInEditor(editor)
 }
 
 export function deletePlan(workingDir?: string, deleteLocalOnly?: boolean): { success: boolean; error?: string } {

@@ -49,9 +49,17 @@ export default function CapabilityPicker({selected, onSelect}: {
     // 键盘导航高亮索引（搜索结果列表中当前聚焦项）
     const [highlightIndex, setHighlightIndex] = useState(0)
     const listRef = useRef<HTMLDivElement>(null)
+    // 200ms 等待 store 完成的定时器 + 卸载/重入代际守卫
+    const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const cancelledRef = useRef(false)
 
     useEffect(() => {
-        loadCapabilities()
+        cancelledRef.current = false
+        void loadCapabilities()
+        return () => {
+            cancelledRef.current = true
+            if (loadTimerRef.current) { clearTimeout(loadTimerRef.current); loadTimerRef.current = null }
+        }
     }, [])
 
     const loadCapabilities = async () => {
@@ -62,8 +70,9 @@ export default function CapabilityPicker({selected, onSelect}: {
             useAgentTemplateStore.getState().syncFromDisk()
             useSkillStore.getState().loadSkills()
 
-            // 等待状态更新后读取 - 用 setTimeout 让 store 完成异步加载
-            await new Promise(r => setTimeout(r, 200))
+            // 等待状态更新后读取 - 用 setTimeout 让 store 完成异步加载（可取消）
+            await new Promise<void>(r => { loadTimerRef.current = setTimeout(() => { loadTimerRef.current = null; r() }, 200) })
+            if (cancelledRef.current) return
 
             const items: CapabilityItem[] = []
             const seen = new Set<string>()
@@ -119,9 +128,10 @@ export default function CapabilityPicker({selected, onSelect}: {
                 }
             }
 
+            if (cancelledRef.current) return
             setAllItems(items)
         } finally {
-            setLoading(false)
+            if (!cancelledRef.current) setLoading(false)
         }
     }
 

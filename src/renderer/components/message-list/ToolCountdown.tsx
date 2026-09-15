@@ -28,7 +28,7 @@ export const ToolCountdown = memo(function ToolCountdown({
         : 'text-[9px] px-1 py-0.5 rounded shrink-0 font-mono tabular-nums'
 
     const style = cd.urgent
-        ? 'bg-[var(--error-muted)]/30 text-[var(--error)] border border-[rgba(239,68,68,0.25)]'
+        ? 'bg-[var(--error-muted)] text-[var(--error)] border border-[rgba(239,68,68,0.25)]'
         : 'bg-[var(--surface-muted)] text-[var(--text-muted)] border border-[var(--border)]'
 
     return (

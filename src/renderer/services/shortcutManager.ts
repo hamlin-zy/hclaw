@@ -1,6 +1,5 @@
 import {matchEvent, mergeOverrides, SHORTCUT_DEFS, type ShortcutAction} from '../../shared/shortcuts'
-
-const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0
+import {IS_MAC} from '../lib/platform'
 
 type Handlers = Partial<Record<ShortcutAction, Set<() => void>>>
 
@@ -23,7 +22,13 @@ export function setRecording(recording: boolean): void {
 /** 订阅 action；返回取消订阅函数 */
 export function on(action: ShortcutAction, handler: () => void): () => void {
     ;(state.handlers[action] ??= new Set()).add(handler)
-    return () => { state.handlers[action]?.delete(handler) }
+    return () => {
+        const set = state.handlers[action]
+        if (!set) return
+        set.delete(handler)
+        // 删除后无订阅者则清掉空 Set key，避免 handlers 长期累积空集合
+        if (set.size === 0) delete state.handlers[action]
+    }
 }
 
 /** 读取某 action 的当前有效绑定 */
@@ -36,7 +41,7 @@ function dispatch(e: KeyboardEvent): void {
     if (state.recording) return
     for (const def of SHORTCUT_DEFS) {
         if (def.scope !== 'app') continue
-        if (matchEvent(e, state.bindings[def.id], isMac)) {
+        if (matchEvent(e, state.bindings[def.id], IS_MAC)) {
             e.preventDefault()
             state.handlers[def.id]?.forEach(h => h())
             return
@@ -44,20 +49,29 @@ function dispatch(e: KeyboardEvent): void {
     }
 }
 
-let started = false
+let activeStarts = 0
+let removeKeydown: (() => void) | null = null
 
 /**
- * 仅限单调用方（App 是唯一调用点，经 useGlobalHotkeys 挂载/卸载）：
- * 内部用 started 标志防重入，stop 会全局清理监听器；不支持多调用方引用计数。
+ * 引用计数式启停：支持多调用方。首个调用挂载 keydown 监听，最后一个 cleanup
+ * （计数归零）时移除监听；重复调用 cleanup 仅生效一次。快捷键分发/绑定行为不变。
  */
 export function startShortcutManager(): () => void {
-    if (started) return () => {}
-    started = true
-    const handler = (e: KeyboardEvent) => dispatch(e)
-    document.addEventListener('keydown', handler)
+    activeStarts++
+    if (activeStarts === 1) {
+        const handler = (e: KeyboardEvent) => dispatch(e)
+        document.addEventListener('keydown', handler)
+        removeKeydown = () => document.removeEventListener('keydown', handler)
+    }
+    let stopped = false
     return () => {
-        document.removeEventListener('keydown', handler)
-        started = false
+        if (stopped) return
+        stopped = true
+        activeStarts--
+        if (activeStarts === 0) {
+            removeKeydown?.()
+            removeKeydown = null
+        }
     }
 }
 

@@ -3,7 +3,7 @@ import {useConversationStore} from '../stores/conversationStore'
 
 export type HandoffChoice = 'handoff' | 'continue' | 'cancel'
 
-export interface HandoffDialogProps {
+interface HandoffDialogProps {
   conversationId: string
   /** 上下文占用比例（0-1） */
   ratio: number

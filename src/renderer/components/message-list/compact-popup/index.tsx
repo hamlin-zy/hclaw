@@ -21,6 +21,17 @@ import MarkdownRenderer from '../MarkdownRenderer'
 import {AgentIcon, RemoveIcon, SkillIcon} from '../../icons'
 
 /**
+ * 状态徽章 class（success / error / 其它）。两处调用点共用同一配色口径。
+ * 仅收敛 class 三元；徽章文案三元仍由各调用点自持（口径不同，勿合并）。
+ */
+function statusBadgeClass(status: string): string {
+    const tone = status === 'success' ? 'bg-[var(--success-muted)] text-[var(--success)]'
+        : status === 'error' ? 'bg-[var(--error-muted)] text-[var(--error)]'
+            : 'bg-[var(--info-muted)] text-[var(--info)]'
+    return `text-[9px] px-1.5 py-0.5 rounded-full ${tone}`
+}
+
+/**
  * 紧凑模式 Popup — 全局单例
  */
 const CompactToolPopup = memo(function CompactToolPopup() {
@@ -130,7 +141,7 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                                 <AgentIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)]"/>
                                                 <span className="text-[var(--text-muted)] font-normal">Agent</span>
                                                 {agentTypeLabel && (
-                                                    <span className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)]/30 px-1.5 py-0.5 rounded shrink-0">
+                                                    <span className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)] px-1.5 py-0.5 rounded shrink-0">
                                                         {agentTypeLabel}
                                                     </span>
                                                 )}
@@ -141,11 +152,7 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                                         {state.progress.replace(/^子 Agent /, '')}
                                                     </span>
                                                 )}
-                                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
-                                                    status === 'success' ? 'bg-[var(--success-muted)]/30 text-[var(--success)]'
-                                                        : status === 'error' ? 'bg-[var(--error-muted)]/30 text-[var(--error)]'
-                                                            : 'bg-[var(--info-muted)]/30 text-[var(--info)]'
-                                                }`}>{status === 'success' ? '已完成' : status === 'error' ? '失败' : '进行中'}</span>
+                                                <span className={statusBadgeClass(status)}>{status === 'success' ? '已完成' : status === 'error' ? '失败' : '进行中'}</span>
                                                 {(state?.taskId || tc.taskId) && (
                                                     <button
                                                         onClick={() => handleJumpToSession(tc)}
@@ -191,7 +198,7 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                             })()}
                                             {/* agent 工具：子 Agent 工作报告不截断（完整保留，容器可滚动） */}
                                             {result?.output && <div className="mt-2 text-[10px] text-[var(--text-primary)] leading-relaxed p-2 bg-[var(--surface-overlay)] rounded max-h-48 overflow-x-hidden overflow-y-auto break-all select-text"><MarkdownRenderer>{String(result.output)}</MarkdownRenderer></div>}
-                                            {result?.error && <pre className="mt-2 text-[10px] text-[var(--error)] font-mono whitespace-pre-wrap break-all leading-relaxed p-2 bg-[var(--error-muted)]/15 rounded max-h-48 overflow-x-hidden overflow-y-auto select-text">{String(result.error)}</pre>}
+                                            {result?.error && <pre className="mt-2 text-[10px] text-[var(--error)] font-mono whitespace-pre-wrap break-all leading-relaxed p-2 bg-[var(--error-muted)] rounded max-h-48 overflow-x-hidden overflow-y-auto select-text">{String(result.error)}</pre>}
                                         </div>
                                     )
                                 })}
@@ -208,14 +215,10 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                                 <SkillIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)]"/>
                                                 <span className="text-[var(--text-muted)] font-normal">Skill</span>
                                                 <span className="font-semibold text-[var(--text-primary)] truncate flex-1">{skillDisplayName || '技能'}</span>
-                                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
-                                                    status === 'success' ? 'bg-[var(--success-muted)]/30 text-[var(--success)]'
-                                                        : status === 'error' ? 'bg-[var(--error-muted)]/30 text-[var(--error)]'
-                                                            : 'bg-[var(--info-muted)]/30 text-[var(--info)]'
-                                                }`}>{status === 'success' ? '已完成' : status === 'error' ? '失败' : '进行中'}</span>
+                                                <span className={statusBadgeClass(status)}>{status === 'success' ? '已完成' : status === 'error' ? '失败' : '进行中'}</span>
                                             </div>
                                             {result?.output && <div className="mt-2 text-[10px] text-[var(--text-primary)] leading-relaxed p-2 bg-[var(--surface-overlay)] rounded max-h-48 overflow-x-hidden overflow-y-auto break-all select-text"><MarkdownRenderer>{truncate(String(result.output), 3000)}</MarkdownRenderer></div>}
-                                            {result?.error && <pre className="mt-2 text-[10px] text-[var(--error)] font-mono whitespace-pre-wrap break-all leading-relaxed p-2 bg-[var(--error-muted)]/15 rounded max-h-48 overflow-x-hidden overflow-y-auto select-text">{String(result.error)}</pre>}
+                                            {result?.error && <pre className="mt-2 text-[10px] text-[var(--error)] font-mono whitespace-pre-wrap break-all leading-relaxed p-2 bg-[var(--error-muted)] rounded max-h-48 overflow-x-hidden overflow-y-auto select-text">{String(result.error)}</pre>}
                                         </div>
                                     )
                                 })}

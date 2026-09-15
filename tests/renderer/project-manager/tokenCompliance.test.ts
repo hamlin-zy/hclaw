@@ -2,13 +2,15 @@
 import {describe, it, expect} from 'vitest'
 import {readFileSync, readdirSync, statSync} from 'fs'
 import {join, relative} from 'path'
+import {BARE_HEX, isComment, scan, violations, describeHit, type Hit} from '../helpers/tokenScan'
 
 const ROOT = join(process.cwd(), 'src/renderer/project-manager')
 
-/** `var(--x, #hex)` 兜底写法（spec §2.1 的头号反模式） */
+/**
+ * `var(--x, #hex)` 兜底写法（spec §2.1 的头号反模式）。
+ * 本护栏只禁 hex 兜底；能力页护栏用的 VAR_FALLBACK 更宽（含 rgb()/hsl() 兜底），语义不同，故不复用。
+ */
 const HEX_FALLBACK = /var\(\s*--[a-z0-9-]+\s*,\s*#[0-9a-fA-F]{3,8}/
-/** 裸 hex 颜色字面值 */
-const BARE_HEX = /#[0-9a-fA-F]{3,8}\b/
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name)
@@ -18,7 +20,6 @@ function walk(dir: string, out: string[] = []): string[] {
   return out
 }
 
-const rel = (f: string) => relative(process.cwd(), f).replace(/\\/g, '/')
 const relFromRoot = (f: string) => relative(ROOT, f).replace(/\\/g, '/')
 
 const ALL_FILES = walk(ROOT)
@@ -29,34 +30,8 @@ const ALL_FILES = walk(ROOT)
  */
 const FILES = ALL_FILES
 
-interface Hit {
-  file: string
-  line: number
-  /** 原始行文本（保留前导空白与行首注释符，供注释判定使用） */
-  text: string
-}
-
-/** 逐行扫描，命中就记录 file:line: 原文，方便直接跳过去改 */
-function scan(re: RegExp): Hit[] {
-  const hits: Hit[] = []
-  for (const file of FILES) {
-    readFileSync(file, 'utf-8').split('\n').forEach((line, i) => {
-      if (re.test(line)) hits.push({file: rel(file), line: i + 1, text: line})
-    })
-  }
-  return hits
-}
-
-/** 整行注释（// 或块注释的 * / 开头）。遍历用原始行文本，不能用 trim 后的串。 */
-const isComment = (h: Hit) => /^\s*(\/\/|\*|\/\*)/.test(h.text)
-
-const describeHitLoc = (h: Hit) => `${h.file}:${h.line}`
-const describeHit = (h: Hit) => `${describeHitLoc(h)}: ${h.text.trim()}`
-
-/** 违规 = 命中且不是整行注释 */
-function violations(re: RegExp): string[] {
-  return scan(re).filter(h => !isComment(h)).map(describeHit)
-}
+// 扫描原语（scan / violations / isComment / describeHit / Hit）与 BARE_HEX 已抽到
+// tests/renderer/helpers/tokenScan.ts，两条护栏共用同一套「反模式定义」。
 
 describe('令牌合规扫描（spec §16.2）', () => {
   it('自检：扫描范围无白名单排除，原推迟的三个文件都已在范围内', () => {
@@ -86,20 +61,20 @@ describe('令牌合规扫描（spec §16.2）', () => {
   it('禁止 `var(--x, #hex)` 兜底写法', () => {
     // 旧右键菜单写了 var(--bg-secondary, #252526)，该令牌根本不存在，
     // 导致所有主题都落到 Darcula 灰。这是本次要根治的头号反模式。
-    const hits = violations(HEX_FALLBACK)
+    const hits = violations(FILES, HEX_FALLBACK)
     expect(hits, `发现带 hex 兜底的 var() 用法:\n${hits.join('\n')}`).toEqual([])
   })
 
   it('project-manager 下的 .ts/.tsx 不得出现裸 hex 颜色字面值', () => {
     // 仅禁兜底会漏掉"把 STATUS_STYLE 的 hex 换个地方写"这类回归，所以连裸 hex 一起禁。
     // 白名单：无（lib/fileIcon.ts 与 lib/statusColor.ts 用的都是 var(--token) 字符串，不是 hex）。
-    const hits = violations(BARE_HEX)
+    const hits = violations(FILES, BARE_HEX)
     expect(hits, `发现裸 hex 字面值:\n${hits.join('\n')}`).toEqual([])
   })
 
   it('回归守卫：不得再出现 var(--bg-secondary, ...) 这个不存在的令牌', () => {
     // 唯一允许出现该字符串的地方是 ui/ContextMenu.tsx 的整行注释——它在文档化这条规则本身。
-    const all = scan(/var\(--bg-secondary/)
+    const all = scan(FILES, /var\(--bg-secondary/)
     expect(all.filter(h => !isComment(h)).map(describeHit)).toEqual([])
     const comment = all.find(
       h => isComment(h) && h.file.endsWith('ui/ContextMenu.tsx') && h.text.includes('var(--bg-secondary, #252526)'),

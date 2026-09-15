@@ -166,7 +166,7 @@ export const SkillBubble = memo(function SkillBubble({
         <span style={{flex: 1, fontWeight: 600, color: '#1e293b'}}>
           {skillName}
         </span>
-        <StatusBadge config={statusConfig} />
+        <SkillStatusBadge config={statusConfig} />
         <ChevronIcon expanded={expanded} />
       </div>
 
@@ -224,7 +224,7 @@ export const SkillBubble = memo(function SkillBubble({
 
 // ─── 子组件 ──────────────────────────────────────────────
 
-function StatusBadge({config}: { config: ReturnType<typeof getStatusConfig> }) {
+function SkillStatusBadge({config}: { config: ReturnType<typeof getStatusConfig> }) {
   return (
     <span style={{
       display: 'inline-flex',
@@ -640,4 +640,4 @@ function formatContent(content: string): string {
 
 // ─── 导出类型 ──────────────────────────────────────────────
 
-export type {SkillBubbleProps, SkillLogEntry, SkillScriptState, SkillReferenceState, SkillResult, SkillError}
+export type {SkillLogEntry}

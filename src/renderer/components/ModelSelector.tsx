@@ -208,7 +208,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                 ref={buttonRef}
                 data-name="model-selector-trigger"
                 onClick={() => setView(view === 'closed' ? 'providers' : 'closed')}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/60 focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface)] ${
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)] dark-all:focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface)] ${
                     view !== 'closed'
                         ? 'border-[var(--brand-primary)] bg-[var(--brand-muted)] text-[var(--brand-primary)]'
                         : 'border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-secondary)] hover:border-[var(--border-emphasis)] hover:bg-[var(--surface-overlay)] active:bg-[var(--surface-overlay)]'
@@ -237,7 +237,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                         >
                             {/* overflow-hidden 仅裁剪自身圆角；子菜单独立 portal 到 body，不受影响。
                                 max-h-[80vh]：弹窗最大高度 = 主窗口 80%；内容少时按需渲染，超出才滚动 */}
-                            <div className="bg-[var(--surface-elevated)]/92 backdrop-blur-lg border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden flex flex-col max-h-[80vh]">
+                            <div className="bg-[color-mix(in_srgb,var(--surface-elevated)_92%,transparent)] backdrop-blur-lg border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden flex flex-col max-h-[80vh]">
                                 <div className="p-2 flex flex-col flex-1 min-h-0">
                                     <div className="px-2 py-1.5 text-[10px] font-medium text-[var(--text-secondary)] border-b border-[var(--border-muted)] mb-1">
                                         模型选择
@@ -259,7 +259,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                                     onMouseEnter={(e) => openProviderSubmenu(p.id, e.currentTarget)}
                                                     onMouseLeave={scheduleClose}
                                                     className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs rounded-lg transition-colors ${
-                                                        isActive ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
+                                                        isActive ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--brand-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
                                                     }`}
                                                 >
                                                     <span className="truncate">{p.name}</span>
@@ -295,7 +295,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                             onMouseEnter={cancelClose}
                             onMouseLeave={scheduleClose}
                         >
-                            <div className="bg-[var(--surface-elevated)]/92 backdrop-blur-lg border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden">
+                            <div className="bg-[color-mix(in_srgb,var(--surface-elevated)_92%,transparent)] backdrop-blur-lg border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden">
                                 <div className="p-1.5">
                                     <div className="px-2 py-1.5 text-[10px] font-medium text-[var(--text-secondary)] border-b border-[var(--border-muted)] mb-1 truncate">
                                         {selProvider.name}
@@ -313,7 +313,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                                     data-name={`model-selector-model-${m.id}`}
                                                     onClick={() => handleApply(selProviderId, m.id)}
                                                     className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs rounded-lg transition-colors ${
-                                                        isSelected ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
+                                                        isSelected ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--brand-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
                                                     }`}
                                                 >
                                                     <span className="truncate">{m.name}</span>

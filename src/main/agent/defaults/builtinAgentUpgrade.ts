@@ -28,9 +28,9 @@ import * as fs from 'fs'
 import yaml from 'js-yaml'
 import {getAgentField} from '../../utils/fieldMapper'
 
-/** manifest 文件名。刻意不带扩展名：`loader/user.ts` 的 walkDir 只收 .md/.json/.yaml/.yml，避免被抓成 Agent。 */
+/** manifest 文件名。刻意不带扩展名：Agent 目录扫描（walkDir）只收 .md/.json/.yaml/.yml，避免被抓成 Agent。 */
 export const MANIFEST_FILENAME = '.builtin-manifest'
-export const MANIFEST_VERSION = 1
+const MANIFEST_VERSION = 1
 
 export interface BuiltinAgentManifestEntry {
     /** 我们整体写入过的内容的 sha1；锚点迁移过的文件不写入此字段（见安全不变量 a） */
@@ -44,12 +44,12 @@ export interface BuiltinAgentManifestEntry {
     updatedAt?: number
 }
 
-export interface BuiltinAgentManifest {
+interface BuiltinAgentManifest {
     version: number
     files: Record<string, BuiltinAgentManifestEntry>
 }
 
-export interface MigrationResult {
+interface MigrationResult {
     outcome: 'applied' | 'noop' | 'skipped'
     content: string
     /** 同语义的低优先级别名键（不生效）——仅用于日志诊断 */
@@ -57,7 +57,7 @@ export interface MigrationResult {
     reason?: string
 }
 
-export interface BuiltinTemplateMigration {
+interface BuiltinTemplateMigration {
     id: string
     /** 目标内置模板文件名，如 'plan.md' */
     file: string
@@ -66,7 +66,7 @@ export interface BuiltinTemplateMigration {
 }
 
 /** 待校验的工具生效性断言 */
-export interface ToolEffectivenessCheck {
+interface ToolEffectivenessCheck {
     /** 必须处于"可用"状态（未被白名单排除、未被黑名单禁止） */
     required: string[]
     /** 必须处于"不可用"状态 */
@@ -79,7 +79,7 @@ export function contentHash(content: string): string {
     return crypto.createHash('sha1').update(content, 'utf-8').digest('hex')
 }
 
-export function emptyManifest(): BuiltinAgentManifest {
+function emptyManifest(): BuiltinAgentManifest {
     return {version: MANIFEST_VERSION, files: {}}
 }
 
@@ -291,7 +291,7 @@ export const BUILTIN_TEMPLATE_MIGRATIONS: BuiltinTemplateMigration[] = [
 ]
 
 /** 每个内置模板的生效性断言（迁移后校验，不通过则回滚） */
-export const BUILTIN_TEMPLATE_CHECKS: Record<string, ToolEffectivenessCheck> = {
+const BUILTIN_TEMPLATE_CHECKS: Record<string, ToolEffectivenessCheck> = {
     'plan.md': {required: ['file_write'], forbidden: []},
 }
 
@@ -323,7 +323,7 @@ export function verifyToolEffectiveness(
         return {ok: false, reason: 'frontmatter-parse-failed'}
     }
 
-    // 与 loader/user.ts 同源：getAgentField 承载别名与优先级
+    // getAgentField 承载别名与优先级（与 Agent 加载口径一致）
     const tools = parseToolsValue(getAgentField(frontmatter, 'allowedTools'))
     const disallowed = parseToolsValue(getAgentField(frontmatter, 'disallowedTools')) ?? []
     const wildcard = tools === undefined
@@ -345,7 +345,7 @@ export function verifyToolEffectiveness(
 
 // ─── 迁移执行 ────────────────────────────────────────────
 
-export interface MigrationRunReport {
+interface MigrationRunReport {
     content: string
     applied: string[]
     skipped: string[]
@@ -383,7 +383,7 @@ export function runMigrations(filename: string, content: string): MigrationRunRe
  * @param template 当前版本的内置模板内容
  * @param entry manifest 中该文件的既有条目（可空 = 来源不明）
  */
-export interface UpgradeDecision {
+interface UpgradeDecision {
     action: 'replace' | 'migrate' | 'unchanged' | 'none'
     content: string
     /** 是否应写入 manifest 的 pristineHash（指纹命中，即 action 为 replace/unchanged 时为 true） */

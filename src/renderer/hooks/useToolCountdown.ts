@@ -11,7 +11,7 @@
 
 import {useEffect, useState} from 'react'
 
-export interface CountdownResult {
+interface CountdownResult {
     /** 剩余时间描述（如 "(10s)" / "已超时"） */
     label: string
     /** 是否紧急（剩余 ≤10s 或已超时），用于红色高亮 */

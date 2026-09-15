@@ -32,14 +32,21 @@ function collectCapabilityInputs() {
   return {skills, agents, plugins}
 }
 
+/** 发现仓库并把版本缓存裁剪到活跃仓库集合（返回值形状不变）。 */
+async function discoverRepos(): Promise<GitRepo[]> {
+  const inputs = collectCapabilityInputs()
+  const repos = await repoRegistry.discover(undefined, inputs)
+  repoVersionManager.prune(repos.map(r => r.id))
+  return repos
+}
+
 export function registerRepoIPC(): void {
   ipcMain.handle('repo:install', async (_e: IpcMainInvokeEvent, target: InstallTarget, url: string) => {
     return installRepo(target, url)
   })
 
   ipcMain.handle('repo:list', async () => {
-    const inputs = collectCapabilityInputs()
-    return repoRegistry.discover(undefined, inputs)
+    return discoverRepos()
   })
 
   ipcMain.handle('repo:get-versions', async (_e, repoId: string) => {
@@ -73,8 +80,7 @@ export function registerRepoIPC(): void {
 /** 启动时调用：发现仓库 + 启动版本检查（fire-and-forget），推送红点 */
 export async function initializeRepoSystem(): Promise<GitRepo[]> {
   try {
-    const inputs = collectCapabilityInputs()
-    const repos = await repoRegistry.discover(undefined, inputs)
+    const repos = await discoverRepos()
     const metas = await repoVersionManager.startupCheck(repos)
     logger.info('repo-startup-done', {repos: repos.length, updates: Object.keys(metas).filter(k => metas[k].hasUpdate).length})
     return repos

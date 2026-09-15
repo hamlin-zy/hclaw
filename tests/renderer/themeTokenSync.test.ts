@@ -76,6 +76,12 @@ const OWNED = [
 const BRAND_STATUS = [
   '--brand-primary', '--brand-hover', '--brand-muted', '--brand-ink', '--brand-ink-hover',
   '--success', '--warning', '--error', '--info',
+  // 状态色 muted 系：曾漏在本表之外，形成同步盲区——内联表若声明了它们且与 globals.css
+  // 不一致，护栏不会报警。（这四个键在浅色主题下曾整体缺失，导致 12 处 color-mix +
+  // 13 处既有直写一直是透明，已在 globals.css :root 补齐。）
+  // 口径与上两行一致：不要求「内联必须声明」，只要求「凡声明即相等」——注意不要把它们
+  // 挪进 OWNED：OWNED 要求内联表每个主题都声明全部键，会连带改动 3 个 HTML 内联表。
+  '--success-muted', '--warning-muted', '--error-muted', '--info-muted',
 ] as const
 
 // ── globals.css 解析 ────────────────────────────────────────

@@ -47,7 +47,7 @@ export interface SubAgentStreamEntry {
 
 /** 工具调用运行时状态 */
 export interface ToolCallState {
-    status: 'pending' | 'running' | 'success' | 'error' | 'cancelled'
+    status: 'pending' | 'running' | 'success' | 'error' | 'cancelled' | 'truncated'
     progress?: string
     progressPercent?: number
     eta?: number
@@ -295,11 +295,13 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
             // 直接丢弃本次迟到的 progress 更新，防止复活出无 convId 的孤儿 key
             // （会话级清理永远删不掉、progressLog 继续累积到 PROGRESS_LOG_MAX）。
             const existing = state.states[toolCallId]
-            if (!existing) return {}
+            // 返回原 state（同一引用）而非 {}：zustand 借此跳过本轮通知，
+            // 避免无变化的 set 触发订阅者重渲染
+            if (!existing) return state
             const currentLog = existing.progressLog || []
             const lastEntry = currentLog.length > 0 ? currentLog[currentLog.length - 1] : null
             // 去重：如果最后一条文本相同，不追加
-            if (lastEntry?.text === text) return {}
+            if (lastEntry?.text === text) return state
             const nextLog = [...currentLog, entry]
             return {
                 states: {
@@ -324,7 +326,8 @@ export const useToolCallsStore = create<ToolCallsStore>()((set, get) => ({
             // 直接丢弃本次迟到的流式事件，防止复活出无 convId 的孤儿 key
             // （会话级清理永远删不掉、subAgentStream 继续累积）。
             const existing = state.states[toolCallId]
-            if (!existing) return {}
+            // 返回原 state（同一引用）而非 {}，跳过无变化的通知
+            if (!existing) return state
             const currentStream = existing.subAgentStream || []
             // 合并连续 text 条目：LLM token 级流式输出逐 token 到达，
             // 若上一个 entry 也是 text 类型，追加内容而非创建新 entry，避免单个词/字独占一行

@@ -13,11 +13,13 @@ import {confirm} from './ConfirmDialog'
 import {showUsageStats} from './dialogs/UsageStatsDialog'
 import {collectDescendants} from '../stores/conversationTree'
 import {useDayBoundaryTick} from '../hooks/useDayBoundaryTick'
+import {useTransientFlag} from '../hooks/useTransientFlag'
 import {useThemeStore} from '../stores/themeStore'
 import {useUpdaterStore} from '../stores/updaterStore'
 import {usePluginUpdateStore} from '../stores/pluginUpdateStore'
 import {useRepoUpdateStore} from '../stores/repoUpdateStore'
 import {useMcpUpdateStore} from '../stores/mcpUpdateStore'
+import {useInitProgressStore} from '../stores/initProgressStore'
 import SchemeSelector from './SchemeSelector'
 import {SIDEBAR_MENU_GROUPS, type SidebarMenuItem} from './sidebar/menuItems'
 import CopyToast from './common/CopyToast'
@@ -101,10 +103,42 @@ const STATUS_CONFIG: Record<SystemStatus, { label: string; colorClass: string; d
     },
 }
 
+/* ─── Init Phase Indicator ─── */
+
+/** 初始化阶段文案（动词） */
+const INIT_STAGE_LABELS: Record<string, string> = {
+    plugin: '扫描插件',
+    agent: '加载 Agent',
+    skill: '加载技能',
+    command: '加载命令',
+    mcp: '连接 MCP',
+}
+
+/** 读取启动能力初始化阶段文案（纯展示，不改动 status 判定）；无阶段返回 null */
+function useInitPhase(): string | null {
+    const active = useInitProgressStore((s) => s.active)
+    const stage = useInitProgressStore((s) => s.stage)
+    const done = useInitProgressStore((s) => s.done)
+    const total = useInitProgressStore((s) => s.total)
+
+    if (!active || !stage) return null
+
+    const verb = INIT_STAGE_LABELS[stage] || ''
+    // 有分母显示 done/total；无分母补省略号——「加载技能」这类纯动词短语看起来
+    // 像已结束的静态文案，加省略号才有「进行中」的语感。
+    // 省略号沿用 STATUS_CONFIG 的写法（'初始化...' / '工作中...'），保持同款视觉。
+    return total > 0 ? `${verb} ${done}/${total}` : `${verb}...`
+}
+
 function SystemStatusIndicator() {
     const {status, runningCount} = useSystemStatus()
+    const initPhaseLabel = useInitPhase()
 
-    const {label, colorClass, dotClass} = STATUS_CONFIG[status]
+    // 渲染优先级：working > 初始化阶段 > 常规系统状态
+    const showInitPhase = status !== 'working' && initPhaseLabel !== null
+    const {label, colorClass, dotClass} = showInitPhase
+        ? {...STATUS_CONFIG.initializing, label: initPhaseLabel}
+        : STATUS_CONFIG[status]
     const displayLabel = status === 'working' && runningCount > 0
         ? `${label} (${runningCount}个会话)`
         : label
@@ -644,7 +678,7 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="搜索目录..."
                   aria-label="搜索目录"
-                  className="w-full pl-6 pr-2 py-1.5 text-2xs bg-[var(--surface-muted)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/20"
+                  className="w-full pl-6 pr-2 py-1.5 text-2xs bg-[var(--surface-muted)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] dark-all:focus:ring-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]"
                 data-name="conversation-sidebar-input"/>
               </div>
             </div>
@@ -794,7 +828,7 @@ function SearchInput() {
         onChange={(e) => setSearchQuery(e.target.value)}
         placeholder="搜索对话..."
         aria-label="搜索对话"
-        className="w-full pl-9 pr-4 py-2 bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] border border-[var(--border)] rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-emphasis)] focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/25 transition-all"
+        className="w-full pl-9 pr-4 py-2 bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] border border-[var(--border)] rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-emphasis)] focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] dark-all:focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-all"
       data-name="conversation-sidebar-search-input"/>
     </div>
   )
@@ -911,7 +945,7 @@ export function ConversationList() {
     const workspaces = useConversationStore((s) => s.workspaces)
     const searchQuery = useConversationStore((s) => s.searchQuery)
     const activeConversationId = useConversationStore((s) => s.activeConversationId)
-    const [showCopyToast, setShowCopyToast] = useState(false)
+    const [showCopyToast, flashCopyToast] = useTransientFlag(1500)
     const [contextMenu, setContextMenu] = useState<{
         x: number;
         y: number;
@@ -1239,8 +1273,7 @@ export function ConversationList() {
                           setContextMenu(null)
                           try {
                               await navigator.clipboard.writeText(id)
-                              setShowCopyToast(true)
-                              setTimeout(() => setShowCopyToast(false), 1500)
+                              flashCopyToast()
                           } catch { /* clipboard unavailable */ }
                       }}
                   />
@@ -1382,7 +1415,7 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
             )}
             <button
                 onClick={handleDeleteClick}
-                className={`${MENU_ITEM_CLASS} text-[var(--error)] hover:bg-[var(--error)]/10`}
+                className={`${MENU_ITEM_CLASS} text-[var(--error)] hover:bg-[color-mix(in_srgb,var(--error)_10%,transparent)]`}
              data-name="conversation-sidebar-menu-delete-button">
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
@@ -1554,7 +1587,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
         isActive
             ? 'bg-green-50 dark:bg-green-500/10 border border-[var(--border)] shadow-sm'
             : 'bg-transparent border border-transparent hover:bg-[var(--surface-muted)] active:bg-[var(--surface-overlay)]',
-        hasPending && 'ring-1 ring-[var(--error)]/30',
+        hasPending && 'ring-1 ring-[color-mix(in_srgb,var(--error)_30%,transparent)]',
     ].filter(Boolean).join(' ')
 
     const iconContainerClass = `relative flex items-center justify-center w-6 h-6 rounded-md shrink-0 transition-colors ${

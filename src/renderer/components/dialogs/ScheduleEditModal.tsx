@@ -446,7 +446,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                         <button key={tab.key} type="button" onClick={() => updateCron({mode: tab.key})}
                                                 className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${
                                                     cron.mode === tab.key
-                                                        ? 'bg-[var(--brand-primary)]/15 text-[var(--brand-primary)] font-medium'
+                                                        ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--brand-primary)] font-medium'
                                                         : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-[var(--surface)]'
                                                 }`} data-name={`schedule-edit-modal-cron-tab-${i}`}>
                                             {tab.label}

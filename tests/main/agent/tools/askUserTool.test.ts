@@ -4,7 +4,7 @@
  * 覆盖（spec: docs/superpowers/specs/2026-08-06-ask-user-robustness-design.md）：
  * - question：数字转字符串 / 空串报错 / 纯空白报错 / 超长截断 / trim
  * - options：标准数组 / 逗号串 / 顿号串 / 分号串 / 带序号串 / 对象取 label/name/value/text
- *            / 混入 null 与数字 / 超10个截断 / 单选项超60截断 / 全垃圾→undefined / 空串过滤
+ *            / 混入 null 与数字 / 超10个不截断 / 单选项超60不截断 / 全垃圾→undefined / 空串过滤
  * - multiSelect：true/yes/1/on → true；false/no/0/off → false；未知→false；缺省→false
  * - 回归：DeepSeek 标准格式不被改动
  */
@@ -97,13 +97,14 @@ describe('normalizeOptions', () => {
         expect(normalizeOptions(['A', '', '   '])).toEqual(['A'])
     })
 
-    it('超过 10 个选项截断到 10', () => {
+    it('超过 10 个选项全部保留（不截断）', () => {
         const opts = Array.from({length: 15}, (_, i) => `选项${i + 1}`)
-        expect(normalizeOptions(opts)?.length).toBe(10)
+        expect(normalizeOptions(opts)).toEqual(opts)
     })
 
-    it('单选项超过 60 字符截断到 60', () => {
-        expect(normalizeOptions(['x'.repeat(80)])?.[0].length).toBe(60)
+    it('单选项超过 60 字符原样保留（不截断）', () => {
+        const long = 'x'.repeat(80)
+        expect(normalizeOptions([long])?.[0]).toBe(long)
     })
 
     it('全部垃圾过滤后返回 undefined', () => {
@@ -276,5 +277,35 @@ describe('execute 弱模型容错集成', () => {
         expect(askUserQuestion).toHaveBeenCalledWith('选择哪个？', ['A', 'B'], true)
         expect(result.success).toBe(true)
         expect(result.output).toContain('选项: A、B')
+    })
+})
+
+// ── 选项不再静默截断（2026-09-15）：长度与数量均不设上限，原样透传给 UI ──
+
+describe('normalizeOptions 不截断（长度/数量原样保留）', () => {
+    it('单个选项超过 60 字符时原样完整保留', () => {
+        const long = '这是一个非常长的选项说明文字'.repeat(8) // 112 字符
+        const result = normalizeOptions([long])
+        expect(result).toEqual([long])
+        expect(result?.[0].length).toBe(long.length)
+    })
+
+    it('英文超长选项（80 字符）原样完整保留', () => {
+        const long = 'a'.repeat(80)
+        const result = normalizeOptions([long])
+        expect(result?.[0]).toBe(long)
+        expect(result?.[0].length).toBe(80)
+    })
+
+    it('恰好 60 字符与 61 字符的选项都原样保留', () => {
+        const exactly60 = 'x'.repeat(60)
+        const exactly61 = 'y'.repeat(61)
+        expect(normalizeOptions([exactly60, exactly61])).toEqual([exactly60, exactly61])
+    })
+
+    it('传入 12 个选项时全部保留，顺序与内容与输入一致', () => {
+        const opts = Array.from({length: 12}, (_, i) => `选项${i + 1}`)
+        expect(normalizeOptions(opts)).toEqual(opts)
+        expect(normalizeOptions(opts)?.length).toBe(12)
     })
 })

@@ -33,6 +33,16 @@ export default function MenuDialog({isOpen, title, onClose, children, maxWidth =
     const [position, setPosition] = useState({x: 0, y: 0})
     const cardRef = useRef<HTMLDivElement>(null)
     const dragRef = useRef({isDragging: false, startX: 0, startY: 0, posX: 0, posY: 0})
+    // 当前调整大小拖拽的终结回调；供卸载兜底调用，避免卸载后残留 document 监听与 body 内联样式
+    const resizeCleanupRef = useRef<(() => void) | null>(null)
+    // 当前「拖拽移动」的终结回调；与 resizeCleanupRef 对称（同一泄漏面：document 监听 + body 内联样式）
+    const dragCleanupRef = useRef<(() => void) | null>(null)
+
+    // 卸载兜底：拖拽移动 / 调整大小进行中卸载时移除 document 监听并复位 body 样式
+    useEffect(() => () => {
+        dragCleanupRef.current?.()
+        resizeCleanupRef.current?.()
+    }, [])
 
     // 打开时居中
     useEffect(() => {
@@ -71,6 +81,8 @@ export default function MenuDialog({isOpen, title, onClose, children, maxWidth =
         document.addEventListener('mousemove', handleDragMove)
         document.addEventListener('mouseup', handleDragEnd)
         document.body.style.userSelect = 'none'
+        // 登记终结回调，供卸载兜底调用（与 beginResize 的 resizeCleanupRef 同一范式）
+        dragCleanupRef.current = handleDragEnd
     }, [position]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleDragMove = useCallback((e: MouseEvent) => {
@@ -88,6 +100,7 @@ export default function MenuDialog({isOpen, title, onClose, children, maxWidth =
         document.removeEventListener('mousemove', handleDragMove)
         document.removeEventListener('mouseup', handleDragEnd)
         document.body.style.userSelect = ''
+        dragCleanupRef.current = null
     }, [handleDragMove])
 
     // ─── 拖拽调整大小（四边 + 右下角共用）───────────────────
@@ -110,8 +123,10 @@ export default function MenuDialog({isOpen, title, onClose, children, maxWidth =
             document.removeEventListener('mouseup', onMouseUp)
             document.body.style.userSelect = ''
             document.body.style.cursor = 'default'
+            resizeCleanupRef.current = null
         }
 
+        resizeCleanupRef.current = onMouseUp
         document.addEventListener('mousemove', onMouseMove)
         document.addEventListener('mouseup', onMouseUp)
     }, [])

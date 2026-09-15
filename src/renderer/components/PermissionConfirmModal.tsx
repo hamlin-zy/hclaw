@@ -165,7 +165,7 @@ export default function PermissionConfirmModal() {
                     <div className="px-5 py-4 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)]">
                         <div className="flex items-center gap-3">
                             <div
-                                className="w-10 h-10 rounded-full bg-[var(--brand-primary)]/10 flex items-center justify-center shrink-0">
+                                className="w-10 h-10 rounded-full bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] flex items-center justify-center shrink-0">
                                 <svg className="w-5 h-5 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="none"
                                      stroke="currentColor" strokeWidth="2">
                                     <path
@@ -235,8 +235,8 @@ export default function PermissionConfirmModal() {
                             <button
                                 onClick={() => respondQuestion('always')}
                                 className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
-                  bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]
-                  hover:bg-[var(--brand-primary)]/20 border border-[var(--brand-primary)]/20"
+                  bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]
+                  hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] border border-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]"
                              data-name="permission-confirm-modal-always-allow-button">
                                 始终允许
                             </button>
@@ -245,7 +245,7 @@ export default function PermissionConfirmModal() {
                                 onClick={() => respondQuestion('allow')}
                                 className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
                   bg-[var(--brand-primary)] text-white
-                  hover:bg-[var(--brand-primary)]/80"
+                  hover:bg-[color-mix(in_srgb,var(--brand-primary)_85%,black)]"
                              data-name="permission-confirm-modal-allow-button">
                                 允许
                             </button>

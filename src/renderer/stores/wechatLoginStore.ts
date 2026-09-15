@@ -26,7 +26,7 @@ import {useChannelStore} from './channelStore'
 
 export type LoginPhase = 'idle' | 'generating' | 'show_qr' | 'scanning' | 'confirmed' | 'expired' | 'error'
 
-export interface LoginState {
+interface LoginState {
     phase: LoginPhase
     qrDataUrl: string
     qrUrl: string
@@ -34,7 +34,7 @@ export interface LoginState {
     message: string
 }
 
-export interface LoginActions {
+interface LoginActions {
     startLogin: () => Promise<void>
     cancelLogin: () => Promise<void>
     reset: () => void

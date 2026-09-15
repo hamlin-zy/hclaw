@@ -5,9 +5,9 @@
  * 新建和编辑共用同一表单。
  */
 
-import {useCallback, useEffect, useState} from 'react'
+import {useCallback, useEffect, useMemo, useState} from 'react'
 import {UserCommand, useUserCommandStore} from '../../stores/userCommandStore'
-import {getCommandNameError} from '@shared/commandName'
+import {getCommandNameError, DUPLICATE_COMMAND_NAME_ERROR} from '@shared/commandName'
 import {RemoveIcon} from '../icons'
 
 /** 出错字段，用于把校验提示定位到对应输入项 */
@@ -17,6 +17,8 @@ interface CommandEditModalProps {
     command: UserCommand | null  // null = 新建模式
     onSave: () => void
     onCancel: () => void
+    /** 已存在的用户命令名称（供前端即时查重；大小写不敏感） */
+    existingNames?: readonly string[]
     /** 自定义保存回调（用于插件命令等非标准保存路径） */
     onSaveCustom?: (data: {
         name: string
@@ -36,7 +38,7 @@ interface ArgDef {
     default?: string
 }
 
-export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: CommandEditModalProps) {
+export function CommandEditModal({command, onSave, onCancel, onSaveCustom, existingNames}: CommandEditModalProps) {
     const {createCommand, updateCommand} = useUserCommandStore()
 
     const isNew = !command
@@ -70,11 +72,31 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
         }
     }, [command])
 
+    /** 查重集合：编辑模式排除自身原名（大小写不敏感），避免把「保持原名」误判为冲突 */
+    const namesForDuplicateCheck = useMemo(() => {
+        if (!existingNames) return undefined
+        if (!command) return existingNames
+        const self = command.name.toLowerCase()
+        return existingNames.filter(n => n.toLowerCase() !== self)
+    }, [existingNames, command])
+
+    /** 即时查重提示：输入过程中即反馈，不必等到提交 */
+    const duplicateError = useMemo(() => {
+        const trimmed = name.trim()
+        if (!trimmed || !namesForDuplicateCheck || namesForDuplicateCheck.length === 0) return null
+        return getCommandNameError(trimmed, namesForDuplicateCheck) === DUPLICATE_COMMAND_NAME_ERROR
+            ? DUPLICATE_COMMAND_NAME_ERROR
+            : null
+    }, [name, namesForDuplicateCheck])
+
+    /** 名称字段当前要展示的错误：优先提交后的字段级错误，其次即时查重提示 */
+    const nameFieldError = (error && errorField === 'name' ? error : null) || duplicateError
+
     const handleSave = useCallback(async () => {
         clearError()
 
         // 验证
-        const nameError = getCommandNameError(name.trim())
+        const nameError = getCommandNameError(name.trim(), namesForDuplicateCheck)
         if (nameError) return fail(nameError, 'name')
         if (!content.trim()) return fail('模板内容不能为空', 'content')
         if (args.length > 5) return fail('参数数量不能超过 5 个', 'args')
@@ -103,7 +125,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
         } finally {
             setSaving(false)
         }
-    }, [name, description, content, args, isNew, command, createCommand, updateCommand, onSave, onSaveCustom, fail, clearError])
+    }, [name, description, content, args, isNew, command, createCommand, updateCommand, onSave, onSaveCustom, fail, clearError, namesForDuplicateCheck])
 
     // ─── 重置为默认模板 ─────────────────────────────
 
@@ -176,11 +198,11 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                         <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">命令名称</label>
                         <input type="text" value={name} onChange={e => setName(e.target.value)}
                                placeholder="例如: explain"
-                               className={`${inputClass} ${error && errorField === 'name' ? 'border-[var(--error)]' : ''}`}
+                               className={`${inputClass} ${nameFieldError ? 'border-[var(--error)]' : ''}`}
                                autoFocus data-name="command-edit-modal-input"/>
-                        {error && errorField === 'name' ? (
+                        {nameFieldError ? (
                             <p role="alert"
-                               className="mt-1 text-[11px] text-[var(--error)]">{error}</p>
+                               className="mt-1 text-[11px] text-[var(--error)]">{nameFieldError}</p>
                         ) : (
                             <p className="mt-0.5 text-[10px] text-[var(--text-secondary)]">允许中英文、数字、下划线和连字符</p>
                         )}
@@ -277,7 +299,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom}: Comm
                             <button
                                 onClick={handleReset}
                                 disabled={resetting}
-                                className="px-3 py-1.5 text-xs rounded-md text-[var(--text-secondary)] hover:text-[var(--warning)] hover:bg-[var(--warning)]/10 transition-colors disabled:opacity-50"
+                                className="px-3 py-1.5 text-xs rounded-md text-[var(--text-secondary)] hover:text-[var(--warning)] hover:bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] transition-colors disabled:opacity-50"
                              data-name="command-edit-modal-reset-button">
                                 {resetting ? '重置中...' : '重置为默认'}
                             </button>

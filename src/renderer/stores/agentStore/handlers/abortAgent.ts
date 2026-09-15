@@ -151,6 +151,8 @@ export async function abortAgentImpl(
         pendingQuestion: null,
         errorMessage: null,
         executingToolsMessage: null,
+        // ★ 与 done/error 收尾对称：清除循环检测警告条，避免陈旧 banner 常驻
+        loopWarning: undefined,
     })
 
     clearAllBatches(conversationId)

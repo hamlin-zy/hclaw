@@ -77,6 +77,22 @@ export default function MCPDialog() {
         return () => unsubscribe?.()
     }, [])
 
+    // ─── 导入流程的游离定时器（各自独立 ref，对齐上方 toastTimer 的记账范式）───
+    // importSyncTimer：导入成功后延迟 500ms 拉取最新状态
+    // importResultTimer：导入结果提示 3s 后自动隐藏
+    const importSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const importResultTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载守卫：延迟回调（延迟同步 / 异步 setState）在对话框卸载后必须跳过写入
+    const mountedRef = useRef(true)
+    useEffect(() => {
+        mountedRef.current = true
+        return () => {
+            mountedRef.current = false
+            if (importSyncTimer.current) clearTimeout(importSyncTimer.current)
+            if (importResultTimer.current) clearTimeout(importResultTimer.current)
+        }
+    }, [])
+
     // ─── Toast (listens to `hclaw:show-toast` CustomEvent) ───
     // Dispatched from checkVersions handler and MCPUserServerCard.upgradeServer.
     const [toast, setToast] = useState<ToastState | null>(null)
@@ -125,6 +141,9 @@ export default function MCPDialog() {
         if (!window.electronAPI?.mcp?.getAllStatus) return
         const statuses = await window.electronAPI.mcp.getAllStatus()
         const result = await window.electronAPI?.mcp?.list?.()
+        // ★ 卸载守卫：本函数由 useEffect 与「导入成功后 500ms」的延迟回调调用，
+        //   对话框卸载后到达的 await 结果不得再 setState
+        if (!mountedRef.current) return
         const mcpServiceList = result?.success ? result.data || [] : []
 
         const pluginServerConfigMap = new Map<string, any>()
@@ -234,7 +253,12 @@ export default function MCPDialog() {
             const result = await mcpApi?.importConfig?.(filePath)
             if (result?.success) {
                 setImportResult({imported: result.imported?.length || 0, skipped: result.skipped?.length || 0})
-                setTimeout(() => syncMcpStatus(), 500)
+                // 延迟同步（等主进程落盘完成）：ref 记账，卸载时清理
+                if (importSyncTimer.current) clearTimeout(importSyncTimer.current)
+                importSyncTimer.current = setTimeout(() => {
+                    importSyncTimer.current = null
+                    syncMcpStatus()
+                }, 500)
             } else {
                 setImportResult({imported: -1, skipped: 0, error: result?.error || '未知错误'})
             }
@@ -242,7 +266,12 @@ export default function MCPDialog() {
             setImportResult({imported: -1, skipped: 0, error: err?.message || String(err)})
         }
         setImporting(false)
-        setTimeout(() => setImportResult(null), 3000)
+        // 结果提示自动隐藏：ref 记账（先清旧定时器，避免上一次的定时器提前抹掉本次结果）
+        if (importResultTimer.current) clearTimeout(importResultTimer.current)
+        importResultTimer.current = setTimeout(() => {
+            importResultTimer.current = null
+            setImportResult(null)
+        }, 3000)
     }, [syncMcpStatus])
 
     // ─── 派生数据 ─────────────────────────

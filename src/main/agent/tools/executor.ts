@@ -13,7 +13,7 @@ import {localSandbox} from '../../sandbox/localSandbox'
 import type {SandboxOperation} from '../../sandbox/types'
 import {coerceToolParams} from './coercer'
 import {errorResult} from '../common/toolResult'
-import {resolveToolName} from './toolNameResolver'
+import {findToolNameHint, resolveToolName} from './toolNameResolver'
 import {createTimeoutResult, ToolTimeoutError, withToolTimeout} from './toolTimeout'
 import {getToolDefaultTimeout, toolRepo} from '../../repositories/sqlite/toolRepository'
 
@@ -40,7 +40,7 @@ export interface ExecuteToolResult {
  * - web_fetch：内部有 http.get({timeout}) + req.on('timeout') + AbortSignal
  * 外层超时与之竞争，会产生泛化的 ToolTimeoutError 覆盖内部的具体错误信息（如部分输出）
  */
-export const SKIP_OUTER_TIMEOUT_TOOLS = new Set(['agent', 'ask_user', 'bash', 'web_fetch'])
+const SKIP_OUTER_TIMEOUT_TOOLS = new Set(['agent', 'ask_user', 'bash', 'web_fetch'])
 
 /**
  * 内部管理超时的工具及其默认超时（与 builtin 工具内部常量保持一致），
@@ -78,24 +78,33 @@ export async function executeTool(
   toolCall: ExecuteToolCall,
   context: ToolContext,
 ): Promise<ExecuteToolResult> {
-  // 工具未注册：先尝试名称纠偏（别名/大小写），命中则路由到实际工具（仅纠偏名称，不做参数转换）
-  let tool = toolRegistry.get(toolCall.name)
+  // 工具未注册：先尝试名称纠偏（别名/归一化同名），命中则路由到实际工具。
+  // 注意：仅纠偏**名称**，不做参数转换（参数键名不符由后续 Zod 校验拦截）。
+  const requestedName = toolCall.name
+  let tool = toolRegistry.get(requestedName)
+  // 名称纠偏命中即为「发生了改名」：resolveToolName 只返回**已注册**的工具名，
+  // 而进入该分支的前提正是 requestedName 未注册（registry.get / getNames 同源），
+  // 故无需再比较 resolved !== requestedName（该判断恒真）。
+  let aliasResolved = false
   if (!tool) {
-    const resolved = resolveToolName(toolCall.name, toolRegistry.getNames())
+    const resolved = resolveToolName(requestedName, toolRegistry.getNames())
     if (resolved) {
       toolCall.name = resolved
       tool = toolRegistry.get(resolved)
+      aliasResolved = true
     }
   }
 
-  // 工具未注册（纠偏后仍未命中）：返回原错误 + 可用工具名列表
+  // 工具未注册（纠偏后仍未命中）：返回原错误 + 可用工具名列表 + 最相近候选（仅提示，不自动执行）
   if (!tool) {
     const available = toolRegistry.getNames()
+    const hint = findToolNameHint(requestedName, available)
     return {
       toolCallId: toolCall.id,
       toolName: toolCall.name,
       result: errorResult(
-        `Unknown tool: ${toolCall.name}。可用工具: ${available.join(', ')}。` +
+        `Unknown tool: ${requestedName}。可用工具: ${available.join(', ')}。` +
+        (hint ? `是否想调用 "${hint}"？` : '') +
         `请从可用工具列表中选择并重试。`
       ),
     }
@@ -262,12 +271,30 @@ export async function executeTool(
         }
     }
 
-    // 移除旧的破坏性操作检查，因为它已经被前面的逻辑覆盖，且 sandboxOp 逻辑更完备
+    // ── 别名纠偏后：破坏性工具的参数键失败关闭 ──
+    // 名称被别名解析过（模型用的是别的平台的名字），且目标是破坏性工具时，
+    // 参数键必须**完全落在**目标 schema 内：出现未知键一律拒绝。
+    // 正常路径 coerceToolParams 对未知键是透传，这里对写类工具收紧——
+    // 防止"名字对上了、键名也对上了、但语义不同"的调用被静默执行。
+    const toolDef = toolRegistry.getToolDefinition(toolCall.name)
+    if (aliasResolved && tool.isDestructive && toolDef) {
+        const allowedKeys = new Set(Object.keys(toolDef.inputSchema.properties))
+        const unknownKeys = Object.keys(toolCall.arguments).filter(k => !allowedKeys.has(k))
+        if (unknownKeys.length > 0) {
+            return {
+                toolCallId: toolCall.id,
+                toolName: toolCall.name,
+                result: errorResult(
+                    `工具名 "${requestedName}" 已解析为 "${tool.name}"，但参数键不被支持: ${unknownKeys.join(', ')}。` +
+                    `"${tool.name}" 的可用参数: ${[...allowedKeys].join(', ')}。请使用正确参数名重试。`
+                ),
+            }
+        }
+    }
 
     // ── 类型转换（修复 LLM 输出类型漂移） ──
     // 在 Zod 验证前，根据工具的 JSON Schema 自动修正参数类型
     // 例如：将字符串 "true" 转为 boolean true，将 "42" 转为 number 42
-    const toolDef = toolRegistry.getToolDefinition(toolCall.name)
     if (toolDef) {
         const coercionResult = coerceToolParams(toolCall.arguments, toolDef)
         toolCall.arguments = coercionResult.params
@@ -305,12 +332,30 @@ export async function executeTool(
       // 获取工具超时时间（优先使用数据库配置，否则使用默认值）
       const timeoutMs = resolveToolTimeoutMs(tool.name, parseResult.data) ?? 60000
 
-      // 使用超时包装器执行工具
+      // 超时取消传播：为本次调用派生独立 AbortSignal（桥接 worker 级 abortSignal），
+      // 超时触发时 abort → 工具能据此停止后台工作（子进程 / 网络请求 / 长任务），
+      // 而不是被 withToolTimeout 抛下后继续在后台运行（典型：rg 子进程无人回收）。
+      const toolAbort = new AbortController()
+      const parentSignal = context.abortSignal
+      const onParentAbort = () => toolAbort.abort()
+      if (parentSignal) {
+          if (parentSignal.aborted) toolAbort.abort()
+          else parentSignal.addEventListener('abort', onParentAbort, {once: true})
+      }
+
+      // 使用超时包装器执行工具（超出时先由包装器判定超时，再 abort 取消工具）
       const result = await withToolTimeout(
-          tool.execute(parseResult.data, { ...context, toolCallId: toolCall.id }),
+          tool.execute(parseResult.data, {
+              ...context,
+              abortSignal: toolAbort.signal,
+              toolCallId: toolCall.id,
+          }),
           tool.name,
-          timeoutMs
-      )
+          timeoutMs,
+          () => toolAbort.abort(),
+      ).finally(() => {
+          if (parentSignal) parentSignal.removeEventListener('abort', onParentAbort)
+      })
 
       // ── 结果大小检查（兜底机制） ──
       const checkedResult = checkResultSize(toolCall.name, result)

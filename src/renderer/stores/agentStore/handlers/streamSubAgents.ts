@@ -185,7 +185,7 @@ export function handleSubagentProgress(ctx: StreamCtx) {
     //   appendSubAgentStream 对不存在的 key 自动重建 running 态，使已完成子工具在
     //   UI 复燃。此处按消息内子工具终态拦截运行时状态写入（llmStats 落库在上文，
     //   不受影响；数据不丢，仅阻止状态复燃）。正常流中子工具必为 running，守卫放行。
-    const subIsTerminal = agentTool?.status === 'success' || agentTool?.status === 'error'
+    const subIsTerminal = agentTool?.status === 'success' || agentTool?.status === 'error' || agentTool?.status === 'truncated'
     if (agentTool && !subIsTerminal) {
         useToolCallsStore.getState().appendProgressLog(agentTool.id, event.progress)
     }
@@ -262,7 +262,7 @@ export function handleSubagentStart(ctx: StreamCtx) {
 
     // ★ 守卫加严：父工具已是终态（迟到/重复事件）时仅保留 taskId 补写，
     //   不注册新的 running 子 toolCall（避免对已完成工具产生脏状态）
-    if (agentTool.status === 'success' || agentTool.status === 'error') return
+    if (agentTool.status === 'success' || agentTool.status === 'error' || agentTool.status === 'truncated') return
 
     const subToolCallId = `sub-${event.taskId}`
 
@@ -319,7 +319,8 @@ export function handleSubagentDone(ctx: StreamCtx) {
     if (!subTool) return
     // ★ 即时清理：子 Agent 完成瞬间即删运行时 key。状态/tokenUsage 先固化到消息
     //   （消息是持久化源，渲染层回退读取），long loop 期间不积压已完成子 Agent 数据。
-    const nextStatus = event.success ? 'success' : 'error'
+    // ★ 三态：成功 / 截断（达轮数上限或循环检测，已完成但有告警，非红色 error）/ 失败
+    const nextStatus = event.success ? 'success' : (event.truncated ? 'truncated' : 'error')
     const runtimeSub = useToolCallsStore.getState().states[subTool.id]
     useConversationStore.getState().updateMessageForConv(convId, msg!.id, {
         toolCalls: (msg!.toolCalls || []).map(t => t.id === subTool.id
@@ -331,7 +332,9 @@ export function handleSubagentDone(ctx: StreamCtx) {
     if (parentTool) {
         const doneText = event.success
             ? `子 Agent 完成: ${(subTool.taskDescription || event.taskId).slice(0, 40)}`
-            : `子 Agent 失败: ${(subTool.taskDescription || event.taskId).slice(0, 40)}`
+            : event.truncated
+                ? `子 Agent 未完成（已在轮数上限/循环检测被截断）: ${(subTool.taskDescription || event.taskId).slice(0, 40)}`
+                : `子 Agent 失败: ${(subTool.taskDescription || event.taskId).slice(0, 40)}`
         useToolCallsStore.getState().appendProgressLog(parentTool.id, doneText)
     }
 }

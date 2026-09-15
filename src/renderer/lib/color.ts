@@ -51,7 +51,7 @@ export function hexToRgba(hex: string, alpha: number): string {
 }
 
 /** 从主色派生完整的品牌色变量键值对 */
-export interface BrandColors {
+interface BrandColors {
     '--brand-primary': string
     '--brand-hover': string
     '--brand-muted': string
