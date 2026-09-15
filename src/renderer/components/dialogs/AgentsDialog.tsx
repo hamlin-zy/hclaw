@@ -384,7 +384,7 @@ export default function AgentsDialog() {
     }, [init, syncFromDisk])
 
     // 挂载即拉取 + 订阅 capability:changed 自动重取（与 CommandsDialog 试点一致）
-    useCapabilityRefresh(loadData, [])
+    useCapabilityRefresh(loadData)
 
     const localTemplates = templates.filter(t => !t.tags?.some(tag => tag.startsWith('plugin:')))
     const pluginTemplates = templates.filter(t => t.tags?.some(tag => tag.startsWith('plugin:')))

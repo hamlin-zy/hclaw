@@ -21,9 +21,7 @@ import {absPath} from '../lib/absPath'
 import {modsOf} from '../lib/multiSelect'
 import {sortByVisibleOrder} from '../lib/visibleOrder'
 import {confirm} from '../../components/ConfirmDialog'
-
-// workspace 基名（跨平台：兼容 \ 与 /）
-const basename = (ws: string) => ws.split(/[\\/]/).filter(Boolean).pop() || ws
+import {basename} from '../lib/wsPath'
 
 /** 全部展开的目录数上限：必须 < CACHE_LIMIT(500)，否则 LRU 会淘汰已进 expanded 的目录，
  *  渲染出"看起来展开却没有子项"的假展开（spec §3.3 / §6.3） */

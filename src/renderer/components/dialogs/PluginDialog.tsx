@@ -149,7 +149,7 @@ export default function PluginDialog() {
     }
 
   // 挂载即拉取 + capability:changed 后自动重取（A 阶段广播口径）
-  useCapabilityRefresh(loadPlugins, [])
+  useCapabilityRefresh(loadPlugins)
 
   // ── 订阅插件版本状态推送（独立窗口打开即同步红点，运行中接收跨窗口广播） ──
   useEffect(() => {

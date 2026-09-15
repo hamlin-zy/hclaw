@@ -3,7 +3,7 @@ import {useWorkspaceStore} from './stores/workspaceStore'
 import {useGitStatusStore} from './stores/gitStatusStore'
 import {useGitLogStore} from './stores/gitLogStore'
 import {useEditorTabStore} from './stores/editorTabStore'
-import {useFileTreeStore} from './stores/fileTreeStore'
+import {useFileTreeStore, ROOT_KEY} from './stores/fileTreeStore'
 import {FileTree} from './components/FileTree'
 import {EditorArea} from './components/EditorArea'
 import {QuickOpen} from './components/QuickOpen'
@@ -22,9 +22,7 @@ import WindowTitleBar from '../components/common/WindowTitleBar'
 import ConfirmDialog from '../components/ConfirmDialog'
 import TooltipPortal from '../components/common/TooltipPortal'
 import {SendToConversationProvider} from './ui/SendToConversationProvider'
-
-// workspace 基名（跨平台：兼容 \ 与 /）
-const basename = (ws: string) => ws.split(/[\\/]/).filter(Boolean).pop() || ws
+import {basename} from './lib/wsPath'
 
 /** 目录结构变更 → 父目录原地重取的去抖时长（watcher 推送未去抖，持续写入期间只重取一次） */
 const FILE_TREE_REFRESH_DEBOUNCE_MS = 300
@@ -127,7 +125,7 @@ export function ProjectManagerApp() {
         //   事件都不再自愈。此处命中 expanded 即重新补载（等价旧 tick-effect 的补齐语义，勿删）。
         // - 根 '.'：整棵树的渲染前提，缺失时也补（同旧语义）。
         // 三者皆非（未加载且未展开的目录）才跳过：交给展开时的懒加载。
-        const known = st.childrenCache[dir] !== undefined || st.expanded.has(dir) || dir === '.'
+        const known = st.childrenCache[dir] !== undefined || st.expanded.has(dir) || dir === ROOT_KEY
         if (!known) return
         void pm.listDirectory(ws, dir).then(entries => {
           if (cancelled || useWorkspaceStore.getState().workspacePath !== ws) return
@@ -187,7 +185,7 @@ export function ProjectManagerApp() {
           （见 CodeEditor.tsx / GitBranchTree.tsx / GitCommitDetail.tsx）。
           标题保留「(只读)」后缀：语义是「编辑器只读查看」，不是「窗口无写能力」。
           无工作区时不加后缀：此时没有项目名，标题只是窗口用途。 */}
-      <WindowTitleBar title={ws ? `${basename(ws) || '项目管理'} (只读)` : '项目管理'} subtitle={ws} />
+      <WindowTitleBar title={ws ? `${basename(ws)} (只读)` : '项目管理'} subtitle={ws} />
       <div className="flex-1 min-h-0 overflow-hidden">
         {!ws ? (
           <div className="pm-no-workspace">未指定工作目录</div>

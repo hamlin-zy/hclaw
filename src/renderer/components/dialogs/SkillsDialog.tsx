@@ -131,7 +131,7 @@ export default function SkillsDialog() {
     }, [loadSkills])
 
     // 挂载即拉取 + 订阅 capability:changed 自动重取
-    useCapabilityRefresh(loadData, [])
+    useCapabilityRefresh(loadData)
 
     const handleRefresh = useCallback(async () => {
         setRefreshing(true)

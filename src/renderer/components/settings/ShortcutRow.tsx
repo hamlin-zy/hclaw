@@ -6,6 +6,7 @@ import {
 } from '../../../shared/shortcuts'
 import {shortcutManager} from '../../services/shortcutManager'
 import {Kbd, formatShortcutSpoken} from '../common/Kbd'
+import {IS_MAC} from '../../lib/platform'
 
 interface Props {
     def: ShortcutDef
@@ -123,6 +124,5 @@ export function ShortcutRow({def, current, overrides, onChange, globalFailure}: 
     )
 }
 
-const IS_MAC = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0
 const SHORTCUT_LABELS: Record<string, string> =
     Object.fromEntries(SHORTCUT_DEFS.map(d => [d.id, d.label]))

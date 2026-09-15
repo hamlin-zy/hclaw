@@ -110,12 +110,14 @@ export type PluginVersionResult =
 export function pluginErrorMessage(error: unknown): string {
     if (!error || typeof error === 'string') return String(error ?? '未知错误')
     const e = error as Record<string, any>
-    return e.message ||
-        (e.type === 'manifest-not-found' ? `Manifest not found: ${e.path}` :
-            e.type === 'manifest-invalid' ? `Invalid manifest: ${e.errors?.join(', ')}` :
-                e.type === 'plugin-not-found' ? `Plugin not found: ${e.name}` :
-                    e.type === 'dependency-unsatisfied' ? `Missing dependencies: ${e.deps?.join(', ')}` :
-                        e.type ? String(e.type) : toErrorMessage(error))
+    if (e.message) return e.message
+    switch (e.type) {
+        case 'manifest-not-found': return `Manifest not found: ${e.path}`
+        case 'manifest-invalid': return `Invalid manifest: ${e.errors?.join(', ')}`
+        case 'plugin-not-found': return `Plugin not found: ${e.name}`
+        case 'dependency-unsatisfied': return `Missing dependencies: ${e.deps?.join(', ')}`
+        default: return e.type ? String(e.type) : toErrorMessage(error)
+    }
 }
 
 interface PluginStore {
@@ -147,6 +149,21 @@ interface PluginStore {
 }
 
 const pluginApi = () => (window.electronAPI as any)?.plugin
+
+/** 删除某插件的缓存条目（capabilityDetails / versionData 均为条目级创建、无删除路径，
+ *  卸载/重置后须一并移除，否则残留条目会随 key 常驻）。 */
+function dropPluginCaches(
+    name: string,
+    set: (fn: (s: PluginStore) => Partial<PluginStore>) => void,
+): void {
+    set((s) => {
+        const capabilityDetails = {...s.capabilityDetails}
+        const versionData = {...s.versionData}
+        delete capabilityDetails[name]
+        delete versionData[name]
+        return {capabilityDetails, versionData}
+    })
+}
 
 export const usePluginStore = create<PluginStore>((set, get) => ({
     plugins: [],
@@ -266,13 +283,7 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
             const result = await pluginApi()?.uninstall?.(name)
             if (result?.success) {
                 // 卸载成功后该插件的能力明细/版本数据条目不应残留（条目级创建、无删除路径）
-                set((s) => {
-                    const capabilityDetails = {...s.capabilityDetails}
-                    const versionData = {...s.versionData}
-                    delete capabilityDetails[name]
-                    delete versionData[name]
-                    return {capabilityDetails, versionData}
-                })
+                dropPluginCaches(name, set)
                 await get().loadPlugins()
                 return {success: true}
             }
@@ -286,10 +297,9 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
         // applyOptimistic 的 snapshot 是「回滚副作用」函数（失败时调用），
         // 需在 mutate 前捕获前值，不能写成惰性 getter。
         const prev = get().plugins
-        const result = await applyOptimistic<LoadedPlugin[], { success: boolean }>({
+        const result = await applyOptimistic<{ success: boolean }>({
             snapshot: () => {
                 set({plugins: prev})
-                return prev
             },
             mutate: () => set((s) => ({
                 plugins: s.plugins.map((p) => (p.name === name ? {...p, enabled} : p)),
@@ -340,13 +350,7 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
             const result = await pluginApi()?.reset?.(name)
             if (result?.success) {
                 // 重置即抹掉该插件的本地改动，缓存的能力明细/版本数据条目一并移除
-                set((s) => {
-                    const capabilityDetails = {...s.capabilityDetails}
-                    const versionData = {...s.versionData}
-                    delete capabilityDetails[name]
-                    delete versionData[name]
-                    return {capabilityDetails, versionData}
-                })
+                dropPluginCaches(name, set)
                 await get().loadPlugins()
                 return {success: true}
             }

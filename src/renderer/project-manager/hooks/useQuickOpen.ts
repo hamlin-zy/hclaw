@@ -1,10 +1,6 @@
 import {useEffect, useState} from 'react'
 import {quickOpenBindings, resolveQuickOpenCommand, type QuickOpenMode} from '../lib/quickOpenKeymap'
-
-/** macOS 判定（与 renderer/services/shortcutManager 同款） */
-function detectIsMac(): boolean {
-    return typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0
-}
+import {IS_MAC} from '../../lib/platform'
 
 /**
  * QuickOpen 浮层的状态与键位接线（在 ProjectManagerApp 挂**唯一**实例）。
@@ -20,10 +16,9 @@ export function useQuickOpen() {
 
     // 依赖 mode：开闭态直接来自闭包，不引入第二份「当前是否打开」的状态
     useEffect(() => {
-        const isMac = detectIsMac()
-        const bindings = quickOpenBindings(isMac)
+        const bindings = quickOpenBindings(IS_MAC)
         const onKeyDown = (e: KeyboardEvent) => {
-            const cmd = resolveQuickOpenCommand(e, bindings, isMac, mode !== null)
+            const cmd = resolveQuickOpenCommand(e, bindings, IS_MAC, mode !== null)
             if (!cmd) return
             e.preventDefault()
             e.stopPropagation()

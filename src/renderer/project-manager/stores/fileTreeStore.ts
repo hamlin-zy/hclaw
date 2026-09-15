@@ -9,7 +9,7 @@ import {applyMultiSelect} from '../lib/multiSelect'
 export const CACHE_LIMIT = 500
 
 /** 根目录缓存键：整棵树的渲染前提，被驱逐会让 FileTree 的 rootLoaded 永久为 false（骨架屏驻留）。 */
-const ROOT_KEY = '.'
+export const ROOT_KEY = '.'
 
 /**
  * LRU 淘汰：从 order 头部起驱逐最久未用者，但**固定保留根键 '.'**。

@@ -3,7 +3,7 @@
  * useCapabilityRefresh 测试
  *
  * 覆盖：挂载即 refetch（防订阅前漏事件）、capability:changed 事件触发重取、
- * 卸载后不再触发且解除订阅、deps 变化重订阅、electronAPI 缺失不崩。
+ * 卸载后不再触发且解除订阅、electronAPI 缺失不崩。
  */
 import {describe, it, expect, vi, afterEach} from 'vitest'
 import {renderHook, cleanup} from '@testing-library/react'
@@ -40,7 +40,7 @@ describe('useCapabilityRefresh', () => {
         const api = stubCapabilityApi()
         const refetch = vi.fn()
 
-        renderHook(() => useCapabilityRefresh(refetch, []))
+        renderHook(() => useCapabilityRefresh(refetch))
 
         expect(refetch).toHaveBeenCalledTimes(1)
         expect(api.onCapabilityChanged).toHaveBeenCalledTimes(1)
@@ -51,7 +51,7 @@ describe('useCapabilityRefresh', () => {
         const api = stubCapabilityApi()
         const refetch = vi.fn()
 
-        renderHook(() => useCapabilityRefresh(refetch, []))
+        renderHook(() => useCapabilityRefresh(refetch))
         api.emit()
         api.emit()
 
@@ -62,7 +62,7 @@ describe('useCapabilityRefresh', () => {
         const api = stubCapabilityApi()
         const refetch = vi.fn()
 
-        const {unmount} = renderHook(() => useCapabilityRefresh(refetch, []))
+        const {unmount} = renderHook(() => useCapabilityRefresh(refetch))
         unmount()
 
         expect(api.unsubscribe).toHaveBeenCalledTimes(1)
@@ -72,26 +72,11 @@ describe('useCapabilityRefresh', () => {
         expect(refetch).toHaveBeenCalledTimes(1)
     })
 
-    it('deps 变化时重新 refetch 并重订阅', () => {
-        const api = stubCapabilityApi()
-        const refetch = vi.fn()
-
-        const {rerender} = renderHook(({deps}) => useCapabilityRefresh(refetch, deps), {
-            initialProps: {deps: [1] as unknown[]},
-        })
-        rerender({deps: [2]})
-
-        expect(refetch).toHaveBeenCalledTimes(2)
-        expect(api.onCapabilityChanged).toHaveBeenCalledTimes(2)
-        expect(api.unsubscribe).toHaveBeenCalledTimes(1)
-        expect(api.listenerCount()).toBe(1)
-    })
-
     it('refetch 更新为异步函数时仍被正确调用', async () => {
         stubCapabilityApi()
         const refetch = vi.fn(async () => {})
 
-        renderHook(() => useCapabilityRefresh(refetch, []))
+        renderHook(() => useCapabilityRefresh(refetch))
 
         expect(refetch).toHaveBeenCalledTimes(1)
     })
@@ -99,7 +84,7 @@ describe('useCapabilityRefresh', () => {
     it('electronAPI 缺失时不抛错（仍执行首次 refetch）', () => {
         const refetch = vi.fn()
 
-        expect(() => renderHook(() => useCapabilityRefresh(refetch, []))).not.toThrow()
+        expect(() => renderHook(() => useCapabilityRefresh(refetch))).not.toThrow()
         expect(refetch).toHaveBeenCalledTimes(1)
     })
 })

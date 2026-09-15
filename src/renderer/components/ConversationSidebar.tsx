@@ -13,6 +13,7 @@ import {confirm} from './ConfirmDialog'
 import {showUsageStats} from './dialogs/UsageStatsDialog'
 import {collectDescendants} from '../stores/conversationTree'
 import {useDayBoundaryTick} from '../hooks/useDayBoundaryTick'
+import {useTransientFlag} from '../hooks/useTransientFlag'
 import {useThemeStore} from '../stores/themeStore'
 import {useUpdaterStore} from '../stores/updaterStore'
 import {usePluginUpdateStore} from '../stores/pluginUpdateStore'
@@ -113,36 +114,30 @@ const INIT_STAGE_LABELS: Record<string, string> = {
     mcp: '连接 MCP',
 }
 
-/** 读取启动能力初始化阶段（纯展示，不改动 status 判定） */
-function useInitPhase(): {active: boolean; label: string} {
+/** 读取启动能力初始化阶段文案（纯展示，不改动 status 判定）；无阶段返回 null */
+function useInitPhase(): string | null {
     const active = useInitProgressStore((s) => s.active)
     const stage = useInitProgressStore((s) => s.stage)
     const done = useInitProgressStore((s) => s.done)
     const total = useInitProgressStore((s) => s.total)
 
-    if (!active || !stage) return {active: false, label: ''}
+    if (!active || !stage) return null
 
     const verb = INIT_STAGE_LABELS[stage] || ''
     // 有分母显示 done/total；无分母补省略号——「加载技能」这类纯动词短语看起来
     // 像已结束的静态文案，加省略号才有「进行中」的语感。
     // 省略号沿用 STATUS_CONFIG 的写法（'初始化...' / '工作中...'），保持同款视觉。
-    const label = total > 0 ? `${verb} ${done}/${total}` : `${verb}...`
-    return {active: true, label}
+    return total > 0 ? `${verb} ${done}/${total}` : `${verb}...`
 }
 
 function SystemStatusIndicator() {
     const {status, runningCount} = useSystemStatus()
-    const initPhase = useInitPhase()
+    const initPhaseLabel = useInitPhase()
 
     // 渲染优先级：working > 初始化阶段 > 常规系统状态
-    const showInitPhase = status !== 'working' && initPhase.active
+    const showInitPhase = status !== 'working' && initPhaseLabel !== null
     const {label, colorClass, dotClass} = showInitPhase
-        ? {
-            label: initPhase.label,
-            // 借用 initializing 的样式
-            colorClass: 'text-[var(--warning)]',
-            dotClass: 'bg-[var(--warning)] animate-pulse',
-        }
+        ? {...STATUS_CONFIG.initializing, label: initPhaseLabel}
         : STATUS_CONFIG[status]
     const displayLabel = status === 'working' && runningCount > 0
         ? `${label} (${runningCount}个会话)`
@@ -950,7 +945,7 @@ export function ConversationList() {
     const workspaces = useConversationStore((s) => s.workspaces)
     const searchQuery = useConversationStore((s) => s.searchQuery)
     const activeConversationId = useConversationStore((s) => s.activeConversationId)
-    const [showCopyToast, setShowCopyToast] = useState(false)
+    const [showCopyToast, flashCopyToast] = useTransientFlag(1500)
     const [contextMenu, setContextMenu] = useState<{
         x: number;
         y: number;
@@ -963,9 +958,6 @@ export function ConversationList() {
     const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set())
     const [dateGroupExpanded, setDateGroupExpanded] = useState<Set<string>>(new Set())
     const listRef = useRef<HTMLDivElement>(null)
-    const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-    // 卸载兜底：清理「已复制 ID」提示复位定时器
-    useEffect(() => () => { if (copyToastTimer.current) clearTimeout(copyToastTimer.current) }, [])
     // 跨天信号：午夜自动刷新日期分组（今天/历史），并作为下方"自动展开激活会话分组"的 effect 依赖
     const dayTick = useDayBoundaryTick()
 
@@ -1281,9 +1273,7 @@ export function ConversationList() {
                           setContextMenu(null)
                           try {
                               await navigator.clipboard.writeText(id)
-                              if (copyToastTimer.current) clearTimeout(copyToastTimer.current)
-                              setShowCopyToast(true)
-                              copyToastTimer.current = setTimeout(() => { copyToastTimer.current = null; setShowCopyToast(false) }, 1500)
+                              flashCopyToast()
                           } catch { /* clipboard unavailable */ }
                       }}
                   />

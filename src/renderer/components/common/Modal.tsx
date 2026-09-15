@@ -8,11 +8,9 @@ import {fade, scaleFade} from '../../lib/motionPresets'
  * 尺寸档位：只沿用既有档位，不发明新尺寸体系。
  * - md = 580px：AgentsDialog / CommandsDialog / MCPEditModal 的既有对话框基准档
  * - lg = 700px：PromptConfigDialog 既有档
- * - sm = max-w-md（Tailwind 既有档 448px）
  * 面板用 max-w + w-full，天然随视口收缩（等价既有 max-w-[90vw] 的做法）。
  */
 const SIZE_CLASS = {
-    sm: 'max-w-md',
     md: 'max-w-[580px]',
     lg: 'max-w-[700px]',
 } as const
@@ -30,7 +28,7 @@ const FOCUSABLE = [
 export interface ModalProps {
     open: boolean
     onClose: () => void
-    size?: 'sm' | 'md' | 'lg'
+    size?: 'md' | 'lg'
     /** 无障碍名（role="dialog" 的 aria-label） */
     ariaLabel?: string
     /** 点击遮罩是否关闭（默认 true）。表单类弹窗可设 false 防误触丢失输入 */

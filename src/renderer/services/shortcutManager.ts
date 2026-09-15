@@ -1,6 +1,5 @@
 import {matchEvent, mergeOverrides, SHORTCUT_DEFS, type ShortcutAction} from '../../shared/shortcuts'
-
-const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0
+import {IS_MAC} from '../lib/platform'
 
 type Handlers = Partial<Record<ShortcutAction, Set<() => void>>>
 
@@ -42,7 +41,7 @@ function dispatch(e: KeyboardEvent): void {
     if (state.recording) return
     for (const def of SHORTCUT_DEFS) {
         if (def.scope !== 'app') continue
-        if (matchEvent(e, state.bindings[def.id], isMac)) {
+        if (matchEvent(e, state.bindings[def.id], IS_MAC)) {
             e.preventDefault()
             state.handlers[def.id]?.forEach(h => h())
             return

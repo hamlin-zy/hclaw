@@ -1,5 +1,14 @@
 export {}
 
+/** 启动能力初始化进度负载：主进程广播帧与 `getInitProgress` 快照共用同一形状 */
+interface InitProgressPayload {
+    stage: string
+    done: number
+    total: number
+    finished: boolean
+    completed: boolean
+}
+
 declare global {
   interface Window {
     electronAPI?: {
@@ -369,21 +378,9 @@ declare global {
 
         // 启动能力初始化进度（主进程广播，纯展示）
         system?: {
-            onInitProgress: (callback: (payload: {
-                stage: string
-                done: number
-                total: number
-                finished: boolean
-                completed: boolean
-            }) => void) => () => void
+            onInitProgress: (callback: (payload: InitProgressPayload) => void) => () => void
             /** 拉取最后一帧进度快照（补齐挂载前丢失的帧） */
-            getInitProgress: () => Promise<{
-                stage: string
-                done: number
-                total: number
-                finished: boolean
-                completed: boolean
-            } | null>
+            getInitProgress: () => Promise<InitProgressPayload | null>
         }
 
         // 系统提示词构建（用于测试）
@@ -805,7 +802,7 @@ declare global {
                 bySource: Record<'builtin' | 'user' | 'plugin', number>
             }>
             get: (id: string) => Promise<import('./capabilityTypes').CapabilityEntry | null>
-            onCapabilityChanged: (callback: (data: {seq: number}) => void) => () => void
+            onCapabilityChanged: (callback: (data: { seq: number }) => void) => () => void
         }
 
     }

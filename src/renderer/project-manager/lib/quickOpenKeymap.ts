@@ -5,7 +5,7 @@
  * 不注册进主窗口的 `shortcutManager`，因此主窗口键位行为零变化。
  * 平台差异（macOS 用 `Cmd+Shift+O` 而非 `Cmd+Shift+N`）由共享层的 `darwin` 覆盖字段表达，见 ADR-0001。
  */
-import {findConflicts, matchEvent, resolveDefaults, type AcceleratorSource} from '@shared/shortcuts'
+import {findConflicts, matchEvent, resolveDefaults, type AcceleratorSource, type KeyboardEventLike} from '@shared/shortcuts'
 
 /** QuickOpen 承载的三种模式（术语以 CONTEXT.md 为准） */
 export type QuickOpenMode = 'file-search' | 'recent-files' | 'find-in-files'
@@ -44,7 +44,7 @@ export type QuickOpenCommand =
 
 /** 事件命中的键位定义；无命中返回 null。同键时按声明序取第一个 */
 function matchQuickOpenDef(
-    e: {ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean; key: string},
+    e: KeyboardEventLike,
     bindings: Record<QuickOpenAction, string>,
     isMac: boolean,
 ): QuickOpenDef | null {
@@ -59,7 +59,7 @@ function matchQuickOpenDef(
  * 未打开时 Esc / 上下键一律放行（返回 null），不打扰编辑器。
  */
 export function resolveQuickOpenCommand(
-    e: {ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean; key: string},
+    e: KeyboardEventLike,
     bindings: Record<QuickOpenAction, string>,
     isMac: boolean,
     open: boolean,

@@ -13,7 +13,7 @@
 import {create} from 'zustand'
 import type {Skill} from '@shared/types'
 import type {SkillBubbleProps, SkillLogEntry} from '../components/skill/SkillBubble'
-import {applyOptimistic} from './applyOptimistic'
+import {applyOptimistic, type ApplyOptimisticResult} from './applyOptimistic'
 
 // ─── 类型定义 ─────────────────────────────────────────
 
@@ -134,25 +134,25 @@ const updateExecWithLog = (
   }
 }
 
-/** 执行 IPC 调用并以 loading 状态包装 */
-async function withSkillLoading<T>(
+/** 技能写动作统一包装（7 处共用）：捕获 prev → applyOptimistic（乐观写 / 失败回滚 / 错误规范化）
+ *  → 成功后以主进程返回的列表为权威回写 skills（缺失时保留既有列表）。
+ *  各动作的 persist 内 `if (!r?.success) throw new Error(r?.error || <文案>)` 与 IPC 返回形状保持不变。 */
+async function runSkillMutation<R extends {skills?: Skill[]}>(
   set: (partial: Partial<SkillStore>) => void,
-  ipcCall: () => Promise<T> | undefined,
-  onSuccess?: (result: T) => Omit<Partial<SkillStore>, 'loading'>,
-): Promise<T | {success: false; error: string}> {
-  set({loading: true})
-  try {
-    const result = await ipcCall()
-    if (result && typeof result === 'object' && 'success' in result && result.success) {
-      set({...(onSuccess ? onSuccess(result as T) : {}), loading: false})
-    } else {
-      set({loading: false})
-    }
-    return result as T
-  } catch (err: unknown) {
-    set({loading: false})
-    return {success: false, error: (err as Error).message}
+  get: () => SkillStore,
+  mutate: (prev: Skill[]) => void,
+  persist: () => Promise<R>,
+): Promise<ApplyOptimisticResult<R>> {
+  const prev = get().skills
+  const result = await applyOptimistic<R>({
+    snapshot: () => set({skills: prev}),
+    mutate: () => mutate(prev),
+    persist,
+  })
+  if (result.ok && Array.isArray(result.data.skills)) {
+    set({skills: result.data.skills as Skill[]})
   }
+  return result
 }
 
 /** 将 execution 转换为 SkillBubbleProps */
@@ -199,32 +199,33 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
   },
 
   refreshSkills: async () => {
-      await withSkillLoading(set, () => window.electronAPI?.skillsRefresh?.(true), SKILLS_REFRESHED)
+      // 原 withSkillLoading 包装（仅此一个调用点）内联：loading 包裹 + 成功时刷新列表
+      set({loading: true})
+      try {
+        const result = await window.electronAPI?.skillsRefresh?.(true)
+        if (result && typeof result === 'object' && 'success' in result && result.success) {
+            set({...SKILLS_REFRESHED(result as any), loading: false})
+        } else {
+            set({loading: false})
+        }
+      } catch {
+          set({loading: false})
+      }
   },
 
   installSkill: async () => {
     const zipPath = await window.electronAPI?.openSkillFileDialog?.()
     if (!zipPath) return {success: false, error: 'User cancelled'}
 
-    const prev = get().skills
-    const result = await applyOptimistic<Skill[], {success: boolean; skillName?: string; skills?: Skill[]}>({
+    const result = await runSkillMutation(set, get, () => undefined, async () => {
       // 安装产出的技能需主进程扫描后才可知，无法预置乐观项 → mutate 置空；
-      // 仍复用 applyOptimistic 以统一错误字符串与「不触发全量 loading/重载」的契约
-      snapshot: () => {
-        set({skills: prev})
-        return prev
-      },
-      mutate: () => undefined,
-      persist: async () => {
-        const r = await window.electronAPI?.skillInstall?.(zipPath)
-        if (!r?.success) throw new Error(r?.error || '安装技能失败')
-        return r as {success: boolean; skillName?: string; skills?: Skill[]}
-      },
+      // 仍复用包装以统一错误字符串与「不触发全量 loading/重载」的契约
+      const r = await window.electronAPI?.skillInstall?.(zipPath)
+      if (!r?.success) throw new Error(r?.error || '安装技能失败')
+      return r as {success: boolean; skillName?: string; skills?: Skill[]}
     })
 
     if (!result.ok) return {success: false, error: result.error}
-    // 主进程返回的列表为权威（含新技能）；缺失时保留既有列表
-    if (Array.isArray(result.data.skills)) set({skills: result.data.skills as Skill[]})
     return {success: true, skillName: result.data.skillName}
   },
 
@@ -240,146 +241,91 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
       source: 'user',
       allowedTools: skill.allowedTools,
     }
-    const prev = get().skills
-
-    const result = await applyOptimistic<Skill[], {success: boolean; skillDirName?: string; skills?: Skill[]}>({
-      snapshot: () => {
-        set({skills: prev})
-        return prev
-      },
-      mutate: () => set({skills: [...prev, optimistic]}),
-      persist: async () => {
-        const r = await window.electronAPI?.skillAdd?.({
-          name: skill.name,
-          description: skill.description,
-          content: skill.content || '',
-          enabled: skill.enabled,
-          allowedTools: skill.allowedTools,
-        })
-        if (!r?.success) throw new Error(r?.error || '创建技能失败')
-        return r as {success: boolean; skillDirName?: string; skills?: Skill[]}
-      },
+    const result = await runSkillMutation(set, get, (prev) => set({skills: [...prev, optimistic]}), async () => {
+      const r = await window.electronAPI?.skillAdd?.({
+        name: skill.name,
+        description: skill.description,
+        content: skill.content || '',
+        enabled: skill.enabled,
+        allowedTools: skill.allowedTools,
+      })
+      if (!r?.success) throw new Error(r?.error || '创建技能失败')
+      return r as {success: boolean; skillDirName?: string; skills?: Skill[]}
     })
 
     if (!result.ok) return {success: false, error: result.error}
-    if (Array.isArray(result.data.skills)) set({skills: result.data.skills as Skill[]})
     return {success: true, skillDirName: result.data.skillDirName}
   },
 
   removeSkill: async (id) => {
-    const prev = get().skills
-    const result = await applyOptimistic<Skill[], {success: boolean; skills?: Skill[]}>({
-      snapshot: () => {
-        set({skills: prev})
-        return prev
-      },
-      mutate: () => set({skills: prev.filter(s => s.id !== id)}),
-      persist: async () => {
-        const r = await window.electronAPI?.skillRemove?.(id)
-        if (!r?.success) throw new Error(r?.error || '删除技能失败')
-        return r as {success: boolean; skills?: Skill[]}
-      },
+    const result = await runSkillMutation(set, get, (prev) => set({skills: prev.filter(s => s.id !== id)}), async () => {
+      const r = await window.electronAPI?.skillRemove?.(id)
+      if (!r?.success) throw new Error(r?.error || '删除技能失败')
+      return r as {success: boolean; skills?: Skill[]}
     })
 
     if (!result.ok) return {success: false, error: result.error}
-    if (Array.isArray(result.data.skills)) set({skills: result.data.skills as Skill[]})
     return {success: true, error: ''}
   },
 
   toggleSkill: async (id) => {
-    const prev = get().skills
-    const target = !(prev.find(s => s.id === id)?.enabled ?? false)
-    const result = await applyOptimistic<Skill[], {success: boolean; enabled?: boolean; skills?: Skill[]}>({
-      snapshot: () => {
-        set({skills: prev})
-        return prev
-      },
-      mutate: () => set({skills: prev.map(s => (s.id === id ? {...s, enabled: target} : s))}),
-      persist: async () => {
-        const r = await window.electronAPI?.skillToggle?.(id)
-        if (!r?.success) throw new Error(r?.error || '切换技能状态失败')
-        return r as {success: boolean; enabled?: boolean; skills?: Skill[]}
-      },
+    const target = !(get().skills.find(s => s.id === id)?.enabled ?? false)
+    const result = await runSkillMutation(set, get, (prev) => set({skills: prev.map(s => (s.id === id ? {...s, enabled: target} : s))}), async () => {
+      const r = await window.electronAPI?.skillToggle?.(id)
+      if (!r?.success) throw new Error(r?.error || '切换技能状态失败')
+      return r as {success: boolean; enabled?: boolean; skills?: Skill[]}
     })
 
     if (!result.ok) return {success: false, error: result.error}
-    if (Array.isArray(result.data.skills)) set({skills: result.data.skills as Skill[]})
     return {success: true, enabled: result.data.enabled ?? target, error: ''}
   },
 
   toggleSkillBatch: async (skillIds, enabled) => {
     if (skillIds.length === 0) return {success: true, error: ''}
-    const prev = get().skills
     const idSet = new Set(skillIds)
-    const result = await applyOptimistic<Skill[], {success: boolean; skills?: Skill[]}>({
-      snapshot: () => {
-        set({skills: prev})
-        return prev
-      },
-      mutate: () => set({skills: prev.map(s => (idSet.has(s.id) ? {...s, enabled} : s))}),
-      persist: async () => {
-        const r = await window.electronAPI?.skillToggleBatch?.({skillIds, enabled})
-        if (!r?.success) throw new Error(r?.error || '批量切换技能状态失败')
-        return r as {success: boolean; skills?: Skill[]}
-      },
+    const result = await runSkillMutation(set, get, (prev) => set({skills: prev.map(s => (idSet.has(s.id) ? {...s, enabled} : s))}), async () => {
+      const r = await window.electronAPI?.skillToggleBatch?.({skillIds, enabled})
+      if (!r?.success) throw new Error(r?.error || '批量切换技能状态失败')
+      return r as {success: boolean; skills?: Skill[]}
     })
 
     if (!result.ok) return {success: false, error: result.error}
-    if (Array.isArray(result.data.skills)) set({skills: result.data.skills as Skill[]})
     return {success: true, error: ''}
   },
 
   updateSkillDescription: async (id, userDescription) => {
-    const prev = get().skills
-    const result = await applyOptimistic<Skill[], {success: boolean; skills?: Skill[]}>({
-      snapshot: () => {
-        set({skills: prev})
-        return prev
-      },
-      mutate: () => set({skills: prev.map(s => (s.id === id ? {...s, userDescription} : s))}),
-      persist: async () => {
-        const r = await window.electronAPI?.skillUpdateDescription?.(id, userDescription) as
-          | {success: boolean; skills?: Skill[]; error?: string}
-          | undefined
-        if (!r?.success) throw new Error(r?.error || '更新技能描述失败')
-        return r
-      },
+    const result = await runSkillMutation(set, get, (prev) => set({skills: prev.map(s => (s.id === id ? {...s, userDescription} : s))}), async () => {
+      const r = await window.electronAPI?.skillUpdateDescription?.(id, userDescription) as
+        | {success: boolean; skills?: Skill[]; error?: string}
+        | undefined
+      if (!r?.success) throw new Error(r?.error || '更新技能描述失败')
+      return r
     })
 
     if (!result.ok) return {success: false, error: result.error}
-    if (Array.isArray(result.data.skills)) set({skills: result.data.skills as Skill[]})
     return {success: true, error: ''}
   },
 
   updateSkillContent: async (params) => {
-    const prev = get().skills
-    const result = await applyOptimistic<Skill[], {success: boolean; skills?: Skill[]}>({
-      snapshot: () => {
-        set({skills: prev})
-        return prev
-      },
-      mutate: () => set({
-        skills: prev.map(s => {
-          if (s.id !== params.skillId) return s
-          return {
-            ...s,
-            ...(params.name !== undefined ? {name: params.name} : {}),
-            ...(params.description !== undefined ? {description: params.description} : {}),
-            ...(params.body !== undefined ? {content: params.body} : {}),
-          }
-        }),
+    const result = await runSkillMutation(set, get, (prev) => set({
+      skills: prev.map(s => {
+        if (s.id !== params.skillId) return s
+        return {
+          ...s,
+          ...(params.name !== undefined ? {name: params.name} : {}),
+          ...(params.description !== undefined ? {description: params.description} : {}),
+          ...(params.body !== undefined ? {content: params.body} : {}),
+        }
       }),
-      persist: async () => {
-        const r = await (window.electronAPI as any)?.updateSkillContent?.(params) as
-          | {success: boolean; skills?: Skill[]; error?: string}
-          | undefined
-        if (!r?.success) throw new Error(r?.error || '保存技能内容失败')
-        return r
-      },
+    }), async () => {
+      const r = await (window.electronAPI as any)?.updateSkillContent?.(params) as
+        | {success: boolean; skills?: Skill[]; error?: string}
+        | undefined
+      if (!r?.success) throw new Error(r?.error || '保存技能内容失败')
+      return r
     })
 
     if (!result.ok) return {success: false, error: result.error}
-    if (Array.isArray(result.data.skills)) set({skills: result.data.skills as Skill[]})
     return {success: true, error: ''}
   },
 

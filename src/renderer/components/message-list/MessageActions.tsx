@@ -3,11 +3,12 @@
  * 包含用户消息的重试按钮
  */
 
-import {memo, useCallback, useEffect, useRef, useState} from 'react'
+import {memo, useCallback} from 'react'
 import {useAgentStore} from '../../stores/agentStore'
 import {useConversationStore} from '../../stores/conversationStore'
 import {confirm} from '../ConfirmDialog'
 import type {Message} from '@shared/types'
+import {useTransientFlag} from '../../hooks/useTransientFlag'
 
 // 重试按钮组件 - 用于重新执行用户消息
 const RetryButton = memo(function RetryButton({message}: { message: Message }) {
@@ -112,10 +113,7 @@ const DeleteButton = memo(function DeleteButton({message, bottomMargin = 'mb-[22
 
 // 复制按钮组件 - 用于复制助手消息内容（含工具调用命令和响应）
 const CopyButton = memo(function CopyButton({message}: { message: Message }) {
-    const [copied, setCopied] = useState(false)
-    const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-    // 卸载兜底：清理「已复制」复位定时器
-    useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
+    const [copied, flashCopied] = useTransientFlag(2000)
 
     const handleCopy = useCallback(async () => {
         const parts: string[] = []
@@ -211,13 +209,11 @@ const CopyButton = memo(function CopyButton({message}: { message: Message }) {
 
         try {
             await navigator.clipboard.writeText(finalText || textContent)
-            if (copiedTimer.current) clearTimeout(copiedTimer.current)
-            setCopied(true)
-            copiedTimer.current = setTimeout(() => { copiedTimer.current = null; setCopied(false) }, 2000)
+            flashCopied()
         } catch {
             // 复制失败，静默处理
         }
-    }, [message])
+    }, [message, flashCopied])
 
     return (
         <button

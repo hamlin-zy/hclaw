@@ -8,7 +8,7 @@
  */
 
 import {create} from 'zustand'
-import {applyOptimistic} from './applyOptimistic'
+import {applyOptimistic, toErrorMessage, type ApplyOptimisticResult} from './applyOptimistic'
 
 export interface UserCommand {
     id: string
@@ -52,6 +52,22 @@ interface UserCommandStore {
     exportCommands: () => Promise<{success: boolean; commands?: any[]; error?: string}>
 }
 
+/** 命令写动作统一包装：捕获 prev → applyOptimistic（乐观写 / 失败回滚 / 错误规范化）。
+ *  各动作 persist 内抛错文案与 IPC 返回形状保持不变。 */
+async function runCommandMutation<R>(
+    set: (partial: Partial<UserCommandStore>) => void,
+    get: () => UserCommandStore,
+    mutate: () => void,
+    persist: () => Promise<R>,
+): Promise<ApplyOptimisticResult<R>> {
+    const prev = get().commands
+    return applyOptimistic<R>({
+        snapshot: () => set({commands: prev}),
+        mutate,
+        persist,
+    })
+}
+
 export const useUserCommandStore = create<UserCommandStore>((set, get) => ({
     commands: [],
     loading: false,
@@ -89,15 +105,10 @@ export const useUserCommandStore = create<UserCommandStore>((set, get) => ({
             updatedAt: now,
         }
 
-        const prev = get().commands
-        const result = await applyOptimistic<UserCommand[], {success: boolean; command?: UserCommand}>({
-            snapshot: () => set({commands: prev}),
-            mutate: () => set((s) => ({commands: [...s.commands, optimistic]})),
-            persist: async () => {
-                const r = await window.electronAPI?.command?.create?.(input)
-                if (!r?.success) throw new Error(r?.error || 'Failed to create command')
-                return r as {success: boolean; command?: UserCommand}
-            },
+        const result = await runCommandMutation(set, get, () => set((s) => ({commands: [...s.commands, optimistic]})), async () => {
+            const r = await window.electronAPI?.command?.create?.(input)
+            if (!r?.success) throw new Error(r?.error || 'Failed to create command')
+            return r as {success: boolean; command?: UserCommand}
         })
 
         if (!result.ok) return {success: false, error: result.error}
@@ -111,47 +122,32 @@ export const useUserCommandStore = create<UserCommandStore>((set, get) => ({
     },
 
     updateCommand: async (id, updates) => {
-        const prev = get().commands
-        const result = await applyOptimistic<UserCommand[], {success: boolean}>({
-            snapshot: () => set({commands: prev}),
-            mutate: () => set((s) => ({
-                commands: s.commands.map((c) => (c.id === id ? {...c, ...updates, updatedAt: Date.now()} : c)),
-            })),
-            persist: async () => {
-                const r = await window.electronAPI?.command?.update?.(id, updates)
-                if (!r?.success) throw new Error(r?.error || 'Failed to update command')
-                return r
-            },
+        const result = await runCommandMutation(set, get, () => set((s) => ({
+            commands: s.commands.map((c) => (c.id === id ? {...c, ...updates, updatedAt: Date.now()} : c)),
+        })), async () => {
+            const r = await window.electronAPI?.command?.update?.(id, updates)
+            if (!r?.success) throw new Error(r?.error || 'Failed to update command')
+            return r
         })
         return result.ok ? {success: true} : {success: false, error: result.error}
     },
 
     deleteCommand: async (id) => {
-        const prev = get().commands
-        const result = await applyOptimistic<UserCommand[], {success: boolean}>({
-            snapshot: () => set({commands: prev}),
-            mutate: () => set((s) => ({commands: s.commands.filter((c) => c.id !== id)})),
-            persist: async () => {
-                const r = await window.electronAPI?.command?.delete?.(id)
-                if (!r?.success) throw new Error(r?.error || 'Failed to delete command')
-                return r
-            },
+        const result = await runCommandMutation(set, get, () => set((s) => ({commands: s.commands.filter((c) => c.id !== id)})), async () => {
+            const r = await window.electronAPI?.command?.delete?.(id)
+            if (!r?.success) throw new Error(r?.error || 'Failed to delete command')
+            return r
         })
         return result.ok ? {success: true} : {success: false, error: result.error}
     },
 
     toggleCommand: async (id, enabled) => {
-        const prev = get().commands
-        const result = await applyOptimistic<UserCommand[], {success: boolean}>({
-            snapshot: () => set({commands: prev}),
-            mutate: () => set((s) => ({
-                commands: s.commands.map((c) => (c.id === id ? {...c, enabled} : c)),
-            })),
-            persist: async () => {
-                const r = await window.electronAPI?.command?.toggle?.(id, enabled)
-                if (!r?.success) throw new Error(r?.error || 'Failed to toggle command')
-                return r
-            },
+        const result = await runCommandMutation(set, get, () => set((s) => ({
+            commands: s.commands.map((c) => (c.id === id ? {...c, enabled} : c)),
+        })), async () => {
+            const r = await window.electronAPI?.command?.toggle?.(id, enabled)
+            if (!r?.success) throw new Error(r?.error || 'Failed to toggle command')
+            return r
         })
         return result.ok ? {success: true} : {success: false, error: result.error}
     },
@@ -170,7 +166,7 @@ export const useUserCommandStore = create<UserCommandStore>((set, get) => ({
         }))
 
         const prev = get().commands
-        const result = await applyOptimistic<UserCommand[], {success: boolean; imported?: number; skipped?: number}>({
+        const result = await applyOptimistic<{success: boolean; imported?: number; skipped?: number}>({
             snapshot: () => set({commands: prev}),
             mutate: () => set((s) => ({commands: [...s.commands, ...optimistic]})),
             persist: async () => {
@@ -195,7 +191,7 @@ export const useUserCommandStore = create<UserCommandStore>((set, get) => ({
             }
             return {success: false, error: result?.error || 'Failed to export commands'}
         } catch (err: any) {
-            return {success: false, error: err?.message || String(err)}
+            return {success: false, error: toErrorMessage(err)}
         }
     },
 }))

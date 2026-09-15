@@ -101,13 +101,6 @@ const AudioPlayer = memo(function AudioPlayer({url, fileName}: { url: string; fi
         }
     }, [url])
 
-    // 卸载时释放 Blob URL
-    useEffect(() => {
-        return () => {
-            if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
-        }
-    }, [])
-
     const togglePlay = useCallback(() => {
         const audio = audioRef.current
         if (!audio) return

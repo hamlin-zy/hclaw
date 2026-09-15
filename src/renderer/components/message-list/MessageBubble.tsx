@@ -3,8 +3,9 @@
  * 单条消息的容器，包含头像、内容和时间戳
  */
 
-import {memo, useEffect, useMemo, useRef, useState} from 'react'
+import {memo, useEffect, useMemo, useState} from 'react'
 import type {Message} from '@shared/types'
+import {useTransientFlag} from '../../hooks/useTransientFlag'
 import {useSkillStore} from '../../stores/skillStore'
 import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
 import {useUserCommandStore} from '../../stores/userCommandStore'
@@ -141,8 +142,8 @@ function statusNoteEqual(
 
 const StatusNote = memo(function StatusNote({note}: {note: StatusNoteData | null | undefined}) {
     // ── 一键复制（错误/重试详情） ──
-    const [copied, setCopied] = useState(false)
-    const copyTimerRef = useRef<number | null>(null)
+    // 「已复制」反馈 1.5s 后复位；hook 内含卸载清理（不在条件 return 后注册 hooks）
+    const [copied, flashCopied] = useTransientFlag(1500)
     const copyStatusNote = async (text: string) => {
         try {
             await navigator.clipboard.writeText(text)
@@ -157,15 +158,8 @@ const StatusNote = memo(function StatusNote({note}: {note: StatusNoteData | null
             document.execCommand('copy')
             ta.remove()
         }
-        setCopied(true)
-        if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current)
-        copyTimerRef.current = window.setTimeout(() => setCopied(false), 1500)
+        flashCopied()
     }
-
-    // 卸载时清理复制反馈定时器，避免卸载后 setState（Hooks 需在条件 return 之前）
-    useEffect(() => () => {
-        if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current)
-    }, [])
 
     if (!note) return null
 

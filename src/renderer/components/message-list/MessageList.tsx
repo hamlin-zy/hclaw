@@ -6,6 +6,8 @@
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {motion} from 'framer-motion'
 import {tooltip} from '../../lib/motionPresets'
+import {IS_MAC} from '../../lib/platform'
+import {useTransientFlag} from '../../hooks/useTransientFlag'
 import {useConversationStore} from '../../stores/conversationStore'
 import {useAgentStore} from '../../stores/agentStore'
 import MessageBubble from './MessageBubble'
@@ -86,7 +88,7 @@ function useFind(
     const matchHighlightRef = useRef<Highlight | null>(null)
     const currentHighlightRef = useRef<Highlight | null>(null)
     const debounceTimerRef = useRef<number | null>(null)
-    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+    const isMac = IS_MAC
 
     // 初始化 Highlight 对象
     useEffect(() => {
@@ -574,19 +576,8 @@ export default function MessageList({conversationId}: { conversationId?: string 
         conversationId ? (s.convAgentStates[conversationId]?.agentState ?? null) : s.agentState)
 
     const containerRef = useRef<HTMLDivElement>(null)
-    const [showCopyToast, setShowCopyToast] = useState(false)
-    const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     // 展示"已复制"Toast，1.5s 后自动隐藏（文本选择复制 / 消息操作复制共用）
-    const flashCopyToast = useCallback(() => {
-        if (copyToastTimer.current) clearTimeout(copyToastTimer.current)
-        setShowCopyToast(true)
-        copyToastTimer.current = setTimeout(() => {
-            copyToastTimer.current = null
-            setShowCopyToast(false)
-        }, 1500)
-    }, [])
-    // 卸载兜底：清理未触发的 Toast 定时器
-    useEffect(() => () => { if (copyToastTimer.current) clearTimeout(copyToastTimer.current) }, [])
+    const [showCopyToast, flashCopyToast] = useTransientFlag(1500)
     const [showScrollBtn, setShowScrollBtn] = useState(false)
     const [newMsgCount, setNewMsgCount] = useState(0)
     // 会话来源导航（子会话 → 父会话；交接会话 → 前会话）
