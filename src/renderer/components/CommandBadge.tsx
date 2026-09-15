@@ -75,5 +75,4 @@ export const CommandBadge = memo(function CommandBadge({
     )
 })
 
-
 export default CommandBadge

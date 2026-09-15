@@ -10,7 +10,7 @@ import {skillRegistry} from '../../skills'
 import {buildGuidance, buildPreview} from '../../skills/guidance'
 import type {SkillDefinition} from '../../skills/types'
 
-export const SKILL_TOOL_NAME = 'skill'
+const SKILL_TOOL_NAME = 'skill'
 
 const inputSchema = z.object({
   skill: z.string().describe('技能名称，如 "code-simplifier" 或 "scrapling-official"'),
@@ -18,7 +18,7 @@ const inputSchema = z.object({
 
 type SkillToolInput = z.infer<typeof inputSchema>
 
-export interface SkillToolOutput {
+interface SkillToolOutput {
   success: boolean
   skillName: string
   skillDir?: string

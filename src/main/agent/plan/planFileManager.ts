@@ -187,10 +187,6 @@ export function planExists(workingDir?: string, checkLocalOnly?: boolean): boole
   return new PlanFileManager(workingDir).planExists(checkLocalOnly)
 }
 
-export function openPlanInEditor(editor?: EditorType, workingDir?: string): EditorOpenResult | EditorOpenError {
-  return new PlanFileManager(workingDir).openInEditor(editor)
-}
-
 export function deletePlan(workingDir?: string, deleteLocalOnly?: boolean): { success: boolean; error?: string } {
   return new PlanFileManager(workingDir).deletePlan(deleteLocalOnly)
 }

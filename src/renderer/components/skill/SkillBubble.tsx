@@ -640,4 +640,4 @@ function formatContent(content: string): string {
 
 // ─── 导出类型 ──────────────────────────────────────────────
 
-export type {SkillBubbleProps, SkillLogEntry}
+export type {SkillLogEntry}

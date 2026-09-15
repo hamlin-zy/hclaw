@@ -44,12 +44,12 @@ export interface BuiltinAgentManifestEntry {
     updatedAt?: number
 }
 
-export interface BuiltinAgentManifest {
+interface BuiltinAgentManifest {
     version: number
     files: Record<string, BuiltinAgentManifestEntry>
 }
 
-export interface MigrationResult {
+interface MigrationResult {
     outcome: 'applied' | 'noop' | 'skipped'
     content: string
     /** 同语义的低优先级别名键（不生效）——仅用于日志诊断 */
@@ -57,7 +57,7 @@ export interface MigrationResult {
     reason?: string
 }
 
-export interface BuiltinTemplateMigration {
+interface BuiltinTemplateMigration {
     id: string
     /** 目标内置模板文件名，如 'plan.md' */
     file: string
@@ -66,7 +66,7 @@ export interface BuiltinTemplateMigration {
 }
 
 /** 待校验的工具生效性断言 */
-export interface ToolEffectivenessCheck {
+interface ToolEffectivenessCheck {
     /** 必须处于"可用"状态（未被白名单排除、未被黑名单禁止） */
     required: string[]
     /** 必须处于"不可用"状态 */
@@ -345,7 +345,7 @@ export function verifyToolEffectiveness(
 
 // ─── 迁移执行 ────────────────────────────────────────────
 
-export interface MigrationRunReport {
+interface MigrationRunReport {
     content: string
     applied: string[]
     skipped: string[]
@@ -383,7 +383,7 @@ export function runMigrations(filename: string, content: string): MigrationRunRe
  * @param template 当前版本的内置模板内容
  * @param entry manifest 中该文件的既有条目（可空 = 来源不明）
  */
-export interface UpgradeDecision {
+interface UpgradeDecision {
     action: 'replace' | 'migrate' | 'unchanged' | 'none'
     content: string
     /** 是否应写入 manifest 的 pristineHash（指纹命中，即 action 为 replace/unchanged 时为 true） */

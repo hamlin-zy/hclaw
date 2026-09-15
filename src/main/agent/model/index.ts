@@ -98,7 +98,7 @@ export function createModelAdapter(config: ModelConfig): ModelAdapter {
  * @returns 适配器实例及元数据
  * @throws 如果无法创建适配器（配置错误或无兜底）
  */
-export async function createAdapterForRole(
+async function createAdapterForRole(
     role: ModelRole,
     fallbackConfig?: ModelConfig,
 ): Promise<{

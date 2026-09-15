@@ -124,7 +124,7 @@ export interface Task {
   subtasks?: Task[]
 }
 
-export interface TasksBlock {
+interface TasksBlock {
   id: string
   tasks: Task[]
 }
@@ -153,10 +153,10 @@ export interface FileChangeGroup {
 
 export type BlockType = 'think' | 'text' | 'tool_call' | 'tool_result' | 'media' | 'end'
 
-export type ContentBlockType = 'think' | 'text' | 'tool_use' | 'media' | 'end'
+type ContentBlockType = 'think' | 'text' | 'tool_use' | 'media' | 'end'
 
 /** 媒体类型 */
-export type MediaType = 'audio' | 'image' | 'video'
+type MediaType = 'audio' | 'image' | 'video'
 
 /**
  * 媒体扩展名 → MediaType 映射
@@ -286,7 +286,7 @@ export interface LlmStats {
 export const MIN_DECODE_MS = 500
 
 /** 权限确认 */
-export interface PermissionConfirm {
+interface PermissionConfirm {
   /** 请求 ID */
   requestId: string
   /** 确认问题 */
@@ -304,7 +304,7 @@ export interface PermissionConfirm {
 // ─── Skill / Command execution ────────────────────────
 
 /** 技能执行记录 */
-export interface SkillExecution {
+interface SkillExecution {
   executionId: string
   skillId: string
   skillName: string
@@ -349,7 +349,7 @@ export interface CommandExecutionContext {
 }
 
 /** 命令执行状态 - 用于 UI 显示 */
-export interface CommandExecution {
+interface CommandExecution {
   /** 命令 ID */
   commandId: string
   /** 命令名称，不包含前缀 */
@@ -362,29 +362,6 @@ export interface CommandExecution {
   startTime: number
   /** 结束时间 */
   endTime?: number
-}
-
-/**
- * 用户自定义命令 UserCommandDef
- * User-defined command, compatible with plugin CommandDef but with extra metadata.
- */
-export interface UserCommandDef {
-  id: string
-  name: string
-  description?: string
-  content: string
-  args?: Array<{
-    name: string
-    description?: string
-    required?: boolean
-    default?: string
-  }>
-  tags?: string[]
-  enabled: boolean
-  createdAt: number
-  updatedAt: number
-  triggerType?: 'none' | 'skill' | 'agent'
-  triggerTarget?: string
 }
 
 // ─── Version constants ─────────────────────────────────

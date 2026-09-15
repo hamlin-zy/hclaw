@@ -44,20 +44,6 @@ function getField<T = unknown>(
 }
 
 /**
- * 智能获取字符串字段，处理多个可能的字段名
- *
- * 常用场景：systemPrompt/system_prompt, userDescription/user_description 等
- */
-export function getStringField(
-    obj: Record<string, unknown> | undefined | null,
-    camelCaseName: string,
-    alternatives?: string[]
-): string {
-    const value = getField<string>(obj, camelCaseName, alternatives)
-    return value || ''
-}
-
-/**
  * camelCase 转 snake_case
  */
 function camelToSnakeCase(str: string): string {

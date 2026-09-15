@@ -8,7 +8,7 @@ export type ToolResult =
     | ToolSuccessResult
     | ToolErrorResult
 
-export interface ToolSuccessResult {
+interface ToolSuccessResult {
     success: true
     output: string | object
     metadata?: {
@@ -17,7 +17,7 @@ export interface ToolSuccessResult {
     }
 }
 
-export interface ToolErrorResult {
+interface ToolErrorResult {
     success: false
     output: null
     error: string
