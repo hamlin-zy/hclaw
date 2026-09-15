@@ -1,5 +1,5 @@
 /**
- * Worker 线程资源上限 + 会话 Worker 并发闸门（主进程）
+ * Worker 线程资源上限（主进程）
  *
  * ─────────────────────────────────────────────────────────────────────────
  * 为什么需要显式 resourceLimits
@@ -44,8 +44,8 @@ const YOUNG_GEN_MB = 16
  *  · 但历史上出现过 500MB → 2GB 的异常膨胀（大附件 / 长历史 / 未及时 GC），
  *    故不能按「实测 30MB」贴着设——512MB 给真实长会话留足余量，
  *    同时把单个 isolate 的失控上限从继承来的 2048MB 压到 1/4。
- *  · 与并发闸门（MAX_CONCURRENT_SESSION_WORKERS）配合，最坏情况
- *    6 × 512MB = 3GB 上限，而非 6 × 2GB = 12GB。
+ *  · 该上限是**单 worker 兜底**，不限制可并发运行的会话数量：
+ *    它只保证单个 isolate 的 old-gen 峰值被压到 1/4（512MB 而非继承来的 2048MB）。
  *
  * young-gen = 16MB，与主进程 `--max-semi-space-size=16` 一致（同款流式分配形状）。
  */
@@ -98,15 +98,3 @@ export const CHANNEL_WORKER_RESOURCE_LIMITS: ResourceLimits = {
   maxOldGenerationSizeMb: OLD_GEN_NORMAL_MB,
   maxYoungGenerationSizeMb: YOUNG_GEN_MB,
 }
-
-/**
- * 同时运行的**会话 Agent Worker** 上限（不含 MCP / checkpoint / scheduler / channel）。
- *
- * 为什么是这个值：本闸门的目的**不是省内存**，而是给「每 isolate 一份 old-gen 上限」
- * 封顶 —— 无闸门时 N 个会话就是 N × 上限，进程级峰值随会话数线性发散。
- * 6 的取法：正常人手同时对话 1–3 个；给「主会话 + 系统提示里的子任务/交接会话」留余量后
- * 取 6，最坏 6 × 512MB = 3GB，仍在主进程可承受范围。
- *
- * 语义：**拒绝启动**（抛出可读错误），不排队、不静默丢弃、不打断已有会话。
- */
-export const MAX_CONCURRENT_SESSION_WORKERS = 6

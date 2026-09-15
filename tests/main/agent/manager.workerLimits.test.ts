@@ -4,8 +4,7 @@
  * 覆盖两项：
  *  A) 会话 Worker 创建时**确实**传入 resourceLimits（此前 5 个 `new Worker` 站点全裸，
  *     worker isolate 继承主进程 --max-old-space-size=2048 → 每会话 2GB 上限）。
- *  B) 会话 Worker 并发闸门：达上限时**拒绝启动并给出可读错误**，
- *     且不打断任何已在运行的会话、不排队、不静默丢弃。
+ *  B) 同一会话重启是「替换自身」：不新增并发 Worker。
  *
  * 手法：mock `worker_threads` 捕获 Worker 构造 options（与仓库既有对 Worker 的
  * mock 手法一致，见 tests/main/agent/mcpWorker.*.test.ts）；其余 manager.impl 依赖
@@ -133,10 +132,7 @@ vi.mock('@/main/agent/manager.pluginAgents', () => ({loadPluginAgents: vi.fn(asy
 vi.mock('@/main/agent/loop/loopDetector', () => ({clearLoopSilence: vi.fn()}))
 
 import {AgentManager} from '@/main/agent/manager.impl'
-import {
-    SESSION_AGENT_WORKER_RESOURCE_LIMITS,
-    MAX_CONCURRENT_SESSION_WORKERS,
-} from '@/main/workerLimits'
+import {SESSION_AGENT_WORKER_RESOURCE_LIMITS} from '@/main/workerLimits'
 import type {AgentStartParams} from '@/main/agent/manager.types'
 
 function makeParams(conversationId: string): AgentStartParams {
@@ -207,48 +203,18 @@ describe('A) 会话 Worker 创建时传入 resourceLimits', () => {
     })
 })
 
-describe('B) 会话 Worker 并发闸门', () => {
-    it('未达上限时可正常启动', async () => {
+describe('B) 同一会话重启是替换自身（不新增并发 Worker）', () => {
+    it('已有多个会话在跑时，重启其中一个不增加 workers Map 规模', async () => {
         const manager = makeManager()
-        seedWorkers(manager, Array.from({length: MAX_CONCURRENT_SESSION_WORKERS - 1}, (_, i) => `conv-${i}`))
+        const map = seedWorkers(manager, ['conv-0', 'conv-1', 'conv-2'])
 
-        await expect(manager.start(makeParams('conv-new'))).resolves.toBeUndefined()
+        await expect(manager.start(makeParams('conv-1'))).resolves.toBeUndefined()
+
+        // 新建了 1 个 Worker（替换），Map 规模不变（先 abort 旧条目）
         expect(workerSpy.instances).toHaveLength(1)
-    })
-
-    it('达上限时拒绝启动，并抛出含上限数字的可读错误', async () => {
-        const manager = makeManager()
-        seedWorkers(manager, Array.from({length: MAX_CONCURRENT_SESSION_WORKERS}, (_, i) => `conv-${i}`))
-
-        await expect(manager.start(makeParams('conv-overflow'))).rejects.toThrow(
-            new RegExp(`并发|上限|${MAX_CONCURRENT_SESSION_WORKERS}`),
-        )
-        // 未创建任何新 Worker
-        expect(workerSpy.instances).toHaveLength(0)
-        // 未被登记
-        expect(manager.isRunning('conv-overflow')).toBe(false)
-    })
-
-    it('拒绝时不打断、不终止已在运行的会话（不腾位置）', () => {
-        const manager = makeManager()
-        const map = seedWorkers(manager, Array.from({length: MAX_CONCURRENT_SESSION_WORKERS}, (_, i) => `conv-${i}`))
-
-        expect(map.size).toBe(MAX_CONCURRENT_SESSION_WORKERS)
-        for (const entry of map.values()) {
-            const w = (entry as {worker: {postMessage: ReturnType<typeof vi.fn>; terminate: ReturnType<typeof vi.fn>}}).worker
-            expect(w.postMessage).not.toHaveBeenCalled()
-            expect(w.terminate).not.toHaveBeenCalled()
-        }
+        expect(map.size).toBe(3)
         expect(manager.isRunning('conv-0')).toBe(true)
-    })
-
-    it('同一会话重启（替换自身）不占用额外名额：满员时仍可重跑', async () => {
-        const manager = makeManager()
-        seedWorkers(manager, Array.from({length: MAX_CONCURRENT_SESSION_WORKERS}, (_, i) => `conv-${i}`))
-
-        // conv-0 已在运行 → 重启它应被允许（替换自身，不新增并发）
-        await expect(manager.start(makeParams('conv-0'))).resolves.toBeUndefined()
-        expect(workerSpy.instances).toHaveLength(1)
+        expect(manager.isRunning('conv-2')).toBe(true)
     })
 })
 

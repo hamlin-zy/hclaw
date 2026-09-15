@@ -36,10 +36,7 @@ import {
   SKIP_LOG_EVENT_TYPES,
   PENDING_MSG_MAX_BYTES,
 } from './manager.constants'
-import {
-  SESSION_AGENT_WORKER_RESOURCE_LIMITS,
-  MAX_CONCURRENT_SESSION_WORKERS,
-} from '../workerLimits'
+import {SESSION_AGENT_WORKER_RESOURCE_LIMITS} from '../workerLimits'
 import {createPendingMsg, normalizeToolResult, finalizePending, appendCappedPart, isRenderedCopyFingerprintMatch, buildStreamSnapshot} from './manager.accumulator'
 import {getConversationPersistence} from '../persistence/conversationPersistence'
 import {persistStreamEvent, resetBridgeMsgState} from '../persistence/streamBridge'
@@ -214,26 +211,9 @@ export class AgentManager {
 
   /** 启动 Agent Worker Thread */
   async start(params: AgentStartParams): Promise<void> {
-    // ★ 会话 Worker 并发闸门（常量与取值依据见 ../workerLimits.ts）。
-    //   目的：给「每个 worker isolate 一份 old-gen 上限」封顶 —— 无闸门时 N 个并发会话
-    //   就是 N × 上限，进程峰值随会话数线性发散（不是为「省内存」）。
-    //   机制：**拒绝启动**并抛出可读错误。错误经 startAgentCore 冒泡到调用方：
-    //   agent-start IPC → {success:false, error} → 渲染端写入 errorMessage + status='error'
-    //   （channel/scheduler/memo 各自也有 catch 路径）。不排队、不静默丢弃、
-    //   更不打断已在运行的会话去腾位置。
-    //   计数口径：same-conv 重启是「替换自身」，不占额外名额。
+    // 不限制并发会话数：每个 Worker 各自持有 SESSION_AGENT_WORKER_RESOURCE_LIMITS
+    // 兜底（见 ../workerLimits.ts）。
     const replacingExisting = this.workers.has(params.conversationId)
-    const projectedWorkers = replacingExisting ? this.workers.size : this.workers.size + 1
-    if (projectedWorkers > MAX_CONCURRENT_SESSION_WORKERS) {
-      logger.warn('[AgentManager] sessionWorkerLimitReached', {
-        running: this.workers.size,
-        limit: MAX_CONCURRENT_SESSION_WORKERS,
-        conversationId: params.conversationId,
-      })
-      throw new Error(
-        `已达会话并发上限（最多 ${MAX_CONCURRENT_SESSION_WORKERS} 个会话同时运行），请先结束一个正在运行的会话再发起新任务。`,
-      )
-    }
 
     if (replacingExisting) {
       await this.abort(params.conversationId, false)
