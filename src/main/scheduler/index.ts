@@ -135,7 +135,7 @@ class SchedulerManager {
       const workerPath = path.join(__dirname, 'schedulerWorker.js')
       // ★ 内存加固（评审建议 4）：cron 定时检测 worker，常驻但负载极轻 → 256/16，见 ../workerLimits.ts。
       this.worker = new Worker(workerPath, {
-          type: 'module' as const,
+          type: 'module',
           resourceLimits: SCHEDULER_WORKER_RESOURCE_LIMITS,
       } as any)
 

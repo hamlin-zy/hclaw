@@ -113,6 +113,3 @@ export async function scanSkillExtensions(skillDir: string): Promise<SkillExtens
 
     return {references, scripts, rootDocs}
 }
-
-export const getSupportedScriptExtensions = (): string[] => Object.keys(SCRIPT_EXTENSIONS)
-export const isSupportedScript = (filename: string): boolean => path.extname(filename).toLowerCase() in SCRIPT_EXTENSIONS

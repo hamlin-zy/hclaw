@@ -332,7 +332,6 @@ export class AgentLoopController {
         if (loopResult === 'max_turns') {
             logger.info(`[AgentLoop] loop finish turns:${this.turns} reason:max_turns_reached`)
             this.ctrlState = 'done'
-            logger.info(`[AgentLoop] loop done turns:${this.turns} reason:max_turns_reached`)
             yield {type: 'done', reason: 'max_turns_reached', turns: this.turns, maxTurns: maxTurnsLimit}
         }
     }

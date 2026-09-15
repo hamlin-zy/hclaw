@@ -577,7 +577,7 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
 
     // 进度通知：立即发送第一条，之后每 5 分钟发送带时长统计
     const PROGRESS_INTERVAL_MS = 5 * 60 * 1000
-    let progressTimer: ReturnType<typeof setTimeout> | ReturnType<typeof setInterval> | undefined
+    let progressTimer: ReturnType<typeof setInterval> | undefined
     let minutesElapsed = 0
 
     const sendProgressNotification = () => {
@@ -601,8 +601,7 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
                     accumulatedText += event.content
                     break
                 case 'done':
-                    removeListener()
-                    if (progressTimer) clearInterval(progressTimer)
+                    stopProgress()
                     if (event.reason === 'error' || event.reason === 'aborted') {
                         reject(new Error(`Agent 结束，原因: ${event.reason}`))
                     } else {
@@ -615,12 +614,17 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
                     }
                     break
                 case 'error':
-                    removeListener()
-                    if (progressTimer) clearInterval(progressTimer)
+                    stopProgress()
                     reject(new Error(event.error || 'Agent错误'))
                     break
             }
         })
+
+        // 停止进度通知：先摘监听，再清定时器（三处终止路径共用）
+        const stopProgress = (): void => {
+            removeListener()
+            if (progressTimer) clearInterval(progressTimer)
+        }
 
         // Start agent via unified core entry (no timeout - agent can run for hours)
         try {
@@ -634,8 +638,7 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
                 suppressUserMessage: true,
             }, 'channel')
         } catch (err) {
-            removeListener()
-            if (progressTimer) clearInterval(progressTimer)
+            stopProgress()
             reject(err)
             return
         }

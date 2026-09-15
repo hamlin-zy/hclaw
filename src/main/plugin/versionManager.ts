@@ -19,6 +19,7 @@ import {powerManager} from '../agent/powerManager'
 import {createLogger} from '../agent/logger'
 import {repoRegistry} from '../repo/registry'
 import {repoVersionManager} from '../repo/versionManager'
+import {pruneMap} from '../common/pruneMap'
 
 const logger = createLogger('plugin-version')
 
@@ -203,10 +204,7 @@ class PluginVersionManagerImpl {
    * 不 prune 会随历史插件数无界累积。调用点见 plugin/ipc.ts handleList（注册表枚举同步点）。
    */
   prune(activeNames: Iterable<string>): void {
-    const keep = activeNames instanceof Set ? activeNames : new Set(activeNames)
-    for (const name of Array.from(this.versionMap.keys())) {
-      if (!keep.has(name)) this.versionMap.delete(name)
-    }
+    pruneMap(this.versionMap, activeNames)
   }
 
   /**

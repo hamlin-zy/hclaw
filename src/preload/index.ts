@@ -1,5 +1,7 @@
 import {contextBridge, ipcRenderer, webUtils} from 'electron'
 import type {UpdateResult} from '../shared/types/updater'
+// 启动进度帧形状与主进程保持一致（type-only import，编译后擦除，不引入主进程代码）
+import type {InitProgressPayload} from '../main/initProgress'
 
 // ── 冷启动观测：preload 脚本开始执行 ──
 // 放最前（早于所有参数解析/API 注入），用于把渲染进程耗时切成
@@ -908,13 +910,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // 启动能力初始化进度（主进程 → 渲染进程，纯展示）
     system: {
-        onInitProgress: (callback: (payload: {
-            stage: string
-            done: number
-            total: number
-            finished: boolean
-            completed: boolean
-        }) => void) => {
+        onInitProgress: (callback: (payload: InitProgressPayload) => void) => {
             const handler = (_: unknown, payload: any) => callback(payload)
             ipcRenderer.on('system:init-progress', handler)
             return () => ipcRenderer.removeListener('system:init-progress', handler)

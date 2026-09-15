@@ -64,7 +64,7 @@ import {trace, flushStartupTraceSync, setStartupTraceDir} from './startupTrace';
 setStartupTraceDir(path.join(getHclawDir(), 'logs'))
 
 // ── 冷启动观测：所有 import 求值完成后的第一处打点（模块评估阶段结束）──
-trace('main:module-eval-start', {uptime: process.uptime()})
+trace('main:module-eval-start')
 
 const logger = createLogger('app')
 

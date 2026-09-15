@@ -67,12 +67,11 @@ let watchCwd: string | null = null
 /** 防抖窗口内记录的待处理 HEAD 内容（null 表示未知，直接重读） */
 let lastHeadContent: string | null = null
 
-async function emitBranchChanged(cwd: string, headContent: string | null): Promise<void> {
+async function emitBranchChanged(cwd: string): Promise<void> {
     const branch = await getGitBranch(cwd)
     // 代际校验：await 期间 watch 已停止或切换到其它 cwd → 丢弃过期广播
     if (cwd !== watchCwd) return
     broadcastToAllWindows(GIT_BRANCH_CHANNEL, branch)
-    void headContent
 }
 
 function clearAll(): void {
@@ -106,7 +105,7 @@ export function startGitBranchWatch(cwd: string): void {
             // 内容未变（如 delete→recreate 瞬态）不广播
             if (content !== null && content === lastHeadContent) return
             lastHeadContent = content
-            void emitBranchChanged(watchCwd, content)
+            void emitBranchChanged(watchCwd)
         }, 300)
     }
 
@@ -127,7 +126,7 @@ export function startGitBranchWatch(cwd: string): void {
             try { content = fs.readFileSync(path.join(watchCwd, '.git', 'HEAD'), 'utf8') } catch { content = null }
             if (content === lastHeadContent) return
             lastHeadContent = content
-            void emitBranchChanged(watchCwd, content)
+            void emitBranchChanged(watchCwd)
         }, 3000)
         // 轮询不应单独阻止进程退出
         pollTimer.unref()

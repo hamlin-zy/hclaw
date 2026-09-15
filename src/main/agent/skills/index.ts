@@ -47,9 +47,7 @@ export type { SkillEvent, SkillEventType, SkillEventCallback } from './eventBus'
 // 扫描器与解析器
 export { parseSkillMarkdown } from './parser'
 export {
-  scanSkillExtensions,
-  getSupportedScriptExtensions,
-  isSupportedScript
+  scanSkillExtensions
 } from './extensions'
 
 // 参考解析与脚本执行

@@ -204,7 +204,7 @@ export function registerHandlers(): void {
     // 删除技能（删除 SKILL.md 所在目录）
     // 策略：
     // 1. 立即从注册表中移除（UI 即刻消失）
-    // 2. 后台不限时重试删除磁盘目录（Windows Defender 可能锁住，多次重试即可）
+    // 2. 后台重试删除，上限 30 次后放弃并清理 pendingDeleteDirs
     // 3. refreshAndRespond() 之后重新抹除一次，防 powerManager.refresh() 重新加载
     ipcMain.handle('skill-remove', async (_event, skillId: string) => {
         try {
@@ -224,9 +224,7 @@ export function registerHandlers(): void {
             // 超限后释放 pendingDeleteDirs 条目，防止集合永久驻留。
             const MAX_DELETE_ATTEMPTS = 30
             let attempts = 0
-            let cancelled = false
             const attemptDelete = async (): Promise<void> => {
-                if (cancelled) return
                 try {
                     await fs.rm(skillDir, {recursive: true, force: true})
                     pendingDeleteDirs.delete(skillDir)
@@ -234,7 +232,6 @@ export function registerHandlers(): void {
                 } catch {
                     attempts++
                     if (attempts >= MAX_DELETE_ATTEMPTS) {
-                        cancelled = true
                         pendingDeleteDirs.delete(skillDir)
                         logger.warn(`[skill-remove] background delete gave up after ${attempts} attempts for ${skillDir}`)
                         return

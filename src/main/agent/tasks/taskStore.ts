@@ -17,6 +17,12 @@ import type {Task, TaskStatus} from '@shared/types'
 /** 终态任务状态集合 */
 const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set(['completed', 'failed', 'error', 'success'])
 
+/** 空 convId 归入的默认会话 key（保持向后兼容） */
+const DEFAULT_CONV_ID = 'default'
+
+/** 归一化会话 key：空/未定义 convId 一律归入 default */
+const convKey = (convId?: string): string => convId || DEFAULT_CONV_ID
+
 /** 会话当前批次（单槽：被取代/开新批次的旧批次不保留历史） */
 interface ConvBatch {
     id: string
@@ -79,7 +85,7 @@ class TaskStore {
 
     /** 获取会话的任务 Map（不存在时惰性创建；空 convId 归入 default，保持向后兼容） */
     private getConvTasks(convId?: string): Map<string, Task> {
-        const key = convId || 'default'
+        const key = convKey(convId)
         let tasks = this.tasksByConv.get(key)
         if (!tasks) {
             tasks = new Map()
@@ -99,7 +105,7 @@ class TaskStore {
      * - completed 批次出现非终态任务 → 回 active（重开）
      */
     private syncBatchStatus(convId?: string): void {
-        const key = convId || 'default'
+        const key = convKey(convId)
         const batch = this.batchesByConv.get(key)
         if (!batch) {
             return
@@ -118,7 +124,7 @@ class TaskStore {
 
     /** 获取会话的当前批次（供水合对比等外部使用），无批次时返回 null */
     getActiveBatch(convId?: string): { id: string; name: string; status: 'active' | 'completed' } | null {
-        const batch = this.batchesByConv.get(convId || 'default')
+        const batch = this.batchesByConv.get(convKey(convId))
         if (!batch) {
             return null
         }
@@ -129,7 +135,7 @@ class TaskStore {
     reset(): void {
         this.tasksByConv.clear()
         this.batchesByConv.clear()
-        this.notifyUpdate('default')
+        this.notifyUpdate(DEFAULT_CONV_ID)
     }
 
     /** 创建新任务（归属到指定会话）；batchName 为显式批次名称，非空（trim 后）时强制开新批次 */
@@ -142,7 +148,7 @@ class TaskStore {
             status: 'pending',
             description,
         }
-        const key = convId || 'default'
+        const key = convKey(convId)
         const convTasks = this.getConvTasks(convId)
 
         // 显式 batchName trim 后判空：空串视同未传
@@ -220,7 +226,7 @@ class TaskStore {
      *   重写全部任务行的 batch_id → 旧批次被吞并成空壳、历史明细错挂。
      */
     private getBatchTasks(convId: string | undefined, batch: ConvBatch): Task[] {
-        const convTasks = this.tasksByConv.get(convId || 'default')
+        const convTasks = this.tasksByConv.get(convKey(convId))
         if (!convTasks) {
             return []
         }
@@ -236,7 +242,7 @@ class TaskStore {
 
     /** 获取会话当前批次的任务列表（批次作用域；无批次时返回空数组） */
     getCurrentBatchTasks(convId?: string): Task[] {
-        const batch = this.batchesByConv.get(convId || 'default')
+        const batch = this.batchesByConv.get(convKey(convId))
         if (!batch) {
             return []
         }
@@ -254,7 +260,7 @@ class TaskStore {
      * （渲染端已有实时数据或水合路径，无事件也不会产生 UI 闪烁）。
      */
     seedActiveBatch(convId: string | undefined, snapshot: {id: string; name: string; status: 'active' | 'completed'}, tasks: Task[]): void {
-        const key = convId || 'default'
+        const key = convKey(convId)
         if (this.batchesByConv.has(key) || (this.tasksByConv.get(key)?.size ?? 0) > 0) return
         this.batchesByConv.set(key, {
             id: snapshot.id,
@@ -267,7 +273,7 @@ class TaskStore {
 
     /** 删除任务 */
     deleteTask(convId: string | undefined, taskId: string): boolean {
-        const key = convId || 'default'
+        const key = convKey(convId)
         const deleted = this.getConvTasks(convId).delete(taskId)
         if (deleted) {
             // ★ 内层 Map 变空后删除外层 key：否则 tasksByConv 的 key 随会话数无界残留。
@@ -305,7 +311,7 @@ class TaskStore {
      * 附带当前批次的 {batchId, batchName, batchStatus}（批次状态已由 syncBatchStatus 先行同步）。
      */
     private notifyUpdate(convId?: string): void {
-        this.emitTasksUpdate(convId, this.batchesByConv.get(convId || 'default'))
+        this.emitTasksUpdate(convId, this.batchesByConv.get(convKey(convId)))
     }
 }
 

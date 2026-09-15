@@ -64,12 +64,6 @@ class InitProgressReporter {
         this.emit({stage, done: 0, total: 0, finished: false, completed: false}, false)
     }
 
-    /** 上报某阶段的逐条进度（total > 0 时渲染端显示 done/total） */
-    progress(stage: InitStage, done: number, total: number): void {
-        this.lastStage = stage
-        this.emit({stage, done, total, finished: false, completed: false}, false)
-    }
-
     /** 某阶段完成（立即发出，completed=true 以便渲染端区分"进入"与"完成"） */
     done(stage: InitStage): void {
         this.lastStage = stage

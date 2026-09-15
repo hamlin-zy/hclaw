@@ -201,9 +201,8 @@ export class MCPWorkerManager {
         this.worker.on('error', (_err: Error) => {
             // Worker 启动期崩溃（error 可能先于 exit 到达）：settle readyPromise，
             // 否则任何 await waitForReady() 会永久挂起
+            // （重启/退出决策统一由下方 'exit' handler 按 shuttingDown 判定）
             this.readyResolve?.()
-            // 退出过程中不再做任何处理
-            if (this.shuttingDown) return
         })
 
         this.worker.on('exit', (code) => {

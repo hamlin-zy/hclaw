@@ -10,13 +10,14 @@ import path from 'path'
  * 导致能力变更后 Hub 不更新、不广播，独立窗口状态陈旧。
  *
  * 本测试锁定：
- *   1. 所有会改变能力数据的写 handler 均包含一次 refresh（powerManager.refresh 或封装）；
+ *   1. 所有会改变能力数据的写 handler 均包含一次 refresh（powerManager.refresh，或 refreshCapabilities/
+ *      refreshPowerManagerAndGetCapabilities 这类文件内封装）；
  *   2. 只读 handler 不得触发全量刷新（避免无谓开销）。
  */
 
 const PLUGIN_IPC_TS = path.resolve(process.cwd(), 'src/main/plugin/ipc.ts')
 
-const REFRESH_RE = /await (?:powerManager\.refresh\(\)|refreshPowerManagerAndGetCapabilities\(\))/
+const REFRESH_RE = /await (?:powerManager\.refresh\(\)|refreshPowerManagerAndGetCapabilities\(\)|refreshCapabilities\(\))/
 
 /** 提取顶层 async function 正文（函数体以行首 `}` 结束）。 */
 function extractFunction(src: string, name: string): string {

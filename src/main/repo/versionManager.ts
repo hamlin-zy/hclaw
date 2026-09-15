@@ -3,6 +3,7 @@ import {PluginInstaller} from '../plugin/installer'
 import {powerManager} from '../agent/powerManager'
 import {createLogger} from '../agent/logger'
 import {repoRegistry} from './registry'
+import {pruneMap} from '../common/pruneMap'
 import type {GitRepo, RepoVersionInfo, RepoVersionMeta, RepoSwitchResult} from './type'
 
 const logger = createLogger('repo-version')
@@ -39,10 +40,7 @@ export class RepoVersionManager {
    * 只删不在 activeIds 中的 id：现存仓库的读取结果不受影响。
    */
   prune(activeIds: Iterable<string>): void {
-    const keep = activeIds instanceof Set ? activeIds : new Set(activeIds)
-    for (const id of [...this.versionMap.keys()]) {
-      if (!keep.has(id)) this.versionMap.delete(id)
-    }
+    pruneMap(this.versionMap, activeIds)
   }
 
   async warmCache(repoId: string, repoPath: string): Promise<RepoVersionInfo> {

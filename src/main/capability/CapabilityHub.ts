@@ -226,6 +226,7 @@ export class CapabilityHub extends EventEmitter {
  * ① 整体序列化 content；② 对对象键插入顺序敏感（键序不同会误发信号）。
  *
  * 门控字段集 = 「影响投影可见性的字段」：
+ *  - 显式口径：`content` 刻意不参与门控，避免「改正文就整表重取」；其余字段见下。
  *  - 含 `hasArgs`：渲染端**直接从 Hub 投影消费**该派生标记（CommandsDialog 构造插件命令
  *    列表时取 `c.hasArgs`，用于命令面板的参数提示），正文里新增/移除 `$ARGUMENTS`
  *    会翻转它 —— 不入签名则只改命令正文时列表滞留旧值。它是布尔量，无序列化成本。

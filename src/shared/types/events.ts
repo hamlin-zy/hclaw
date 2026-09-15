@@ -65,6 +65,15 @@ export interface AgentState {
 
 // ─── Agent stream event ────────────────────────────────
 
+/** done 事件的结束原因（跨 Worker / 主进程 / 渲染端共用的单一来源） */
+export type DoneReason =
+  | 'completed'
+  | 'aborted'
+  | 'error'
+  | 'loop_detected'
+  | 'tools_change_cancelled'
+  | 'max_turns_reached'
+
 export interface AgentStreamEvent {
   type:
     | 'begin' | 'text' | 'thinking'
@@ -90,7 +99,7 @@ export interface AgentStreamEvent {
   /** tool_progress 事件的重试倒计时剩余秒数（retryCountdown） */
   retryCountdown?: number
   result?: { success: boolean; output: unknown; error?: string }
-  reason?: 'completed' | 'aborted' | 'error' | 'loop_detected' | 'tools_change_cancelled' | 'max_turns_reached'
+  reason?: DoneReason
   /** done 事件（max_turns_reached）携带：实际轮数 / 上限，供 UI 展示"已达 N 轮上限" */
   turns?: number
   maxTurns?: number

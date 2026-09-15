@@ -132,8 +132,9 @@ export class AgentManager {
   }
 
   /** ★ 注销本类在全局 eventBus 上的订阅（幂等，off 对不存在的 handler 是 no-op）。
-   *  由 main will-quit 调用（见 disposeAgentManagerEvents）。 */
-  disposeEvents(): void {
+   *  由 main will-quit 调用（见 disposeAgentManagerEvents）；
+   *  命名与 powerManager.disposeEventListeners() 保持一致。 */
+  disposeEventListeners(): void {
     eventBus.off(MCPThemeEvents.TOOLS_REFRESHED, this.mcpToolsRefreshedHandler)
     eventBus.off(CapabilityEvents.REFRESHED, this.capabilityRefreshedHandler)
   }
@@ -213,9 +214,7 @@ export class AgentManager {
   async start(params: AgentStartParams): Promise<void> {
     // 不限制并发会话数：每个 Worker 各自持有 SESSION_AGENT_WORKER_RESOURCE_LIMITS
     // 兜底（见 ../workerLimits.ts）。
-    const replacingExisting = this.workers.has(params.conversationId)
-
-    if (replacingExisting) {
+    if (this.workers.has(params.conversationId)) {
       await this.abort(params.conversationId, false)
     }
 
@@ -692,7 +691,7 @@ export class AgentManager {
 
     // done 事件
     if (event.type === 'done') {
-      const doneEvent = event as {type: 'done'; reason: 'completed' | 'aborted' | 'error' | 'max_turns_reached'}
+      const doneEvent = event as Extract<AgentStreamEvent, {type: 'done'}>
       await this.handleDoneEvent(conversationId, doneEvent)
       return
     }
@@ -977,7 +976,7 @@ export class AgentManager {
   /** 处理 done 事件 */
   private async handleDoneEvent(
     conversationId: string,
-    event: {type: 'done'; reason: 'completed' | 'aborted' | 'error' | 'max_turns_reached'},
+    event: Extract<AgentStreamEvent, {type: 'done'}>,
   ): Promise<void> {
     // ★ 正常完成标记必须在首个 await 之前：标记消费点是 onWorkerExit 的同步删除
     //   （#completedNormally.delete）。若仍置于 finalize await 之后，worker 在
@@ -1773,5 +1772,5 @@ export const agentManager = new AgentManager()
  *  供 main 的 app.on('will-quit') 调用：不注销则全局 eventBus 的 listener 集合
  *  持续持有本单例闭包，进程退出阶段无法回收。 */
 export function disposeAgentManagerEvents(): void {
-  agentManager.disposeEvents()
+  agentManager.disposeEventListeners()
 }

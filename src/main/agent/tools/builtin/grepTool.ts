@@ -114,12 +114,7 @@ async function searchWithRipgrep(
 
     // 统一收尾：移除 abort 监听（正常 / 异常 / 取消均经此）
     const cleanup = () => {
-      if (abortSignal) abortSignal.removeEventListener('abort', onAbort)
-    }
-
-    // 取消：仅杀 rg 子进程，结果仍走既有 close 处理路径（不新增结果分支、不改退出码语义）
-    const onAbort = () => {
-      killChild()
+      if (abortSignal) abortSignal.removeEventListener('abort', killChild)
     }
 
     const finish = (fallback: boolean) => {
@@ -144,7 +139,7 @@ async function searchWithRipgrep(
       if (abortSignal.aborted) {
         killChild()
       } else {
-        abortSignal.addEventListener('abort', onAbort, {once: true})
+        abortSignal.addEventListener('abort', killChild, {once: true})
       }
     }
 
@@ -171,7 +166,7 @@ async function searchWithRipgrep(
             const rel = path.relative(rootDir, abs).replace(/\\/g, '/')
             results.push(`${rel}:${lineNo}: ${text.trimEnd()}`)
             if (results.length >= maxResults) {
-              try { child.kill() } catch { /* ignore */ }
+              killChild()
             }
           }
         }

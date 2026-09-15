@@ -107,7 +107,7 @@ function toToolPayload(t: { name: string; description?: string; inputSchema: any
 class McpWorkerService {
     private mcpClient: MCPClient
     private agentPorts = new Set<MessagePort>()
-    /** port → 归属会话 ID。主进程 cleanup 时据此显式注销（见 unregisterAgents） */
+    /** port → 归属会话 ID。主进程 cleanup 时据此显式注销（见 unregisterAgent） */
     private agentPortOwner = new Map<MessagePort, string>()
 
     /** 200ms 防抖状态上报 */
@@ -289,16 +289,9 @@ class McpWorkerService {
                 const jitter = JITTER_MIN_MS + Math.random() * (JITTER_MAX_MS - JITTER_MIN_MS)
                 await new Promise(r => setTimeout(r, jitter))
                 // ★ 泳道必须存活：task 一旦抛出会让 Promise.all reject，
-                //   worker_ready 将永不发出、主进程 readyPromise 悬挂（无超时兜底）
-                try {
-                    await task(config)
-                } catch (err: any) {
-                    parentPort?.postMessage({
-                        type: 'worker_log',
-                        level: 'error',
-                        args: [`[Init] 池任务异常（已隔离，不影响其他 Server）: ${config.id} (${config.name}) ${err?.message ?? String(err)}`],
-                    })
-                }
+                //   worker_ready 将永不发出、主进程 readyPromise 悬挂（无超时兜底）。
+                //   task 契约上自行吞异常（firstAttempt 内含 try/catch），此处无需再兜底。
+                await task(config)
             }
         }
         const lanes = Math.max(1, Math.min(concurrency, configs.length))
@@ -386,7 +379,7 @@ class McpWorkerService {
      * exit 逻辑，也不保证向对端派发 'close' → 仅靠 close 注销时 agentPorts 会随运行次数
      * 无界增长（port 及其监听闭包常驻 MCP Worker）。此路径不依赖对端 close 事件。
      */
-    unregisterAgents(conversationId: string): void {
+    unregisterAgent(conversationId: string): void {
         for (const [port, owner] of this.agentPortOwner) {
             if (owner !== conversationId) continue
             this.agentPorts.delete(port)
@@ -599,7 +592,7 @@ parentPort!.on('message', (msg: any) => {
 
         // 主进程 cleanup 显式注销（不依赖对端 close 事件）
         case 'unregister_agent':
-            if (msg.conversationId) service.unregisterAgents(msg.conversationId)
+            if (msg.conversationId) service.unregisterAgent(msg.conversationId)
             break
 
         case 'update_servers':

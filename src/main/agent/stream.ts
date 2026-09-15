@@ -6,6 +6,7 @@
 
 import type {ToolResult} from './tools/types'
 import type {ToolCallInfo} from '@shared/types'
+import type {DoneReason} from '@shared/types/events'
 
 export type {ToolCallInfo} from '@shared/types'
 
@@ -23,7 +24,7 @@ export type AgentStreamEvent =
   | { type: 'permission_confirm'; question: string; requestId?: string }
   /** tools 集变动确认（prompt 缓存重建成本）；渲染端弹窗展示 added/removed */
   | { type: 'tools_change_confirm'; requestId: string; added: string[]; removed: string[] }
-  | { type: 'done'; reason: 'completed' | 'aborted' | 'error' | 'loop_detected' | 'tools_change_cancelled' | 'max_turns_reached'; turns?: number; maxTurns?: number }
+  | { type: 'done'; reason: DoneReason; turns?: number; maxTurns?: number }
   | { type: 'error'; error: string }
   | { type: 'ask_user'; question: string; options?: string[]; multiSelect?: boolean; requestId?: string }
   | { type: 'subagent_start'; taskId: string; description: string; toolCallId?: string }
