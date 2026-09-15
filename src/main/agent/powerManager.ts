@@ -158,6 +158,13 @@ class PowerManagerImpl {
             if (this.initialized) return  // 双重检查，防止 await 期间被初始化
             try {
                 await this.loadAllCapabilities(pluginEnabledMap)
+                // ★ 全量加载完成 → 必须投影到 CapabilityHub。
+                //   Hub 的唯一写入口是 syncToCapabilityHub()，此前只挂在 refresh() 上，
+                //   于是冷启动（只跑 initialize）Hub 恒为空 —— 命令管理页是唯一直接消费
+                //   Hub 投影的 UI（capability:get-by-type('command')），表现为「页面无数据」。
+                //   放在 resolveInitialized 之前：被 whenInitialized() 唤醒的调用方
+                //   （如 skills.ts 的冷启动分支）应看到已投影的 Hub，而非空表。
+                this.syncToCapabilityHub()
                 this.initialized = true
                 this.resolveInitialized?.()
                 const stats = await this.getStats()

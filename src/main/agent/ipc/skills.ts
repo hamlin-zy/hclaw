@@ -73,6 +73,8 @@ async function doSkillRefresh<T>(fn: () => Promise<T>): Promise<T> {
     // 冷启动时 powerManager 尚未 initialize（随后 initAgent() 会做一次完整加载），
     // 此时不再重复全量扫描（且此刻扫出的能力集不含插件），改为等 initialize 完成后
     // 直接读注册表——结果更完整，且省掉一整轮重复 I/O 与事件循环饥饿。
+    // ★ 该分支成立的前提：initialize() 内部已完成 CapabilityHub 投影（syncToCapabilityHub）。
+    //   否则「只等 refresh 而不发起 refresh」会让 Hub 在本次启动内始终为空。
     skillRefreshLock = (powerManager.isInitialized()
         ? powerManager.refresh()
         : withTimeout(powerManager.whenInitialized(), SKILL_REFRESH_TIMEOUT_MS)

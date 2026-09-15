@@ -546,8 +546,10 @@ app.on('ready', async () => {
   schedulerManager.init()
 
     // 注意：此处曾有一次 `setTimeout(powerManager.refresh(), 0)` 的「启动预热」。
-    // initAgent() 已经 await 过 powerManager.initialize()（完整走一遍 loadAllCapabilities），
-    // 紧接着再整跑一轮全量 refresh 属纯重复（实测 4.1s 后台 I/O），故移除。
+    // 移除的前提是 initialize() 自身已把加载结果投影到 CapabilityHub
+    // （initialize → loadAllCapabilities → syncToCapabilityHub）—— registry 与 Hub
+    // 二者必须同时就绪，只重建 registry 而漏投影会让 Hub 恒为空（命令管理页无数据）。
+    // 满足该前提后，紧接着再整跑一轮全量 refresh 才是纯重复（实测 4.1s 后台 I/O）。
 
   // §4.2 崩溃恢复：启动完成时全库扫描一次未 finalize 的 assistant 消息，
   // 逐会话补终态（只做一次，不循环；§8 已接受增量丢失风险）
