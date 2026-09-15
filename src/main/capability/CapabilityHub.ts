@@ -7,6 +7,7 @@
  *   1. 对外接口收敛为：只读查询组 + replaceAll 写 seam + onChanged 订阅
  *   2. 全量投影：由 powerManager.refresh() 收集全部条目后单次 replaceAll 写入
  *   3. 变更门控：id 集合 + 条目浅签名比对，无变化不发信号
+ *      （字段集＝投影可见性字段，见 entrySignature；`content` 正文刻意不参与）
  *   4. 变更信号载荷仅 { seq }（单调序号），消费端收信号后整表重取
  *   5. searchText 预计算 → 搜索时无需每次拼接字符串
  */
@@ -223,6 +224,14 @@ export class CapabilityHub extends EventEmitter {
 /**
  * 条目浅签名：显式拼接关键字段，避免 JSON.stringify(entry) 的两处问题——
  * ① 整体序列化 content；② 对对象键插入顺序敏感（键序不同会误发信号）。
+ *
+ * 门控字段集 = 「影响投影可见性的字段」：
+ *  - 含 `hasArgs`：渲染端**直接从 Hub 投影消费**该派生标记（CommandsDialog 构造插件命令
+ *    列表时取 `c.hasArgs`，用于命令面板的参数提示），正文里新增/移除 `$ARGUMENTS`
+ *    会翻转它 —— 不入签名则只改命令正文时列表滞留旧值。它是布尔量，无序列化成本。
+ *  - 不含 `content`（技能正文/系统提示，可达数十 KB）：正文与参数（args）的变更由各自
+ *    写路径的权威重取覆盖，为此付出全量序列化代价不划算（见 CapabilityHub.test.ts
+ *    「content 不参与浅签名」用例）。
  */
 function entrySignature(e: CapabilityEntry): string {
     return [
@@ -234,6 +243,7 @@ function entrySignature(e: CapabilityEntry): string {
         e.enabled,
         e.pluginName,
         e.pluginEnabled,
+        e.hasArgs,
         (e.allowedTools ?? []).join(','),
     ]
         .map(v => (v === undefined ? '' : String(v)))

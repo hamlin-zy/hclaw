@@ -130,7 +130,7 @@ export function startGitBranchWatch(cwd: string): void {
             void emitBranchChanged(watchCwd, content)
         }, 3000)
         // 轮询不应单独阻止进程退出
-        pollTimer.unref?.()
+        pollTimer.unref()
     }
 }
 

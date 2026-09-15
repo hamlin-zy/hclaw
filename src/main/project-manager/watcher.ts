@@ -129,7 +129,7 @@ export function watchRefDirs(commonDir: string, onChange: () => void): {close: (
       watchOne(dir)
     }, delay)
     // 轮询不应单独阻止进程退出
-    t.unref?.()
+    t.unref()
     rebuildTimers.set(dir, t)
   }
 

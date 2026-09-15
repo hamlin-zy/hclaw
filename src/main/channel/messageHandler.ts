@@ -87,7 +87,7 @@ function cleanupExpiredPendingAttachments(): void {
  */
 let pendingAttachmentsCleanupTimer: ReturnType<typeof setInterval> | null =
     setInterval(cleanupExpiredPendingAttachments, 60 * 1000)
-pendingAttachmentsCleanupTimer.unref?.()
+pendingAttachmentsCleanupTimer.unref()
 
 /** 停止过期附件清理定时器（供 will-quit 调用，幂等） */
 export function stopPendingAttachmentsCleanup(): void {
