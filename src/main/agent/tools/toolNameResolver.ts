@@ -40,6 +40,10 @@ export function normalizeToolKey(name: string): string {
  * normalizeToolKey。仅保留"目标工具名与源名不同"的条目；同名的写法差异
  * （如 fileRead → file_read）由 resolveToolName 的归一化同名层自动覆盖，无需列条目。
  *
+ * ★ 另有一套方言别名表 openaiAdapter.DOTS_TOOL_ALIASES（dots 模型的 <invoke> 名）：其 key 是
+ *   **大小写敏感的字面量**，与本表的归一化 key 规范**刻意不同，禁止统一**——统一会改变命中集合
+ *   （凭空多出/丢失命中）＝行为变更。两表只共享 resolveToolName 这个名称解析入口。
+ *
  * 【准入三条件】新增条目前必须同时满足：
  *   1. 源参数键 ⊆ 目标工具 schema 键集，必填键能一一对应；
  *   2. 语义方向一致（创建/覆盖、读/写不得混淆）；

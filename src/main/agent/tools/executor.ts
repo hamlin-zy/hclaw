@@ -82,13 +82,16 @@ export async function executeTool(
   // 注意：仅纠偏**名称**，不做参数转换（参数键名不符由后续 Zod 校验拦截）。
   const requestedName = toolCall.name
   let tool = toolRegistry.get(requestedName)
-  let aliasApplied = false
+  // 名称纠偏命中即为「发生了改名」：resolveToolName 只返回**已注册**的工具名，
+  // 而进入该分支的前提正是 requestedName 未注册（registry.get / getNames 同源），
+  // 故无需再比较 resolved !== requestedName（该判断恒真）。
+  let aliasResolved = false
   if (!tool) {
     const resolved = resolveToolName(requestedName, toolRegistry.getNames())
     if (resolved) {
       toolCall.name = resolved
       tool = toolRegistry.get(resolved)
-      aliasApplied = resolved !== requestedName
+      aliasResolved = true
     }
   }
 
@@ -268,15 +271,13 @@ export async function executeTool(
         }
     }
 
-    // 移除旧的破坏性操作检查，因为它已经被前面的逻辑覆盖，且 sandboxOp 逻辑更完备
-
     // ── 别名纠偏后：破坏性工具的参数键失败关闭 ──
     // 名称被别名解析过（模型用的是别的平台的名字），且目标是破坏性工具时，
     // 参数键必须**完全落在**目标 schema 内：出现未知键一律拒绝。
     // 正常路径 coerceToolParams 对未知键是透传，这里对写类工具收紧——
     // 防止"名字对上了、键名也对上了、但语义不同"的调用被静默执行。
     const toolDef = toolRegistry.getToolDefinition(toolCall.name)
-    if (aliasApplied && tool.isDestructive && toolDef) {
+    if (aliasResolved && tool.isDestructive && toolDef) {
         const allowedKeys = new Set(Object.keys(toolDef.inputSchema.properties))
         const unknownKeys = Object.keys(toolCall.arguments).filter(k => !allowedKeys.has(k))
         if (unknownKeys.length > 0) {
@@ -343,22 +344,18 @@ export async function executeTool(
       }
 
       // 使用超时包装器执行工具（超出时先由包装器判定超时，再 abort 取消工具）
-      const result = await (async () => {
-          try {
-              return await withToolTimeout(
-                  tool.execute(parseResult.data, {
-                      ...context,
-                      abortSignal: toolAbort.signal,
-                      toolCallId: toolCall.id,
-                  }),
-                  tool.name,
-                  timeoutMs,
-                  () => toolAbort.abort(),
-              )
-          } finally {
-              if (parentSignal) parentSignal.removeEventListener('abort', onParentAbort)
-          }
-      })()
+      const result = await withToolTimeout(
+          tool.execute(parseResult.data, {
+              ...context,
+              abortSignal: toolAbort.signal,
+              toolCallId: toolCall.id,
+          }),
+          tool.name,
+          timeoutMs,
+          () => toolAbort.abort(),
+      ).finally(() => {
+          if (parentSignal) parentSignal.removeEventListener('abort', onParentAbort)
+      })
 
       // ── 结果大小检查（兜底机制） ──
       const checkedResult = checkResultSize(toolCall.name, result)

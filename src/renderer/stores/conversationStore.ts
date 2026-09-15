@@ -159,7 +159,8 @@ export function truncateLargeResults(message: Message): Message {
     //   contentBlocks 仍持有含全文的旧对象 → 截断形同虚设。此处按 id 换成截断后对象，
     //   未命中的块保持原引用（React.memo bail out 依赖）。
     let newBlocks = message.contentBlocks
-    if (rewritten.size > 0 && message.contentBlocks?.length) {
+    // modified 为真 ⟺ 至少一个 tc 命中截断并写入 rewritten，故原先的 `rewritten.size > 0` 是恒真条件
+    if (message.contentBlocks?.length) {
         let blocksChanged = false
         const mapped = message.contentBlocks.map(block => {
             if (block.type !== 'tool_use' || !block.toolCall) return block
@@ -170,9 +171,8 @@ export function truncateLargeResults(message: Message): Message {
         })
         if (blocksChanged) newBlocks = mapped
     }
-    return newBlocks === message.contentBlocks
-        ? {...message, toolCalls: truncated}
-        : {...message, toolCalls: truncated, contentBlocks: newBlocks}
+    // 未命中块改写时不下发 contentBlocks 键（与 {...message, toolCalls} 等价：仍持有原引用）
+    return {...message, toolCalls: truncated, ...(newBlocks === message.contentBlocks ? {} : {contentBlocks: newBlocks})}
 }
 
 /** 主动截断活跃会话的大工具结果（不等待 flushDirtyMessages）。
@@ -241,12 +241,31 @@ function cancelActiveTruncateFor(ids: string[]): void {
 const initialLoadInFlight = new Map<string, Promise<void>>()
 
 /** `loadConversations` 的并发锁（in-flight 去重）。三个调用点会在同一 tick 内并发触发，
- *  无锁时会重复发起 conversationList 与整批预热。settle 后释放。 */
-let loadConversationsInFlight: Promise<void> | null = null
+ *  无锁时会重复发起 conversationList 与整批预热。settle 后释放。
+ *  与 initialLoadInFlight 共用同一张「单槽锁」表（key 为下方哨兵值）。 */
+const LOAD_CONVERSATIONS_LOCK = '__loadConversations__'
+const loadConversationsInFlight = new Map<string, Promise<void>>()
+
+/**
+ * in-flight 去重：同一 key 的并发调用复用同一 Promise，settle 后自动清标记。
+ *
+ * 两个刻意为之的细节（勿改成 `async` 包装或提前删标记）：
+ *  1. 返回的不是 `async` 函数的返回值——`async` 会把结果再包一层新 Promise，
+ *     使并发调用拿到不同引用（去重语义仍在，但调用方无法按引用判断「同一请求」）。
+ *  2. 登记的是 `guarded`（`.finally` 之后才 resolve），故不存在
+ *     「已 settle 但标记仍在」的窗口。
+ */
+function dedupeInFlight<T>(inFlight: Map<string, Promise<T>>, key: string, run: () => Promise<T>): Promise<T> {
+    const existing = inFlight.get(key)
+    if (existing) return existing
+    const guarded = run().finally(() => { inFlight.delete(key) })
+    inFlight.set(key, guarded)
+    return guarded
+}
 
 // ─── 单会话内存权重上限（兜底）──────────────────────────
 // 长会话/重工具输出会话在非活跃时可能无界增长，本函数作为兜底：
-// 权重超限的非活跃会话先 flush dirty，再 evict 最旧的 30% 消息。
+// 权重超限的非活跃会话先截断大工具结果（幂等），再 evict 最旧的 30% 消息。
 
 const CONVERSATION_WEIGHT_CAP = 500
 
@@ -319,8 +338,9 @@ const PRELOAD_MAX_CONVERSATIONS = 10
 /** messagesMap 内存中会话总数上限（超限按 LRU 淘汰） */
 const MAX_MESSAGES_MAP_SIZE = 20
 
-/** 会话是否处于「不可淘汰」状态：正在流式（running/thinking）。
- *  保护口径与 cleanupInactiveConversations 一致，避免驱逐打断正在进行的会话。 */
+/** 会话是否处于「不可驱逐」状态：正在流式（running/thinking）——驱逐会打断正在进行的会话。
+ *  注意口径**小于** cleanupInactiveConversations 的保护集（后者另含 pendingPermissionConfirm /
+ *  pendingQuestion / pendingToolsChangeConfirm 三种待交互态），勿据此推断清理逻辑。 */
 function isProtectedConv(convId: string): boolean {
     const st = useAgentStore.getState().convAgentStates[convId]?.agentState?.status
     return st === 'running' || st === 'thinking'
@@ -1079,11 +1099,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           // ★ in-flight 去重（对照 loadMoreMessages 的 loadingMoreMap 守卫）：
           //   同一 convId 的并发调用复用同一 Promise，不再发起第二次 IPC/DB 读取。
           //   switchActiveConversation / preloadConversation / 批量预热均走本入口。
-          //   注：本方法刻意非 `async`——`async` 会把返回值再包一层新 Promise，
-          //   使并发调用拿到不同引用（去重语义仍在，但调用方无法按引用判断同一请求）。
-          const inFlight = initialLoadInFlight.get(convId)
-          if (inFlight) return inFlight
-          const task = (async () => {
+          //   「非 async + 同一 Promise 引用 + settle 后清标记」由 dedupeInFlight 统一保证。
+          return dedupeInFlight(initialLoadInFlight, convId, async () => {
               const result = await window.electronAPI?.conversationReadTail?.(convId, pageSize) || {
                   messages: [],
                   totalCount: 0
@@ -1109,12 +1126,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               //   已把 messagesMap 填满）——只在 switchActiveConversation 末尾 enforce 覆盖不到
               //   这条迟到写回路径，会永久破坏「上限 20」的不变量。
               enforceMessagesMapSizeLimit()
-          })()
-          // settle 后清理：consumer 拿到的 guarded 在 finally 之后才 resolve，
-          // 因此不存在「已 settle 但标记仍在」的窗口。
-          const guarded = task.finally(() => { initialLoadInFlight.delete(convId) })
-          initialLoadInFlight.set(convId, guarded)
-          return guarded
+          })
       },
 
       /** 加载更早的消息（追加到 messagesMap 头部） */
@@ -1178,10 +1190,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           // ★ 并发锁（in-flight 去重）：三个调用点（App.tsx 启动、ConversationsDialog
           //   打开、onConversationCreated 兜底）会在同一 tick 内并发触发本方法。
           //   无锁时会重复发起 conversationList + 整批预热（同一批 SQLite 查询叠加），
-          //   并让下方的 active 改写竞争执行。并发调用复用同一 Promise。
-          //   注：本方法刻意非 `async`（`async` 会再包一层新 Promise，引用不再同一）。
-          if (loadConversationsInFlight) return loadConversationsInFlight
-          const task = (async () => {
+          //   并让下方的 active 改写竞争执行。并发调用复用同一 Promise
+          //   （「非 async + 同一引用 + settle 后释放」由 dedupeInFlight 统一保证）。
+          return dedupeInFlight(loadConversationsInFlight, LOAD_CONVERSATIONS_LOCK, async () => {
               const currentWorkspace = await window.electronAPI?.workspace?.getCurrent()
               const currentWorkspacePath = currentWorkspace?.path || null
               // 启动加载：拉取当前工作区 git 分支（主进程侧同时建立 watch）
@@ -1270,12 +1281,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                       }
                   })()
               }
-          })()
-          // settle 后释放锁；consumer 拿到的是 guarded（finally 之后才 resolve），
-          // 因此不存在「已 settle 但锁仍在」的窗口。
-          const guarded = task.finally(() => { loadConversationsInFlight = null })
-          loadConversationsInFlight = guarded
-          return guarded
+          })
       },
 
 
@@ -1486,12 +1492,10 @@ if (typeof window !== 'undefined') {
 
         const updates: any = {workspaces}
 
-        // 激活会话被删除：清理激活态与消息缓存（由 UI 回退到空会话页）
+        // 激活会话被删除：清空激活态（由 UI 回退到空会话页）。
+        // messagesMap 条目不在此处删——随后 releaseConvCaches(ids) 会统一释放同一批 id。
         if (state.activeConversationId && idSet.has(state.activeConversationId)) {
             updates.activeConversationId = null
-            const newMap = {...state.messagesMap}
-            for (const id of ids) delete newMap[id]
-            updates.messagesMap = newMap
         }
         useConversationStore.setState(updates)
 

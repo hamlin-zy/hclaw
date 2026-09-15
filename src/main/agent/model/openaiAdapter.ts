@@ -779,6 +779,12 @@ export class OpenAIAdapter implements ModelAdapter {
  * dots 模型会从 bash 工具描述中的命令示例（如 "查找文本: `Select-String`"）
  * 幻觉出不存在的"工具名"并写入 <invoke>。映射到语义等价的真实工具，
  * 避免调用被 availableToolNames 校验静默过滤。
+ *
+ * ★ key 规范与 toolNameResolver.TOOL_NAME_ALIASES **刻意不同，禁止统一**：
+ *   本表 key 是**大小写敏感的字面量**（PowerShell 方言原样写法，如 `Select-String`），
+ *   按原文直查（见 resolveName 处 `DOTS_TOOL_ALIASES[rawName]`）；而 TOOL_NAME_ALIASES
+ *   的 key 是 normalizeToolKey 后的全小写无分隔符形式。若把本表改成归一化 key，
+ *   会凭空引入新命中（如小写 `select-string`）＝行为变更；反之亦然。
  */
 interface DotsToolAlias {
     /** 映射到的真实工具名 */
