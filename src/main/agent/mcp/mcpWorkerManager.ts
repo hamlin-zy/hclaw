@@ -20,6 +20,7 @@ import {mcpService} from '../../services/mcpService'
 import type {MCPServerConfig} from './types'
 import type {McpServer} from '../../../shared/types/mcp'
 import {logger} from '../logger'
+import {MCP_WORKER_RESOURCE_LIMITS} from '../../workerLimits'
 
 /** 保存 agentManager 引用（延迟设置，避免循环依赖） */
 let agentManagerRef: { workers: Map<string, { worker: Worker }> } | null = null
@@ -157,9 +158,12 @@ export class MCPWorkerManager {
         })
 
         const workerPath = path.join(__dirname, 'mcpWorker.js')
+        // ★ 内存加固（评审建议 4）：MCP Worker 只做协调（真正的 server 是独立子进程），
+        //   显式 256/16 上限即可，见 ../../workerLimits.ts。
         this.worker = new Worker(workerPath, {
             type: 'module' as const,
             workerData: {servers: this.currentConfigs},
+            resourceLimits: MCP_WORKER_RESOURCE_LIMITS,
         } as any)
 
         this.worker.on('message', (msg: any) => {

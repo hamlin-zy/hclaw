@@ -36,6 +36,10 @@ import {
   SKIP_LOG_EVENT_TYPES,
   PENDING_MSG_MAX_BYTES,
 } from './manager.constants'
+import {
+  SESSION_AGENT_WORKER_RESOURCE_LIMITS,
+  MAX_CONCURRENT_SESSION_WORKERS,
+} from '../workerLimits'
 import {createPendingMsg, normalizeToolResult, finalizePending, appendCappedPart, isRenderedCopyFingerprintMatch, buildStreamSnapshot} from './manager.accumulator'
 import {getConversationPersistence} from '../persistence/conversationPersistence'
 import {persistStreamEvent, resetBridgeMsgState} from '../persistence/streamBridge'
@@ -62,6 +66,19 @@ import {recordLlmUsageEvent, resetUsageMsgState} from '../usageWrite'
 import {loadPluginAgents} from './manager.pluginAgents'
 // 会话终态回收循环检测静默名单（模块级 Map，以 sessionId 为 key，无 delete 会无界累积）
 import {clearLoopSilence as clearLoopSilencePatterns} from './loop/loopDetector'
+
+/**
+ * 判断 worker 'error' 是否为「触达 resourceLimits 被终止」（ERR_WORKER_OUT_OF_MEMORY）。
+ *
+ * ★ 内存加固（评审建议 4）后会话 worker old-gen 上限为
+ *   SESSION_AGENT_WORKER_RESOURCE_LIMITS.maxOldGenerationSizeMb，触达即被 V8 终止。
+ *   Node 原始文案是英文且不说明处置方式，需映射为可读提示（见 onWorkerError）。
+ */
+function isWorkerOutOfMemory(err: Error): boolean {
+  const code = (err as NodeJS.ErrnoException).code
+  if (code === 'ERR_WORKER_OUT_OF_MEMORY') return true
+  return /ERR_WORKER_OUT_OF_MEMORY|heap out of memory|reaching memory limit/i.test(err.message)
+}
 
 // ─── AgentManager ──────────────────────────────────────
 
@@ -197,7 +214,28 @@ export class AgentManager {
 
   /** 启动 Agent Worker Thread */
   async start(params: AgentStartParams): Promise<void> {
-    if (this.workers.has(params.conversationId)) {
+    // ★ 会话 Worker 并发闸门（常量与取值依据见 ../workerLimits.ts）。
+    //   目的：给「每个 worker isolate 一份 old-gen 上限」封顶 —— 无闸门时 N 个并发会话
+    //   就是 N × 上限，进程峰值随会话数线性发散（不是为「省内存」）。
+    //   机制：**拒绝启动**并抛出可读错误。错误经 startAgentCore 冒泡到调用方：
+    //   agent-start IPC → {success:false, error} → 渲染端写入 errorMessage + status='error'
+    //   （channel/scheduler/memo 各自也有 catch 路径）。不排队、不静默丢弃、
+    //   更不打断已在运行的会话去腾位置。
+    //   计数口径：same-conv 重启是「替换自身」，不占额外名额。
+    const replacingExisting = this.workers.has(params.conversationId)
+    const projectedWorkers = replacingExisting ? this.workers.size : this.workers.size + 1
+    if (projectedWorkers > MAX_CONCURRENT_SESSION_WORKERS) {
+      logger.warn('[AgentManager] sessionWorkerLimitReached', {
+        running: this.workers.size,
+        limit: MAX_CONCURRENT_SESSION_WORKERS,
+        conversationId: params.conversationId,
+      })
+      throw new Error(
+        `已达会话并发上限（最多 ${MAX_CONCURRENT_SESSION_WORKERS} 个会话同时运行），请先结束一个正在运行的会话再发起新任务。`,
+      )
+    }
+
+    if (replacingExisting) {
       await this.abort(params.conversationId, false)
     }
 
@@ -256,9 +294,13 @@ export class AgentManager {
       ...(taskBatchSnapshot ? {taskBatchSnapshot} : {}),
     }
 
+    // ★ 内存加固（评审建议 4）：显式 resourceLimits。不传时 worker isolate 继承主进程
+    //   --max-old-space-size=2048，每个会话各自 2GB 上限（10GB 级峰值的数量级来源）。
+    //   取值依据见 ../workerLimits.ts（会话 Worker = 唯一会长大的 worker → 512/16）。
     const worker = new Worker(workerPath, {
       type: 'module' as const,
       workerData: {type: 'start', params: workerParams},
+      resourceLimits: SESSION_AGENT_WORKER_RESOURCE_LIMITS,
     } as unknown as ConstructorParameters<typeof Worker>[1])
 
     const entry: WorkerEntry = {
@@ -1000,7 +1042,16 @@ export class AgentManager {
 
   /** Worker 错误处理 */
   private onWorkerError(conversationId: string, err: Error): void {
-    this.forwardToRenderer(conversationId, {type: 'error', error: err.message})
+    // ★ 内存加固（评审建议 4）：worker 触达 resourceLimits 被 V8 终止时，Node 的
+    //   原始文案是英文（"Worker terminated due to reaching memory limit: JS heap out of
+    //   memory"），不告诉用户发生了什么、能做什么。此处补一条可读中文提示（含上限值）。
+    //   非超限错误原样透传（不改变既有行为）。该提示走 forwardToRenderer({type:'error'})
+    //   → 渲染端 handleError → convAgentStates.errorMessage（气泡 + 状态置 error），不会被吞。
+    const userMessage = isWorkerOutOfMemory(err)
+      ? `会话内存超限（上限 ${SESSION_AGENT_WORKER_RESOURCE_LIMITS.maxOldGenerationSizeMb}MB），已终止本次运行。`
+        + `可尝试精简会话上下文或附件后重试。`
+      : err.message
+    this.forwardToRenderer(conversationId, {type: 'error', error: userMessage})
     // 通知外部流监听器，让使用方的 Promise 能 resolve/reject
     this.notifyStreamListeners(conversationId, {type: 'done', reason: 'error'} as unknown as AgentStreamEvent)
     this.cleanup(conversationId)

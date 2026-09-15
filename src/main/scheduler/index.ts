@@ -24,6 +24,8 @@ import type {IConversationRepository} from '../repositories/interfaces'
 import type {ConversationMeta} from '@shared/types'
 import {getHclawDir} from '../config'
 import {SqliteWorkspaceRepository} from '../repositories/sqlite/workspaceRepository'
+// 仅含常量与 `import type`（无 electron 运行时依赖），不会污染本模块的 worker 闭包
+import {SCHEDULER_WORKER_RESOURCE_LIMITS} from '../workerLimits'
 
 /**
  * 惰性获取主窗口：本模块位于 Agent Worker 的静态依赖闭包内
@@ -131,7 +133,11 @@ class SchedulerManager {
    */
   private spawnCronWorker(): void {
       const workerPath = path.join(__dirname, 'schedulerWorker.js')
-      this.worker = new Worker(workerPath, {type: 'module' as const} as any)
+      // ★ 内存加固（评审建议 4）：cron 定时检测 worker，常驻但负载极轻 → 256/16，见 ../workerLimits.ts。
+      this.worker = new Worker(workerPath, {
+          type: 'module' as const,
+          resourceLimits: SCHEDULER_WORKER_RESOURCE_LIMITS,
+      } as any)
 
     const schedules = this.scheduleRepo.listEnabled()
     this.worker.postMessage({cmd: 'init', schedules})

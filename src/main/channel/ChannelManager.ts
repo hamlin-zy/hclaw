@@ -18,6 +18,7 @@ import {handleIncomingMessage} from './messageHandler'
 import {createConversationRepository} from '../repositories'
 import type {IncomingMessage, WorkerEvent, ResourceRef} from './types'
 import {getChannelMediaDir} from '../config'
+import {CHANNEL_WORKER_RESOURCE_LIMITS} from '../workerLimits'
 import {container} from '../agent/common/container'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
 import {logger} from '../agent/logger'
@@ -67,7 +68,8 @@ export class ChannelManager {
     private spawnWorker(): void {
         const workerPath = path.join(__dirname, 'channelWorker.cjs')
         // .cjs 扩展名确保 Node.js 始终以 CommonJS 模式加载（不受 package.json type:module 影响）
-        this.worker = new Worker(workerPath)
+        // ★ 内存加固（评审建议 4）：渠道 I/O worker，常驻负载轻 → 256/16，见 ../workerLimits.ts。
+        this.worker = new Worker(workerPath, {resourceLimits: CHANNEL_WORKER_RESOURCE_LIMITS})
 
         this.worker.on('message', (msg: WorkerEvent) => this.handleWorkerMessage(msg))
 
