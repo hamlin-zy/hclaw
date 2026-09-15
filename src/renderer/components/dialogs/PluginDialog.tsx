@@ -17,7 +17,7 @@
  *   - 三态复用 AsyncBoundary + EmptyState；卡片骨架复用 CapabilityCard
  */
 
-import React, {useEffect, useState} from 'react'
+import React, {useEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
@@ -120,6 +120,9 @@ export default function PluginDialog() {
     const [resettingPlugin, setResettingPlugin] = useState<string | null>(null)
     // Track update/reset result messages (per-plugin)
     const [updateResult, setUpdateResult] = useState<{name: string; message: string; isError: boolean} | null>(null)
+    const updateResultTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理「更新结果」自动消失定时器
+    useEffect(() => () => { if (updateResultTimer.current) clearTimeout(updateResultTimer.current) }, [])
     // Track collapsed state for each category in each plugin, key: "pluginName:category"
     const [categoryCollapsed, setCategoryCollapsed] = useState<Record<string, boolean>>({})
     const [syncingVersion, setSyncingVersion] = useState<string | null>(null)
@@ -146,7 +149,7 @@ export default function PluginDialog() {
     }
 
   // 挂载即拉取 + capability:changed 后自动重取（A 阶段广播口径）
-  useCapabilityRefresh(loadPlugins, [])
+  useCapabilityRefresh(loadPlugins)
 
   // ── 订阅插件版本状态推送（独立窗口打开即同步红点，运行中接收跨窗口广播） ──
   useEffect(() => {
@@ -238,7 +241,11 @@ export default function PluginDialog() {
   /** Show result message, auto-dismiss after 5s */
   const showUpdateMessage = (name: string, message: string, isError: boolean) => {
     setUpdateResult({name, message, isError})
-    setTimeout(() => setUpdateResult(prev => prev?.name === name ? null : prev), 5000)
+    if (updateResultTimer.current) clearTimeout(updateResultTimer.current)
+    updateResultTimer.current = setTimeout(() => {
+      updateResultTimer.current = null
+      setUpdateResult(prev => prev?.name === name ? null : prev)
+    }, 5000)
   }
 
   const handleReset = async (name: string) => {

@@ -90,24 +90,3 @@ export function filterToolsForAgent(
 
   return filtered
 }
-
-/**
- * 解析工具列表（用于生成提示词）
- */
-export function resolveToolNames(agent: AgentDefinition, availableTools: Tool[]): string[] {
-  const filteredTools = filterToolsForAgent(agent, availableTools)
-  return filteredTools.map(t => t.name)
-}
-
-/**
- * 格式化工具列表为可读字符串
- */
-export function formatToolsForPrompt(tools: string[]): string {
-  if (tools.length === 0) return '无'
-
-  return tools.map(tool => {
-    // 简化工具名称（移除 mcp__ 前缀）
-    const name = tool.replace(/^mcp__/, '')
-    return `- ${name}`
-  }).join('\n')
-}

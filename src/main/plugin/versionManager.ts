@@ -19,6 +19,7 @@ import {powerManager} from '../agent/powerManager'
 import {createLogger} from '../agent/logger'
 import {repoRegistry} from '../repo/registry'
 import {repoVersionManager} from '../repo/versionManager'
+import {pruneMap} from '../common/pruneMap'
 
 const logger = createLogger('plugin-version')
 
@@ -195,6 +196,15 @@ class PluginVersionManagerImpl {
       logger.error('switchVersion.failed', {plugin: pluginName, ref, error: message})
       return {success: false, error: message}
     }
+  }
+
+  /**
+   * 剔除已不在插件注册表中的缓存条目（与 repo/mcp 同族 API 对齐）。
+   * versionMap 无自动淘汰路径：插件被卸载/重命名后其条目不会再被覆盖，
+   * 不 prune 会随历史插件数无界累积。调用点见 plugin/ipc.ts handleList（注册表枚举同步点）。
+   */
+  prune(activeNames: Iterable<string>): void {
+    pruneMap(this.versionMap, activeNames)
   }
 
   /**

@@ -5,6 +5,9 @@
  * 但「正常完成」此前不提醒。本测试验证：done(reason completed) 的 worker 正常退出时
  * 会调用 notifyUserAttention()，而 aborted/error/崩溃退出不触发。
  *
+ * 2026-09-15 追加：done(reason max_turns_reached)（跑满轮数上限被截断）同样触发提醒——
+ * 窗口隐藏时用户无从得知任务停在了上限处。notifyUserAttention 只闪烁、不带文案，不会误报「完成」。
+ *
  * 环境搭建：electron 空壳 + attention 模块 mock + config 隔离，直接驱动
  * handleDoneEvent（标记完成）→ onWorkerExit（消费标记触发提醒）的生产路径。
  */
@@ -53,7 +56,7 @@ beforeEach(() => {
 })
 
 /** 经生产路径驱动：handleDoneEvent 标记完成 → onWorkerExit 消费标记 */
-async function driveCompletion(reason: 'completed' | 'aborted' | 'error'): Promise<void> {
+async function driveCompletion(reason: 'completed' | 'aborted' | 'error' | 'max_turns_reached'): Promise<void> {
     await (manager as any).handleDoneEvent('conv-1', {type: 'done', reason})
     ;(manager as any).onWorkerExit('conv-1', {} as unknown, 0)
 }
@@ -70,6 +73,19 @@ describe('正常完成提醒 — done(reason completed)', () => {
     it('aborted 退出不触发完成提醒', async () => {
         await driveCompletion('aborted')
         expect(attentionMocks.notifyUserAttention).not.toHaveBeenCalled()
+    })
+
+    it('max_turns_reached 截断退出触发提醒（窗口隐藏时用户需得知任务停在上限处）', async () => {
+        await driveCompletion('max_turns_reached')
+
+        expect(attentionMocks.notifyUserAttention).toHaveBeenCalledTimes(1)
+        expect(attentionMocks.stopUserAttention).toHaveBeenCalledTimes(1)
+    })
+
+    it('max_turns_reached 标记同样一次性消费：重复退出不重复提醒', async () => {
+        await driveCompletion('max_turns_reached')
+        ;(manager as any).onWorkerExit('conv-1', {} as unknown, 0)
+        expect(attentionMocks.notifyUserAttention).toHaveBeenCalledTimes(1)
     })
 
     it('error 退出不触发完成提醒', async () => {

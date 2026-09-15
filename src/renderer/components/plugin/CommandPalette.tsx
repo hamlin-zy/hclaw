@@ -26,11 +26,6 @@ export interface Command {
   content?: string; // 命令模板，包含 $ARGUMENTS 占位符
 }
 
-export interface CommandGroup {
-  pluginName: string;
-  commands: Command[];
-}
-
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;

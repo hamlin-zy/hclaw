@@ -2,7 +2,7 @@
  * 文件类型配置
  */
 
-export interface FileTypeConfig {
+interface FileTypeConfig {
     letter: string
     bgColor: string
     textColor: string
@@ -11,7 +11,7 @@ export interface FileTypeConfig {
 /**
  * 文件类型首字母和对应颜色配置
  */
-export const FILE_TYPE_CONFIG: Record<string, FileTypeConfig> = {
+const FILE_TYPE_CONFIG: Record<string, FileTypeConfig> = {
     // 图片
     '.jpg': {letter: 'J', bgColor: 'bg-pink-500', textColor: 'text-white'},
     '.jpeg': {letter: 'J', bgColor: 'bg-pink-500', textColor: 'text-white'},

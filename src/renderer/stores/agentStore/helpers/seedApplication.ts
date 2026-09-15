@@ -17,25 +17,25 @@ import {
 } from './recoverySeeding'
 
 /** 流式载体消息 upsert（DB 无行 → 新增；有行 → 覆盖 content 并清除内存 endedAt） */
-export interface SeedMessageUpsert {
+interface SeedMessageUpsert {
     id: string
     content: string
 }
 
 /** 消息级补丁（stale 工具在消息 toolCalls 数组内标记取消） */
-export interface SeedMessagePatch {
+interface SeedMessagePatch {
     messageId: string
     patch: Partial<Message>
 }
 
 /** toolCallsStore 注册项（快照全量工具 + 进度日志/子 Agent 流缓冲） */
-export interface SeedToolRegistration {
+interface SeedToolRegistration {
     toolCallId: string
     initial: Partial<ToolCallState>
 }
 
 /** 一次会话播种的全部声明式变更 */
-export interface SeedInstruction {
+interface SeedInstruction {
     seedMessage: SeedMessageUpsert | null
     messagePatches: SeedMessagePatch[]
     toolRegistrations: SeedToolRegistration[]

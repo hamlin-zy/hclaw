@@ -7,35 +7,10 @@
 import {z} from 'zod'
 import type {Tool, ToolContext, ToolResult} from '../types'
 import {skillRegistry} from '../../skills'
-import {skillActivator} from '../../skills/activator'
 import {buildGuidance, buildPreview} from '../../skills/guidance'
 import type {SkillDefinition} from '../../skills/types'
-import type {Skill} from '@shared/types'
 
-// ─── 类型转换 ─────────────────────────────────────────
-
-const toSharedSkill = (def: SkillDefinition): Skill => ({
-  id: def.id,
-  name: def.name,
-  description: def.description,
-  userDescription: def.userDescription,
-  enabled: def.enabled,
-  version: def.version ?? '1.0.0',
-  source: def.source,
-  pluginName: def.pluginName,
-  allowedTools: def.allowedTools,
-  content: def.content,
-  filePath: def.filePath,
-  skillDir: def.skillDir,
-  extensions: def.extensions,
-  paths: def.paths,
-  context: def.context,
-  model: def.model,
-  category: def.category,
-  license: def.license,
-})
-
-export const SKILL_TOOL_NAME = 'skill'
+const SKILL_TOOL_NAME = 'skill'
 
 const inputSchema = z.object({
   skill: z.string().describe('技能名称，如 "code-simplifier" 或 "scrapling-official"'),
@@ -43,7 +18,7 @@ const inputSchema = z.object({
 
 type SkillToolInput = z.infer<typeof inputSchema>
 
-export interface SkillToolOutput {
+interface SkillToolOutput {
   success: boolean
   skillName: string
   skillDir?: string
@@ -56,14 +31,6 @@ export interface SkillToolOutput {
     agents?: string[]
   }
   error?: string
-}
-
-// ─── 初始化 ─────────────────────────────────────────
-
-export function initializeSkillSystem(operatedFiles?: string[]): void {
-  const conditionalSkills = skillRegistry.getConditionalSkills().map(toSharedSkill)
-  skillActivator.setConditionalSkills(conditionalSkills)
-  if (operatedFiles?.length) skillActivator.activateForPaths(operatedFiles, '')
 }
 
 // ─── 辅助函数 ─────────────────────────────────────────

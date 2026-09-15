@@ -33,7 +33,7 @@ export function inferTypeFromCommandId(commandId: string): CapabilityType {
 }
 
 /** 已知能力名集合（渲染层降级校验用，缺省为空 → 不启用降级） */
-export interface KnownCapabilities {
+interface KnownCapabilities {
     skills?: string[]
     agents?: string[]
     userCommands?: string[]

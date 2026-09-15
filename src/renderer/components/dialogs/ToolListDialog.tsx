@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from 'react'
+import {useCallback, useEffect, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {collapse} from '../../lib/motionPresets'
 
@@ -136,6 +136,9 @@ export default function ToolListDialog() {
     const [error, setError] = useState<string | null>(null)
     const [activeTab, setActiveTab] = useState<'builtin' | 'mcp'>('builtin')
     const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set())
+    // ★ 挂载守卫：弹窗关闭/卸载后丢弃迟到的 IPC 响应，避免对已卸载组件 setState
+    //   或重开时被上一轮旧响应覆盖
+    const aliveRef = useRef(true)
     const toggleServer = (id: string) => {
         setExpandedServers(prev => {
             const next = new Set(prev)
@@ -150,16 +153,22 @@ export default function ToolListDialog() {
         setError(null)
         try {
             const result = await window.electronAPI?.toolMcpList?.()
+            if (!aliveRef.current) return // 代际守卫：组件已卸载，丢弃响应
             setData(result as ToolMcpListResult)
         } catch (err) {
+            if (!aliveRef.current) return
             setError(err instanceof Error ? err.message : String(err))
         } finally {
-            setIsLoading(false)
+            if (aliveRef.current) setIsLoading(false)
         }
     }, [])
 
     useEffect(() => {
-        loadData()
+        aliveRef.current = true
+        void loadData()
+        return () => {
+            aliveRef.current = false
+        }
     }, [loadData])
 
     if (isLoading) {

@@ -1,9 +1,6 @@
 import {absPath} from './absPath'
 import {formatLineRanges} from './lineRanges'
 
-/** 五种入口归约为三种上下文形态（spec §4.1） */
-export type SendToConversationKind = 'files' | 'lines' | 'commits'
-
 export type SendToConversationContext =
   | {kind: 'files'; paths: string[]}
   | {kind: 'lines'; filePath: string; lineNumbers: number[]; revision?: string}

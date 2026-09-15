@@ -1,4 +1,5 @@
-import {memo, useCallback, useState} from 'react'
+import {memo, useCallback} from 'react'
+import {useTransientFlag} from '../../../hooks/useTransientFlag'
 
 /**
  * 渲染 diff 文本（语法着色行）
@@ -23,17 +24,16 @@ export function renderDiff(diffText: string): React.ReactNode {
  * 复制按钮（与 MarkdownRenderer 中一致）
  */
 export const CopyButton = memo(function CopyButton({code, label}: { code: string; label?: string }) {
-    const [copied, setCopied] = useState(false)
+    const [copied, flashCopied] = useTransientFlag(2000)
 
     const handleCopy = useCallback(async () => {
         try {
             await navigator.clipboard.writeText(code)
-            setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
+            flashCopied()
         } catch {
             // 复制失败，静默处理
         }
-    }, [code])
+    }, [code, flashCopied])
 
     return (
         <button

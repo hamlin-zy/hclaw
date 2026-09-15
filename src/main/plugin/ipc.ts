@@ -117,7 +117,7 @@ async function handleReset(
  * Initialize the plugin system components
  * Called once during main process startup
  */
-export function initializePluginSystem(): void {
+function initializePluginSystem(): void {
   if (initialized) {
     return;
   }
@@ -329,6 +329,14 @@ async function refreshPowerManagerAndGetCapabilities(): Promise<{ skills: unknow
 }
 
 /**
+ * 刷新 CapabilityHub，使能力变更立即同步给所有窗口。
+ * 命令/命令覆盖的写 handler 统一走此入口，避免同构刷新块散落各处。
+ */
+async function refreshCapabilities(): Promise<void> {
+  await powerManager.refresh()
+}
+
+/**
  * Enable a plugin by name
  */
 async function handleEnable(
@@ -385,6 +393,9 @@ async function handleList(
   _event: IpcMainInvokeEvent,
   enabledOnly?: boolean
 ): Promise<LoadedPlugin[]> {
+  // ★ 版本缓存同步点：按当前注册表集合剔除已卸载/重命名插件的残留条目
+  //   （与 repo/ipc.ts 的 repoVersionManager.prune 等价；versionMap 自身无淘汰路径）
+  versionManager.prune(registry.getAll().map(p => p.name));
   if (enabledOnly) {
     return registry.getEnabled();
   }
@@ -850,8 +861,7 @@ async function handleCreateCommand(
     }
     fs.writeFileSync(filePath, markdown, 'utf-8')
 
-    // 刷新 CapabilityHub，使能力变更立即同步给所有窗口
-    await powerManager.refresh()
+    await refreshCapabilities()
 
     return {success: true}
   } catch (err) {
@@ -918,8 +928,7 @@ async function handleUpdateCommand(
       fs.writeFileSync(filePath, newContent, 'utf-8')
     }
 
-    // 刷新 CapabilityHub，使能力变更立即同步给所有窗口
-    await powerManager.refresh()
+    await refreshCapabilities()
 
     return {success: true}
   } catch (err) {
@@ -954,8 +963,7 @@ async function handleDeleteCommand(
       saveDatabase()
     } catch { /* ignore db cleanup errors */ }
 
-    // 刷新 CapabilityHub，使能力变更立即同步给所有窗口
-    await powerManager.refresh()
+    await refreshCapabilities()
 
     return {success: true}
   } catch (err) {
@@ -1031,7 +1039,7 @@ async function handleImportCommands(
 
     // 仅在实际写入新命令后刷新 CapabilityHub，避免无变更时的全量刷新
     if (imported > 0) {
-      await powerManager.refresh()
+      await refreshCapabilities()
     }
 
     return {success: true, imported, skipped}
@@ -1102,8 +1110,7 @@ async function handleResetPresets(
             fs.writeFileSync(filePath, content, 'utf-8')
         }
 
-        // 刷新 CapabilityHub，使能力变更立即同步给所有窗口
-        await powerManager.refresh()
+        await refreshCapabilities()
 
         return {success: true}
     } catch (err) {
@@ -1150,8 +1157,7 @@ async function handleUpsertPluginCommandOverride(
     try {
         getUserCommandStore().upsertPluginOverride(input);
 
-        // 刷新 CapabilityHub，使能力变更立即同步给所有窗口
-        await powerManager.refresh()
+        await refreshCapabilities()
 
         return {success: true};
     } catch (err) {
@@ -1171,7 +1177,7 @@ async function handleDeletePluginCommandOverride(
 
         // 仅在实际删除覆盖后刷新 CapabilityHub，避免无变更时的全量刷新
         if (result) {
-            await powerManager.refresh()
+            await refreshCapabilities()
         }
 
         return {success: result};

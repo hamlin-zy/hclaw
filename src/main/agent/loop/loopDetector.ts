@@ -33,6 +33,12 @@ export function silenceLoopPattern(sessionId: string, fingerprint: string): void
 export function isLoopPatternSilenced(sessionId: string, fingerprint: string): boolean {
     return silencedPatterns.get(sessionId)?.has(fingerprint) ?? false
 }
+/** 会话终态回收：删除该会话的整个静默名单。
+ *  该 Map 以 sessionId 为 key 且全文件无 delete，长驻进程下会随会话数无界累积，
+ *  必须在会话 cleanup 时释放（删空/不存在均为 no-op，可重复调用）。 */
+export function clearLoopSilence(sessionId: string): void {
+    silencedPatterns.delete(sessionId)
+}
 
 export class LoopDetector {
     private signatures: string[] = []                                  // 轮签名队列

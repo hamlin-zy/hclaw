@@ -50,7 +50,13 @@ const SKILL_REFRESH_TIMEOUT_MS = 15000
  * 用于 refresh 超时兜底：不因个别能力加载挂死而卡住 IPC 响应。
  */
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | void> {
-    return Promise.race([promise, new Promise<void>(resolve => setTimeout(resolve, timeoutMs))])
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<void>(resolve => {
+        timer = setTimeout(resolve, timeoutMs)
+    })
+    return Promise.race([promise, timeout]).finally(() => {
+        if (timer) clearTimeout(timer)
+    })
 }
 
 /**
@@ -63,9 +69,15 @@ async function doSkillRefresh<T>(fn: () => Promise<T>): Promise<T> {
         await withTimeout(skillRefreshLock, SKILL_REFRESH_TIMEOUT_MS)
     }
 
-    // 创建新的刷新任务 - 通过 powerManager.refresh() 统一刷新所有能力
-    skillRefreshLock = powerManager.refresh().catch(err => {
-        logger.error('[SkillsRefresh] powerManager.refresh failed', {error: String(err)})
+    // 创建新的刷新任务 - 通过 powerManager 统一刷新所有能力
+    // 冷启动时 powerManager 尚未 initialize（随后 initAgent() 会做一次完整加载），
+    // 此时不再重复全量扫描（且此刻扫出的能力集不含插件），改为等 initialize 完成后
+    // 直接读注册表——结果更完整，且省掉一整轮重复 I/O 与事件循环饥饿。
+    skillRefreshLock = (powerManager.isInitialized()
+        ? powerManager.refresh()
+        : withTimeout(powerManager.whenInitialized(), SKILL_REFRESH_TIMEOUT_MS)
+    ).catch(err => {
+        logger.error('[SkillsRefresh] powerManager refresh/wait failed', {error: String(err)})
     })
 
     try {
@@ -192,7 +204,7 @@ export function registerHandlers(): void {
     // 删除技能（删除 SKILL.md 所在目录）
     // 策略：
     // 1. 立即从注册表中移除（UI 即刻消失）
-    // 2. 后台不限时重试删除磁盘目录（Windows Defender 可能锁住，多次重试即可）
+    // 2. 后台重试删除，上限 30 次后放弃并清理 pendingDeleteDirs
     // 3. refreshAndRespond() 之后重新抹除一次，防 powerManager.refresh() 重新加载
     ipcMain.handle('skill-remove', async (_event, skillId: string) => {
         try {
@@ -207,13 +219,23 @@ export function registerHandlers(): void {
             pendingDeleteDirs.add(skillDir)
             skillRegistry.unregister(skillId)
 
-            // 后台不限时重试删除，不阻塞用户
+            // 后台重试删除，不阻塞用户
+            // 重试上限 30 次（≈60s）：目录被永久锁定时避免无限重试链，
+            // 超限后释放 pendingDeleteDirs 条目，防止集合永久驻留。
+            const MAX_DELETE_ATTEMPTS = 30
+            let attempts = 0
             const attemptDelete = async (): Promise<void> => {
                 try {
                     await fs.rm(skillDir, {recursive: true, force: true})
                     pendingDeleteDirs.delete(skillDir)
                     logger.info(`[skill-remove] background delete succeeded for ${skillDir}`)
                 } catch {
+                    attempts++
+                    if (attempts >= MAX_DELETE_ATTEMPTS) {
+                        pendingDeleteDirs.delete(skillDir)
+                        logger.warn(`[skill-remove] background delete gave up after ${attempts} attempts for ${skillDir}`)
+                        return
+                    }
                     setTimeout(attemptDelete, 2000)
                 }
             }

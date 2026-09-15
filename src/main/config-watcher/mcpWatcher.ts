@@ -32,6 +32,8 @@ export class McpWatcher {
     private debounceTimer: ReturnType<typeof setTimeout> | null = null
 
     start(): void {
+        // 重复 start 安全：先关闭旧 fs.watch 句柄，避免句柄与防抖定时器泄漏
+        this.stop()
         const configPath = getMcpConfigPath()
         if (!fs.existsSync(configPath)) {
             try {

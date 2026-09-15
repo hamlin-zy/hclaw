@@ -4,7 +4,7 @@
 
 // ── 常量 ────────────────────────────────────────────────────────────────────
 /** 阶段文案（导出供 MessageList 气泡内 statusNote 复用） */
-export const PHASE_LABELS: Record<string, string> = {
+const PHASE_LABELS: Record<string, string> = {
     starting: '启动中...',
     streaming: '思考中',
     executing_tools: '执行工具中',

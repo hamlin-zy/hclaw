@@ -6,13 +6,19 @@
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {motion} from 'framer-motion'
 import {tooltip} from '../../lib/motionPresets'
+import {IS_MAC} from '../../lib/platform'
+import {useTransientFlag} from '../../hooks/useTransientFlag'
 import {useConversationStore} from '../../stores/conversationStore'
 import {useAgentStore} from '../../stores/agentStore'
 import MessageBubble from './MessageBubble'
 import {CatalogStatusLine, parseCatalogEntriesFromContent} from './CatalogStatusLine'
 import {getPhaseLabel} from './StatusIndicators'
 import {SOURCE_KIND_CATALOG, SOURCE_KIND_COMMAND_TASK, SOURCE_KIND_SYSTEM_ENV} from '@shared/types/message'
-import type {CatalogEntry} from '@shared/types/message'
+import type {CatalogEntry, Message} from '@shared/types/message'
+
+/** 稳定的空数组引用：`messagesMap[convId]` 为 undefined 时复用，避免每次渲染新建数组
+ *  导致下方依赖 `messages` 的 effect/memo 误判变化。 */
+const EMPTY_MESSAGES: Message[] = []
 
 /**
  * 能力目录注入消息：仅用于派生状态行，不渲染为气泡、不参与用户消息导航。
@@ -82,7 +88,7 @@ function useFind(
     const matchHighlightRef = useRef<Highlight | null>(null)
     const currentHighlightRef = useRef<Highlight | null>(null)
     const debounceTimerRef = useRef<number | null>(null)
-    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+    const isMac = IS_MAC
 
     // 初始化 Highlight 对象
     useEffect(() => {
@@ -545,8 +551,14 @@ function findViewportTopMsgIdx(container: HTMLElement): number | null {
 // ─── MessageList 主组件 ───────────────────────────────────
 
 export default function MessageList({conversationId}: { conversationId?: string } = {}) {
-    const messages = useConversationStore((s) =>
-        conversationId ? (s.messagesMap[conversationId] || []) : s.loadedMessages)
+    // ★ 三态区分：`messagesMap[convId] === undefined` = 尚未水合（首屏水合在途）；
+    //   `=== []` = 已加载且确实为空（渲染 WelcomeMessage）；有内容 = 正常渲染。
+    //   旧实现用 `|| []` 把「未加载」折叠成空数组 → 切到未缓存会话时先闪一次欢迎页，
+    //   水合完成后才切到真实内容。
+    const convMessages = useConversationStore((s) =>
+        conversationId ? s.messagesMap[conversationId] : s.loadedMessages)
+    const messages = convMessages ?? EMPTY_MESSAGES
+    const messagesUnloaded = conversationId !== undefined && convMessages === undefined
     const activeConversationId = useConversationStore((s) => s.activeConversationId)
     const hasMore = useConversationStore((s) =>
         conversationId ? (s.hasMoreMap[conversationId] ?? false) : false)
@@ -564,12 +576,8 @@ export default function MessageList({conversationId}: { conversationId?: string 
         conversationId ? (s.convAgentStates[conversationId]?.agentState ?? null) : s.agentState)
 
     const containerRef = useRef<HTMLDivElement>(null)
-    const [showCopyToast, setShowCopyToast] = useState(false)
     // 展示"已复制"Toast，1.5s 后自动隐藏（文本选择复制 / 消息操作复制共用）
-    const flashCopyToast = useCallback(() => {
-        setShowCopyToast(true)
-        setTimeout(() => setShowCopyToast(false), 1500)
-    }, [])
+    const [showCopyToast, flashCopyToast] = useTransientFlag(1500)
     const [showScrollBtn, setShowScrollBtn] = useState(false)
     const [newMsgCount, setNewMsgCount] = useState(0)
     // 会话来源导航（子会话 → 父会话；交接会话 → 前会话）
@@ -1090,6 +1098,26 @@ export default function MessageList({conversationId}: { conversationId?: string 
             requestAnimationFrame(() => scrollToBottom('smooth'))
         }
     }, [statusNote, scrollToBottom])
+
+    // ── 未加载态（首屏水合在途）────────────────────────────
+    // 切到未缓存会话时 switchActiveConversation 先置 activeConversationId 再 await
+    // loadMessagesInitial → 此窗口内 messagesMap[convId] 为 undefined。必须与「已加载但为空」
+    // 分流，否则会先闪一次 WelcomeMessage。水合完成后 loadMessagesInitial 总会写入
+    // messagesMap[convId]（空会话写入 []），本分支自然消失，不会残留。
+    if (messagesUnloaded) {
+        return (
+            <div className="flex-1 flex items-center justify-center p-8">
+                <div
+                    data-name="message-list-loading"
+                    className="flex items-center gap-2 text-sm text-[var(--text-secondary)]"
+                >
+                    <div
+                        className="w-5 h-5 rounded-full border-2 border-[var(--border)] border-t-[var(--brand-primary)] animate-spin"/>
+                    加载中...
+                </div>
+            </div>
+        )
+    }
 
     // ── 空状态 ────────────────────────────────────────────
     if (messages.length === 0) {

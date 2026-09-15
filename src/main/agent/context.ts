@@ -16,7 +16,7 @@ const SYSTEM_PROMPT_ESTIMATE = 80_000
 /** 图片 token 估算（一张图片约等于 85 个 token，保守估计） */
 const IMAGE_TOKEN_ESTIMATE = 85
 
-export function estimateTokens(text: string): number {
+function estimateTokens(text: string): number {
     return Math.ceil(text.length / CHARS_PER_TOKEN)
 }
 
@@ -24,7 +24,7 @@ export function estimateTokens(text: string): number {
  * 估算消息内容的 token 数
  * 支持纯文本或多模态内容块数组
  */
-export function estimateContentTokens(content: string | ContentPart[]): number {
+function estimateContentTokens(content: string | ContentPart[]): number {
     if (typeof content === 'string') {
         return estimateTokens(content)
     }
@@ -41,7 +41,7 @@ export function estimateContentTokens(content: string | ContentPart[]): number {
 }
 
 /** 估算消息列表总 token 数 */
-export function estimateMessagesTokens(messages: ChatMessage[]): number {
+function estimateMessagesTokens(messages: ChatMessage[]): number {
     let total = 0
     for (const msg of messages) {
         total += estimateContentTokens(msg.content)
@@ -58,7 +58,7 @@ export function estimateMessagesTokens(messages: ChatMessage[]): number {
 /**
  * 估算总上下文 token 数（消息 + 系统提示词）
  */
-export function estimateTotalContextTokens(
+function estimateTotalContextTokens(
     messages: ReadonlyArray<ChatMessage> | ChatMessage[],
     systemPrompt?: string,
 ): number {
@@ -72,7 +72,7 @@ export function estimateTotalContextTokens(
  * 与渲染端窗口徽章同口径（useWindowUsage: currentInputTokens + currentCacheReadTokens）。
  * 无任何 llmStats（新会话/旧数据）→ 0，调用方回退字符估算。
  */
-export function resolveLastRequestContextTokens(messages: ReadonlyArray<ChatMessage>): number {
+function resolveLastRequestContextTokens(messages: ReadonlyArray<ChatMessage>): number {
     let tokens = 0
     for (const msg of messages) {
         if (msg.role !== 'assistant') continue

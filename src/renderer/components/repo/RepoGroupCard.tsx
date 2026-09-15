@@ -46,9 +46,7 @@ export default function RepoGroupCard({repo, skillCount, agentCount, children, o
       <CollapsibleSection
         title={repo.id}
         expanded={!collapsed}
-        onToggle={toggleCollapsed}
         noMargin
-        ariaLabel="分组"
         trigger={
           <div className="flex items-center justify-between px-3 py-2 bg-[color-mix(in_srgb,var(--surface-muted)_50%,transparent)] cursor-pointer"
             role="button" tabIndex={0}

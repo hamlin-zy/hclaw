@@ -8,7 +8,7 @@ export type ToolResult =
     | ToolSuccessResult
     | ToolErrorResult
 
-export interface ToolSuccessResult {
+interface ToolSuccessResult {
     success: true
     output: string | object
     metadata?: {
@@ -17,7 +17,7 @@ export interface ToolSuccessResult {
     }
 }
 
-export interface ToolErrorResult {
+interface ToolErrorResult {
     success: false
     output: null
     error: string
@@ -26,10 +26,6 @@ export interface ToolErrorResult {
 }
 
 // 工厂函数
-export function successResult(output: string | object, metadata?: ToolSuccessResult['metadata']): ToolSuccessResult {
-    return { success: true, output, metadata }
-}
-
 export function errorResult(error: string | Error, code?: string): ToolErrorResult {
     const message = error instanceof Error ? error.message : error
     return {

@@ -8,7 +8,7 @@ import type {LLMProvider, ProviderCredentials, ProviderModel} from '@shared/type
 export type {LLMProvider, ProviderCredentials, ProviderModel}
 
 /** @alias ProviderModel */
-export type LLMModel = ProviderModel
+type LLMModel = ProviderModel
 
 interface LLMStore {
   providers: LLMProvider[];

@@ -5,7 +5,7 @@ import {fade, scaleFade} from '../lib/motionPresets'
 /**
  * 确认弹窗选项接口
  */
-export interface ConfirmDialogOptions {
+interface ConfirmDialogOptions {
     title: string
     message: string
     confirmText?: string
@@ -28,6 +28,9 @@ function takeResolver(): ((value: unknown) => void) | null {
 /** 挂起 resolver 并广播弹窗事件；事件处理器（ConfirmDialog）负责后续 resolve */
 function showDialog(kind: 'confirm' | 'input', options: ConfirmDialogOptions): Promise<unknown> {
     return new Promise((resolve) => {
+        // 覆盖式写入前先结算旧 resolver（false 对 confirm 即取消；对 input 亦为取消值），
+        // 避免旧 Promise 因被新请求覆盖而永不 settle，同时维持 Promise<boolean> 契约。
+        resolveFn?.(false)
         resolveFn = resolve
         window.dispatchEvent(
             new CustomEvent('hclaw:show-confirm-dialog', {detail: {kind, ...options}})
@@ -44,7 +47,7 @@ export function confirm(options: ConfirmDialogOptions): Promise<boolean> {
     return showDialog('confirm', options) as Promise<boolean>
 }
 
-export interface ConfirmInputOptions extends Omit<ConfirmDialogOptions, 'onConfirm'> {
+interface ConfirmInputOptions extends Omit<ConfirmDialogOptions, 'onConfirm'> {
     inputLabel?: string
     placeholder?: string
     initialValue?: string

@@ -26,13 +26,16 @@ export default function RepoVersionControl({repoId, current, loading, onVersionS
 
   // 挂载时自动加载版本信息，保证下拉框默认显示当前版本（而非空白）
   useEffect(() => {
-    void loadVersionInfo()
+    let cancelled = false
+    void loadVersionInfo(() => cancelled)
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoId])
 
-  const loadVersionInfo = async () => {
+  const loadVersionInfo = async (isCancelled: () => boolean = () => false) => {
     const api = window.electronAPI as any
     const info = await api?.repo?.getVersions?.(repoId)
+    if (isCancelled()) return // 代际守卫：repoId 变更后丢弃旧请求结果
     if (info) setVersionData({tags: info.tags || [], branches: info.branches || [], current: info.current || '', latest: info.latest || '', loading: false})
   }
 

@@ -5,7 +5,7 @@
  * 执行记录查看等功能，支持按状态筛选。
  */
 
-import React, {useCallback, useEffect, useMemo, useState} from 'react'
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {ScheduleUI, useScheduleStore} from '../../stores/scheduleStore'
 import {confirm} from '../ConfirmDialog'
 import {Toast} from '../usage/statsParts'
@@ -127,6 +127,13 @@ export default function ScheduleDialog() {
     // 展开的记录面板
     const [expandedConversations, setExpandedConversations] = useState<Set<string>>(new Set())
     const [launchError, setLaunchError] = useState<string | null>(null)
+    // 「运行中」状态复位定时器集合：同一时刻可能有多个任务并发启动，故用 Set 记账
+    const runResetTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
+    // 卸载兜底：清理所有「运行中」复位定时器
+    useEffect(() => () => {
+        runResetTimers.current.forEach(clearTimeout)
+        runResetTimers.current.clear()
+    }, [])
 
     // 加载数据
     useEffect(() => {
@@ -230,7 +237,8 @@ export default function ScheduleDialog() {
         } catch (err: any) {
             setLaunchError(`启动异常: ${err?.message || String(err)}`)
         } finally {
-            setTimeout(() => {
+            const timer = setTimeout(() => {
+                runResetTimers.current.delete(timer)
                 setRunningTasks(prev => {
                     const next = new Set(prev)
                     next.delete(schedule.id)
@@ -238,6 +246,7 @@ export default function ScheduleDialog() {
                 })
                 loadSchedules()
             }, 2000)
+            runResetTimers.current.add(timer)
         }
     }, [stop, runNow, loadSchedules])
 

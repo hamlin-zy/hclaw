@@ -1,7 +1,6 @@
 import type {ReactNode} from 'react'
-import CollapsibleSection from './CollapsibleSection'
 
-export interface CapabilityCardProps {
+interface CapabilityCardProps {
     title: ReactNode
     subtitle?: ReactNode
     /** 标题右侧徽章插槽（开关、标签、状态点等） */
@@ -10,16 +9,11 @@ export interface CapabilityCardProps {
     actions?: ReactNode
     /** 折叠区上方的描述文本插槽 */
     description?: ReactNode
-    /** 为 true 时 children 收进 CollapsibleSection */
-    collapsible?: boolean
-    /** 折叠区标题（仅 collapsible 时生效） */
-    collapseTitle?: string
-    defaultExpanded?: boolean
     children?: ReactNode
 }
 
 /**
- * 能力卡片骨架：标题 / 副标题 / 徽章 / 操作区 / 描述 / 折叠详情。
+ * 能力卡片骨架：标题 / 副标题 / 徽章 / 操作区 / 描述 / 详情区。
  *
  * 只抽「骨架 + 插槽」，不含任何能力字段语义（类型、来源、启用态等一律由调用方
  * 通过 badges / actions / description 传入），避免退化成适配所有页面的神组件。
@@ -30,9 +24,6 @@ export function CapabilityCard({
     badges,
     actions,
     description,
-    collapsible = false,
-    collapseTitle = '详情',
-    defaultExpanded = true,
     children,
 }: CapabilityCardProps) {
     return (
@@ -61,16 +52,9 @@ export function CapabilityCard({
                 </div>
             )}
 
-            {children &&
-                (collapsible ? (
-                    <div className="px-[var(--space-normal)]">
-                        <CollapsibleSection title={collapseTitle} defaultExpanded={defaultExpanded}>
-                            {children}
-                        </CollapsibleSection>
-                    </div>
-                ) : (
-                    <div className="px-[var(--space-normal)] pb-[var(--space-snug)]">{children}</div>
-                ))}
+            {children && (
+                <div className="px-[var(--space-normal)] pb-[var(--space-snug)]">{children}</div>
+            )}
         </div>
     )
 }

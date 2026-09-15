@@ -7,6 +7,17 @@
             content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https: http: file: hclaw-media:; media-src 'self' blob: file: hclaw-media:; connect-src 'self' data: blob: ws://localhost:* http://localhost:* https:;">
       <title>HClaw</title>
       <script>
+          // 冷启动观测：HTML 内联脚本开始执行（主 world 首条可执行语句）。
+          // 与 preload 的 renderer:preload-start 之差 ≈ HTML 载入 + 脚本解析开销。
+          try { window.electronAPI?.startup?.mark?.('renderer:html-inline'); } catch (e) {}
+          // 冷启动观测：首帧回调（≈ 内联「启动中...」骨架绘制时刻），
+          // 用于判断骨架是否先于窗口 ready-to-show 画出。
+          try {
+              requestAnimationFrame(function () {
+                  try { window.electronAPI?.startup?.mark?.('renderer:html-paint'); } catch (e) {}
+              });
+          } catch (e) {}
+
           // 在浏览器首次绘制前同步读取主题，防止日/夜间主题闪烁
           // 优先级：preload 注入的 initialTheme（SQLite）> localStorage 缓存
           (function () {

@@ -242,3 +242,32 @@ describe('executeTool 黑名单校验（disallowedToolNames）', () => {
         expect(result.result.success).toBe(true)
     })
 })
+
+
+// ── 别名纠偏后：破坏性工具参数键失败关闭 ──────────────
+// 锁定两条路径的分野：只有「请求名未注册 → 纠偏到已注册工具」才触发收紧的键集校验；
+// 原生名直调不受该守卫影响（原实现用恒真判断表达同一语义，此处收敛后行为须逐字不变）。
+describe('executeTool 别名纠偏 + 破坏性工具参数键守卫', () => {
+    const canonical = 'notebook_edit'   // TOOL_NAME_ALIASES['notebookedit'] 的目标工具名
+    const aliasedName = 'notebookedit'
+    toolRegistry.register(makeTool(canonical, {isDestructive: true}))
+
+    it('别名命中 + 破坏性工具 + 未知参数键 → 拒绝并给出「已解析为」提示', async () => {
+        const result = await executeTool(
+            {id: 'tc-alias-1', name: aliasedName, arguments: {unknownKey: 1}},
+            {...baseContext, permissionMode: 'auto'},
+        )
+        expect(result.result.success).toBe(false)
+        expect(result.result.error).toContain('已解析为')
+        expect(result.result.error).toContain('参数键不被支持: unknownKey')
+    })
+
+    it('原生名直调 + 相同未知参数键 → 不走别名收紧（由 schema 校验兜底）', async () => {
+        const result = await executeTool(
+            {id: 'tc-alias-2', name: canonical, arguments: {unknownKey: 1}},
+            {...baseContext, permissionMode: 'auto'},
+        )
+        expect(result.result.error ?? '').not.toContain('已解析为')
+        expect(result.result.success).toBe(true)
+    })
+})

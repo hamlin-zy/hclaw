@@ -1,5 +1,6 @@
 import {useEffect, useState} from 'react'
 import {useAgentStore} from '../stores/agentStore'
+import {useResetTimeout} from '../hooks/useResetTimeout'
 
 export default function PermissionRulesPanel() {
     const {permissionRules, fetchPermissionRules, removePermissionRule, addPermissionRule} = useAgentStore()
@@ -8,6 +9,8 @@ export default function PermissionRulesPanel() {
     const [editTool, setEditTool] = useState('')
     const [isEditing, setIsEditing] = useState(false)
     const [confirmingDelete, setConfirmingDelete] = useState(false)
+    // 「刷新中」复位定时器（重置式：仅最后一次生效，卸载自动清理）
+    const scheduleRefreshReset = useResetTimeout()
 
     useEffect(() => {
         cleanAndFetch()
@@ -19,7 +22,7 @@ export default function PermissionRulesPanel() {
             await window.electronAPI?.agentCleanPermissionRules?.()
             await fetchPermissionRules()
         } finally {
-            setTimeout(() => setIsRefreshing(false), 500)
+            scheduleRefreshReset(() => setIsRefreshing(false), 500)
         }
     }
 

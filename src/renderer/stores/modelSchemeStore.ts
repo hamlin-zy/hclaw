@@ -13,7 +13,7 @@ export type {ModelScheme, ModelSchemeRole, ModelType, ModelRole}
 
 // ─── 预设模板 ─────────────────────────────────────────────
 
-export interface SchemePreset {
+interface SchemePreset {
     id: string
     name: string
     description: string
@@ -27,7 +27,7 @@ export interface SchemePreset {
 }
 
 /** 内置方案模板 */
-export const SCHEME_PRESETS: SchemePreset[] = [
+const SCHEME_PRESETS: SchemePreset[] = [
     {
         id: 'balanced',
         name: '平衡方案',
@@ -92,7 +92,7 @@ const createDefaultRole = (
 /** 校验方案是否至少有一个有效文本角色（enabled && endpointId && modelId）
  *  注：此为 UI 层宽松校验（无 providers 上下文），不判 provider/model enabled；
  *  运行层可用性以 getUsableTextRoles（shared/modelSchemeHelpers）为准 */
-export function hasValidTextRole(scheme: Pick<ModelScheme, 'roles'>): boolean {
+function hasValidTextRole(scheme: Pick<ModelScheme, 'roles'>): boolean {
     return scheme.roles.some(r =>
         TEXT_MODEL_ROLES.includes(r.role as ModelRole)
         && r.enabled && r.endpointId && r.modelId
@@ -314,81 +314,6 @@ export const useModelSchemeStore = create<ModelSchemeStore>()(
 )
 
 // ─── 辅助函数 ─────────────────────────────────────────────
-
-/**
- * 初始化默认方案（首次启动时调用）
- * 使用当前 llmStore 的激活配置创建默认方案
- */
-export async function initializeDefaultScheme(): Promise<void> {
-    const store = useModelSchemeStore.getState()
-
-    // 如果已有方案，跳过
-    if (store.schemes.length > 0) return
-
-    const llmState = useLLMStore.getState()
-    const activeProvider = llmState.providers.find(
-        (p) => p.id === llmState.activeProviderId
-    )
-    const activeModel = activeProvider?.models.find(
-        (m) => m.id === llmState.activeModelId
-    )
-
-    if (!activeProvider || !activeModel) {
-        return
-    }
-
-    // 创建默认方案，所有角色使用同一模型，但只有 primary 默认启用
-    const defaultScheme: Omit<ModelScheme, 'id'> = {
-        name: '默认方案',
-        description: '所有任务使用同一模型',
-        roles: [
-            {
-                id: crypto.randomUUID(),
-                role: 'primary',
-                endpointId: activeProvider.id,
-                modelId: activeModel.id,
-                modelType: 'text',
-                enabled: true,
-            },
-            {
-                id: crypto.randomUUID(),
-                role: 'lightweight',
-                endpointId: activeProvider.id,
-                modelId: activeModel.id,
-                modelType: 'text',
-                enabled: false,
-            },
-            {
-                id: crypto.randomUUID(),
-                role: 'reasoning',
-                endpointId: activeProvider.id,
-                modelId: activeModel.id,
-                modelType: 'text',
-                enabled: false,
-                thinkingEffort: 'auto',
-            },
-            {
-                id: crypto.randomUUID(),
-                role: 'image_understanding',
-                endpointId: activeProvider.id,
-                modelId: activeModel.id,
-                modelType: 'image',
-                enabled: false,
-            },
-        ],
-        enabled: true,
-    }
-
-    store.addScheme(defaultScheme)
-}
-
-/**
- * 获取当前激活方案的显示名称
- */
-export function getActiveSchemeName(): string {
-    const scheme = useModelSchemeStore.getState().getActiveScheme()
-    return scheme?.name || '未配置'
-}
 
 /**
  * 切换模型方案

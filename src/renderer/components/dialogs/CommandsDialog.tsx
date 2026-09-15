@@ -129,7 +129,7 @@ export default function CommandsDialog() {
     }, [loadCommands])
 
     // 挂载即拉取 + 订阅 capability:changed 自动重取（Q13 接线落地）
-    useCapabilityRefresh(loadData, [])
+    useCapabilityRefresh(loadData)
 
     // ─── 过滤逻辑 ─────────────────────────────────────
 

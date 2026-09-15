@@ -5,13 +5,12 @@
  * 错误统一规范化为字符串，与 renderer 各 store / IPC 的 error 形态一致。
  */
 
-export interface ApplyOptimisticArgs<T, R> {
+interface ApplyOptimisticArgs<R> {
     /**
      * 回滚动作：失败时调用，把内存恢复到修改前的状态。
      * 实现方需在 mutate **之前**捕获旧值，并在此真正写回（`set({...})`）。
-     * 允许返回该状态值（T）便于调用方标注类型/调试。
      */
-    snapshot: () => T | void
+    snapshot: () => void
     /** 乐观写入：把内存改成目标状态（闭包内已捕获目标值） */
     mutate: () => void
     /** 持久化：抛错，或 resolve 出 {ok:false} 均视为失败 */
@@ -45,11 +44,11 @@ function isFailedResult(value: unknown): value is FailedResult {
     return v.ok === false || v.success === false
 }
 
-export async function applyOptimistic<T, R>({
+export async function applyOptimistic<R>({
     snapshot,
     mutate,
     persist,
-}: ApplyOptimisticArgs<T, R>): Promise<ApplyOptimisticResult<R>> {
+}: ApplyOptimisticArgs<R>): Promise<ApplyOptimisticResult<R>> {
     mutate()
 
     let result: R | {ok: boolean; error?: string}

@@ -56,6 +56,7 @@ export default function SkillsDialog() {
     const [refreshing, setRefreshing] = useState(false)
     const [installing, setInstalling] = useState(false)
     const [installMessage, setInstallMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+    const installMessageTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const [repoUrl, setRepoUrl] = useState('')
     const [repoInstalling, setRepoInstalling] = useState(false)
     const [repoList, setRepoList] = useState<any[]>([])
@@ -69,6 +70,9 @@ export default function SkillsDialog() {
     useEffect(() => {
         refreshRepoList()
     }, [refreshRepoList])
+
+    // 卸载兜底：清理 installMessage 自动隐藏定时器
+    useEffect(() => () => { if (installMessageTimer.current) clearTimeout(installMessageTimer.current) }, [])
 
     // 打开/切换仓库 tab 时主动拉取仓库版本 meta，确保红点与置顶反映当前状态。
     // （App 启动时的仓库版本检测为异步 fire-and-forget，可能晚于本对话框渲染导致 updateMap 为空）
@@ -88,7 +92,8 @@ export default function SkillsDialog() {
                 await refreshSkills()
                 refreshRepoList()
                 setRepoUrl('')
-                setTimeout(() => setInstallMessage(null), 3000)
+                if (installMessageTimer.current) clearTimeout(installMessageTimer.current)
+                installMessageTimer.current = setTimeout(() => { installMessageTimer.current = null; setInstallMessage(null) }, 3000)
             } else {
                 // 错误消息不清除，避免用户尚未读完即消失
                 setInstallMessage({type: 'error', text: `安装失败: ${result?.error || '未知错误'}`})
@@ -126,7 +131,7 @@ export default function SkillsDialog() {
     }, [loadSkills])
 
     // 挂载即拉取 + 订阅 capability:changed 自动重取
-    useCapabilityRefresh(loadData, [])
+    useCapabilityRefresh(loadData)
 
     const handleRefresh = useCallback(async () => {
         setRefreshing(true)
@@ -146,7 +151,8 @@ export default function SkillsDialog() {
             setInstallMessage({type: 'error', text: `安装失败: ${result.error}`})
         }
         // 3秒后自动清除提示
-        setTimeout(() => setInstallMessage(null), 3000)
+        if (installMessageTimer.current) clearTimeout(installMessageTimer.current)
+        installMessageTimer.current = setTimeout(() => { installMessageTimer.current = null; setInstallMessage(null) }, 3000)
     }, [installSkill, refreshRepoList])
 
     const filteredSkills = useMemo(() => {
@@ -420,6 +426,10 @@ function SkillCard({
     const {removeSkill, refreshSkills} = useSkillStore()
     const [deleting, setDeleting] = useState(false)
     const [deleteError, setDeleteError] = useState<string | null>(null)
+    // deleteError 自动隐藏定时器（对齐文件内 installMessageTimer 的记账范式）
+    const deleteErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理自动隐藏定时器
+    useEffect(() => () => { if (deleteErrorTimer.current) clearTimeout(deleteErrorTimer.current) }, [])
 
     const handleDelete = useCallback(async (e: React.MouseEvent) => {
         e.stopPropagation()
@@ -439,7 +449,11 @@ function SkillCard({
             onDeleted?.()
         } else {
             setDeleteError(result.error || '删除失败')
-            setTimeout(() => setDeleteError(null), 4000)
+            if (deleteErrorTimer.current) clearTimeout(deleteErrorTimer.current)
+            deleteErrorTimer.current = setTimeout(() => {
+                deleteErrorTimer.current = null
+                setDeleteError(null)
+            }, 4000)
         }
     }, [skill, removeSkill, refreshSkills, onDeleted])
 

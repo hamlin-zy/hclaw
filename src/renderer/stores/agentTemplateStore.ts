@@ -110,7 +110,7 @@ export const useAgentTemplateStore = create<AgentTemplateStore>()(
             if (!template) return
             const newEnabled = !template.enabled
             const prev = get().templates
-            await applyOptimistic<AgentTemplate[], unknown>({
+            await applyOptimistic<unknown>({
                 snapshot: () => set({templates: prev}),
                 mutate: () => set(state => ({
                     templates: state.templates.map(t =>
@@ -124,7 +124,7 @@ export const useAgentTemplateStore = create<AgentTemplateStore>()(
         toggleTemplateBatch: async (templateIds, enabled) => {
             if (templateIds.length === 0) return
             const prev = get().templates
-            const result = await applyOptimistic<AgentTemplate[], {templates?: AgentTemplate[]}>({
+            const result = await applyOptimistic<{templates?: AgentTemplate[]}>({
                 snapshot: () => set({templates: prev}),
                 mutate: () => set(state => ({
                     templates: state.templates.map(t =>

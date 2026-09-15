@@ -13,7 +13,7 @@ export interface ContextMenuItem {
   danger?: boolean
 }
 
-export interface ContextMenuProps {
+interface ContextMenuProps {
   x: number
   y: number
   items: ContextMenuItem[]

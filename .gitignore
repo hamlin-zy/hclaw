@@ -9,8 +9,12 @@ release/
 *.tsbuildinfo
 .npmrc
 CLAUDE.md
-# AGENTS.md
 GEMINI.md
+
+# Agent 协作约定与架构决策记录（仅本地维护，永不进仓库）
+AGENTS.md
+docs/agents/
+docs/adr/
 /.claude
 /.codex
 /.gemini
@@ -72,3 +76,4 @@ website-h/
 /tasks/
 
 docs/superpowers/
+docs/architecture/

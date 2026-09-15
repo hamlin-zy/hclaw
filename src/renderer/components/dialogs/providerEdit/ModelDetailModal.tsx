@@ -80,7 +80,7 @@ function InfoTip({children}: {children: React.ReactNode}) {
   )
 }
 
-export interface ModelDetailModalProps {
+interface ModelDetailModalProps {
   open: boolean
   providerName: string
   model: ProviderModel | null            // 内存引用（编辑态由组件内部管理）

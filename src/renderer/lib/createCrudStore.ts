@@ -1,7 +1,3 @@
-import { create } from 'zustand'
-import { persist, type PersistStorage } from 'zustand/middleware'
-import { fileStorage } from './fileStorage'
-
 /**
  * 通用 CRUD Store 工厂。
  *
@@ -9,8 +5,8 @@ import { fileStorage } from './fileStorage'
  * 通过 options 允许各 store 定制字段名、方法名、默认值、添加行为等。
  */
 
-export interface CrudStoreConfig<T extends { id: string }> {
-  /** persist key（createCrudStore 必填，buildCrudSlice 可选） */
+interface CrudStoreConfig<T extends { id: string }> {
+  /** persist key（buildCrudSlice 可选） */
   name?: string
   /** 集合字段名（如 'mcpServers'、'credentials'） */
   itemsKey: string
@@ -43,7 +39,6 @@ export interface CrudStoreConfig<T extends { id: string }> {
  * )
  * ```
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Zustand store factory: dynamic state shape, explicit any required for generic store building
 export function buildCrudSlice<T extends { id: string }, TStore = Record<string, unknown>>(
   config: CrudStoreConfig<T>
 ) {
@@ -56,15 +51,12 @@ export function buildCrudSlice<T extends { id: string }, TStore = Record<string,
     customAdd,
   } = config
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Zustand set function accepts any state shape
   return (set: (fn: (state: Record<string, unknown>) => Record<string, unknown>) => void): TStore => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Zustand slice builder: dynamic key-value pairs
     const slice: Record<string, unknown> = {
       [itemsKey]: [] as T[],
     }
 
     slice[addMethodName] = (item: Omit<T, 'id'>) =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Zustand set callback state type
       set((state: Record<string, unknown>) => {
         const newId = crypto.randomUUID()
         const base = { ...item, id: newId } as T
@@ -78,7 +70,6 @@ export function buildCrudSlice<T extends { id: string }, TStore = Record<string,
 
     if (updateMethodName) {
       slice[updateMethodName] = (id: string, updates: Partial<T>) =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Zustand set callback state type
         set((state: Record<string, unknown>) => ({
           [itemsKey]: ((state[itemsKey] as T[]) || []).map((item) =>
             item.id === id ? { ...item, ...updates } : item
@@ -88,7 +79,6 @@ export function buildCrudSlice<T extends { id: string }, TStore = Record<string,
 
     if (removeMethodName) {
       slice[removeMethodName] = (id: string) =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Zustand set callback state type
         set((state: Record<string, unknown>) => ({
           [itemsKey]: ((state[itemsKey] as T[]) || []).filter(
             (item) => item.id !== id
@@ -98,27 +88,4 @@ export function buildCrudSlice<T extends { id: string }, TStore = Record<string,
 
     return slice as TStore
   }
-}
-
-/**
- * 一站式创建带 persist 的 CRUD store。
- *
- * 对于没有额外字段/方法的简单 store，可以直接用此函数一步到位。
- * 对于有额外需求的 store，可以基于 buildCrudSlice 手动组合。
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Zustand persist store: dynamic state shape
-export function createCrudStore<T extends { id: string }>(
-  config: CrudStoreConfig<T> & Required<Pick<CrudStoreConfig<T>, 'name'>>
-) {
-  const { name, ...rest } = config
-  const buildSlice = buildCrudSlice<T>(rest)
-
-  return create<Record<string, unknown>>()(
-    persist(
-      (set) => ({
-        ...buildSlice(set),
-      }),
-      { name: name!, storage: fileStorage as PersistStorage<Record<string, unknown>> }
-    )
-  )
 }

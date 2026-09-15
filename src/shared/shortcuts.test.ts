@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  SHORTCUT_DEFS, normalizeAccelerator, eventToAccelerator,
-  matchEvent, mergeOverrides, findConflicts,
+  SHORTCUT_DEFS, DEFAULT_OVERRIDES, normalizeAccelerator, eventToAccelerator,
+  matchEvent, mergeOverrides, findConflicts, platformDefault, resolveDefaults,
 } from './shortcuts'
 
 describe('normalizeAccelerator', () => {
@@ -76,5 +76,45 @@ describe('findConflicts', () => {
   })
   it('无冲突返回空对象', () => {
     expect(findConflicts(mergeOverrides(undefined))).toEqual({})
+  })
+  it('可传入自定义定义表（PM 窗口键位层复用同一份检测）', () => {
+    const defs = [
+      { id: 'a', default: 'CommandOrControl+E' },
+      { id: 'b', default: 'CommandOrControl+E' },
+      { id: 'c', default: 'CommandOrControl+Shift+F' },
+    ]
+    expect(findConflicts({ a: 'CommandOrControl+E', b: 'CommandOrControl+E', c: 'CommandOrControl+Shift+F' }, defs))
+      .toEqual({ 'CommandOrControl+E': ['a', 'b'] })
+  })
+})
+
+describe('platformDefault', () => {
+  const def = { id: 'x', default: 'CommandOrControl+Shift+N', darwin: 'CommandOrControl+Shift+O' }
+  it('非 mac 一律用 default，忽略 darwin 覆盖', () => {
+    expect(platformDefault(def, false)).toBe('CommandOrControl+Shift+N')
+  })
+  it('mac 有 darwin 覆盖则取之', () => {
+    expect(platformDefault(def, true)).toBe('CommandOrControl+Shift+O')
+  })
+  it('无 darwin 覆盖时 mac 落回 default', () => {
+    expect(platformDefault({ id: 'x', default: 'CommandOrControl+E' }, true)).toBe('CommandOrControl+E')
+  })
+  it('darwin 非法（归一化失败）时落回 default', () => {
+    expect(platformDefault({ id: 'x', default: 'CommandOrControl+E', darwin: 'N' }, true)).toBe('CommandOrControl+E')
+  })
+})
+
+describe('resolveDefaults', () => {
+  it('按平台对整表求值', () => {
+    const defs = [
+      { id: 'a', default: 'CommandOrControl+Shift+N', darwin: 'CommandOrControl+Shift+O' },
+      { id: 'b', default: 'CommandOrControl+E' },
+    ]
+    expect(resolveDefaults(defs, false)).toEqual({ a: 'CommandOrControl+Shift+N', b: 'CommandOrControl+E' })
+    expect(resolveDefaults(defs, true)).toEqual({ a: 'CommandOrControl+Shift+O', b: 'CommandOrControl+E' })
+  })
+  it('主窗口定义表不带 darwin：两平台求值一致，且等于既有默认表', () => {
+    expect(resolveDefaults(SHORTCUT_DEFS, true)).toEqual(resolveDefaults(SHORTCUT_DEFS, false))
+    expect(resolveDefaults(SHORTCUT_DEFS, true)).toEqual(DEFAULT_OVERRIDES)
   })
 })

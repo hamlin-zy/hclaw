@@ -49,10 +49,14 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
     const [sel, setSel] = useState(0)
     const [badges, setBadges] = useState<string[]>([])
     const listRef = useRef<HTMLDivElement>(null)
+    // ★ 请求序号守卫：快速切换目录时旧响应可能晚于新响应返回，
+    //   用递增序号标记「当前有效请求」，过期响应一律丢弃（不 setEntries/setLoading）
+    const reqIdRef = useRef(0)
 
     const fullPath = currentNav ? `${ws}/${currentNav}` : ws ?? ''
 
     const loadDir = useCallback(async (dir: string) => {
+        const id = ++reqIdRef.current
         if (!dir) {
             setEntries([]);
             setLoading(false);
@@ -61,15 +65,17 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
         setLoading(true)
         try {
             const r = await window.electronAPI?.workspaceReadDir?.(dir)
+            if (id !== reqIdRef.current) return // 代际守卫：已被更新的目录请求取代
             const list: FileEntry[] = Array.isArray(r) ? r : []
             list.sort((a, b) => a.isDirectory === b.isDirectory
                 ? a.name.localeCompare(b.name)
                 : a.isDirectory ? -1 : 1)
             setEntries(list)
         } catch {
+            if (id !== reqIdRef.current) return
             setEntries([])
         } finally {
-            setLoading(false)
+            if (id === reqIdRef.current) setLoading(false)
         }
     }, [])
 

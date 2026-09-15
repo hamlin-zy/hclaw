@@ -3,8 +3,9 @@
  * 单条消息的容器，包含头像、内容和时间戳
  */
 
-import {memo, useEffect, useMemo, useRef, useState} from 'react'
+import {memo, useEffect, useMemo, useState} from 'react'
 import type {Message} from '@shared/types'
+import {useTransientFlag} from '../../hooks/useTransientFlag'
 import {useSkillStore} from '../../stores/skillStore'
 import {useAgentTemplateStore} from '../../stores/agentTemplateStore'
 import {useUserCommandStore} from '../../stores/userCommandStore'
@@ -37,6 +38,12 @@ interface KnownCapabilityNames {
 let knownCapsCache: KnownCapabilityNames | null = null
 let knownCapsPromise: Promise<KnownCapabilityNames> | null = null
 
+/** 能力集合变更时失效模块级缓存（缓存与单飞 Promise 一并置空），下次访问重新拉取 */
+export function invalidateKnownCapabilityNames(): void {
+    knownCapsCache = null
+    knownCapsPromise = null
+}
+
 function fetchKnownCapabilityNames(): Promise<KnownCapabilityNames> {
     if (knownCapsCache) return Promise.resolve(knownCapsCache)
     if (!knownCapsPromise) {
@@ -55,6 +62,7 @@ function fetchKnownCapabilityNames(): Promise<KnownCapabilityNames> {
                     : [],
             }
             knownCapsCache = result
+            knownCapsPromise = null  // 成功分支归空，避免长期持有 Promise.all 闭包
             return result
         }).catch(() => {
             knownCapsPromise = null  // 失败允许重试
@@ -108,7 +116,7 @@ interface MessageBubbleProps {
 // ★ 与气泡内容（思考块/正文流式重画）解耦：流式 text/tool 事件只更新 message，
 //   statusNote 引用不变时 React 跳过本组件重渲染，DOM 零触碰 →
 //   加载动画/重试 UI 不再被流式渲染干扰（避免闪烁）。
-export interface StatusNoteData {
+interface StatusNoteData {
     type: 'retry' | 'error' | 'phase'
     label: string
     urgent?: boolean
@@ -134,8 +142,8 @@ function statusNoteEqual(
 
 const StatusNote = memo(function StatusNote({note}: {note: StatusNoteData | null | undefined}) {
     // ── 一键复制（错误/重试详情） ──
-    const [copied, setCopied] = useState(false)
-    const copyTimerRef = useRef<number | null>(null)
+    // 「已复制」反馈 1.5s 后复位；hook 内含卸载清理（不在条件 return 后注册 hooks）
+    const [copied, flashCopied] = useTransientFlag(1500)
     const copyStatusNote = async (text: string) => {
         try {
             await navigator.clipboard.writeText(text)
@@ -150,15 +158,8 @@ const StatusNote = memo(function StatusNote({note}: {note: StatusNoteData | null
             document.execCommand('copy')
             ta.remove()
         }
-        setCopied(true)
-        if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current)
-        copyTimerRef.current = window.setTimeout(() => setCopied(false), 1500)
+        flashCopied()
     }
-
-    // 卸载时清理复制反馈定时器，避免卸载后 setState（Hooks 需在条件 return 之前）
-    useEffect(() => () => {
-        if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current)
-    }, [])
 
     if (!note) return null
 

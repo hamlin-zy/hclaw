@@ -2,7 +2,7 @@
 import React from 'react'
 import type {LucideIcon} from 'lucide-react'
 
-export interface IconButtonProps {
+interface IconButtonProps {
   icon: LucideIcon
   label: string
   onClick?: () => void

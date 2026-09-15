@@ -43,25 +43,25 @@ export interface StreamSnapshot {
     executingToolsMessage: null
 }
 
-export interface ConvPendingQuestion {
+interface ConvPendingQuestion {
     question: string
     options?: string[]
     multiSelect?: boolean
     requestId?: string
 }
 
-export interface ConvPendingPermission {
+interface ConvPendingPermission {
     question: string
     requestId?: string
 }
 
-export interface ConvPendingToolsChange {
+interface ConvPendingToolsChange {
     requestId: string
     added: string[]
     removed: string[]
 }
 
-export interface RecoveryPlan {
+interface RecoveryPlan {
     /** DB 中 running/pending 但快照不含的工具（结果在崩溃窗口丢失，标记取消） */
     staleToolIds: string[]
 }

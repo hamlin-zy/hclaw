@@ -3,7 +3,7 @@
 import React from 'react'
 import {TreeChevron} from '../../components/common/TreeNode'
 
-export interface PanelHeaderProps {
+interface PanelHeaderProps {
   title: string
   /** 右侧计数（如文件数）；不传则不渲染 */
   count?: number

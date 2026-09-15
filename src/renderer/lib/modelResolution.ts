@@ -7,7 +7,7 @@
  */
 import type {LLMProvider, ModelOverride, ModelSchemeRole, ProviderModel} from '@shared/types'
 
-export interface ActiveModelResolution {
+interface ActiveModelResolution {
   /** 服务商 ID（providers.id）；未解析为 null */
   providerId: string | null
   /** 模型 ID（providers.models[].id）；未解析为 null */

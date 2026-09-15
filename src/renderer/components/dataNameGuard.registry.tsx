@@ -23,7 +23,7 @@ import PermissionRulesPanel from './PermissionRulesPanel'
 
 const noop = () => {}
 
-export interface GuardEntry {
+interface GuardEntry {
     name: string
     render: () => ReactElement
 }

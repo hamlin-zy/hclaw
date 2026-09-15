@@ -23,7 +23,7 @@ export {parseUserCommandContext} from '../../lib/userCommandParse'
 
 // ─── 类型配置 ──────────────────────────────────────────
 
-export interface CommandTypeStyle {
+interface CommandTypeStyle {
     icon: ComponentType<IconProps>
     color: string
     bg: string

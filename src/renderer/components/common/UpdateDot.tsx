@@ -1,4 +1,4 @@
-export interface UpdateDotProps {
+interface UpdateDotProps {
     show: boolean
     /** 悬停提示文案；提供时同时作为无障碍名 */
     title?: string

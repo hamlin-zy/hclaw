@@ -22,6 +22,8 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
     const listRef = useRef<HTMLDivElement>(null)
     const panelRef = useRef<HTMLDivElement>(null)
     const onCloseRef = useRef(onClose)
+    // 打开时聚焦输入框的一次性 rAF；卸载/关闭时取消，避免对已卸载节点聚焦
+    const focusRafRef = useRef<number | null>(null)
 
     useEffect(() => { onCloseRef.current = onClose }, [onClose])
 
@@ -30,7 +32,10 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
             void load()
             setQuery('')
             setSel(0)
-            requestAnimationFrame(() => searchRef.current?.focus())
+            focusRafRef.current = requestAnimationFrame(() => { focusRafRef.current = null; searchRef.current?.focus() })
+        }
+        return () => {
+            if (focusRafRef.current !== null) { cancelAnimationFrame(focusRafRef.current); focusRafRef.current = null }
         }
     }, [open, load])
 

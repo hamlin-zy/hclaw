@@ -533,16 +533,21 @@ function SchemeListItem({
 }) {
     const {updateScheme, duplicateScheme} = useModelSchemeStore()
     const [confirmRemove, setConfirmRemove] = useState(false)
+    const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理「二次确认」自动取消定时器
+    useEffect(() => () => { if (confirmTimer.current) clearTimeout(confirmTimer.current) }, [])
 
     const handleDelete = (e: React.MouseEvent) => {
         e.stopPropagation()
         if (confirmRemove) {
+            if (confirmTimer.current) clearTimeout(confirmTimer.current)
             onDelete()
             setConfirmRemove(false)
         } else {
+            if (confirmTimer.current) clearTimeout(confirmTimer.current)
             setConfirmRemove(true)
             // 3秒后自动取消确认状态
-            setTimeout(() => setConfirmRemove(false), 3000)
+            confirmTimer.current = setTimeout(() => { confirmTimer.current = null; setConfirmRemove(false) }, 3000)
         }
     }
 

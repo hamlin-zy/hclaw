@@ -444,6 +444,8 @@ export const agentTool: Tool<AgentToolInput, string> = {
         let output = ''
         let hasError = false
         let errorMsg = ''
+        // 截断终态（达轮数上限 / 循环检测）的告警文案；非空表示子任务未完成
+        let truncatedReason: string | undefined
         // ★ 子会话完整执行过程累积器：整个子 Agent 运行累积为「单条」assistant 消息
         //   （思考/工具调用/正文按时间序写入 contentBlocks，与主会话同构：1 指令 + 1 助手气泡），
         //   在 tool_result / llm_call_done 时机增量 UPSERT 同一条消息（控制落库频率），
@@ -551,16 +553,21 @@ export const agentTool: Tool<AgentToolInput, string> = {
                         subAgentStreamEvent: event,
                     })
                 } else if (event.type === 'done') {
-                    // ★ 透传原始 done 事件（保留 reason: completed/aborted），
-                    //   子会话 UI 才能正确显示中止态而非误报完成；父卡片 success 按 reason 判定
+                    // ★ 透传原始 done 事件（保留 reason: completed/aborted/max_turns_reached），
+                    //   子会话 UI 才能正确显示中止/截断态而非误报完成；父卡片 success 按 reason 判定
+                    // ★ 三态化：中止 / 截断（达轮数上限 或 循环检测）/ 正常完成。
+                    //   截断不再谎报成功，但保留 output（子代理确有产出，父级需看到部分成果）。
                     const doneReason = (event as {reason?: string}).reason || 'completed'
                     const isAborted = doneReason === 'aborted'
+                    const isTruncated = doneReason === 'max_turns_reached' || doneReason === 'loop_detected'
+                    if (isTruncated) truncatedReason = truncationErrorText(doneReason)
                     context.sendMessage({
                         type: 'subagent_done',
                         taskId: childConvId,
-                        success: !isAborted,
+                        success: !isAborted && !isTruncated,
                         output: isAborted ? '' : output,
-                        error: isAborted ? '已中止' : undefined,
+                        error: isAborted ? '已中止' : truncatedReason,
+                        truncated: isTruncated,
                         toolCallId: context.toolCallId,
                     })
                     sendChildAgentEvent(childConvId, event)
@@ -628,6 +635,17 @@ export const agentTool: Tool<AgentToolInput, string> = {
             }
         }
 
+        // ★ 截断终态：不再谎报 success:true，但保留 output（父级需看到部分成果）；
+        //   error 文案明确「未完成」，使父 LLM 一眼区分于失败/成功。_meta 保留以便跳转子会话。
+        if (truncatedReason) {
+            return {
+                success: false,
+                output: finalOutput,
+                error: truncatedReason,
+                _meta: {childConvId},
+            }
+        }
+
         // ⑪ 返回结果
         logger.info('[AgentTool]', {
             action: 'childConvCompleted',
@@ -642,6 +660,13 @@ export const agentTool: Tool<AgentToolInput, string> = {
             _meta: {childConvId},
         }
     },
+}
+
+/** 截断原因 → 明确告知父 LLM「未完成」的文案（区别于失败与成功） */
+function truncationErrorText(reason: string): string {
+    return reason === 'loop_detected'
+        ? '子任务未完成：检测到重复循环被截断'
+        : '子任务未完成：达到最大轮数上限被截断'
 }
 
 /** 格式化子 Agent 事件为人类可读文本 */

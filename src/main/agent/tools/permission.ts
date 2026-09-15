@@ -25,6 +25,7 @@ import * as path from 'path'
 import type {PermissionResult, PermissionRule, PlannedCommandsCheckResult, RunMode, Tool} from './types'
 import type {DangerousPermissionInfo} from '@shared/types'
 import {permissionRulesManager} from '../permissions/permissionRule'
+import {trace} from '../../startupTrace'
 
 /** 安全命令白名单（bash 工具中这些命令自动放行） */
 const SAFE_COMMAND_PATTERNS = [
@@ -226,9 +227,12 @@ export class PermissionEngine {
     }
 
     async setMode(mode: RunMode): Promise<void> {
+    trace('perm:setMode-enter')
     await this.ensureInit()
+    trace('perm:setMode-init-done')
       // 委托给 PermissionRulesManager
       const newContext = await permissionRulesManager.applyUpdate({type: 'setMode', mode})
+    trace('perm:setMode-persisted')
     this.mode = newContext.mode
     this.rules = newContext.rules
   }

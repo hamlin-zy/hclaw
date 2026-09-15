@@ -50,10 +50,9 @@ export const TIMEOUTS = {
 } as const
 
 // ─── iLink Protocol Constants ───────────────────────────────
-// NOTE: CHANNEL_VERSION must stay aligned with devDependency weixin-agent-sdk.
-// When you `npm update weixin-agent-sdk`, update this to match its version.
-// Example: weixin-agent-sdk@0.5.0 → CHANNEL_VERSION: '0.5.0'
-// See: https://www.npmjs.com/package/weixin-agent-sdk
+// NOTE: CHANNEL_VERSION must stay aligned with the online iLink SDK release.
+// When the upstream SDK bumps its version, update this to match.
+// Example: SDK 0.5.0 → CHANNEL_VERSION: '0.5.0'
 export const ILINK = {
     CHANNEL_VERSION: '0.5.0',
     BOT_TYPE: 3,
@@ -92,16 +91,6 @@ export const ILINK = {
     ERR_SESSION_EXPIRED: -14,
 } as const
 
-// ─── Voice Format Mapping ─────────────────────────────────
-
-export const VOICE_FORMATS: Record<number, string> = {
-    [ILINK.VOICE_FORMAT_DEFAULT]: 'amr',
-    [ILINK.VOICE_FORMAT_SILK]: 'silk',
-    [ILINK.VOICE_FORMAT_MP3]: 'mp3',
-    [ILINK.VOICE_FORMAT_WAV]: 'wav',
-    [ILINK.VOICE_FORMAT_AAC]: 'aac',
-}
-
 // ─── File Extensions ──────────────────────────────────────
 
 export const AUDIO_EXTENSIONS = new Set([
@@ -116,12 +105,6 @@ export const VIDEO_EXTENSIONS = new Set([
     '.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.m4v',
 ])
 
-export const FILE_EXTENSIONS = new Set([
-    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.zip',
-    '.rar', '.7z', '.txt', '.csv', '.json', '.xml', '.html', '.css', '.js',
-    '.ts', '.py', '.java', '.c', '.cpp', '.h', '.md', '.log',
-])
-
 // ─── CDN Constants ────────────────────────────────────────
 
 export const CDN = {
@@ -134,25 +117,6 @@ export const CDN = {
     /** Default SILK sample rate for voice transcoding */
     SILK_SAMPLE_RATE: 24_000,
 } as const
-
-// ─── iLink Headers ────────────────────────────────────────
-
-export function buildILinkHeaders(token: string, uin: string): Record<string, string> {
-    return {
-        'Content-Type': 'application/json',
-        'AuthorizationType': 'ilink_bot_token',
-        'Authorization': `Bearer ${token}`,
-        'X-WECHAT-UIN': uin,
-        'iLink-App-Id': 'bot',
-        'iLink-App-ClientVersion': ILINK.CLIENT_VERSION,
-    }
-}
-
-export function randomUin(): string {
-    const buf = Buffer.alloc(4)
-    for (let i = 0; i < 4; i++) buf[i] = Math.floor(Math.random() * 256)
-    return Buffer.from(String(buf.readUInt32BE(0)), 'utf-8').toString('base64')
-}
 
 // ─── Utility Functions ─────────────────────────────────────
 
@@ -254,7 +218,7 @@ const MIME_TYPES: Record<string, string> = {
 /**
  * Get MIME type from file extension
  */
-export function getMimeFromExtension(ext: string): string {
+function getMimeFromExtension(ext: string): string {
     const lowerExt = ext.toLowerCase().startsWith('.') ? ext.toLowerCase() : `.${ext.toLowerCase()}`
     return MIME_TYPES[lowerExt] || 'application/octet-stream'
 }

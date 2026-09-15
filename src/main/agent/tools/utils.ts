@@ -12,9 +12,5 @@ export function resolveAndValidatePath(
     inputPath: string,
 ): { absPath: string; error?: string } {
     const absPath = path.resolve(baseDir, inputPath)
-    const rel = path.relative(baseDir, absPath)
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-        // return {absPath, error: `Path outside working directory: ${inputPath}`}
-    }
     return {absPath}
 }

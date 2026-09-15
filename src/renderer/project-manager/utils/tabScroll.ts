@@ -11,7 +11,7 @@
  * 激活相邻 tab 时视野不跳变，少量 tab 已可见时零位移，单行不可滚动容器公式自然收敛为 no-op。
  */
 
-export interface RectLike {
+interface RectLike {
   left: number
   right: number
 }

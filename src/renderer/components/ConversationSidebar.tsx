@@ -13,11 +13,13 @@ import {confirm} from './ConfirmDialog'
 import {showUsageStats} from './dialogs/UsageStatsDialog'
 import {collectDescendants} from '../stores/conversationTree'
 import {useDayBoundaryTick} from '../hooks/useDayBoundaryTick'
+import {useTransientFlag} from '../hooks/useTransientFlag'
 import {useThemeStore} from '../stores/themeStore'
 import {useUpdaterStore} from '../stores/updaterStore'
 import {usePluginUpdateStore} from '../stores/pluginUpdateStore'
 import {useRepoUpdateStore} from '../stores/repoUpdateStore'
 import {useMcpUpdateStore} from '../stores/mcpUpdateStore'
+import {useInitProgressStore} from '../stores/initProgressStore'
 import SchemeSelector from './SchemeSelector'
 import {SIDEBAR_MENU_GROUPS, type SidebarMenuItem} from './sidebar/menuItems'
 import CopyToast from './common/CopyToast'
@@ -101,10 +103,42 @@ const STATUS_CONFIG: Record<SystemStatus, { label: string; colorClass: string; d
     },
 }
 
+/* ─── Init Phase Indicator ─── */
+
+/** 初始化阶段文案（动词） */
+const INIT_STAGE_LABELS: Record<string, string> = {
+    plugin: '扫描插件',
+    agent: '加载 Agent',
+    skill: '加载技能',
+    command: '加载命令',
+    mcp: '连接 MCP',
+}
+
+/** 读取启动能力初始化阶段文案（纯展示，不改动 status 判定）；无阶段返回 null */
+function useInitPhase(): string | null {
+    const active = useInitProgressStore((s) => s.active)
+    const stage = useInitProgressStore((s) => s.stage)
+    const done = useInitProgressStore((s) => s.done)
+    const total = useInitProgressStore((s) => s.total)
+
+    if (!active || !stage) return null
+
+    const verb = INIT_STAGE_LABELS[stage] || ''
+    // 有分母显示 done/total；无分母补省略号——「加载技能」这类纯动词短语看起来
+    // 像已结束的静态文案，加省略号才有「进行中」的语感。
+    // 省略号沿用 STATUS_CONFIG 的写法（'初始化...' / '工作中...'），保持同款视觉。
+    return total > 0 ? `${verb} ${done}/${total}` : `${verb}...`
+}
+
 function SystemStatusIndicator() {
     const {status, runningCount} = useSystemStatus()
+    const initPhaseLabel = useInitPhase()
 
-    const {label, colorClass, dotClass} = STATUS_CONFIG[status]
+    // 渲染优先级：working > 初始化阶段 > 常规系统状态
+    const showInitPhase = status !== 'working' && initPhaseLabel !== null
+    const {label, colorClass, dotClass} = showInitPhase
+        ? {...STATUS_CONFIG.initializing, label: initPhaseLabel}
+        : STATUS_CONFIG[status]
     const displayLabel = status === 'working' && runningCount > 0
         ? `${label} (${runningCount}个会话)`
         : label
@@ -911,7 +945,7 @@ export function ConversationList() {
     const workspaces = useConversationStore((s) => s.workspaces)
     const searchQuery = useConversationStore((s) => s.searchQuery)
     const activeConversationId = useConversationStore((s) => s.activeConversationId)
-    const [showCopyToast, setShowCopyToast] = useState(false)
+    const [showCopyToast, flashCopyToast] = useTransientFlag(1500)
     const [contextMenu, setContextMenu] = useState<{
         x: number;
         y: number;
@@ -1239,8 +1273,7 @@ export function ConversationList() {
                           setContextMenu(null)
                           try {
                               await navigator.clipboard.writeText(id)
-                              setShowCopyToast(true)
-                              setTimeout(() => setShowCopyToast(false), 1500)
+                              flashCopyToast()
                           } catch { /* clipboard unavailable */ }
                       }}
                   />

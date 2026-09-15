@@ -3,6 +3,7 @@ import path from 'path';
 import {createWindow, getMainWindow} from './window';
 import {getAppIconPath} from './utils/icon';
 import {gracefulRestart} from './utils/restart';
+import {trace} from './startupTrace';
 
 let tray: Tray | null = null;
 let trayIconLoaded = false;
@@ -25,14 +26,19 @@ function createFallbackIcon(): Electron.NativeImage {
 }
 
 export const createTray = (): void => {
+  // ── 冷启动观测：细粒度打点（仅记录，不改行为）──
+  trace('tray:enter');
   const isMac = process.platform === 'darwin';
   let icon: Electron.NativeImage;
   try {
       const iconPath = getAppIconPath();
+      trace('tray:icon-path-resolved', {path: iconPath});
       icon = nativeImage.createFromPath(iconPath);
+      trace('tray:icon-decoded', {isEmpty: icon.isEmpty(), size: icon.getSize()});
     if (icon.isEmpty()) {
       // 尝试备用路径
       const fallbackPath = path.join(app.getAppPath(), 'public/icon.png');
+      trace('tray:icon-fallback-path', {path: fallbackPath});
       icon = nativeImage.createFromPath(fallbackPath);
     }
     if (icon.isEmpty()) {
@@ -52,7 +58,9 @@ export const createTray = (): void => {
       resized.setTemplateImage(true);
       tray = new Tray(resized);
   } else {
+      trace('tray:before-new-Tray');
       tray = new Tray(icon);
+      trace('tray:after-new-Tray');
   }
 
   const menuItems: Electron.MenuItemConstructorOptions[] = [
@@ -110,10 +118,13 @@ export const createTray = (): void => {
     }
   });
 
+  trace('tray:before-menu-build');
   const contextMenu = Menu.buildFromTemplate(menuItems);
+  trace('tray:menu-built');
 
   tray.setToolTip('HClaw');
   tray.setContextMenu(contextMenu);
+  trace('tray:context-menu-set');
 
   tray.on('click', () => {
     const win = getMainWindow();
@@ -124,4 +135,6 @@ export const createTray = (): void => {
       win?.focus();
     }
   });
+
+  trace('tray:done');
 };

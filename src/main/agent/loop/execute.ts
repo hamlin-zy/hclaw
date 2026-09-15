@@ -55,7 +55,7 @@ export const MID_LOOP_HANDOFF_PROMPT = `当前任务执行中上下文接近窗�
 
 【重要】若希望新会话自动启动特定技能，可在调用 session_handoff 时传入 capability 参数（值为技能名，不带 / 前缀；填代理名或未匹配到技能时按普通会话继续）。`
 
-export type HandoffGateAction = 'none' | 'inject' | 'stop'
+type HandoffGateAction = 'none' | 'inject' | 'stop'
 
 /**
  * 每会话最近一次 LLM 请求的真实上下文占用（inputTokens + cacheReadTokens）。
@@ -787,7 +787,7 @@ export async function* retryBackoff(
 //  工具执行
 // ═══════════════════════════════════════════════════════════
 
-export interface ExecuteToolCallsParams {
+interface ExecuteToolCallsParams {
     toolExecutor: ToolExecutor
     collectedToolCalls: Array<{id: string; name: string; arguments: Record<string, unknown>}>
     state: AgentLoopState
@@ -912,7 +912,7 @@ export async function* executeToolCalls(
 // ─── 串行/并行执行 ─────────────────────────────────────────
 
 /** 串行执行工具调用 */
-export async function executeSerially(
+async function executeSerially(
     toolExecutor: ToolExecutor,
     toolCalls: any[],
     context: ToolContext,
@@ -927,7 +927,7 @@ export async function executeSerially(
 }
 
 /** 并行执行工具调用 */
-export async function executeInParallel(
+async function executeInParallel(
     toolExecutor: ToolExecutor,
     toolCalls: any[],
     context: ToolContext,

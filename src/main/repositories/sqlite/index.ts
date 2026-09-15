@@ -3,6 +3,7 @@ import * as fs from 'fs'
 import {Worker} from 'node:worker_threads'
 import {DatabaseSync, enhance} from '@photostructure/sqlite'
 import {getHclawDir} from '../../config'
+import {CHECKPOINT_WORKER_RESOURCE_LIMITS} from '../../workerLimits'
 
 type EnhancedDB = ReturnType<typeof enhance>
 
@@ -26,6 +27,9 @@ function ensureCheckpointWorker(): void {
     try {
         const w = new Worker(path.join(__dirname, 'checkpointWorker.js'), {
             workerData: {dbPath: DB_FILE},
+            // ★ 内存加固（评审建议 4）：单次 TRUNCATE 合并，256/16 已是宽松上限；
+            //   超限被杀 → 本函数的 error/exit 处理直接静默降级为同步 checkpoint，见 ../../workerLimits.ts。
+            resourceLimits: CHECKPOINT_WORKER_RESOURCE_LIMITS,
         })
         w.on('error', () => {
             w.terminate().catch(() => {})

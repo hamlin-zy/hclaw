@@ -83,6 +83,18 @@ describe('CapabilityHub.replaceAll', () => {
     expect(calls).toBe(0)
   })
 
+  it('hasArgs 变化参与浅签名（渲染端直接消费该投影字段，滞留会显示错误的参数提示）', async () => {
+    const hub = await newHub()
+    hub.replaceAll([entry({id: 'cmd', type: 'command', source: 'user', hasArgs: false})])
+
+    let calls = 0
+    hub.onChanged(() => { calls++ })
+    // 命令正文新增/移除 $ARGUMENTS → powerManager 重新投影时 hasArgs 翻转
+    hub.replaceAll([entry({id: 'cmd', type: 'command', source: 'user', hasArgs: true, searchText: 'a desc'})])
+
+    expect(calls).toBe(1)
+  })
+
   it('allowedTools 变化参与浅签名（投影字段，须触发信号）', async () => {
     const hub = await newHub()
     hub.replaceAll([entry({id: 'a', allowedTools: ['read']})])

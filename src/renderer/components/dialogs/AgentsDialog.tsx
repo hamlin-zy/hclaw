@@ -330,6 +330,9 @@ export default function AgentsDialog() {
     const [repoUrl, setRepoUrl] = useState('')
     const [repoInstalling, setRepoInstalling] = useState(false)
     const [repoMessage, setRepoMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+    const repoMessageTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // syncStatus 自动隐藏定时器（独立 ref，不与 repoMessageTimer 复用）
+    const syncStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const [repoList, setRepoList] = useState<any[]>([])
 
     const refreshRepoList = useCallback(() => {
@@ -339,6 +342,11 @@ export default function AgentsDialog() {
     useEffect(() => {
         refreshRepoList()
     }, [refreshRepoList])
+
+    // 卸载兜底：清理 repoMessage 自动隐藏定时器
+    useEffect(() => () => { if (repoMessageTimer.current) clearTimeout(repoMessageTimer.current) }, [])
+    // 卸载兜底：清理 syncStatus 自动隐藏定时器
+    useEffect(() => () => { if (syncStatusTimer.current) clearTimeout(syncStatusTimer.current) }, [])
 
     const handleRepoInstall = useCallback(async () => {
         if (!repoUrl.trim()) return
@@ -352,7 +360,8 @@ export default function AgentsDialog() {
                 await syncFromDisk()
                 refreshRepoList()
                 setRepoUrl('')
-                setTimeout(() => setRepoMessage(null), 3000)
+                if (repoMessageTimer.current) clearTimeout(repoMessageTimer.current)
+                repoMessageTimer.current = setTimeout(() => { repoMessageTimer.current = null; setRepoMessage(null) }, 3000)
             } else {
                 setRepoMessage({type: 'error', text: `安装失败: ${result?.error || '未知错误'}`})
             }
@@ -375,7 +384,7 @@ export default function AgentsDialog() {
     }, [init, syncFromDisk])
 
     // 挂载即拉取 + 订阅 capability:changed 自动重取（与 CommandsDialog 试点一致）
-    useCapabilityRefresh(loadData, [])
+    useCapabilityRefresh(loadData)
 
     const localTemplates = templates.filter(t => !t.tags?.some(tag => tag.startsWith('plugin:')))
     const pluginTemplates = templates.filter(t => t.tags?.some(tag => tag.startsWith('plugin:')))
@@ -448,13 +457,21 @@ export default function AgentsDialog() {
     }
 
     const handleSync = async () => {
+        // 结果提示 3s 后隐藏：ref 记账 + 先清旧定时器（对齐 repoMessageTimer 范例）
+        const scheduleClearSyncStatus = () => {
+            if (syncStatusTimer.current) clearTimeout(syncStatusTimer.current)
+            syncStatusTimer.current = setTimeout(() => {
+                syncStatusTimer.current = null
+                setSyncStatus(null)
+            }, 3000)
+        }
         const res = await syncFromDisk()
         if (res.success) {
             setSyncStatus(`已同步 ${res.count} 个 Agent`)
-            setTimeout(() => setSyncStatus(null), 3000)
+            scheduleClearSyncStatus()
         } else {
             setSyncStatus(`同步失败: ${res.error}`)
-            setTimeout(() => setSyncStatus(null), 3000)
+            scheduleClearSyncStatus()
         }
     }
 

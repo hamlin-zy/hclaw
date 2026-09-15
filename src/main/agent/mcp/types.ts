@@ -125,10 +125,15 @@ export interface MCPToolCallResult {
  * 仅保留 MCPTransportOptions 供 testConnection() 的超时配置使用。
  */
 export interface MCPTransportOptions {
-  /** 请求超时时间（毫秒），默认 60000 */
+  /**
+   * 请求超时时间（毫秒），默认 60000。
+   *
+   * ⚠️ 当前仅由 testConnection() 读取；运行期工具调用（callTool）走 SDK 内建的
+   * 60s 默认值，尚未接入本字段——如需按 server 覆盖运行期超时，需显式传入 callTool。
+   */
   requestTimeout?: number
   /** 关闭连接超时时间（毫秒），默认 5000 */
   shutdownTimeout?: number
-  /** 连接超时时间（毫秒），默认 60000 */
+  /** 连接/初始化握手超时时间（毫秒），默认 15000 */
   connectTimeout?: number
 }

@@ -1,7 +1,7 @@
 import type {ReactNode} from 'react'
 import {EmptyState} from './EmptyState'
 
-export interface AsyncBoundaryProps {
+interface AsyncBoundaryProps {
     loading: boolean
     error?: string | null
     empty?: boolean

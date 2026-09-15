@@ -743,50 +743,6 @@
   {
     "type": "cycle",
     "from": "src/main/repositories/index.ts",
-    "to": "src/main/repositories/sqlite/accountRepository.ts",
-    "unresolvedTo": "./sqlite/accountRepository",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "no-circular"
-    },
-    "cycle": [
-      {
-        "name": "src/main/repositories/sqlite/accountRepository.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "src/main/repositories/sqlite/index.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "src/main/config.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "src/main/repositories/index.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      }
-    ]
-  },
-  {
-    "type": "cycle",
-    "from": "src/main/repositories/index.ts",
     "to": "src/main/repositories/sqlite/configRepository.ts",
     "unresolvedTo": "./sqlite/configRepository",
     "dependencyTypes": [
@@ -1034,57 +990,6 @@
       },
       {
         "name": "src/main/repositories/index.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      }
-    ]
-  },
-  {
-    "type": "cycle",
-    "from": "src/main/repositories/sqlite/accountRepository.ts",
-    "to": "src/main/repositories/sqlite/index.ts",
-    "unresolvedTo": "./index",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "no-circular"
-    },
-    "cycle": [
-      {
-        "name": "src/main/repositories/sqlite/index.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "src/main/config.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "src/main/agent/runtimeConfigManager.ts",
-        "dependencyTypes": [
-          "local",
-          "dynamic-import"
-        ]
-      },
-      {
-        "name": "src/main/repositories/index.ts",
-        "dependencyTypes": [
-          "local",
-          "import"
-        ]
-      },
-      {
-        "name": "src/main/repositories/sqlite/accountRepository.ts",
         "dependencyTypes": [
           "local",
           "import"

@@ -87,7 +87,6 @@ const EXCLUDED: Record<string, string> = {
   [`${DIALOGS}/ToolsDialog.tsx`]: '用户已决定本轮不扩范围（工具管理对话框）',
   [`${DIALOGS}/SettingsDialog.tsx`]: '用户已决定本轮不扩范围（设置对话框）',
   // ── 既存债务：遍历命中但尚未收敛的文件 ──
-  [`${DIALOGS}/ChannelEditModal.tsx`]: DEBT_REASON,
   [`${DIALOGS}/ConversationsDialog.tsx`]: DEBT_REASON,
   [`${DIALOGS}/LLMConfigDialog.tsx`]: DEBT_REASON,
   [`${DIALOGS}/MCPEditCard.tsx`]: DEBT_REASON,

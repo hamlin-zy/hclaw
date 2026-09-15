@@ -11,7 +11,7 @@
 // - 分隔条无 hover 浮动反馈，仅光标变化。
 import React, {useCallback, useEffect, useRef} from 'react'
 
-export interface SplitPaneProps {
+interface SplitPaneProps {
   /** 'x' = 左右分栏（纵向分隔条）；'y' = 上下分栏（横向分隔条） */
   axis: 'x' | 'y'
   /**

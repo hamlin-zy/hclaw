@@ -3,6 +3,7 @@ import {useConversationStore} from '../stores/conversationStore'
 import MessageList from './message-list'
 import InputArea from './InputArea'
 import LoopWarningBanner from './LoopWarningBanner'
+import TurnLimitNotice from './TurnLimitNotice'
 import {useAgentStore} from '../stores/agentStore'
 
 interface ConversationPageProps {
@@ -25,6 +26,8 @@ const ConversationPage = memo(function ConversationPage({conversationId}: Conver
     const wasRendered = useConversationStore((s) => s.renderedConversationIds.includes(conversationId))
     // 循环检测警告条：仅该会话存在 loopWarning 时渲染（InputArea 上方）
     const hasLoopWarning = useAgentStore((s) => !!s.convAgentStates[conversationId]?.loopWarning)
+    // 轮数上限截断提示条：仅该会话存在 turnLimitNotice 时渲染（LoopWarningBanner 同级）
+    const hasTurnLimitNotice = useAgentStore((s) => !!s.convAgentStates[conversationId]?.turnLimitNotice)
 
     return (
         <>
@@ -39,6 +42,9 @@ const ConversationPage = memo(function ConversationPage({conversationId}: Conver
 
             {/* 循环检测警告条 — 仅存在未消除的 loopWarning 时渲染 */}
             {hasLoopWarning && <LoopWarningBanner conversationId={conversationId}/>}
+
+            {/* 轮数上限截断提示条 — 运行结束后留存，直到下一 run 开始或用户关闭 */}
+            {hasTurnLimitNotice && <TurnLimitNotice conversationId={conversationId}/>}
 
             {/* 输入框卡片 — 始终挂载，保持输入状态 */}
             <div

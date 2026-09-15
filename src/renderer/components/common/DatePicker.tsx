@@ -10,7 +10,7 @@ const DAY_CELLS = 42
 /** 年份网格一屏 12 年 */
 const YEARS_PER_PAGE = 12
 
-export interface DatePickerProps {
+interface DatePickerProps {
     /** '' 或 'yyyy-mm-dd' */
     value: string
     /** 清除时回调 '' */

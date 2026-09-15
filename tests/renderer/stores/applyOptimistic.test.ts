@@ -34,7 +34,7 @@ describe('applyOptimistic', () => {
             return 'saved'
         })
 
-        const res = await applyOptimistic<number, string>({
+        const res = await applyOptimistic<string>({
             snapshot: t.snapshot,
             mutate: t.mutate,
             persist,
@@ -48,7 +48,7 @@ describe('applyOptimistic', () => {
     it('persist reject：回滚到快照值，错误为 Error.message', async () => {
         const t = makeTarget(1)
 
-        const res = await applyOptimistic<number, void>({
+        const res = await applyOptimistic<void>({
             snapshot: t.snapshot,
             mutate: t.mutate,
             persist: async () => {
@@ -64,7 +64,7 @@ describe('applyOptimistic', () => {
     it('persist resolve {ok:false,error}：按失败处理并回滚', async () => {
         const t = makeTarget(5)
 
-        const res = await applyOptimistic<number, {ok: boolean; error?: string}>({
+        const res = await applyOptimistic<{ok: boolean; error?: string}>({
             snapshot: t.snapshot,
             mutate: t.mutate,
             persist: async () => ({ok: false, error: '写入被拒绝'}),
@@ -77,7 +77,7 @@ describe('applyOptimistic', () => {
     it('persist resolve {ok:false} 缺 error：使用默认文案', async () => {
         const t = makeTarget(0)
 
-        const res = await applyOptimistic<number, {ok: boolean; error?: string}>({
+        const res = await applyOptimistic<{ok: boolean; error?: string}>({
             snapshot: t.snapshot,
             mutate: t.mutate,
             persist: async () => ({ok: false}),
@@ -91,7 +91,7 @@ describe('applyOptimistic', () => {
     it('persist resolve {success:false,error}：同样按失败处理并回滚（主进程 IPC 约定）', async () => {
         const t = makeTarget(7)
 
-        const res = await applyOptimistic<number, {success: boolean; error?: string}>({
+        const res = await applyOptimistic<{success: boolean; error?: string}>({
             snapshot: t.snapshot,
             mutate: t.mutate,
             persist: async () => ({success: false, error: 'agents:update 失败'}),
@@ -104,7 +104,7 @@ describe('applyOptimistic', () => {
     it('persist resolve {success:true,...}：视为成功', async () => {
         const t = makeTarget(1)
 
-        const res = await applyOptimistic<number, {success: boolean}>({
+        const res = await applyOptimistic<{success: boolean}>({
             snapshot: t.snapshot,
             mutate: t.mutate,
             persist: async () => ({success: true}),
@@ -117,7 +117,7 @@ describe('applyOptimistic', () => {
     it('persist resolve {ok:true,...}：视为成功', async () => {
         const t = makeTarget(3)
 
-        const res = await applyOptimistic<number, {ok: boolean; data?: string}>({
+        const res = await applyOptimistic<{ok: boolean; data?: string}>({
             snapshot: t.snapshot,
             mutate: t.mutate,
             persist: async () => ({ok: true, data: 'x'}),
@@ -130,7 +130,7 @@ describe('applyOptimistic', () => {
     it('持久化抛非 Error：错误信息规范化', async () => {
         const t = makeTarget(1)
 
-        const res = await applyOptimistic<number, void>({
+        const res = await applyOptimistic<void>({
             snapshot: t.snapshot,
             mutate: t.mutate,
             persist: async () => {

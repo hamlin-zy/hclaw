@@ -16,6 +16,7 @@ import {inferMediaTypeFromUrl, isDarkTheme, type ThemeName} from '@shared/types'
 import ImagePreviewModal from '../common/ImagePreviewModal'
 import {useSettingsStore} from '../../stores/settingsStore'
 import LinkContextMenu from '../common/LinkContextMenu'
+import {useTransientFlag} from '../../hooks/useTransientFlag'
 // toMediaUrl 逻辑复刻（避免在渲染进程引入模块依赖）
 // 将本地文件路径转换为 hclaw-media:// URL
 // URL 格式: hclaw-media://local/E:/path/to/file.mp3
@@ -61,13 +62,12 @@ const stableUrlTransform = (url: string) => url
 // ─── 代码块复制按钮 ─────────────────────────────────────
 
 const CopyButton = memo(function CopyButton({code}: { code: string }) {
-    const [copied, setCopied] = useState(false)
+    const [copied, flashCopied] = useTransientFlag(2000)
 
     const handleCopy = async () => {
         try {
             await navigator.clipboard.writeText(code)
-            setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
+            flashCopied()
         } catch {
             // 复制失败，静默处理
         }
@@ -391,7 +391,7 @@ export default MarkdownRenderer
 /**
  * 生成 Markdown 组件配置
  */
-export function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 'system' | 'ask') {
+function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 'system' | 'ask') {
     const codeStyle = isDarkTheme(theme) ? oneDark : oneLight
 
     return {

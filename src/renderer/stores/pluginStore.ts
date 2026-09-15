@@ -35,7 +35,7 @@ export interface PluginManifest {
     }>
 }
 
-export interface PluginCapabilityDetails {
+interface PluginCapabilityDetails {
     commands?: Array<{
         id: string
         name: string
@@ -76,21 +76,21 @@ export interface LoadedPlugin extends PluginCapabilityDetails {
 }
 
 /** 权威注册表（skillRegistry/agentRegistry/mcpService）给出的真实计数 */
-export interface PluginRealCounts {
+interface PluginRealCounts {
     skills: number
     agents: number
     mcps: number
 }
 
 /** 展开详情用的真实能力明细（按需从权威注册表拉取） */
-export interface PluginCapabilityDetailMap {
+interface PluginCapabilityDetailMap {
     skills: Array<{ name: string; description?: string; userInvocable?: boolean; allowedTools?: string[] }>
     agents: Array<{ name: string; description?: string; type?: string }>
     mcps: Array<{ command: string; args?: string[]; env?: Record<string, string> }>
 }
 
 /** 版本下拉数据（tags/branches 列表） */
-export interface PluginVersionData {
+interface PluginVersionData {
     tags: string[]
     branches: string[]
     current: string
@@ -99,23 +99,25 @@ export interface PluginVersionData {
     hasUpdate?: boolean
 }
 
-export type PluginActionResult = { success: true } | { success: false; error: string }
-export type PluginVersionResult =
+type PluginActionResult = { success: true } | { success: false; error: string }
+type PluginVersionResult =
     | { success: true; versionInfo?: PluginVersionData }
     | { success: false; error: string }
 
 /**
  * 把主进程 PluginError 转成人类可读字符串（保留原组件 getErrorMessage 的口径）。
  */
-export function pluginErrorMessage(error: unknown): string {
+function pluginErrorMessage(error: unknown): string {
     if (!error || typeof error === 'string') return String(error ?? '未知错误')
     const e = error as Record<string, any>
-    return e.message ||
-        (e.type === 'manifest-not-found' ? `Manifest not found: ${e.path}` :
-            e.type === 'manifest-invalid' ? `Invalid manifest: ${e.errors?.join(', ')}` :
-                e.type === 'plugin-not-found' ? `Plugin not found: ${e.name}` :
-                    e.type === 'dependency-unsatisfied' ? `Missing dependencies: ${e.deps?.join(', ')}` :
-                        e.type ? String(e.type) : toErrorMessage(error))
+    if (e.message) return e.message
+    switch (e.type) {
+        case 'manifest-not-found': return `Manifest not found: ${e.path}`
+        case 'manifest-invalid': return `Invalid manifest: ${e.errors?.join(', ')}`
+        case 'plugin-not-found': return `Plugin not found: ${e.name}`
+        case 'dependency-unsatisfied': return `Missing dependencies: ${e.deps?.join(', ')}`
+        default: return e.type ? String(e.type) : toErrorMessage(error)
+    }
 }
 
 interface PluginStore {
@@ -147,6 +149,21 @@ interface PluginStore {
 }
 
 const pluginApi = () => (window.electronAPI as any)?.plugin
+
+/** 删除某插件的缓存条目（capabilityDetails / versionData 均为条目级创建、无删除路径，
+ *  卸载/重置后须一并移除，否则残留条目会随 key 常驻）。 */
+function dropPluginCaches(
+    name: string,
+    set: (fn: (s: PluginStore) => Partial<PluginStore>) => void,
+): void {
+    set((s) => {
+        const capabilityDetails = {...s.capabilityDetails}
+        const versionData = {...s.versionData}
+        delete capabilityDetails[name]
+        delete versionData[name]
+        return {capabilityDetails, versionData}
+    })
+}
 
 export const usePluginStore = create<PluginStore>((set, get) => ({
     plugins: [],
@@ -265,6 +282,8 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
         try {
             const result = await pluginApi()?.uninstall?.(name)
             if (result?.success) {
+                // 卸载成功后该插件的能力明细/版本数据条目不应残留（条目级创建、无删除路径）
+                dropPluginCaches(name, set)
                 await get().loadPlugins()
                 return {success: true}
             }
@@ -278,10 +297,9 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
         // applyOptimistic 的 snapshot 是「回滚副作用」函数（失败时调用），
         // 需在 mutate 前捕获前值，不能写成惰性 getter。
         const prev = get().plugins
-        const result = await applyOptimistic<LoadedPlugin[], { success: boolean }>({
+        const result = await applyOptimistic<{ success: boolean }>({
             snapshot: () => {
                 set({plugins: prev})
-                return prev
             },
             mutate: () => set((s) => ({
                 plugins: s.plugins.map((p) => (p.name === name ? {...p, enabled} : p)),
@@ -331,6 +349,8 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
         try {
             const result = await pluginApi()?.reset?.(name)
             if (result?.success) {
+                // 重置即抹掉该插件的本地改动，缓存的能力明细/版本数据条目一并移除
+                dropPluginCaches(name, set)
                 await get().loadPlugins()
                 return {success: true}
             }

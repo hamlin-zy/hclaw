@@ -1,4 +1,4 @@
-import {useState, useCallback} from 'react'
+import {useState, useCallback, useEffect, useRef} from 'react'
 import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
 import {MCPVersionBadge} from './MCPVersionBadge'
@@ -26,6 +26,9 @@ export default function MCPPluginServerCard({
     const pluginName = server.id.split(':')[1] || 'unknown'
     const isPluginDisabled = server.pluginEnabled === false
     const [copied, setCopied] = useState(false)
+    const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // 卸载兜底：清理「已复制」复位定时器
+    useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
     const versionMeta = useMcpUpdateStore(s => s.versionMeta[server.id])
     const hasUpdate = versionMeta?.hasUpdate === true
     const {availableVersions, switching, handleVersionSwitch} = useMcpVersionSwitch(server, versionMeta)
@@ -34,8 +37,9 @@ export default function MCPPluginServerCard({
         e.stopPropagation()
         try {
             await navigator.clipboard.writeText(buildMcpConfigJson(server))
+            if (copiedTimer.current) clearTimeout(copiedTimer.current)
             setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
+            copiedTimer.current = setTimeout(() => { copiedTimer.current = null; setCopied(false) }, 2000)
         } catch {
             /* clipboard unavailable */
         }

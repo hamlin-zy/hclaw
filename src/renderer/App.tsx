@@ -1,4 +1,4 @@
-import {Component, type ReactNode, useEffect} from 'react'
+import {Component, type ReactNode, useEffect, useRef} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {WarningIcon} from './components/icons'
 import TitleBar from './components/TitleBar'
@@ -284,6 +284,26 @@ export default function App() {
   // 注册系统内快捷键（非全局快捷键）
   useGlobalHotkeys()
 
+  // ── 冷启动观测：llm + modelScheme store 首次同时 rehydrate 完成时打点（仅一次）──
+  // persist 的 onRehydrateStorage 直接 mutate state，不触发 subscribe，故用轻量轮询。
+  const storesRehydratedMarkedRef = useRef(false)
+  useEffect(() => {
+    if (storesRehydratedMarkedRef.current) return
+    const check = (): void => {
+      if (
+        useLLMStore.getState().hasRehydrated &&
+        useModelSchemeStore.getState().hasRehydrated
+      ) {
+        storesRehydratedMarkedRef.current = true
+        clearInterval(timer)
+        window.electronAPI?.startup?.mark?.('renderer:stores-rehydrated')
+      }
+    }
+    const timer = setInterval(check, 50)
+    check()
+    return () => clearInterval(timer)
+  }, [])
+
   useEffect(() => {
     // 单一权威：theme.ts 的 applyThemeClass 负责「切 html class + 清除 index.html 内联变量」。
     // 切勿在此另建变量清单副本——漏键会让内联值永久压过 .dark（历史事故：--surface-chrome）。
@@ -327,11 +347,14 @@ export default function App() {
         await Promise.all([
           useConversationStore.getState().loadConversations(),
           useSettingsStore.getState().loadSettings(),
-          useSkillStore.getState().refreshSkills(),
           // ★ 历史 /能力 消息降级渲染依赖 agent 能力名集合，
           //   缺失会导致重启后 agent 类命令（如 /code-simplifier）无法渲染徽章
           useAgentTemplateStore.getState().init(),
         ])
+
+        // 能力刷新独立发起：其 IPC 在主进程侧可能要等 powerManager 初始化（冷启动可达数秒），
+        // 若并入上方 Promise.all 会把同组的 reloadShortcutBindings / resolveAndApplyTheme 一起拖后。
+        void useSkillStore.getState().refreshSkills()
 
         // settings hydration 完成 → 初始化 shortcutManager 快捷键绑定表
         reloadShortcutBindings()

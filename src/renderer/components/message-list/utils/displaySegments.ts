@@ -46,6 +46,8 @@ export type CombinedItem =
  * @returns 按时间序交错的片段数组
  */
 function buildSegmentsFromFlatFields(text: string, sorted: ToolCall[]): Segment[] {
+    // 遗留兼容分支：text.slice 在流式路径产生 SlicedString（搬运自旧 InterleavedContent）。
+    // 待 contentBlocks 全量迁移后可删除本函数；此处不得新增 slice 调用点。
     const segs: Segment[] = []
     let lastEnd = 0
 

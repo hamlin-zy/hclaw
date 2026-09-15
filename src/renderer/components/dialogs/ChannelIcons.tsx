@@ -2,7 +2,6 @@
  * ChannelIcons — 各渠道官方应用风格 SVG 图标
  * 用于会话列表区分渠道来源，以及 ChannelsDialog 渠道类型标识
  */
-import type {ChannelType} from '@shared/types'
 
 type IconProps = { className?: string; size?: number }
 
@@ -35,29 +34,3 @@ export function WeChatIcon({className, size = 16}: IconProps) {
     )
 }
 
-/** 桌面端默认图标 — 终端窗口 */
-export function DesktopIcon({className, size = 16}: IconProps) {
-    return (
-        <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <rect x="2" y="3" width="20" height="14" rx="2"/>
-            <line x1="8" y1="21" x2="16" y2="21"/>
-            <line x1="12" y1="17" x2="12" y2="21"/>
-            <polyline points="7 8 10 11 7 14"/>
-        </svg>
-    )
-}
-
-/** 根据 channelType 渲染对应图标 */
-export function ChannelTypeIcon({type, className, size}: { type?: ChannelType | null } & IconProps) {
-    switch (type) {
-        case 'wechat': return <WeChatIcon className={className} size={size}/>;
-        case 'feishu': return <FeishuIcon className={className} size={size}/>;
-        default: return <DesktopIcon className={className} size={size}/>;
-    }
-}
-
-/** 渠道名称中文 */
-export const CHANNEL_LABELS: Record<ChannelType, string> = {
-    wechat: '个人微信',
-    feishu: '飞书',
-}

@@ -47,7 +47,7 @@ export function parseCatalogEntriesFromContent(content: string): CatalogEntry[] 
 }
 
 /** 解析 `<available_mcp_tools>` 块（MCP 工具目录，catalog 通道专有） */
-export function parseMcpEntriesFromContent(content: string): CatalogEntry[] {
+function parseMcpEntriesFromContent(content: string): CatalogEntry[] {
     const block = content.split('<available_mcp_tools>')[1]?.split('</available_mcp_tools>')[0]
     if (!block) return []
     const entries: CatalogEntry[] = []

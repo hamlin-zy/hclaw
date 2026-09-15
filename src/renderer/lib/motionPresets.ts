@@ -36,13 +36,6 @@ export const popoverUp: Variants = {
   exit: {opacity: 0, y: 8, scale: 0.95},
 }
 
-/** 向下展开的弹层（带缩放，如从按钮向下弹出的面板） */
-export const popoverDown: Variants = {
-  initial: {opacity: 0, y: -8, scale: 0.95},
-  animate: {opacity: 1, y: 0, scale: 1},
-  exit: {opacity: 0, y: -8, scale: 0.95},
-}
-
 /** 下拉选择器（纯滑动，无缩放） */
 export const dropdown: Variants = {
   initial: {opacity: 0, y: -8},

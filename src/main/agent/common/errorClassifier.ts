@@ -36,14 +36,6 @@ export interface ClassifiedError {
     originalError: Error
 }
 
-/** 错误模式匹配器 */
-export interface ErrorPattern {
-    type: ErrorType
-    test: (error: Error) => boolean
-    retryable: boolean
-    retryAfter?: number
-}
-
 // ============================================
 // 辅助函数
 // ============================================

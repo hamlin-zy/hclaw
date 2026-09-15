@@ -1,4 +1,5 @@
 // src/main/project-manager/git/status.ts
+import {resolve} from 'path'
 import type {GitStatus, GitStatusSummary} from '../../../shared/types/project-manager'
 import {gitExec} from './gitExec'
 import {parseNumstat} from './numstat'
@@ -31,12 +32,16 @@ export function parsePorcelain(raw: string): Record<string, GitStatus> {
 const statusCache = new Map<string, {data: GitStatusSummary, time: number}>()
 
 export async function getGitStatusCached(workspace: string): Promise<GitStatusSummary> {
-  const cached = statusCache.get(workspace)
+  // key 归一化（与 fileSystem.ts 的 gitRepoCache 同一约定）：`E:\ws` 与 `E:\ws\` 指向同一目录，
+  // 必须命中同一条目，否则同一工作区会存多份缓存，且 invalidateStatusCache 用另一种写法删不掉 → 条目永久残留。
+  // 归一化只作用于 key，传给 git 的路径参数保持原样，避免行为变化。
+  const key = resolve(workspace)
+  const cached = statusCache.get(key)
   if (cached) {
     if (Date.now() - cached.time < 5000) return cached.data
     // 过期即回收：TTL 只在读路径生效，若不显式 delete，过期条目会永久驻留在 Map 中
     // （workspace 一旦关闭便再无读路径经过，条目永不回收）。
-    statusCache.delete(workspace)
+    statusCache.delete(key)
   }
   let statusMap: Record<string, GitStatus> = {}
   let additions = 0
@@ -57,17 +62,18 @@ export async function getGitStatusCached(workspace: string): Promise<GitStatusSu
     const data: GitStatusSummary = {statusMap, additions, deletions, updatedAt: Date.now()}
     // 仅成功路径写缓存：git 早期失败（工作区索引未就绪、命令短暂报错等）不应污染 5s 窗口，
     // 否则 FileTree 与 Status 面板会因缓存粘滞空态 5 秒，UI 表现为"检测失败"的假死。
-    statusCache.set(workspace, {data, time: Date.now()})
+    statusCache.set(key, {data, time: Date.now()})
     return data
   } catch {
     // 非 git 仓库或命令失败：返回空状态但**不写缓存**，下次调用立即重试。
     // 同时清掉该 key：本路径返回空状态，若 Map 中还留着旧的（可能非空）条目，
     // 一旦窗口/事件序列错位就会把过期数据当作有效状态返回；删除后保证任何路径下 key 都可回收。
-    statusCache.delete(workspace)
+    statusCache.delete(key)
     return {statusMap: {}, additions: 0, deletions: 0, updatedAt: Date.now()}
   }
 }
 
 export function invalidateStatusCache(workspace: string): void {
-  statusCache.delete(workspace)
+  // 入参同样归一化：外部写操作触发的失效必须能删掉 getGitStatusCached 写入的那条 key
+  statusCache.delete(resolve(workspace))
 }

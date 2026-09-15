@@ -107,6 +107,10 @@ export default function ToolMenu({onUploadFile, onOpenCommandPalette}: ToolMenuP
                                                     size: file.size,
                                                     type: file.type,
                                                     isImage,
+                                                    // ★ blob URL 所有权契约：此处创建的 previewUrl 随附件对象经
+                                                    //   onUploadFile 移交 InputArea.attachedFiles，revoke 责任方是
+                                                    //   InputArea（卸载 / clearAttachedFiles / 单删三处）。
+                                                    //   本组件不持有、也不得 revoke（否则 InputArea 预览裂图）。
                                                     previewUrl: isImage ? URL.createObjectURL(file) : undefined,
                                                 }
                                             })

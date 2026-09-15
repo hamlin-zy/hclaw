@@ -20,7 +20,7 @@ export interface ModelPricing {
 
 export type Currency = 'USD' | 'CNY'
 
-export const USD_PER_MILLION = 1_000_000
+const USD_PER_MILLION = 1_000_000
 
 /** $/1M → USD/token */
 export function perMtoToken(v: number): number {

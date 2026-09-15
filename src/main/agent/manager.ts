@@ -9,5 +9,5 @@
  * - manager.pluginAgents.ts: 插件 Agent 加载器
  */
 
-export {agentManager, AgentManager} from './manager.impl'
+export {agentManager, AgentManager, disposeAgentManagerEvents} from './manager.impl'
 export type {AgentStartParams} from './manager.types'

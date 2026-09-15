@@ -2,7 +2,7 @@
 
 import {useConversationStore, flatString} from '../../conversationStore'
 
-export interface PendingToolResultUpdate {
+interface PendingToolResultUpdate {
     toolCallId: string
     /** ★ schedule 时固化的所属消息 id：flush 不再依赖 convAgentStates.streamingMessageId
      *  （done（onWorkerExit 安全网 aborted 直发）可能先清空 streamingMessageId）。
@@ -68,10 +68,12 @@ export function getToolResultBatch(convId: string): Map<string, PendingToolResul
 
 export function flushToolResultBatch(convId: string) {
     const batch = toolResultBatches[convId]
-    if (!batch || batch.size === 0) return
-
-    // 即时清理：flush 后即删除会话 batch（新结果经 getToolResultBatch 重建）
+    if (!batch) return
+    // ★ 无论后续是否继续处理都删 key：空 Map 也要删（原 `!batch || batch.size === 0` 在
+    //   size 为 0 时直接 return，convId 的空 Map key 永久残留，与 shortcutManager 空 Set 删 key 同一范式）；
+    //   非空则即时清理，flush 后即删除会话 batch（新结果经 getToolResultBatch 重建）。
     delete toolResultBatches[convId]
+    if (batch.size === 0) return
 
     const convStoreState = useConversationStore.getState()
     const convMsgs = convStoreState.messagesMap[convId] || []

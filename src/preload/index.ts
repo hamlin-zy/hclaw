@@ -1,5 +1,20 @@
 import {contextBridge, ipcRenderer, webUtils} from 'electron'
 import type {UpdateResult} from '../shared/types/updater'
+// 启动进度帧形状与主进程保持一致（type-only import，编译后擦除，不引入主进程代码）
+import type {InitProgressPayload} from '../main/initProgress'
+
+// ── 冷启动观测：preload 脚本开始执行 ──
+// 放最前（早于所有参数解析/API 注入），用于把渲染进程耗时切成
+// 「进程 spawn + HTML 载入」/「preload」/「JS 模块图加载编译求值」三段。
+// 仅主窗口打点：其余窗口（项目管理/配置/备忘录/任务历史）带专属 argv 前缀，跳过以免污染时间线。
+const isSecondaryWindow = process.argv.some(a =>
+    a.startsWith('--hclaw-window-id=')
+    || a.startsWith('--hclaw-dialog=')
+    || a.startsWith('--hclaw-task-conv=')
+    || a.startsWith('--hclaw-workspace=')
+    || a.startsWith('--hclaw-memo-id=')
+    || a.startsWith('--hclaw-memo-workspace='))
+if (!isSecondaryWindow) ipcRenderer.send('startup:mark', 'renderer:preload-start')
 
 // 从 additionalArguments 读取初始主题（窗口创建前由主进程从 SQLite 读取原始主题名）
 // 主进程已传递原始名称（'dark'/'light'/'yuanshandai'/'shiyangjin'），不再映射
@@ -56,6 +71,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     isWin11,
     isDarwin,
     isDevMode,
+    // 冷启动观测：向主进程投递打点（fire-and-forget，不等待返回）
+    startup: {
+        mark: (label: string, data?: Record<string, unknown>) => ipcRenderer.send('startup:mark', label, data),
+    },
   // Window control
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
     getPlatform: () => ipcRenderer.invoke('get-platform'),
@@ -887,6 +906,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.on('capability:changed', handler)
             return () => ipcRenderer.removeListener('capability:changed', handler)
         },
+    },
+
+    // 启动能力初始化进度（主进程 → 渲染进程，纯展示）
+    system: {
+        onInitProgress: (callback: (payload: InitProgressPayload) => void) => {
+            const handler = (_: unknown, payload: any) => callback(payload)
+            ipcRenderer.on('system:init-progress', handler)
+            return () => ipcRenderer.removeListener('system:init-progress', handler)
+        },
+        /** 拉取最后一帧进度快照（补齐挂载前丢失的帧） */
+        getInitProgress: () => ipcRenderer.invoke('system:get-init-progress'),
     },
 
     // 任务批次（历史任务组窗口数据源）

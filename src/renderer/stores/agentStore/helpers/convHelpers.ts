@@ -28,9 +28,13 @@ export function clearAllBatches(convId: string) {
     clearToolResultBatchData(convId)
 }
 
-/** 清空会话的运行时状态（工具运行时 key）：done/error 收尾与会话删除兜底共用 */
+/** 清空会话的运行时状态（工具运行时 key + 批处理容器）：done/error 收尾与会话删除兜底共用 */
 export function clearConversationRuntimeState(convId: string) {
     useToolCallsStore.getState().clearConversationToolCalls(convId)
+    // ★ 批处理容器兜底清理：正常收尾路径靠 done/error 前的 flush 逐个删除，
+    //   而流式中途删会话走 removeConvData 兜底路径、不经 flush —— 不在此清会使
+    //   textBatches/thinkingBatches/toolResultBatches 的 convId key 永久残留。
+    clearAllBatches(convId)
 }
 
 /**

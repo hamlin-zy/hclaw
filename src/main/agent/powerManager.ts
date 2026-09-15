@@ -32,6 +32,8 @@ import type {CapabilityEntry} from '../capability/types'
 import type {AgentTemplate} from '@shared/types'
 import type {SkillDefinition} from './skills/types'
 import {logger} from './logger'
+import {initProgress} from '../initProgress'
+import {trace} from '../startupTrace'
 import {seedDefaultAgentFiles} from './defaults/seedAgentFiles'
 
 export interface EnabledPower {
@@ -40,8 +42,24 @@ export interface EnabledPower {
     mcps: MCPServerState[]
 }
 
+/** 冷启动观测：从调用栈提取 refresh() 的外部触发者（仅用于归因，失败返回空串） */
+function callerHint(): string {
+    try {
+        const lines = (new Error().stack ?? '').split('\n')
+        const frame = lines.find(l => l.includes('.js:') && !l.includes('powerManager'))
+        return frame?.trim().slice(0, 140) ?? ''
+    } catch {
+        return ''
+    }
+}
+
 class PowerManagerImpl {
     private initialized = false
+    /** initialize() 完成时 resolve；供 IPC 等路径「等初始化完成后直接读注册表」，避免重复全量扫描 */
+    private resolveInitialized: (() => void) | null = null
+    private initializedPromise: Promise<void> = new Promise<void>(resolve => {
+        this.resolveInitialized = resolve
+    })
     /** 执行队列 - 确保串行执行，防止并发 */
     private executionQueue: Promise<void> = Promise.resolve()
     /** 防抖定时器 ID */
@@ -72,39 +90,62 @@ class PowerManagerImpl {
      */
     private setupEventListeners(): void {
         // 插件启用事件 - 局部刷新该插件的能力
-        eventBus.on(PluginEvents.ENABLED, (pluginName: string) => {
-            if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
-            logger.debug('plugin-enabled', {pluginName})
-            this.refreshPlugin(pluginName, true)
-        })
+        eventBus.on(PluginEvents.ENABLED, this.onPluginEnabled)
 
         // 插件禁用事件 - 同步禁用状态（不调用 removePluginCapabilities，那是卸载用的）
         // handleDisable 会触发 powerManager.refresh() 做全量重载，这里仅做轻量同步
-        eventBus.on(PluginEvents.DISABLED, (pluginName: string) => {
-            if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
-            logger.debug('plugin-disabled', {pluginName})
-            // 轻量同步：仅更新内存中的启用状态，不清除注册表
-            skillRegistry.syncPluginStatus(pluginName, false)
-            agentRegistry.syncPluginStatus(pluginName, false)
-            // Commands: CommandDispatcher.getAllCommands() 在查询时按插件启用状态过滤
-            // 清除该插件的 commandCache（下次 query 时从 PluginRegistry 重读并过滤）
-            const commandDispatcher = CommandDispatcher.getInstance()
-            commandDispatcher.unregisterByPlugin(pluginName)
-        })
+        eventBus.on(PluginEvents.DISABLED, this.onPluginDisabled)
 
         // 插件安装事件 - 触发后台刷新（全量，因为可能有新插件）
-        eventBus.on(PluginEvents.INSTALLED, (pluginPath: string) => {
-            if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
-            logger.debug('plugin-installed', {pluginPath})
-            this.scheduleRefresh()
-        })
+        eventBus.on(PluginEvents.INSTALLED, this.onPluginInstalled)
 
         // 插件卸载事件 - 移除该插件的能力
-        eventBus.on(PluginEvents.UNINSTALLED, (pluginName: string) => {
-            if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
-            logger.debug('plugin-uninstalled', {pluginName})
-            this.removePluginCapabilities(pluginName)
-        })
+        eventBus.on(PluginEvents.UNINSTALLED, this.onPluginUninstalled)
+    }
+
+    // ★ eventBus.on() 返回 void（非 EventEmitter 注销句柄），故 4 个处理器必须以
+    //   具名实例字段持有，disposeEventListeners() 才能用同一引用 off()，
+    //   否则全局 eventBus 永久持有本实例闭包（幂等：off 对已移除 / 未注册的 handler 是 no-op）。
+    private eventsDisposed = false
+
+    private onPluginEnabled = (pluginName: string): void => {
+        if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
+        logger.debug('plugin-enabled', {pluginName})
+        this.refreshPlugin(pluginName, true)
+    }
+
+    private onPluginDisabled = (pluginName: string): void => {
+        if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
+        logger.debug('plugin-disabled', {pluginName})
+        // 轻量同步：仅更新内存中的启用状态，不清除注册表
+        skillRegistry.syncPluginStatus(pluginName, false)
+        agentRegistry.syncPluginStatus(pluginName, false)
+        // Commands: CommandDispatcher.getAllCommands() 在查询时按插件启用状态过滤
+        // 清除该插件的 commandCache（下次 query 时从 PluginRegistry 重读并过滤）
+        const commandDispatcher = CommandDispatcher.getInstance()
+        commandDispatcher.unregisterByPlugin(pluginName)
+    }
+
+    private onPluginInstalled = (pluginPath: string): void => {
+        if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
+        logger.debug('plugin-installed', {pluginPath})
+        this.scheduleRefresh()
+    }
+
+    private onPluginUninstalled = (pluginName: string): void => {
+        if (!this.initialized) return // 启动期间忽略，initialize() 会统一加载
+        logger.debug('plugin-uninstalled', {pluginName})
+        this.removePluginCapabilities(pluginName)
+    }
+
+    /** 注销全部 eventBus 订阅（幂等）。由 main 的 will-quit 调用。 */
+    disposeEventListeners(): void {
+        if (this.eventsDisposed) return
+        this.eventsDisposed = true
+        eventBus.off(PluginEvents.ENABLED, this.onPluginEnabled)
+        eventBus.off(PluginEvents.DISABLED, this.onPluginDisabled)
+        eventBus.off(PluginEvents.INSTALLED, this.onPluginInstalled)
+        eventBus.off(PluginEvents.UNINSTALLED, this.onPluginUninstalled)
     }
 
     /**
@@ -118,6 +159,7 @@ class PowerManagerImpl {
             try {
                 await this.loadAllCapabilities(pluginEnabledMap)
                 this.initialized = true
+                this.resolveInitialized?.()
                 const stats = await this.getStats()
                 logger.debug('initialize', {success: true, stats})
             } catch (error) {
@@ -148,12 +190,25 @@ class PowerManagerImpl {
         this.initialized = false
     }
 
+    /** 是否已完成首次全量初始化 */
+    isInitialized(): boolean {
+        return this.initialized
+    }
+
+    /** 等待首次全量初始化完成（已完成后立即 resolve） */
+    whenInitialized(): Promise<void> {
+        return this.initializedPromise
+    }
+
     /**
      * 刷新所有能力（响应插件状态变更）
      * 使用 serialized 队列防止并发重复刷新
      */
     async refresh(): Promise<void> {
         await this.serialized(async () => {
+            // 冷启动观测：记录触发者（打包后调用栈里是 .vite/main/<chunk>.js:<line>），
+            // 用于归因启动期「谁又触发了一整轮全量能力扫描」。
+            trace('cap:refresh-enter', {caller: callerHint()})
             logger.debug('refresh', {status: 'starting'})
             try {
                 capabilityMapper.clear()
@@ -340,13 +395,28 @@ class PowerManagerImpl {
      * 消除 initialize() 和 refresh() 的重复代码
      */
     private async loadAllCapabilities(pluginEnabledMap?: Record<string, boolean>): Promise<void> {
+        // ★ 纯展示层上报：技能/命令属"多条目"阶段，上报开始与结束。
+        //   加载器未暴露逐条回调，故退化为 stage/done（无分母），不重构加载逻辑。
+        initProgress.stage('skill')
+        trace('cap:loadAll-enter')
+
         // 并行加载所有能力
         await Promise.all([
-            this.loadAgents(),
-            this.loadSkills(pluginEnabledMap),
-            this.loadMcpServers(),
-            this.loadCommands()
+            this.loadAgents().then(() => {
+                trace('cap:loadAgents-done')
+                initProgress.done('agent')
+            }),
+            this.loadSkills(pluginEnabledMap).then(() => {
+                trace('cap:loadSkills-done')
+                initProgress.done('skill')
+            }),
+            this.loadMcpServers().then(() => trace('cap:loadMcpServers-done')),
+            this.loadCommands().then(() => {
+                trace('cap:loadCommands-done')
+                initProgress.done('command')
+            })
         ])
+        trace('cap:loadAll-done')
     }
 
     /**
@@ -358,9 +428,11 @@ class PowerManagerImpl {
 
         // 首次启动时将内置 Agent .md 写入用户配置目录
         seedDefaultAgentFiles()
+        trace('cap:agents-seeded')
 
         // 扫描所有 Agents（本地 + 插件）
         const agentTemplates = await scanAllAgents()
+        trace('cap:agents-scanned', {count: agentTemplates.length})
 
         // 注册所有 Agents
         const deps = createSqliteOwnershipDeps()
@@ -385,9 +457,11 @@ class PowerManagerImpl {
 
         // 加载本地 Skills
         await loadSkillsFromDirectory()
+        trace('cap:skills-local-done', {count: skillRegistry.getAll().length})
 
         // 加载插件 Skills
         await loadSkillsFromPlugins()
+        trace('cap:skills-plugins-done', {count: skillRegistry.getAll().length})
 
         // Worker 线程中：同步插件 Skills 启用状态
         if (pluginEnabledMap) {
@@ -435,7 +509,9 @@ class PowerManagerImpl {
      */
     private async loadCommands(): Promise<void> {
         // 加载命令
+        trace('cap:commands-refresh-enter')
         await CommandDispatcher.getInstance().refresh()
+        trace('cap:commands-refresh-done')
 
         // 将命令注册为 AgentTemplate（供 agent 工具降级查找）
         this.registerCommandsAsAgents()
@@ -725,6 +801,12 @@ class PowerManagerImpl {
 }
 
 export const powerManager = new PowerManagerImpl()
+
+/** 注销 powerManager 单例在全局 eventBus 上的订阅（幂等）。
+ *  供 main 的 app.on('will-quit') 调用。 */
+export function disposePowerManagerEvents(): void {
+    powerManager.disposeEventListeners()
+}
 
 // 兼容旧版本 API（拼写错误保留）
 export const powerManagerV2 = powerManager

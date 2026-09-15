@@ -64,19 +64,6 @@ function killProcessTree(pid: number): void {
 
 // ─── 输出截断 ──────────────────────────────────
 
-/** 同步 sleep（利用 Atomics.wait 阻塞，不阻塞事件循环以外的副作用） */
-function sleepSync(ms: number): void {
-  try {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
-  } catch {
-    // 环境不支持时退化为忙等（极短场景）
-    const end = Date.now() + ms
-    while (Date.now() < end) {
-      // spin
-    }
-  }
-}
-
 /** 安全追加输出，超限则截断（与 bashTool.safeAppend 行为一致） */
 function safeAppend(buffer: Buffer, chunk: Buffer, truncated: {value: boolean}): Buffer {
   if (truncated.value) return buffer
@@ -300,13 +287,13 @@ export class PersistentShellSession {
 
     const ok = await this.waitForMarker(INIT_NONCE, INIT_TIMEOUT)
     if (!ok) {
-      this.dispose()
+      await this.dispose()
       throw new Error(`Shell 会话初始化失败 (${this.shellInfo.shell})`)
     }
     // 验证中文探针：UTF-8 编码链路（init → 子进程输出 → 解码）生效
     const decoded = this.pending.toString('utf8')
     if (!decoded.includes(INIT_PROBE_TEXT)) {
-      this.dispose()
+      await this.dispose()
       throw new Error(`Shell 会话编码探针验证失败 (${this.shellInfo.shell})`)
     }
     this.pending = Buffer.alloc(0)
@@ -327,8 +314,14 @@ export class PersistentShellSession {
     return exec
   }
 
-  /** 销毁会话：杀进程树 + 标记 dead */
-  dispose(): void {
+  /**
+   * 销毁会话：杀进程树 + 标记 dead。
+   * ★ 改为 async：原实现用 `process.kill(pid,0)` + sleepSync(20) 同步忙等，最坏阻塞
+   *   所在线程 2s；改用同文件已有的 waitClosed（监听 'close' + 超时兜底），语义等价
+   *   （等待 OS 释放句柄，防测试环境 rmSync 工作目录 EPERM）但不占线程。
+   * 进程树 kill 仍是同步发生，仅「等待退出」变为异步。
+   */
+  async dispose(): Promise<void> {
     if (this.dead) return
     this.dead = true
     const waiter = this.waiter
@@ -338,20 +331,9 @@ export class PersistentShellSession {
     this.waiter = null
     if (this.proc.pid) {
       killProcessTree(this.proc.pid)
-      // 同步等待进程完全退出（Windows 上进程句柄/工作目录句柄释放略滞后于 taskkill 返回，
+      // 等待进程完全退出（Windows 上进程句柄/工作目录句柄释放略滞后于 taskkill 返回，
       // 不等待会导致测试环境 rmSync 工作目录时 EPERM）
-      const pid = this.proc.pid
-      const start = Date.now()
-      while (Date.now() - start < 2000) {
-        let exited = false
-        try {
-          process.kill(pid, 0)
-        } catch {
-          exited = true
-        }
-        if (exited) break
-        sleepSync(20)
-      }
+      await this.waitClosed(2000)
     }
     try {
       this.proc.kill()
@@ -385,7 +367,9 @@ export class PersistentShellSession {
 
     // abort 已触发：直接杀会话返回（与超时一致的销毁语义）
     if (opts.abortSignal?.aborted) {
-      this.dispose()
+      // dispose 现为 async：kill 仍同步发生，仅「等待退出」异步，
+      // 不 await 以保持本路径原有的即时返回语义
+      void this.dispose()
       return Promise.resolve({status: 'aborted', exitCode: null, signal: null, output: Buffer.alloc(0)})
     }
 
