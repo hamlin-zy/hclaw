@@ -5,7 +5,7 @@
  * 错误统一规范化为字符串，与 renderer 各 store / IPC 的 error 形态一致。
  */
 
-export interface ApplyOptimisticArgs<R> {
+interface ApplyOptimisticArgs<R> {
     /**
      * 回滚动作：失败时调用，把内存恢复到修改前的状态。
      * 实现方需在 mutate **之前**捕获旧值，并在此真正写回（`set({...})`）。

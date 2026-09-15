@@ -27,7 +27,7 @@ interface PluginGroupCardBaseProps {
  * 批量按钮与 data-name **联动**：一旦渲染批量按钮，就必须给出它的 data-name——
  * 否则会产出无 data-name 的交互元素，违反 `tests/renderer/components/dataNameGuard.test.tsx` 约定。
  */
-export type PluginGroupCardProps = PluginGroupCardBaseProps &
+type PluginGroupCardProps = PluginGroupCardBaseProps &
   (
     | { onToggleBatch: () => void; batchDataName: string }
     | { onToggleBatch?: undefined; batchDataName?: undefined }

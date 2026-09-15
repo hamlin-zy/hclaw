@@ -11,12 +11,8 @@ import {refreshToolStore, syncSchemeToBackend} from '../stores/schemeSync'
 // rehydration 完成标记：在 getItem 返回数据后设为 true，setItem 在此之前跳过写入
 const rehydratedStores = new Set<string>()
 
-export function markRehydrated(name: string): void {
+function markRehydrated(name: string): void {
     rehydratedStores.add(name)
-}
-
-export function isRehydrated(name: string): boolean {
-    return rehydratedStores.has(name)
 }
 
 // ─── Store 处理器配置 ────────────────────────────────────

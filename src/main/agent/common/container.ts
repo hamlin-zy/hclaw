@@ -54,8 +54,3 @@ class DIContainer {
 }
 
 export const container = new DIContainer()
-
-// 便捷方法
-export function getService<T>(token: Token | string): T {
-    return container.get<T>(token)
-}

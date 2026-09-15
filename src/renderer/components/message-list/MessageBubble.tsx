@@ -116,7 +116,7 @@ interface MessageBubbleProps {
 // ★ 与气泡内容（思考块/正文流式重画）解耦：流式 text/tool 事件只更新 message，
 //   statusNote 引用不变时 React 跳过本组件重渲染，DOM 零触碰 →
 //   加载动画/重试 UI 不再被流式渲染干扰（避免闪烁）。
-export interface StatusNoteData {
+interface StatusNoteData {
     type: 'retry' | 'error' | 'phase'
     label: string
     urgent?: boolean

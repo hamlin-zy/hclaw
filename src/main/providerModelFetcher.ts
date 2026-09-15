@@ -39,7 +39,7 @@ export interface RefreshTokenDeps {
   refreshGoogleToken?: (refreshToken: string) => Promise<{accessToken: string; expiryDate: number}>
 }
 
-export const FETCH_ERROR_MESSAGES: Record<FetchErrorCode, string> = {
+const FETCH_ERROR_MESSAGES: Record<FetchErrorCode, string> = {
   auth: 'API Key 无效或无权限',
   unsupported: '该服务商不支持自动获取，请手动添加模型',
   network: '无法连接，请检查 Base URL 与网络',

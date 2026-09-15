@@ -105,17 +105,6 @@ export interface UserAgentDefinition extends BaseAgentDefinition {
 export type AgentDefinition = BuiltInAgentDefinition | UserAgentDefinition
 
 /**
- * 类型守卫
- */
-export function isBuiltInAgent(agent: AgentDefinition): agent is BuiltInAgentDefinition {
-  return agent.source === 'built-in'
-}
-
-export function isUserAgent(agent: AgentDefinition): agent is UserAgentDefinition {
-  return agent.source === 'user'
-}
-
-/**
  * Agent 加载结果
  */
 export interface AgentLoadResult {

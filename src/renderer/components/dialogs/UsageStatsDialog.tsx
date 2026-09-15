@@ -7,7 +7,7 @@ import {computeKpis, duplicatedModelKeys, mergeByProvider} from '@shared/llmUsag
 import {KpiCard, StatRow, GroupTitle, providerDisplayName, ClientStatsNotice, InfoTip, getCostDisclaimer, CurrencyToggle, formatPricePerMillionTokens} from '../usage/statsParts'
 import {useDraggableDialog} from '../../hooks/useDraggableDialog'
 
-export interface UsageStatsOptions {
+interface UsageStatsOptions {
     convId: string
     title: string
 }

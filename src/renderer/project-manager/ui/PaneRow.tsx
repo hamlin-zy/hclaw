@@ -101,7 +101,7 @@ function PaneHandle({ownerId, ownerOnLeft, colRefs, specs, sizes, onResizeEnd}: 
   )
 }
 
-export interface PaneRowProps {
+interface PaneRowProps {
   /** 已提交的列顺序（拖动中的预览顺序由内部状态机维护） */
   order: PaneId[]
   sizes: Record<string, number>

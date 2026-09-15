@@ -135,7 +135,7 @@ export function computeMessageTokenStats(messages: Message[]): MessageTokenStats
 }
 
 /** 模型统计条目（computeMessageTokenStatsByModel 输出） */
-export interface ModelTokenStatsEntry {
+interface ModelTokenStatsEntry {
   /** 分组键 = 服务商名（缺失回退类型名）+ 模型名，不同服务商同名模型靠此区分 */
   key: string
   /** 服务商显示名（providerName 缺失时回退 provider 类型名） */

@@ -50,7 +50,7 @@ export default defineConfig({
                   if (id.includes('/components/dialogs/')) {
                       return 'components-dialogs'
                   }
-                  if (id.includes('/components/message-list') || id.includes('/components/InputArea') || id.includes('/components/SessionStats')) {
+                  if (id.includes('/components/message-list') || id.includes('/components/InputArea')) {
                       return 'components-message'
                   }
                   if (id.includes('/components/ConversationPage')) {

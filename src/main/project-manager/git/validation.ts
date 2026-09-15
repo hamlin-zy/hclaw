@@ -1,7 +1,7 @@
 // IPC 边界 ref/hash 校验：防止注入恶意参数
 
 /** hash 格式：4-64 位十六进制字符 */
-export function isValidHash(hash: string): boolean {
+function isValidHash(hash: string): boolean {
   return /^[0-9a-fA-F]{4,64}$/.test(hash)
 }
 

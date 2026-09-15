@@ -1,7 +1,7 @@
 // `.*` / `Cc` / `Co` / `Filter` 这类开关（spec §4 / §9.2）
 import React from 'react'
 
-export interface ToggleChipProps {
+interface ToggleChipProps {
   label: string
   active: boolean
   onToggle: () => void

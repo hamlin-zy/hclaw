@@ -117,7 +117,7 @@ async function handleReset(
  * Initialize the plugin system components
  * Called once during main process startup
  */
-export function initializePluginSystem(): void {
+function initializePluginSystem(): void {
   if (initialized) {
     return;
   }

@@ -1,4 +1,4 @@
-export const TRANSPORT_COLORS: Record<string, string> = {
+const TRANSPORT_COLORS: Record<string, string> = {
     stdio: 'bg-blue-50 text-blue-400 border-blue-100',
     sse: 'bg-green-50 text-green-500 border-green-100',
     http: 'bg-yellow-50 text-yellow-500 border-yellow-100',

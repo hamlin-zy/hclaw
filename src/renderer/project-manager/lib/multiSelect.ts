@@ -8,7 +8,7 @@ export function modsOf(e: {ctrlKey: boolean; metaKey: boolean; shiftKey: boolean
   return {ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey}
 }
 
-export interface MultiSelectResult {
+interface MultiSelectResult {
   selected: Set<string>
   anchor: string | null
   /** 主选（= 最近一次单击项；Ctrl 取消后回退 anchor，再回退集合首项，空则 null） */

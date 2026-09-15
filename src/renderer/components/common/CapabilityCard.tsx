@@ -1,6 +1,6 @@
 import type {ReactNode} from 'react'
 
-export interface CapabilityCardProps {
+interface CapabilityCardProps {
     title: ReactNode
     subtitle?: ReactNode
     /** 标题右侧徽章插槽（开关、标签、状态点等） */

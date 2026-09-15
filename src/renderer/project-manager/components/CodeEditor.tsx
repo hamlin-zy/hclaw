@@ -19,7 +19,7 @@ const MONO_FONT = 'ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, "Cou
  * match case / regexp / by word / replace / replace all / close / go / Go to line …）。
  * 挂在 EditorState.phrases facet 上，覆盖内置英文面板。
  */
-export const SEARCH_PHRASES: Record<string, string> = {
+const SEARCH_PHRASES: Record<string, string> = {
   Find: '查找',
   Replace: '替换',
   next: '下一个',

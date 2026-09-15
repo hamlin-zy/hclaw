@@ -19,12 +19,12 @@ import {ThinkingIcon, ToolIcon, SuccessIcon, ErrorIcon} from '../icons'
 // ── 类型 ─────────────────────────────────────────────
 
 /** 合并后的统一条目（用于按时间序渲染） */
-export type MergedTimelineEntry =
+type MergedTimelineEntry =
     | { kind: 'progress'; log: ProgressEntry }
     | { kind: 'stream'; entry: SubAgentStreamEntry }
 
 /** 渲染层兜底：合并连续 text/thinking 条目，避免 Store 层合并延迟导致逐词/逐 token 换行。 */
-export function mergeConsecutiveTextEntries(streams: SubAgentStreamEntry[]): SubAgentStreamEntry[] {
+function mergeConsecutiveTextEntries(streams: SubAgentStreamEntry[]): SubAgentStreamEntry[] {
     return streams.reduce<SubAgentStreamEntry[]>((acc, curr) => {
         const prev = acc[acc.length - 1]
         if (prev?.type === 'text' && curr.type === 'text') {
@@ -89,13 +89,6 @@ interface StreamEntryCardProps {
     collapsed?: boolean
     /** viewer 模式：切换折叠回调 */
     onToggle?: () => void
-}
-
-interface ProgressTimelineProps {
-    logs: ProgressEntry[]
-    variant: RenderVariant
-    /** 是否处于运行中（用于最后一条脉冲动画） */
-    isRunning?: boolean
 }
 
 // ── 工具函数 ─────────────────────────────────────────
@@ -451,81 +444,3 @@ function renderError(entry: SubAgentStreamEntry, variant: RenderVariant) {
     )
 }
 
-// ═══════════════════════════════════════════════════════
-//  ProgressTimeline
-// ═══════════════════════════════════════════════════════
-
-export function ProgressTimeline({logs, variant, isRunning}: ProgressTimelineProps) {
-    if (!logs || logs.length === 0) return null
-
-    if (variant === 'viewer') {
-        return (
-            <div className="relative pl-4 ml-1 space-y-1"
-                 style={{borderLeft: '2px solid var(--border-muted)'}}>
-                {logs.map((entry, i) => {
-                    const active = i === logs.length - 1
-                    return (
-                        <div key={i} className="relative flex items-start gap-3 py-1">
-                            <div className="absolute -left-[17px] top-2.5 w-2 h-2 rounded-full shrink-0"
-                                 style={{
-                                     backgroundColor: active ? 'var(--brand-primary)' : 'var(--border-muted)',
-                                     boxShadow: active ? '0 0 6px rgba(91,141,217,0.5)' : 'none'
-                                 }}/>
-                            <span className="text-[10px] font-mono mt-1 shrink-0"
-                                  style={{color: 'var(--text-muted)'}}>{fmtTime(entry.timestamp)}</span>
-                            <span className="text-xs leading-relaxed" style={{
-                                color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-                                fontWeight: active ? 500 : 400
-                            }}>
-                                {entry.text.replace(/^子 Agent /, '')}
-                            </span>
-                        </div>
-                    )
-                })}
-            </div>
-        )
-    }
-
-    if (variant === 'popup') {
-        return (
-            <>
-                {logs.map((entry, j) => (
-                    <div key={j} className="flex items-start gap-2 pl-4 py-1 text-[10px] text-[var(--text-secondary)]">
-                        <span className="text-[var(--info)] mt-0.5">●</span>
-                        <span className="flex-1">{entry.text.replace(/^子 Agent /, '')}</span>
-                    </div>
-                ))}
-            </>
-        )
-    }
-
-    // detailed
-    return (
-        <div className="space-y-0.5">
-            {logs.map((entry, i) => {
-                const isLast = i === logs.length - 1
-                return (
-                    <div key={i} className="flex items-start gap-2 text-[11px]">
-                        <div className="flex flex-col items-center shrink-0 pt-1">
-                            <div className={`w-2 h-2 rounded-full ${
-                                isRunning && isLast
-                                    ? 'bg-[var(--info)] animate-pulse'
-                                    : 'bg-[color-mix(in_srgb,var(--text-muted)_40%,transparent)]'
-                            }`}/>
-                            {i < logs.length - 1 && (
-                                <div className="w-px h-3 bg-[var(--border-muted)]"/>
-                            )}
-                        </div>
-                        <span className={`${
-                            isRunning && isLast
-                                ? 'text-[var(--info)]'
-                                : 'text-[var(--text-secondary)]'
-                        }`}>
-                            {entry.text.replace(/^子 Agent /, '')}
-                        </span>
-                    </div>
-                )
-            })}
-        </div>
-    )
-}

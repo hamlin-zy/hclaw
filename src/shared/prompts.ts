@@ -8,7 +8,7 @@ import type {PromptNodeKey, PromptNodeMeta, PromptScheme} from './types'
 
 // ─── 提示词节点 ─────────────────────────────────────────────
 
-export const SYSTEM_PROMPT_NODES: PromptNodeMeta[] = [
+const SYSTEM_PROMPT_NODES: PromptNodeMeta[] = [
     {
         key: 'system.intro',
         name: '角色定义',

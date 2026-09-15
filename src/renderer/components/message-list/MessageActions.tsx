@@ -257,7 +257,7 @@ export const AssistantMessageActions = memo(function AssistantMessageActions({me
     )
 })
 
-export {RetryButton, CopyButton, DeleteButton}
+export {CopyButton}
 
 /** 为多行文本每行添加缩进 */
 function indent(text: string, spaces: number): string {

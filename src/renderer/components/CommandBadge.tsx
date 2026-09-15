@@ -12,7 +12,6 @@
 
 import {memo} from 'react'
 import {motion} from 'framer-motion'
-import type {CommandExecution} from '@shared/types'
 import {CommandIcon} from './icons'
 
 interface CommandBadgeProps {
@@ -76,27 +75,5 @@ export const CommandBadge = memo(function CommandBadge({
     )
 })
 
-/**
- * CommandBadges — 命令徽标组
- *
- * 展示多个命令的状态，自动换行。
- */
-export const CommandBadges = memo(function CommandBadges({commands}: { commands: CommandExecution[] }) {
-    if (commands.length === 0) return null
-
-    return (
-        <div className="flex flex-wrap gap-2 my-2">
-            {commands.map((cmd, index) => (
-                <CommandBadge
-                    key={`${cmd.commandId}-${index}`}
-                    commandName={cmd.commandName}
-                    commandArgs={cmd.commandArgs}
-                    status={cmd.status}
-                    commandId={cmd.commandId}
-                />
-            ))}
-        </div>
-    )
-})
 
 export default CommandBadge

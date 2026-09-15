@@ -40,8 +40,6 @@ import {sessionHandoffTool} from './builtin/sessionHandoffTool'
 import {memoTool} from './builtin/memoTool'
 import {hclawDbQueryTool} from './builtin/hclawDbQueryTool'
 
-import {loadSkillsFromDirectory} from '../skills'
-
 export { setAgentToolConfig } from './builtin/agentTool'
 
 /** 注册所有内置工具到全局 registry */
@@ -76,15 +74,4 @@ export function registerBuiltinTools(): void {
       memoTool,
       hclawDbQueryTool,
   ])
-}
-
-/** 初始化技能系统
- *
- * 注意：此函数仅加载本地技能（public/custom），不加载插件技能。
- * 插件技能由 PowerManager.initialize() 统一加载，避免重复加载导致 CPU 飙升。
- */
-export async function initSkills(): Promise<number> {
-    const loadedBuiltin = await loadSkillsFromDirectory()
-    // 插件技能已由 PowerManager.initialize() 加载，此处不再重复加载
-    return loadedBuiltin
 }

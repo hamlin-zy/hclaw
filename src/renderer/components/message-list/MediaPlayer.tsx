@@ -25,12 +25,6 @@ const formatTime = (seconds: number): string => {
     return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-
-/** 判断 URL 是否为本地协议 */
-export function isLocalMediaUrl(url: string): boolean {
-    return url.startsWith('hclaw-media://')
-}
-
 /**
  * 音频播放器
  * 通过 IPC 读取原始 Buffer → Blob → createObjectURL 生成 blob: URL

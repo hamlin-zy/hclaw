@@ -27,7 +27,7 @@ const VIEW_MODES: ReadonlyArray<{mode: DiffViewMode, label: string}> = [
 ]
 
 /** Markdown 视图模式（spec：源码栏只读，不做编辑模式） */
-export type MdViewMode = 'split' | 'preview'
+type MdViewMode = 'split' | 'preview'
 
 /** md 视图切换器（与 diff 的 VIEW_MODES 同款 ToggleChip 范式，默认分屏） */
 const MD_VIEW_MODES: ReadonlyArray<{mode: MdViewMode, label: string}> = [

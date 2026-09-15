@@ -912,7 +912,7 @@ export async function* executeToolCalls(
 // ─── 串行/并行执行 ─────────────────────────────────────────
 
 /** 串行执行工具调用 */
-export async function executeSerially(
+async function executeSerially(
     toolExecutor: ToolExecutor,
     toolCalls: any[],
     context: ToolContext,
@@ -927,7 +927,7 @@ export async function executeSerially(
 }
 
 /** 并行执行工具调用 */
-export async function executeInParallel(
+async function executeInParallel(
     toolExecutor: ToolExecutor,
     toolCalls: any[],
     context: ToolContext,

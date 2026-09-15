@@ -5,7 +5,7 @@ import {fade, scaleFade} from '../lib/motionPresets'
 /**
  * 确认弹窗选项接口
  */
-export interface ConfirmDialogOptions {
+interface ConfirmDialogOptions {
     title: string
     message: string
     confirmText?: string
@@ -47,7 +47,7 @@ export function confirm(options: ConfirmDialogOptions): Promise<boolean> {
     return showDialog('confirm', options) as Promise<boolean>
 }
 
-export interface ConfirmInputOptions extends Omit<ConfirmDialogOptions, 'onConfirm'> {
+interface ConfirmInputOptions extends Omit<ConfirmDialogOptions, 'onConfirm'> {
     inputLabel?: string
     placeholder?: string
     initialValue?: string

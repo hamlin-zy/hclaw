@@ -348,26 +348,6 @@ export interface CommandExecutionContext {
   commandTemplate: string
 }
 
-/** 从消息的 metadata 中解析命令执行上下文 */
-export function parseCommandContext(metadata?: Record<string, unknown>): CommandExecutionContext | null {
-  if (!metadata) return null
-
-  const commandTemplate = metadata.commandTemplate as string | undefined
-  const commandId = metadata.commandId as string | undefined
-
-  if (!commandTemplate || !commandId) return null
-
-  // Extract command name (format: plugin:commandName)
-  const parts = commandId.split(':')
-  const cmdName = parts.length > 1 ? parts[1] : commandId
-
-  return {
-    commandId,
-    commandName: cmdName,
-    commandTemplate,
-  }
-}
-
 /** 命令执行状态 - 用于 UI 显示 */
 export interface CommandExecution {
   /** 命令 ID */
@@ -411,9 +391,6 @@ export interface UserCommandDef {
 
 /** HClaw 应用版本号 */
 export const HCLAW_VERSION = '0.1.0'
-
-/** 当前 messages.json 的 schema 版本 */
-export const MESSAGES_SCHEMA_VERSION = '2.0'
 
 // ─── Capability catalog types ──────────────────────────
 

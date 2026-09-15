@@ -8,7 +8,7 @@
 import React from 'react'
 import {TreeChevron} from '../../components/common/TreeNode'
 
-export interface TreeRowProps {
+interface TreeRowProps {
   /** 行内容（名称） */
   label: React.ReactNode
   /** 缩进层级：0 → 8px，n → n*13px（spec §13.3） */

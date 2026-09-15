@@ -11,7 +11,7 @@ import {buildCustomPriceEntries} from './customPriceEntries'
 import {computeKpis} from '@shared/llmUsage'
 import type {GlobalUsageStats, UsageStatsQueryParams} from '@shared/types'
 
-export function openUsageWindow(): void {
+function openUsageWindow(): void {
     openConfigWindow('usage')
 }
 

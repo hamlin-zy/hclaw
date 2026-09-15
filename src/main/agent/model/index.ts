@@ -19,7 +19,6 @@ import {
     getCurrentScheme,
     getCurrentSchemeId,
     getSchemeVersion,
-    hasSchemeChanged,
     setCurrentScheme,
 } from './modelSchemeManager'
 import {selectModelForTaskWithRole} from './modelSelector'
@@ -340,31 +339,6 @@ export function updateGlobalScheme(
 ): void {
     invalidateAdapterCache()
     setCurrentScheme(schemeId, scheme, providers)
-}
-
-/**
- * 更新全局模型方案（异步版本）
- *
- * 用于 Worker 中的方案更新，返回 Promise 确保更新完成。
- *
- * @param schemeId 方案 ID
- * @param scheme 方案配置
- * @param providers 服务商列表
- */
-export async function updateGlobalSchemeAsync(
-    schemeId: string,
-    scheme: ModelScheme,
-    providers: LLMProvider[],
-): Promise<void> {
-    invalidateAdapterCache()
-    setCurrentScheme(schemeId, scheme, providers)
-}
-
-/**
- * 检查当前方案是否已变更
- */
-export function checkSchemeChanged(schemeId: string): boolean {
-    return hasSchemeChanged(schemeId)
 }
 
 /**

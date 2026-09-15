@@ -35,7 +35,7 @@ export interface PluginManifest {
     }>
 }
 
-export interface PluginCapabilityDetails {
+interface PluginCapabilityDetails {
     commands?: Array<{
         id: string
         name: string
@@ -76,21 +76,21 @@ export interface LoadedPlugin extends PluginCapabilityDetails {
 }
 
 /** 权威注册表（skillRegistry/agentRegistry/mcpService）给出的真实计数 */
-export interface PluginRealCounts {
+interface PluginRealCounts {
     skills: number
     agents: number
     mcps: number
 }
 
 /** 展开详情用的真实能力明细（按需从权威注册表拉取） */
-export interface PluginCapabilityDetailMap {
+interface PluginCapabilityDetailMap {
     skills: Array<{ name: string; description?: string; userInvocable?: boolean; allowedTools?: string[] }>
     agents: Array<{ name: string; description?: string; type?: string }>
     mcps: Array<{ command: string; args?: string[]; env?: Record<string, string> }>
 }
 
 /** 版本下拉数据（tags/branches 列表） */
-export interface PluginVersionData {
+interface PluginVersionData {
     tags: string[]
     branches: string[]
     current: string
@@ -99,15 +99,15 @@ export interface PluginVersionData {
     hasUpdate?: boolean
 }
 
-export type PluginActionResult = { success: true } | { success: false; error: string }
-export type PluginVersionResult =
+type PluginActionResult = { success: true } | { success: false; error: string }
+type PluginVersionResult =
     | { success: true; versionInfo?: PluginVersionData }
     | { success: false; error: string }
 
 /**
  * 把主进程 PluginError 转成人类可读字符串（保留原组件 getErrorMessage 的口径）。
  */
-export function pluginErrorMessage(error: unknown): string {
+function pluginErrorMessage(error: unknown): string {
     if (!error || typeof error === 'string') return String(error ?? '未知错误')
     const e = error as Record<string, any>
     if (e.message) return e.message

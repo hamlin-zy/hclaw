@@ -7,22 +7,6 @@ export interface AgentStreamPayload {
     event: AgentStreamEvent
 }
 
-// ─── LLM 消息格式 ────────────────────────────────────────
-// 与主进程 ChatMessage 类型对齐
-
-export interface LLMMessage {
-    role: 'user' | 'assistant' | 'tool'
-    content: string
-    toolCalls?: Array<{
-        id: string
-        name: string
-        arguments: Record<string, unknown>
-    }>
-    toolCallId?: string
-    toolResult?: string
-    isError?: boolean
-}
-
 // ─── 多会话独立 Agent 状态 ────────────────────────────
 /** 每个会话独立的运行时数据，包括流式缓冲区、消息 ID、agent 状态等 */
 export interface ConvAgentData {

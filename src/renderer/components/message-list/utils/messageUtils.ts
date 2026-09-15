@@ -21,7 +21,7 @@ function firstStringField(args: Record<string, unknown>, fields: readonly string
 /**
  * 将值转换为字符串，失败返回 null
  */
-export function toStringOrNull(val: unknown): string | null {
+function toStringOrNull(val: unknown): string | null {
     if (typeof val === 'string') return val
     if (val && typeof val === 'object') return JSON.stringify(val)
     return null
@@ -160,36 +160,4 @@ export function resolveToolDisplayName(tc: ToolCall): string {
  */
 export function isSkillToolCall(tc: ToolCall): boolean {
     return tc.name === 'skill'
-}
-
-/**
- * 获取工具调用的简短描述（用于交错渲染中的原因展示）
- */
-export function getToolDescription(tc: ToolCall): string | null {
-    const args = tc.arguments as any
-    if (!args) return null
-
-    if (tc.name === 'file_read' || tc.name === 'file_write' || tc.name === 'file_edit') {
-        const path = toStringOrNull(args.filePath) || toStringOrNull(args.path)
-        const action = tc.name === 'file_read' ? '查看' : tc.name === 'file_write' ? '写入' : '编辑'
-        return path ? `${action} ${truncate(path, 50)}` : null
-    }
-    if (tc.name === 'glob') {
-        const pattern = toStringOrNull(args.pattern)
-        return pattern ? `搜索 ${truncate(pattern, 50)}` : null
-    }
-    if (tc.name === 'grep') {
-        const pattern = toStringOrNull(args.pattern)
-        return pattern ? `搜索 "${truncate(pattern, 40)}"` : null
-    }
-    if (tc.name === 'bash') {
-        const cmd = toStringOrNull(args.command)
-        return cmd ? `执行命令: ${truncate(cmd, 50)}` : null
-    }
-    if (isMcpToolName(tc.name)) {
-        for (const field of MCP_SUMMARY_FIELDS) {
-            if (args[field]) return truncate(String(args[field]), 60)
-        }
-    }
-    return null
 }

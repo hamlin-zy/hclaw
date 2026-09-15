@@ -34,6 +34,5 @@
     "tests/main/agent/ipc/finalReplay.diag.test.ts",
     "tests/main/agent/ipc/preciseDelta.diag.test.ts",
     "tests/main/agent/ipc/serializeForm.diag.test.ts"
-  ],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  ]
 }

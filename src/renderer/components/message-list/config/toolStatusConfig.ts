@@ -93,4 +93,3 @@ export function getCompactStatusConfig(status: string) {
     }
 }
 
-export type {StatusStyle}

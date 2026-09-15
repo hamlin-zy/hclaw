@@ -2,7 +2,7 @@
 
 import {useConversationStore, flatString} from '../../conversationStore'
 
-export interface PendingToolResultUpdate {
+interface PendingToolResultUpdate {
     toolCallId: string
     /** ★ schedule 时固化的所属消息 id：flush 不再依赖 convAgentStates.streamingMessageId
      *  （done（onWorkerExit 安全网 aborted 直发）可能先清空 streamingMessageId）。

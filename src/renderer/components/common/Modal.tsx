@@ -25,7 +25,7 @@ const FOCUSABLE = [
     '[tabindex]:not([tabindex="-1"])',
 ].join(',')
 
-export interface ModalProps {
+interface ModalProps {
     open: boolean
     onClose: () => void
     size?: 'md' | 'lg'

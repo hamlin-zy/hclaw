@@ -56,15 +56,15 @@ type ThemeMode = 'light' | 'dark';
 // ========================================
 
 /** 标题栏高度 (px) - 必须与 CSS --titlebar-height 一致 */
-export const TITLEBAR_HEIGHT = 33;
+const TITLEBAR_HEIGHT = 33;
 
 /** 窗口最小尺寸 */
-export const WINDOW_MIN_WIDTH = 700;
-export const WINDOW_MIN_HEIGHT = 700;
+const WINDOW_MIN_WIDTH = 700;
+const WINDOW_MIN_HEIGHT = 700;
 
 /** 窗口默认尺寸（在足够大的屏幕上使用的最大尺寸） */
-export const WINDOW_DEFAULT_WIDTH = 1400;
-export const WINDOW_DEFAULT_HEIGHT = 900;
+const WINDOW_DEFAULT_WIDTH = 1400;
+const WINDOW_DEFAULT_HEIGHT = 900;
 
 /** 窗口占屏幕工作区的比例（0~1），用于自适应缩放 */
 const WINDOW_SCREEN_RATIO = 0.75;
@@ -170,11 +170,6 @@ export function setMainWindow(win: BrowserWindow | null): void {
     mainWindow = win;
 }
 
-/** 获取退出标记 */
-export function getIsQuitting(): boolean {
-    return isQuitting;
-}
-
 /** 设置退出标记 */
 export function setIsQuitting(value: boolean): void {
     isQuitting = value;
@@ -185,7 +180,7 @@ export function setIsQuitting(value: boolean): void {
 // ========================================
 
 /** 更新窗口控制按钮 Overlay（Windows 专用） */
-export function updateTitleBarOverlay(theme: ThemeMode): void {
+function updateTitleBarOverlay(theme: ThemeMode): void {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
     // 确保在 Windows 平台上执行

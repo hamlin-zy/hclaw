@@ -1,7 +1,7 @@
 // repoGrouping — SkillsDialog 仓库 tab 的分组 + hasUpdate 优先排序纯函数
 // 独立成模块便于单测（无 React / zustand 依赖）。用泛型保留传入对象的完整类型。
 
-export interface RepoGroup<R = any, S = any> {
+interface RepoGroup<R = any, S = any> {
   repo: R
   skills: S[]
 }

@@ -4,7 +4,7 @@ import type {DirEntry} from '@shared/types/project-manager'
 
 export type VcsStatus = DirEntry['gitStatus']
 
-export interface StatusSpec {
+interface StatusSpec {
   /** 状态字母列内容；none 为空串（列仍渲染以保持对齐） */
   letter: string
   /** 文字颜色（CSS 变量） */

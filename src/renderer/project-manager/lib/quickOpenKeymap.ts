@@ -10,7 +10,7 @@ import {findConflicts, matchEvent, resolveDefaults, type AcceleratorSource, type
 /** QuickOpen 承载的三种模式（术语以 CONTEXT.md 为准） */
 export type QuickOpenMode = 'file-search' | 'recent-files' | 'find-in-files'
 
-export type QuickOpenAction = 'quickOpenFileSearch' | 'quickOpenRecentFiles' | 'quickOpenFindInFiles'
+type QuickOpenAction = 'quickOpenFileSearch' | 'quickOpenRecentFiles' | 'quickOpenFindInFiles'
 
 type QuickOpenDef = AcceleratorSource<QuickOpenAction> & {mode: QuickOpenMode}
 
@@ -18,7 +18,7 @@ type QuickOpenDef = AcceleratorSource<QuickOpenAction> & {mode: QuickOpenMode}
  * 声明序 = 运行时优先级（同键时仅第一个生效，与共享层 dispatch 同语义）。
  * macOS 上 File Search 用 `Cmd+Shift+O`：`Cmd+Shift+N` 在 macOS 是 Finder 的「新建文件夹」，不能绑。
  */
-export const QUICKOPEN_DEFS: readonly QuickOpenDef[] = [
+const QUICKOPEN_DEFS: readonly QuickOpenDef[] = [
     {id: 'quickOpenFileSearch', default: 'CommandOrControl+Shift+N', darwin: 'CommandOrControl+Shift+O', mode: 'file-search'},
     {id: 'quickOpenRecentFiles', default: 'CommandOrControl+E', mode: 'recent-files'},
     {id: 'quickOpenFindInFiles', default: 'CommandOrControl+Shift+F', mode: 'find-in-files'},
@@ -37,7 +37,7 @@ export function findQuickOpenConflicts(
 }
 
 /** 浮层键位语义：动作 → 模式；Esc 关闭；上下键归列表 */
-export type QuickOpenCommand =
+type QuickOpenCommand =
     | {kind: 'open'; mode: QuickOpenMode}
     | {kind: 'close'}
     | {kind: 'move'; delta: 1 | -1}

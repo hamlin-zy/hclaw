@@ -28,9 +28,9 @@ import * as fs from 'fs'
 import yaml from 'js-yaml'
 import {getAgentField} from '../../utils/fieldMapper'
 
-/** manifest 文件名。刻意不带扩展名：`loader/user.ts` 的 walkDir 只收 .md/.json/.yaml/.yml，避免被抓成 Agent。 */
+/** manifest 文件名。刻意不带扩展名：Agent 目录扫描（walkDir）只收 .md/.json/.yaml/.yml，避免被抓成 Agent。 */
 export const MANIFEST_FILENAME = '.builtin-manifest'
-export const MANIFEST_VERSION = 1
+const MANIFEST_VERSION = 1
 
 export interface BuiltinAgentManifestEntry {
     /** 我们整体写入过的内容的 sha1；锚点迁移过的文件不写入此字段（见安全不变量 a） */
@@ -79,7 +79,7 @@ export function contentHash(content: string): string {
     return crypto.createHash('sha1').update(content, 'utf-8').digest('hex')
 }
 
-export function emptyManifest(): BuiltinAgentManifest {
+function emptyManifest(): BuiltinAgentManifest {
     return {version: MANIFEST_VERSION, files: {}}
 }
 
@@ -291,7 +291,7 @@ export const BUILTIN_TEMPLATE_MIGRATIONS: BuiltinTemplateMigration[] = [
 ]
 
 /** 每个内置模板的生效性断言（迁移后校验，不通过则回滚） */
-export const BUILTIN_TEMPLATE_CHECKS: Record<string, ToolEffectivenessCheck> = {
+const BUILTIN_TEMPLATE_CHECKS: Record<string, ToolEffectivenessCheck> = {
     'plan.md': {required: ['file_write'], forbidden: []},
 }
 
@@ -323,7 +323,7 @@ export function verifyToolEffectiveness(
         return {ok: false, reason: 'frontmatter-parse-failed'}
     }
 
-    // 与 loader/user.ts 同源：getAgentField 承载别名与优先级
+    // getAgentField 承载别名与优先级（与 Agent 加载口径一致）
     const tools = parseToolsValue(getAgentField(frontmatter, 'allowedTools'))
     const disallowed = parseToolsValue(getAgentField(frontmatter, 'disallowedTools')) ?? []
     const wildcard = tools === undefined

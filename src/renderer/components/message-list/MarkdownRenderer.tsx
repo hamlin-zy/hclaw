@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter'
 import {oneDark, oneLight} from 'react-syntax-highlighter/dist/esm/styles/prism'
-import {Component, memo, useEffect, useMemo, useRef, useState} from 'react'
+import {Component, memo, useEffect, useMemo, useState} from 'react'
 import {createPortal} from 'react-dom'
 import rehypeRaw from 'rehype-raw'
 import MediaPlayer, {extractFileName} from './MediaPlayer'
@@ -391,7 +391,7 @@ export default MarkdownRenderer
 /**
  * 生成 Markdown 组件配置
  */
-export function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 'system' | 'ask') {
+function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 'system' | 'ask') {
     const codeStyle = isDarkTheme(theme) ? oneDark : oneLight
 
     return {

@@ -12,7 +12,7 @@
 
 import {create} from 'zustand'
 import type {Skill} from '@shared/types'
-import type {SkillBubbleProps, SkillLogEntry} from '../components/skill/SkillBubble'
+import type {SkillLogEntry} from '../components/skill/SkillBubble'
 import {applyOptimistic, type ApplyOptimisticResult} from './applyOptimistic'
 
 // ─── 类型定义 ─────────────────────────────────────────
@@ -154,22 +154,6 @@ async function runSkillMutation<R extends {skills?: Skill[]}>(
   }
   return result
 }
-
-/** 将 execution 转换为 SkillBubbleProps */
-const toBubbleProps = (exec: SkillExecutionRecord): SkillBubbleProps => ({
-    skillName: exec.skillName,
-    status: exec.status,
-    phase: exec.phase,
-    currentStep: exec.currentStep,
-    progress: exec.progress,
-    references: exec.references,
-    script: exec.script,
-    logs: exec.logs,
-    result: exec.result,
-    error: exec.error,
-    startTime: exec.startTime,
-    endTime: exec.endTime,
-})
 
 // ─── Store 实现 ───────────────────────────────────────
 
@@ -479,14 +463,3 @@ export const useSkillStore = create<SkillStore>((set, get) => ({
     clearCurrentExecution: () => set({currentExecution: null}),
     clearExecutionHistory: () => set({executionHistory: [], currentExecution: null}),
 }))
-
-// ─── 辅助 Hook ─────────────────────────────────────────
-
-export function useCurrentSkillBubbleProps(): SkillBubbleProps | null {
-  const execution = useSkillStore(state => state.currentExecution)
-    return execution ? toBubbleProps(execution) : null
-}
-
-export function useSkillExecutionHistory(): SkillBubbleProps[] {
-    return useSkillStore(state => state.executionHistory.map(toBubbleProps))
-}

@@ -55,12 +55,4 @@ export const WORKER_MESSAGE_TYPES = {
     MEMO_CHANGED: 'memo_changed',
 } as const
 
-/** Squirrel Windows 安装程序命令 */
-export const SQUIRREL_COMMANDS = [
-    '--squirrel-install',
-    '--squirrel-updated',
-    '--squirrel-uninstall',
-    '--squirrel-obsolete',
-] as const
-
 export {ALWAYS_ON_TOOLS} from '../../shared/alwaysOnTools'

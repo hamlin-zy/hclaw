@@ -12,7 +12,7 @@
  */
 
 /** side-by-side 的行 kind（与 DiffViewer 内部 DiffRow.kind 同口径） */
-export type DiffRowKind = 'context' | 'change' | 'del' | 'add'
+type DiffRowKind = 'context' | 'change' | 'del' | 'add'
 
 /** 无内容的对侧空槽 */
 export const CELL_BLANK = ' is-blank'
@@ -24,7 +24,7 @@ export const CELL_ADDED = ' is-added'
 /** 纯函数只依赖这三个字段；DiffRow 结构兼容（多余字段无碍） */
 export type DiffRowLike = {kind: DiffRowKind, left?: string, right?: string}
 
-export type SbsSide = 'left' | 'right'
+type SbsSide = 'left' | 'right'
 
 /** side-by-side 单侧单元格的修饰类。空槽优先，再判本侧增删色。 */
 export function sbsCellClass(row: DiffRowLike, side: SbsSide): string {

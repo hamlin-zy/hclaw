@@ -40,7 +40,7 @@ export interface ExecuteToolResult {
  * - web_fetch：内部有 http.get({timeout}) + req.on('timeout') + AbortSignal
  * 外层超时与之竞争，会产生泛化的 ToolTimeoutError 覆盖内部的具体错误信息（如部分输出）
  */
-export const SKIP_OUTER_TIMEOUT_TOOLS = new Set(['agent', 'ask_user', 'bash', 'web_fetch'])
+const SKIP_OUTER_TIMEOUT_TOOLS = new Set(['agent', 'ask_user', 'bash', 'web_fetch'])
 
 /**
  * 内部管理超时的工具及其默认超时（与 builtin 工具内部常量保持一致），
