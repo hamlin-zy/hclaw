@@ -6,6 +6,7 @@ import {useEditorTabStore} from './stores/editorTabStore'
 import {useFileTreeStore} from './stores/fileTreeStore'
 import {FileTree} from './components/FileTree'
 import {EditorArea} from './components/EditorArea'
+import {QuickOpen} from './components/QuickOpen'
 import {GitStatusPanel} from './components/GitStatusPanel'
 import {GitLogPanel} from './components/GitLogPanel'
 import {StatusBar} from './components/StatusBar'
@@ -15,6 +16,7 @@ import {PanelCard} from './ui/PanelCard'
 import {PanelHeader} from './ui/PanelHeader'
 import {usePaneSize, GIT_HEIGHT_KEY, COLLAPSED_GIT_HEIGHT, type PaneSizeSpecs} from './hooks/usePaneSize'
 import {usePaneOrder, type PaneId} from './hooks/paneOrder'
+import {useQuickOpen} from './hooks/useQuickOpen'
 import {useThemeSync} from '../lib/theme'
 import WindowTitleBar from '../components/common/WindowTitleBar'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -58,6 +60,9 @@ export function ProjectManagerApp() {
   // 折叠态重载后 readPaneLayout 会把存的 22 夹到 spec.min(120)，sizes 在此场景是错的
   const gitHeight = gitCollapsed ? COLLAPSED_GIT_HEIGHT : Math.min(sizes[GIT_HEIGHT_KEY], gitMax)
   const changedCount = summary ? Object.keys(summary.statusMap).length : 0
+
+  // QuickOpen：本窗口唯一的 capture 阶段 document keydown 宿主（独立于主窗口的 shortcutManager）
+  const quickOpen = useQuickOpen()
 
   // 与 StatusBar / GitStatusPanel 同源：changedCount 数 statusMap 全量（含未跟踪 ??）。
   // git diff --numstat HEAD 不含未跟踪文件，只看 additions/deletions 会让"纯未跟踪"工作区
@@ -231,6 +236,10 @@ export function ProjectManagerApp() {
           </div>
         )}
       </div>
+      {/* QuickOpen 浮层：条件渲染 → 关闭即整棵卸载（无残留 DOM / 无残留浮层内监听器） */}
+      {quickOpen.mode !== null && (
+        <QuickOpen mode={quickOpen.mode} query={quickOpen.query} onQueryChange={quickOpen.setQuery} />
+      )}
       {/* 命令式 confirm() 需要有一个挂载中的实例才会 resolve（编辑区/变更列表共用） */}
       <ConfirmDialog />
       {/* TooltipPortal：PM 窗口内的 [title] 全部由它接管，渲染主题化 tooltip 并突破

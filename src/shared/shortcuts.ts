@@ -13,9 +13,17 @@ export type ShortcutAction =
 export type ShortcutScope = 'global' | 'app'
 export type ShortcutGroup = '面板 & 窗口' | '输入 & 会话' | '全局'
 
-export interface ShortcutDef {
-    id: ShortcutAction
+/**
+ * accelerator 来源的最小结构面：`default` 是统一键位，`darwin` 是可选的 macOS 覆盖
+ * （缺省则落回 `default`）。PM 窗口的键位层与共享层共用这一形状，故匹配 / 冲突检测只有一份实现。
+ */
+export interface AcceleratorSource<Id extends string = string> {
+    id: Id
     default: string
+    darwin?: string
+}
+
+export interface ShortcutDef extends AcceleratorSource<ShortcutAction> {
     scope: ShortcutScope
     label: string
     group: ShortcutGroup
@@ -113,13 +121,40 @@ export function mergeOverrides(overrides?: Record<string, string>): Record<Short
     return result
 }
 
-/** 冲突组：accelerator → 同键 action 列表（仅 >1 项） */
-export function findConflicts(effective: Record<ShortcutAction, string>): Record<string, ShortcutAction[]> {
-    const byAcc: Record<string, ShortcutAction[]> = {}
-    for (const def of SHORTCUT_DEFS) {
+/** 冲突组：accelerator → 同键 id 列表（仅 >1 项）。同键时按 `defs` 声明序取第一个生效 */
+export function findConflicts<Id extends string>(
+    effective: Record<string, string>,
+    defs: readonly AcceleratorSource<Id>[],
+): Record<string, Id[]>
+export function findConflicts(
+    effective: Record<ShortcutAction, string>,
+): Record<string, ShortcutAction[]>
+export function findConflicts(
+    effective: Record<string, string>,
+    defs: readonly AcceleratorSource<string>[] = SHORTCUT_DEFS,
+): Record<string, string[]> {
+    const byAcc: Record<string, string[]> = {}
+    for (const def of defs) {
         const acc = normalizeAccelerator(effective[def.id])
         if (!acc) continue
         ;(byAcc[acc] ??= []).push(def.id)
     }
     return Object.fromEntries(Object.entries(byAcc).filter(([, ids]) => ids.length > 1))
+}
+
+/**
+ * 平台相关的默认 accelerator：mac 上取 `darwin` 覆盖（非法则忽略），其余一律落回 `default`。
+ * 现有定义都不带 `darwin`，因此主窗口的求值结果与今天完全一致。
+ */
+export function platformDefault(def: AcceleratorSource, isMac: boolean): string {
+    if (!isMac || !def.darwin) return def.default
+    return normalizeAccelerator(def.darwin) ?? def.default
+}
+
+/** 定义表 → 当前平台的有效默认绑定 */
+export function resolveDefaults<Id extends string>(
+    defs: readonly AcceleratorSource<Id>[],
+    isMac: boolean,
+): Record<Id, string> {
+    return Object.fromEntries(defs.map(d => [d.id, platformDefault(d, isMac)])) as Record<Id, string>
 }

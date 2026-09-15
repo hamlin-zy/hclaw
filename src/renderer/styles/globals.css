@@ -4228,6 +4228,61 @@ html.bg-enabled,
 }
 .pm-send-dialog-btn--primary { background: var(--brand-primary); color: var(--surface-elevated); border-color: var(--brand-primary); }
 .pm-send-dialog-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ========================================
+   QuickOpen — PM 窗口快速导航浮层（ADR-0002）
+   固定三行：搜索框 / 匹配列表 / 选中项预览。票 01 只建壳，列表与预览留空。
+   ======================================== */
+
+.pm-quickopen-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-dropdown);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 12vh;
+    background: rgba(0, 0, 0, 0.35);
+}
+.pm-quickopen {
+    display: flex;
+    flex-direction: column;
+    width: 640px;
+    max-width: 90vw;
+    max-height: 70vh;
+    overflow: hidden;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-overlay);
+}
+.pm-quickopen-input {
+    height: 40px;
+    padding: 0 12px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-primary);
+    outline: none;
+}
+.pm-quickopen-list {
+    flex: 1 1 auto;
+    min-height: 140px;
+    overflow-y: auto;
+}
+.pm-quickopen-preview {
+    flex: 0 0 auto;
+    height: 180px;
+    overflow: auto;
+    padding: 8px 12px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-muted);
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: pre;
+}
 /* ========================================
    DatePicker — 通用日期选择器（dp- 前缀）
    自研弹层替换原生 <input type="date">：
