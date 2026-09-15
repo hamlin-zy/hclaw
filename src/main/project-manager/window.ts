@@ -1,6 +1,6 @@
 // src/main/project-manager/window.ts
 import {ipcMain} from 'electron'
-import {basename} from 'path'
+import {basename, resolve} from 'path'
 import {createAppWindow} from '../utils/windowFactory'
 import type {BrowserWindow} from 'electron'
 import {getGitStatusCached, invalidateStatusCache} from './git/status'
@@ -17,22 +17,51 @@ import {startWatcher, stopWatcher} from './watcher'
 import {getMainWindow} from '../window'
 import {handleSendToConversation, resolveSendToConversationAck} from './sendToConversation'
 
-// 注册表：key 为 workspace 绝对路径，对标 configWindow 的单例模式
-const projectWindows = new Map<string, BrowserWindow>()
+interface ProjectWindowEntry {
+  win: BrowserWindow
+  /** 创建窗口时的**原始** workspace 字符串：对外传递（IPC 载荷 / watcher / 缓存回收）一律用它 */
+  workspacePath: string
+}
+
+// 注册表：key 为归一化后的 workspace 路径（见 wsKey），对标 configWindow 的单例模式
+const projectWindows = new Map<string, ProjectWindowEntry>()
+
+/**
+ * 注册表键归一化（与 watcher.ts 的 watchers / fileSystem.ts 的 gitRepoCache /
+ * git/status.ts 的 statusCache 同一约定，windowFactory 明写「单例由调用方维护」）。
+ *
+ * 产品契约：**一个工作目录只允许一个 PM 窗口**。同一目录的不同写法（尾斜杠、`.`/`..`、
+ * 相对路径、混合分隔符）必须落到同一个键，否则会绕过单例开出第二个窗口 —— 而
+ * startWatcher 内部按同一 key 去重，第二次调用的 sendToWindow 回调被直接丢弃
+ * （watcher.ts 的 `existing.refs += 1; return`），第二个窗口从此收不到任何 pm:* 推送。
+ *
+ * Windows 文件系统大小写不敏感（`E:\ws` 与 `E:\WS` 是同一目录），故额外折叠大小写；
+ * 不同磁盘目录不可能仅大小写不同，折叠不会误合并。POSIX 大小写敏感，不折叠。
+ *
+ * ★ 只归一化 Map 键：对外传递的值一律保持原始串 —— `--hclaw-workspace`（渲染端回传、
+ *   与 DB 精确匹配）、`basename` 标题、`startWatcher`/`deleteGitRepoCache`/
+ *   `invalidateStatusCache`（三者自身归一化）、`handleSendToConversation` 的
+ *   workspacePath 与 listByWorkspace（DB 用 `WHERE workspace_path = ?` 精确匹配）。
+ */
+function wsKey(ws: string): string {
+  const resolved = resolve(ws)
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
 
 function sendToWindow(channel: string, workspace: string, data: unknown): void {
-  const win = projectWindows.get(workspace)
-  if (win && !win.isDestroyed()) win.webContents.send(channel, workspace, data)
+  const entry = projectWindows.get(wsKey(workspace))
+  if (entry && !entry.win.isDestroyed()) entry.win.webContents.send(channel, workspace, data)
 }
 
 export function openProjectManagerWindow(workspacePath: string): BrowserWindow {
-  const existing = projectWindows.get(workspacePath)
+  const key = wsKey(workspacePath)
+  const existing = projectWindows.get(key)
   if (existing) {
-    if (!existing.isDestroyed()) {
-      existing.focus()
-      return existing
+    if (!existing.win.isDestroyed()) {
+      existing.win.focus()
+      return existing.win
     }
-    projectWindows.delete(workspacePath) // 清理死条目（crash 后 closed 未触发的兜底）
+    projectWindows.delete(key) // 清理死条目（crash 后 closed 未触发的兜底）
   }
   const win = createAppWindow({
     id: 'project-manager',
@@ -45,9 +74,10 @@ export function openProjectManagerWindow(workspacePath: string): BrowserWindow {
     additionalArguments: [`--hclaw-workspace=${workspacePath}`],
     devTools: false,
   })
-  projectWindows.set(workspacePath, win)
+  projectWindows.set(key, {win, workspacePath})
   win.on('closed', () => {
-    projectWindows.delete(workspacePath)
+    // 用创建时捕获的 key 删除（不重算），保证与 set 严格配对
+    projectWindows.delete(key)
     void stopWatcher(workspacePath)
     // 模块级缓存按 workspace 键控，窗口关闭是唯一的生产侧回收时机：
     // 不做兜底清理的话，每个打开过的工作区会永久占一个 Map key（见 watcher 的 refcount 范式）。
@@ -62,13 +92,15 @@ export function openProjectManagerWindow(workspacePath: string): BrowserWindow {
 }
 
 export function getProjectWindowCount(workspacePath: string): number {
-  const win = projectWindows.get(workspacePath)
-  return win && !win.isDestroyed() ? 1 : 0
+  const entry = projectWindows.get(wsKey(workspacePath))
+  return entry && !entry.win.isDestroyed() ? 1 : 0
 }
 
 /** 主进程 before-quit 时全量停止 watcher（防 closed 未触发的泄露） */
 export function stopAllWatchers(): void {
-  for (const ws of [...projectWindows.keys()]) void stopWatcher(ws)
+  // ★ 用条目内保存的**原始** workspacePath：watcher 的 key 是 resolve(原始串)，
+  //   传归一化后的 key（win32 下已折叠大小写）会与条目对不上而静默漏停。
+  for (const {workspacePath} of projectWindows.values()) void stopWatcher(workspacePath)
 }
 
 // 幂等注册：重复 init 时先移除旧 handler 再注册（窗口重开 / 重复 init 场景）。
@@ -161,8 +193,8 @@ export function initProjectManagerIPC(): void {
     handleSendToConversation(payload, event.sender, {
       // 权限面：sender 必须是该 workspace 对应 PM 窗口的 webContents，且窗口仍打开（spec §5.2）
       isPmSender: (ws, sender) => {
-        const w = projectWindows.get(ws)
-        return !!w && !w.isDestroyed() && w.webContents === sender
+        const entry = projectWindows.get(wsKey(ws))
+        return !!entry && !entry.win.isDestroyed() && entry.win.webContents === sender
       },
       // existing 目标归属校验：动态 import 避免 sqlite 仓库在模块加载期被拉起
       listConvIds: async (ws) => {

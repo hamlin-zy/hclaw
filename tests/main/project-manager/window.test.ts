@@ -95,6 +95,34 @@ describe('openProjectManagerWindow', () => {
     expect(getProjectWindowCount('/ws/b')).toBe(1)
   })
 
+  it('同一目录的等价写法（尾斜杠）只开一个窗口 —— 「一个工作目录只允许一个 PM 窗口」', async () => {
+    const watcher = await import('../../../src/main/project-manager/watcher')
+    const {openProjectManagerWindow, getProjectWindowCount} = await loadModule()
+    openProjectManagerWindow('/ws/a')
+    openProjectManagerWindow('/ws/a/')
+    expect(mockWin.focus).toHaveBeenCalledTimes(1)
+    expect(getProjectWindowCount('/ws/a/')).toBe(1)
+    // 只 startWatcher 一次：第二次调用会被 watcher 按归一化 key 去重并**丢弃**其
+    // sendToWindow 回调，导致第二个窗口对 pm:* 推送永久失聪（见 window.ts wsKey 注释）
+    expect(watcher.startWatcher).toHaveBeenCalledTimes(1)
+  })
+
+  it.skipIf(process.platform !== 'win32')('同一目录大小写不同也只开一个窗口（win32 大小写不敏感）', async () => {
+    const {openProjectManagerWindow} = await loadModule()
+    openProjectManagerWindow('/ws/a')
+    openProjectManagerWindow('/WS/A')
+    expect(mockWin.focus).toHaveBeenCalledTimes(1)
+  })
+
+  it('stopAllWatchers 用原始 workspace 串停 watcher（与 watcher 侧 resolve(原始串) 的键对齐）', async () => {
+    const watcher = await import('../../../src/main/project-manager/watcher')
+    const {openProjectManagerWindow, stopAllWatchers} = await loadModule()
+    openProjectManagerWindow('/ws/a/')
+    stopAllWatchers()
+    // 若误传归一化 key（win32 下已折叠大小写），watcher 内部 resolve(key) 会对不上条目而静默漏停
+    expect(watcher.stopWatcher).toHaveBeenCalledWith('/ws/a/')
+  })
+
   it('窗口打开时启动 watcher，closed 时停止 watcher 并清理注册表', async () => {
     const watcher = await import('../../../src/main/project-manager/watcher')
     const {openProjectManagerWindow, getProjectWindowCount} = await loadModule()
