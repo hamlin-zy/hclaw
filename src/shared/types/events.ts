@@ -88,11 +88,9 @@ export interface AgentStreamEvent {
     | 'llm_call_done' | 'mode_change'
     | 'permission-rules-updated'
     | 'agent_start' | 'agent_progress' | 'tool_detail' | 'tool_use'
-    | 'settings-updated' | 'app-restart'
+    | 'app-restart'
     | 'loop_suspected' | 'loop_escalated' | 'loop_silenced'
   content?: string
-  /** settings-updated 事件的配置数据 */
-  settings?: Record<string, any>
   toolCall?: ToolCallInfo
   toolCallId?: string
   progress?: string

@@ -8,7 +8,7 @@
  *
  * 为什么是「目录遍历 + 显式拒绝清单」而不是人工枚举文件？
  *   上一版枚举 15 个文件 + 冻结 EXPECTED_FILE_COUNT：新增文件永远不会变红，护栏会随目录
- *   生长而静默腐化。现在改为默认**纳入**——dialogs/ 与 repo/ 下任何新文件都会自动进扫描集，
+ *   生长而静默腐化。现在改为默认**纳入**——dialogs/、repo/ 与 settings/ 下任何新文件都会自动进扫描集，
  *   要么它是干净的，要么有人必须带理由把它写进 EXCLUDED。拒绝清单里不存在的路径会撞上
  *   元测试，无法变成永久豁免。
  *
@@ -67,8 +67,8 @@ function walkDir(relDir: string): string[] {
   return out
 }
 
-/** dialogs/ 与 repo/ 的全部源文件——默认全部纳入扫描，除非显式拒绝。 */
-const TRAVERSED = [...walkDir(DIALOGS), ...walkDir(REPO)].sort()
+/** dialogs/、repo/ 与 settings/ 的全部源文件——默认全部纳入扫描，除非显式拒绝。 */
+const TRAVERSED = [...walkDir(DIALOGS), ...walkDir(REPO), ...walkDir(`${COMPONENTS}/settings`)].sort()
 
 /**
  * 显式拒绝清单（每项必须带理由字符串）。
@@ -84,7 +84,8 @@ const EXCLUDED: Record<string, string> = {
   [`${DIALOGS}/ChannelIcons.tsx`]: '用户已决定本轮不扩范围（渠道图标资源组件）',
   [`${DIALOGS}/MCPPluginServerCard.tsx`]: '用户已决定本轮不扩范围（MCP 插件服务器卡片）',
   [`${DIALOGS}/ToolsDialog.tsx`]: '用户已决定本轮不扩范围（工具管理对话框）',
-  [`${DIALOGS}/SettingsDialog.tsx`]: '用户已决定本轮不扩范围（设置对话框）',
+  // 注：`dialogs/SettingsDialog.tsx` 的豁免条目已随 T20 删除该文件一并移除（本测试的
+  // 「EXCLUDED 每项都真实存在」元断言禁止保留指向已删文件的过期白名单）。
   // ── 既存债务：遍历命中但尚未收敛的文件 ──
   [`${DIALOGS}/ConversationsDialog.tsx`]: DEBT_REASON,
   [`${DIALOGS}/LLMConfigDialog.tsx`]: DEBT_REASON,
@@ -221,7 +222,7 @@ const ALPHA_LADDER: AlphaRule[] = [
     role: 'hover:bg',
     alphas: [40],
     tokens: ['surface-muted'],
-    note: '独立角色·设置行 hover 底（ShortcutRow:70）：1 处；token 为 --surface-muted 而非品牌色，来源是中性行高亮',
+    note: '独立角色·设置行 hover 底（ShortcutRow:69）：1 处；token 为 --surface-muted 而非品牌色，来源是中性行高亮',
   },
   {
     role: 'hover:bg',
@@ -550,6 +551,18 @@ describe('令牌合规：能力管理页及子组件', () => {
       FILES.length,
       `扫描集只有 ${FILES.length} 个文件，低于下界 ${MIN_SCANNED_FILES}——遍历是不是坏了？`,
     ).toBeGreaterThanOrEqual(MIN_SCANNED_FILES)
+  })
+
+  it('settings/ 子树必须留在扫描集内（MIN_SCANNED_FILES 兜不住子树整体消失）', () => {
+    // 为何单列这条：MIN_SCANNED_FILES 是「遍历整体塌缩」的哨兵，粒度太粗——一旦
+    // walkDir(settings) 被删，扫描集只掉 14 个文件，下界照样绿（实测：删掉该 walkDir 后
+    // 只有本用例变红），而整个设置页覆盖会静默消失。故按子树单独钉住：现测 14 个文件，
+    // 取下界时留出删文件的余量，但「一个都没扫到」必红。
+    const settingsFiles = FILES.filter(f => f.includes('/components/settings/'))
+    expect(
+      settingsFiles.length,
+      `settings/ 子树在扫描集里只剩 ${settingsFiles.length} 个文件——settings 目录的 walkDir 是不是被删了？`,
+    ).toBeGreaterThanOrEqual(14)
   })
 
   it('禁止 `var(--x, #hex)` / `var(--x, rgb(...))` 兜底写法', () => {

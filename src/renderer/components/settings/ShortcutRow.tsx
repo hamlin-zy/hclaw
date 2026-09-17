@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react'
+import React, {useEffect, useState} from 'react'
 import {
     SHORTCUT_DEFS,
     eventToAccelerator, findConflicts, mergeOverrides,
@@ -24,7 +24,6 @@ const DEFAULTS = mergeOverrides(undefined)
 
 export function ShortcutRow({def, current, overrides, onChange, globalFailure}: Props) {
     const [recording, setRecording] = useState(false)
-    const rowRef = useRef<HTMLDivElement>(null)
 
     const conflicts = findConflicts(mergeOverrides(overrides))
     const conflictWith = conflicts[current]?.filter(id => id !== def.id) ?? []
@@ -66,7 +65,6 @@ export function ShortcutRow({def, current, overrides, onChange, globalFailure}: 
 
     return (
         <div
-            ref={rowRef}
             className="flex flex-wrap items-center justify-between gap-y-1 px-4 py-2.5
                        hover:bg-[color-mix(in_srgb,var(--surface-muted)_40%,transparent)] transition-colors"
         >
@@ -75,12 +73,12 @@ export function ShortcutRow({def, current, overrides, onChange, globalFailure}: 
                 <button
                     aria-label={`${def.label} 快捷键：${formatShortcutSpoken(current)}`}
                     onClick={() => setRecording(true)}
-                    className={`inline-flex items-center justify-center gap-1 px-1 py-0.5 text-[11px]
+                    className={`inline-flex items-center justify-center gap-1 px-1 py-0.5 text-xs
                                 min-h-[24px] leading-none select-none rounded-md outline-none
                                 transition-all duration-150 cursor-pointer
                                 ${recording
                                     ? 'ring-2 ring-[var(--brand-primary)] bg-[var(--brand-muted)] px-2 shadow-[0_0_10px_-2px_var(--brand-primary)] scale-[1.02]'
-                                    : 'bg-transparent border border-transparent hover:bg-[var(--surface-muted)] focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]'}`}
+                                    : 'bg-transparent border border-transparent hover:bg-[var(--surface-muted)] focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]'}`}
                 >
                     {recording && (
                         <span aria-hidden="true"

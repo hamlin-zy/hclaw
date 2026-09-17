@@ -16,6 +16,7 @@ const CONFIG_IPC_TS = path.resolve(process.cwd(), 'src/main/agent/ipc/config.ts'
 const HELPER_TS = path.resolve(process.cwd(), 'src/main/utils/windowBroadcast.ts')
 const PRELOAD_TS = path.resolve(process.cwd(), 'src/preload/index.ts')
 const APP_TS = path.resolve(process.cwd(), 'src/renderer/App.tsx')
+const MANAGER_IMPL_TS = path.resolve(process.cwd(), 'src/main/agent/manager.impl.ts')
 
 describe('windowBroadcast.ts — 可选 payload 支持', () => {
     it('broadcastToOtherWindows 支持第三参 payload：未传时等价 send(channel)，有值时 send(channel, payload)', () => {
@@ -25,10 +26,12 @@ describe('windowBroadcast.ts — 可选 payload 支持', () => {
     })
 })
 
-describe('config.ts — settings-update 广播 settings-changed', () => {
-    it('广播 Worker 之后调用 broadcastToOtherWindows(event, settings-changed, settings)', () => {
+describe('config.ts — settings-update 走统一传播助手', () => {
+    it('handler 调用 propagateSystemSettings 并排除发起窗口', () => {
         const src = fs.readFileSync(CONFIG_IPC_TS, 'utf-8')
-        expect(src).toContain("broadcastToOtherWindows(event, 'settings-changed', settings)")
+        expect(src).toContain('propagateSystemSettings(settings')
+        expect(src).toContain('excludeWebContentsId: event.sender.id')
+        expect(src).not.toContain("broadcastToOtherWindows(event, 'settings-changed'")
     })
 })
 
@@ -41,9 +44,19 @@ describe('跨窗口订阅链路', () => {
         expect(src).toContain('ipcRenderer.removeListener(\'settings-changed\'')
     })
 
-    it('App.tsx 订阅 onSettingsChanged 并触发 loadSettings 刷新 store', () => {
+    it('App.tsx 订阅 onSettingsChanged：应用主题 + 刷新快捷键；不再消费 settings-updated 通道', () => {
         const src = fs.readFileSync(APP_TS, 'utf-8')
         expect(src).toContain('onSettingsChanged')
-        expect(src).toContain('useSettingsStore.getState().loadSettings()')
+        expect(src).toContain('resolveAndApplyTheme')
+        expect(src).toContain('reloadShortcutBindings()')
+        expect(src).not.toContain("'settings-updated'")
+    })
+})
+
+describe('manager.impl — settings-updated 走统一传播助手', () => {
+    it('分支调用 propagateSystemSettings，且不再 sendToMainWindow 转发', () => {
+        const src = fs.readFileSync(MANAGER_IMPL_TS, 'utf-8')
+        expect(src).toContain('propagateSystemSettings(')
+        expect(src).not.toMatch(/sendToMainWindow\('settings-updated'/)
     })
 })

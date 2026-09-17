@@ -8,10 +8,11 @@ import * as path from 'path'
 import {WORKER_MESSAGE_TYPES} from './constants'
 import type {AgentStreamEvent} from './stream'
 import type {AgentTemplate, Message, SystemSettings, ToolCall} from '@shared/types'
-import {DEFAULT_MAX_TOKENS} from '@shared/types'
+import {DEFAULT_SETTINGS} from '@shared/settingsDefaults'
 import type {ChatMessage, ModelConfig} from './model/types'
 import type {ScheduleChangePayload} from '@shared/types/schedule'
 import {broadcastSchedulesChanged} from '../scheduler/scheduleBroadcast'
+import {propagateSystemSettings} from '../settings/propagateSettings'
 import {permissionEngine} from './tools/permission'
 import {isRecordingEnabled, getLlmTraceRootDir} from '../utils/llmTraceRecorder'
 import type {LlmCallRecord} from '@shared/types/llmTrace'
@@ -235,19 +236,12 @@ export class AgentManager {
     const workerPath = path.join(__dirname, 'worker.js')
 
     // 加载配置
-    const defaultSettings: SystemSettings = {
-      agent: {maxTurns: 500, retryCount: 10, initialRetryDelay: 5000, maxRetryDelay: 120000, llmTimeout: 600000, handoffThresholdRatio: 0.5, handoffThresholdMode: 'ratio', handoffThresholdTokens: 200_000, midLoopOverflowMode: 'auto-handoff', loopDetection: { mode: 'notify', threshold: 3 }},
-      model: {defaultMaxTokens: DEFAULT_MAX_TOKENS, defaultTemperature: 0},
-      mcp: {mcpTestTimeout: 15000},
-      ui: {theme: 'system'},
-      subagent: {maxConcurrency: 3, defaultTimeout: 15 * 60 * 1000, retryAttempts: 0, priorityEnabled: false, maxDepth: 3},
-    }
     let initialSettings: SystemSettings | null = null
     try {
-      initialSettings = systemSettingsRepo.getJson<SystemSettings>('settings') || defaultSettings
+      initialSettings = systemSettingsRepo.getJson<SystemSettings>('settings') || DEFAULT_SETTINGS
     } catch (err) {
       logger.warn('[AgentManager] loadSettingsFailed', {error: err})
-      initialSettings = defaultSettings
+      initialSettings = DEFAULT_SETTINGS
     }
 
     // 获取序列化的能力列表
@@ -681,9 +675,19 @@ export class AgentManager {
       ;(event as {messageId?: string}).messageId = pending.id
     }
 
-    // settings-updated 事件：直接发送到渲染进程
+    // settings-updated 事件：走统一传播链（见 src/main/settings/propagateSettings.ts）
     if (event.type === 'settings-updated') {
-      this.sendToMainWindow('settings-updated', (event as {type: 'settings-updated'; settings: SystemSettings}).settings)
+      await propagateSystemSettings(
+        (event as {type: 'settings-updated'; settings: SystemSettings}).settings,
+        {
+          getRunningConversations: () => this.getRunningConversations(),
+          broadcastSettings: (id, s) => this.broadcastSettings(id, s),
+          applyGlobalPermissionMode: async (mode) => {
+            await permissionEngine.setMode(mode)
+            this.broadcastGlobalPermissionModeUpdate(mode)
+          },
+        },
+      )
       return
     }
 

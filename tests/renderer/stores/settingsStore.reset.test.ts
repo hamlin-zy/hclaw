@@ -1,90 +1,88 @@
 /**
- * settingsStore 恢复默认行为单元测试
- *
- * 覆盖 spec「设置页恢复默认按钮」：
- * - resetCategoryToDefault: 分类恢复 → pending 对应分类 === DEFAULT_SETTINGS[category]
- * - resetAllToDefault: 全部恢复 → pending 7 分类全部 === 默认值
- * - 恢复动作不触发 configWrite（进 pending 不写盘，spec 决策 B）
- *
- * 隔离：mock window.electronAPI，不触碰真实 IPC / SQLite
+ * resetFieldsToDefault 测试（spec §5.3）：
+ * 页面级字段集重置：只动路径内字段；基座 = pendingSettings || settings；不触发写盘。
+ * （替换原 resetCategoryToDefault 分类重置测试；不得再引用已删除 API）
  */
-import {describe, expect, it, beforeEach, vi} from 'vitest'
+import {describe, it, expect, vi, beforeEach} from 'vitest'
 import {useSettingsStore, DEFAULT_SETTINGS} from '../../../src/renderer/stores/settingsStore'
+import {PAGE_FIELD_SETS} from '../../../src/renderer/components/settings/primitives/fieldSets'
 
-const CATEGORIES = Object.keys(DEFAULT_SETTINGS) as Array<keyof typeof DEFAULT_SETTINGS>
+describe('resetFieldsToDefault（页面级字段集重置）', () => {
+    const configWriteMock = vi.fn(async () => true)
 
-beforeEach(() => {
-    ;(globalThis as any).window = {
-        electronAPI: {
-            configWrite: vi.fn(async () => true),
-            settingsUpdate: vi.fn(async () => ({success: true})),
-        },
-    }
-    // 重置 store 为「已保存的自定义设置」状态
-    useSettingsStore.setState({
-        settings: {
-            agent: {maxTurns: 999, retryCount: 99, initialRetryDelay: 9000, maxRetryDelay: 90000, llmTimeout: 900000, handoffThresholdRatio: 0.5, midLoopOverflowMode: 'auto-handoff'},
-            model: {defaultMaxTokens: 12345, defaultTemperature: 1.5},
-            mcp: {mcpTestTimeout: 9999},
-            ui: {theme: 'dark', background: {enabled: true, imagePath: '/tmp/x.png', overlay: 80, blur: 30}},
-            subagent: {maxConcurrency: 9, defaultTimeout: 60000, retryAttempts: 5, priorityEnabled: true, maxDepth: 9},
-            channels: {sendGreeting: false, connectionTimeout: 90},
-            linkOpening: {mode: 'builtin'},
-            shortcuts: {overrides: {}},
-        },
-        pendingSettings: null,
-        isDirty: false,
-    })
-})
-
-describe('resetCategoryToDefault', () => {
-    it('恢复分类后 pending 对应分类等于 DEFAULT_SETTINGS[category]', () => {
-        const {resetCategoryToDefault} = useSettingsStore.getState()
-        resetCategoryToDefault('agent')
-        const state = useSettingsStore.getState()
-        expect(state.pendingSettings?.agent).toEqual(DEFAULT_SETTINGS.agent)
-        expect(state.isDirty).toBe(true)
-        // 其他分类不受影响
-        expect(state.pendingSettings?.model).toEqual({defaultMaxTokens: 12345, defaultTemperature: 1.5})
+    beforeEach(() => {
+        configWriteMock.mockClear()
+        ;(globalThis as any).window = {electronAPI: {configWrite: configWriteMock}}
+        useSettingsStore.setState({
+            settings: {
+                ...DEFAULT_SETTINGS,
+                ui: {...DEFAULT_SETTINGS.ui, theme: 'dark', background: {enabled: true, imagePath: 'bg.png', overlay: 60, blur: 20}},
+                fullSkillDescriptions: true,
+            },
+            pendingSettings: null,
+            isDirty: false,
+        })
     })
 
-    it('ui 分类恢复包含 background 默认值（enabled:false, imagePath:"", overlay:50, blur:16）', () => {
-        const {resetCategoryToDefault} = useSettingsStore.getState()
-        resetCategoryToDefault('ui')
-        const state = useSettingsStore.getState()
-        expect(state.pendingSettings?.ui).toEqual(DEFAULT_SETTINGS.ui)
-        expect(state.pendingSettings?.ui.background).toEqual({enabled: false, imagePath: '', overlay: 50, blur: 16})
-    })
-})
+    it('general 字段集：只复位分配字段；theme/background 与其他字段保留；不写盘', () => {
+        useSettingsStore.getState().updatePending('agent', {maxTurns: 999}) // 制造无关 pending
+        useSettingsStore.getState().resetFieldsToDefault([...PAGE_FIELD_SETS.general])
 
-describe('resetAllToDefault', () => {
-    it('恢复后 8 个分类全部等于默认值', () => {
-        const {resetAllToDefault} = useSettingsStore.getState()
-        resetAllToDefault()
-        const state = useSettingsStore.getState()
-        for (const cat of CATEGORIES) {
-            expect(state.pendingSettings?.[cat]).toEqual(DEFAULT_SETTINGS[cat])
-        }
-        expect(state.isDirty).toBe(true)
+        const s = useSettingsStore.getState()
+        const p = s.pendingSettings!
+        expect(p.agent.defaultPermissionMode).toBe('safe')
+        expect(p.agent.defaultDisplayMode).toBe('detailed')
+        expect(p.linkOpening!.mode).toBe('ask')
+        expect(p.fullSkillDescriptions).toBeUndefined()   // 缺省 = 关闭
+        expect(p.agent.maxTurns).toBe(999)                // 未列入字段集 → 保留
+        expect(p.ui.theme).toBe('dark')                   // 外观字段不在 general 集
+        expect(p.ui.background).toEqual({enabled: true, imagePath: 'bg.png', overlay: 60, blur: 20})
+        expect(s.isDirty).toBe(true)
+        expect(configWriteMock).not.toHaveBeenCalled()    // 重置只进 pending
     })
 
-    it('pendingSettings 非 null 基座时恢复覆盖生效', () => {
-        const {updatePending, resetAllToDefault} = useSettingsStore.getState()
-        updatePending('agent', {maxTurns: 111})
-        resetAllToDefault()
-        const state = useSettingsStore.getState()
-        expect(state.pendingSettings).not.toBeNull()
-        expect(state.pendingSettings?.agent).toEqual(DEFAULT_SETTINGS.agent)
-        expect(state.isDirty).toBe(true)
+    it('appearance 字段集：theme/background 整体复位到默认', () => {
+        useSettingsStore.getState().resetFieldsToDefault([...PAGE_FIELD_SETS.appearance])
+        const p = useSettingsStore.getState().pendingSettings!
+        expect(p.ui.theme).toBe('system')
+        expect(p.ui.background).toEqual(DEFAULT_SETTINGS.ui.background)
     })
-})
 
-describe('恢复动作不触发写盘', () => {
-    it('resetCategoryToDefault / resetAllToDefault 均不调用 configWrite', () => {
-        const {resetCategoryToDefault, resetAllToDefault} = useSettingsStore.getState()
-        resetCategoryToDefault('agent')
-        resetAllToDefault()
-        const configWrite = (globalThis as any).window.electronAPI.configWrite
-        expect(configWrite).not.toHaveBeenCalled()
+    it('agent 字段集：含子 Agent 字段，但保留 defaultPermissionMode/DefaultDisplayMode（归 general）', () => {
+        useSettingsStore.setState({
+            settings: {
+                ...useSettingsStore.getState().settings,
+                agent: {...DEFAULT_SETTINGS.agent, maxTurns: 1, defaultPermissionMode: 'auto', defaultDisplayMode: 'compact'},
+            },
+        })
+        useSettingsStore.getState().resetFieldsToDefault([...PAGE_FIELD_SETS.agent])
+        const p = useSettingsStore.getState().pendingSettings!
+        expect(p.agent.maxTurns).toBe(500)
+        expect(p.agent.loopDetection).toEqual(DEFAULT_SETTINGS.agent.loopDetection)
+        expect(p.subagent!.maxConcurrency).toBe(3)
+        expect(p.subagent!.maxDepth).toBe(3)
+        expect(p.agent.defaultPermissionMode).toBe('auto')  // 不在 agent 字段集 → 保留
+        expect(p.agent.defaultDisplayMode).toBe('compact')
+    })
+
+    it('pending 基座：已有 pending 时在其上重置，不退回已保存值', () => {
+        useSettingsStore.getState().updatePending('model', {defaultTemperature: 1.2})
+        useSettingsStore.getState().resetFieldsToDefault(['model.defaultTemperature'])
+        expect(useSettingsStore.getState().pendingSettings!.model.defaultTemperature).toBe(0)
+    })
+
+    it('resetAllToDefault：七分类全复位 + fullSkillDescriptions 复位 undefined', () => {
+        useSettingsStore.getState().resetAllToDefault()
+        const s = useSettingsStore.getState()
+        const p = s.pendingSettings!
+        expect(p.agent).toEqual(DEFAULT_SETTINGS.agent)
+        expect(p.model).toEqual(DEFAULT_SETTINGS.model)
+        expect(p.ui).toEqual(DEFAULT_SETTINGS.ui)
+        expect(p.subagent).toEqual(DEFAULT_SETTINGS.subagent)
+        expect(p.channels).toEqual(DEFAULT_SETTINGS.channels)
+        expect(p.linkOpening).toEqual(DEFAULT_SETTINGS.linkOpening)
+        expect(p.shortcuts).toEqual(DEFAULT_SETTINGS.shortcuts)
+        expect(p.fullSkillDescriptions).toBeUndefined()
+        expect(s.isDirty).toBe(true)
     })
 })

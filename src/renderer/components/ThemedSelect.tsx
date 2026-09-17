@@ -117,7 +117,7 @@ export default function ThemedSelect({
                 aria-label={ariaLabel}
                 aria-expanded={open}
                 aria-haspopup="listbox"
-                className={`flex items-center justify-between gap-1.5 px-2 py-1.5 text-[11px] bg-[var(--surface)] border rounded text-left transition-colors focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
+                className={`flex items-center justify-between gap-1.5 px-2 py-1.5 text-xs bg-[var(--surface)] border rounded text-left transition-colors focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
                     error
                         ? 'border-[var(--error)] focus:border-[var(--focus-ring)]'
                         : open

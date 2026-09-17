@@ -11,7 +11,7 @@ import {registerBuiltinTools} from './tools/index'
 import {permissionEngine} from './tools/permission'
 import {registerMCPTools, registerAllMcpTools, setMcpMessagePort, unregisterMCPTools, clearAllMcpToolMeta} from './mcp/discovery'
 import {isMcpToolName} from '@shared/mcp/naming'
-import {DEFAULT_MAX_TOKENS} from '@shared/types'
+import {DEFAULT_SETTINGS} from '@shared/settingsDefaults'
 import {promptResolver} from './prompts/resolver'
 import {WORKER_MESSAGE_TYPES} from './constants'
 import {ToolsChangeConfirmer} from './toolsChangeConfirm'
@@ -109,25 +109,9 @@ async function main(): Promise<void> {
         return
     }
 
-    // 加载全局系统设置（从主进程传递，不再从本地文件读取）
-    let currentSettings: import('@shared/types').SystemSettings = params.settings || {
-        agent: {
-            maxTurns: 500,
-            retryCount: 10,
-            initialRetryDelay: 5000,
-            maxRetryDelay: 120000,
-            llmTimeout: 600000,
-            handoffThresholdRatio: 0.5,
-            handoffThresholdMode: 'ratio',
-            handoffThresholdTokens: 200_000,
-            midLoopOverflowMode: 'auto-handoff',
-            loopDetection: { mode: 'notify', threshold: 3 },
-        },
-        model: {defaultMaxTokens: DEFAULT_MAX_TOKENS, defaultTemperature: 0},
-        mcp: {mcpTestTimeout: 15000},
-        ui: {theme: 'system'},
-        subagent: {maxConcurrency: 3, defaultTimeout: 15 * 60 * 1000, retryAttempts: 0, priorityEnabled: false, maxDepth: 3},
-    }
+    // 加载全局系统设置（从主进程传递，不再从本地文件读取）；
+    // 无传递时回退 shared 单一真源默认值（spec §6.4）
+    let currentSettings: import('@shared/types').SystemSettings = params.settings || DEFAULT_SETTINGS
 
 // 创建运行时配置对象（用于实时更新）
     const runtimeConfig = {

@@ -30,7 +30,7 @@ export function MCPVersionBadge({
                     disabled={disabled}
                     ariaLabel="切换版本"
                     onChange={(v) => onSwitch?.(v)}
-                    className="text-[9px] px-1.5 py-0.5"
+                    className="!text-[9px] px-1.5 py-0.5"
                     options={availableVersions.map(v => ({
                         value: v,
                         label: v === latest ? `${v} (latest)` : v,

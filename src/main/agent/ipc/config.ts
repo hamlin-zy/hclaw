@@ -10,6 +10,8 @@ import {runtimeConfigManager} from '../runtimeConfigManager'
 import {toolRepo as sqliteToolRepo} from '../../repositories/sqlite/toolRepository'
 import {logger} from '../logger'
 import {broadcastToOtherWindows} from '../../utils/windowBroadcast'
+import {propagateSystemSettings} from '../../settings/propagateSettings'
+import {applyGlobalPermissionMode} from './permissions'
 import type {ModelConfig} from '../model/types'
 
 export function registerHandlers(): void {
@@ -37,26 +39,15 @@ export function registerHandlers(): void {
         })
     })
 
-    // 更新全局系统设置并同步到所有运行中的 Agent
+    // 更新全局系统设置并同步到所有运行中的 Agent：
+    // 统一传播链（全局权威键 → Worker 广播 → 其余窗口 settings-changed + 快捷键同步）见
+    // src/main/settings/propagateSettings.ts（spec §6.3）；排除发起窗口（其 store 已是最新）。
     ipcMain.handle('settings-update', async (event, settings: import('@shared/types').SystemSettings) => {
-        const runningIds = agentManager.getRunningConversations()
-        runningIds.forEach(id => {
-            agentManager.broadcastSettings(id, settings)
-        })
-        // 广播给除发起窗口外的所有渲染窗口（跨窗口数据一致性）：
-        // 设置窗口写库后主窗口经 'settings-changed' 刷新 settingsStore（含 ui.background 背景/遮罩/模糊）。
-        broadcastToOtherWindows(event, 'settings-changed', settings)
-        // 快捷键配置化：按新配置同步主进程全局键，并把注册失败结果推给所有窗口
-        try {
-            const {syncGlobalShortcuts} = await import('../../shortcuts')
-            const failures = syncGlobalShortcuts(settings.shortcuts?.overrides)
-            const {BrowserWindow} = await import('electron')
-            BrowserWindow.getAllWindows().forEach(w => {
-                if (!w.isDestroyed()) w.webContents.send('shortcuts-global-failures', failures)
-            })
-        } catch (err: any) {
-            logger.warn('[settings-update] global shortcuts sync failed', {error: err?.message})
-        }
+        await propagateSystemSettings(settings, {
+            getRunningConversations: () => agentManager.getRunningConversations(),
+            broadcastSettings: (id, s) => agentManager.broadcastSettings(id, s),
+            applyGlobalPermissionMode,
+        }, {excludeWebContentsId: event.sender.id})
         return {success: true}
     })
 

@@ -50,6 +50,11 @@ export default defineConfig({
                   if (id.includes('/components/dialogs/')) {
                       return 'components-dialogs'
                   }
+                  if (id.includes('/components/settings/')) {
+                      // 设置子树唯一静态入口是 ConfigDialogWindow 的动态 import：
+                      // 不归任何组，交给自动切分，使其落成异步 chunk
+                      return undefined
+                  }
                   if (id.includes('/components/message-list') || id.includes('/components/InputArea')) {
                       return 'components-message'
                   }

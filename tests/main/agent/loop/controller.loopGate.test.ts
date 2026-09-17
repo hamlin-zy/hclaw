@@ -209,4 +209,47 @@ describe('controller 循环检测门', () => {
         const done = events.find((e: any) => e.type === 'done') as any
         expect(done.reason).toBe('completed')
     })
+
+    /** 包装队列 shift：第 nth 次消费时执行回调（模拟「运行中修改设置」，queue 仍为数组） */
+    function wrapShift(queue: any[], onNth: number, fn: () => void) {
+        let calls = 0
+        const orig = queue.shift.bind(queue)
+        queue.shift = () => {
+            calls++
+            if (calls === onNth) fn()
+            return orig()
+        }
+        return queue
+    }
+
+    it('场景9 off→开 同 run：运行中改为 notify 后本 run 内即开始检测（惰性构建）', async () => {
+        const params = makeParams({mode: 'off'})
+        const queue = [tcResult(), tcResult(), tcResult(), tcResult(), tcResult(), tcResult(), textResult()]
+        mocks.llmQueue = wrapShift(queue, 2, () => { params.settings.agent.loopDetection.mode = 'notify' })
+        const events = await runAndCollect(params)
+        const suspected = events.find((e: any) => e.type === 'loop_suspected') as any
+        expect(suspected).toBeTruthy()
+        const done = events.find((e: any) => e.type === 'done') as any
+        expect(done.reason).toBe('completed')
+    })
+
+    it('场景10 阈值冻结：运行中改 threshold 不影响本 run 的判定与展示（展示=判定）', async () => {
+        const params = makeParams({mode: 'notify'})
+        const queue = [tcResult(), tcResult(), tcResult(), tcResult(), textResult()]
+        mocks.llmQueue = wrapShift(queue, 2, () => { params.settings.agent.loopDetection.threshold = 5 })
+        const events = await runAndCollect(params)
+        const suspected = events.find((e: any) => e.type === 'loop_suspected') as any
+        expect(suspected).toBeTruthy()
+        expect(suspected.threshold).toBe(3) // 旧实现展示重读 getSettings() → 会错显 5
+    })
+
+    it('场景11 开→off 即时抑制：运行中关闭后不再产生事件（判定门实时读档位的既有保障）', async () => {
+        const params = makeParams({mode: 'notify'})
+        const queue = [tcResult(), tcResult(), tcResult(), tcResult(), textResult()]
+        mocks.llmQueue = wrapShift(queue, 3, () => { params.settings.agent.loopDetection.mode = 'off' })
+        const events = await runAndCollect(params)
+        expect(events.find((e: any) => e.type === 'loop_suspected')).toBeFalsy()
+        const done = events.find((e: any) => e.type === 'done') as any
+        expect(done.reason).toBe('completed')
+    })
 })

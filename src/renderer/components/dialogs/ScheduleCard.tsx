@@ -155,7 +155,7 @@ export default function ScheduleCard({
                             onEdit()
                         }
                     }}
-                    className="flex-1 min-w-0 text-left bg-transparent border-none p-0 cursor-pointer rounded focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand-primary)]"
+                    className="flex-1 min-w-0 text-left bg-transparent border-none p-0 cursor-pointer rounded focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--focus-ring)]"
                     data-name="schedule-dialog-row">
                     {/* 第一行：名称 + 类型徽标（仅此一处）+ 配置态 chip */}
                     <div className="flex items-center gap-2">

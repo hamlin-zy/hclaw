@@ -77,7 +77,7 @@ const LoopWarningBanner = memo(function LoopWarningBanner({conversationId}: Loop
                         <div key={i}>第 {d.turnNo} 轮 · {d.toolName} · {d.argsPreview}</div>
                     ))}
                     <div className="mt-1">
-                        检测到 Agent 可能陷入重复循环。为避免打扰，任务已继续。如果这是误判，抱歉打扰了您——您可以在 系统设置 → LLM循环检测 中调整档位或关闭此功能。
+                        检测到 Agent 可能陷入重复循环。为避免打扰，任务已继续。如果这是误判，抱歉打扰了您——您可以在 系统设置 → 循环检测 中调整档位或关闭此功能。
                     </div>
                 </div>
             )}

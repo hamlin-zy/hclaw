@@ -32,14 +32,8 @@ const inputSchema = z.object({
             defaultMaxTokens: z.number().optional().describe('默认最大输出 token 数'),
             defaultTemperature: z.number().optional().describe('默认采样温度 (0-2)'),
         }).optional(),
-        mcp: z.object({
-            mcpTestTimeout: z.number().optional().describe('MCP 连接测试超时（毫秒）'),
-        }).optional(),
         subagent: z.object({
             maxConcurrency: z.number().optional().describe('最大并发子任务数'),
-            defaultTimeout: z.number().optional().describe('子任务默认超时（毫秒）'),
-            retryAttempts: z.number().optional().describe('子任务重试次数'),
-            priorityEnabled: z.boolean().optional().describe('是否启用优先级调度'),
         }).optional(),
     }).optional().describe('update_settings 时的配置项（增量合并，只需提供要修改的字段）'),
 })
@@ -83,9 +77,6 @@ export const systemManageTool: Tool<SystemManageInput, string> = {
                         lines.push('')
                         lines.push('=== 子任务配置 ===')
                         lines.push(`  最大并发: ${parsed.subagent?.maxConcurrency ?? '-'}`)
-                        lines.push(`  默认超时: ${parsed.subagent?.defaultTimeout ?? '-'}ms`)
-                        lines.push(`  重试次数: ${parsed.subagent?.retryAttempts ?? '-'}`)
-                        lines.push(`  优先级调度: ${parsed.subagent?.priorityEnabled ? '启用' : '禁用'}`)
                         lines.push('')
                         return {success: true, output: lines.join('\n')}
                     } catch {

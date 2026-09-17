@@ -34,20 +34,44 @@ describe('新会话默认安全/显示模式', () => {
     expect(DEFAULT_SETTINGS.agent.defaultDisplayMode).toBeDefined()
   })
 
-  it('saveSettings 持久化后同步全局链路（defaultPermissionMode → agent-set-permission-mode）', async () => {
-    const agentSetMock = vi.fn(async () => true)
+  it('saveSettings 只写库 + settingsUpdate；全局权威键不再由渲染端直写', async () => {
     const configWriteMock = vi.fn(async () => true)
+    const settingsUpdateMock = vi.fn(async () => ({success: true}))
+    const agentSetMock = vi.fn(async () => true)
     ;(globalThis as any).window = {
       electronAPI: {
         configWrite: configWriteMock,
-        settingsUpdate: vi.fn(async () => ({success: true})),
+        settingsUpdate: settingsUpdateMock,
         agentSetPermissionMode: agentSetMock,
       },
     }
-    // 经 store 更新 pending 后保存
     useSettingsStore.getState().updatePending('agent', {defaultPermissionMode: 'auto'})
     await useSettingsStore.getState().saveSettings()
-    expect(agentSetMock).toHaveBeenCalledWith('auto')
+    // 完整 pending 写库
+    expect(configWriteMock).toHaveBeenCalledWith('settings', expect.objectContaining({
+      agent: expect.objectContaining({defaultPermissionMode: 'auto'}),
+    }))
+    // Worker 广播仍走 settingsUpdate
+    expect(settingsUpdateMock).toHaveBeenCalled()
+    // 全局权威键改由主进程传播助手落位（T6/T7）——渲染端不得再直写
+    expect(agentSetMock).not.toHaveBeenCalled()
+  })
+
+  it('saveSettings 后激活会话显示收敛（applyConvModesToAgentStore 漂移修正保留）', async () => {
+    vi.stubGlobal('window', {
+      electronAPI: {
+        configWrite: vi.fn(async () => true),
+        settingsUpdate: vi.fn(async () => ({success: true})),
+        agentGetPermissionMode: vi.fn(async () => 'auto'),
+        agentSetPermissionMode: vi.fn(async () => true),
+        conversationReadMeta: vi.fn(async () => ({id: 'conv-1'})),
+      },
+    })
+    useConversationStore.setState({activeConversationId: 'conv-1'})
+    useAgentStore.setState({permissionMode: 'safe'})
+    useSettingsStore.getState().updatePending('agent', {defaultPermissionMode: 'auto'})
+    await useSettingsStore.getState().saveSettings()
+    expect(useAgentStore.getState().permissionMode).toBe('auto')
   })
 
   it('loadSettings 对账：全局权威键漂移（safe）时写回 settings 默认（auto）并回灌激活会话显示', async () => {

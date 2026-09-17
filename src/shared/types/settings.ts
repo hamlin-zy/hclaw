@@ -89,9 +89,6 @@ export const DEFAULT_MAX_TOKENS = 50000
 
 export interface SubagentConfig {
   maxConcurrency: number
-  defaultTimeout: number
-  retryAttempts: number
-  priorityEnabled: boolean
   /** 子 Agent 嵌套最大递归深度，默认值 3 */
   maxDepth: number
 }
@@ -137,9 +134,6 @@ export interface SystemSettings {
      * 仅影响 load_image 加载的图片；未超过体积/尺寸阈值的小图不会被重新编码。
      */
     imageCompressQuality?: number
-  }
-  mcp: {
-    mcpTestTimeout: number
   }
   ui: {
     theme: ThemeSetting

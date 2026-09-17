@@ -314,7 +314,7 @@ export default function ConversationsDialog() {
                                 checked={selectedIds.has(conv.id)}
                                 onChange={() => toggleSelect(conv.id)}
                                 disabled={deleting}
-                                className="w-3.5 h-3.5 rounded border-[var(--border)] text-[var(--text-brand)] focus:ring-[var(--brand-primary)] accent-[var(--brand-primary)]"
+                                className="w-3.5 h-3.5 rounded border-[var(--border)] text-[var(--text-brand)] focus:ring-[var(--focus-ring)] accent-[var(--brand-primary)]"
                             data-name="conversations-dialog-input"/>
                         </div>
                         <div className="flex items-center truncate text-[var(--text-primary)]">

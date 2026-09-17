@@ -8,6 +8,12 @@ import {agentManager} from '../manager'
 import {runtimeConfigManager} from '../runtimeConfigManager'
 import {createConversationRepository} from '../../repositories'
 
+/** 全局默认权限模式落位：写权限引擎 + 广播无会话级覆盖的运行中会话（spec §6.3；被 config.ts 的 settings-update 与 agent/index.ts 的 registerHandlers 复用） */
+export async function applyGlobalPermissionMode(mode: 'safe' | 'auto'): Promise<void> {
+    await permissionEngine.setMode(mode)
+    agentManager.broadcastGlobalPermissionModeUpdate(mode)
+}
+
 export function registerHandlers(): void {
     // 获取权限模式
     ipcMain.handle('agent-get-permission-mode', async () => {
@@ -24,8 +30,7 @@ export function registerHandlers(): void {
     // permission-mode-synced 事件送到渲染进程，用于同步输入栏「安全/自动」显示
     // （渲染端只消费事件通道，IPC 返回体不再携带 syncedConvIds）。
     ipcMain.handle('agent-set-permission-mode', async (_event, mode: string) => {
-        await permissionEngine.setMode(mode as any)
-        agentManager.broadcastGlobalPermissionModeUpdate(mode as any)
+        await applyGlobalPermissionMode(mode as any)
         return {success: true}
     })
 
