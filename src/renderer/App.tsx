@@ -33,6 +33,7 @@ import {useMenuBarStore} from './stores/menuBarStore'
 import {useGlobalHotkeys} from './hooks/useGlobalHotkeys'
 import {shortcutManager} from './services/shortcutManager'
 import {registerSendToConversationListener} from './services/sendToConversation'
+import {registerOpenConversationListener} from './services/openConversation'
 import TooltipPortal from './components/common/TooltipPortal'
 import {createGcScheduler} from './lib/gcScheduler'
 import {syncExchangeRate} from './lib/format'
@@ -569,10 +570,10 @@ export default function App() {
 
   // ── 监听 agent 工具创建的子会话事件（实时刷新侧栏） ──
   useEffect(() => {
-    const cleanup = window.electronAPI?.receive?.('child_conv_created', (data: any) => {
+    const cleanup = window.electronAPI?.receive?.('child_conv_created', (data) => {
       if (!data?.id) return
       // 委托 store action：内部保留其他工作区条目（防止 workspaces 被整体覆盖导致项目选择器丢项目）
-      useConversationStore.getState().handleChildConvCreated(data.id, data.title || '子 Agent', data.parentConvId)
+      useConversationStore.getState().handleChildConvCreated(data.id, data.title || '子 Agent', data.parentConvId, data.workspacePath || '')
     })
 
     return () => {
@@ -595,6 +596,12 @@ export default function App() {
   // ── 订阅 PM 窗口「发送到会话」投递（主窗口是唯一执行者，spec §5.3） ──
   useEffect(() => {
     const cleanup = registerSendToConversationListener()
+    return () => { cleanup() }
+  }, [])
+
+  // ── 订阅配置窗口「打开会话」投递（独立窗口无会话 store 引导，主窗口是唯一执行者） ──
+  useEffect(() => {
+    const cleanup = registerOpenConversationListener()
     return () => { cleanup() }
   }, [])
 

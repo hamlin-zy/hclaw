@@ -4,6 +4,7 @@
  */
 import {type UsageBreakdown} from '@shared/types'
 import ThemedSelect from '../ThemedSelect'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 import {
     EMPTY_USAGE_FILTER,
     hasActiveFilter,
@@ -20,7 +21,7 @@ export function UsageFilterBar({view, rows, filter, onChange}: {
 }) {
     const providers = providerOptions(rows)
     const models = modelOptions(rows, filter.provider)
-    const inputCls = 'w-16 rounded-md border border-gray-200 hover:border-gray-300 focus:border-brand-300 bg-[var(--surface)] px-1.5 py-1 text-[11px] text-[var(--text-primary)] tabular-nums outline-none transition-colors'
+    const inputCls = 'w-16 rounded-md border border-gray-200 hover:border-gray-300 bg-[var(--surface)] px-1.5 py-1 text-[11px] text-[var(--text-primary)] tabular-nums outline-none'
     const labelCls = 'text-[11px] text-[var(--text-muted)] shrink-0'
     return (
         <div className="flex items-center gap-2 flex-wrap" data-testid="usage-filter-bar">
@@ -52,14 +53,14 @@ export function UsageFilterBar({view, rows, filter, onChange}: {
             <span className={labelCls}>合计 token</span>
             <input
                 type="number" data-testid="filter-total-min" placeholder="最小" min="0" step="any"
-                className={inputCls}
+                className={`${inputCls} ${INPUT_FOCUS}`}
                 value={filter.totalMinM}
                 onChange={(e) => onChange({...filter, totalMinM: e.target.value})}
             data-name="usage-filter-bar-input"/>
             <span className={labelCls}>–</span>
             <input
                 type="number" data-testid="filter-total-max" placeholder="最大" min="0" step="any"
-                className={inputCls}
+                className={`${inputCls} ${INPUT_FOCUS}`}
                 value={filter.totalMaxM}
                 onChange={(e) => onChange({...filter, totalMaxM: e.target.value})}
             data-name="usage-filter-bar-total-max-input"/>

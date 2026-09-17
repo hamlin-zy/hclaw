@@ -32,9 +32,13 @@ export async function initAgent(): Promise<void> {
     // 注意：MCP IPC handlers 在 index.ts 的 app.on('ready') 中注册
     // 因为需要在 createWindow() 之前初始化，以确保渲染进程 rehydration 可以正常获取数据
 
-    // 默认开启 safe 模式：破坏性工具需确认
-    await permissionEngine.setMode('safe')
-    trace('agent:permission-mode-set')
+    // 此处不得 setMode 落库：system_settings.permission_mode 是「全局默认模式」的唯一权威键。
+    // 启动时写 'safe' 会覆盖用户配置的 auto（permissionRule.applyUpdate → saveToDatabase 会落库），
+    // 导致重启后无会话级覆盖的历史会话一律回退安全模式，与用户设置漂移。
+    // 改为懒加载已持久化的全局默认：ensureReady() 读 DB 中的 permission_mode；
+    // 键缺失时 createDefaultContext() 本身即 'safe'，故全新安装仍是安全模式。
+    await permissionEngine.ensureReady()
+    trace('agent:permission-mode-loaded')
 
     // 使用 PowerManager 统一初始化所有能力（MCP、Skills、Agents）
     // CRITICAL: 必须等待初始化完成，否则插件技能无法正确加载

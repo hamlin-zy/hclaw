@@ -370,7 +370,9 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                     // 解析命令名称（先用户命令，再插件命令）
                     const resolved = await window.electronAPI?.commandResolveByName?.(cmdName, cmdArgs);
                     if (resolved?.template && resolved?.commandId) {
-                        const displayMessage = cmdArgs ? `/${cmdName} ${cmdArgs}` : `/${cmdName}`;
+                        // 换行分隔（与 CommandPalette 一致）：cmdArgs 里的换行必须原样保留，
+                        // 否则手打的 /General\n## 标题… 会被并成同一行。
+                        const displayMessage = cmdArgs ? `/${cmdName}\n${cmdArgs}` : `/${cmdName}`;
                         await handleSubmitWithMessage(displayMessage, {
                             metadata: {
                                 commandTemplate: resolved.template,

@@ -3,6 +3,7 @@ import {Switch} from '../common/Switch'
 import {CopyButton} from '../common/CopyButton'
 import {type ToolState, useToolStore} from '../../stores/toolStore'
 import {ALWAYS_ON_TOOLS} from '@shared/alwaysOnTools'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 // 工具分类配置
 const TOOL_CATEGORIES = [
@@ -164,7 +165,7 @@ export default function ToolsDialog() {
                         onClick={() => handleSetAll(true)}
                         className="px-2 py-1 text-[10px] rounded transition-colors"
                         style={{
-                            color: 'var(--brand-primary)',
+                            color: 'var(--text-brand)',
                             border: '1px solid var(--brand-muted)',
                             opacity: enabledCount === totalCount ? 0.4 : 1,
                             cursor: enabledCount === totalCount ? 'not-allowed' : 'pointer'
@@ -366,7 +367,7 @@ function ToolCard({tool, description, onToggle}: {tool: ToolState; description: 
                     <code
                         className="text-xs font-mono px-1.5 py-0.5 rounded"
                         style={{
-                            color: 'var(--brand-primary)',
+                            color: 'var(--text-brand)',
                             backgroundColor: 'var(--brand-muted)'
                         }}
                     >
@@ -403,7 +404,7 @@ function ToolCard({tool, description, onToggle}: {tool: ToolState; description: 
                                 onChange={(e) => setTimeoutInput(e.target.value)}
                                 onKeyDown={handleKeyDown}
                                 placeholder={defaultTimeout ? String(defaultTimeout) : '60000'}
-                                className="w-20 px-1.5 py-0.5 text-[10px] rounded focus:outline-none"
+                                className={`w-20 px-1.5 py-0.5 text-[10px] rounded ${INPUT_FOCUS}`}
                                 style={{
                                     border: '1px solid var(--border)',
                                     backgroundColor: 'var(--surface)',

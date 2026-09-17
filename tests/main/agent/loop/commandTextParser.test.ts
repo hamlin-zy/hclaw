@@ -1,8 +1,10 @@
 /**
  * 命令文本解析测试（主进程 Agent 命令识别依赖）
  *
- * 保护：Ctrl+K 弹窗发送的命令消息为换行分隔（/能力\n任务内容），
- * 手动输入为空格分隔（/能力 任务内容）。任何一侧被未来改动破坏都会在此失败。
+ * 保护：Ctrl+K 弹窗发送的命令消息为换行分隔（/能力\n任务内容）；
+ * 输入框手打的命令同样保留换行（InputArea 重新拼回时用 /能力\n正文，
+ * 正文以 Markdown 标题开头时不能被并进第一行）；纯空格分隔（/能力 任务内容）**依然被支持**。
+ * 任何一侧被未来改动破坏都会在此失败。
  */
 import {describe, expect, it} from 'vitest'
 import {parseCommandText} from '../../../../src/main/agent/loop/commandTextParser'
@@ -19,6 +21,13 @@ describe('parseCommandText（Agent 命令识别）', () => {
         expect(parseCommandText('/brainstorming 我想设计一个功能')).toEqual({
             commandName: 'brainstorming',
             commandArgs: '我想设计一个功能',
+        })
+    })
+
+    it('手动输入换行分隔（InputArea 拼回形式）：/能力\n## 标题\n正文', () => {
+        expect(parseCommandText('/General\n## 任务目标\n同步工作日志')).toEqual({
+            commandName: 'General',
+            commandArgs: '## 任务目标\n同步工作日志',
         })
     })
 

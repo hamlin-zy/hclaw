@@ -6,6 +6,18 @@
  */
 import {BrowserWindow, ipcMain, screen} from 'electron'
 import {createAppWindow} from './windowFactory'
+import {handleOpenConversation, resolveOpenConversationAck} from './openConversation'
+
+/**
+ * 动态 import 主窗口 getter：`../window` 的依赖链会拉起 theme →
+ * systemSettingsRepository → repositories/sqlite/index（模块顶层即调 getHclawDir()），
+ * 静态 import 会把这条链并入本模块的求值图。生产入口 main/index.ts 先加载
+ * ./repositories/init 与 ./window 故运行时无恙，但以本模块为入口的单测会触发
+ * src/main/config.ts 的循环初始化 TDZ。对齐 project-manager/window.ts 口径。
+ */
+async function getMainWindowLazy() {
+    return (await import('../window')).getMainWindow()
+}
 
 /** 迁移到独立窗口的 dialogType 白名单（17 种，来自 MenuDialogRenderer DIALOG_CONFIG 减去 update-notice） */
 export const CONFIG_DIALOG_TYPES = new Set([
@@ -134,9 +146,53 @@ export function closeConfigWindow(dialogType: string): void {
     if (win && !win.isDestroyed()) win.close()
 }
 
+/** 权限面：sender 是否为某个仍打开的配置窗口的 webContents（app:open-conversation 用） */
+export function isConfigWindowSender(sender: Electron.WebContents): boolean {
+    for (const win of configWindows.values()) {
+        if (!win.isDestroyed() && win.webContents === sender) return true
+    }
+    return false
+}
+
+/** app:open-conversation:ack 当前注册的 handler（重复 init 时用同一引用先 removeListener） */
+let openConversationAckHandler: ((event: Electron.IpcMainEvent, payload: {requestId: string; ok: boolean; error?: string}) => void) | null = null
+
+/**
+ * 幂等注册：重复 init 时先移除旧 handler 再注册（窗口重开 / 重复 init 场景）。
+ * ★ 不能用 ipcMain.listenerCount 判定：ipcMain.handle 不写入 EventEmitter 的 listener
+ *   列表，listenerCount 恒为 0 → 守卫恒真、无幂等效果，重复 init 会抛
+ *   "Attempted to register a second handler for 'xxx'"。对齐 project-manager/window.ts:37-40。
+ */
+function safeHandle(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown): void {
+    ipcMain.removeHandler(channel)
+    ipcMain.handle(channel, handler)
+}
+
 /** 注册 IPC（main/index.ts 调用） */
 export function initConfigWindowIPC(): void {
-    ipcMain.handle('open-config-window', (_event, dialogType: string, extraArgs?: string[]) => {
+    safeHandle('open-config-window', (_event, dialogType: string, extraArgs?: string[]) => {
         openConfigWindow(dialogType, undefined, extraArgs)
     })
+    safeHandle('app:open-conversation', (event, payload: unknown) =>
+        handleOpenConversation(payload, event.sender, {
+            isAllowedSender: isConfigWindowSender,
+            // 归属校验：动态 import 避免 sqlite 仓库在模块加载期被拉起
+            listConvIdsInWorkspace: async (ws) => {
+                const {createConversationRepository} = await import('../repositories')
+                return createConversationRepository().listByWorkspace(ws).map(c => c.id)
+            },
+            getMainWindow: getMainWindowLazy,
+        }))
+    // ★ ipcMain.on 走 EventEmitter，listenerCount 判定确实有效，但其语义是「跳过重复注册」
+    //   而非「替换」：重复 init 时旧 handler 会随守卫一起被保留（旧的闭包残留）。对齐
+    //   project-manager/window.ts——用同一引用先 removeListener，再注册新 handler。
+    if (openConversationAckHandler) {
+        ipcMain.removeListener('app:open-conversation:ack', openConversationAckHandler)
+    }
+    openConversationAckHandler = async (e, p) => {
+        const mw = await getMainWindowLazy()
+        if (!mw || mw.isDestroyed() || mw.webContents !== e.sender) return
+        resolveOpenConversationAck(p)
+    }
+    ipcMain.on('app:open-conversation:ack', openConversationAckHandler)
 }

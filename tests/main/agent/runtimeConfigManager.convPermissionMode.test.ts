@@ -62,4 +62,27 @@ describe('会话级权限模式状态机', () => {
         expect(runtimeConfigManager.getConvPermissionMode('conv-x')).toBe('auto')
         expect(mockUpdateMeta).not.toHaveBeenCalled()
     })
+
+    // ─── getConvModeOverride：只回答「是否显式覆盖」，绝不回退全局 ───────────
+
+    it('getConvModeOverride：无 meta 覆盖 → undefined（即便全局默认是 auto 也不回退）', () => {
+        mockReadMeta.mockReturnValue(null)
+        mockSysGet.mockReturnValue('auto') // 全局默认活值，不得被当作「覆盖」
+        expect(runtimeConfigManager.getConvModeOverride('conv-ov-none')).toBeUndefined()
+        expect(mockReadMeta).toHaveBeenCalledWith('conv-ov-none')
+    })
+
+    it('getConvModeOverride：有 meta 覆盖 → 返回该值，命中内存缓存后不再读 DB', () => {
+        mockReadMeta.mockReturnValue({id: 'conv-ov-hit', permissionMode: 'auto'} as any)
+        expect(runtimeConfigManager.getConvModeOverride('conv-ov-hit')).toBe('auto')
+        runtimeConfigManager.getConvModeOverride('conv-ov-hit')
+        expect(mockReadMeta).toHaveBeenCalledTimes(1) // 第二次命中 sessionPermissionModes 缓存
+    })
+
+    it('getConvModeOverride 与 getConvPermissionMode 区别：无覆盖时后者回退全局、前者返回 undefined', () => {
+        mockReadMeta.mockReturnValue(null)
+        mockSysGet.mockReturnValue('auto')
+        expect(runtimeConfigManager.getConvModeOverride('conv-ov-diff')).toBeUndefined()
+        expect(runtimeConfigManager.getConvPermissionMode('conv-ov-diff')).toBe('auto')
+    })
 })

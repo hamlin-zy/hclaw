@@ -19,6 +19,7 @@ vi.mock('@/main/agent/runtimeConfigManager', () => ({
     runtimeConfigManager: {
         getScheme: vi.fn(() => null),
         getProviders: vi.fn(() => []),
+        getWorkingDir: vi.fn(() => ''),
         getConfig: vi.fn(() => ({workingDir: ''})),
         setOverride: vi.fn(),
     },
@@ -49,7 +50,7 @@ vi.mock('@/main/repositories', () => ({
     createPermissionRepository: vi.fn(() => ({getAll: vi.fn(() => []), create: vi.fn(), update: vi.fn(), remove: vi.fn()})),
 }))
 
-import {agentTool, injectChildMessage, setAgentToolConfig} from '@/main/agent/tools/builtin/agentTool'
+import {agentTool, injectChildMessage} from '@/main/agent/tools/builtin/agentTool'
 import {agentLoop} from '@/main/agent/loop'
 import {runtimeConfigManager as runtimeCfg} from '@/main/agent/runtimeConfigManager'
 import {createConversationRepository} from '@/main/repositories'
@@ -139,7 +140,6 @@ beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(runtimeCfg.getProviders).mockReturnValue(PROVIDERS)
     vi.mocked(runtimeCfg.getScheme).mockReturnValue({roles: [{role: 'primary', enabled: true, endpointId: 'p1', modelId: 'm1'}]} as any)
-    setAgentToolConfig()
 })
 
 const text = (content: string): AgentStreamEvent => ({type: 'text', content})

@@ -2,6 +2,7 @@
 // onSubmit 为显式触发：Enter 或点击提交按钮。不做输入即过滤——Commit 过滤要走 IPC 重拉 git log。
 import React from 'react'
 import {Search, X} from 'lucide-react'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 interface SearchInputProps {
   value: string
@@ -20,7 +21,7 @@ export function SearchInput({value, onChange, placeholder, ariaLabel, onSubmit, 
     <div className="pm-search" data-testid={testId}>
       <Search className="pm-search-icon" size={12} aria-hidden="true" />
       <input
-        className="pm-search-input"
+        className={`pm-search-input ${INPUT_FOCUS}`}
         type="text"
         value={value}
         placeholder={placeholder}

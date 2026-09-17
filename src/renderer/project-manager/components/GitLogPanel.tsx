@@ -16,6 +16,7 @@ import {IconButton} from '../ui/IconButton'
 import {AuthorFilterSelect} from '../ui/AuthorFilterSelect'
 import DatePicker from '../../components/common/DatePicker'
 import {usePaneSize, type PaneSizeSpecs} from '../hooks/usePaneSize'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 /**
  * 过滤栏是 18px 小尺寸（对照 globals.css 的 .pm-commits-input），而 .dp-* 按 12px 默认尺寸书写，
@@ -27,6 +28,7 @@ import {usePaneSize, type PaneSizeSpecs} from '../hooks/usePaneSize'
  * 否则 24×24 的按钮会让整行比同排输入框高出一截。
  */
 const DATE_FILTER_INPUT_CLASS = [
+  INPUT_FOCUS,
   '!h-[18px] !w-[80px] !px-[4px] !py-0 !text-[11px] !leading-[16px] !rounded-[4px] !bg-surface-muted',
   '[&+button]:!h-[18px] [&+button]:!w-[18px] [&+button]:!rounded-[4px]',
   '[&+button_svg]:!h-[11px] [&+button_svg]:!w-[11px]',
@@ -138,7 +140,7 @@ export function GitLogPanel() {
           </label>
           <label className="pm-commits-field">
             路径
-            <input className="pm-commits-input" value={paths} onChange={e => setPaths(e.target.value)} placeholder="路径，逗号分隔" />
+            <input className={`pm-commits-input ${INPUT_FOCUS}`} value={paths} onChange={e => setPaths(e.target.value)} placeholder="路径，逗号分隔" />
           </label>
           <label className="pm-commits-field">
             起始日期

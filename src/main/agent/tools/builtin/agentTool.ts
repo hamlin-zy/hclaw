@@ -25,6 +25,8 @@ import type {Tool, ToolResult} from '../types'
 import type {ChatMessage} from '../../model/types'
 import {agentLoop} from '../../loop'
 import type {AgentStreamEvent} from '../../stream'
+import type {ChildConvCreatedWorkerPayload} from '../../manager.types'
+import type {ChildConvCreatedRendererPayload} from '@shared/types/events'
 import {logger} from '../../logger'
 import {agentRegistry} from '../../agentRegistry'
 import {agentTemplateToDefinition} from '../../agentTemplateConverter'
@@ -33,7 +35,6 @@ import type {LLMProvider, ModelOverride, ModelRole, ModelScheme} from '@shared/t
 import {getRoleConfig, isTextRoleUsable, getUsableTextRoles} from '@shared/modelSchemeHelpers'
 import {runtimeConfigManager} from '../../runtimeConfigManager'
 import {systemSettingsRepo} from '../../../repositories/sqlite/systemSettingsRepository'
-import {permissionEngine} from '../permission'
 import {createConversationRepository} from '../../../repositories'
 import {
     createChildConvAccumulator,
@@ -372,7 +373,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
         }])
 
         // 通知渲染进程侧栏刷新（子会话已创建于 SQLite）
-        notifyMainProcessChildConvCreated(childConvId, agentName, args.task, parentConvId)
+        notifyMainProcessChildConvCreated(childConvId, agentName, args.task, parentConvId, workspacePath)
 
         // ★ 立即推送 subagent_start（携带 toolCallId）：子会话创建成功瞬间即可让父卡片
         //   补写 taskId（taskId === childConvId），无需等第一个 subagent_progress 事件
@@ -437,7 +438,10 @@ export const agentTool: Tool<AgentToolInput, string> = {
             apiKey: '',
             baseUrl: roleProvider.baseUrl || '',
         }
-        const workingDir = runtimeConfigManager.getConfig().workingDir || ''
+        // ★ 会话绑定优先：复用上方已算出的 workspacePath（父会话 meta.workspacePath 继承值），
+        //   而非全局工作目录（会随用户切换工作区被改写，导致子 Agent 工具落在错误目录，
+        //   子会话 meta 与实际执行目录不一致）。全局仅作兜底。
+        const workingDir = workspacePath || runtimeConfigManager.getWorkingDir() || ''
         const maxTurnsLimit = settings?.agent?.maxTurns ?? 500
 
         // ⑨ 在当前进程/线程中运行子 Agent（不创建独立 Worker）
@@ -625,7 +629,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
         //   此处再次通知确保 assistant 消息写入后侧栏预览更新
         // 主进程路径已由 notifyMainProcessChildConvCreated 覆盖，Worker 线程路径也由
         // createMessageHandler 中 child_conv_created 分发覆盖，此处仅作兜底
-        notifyMainProcessChildConvCreated(childConvId, agentName, args.task, parentConvId)
+        notifyMainProcessChildConvCreated(childConvId, agentName, args.task, parentConvId, workspacePath)
 
         if (hasError) {
             return {
@@ -713,14 +717,18 @@ function sendToRenderer(workerType: string, workerPayload: Record<string, unknow
     }
 }
 
-/** 通知主进程 / 渲染进程刷新侧栏会话列表 */
-function notifyMainProcessChildConvCreated(childConvId: string, agentName: string, task: string, parentConvId?: string): void {
+/** 通知主进程 / 渲染进程刷新侧栏会话列表
+ *  ★ workspacePath 必须随事件下发：子会话在侧栏须插入「父会话所属工作区」，
+ *    不能由渲染端用 currentWorkspacePath 兜底（当前工作区 ≠ 父会话工作区时插错列表）。
+ *  ★ 两条 payload 的不同键名（Worker 侧 childConvId / 主进程侧 id）是既有协议，
+ *    不得为「统一」而改运行时键名（会破坏渲染端消费）；此处以 satisfies 交由类型契约把关。 */
+function notifyMainProcessChildConvCreated(childConvId: string, agentName: string, task: string, parentConvId: string | undefined, workspacePath: string): void {
     const title = `${agentName}: ${task.slice(0, 20)}...`
     sendToRenderer(
         'child_conv_created',
-        {childConvId, title, parentConvId: parentConvId || ''},
+        {childConvId, title, parentConvId: parentConvId || '', workspacePath} satisfies ChildConvCreatedWorkerPayload,
         'child_conv_created',
-        {id: childConvId, title, parentConvId: parentConvId || undefined},
+        {id: childConvId, title, parentConvId: parentConvId || undefined, workspacePath} satisfies ChildConvCreatedRendererPayload,
     )
 }
 
@@ -733,13 +741,4 @@ function sendChildAgentEvent(childConvId: string, event: AgentStreamEvent): void
         'agent-stream',
         {conversationId: childConvId, event},
     )
-}
-
-/** 设置当前 Agent 的模型方案配置 */
-export function setAgentToolConfig(): void {
-    const config = runtimeConfigManager.getConfig()
-    if (config.workingDir) {
-        permissionEngine.setWorkingDir(config.workingDir)
-    }
-    // description / inputSchema 均为 getter 实时计算，无需在此重建
 }

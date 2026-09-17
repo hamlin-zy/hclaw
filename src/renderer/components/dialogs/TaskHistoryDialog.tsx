@@ -1,10 +1,30 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {confirm} from '../ConfirmDialog'
+import ThemedSelect, {type ThemedSelectOption} from '../ThemedSelect'
 import {useAgentStore} from '../../stores/agentStore'
 import type {BatchGroup, BatchSummary} from '../../../main/repositories/sqlite/taskBatchRepository'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 /** 批次任务明细行（与主进程 BatchWithTasks['tasks'] 对齐，subtasks 本窗口不展示） */
 type TaskRow = {id: string; title: string; description?: string; status: string}
+
+// ─── 工具栏按钮样式（与 ConversationsDialog 同款；已定：复制不抽，不跨文件 import） ───
+
+const BTN_BORDERED = "px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors shrink-0"
+const BTN_GHOST = "px-2 py-1.5 text-xs rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors shrink-0"
+
+/** 按时间快捷选择预设（label 与 ConversationsDialog 的 TIME_PRESETS 一致） */
+const TIME_PRESETS = [
+    {days: 1, label: '1天前'},
+    {days: 3, label: '3天前'},
+    {days: 7, label: '7天前'},
+    {days: 14, label: '14天前'},
+    {days: 30, label: '30天前'},
+] as const
+
+/** TIME_PRESETS → ThemedSelect 选项（value 取 days 的字符串形式，'' 留给占位） */
+const TIME_PRESET_OPTIONS: ThemedSelectOption[] =
+    TIME_PRESETS.map(({days, label}) => ({value: String(days), label}))
 
 // ─── 任务状态图标（TodoItem 视觉语言：状态图标 + 单行省略） ───────────
 
@@ -22,7 +42,7 @@ function StatusGlyph({status}: { status: string }) {
         case 'running':
             return (
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"
-                     className="animate-spin text-[var(--brand-primary)]">
+                     className="animate-spin [color:var(--brand-primary)]">
                     <circle cx="7" cy="7" r="6.4" stroke="currentColor" strokeWidth="1.2" strokeDasharray="5.5 3"/>
                 </svg>
             )
@@ -158,7 +178,7 @@ function BatchRow({batch, checked, deleting, onToggleCheck}: BatchRowProps) {
                     <span
                         className={`shrink-0 px-1.5 py-px rounded-full text-[10px] leading-4 whitespace-nowrap ${
                             isActive
-                                ? 'bg-[var(--brand-muted)] text-[var(--brand-primary)]'
+                                ? 'bg-[var(--brand-muted)] text-[var(--text-brand)]'
                                 : 'bg-[var(--surface-muted)] text-[var(--text-muted)]'
                         }`}
                     >
@@ -199,12 +219,12 @@ function BatchRow({batch, checked, deleting, onToggleCheck}: BatchRowProps) {
 // ─── 主组件 ──────────────────────────────────────
 
 /**
- * 历史任务组窗口（双作用域）：
+ * 任务历史窗口（双作用域）：
  * - 全量模式（task-history）：左侧会话分组列表（含「全部会话」）+ 右侧批次列表，
  *   数据限定当前工作区（workspaceId 实际承载工作区路径）
  * - 当前会话模式（task-history-conv）：无侧栏，仅展示 --hclaw-task-conv 指定会话的批次；
  *   缺失参数时回退全量视图并 console.warn
- * - 关键词过滤防抖 300ms；批次多选删除带 ConfirmDialog；
+ * - 关键词过滤防抖 300ms；批次多选删除带 ConfirmDialog，工具栏含范围选择（全选 / 反选 / 取消选中 / 时间预设，均以当前可见批次为准）；
  *   当前会话模式删除活跃批次后同步刷新 agentStore 对应 convData
  */
 export default function TaskHistoryDialog() {
@@ -230,8 +250,14 @@ export default function TaskHistoryDialog() {
     const [deleting, setDeleting] = useState(false)
     // 删除失败的用户可见反馈（与加载错误 error 分开，避免整页错误视图顶掉列表）
     const [deleteError, setDeleteError] = useState<string | null>(null)
+    // 已加载批次的 id → 任务数（跨查询累积；选中集可含当前不可见批次，确认文案需要它兜底）
+    const [batchTotalById, setBatchTotalById] = useState<Map<string, number>>(() => new Map())
     // 全量模式侧栏选中会话；null = 全部会话
     const [selectedConvId, setSelectedConvId] = useState<string | null>(null)
+    // 时间预设（'' = 占位/无）。仅作展示：记录当前生效的预设，供下拉框回显选中项；
+    // 任何不经由预设改变选中集的路径（全选/反选/取消选中/单条勾选/删除清空）都会清回占位，
+    // 否则标签会与实际选中集不符
+    const [timePreset, setTimePreset] = useState('')
 
     const reloadRef = useRef<() => void>(() => {})
 
@@ -272,7 +298,32 @@ export default function TaskHistoryDialog() {
                 // 全量模式限定当前工作区；scope 模式无需重复限定
                 workspaceId: scopeConvId ? undefined : (workspacePath ?? undefined),
             })
-            setGroups(data ?? [])
+            const nextGroups: BatchGroup[] = data ?? []
+            setGroups(nextGroups)
+            // 记住每个已加载批次的 total（选中集可含当前不可见批次，确认文案要按全量 selectedIds
+            // 统计，见 selectedTaskTotal），map 与下方 selectedIds 剔除必须在同一次响应处理内完成。
+            if (filter === '') {
+                // 【无过滤加载】nextGroups 是全量权威数据 → 重建 map：顺带清掉已删批次的陈旧条目
+                // 与跨查询残留（合并式累积只增不减，会在批次被外部删除后高报任务数）。
+                const rebuilt = new Map<string, number>()
+                for (const g of nextGroups) for (const b of g.batches) rebuilt.set(b.id, b.total)
+                setBatchTotalById(rebuilt)
+                // 剔除已不存在的批次：判据取全量数据（不用 visibleGroups），否则切换侧栏会话会误删选择。
+                const existingIds = new Set(rebuilt.keys())
+                setSelectedIds(prev => {
+                    const kept = new Set([...prev].filter(id => existingIds.has(id)))
+                    return kept.size === prev.size ? prev : kept
+                })
+            } else {
+                // 搜索（filter 非空）只改变可见集合，不得动 selectedIds —— 否则用户搜一个词
+                // 就会掉一批选择（原缺陷「选完 30 天前的批次，顺手敲一个字过滤，选择就没了」）。
+                // 此时 nextGroups 只是全量的子集，故 map 只能【合并】累积（重建会丢数据）。
+                setBatchTotalById(prev => {
+                    const next = new Map(prev)
+                    for (const g of nextGroups) for (const b of g.batches) next.set(b.id, b.total)
+                    return next
+                })
+            }
         } catch (err) {
             console.error('[TaskHistoryDialog] loadGroups failed:', err)
             setError('加载任务历史失败')
@@ -282,9 +333,8 @@ export default function TaskHistoryDialog() {
     }, [ready, filter, scopeConvId, workspacePath])
 
     useEffect(() => {
+        // 选中项的剔除在 loadGroups 内按最新数据完成（保留仍存在的批次）
         void loadGroups()
-        // 清理已不存在的选中项
-        setSelectedIds(new Set())
     }, [loadGroups])
 
     reloadRef.current = () => void loadGroups()
@@ -309,20 +359,60 @@ export default function TaskHistoryDialog() {
             else next.add(id)
             return next
         })
+        setTimePreset('')
     }, [])
+
+    // 范围选择一律以「当前可见」为准：visibleBatches = 搜索结果 ∩ 侧栏会话筛选
+    const selectAll = useCallback(() => {
+        setSelectedIds(new Set(visibleBatches.map(b => b.id)))
+        setTimePreset('')
+    }, [visibleBatches])
+
+    const invertSelection = useCallback(() => {
+        setSelectedIds(prev => new Set(
+            visibleBatches.map(b => b.id).filter(id => !prev.has(id)),
+        ))
+        setTimePreset('')
+    }, [visibleBatches])
+
+    // 「取消选中」语义即【清空全部选中】（含当前不可见批次），是「四个范围操作一律以可见为口径」
+    // 的有意例外 —— 与 ConversationsDialog 的 setSelectedIds(new Set()) 对齐。
+    const clearSelection = useCallback(() => {
+        setSelectedIds(new Set())
+        setTimePreset('')
+    }, [])
+
+    // 时间锚点为批次 createdAt（批次表无 updated_at；completedAt 对进行中批次为 null，会漏选）
+    const selectByTime = useCallback((days: number) => {
+        const cutoff = Date.now() - days * 86400000
+        setSelectedIds(new Set(
+            visibleBatches.filter(b => b.createdAt < cutoff).map(b => b.id),
+        ))
+        setTimePreset(String(days))
+    }, [visibleBatches])
 
     const selectedCount = selectedIds.size
 
     // 选中批次的任务总数（确认文案用）
+    // 口径必须与 handleDeleteSelected 提交的【全量 selectedIds】一致：选中集可含当前不可见批次
+    // （搜索 / 侧栏筛选只改变可见集合），用 visibleGroups 会低报；用 groups 也仍会低报 ——
+    // 搜索是服务端过滤，命中错开的已选批次根本不在 groups 里，故用跨查询累积的 total 兜底。
     const selectedTaskTotal = useMemo(() => {
         let total = 0
-        for (const g of visibleGroups) {
+        const counted = new Set<string>()
+        for (const g of groups) {
             for (const b of g.batches) {
-                if (selectedIds.has(b.id)) total += b.total
+                if (selectedIds.has(b.id)) {
+                    total += b.total
+                    counted.add(b.id)
+                }
             }
         }
+        for (const id of selectedIds) {
+            if (!counted.has(id)) total += batchTotalById.get(id) ?? 0
+        }
         return total
-    }, [visibleGroups, selectedIds])
+    }, [groups, selectedIds, batchTotalById])
 
     // ── 删除操作 ────────────────────────────────────
     const handleDeleteSelected = useCallback(async () => {
@@ -330,10 +420,10 @@ export default function TaskHistoryDialog() {
         const ids = Array.from(selectedIds)
 
         await confirm({
-            title: '删除任务组',
+            title: '删除批次',
             message: selectedTaskTotal > 0
-                ? `确定要删除选中的 ${selectedCount} 个任务组吗？\n（共包含 ${selectedTaskTotal} 个任务的明细记录）\n此操作不可撤销。`
-                : `确定要删除选中的 ${selectedCount} 个任务组吗？\n此操作不可撤销。`,
+                ? `确定要删除选中的 ${selectedCount} 个批次吗？\n（共包含 ${selectedTaskTotal} 个任务的明细记录）\n此操作不可撤销。`
+                : `确定要删除选中的 ${selectedCount} 个批次吗？\n此操作不可撤销。`,
             confirmText: '删除',
             confirmVariant: 'danger',
             onConfirm: async () => {
@@ -350,10 +440,11 @@ export default function TaskHistoryDialog() {
                         }
                     }
                     setSelectedIds(new Set())
+                    setTimePreset('')
                     reloadRef.current()
                 } catch (err) {
                     console.error('[TaskHistoryDialog] delete failed:', err)
-                    setDeleteError('删除任务组失败，请稍后重试')
+                    setDeleteError('删除批次失败，请稍后重试')
                 } finally {
                     setDeleting(false)
                 }
@@ -396,7 +487,8 @@ export default function TaskHistoryDialog() {
     return (
         <div className="flex flex-col h-full min-h-0">
             {/* 工具栏：搜索 + 删除 */}
-            <div className="flex items-center gap-3 px-5 py-3 border-b border-[var(--border-muted)]">
+            <div
+                className="flex items-center gap-3 gap-y-2 px-5 py-3 border-b border-[var(--border-muted)] flex-wrap">
                 <div className="relative flex-1 min-w-0 max-w-[280px]">
                     <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]"
                          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -406,14 +498,50 @@ export default function TaskHistoryDialog() {
                     <input
                         value={filterInput}
                         onChange={(e) => setFilterInput(e.target.value)}
-                        placeholder="搜索任务组或任务标题"
-                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none focus:border-[var(--brand-primary)]"
+                        placeholder="搜索批次或任务标题"
+                        className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] ${INPUT_FOCUS}`}
                     data-name="task-history-dialog-filter-input"/>
                 </div>
 
+                {/* 全选 */}
+                <button
+                    onClick={selectAll}
+                    className={BTN_BORDERED}
+                    data-name="task-history-dialog-select-all-button">
+                    全选
+                </button>
+                <button
+                    onClick={invertSelection}
+                    className={BTN_BORDERED}
+                    data-name="task-history-dialog-invert-selection-button">
+                    反选
+                </button>
+                <button
+                    onClick={clearSelection}
+                    className={BTN_GHOST}
+                    data-name="task-history-dialog-clear-selection-button">
+                    取消选中
+                </button>
+
+                {/* 按时间快捷选择（锚点：批次 createdAt）。5 个平铺按钮会把搜索框挤到 22~67px
+                    （720/780 宽实测），故按方案 b 收进下拉；用公共组件 ThemedSelect
+                    （全站已无原生 select：见 CHANGELOG「下拉选择器全面主题化」）。
+                    value 绑定 timePreset —— 选完要回显「当前生效的预设」；清回占位的职责交给
+                    上面那些「非预设」的选中集变更路径，保证标签与选中集一致 */}
+                <ThemedSelect
+                    value={timePreset}
+                    onChange={(v) => {
+                        const days = Number(v)
+                        if (days > 0) selectByTime(days)
+                    }}
+                    options={TIME_PRESET_OPTIONS}
+                    placeholder="按时间选择…"
+                    ariaLabel="按时间选择批次"
+                    className="rounded-lg shrink-0"/>
+
                 <div className="ml-auto flex items-center gap-3 shrink-0">
                     {selectedCount > 0 && (
-                        <span className="text-xs text-[var(--text-secondary)]">已选 {selectedCount} 组</span>
+                        <span className="text-xs text-[var(--text-secondary)]">已选 {selectedCount} 个批次</span>
                     )}
                     <button
                         onClick={handleDeleteSelected}
@@ -473,7 +601,7 @@ export default function TaskHistoryDialog() {
                             aria-selected={selectedConvId === null}
                             className={`w-full flex items-center justify-between gap-2 px-4 py-2 text-left text-[13px] transition-colors ${
                                 selectedConvId === null
-                                    ? 'bg-[var(--brand-muted)] text-[var(--brand-primary)] font-medium'
+                                    ? 'bg-[var(--brand-muted)] text-[var(--text-brand)] font-medium'
                                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)]'
                             }`}
                          data-name="task-history-dialog-all-conversations-tab-button">
@@ -488,7 +616,7 @@ export default function TaskHistoryDialog() {
                                 title={g.conversationTitle || '(无标题)'}
                                 className={`w-full flex items-center justify-between gap-2 px-4 py-2 text-left text-[13px] transition-colors ${
                                     selectedConvId === g.conversationId
-                                        ? 'bg-[var(--brand-muted)] text-[var(--brand-primary)] font-medium'
+                                        ? 'bg-[var(--brand-muted)] text-[var(--text-brand)] font-medium'
                                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)]'
                                 }`}
                              data-name={`task-history-dialog-group-${i}`}>
@@ -512,13 +640,13 @@ export default function TaskHistoryDialog() {
                                     <polyline points="12 6 12 12 16 14"/>
                                 </svg>
                                 <span className="text-sm text-[var(--text-secondary)]">
-                                    {filter ? '没有匹配的任务组' : '暂无历史任务组'}
+                                    {filter ? '没有匹配的批次' : '暂无历史批次'}
                                 </span>
                             </div>
                         </div>
                     ) : visibleBatches.length === 0 ? (
                         <div className="h-full flex items-center justify-center">
-                            <span className="text-sm text-[var(--text-secondary)]">该会话暂无匹配的任务组</span>
+                            <span className="text-sm text-[var(--text-secondary)]">该会话暂无匹配的批次</span>
                         </div>
                     ) : (
                         visibleGroups.map((g) => (

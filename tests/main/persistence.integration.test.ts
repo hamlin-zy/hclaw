@@ -1,6 +1,8 @@
 // 集成测试：ConversationPersistence × SqliteConversationRepository（真实 SQLite）。
-// 隔离：vi.mock config → getHclawDir() 重定向 mkdtempSync(tmpdir)，绝不触碰真实
+// 隔离：vi.mock config 与 hclawPaths → getHclawDir() 重定向 mkdtempSync(tmpdir)，绝不触碰真实
 // ~/.hclaw/data/hclaw.db（Global Constraint 5）；mock 形态与 usageWrite.test.ts 一致。
+// hclawPaths 必须一并 mock：repositories/sqlite/index.ts 已直接从叶子取 getHclawDir，
+// 只 mock config 会被绕过（见 docs/superpowers/plans/2026-09-17-main-circular-deps-remediation.md）。
 import {describe, it, expect, vi, afterAll} from 'vitest'
 import os from 'node:os'
 import path from 'node:path'
@@ -19,6 +21,14 @@ vi.doMock('../../src/main/config', () => ({
   getHclawDataDir: () => path.join(tmpRoot, 'data'),
   isSafePath: (p: string) => p.startsWith(tmpRoot),
 }))
+const pathStub = () => ({
+  getHclawDir: () => tmpRoot,
+  HCLAW_DIR: tmpRoot,
+  getHclawDataDir: () => path.join(tmpRoot, 'data'),
+  isSafePath: (p: string) => p.startsWith(tmpRoot),
+})
+vi.doMock('@/main/hclawPaths', pathStub)
+vi.doMock('../../src/main/hclawPaths', pathStub)
 
 const {ConversationPersistence, getConversationPersistence} = await import('../../src/main/persistence/conversationPersistence')
 import {persistStreamEvent} from '../../src/main/persistence/streamBridge'

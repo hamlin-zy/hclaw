@@ -108,6 +108,76 @@ export interface BranchTreeNode {
   remoteName?: string
 }
 
+// ─── PM 快速导航（QuickOpen）：主进程检索服务的数据形状 ───
+// 契约见 .scratch/pm-quickopen/spec.md「数据来源」段：文件清单 / 全文检索 / 按行读取三项能力
+// 均由主进程承担，IPC handler 只当薄壳；匹配区间一律由主进程给出，renderer 不重算。
+
+/** File Search 命中项（工作区文件清单里命中查询的文件） */
+export interface FileSearchHit {
+  /** 相对 workspace root，统一 '/' */
+  path: string
+  /** 命中区间在 path 中的 0-based 下标（[matchStart, matchEnd)），列表据此标高亮 */
+  matchStart: number
+  matchEnd: number
+}
+
+/** 按行范围读取结果（QuickOpen 预览取数；按行读，不整体载入文件） */
+export interface FileSliceResult {
+  path: string
+  /** 实际返回的首行行号（1-based） */
+  startLine: number
+  /** 实际返回的末行行号（1-based，含） */
+  endLine: number
+  /**
+   * 文件总行数（空文件为 0）。
+   * **-1 = 未知**：因读到 endLine 即停、未走到文件尾时刻意不数总行数（大文件上这是有意的性能取舍）。
+   * 消费方必须容忍 -1，不要当成行号渲染。
+   */
+  totalLines: number
+  /** 文件字节数（元信息行用；取数失败时不返回） */
+  size?: number
+  /** 文件修改时间（ms 时间戳；取数失败时不返回） */
+  mtime?: number
+  /** 行文本（不含行尾换行符） */
+  lines: string[]
+  /** 请求范围已抵达文件尾且文件不超过阈值时一并返回全文，供编辑器标签页直接使用（省第二次全量读） */
+  fullContent?: string
+  /** 与 fullContent 配套的内容哈希 */
+  hash?: string
+  /** 取数失败的单行原因（超大 / 二进制 / 无权限 / 路径已消失）；有值时 lines 为 [] */
+  error?: string
+}
+
+/** Find in Files 命中项：一处命中 = 文件 + 行号 + 行文本 */
+export interface FindInFilesMatch {
+  /** 相对 workspace root，统一 '/' */
+  path: string
+  /** 1-based 行号 */
+  line: number
+  /** 该行文本（不含行尾换行符） */
+  text: string
+  /** 行内命中区间的 0-based 下标（[matchStart, matchEnd)） */
+  matchStart: number
+  matchEnd: number
+}
+
+/** Find in Files 会话的翻页结果（页大小与上限一律以命中项计，不以文件计） */
+export interface FindInFilesPage {
+  matches: FindInFilesMatch[]
+  /** 缓冲达到上限被截断：结果不完整，UI 必须标注 */
+  truncated: boolean
+  /** 检索是否已结束；false = 后续可能还有命中项（可继续翻页） */
+  done: boolean
+  /**
+   * 检索不可用的单行原因（如 ripgrep 缺失 / 进程异常退出）。
+   *
+   * 为什么必须有这个字段：检索进程起不来时若只返回「0 个命中项」，UI 上就是
+   * 「搜什么都搜不到」且毫无提示——打包产物漏掉 rg.exe 时正是如此（被误当成搜索逻辑的 bug）。
+   * 有值即表示**这次检索没有真正执行**，调用方必须把原因显示出来，不能当成「无匹配」。
+   */
+  error?: string
+}
+
 /** 「发送到会话」投递载荷（PM 渲染进程 → 主进程 → 主窗口渲染进程） */
 export interface SendToConversationPayload {
   /** 回执关联 ID（PM 生成，crypto.randomUUID()） */

@@ -33,7 +33,7 @@ const ThinkBlock = memo(function ThinkBlock({thinkBlock, defaultExpanded}: {
             <div
                 className="mt-[var(--space-snug)] pl-[var(--space-relaxed)] border-l-2 border-[var(--border-emphasis)] bg-[var(--brand-muted)] rounded-r-lg p-[var(--space-relaxed)]">
                 {isEmptyThinking ? (
-                    <div className="flex items-center gap-[var(--space-snug)] text-xs text-[var(--brand-primary)]">
+                    <div className="flex items-center gap-[var(--space-snug)] text-xs text-[var(--text-brand)]">
                         <ThinkingDot/>
                         正在思考...
                     </div>

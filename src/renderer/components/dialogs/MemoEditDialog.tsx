@@ -19,6 +19,7 @@ import {PrioritySelect} from '../common/PrioritySelect'
 import {AttachmentIcon} from '../icons'
 import type {MemoItem, MemoCapability, MemoAttachment, MemoPriority} from '@shared/types/memo'
 import {toMediaUrl, isImageFileName} from '@/renderer/utils/mediaUrl'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 const MAX_ATTACHMENTS = 20
 
@@ -266,7 +267,7 @@ export default function MemoEditDialog() {
                         onChange={(e) => setTitle(e.target.value)}
                         placeholder="备忘录标题"
                         autoFocus
-                        className="w-full px-2 py-1.5 text-sm bg-[var(--surface-muted)] rounded border border-[var(--border)] focus:outline-none focus:border-[var(--border-emphasis)] placeholder-[var(--text-muted)]"
+                        className={`w-full px-2 py-1.5 text-sm bg-[var(--surface-muted)] rounded border border-[var(--border)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                     data-name="memo-edit-dialog-input"/>
                 </div>
                 {/* 附件缩略图区：位于标题与正文之间（修订 2 Task D） */}
@@ -288,7 +289,7 @@ export default function MemoEditDialog() {
                         }}
                         placeholder="记录备忘..."
                         rows={8}
-                        className="w-full px-2 py-1.5 text-xs bg-[var(--surface-muted)] rounded border border-[var(--border)] focus:outline-none focus:border-[var(--border-emphasis)] resize-y placeholder-[var(--text-muted)]"
+                        className={`w-full px-2 py-1.5 text-xs bg-[var(--surface-muted)] rounded border border-[var(--border)] resize-y placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                     data-name="memo-edit-dialog-textarea"/>
                 </div>
                 {/* 添加附件：正文下方、能力选择上方（修订 2 Task D）。
@@ -299,7 +300,7 @@ export default function MemoEditDialog() {
                         title="添加附件"
                         data-testid="memo-add-attachment"
                         onClick={() => fileRef.current?.click()}
-                        className="px-2 py-1 rounded text-xs border border-dashed border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--brand-primary)] hover:border-[var(--border-emphasis)]"
+                        className="px-2 py-1 rounded text-xs border border-dashed border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-brand)] hover:border-[var(--border-emphasis)]"
                      data-name="memo-edit-dialog-add-attachment-button">
                         + 添加附件
                     </button>

@@ -449,6 +449,9 @@
     --code-indent-guide: color-mix(in srgb, var(--text-primary) 9%, transparent);
     --code-selection: var(--brand-muted);
     --code-match: var(--brand-muted);
+    /* 定位高亮（工单 06）：QuickOpen 打开后短暂照亮落点。必须与 --code-selection 不同色——
+       两条通道可能同时命中同一行（用户选中的行恰好是定位落点），要能分辨出「这里被定位过」。 */
+    --code-located: color-mix(in srgb, var(--brand-primary) 25%, transparent);
 
     /* Diff side-by-side 的**布局**变量（与配色无关，四主题必须解析到同一个值）。
         声明在这里而不是 :root，是为了满足「.pm-* 规则消费的令牌必须在四主题下一致可解析」
@@ -1205,15 +1208,10 @@ textarea:focus-visible {
   text-decoration-thickness: 2px;
 }
 
-/* 查找输入框聚焦态：边框变色 + 低透明度 ring（贴身主题色但不过曝），
-   替代全局 2px 纯色 :focus-visible outline（过于刺眼）。
-   选择器特异性 (0,2,0) > :focus-visible (0,1,0)，可安全覆盖。 */
-.find-input:focus,
-.find-input:focus-visible {
-  outline: none;
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 18%, transparent);
-}
+/* ⚠️ `.find-input` 这个**类名本身**被 MessageList.tsx 的 `document.querySelector('.find-input')`
+   依赖，必须保留——但它的**焦点样式**已收敛到 src/renderer/lib/inputFocus.ts 的 INPUT_FOCUS。
+   不要在此处再声明 :focus / :focus-visible（本文件规则位于 `@tailwind utilities` 之后，
+   同权重时后声明者胜出，会静默夺回焦点样式）。护栏见 tests/renderer/inputFocusSeam.test.ts。 */
 
 /* ========================================
    Title Bar — Windows 11 Style
@@ -2272,17 +2270,17 @@ html, body {
     font-family: inherit;
     line-height: 1.5;
     resize: none;
-    transition: box-shadow 0.15s;
+    /* transition 交由 INPUT_FOCUS 的 transition-[background-color,border-color,box-shadow] 提供：
+       本文件在 `@tailwind utilities` 之后，这里的简写（0,1,1）会盖掉那条工具类（0,1,0），
+       令 border-color 失去过渡、只留 box-shadow 在动。 */
 }
 
 .param-input-section textarea::placeholder {
     color: var(--text-muted);
 }
 
-.param-input-section textarea:focus {
-    outline: none;
-    box-shadow: 0 0 0 2px var(--brand-primary);
-}
+/* 焦点样式已收敛到 INPUT_FOCUS（src/renderer/lib/inputFocus.ts），此处不再声明 :focus：
+   本文件位于 `@tailwind utilities` 之后，同权重后声明者胜出，会夺回焦点样式。 */
 
 /* ========================================
    ParamInputModal — 深色/Yuanshandai 主题适配
@@ -2326,10 +2324,7 @@ html, body {
     border-color: var(--border);
 }
 
-.dark .param-input-section textarea:focus,
-.yuanshandai .param-input-section textarea:focus {
-    box-shadow: 0 0 0 2px var(--brand-primary);
-}
+/* 深色/yuanshandai 的 textarea 焦点样式同样收敛到 INPUT_FOCUS（含 dark-all: 变体），此处不再声明。 */
 
 /* ========================================
    Dark/Yuanshandai: MCP Dialog — 深色主题适配
@@ -3132,7 +3127,6 @@ html.bg-enabled,
 }
 /* 无障碍：偏好降低动效时关闭循环动画（骨架条保留静态渐变底色，不消失） */
 @media (prefers-reduced-motion: reduce) {
-    .pm-spin { animation: none; }
     .pm-tree-skeleton-bar { animation: none; }
 }
 
@@ -3152,7 +3146,10 @@ html.bg-enabled,
     border-radius: 4px;
 }
 .pm-search-icon { color: var(--text-muted); flex: 0 0 auto; }
-.pm-search-input {
+/* 选择器带 `.pm-search` 自我限定（(0,2,0)）：全局兜底
+   `:is(input,select,textarea):not([class*="bg-"])` 的 (0,1,1) 会压过裸类名，把输入框刷成
+   --surface —— 在 --surface-muted 的外壳里就是一块颜色不对的内嵌矩形（与 QuickOpen 搜索行同因）。 */
+.pm-search .pm-search-input {
     flex: 1 1 auto;
     min-width: 0;
     background: transparent;
@@ -3161,7 +3158,7 @@ html.bg-enabled,
     font-size: 12px;
     color: var(--text-primary);
 }
-.pm-search-input::placeholder { color: var(--text-muted); }
+.pm-search .pm-search-input::placeholder { color: var(--text-muted); }
 .pm-search-clear,
 .pm-search-submit {
     flex: 0 0 auto;
@@ -3734,6 +3731,14 @@ html.bg-enabled,
 .pm-code-editor .cm-editor .cm-line.cm-line-selected {
     background: var(--code-selection);
 }
+/* 定位高亮的整行背景（CodeMirror `Decoration.line` 打的类，见 lib/lineDecoration.ts 的
+   locateLineDecorations）。与选中行是**两条独立通道**，故意走不同的 CSS 通道：
+   选中行占 background-color，定位高亮占 background-image（渐变占位）——同一行同时命中两者时
+   两个背景一起呈现，而不是后者覆盖前者、让人以为「一方的变化清掉了另一方」。 */
+.pm-code-editor .cm-editor .cm-line.cm-line-located {
+    background-image: linear-gradient(var(--code-located), var(--code-located));
+    box-shadow: inset 2px 0 0 var(--brand-primary);
+}
 /* 缩进参考线：本期按计划授权降级为「不做」，类保留为后续 ViewPlugin 的挂钩点（spec §11.2） */
 .pm-indent-guide {
     background-image: linear-gradient(to right, var(--code-indent-guide) 1px, transparent 1px);
@@ -4231,7 +4236,8 @@ html.bg-enabled,
 
 /* ========================================
    QuickOpen — PM 窗口快速导航浮层（ADR-0002）
-   固定三行：搜索框 / 匹配列表 / 选中项预览。票 01 只建壳，列表与预览留空。
+   固定三行：搜索框（head）/ 匹配列表 / 选中项预览。
+   结果列表不引虚拟列表库，用 content-visibility 控制渲染成本（同 .pm-commit-row）。
    ======================================== */
 
 .pm-quickopen-backdrop {
@@ -4256,21 +4262,148 @@ html.bg-enabled,
     border-radius: 8px;
     box-shadow: var(--shadow-overlay);
 }
-.pm-quickopen-input {
-    height: 40px;
+/* 搜索框行：输入框 + 模式专属的次要入口（Recent Files 的「清空记录」）。
+   输入框**整行铺满**——这一行本身就是输入面（ADR-0002 的三行结构里没有「输入框外壳」这一层）：
+   无底色、无描边、无焦点环。三件事缺一不可，缺哪一件都会在行右端留下可见痕迹：
+   ① 底色：全局兜底 `:is(input,select,textarea):not([class*="bg-"])` 的特异度是 (0,1,1)，
+      压过裸类名的 (0,1,0)，把输入框刷成 --surface（#1e1e1e）；而 head 是 --surface-elevated
+      （#2d2d2d）。于是输入框成了一块**右端短一截的可见矩形**——这正是「搜索框右侧有缝隙」；
+   ② 描边：同一条兜底规则还会接管 border-color（border-style 仍是 none，暂不显形）；
+   ③ 焦点环：ring 是外扩的，套在铺满的输入框上会在行尾空出一道缝，并随 0 圆角退化成直角
+      ——「搜索框右侧无圆角」。
+   故本组选择器一律带 `.pm-quickopen-head` 自我限定（(0,2,0)）夺回组件意图；
+   焦点改由光标 + 行底描边（:focus-within）承担，行内不再出现第二层容器。 */
+.pm-quickopen-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 0 12px;
+    border-bottom: 1px solid var(--border);
+}
+.pm-quickopen-head:focus-within { border-bottom-color: var(--border-emphasis); }
+.pm-quickopen-head .pm-quickopen-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 40px;
+    padding: 0;
     background: transparent;
     border: none;
-    border-bottom: 1px solid var(--border);
     font-size: 13px;
     color: var(--text-primary);
     outline: none;
 }
+.pm-quickopen-head .pm-quickopen-input::placeholder { color: var(--text-muted); }
+
+/* Recent Files 的「清空记录」：与 .pm-icon-btn 同族的 ghost 文字按钮（透明底、无描边，
+   hover 才浮出底色）。此前是带 1px 描边的小 chip，在 40px 的搜索行里又重又碎，
+   且 4px 圆角与小尺寸不成比例。 */
+.pm-quickopen-clear {
+    flex: 0 0 auto;
+    height: 24px;
+    padding: 0 8px;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.pm-quickopen-clear:hover { background: var(--surface-muted); color: var(--text-primary); }
+.pm-quickopen-clear:active { background: var(--surface-overlay); }
+
 .pm-quickopen-list {
     flex: 1 1 auto;
     min-height: 140px;
     overflow-y: auto;
 }
+
+/* 加载中指示：搜索期间列表顶部的一行状态（.pm-spin 由既有规则提供旋转动画） */
+.pm-quickopen-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+/* 空态 / 无结果 / 检索失败：同一处文案位，不出现「什么都没有」的空白列表 */
+.pm-quickopen-status,
+.pm-quickopen-empty {
+    padding: 10px 12px;
+}
+/* 文案槽公共字号/字色（截断标注 padding 不同，故只并入这一组） */
+.pm-quickopen-status,
+.pm-quickopen-empty,
+.pm-quickopen-truncated {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* 结果行：文件名 + 相对路径尾段（+ Recent Files 的打开时间）。
+   离屏行跳过渲染（原生懒渲染，与 .pm-commit-row 同策略，不引虚拟列表库）。 */
+.pm-quickopen-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 26px;
+    padding: 0 10px;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    cursor: pointer;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 26px;
+}
+.pm-quickopen-row:hover { background: color-mix(in srgb, var(--surface-muted) 55%, var(--surface-elevated)); }
+/* 选中态：中性底 + 左侧 inset 强调条（与 .pm-tree-row.is-selected / .pm-commit-row.is-selected 同构） */
+.pm-quickopen-row.is-active {
+    background: var(--surface-muted);
+    box-shadow: inset 2px 0 0 var(--focus-ring);
+}
+/* 已失效（打开失败并已从 Recent Files 剔除）：就地标灰，下一次开浮层即消失 */
+.pm-quickopen-row.is-stale { color: var(--text-muted); text-decoration: line-through; }
+.pm-quickopen-row.is-stale .pm-quickopen-row-name { color: var(--text-muted); }
+.pm-quickopen-row-name { flex: 0 0 auto; color: var(--text-primary); }
+.pm-quickopen-row-dir {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-secondary);
+}
+.pm-quickopen-row-time,
+.pm-quickopen-row-flag,
+.pm-quickopen-row-line {
+    flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+}
+/* Find in Files 行：文件名 + 行号 + 命中行文本（行内区间高亮）+ 目录尾段 */
+.pm-quickopen-row-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-secondary);
+}
+.pm-quickopen-row--find .pm-quickopen-row-dir { flex: 0 1 auto; max-width: 40%; }
+/* 同一文件命中过多的折叠行（其余不展开成行）：不可点击，仅作说明 */
+.pm-quickopen-fold {
+    padding: 2px 10px 2px 24px;
+    font-size: 12px;
+    color: var(--text-muted);
+    content-visibility: auto;
+    contain-intrinsic-size: auto 20px;
+}
+/* 命中区间：下标由主进程给出，renderer 只做切片（不重算匹配） */
+.pm-quickopen-mark {
+    background: var(--brand-muted);
+    color: inherit;
+    border-radius: 2px;
+}
+/* 结果被单次上限截断时的标注（字号/字色见上方文案槽公共组） */
+.pm-quickopen-truncated {
+    padding: 6px 12px;
+}
+
+/* 预览区（工单 04 的接缝：容器在这里，内容体在 components/QuickOpenPreview.tsx） */
 .pm-quickopen-preview {
     flex: 0 0 auto;
     height: 180px;
@@ -4283,6 +4416,25 @@ html.bg-enabled,
     color: var(--text-secondary);
     white-space: pre;
 }
+.pm-quickopen-preview-empty { margin: 0; color: var(--text-secondary); }
+.pm-quickopen-preview-path { margin: 0 0 4px; color: var(--text-secondary); }
+.pm-quickopen-preview-pending { margin: 0; color: var(--text-muted); }
+/* 取数失败：单行原因文案（不空白、不提供重试） */
+.pm-quickopen-preview-error { margin: 0; color: var(--text-danger); }
+/* 预览正文：自画行号 + 等宽行（不挂编辑器实例，ADR-0002） */
+.pm-quickopen-preview-lines { display: flex; flex-direction: column; }
+.pm-quickopen-preview-line { display: flex; gap: 8px; }
+/* 命中行：整行给一层底色，行内区间再用 .pm-quickopen-mark 强调 */
+.pm-quickopen-preview-line.is-hit { background: var(--code-current-line); }
+.pm-quickopen-preview-lineno {
+    flex: 0 0 auto;
+    width: 40px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+    user-select: none;
+}
+.pm-quickopen-preview-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* ========================================
    DatePicker — 通用日期选择器（dp- 前缀）
    自研弹层替换原生 <input type="date">：
@@ -4307,11 +4459,15 @@ html.bg-enabled,
     border: 1px solid var(--border);
     border-radius: 4px;
     outline: none;
-    transition: border-color 0.15s ease;
+    /* transition 交由 INPUT_FOCUS 的 transition-[background-color,border-color,box-shadow] 提供：
+       本文件在 `@tailwind utilities` 之后，这里的 transition 简写（0,1,0）会盖掉那条工具类，
+       令焦点环 box-shadow 失去过渡。 */
 }
 .dp-input::placeholder { color: var(--text-muted); }
 .dp-input:hover { border-color: var(--border-muted); }
-.dp-input:focus { border-color: var(--brand-border); }
+/* .dp-input:focus 已删除：焦点样式收敛到 INPUT_FOCUS（src/renderer/lib/inputFocus.ts）。
+   本文件在 `@tailwind utilities` 之后，.dp-input:focus (0,2,0) 与 focus:border-* (0,2,0) 同权重，
+   后声明者胜出 → 不删则 DatePicker 的焦点仍被这里接管。 */
 .dp-input:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .dp-trigger {
@@ -4497,4 +4653,25 @@ html.bg-enabled,
     color: var(--surface-elevated);
     background: var(--brand-primary);
     border-color: var(--brand-primary);
+}
+
+/* ========================================
+   无障碍：全局动效降级（设计契约 M5 / ui-09）
+   ======================================== */
+/*
+ * 契约 M5：「必须尊重 `prefers-reduced-motion`：该媒体查询下关闭 M1 的 ② 与 ③」。
+ *
+ * ③ 加载指示器 = Tailwind 的 `animate-spin`（本窗口 5 处：Switch、ConfirmDialog、
+ *    ScheduleListStates、ScheduleConversationsPanel、ScheduleScriptLogPanel；
+ *    另 Project Manager 的 `.pm-spin` 原本各自单独关闭，现并入本块统一关闭）。
+ * ② 行内展开的高度/透明度过渡：本窗口没有这类过渡——展开是直接挂/卸节点，行内只有
+ *    `transition-colors` 与 chevron 的 `transition-transform`（均属 M1 ①）——故此处
+ *    只需关闭 ③；日后若给行内展开加过渡，必须回这里一并关掉。
+ *
+ * 位置：`@tailwind utilities`（文件顶部第 68 行）之后，与 utility 同权重时后声明者胜出。
+ * 只改「动效」，不触碰任何主题块的令牌取值（X4）。
+ */
+@media (prefers-reduced-motion: reduce) {
+    .pm-spin { animation: none; }
+    .animate-spin { animation: none; }
 }

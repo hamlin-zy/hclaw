@@ -1,6 +1,7 @@
 import {useEffect, useLayoutEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
+import {INPUT_FOCUS} from '../lib/inputFocus'
 
 /** 弹层面板最大高度，同时用于判断是否向上翻转（与 ThemedSelect 对齐） */
 const PANEL_MAX_H = 240
@@ -135,7 +136,7 @@ export default function ThemedCombobox({
                 role="combobox"
                 aria-expanded={open}
                 aria-autocomplete="list"
-                className={`px-2 py-1.5 text-xs bg-[var(--surface)] border border-gray-200 rounded text-left text-[var(--text-primary)] placeholder-gray-400 transition-colors focus:outline-none focus:border-brand-300 hover:border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
+                className={`px-2 py-1.5 text-xs bg-[var(--surface)] border border-gray-200 rounded text-left text-[var(--text-primary)] placeholder-gray-400 hover:border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed ${INPUT_FOCUS} ${className}`}
              data-name="themed-combobox-input"/>
 
             {open && createPortal(
@@ -171,7 +172,7 @@ export default function ThemedCombobox({
                                         aria-selected={i === activeIdx}
                                         className={`w-full px-2.5 py-2 text-left text-[11px] rounded-lg transition-colors ${
                                             i === activeIdx
-                                                ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--brand-primary)] font-medium'
+                                                ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--text-brand)] font-medium'
                                                 : 'text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                         }`}
                                      data-name={`themed-combobox-option-${i}`}>

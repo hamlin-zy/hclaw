@@ -4,6 +4,7 @@ import {useGitStatusStore} from '../stores/gitStatusStore'
 import {useEditorTabStore} from '../stores/editorTabStore'
 import {useFileTreeStore} from '../stores/fileTreeStore'
 import {toOpenFileTabInput} from '../utils/fileOpenGate'
+import {recordRecentFile} from '../lib/recentFiles'
 import {confirm, confirmWithInput} from '../../components/ConfirmDialog'
 import {useGitLogStore} from '../stores/gitLogStore'
 import {PanelCard} from '../ui/PanelCard'
@@ -120,6 +121,8 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
       // 归属守卫：期间切了 workspace / 组件已卸载 → 丢弃，不写 tab
       if (!isCurrent(reqWs)) return
       openFileTab(toOpenFileTabInput(f.path, f.path, r, '??'))
+      // QuickOpen 的 Recent Files：这里打开的是真实文件（未跟踪），双击非 ?? 走的是 diff，不记
+      recordRecentFile(reqWs, f.path)
     })
   }
   const onDoubleClick = (f: GitStatus) => f.status === '??' ? openFile(f) : openDiff(f)

@@ -33,6 +33,7 @@ import {useSettingsStore} from '../../stores/settingsStore'
 import {useCapabilityRefresh} from '../../hooks/useCapabilityRefresh'
 import {confirm} from '../ConfirmDialog'
 import ThemedSelect from '../ThemedSelect'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 const GIT_SOURCES = ['github', 'gitee', 'gitlab']
 const CATEGORY_PREVIEW_LIMIT = 3
@@ -72,7 +73,7 @@ function CategorySection({title, icon, items, limit, expanded, onToggleExpanded,
                 {needsPreview && !previewExpanded && (
                     <button
                         onClick={() => setPreviewExpanded(true)}
-                        className="text-xs text-[var(--brand-primary)] hover:text-[color-mix(in_srgb,var(--brand-primary)_80%,transparent)] transition-colors"
+                        className="text-xs text-[var(--text-brand)] hover:text-[color-mix(in_srgb,var(--brand-primary)_80%,transparent)] transition-colors"
                         data-name="plugin-dialog-expand-category-button">
                         展开全部（还有 {items.length - limit} 项未显示）
                     </button>
@@ -80,7 +81,7 @@ function CategorySection({title, icon, items, limit, expanded, onToggleExpanded,
                 {needsPreview && previewExpanded && (
                     <button
                         onClick={() => setPreviewExpanded(false)}
-                        className="text-xs text-[var(--brand-primary)] hover:text-[color-mix(in_srgb,var(--brand-primary)_80%,transparent)] transition-colors"
+                        className="text-xs text-[var(--text-brand)] hover:text-[color-mix(in_srgb,var(--brand-primary)_80%,transparent)] transition-colors"
                         data-name="plugin-dialog-collapse-category-button">
                         收起
                     </button>
@@ -354,14 +355,13 @@ export default function PluginDialog() {
                           onChange={e => setInstallUrl(e.target.value)}
                           onKeyDown={e => e.key === 'Enter' && handleInstall()}
                           placeholder="输入仓库地址，如 https://github.com/obra/superpowers 或 https://gitee.com/user/repo"
-                          className="flex-1 px-4 py-2.5 bg-[var(--surface-muted)] rounded-lg border border-[var(--border)]
-                       text-[var(--text-primary)] placeholder-[var(--text-muted)]
-                       focus:outline-none focus:border-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)] focus:ring-1 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all"
+                          className={`flex-1 px-4 py-2.5 bg-[var(--surface-muted)] rounded-lg border border-[var(--border)]
+                       text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                       data-name="plugin-dialog-input"/>
                       <button
                           onClick={handleInstall}
                           disabled={installing || !installUrl.trim()}
-                          className="px-4 py-2.5 border border-[var(--border)] text-[var(--brand-primary)] hover:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)]
+                          className="px-4 py-2.5 border border-[var(--border)] text-[var(--text-brand)] hover:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)]
                        disabled:opacity-50 disabled:cursor-not-allowed
                        font-medium rounded-lg transition-colors flex items-center gap-2 text-xs"
                        data-name="plugin-dialog-install-button">
@@ -413,7 +413,7 @@ export default function PluginDialog() {
                                       const repoUrl = plugin.manifest.repository || plugin.manifest.homepage
                                       return (
                                           <span
-                                              className={repoUrl ? 'cursor-pointer text-[var(--brand-primary)] hover:underline' : undefined}
+                                              className={repoUrl ? 'cursor-pointer text-[var(--text-brand)] hover:underline' : undefined}
                                               onClick={(e) => handlePluginNameClick(repoUrl, e)}
                                               title={repoUrl || undefined}
                                               data-name="plugin-dialog-h4">
@@ -473,7 +473,7 @@ export default function PluginDialog() {
                                                   onClick={() => handleSyncVersions(plugin.name)}
                                                   disabled={syncingVersion !== null}
                                                   className="px-1.5 py-1.5 text-xs font-medium rounded-md
-                                                     bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]
+                                                     bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]
                                                      transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                data-name="plugin-dialog-sync-versions-button">
                                                   {syncingVersion === plugin.name ? '同步中...' : '同步版本'}
@@ -511,7 +511,7 @@ export default function PluginDialog() {
                                           <span className="mt-2 flex flex-wrap gap-2">
                                       {plugin.commands && plugin.commands.length > 0 && (
                                           <span
-                                              className="text-xs px-2 py-0.5 bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] rounded">
+                                              className="text-xs px-2 py-0.5 bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)] rounded">
                             {plugin.commands.length} 命令
                           </span>
                                       )}
@@ -578,7 +578,7 @@ export default function PluginDialog() {
                                                           <div key={cmd.id} className="text-sm">
                                                               <div className="flex items-center gap-2">
                                                                   <code
-                                                                      className="text-xs px-1.5 py-0.5 bg-[var(--surface)] rounded text-[var(--brand-primary)]">
+                                                                      className="text-xs px-1.5 py-0.5 bg-[var(--surface)] rounded text-[var(--text-brand)]">
                                                                       {cmd.id}
                                                                   </code>
                                                                   <span

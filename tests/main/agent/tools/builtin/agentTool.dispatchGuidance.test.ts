@@ -46,6 +46,7 @@ vi.mock('@/main/agent/runtimeConfigManager', () => ({
     runtimeConfigManager: {
         getScheme: mocks.getScheme,
         getProviders: mocks.getProviders,
+        getWorkingDir: vi.fn(() => ''),
         getConfig: () => ({workingDir: ''}),
     },
 }))

@@ -9,7 +9,10 @@ import * as fsPromises from 'fs/promises';
 // IMPORTANT: Database must be initialized before any other database-dependent modules
 import './repositories/init';
 
-import {ensureConfigLayout, initConfigIPC, getHclawDir} from './config';
+// 装配根：直接指向各职责模块（config.ts 已退化为兼容门面，见该文件头注释）
+import {getHclawDir} from './hclawPaths';
+import {ensureConfigLayout} from './config/ensureConfigLayout';
+import {initConfigIPC} from './ipc/configIPC';
 import {initBackgroundIPC} from './ipc/background';
 import {createWindow, getMainWindow, initWindowIPC, setIsQuitting, broadcastUpdaterStatus} from './window';
 import {createTray} from './tray';
@@ -617,6 +620,9 @@ app.on('will-quit', async () => {
   // ★ MCP 事件转发注销函数（此前注册时丢弃了返回值 → mcpService.onEvent 订阅残留）
   try { unsubscribeMCPEventForwarding?.(); } catch { /* ignore */ }
   globalShortcut.unregisterAll();
+  // ★ 关闭 Scheduler Worker（此前 shutdown() 无任何调用者，退出时 cron worker 线程会被整体带走
+  //   而非优雅终止；线程内的定时器与在跑的脚本任务也就无从收尾）
+  try { schedulerManager.shutdown(); } catch { /* ignore */ }
   agentManager.abortAll();
   await mcpWorkerManager.shutdown();
   // ★ 关闭 Channel Worker（此前 shutdown() 无任何调用者，退出时 Channel worker 进程会被整体带走而非优雅终止）
@@ -632,5 +638,4 @@ app.on('will-quit', async () => {
   // 退出前强制 checkpoint：把 WAL 合并回主库并截断
   const {flushDatabase} = await import('./repositories/sqlite');
   try { flushDatabase(); } catch { /* ignore */ }
-  // Scheduler worker will be terminated by process exit; safe to ignore
 });

@@ -14,7 +14,7 @@ import {getShellInfo, getTerminalDisplayName} from './tools/builtin/bashTool'
 import {getAllMcpToolMeta} from './mcp/discovery'
 import {promptResolver, type PromptResolver} from './prompts/resolver'
 import {getAgentTemplate} from './prompts/agentTemplates'
-import {getHclawDir} from '../config'
+import {getHclawDir} from '../hclawPaths'
 
 
 export interface SystemPromptContext {

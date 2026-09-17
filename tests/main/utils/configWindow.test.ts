@@ -12,6 +12,9 @@ vi.mock('electron', () => ({
     ipcMain: {
         handle: (channel: string, fn: Function) => { state.handlers.set(channel, fn) },
         removeHandler: () => {},
+        // ack 监听走 ipcMain.on（EventEmitter）：initConfigWindowIPC 会 removeListener + on
+        on: () => {},
+        removeListener: () => {},
     },
     // llm-config/scheme-config 走 widthRatio 自适应宽度，resolveDialogWidth 会调用 screen，
     // 需补齐 mock 避免测试抛错

@@ -5,6 +5,7 @@ import {useFileTreeStore} from '../stores/fileTreeStore'
 import {useEditorTabStore} from '../stores/editorTabStore'
 import {useGitStatusStore} from '../stores/gitStatusStore'
 import {toOpenFileTabInput} from '../utils/fileOpenGate'
+import {recordRecentFile} from '../lib/recentFiles'
 import type {DirEntry} from '@shared/types/project-manager'
 import {PanelCard} from '../ui/PanelCard'
 import {PanelHeader} from '../ui/PanelHeader'
@@ -431,6 +432,8 @@ export function FileTree() {
                 // 归属守卫：期间切了 workspace / 组件已卸载 → 丢弃，不写 tab
                 if (!isCurrent(reqWs)) return
                 openFileTab(toOpenFileTabInput(e.path, e.name, r, e.gitStatus === 'none' ? undefined : e.gitStatus))
+                // QuickOpen 的 Recent Files：真实文件打开成功即记录（diff 标签页不记，见 spec §Recent Files）
+                recordRecentFile(reqWs, e.path)
               })
             }}
           />

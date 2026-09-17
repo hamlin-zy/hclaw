@@ -4,6 +4,7 @@ import {Modal} from '../common/Modal'
 import {StatusBadge} from '../common/StatusBadge'
 import type {Skill} from '@shared/types'
 import {X, Eye, Edit3, Save} from 'lucide-react'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 interface SkillDetailModalProps {
     isOpen: boolean
@@ -195,7 +196,7 @@ export default function SkillDetailModal({
                                         onClick={() => setMode('preview')}
                                         className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                                             mode === 'preview'
-                                                ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
+                                                ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)]'
                                                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                         }`}
                                      data-name="skill-detail-modal-preview-tab-button">
@@ -207,7 +208,7 @@ export default function SkillDetailModal({
                                             onClick={handleEdit}
                                             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                                                 mode === 'edit'
-                                                    ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
+                                                    ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)]'
                                                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                             }`}
                                          data-name="skill-detail-modal-edit-tab-button">
@@ -228,7 +229,7 @@ export default function SkillDetailModal({
                                             <input
                                                 value={editName}
                                                 onChange={e => setEditName(e.target.value)}
-                                                className="w-full px-2.5 py-1.5 text-sm bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)]"
+                                                className={`w-full px-2.5 py-1.5 text-sm bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] ${INPUT_FOCUS}`}
                                             data-name="skill-detail-modal-input"/>
                                         ) : (
                                             <div className="text-sm text-[var(--text-primary)] font-medium">{editName || skill?.name || 'new-skill'}</div>
@@ -243,7 +244,7 @@ export default function SkillDetailModal({
                                             value={editDescription}
                                             onChange={e => setEditDescription(e.target.value)}
                                             rows={2}
-                                            className="w-full px-2.5 py-1.5 text-sm bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] resize-y focus:outline-none focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)]"
+                                            className={`w-full px-2.5 py-1.5 text-sm bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] resize-y ${INPUT_FOCUS}`}
                                         data-name="skill-detail-modal-textarea"/>
                                     ) : (
                                         <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
@@ -291,7 +292,7 @@ export default function SkillDetailModal({
                                         <textarea
                                             value={content}
                                             onChange={e => setContent(e.target.value)}
-                                            className="w-full h-80 p-3 text-xs font-mono bg-[var(--surface)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] resize-none focus:outline-none focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)]"
+                                            className={`w-full h-80 p-3 text-xs font-mono bg-[var(--surface)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] resize-none ${INPUT_FOCUS}`}
                                             placeholder="输入 SKILL.MD 内容..."
                                             spellCheck={false}
                                         data-name="skill-detail-modal-content-textarea"/>

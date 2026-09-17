@@ -23,6 +23,7 @@ vi.mock('@/main/config', () => ({
     HCLAW_DIR: '/tmp/hclaw-test',
     getHclawDataDir: () => '/tmp/hclaw-test/data',
 }))
+vi.mock('@/main/hclawPaths', async () => await import('@/main/config'))  // 路径能力已下沉到叶子 hclawPaths：让叶子跟随本文件对 config 的桩，避免绕过 mock 落到真实 ~/.hclaw
 
 // manager.impl 仅从此模块导入 injectChildMessage，整体替换安全
 vi.mock('@/main/agent/tools/builtin/agentTool', () => ({

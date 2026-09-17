@@ -367,6 +367,23 @@ export class RuntimeConfigManager {
      * 回退值不缓存：全局默认是活值，缓存会固化快照使无覆盖会话永不跟随全局变更。
      */
     static getConvPermissionMode(convId: string): RunMode {
+        const stored = this.readConvModeOverride(convId)
+        if (stored) return stored
+        // 回退全局默认（system_settings.permission_mode 是全局权威）。
+        // 回退值不缓存——全局默认是「活」值，缓存会固化为快照，使无覆盖会话在 worker
+        // 重启后永不跟随全局默认变更（字段注释中的设计语义）。
+        let globalMode: RunMode = 'safe'
+        try {
+            const raw = systemSettingsRepo.get('permission_mode')
+            if (raw === 'auto' || raw === 'safe') globalMode = raw
+        } catch {
+            // 读取失败保持 'safe'
+        }
+        return globalMode
+    }
+
+    /** 会话级模式读取的共同前段：内存缓存 → meta.permissionMode → null（无覆盖）。 */
+    private static readConvModeOverride(convId: string): RunMode | null {
         const cached = this.sessionPermissionModes.get(convId)
         if (cached !== undefined) return cached
         let stored: RunMode | null = null
@@ -380,17 +397,25 @@ export class RuntimeConfigManager {
             this.sessionPermissionModes.set(convId, stored)
             return stored
         }
-        // 回退全局默认（system_settings.permission_mode 是全局权威）。
-        // 回退值不缓存——全局默认是「活」值，缓存会固化为快照，使无覆盖会话在 worker
-        // 重启后永不跟随全局默认变更（字段注释中的设计语义）。
-        let globalMode: RunMode = 'safe'
-        try {
-            const raw = systemSettingsRepo.get('permission_mode')
-            if (raw === 'auto' || raw === 'safe') globalMode = raw
-        } catch {
-            // 读取失败保持 'safe'
-        }
-        return globalMode
+        return null
+    }
+
+    /**
+     * 读取指定会话的「显式会话级覆盖」：内存缓存 → conversation meta.permissionMode
+     * → 无则返回 undefined。
+     *
+     * ★ 与 getConvPermissionMode 的关键区别：**不回退全局默认**。
+     *   getConvPermissionMode 回答「该会话当前生效什么模式」（无覆盖时回退全局），
+     *   本方法只回答「该会话是否被用户显式覆盖过」（无覆盖即 undefined）。
+     *   用途：全局默认变更时筛选需要同步的运行中会话——只有无覆盖的会话才跟随
+     *   全局默认，有覆盖的会话必须保持用户的选择。
+     *
+     * 命中 meta 时写入内存缓存，与 getConvPermissionMode 现有缓存策略一致
+     * （无覆盖不缓存：无覆盖不是快照，不应固化）。
+     */
+    static getConvModeOverride(convId: string): RunMode | undefined {
+        // 无显式覆盖：返回 undefined（绝不回退全局默认）
+        return this.readConvModeOverride(convId) ?? undefined
     }
 
     /**
@@ -414,6 +439,20 @@ export class RuntimeConfigManager {
      */
     static applyConvPermissionModeFromMain(convId: string, mode: RunMode): void {
         this.sessionPermissionModes.set(convId, mode)
+    }
+
+    /**
+     * 释放指定会话的会话态内存缓存（两个会话级 Map）。
+     *
+     * ★ 必须与 clearConversation 成对调用：两 Map 键为 convId 且本类无其它 delete 路径，
+     *   会话删除后条目永不可达 → 随会话数无界累积。
+     * ★ 释放不改变生效值：两 Map 语义均为「无 key = 未加载」，delete 后再次读取走既有
+     *   懒回读（override → meta.modelOverride；权限模式 → meta.permissionMode → 全局
+     *   默认），读回的值与释放前一致（主进程已把两者固化到 conversation meta）。
+     */
+    static releaseConvState(convId: string): void {
+        this.sessionOverrides.delete(convId)
+        this.sessionPermissionModes.delete(convId)
     }
 
     /**

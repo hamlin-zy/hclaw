@@ -71,7 +71,7 @@ export function CatalogStatusLine({entries}: CatalogStatusLineProps) {
                 type="button"
                 onClick={() => setExpanded(v => !v)}
                 aria-expanded={expanded}
-                className="text-xs text-[var(--text-secondary)] hover:text-[var(--brand-primary)] transition-colors cursor-pointer"
+                className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-brand)] transition-colors cursor-pointer"
              data-name="catalog-status-line-button">
                 已加载能力目录（{entries.length} 项）
             </button>

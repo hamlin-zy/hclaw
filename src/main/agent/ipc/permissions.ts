@@ -14,11 +14,18 @@ export function registerHandlers(): void {
         return permissionEngine.getMode()
     })
 
-    // 设置全局权限模式（默认值）。注意：不再广播运行中 Worker——
-    // 会话级模式下 worker 模式在会话启动/切换时确定，全局默认变更
-    // 不得覆盖已有会话级覆盖（否则 A 会话 meta=safe 会被全局 auto 改写）。
+    // 设置全局默认权限模式（新建会话默认值）。
+    // 新语义：全局默认变更同步给「运行中且无会话级覆盖」的会话——
+    //   - 用户在输入栏显式切过该会话（meta.permissionMode 存在）→ 不受影响，
+    //     全局默认不得覆盖会话级覆盖；
+    //   - 未显式覆盖的会话 → 实时更新其运行中 Worker（UPDATE_PERMISSION_MODE），
+    //     否则用户改全局默认后，正在跑的会话仍按启动时模式判定（一直弹权限确认）。
+    // 被同步的 convId 由 broadcastGlobalPermissionModeUpdate 内部经
+    // permission-mode-synced 事件送到渲染进程，用于同步输入栏「安全/自动」显示
+    // （渲染端只消费事件通道，IPC 返回体不再携带 syncedConvIds）。
     ipcMain.handle('agent-set-permission-mode', async (_event, mode: string) => {
         await permissionEngine.setMode(mode as any)
+        agentManager.broadcastGlobalPermissionModeUpdate(mode as any)
         return {success: true}
     })
 
@@ -49,6 +56,8 @@ export function registerHandlers(): void {
     // 清理并保存权限规则（去重并更新文件）
     ipcMain.handle('agent-clean-permission-rules', async () => {
         await permissionEngine.cleanAndSave()
+        // 规则已变更 → 通知运行中 Worker 重读（否则面板变更对运行中会话不生效）
+        agentManager.broadcastPermissionRulesChanged()
         // 返回清理后的规则列表
         return permissionEngine.getRules()
     })
@@ -56,12 +65,14 @@ export function registerHandlers(): void {
     // 添加权限规则
     ipcMain.handle('agent-add-permission-rule', async (_event, rule: any) => {
         await permissionEngine.addRule(rule)
+        agentManager.broadcastPermissionRulesChanged()
         return {success: true}
     })
 
     // 删除权限规则
     ipcMain.handle('agent-remove-permission-rule', async (_event, toolName: string) => {
         await permissionEngine.removeRulesForTool(toolName)
+        agentManager.broadcastPermissionRulesChanged()
         return {success: true}
     })
 }

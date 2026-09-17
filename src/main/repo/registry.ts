@@ -2,7 +2,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import {simpleGit} from 'simple-git'
-import {getHclawDir} from '../config'
+import {getHclawDir} from '../hclawPaths'
 import type {GitRepo, RemoteInfo, RepoSource, RepoRootType} from './type'
 import {parseGitOrigin} from './origin'
 

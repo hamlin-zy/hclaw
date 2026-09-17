@@ -6,6 +6,7 @@ import * as path from 'path'
 vi.mock('../../../../src/main/config', () => ({
   getHclawDataDir: () => '/hclaw-snap-test-data',
 }))
+vi.mock('../../../../src/main/hclawPaths', async () => await import('../../../../src/main/config'))  // 路径能力已下沉到叶子 hclawPaths：让叶子跟随本文件对 config 的桩，避免绕过 mock 落到真实 ~/.hclaw
 import {saveBufferSnapshot, normalizeSnapshotPath, MAX_IMAGE_BYTES} from '../../../../src/main/agent/utils/imageSnapshot'
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])

@@ -57,7 +57,7 @@ export function PrioritySelect({value, onChange, size = 'sm', disabled = false}:
                     setOpen(o => !o)
                 }}
                 className={clsx(
-                    'inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-secondary)] hover:text-[var(--brand-primary)] transition-colors cursor-pointer',
+                    'inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-secondary)] hover:text-[var(--text-brand)] transition-colors cursor-pointer',
                     size === 'sm' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-xs',
                 )}
             >
@@ -83,7 +83,7 @@ export function PrioritySelect({value, onChange, size = 'sm', disabled = false}:
                             }}
                             className={clsx(
                                 'w-full flex items-center gap-1.5 px-2 py-1 text-[11px] text-left cursor-pointer hover:bg-[var(--surface-muted)]',
-                                opt.value === normalized ? 'text-[var(--brand-primary)] font-medium' : 'text-[var(--text-primary)]',
+                                opt.value === normalized ? 'text-[var(--text-brand)] font-medium' : 'text-[var(--text-primary)]',
                             )}
                         >
                             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{background: opt.dot}}/>

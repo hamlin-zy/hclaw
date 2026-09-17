@@ -212,7 +212,7 @@ function RetryCard({attempts, onOpenDetail}: {
              data-name="timeline-view-div">
                 <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[last.status]}`} title={STATUS_TXT[last.status]} />
                 <span className="font-mono text-[11px] text-[var(--text-muted)] w-16 shrink-0 tabular-nums">{fmtTime(last.ts)}</span>
-                <span className="font-mono text-[11px] py-0.5 px-2 rounded bg-[var(--brand-muted)] text-[var(--brand-primary)] whitespace-nowrap">{last.model}</span>
+                <span className="font-mono text-[11px] py-0.5 px-2 rounded bg-[var(--brand-muted)] text-[var(--text-brand)] whitespace-nowrap">{last.model}</span>
                 <span className="text-[10.5px] py-px px-1.5 rounded border border-[var(--border)] text-[var(--text-secondary)] whitespace-nowrap">{last.context}</span>
                 {last.truncated && (
                     <span className="text-[10.5px] py-px px-1.5 rounded bg-[var(--warning-muted)] text-[var(--warning)]" title="响应流中断，文件不完整">截断</span>
@@ -262,7 +262,7 @@ function CallRow({record: r, selected, onClick}: {
              data-name="timeline-view-call-row">
                 <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[r.status]}`} title={STATUS_TXT[r.status]} />
                 <span className="font-mono text-[11px] text-[var(--text-muted)] w-16 shrink-0 tabular-nums">{fmtTime(r.ts)}</span>
-                <span className="font-mono text-[11px] py-0.5 px-2 rounded bg-[var(--brand-muted)] text-[var(--brand-primary)] whitespace-nowrap">{r.model}</span>
+                <span className="font-mono text-[11px] py-0.5 px-2 rounded bg-[var(--brand-muted)] text-[var(--text-brand)] whitespace-nowrap">{r.model}</span>
                 <span className="text-[10.5px] py-px px-1.5 rounded border border-[var(--border)] text-[var(--text-secondary)] whitespace-nowrap">{r.context}</span>
                 {r.attempt > 0 && (
                     <span className="text-[10.5px] font-mono py-px px-1.5 rounded bg-[var(--error-muted)] text-[var(--error)]">attempt {r.attempt}</span>

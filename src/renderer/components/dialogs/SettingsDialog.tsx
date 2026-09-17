@@ -15,6 +15,7 @@ import {
     LayoutIcon, CommandIcon, SuccessIcon, GlobeIcon,
 } from '../icons'
 import type {IconProps} from '../icons'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 type Category = keyof SystemSettings | 'shortcuts'
 
@@ -220,7 +221,7 @@ export default function SettingsDialog() {
                 onClick={() => handleResetCategory(category)}
                 className={`px-2.5 py-1 text-[11px] rounded-md border transition-colors ${
                     resetFeedback === `${category}-tab`
-                        ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
+                        ? 'border-[var(--brand-primary)] text-[var(--text-brand)]'
                         : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                 }`}
              data-name="settings-dialog-button">
@@ -426,7 +427,7 @@ export default function SettingsDialog() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <Switch checked={current.subagent?.priorityEnabled ?? false} onChange={(checked) => updatePending('subagent', {priorityEnabled: checked})} />
-                    <span className={`ml-2 text-xs font-medium ${current.subagent?.priorityEnabled ? 'text-[var(--brand-primary)]' : 'text-[var(--text-secondary)]'}`}>
+                    <span className={`ml-2 text-xs font-medium ${current.subagent?.priorityEnabled ? 'text-[var(--text-brand)]' : 'text-[var(--text-secondary)]'}`}>
                         {current.subagent?.priorityEnabled ? '已启用' : '已禁用'}
                     </span>
                 </div>
@@ -462,7 +463,7 @@ export default function SettingsDialog() {
                         min="0"
                         max="2"
                         step="0.1"
-                        className="w-16 bg-[var(--surface-muted)] border border-[var(--border)] rounded px-2 py-1.5 text-sm text-center outline-none focus:border-[var(--brand)]"
+                        className={`w-16 bg-[var(--surface-muted)] border border-[var(--border)] rounded px-2 py-1.5 text-sm text-center outline-none ${INPUT_FOCUS}`}
                         value={current.model.defaultTemperature}
                         onChange={(e) => {
                             const v = parseFloat(e.target.value)
@@ -493,7 +494,7 @@ export default function SettingsDialog() {
                         min="1"
                         max="100"
                         step="1"
-                        className="w-16 bg-[var(--surface-muted)] border border-[var(--border)] rounded px-2 py-1.5 text-sm text-center outline-none focus:border-[var(--brand)]"
+                        className={`w-16 bg-[var(--surface-muted)] border border-[var(--border)] rounded px-2 py-1.5 text-sm text-center outline-none ${INPUT_FOCUS}`}
                         value={current.model.imageCompressQuality ?? 85}
                         onChange={(e) => {
                             const v = parseInt(e.target.value)
@@ -658,7 +659,7 @@ export default function SettingsDialog() {
                 <div className="flex gap-2">
                     <input
                         type="text"
-                        className="flex-1 bg-[var(--surface-muted)] border border-[var(--border)] rounded px-3 py-1.5 text-sm outline-none focus:border-[var(--brand)] font-mono"
+                        className={`flex-1 bg-[var(--surface-muted)] border border-[var(--border)] rounded px-3 py-1.5 text-sm outline-none ${INPUT_FOCUS} font-mono`}
                         value={hclawDir}
                         onChange={(e) => setHclawDir(e.target.value)}
                         onBlur={() => {
@@ -745,7 +746,7 @@ export default function SettingsDialog() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <Switch checked={current.fullSkillDescriptions ?? false} onChange={(checked) => updatePending('fullSkillDescriptions', checked as any)} />
-                    <span className={`ml-2 text-xs font-medium ${current.fullSkillDescriptions ? 'text-[var(--brand-primary)]' : 'text-[var(--text-secondary)]'}`}>
+                    <span className={`ml-2 text-xs font-medium ${current.fullSkillDescriptions ? 'text-[var(--text-brand)]' : 'text-[var(--text-secondary)]'}`}>
                         {current.fullSkillDescriptions ? '已启用' : '已禁用'}
                     </span>
                 </div>
@@ -768,7 +769,7 @@ export default function SettingsDialog() {
                                 }
                             })}
                         />
-                        <span className={`ml-2 text-xs font-medium ${current.ui.background?.enabled ? 'text-[var(--brand-primary)]' : 'text-[var(--text-secondary)]'}`}>
+                        <span className={`ml-2 text-xs font-medium ${current.ui.background?.enabled ? 'text-[var(--text-brand)]' : 'text-[var(--text-secondary)]'}`}>
                             {current.ui.background?.enabled ? '已启用' : '已禁用'}
                         </span>
                     </div>
@@ -856,7 +857,7 @@ export default function SettingsDialog() {
                                                 data-name={`settings-dialog-background-thumb-${i}`}/>
                                                 {/* 放大查看按钮（hover 显示） */}
                                                 <button
-                                                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow text-[var(--text-muted)] hover:text-[var(--brand-primary)] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow text-[var(--text-muted)] hover:[color:var(--brand-primary)] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                                                     onClick={(e) => {
                                                         e.stopPropagation()
                                                         setPreviewSrc(img.path)
@@ -946,7 +947,7 @@ export default function SettingsDialog() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <Switch checked={current.channels?.sendGreeting ?? true} onChange={(checked) => updatePending('channels', {sendGreeting: checked})} />
-                    <span className={`ml-2 text-xs font-medium ${current.channels?.sendGreeting ? 'text-[var(--brand-primary)]' : 'text-[var(--text-secondary)]'}`}>
+                    <span className={`ml-2 text-xs font-medium ${current.channels?.sendGreeting ? 'text-[var(--text-brand)]' : 'text-[var(--text-secondary)]'}`}>
                         {current.channels?.sendGreeting ? '已启用' : '已禁用'}
                     </span>
                 </div>
@@ -1010,7 +1011,7 @@ export default function SettingsDialog() {
                                 onClick={handleResetAll}
                                 className={`px-3 py-1.5 text-[11px] rounded-md border transition-colors ${
                                     resetFeedback === 'all'
-                                        ? 'border-[var(--brand-primary)] text-[var(--brand-primary)]'
+                                        ? 'border-[var(--brand-primary)] text-[var(--text-brand)]'
                                         : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--error)] hover:border-[var(--error)]'
                                 }`}
                              data-name="settings-dialog-reset-all-button">
@@ -1085,6 +1086,9 @@ function NumberField({
     // 依据调用方传入的 min 判断：某些字段（如交接阈值、retryAttempts）允许 0 作为合法值（关闭/不重试），
     // 不能硬编码 "0 即危险"，否则会与实际语义（min=0 的字段）冲突，输出误导性的"值无效"警告。
     const isDangerous = isNaN(value) || value < min
+    // 错误态降级（border-red-500 / focus:border-red-500）是校验反馈，按契约保留；
+    // 正常态不再自带 focus:border-*，焦点边框统一由 INPUT_FOCUS 提供。
+    const stateClass = isDangerous ? 'border-red-500 focus:border-red-500' : 'border-[var(--border)]'
 
     return (
         <div className="space-y-1">
@@ -1095,11 +1099,7 @@ function NumberField({
                 min={min}
                 max={max}
                 disabled={disabled}
-                className={`w-full bg-[var(--surface-muted)] border rounded px-3 py-1.5 text-sm outline-none transition-colors ${
-                    isDangerous
-                        ? 'border-red-500 focus:border-red-500'
-                        : 'border-[var(--border)] focus:border-[var(--brand)]'
-                }`}
+                className={`w-full bg-[var(--surface-muted)] border rounded px-3 py-1.5 text-sm outline-none ${INPUT_FOCUS} ${stateClass}`}
                 value={value}
                 onChange={(e) => {
                     const parsed = decimals > 0 ? parseFloat(e.target.value) : parseInt(e.target.value)

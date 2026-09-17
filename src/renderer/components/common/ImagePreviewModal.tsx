@@ -340,7 +340,7 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                             onClick={copyImageToClipboard}
                             className="w-full px-4 py-2.5 text-sm text-left text-[var(--text-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] flex items-center gap-2.5 transition-colors"
                          data-name="image-preview-modal-copy-image-button">
-                            <svg className="w-4 h-4 text-[var(--brand-primary)] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-4 h-4 [color:var(--brand-primary)] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                             </svg>
                             复制到剪贴板

@@ -253,6 +253,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       openProjectManager: (ws: string) => ipcRenderer.invoke('open-project-manager', ws),
       listDirectory: (ws: string, dir: string) => ipcRenderer.invoke('pm:list-directory', ws, dir),
       readFile: (ws: string, p: string) => ipcRenderer.invoke('pm:read-file', ws, p),
+      // QuickOpen 检索（主进程侧检索服务，见 src/main/project-manager/search.ts）
+      searchFiles: (ws: string, query: string, limit?: number) => ipcRenderer.invoke('pm:search-files', ws, query, limit),
+      readLines: (ws: string, p: string, startLine: number, endLine: number) =>
+        ipcRenderer.invoke('pm:read-lines', ws, p, startLine, endLine),
+      findInFilesStart: (ws: string, query: string) => ipcRenderer.invoke('pm:find-in-files-start', ws, query),
+      findInFilesPage: (sessionId: string, offset: number, limit: number) =>
+        ipcRenderer.invoke('pm:find-in-files-page', sessionId, offset, limit),
+      findInFilesStop: (sessionId: string) => ipcRenderer.invoke('pm:find-in-files-stop', sessionId),
       gitStatus: (ws: string) => ipcRenderer.invoke('pm:git-status', ws),
       gitDiffFile: (ws: string, p: string, mode?: {ref?: string, from?: string, to?: string}) =>
         ipcRenderer.invoke('pm:git-diff-file', ws, p, mode),
@@ -553,15 +561,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
         delete: (id: string) => ipcRenderer.invoke('scheduler-delete', id),
         del: (id: string) => ipcRenderer.invoke('scheduler-delete', id),
         stop: (scheduleId: string) => ipcRenderer.invoke('scheduler-stop', scheduleId),
+        pause: (id: string) => ipcRenderer.invoke('scheduler-pause', id),
+        resume: (id: string) => ipcRenderer.invoke('scheduler-resume', id),
         runNow: (id: string) => ipcRenderer.invoke('scheduler-run-now', id),
         getConversations: (scheduleId: string) => ipcRenderer.invoke('scheduler-get-conversations', scheduleId),
-        conversationDetail: (convId: string) => ipcRenderer.invoke('scheduler-conversation-detail', convId),
         scriptLogs: (scheduleId: string) => ipcRenderer.invoke('scheduler-script-logs', scheduleId),
         readScriptLog: (logPath: string) => ipcRenderer.invoke('scheduler-read-script-log', logPath),
-        // 定时任务变更事件监听（工具/后端修改时通知前端刷新）
-        onChanged: (callback: () => void) => {
-            const handler = () => {
-                callback()
+        // 工作目录健康度：只读派生量（主进程唯一判定），供列表行标记与「立即执行」禁用态使用
+        workspaceHealth: () => ipcRenderer.invoke('scheduler-workspace-health'),
+        // 定时任务变更事件监听（工具/后端修改时通知前端；载荷为可区分的 created/updated/deleted）
+        onChanged: (callback: (change: any) => void) => {
+            const handler = (_: unknown, change: any) => {
+                callback(change)
             }
             ipcRenderer.on('schedules-changed', handler)
             return () => ipcRenderer.removeListener('schedules-changed', handler)
@@ -675,6 +686,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     agentSetConvPermissionMode: (convId: string, mode: 'safe' | 'auto') =>
         ipcRenderer.invoke('agent-set-conv-permission-mode', convId, mode),
     agentGetPermissionMode: () => ipcRenderer.invoke('agent-get-permission-mode'),
+    // 全局默认权限模式同步事件（主进程 → 渲染）：{mode, convIds}
+    // 仅 activeConversationId ∈ convIds 时渲染端更新输入栏「安全/自动」显示
+    onPermissionModeSynced: (callback: (payload: {mode: 'safe' | 'auto'; convIds: string[]}) => void) => {
+        const handler = (_: unknown, payload: unknown) =>
+            callback(payload as {mode: 'safe' | 'auto'; convIds: string[]})
+        ipcRenderer.on('permission-mode-synced', handler)
+        return () => ipcRenderer.removeListener('permission-mode-synced', handler)
+    },
 
     // Skills management
     skillsRefresh: (forceRefresh?: boolean) => ipcRenderer.invoke('skills-refresh', forceRefresh),
@@ -872,6 +891,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 系统提示词预览构建
     systemPromptBuildWithScheme: (nodes: Record<string, string>) => ipcRenderer.invoke('system-prompt-build-with-scheme', nodes),
 
+    // 跨窗口「打开会话」（配置窗口 → 主窗口；主进程转发 + 回执）
+    app: {
+        openConversation: ({conversationId, workspacePath}: {conversationId: string; workspacePath: string}) =>
+            ipcRenderer.invoke('app:open-conversation', {requestId: crypto.randomUUID(), conversationId, workspacePath}),
+        // 主窗口执行完毕后的回执（主进程据此 resolve 上面挂起的 invoke）
+        ackOpenConversation: (payload: {requestId: string; ok: boolean; error?: string}) =>
+            ipcRenderer.send('app:open-conversation:ack', payload),
+    },
+
     // Workspace 管理
     workspace: {
         list: () => ipcRenderer.invoke('workspace:list'),
@@ -894,13 +922,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
 
     // CapabilityHub — 统一能力中心查询 API
+    // 列表类出口默认不外发能力正文（content）；确需正文时显式传 { withContent: true }
     capability: {
-        query: (filter?: any) => ipcRenderer.invoke('capability:query', filter),
-        getByType: (type: string) => ipcRenderer.invoke('capability:get-by-type', type),
-        search: (q: string) => ipcRenderer.invoke('capability:search', q),
-        getPluginGroups: (type?: string) => ipcRenderer.invoke('capability:plugin-groups', type),
+        query: (filter?: any, options?: {withContent?: boolean}) => ipcRenderer.invoke('capability:query', filter, options),
+        getByType: (type: string, options?: {withContent?: boolean}) => ipcRenderer.invoke('capability:get-by-type', type, options),
+        search: (q: string, options?: {withContent?: boolean}) => ipcRenderer.invoke('capability:search', q, options),
+        getPluginGroups: (type?: string, options?: {withContent?: boolean}) => ipcRenderer.invoke('capability:plugin-groups', type, options),
         getStats: () => ipcRenderer.invoke('capability:stats'),
-        get: (id: string) => ipcRenderer.invoke('capability:get', id),
+        get: (id: string, options?: {withContent?: boolean}) => ipcRenderer.invoke('capability:get', id, options),
         onCapabilityChanged: (callback: (data: {seq: number}) => void) => {
             const handler = (_: unknown, data: {seq: number}) => callback(data)
             ipcRenderer.on('capability:changed', handler)

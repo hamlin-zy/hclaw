@@ -42,6 +42,7 @@ vi.mock('../../../src/main/agent/powerManager', () => ({
 vi.mock('../../../src/main/config', () => ({
     getHclawDir: () => path.join(os.tmpdir(), 'hclaw-conflict-test'),
 }))
+vi.mock('../../../src/main/hclawPaths', async () => await import('../../../src/main/config'))  // 路径能力已下沉到叶子 hclawPaths：让叶子跟随本文件对 config 的桩，避免绕过 mock 落到真实 ~/.hclaw
 
 vi.mock('../../../src/main/plugin/plugins-config', () => ({
     disablePluginInConfig: vi.fn(),

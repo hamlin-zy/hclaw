@@ -9,27 +9,38 @@
  * command_overrides 的 agent_id / skill_id / command_id 列，且互不串表。
  *
  * 隔离：把 getHclawDir() 重定向到 os.tmpdir() 下的独立目录，绝不触碰真实 ~/.hclaw。
+ * config 与 hclawPaths 两个模块必须以**同一个目录**为桩：路径能力已下沉到叶子
+ * src/main/hclawPaths.ts，repositories/sqlite 等直接依赖叶子，只 mock config 会被绕过
+ * 并落到真实 ~/.hclaw（见 docs/superpowers/plans/2026-09-17-main-circular-deps-remediation.md）。
  */
 import {describe, expect, it, beforeEach, afterEach, vi} from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 
-vi.mock('../../../src/main/config', async () => {
-    const osMod = await import('os')
-    const pathMod = await import('path')
-    const testDir = pathMod.join(
+// vi.mock 的工厂会被提升到 import 之前执行，不能引用模块级 const（TDZ），故用 vi.hoisted
+const pathsStub = vi.hoisted(() => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fsMod = require('fs')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const osMod = require('os')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pathMod = require('path')
+    const dir = pathMod.join(
         osMod.tmpdir(),
         'hclaw-test-ownership-' + Date.now() + '-' + Math.random().toString(36).slice(2),
     )
-    fs.mkdirSync(testDir, {recursive: true})
+    fsMod.mkdirSync(dir, {recursive: true})
     return {
-        getHclawDir: () => testDir,
-        getHclawDataDir: () => pathMod.join(testDir, 'data'),
-        isSafePath: (p: string) => p.startsWith(testDir),
-        HCLAW_DIR: testDir,
+        getHclawDir: () => dir,
+        getHclawDataDir: () => pathMod.join(dir, 'data'),
+        isSafePath: (p: string) => p.startsWith(dir),
+        HCLAW_DIR: dir,
     }
 })
+
+vi.mock('../../../src/main/config', () => pathsStub)
+vi.mock('../../../src/main/hclawPaths', () => pathsStub)
 
 import {getDatabase, closeDatabase} from '../../../src/main/repositories/sqlite'
 import {createSqliteOwnershipDeps} from '@/main/common/pluginOwnership'

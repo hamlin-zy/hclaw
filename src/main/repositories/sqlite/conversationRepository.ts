@@ -299,11 +299,12 @@ export class SqliteConversationRepository implements IConversationRepository {
                     const existing = db.prepare('SELECT id, block_type, content FROM message_blocks WHERE id = ?').get(block.id) as {id: string; block_type: string; content: string | null} | undefined
                     if (existing) {
                         if (block.blockType === 'text' && existing.block_type === 'text') {
-                            // ★ text 块追加语义：渲染端 recordTextBlock 传的是「增量切片」（fullText.slice(lastOffset)），
-                            //   跨 flush 时同 id text 块携带的是自上次 flush 以来的新增字符。若这里整体覆盖，
-                            //   会丢掉上次 flush 已落库的旧切片（"历史正文只剩最后一个字符"的根因，05b219c 引入）。
-                            //   改为追加：DB 已存内容 + 本次切片 = 完整文本。think/tool_call/tool_result 保持覆盖
-                            //   （渲染端对这些块传完整内容，追加会重复）。
+                            // ★ text 块追加语义：主进程侧由 streamBridge 桥接调用 recordTextChunk，
+                            //   传的是「源头 chunk」（流式事件原始增量）；同 id 的 text 块多次到达、
+                            //   每次只携带新增字符。若这里整体覆盖，会丢掉此前已落库的前文
+                            //   （"历史正文只剩最后一个字符"的根因，05b219c 引入）。
+                            //   改为追加：DB 已存内容 + 本次 chunk = 完整文本。think/tool_call/tool_result 保持覆盖
+                            //   （写入方对这些块传完整内容，追加会重复）。
                             // ★ turn_index 只在 INSERT 时确定归属轮次；UPDATE 分支不得覆盖
                             //   （handleDone 重写 think 块置 complete 时 currentTurnIndex 已是末轮，
                             //    覆盖会错误地把所有 think 块标成末轮——实测 14 个 think 全变 turn 22）。
@@ -649,31 +650,52 @@ export class SqliteConversationRepository implements IConversationRepository {
 
     listWithStats(workspacePath: string): ConversationWithStats[] {
         try {
-            const rows = getDatabase().prepare(`
-                SELECT c.id, c.meta, c.workspace_path, c.created_at, c.updated_at,
-                       COUNT(DISTINCT m.id) AS message_count,
-                       COUNT(mb.id) AS block_count,
-                       COALESCE(MAX(m.timestamp), c.created_at) AS sort_time
+            const db = getDatabase()
+            // ★ 拆两条查询的理由：旧版三表 LEFT JOIN 会被 message_blocks（~285k 行）扇出，
+            //   使 messages 被放大成 ~285k 行并触发 3 个 TEMP B-TREE（GROUP BY + COUNT DISTINCT），
+            //   实测 3.78s 阻塞主进程 event loop。拆开后：
+            //   查询 1 只做相关子查询（走 conversation_id 索引），无 TEMP B-TREE，~46ms；
+            //   查询 2 独立一趟按会话聚合 block 计数，~364ms；两者用 Map 合并。
+
+            // 查询 1：会话 + 消息统计（不碰 message_blocks）
+            const rows = db.prepare(`
+                SELECT c.id, c.meta, c.created_at, c.updated_at,
+                       (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count,
+                       COALESCE((SELECT MAX(m.timestamp) FROM messages m WHERE m.conversation_id = c.id),
+                                c.created_at) AS sort_time
                 FROM conversations c
-                LEFT JOIN messages m ON m.conversation_id = c.id
-                LEFT JOIN message_blocks mb ON mb.message_id = m.id
                 WHERE c.workspace_path = ?
-                GROUP BY c.id
                 ORDER BY sort_time DESC
             `).all(workspacePath) as Array<{
                 id: string;
                 meta: string;
-                workspace_path: string;
                 created_at: number;
                 updated_at: number;
                 message_count: number;
-                block_count: number;
                 sort_time: number
             }>
 
+            // 查询 2：block 计数，独立一趟按会话聚合
+            const blockRows = db.prepare(`
+                SELECT m.conversation_id AS cid, COUNT(*) AS block_count
+                FROM messages m
+                JOIN message_blocks mb ON mb.message_id = m.id
+                WHERE m.conversation_id IN (SELECT id FROM conversations WHERE workspace_path = ?)
+                GROUP BY m.conversation_id
+            `).all(workspacePath) as Array<{ cid: string; block_count: number }>
+
+            const blockCounts = new Map<string, number>()
+            for (const r of blockRows) blockCounts.set(r.cid, r.block_count)
+
             return rows.map(row => ({
-                ...JSON.parse(row.meta), id: row.id, workspacePath: row.workspace_path,
-                updatedAt: row.updated_at, messageCount: row.message_count, blockCount: row.block_count,
+                ...JSON.parse(row.meta),
+                id: row.id,
+                // ★ workspacePath 用入参（是常量，UI 不用），不再 SELECT c.workspace_path
+                workspacePath,
+                updatedAt: row.updated_at,
+                messageCount: row.message_count,
+                // 无 block 或该会话不在查询 2 结果里时兜底 0，保持旧 LEFT JOIN 语义
+                blockCount: blockCounts.get(row.id) ?? 0,
             }))
         } catch (err) {
             console.error('[SqliteConversationRepository] listWithStats failed:', err)

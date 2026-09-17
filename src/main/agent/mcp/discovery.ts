@@ -173,6 +173,45 @@ export async function getMcpToolPermission(serverId: string, rawToolName: string
 
 // ─── 为每个 MCP 工具创建代理 ──────────────────────────────────
 
+/** 取消结算（形状/文案对齐既有工具取消先例 bashTool/agentTool 的「已中止」） */
+function createCancelledResult(toolName: string): ToolResult {
+  return {success: false, output: null, error: `MCP 工具「${toolName}」调用已取消（会话已中止）。`}
+}
+
+/**
+ * 把 abortSignal 接到本次调用的结算上：abort → 立即以取消结果结算，不再等底层返回；
+ * 底层自身 reject 仍照常冒泡（保持既有错误处理路径）。
+ *
+ * ★ 已知边界（无远端硬取消）：调用一旦发出就无法从这一侧收回 —— worker 分支的 call_tool
+ *   仍会在 MCP Worker 侧跑完（登记项已由调用方 finally 摘除，回包无人认领即丢弃），
+ *   主进程分支的 SDK 请求同样在后台完成。本函数保证的是「取消后 agent loop 不再被挂住」。
+ */
+function raceAbort(
+  promise: Promise<ToolResult>,
+  signal: AbortSignal | undefined,
+  toolName: string,
+): Promise<ToolResult> {
+  if (!signal) return promise
+  if (signal.aborted) return Promise.resolve(createCancelledResult(toolName))
+  return new Promise<ToolResult>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort)
+      resolve(createCancelledResult(toolName))
+    }
+    signal.addEventListener('abort', onAbort, {once: true})
+    promise.then(
+      (result) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(result)
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(err)
+      },
+    )
+  })
+}
+
 function createMCPToolProxy(args: {
   serverId: string
   toolDef: MCPToolDefinition
@@ -205,12 +244,19 @@ function createMCPToolProxy(args: {
      * - Worker 线程: 通过 MessagePort 直连 MCP Worker（共享连接池）
      * - 无 MessagePort 时: 返回错误（不自建连接）
      * - 主进程: 直接调 mainProcessMcpClient（仅用于 UI 侧 MCP IPC）
+     *
+     * 取消传播（B 批）：两条分支都消费 context.abortSignal —— 会话中止时立即以「已取消」
+     * 结算，不再吊着 agent loop 等一个可能永远不回来的 MCP server（见 raceAbort 的边界说明）。
      */
-    async execute(args: Record<string, unknown>, _context: ToolContext): Promise<ToolResult> {
+    async execute(args: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
       // 获取 MCP 服务器的超时配置（默认 60 秒）
       const serverConfig = !isWorker ? mainProcessMcpClient.getServer(serverId)?.config : null
       const timeoutMs = serverConfig?.timeout != null ? serverConfig.timeout : 60_000
       const toolFullName = proxyName
+      const abortSignal = context.abortSignal
+
+      // 进入调用前已取消：直接结算，连 postMessage / SDK 请求都不发出
+      if (abortSignal?.aborted) return createCancelledResult(toolFullName)
 
       try {
         // Worker 线程：通过 MessagePort 调 MCP Worker
@@ -221,16 +267,23 @@ function createMCPToolProxy(args: {
             ensureMcpPortDispatcher(port)
             try {
               // 分发式 listener：不在本调用上 port.on，避免共享端口监听器随并发无界增长
+              // 取消竞速放在 withToolTimeout **内层**：abort 时 race 立刻结算，
+              // withToolTimeout 得以进入 finally 释放超时定时器（否则会再挂满 timeoutMs）。
               return await withToolTimeout(
-                new Promise<ToolResult>((resolve) => {
-                  pendingMcpCalls.set(callId, resolve)
-                  port.postMessage({type: 'call_tool', callId, serverId, toolName: toolDef.name, args})
-                }),
+                raceAbort(
+                  new Promise<ToolResult>((resolve) => {
+                    pendingMcpCalls.set(callId, resolve)
+                    port.postMessage({type: 'call_tool', callId, serverId, toolName: toolDef.name, args})
+                  }),
+                  abortSignal,
+                  toolFullName,
+                ),
                 toolFullName,
                 timeoutMs
               )
             } finally {
-              // 超时/异常/成功路径统一摘除登记项，避免 pendingMcpCalls 泄漏
+              // 超时/取消/异常/成功路径统一摘除登记项，避免 pendingMcpCalls 泄漏
+              // （取消后 MCP Worker 的回包找不到登记项 → 直接丢弃，不再 resolve 任何人）
               pendingMcpCalls.delete(callId)
             }
           }
@@ -238,9 +291,13 @@ function createMCPToolProxy(args: {
           return {success: false, output: null, error: 'MCP Worker 不可用，工具未注册'}
         }
 
-        // 主进程：直接调用（带超时保护）
+        // 主进程：直接调用（带超时保护 + 取消竞速）
         return await withToolTimeout(
-          mainProcessMcpClient.callTool(serverId, toolDef.name, args).then(formatMcpResult),
+          raceAbort(
+            mainProcessMcpClient.callTool(serverId, toolDef.name, args).then(formatMcpResult),
+            abortSignal,
+            toolFullName,
+          ),
           toolFullName,
           timeoutMs
         )

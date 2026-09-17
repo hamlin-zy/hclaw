@@ -10,6 +10,8 @@ import type {AgentStreamEvent} from './stream'
 import type {AgentTemplate, Message, SystemSettings, ToolCall} from '@shared/types'
 import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import type {ChatMessage, ModelConfig} from './model/types'
+import type {ScheduleChangePayload} from '@shared/types/schedule'
+import {broadcastSchedulesChanged} from '../scheduler/scheduleBroadcast'
 import {permissionEngine} from './tools/permission'
 import {isRecordingEnabled, getLlmTraceRootDir} from '../utils/llmTraceRecorder'
 import type {LlmCallRecord} from '@shared/types/llmTrace'
@@ -28,9 +30,11 @@ import {notifyUserAttention, stopUserAttention} from '../attention'
 import type {
   AgentStartParams,
   AgentStreamGenerator,
+  ChildConvCreatedWorkerMessage,
   PendingAssistantMsg,
   WorkerEntry,
 } from './manager.types'
+import type {ChildConvCreatedRendererPayload} from '@shared/types/events'
 import {
   WORKER_GRACEFUL_SHUTDOWN_MS,
   SKIP_LOG_EVENT_TYPES,
@@ -75,6 +79,15 @@ function isWorkerOutOfMemory(err: Error): boolean {
   const code = (err as NodeJS.ErrnoException).code
   if (code === 'ERR_WORKER_OUT_OF_MEMORY') return true
   return /ERR_WORKER_OUT_OF_MEMORY|heap out of memory|reaching memory limit/i.test(err.message)
+}
+
+/**
+ * 判别式收窄：Worker 消息是否为 child_conv_created 事件（契约见 manager.types）。
+ * 以类型谓词替代原内联 `as unknown as {...}` 断言 —— 字段名/可选性单点在契约中定义，
+ * 生产方（agentTool）与消费方（本文件）任一侧改字段即编译报错。
+ */
+function isChildConvCreatedMessage(msg: { type: string }): msg is ChildConvCreatedWorkerMessage {
+  return msg.type === 'child_conv_created'
 }
 
 // ─── AgentManager ──────────────────────────────────────
@@ -504,23 +517,25 @@ export class AgentManager {
         //   主会话任务 → 主会话 ID）。若固定用主会话 ID，子会话的待办更新会被错误路由到主会话。
         if (msg.type === 'stream' && msg.event) {
           await this.handleStreamEvent(msg.conversationId || conversationId, worker, msg.event)
-        } else if (msg.type === 'child_conv_created') {
+        } else if (isChildConvCreatedMessage(msg)) {
           // 子 Agent 独立会话创建事件 → 直接通知渲染进程刷新侧栏
           // （不走 agent-stream，因为流事件处理器不认识这个类型）
-          const childMsg = msg as unknown as { childConvId: string; title?: string; parentConvId?: string }
+          // ★ workspacePath 必须透传（父会话所属工作区）：渲染端据此把子会话插入
+          //   正确的工作区侧栏列表，而不是回退到 currentWorkspacePath。
           this.sendToMainWindow('child_conv_created', {
-            id: childMsg.childConvId,
-            title: childMsg.title || '子 Agent',
-            parentConvId: childMsg.parentConvId || undefined,
-          })
+            id: msg.childConvId,
+            title: msg.title || '子 Agent',
+            parentConvId: msg.parentConvId || undefined,
+            workspacePath: msg.workspacePath || '',
+          } satisfies ChildConvCreatedRendererPayload)
           // 注册父→子关系，父会话终止时级联清理子会话运行状态
-          if (childMsg.parentConvId) {
-            let children = this.parentToChildren.get(childMsg.parentConvId)
+          if (msg.parentConvId) {
+            let children = this.parentToChildren.get(msg.parentConvId)
             if (!children) {
               children = new Set()
-              this.parentToChildren.set(childMsg.parentConvId, children)
+              this.parentToChildren.set(msg.parentConvId, children)
             }
-            children.add(childMsg.childConvId)
+            children.add(msg.childConvId)
           }
         } else if (msg.type === 'session_created') {
           // 独立会话创建事件 → 通知渲染进程刷新侧栏 + 自动切换
@@ -672,9 +687,10 @@ export class AgentManager {
       return
     }
 
-    // schedules-changed 事件：通知渲染进程刷新定时任务列表
+    // schedules-changed 事件：工具改了定时任务配置 → 走**唯一广播出口**
+    // （与界面 IPC 路径同一个函数、同一载荷、同一接收方集合：所有窗口）
     if (event.type === 'schedules-changed') {
-      this.sendToMainWindow('schedules-changed')
+      broadcastSchedulesChanged((event as {type: 'schedules-changed'; change: ScheduleChangePayload}).change)
       return
     }
 
@@ -1484,14 +1500,54 @@ export class AgentManager {
     }
   }
 
-  /** 广播权限模式更新到所有运行中的 Agent */
-  broadcastPermissionModeUpdate(permissionMode: import('@shared/types').RunMode): void {
+  /**
+   * 广播「权限规则已变更」到所有运行中 Worker（主进程 → Worker）。
+   *
+   * 权限面板增删规则只改 DB；运行中 Worker 的规则是启动快照（首次 use 读一次），
+   * 不重读则面板变更对运行中会话永不生效。Worker 收到后重读 permission_rules
+   * 并刷新内存规则（保持会话级 mode 不变）。
+   */
+  broadcastPermissionRulesChanged(): void {
+    this.broadcastToWorkers({type: WORKER_MESSAGE_TYPES.PERMISSION_RULES_CHANGED})
+  }
+
+  /**
+   * 广播「全局默认权限模式」变更到运行中且**无会话级覆盖**的会话（主进程 → Worker）。
+   *
+   * 筛选规则：遍历运行中的 Workers，仅当 runtimeConfigManager.getConvModeOverride(id)
+   * === undefined（用户从未在输入栏显式切过该会话）时下发 UPDATE_PERMISSION_MODE；
+   * 有会话级覆盖的会话不受全局默认影响（保持既有语义：全局默认不得覆盖会话级覆盖）。
+   *
+   * 同时把 {mode, convIds} 送到渲染进程（普通 IPC 通道 permission-mode-synced，
+   * 不走 agent-stream，避免进入 accumulateEvent/落库链路），供输入栏在
+   * activeConversationId ∈ convIds 时同步「安全/自动」显示。
+   *
+   * @returns 实际被同步的 convId 数组
+   */
+  broadcastGlobalPermissionModeUpdate(mode: import('@shared/types').RunMode): string[] {
+    const synced: string[] = []
     for (const id of this.getRunningConversations()) {
+      if (runtimeConfigManager.getConvModeOverride(id) !== undefined) continue
       const entry = this.workers.get(id)
       if (entry) {
-        entry.worker.postMessage({type: WORKER_MESSAGE_TYPES.UPDATE_PERMISSION_MODE, permissionMode})
+        entry.worker.postMessage({type: WORKER_MESSAGE_TYPES.UPDATE_PERMISSION_MODE, permissionMode: mode})
+        synced.push(id)
       }
     }
+
+    if (synced.length > 0) {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          try {
+            win.webContents.send('permission-mode-synced', {mode, convIds: synced})
+          } catch (err: unknown) {
+            logger.error('broadcastGlobalPermissionModeUpdate', {error: err instanceof Error ? err.message : String(err)})
+          }
+        }
+      }
+    }
+
+    return synced
   }
 
   /** 广播会话级模型 override 更新到所有运行中的 Agent（主进程 → Worker） */
@@ -1729,6 +1785,10 @@ export class AgentManager {
       const persistence = getConversationPersistence()
       persistence.flush(conversationId)
       persistence.clearConversation(conversationId)
+      // ★ 内存优化 S2：与 clearConversation 成对释放会话态内存缓存。释放不改变生效值——
+      //   两 Map 均「无 key = 未加载」，再次读取走懒回读（主进程已把 override /
+      //   权限模式固化到 conversation meta），读回值与释放前一致。
+      runtimeConfigManager.releaseConvState(conversationId)
     } catch (err) {
       logger.warn('[AgentManager] 持久化清理失败', {error: err})
     }

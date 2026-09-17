@@ -2,7 +2,7 @@ import {create} from 'zustand'
 import type {SystemSettings} from '@shared/types'
 import {DEFAULT_MAX_TOKENS} from '@shared/types'
 import {resolveAndApplyTheme, useThemeStore} from './themeStore'
-import {useConversationStore} from './conversationStore'
+import {useConversationStore, applyConvModesToAgentStore} from './conversationStore'
 
 interface SettingsStore {
     settings: SystemSettings
@@ -122,6 +122,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
                         await window.electronAPI?.agentSetPermissionMode?.(targetPerm)
                     }
                 } catch { /* 静默：对账失败不阻断加载 */ }
+                // 对账写库后回灌激活会话的顶层显示：冷启动时 loadConversations 的会话模式初始化
+                // 与本次对账并发，若它在写库前读到陈旧全局默认，输入栏会停在旧值直到用户切会话。
+                // applyConvModesToAgentStore 以会话 meta 优先、否则回退（已对账后的）全局默认，
+                // 幂等且与 saveSettings 的处理对齐。
+                const activeConvId = useConversationStore.getState().activeConversationId
+                if (activeConvId) await applyConvModesToAgentStore(activeConvId)
                 try {
                     const cfg: any = await window.electronAPI?.configRead?.('message-display-mode')
                     const mode = cfg?.mode
@@ -201,7 +207,15 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             //    跳过修复，导致新建会话固化默认时读到陈旧全局值（安全模式）。
             //    settings 保存即用户显式确认权威值，全局键应始终跟随。
             const newPermDefault = pendingSettings.agent?.defaultPermissionMode
-            if (newPermDefault) await syncGlobalPermissionMode(newPermDefault)
+            if (newPermDefault) {
+                await syncGlobalPermissionMode(newPermDefault)
+                // 输入栏显示漂移修正：全局默认变更会同步运行中「无会话级覆盖」的会话，
+                // 但对激活会话而言 agentStore 顶层的 permissionMode 仍是旧值（显示为旧模式）。
+                // 保存后对激活会话重算有效模式（meta 覆盖 → 否则回退全局默认），
+                // 避免 UI 显示与真实生效模式不一致。
+                const activeConvId = useConversationStore.getState().activeConversationId
+                if (activeConvId) await applyConvModesToAgentStore(activeConvId)
+            }
             const newDispDefault = pendingSettings.agent?.defaultDisplayMode
             if (newDispDefault) await syncGlobalDisplayMode(newDispDefault)
 

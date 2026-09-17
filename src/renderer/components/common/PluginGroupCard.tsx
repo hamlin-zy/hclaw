@@ -66,7 +66,7 @@ export default function PluginGroupCard(props: PluginGroupCardProps) {
             data-name={headerDataName}
           >
             <div className="flex items-center gap-2 min-w-0">
-              <Folder className="w-4 h-4 text-[var(--brand-primary)] shrink-0" />
+              <Folder className="w-4 h-4 [color:var(--brand-primary)] shrink-0" />
               <span className="text-xs font-semibold text-[var(--text-primary)] truncate">{title}</span>
               {titleExtra}
               <span className="text-[10px] text-[var(--text-muted)] shrink-0">{countLabel}</span>
@@ -78,7 +78,7 @@ export default function PluginGroupCard(props: PluginGroupCardProps) {
                     e.stopPropagation()
                     onToggleBatch()
                   }}
-                  className="text-[10px] font-medium text-[var(--brand-primary)] hover:text-[color-mix(in_srgb,var(--brand-primary)_80%,transparent)] transition-colors"
+                  className="text-[10px] font-medium text-[var(--text-brand)] hover:text-[color-mix(in_srgb,var(--brand-primary)_80%,transparent)] transition-colors"
                   data-name={batchDataName}
                 >
                   {allEnabled ? '全部禁用' : '全部启用'}

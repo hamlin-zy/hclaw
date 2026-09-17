@@ -3,7 +3,7 @@ import fs from 'fs'
 import crypto from 'crypto'
 import {ipcMain, dialog} from 'electron'
 import sharp from 'sharp'
-import {getHclawDataDir} from '../config'
+import {getHclawDataDir} from '../hclawPaths'
 
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']
 

@@ -13,7 +13,7 @@ import {promptResolver} from '../prompts/resolver'
 async function getWorkingDir(): Promise<string> {
     const os = await import('os')
     try {
-        const {configPath} = await import('../../config')
+        const {configPath} = await import('../../hclawPaths')
         const fsPromises = await import('fs/promises')
         const configFile = configPath('config')
         const configData = await fsPromises.readFile(configFile, 'utf-8').catch(() => null)

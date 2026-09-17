@@ -32,22 +32,52 @@ exports.default = async function (context) {
 };
 
 /**
- * 只保留当前平台的 .node 预编译文件
- *
  * 各平台保留的预编译标识：
  *   win32  → win32-x64, win32-ia32
  *   darwin → darwin-arm64, darwin-x64
  *   linux  → linux-x64, linux-arm64
  */
+const KEEP_BY_PLATFORM = {
+  win32: ['win32-x64', 'win32-ia32'],
+  darwin: ['darwin-arm64', 'darwin-x64'],
+  linux: ['linux-x64', 'linux-arm64'],
+};
+
+/**
+ * 「平台标识」白名单：只有**文件名里带平台标识**的条目才参与跨平台剪裁。
+ *
+ * ★ 曾经的事故（务必保留这条规则）：旧实现是「文件名不含当前平台标识就删」，
+ *   于是 app.asar.unpacked 下 @vscode/ripgrep-win32-x64 的 bin/rg.exe
+ *   因为文件名 `rg.exe` 不含 `win32-x64` 而被删掉。后果是打包版里 `@vscode/ripgrep` 的 `rgPath` 指向一个
+ *   不存在的文件：
+ *     - 文件清单（rg --files）有 JS 遍历回退 → 表现正常，问题被掩盖；
+ *     - 全文检索（Find in Files）没有回退 → 静默返回 0 命中，UI 上就是「搜不到任何东西」。
+ *   剪裁的本意是丢掉**其它平台**的预编译产物，所以判据必须是
+ *   「带平台标识 且 该标识不是当前平台」，而不是「不带当前平台标识」。
+ *   没有平台标识的文件（rg.exe、.dll、.so 等）一律视为**不可判定 → 保留**（fail-safe）。
+ */
+const PLATFORM_MARKERS = [
+  'win32-x64', 'win32-ia32', 'win32-arm64',
+  'darwin-x64', 'darwin-arm64', 'darwin-universal',
+  'linux-x64', 'linux-arm64', 'linux-arm', 'linux-ia32',
+  'freebsd-x64', 'android-arm64', 'musl',
+];
+
+/**
+ * 只保留当前平台的 .node / 预编译二进制
+ *
+ * 删除条件 = 文件名命中某个平台标识 **且** 该标识不属于当前平台。
+ */
 function pruneNativePrebuilds(appDir, platform) {
-  const keepMap = {
-    win32: ['win32-x64', 'win32-ia32'],
-    darwin: ['darwin-arm64', 'darwin-x64'],
-    linux: ['linux-x64', 'linux-arm64'],
-  };
-  const keep = keepMap[platform] || [];
+  const keep = KEEP_BY_PLATFORM[platform] || [];
 
   let removedCount = 0;
+
+  /** 是否为「其它平台的产物」（不可判定者一律保留） */
+  function isForeignPrebuild(name) {
+    if (keep.some(k => name.includes(k))) return false
+    return PLATFORM_MARKERS.some(m => name.includes(m));
+  }
 
   // 递归查找 prebuilds 和 bin 目录
   function scanDir(dirPath) {
@@ -60,7 +90,7 @@ function pruneNativePrebuilds(appDir, platform) {
       if (entry === 'prebuilds' || entry === 'bin') {
         for (const file of fs.readdirSync(fullPath)) {
           const filePath = path.join(fullPath, file);
-          if (!keep.some(k => file.includes(k))) {
+          if (isForeignPrebuild(file)) {
             const stat = fs.statSync(filePath);
             if (stat.isDirectory()) {
               fs.rmSync(filePath, { recursive: true, force: true });

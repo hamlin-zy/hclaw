@@ -9,6 +9,7 @@
 import type {AgentStartParams} from './manager'
 import {agentManager} from './manager'
 import {isAudioFile, isImageFile, isNetworkImageUrl} from './utils/imageProcessor'
+import {ATTACHMENT_IMAGE_PATH_PREFIX} from './utils/imagePathMarkers'
 import {convertUserHistoryMessage} from './utils/userContentBuilder'
 import {runtimeConfigManager} from './runtimeConfigManager'
 import {resolveAgentDefinitionForTurn} from './agentTemplateConverter'
@@ -122,8 +123,10 @@ async function buildUserMessageContent(
     if (audioDescription) textParts.push(audioDescription)
     if (otherDescription) textParts.push(otherDescription)
 
-    // 将图片路径加入文本，确保非视觉模型也能通过 analyze_image 工具分析图片
-    const imagePathDescription = imageAttachments.map(att => `\n【图片文件路径】${att.path}`).join('')
+    // 将图片路径加入文本，确保非视觉模型也能通过 analyze_image 工具分析图片。
+    // ★ 用附件专用标记（与 load_image 快照标记分离）：视觉模型已可直接看到 image_url，
+    //   该标注是纯噪声，execute.ts 请求期会定向剥离（不影响快照标记）。
+    const imagePathDescription = imageAttachments.map(att => `\n${ATTACHMENT_IMAGE_PATH_PREFIX}${att.path}`).join('')
     if (imagePathDescription) textParts.push(imagePathDescription)
 
     const textBlock = {type: 'text' as const, text: textParts.join('')}

@@ -40,8 +40,6 @@ import {sessionHandoffTool} from './builtin/sessionHandoffTool'
 import {memoTool} from './builtin/memoTool'
 import {hclawDbQueryTool} from './builtin/hclawDbQueryTool'
 
-export { setAgentToolConfig } from './builtin/agentTool'
-
 /** 注册所有内置工具到全局 registry */
 export function registerBuiltinTools(): void {
   toolRegistry.registerAll([

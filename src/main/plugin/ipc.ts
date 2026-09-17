@@ -22,7 +22,7 @@ import {agentRegistry} from '../agent/agentRegistry';
 import {extractPluginName} from '../common/pluginOwnership';
 import {resolveEntityCommand, buildAgentCommandTemplate} from '../agent/entityCommandResolver';
 import {mcpService} from '../services/mcpService';
-import {getHclawDir} from '../config';
+import {getHclawDir} from '../hclawPaths';
 import {
     disablePluginInConfig,
     enablePluginInConfig,

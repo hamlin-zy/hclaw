@@ -1,5 +1,6 @@
 import {useEffect, useLayoutEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 /** 周标题：周一为首日（与 Chromium zh-CN 一致） */
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
@@ -277,7 +278,7 @@ export default function DatePicker({
                 onFocus={openPanel}
                 onKeyDown={handleInputKeyDown}
                 onBlur={handleInputBlur}
-                className={`dp-input ${className}`}
+                className={`dp-input ${INPUT_FOCUS} ${className}`}
                 data-name="datepicker-input"
             />
             <button

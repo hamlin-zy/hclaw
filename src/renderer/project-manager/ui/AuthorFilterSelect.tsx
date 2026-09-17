@@ -1,6 +1,7 @@
 import {useEffect, useLayoutEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import type {GitAuthor} from '@shared/types/project-manager'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 /** 弹层面板最大高度，同时用于判断是否向上翻转（与 ThemedCombobox 对齐） */
 const PANEL_MAX_H = 240
@@ -175,7 +176,7 @@ export function AuthorFilterSelect({
       <input
         ref={inputRef}
         type="text"
-        className="pm-commits-input"
+        className={`pm-commits-input ${INPUT_FOCUS}`}
         value={value}
         placeholder={placeholder}
         aria-label={ariaLabel}

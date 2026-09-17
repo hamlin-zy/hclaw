@@ -21,7 +21,6 @@ import type {HClawAgentType, ModelRole} from '@shared/types'
 import type {LlmTraceContextKind} from '@shared/types/llmTrace'
 import type {AgentDefinition} from '@shared/agent'
 import {permissionEngine} from './tools/permission'
-import {setAgentToolConfig} from './tools/builtin/agentTool'
 import {setSkillToolConfig} from './tools/builtin/skillTool'
 import {runtimeConfigManager} from './runtimeConfigManager'
 
@@ -128,11 +127,11 @@ export async function* agentLoop(
   const getSettings = () => runtimeConfig?.settings ?? initialSettings
 
   // 设置权限引擎的工作目录
-  const workingDir = runtimeConfigManager.getWorkingDir() || initialWorkingDir || ''
+  // ★ 会话绑定优先，全局仅兜底（同 setup.ts initializeRunEnvironment，理由见该处注释）
+  const workingDir = initialWorkingDir || runtimeConfigManager.getWorkingDir() || ''
   permissionEngine.setWorkingDir(workingDir)
 
   // 设置工具模块级配置
-  setAgentToolConfig()
   setSkillToolConfig()
 
   // 创建 LLMCaller（adapter 管理；重试配置由 execute.ts 按 settings 读取）

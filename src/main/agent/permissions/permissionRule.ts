@@ -353,8 +353,17 @@ export class PermissionRulesManager {
         trace('perm:rules-written')
 
         // 保存配置到 system_settings
+        //
+        // ★ 只有 setMode / setRules 才写 permission_mode：该键是「全局默认值」的唯一权威。
+        //   addRule / removeRule 可能作用在**会话级** context 上（worker 经 applyModeFromMain
+        //   只改内存，其 this.context.mode 是会话级模式），若无条件回写会把会话级模式污染成
+        //   全局默认 —— 会话级 auto 点「始终允许」后，新会话默认变成自动放行（权限静默放宽）；
+        //   全局 auto + 会话级 safe 时则相反（新会话默认一直弹确认）。
+        const persistsMode = !update || update.type === 'setMode' || update.type === 'setRules'
         try {
-            systemSettingsRepo.set('permission_mode', this.context.mode)
+            if (persistsMode) {
+                systemSettingsRepo.set('permission_mode', this.context.mode)
+            }
 
             if (this.context.prePlanMode) {
                 systemSettingsRepo.set('permission_pre_plan_mode', this.context.prePlanMode)
@@ -378,6 +387,95 @@ export class PermissionRulesManager {
      */
     async reload(): Promise<void> {
         await this.loadFromDatabase()
+    }
+
+    /**
+     * 用最新规则列表刷新内存 context.rules，并维持「auto ⇒ 危险规则已剥离」不变量。
+     *
+     * - 非 auto：直接替换 rules。
+     * - auto：对新规则重跑 strip —— 权限面板在 auto 期间新增的危险 allow 规则（如
+     *   bash:python:*）不得因一次刷新而「复活」进 rules（否则破坏 auto 的剥离不变量）。
+     *   新剥离项按 tool 合并进既有 strippedDangerousRules（后者覆盖），保证退出 auto 时
+     *   仍能完整恢复。
+     * 不动 mode / prePlanMode。返回生效后的规则列表（auto 下已剔除危险项）。
+     */
+    private applyRulesPreservingMode(rules: PermissionRule[]): PermissionRule[] {
+        if (this.context.mode !== 'auto') {
+            this.context = {...this.context, rules}
+            return [...rules]
+        }
+        const dangerous = findDangerousPermissions(rules)
+        if (dangerous.length === 0) {
+            this.context = {...this.context, rules}
+            return [...rules]
+        }
+        const strippedTools = new Set(dangerous.map(d => d.rule.tool))
+        const safeRules = rules.filter(r => !strippedTools.has(r.tool))
+        const merged = new Map<string, PermissionRule>()
+        for (const r of this.context.strippedDangerousRules ?? []) merged.set(r.tool, r)
+        for (const d of dangerous) merged.set(d.rule.tool, d.rule)
+        this.context = {
+            ...this.context,
+            rules: safeRules,
+            strippedDangerousRules: Array.from(merged.values()),
+        }
+        return [...safeRules]
+    }
+
+    /** 从 DB 读取规则快照：异常时记日志并返回空数组（caller 仅用于日志定位来源）。 */
+    private readRulesFromDb(caller: string): PermissionRule[] {
+        try {
+            return this.permissionRepo.getRules()
+        } catch (err) {
+            logger.error(`[PermissionRulesManager] ${caller}: failed to load rules`, {error: err})
+            return []
+        }
+    }
+
+    /**
+     * 只重读权限规则（保留当前 mode / prePlanMode / strippedDangerousRules），返回最新规则列表。
+     *
+     * 用途：权限面板增删规则后，主进程广播 → 运行中 Worker 刷新规则快照。
+     * 为何不能用 reload()：loadFromDatabase 会整体重建 context，把 mode 重置为
+     * DB 中的**全局默认值**，从而吞掉本 Worker 的会话级模式（会话覆盖只存在于内存，
+     * DB 只保存全局默认 —— 这正是 applyUpdateNoPersist 存在的理由）。
+     */
+    async reloadRulesOnly(): Promise<PermissionRule[]> {
+        await this.ensureInit()
+        const rules = this.readRulesFromDb('reloadRulesOnly')
+        return this.applyRulesPreservingMode(rules)
+    }
+
+    /**
+     * 去重并落库规则（**不重载 mode**）。
+     *
+     * 用途：Worker 检测到规则数变化（用户点「始终允许」等）后调用，替代旧的
+     * cleanAndSave → reload()。旧路径的 reload() 会把内存 mode 重置为 DB 全局默认值，
+     * 吞掉本 Worker 的会话级模式：会话级 auto 会退回 safe（一直弹确认），
+     * 而全局 auto + 会话级 safe 会被静默升级为 auto（权限放宽）。
+     *
+     * 语义：读 DB → 按 tool 去重（同 tool 保留最后出现者，与
+     * PermissionEngine.deduplicateRules 一致）→ 有重复时写回 → 仅刷新 context.rules
+     * （经 applyRulesPreservingMode，维持 auto 剥离不变量）。
+     * 不动 mode / prePlanMode / strippedDangerousRules。
+     */
+    async dedupeAndSaveRules(): Promise<PermissionRule[]> {
+        await this.ensureInit()
+        const rules = this.readRulesFromDb('dedupeAndSaveRules')
+
+        const seen = new Map<string, PermissionRule>()
+        for (const rule of rules) seen.set(rule.tool, rule)
+        const deduped = Array.from(seen.values())
+
+        if (deduped.length !== rules.length) {
+            try {
+                this.permissionRepo.saveRules(deduped)
+            } catch (err) {
+                logger.error('[PermissionRulesManager] dedupeAndSaveRules: failed to save rules', {error: err})
+            }
+        }
+
+        return this.applyRulesPreservingMode(deduped)
     }
 
     /**

@@ -276,19 +276,20 @@ describe('★V2-A：异常终态兜底释放（cleanup 释放 pending 的 usage 
       dialog: {showErrorBox: vi.fn()},
       ipcMain: {handle: vi.fn(), on: vi.fn()},
     }))
-    vi.doMock('@/main/config', () => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const os = require('os')
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const path = require('path')
-      const testDir = path.join(os.tmpdir(), 'hclaw-test-usagewrite-v2a-' + Date.now())
-      return {
-        getHclawDir: () => testDir,
-        HCLAW_DIR: testDir,
-        getHclawDataDir: () => path.join(testDir, 'data'),
-        isSafePath: (p: string) => p.startsWith(testDir),
-      }
-    })
+    // 路径能力已下沉到叶子 hclawPaths（repositories/sqlite 直接依赖它）：
+    // config 与 hclawPaths 必须以同一目录为桩，只 mock config 会被绕过而落到真实 ~/.hclaw
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pathMod = require('path')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const stubDir = pathMod.join(require('os').tmpdir(), 'hclaw-test-usagewrite-v2a-' + Date.now())
+    const pathsStub = {
+      getHclawDir: () => stubDir,
+      HCLAW_DIR: stubDir,
+      getHclawDataDir: () => pathMod.join(stubDir, 'data'),
+      isSafePath: (p: string) => p.startsWith(stubDir),
+    }
+    vi.doMock('@/main/config', () => pathsStub)
+    vi.doMock('@/main/hclawPaths', () => pathsStub)
     vi.doMock('@/main/repositories/sqlite/llmUsageRepository', () => ({
       llmUsageRepo: {record: vi.fn()},
     }))
@@ -298,6 +299,7 @@ describe('★V2-A：异常终态兜底释放（cleanup 释放 pending 的 usage 
   afterEach(() => {
     vi.doUnmock('electron')
     vi.doUnmock('@/main/config')
+    vi.doUnmock('@/main/hclawPaths')
     vi.doUnmock('@/main/repositories/sqlite/llmUsageRepository')
     vi.resetModules()
   })
@@ -346,21 +348,23 @@ describe('★V2-A：异常终态兜底释放（cleanup 释放 pending 的 usage 
 /**
  * llm_usage.provider_id（T4 DB 集成：全新临时库走生产迁移建表/加列，
  * 隔离方式参照 runtimeConfigManager.convPermissionMode.db.test.ts：
- * vi.mock config → getHclawDir() 重定向临时目录，绝不触碰真实 ~/.hclaw）。
+ * 桩 config 与 hclawPaths 两个模块（路径能力已下沉到叶子，repositories/sqlite 直接依赖它）
+ * → getHclawDir() 重定向临时目录，绝不触碰真实 ~/.hclaw）。
  */
 describe('llm_usage.provider_id（DB 集成：新库迁移 + 写入 + 聚合透出）', () => {
   it('fresh DB（走迁移建表）写入带 providerId 的 record → 聚合按 (provider, model) 分组并透出 providerId', async () => {
-    vi.doMock('@/main/config', () => {
-      const os = require('os')
-      const path = require('path')
-      const testDir = path.join(os.tmpdir(), 'hclaw-test-usagewrite-' + Date.now())
-      return {
-        getHclawDir: () => testDir,
-        HCLAW_DIR: testDir,
-        getHclawDataDir: () => path.join(testDir, 'data'),
-        isSafePath: (p: string) => p.startsWith(testDir),
-      }
-    })
+    // 路径能力已下沉到叶子 hclawPaths（repositories/sqlite 直接依赖它）：
+    // config 与 hclawPaths 必须以同一目录为桩，只 mock config 会被绕过而落到真实 ~/.hclaw
+    const pathMod = require('path')
+    const stubDir = pathMod.join(require('os').tmpdir(), 'hclaw-test-usagewrite-' + Date.now())
+    const pathsStub = {
+      getHclawDir: () => stubDir,
+      HCLAW_DIR: stubDir,
+      getHclawDataDir: () => pathMod.join(stubDir, 'data'),
+      isSafePath: (p: string) => p.startsWith(stubDir),
+    }
+    vi.doMock('@/main/config', () => pathsStub)
+    vi.doMock('@/main/hclawPaths', () => pathsStub)
     vi.resetModules()
     const {getDatabase, initDatabaseSync, closeDatabase} = await import('@/main/repositories/sqlite')
     const {llmUsageRepo} = await import('@/main/repositories/sqlite/llmUsageRepository')

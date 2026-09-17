@@ -146,8 +146,8 @@ const CombinedCardPopup = memo(function CombinedCardPopup() {
         map.forEach((v, k) => {
             parts.push(
                 <span key={k} className="inline-flex items-center gap-0.5">
-                    {v.isAgent && <AgentIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)]"/>}
-                    {v.isSkill && <SkillIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)]"/>}
+                    {v.isAgent && <AgentIcon className="w-3.5 h-3.5 shrink-0 [color:var(--brand-primary)]"/>}
+                    {v.isSkill && <SkillIcon className="w-3.5 h-3.5 shrink-0 [color:var(--brand-primary)]"/>}
                     <span>{`${k} ${v.success}/${v.total}`}</span>
                 </span>
             )
@@ -289,7 +289,7 @@ const ThinkBlockInPopup = memo(function ThinkBlockInPopup({thinkBlock}: {thinkBl
                         className="overflow-hidden"
                     >
                         {isEmpty ? (
-                            <div className="flex items-center gap-2 pl-4 mt-2 text-xs text-[var(--brand-primary)]">
+                            <div className="flex items-center gap-2 pl-4 mt-2 text-xs text-[var(--text-brand)]">
                                 <span className="w-2 h-2 rounded-full bg-[var(--brand-primary)] animate-pulse"/>
                                 正在思考...
                             </div>
@@ -395,8 +395,8 @@ const ToolSubCard = memo(function ToolSubCard({
                         className="flex items-center gap-1 px-1.5 py-0.5 rounded
                             bg-[var(--chip-bg)] border border-[var(--chip-border)] text-[var(--text-secondary)] shrink-0"
                     >
-                        {chip.isAgent && <AgentIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)] mr-0.5"/>}
-                        {chip.isSkill && <SkillIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)] mr-0.5"/>}
+                        {chip.isAgent && <AgentIcon className="w-3.5 h-3.5 shrink-0 [color:var(--brand-primary)] mr-0.5"/>}
+                        {chip.isSkill && <SkillIcon className="w-3.5 h-3.5 shrink-0 [color:var(--brand-primary)] mr-0.5"/>}
                         <span className="font-mono font-semibold">{chip.name}</span>
                         <span className={chip.error > 0 ? 'text-[var(--error)]' : 'text-[var(--success)]'}>
                             {chip.total - chip.error}/{chip.total}
@@ -405,7 +405,7 @@ const ToolSubCard = memo(function ToolSubCard({
                 ))}
                 {/* 动态刷新文本（运行时进度，仅运行中/pending 的 Agent 工具） */}
                 {runningProgress && (
-                    <span className="text-[11px] text-[var(--brand-primary)] border-l border-[rgba(74,158,255,0.15)] pl-1.5 truncate animate-pulse shrink-1 min-w-0">
+                    <span className="text-[11px] text-[var(--text-brand)] border-l border-[rgba(74,158,255,0.15)] pl-1.5 truncate animate-pulse shrink-1 min-w-0">
                         {runningProgress}
                     </span>
                 )}
@@ -424,7 +424,7 @@ const ToolSubCard = memo(function ToolSubCard({
                     onClick={handleJumpToChild}
                     className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium shrink-0
                         hover:bg-[var(--surface-muted)] border border-[var(--border)]"
-                    style={{color: 'var(--brand-primary)'}}
+                    style={{color: 'var(--text-brand)'}}
                     title="跳转到子会话"
                  data-name="combined-card-popup-jump-to-session-button">
                     <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

@@ -15,6 +15,7 @@ import type {IconProps} from '../icons'
 import type {ComponentType} from 'react'
 import {getEffortOptions} from '@shared/thinkingEffort'
 import ThemedSelect, {type ThemedSelectOption} from '../ThemedSelect'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 // ─── 共享常量 ─────────────────────────────────────────────────
 
@@ -133,6 +134,13 @@ export default function ModelSchemeDialog() {
     // 侧边栏宽度调节
     const [sidebarWidth, setSidebarWidth] = useState(220)
     const isResizing = useRef(false)
+    // 当前「拖拽调整侧边栏宽度」的终结回调；供卸载兜底调用，避免卸载后残留 document 监听与 body 内联光标
+    const resizeCleanupRef = useRef<(() => void) | null>(null)
+
+    // 卸载兜底：拖拽进行中卸载时移除 document 监听并复位 body 光标
+    useEffect(() => () => {
+        resizeCleanupRef.current?.()
+    }, [])
 
     // ─── 本地编辑状态 ───────────────────────────────────────
 
@@ -216,6 +224,8 @@ export default function ModelSchemeDialog() {
         document.addEventListener('mousemove', handleMouseMove)
         document.addEventListener('mouseup', stopResizing)
         document.body.style.cursor = 'col-resize'
+        // 登记终结回调，供卸载兜底调用
+        resizeCleanupRef.current = stopResizing
     }
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -234,6 +244,7 @@ export default function ModelSchemeDialog() {
         document.removeEventListener('mousemove', handleMouseMove)
         document.removeEventListener('mouseup', stopResizing)
         document.body.style.cursor = 'default'
+        resizeCleanupRef.current = null
     }
 
     const handleCreateFromPreset = (presetId: string) => {
@@ -384,7 +395,7 @@ export default function ModelSchemeDialog() {
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') setIsEditingName(false)
                                         }}
-                                        className="text-sm font-medium text-gray-700 bg-transparent border-b-2 border-gray-300 outline-none"
+                                        className={`text-sm font-medium text-gray-700 bg-transparent border-b-2 border-gray-300 outline-none ${INPUT_FOCUS}`}
                                         autoFocus
                                     data-name="model-scheme-dialog-input"/>
                                 ) : (
@@ -421,7 +432,7 @@ export default function ModelSchemeDialog() {
                                         setLocalScheme({...displayScheme, description: e.target.value})
                                     }
                                     placeholder="可选的方案描述..."
-                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--surface-muted)] border border-gray-200 rounded-md text-gray-700 placeholder-gray-300 focus:border-brand-300 focus:outline-none"
+                                    className={`w-full px-2.5 py-1.5 text-xs bg-[var(--surface-muted)] border border-gray-200 rounded-md text-gray-700 placeholder-gray-300 ${INPUT_FOCUS}`}
                                 data-name="model-scheme-dialog-description-input"/>
                             </div>
 
@@ -557,7 +568,7 @@ function SchemeListItem({
             onDoubleClick={onActivate}
             className={`w-full group px-2.5 py-2 rounded transition-colors flex items-center justify-between cursor-pointer ${
                 isSelected
-                    ? 'bg-[var(--brand-muted)] text-[var(--brand-primary)]'
+                    ? 'bg-[var(--brand-muted)] text-[var(--text-brand)]'
                     : 'text-gray-700 hover:bg-[var(--surface-overlay)]'
             }`}
          data-name="model-scheme-dialog-div">

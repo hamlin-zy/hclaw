@@ -1,6 +1,9 @@
-#!/usr/bin/env node
 /**
  * audit-muted-text.mjs
+ *
+ * 无 shebang：本文件的 SMALL_SIZES 被 tests/eslint-rules/auditMutedTextSync.test.ts 直接 import，
+ * 而 vitest 的模块加载路径不剥离行首的 #!，留着会以 SyntaxError: Invalid or unexpected token 失败。
+ * 本文件只经 package.json 的 audit:muted（node scripts/audit-muted-text.mjs）调用，不需要 shebang。
  * ---------------------------------------------------------------------------
  * READ-ONLY audit tool. It never modifies source files. It only scans every
  * .ts / .tsx file under `src/renderer` and writes two reports under `tmp/`.

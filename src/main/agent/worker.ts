@@ -493,7 +493,13 @@ async function main(): Promise<void> {
                 }
             } else if (msg.type === WORKER_MESSAGE_TYPES.UPDATE_PERMISSION_MODE) {
                 if (msg.permissionMode) {
-                    await permissionEngine.setMode(msg.permissionMode)
+                    // 仅内存：主进程已落库全局默认；worker 侧必须走 applyModeFromMain 而非 setMode。
+                    // 历史原因：早期没有主进程→worker 的规则下发通道（PERMISSION_RULES_CHANGED 是
+                    // 后来补的），worker 的规则是**启动时快照**（首次 use 读一次 DB）。那时 setMode
+                    // 会经 applyUpdate → saveToDatabase → saveRules（DELETE 全表 + 逐条 INSERT），
+                    // 用快照覆写全表，吞掉其它会话/权限面板新增的规则并复活已删除的规则。
+                    // 规则通道已就位，但「全局模式切换」仍不属于该 worker 的规则权威，故保持仅内存。
+                    await permissionEngine.applyModeFromMain(msg.permissionMode)
                     runtimeConfigManager.syncFromMain({mode: msg.permissionMode})
                 }
             } else if (msg.type === WORKER_MESSAGE_TYPES.UPDATE_MODEL_OVERRIDE) {
@@ -508,6 +514,10 @@ async function main(): Promise<void> {
                     // 与全局 UPDATE_PERMISSION_MODE 分支一致：同步 runtimeConfigManager.currentMode
                     runtimeConfigManager.syncFromMain({mode: msg.mode})
                 }
+            } else if (msg.type === WORKER_MESSAGE_TYPES.PERMISSION_RULES_CHANGED) {
+                // 权限面板增删规则 → 主进程广播：重读 permission_rules，刷新规则快照。
+                // 只换规则不动 mode（会话级模式只存在于内存），见 reloadRulesOnly 注释。
+                await permissionEngine.reloadRulesOnly()
             } else if (msg.type === WORKER_MESSAGE_TYPES.USER_CONFIRMATION_RESULT) {
                 const resolve = confirmationRequests.get(msg.requestId)
                 if (resolve) {

@@ -3,6 +3,7 @@ import type {PhraseItem} from '@shared/types/phrase'
 import {usePhraseStore, subscribePhraseChanged} from '../../stores/phraseStore'
 import {filterPhrases} from '../../utils/phrase'
 import {confirm} from '../ConfirmDialog'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 /** 短语编辑区（新增与编辑共用）：textarea + 取消/保存按钮 */
 function PhraseEditor({draft, onChange, onCancel, onSave}: {
@@ -19,7 +20,7 @@ function PhraseEditor({draft, onChange, onCancel, onSave}: {
                 placeholder="输入短语内容…"
                 rows={4}
                 autoFocus
-                className="w-full px-2 py-1.5 text-sm bg-[var(--surface-muted)] rounded border border-[var(--border)] focus:outline-none focus:border-[var(--border-emphasis)] resize-y"
+                className={`w-full px-2 py-1.5 text-sm bg-[var(--surface-muted)] rounded border border-[var(--border)] resize-y ${INPUT_FOCUS}`}
             />
             <div className="flex justify-end gap-2">
                 <button onClick={onCancel} className="px-3 py-1 text-xs rounded bg-[var(--surface-muted)] border border-[var(--border)] hover:bg-[var(--surface-hover)]">取消</button>
@@ -74,7 +75,7 @@ export default function PhraseDialog() {
                         value={query}
                         onChange={e => setQuery(e.target.value)}
                         placeholder="搜索短语…"
-                        className="w-full pl-8 pr-3 py-1.5 text-sm bg-[var(--surface-muted)] rounded-lg border border-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] placeholder-[var(--text-muted)]"
+                        className={`w-full pl-8 pr-3 py-1.5 text-sm bg-[var(--surface-muted)] rounded-lg border border-[var(--border)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                     />
                 </div>
                 <button onClick={startNew} className="px-3 py-1.5 text-xs rounded bg-[var(--brand-primary)] text-white hover:opacity-90" data-name="phrase-dialog-add-button">

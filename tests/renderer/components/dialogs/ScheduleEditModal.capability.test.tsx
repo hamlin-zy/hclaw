@@ -5,55 +5,40 @@ import {ScheduleEditModal} from '../../../../src/renderer/components/dialogs/Sch
 import type {ScheduleFormData} from '../../../../src/renderer/components/dialogs/ScheduleEditModal'
 
 // ── 依赖 mock ──────────────────────────────────────────
-// ScheduleEditModal 内嵌 CapabilityPicker 依赖三个 store（通过 .getState() 读取）
-// 与 electronAPI（getPlatform / workspace.getCurrent / plugin.getCommands）。
-// 沿用 MCPDialog.toggle.test.tsx 的 mock 模式：hook + 挂载 getState。
+// ScheduleEditModal 内嵌 CapabilityPicker 的能力列表来自 CapabilityHub 投影
+// （electronAPI.capability.query 一次往返）；ScheduleEditModal 自身另需
+// electronAPI.getPlatform / workspace.getCurrent。
 
-const {mockAgentState, mockSkillState, mockCmdState} = vi.hoisted(() => {
-    return {
-        mockAgentState: {
-            templates: [
-                {name: 'code-reviewer', description: '代码审查', userDescription: ''},
-            ],
-            syncFromDisk: vi.fn().mockResolvedValue({success: true}),
-        },
-        mockSkillState: {
-            skills: [
-                {name: 'brain-taxonomist', description: '知识分类'},
-                {name: 'cover-gen', description: '封面生成'},
-            ],
-            loadSkills: vi.fn().mockResolvedValue(undefined),
-        },
-        mockCmdState: {
-            commands: [
-                {name: 'deploy', description: '部署'},
-            ],
-            loadCommands: vi.fn().mockResolvedValue(undefined),
-        },
-    }
+/** Hub 投影条目（CapabilityEntry 的最小可用形状） */
+const capEntry = (name: string, type: 'skill' | 'agent' | 'command', description: string) => ({
+    id: name,
+    name,
+    description,
+    type,
+    source: type === 'command' ? 'user' : 'builtin',
+    enabled: true,
+    searchText: name.toLowerCase(),
 })
 
-function mockZustandStore(state: Record<string, unknown>) {
-    const hook = (selector?: (s: any) => unknown) => (selector ? selector(state) : state)
-    ;(hook as any).getState = () => state
-    return hook
-}
-
-vi.mock('../../../../src/renderer/stores/agentTemplateStore', () => ({
-    useAgentTemplateStore: mockZustandStore(mockAgentState),
-}))
-vi.mock('../../../../src/renderer/stores/skillStore', () => ({
-    useSkillStore: mockZustandStore(mockSkillState),
-}))
-vi.mock('../../../../src/renderer/stores/userCommandStore', () => ({
-    useUserCommandStore: mockZustandStore(mockCmdState),
-}))
+const {capabilityQuery} = vi.hoisted(() => ({capabilityQuery: vi.fn()}))
 
 beforeEach(() => {
+    capabilityQuery.mockReset()
+    capabilityQuery.mockImplementation(async () => [
+        capEntry('code-reviewer', 'agent', '代码审查'),
+        capEntry('brain-taxonomist', 'skill', '知识分类'),
+        capEntry('cover-gen', 'skill', '封面生成'),
+        capEntry('deploy', 'command', '部署'),
+    ])
     vi.stubGlobal('electronAPI', {
         getPlatform: vi.fn().mockResolvedValue('win32'),
-        workspace: {getCurrent: vi.fn().mockResolvedValue(null)},
-        plugin: {getCommands: vi.fn().mockResolvedValue(null)},
+        // 新建任务默认落在**当前工作目录**上：票 11 起工作目录必填，新建路径靠这个默认值成立
+        // list 同理必须给足（复核 B1：「列表未就绪」不再放行保存）
+        workspace: {
+            getCurrent: vi.fn().mockResolvedValue({id: 'ws-1', name: '主工作区', path: 'E:/ws1'}),
+            list: vi.fn().mockResolvedValue([{id: 'ws-1', name: '主工作区', path: 'E:/ws1'}]),
+        },
+        capability: {query: capabilityQuery, onCapabilityChanged: vi.fn(() => () => {})},
     })
 })
 
@@ -67,7 +52,7 @@ describe('ScheduleEditModal 冒烟：能力选择流程', () => {
         const onClose = vi.fn()
         render(<ScheduleEditModal onSave={onSave} onClose={onClose}/>)
 
-        // 默认即 capability 模式，等待加载完成（内含 200ms 延迟）且能力列表渲染
+        // 默认即 capability 模式，等待 Hub 取数返回（无固定时长等待）且能力列表渲染
         await waitFor(
             () => expect(screen.getByText('brain-taxonomist')).toBeTruthy(),
             {timeout: 3000},

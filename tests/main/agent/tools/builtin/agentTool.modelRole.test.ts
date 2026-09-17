@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest'
-import {agentTool, setAgentToolConfig} from '../../../../../src/main/agent/tools/builtin/agentTool'
+import {agentTool} from '../../../../../src/main/agent/tools/builtin/agentTool'
 import {runtimeConfigManager} from '../../../../../src/main/agent/runtimeConfigManager'
 
 // mock runtimeConfigManager：可控方案角色
@@ -7,12 +7,13 @@ vi.mock('../../../../../src/main/agent/runtimeConfigManager', () => ({
     runtimeConfigManager: {
         getScheme: vi.fn(() => null),
         getProviders: vi.fn(() => []),
+        getWorkingDir: vi.fn(() => ''),
         getConfig: vi.fn(() => ({workingDir: ''})),
         getPrimaryProvider: vi.fn(() => ({isValid: true, provider: {type: 'openai'}, modelName: 'gpt-4o'})),
     },
 }))
 
-// mock agentRegistry：可控 agent 候选枚举（setAgentToolConfig 重建时读取）。
+// mock agentRegistry：可控 agent 候选枚举（inputSchema getter 实时读取）。
 // getEnabled 语义 = 已启用（真实实现内部已过滤 enabled），故 disabled 条目不进返回值；
 // cmd: 条目会出现在 getEnabled 结果中（真实实现仅过滤 enabled），由 agentTool 自行剔除。
 vi.mock('../../../../../src/main/agent/agentRegistry', () => ({
@@ -52,7 +53,6 @@ describe('agentTool modelRole 动态枚举', () => {
             {role: 'reasoning', enabled: true, endpointId: 'p3', modelId: 'm3'},
         ])
         vi.mocked(runtimeConfigManager.getProviders).mockReturnValue(PROVIDERS_ALL)
-        setAgentToolConfig()
         expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'General Agent', modelRole: 'lightweight'})).not.toThrow()
     })
 
@@ -66,7 +66,6 @@ describe('agentTool modelRole 动态枚举', () => {
             {...PROVIDERS_ALL[1], enabled: false},
         ]
         vi.mocked(runtimeConfigManager.getProviders).mockReturnValue(providers)
-        setAgentToolConfig()
         expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'General Agent', modelRole: 'lightweight'})).toThrow()
         expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'General Agent', modelRole: 'primary'})).not.toThrow()
     })
@@ -81,7 +80,6 @@ describe('agentTool modelRole 动态枚举', () => {
             {...PROVIDERS_ALL[2], models: [{id: 'm3', name: '推理模型', enabled: false}]},
         ]
         vi.mocked(runtimeConfigManager.getProviders).mockReturnValue(providers)
-        setAgentToolConfig()
         expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'General Agent', modelRole: 'reasoning'})).toThrow()
         expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'General Agent', modelRole: 'primary'})).not.toThrow()
     })
@@ -108,7 +106,6 @@ describe('agentTool modelRole 动态枚举', () => {
             {role: 'primary', enabled: true, endpointId: 'p1', modelId: 'm1'},
         ])
         vi.mocked(runtimeConfigManager.getProviders).mockReturnValue(PROVIDERS_ALL)
-        setAgentToolConfig()
         expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'General Agent'})).toThrow()
     })
 
@@ -117,7 +114,6 @@ describe('agentTool modelRole 动态枚举', () => {
             {role: 'primary', enabled: true, endpointId: 'p1', modelId: 'm1'},
         ])
         vi.mocked(runtimeConfigManager.getProviders).mockReturnValue(PROVIDERS_ALL)
-        setAgentToolConfig()
         expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'General Agent', modelRole: ''})).toThrow()
     })
 
@@ -126,7 +122,6 @@ describe('agentTool modelRole 动态枚举', () => {
             {role: 'primary', enabled: true, endpointId: 'p1', modelId: 'm1'},
         ])
         vi.mocked(runtimeConfigManager.getProviders).mockReturnValue(PROVIDERS_ALL)
-        setAgentToolConfig()
         expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'General Agent', modelRole: 'image_understanding'})).toThrow()
         expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'General Agent', modelRole: 'garbage'})).toThrow()
     })
@@ -136,7 +131,6 @@ describe('agentTool agent 候选（schema 放宽为 string，容错交由 find�
     beforeEach(() => { vi.clearAllMocks() })
 
     it('schema 不再 enum 硬约束：列表外/禁用/近义名称均通过校验（execute 层兜底）', () => {
-        setAgentToolConfig()
         // 已启用 → 通过
         expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'General Agent', modelRole: 'primary'})).not.toThrow()
         expect(() => agentTool.inputSchema.parse({task: 'x', agent: 'Implementer Agent', modelRole: 'primary'})).not.toThrow()

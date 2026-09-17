@@ -6,6 +6,7 @@
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {motion} from 'framer-motion'
 import {tooltip} from '../../lib/motionPresets'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 import {IS_MAC} from '../../lib/platform'
 import {useTransientFlag} from '../../hooks/useTransientFlag'
 import {useConversationStore} from '../../stores/conversationStore'
@@ -497,7 +498,7 @@ const LoadMoreTrigger = memo(function LoadMoreTrigger({
                 </div>
             ) : hasMore ? (
                 <button onClick={onLoadMore}
-                        className="text-xs text-[var(--text-secondary)] hover:text-[var(--brand-primary)] transition-colors cursor-pointer" data-name="message-list-button">
+                        className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-brand)] transition-colors cursor-pointer" data-name="message-list-button">
                     加载更多历史消息
                 </button>
             ) : conversationId ? (
@@ -1227,7 +1228,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                                         transition={{duration: 0.15}}
                                         onClick={() => goToOriginConversation(originParentConvId)}
                                         aria-label="←父会话"
-                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--brand-primary)] hover:border-[var(--brand-primary)] transition-all cursor-pointer"
+                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-brand)] hover:border-[var(--brand-primary)] transition-all cursor-pointer"
                                     >
                                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                              strokeWidth="2" aria-hidden="true">
@@ -1243,7 +1244,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                                         transition={{duration: 0.15}}
                                         onClick={() => goToOriginConversation(originHandoffFromId)}
                                         aria-label="←前会话"
-                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--brand-primary)] hover:border-[var(--brand-primary)] transition-all cursor-pointer"
+                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-brand)] hover:border-[var(--brand-primary)] transition-all cursor-pointer"
                                     >
                                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                              strokeWidth="2" aria-hidden="true">
@@ -1274,7 +1275,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                             </svg>
                             <input
                                 type="text"
-                                className="find-input bg-[var(--surface)] border border-[var(--border)] rounded px-8 py-1.5 pl-8 pr-8 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none transition-colors w-[280px]"
+                                className={`find-input bg-[var(--surface)] border border-[var(--border)] rounded px-8 py-1.5 pl-8 pr-8 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none w-[280px] ${INPUT_FOCUS}`}
                                 placeholder="查找消息内容..."
                                 value={find.query}
                                 onChange={(e) => {
@@ -1289,7 +1290,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                         </div>
                         {find.totalMatches > 0 && (
                             <span className="text-xs text-[var(--text-secondary)] font-variant-numeric-tabular-nums px-2">
-                                <span className="text-[var(--brand-primary)] font-medium">{find.currentMatch}</span>
+                                <span className="text-[var(--text-brand)] font-medium">{find.currentMatch}</span>
                                 <span className="text-[var(--text-muted)]"> / </span>
                                 <span className="text-[var(--text-muted)]">{find.totalMatches}</span>
                             </span>

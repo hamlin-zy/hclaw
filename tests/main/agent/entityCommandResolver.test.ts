@@ -14,6 +14,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 // （真实 sqlite 模块顶层 import getHclawDir，测试环境触发 TDZ "_cachedHclawDir"）；
 // 本用例只测注册表解析，mock 掉即可（与 skills/loader.test.ts 同策略）。
 vi.mock('@/main/config', () => ({getHclawDir: () => '/tmp/hclaw-test'}))
+vi.mock('@/main/hclawPaths', async () => await import('@/main/config'))  // 路径能力已下沉到叶子 hclawPaths：让叶子跟随本文件对 config 的桩，避免绕过 mock 落到真实 ~/.hclaw
 vi.mock('@/main/repositories/sqlite', () => ({getDatabase: () => ({})}))
 vi.mock('@/main/repositories/sqlite/systemSettingsRepository', () => ({systemSettingsRepo: {}}))
 

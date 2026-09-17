@@ -17,6 +17,10 @@ asar: true
 asarUnpack:
   - "**/*.node"
   - ".vite/node_modules/**"
+  # ripgrep 可执行文件必须解包到 app.asar.unpacked：asar 内的文件无法被 child_process 启动
+  # （Windows 报 ENOENT）。此前依赖 electron-builder 的 smartUnpack 自动识别，
+  # 这里显式声明，避免上游策略变化后 rg 又"看不见"。配套改写逻辑见 src/main/utils/ripgrepPath.ts
+  - "**/@vscode/ripgrep-*/bin/**"
 
 # 额外资源（复制到 resources/ 目录，运行时通过 process.resourcesPath 访问）
 extraResources:

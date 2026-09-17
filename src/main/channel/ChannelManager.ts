@@ -17,7 +17,7 @@ import {channelRepo} from './ChannelRepository'
 import {handleIncomingMessage} from './messageHandler'
 import {createConversationRepository} from '../repositories'
 import type {IncomingMessage, WorkerEvent, ResourceRef} from './types'
-import {getChannelMediaDir} from '../config'
+import {getChannelMediaDir} from '../hclawPaths'
 import {CHANNEL_WORKER_RESOURCE_LIMITS} from '../workerLimits'
 import {container} from '../agent/common/container'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
@@ -43,9 +43,6 @@ export class ChannelManager {
     /** 等待用户回复的 ask_user 状态 */
     private pendingAskUser = new Map<string, {
         resolve: (answer: string) => void
-        reject: (err: Error) => void
-        question: string
-        timestamp: number
     }>()
 
     /** 待处理的资源下载请求 */
@@ -378,6 +375,11 @@ export class ChannelManager {
             clearTimeout(this.shutdownTimer)
             this.shutdownTimer = null
         }
+        // ★ 内存优化 S4：结算全部挂起的 ask_user（取消语义），否则 shutdown 后这些
+        //   Promise 永挂起、条目随 Map 残留。settleAskUser 会 delete 当前键，先取键快照再遍历。
+        for (const conversationId of [...this.pendingAskUser.keys()]) {
+            this.settleAskUser(conversationId)
+        }
         this.worker?.postMessage({cmd: 'shutdown'})
         // 保留 1s 延迟：给 worker 机会处理 shutdown 消息后优雅退出，超时才强制 terminate
         this.shutdownTimer = setTimeout(() => {
@@ -483,6 +485,9 @@ export class ChannelManager {
         conversationId: string
     ): Promise<string> {
         return new Promise((resolve) => {
+            // ★ 内存优化 S4：同键覆盖前先结算旧项（取消语义），否则旧 Promise 永挂起
+            //   （渠道该会话从此卡死），且旧条目被 set 覆盖后不可达（无引用可结算）
+            this.settleAskUser(conversationId)
             this.sendViaWorker(
                 channelId,
                 userId,
@@ -490,11 +495,24 @@ export class ChannelManager {
             )
             this.pendingAskUser.set(conversationId, {
                 resolve,
-                reject: () => resolve(''),
-                question,
-                timestamp: Date.now(),
             })
         })
+    }
+
+    /**
+     * 结算并移除指定会话的挂起 ask_user 项。
+     *
+     * 取消语义：以空串 '' 结算——与既有先例一致（worker.ts 的 shutdown 清空
+     * askUserRequests 亦用 resolve('')）。
+     * 幂等：无挂起项即 no-op（二次调用不会重复 resolve）。
+     * ★ 先 delete 再 resolve：resolve 回调若同步重入（再次登记同键），旧项已不在表中，
+     *   不会被后续 delete 误删新项。
+     */
+    private settleAskUser(conversationId: string): void {
+        const entry = this.pendingAskUser.get(conversationId)
+        if (!entry) return
+        this.pendingAskUser.delete(conversationId)
+        entry.resolve('')
     }
 
     private async rejectPermission(

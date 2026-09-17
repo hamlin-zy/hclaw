@@ -3,6 +3,7 @@ import type {ConversationSummary, Message, ContentBlock, ToolCall} from '@shared
 
 import {useAgentStore, createDefaultConvData} from './agentStore'
 import {fuzzyFilter} from '../lib/search'
+import {workspacePathKey} from '../lib/workspacePath'
 import {collectDescendants} from './conversationTree'
 import {flatString} from '../utils/flatString'
 
@@ -38,15 +39,23 @@ interface ConversationStore {
     // Workspace
   setWorkspace: (path: string | null) => void
   removeWorkspace: (path: string) => void
+    /** 跨窗口跳转：切到目标会话所属的工作区并激活该会话（不为未注册路径新建工作区记录，
+     *  不抢占该工作区的首个根会话；工作区对比按归一化路径）。 */
+  openConversationInWorkspace: (convId: string, workspacePath: string) => Promise<void>
 
     // Conversations
   createConversation: (title?: string) => Promise<string>
     handleSessionCreated: (convId: string, title: string, workspacePath: string, handoffFromConvId?: string, createdAt?: number, updatedAt?: number) => void
-    /** 子会话创建事件处理（agent 工具创建）：侧栏顶部插入，保留其他工作区 */
-    handleChildConvCreated: (convId: string, title: string, parentConvId?: string) => void
+    /** 子会话创建事件处理（agent 工具创建）：插入父会话所属工作区列表顶部，保留其他工作区。
+     *  workspacePath 为父会话所属工作区（事件 payload 下发）；该工作区未在本地缓存时新建条目再插入
+     *  （与 handleSessionCreated、onConversationCreated schedule 分支同策略），workspacePath 为空串时跳过；
+     *  不回退 currentWorkspacePath（避免子会话被错插到当前工作区）。 */
+    handleChildConvCreated: (convId: string, title: string, parentConvId: string | undefined, workspacePath: string) => void
   deleteConversation: (id: string) => Promise<void>
     deleteConversations: (ids: string[]) => Promise<void>
-  setActiveConversation: (id: string | null) => void
+    /** 切换活跃会话。force=true 时即使目标已是活跃会话也重走完整切换流程
+     *  （用于「切工作区 + 进目标会话」：setWorkspace 会先把该目录首个根会话置为活跃） */
+  setActiveConversation: (id: string | null, opts?: { force?: boolean }) => void
   updateConversationMeta: (convId: string, updates: { title?: string; preview?: string }) => void
     /** 会话元数据事件消费（§3.4）：message-finalized → 更新 updatedAt 并按侧栏规则重排 */
     touchConversation: (convId: string, updatedAt: number) => void
@@ -456,10 +465,13 @@ export async function applyConvModesToAgentStore(convId: string): Promise<void> 
 
 /** 切换会话状态核心逻辑：同步 loadedMessages、agent 状态、IPC 通知
  *  （落库已收敛至主进程，渲染端切换会话无需 flush）
- *  用于 setActiveConversation / deleteConversation / deleteConversations 共享路径 */
-async function switchActiveConversation(id: string | null) {
+ *  用于 setActiveConversation / deleteConversation / deleteConversations 共享路径
+ *  force：跳过「已是活跃会话」短路，强制重走完整切换。调用方为「切工作区 + 进目标会话」时
+ *  必须传（setWorkspace 会把该目录首个根会话置为活跃，目标是它时短路会跳过消息合并与
+ *  agent 状态同步，见 setActiveConversation 调用点传 force 的说明）。 */
+async function switchActiveConversation(id: string | null, opts?: {force?: boolean}) {
     const store = useConversationStore.getState()
-    if (id === store.activeConversationId) return
+    if (!opts?.force && id === store.activeConversationId) return
 
     // 切换前先清理旧活跃会话的定时截断
     clearActiveTruncate()
@@ -564,6 +576,61 @@ export function subscribeGitBranchChanges(): () => void {
     return () => unsub?.()
 }
 
+// ── 工作区路径归一化（比较/去重，绝不可回传主进程）──────────
+
+/** 注册表工作区记录（与 env.d.ts 的 workspace.list() 元素同形） */
+type WorkspaceRecord = { id: string; path: string; name: string; createdAt: number; updatedAt: number }
+
+/**
+ * getByPath 精确未命中时的等价项扫描。
+ *
+ * 为什么需要：目录选择对话框返回的串不带尾分隔符，而 DB（workspaces 表）里可能存着
+ * 带尾分隔符的历史串（E:\workspace\ 之类），getByPath 是 `WHERE path = ?` 精确匹配 → 必然查不到。
+ * 若此时直接 create，同一目录就会写进第二条 DB 记录；渲染层也会多出一个键。
+ *
+ * · 恰好一条 → 用它（不 create）。
+ * · 多条 → 取 updatedAt 最新的一条并 warn（等价记录多条属历史 bug 遗留的数据异常，
+ *   静默挑一个会让问题不可观测）。
+ * · 零条 → 返回 null，由调用方决定是否 create。
+ */
+async function findEquivalentWorkspace(path: string): Promise<WorkspaceRecord | null> {
+    const all = await window.electronAPI?.workspace?.list?.()
+    if (!all) return null
+    const target = workspacePathKey(path)
+    const matches = (all as WorkspaceRecord[]).filter(w => workspacePathKey(w.path) === target)
+    if (matches.length === 0) return null
+    if (matches.length === 1) return matches[0]
+    console.warn(
+        `[workspace] 发现 ${matches.length} 条归一化等价的工作区记录（${path}），已取 updatedAt 最新的一条`,
+        matches.map(m => m.path),
+    )
+    return [...matches].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]
+}
+
+/**
+ * 解析「生效键」：决定写入 currentWorkspacePath / workspaces 用哪个串。
+ * setWorkspace / removeWorkspace / openConversationInWorkspace 三处共用，保证口径一致。
+ *
+ * 为什么需要：同一目录可能以多种写法出现（尾分隔符、分隔符方向、Windows 大小写），
+ * 用原始串写键会与已有等价键并存 → 侧栏同一项目两条记录、当前那条指向空列表。
+ *
+ * 解析顺序（固定）：
+ *  ① workspaces 里已有等价键 → 复用（优先取 conversations 非空的那个，保住已加载列表；都空取第一个）；
+ *  ② 注册表返回 / 扫描到的规范路径（DB 原串，与 getByPath 的精确串对齐）；
+ *  ③ 兜底原始 path（未登记路径）。
+ *
+ * ⚠ 归一化串仅用于比较，绝不作为键写回主进程。
+ */
+function resolveWorkspaceKey(path: string, canonicalPath?: string | null): string {
+    const target = workspacePathKey(path)
+    const workspaces = useConversationStore.getState().workspaces
+    const equivalentKeys = Object.keys(workspaces).filter(k => workspacePathKey(k) === target)
+    if (equivalentKeys.length > 0) {
+        return equivalentKeys.find(k => (workspaces[k]?.conversations.length ?? 0) > 0) ?? equivalentKeys[0]
+    }
+    return canonicalPath ?? path
+}
+
 /**
  * 释放指定会话的全部缓存：messagesMap / hasMoreMap / loadingMoreMap 三个会话级
  * Map 条目 + conversationLastActiveAt / handoffDismissed 两个会话级 Record 条目
@@ -628,42 +695,57 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               return
           }
 
+          let canonicalPath: string | undefined
           try {
+              // 必须传原始串：主进程 getByPath 是 `WHERE path = ?` 精确匹配，传归一化串查不到
+              // （既有契约，已有测试钉住）。
               let workspace = await window.electronAPI?.workspace?.getByPath(path)
               if (!workspace) {
-                  const id = `ws-${crypto.randomUUID()}`
-                  const name = path.split(/[/\\]/).pop() || '新工作区'
-                  await window.electronAPI?.workspace?.create(id, path, name)
-                  workspace = await window.electronAPI?.workspace?.getByPath(path)
+                  // 精确未命中 → 先做等价扫描，避免同一目录（DB 里带着另一种写法的旧串）
+                  // 被重复 create 出第二条记录。
+                  const equivalent = await findEquivalentWorkspace(path)
+                  if (equivalent) {
+                      workspace = equivalent
+                  } else {
+                      const id = `ws-${crypto.randomUUID()}`
+                      const name = path.split(/[/\\]/).pop() || '新工作区'
+                      // create 仍写原始串（主进程精确匹配口径）
+                      await window.electronAPI?.workspace?.create(id, path, name)
+                      workspace = await window.electronAPI?.workspace?.getByPath(path)
+                  }
               }
               if (workspace) {
+                  canonicalPath = workspace.path
                   await window.electronAPI?.workspace?.setCurrent(workspace.id)
               }
           } catch (err) {
               console.error('[setWorkspace] error:', err)
           }
 
-          set((state) => {
-              const convs = state.workspaces[path]?.conversations || []
-              const idSet = new Set(convs.map(c => c.id))
-              // 仅激活根会话（非子会话），避免子会话抢占激活态
-              const firstRoot = convs.find(c => isRootConversation(c, idSet))
-              return {
-                  currentWorkspacePath: path,
-                  activeConversationId: firstRoot?.id || null,
-                  workspaces: {...state.workspaces, [path]: {lastOpenedAt: Date.now(), conversations: convs}},
-              }
-          })
+          // 生效键：优先复用已有等价键 → 注册表返回的规范路径 → 兜底原始串
+          const key = resolveWorkspaceKey(path, canonicalPath)
+
+          // 会话列表只读一次：set 前后引用同一份，避免同一份数据算两遍
+          const convs = get().workspaces[key]?.conversations || []
+          const idSet = new Set(convs.map(c => c.id))
+          // 仅激活根会话（非子会话），避免子会话抢占激活态
+          const rootConv = convs.find(c => isRootConversation(c, idSet))
+
+          set((state) => ({
+              currentWorkspacePath: key,
+              activeConversationId: rootConv?.id || null,
+              workspaces: {...state.workspaces, [key]: {lastOpenedAt: Date.now(), conversations: convs}},
+          }))
 
           // 切换工作区：重新拉取 git 分支（主进程侧同时重建 watch）
-          void refreshGitBranch(path)
+          void refreshGitBranch(key)
 
           // 加载消息仅针对根会话（与激活保持一致）
-          const convs = get().workspaces[path]?.conversations || []
-          const idSet = new Set(convs.map(c => c.id))
-          const rootConv = convs.find(c => isRootConversation(c, idSet))
           if (rootConv) {
               get().loadMessages(rootConv.id)
+              // 冷启动/切工作区自动激活同样要按会话 meta 恢复输入栏模式
+              //（否则只剩 agentStore persist 的全局默认回退，显示被污染的默认值）
+              void applyConvModesToAgentStore(rootConv.id)
               // ★ 主动水合待办批次：应用重启后首次加载会话，从 DB 查询活跃批次
               void useAgentStore.getState().refreshActiveBatch?.(rootConv.id)
           }
@@ -671,26 +753,75 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
 
       removeWorkspace: async (path) => {
           // 先获取 workspace id，以便从数据库中删除
-          const workspace = await window.electronAPI?.workspace?.getByPath(path)
+          let workspace: WorkspaceRecord | null = null
+          try {
+              workspace = (await window.electronAPI?.workspace?.getByPath(path)) ?? null
+              // 精确未命中（DB 里存的是另一种写法的旧串）→ 等价扫描拿 id。
+              // 直连 getByPath 的后果是 workspaceId 为 undefined → DB 记录删不掉（只删了本地键，删一半）。
+              // 删除路径永远不 create。
+              if (!workspace) workspace = await findEquivalentWorkspace(path)
+          } catch (err) {
+              console.error('[removeWorkspace] error:', err)
+          }
           const workspaceId = workspace?.id
 
+          // 生效键与 workspace 解析同源
+          const key = resolveWorkspaceKey(path, workspace?.path)
+          const target = workspacePathKey(path)
+
           // 获取该工作区下的所有会话 ID，用于批量删除
-          const conversations = await window.electronAPI?.conversationListByWorkspace?.(path)
+          // ⚠ 已知残留（本轮不修）：主进程 conversation-list-by-workspace 仍是精确匹配，
+          //   DB 里若存在另一种写法的会话 workspacePath，这些会话可能删不干净。
+          const conversations = await window.electronAPI?.conversationListByWorkspace?.(key)
           const convIds = conversations?.map((c: any) => c.id) || []
 
           set((state) => {
-              const {[path]: _, ...rest} = state.workspaces
+              // 清掉所有归一化等价的键（历史遗留的重复键一并清）
+              const rest = Object.fromEntries(
+                  Object.entries(state.workspaces).filter(([k]) => workspacePathKey(k) !== target)
+              )
+              // 当前工作区判断按归一化键比较（原串精确比较会漏掉等价写法的当前工作区）
+              const isCurrent = state.currentWorkspacePath !== null && workspacePathKey(state.currentWorkspacePath) === target
               return {
                   workspaces: rest,
-                  currentWorkspacePath: state.currentWorkspacePath === path ? null : state.currentWorkspacePath,
-                  activeConversationId: state.currentWorkspacePath === path ? null : state.activeConversationId,
-                  gitBranch: state.currentWorkspacePath === path ? null : state.gitBranch,
+                  currentWorkspacePath: isCurrent ? null : state.currentWorkspacePath,
+                  activeConversationId: isCurrent ? null : state.activeConversationId,
+                  gitBranch: isCurrent ? null : state.gitBranch,
               }
           })
 
           // 从数据库中删除会话和工作区记录
           if (convIds.length > 0) await window.electronAPI?.conversationDeleteBatch?.(convIds)
           if (workspaceId) await window.electronAPI?.workspace?.delete(workspaceId)
+      },
+
+      /**
+       * 跨窗口跳转：切到目标会话所属的工作区并激活该会话。
+       *
+       * 与 setWorkspace 的差别（有意为之）：
+       *  · 不为未注册的路径新建工作区记录 —— 悬空 workspace_id / hclawDir 回退路径
+       *    不该被登记成用户的工作目录；
+       *  · 不抢占该工作区的首个根会话 —— 激活哪个会话由调用方决定；
+       *  · 工作区对比与去重按归一化键 workspacePathKey（去尾分隔符、统一 `/`、仅 Windows 忽略大小写）。
+       */
+      openConversationInWorkspace: async (convId, workspacePath) => {
+          if (workspacePathKey(workspacePath) !== workspacePathKey(get().currentWorkspacePath || '')) {
+              const ws = await window.electronAPI?.workspace?.getByPath(workspacePath)
+              // 仅当该路径已登记为工作区时才切「当前工作区」；不 create（不登记悬空路径）
+              if (ws) await window.electronAPI?.workspace?.setCurrent(ws.id)
+              // 生效键统一由 resolveWorkspaceKey 解析（与 setWorkspace / removeWorkspace 同一口径）：
+              // ① 复用已有等价键（也保住该键下已加载的会话列表）② 注册表返回的规范路径 ③ 兜底投递原串。
+              // 写归一化串会查不到记录，写投递原串则可能与已有等价键并存 → 侧栏两条 + 当前工作区指向空列表。
+              const key = resolveWorkspaceKey(workspacePath, ws?.path)
+              set((state) => ({
+                  currentWorkspacePath: key,
+                  workspaces: state.workspaces[key]
+                      ? state.workspaces
+                      : {...state.workspaces, [key]: {lastOpenedAt: Date.now(), conversations: []}},
+              }))
+              void refreshGitBranch(key)
+          }
+          await get().setActiveConversation(convId)
       },
 
       // ── Conversations ──────────────────────────────────
@@ -818,9 +949,15 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           }
       },
 
-      // 子 Agent 独立会话创建事件处理：侧栏顶部插入 + 自动归属当前工作区
+      // 子 Agent 独立会话创建事件处理：插入父会话所属工作区列表顶部
+      // ★ 归属 workspacePath（父会话所属工作区），不用 currentWorkspacePath 兜底：
+      //   父会话不在当前工作区时，子会话会被错插到当前工作区的侧栏列表。
+      // ★ 归属策略与 handleSessionCreated、onConversationCreated（schedule 分支）统一：
+      //   目标工作区未在本地缓存（未加载）时新建条目再插入，使子会话立即出现在其
+      //   真实项目列表下；切换/刷新时再经 conversation-list-by-workspace 从 DB 补齐完整列表。
+      //   workspacePath 为空串时仍跳过（不为 '' 新建条目）；不回退 currentWorkspacePath。
       // ★ 必须保留其他工作区条目（...state.workspaces），否则项目选择器会丢失其他项目
-      handleChildConvCreated: (convId, title, parentConvId) => {
+      handleChildConvCreated: (convId, title, parentConvId, workspacePath) => {
           const now = Date.now()
           const summary: ConversationSummary = {
               id: convId,
@@ -831,16 +968,17 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               parentConvId: parentConvId || undefined,
           }
           set((state) => {
-              const wsPath = state.currentWorkspacePath
-              if (!wsPath) return state
-              const wsInfo = state.workspaces[wsPath]
-              if (!wsInfo) return state
+              // 目标工作区未在本地缓存则新建条目（与 handleSessionCreated 同构）；
+              // workspacePath 为空串时不新建 '' 条目，直接跳过
+              const wsInfo = workspacePath
+                  ? (state.workspaces[workspacePath] || {lastOpenedAt: now, conversations: []})
+                  : undefined
               // 去重守卫：会话已存在（双投递）则跳过
-              if (wsInfo.conversations.some(c => c.id === convId)) return state
+              if (!wsInfo || wsInfo.conversations.some(c => c.id === convId)) return state
               return {
                   workspaces: {
                       ...state.workspaces,
-                      [wsPath]: {...wsInfo, conversations: [summary, ...wsInfo.conversations]},
+                      [workspacePath]: {...wsInfo, conversations: [summary, ...wsInfo.conversations]},
                   },
               }
           })
@@ -900,11 +1038,11 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           releaseConvCaches(toDelete)
       },
 
-      setActiveConversation: async (id) => {
-          if (id === get().activeConversationId) return
+      setActiveConversation: async (id, opts) => {
+          if (id === get().activeConversationId && !opts?.force) return
           // 刷新待处理的批次数据（文本 + 工具结果），防止切换后丢失正在流式的内容
           useAgentStore.getState().flushPendingStreamData()
-          await switchActiveConversation(id)
+          await switchActiveConversation(id, opts)
       },
 
       updateConversationMeta: (id, updates) => {
@@ -1244,6 +1382,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                       set({activeConversationId: root.id})
                       get().markConversationRendered(root.id)
                       await get().loadMessagesInitial(root.id)
+                      // 冷启动自动激活同样要按会话 meta 恢复输入栏模式
+                      //（否则只剩 agentStore persist 的全局默认回退，显示被污染的默认值）
+                      void applyConvModesToAgentStore(root.id)
                   }
               }
 
@@ -1359,10 +1500,19 @@ if (typeof window !== 'undefined') {
             if (ws.conversations?.some((c: any) => c.id === conv.id)) return
         }
 
-        // 定时任务会话：自动归入当前工作目录（不隔离开关）
-        const wsPath = conv.channel === 'schedule'
-          ? state.currentWorkspacePath
-          : (conv.workspacePath || state.currentWorkspacePath || '')
+        // ★ 归属策略与 handleSessionCreated 保持一致：一律按事件携带的真实
+        //   workspacePath 归位，绝不用 currentWorkspacePath 改写归属。
+        //   定时任务会话的 workspacePath 由主进程按该任务自身的 workspaceId 解析
+        //   后随本事件下发（scheduler/index.ts createSchedulerConversation）。
+        //   此前对 channel === 'schedule' 强制取 currentWorkspacePath：用户在项目 A
+        //   创建定时任务、切到项目 B 后触发时，会话被错归到 B；重载后
+        //   loadConversations 又按 meta.workspacePath 跳回 A，产生归属漂移。
+        //   与 handleChildConvCreated 同根因——不得用「当前工作区」语义归属
+        //   属于其他工作区的对象。
+        // ★ payload 无 workspacePath 时不回退 currentWorkspacePath（与
+        //   handleSessionCreated 的 `workspacePath ? ... : undefined` 守卫一致），
+        //   直接跳过；下方 500ms 兜底经 loadConversations 从 DB 正确归位。
+        const wsPath = conv.workspacePath as string | undefined
         if (!wsPath) return
 
         const summary: ConversationSummary = {
@@ -1378,6 +1528,10 @@ if (typeof window !== 'undefined') {
             handoffFromConvId: conv.handoffFromConvId || undefined,
         }
 
+        // 目标工作区未在本地缓存（未加载）时新建条目——与 handleSessionCreated 的
+        // `state.workspaces[workspacePath] || {lastOpenedAt, conversations: []}` 一致：
+        // 定时任务/渠道会话必须立即出现在其真实项目列表下，切换/刷新时再由
+        // conversation-list-by-workspace 从 DB 补齐完整列表。
         const wsInfo = workspaces[wsPath] || {lastOpenedAt: Date.now(), conversations: []}
         const updatedConvs = [summary, ...wsInfo.conversations]
             .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
@@ -1393,7 +1547,7 @@ if (typeof window !== 'undefined') {
         }
 
         // 如果当前未选中工作区，且会话所属工作区有效，自动切换过去
-        if (!state.currentWorkspacePath && wsPath) {
+        if (!state.currentWorkspacePath) {
             updates.currentWorkspacePath = wsPath
             updates.activeConversationId = summary.id
         }

@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import {getHclawDir, isSafePath} from '../../config'
+import {getHclawDir, isSafePath} from '../../hclawPaths'
 
 // ─── 校验工具 ──────────────────────────────────────
 

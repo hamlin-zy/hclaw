@@ -11,7 +11,7 @@ import {serializeSkills, writeSkillOverride, writeSkillOverrides, getAndClearLoa
 import {powerManager} from '../powerManager'
 import {updateMarkdownFrontmatter, type FrontmatterUpdate} from '../utils/frontmatter'
 import {logger} from '../logger'
-import {getHclawDir} from '../../config'
+import {getHclawDir} from '../../hclawPaths'
 import * as path from 'path'
 import * as fs from 'fs/promises'
 import extract from 'extract-zip'

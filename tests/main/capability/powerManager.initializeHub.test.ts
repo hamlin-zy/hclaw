@@ -28,6 +28,7 @@ vi.mock('@/main/config', async () => {
         HCLAW_DIR: testDir,
     }
 })
+vi.mock('@/main/hclawPaths', async () => await import('@/main/config'))  // 路径能力已下沉到叶子 hclawPaths：让叶子跟随本文件对 config 的桩，避免绕过 mock 落到真实 ~/.hclaw
 
 /** 技能注册表替身：initialize() 会 clear/getAll/getEnabled，注册一条技能以覆盖 skill 分支 */
 const skillState = vi.hoisted(() => ({items: [] as Array<Record<string, unknown>>}))

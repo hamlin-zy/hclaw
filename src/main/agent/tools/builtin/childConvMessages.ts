@@ -22,13 +22,13 @@ import {formatToolResult} from '@shared/utils/toolResult'
 
 // ─── 累积器状态 ──────────────────────────────────────────
 
-/** 流式块（复刻渲染进程 streamBlocks 结构，按 textOffset 与文本交错） */
+/** 流式块（与渲染进程 streamBlocks 同构，按 textOffset 与文本交错） */
 interface StreamBlock {
     type: 'think' | 'tool_use'
     id: string
     /** 该块在正文流中的锚点位置（= 声明时 textContent 长度） */
     textOffset: number
-    /** think 块内容（连续 thinking 事件拼接） */
+    /** think 块内容（末块为 think 时 thinking 事件逐次累加，否则新起一段） */
     thinkContent?: string
     /** tool_use 块对应的工具调用（与 toolCalls map 同一引用，result 更新自动反映） */
     toolCall?: ToolCall

@@ -1,6 +1,6 @@
 node_modules/
 .vite/
-dist/
+dist*/
 release/
 .DS_Store
 *.log
@@ -21,6 +21,7 @@ docs/adr/
 /.cc-switch
 /.idea
 /.vscode
+/.scratch
 vitest-report.json
 nul
 
@@ -77,3 +78,5 @@ website-h/
 
 docs/superpowers/
 docs/architecture/
+# docs 下所有子目录（本地文档区，不跟踪）
+docs/*/

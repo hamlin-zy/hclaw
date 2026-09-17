@@ -41,8 +41,11 @@ const WORKER_ENTRY_PATTERNS: RegExp[] = [
 // 白名单：worker 闭包内允许存在 electron 依赖边的模块（新增须逐个审查）
 // - 'lazy'：仅允许防御式惰性 require（dependencyTypes 含 'require'）
 // - 'reviewed'：允许任意形式的依赖边（含静态 import，须给出环境感知/兜底的设计依据）
+// 注：config.ts 原先因 initConfigIPC 内 require('electron') 登记在此；P3 把该 IPC 注册搬到
+// src/main/ipc/configIPC.ts（仅主进程装配根 src/main/index.ts 引用，不在 worker 闭包内，
+// 故不登记——若将来有 worker 闭包模块静态引入它，本测试会如实报错）。config.ts 现为纯
+// re-export 门面，已无 electron 依赖边。
 const ELECTRON_EDGE_ALLOWLIST: Record<string, 'lazy' | 'reviewed'> = {
-    'src/main/config.ts': 'lazy', // initConfigIPC 内：worker 也会间接加载本模块，electron 必须延迟加载
     'src/main/utils/llmTraceRecorder.ts': 'lazy', // 环境探测 + 主进程窗口转发，防御式 require
     'src/main/utils/opencodeHeaders.ts': 'lazy', // 版本探测，require('electron')?.app?. 链式兜底
     'src/main/auth/googleAuth.ts': 'lazy', // 仅主进程 initGoogleAuthIPC 使用；worker 只走纯 axios 刷新

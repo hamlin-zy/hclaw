@@ -1,5 +1,7 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest'
 import {DEFAULT_SETTINGS, useSettingsStore} from '../../../src/renderer/stores/settingsStore'
+import {useConversationStore} from '../../../src/renderer/stores/conversationStore'
+import {useAgentStore} from '../../../src/renderer/stores/agentStore'
 
 describe('DEFAULT_SETTINGS.agent 交接引导配置', () => {
   it('handoffThresholdRatio 默认 0.5', () => {
@@ -46,6 +48,34 @@ describe('新会话默认安全/显示模式', () => {
     useSettingsStore.getState().updatePending('agent', {defaultPermissionMode: 'auto'})
     await useSettingsStore.getState().saveSettings()
     expect(agentSetMock).toHaveBeenCalledWith('auto')
+  })
+
+  it('loadSettings 对账：全局权威键漂移（safe）时写回 settings 默认（auto）并回灌激活会话显示', async () => {
+    // 全局权威键被污染为 safe，settings 默认是 auto；无会话级覆盖的会话应显示 auto
+    let globalMode: 'safe' | 'auto' = 'safe'
+    const agentGetMock = vi.fn(async () => globalMode)
+    const agentSetMock = vi.fn(async (m: 'safe' | 'auto') => { globalMode = m; return true })
+    vi.stubGlobal('window', {
+      electronAPI: {
+        configRead: vi.fn(async (key: string) => (key === 'settings'
+          ? {agent: {defaultPermissionMode: 'auto'}, ui: {}}
+          : null)),
+        configWrite: vi.fn(async () => true),
+        settingsUpdate: vi.fn(async () => ({success: true})),
+        agentGetPermissionMode: agentGetMock,
+        agentSetPermissionMode: agentSetMock,
+        conversationReadMeta: vi.fn(async () => ({id: 'conv-old'})),
+      },
+    })
+    useConversationStore.setState({activeConversationId: 'conv-old'})
+    useAgentStore.setState({permissionMode: 'safe'})
+
+    await useSettingsStore.getState().loadSettings()
+
+    // 1) 权威键写回
+    expect(agentSetMock).toHaveBeenCalledWith('auto')
+    // 2) 激活会话顶层显示回灌（否则输入栏停在旧值直到用户切会话）
+    expect(useAgentStore.getState().permissionMode).toBe('auto')
   })
 })
 

@@ -68,6 +68,7 @@ vi.mock('@/main/agent/permissions/permissionRule', () => ({
     applyUpdate: vi.fn(async (update: any) => applyMockUpdate(update)),
     getDangerousPermissions: vi.fn(async () => []),
     reload: vi.fn(async () => {}),
+    reloadRulesOnly: vi.fn(async () => [...mockState.rules]),
   },
 }))
 
@@ -150,7 +151,7 @@ describe('PermissionEngine — 显式规则', () => {
 
   it('glob 规则（file_*）匹配多个工具，其他工具不受影响', async () => {
     const engine = await makeEngine()
-    // compileGlobPattern 只在 addRule/setRules 时编译 → 必须走 setRules 而非直接注入 mockState
+    // glob 由 matchesToolRulePattern 在匹配时实时判定（无预编译缓存）
     await engine.setRules([makeRule('file_*', 'allow')])
 
     expect(engine.check(makeTool('file_read'), {}).allowed).toBe(true)
@@ -159,6 +160,35 @@ describe('PermissionEngine — 显式规则', () => {
     const other = engine.check(makeTool('bash', {isDestructive: true}), {})
     expect(other.allowed).toBe(false)
     expect(other.reason).toContain('is destructive')
+  })
+})
+
+describe('PermissionEngine — reloadRulesOnly（只换规则、保会话级 mode）', () => {
+  beforeEach(resetState)
+
+  it('规则被刷新（新 deny 生效），且当前 mode 不被 DB 全局值覆盖', async () => {
+    mockState.mode = 'auto'
+    const engine = await makeEngine()
+    expect(await engine.getMode()).toBe('auto')
+
+    // 模拟 DB 侧：全局默认被改成 safe + 新增一条 deny 规则
+    mockState.mode = 'safe'
+    mockState.rules = [makeRule('file_read', 'deny')]
+
+    await engine.reloadRulesOnly()
+
+    // 规则确实刷新了
+    expect(engine.check(makeTool('file_read'), {}).allowed).toBe(false)
+    // 但 mode 保持 auto（会话级模式不被吞掉）
+    expect(await engine.getMode()).toBe('auto')
+  })
+
+  it('对照：reloadRules 会把 mode 重置为 DB 全局值（证明二者差异）', async () => {
+    mockState.mode = 'auto'
+    const engine = await makeEngine()
+    mockState.mode = 'safe'
+    await engine.reloadRules()
+    expect(await engine.getMode()).toBe('safe')
   })
 })
 

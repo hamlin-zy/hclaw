@@ -60,7 +60,7 @@ export default function ToolMenu({onUploadFile, onOpenCommandPalette}: ToolMenuP
                 }}
                 className={`py-2 px-1 rounded-md transition-colors ${
                     toolMenuOpen
-                        ? 'text-[var(--brand-primary)] bg-[var(--brand-muted)]'
+                        ? '[color:var(--brand-primary)] bg-[var(--brand-muted)]'
                         : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                 }`}
                 title="更多工具"

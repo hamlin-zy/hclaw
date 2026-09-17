@@ -135,3 +135,35 @@ export interface CompactPersistEvent {
   savedTokens: number
   message: string
 }
+
+// ─── Worker → Main 事件契约 ────────────────────────────
+// 此前这些跨进程事件的字段形状只以「内联断言 as unknown as {...}」存在于消费方，
+// 发送方与接收方的一致性只能靠人工核对；以下类型为唯一契约来源，改字段名/可选性
+// 会同时命中生产方（agentTool）与消费方（manager.impl）的编译错误。
+
+/**
+ * Worker → Main：子 Agent 独立会话创建事件的载荷（不含 type，type 由 postMessage 注入）。
+ *
+ * 生产方：src/main/agent/tools/builtin/agentTool.ts notifyMainProcessChildConvCreated
+ * 消费方：src/main/agent/manager.impl.ts createMessageHandler 的 child_conv_created 分支
+ *
+ * ★ 键名差异是既有跨进程协议，勿为「统一」而改：
+ *   Worker 侧以 childConvId 承载会话 ID，主进程转发到渲染进程时改名为 id
+ *   （见 @shared/types/events 的 ChildConvCreatedRendererPayload）——渲染端 conversationStore
+ *   .handleChildConvCreated 依赖 id 这一键名。
+ */
+export interface ChildConvCreatedWorkerPayload {
+  /** 子会话 ID（Worker 侧键名） */
+  childConvId: string
+  /** 侧栏标题：`${agentName}: ${task.slice(0, 20)}...` */
+  title: string
+  /** 父会话 ID；无父（顶层调用）时为 '' —— 生产者恒发字符串，而非省略字段 */
+  parentConvId: string
+  /** 父会话所属工作区（渲染端侧栏归位依据，不可省略） */
+  workspacePath: string
+}
+
+/** createMessageHandler 收到的 child_conv_created 消息 = 载荷 + parentPort 注入的 type */
+export interface ChildConvCreatedWorkerMessage extends ChildConvCreatedWorkerPayload {
+  type: 'child_conv_created'
+}

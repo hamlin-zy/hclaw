@@ -25,7 +25,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:tools": "tsc -p tsconfig.tools.json --noEmit",
     "lint:tools": "eslint eslint-rules eslint.config.ts scripts \"*.js\" \"*.mjs\" \"*.ts\" \".dependency-cruiser.js\"",
-    "verify": "npm run typecheck && npm run typecheck:tools && npm run lint && npm run lint:tools && npm run test && npm run build && npm run audit:muted && npm run audit:contrast",
+    "verify": "npm run typecheck && npm run typecheck:tools && npm run lint && npm run lint:tools && npm run lint:deps && npm run test && npm run build && npm run audit:muted && npm run audit:contrast",
     "audit:muted": "node scripts/audit-muted-text.mjs",
     "audit:contrast": "node scripts/audit-contrast.mjs",
     "postinstall": "echo 'Native modules handled by @photostructure/sqlite'",
@@ -114,5 +114,5 @@
     "vitest": "^4.1.5"
   },
   "config": {},
-  "//verify": "verify 故意不含 lint:deps：.dependency-cruiser 有 1 条既有循环依赖违规（非本分支引入），收口标准是「不劣化于基线」而非 exit 0，需人工判读，故单列 `npm run lint:deps` 而不进 verify。"
+  "//verify": "verify 已含 lint:deps。原先把它排除在外，是因为存在 25 模块的大 SCC 让基线（DFS 首环集合）不稳定、收口标准只能退化为「不劣化于基线」而无法 exit 0。主进程循环依赖治理（P1–P5，见 docs/superpowers/plans/2026-09-17-main-circular-deps-remediation.md）后：主要判据已换成结构性不变量测试 tests/main/deps/circularBoundary.test.ts（SCC 规模上限 + 禁入环模块）与棘轮测试 tests/main/deps/baselineRatchet.test.ts（基线条目数/环长冻结），lint:deps 因此可 exit 0 并纳入 verify；基线仅作为存量 7 条违规的账本，不再承担「是否劣化」的主判据。"
 }

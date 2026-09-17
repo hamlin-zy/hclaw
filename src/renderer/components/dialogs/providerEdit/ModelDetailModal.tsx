@@ -16,6 +16,7 @@ import {commitRow, displayEnteredCell, reverseHintPrice, formatPrice, type Price
 import {commitModelDetail, validateModelDetailDraft, type ModelDetailDraft} from '../../../lib/modelDetailCommit'
 import {resolveModelParams, DEFAULT_MAX_CONTEXT_TOKENS} from '@shared/modelParams'
 import {RemoveIcon} from '../../icons'
+import {INPUT_FOCUS} from '../../../lib/inputFocus'
 
 const PRICE_FIELDS: Array<{key: PriceField; label: string}> = [
   {key: 'input', label: '输入价'},
@@ -292,7 +293,7 @@ export function ModelDetailModal({open, providerName, model, settingsDefaults, r
                         onChange={e => { setError(null); setPriceEdits(prev => ({...prev, [key]: e.target.value})) }}
                         placeholder={cell.placeholder}
                         data-name={`model-detail-price-${key}`}
-                        className={'w-full rounded-lg border border-gray-200 px-2.5 py-[7px] pr-6 text-right text-[13px] text-gray-700 outline-none transition-colors focus:border-brand-300 ' +
+                        className={'w-full rounded-lg border border-gray-200 px-2.5 py-[7px] pr-6 text-right text-[13px] text-gray-700 outline-none ' + INPUT_FOCUS + ' ' +
                           (cell.placeholder ? 'border-dashed placeholder:text-cyan-700 placeholder:opacity-80' : '')}
                       />
                       <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[var(--text-secondary)]">{curSymbol}</span>
@@ -324,7 +325,7 @@ export function ModelDetailModal({open, providerName, model, settingsDefaults, r
               <input value={draft.maxContextTokens} inputMode="numeric" placeholder={ctxPh}
                 onChange={e => { setError(null); setDraft(p => ({...p, maxContextTokens: e.target.value})) }}
                 data-name="model-detail-max-context"
-                className={'w-full rounded-lg border border-gray-200 px-2.5 py-[7px] text-[13px] text-gray-700 outline-none transition-colors focus:border-brand-300 ' + sourceClass(resolved.maxContextTokens.source)} />
+                className={'w-full rounded-lg border border-gray-200 px-2.5 py-[7px] text-[13px] text-gray-700 outline-none ' + INPUT_FOCUS + ' ' + sourceClass(resolved.maxContextTokens.source)} />
               {resolved.maxContextTokens.source !== 'openrouter' && (
                 <div className="mt-1 text-[10px] leading-snug text-[var(--text-secondary)]">无匹配兜底 {DEFAULT_MAX_CONTEXT_TOKENS}</div>
               )}
@@ -336,7 +337,7 @@ export function ModelDetailModal({open, providerName, model, settingsDefaults, r
               <input value={draft.temperature} inputMode="decimal" placeholder={tempPh}
                 onChange={e => { setError(null); setDraft(p => ({...p, temperature: e.target.value})) }}
                 data-name="model-detail-temperature"
-                className={'w-full rounded-lg border border-gray-200 px-2.5 py-[7px] text-[13px] text-gray-700 outline-none transition-colors focus:border-brand-300 ' + sourceClass(resolved.temperature.source)} />
+                className={'w-full rounded-lg border border-gray-200 px-2.5 py-[7px] text-[13px] text-gray-700 outline-none ' + INPUT_FOCUS + ' ' + sourceClass(resolved.temperature.source)} />
             </div>
             <div>
               <div className="mb-1.5 flex items-center gap-1 text-xs font-medium text-gray-500">最大输出 <span className="text-[10px] font-normal text-[var(--text-secondary)]">tokens</span>
@@ -345,7 +346,7 @@ export function ModelDetailModal({open, providerName, model, settingsDefaults, r
               <input value={draft.maxOutputTokens} inputMode="numeric" placeholder={outPh}
                 onChange={e => { setError(null); setDraft(p => ({...p, maxOutputTokens: e.target.value})) }}
                 data-name="model-detail-max-output"
-                className={'w-full rounded-lg border border-gray-200 px-2.5 py-[7px] text-[13px] text-gray-700 outline-none transition-colors focus:border-brand-300 ' + sourceClass(resolved.maxOutputTokens.source)} />
+                className={'w-full rounded-lg border border-gray-200 px-2.5 py-[7px] text-[13px] text-gray-700 outline-none ' + INPUT_FOCUS + ' ' + sourceClass(resolved.maxOutputTokens.source)} />
             </div>
           </div>
         </div>

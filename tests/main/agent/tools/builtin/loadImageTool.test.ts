@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({dataDir: ''}))
 vi.mock('../../../../../src/main/config', () => ({
   getHclawDataDir: () => h.dataDir,
 }))
+vi.mock('../../../../../src/main/hclawPaths', async () => await import('../../../../../src/main/config'))  // 路径能力已下沉到叶子 hclawPaths：让叶子跟随本文件对 config 的桩，避免绕过 mock 落到真实 ~/.hclaw
 // 设置仓储属主进程单例（读 sqlite）；本文件不校验质量配置，返回 null 即走默认 85。
 vi.mock('../../../../../src/main/repositories/sqlite/systemSettingsRepository', () => ({
   systemSettingsRepo: {getJson: () => null},
@@ -56,13 +57,17 @@ describe('load_image 工具', () => {
   })
 
   it('接口文案不引用附件标记（避免对已可见图片重复 load → 二次注入）', () => {
-    // 附件路径已在同一消息中同时给出 image_url 块与【图片文件路径】标记
+    // 附件路径已在同一消息中同时给出 image_url 块与【附件图片路径】标记
     // （startAgentCore.buildUserMessageContent / userContentBuilder.buildUserHistoryContent）；
     // load_image 描述若再指向该标记，会诱导视觉模型对已可见图片重复加载。
+    // 快照标记【图片文件路径】同样不能出现：它由本工具自己的产物派生，
+    // 描述里引用它等于让模型"看到快照路径又去 load 一遍"，构成同一诱导。
     const def = toolToDefinition(loadImageTool)
+    expect(def.description).not.toContain('【附件图片路径】')
     expect(def.description).not.toContain('【图片文件路径】')
     expect(def.description).toContain('不要重复调用')
     const imagePath = def.inputSchema.properties.imagePath as {description?: string}
+    expect(imagePath.description ?? '').not.toContain('【附件图片路径】')
     expect(imagePath.description ?? '').not.toContain('【图片文件路径】')
   })
 

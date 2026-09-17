@@ -21,6 +21,8 @@ async function freshStore() {
     vi.doMock('../../../src/main/config', () => ({
         getHclawDir: () => process.env.HCLAW_TEST_DIR,
     }))
+    // 路径能力已下沉到叶子 hclawPaths：与 config 桩取同一目录，避免绕过 mock 落到真实 ~/.hclaw
+    vi.doMock('../../../src/main/hclawPaths', () => ({getHclawDir: () => process.env.HCLAW_TEST_DIR}))
     const mod = await import('../../../src/main/memo/memoStore')
     return mod.memoStore
 }

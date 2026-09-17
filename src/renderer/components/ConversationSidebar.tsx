@@ -9,6 +9,8 @@ import {useLLMStore} from '../stores/llmStore'
 import {useModelSchemeStore} from '../stores/modelSchemeStore'
 import {useAgentStore} from '../stores/agentStore'
 import {fuzzyFilter} from '../lib/search'
+import {INPUT_FOCUS} from '../lib/inputFocus'
+import {popoverUp} from '../lib/motionPresets'
 import {confirm} from './ConfirmDialog'
 import {showUsageStats} from './dialogs/UsageStatsDialog'
 import {collectDescendants} from '../stores/conversationTree'
@@ -24,7 +26,7 @@ import SchemeSelector from './SchemeSelector'
 import {SIDEBAR_MENU_GROUPS, type SidebarMenuItem} from './sidebar/menuItems'
 import CopyToast from './common/CopyToast'
 import {formatShortcut} from './common/Kbd'
-import type {ThemeName} from '@shared/types'
+import type {ConversationSummary, ThemeName} from '@shared/types'
 
 type SystemStatus =
     'initializing'
@@ -36,7 +38,7 @@ type SystemStatus =
     | 'working'
 
 /** 从 store 派生系统状态 */
-function useSystemStatus(): {status: SystemStatus; runningCount: number} {
+function useSystemStatus(): {status: SystemStatus; runningCount: number; runningConvIds: string[]} {
     const hasRehydrated = useModelSchemeStore((s) => s.hasRehydrated)
     const llmHasRehydrated = useLLMStore((s) => s.hasRehydrated)
     const providers = useLLMStore((s) => s.providers)
@@ -47,9 +49,16 @@ function useSystemStatus(): {status: SystemStatus; runningCount: number} {
     const activeConversationId = useConversationStore((s) => s.activeConversationId)
     const convAgentStates = useAgentStore((s) => s.convAgentStates)
 
-    const runningCount = Object.values(convAgentStates).filter(
-        (d) => d.agentState.status === 'running' || d.agentState.status === 'thinking'
-    ).length
+    // 运行中会话 id 列表：计数与「运行中会话」浮层共用同一份聚合，避免口径漂移
+    // （判定与 ConversationItem 的 isRunning 一致：running / thinking）
+    const runningConvIds = useMemo(
+        () => Object.keys(convAgentStates).filter((cid) => {
+            const st = convAgentStates[cid]?.agentState?.status
+            return st === 'running' || st === 'thinking'
+        }),
+        [convAgentStates],
+    )
+    const runningCount = runningConvIds.length
 
     let status: SystemStatus
     if (!hasRehydrated || !llmHasRehydrated) status = 'initializing'
@@ -60,7 +69,7 @@ function useSystemStatus(): {status: SystemStatus; runningCount: number} {
     else if (agentStatus === 'thinking' || agentStatus === 'running' || runningCount > 0) status = 'working'
     else status = 'ready'
 
-    return {status, runningCount}
+    return {status, runningCount, runningConvIds}
 }
 
 /* ─── System Status Indicator ─── */
@@ -98,7 +107,7 @@ const STATUS_CONFIG: Record<SystemStatus, { label: string; colorClass: string; d
     },
     working: {
         label: '工作中...',
-        colorClass: 'text-[var(--brand-primary)]',
+        colorClass: 'text-[var(--text-brand)]',
         dotClass: 'bg-[var(--brand-primary)] animate-pulse',
     },
 }
@@ -130,9 +139,164 @@ function useInitPhase(): string | null {
     return total > 0 ? `${verb} ${done}/${total}` : `${verb}...`
 }
 
+/* ─── Running Sessions Popover ─── */
+
+/** 运行中会话的一条展示记录：会话元数据跨工作区解析后的视图 */
+interface RunningSessionEntry {
+    id: string
+    title: string
+    channel?: string
+    pinned?: boolean
+    updatedAt: number
+    /** 所属工作目录；本地缓存未命中时为 null（此时不切目录，仅激活会话） */
+    workspacePath: string | null
+}
+
+/** 跨工作区按 convId 定位会话元数据（store 中会话按工作目录 path 分组存放） */
+function findConvAcrossWorkspaces(
+    workspaces: Record<string, {conversations: ConversationSummary[]}>,
+    convId: string,
+): {conv: ConversationSummary; workspacePath: string} | null {
+    for (const [workspacePath, ws] of Object.entries(workspaces)) {
+        const conv = ws.conversations.find((c) => c.id === convId)
+        if (conv) return {conv, workspacePath}
+    }
+    return null
+}
+
+/**
+ * 「工作中... (N个会话)」点击后向上展开的运行中会话列表。
+ * 定位与关闭逻辑对齐 SidebarGearMenu（同在 footer、同样必须向上弹出以免被视口底边裁剪），
+ * 进出场动画复用 lib/motionPresets 的 popoverUp。
+ * 点击某一行 → 跳转到该会话；跨工作目录时先切目录（复用 sendToConversation 的路径）。
+ */
+function RunningSessionsPopover({open, anchorRef, convIds, onClose}: {
+    open: boolean
+    anchorRef: RefObject<HTMLDivElement | null>
+    convIds: string[]
+    onClose: () => void
+}) {
+    const workspaces = useConversationStore((s) => s.workspaces)
+    const currentWorkspacePath = useConversationStore((s) => s.currentWorkspacePath)
+    const activeConversationId = useConversationStore((s) => s.activeConversationId)
+    const panelRef = useRef<HTMLDivElement>(null)
+    const [pos, setPos] = useState<{bottom: number; left: number} | null>(null)
+
+    // 运行中会话 → 展示视图（标题 / 渠道图标 / 所属目录），最近更新的排前面
+    const entries = useMemo<RunningSessionEntry[]>(() => convIds.map((id) => {
+        const hit = findConvAcrossWorkspaces(workspaces, id)
+        return hit
+            ? {
+                id,
+                title: hit.conv.title,
+                channel: hit.conv.channel,
+                pinned: hit.conv.pinned,
+                updatedAt: hit.conv.updatedAt,
+                workspacePath: hit.workspacePath,
+            }
+            : {id, title: '未命名会话', updatedAt: 0, workspacePath: null}
+    }).sort((a, b) => b.updatedAt - a.updatedAt), [convIds, workspaces])
+
+    // 向上展开：bottom = 视口底 - 锚点顶 + 间距
+    useEffect(() => {
+        if (!open) return
+        const rect = anchorRef.current?.getBoundingClientRect()
+        if (rect) setPos({bottom: window.innerHeight - rect.top + 6, left: rect.left})
+    }, [open, anchorRef])
+
+    // 点击外部关闭（mousedown 判定，与 SidebarGearMenu 一致）
+    useEffect(() => {
+        if (!open) return
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as Node
+            if (anchorRef.current?.contains(target)) return
+            if (panelRef.current?.contains(target)) return
+            onClose()
+        }
+        document.addEventListener('mousedown', handleClickOutside)
+        return () => document.removeEventListener('mousedown', handleClickOutside)
+    }, [open, anchorRef, onClose])
+
+    // Esc 关闭
+    useEffect(() => {
+        if (!open) return
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose()
+        }
+        document.addEventListener('keydown', onKey)
+        return () => document.removeEventListener('keydown', onKey)
+    }, [open, onClose])
+
+    /** 跳转：跨工作目录先切目录，再激活会话 */
+    const handleJump = useCallback(async (entry: RunningSessionEntry) => {
+        onClose()
+        const store = useConversationStore.getState()
+        const switchingWorkspace = !!entry.workspacePath && entry.workspacePath !== store.currentWorkspacePath
+        if (switchingWorkspace) {
+            // 与 sendToConversation 同款跨目录路径：setWorkspace 会同时持久化主进程当前工作区。
+            // 但它会把该目录首个根会话置为活跃（内部水合是 fire-and-forget，conversationStore.ts:669）——
+            // 目标恰是首个根会话时 setActiveConversation 会幂等短路，跳过消息合并与 agent 状态同步，
+            // 运行中会话只会显示 DB 半成品快照。故此处必须 force 重走完整切换。
+            await store.setWorkspace(entry.workspacePath!)
+            await store.setActiveConversation(entry.id, {force: true})
+        } else {
+            // 同目录：目标本就是当前会话时 setActiveConversation 幂等短路（no-op），
+            // 绝不能再补水合——DB 快照会覆盖内存中正在流式的内容
+            await store.setActiveConversation(entry.id)
+        }
+    }, [onClose])
+
+    return createPortal(
+        <AnimatePresence>
+            {open && pos && (
+                <motion.div
+                    ref={panelRef}
+                    {...popoverUp}
+                    transition={{duration: 0.15}}
+                    style={{bottom: pos.bottom, left: pos.left}}
+                    className="fixed z-[9999] w-[260px] max-h-[60vh] overflow-y-auto py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md shadow-lg"
+                    role="dialog"
+                    aria-label="运行中会话"
+                    data-name="running-sessions-popover"
+                >
+                    <div className="px-3 pt-2 pb-1 text-[10px] font-medium tracking-wide text-[var(--text-secondary)]">运行中会话</div>
+                    {entries.map((entry) => {
+                        const isActive = entry.id === activeConversationId
+                        const crossWorkspace = !!entry.workspacePath && entry.workspacePath !== currentWorkspacePath
+                        return (
+                            <button key={entry.id} type="button"
+                                    onClick={() => void handleJump(entry)}
+                                    title={entry.workspacePath ?? undefined}
+                                    className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--surface-muted)] transition-colors"
+                                    data-name="running-sessions-item">
+                                <span className={`w-3.5 h-3.5 shrink-0 flex items-center justify-center ${isActive ? '[color:var(--brand-primary)]' : 'text-[var(--text-muted)]'}`}>
+                                    <SessionIcon channel={entry.channel} pinned={entry.pinned} isActive={isActive}/>
+                                </span>
+                                <span className="flex-1 min-w-0">
+                                    <span className={`block truncate text-xs ${isActive ? 'text-[var(--text-brand)] font-medium' : 'text-[var(--text-secondary)]'}`}>{entry.title}</span>
+                                    {crossWorkspace && (
+                                        <span className="block truncate text-[10px] text-[var(--text-secondary)]">{getBasename(entry.workspacePath!)}</span>
+                                    )}
+                                </span>
+                                {entry.updatedAt > 0 && (
+                                    <span className="shrink-0 text-[10px] text-[var(--text-muted)]">{getRelativeTime(entry.updatedAt)}</span>
+                                )}
+                            </button>
+                        )
+                    })}
+                </motion.div>
+            )}
+        </AnimatePresence>,
+        document.body,
+    )
+}
+
 function SystemStatusIndicator() {
-    const {status, runningCount} = useSystemStatus()
+    const {status, runningCount, runningConvIds} = useSystemStatus()
     const initPhaseLabel = useInitPhase()
+    const anchorRef = useRef<HTMLDivElement>(null)
+    const [menuOpen, setMenuOpen] = useState(false)
+    const closeMenu = useCallback(() => setMenuOpen(false), [])
 
     // 渲染优先级：working > 初始化阶段 > 常规系统状态
     const showInitPhase = status !== 'working' && initPhaseLabel !== null
@@ -143,11 +307,35 @@ function SystemStatusIndicator() {
         ? `${label} (${runningCount}个会话)`
         : label
 
+    // 有会话在跑 → 提示可点击，展开运行中会话列表
+    const clickable = runningCount > 0
+
+    // 会话全部结束 / 状态切走时收起浮层，避免浮层停留在空列表
+    useEffect(() => {
+        if (!clickable) setMenuOpen(false)
+    }, [clickable])
+
     return (
-        <div className="flex items-center gap-[var(--space-snug)] text-2xs text-[var(--text-muted)]" title={`${label}${runningCount > 0 ? ` · ${runningCount}个会话运行中` : ''}`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${dotClass}`} aria-hidden="true"/>
-            <span className={colorClass}>{displayLabel}</span>
-        </div>
+        <>
+            <div ref={anchorRef} className="flex items-center gap-[var(--space-snug)] text-2xs text-[var(--text-muted)]"
+                 title={clickable ? undefined : label}>
+                <div className={`w-1.5 h-1.5 rounded-full ${dotClass}`} aria-hidden="true"/>
+                {clickable ? (
+                    <button type="button"
+                            onClick={() => setMenuOpen((v) => !v)}
+                            aria-haspopup="dialog"
+                            aria-expanded={menuOpen}
+                            title="查看运行中的会话"
+                            className={`${colorClass} cursor-pointer rounded-sm hover:underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)]`}
+                            data-name="running-sessions-trigger">
+                        {displayLabel}
+                    </button>
+                ) : (
+                    <span className={colorClass}>{displayLabel}</span>
+                )}
+            </div>
+            <RunningSessionsPopover open={menuOpen} anchorRef={anchorRef} convIds={runningConvIds} onClose={closeMenu}/>
+        </>
     )
 }
 
@@ -431,7 +619,7 @@ export default function ConversationSidebar() {
                   style={{right: '-24px'}}
                data-name="conversation-sidebar-hover-expand-button">
                   <div
-                      className="w-6 h-20 rounded-r flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[var(--surface-muted)] transition-colors">
+                      className="w-6 h-20 rounded-r flex items-center justify-center text-[var(--text-muted)] hover:[color:var(--brand-primary)] hover:bg-[var(--surface-muted)] transition-colors">
                       <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                            strokeWidth="2.5">
                           <polyline points="9 18 15 12 9 6"/>
@@ -678,7 +866,7 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="搜索目录..."
                   aria-label="搜索目录"
-                  className="w-full pl-6 pr-2 py-1.5 text-2xs bg-[var(--surface-muted)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] dark-all:focus:ring-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]"
+                  className={`w-full pl-6 pr-2 py-1.5 text-2xs bg-[var(--surface-muted)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                 data-name="conversation-sidebar-input"/>
               </div>
             </div>
@@ -689,7 +877,7 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
               <button
                 onClick={handleOpenNew}
                 role="option"
-                className="w-full flex items-center gap-[var(--space-snug)] px-[var(--space-relaxed)] py-[var(--space-snug)] rounded-md text-xs text-[var(--brand-primary)] hover:bg-[var(--brand-muted)] transition-colors"
+                className="w-full flex items-center gap-[var(--space-snug)] px-[var(--space-relaxed)] py-[var(--space-snug)] rounded-md text-xs text-[var(--text-brand)] hover:bg-[var(--brand-muted)] transition-colors"
                data-name="conversation-sidebar-workspace-new-option">
                   <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
                        aria-hidden="true">
@@ -708,7 +896,7 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
                   aria-selected={entry.path === currentWorkspacePath}
                   className={`group flex items-center gap-[var(--space-snug)] px-[var(--space-relaxed)] py-[var(--space-normal)] rounded-md cursor-pointer transition-colors ${
                     entry.path === currentWorkspacePath
-                        ? 'bg-[var(--brand-muted)] text-[var(--brand-primary)]'
+                        ? 'bg-[var(--brand-muted)] text-[var(--text-brand)]'
                         : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
                   }`}
                   onClick={() => handleSelect(entry.path)}
@@ -728,7 +916,7 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
                       </div>
                   </div>
                   {entry.path === currentWorkspacePath && (
-                      <svg className="w-3 h-3 text-[var(--brand-primary)] shrink-0" viewBox="0 0 24 24" fill="none"
+                      <svg className="w-3 h-3 [color:var(--brand-primary)] shrink-0" viewBox="0 0 24 24" fill="none"
                            stroke="currentColor" strokeWidth="3" aria-hidden="true">
                           <polyline points="20 6 9 17 4 12"/>
                       </svg>
@@ -738,7 +926,7 @@ function WorkspaceDrawerPortal({drawerRef, search, setSearch, filtered, handleSe
                     onClick={(e) => { e.stopPropagation(); window.electronAPI?.openPath?.(entry.path) }}
                     aria-label="在文件管理器中打开"
                     title="在文件管理器中打开"
-                    className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--brand-primary)] opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                    className="p-1 rounded text-[var(--text-muted)] hover:[color:var(--brand-primary)] opacity-0 group-hover:opacity-100 transition-all shrink-0"
                    data-name="conversation-sidebar-open-in-explorer-button">
                     <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
                   </button>
@@ -828,7 +1016,7 @@ function SearchInput() {
         onChange={(e) => setSearchQuery(e.target.value)}
         placeholder="搜索对话..."
         aria-label="搜索对话"
-        className="w-full pl-9 pr-4 py-2 bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] border border-[var(--border)] rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-emphasis)] focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] dark-all:focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-all"
+        className={`w-full pl-9 pr-4 py-2 bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] border border-[var(--border)] rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] ${INPUT_FOCUS}`}
       data-name="conversation-sidebar-search-input"/>
     </div>
   )
@@ -1457,7 +1645,7 @@ function SessionIcon({channel, pinned, isActive}: { channel?: string; pinned?: b
     const ch = channel ?? ''
     switch (ch) {
         case 'wechat': {
-            const colorClass = isActive ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)]'
+            const colorClass = isActive ? '[color:var(--brand-primary)]' : 'text-[var(--text-muted)]'
             const opacityClass = isActive ? '' : 'opacity-60'
             return (
                 <svg className={`w-[15px] h-[15px] ${colorClass} ${opacityClass}`} viewBox="0 0 24 24" fill="currentColor"
@@ -1480,7 +1668,7 @@ function SessionIcon({channel, pinned, isActive}: { channel?: string; pinned?: b
             )
         }
         case 'schedule': {
-            const colorClass = isActive ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)]'
+            const colorClass = isActive ? '[color:var(--brand-primary)]' : 'text-[var(--text-muted)]'
             return (
                 <svg className={`w-3.5 h-3.5 ${colorClass}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     {/* 时钟图标 - 定时任务 */}
@@ -1648,12 +1836,12 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                         }}
                         onBlur={handleRenameConfirm}
                         onClick={(e) => e.stopPropagation()}
-                        className="flex-1 text-xs font-medium px-1.5 py-0.5 rounded border border-[var(--brand-primary)] bg-[var(--surface)] outline-none text-[var(--text-primary)]"
+                        className={`flex-1 text-xs font-medium px-1.5 py-0.5 rounded border border-[var(--brand-primary)] bg-[var(--surface)] outline-none text-[var(--text-primary)] ${INPUT_FOCUS}`}
                     data-name="conversation-sidebar-rename-input"/>
                 ) : (
                     <div
                         title={title}
-                        className={`truncate transition-colors text-[13px] ${isActive ? 'font-medium text-[var(--brand-primary)]' : 'text-gray-600 dark:text-[var(--text-muted)] group-hover:text-gray-900 dark:group-hover:text-gray-100'}`}>
+                        className={`truncate transition-colors text-[13px] ${isActive ? 'font-medium text-[var(--text-brand)]' : 'text-gray-600 dark:text-[var(--text-muted)] group-hover:text-gray-900 dark:group-hover:text-gray-100'}`}>
                         {title}
                     </div>
                 )}
@@ -1665,7 +1853,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                         {hasToolsChangeConfirm && !hasPendingQuestion && !hasPermissionConfirm &&
                             <StatusBadge type="warning">工具确认</StatusBadge>}
                         <div
-                            className={`text-[11px] whitespace-nowrap shrink-0 transition-colors ${isActive ? 'font-medium text-[var(--brand-primary)] opacity-70' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-400'}`}>
+                            className={`text-[11px] whitespace-nowrap shrink-0 transition-colors ${isActive ? 'font-medium text-[var(--text-brand)] opacity-70' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-400'}`}>
                             {getRelativeTime(timestamp)}
                         </div>
                     </>

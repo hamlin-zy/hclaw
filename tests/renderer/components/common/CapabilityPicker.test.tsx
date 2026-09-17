@@ -2,37 +2,77 @@
 /**
  * CapabilityPicker 组件测试
  *
- * 覆盖键盘导航：搜索过滤后 ↑/↓ 循环移动高亮、Enter 选中当前高亮项、Escape 清空搜索。
+ * 覆盖：
+ * 1. 键盘导航：搜索过滤后 ↑/↓ 循环移动高亮、Enter 选中当前高亮项、Escape 清空搜索；
+ * 2. 取数收敛：全部能力来自 CapabilityHub 一次 `capability:query` 往返
+ *    （不再各自拉三个渲染层 store + 插件命令 IPC），且启用态由 Hub 判定
+ *    （查询条件传 `enabled: true`，本地不重新解释）；
+ * 3. 就绪是确定性信号：await 取数返回即渲染，无固定时长等待；
+ * 4. 订阅 capability:changed：能力集合变更后列表自动反映到最新。
  */
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
 import {render, screen, fireEvent, waitFor, cleanup} from '@testing-library/react'
 
+interface Entry {
+    id: string
+    name: string
+    description: string
+    type: 'skill' | 'agent' | 'command'
+    source: 'builtin' | 'user' | 'plugin'
+    pluginName?: string
+    pluginEnabled?: boolean
+    enabled: boolean
+    searchText: string
+}
+
+const entry = (over: Partial<Entry> & Pick<Entry, 'id' | 'name' | 'type'>): Entry => ({
+    description: '',
+    source: 'builtin',
+    enabled: true,
+    searchText: over.name.toLowerCase(),
+    ...over,
+})
+
+/** 与旧实现等价的初始能力集合（用户命令 / 技能 / Agent） */
+const initialEntries: Entry[] = [
+    entry({id: 'cmd:deploy', name: 'deploy', type: 'command', source: 'user', description: '部署命令'}),
+    entry({id: 'tdd', name: 'tdd', type: 'skill', description: '测试驱动开发'}),
+    entry({id: 'research', name: 'research', type: 'skill', description: '调研'}),
+    entry({id: 'Implementer', name: 'Implementer', type: 'agent', description: '实现代理'}),
+    entry({id: 'Explore', name: 'Explore', type: 'agent', description: '探索代理'}),
+]
+
 const h = vi.hoisted(() => ({
-    agents: [
-        {name: 'Implementer', description: '实现代理'},
-        {name: 'Explore', description: '探索代理'},
-    ],
-    skills: [
-        {name: 'tdd', description: '测试驱动开发'},
-        {name: 'research', description: '调研'},
-    ],
-    commands: [{name: 'deploy', description: '部署命令'}],
+    query: vi.fn(),
+    unsubscribe: vi.fn(),
+    onChange: null as null | (() => void),
 }))
 
-vi.mock('@/renderer/stores/userCommandStore', () => ({
-    useUserCommandStore: {getState: () => ({loadCommands: vi.fn(), commands: h.commands})},
-}))
-vi.mock('@/renderer/stores/agentTemplateStore', () => ({
-    useAgentTemplateStore: {getState: () => ({syncFromDisk: vi.fn(), templates: h.agents})},
-}))
-vi.mock('@/renderer/stores/skillStore', () => ({
-    useSkillStore: {getState: () => ({loadSkills: vi.fn(), skills: h.skills})},
+// useCapabilityRefresh → MessageBubble 的模块级能力名缓存失效：单测里无需真实实现
+vi.mock('@/renderer/components/message-list/MessageBubble', () => ({
+    invalidateKnownCapabilityNames: vi.fn(),
 }))
 
 import CapabilityPicker from '@/renderer/components/common/CapabilityPicker'
 
+function stubElectronApi() {
+    vi.stubGlobal('electronAPI', {
+        capability: {
+            query: h.query,
+            onCapabilityChanged: (cb: () => void) => {
+                h.onChange = cb
+                return h.unsubscribe
+            },
+        },
+    })
+}
+
 beforeEach(() => {
-    vi.stubGlobal('electronAPI', {plugin: {getCommands: vi.fn(async () => ({}))}})
+    h.query.mockReset()
+    h.unsubscribe.mockReset()
+    h.onChange = null
+    h.query.mockImplementation(async () => initialEntries)
+    stubElectronApi()
 })
 
 afterEach(() => {
@@ -149,5 +189,79 @@ describe('CapabilityPicker 键盘导航', () => {
             const opts = screen.getAllByRole('button').filter(b => b.getAttribute('data-name')?.startsWith('capability-picker-option-'))
             expect(opts[0].className).toContain('bg-[var(--surface-muted)]')
         })
+    })
+})
+
+describe('CapabilityPicker 取数路径（CapabilityHub 单一来源）', () => {
+    it('整个渲染期只有一次 capability:query 跨进程往返', async () => {
+        const onSelect = vi.fn()
+        render(<CapabilityPicker selected="" onSelect={onSelect}/>)
+
+        await waitFor(() => expect(screen.getByText('Implementer')).toBeTruthy())
+        // 等待任何可能的额外往返（若有）落地
+        await new Promise(r => setTimeout(r, 0))
+        expect(h.query).toHaveBeenCalledTimes(1)
+    })
+
+    it('取数即就绪：查询 promise 一 resolve 列表就可用（无固定时长等待）', async () => {
+        // 取数被延迟到手动 resolve：若组件靠 setTimeout 赌就绪，此时必然仍是「加载中」
+        let resolveQuery: (v: unknown) => void = () => {}
+        h.query.mockReset()
+        h.query.mockImplementation(() => new Promise(res => { resolveQuery = res }))
+        const onSelect = vi.fn()
+        render(<CapabilityPicker selected="" onSelect={onSelect}/>)
+
+        expect(screen.getByText('加载中...')).toBeTruthy()
+        expect(screen.queryByText('Implementer')).toBeNull()
+
+        // 立即 resolve（不足任何「等待时长」）→ 就绪
+        resolveQuery(initialEntries)
+        await waitFor(() => expect(screen.getByText('Implementer')).toBeTruthy())
+        expect(screen.queryByText('加载中...')).toBeNull()
+    })
+
+    it('启用态由 Hub 判定：查询条件传 { enabled: true }，本地不重新解释', async () => {
+        render(<CapabilityPicker selected="" onSelect={vi.fn()}/>)
+
+        await waitFor(() => expect(h.query).toHaveBeenCalled())
+        expect(h.query).toHaveBeenCalledWith({enabled: true})
+        // 不请求正文：列表出口默认裁剪 content
+        expect(h.query.mock.calls[0][1]).toBeUndefined()
+    })
+
+    it('能力变更后订阅 capability:changed 自动重取并反映到最新', async () => {
+        const onSelect = vi.fn()
+        render(<CapabilityPicker selected="" onSelect={onSelect}/>)
+        await waitFor(() => expect(screen.getByText('Implementer')).toBeTruthy())
+        expect(h.onChange).toBeTypeOf('function')
+
+        h.query.mockImplementation(async () => [
+            ...initialEntries,
+            entry({id: 'newbie', name: 'zzz-newbie', type: 'skill', description: '新技能'}),
+        ])
+        h.onChange!()
+
+        await waitFor(() => expect(screen.getByText('zzz-newbie')).toBeTruthy())
+        expect(h.query).toHaveBeenCalledTimes(2)
+    })
+
+    it('去重：同名能力保留优先级更高者（用户命令 优先于 插件命令）', async () => {
+        h.query.mockImplementation(async () => [
+            entry({id: 'cmd:deploy', name: 'deploy', type: 'command', source: 'user', description: '用户命令'}),
+            entry({id: 'cmd:p:deploy', name: 'deploy', type: 'command', source: 'plugin', pluginName: 'p', pluginEnabled: true, description: '插件命令'}),
+        ])
+        render(<CapabilityPicker selected="" onSelect={vi.fn()}/>)
+
+        await waitFor(() => expect(screen.getByText('deploy')).toBeTruthy())
+        expect(screen.getAllByText('deploy')).toHaveLength(1)
+        expect(screen.getByText('命令')).toBeTruthy()
+        expect(screen.queryByText('插件')).toBeNull()
+    })
+
+    it('找不到 capability API 时降级为空列表（不崩溃、不留加载态）', async () => {
+        vi.stubGlobal('electronAPI', {})
+        render(<CapabilityPicker selected="" onSelect={vi.fn()}/>)
+
+        await waitFor(() => expect(screen.getByText('暂无可用能力')).toBeTruthy())
     })
 })

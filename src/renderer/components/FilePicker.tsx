@@ -158,13 +158,13 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
                     <button onClick={() => {
                         onNavigate('..');
                         setBadges([])
-                    }} className="hover:text-[var(--brand-primary)] shrink-0" data-name="file-picker-button">← 根目录
+                    }} className="hover:text-[var(--text-brand)] shrink-0" data-name="file-picker-button">← 根目录
                     </button>
                     {segments.map((s, i) => (
                         <Fragment key={s}>
                             <span className="text-[var(--border)]">/</span>
                             <button onClick={() => onNavigate(segments.slice(0, i + 1).join('/'))}
-                                    className={`hover:text-[var(--brand-primary)] shrink-0 ${i === segments.length - 1 ? 'text-[var(--text-secondary)]' : ''}`} data-name={`file-picker-breadcrumb-${i}`}>{s}</button>
+                                    className={`hover:text-[var(--text-brand)] shrink-0 ${i === segments.length - 1 ? 'text-[var(--text-secondary)]' : ''}`} data-name={`file-picker-breadcrumb-${i}`}>{s}</button>
                         </Fragment>
                     ))}
                 </div>
@@ -176,7 +176,7 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
                     className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-[var(--border-muted)] bg-[color-mix(in_srgb,var(--surface-muted)_50%,transparent)]">
                     {badges.map((n, i) => (
                         <span key={n}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] border border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] text-[var(--brand-primary)]">
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] border border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] text-[var(--text-brand)]">
               <AttachmentIcon className="w-3 h-3"/><span>{n}</span>
               <button onClick={() => setBadges(p => p.filter(x => x !== n))}
                       className="w-3.5 h-3.5 rounded-full bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] hover:bg-red-500/30 flex items-center justify-center text-[9px] transition-colors" data-name={`file-picker-badge-remove-${i}`}><RemoveIcon className="w-2.5 h-2.5"/></button>
@@ -210,12 +210,12 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
                      data-name="file-picker-div">
                         <span className="text-base shrink-0"><FileGlyph className="w-4 h-4"/></span>
                         <span
-                            className={`flex-1 text-sm font-medium truncate ${i === sel ? 'text-[var(--brand-primary)]' : 'text-[var(--text-primary)]'}`}>{e.name}</span>
+                            className={`flex-1 text-sm font-medium truncate ${i === sel ? 'text-[var(--text-brand)]' : 'text-[var(--text-primary)]'}`}>{e.name}</span>
                         <span className="flex items-center gap-1.5 shrink-0">
               {e.isDirectory &&
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#a855f7]/10 text-[#a855f7]">目录</span>}
                             {badges.includes(e.name) && <span
-                                className="text-[10px] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]">已选</span>}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)]">已选</span>}
                             {i === sel && <span
                                 className="text-[10px] text-[var(--text-secondary)]">{e.isDirectory ? 'Tab 进入' : 'Tab 选中'}</span>}
             </span>

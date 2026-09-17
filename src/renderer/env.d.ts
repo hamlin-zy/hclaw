@@ -104,9 +104,10 @@ declare global {
           windowTokens: number
           estimatedTokens: number
         }>
-        agentSetPermissionMode: (mode: 'safe' | 'auto') => Promise<boolean>
+        agentSetPermissionMode: (mode: 'safe' | 'auto') => Promise<{ success: boolean }>
         agentSetConvPermissionMode: (convId: string, mode: 'safe' | 'auto') => Promise<{ success: boolean; error?: string }>
         agentGetPermissionMode: () => Promise<'safe' | 'auto'>
+        onPermissionModeSynced: (callback: (payload: { mode: 'safe' | 'auto'; convIds: string[] }) => void) => () => void
         agentGetPermissionRules: () => Promise<any[]>
         agentCleanPermissionRules: () => Promise<{ success: boolean }>
         agentRemovePermissionRule: (toolName: string) => Promise<boolean>
@@ -159,6 +160,14 @@ declare global {
             openProjectManager: (ws: string) => Promise<void>
             listDirectory: (ws: string, dir: string) => Promise<import('../shared/types/project-manager').DirEntry[]>
             readFile: (ws: string, p: string) => Promise<import('../shared/types/project-manager').FileContentResult>
+            /** File Search：主进程做匹配与排序，返回命中项（含匹配区间） */
+            searchFiles: (ws: string, query: string, limit?: number) => Promise<import('../shared/types/project-manager').FileSearchHit[]>
+            /** 按行范围读取（QuickOpen 预览取数） */
+            readLines: (ws: string, p: string, startLine: number, endLine: number) => Promise<import('../shared/types/project-manager').FileSliceResult>
+            /** Find in Files 会话：开一次检索进程，按页取命中项，关闭浮层即终止 */
+            findInFilesStart: (ws: string, query: string) => Promise<{sessionId: string}>
+            findInFilesPage: (sessionId: string, offset: number, limit: number) => Promise<import('../shared/types/project-manager').FindInFilesPage>
+            findInFilesStop: (sessionId: string) => Promise<void>
             gitStatus: (ws: string) => Promise<import('../shared/types/project-manager').GitStatusSummary>
             gitDiffFile: (ws: string, p: string, mode?: {ref?: string, from?: string, to?: string}) => Promise<import('../shared/types/project-manager').DiffResult>
             gitLog: (ws: string, opts: import('../shared/types/project-manager').LogOptions) => Promise<import('../shared/types/project-manager').GitLogEntry[]>
@@ -663,6 +672,13 @@ declare global {
             error?: string
         }>
 
+        // 跨窗口「打开会话」（配置窗口发起，主窗口执行）
+        app?: {
+            openConversation: (payload: Omit<import('../shared/types/openConversation').OpenConversationPayload, 'requestId'>) => Promise<import('../shared/types/openConversation').OpenConversationResult>
+            /** 主窗口执行完毕后的回执（主进程据此 resolve 上面挂起的 invoke） */
+            ackOpenConversation: (payload: { requestId: string; ok: boolean; error?: string }) => void
+        }
+
         // Workspace 管理
         workspace: {
             list: () => Promise<Array<{ id: string; path: string; name: string; createdAt: number; updatedAt: number }>>
@@ -752,25 +768,41 @@ declare global {
 
         // Generic IPC (fallback)
         invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
-        receive: (channel: string, callback: (...args: unknown[]) => void) => () => void
+        /**
+         * 通用 IPC 接收（多路复用通道）。
+         * child_conv_created 已入类型契约，单列重载以获得 payload 类型
+         * （ChildConvCreatedRendererPayload，见 src/shared/types/events.ts）；
+         * 其余通道仍走通用签名。
+         */
+        receive: {
+            (channel: 'child_conv_created', callback: (payload: import('../shared/types/events').ChildConvCreatedRendererPayload) => void): () => void
+            (channel: string, callback: (...args: unknown[]) => void): () => void
+        }
 
-        // Scheduler (定时任务)
+        // Scheduler (定时任务) — 全部通道统一返回 ScheduleResult（与 memo/phrase 模块一致）
         scheduler?: {
-            list: () => Promise<any[]>
-            get: (id: string) => Promise<any>
-            create: (data: any) => Promise<{ success: boolean; id?: string }>
-            update: (id: string, updates: any) => Promise<{ success: boolean }>
-            delete: (id: string) => Promise<{ success: boolean }>
-            pause: (id: string) => Promise<void>
-            resume: (id: string) => Promise<void>
-            stop: (scheduleId: string) => Promise<void>
-            runNow: (id: string) => Promise<void>
-            getConversations: (scheduleId: string) => Promise<any[]>
-            conversationDetail: (convId: string) => Promise<any[]>
-            scriptLogs: (scheduleId: string) => Promise<Array<{path: string; fileName: string; startTime: number; size: number}>>
-            readScriptLog: (logPath: string) => Promise<string>
-            // 定时任务变更事件监听（工具/后端修改时通知前端刷新）
-            onChanged: (callback: () => void) => () => void
+            list: () => Promise<import('../shared/types/schedule').ScheduleResult<import('../shared/types/schedule').ScheduleRecord[]>>
+            create: (data: any) => Promise<import('../shared/types/schedule').ScheduleResult<import('../shared/types/schedule').ScheduleRecord>>
+            update: (id: string, updates: any) => Promise<import('../shared/types/schedule').ScheduleResult<import('../shared/types/schedule').ScheduleRecord>>
+            delete: (id: string) => Promise<import('../shared/types/schedule').ScheduleResult<true>>
+            stop: (scheduleId: string) => Promise<import('../shared/types/schedule').ScheduleResult<true>>
+            runNow: (id: string) => Promise<import('../shared/types/schedule').ScheduleResult<true>>
+            pause: (id: string) => Promise<import('../shared/types/schedule').ScheduleResult<import('../shared/types/schedule').ScheduleRecord>>
+            resume: (id: string) => Promise<import('../shared/types/schedule').ScheduleResult<import('../shared/types/schedule').ScheduleRecord>>
+            getConversations: (scheduleId: string) => Promise<import('../shared/types/schedule').ScheduleResult<any[]>>
+            scriptLogs: (scheduleId: string) => Promise<import('../shared/types/schedule').ScheduleResult<Array<{path: string; fileName: string; startTime: number; size: number}>>>
+            /**
+             * 读取日志正文。`content` 是主进程按读取上限截断后的前一段（不是全文），
+             * `totalSize` 是文件的**真实字节数**；渲染层用二者之比判断这一屏是否完整。
+             */
+            readScriptLog: (logPath: string) => Promise<import('../shared/types/schedule').ScheduleResult<{content: string; totalSize: number}>>
+            /**
+             * 工作目录健康度（任务 id → 四态）。只读派生量：判定权在主进程，
+             * 渲染层只消费它来显示失效标记与禁用「立即执行」，不自行推算。
+             */
+            workspaceHealth: () => Promise<import('../shared/types/schedule').ScheduleResult<import('../shared/types/scheduleWorkspace').ScheduleWorkspaceHealthMap>>
+            // 定时任务变更事件监听（载荷为可区分的 created/updated/deleted，渲染层据此就地更新）
+            onChanged: (callback: (change: import('../shared/types/schedule').ScheduleChangePayload) => void) => () => void
         }
 
         // Channel (多渠道)
@@ -789,10 +821,10 @@ declare global {
                 sources?: Array<'builtin' | 'user' | 'plugin'>
                 enabled?: boolean
                 pluginName?: string
-            }) => Promise<Array<import('./capabilityTypes').CapabilityEntry>>
-            getByType: (type: 'skill' | 'agent' | 'command') => Promise<Array<import('./capabilityTypes').CapabilityEntry>>
-            search: (q: string) => Promise<Array<import('./capabilityTypes').CapabilityEntry>>
-            getPluginGroups: (type?: 'skill' | 'agent' | 'command') => Promise<Array<{
+            }, options?: {withContent?: boolean}) => Promise<Array<import('./capabilityTypes').CapabilityEntry>>
+            getByType: (type: 'skill' | 'agent' | 'command', options?: {withContent?: boolean}) => Promise<Array<import('./capabilityTypes').CapabilityEntry>>
+            search: (q: string, options?: {withContent?: boolean}) => Promise<Array<import('./capabilityTypes').CapabilityEntry>>
+            getPluginGroups: (type?: 'skill' | 'agent' | 'command', options?: {withContent?: boolean}) => Promise<Array<{
                 name: string; enabled: boolean
                 entries: Array<import('./capabilityTypes').CapabilityEntry>
             }>>
@@ -801,7 +833,7 @@ declare global {
                 byType: Record<'skill' | 'agent' | 'command', number>
                 bySource: Record<'builtin' | 'user' | 'plugin', number>
             }>
-            get: (id: string) => Promise<import('./capabilityTypes').CapabilityEntry | null>
+            get: (id: string, options?: {withContent?: boolean}) => Promise<import('./capabilityTypes').CapabilityEntry | null>
             onCapabilityChanged: (callback: (data: { seq: number }) => void) => () => void
         }
 

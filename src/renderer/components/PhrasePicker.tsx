@@ -5,6 +5,7 @@ import {createPortal} from 'react-dom'
 import type {PhraseItem} from '@shared/types/phrase'
 import {usePhraseStore} from '../stores/phraseStore'
 import {filterPhrases} from '../utils/phrase'
+import {INPUT_FOCUS} from '../lib/inputFocus'
 
 interface PhrasePickerProps {
     open: boolean
@@ -114,7 +115,7 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
                         value={query}
                         onChange={e => setQuery(e.target.value)}
                         placeholder="搜索快捷短语…"
-                        className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none"
+                        className={`flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                     />
                 </div>
 
@@ -135,7 +136,7 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
                             }`}
                             data-name="phrase-picker-item"
                         >
-                            <span className={`flex-1 min-w-0 truncate text-sm ${i === sel ? 'text-[var(--brand-primary)]' : 'text-[var(--text-primary)]'}`}>
+                            <span className={`flex-1 min-w-0 truncate text-sm ${i === sel ? 'text-[var(--text-brand)]' : 'text-[var(--text-primary)]'}`}>
                                 {p.content}
                             </span>
                         </div>

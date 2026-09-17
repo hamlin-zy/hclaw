@@ -191,3 +191,8 @@ export function disposeInitProgressListeners(): void {
 }
 
 registerInitListeners()
+
+// HMR：模块被热替换前先注销旧实例的监听，避免新旧模块的订阅在页面上叠加
+import.meta.hot?.dispose(() => {
+    disposeInitProgressListeners()
+})

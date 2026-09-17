@@ -108,7 +108,7 @@ function FixedDropdown({
                                     <div className={`w-2 h-2 rounded-full ${dotColor} ${isActive ? '' : 'opacity-60'}`}/>
 
                                     <div className="flex-1 min-w-0">
-                                        <div className={`font-medium truncate ${isActive ? 'text-[var(--brand-primary)]' : 'text-[var(--text-primary)]'}`}>
+                                        <div className={`font-medium truncate ${isActive ? 'text-[var(--text-brand)]' : 'text-[var(--text-primary)]'}`}>
                                             {scheme.name}
                                         </div>
                                         {scheme.description && (
@@ -120,7 +120,7 @@ function FixedDropdown({
 
                                     {/* 选中对勾 */}
                                     {isActive && (
-                                        <svg className="w-4 h-4 text-[var(--brand-primary)] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                        <svg className="w-4 h-4 [color:var(--brand-primary)] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                                             <polyline points="20 6 9 17 4 12"/>
                                         </svg>
                                     )}
@@ -245,13 +245,13 @@ export default function SchemeSelector() {
                     <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-[var(--brand-primary)]' : 'bg-[var(--text-muted)]'}`}/>
 
                     {/* 方案名称 */}
-                    <span className={`truncate whitespace-nowrap min-w-0 text-xs font-medium ${isActive ? 'text-[var(--brand-primary)]' : 'text-[var(--text-secondary)]'}`}>
+                    <span className={`truncate whitespace-nowrap min-w-0 text-xs font-medium ${isActive ? 'text-[var(--text-brand)]' : 'text-[var(--text-secondary)]'}`}>
                         {isSwitching ? '切换中...' : activeScheme?.name || '选择方案'}
                     </span>
 
                     {/* 下拉箭头 */}
                     <svg
-                        className={`w-3 h-3 transition-transform duration-200 ${isActive ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)]'} ${isOpen ? 'rotate-180' : ''}`}
+                        className={`w-3 h-3 transition-transform duration-200 ${isActive ? '[color:var(--brand-primary)]' : 'text-[var(--text-muted)]'} ${isOpen ? 'rotate-180' : ''}`}
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"

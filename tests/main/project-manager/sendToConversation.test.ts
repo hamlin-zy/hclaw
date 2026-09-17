@@ -39,6 +39,11 @@ function makeDeps(over: Partial<SendToConversationDeps> = {}): SendToConversatio
   }
 }
 
+/** handleSendToConversation 为 async，返回值的 then 回调需多轮微任务才落地 */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 10; i++) await Promise.resolve()
+}
+
 beforeEach(() => resetSendToConversationPending())
 afterEach(() => {
   vi.useRealTimers()
@@ -167,5 +172,41 @@ describe('handleSendToConversation 转发与回执', () => {
     const r = await handleSendToConversation(validPayload(), sender, makeDeps({getMainWindow: vi.fn(() => win as never)}))
     expect(r).toEqual({ok: false, error: '主窗口未响应'})
     expect(vi.getTimerCount()).toBe(0)   // timer 已清、pending 无残留
+  })
+
+  // S5：同 requestId 覆盖必须结算旧 Promise，否则旧 invoke 永挂起（PM 窗口 await 卡死）
+  it('同 requestId 二次请求 → 旧 Promise 被结算为取消态，不悬挂', async () => {
+    const win = makeWin()
+    const deps = makeDeps({getMainWindow: vi.fn(() => win as never)})
+    const p1 = handleSendToConversation(validPayload(), sender, deps)
+    let settled1: unknown
+    p1.then(r => { settled1 = r })
+
+    const p2 = handleSendToConversation(validPayload(), sender, deps)
+    await flushMicrotasks()
+    expect(settled1).toEqual({ok: false, error: '请求已被覆盖'})
+
+    resolveSendToConversationAck({requestId: 'req-1', ok: true})
+    await expect(p1).resolves.toEqual({ok: false, error: '请求已被覆盖'})
+    await expect(p2).resolves.toEqual({ok: true})
+    expect(win.webContents.send).toHaveBeenCalledTimes(2)
+  })
+
+  it('同 requestId 覆盖 → 旧 timer 被清理，仅保留新请求的 timer', async () => {
+    vi.useFakeTimers()
+    const win = makeWin()
+    const deps = makeDeps({getMainWindow: vi.fn(() => win as never)})
+    const p1 = handleSendToConversation(validPayload(), sender, deps)
+    await Promise.resolve()
+    expect(vi.getTimerCount()).toBe(1)
+
+    const p2 = handleSendToConversation(validPayload(), sender, deps)
+    await Promise.resolve()
+    expect(vi.getTimerCount()).toBe(1) // 旧 timer 已清，未与新 timer 并存
+
+    resolveSendToConversationAck({requestId: 'req-1', ok: true})
+    await expect(p1).resolves.toEqual({ok: false, error: '请求已被覆盖'})
+    await expect(p2).resolves.toEqual({ok: true})
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

@@ -19,6 +19,7 @@ import PluginGroupCard from '../common/PluginGroupCard'
 import {useRepoUpdateStore} from '../../stores/repoUpdateStore'
 import {buildRepoGroups, filterRepoTabSkills, sortReposByUpdate} from '../repo/repoGrouping'
 import {Folder, Search, Trash2, Check, AlertCircle, Plus, Download, RefreshCw, GitBranch} from 'lucide-react'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 type TabType = 'local' | 'repo' | 'plugin'
 
@@ -203,7 +204,7 @@ export default function SkillsDialog() {
                   <button
                       onClick={handleInstall}
                       disabled={installing}
-                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       title="安装技能 (ZIP)"
                       aria-label="安装技能"
                    data-name="skills-dialog-install-zip-button">
@@ -235,12 +236,12 @@ export default function SkillsDialog() {
                   onChange={e => setRepoUrl(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && !repoInstalling && handleRepoInstall()}
                   placeholder="输入 Git 仓库地址，从仓库安装技能（克隆到 skills/public 并按仓库分组）"
-                  className="flex-1 px-2.5 py-1.5 text-xs bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--brand-primary)]"
+                  className={`flex-1 px-2.5 py-1.5 text-xs bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                data-name="skills-dialog-repo-input"/>
               <button
                   onClick={handleRepoInstall}
                   disabled={repoInstalling || !repoUrl.trim()}
-                  className="flex-shrink-0 px-2 py-1 text-xs font-medium rounded-md border border-[var(--border)] text-[var(--brand-primary)] hover:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-shrink-0 px-2 py-1 text-xs font-medium rounded-md border border-[var(--border)] text-[var(--text-brand)] hover:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                data-name="skills-dialog-repo-install-button">
                   {repoInstalling ? '安装中...' : '安装仓库'}
               </button>
@@ -276,7 +277,7 @@ export default function SkillsDialog() {
                       onClick={() => setActiveTab(tab)}
                       className={`relative px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                           activeTab === tab
-                              ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
+                              ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)]'
                               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                       }`}
                    data-name={`skills-dialog-tab-${i}`}>
@@ -302,7 +303,7 @@ export default function SkillsDialog() {
                       placeholder="搜索技能..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--brand-primary)]"
+                      className={`w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                   data-name="skills-dialog-input"/>
               </div>
           </div>
@@ -469,7 +470,7 @@ function SkillCard({
                         e.stopPropagation()
                         window.electronAPI?.showItemInFolder?.(skill.filePath!)
                     }}
-                    className="p-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors"
+                    className="p-1 text-[var(--text-muted)] hover:[color:var(--brand-primary)] transition-colors"
                     title="打开所在目录"
                  data-name="skills-dialog-open-folder-button">
                     <Folder className="w-4 h-4"/>
@@ -525,7 +526,7 @@ function SkillCard({
                                 </span>
                             )}
                             {skill.source === 'plugin' && (
-                                <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]">
+                                <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)]">
                                     插件
                                 </span>
                             )}

@@ -31,7 +31,7 @@ const CopyToast = memo(function CopyToast({visible, message = '已复制'}: { vi
                     role="status"
                     aria-live="polite"
                 >
-                    <SuccessIcon className="w-4 h-4 text-[var(--brand-primary)] mr-1.5"/>
+                    <SuccessIcon className="w-4 h-4 [color:var(--brand-primary)] mr-1.5"/>
                     {message}
                 </motion.div>
             )}

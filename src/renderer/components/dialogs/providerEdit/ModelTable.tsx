@@ -2,6 +2,7 @@ import type {ProviderModel} from '@shared/types'
 import {hasCustomParams} from '@shared/modelParams'
 import {useState, type MouseEvent} from 'react'
 import {SuccessIcon, ErrorIcon} from '../../icons'
+import {INPUT_FOCUS} from '../../../lib/inputFocus'
 
 interface TestState {
   status: 'testing' | 'ok' | 'fail'
@@ -120,15 +121,18 @@ export default function ModelTable({
               const isEmpty = !model.name.trim()
               const isDuplicate = !isEmpty && models.some((m, j) => j !== i && m.name.trim().toLowerCase() === model.name.trim().toLowerCase())
               const ts = testStates[model.id]
+              // 边框态：错误态降级（border-red-* / focus:border-red-*）保留；
+              // 正常态不自带 focus:border-*，焦点样式统一由 INPUT_FOCUS 提供。
+              const nameStateClass = isEmpty || isDuplicate
+                ? 'border-red-300 focus:border-red-400'
+                : 'border-gray-200'
               return (
                 <tr key={model.id} className="border-t border-gray-100">
                   {/* 模型 ID */}
                   <td className="px-2 py-1">
                     <input type="text" value={model.name} placeholder="模型名称"
                       onChange={(e) => onNameChange(model.id, e.target.value)}
-                      className={`w-full px-2 py-1 text-[11px] font-mono bg-white border rounded text-gray-700 focus:outline-none placeholder-gray-400 ${
-                        isEmpty || isDuplicate ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-brand-300'
-                      }`} data-name="model-table-input"/>
+                      className={`w-full px-2 py-1 text-[11px] font-mono bg-white border rounded text-gray-700 placeholder-gray-400 ${INPUT_FOCUS} ${nameStateClass}`} data-name="model-table-input"/>
                   </td>
                   {/* 详情：齿轮按钮打开模型详情弹窗；已配置自定义参数时橙点提示 */}
                   <td className="px-1 py-1 text-center">

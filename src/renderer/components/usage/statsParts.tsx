@@ -73,7 +73,7 @@ export function StatRow({label, value, valueClass, bordered = false}: {label: st
 export function KpiCard({label, value, accent}: {label: string; value: string; accent?: boolean}) {
     return (
         <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2.5">
-            <div className="truncate text-[10px] text-[var(--text-secondary)]">{label}</div>
+            <div className="truncate text-2xs text-[var(--text-secondary)]">{label}</div>
             <div className={`mt-0.5 truncate text-base font-semibold tabular-nums ${accent ? 'text-[var(--brand-primary)]' : 'text-[var(--text-primary)]'}`}>
                 {value}
             </div>
@@ -84,7 +84,7 @@ export function KpiCard({label, value, accent}: {label: string; value: string; a
 /** 分组标题 */
 export function GroupTitle({children}: {children: ReactNode}) {
     return (
-        <div className="pt-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-secondary)] first:pt-0">
+        <div className="pt-3 pb-1 text-2xs font-medium uppercase tracking-wider text-[var(--text-secondary)] first:pt-0">
             {children}
         </div>
     )
@@ -160,7 +160,7 @@ export function InfoTip({text, placement = 'bottom'}: {text: string; placement?:
             <span
                 role="img"
                 aria-label="成本口径说明"
-                className="w-4 h-4 rounded-full border border-[var(--border-emphasis)] text-[var(--text-muted)] flex items-center justify-center text-[10px] leading-none cursor-help select-none group-hover:text-[var(--text-secondary)] group-hover:border-[var(--text-secondary)] transition-colors"
+                className="w-4 h-4 rounded-full border border-[var(--border-emphasis)] text-[var(--text-muted)] flex items-center justify-center text-2xs leading-none cursor-help select-none group-hover:text-[var(--text-secondary)] group-hover:border-[var(--text-secondary)] transition-colors"
             >
                 ?
             </span>

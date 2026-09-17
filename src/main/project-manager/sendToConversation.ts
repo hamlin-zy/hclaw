@@ -101,9 +101,15 @@ export async function handleSendToConversation(
   win.focus()
 
   return await new Promise<SendToConversationResult>(resolve => {
-    // 同 requestId 覆盖：先清掉旧 timer，避免其成为孤儿并在超时时误删新 entry
+    // 同 requestId 覆盖：先结算旧项（取消态）——旧 Promise 不结算即永挂起（调用方 await 卡死），
+    // 旧 timer 也会成为孤儿并在超时时误删新 entry。先 delete 再 resolve：resolve 回调
+    // 若同步重入登记同键，旧项已不在表中，不会被后续删除误伤新项。
     const prev = pending.get(value.requestId)
-    if (prev) clearTimeout(prev.timer)
+    if (prev) {
+      clearTimeout(prev.timer)
+      pending.delete(value.requestId)
+      prev.resolve({ok: false, error: '请求已被覆盖'})
+    }
     const timer = setTimeout(() => {
       // 仅当仍是当前 entry 时才删除（双保险，防旧 timer 误删新 entry）
       if (pending.get(value.requestId)?.timer === timer) pending.delete(value.requestId)

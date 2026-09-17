@@ -18,9 +18,14 @@ import {createModelAdapter} from '../../model/index'
 import type {ChatMessage, ContentPart} from '../../model/types'
 import {logger} from '../../logger'
 import {withLlmTraceStream, type LlmTraceCallContext} from '../../../utils/llmTraceRecorder'
+import {ATTACHMENT_IMAGE_PATH_PREFIX, LOAD_IMAGE_SNAPSHOT_PATH_PREFIX} from '../../utils/imagePathMarkers'
+
+// 面向 LLM 的 prompt 契约，必须与剥离逻辑的匹配常量同源（imagePathMarkers）：
+// 此处硬编码字面量 = 隐式耦合，标记一旦改名，prompt 会指向不存在的幽灵标记而无声失效。
+const PATH_MARKER_HINT = `"${ATTACHMENT_IMAGE_PATH_PREFIX}"（用户附件）或 "${LOAD_IMAGE_SNAPSHOT_PATH_PREFIX}"（load_image 快照）`
 
 const inputSchema = z.object({
-    imagePath: z.string().describe('【必须使用完整路径】图片的完整文件路径（绝对路径，如 /home/user/screenshot.png 或 C:\\Users\\...\\screenshot.png）。不要只传文件名！如果你不确定路径，查看用户消息中 "【图片文件路径】" 标注的完整路径。也支持 data: URI（base64图片数据）或 http/https 网络图片URL。'),
+    imagePath: z.string().describe(`【必须使用完整路径】图片的完整文件路径（绝对路径，如 /home/user/screenshot.png 或 C:\\Users\\...\\screenshot.png）。不要只传文件名！如果你不确定路径，查看用户消息中 ${PATH_MARKER_HINT} 标注的完整路径。也支持 data: URI（base64图片数据）或 http/https 网络图片URL。`),
     prompt: z.string().describe('关于图片的问题或指令，描述你想从图片中了解什么'),
 })
 
@@ -28,7 +33,7 @@ type Input = z.infer<typeof inputSchema>
 
 export const analyzeImageTool: Tool<Input, string> = {
     name: 'analyze_image',
-    description: '分析图片内容（文字、物体、场景等）。注意：imagePath 参数必须传完整路径，仅传文件名找不到文件！优先从用户消息中标注的"【图片文件路径】"处获取完整路径。如果你自身具备视觉理解能力，优先直接处理用户消息中的图片，不需要调用此工具。',
+    description: `分析图片内容（文字、物体、场景等）。注意：imagePath 参数必须传完整路径，仅传文件名找不到文件！优先从用户消息中标注的${PATH_MARKER_HINT}处获取完整路径。如果你自身具备视觉理解能力，优先直接处理用户消息中的图片，不需要调用此工具。`,
     inputSchema,
     requiredPermissions: [],
     isDestructive: false,

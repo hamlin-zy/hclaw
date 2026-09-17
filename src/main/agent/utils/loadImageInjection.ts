@@ -1,22 +1,18 @@
 import * as fs from 'fs/promises'
 import {getImageMimeType} from './imageProcessor'
+import {LOAD_IMAGE_SNAPSHOT_PATH_PREFIX} from './imagePathMarkers'
 
 /** 工具名（与 Task 2 同值） */
 export const LOAD_IMAGE_TOOL_NAME = 'load_image'
 
-/**
- * 合成 user 消息的文本块前缀。
- * 与既有约定对齐（startAgentCore.ts 的 `【图片文件路径】<path>`）：
- * - 视觉模型：路径 + 紧随其后的 image_url 块 = 图片内容；
- * - 降级/非视觉模型（image_url 被 sanitize 剥离）：文本仍留下快照绝对路径，
- *   供 analyze_image 回退分析——不产生"图片内容已加载，见下"这类被剥图后变成谎言的文案。
- * R2：内容仅由快照路径派生，字节确定（无时间戳/随机）。
- */
-export const LOAD_IMAGE_TEXT_PREFIX = '【图片文件路径】'
+// LOAD_IMAGE_SNAPSHOT_PATH_PREFIX = 合成 user 消息的文本块前缀（load_image 快照专用）。
+// 标记语义与「为何与附件标记分离」的完整理由见 ./imagePathMarkers。
+// 此处 re-export 保持对外命名导出不变（测试与调用方依赖），勿改为本地定义。
+export {LOAD_IMAGE_SNAPSHOT_PATH_PREFIX}
 
 /** 合成 user 消息的文本块（纯派生：只依赖快照路径） */
 export function buildLoadImageTextBlock(snapshotPath: string): string {
-  return `${LOAD_IMAGE_TEXT_PREFIX}${snapshotPath}`
+  return `${LOAD_IMAGE_SNAPSHOT_PATH_PREFIX}${snapshotPath}`
 }
 
 /** 单轮 LLM 请求注入图片上限 */

@@ -26,8 +26,8 @@ import crypto from 'crypto'
  * @returns              目录的绝对路径（目录已确保存在）
  */
 export function resolveSessionDir(channelId: string, conversationId?: string): string {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- config.ts 有 module-level 副作用（加载 SQLite 链 + electron 依赖），mediaUtils 运行在 channel Worker 中，须延迟加载
-    const {getChannelSessionMediaDir, getChannelMediaDir} = require('../../config')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- 路径能力已下沉到叶子 hclawPaths（无 module-level 副作用、不触 electron）；保留惰性加载以维持既有求值时机，不改 worker 侧的加载顺序
+    const {getChannelSessionMediaDir, getChannelMediaDir} = require('../../hclawPaths')
     return conversationId
         ? getChannelSessionMediaDir(channelId, conversationId)
         : getChannelMediaDir(channelId)

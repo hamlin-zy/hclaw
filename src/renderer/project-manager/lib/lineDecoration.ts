@@ -33,3 +33,35 @@ export const lineSelectionDecorations = [
     return Decoration.set(ranges, true)
   }),
 ]
+
+/**
+ * 「定位到某一行」的整行高亮（工单 06）——与按行选中**完全独立的第二条通道**。
+ *
+ * 为什么另起一套：定位高亮是**瞬时的**（1.5s 后硬清除）且由编辑器外部发起，
+ * 选中行是**持续的**且由用户操作驱动。共用一套字段 / 装饰类时，任一方变化都会重算
+ * （并可能清掉）另一方，于是出现「定位把用户选中的行抹了」这类串味。
+ * 这里用独立的 StateEffect + StateField + 装饰类，两者的字段互不写入，可同时命中同一行。
+ *
+ * 值语义：`number` = 正在点亮的行号；`null` = 无高亮。清除就是派发 `setLocatedLine.of(null)`。
+ */
+export const setLocatedLine = StateEffect.define<number | null>()
+
+const locatedLineField = StateField.define<number | null>({
+  create: () => null,
+  update(value, tr) {
+    for (const effect of tr.effects) if (effect.is(setLocatedLine)) return effect.value
+    return value
+  },
+})
+
+const locatedLineDecoration = Decoration.line({class: 'cm-line-located'})
+
+/** 定位行的整行装饰。行号越界（文档变短）时静默跳过，不抛错——高亮只是视觉，不该中断交互。 */
+export const locateLineDecorations = [
+  locatedLineField,
+  EditorView.decorations.compute([locatedLineField], state => {
+    const line = state.field(locatedLineField)
+    if (line === null || line < 1 || line > state.doc.lines) return Decoration.set([])
+    return Decoration.set([locatedLineDecoration.range(state.doc.line(line).from)])
+  }),
+]
