@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import {simpleGit} from 'simple-git'
-import {getHclawDir} from '../config'
+import {getHclawDir} from '../hclawPaths'
 import type {InstallTarget} from './type'
 import {parseCloneUrl, repoDirName} from './origin'
 

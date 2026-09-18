@@ -6,6 +6,7 @@ import {modelMetaPriceSource} from './modelMetaRegistry'
 import {buildCustomPriceEntries} from './utils/customPriceEntries'
 import {getMainWindow} from './window'
 import {getConversationPersistence} from './persistence/conversationPersistence'
+import {runtimeConfigManager} from './agent/runtimeConfigManager'
 import type {ConversationMeta, ConversationSummary, MessageBlock} from '@shared/types';
 import {collectDescendants} from '@shared/utils/conversationTree'
 
@@ -98,6 +99,9 @@ export function initConversationIPC(): void {
             // §4.3 删除竞态：先 flush 未落库增量，再整组清队列（防 dirty flush 复活已删消息）
             getConversationPersistence().flush(convId);
             getConversationPersistence().clearConversation(convId);
+            // ★ 内存优化 S2：与 clearConversation 成对释放会话态内存缓存
+            //   （override / 权限模式两 Map 键为 convId，会话删除后条目永不可达）
+            runtimeConfigManager.releaseConvState(convId);
             const ok = convRepo().delete(convId);
             // 跨窗口同步：任意窗口（含 conversations 配置窗口）删除会话后，
             // 通知其他窗口从侧栏移除该条目，避免残留已删除会话
@@ -167,9 +171,9 @@ export function initConversationIPC(): void {
     });
 
     // ── 批量操作 ────────────────────────────────────────
-    ipcMain.handle('conversation-list-with-stats', (_e, workspacePath: string) => {
+    ipcMain.handle('conversation-list-with-stats', (_e, scope) => {
         try {
-            return convRepo().listWithStats(workspacePath);
+            return convRepo().listWithStats(scope ?? {scope: 'all'});
         } catch (err) {
             console.error('[IPC] conversation-list-with-stats failed:', err);
             return [];
@@ -184,6 +188,8 @@ export function initConversationIPC(): void {
                 for (const id of ids) {
                     persistence.flush(id);
                     persistence.clearConversation(id);
+                    // ★ 内存优化 S2：批量删除同单删，成对释放会话态内存缓存
+                    runtimeConfigManager.releaseConvState(id);
                 }
             }
             const ok = Array.isArray(ids) && ids.length > 0 && convRepo().deleteBatch(ids);

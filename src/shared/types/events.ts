@@ -88,11 +88,9 @@ export interface AgentStreamEvent {
     | 'llm_call_done' | 'mode_change'
     | 'permission-rules-updated'
     | 'agent_start' | 'agent_progress' | 'tool_detail' | 'tool_use'
-    | 'settings-updated' | 'app-restart'
+    | 'app-restart'
     | 'loop_suspected' | 'loop_escalated' | 'loop_silenced'
   content?: string
-  /** settings-updated 事件的配置数据 */
-  settings?: Record<string, any>
   toolCall?: ToolCallInfo
   toolCallId?: string
   progress?: string
@@ -172,4 +170,24 @@ export interface AgentStreamEvent {
 export interface AgentStreamPayload {
   conversationId: string
   event: AgentStreamEvent
+}
+
+// ─── 子会话创建事件 ────────────────────────────────────
+
+/**
+ * Main → Renderer：child_conv_created 转发负载。
+ *
+ * 生产方：src/main/agent/manager.impl.ts sendToMainWindow('child_conv_created', ...)
+ * 消费方：src/renderer/App.tsx receive('child_conv_created', ...)
+ *         → conversationStore.handleChildConvCreated
+ *
+ * ★ 会话 ID 键名为 id（与 Worker 侧 childConvId 不同，
+ *   见 src/main/agent/manager.types.ts 的 ChildConvCreatedWorkerPayload）；
+ *   parentConvId 缺省时生产者显式发 undefined，故为可选。
+ */
+export interface ChildConvCreatedRendererPayload {
+  id: string
+  title: string
+  parentConvId?: string
+  workspacePath: string
 }

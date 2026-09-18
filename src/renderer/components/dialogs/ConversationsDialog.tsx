@@ -1,20 +1,64 @@
 import {useCallback, useEffect, useMemo, useState} from 'react'
 import type {ConversationWithStats} from '@shared/types'
+import type {ConversationStatsScope} from '@shared/types/conversationStats'
+import type {ProjectGroupWithMembers} from '@shared/types/projectGroup'
 import {useConversationStore} from '../../stores/conversationStore'
 import {confirm} from '../ConfirmDialog'
 import {collectDescendants} from '../../stores/conversationTree'
 import {formatRelativeTime} from '../../lib/relativeTime'
+import {getBasename} from '../../lib/format'
+import {workspacePathKey} from '../../lib/workspacePath'
 
 /** 工具栏按钮样式常量 */
 const BTN_BORDERED = "px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors shrink-0"
 const BTN_GHOST = "px-2 py-1.5 text-xs rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors shrink-0"
+const SELECT_CLS = "px-2 py-1 text-xs bg-[var(--surface-muted)] rounded border border-[var(--border)] text-[var(--text-primary)] max-w-[220px]"
+
+/** 工作区记录（`workspace:list` 返回项；本页只取路径与展示名） */
+type WorkspaceRecord = {id: string; path: string; name: string; createdAt: number; updatedAt: number}
+
+/** 组筛选哨兵值：顶层项目（不属于任何组）——主进程不查 group_id，范围仍由 workspacePaths 驱动 */
+const UNGROUPED = '__ungrouped__'
+/** 项目筛选哨兵值：未归属会话（workspacePath 为空，与侧栏「未归属」虚拟段同一口径） */
+const UNASSIGNED = '__unassigned__'
+
+/** 默认 scope 的稳定引用：级联数据到达不改变「全部」语义，避免触发重复查询 */
+const ALL_SCOPE: ConversationStatsScope = {scope: 'all'}
+
+/**
+ * 级联筛选 → 统计查询 scope（纯函数）。
+ * 项目筛选优先于组筛选（「全部项目」= 不施加项目筛选，跟随组）；组为「全部」= 不施加范围。
+ */
+function resolveStatsScope(
+    groupFilter: string,
+    projectFilter: string,
+    groupPaths: string[],
+    topLevelPaths: string[],
+): ConversationStatsScope {
+    if (projectFilter === UNASSIGNED) return {scope: 'unassigned'}
+    if (projectFilter) return {scope: 'project', workspacePath: projectFilter}
+    if (groupFilter === UNGROUPED) return {scope: 'group', groupId: UNGROUPED, workspacePaths: topLevelPaths}
+    if (groupFilter) return {scope: 'group', groupId: groupFilter, workspacePaths: groupPaths}
+    return ALL_SCOPE
+}
+
+/** 某组筛选下的项目路径：未分组 → 顶层项目；组 → 成员；全部 → 全部项目 */
+function projectPathsFor(
+    groupId: string,
+    groups: ProjectGroupWithMembers[],
+    workspaces: WorkspaceRecord[],
+    topLevelPaths: string[],
+): string[] {
+    if (groupId === UNGROUPED) return topLevelPaths
+    if (groupId) return (groups.find((g) => g.id === groupId)?.members ?? []).map((m) => m.projectPath)
+    return workspaces.map((w) => w.path)
+}
 
 /**
  * 会话管理对话框
  * 展示所有会话的统计信息（消息数、block 数），支持批量删除
  */
 export default function ConversationsDialog() {
-    const currentWorkspacePath = useConversationStore((s) => s.currentWorkspacePath)
     const deleteConversations = useConversationStore((s) => s.deleteConversations)
 
     const [conversations, setConversations] = useState<ConversationWithStats[]>([])
@@ -24,12 +68,17 @@ export default function ConversationsDialog() {
     const [deleting, setDeleting] = useState(false)
     // store 初始化是否完成（独立窗口 JS 堆无主窗口的 store 状态，需显式初始化后才可查询）
     const [workspaceReady, setWorkspaceReady] = useState(false)
+    // 级联筛选（'' = 全部；组为 groupId 或 UNGROUPED；项目为工作区路径）
+    const [groupFilter, setGroupFilter] = useState('')
+    const [projectFilter, setProjectFilter] = useState('')
+    const [groups, setGroups] = useState<ProjectGroupWithMembers[]>([])
+    const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([])
 
     // ── 独立窗口 store 初始化 ────────────────────────────────
     // 独立窗口是全新 JS 堆，不继承主窗口 zustand store（currentWorkspacePath 初始为 null）。
     // 打开时显式调用 store.loadConversations()（仿 toolStore.loadTools 模式），内部经
     // workspace.getCurrent 解析当前工作区并填充 workspaces / currentWorkspacePath，
-    // 否则会话列表查询（conversationListWithStats）与删除时的后代展开都拿不到工作区路径。
+    // 删除时的后代展开需要它（列表查询本身走 scope，不依赖当前工作区）。
     useEffect(() => {
         const state = useConversationStore.getState()
         if (state.currentWorkspacePath) {
@@ -39,31 +88,66 @@ export default function ConversationsDialog() {
         void state.loadConversations().finally(() => setWorkspaceReady(true))
     }, [])
 
+    // ── 级联筛选数据（本窗口自行拉取，与 store 引导并行 → 首屏列表不被它阻塞）──
+    // 独立窗口不读主窗口 viewScope / 组快照；任一来源失败只降级（少一类选项），不抛错、不白屏。
+    useEffect(() => {
+        let cancelled = false
+        void (async () => {
+            const [g, w] = await Promise.all([
+                (async () => { try { return await window.electronAPI?.projectGroup?.list?.() } catch { return null } })(),
+                (async () => { try { return await window.electronAPI?.workspace?.list?.() } catch { return null } })(),
+            ])
+            if (cancelled) return
+            if (Array.isArray(g)) setGroups(g as ProjectGroupWithMembers[])
+            if (Array.isArray(w)) setWorkspaces(w as WorkspaceRecord[])
+        })()
+        return () => {
+            cancelled = true
+        }
+    }, [])
+
+    /** 未被任何组包含的路径 = 顶层项目（组数据不可用时全部视为顶层） */
+    const groupedKeys = useMemo(
+        () => new Set(groups.flatMap((g) => g.members.map((m) => workspacePathKey(m.projectPath)))),
+        [groups],
+    )
+    /** 顶层项目路径（「未分组」范围；workspace:list 不可用时为空） */
+    const topLevelPaths = useMemo(
+        () => workspaces.filter((w) => !groupedKeys.has(workspacePathKey(w.path))).map((w) => w.path),
+        [workspaces, groupedKeys],
+    )
+    /** 当前组筛选范围内的项目路径（同时作为项目下拉的候选项） */
+    const groupPaths = useMemo(
+        () => projectPathsFor(groupFilter, groups, workspaces, topLevelPaths),
+        [groupFilter, groups, workspaces, topLevelPaths],
+    )
+    /** 查询 scope：由级联筛选推导（Task 8 的对象参数） */
+    const scope = useMemo(
+        () => resolveStatsScope(groupFilter, projectFilter, groupPaths, topLevelPaths),
+        [groupFilter, projectFilter, groupPaths, topLevelPaths],
+    )
+
     // ── 加载数据 ────────────────────────────────────────────
     const loadData = useCallback(async () => {
-        // 初始化完成前保持加载态，避免闪现"暂无会话"；若最终无工作区则回退空列表
+        // 初始化完成前保持加载态，避免闪现"暂无会话"
         if (!workspaceReady) return
-        if (!currentWorkspacePath) {
-            setConversations([])
-            setLoading(false)
-            return
-        }
         setLoading(true)
         setError(null)
         try {
-            const data = await window.electronAPI?.conversationListWithStats?.(currentWorkspacePath)
-            if (data) {
-                setConversations(data)
-            } else {
-                setConversations([])
-            }
+            const data = await window.electronAPI?.conversationListWithStats?.(scope)
+            const list = data ?? []
+            setConversations(list)
+            // 选区与返回数据取交：切换筛选后列表内容会与选区脱钩（计数 / 确认文案承诺的
+            // 条数与实际收集不符，甚至出现"实收集为空 → store 静默 0 删"），取交后
+            // 「已选 N 项」、确认文案与实收集始终同源。
+            setSelectedIds((prev) => new Set([...prev].filter((id) => list.some((c) => c.id === id))))
         } catch (err) {
             console.error('[ConversationsDialog] loadData failed:', err)
             setError('加载会话列表失败')
         } finally {
             setLoading(false)
         }
-    }, [workspaceReady, currentWorkspacePath])
+    }, [workspaceReady, scope])
 
     useEffect(() => {
         loadData()
@@ -103,15 +187,44 @@ export default function ConversationsDialog() {
     // ── 删除操作 ────────────────────────────────────────────
     const selectedCount = selectedIds.size
 
+    /** 项目展示名（列表里有记录 → 记录名；否则取路径末段） */
+    const projectLabel = (p: string) =>
+        workspaces.find((w) => workspacePathKey(w.path) === workspacePathKey(p))?.name || getBasename(p)
+
+    /** 切组 → 原项目不在新范围内则清空重选（不自动猜） */
+    const handleGroupChange = (nextGroupId: string) => {
+        setGroupFilter(nextGroupId)
+        const nextPaths = projectPathsFor(nextGroupId, groups, workspaces, topLevelPaths)
+        if (projectFilter && !nextPaths.some((p) => workspacePathKey(p) === workspacePathKey(projectFilter))) {
+            setProjectFilter('')
+        }
+    }
+
     const handleDeleteSelected = useCallback(async () => {
         if (selectedCount === 0) return
 
-        // 计算后代子会话总数（含间接后代），用于删除确认文案
+        // 后代展开：按**各会话所属项目**分别解析（跨项目批量删除时不能只查当前项目）
         const state = useConversationStore.getState()
-        const wsPath = state.currentWorkspacePath
-        const allConvs = wsPath ? state.workspaces[wsPath]?.conversations ?? [] : []
-        const toDelete = collectDescendants(allConvs, Array.from(selectedIds))
-        const descendantCount = toDelete.length - selectedIds.size
+        const byWorkspace = new Map<string, ConversationWithStats[]>()
+        for (const c of conversations) {
+            const list = byWorkspace.get(c.workspacePath) ?? []
+            list.push(c)
+            byWorkspace.set(c.workspacePath, list)
+        }
+        // 完整删除集 = 选中 ∪ 各自后代（与确认文案同源，避免文案承诺的后代未实删：
+        // store 只按 currentWorkspacePath 展开，跨项目时其他项目的后代会被漏掉，
+        // 因此这里把已展开集直接传给 deleteConversations —— store 再展开是幂等的）。
+        const toDelete = new Set<string>()
+        for (const [wsPath, list] of byWorkspace) {
+            // ★ 只传**该项目内**的选中 id：collectDescendants 会把入参 id 无条件计入结果，
+            //   若每个项目都传全部 selectedIds，返回值会带上其他项目的选中 id，求和后
+            //   再减一次 selectedIds.size 会高估 (N-1)×|selected|。
+            const inWs = list.filter((c) => selectedIds.has(c.id)).map((c) => c.id)
+            if (inWs.length === 0) continue
+            const allConvs = state.workspaces[wsPath]?.conversations ?? list
+            for (const id of collectDescendants(allConvs, inWs)) toDelete.add(id)
+        }
+        const descendantCount = toDelete.size - selectedIds.size
 
         await confirm({
             title: '删除会话',
@@ -123,8 +236,8 @@ export default function ConversationsDialog() {
             onConfirm: async () => {
                 setDeleting(true)
                 try {
-                    const ids = Array.from(selectedIds)
-                    await deleteConversations(ids)
+                    // 传已展开的完整删除集（含跨项目后代），store 再展开幂等
+                    await deleteConversations(Array.from(toDelete))
                     // 刷新列表
                     await loadData()
                     setSelectedIds(new Set())
@@ -135,7 +248,7 @@ export default function ConversationsDialog() {
                 }
             },
         })
-    }, [selectedCount, selectedIds, deleteConversations, loadData])
+    }, [selectedCount, selectedIds, conversations, deleteConversations, loadData])
 
     // ── 格式化时间（共享工具，与备忘录列表同源） ──────────────────
 
@@ -149,6 +262,36 @@ export default function ConversationsDialog() {
         }
         return {conversations: conversations.length, messages, blocks}
     }, [conversations])
+
+    // ── 渲染：级联筛选条（独立窗口自行拉取组/项目；默认「全部 + 全部项目」）──
+    const filterBar = (
+        <div className="flex items-center gap-2 flex-wrap px-5 py-3 border-b border-[var(--border-muted)]">
+            <select
+                value={groupFilter}
+                onChange={(e) => handleGroupChange(e.target.value)}
+                aria-label="项目组筛选"
+                className={SELECT_CLS}
+                data-name="conversations-group-filter">
+                <option value="">全部</option>
+                {workspaces.length > 0 && <option value={UNGROUPED}>未分组</option>}
+                {groups.map((g) => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+            </select>
+            <select
+                value={projectFilter}
+                onChange={(e) => setProjectFilter(e.target.value)}
+                aria-label="项目筛选"
+                className={SELECT_CLS}
+                data-name="conversations-project-filter">
+                <option value="">全部项目</option>
+                {groupFilter === '' && <option value={UNASSIGNED}>未归属</option>}
+                {groupPaths.map((p) => (
+                    <option key={p} value={p}>{projectLabel(p)}</option>
+                ))}
+            </select>
+        </div>
+    )
 
     // ── 渲染：加载状态 ──────────────────────────────────────
     if (loading) {
@@ -186,16 +329,19 @@ export default function ConversationsDialog() {
         )
     }
 
-    // ── 渲染：空状态 ────────────────────────────────────────
+    // ── 渲染：空状态（保留筛选条：筛出空结果后仍可切回，否则成为死路）──
     if (conversations.length === 0) {
         return (
-            <div className="flex items-center justify-center py-20">
-                <div className="flex flex-col items-center gap-3">
-                    <svg className="w-10 h-10 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none"
-                         stroke="currentColor" strokeWidth="1.5">
-                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                    </svg>
-                    <span className="text-sm text-[var(--text-secondary)]">暂无会话</span>
+            <div className="flex flex-col h-full min-h-0">
+                {filterBar}
+                <div className="flex flex-1 items-center justify-center py-20">
+                    <div className="flex flex-col items-center gap-3">
+                        <svg className="w-10 h-10 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" strokeWidth="1.5">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                        </svg>
+                        <span className="text-sm text-[var(--text-secondary)]">暂无会话</span>
+                    </div>
                 </div>
             </div>
         )
@@ -204,6 +350,7 @@ export default function ConversationsDialog() {
     // ── 渲染：正常列表 ──────────────────────────────────────
     return (
         <div className="flex flex-col h-full min-h-0">
+            {filterBar}
             {/* 工具栏 */}
             <div className="flex items-center gap-3 gap-y-2 px-5 py-3 border-b border-[var(--border-muted)] flex-wrap">
                 {/* 全选 / 反选 */}
@@ -291,9 +438,10 @@ export default function ConversationsDialog() {
 
             {/* 表格头部 */}
             <div
-                className="grid grid-cols-[32px_1fr_80px_80px_140px] gap-2 px-5 py-2 text-xs text-[var(--text-secondary)] border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
+                className="grid grid-cols-[32px_1fr_180px_80px_80px_140px] gap-2 px-5 py-2 text-xs text-[var(--text-secondary)] border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
                 <div/>
                 <div>标题</div>
+                <div>项目</div>
                 <div className="text-right">消息数</div>
                 <div className="text-right">Block 数</div>
                 <div className="text-right">最后更新</div>
@@ -304,7 +452,7 @@ export default function ConversationsDialog() {
                 {conversations.map((conv) => (
                     <label
                         key={conv.id}
-                        className={`grid grid-cols-[32px_1fr_80px_80px_140px] gap-2 px-5 py-2.5 text-sm border-b border-[var(--border-muted)] cursor-pointer transition-colors hover:bg-[var(--surface-muted)] ${
+                        className={`grid grid-cols-[32px_1fr_180px_80px_80px_140px] gap-2 px-5 py-2.5 text-sm border-b border-[var(--border-muted)] cursor-pointer transition-colors hover:bg-[var(--surface-muted)] ${
                             deleting ? 'pointer-events-none opacity-50' : ''
                         }`}
                     >
@@ -314,11 +462,17 @@ export default function ConversationsDialog() {
                                 checked={selectedIds.has(conv.id)}
                                 onChange={() => toggleSelect(conv.id)}
                                 disabled={deleting}
-                                className="w-3.5 h-3.5 rounded border-[var(--border)] text-[var(--brand-primary)] focus:ring-[var(--brand-primary)] accent-[var(--brand-primary)]"
+                                className="w-3.5 h-3.5 rounded border-[var(--border)] text-[var(--text-brand)] focus:ring-[var(--focus-ring)] accent-[var(--brand-primary)]"
                             data-name="conversations-dialog-input"/>
                         </div>
                         <div className="flex items-center truncate text-[var(--text-primary)]">
                             {conv.title || '(无标题)'}
+                        </div>
+                        <div
+                            className="flex items-center truncate text-xs text-[var(--text-secondary)]"
+                            title={conv.workspacePath}
+                            data-name="conversations-dialog-project-cell">
+                            {conv.workspacePath ? getBasename(conv.workspacePath) : '未归属'}
                         </div>
                         <div className="flex items-center justify-end text-[var(--text-secondary)] tabular-nums">
                             {conv.messageCount}

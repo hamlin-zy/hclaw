@@ -49,7 +49,7 @@ function ToolCard({tool, serverName}: {tool: ToolDefinitionForLLM; serverName?: 
                 onClick={() => setIsExpanded(!isExpanded)}
                 className="w-full p-3 text-left hover:bg-[var(--surface-muted)] transition-colors flex items-start gap-2"
              data-name="tool-list-dialog-button">
-                <span className="px-1.5 py-0.5 bg-[var(--brand-muted)] text-[var(--brand-primary)] text-[10px] font-medium rounded shrink-0">
+                <span className="px-1.5 py-0.5 bg-[var(--brand-muted)] text-[var(--text-brand)] text-[10px] font-medium rounded shrink-0">
                     {tool.name}
                 </span>
                 {serverName && (
@@ -235,7 +235,7 @@ export default function ToolListDialog() {
                     <button
                         type="button"
                         onClick={loadData}
-                        className="ml-auto px-2 py-0.5 text-[10px] text-[var(--brand-primary)] hover:bg-[var(--brand-muted)] rounded transition-colors"
+                        className="ml-auto px-2 py-0.5 text-[10px] text-[var(--text-brand)] hover:bg-[var(--brand-muted)] rounded transition-colors"
                      data-name="tool-list-dialog-reload-button">
                         刷新
                     </button>
@@ -249,7 +249,7 @@ export default function ToolListDialog() {
                     onClick={() => setActiveTab('builtin')}
                     className={`px-4 py-2 text-xs font-medium transition-colors ${
                         activeTab === 'builtin'
-                            ? 'text-[var(--brand-primary)] border-b-2 border-[var(--brand-primary)]'
+                            ? 'text-[var(--text-brand)] border-b-2 border-[var(--brand-primary)]'
                             : 'text-[var(--text-secondary)] hover:text-[var(--text-secondary)]'
                     }`}
                  data-name="tool-list-dialog-builtin-tab-button">
@@ -260,7 +260,7 @@ export default function ToolListDialog() {
                     onClick={() => setActiveTab('mcp')}
                     className={`px-4 py-2 text-xs font-medium transition-colors ${
                         activeTab === 'mcp'
-                            ? 'text-[var(--brand-primary)] border-b-2 border-[var(--brand-primary)]'
+                            ? 'text-[var(--text-brand)] border-b-2 border-[var(--brand-primary)]'
                             : 'text-[var(--text-secondary)] hover:text-[var(--text-secondary)]'
                     }`}
                  data-name="tool-list-dialog-mcp-tab-button">

@@ -3,10 +3,12 @@
  *
  * 覆盖 bug 修复（App.tsx child_conv_created 事件处理器曾整体覆盖 workspaces，
  * 导致其他项目从项目选择器消失）引入的行为约定：
- * - 子会话插入当前工作区会话列表头部，不切换激活会话
+ * - 子会话按事件携带的 workspacePath（父会话所属工作区）插入会话列表头部，不切换激活会话
+ * - workspacePath ≠ currentWorkspacePath 时插入 workspacePath 对应工作区（缺陷 1 回归）
+ * - workspacePath 对应工作区未加载时新建条目，子会话插入该条目头部（不回退 currentWorkspacePath）
  * - 其他工作区条目必须保留（回归断言：workspaces 不被整体覆盖）
  * - 重复事件（双投递）去重，不重复插入
- * - 无 currentWorkspacePath 时安全返回
+ * - workspacePath 为空/缺失时安全返回
  *
  * 隔离：mock window.electronAPI，不触碰真实 IPC / SQLite
  */
@@ -76,8 +78,8 @@ afterEach(() => {
 })
 
 describe('handleChildConvCreated', () => {
-    it('子会话插入当前工作区会话列表头部，不切换激活会话', () => {
-        useConversationStore.getState().handleChildConvCreated(CHILD_ID, '子 Agent: 分析任务...', ROOT_ID)
+    it('子会话插入指定工作区会话列表头部，不切换激活会话', () => {
+        useConversationStore.getState().handleChildConvCreated(CHILD_ID, '子 Agent: 分析任务...', ROOT_ID, WS_A)
 
         const state = useConversationStore.getState()
         const convs = state.workspaces[WS_A].conversations
@@ -86,8 +88,33 @@ describe('handleChildConvCreated', () => {
         expect(state.activeConversationId).toBe(ROOT_ID)
     })
 
+    it('workspacePath ≠ currentWorkspacePath：插入 workspacePath 对应工作区（缺陷 1 回归）', () => {
+        // 当前工作区为 WS_A，但父会话所属工作区为 WS_B —— 子会话必须进 WS_B
+        expect(useConversationStore.getState().currentWorkspacePath).toBe(WS_A)
+
+        useConversationStore.getState().handleChildConvCreated(CHILD_ID, '子 Agent', 'conv-root-b', WS_B)
+
+        const state = useConversationStore.getState()
+        expect(state.workspaces[WS_B].conversations.map(c => c.id)).toEqual([CHILD_ID, 'conv-root-b'])
+        // 当前工作区 WS_A 不得被污染
+        expect(state.workspaces[WS_A].conversations.map(c => c.id)).toEqual([ROOT_ID])
+    })
+
+    it('workspacePath 对应工作区未加载：新建条目并插入该条目头部，不回退 currentWorkspacePath', () => {
+        useConversationStore
+            .getState()
+            .handleChildConvCreated(CHILD_ID, '子 Agent', 'conv-root-x', '/workspace-not-loaded')
+
+        const state = useConversationStore.getState()
+        // 未加载的工作区新建条目，子会话插入头部
+        expect(Object.keys(state.workspaces)).toContain('/workspace-not-loaded')
+        expect(state.workspaces['/workspace-not-loaded'].conversations.map(c => c.id)).toEqual([CHILD_ID])
+        // 也不得插入当前工作区
+        expect(state.workspaces[WS_A].conversations.map(c => c.id)).toEqual([ROOT_ID])
+    })
+
     it('其他工作区条目保留，不被整体覆盖（回归：项目选择器丢失其他项目）', () => {
-        useConversationStore.getState().handleChildConvCreated(CHILD_ID, '子 Agent', ROOT_ID)
+        useConversationStore.getState().handleChildConvCreated(CHILD_ID, '子 Agent', ROOT_ID, WS_A)
 
         const state = useConversationStore.getState()
         expect(Object.keys(state.workspaces).sort()).toEqual([WS_A, WS_B])
@@ -97,22 +124,25 @@ describe('handleChildConvCreated', () => {
 
     it('重复事件（双投递）去重，不重复插入', () => {
         const store = useConversationStore.getState()
-        store.handleChildConvCreated(CHILD_ID, '子 Agent', ROOT_ID)
-        store.handleChildConvCreated(CHILD_ID, '子 Agent', ROOT_ID)
+        store.handleChildConvCreated(CHILD_ID, '子 Agent', ROOT_ID, WS_A)
+        store.handleChildConvCreated(CHILD_ID, '子 Agent', ROOT_ID, WS_A)
 
         const convs = useConversationStore.getState().workspaces[WS_A].conversations
         expect(convs.filter(c => c.id === CHILD_ID)).toHaveLength(1)
     })
 
-    it('无 currentWorkspacePath 时安全返回，不抛错', () => {
-        useConversationStore.setState({currentWorkspacePath: null})
+    it('workspacePath 为空时安全返回，不抛错、不插入当前工作区、不新建空串条目', () => {
         expect(() => {
-            useConversationStore.getState().handleChildConvCreated(CHILD_ID, '子 Agent', ROOT_ID)
+            useConversationStore.getState().handleChildConvCreated(CHILD_ID, '子 Agent', ROOT_ID, '')
         }).not.toThrow()
+
+        const state = useConversationStore.getState()
+        expect(state.workspaces[WS_A].conversations.map(c => c.id)).toEqual([ROOT_ID])
+        expect(state.workspaces['']).toBeUndefined()
     })
 
     it('parentConvId 缺失时仍可插入（字段为 undefined）', () => {
-        useConversationStore.getState().handleChildConvCreated(CHILD_ID, '子 Agent')
+        useConversationStore.getState().handleChildConvCreated(CHILD_ID, '子 Agent', undefined, WS_A)
 
         const convs = useConversationStore.getState().workspaces[WS_A].conversations
         expect(convs[0]).toMatchObject({id: CHILD_ID, parentConvId: undefined})

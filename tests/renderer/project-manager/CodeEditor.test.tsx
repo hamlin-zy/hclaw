@@ -31,11 +31,15 @@ const sentinel = vi.hoisted(() => ({
 // 记录 domEventHandlers 调用，用于断言按行选中接管是否安装
 const domHandlers = vi.hoisted(() => ({specs: [] as Array<Record<string, unknown>>}))
 
+// 捕获 EditorView.theme 的入参规格：搜索面板的四主题接管是否到位只能从这里断言
+// （真实 StyleModule 需要 CSSOM，jsdom 不做样式计算）
+const themeSpecs = vi.hoisted(() => ({specs: [] as Array<Record<string, Record<string, unknown>>>}))
+
 vi.mock('@codemirror/view', () => {
   class EditorView {
     static lineWrapping = Symbol('lineWrapping')
     static editable = {of: vi.fn((v: unknown) => v)}
-    static theme = (spec: unknown) => spec
+    static theme = (spec: Record<string, Record<string, unknown>>) => { themeSpecs.specs.push(spec); return spec }
     // 按行选中接管：mock 成恒等并记录入参
     static domEventHandlers = (spec: Record<string, unknown>) => { domHandlers.specs.push(spec); return spec }
     // contentDOM 可聚焦性配置（P0）：记录入参供断言
@@ -43,6 +47,9 @@ vi.mock('@codemirror/view', () => {
     // 行级装饰：compute 是配置入口，mock 成恒等（真实装饰计算在 Chromium 中生效）
     static decorations = {compute: vi.fn(() => ({}))}
     constructor(_opts: unknown) { created++ }
+    // CodeEditor 会在视图上派发事务（定位高亮的设置/清除）：替身必须接受 dispatch，
+    // 否则「控制器销毁 → onChange(null) → 清高亮」这条真实路径会因替身缺方法而炸。
+    dispatch(_spec?: unknown) {}
     destroy() { destroyed++ }
   }
   return {
@@ -135,6 +142,55 @@ describe('CodeEditor 主题化（spec §11）', () => {
       expect(call[0]).not.toBe(sentinel.defaultHighlightStyle)
     }
     expect(shMock.mock.calls.length).toBeGreaterThan(0)
+  })
+
+  it('Ctrl+F 搜索面板：接管 @codemirror 内置浅色默认值，且颜色全走令牌', () => {
+    // CodeMirror 的 base theme 只按自身的 light/dark 判定给样式（本仓的 EditorView 未标 dark），
+    // 于是四套主题下都会套上「浅色」那一档：.cm-button 的浅色 linear-gradient 底、
+    // .cm-textfield 的 silver 描边 + 70% 字号、label 的 80% 字号、checkbox 的浏览器默认外观。
+    // 这里把「一条默认值 → 一条接管规则」钉住，防止以后有人删掉其中一条。
+    const panel = themeSpecs.specs[0]
+    const keys = Object.keys(panel)
+    expect(keys).toContain('&.cm-editor .cm-panel.cm-search')
+
+    const field = keys.find(k => k.includes('cm-search') && k.includes('input:not([type=checkbox])'))
+    expect(field, 'base theme 的 .cm-textfield / .cm-button 未被接管').toBeTruthy()
+    expect(panel[field!]).toMatchObject({
+      backgroundImage: 'none',   // 浅色渐变（深色主题下最刺眼的一处）
+      borderRadius: '4px',       // base theme 是直角 / 1px 圆角
+      fontSize: '12px',          // base theme 是 70%
+      fontFamily: 'inherit',
+    })
+    expect(keys.some(k => k.includes('cm-search') && k.includes('input[type=checkbox]'))).toBe(true)
+    expect(panel['&.cm-editor .cm-panel.cm-search [name=close]']).toBeTruthy()
+    expect(panel['&.cm-editor .cm-panel.cm-search label']).toBeTruthy()
+
+    // 控件轮廓单独一档（用户诉求 7）：面板挂在 --surface-elevated 上，而 --border 是按
+    // --surface 校准的「结构分隔线」（深色族白 6%，在这块底上只有 1.08:1 亮度步长），
+    // 于是按钮只剩一团填充、看上去「只有阴影没有边框」。谁把其中一条退回去，这个面板就会复发。
+    for (const sel of [
+      '&.cm-editor .cm-panel.cm-search input:not([type=checkbox])',
+      '&.cm-editor .cm-panel.cm-search button',
+      '&.cm-editor .cm-panel.cm-search label',
+    ]) {
+      expect(panel[sel]?.border, `${sel} 的轮廓档被打回 --border`).toBe('1px solid var(--border-emphasis)')
+    }
+    // hover 必须是**比静置更强**的另一档（混向 --text-primary），而不是同一个值
+    expect(panel['&.cm-editor .cm-panel.cm-search button:hover'].borderColor).toMatch(/^color-mix\(/)
+    expect(panel['&.cm-editor .cm-panel.cm-search label:hover'].borderColor).toMatch(/^color-mix\(/)
+    // 关闭按钮是图标按钮：上面那条 button 规则会顺手把它套成描边方块，
+    // 这条还原规则靠特异度 (0,5,0) 压过 button 的 (0,4,1)，不依赖插入顺序
+    expect(panel['&.cm-editor .cm-panel.cm-search [name=close]']).toMatchObject({
+      border: 'none',
+      backgroundColor: 'transparent',
+    })
+
+    // 颜色一律走令牌 / color-mix：四主题里不得冒出写死的浅色
+    const panelRules = keys
+      .filter(k => k.includes('cm-panel') || k.includes('cm-search'))
+      .map(k => JSON.stringify(panel[k]))
+      .join(' ')
+    expect(panelRules.match(/#[0-9a-fA-F]{3,8}\b|\brgba?\(/g) ?? []).toEqual([])
   })
 
   it('themedHighlight 覆盖全部 8 个 --code-* 令牌（防拼写漂移）', () => {

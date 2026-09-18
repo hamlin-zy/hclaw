@@ -71,10 +71,17 @@ parentPort.on('message', async (msg: any) => {
           const connectionTimeout = msg.connectionTimeout ?? 30
           const timeoutMs = connectionTimeout * 1000
           const connectPromise = adapter.connect(msg.config)
-          const timeoutPromise = new Promise<void>((_, reject) =>
-            setTimeout(() => reject(new Error(`连接超时 (${connectionTimeout}s)`)), timeoutMs)
-          )
-          await Promise.race([connectPromise, timeoutPromise])
+          // 定时器须在所有路径清理：连接先于超时建立时，残留的定时器仍挂在事件循环上，
+          // 直到 timeoutMs 到期才释放（默认 30s → worker 线程被拖住）。
+          let timeoutId: ReturnType<typeof setTimeout> | null = null
+          const timeoutPromise = new Promise<void>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error(`连接超时 (${connectionTimeout}s)`)), timeoutMs)
+          })
+          try {
+            await Promise.race([connectPromise, timeoutPromise])
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId)
+          }
 
           post(msg.channelId, 'status', {
             status: 'connected',

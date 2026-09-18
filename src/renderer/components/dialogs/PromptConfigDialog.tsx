@@ -7,6 +7,7 @@ import {
 } from '@shared/prompts'
 import MarkdownRenderer from '../message-list/MarkdownRenderer'
 import {ToolIcon, TextFileIcon} from '../icons'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 // ─── 子组件: 方案列表项 ───────────────────────────────────
 
@@ -113,6 +114,13 @@ export default function PromptConfigDialog() {
     const [sidebarWidth, setSidebarWidth] = useState(160)
 
     const isResizing = useRef(false)
+    // 当前「拖拽调整侧边栏宽度」的终结回调；供卸载兜底调用，避免卸载后残留 document 监听与 body 内联光标
+    const resizeCleanupRef = useRef<(() => void) | null>(null)
+
+    // 卸载兜底：拖拽进行中卸载时移除 document 监听并复位 body 光标
+    useEffect(() => () => {
+        resizeCleanupRef.current?.()
+    }, [])
 
     // 当前选中的方案
     const selectedScheme = schemes.find(s => s.id === selectedSchemeId) || null
@@ -158,6 +166,8 @@ export default function PromptConfigDialog() {
         document.addEventListener('mousemove', handleMouseMove)
         document.addEventListener('mouseup', stopResizing)
         document.body.style.cursor = 'col-resize'
+        // 登记终结回调，供卸载兜底调用
+        resizeCleanupRef.current = stopResizing
     }
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -176,6 +186,7 @@ export default function PromptConfigDialog() {
         document.removeEventListener('mousemove', handleMouseMove)
         document.removeEventListener('mouseup', stopResizing)
         document.body.style.cursor = 'default'
+        resizeCleanupRef.current = null
     }
 
     // ─── 预览功能 ─────────────────────────────────────────
@@ -401,7 +412,7 @@ export default function PromptConfigDialog() {
                                                     updateNodeValue(selectedNodeKey!, e.target.value)
                                                 }}
                                                 placeholder="在此输入自定义提示词内容..."
-                                                className="flex-1 w-full p-3 text-xs text-gray-700 font-mono resize-none outline-none leading-relaxed"
+                                                className={`flex-1 w-full p-3 text-xs text-gray-700 font-mono resize-none outline-none leading-relaxed ${INPUT_FOCUS}`}
                                             data-name="prompt-config-dialog-textarea"/>
                                         </div>
                                     </div>

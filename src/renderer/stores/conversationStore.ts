@@ -2,9 +2,13 @@ import {createWithEqualityFn} from 'zustand/traditional'
 import type {ConversationSummary, Message, ContentBlock, ToolCall} from '@shared/types'
 
 import {useAgentStore, createDefaultConvData} from './agentStore'
-import {fuzzyFilter} from '../lib/search'
+import {useProjectGroupStore} from './projectGroupStore'
+import {buildConversationSections, type ConversationSection} from '../lib/conversationSections'
+import {getBasename} from '../lib/format'
+import {workspacePathKey, UNASSIGNED_WORKSPACE_KEY} from '../lib/workspacePath'
 import {collectDescendants} from './conversationTree'
 import {flatString} from '../utils/flatString'
+import {PROJECT_GROUP_VIEW_CONFIG_KEY} from '@shared/configKeys'
 
 // ★ 内存优化 D2：flatString 已迁至叶子模块（src/renderer/utils/flatString.ts）以消除
 //   toolCallsStore → conversationStore → agentStore/* → toolCallsStore 循环依赖。
@@ -35,18 +39,72 @@ interface ConversationStore {
     conversationLastActiveAt: Record<string, number>
   searchQuery: string
 
+    /** 「我在看谁」：侧栏列表 / 备忘录面板 / 搜索的取数范围（spec §5.1） */
+    viewScope: ViewScope | null
+    /** 已折叠的项目段 key 集合（组 id 或 project path；D19/⑥：跨重启保留） */
+    collapsedGroupIds: string[]
+    /** 段 key（项目路径）→ 该段窗口大小（已加载的非置顶根会话上限），缺省 10（spec §7.2） */
+    sectionWindowSizes: Record<string, number>
+    /** §15.1⑤ / §13-2「单项目视图窗口化」的一次性提示已读标记（随 scope 载荷持久化，初值 false） */
+    singleViewWindowHintShown: boolean
+    /** §15.1①「定位该项目段」：待滚动定位的段 key，由消费方渲染后 clearFocusProject 复位 */
+    pendingFocusProject: string | null
+    /** 段 key（项目路径）→ 该项目 git 分支；由 refreshVisibleBranches 批量只读填充 */
+    gitBranches: Record<string, string | null>
+    setViewScope: (scope: ViewScope | null) => void
+    setProjectGroupView: (groupId: string) => void
+    toggleSectionCollapsed: (key: string) => void
+    restoreScope: () => Promise<void>
+    /** 作用域化取数：**渲染层列表唯一入口**（spec §5.3） */
+    getScopedSections: () => ConversationSection[]
+    /** 展开段窗口 +10（即时：摘要已在内存，无需等待） */
+    expandSection: (key: string) => void
+    /** 置位「单项目视图窗口化」一次性提示的已读标记并落盘（§15.1⑤：此后不再出现） */
+    dismissWindowHint: () => void
+    /** 请求把某项目段滚入视野（组视图「添加项目」后定位用） */
+    focusProjectSegment: (path: string) => void
+    clearFocusProject: () => void
+    /** 批量只读当前作用域内项目的 git 分支（不新增 fs.watch） */
+    refreshVisibleBranches: () => Promise<void>
+    /** 跨项目跳转类操作：让视图跟随目标项目（§5.2 跟随矩阵）——**只写 viewScope** */
+    followScopeToProject: (path: string) => void
+    /** 同步「我在哪干活」（`currentWorkspacePath` = 激活会话所属项目，spec §5.1）到目标项目。
+     *  与 `followScopeToProject` 的分工见实现处注释：本函数**不写 viewScope**，故可安全地
+     *  放进切换会话链路（计划禁止进切换链路的是会改 viewScope 的 followScopeToProject）。 */
+    syncCurrentProject: (path: string) => void
+
     // Workspace
   setWorkspace: (path: string | null) => void
+    /** 登记工作目录并返回「生效键」（未登记则按唯一口径 create），**不切换**当前工作区/视图。
+     *  供「把项目加入项目组」这类只需登记、必须停留原视图的调用方使用；登记口径见 registerWorkspace。
+     *  返回 null = 登记未能确认，调用方不应继续。 */
+  ensureWorkspaceRegistered: (path: string) => Promise<string | null>
   removeWorkspace: (path: string) => void
+    /** 跨窗口跳转：切到目标会话所属的工作区并激活该会话（不为未注册路径新建工作区记录，
+     *  不抢占该工作区的首个根会话；工作区对比按归一化路径）。
+     *  `opts.follow` = 是否让视图跟随目标项目（写 viewScope，可能踢出组视图）。
+     *  默认 true（跨窗口入口语义不变）；组视图内的窗口内跳转（最近会话列表）传 false，
+     *  只同步「在哪干活」不停留视图之外（与 syncCurrentProject 分工见其实现注释）。 */
+  openConversationInWorkspace: (convId: string, workspacePath: string, opts?: {follow?: boolean}) => Promise<void>
 
     // Conversations
-  createConversation: (title?: string) => Promise<string>
+    /** 新建会话。`opts.workspacePath` = 在指定项目创建（段头「+」/ 抽屉「添加项目」）；
+     *  `opts.follow` 与 workspacePath 同在契约里，但**本参数不改变视图归属**（由调用方
+     *  `newConversation` 负责：stayInScope=false → follow:true → followScopeToProject），
+     *  保留以维持入口契约（计划 Task 15 明定、被三个入口与既有测试逐字断言）。
+     *  缺省（不传 opts）= 沿用 currentWorkspacePath，行为与改造前一致。 */
+  createConversation: (title?: string, opts?: {workspacePath?: string; follow?: boolean}) => Promise<string>
     handleSessionCreated: (convId: string, title: string, workspacePath: string, handoffFromConvId?: string, createdAt?: number, updatedAt?: number) => void
-    /** 子会话创建事件处理（agent 工具创建）：侧栏顶部插入，保留其他工作区 */
-    handleChildConvCreated: (convId: string, title: string, parentConvId?: string) => void
+    /** 子会话创建事件处理（agent 工具创建）：插入父会话所属工作区列表顶部，保留其他工作区。
+     *  workspacePath 为父会话所属工作区（事件 payload 下发）；该工作区未在本地缓存时新建条目再插入
+     *  （与 handleSessionCreated、onConversationCreated schedule 分支同策略），workspacePath 为空串时跳过；
+     *  不回退 currentWorkspacePath（避免子会话被错插到当前工作区）。 */
+    handleChildConvCreated: (convId: string, title: string, parentConvId: string | undefined, workspacePath: string) => void
   deleteConversation: (id: string) => Promise<void>
     deleteConversations: (ids: string[]) => Promise<void>
-  setActiveConversation: (id: string | null) => void
+    /** 切换活跃会话。force=true 时即使目标已是活跃会话也重走完整切换流程
+     *  （用于「切工作区 + 进目标会话」：setWorkspace 会先把该目录首个根会话置为活跃） */
+  setActiveConversation: (id: string | null, opts?: { force?: boolean }) => void
   updateConversationMeta: (convId: string, updates: { title?: string; preview?: string }) => void
     /** 会话元数据事件消费（§3.4）：message-finalized → 更新 updatedAt 并按侧栏规则重排 */
     touchConversation: (convId: string, updatedAt: number) => void
@@ -318,25 +376,38 @@ async function maybeTrimConversation(convId: string): Promise<void> {
     }))
 }
 
-// ─── messagesMap 数量约束 + LRU 淘汰（缺陷 D1）──────────────
+// ─── messagesMap 数量约束 + LRU 淘汰（缺陷 D1；Task 17 改为按项目预算）──────
 // 现象：loadConversations 的预热循环对当前工作区全部会话调 loadMessagesInitial，
 // 把整库消息（含工具结果）灌进 messagesMap。此前只有单会话权重（CONVERSATION_WEIGHT_CAP）
 // 与 10 分钟不活跃清理兜底，二者对"预热进来但从未被渲染"的会话均失效
 // → 渲染进程 JS 堆实测 1154.7MB、messagesMap 持有 1976 个 conv-* 键。
 //
-// 新策略：用「数量」而非字节预算约束驻留（两套淘汰策略并存会互相打架、难以推理）：
-//  · 预热：只预热最近更新的 PRELOAD_MAX_CONVERSATIONS 个会话（loadConversations）。
-//  · 驻留：messagesMap 键数上限 MAX_MESSAGES_MAP_SIZE，超出即按最后激活时间 LRU 淘汰，
-//    触发点为用户主动切换会话（switchActiveConversation）。
-//  · 互补：预热进内存的会话同时登记进 renderedConversationIds（markConversationRendered），
-//    使既有的 cleanupInactiveConversations（10 分钟不活跃清理）也能回收它们。
+// 新策略（spec §10.2：全局单阈值 → 按项目预算，驻留量不随项目数线性增长）：
+//  · 预热：只预热当前工作区最近更新的 PRELOAD_MAX_CONVERSATIONS 个会话，且不超过
+//    该项目的常驻预算（loadConversations）。
+//  · 驻留：**每项目** messagesMap 键数上限 MAX_RESIDENT_PER_PROJECT，超出即按项目内
+//    「最后激活时间」LRU 淘汰；全局另有 GLOBAL_MESSAGES_MAP_HARD_CAP 安全阀，
+//    超出时淘汰「最冷项目的最冷会话」。触发点为会话切换 / 首屏水合（loadMessagesInitial）。
+//  · 缓存池：renderedConversationIds 按项目 ≤ MAX_RENDERED_PER_PROJECT（3 热 + 2 温），
+//    由唯一登记点 markConversationRendered 末尾的守卫执行；它同时是
+//    cleanupInactiveConversations（10 分钟不活跃清理）的输入集。
+//  · 项目归属不明（workspaces 反查不到）的会话不参与项目计数，只受全局安全阀约束。
+// 保护集（§10.2-2）= 激活会话 + running/thinking + 三种待交互态（pendingPermissionConfirm /
+//  pendingQuestion / pendingToolsChangeConfirm），**优先于预算**：不得为凑数驱逐流式 /
+//  待交互会话，故某项目 / 全局均可临时超限。
 // 淘汰只针对非活跃会话，且完整内容在 DB，切回会话时 loadMessagesInitial 重新水合 → 不损体验。
 
-/** 启动预热的最大会话数（按 updatedAt 降序取最近更新者） */
+/** 启动预热的最大会话数（按 updatedAt 降序取最近更新者；实际取它与每项目常驻预算的较小者） */
 const PRELOAD_MAX_CONVERSATIONS = 10
 
-/** messagesMap 内存中会话总数上限（超限按 LRU 淘汰） */
-const MAX_MESSAGES_MAP_SIZE = 20
+/** 每项目常驻会话上限（messagesMap 键数，超限按项目内「最后激活时间」LRU 淘汰） */
+const MAX_RESIDENT_PER_PROJECT = 3
+
+/** 每项目缓存池上限（renderedConversationIds，含常驻 = 3 热 + 2 温） */
+const MAX_RENDERED_PER_PROJECT = 5
+
+/** 全局安全阀（≈10 项目 × 3；超限淘汰「最冷项目的最冷会话」，§10.2-4） */
+const GLOBAL_MESSAGES_MAP_HARD_CAP = 30
 
 /** 会话是否处于「不可驱逐」状态：正在流式（running/thinking）——驱逐会打断正在进行的会话。
  *  注意口径**小于** cleanupInactiveConversations 的保护集（后者另含 pendingPermissionConfirm /
@@ -344,6 +415,55 @@ const MAX_MESSAGES_MAP_SIZE = 20
 function isProtectedConv(convId: string): boolean {
     const st = useAgentStore.getState().convAgentStates[convId]?.agentState?.status
     return st === 'running' || st === 'thinking'
+}
+
+/** 会话 → 项目路径（读 workspaces 反查；找不到返回 null）。
+ *  ★ 单次查询用；批量场景（比较器 / 全量分组）必须改用 buildConvProjectIndex——
+ *    本函数是 O(会话总数)，在比较器里反复调用会退化成 O(n²)。 */
+function projectPathOfConv(convId: string): string | null {
+    return findConvHome(useConversationStore.getState().workspaces, convId)
+}
+
+/** 会话在哪个项目（跨项目反查，与 projectPathOfConv 同口径但显式收 workspaces 入参：
+ *  便于在 set((state) => …) 里按「同一份 state」定位，避免读到更新中途的 store）。
+ *  会话操作必须按**会话自身所属项目**读写（I-1(b)）：组视图下操作对象可能不属于
+ *  currentWorkspacePath，「按当前项目」会改错列表 / 展开错后代 / 界面不变。 */
+function findConvHome(workspaces: Record<string, WorkspaceInfo>, convId: string): string | null {
+    for (const [path, info] of Object.entries(workspaces)) {
+        if (info.conversations.some(c => c.id === convId)) return path
+    }
+    return null
+}
+
+/** 在 workspaces 里按**归一化键**反查实际键（I-1 加固：`p in workspaces` 裸比较在
+ *  大小写 / 尾分隔符不同的等价串下会误判为「不存在」，从而漏段或错误回退）。
+ *  返回实际键（而非入参原串）——调用方要用它去 `workspaces[key]` 取会话列表。 */
+function findWorkspaceKey(workspaces: Record<string, WorkspaceInfo>, path: string): string | null {
+    if (path in workspaces) return path
+    const target = workspacePathKey(path)
+    return Object.keys(workspaces).find(k => workspacePathKey(k) === target) ?? null
+}
+
+/** 一次性建立「会话 → 项目路径」反查表（O(会话总数)，供一次 enforce 调用内的所有查询复用） */
+function buildConvProjectIndex(): Map<string, string> {
+    const index = new Map<string, string>()
+    const {workspaces} = useConversationStore.getState()
+    for (const [path, info] of Object.entries(workspaces)) {
+        for (const c of info.conversations) {
+            if (!index.has(c.id)) index.set(c.id, path)
+        }
+    }
+    return index
+}
+
+/** 预算淘汰的不可驱逐集（§10.2-2）：激活会话 + running/thinking + 三种待交互态。
+ *  口径**大于** isProtectedConv（后者只含流式两态，供截断兜底复用），勿互相推断。 */
+function isProtectedForBudget(convId: string): boolean {
+    const state = useConversationStore.getState()
+    if (convId === state.activeConversationId) return true
+    if (isProtectedConv(convId)) return true
+    const conv = useAgentStore.getState().convAgentStates[convId]
+    return !!(conv?.pendingPermissionConfirm || conv?.pendingQuestion || conv?.pendingToolsChangeConfirm)
 }
 
 /** 驱逐若干会话的全部渲染端缓存：releaseConvCaches 负责 messagesMap / hasMoreMap /
@@ -360,24 +480,86 @@ function evictConversations(ids: string[]): void {
     }))
 }
 
-/** messagesMap 数量上限执行：键数超过 MAX_MESSAGES_MAP_SIZE 时，按「最后激活时间」升序
- *  驱逐最久未激活的会话，直到回到上限。activeConversationId 与 running/thinking 会话
- *  永不被驱逐（否则打断当前视图 / 流式）。被驱逐会话可从 DB 重新水合。 */
+/** 数量上限执行（两段式）：① 每项目 messagesMap 键数 ≤ MAX_RESIDENT_PER_PROJECT；
+ *  ② 全局键数 ≤ GLOBAL_MESSAGES_MAP_HARD_CAP，超限淘汰「最冷项目的最冷会话」。
+ *  两段都只从「可驱逐者」（按最后激活时间升序）里取，保护集（isProtectedForBudget）
+ *  一个都不动 → 某项目 / 全局可因保护集而临时超限（§10.2-2，属预期）。
+ *  项目冷热 = 该项目内会话的最大 lastActive；无项目归属者各自成组。
+ *  被驱逐会话可从 DB 重新水合（loadMessagesInitial）。 */
 function enforceMessagesMapSizeLimit(): void {
     const state = useConversationStore.getState()
     const ids = Object.keys(state.messagesMap)
-    if (ids.length <= MAX_MESSAGES_MAP_SIZE) return
+    // 快路径：总量不超两常量之较小者时，项目分组与全局安全阀都不可能触发。
+    // 判据取 min(每项目预算, 全局安全阀) 而非只取每项目预算，故本判据不依赖
+    // MAX_RESIDENT_PER_PROJECT ≤ GLOBAL_MESSAGES_MAP_HARD_CAP 这一不变式
+    //（该不变式无任何守卫，常量漂移会静默短路全局安全阀，令 spec §10.2-4 失效）。
+    if (ids.length <= Math.min(MAX_RESIDENT_PER_PROJECT, GLOBAL_MESSAGES_MAP_HARD_CAP)) return
 
-    const candidates = ids
-        .filter(id => id !== state.activeConversationId)
-        .filter(id => !isProtectedConv(id))
+    const lastActiveOf = (id: string) => state.conversationLastActiveAt[id] ?? 0
+    const projectIndexOf = buildConvProjectIndex()
+    const projectOf = (id: string) => projectIndexOf.get(id) ?? null
+
+    const ordered = ids
+        .filter(id => !isProtectedForBudget(id))
+        .sort((a, b) => lastActiveOf(a) - lastActiveOf(b))
+
+    const toEvict: string[] = []
+    // ① 项目内裁剪：项目「键数」含保护集，故裁剪量 = 该项目键数 - 预算，只从可驱逐者里取
+    const projectCount = new Map<string, number>()
+    for (const id of ids) {
+        const p = projectOf(id)
+        if (p) projectCount.set(p, (projectCount.get(p) ?? 0) + 1)
+    }
+    const removableByProject = new Map<string, string[]>()
+    for (const id of ordered) {
+        const p = projectOf(id)
+        if (!p) continue
+        const list = removableByProject.get(p)
+        if (list) list.push(id)
+        else removableByProject.set(p, [id])
+    }
+    for (const [p, removable] of removableByProject) {
+        const over = (projectCount.get(p) ?? removable.length) - MAX_RESIDENT_PER_PROJECT
+        if (over > 0) toEvict.push(...removable.slice(0, over))
+    }
+    // ② 全局安全阀：先按项目聚合热度，再淘汰最冷项目里的最冷会话
+    const keptCount = ids.length - toEvict.length
+    if (keptCount > GLOBAL_MESSAGES_MAP_HARD_CAP) {
+        const evicted = new Set(toEvict)
+        const remaining = ordered.filter(id => !evicted.has(id))
+        const projectHeat = new Map<string, number>()
+        for (const id of remaining) {
+            const p = projectOf(id) ?? `\0${id}`
+            projectHeat.set(p, Math.max(projectHeat.get(p) ?? 0, lastActiveOf(id)))
+        }
+        remaining.sort((a, b) => {
+            const byHeat = (projectHeat.get(projectOf(a) ?? `\0${a}`) ?? 0)
+                - (projectHeat.get(projectOf(b) ?? `\0${b}`) ?? 0)
+            return byHeat !== 0 ? byHeat : lastActiveOf(a) - lastActiveOf(b)
+        })
+        toEvict.push(...remaining.slice(0, keptCount - GLOBAL_MESSAGES_MAP_HARD_CAP))
+    }
+
+    if (toEvict.length) evictConversations(toEvict)
+}
+
+/** 每项目缓存池上限执行（renderedConversationIds ≤ MAX_RENDERED_PER_PROJECT）。
+ *  调用点唯一：markConversationRendered 末尾——会话切换 / hover 预热 / 批量预热三条
+ *  登记路径都经它收口（此前 renderedConversationIds 只是 cleanupInactiveConversations
+ *  的输入集，不构成任何上限）。项目归属不明时不设限（无法按项目计数）。
+ *  同样只淘汰非保护集，且按「最后激活时间」升序取最冷者。 */
+function enforceRenderedPoolLimit(project: string | null): void {
+    if (!project) return
+    const state = useConversationStore.getState()
+    const projectIndexOf = buildConvProjectIndex()
+    const inProject = state.renderedConversationIds.filter(id => projectIndexOf.get(id) === project)
+    if (inProject.length <= MAX_RENDERED_PER_PROJECT) return
+
+    const evict = inProject
+        .filter(id => !isProtectedForBudget(id))
         .sort((a, b) => (state.conversationLastActiveAt[a] ?? 0) - (state.conversationLastActiveAt[b] ?? 0))
-
-    const overBy = ids.length - MAX_MESSAGES_MAP_SIZE
-    const removedIds = candidates.slice(0, overBy)
-    if (removedIds.length === 0) return
-
-    evictConversations(removedIds)
+        .slice(0, inProject.length - MAX_RENDERED_PER_PROJECT)
+    if (evict.length) evictConversations(evict)
 }
 
 /** 默认 agent 空闲状态（切换会话时后备） */
@@ -456,16 +638,27 @@ export async function applyConvModesToAgentStore(convId: string): Promise<void> 
 
 /** 切换会话状态核心逻辑：同步 loadedMessages、agent 状态、IPC 通知
  *  （落库已收敛至主进程，渲染端切换会话无需 flush）
- *  用于 setActiveConversation / deleteConversation / deleteConversations 共享路径 */
-async function switchActiveConversation(id: string | null) {
+ *  用于 setActiveConversation / deleteConversation / deleteConversations 共享路径
+ *  force：跳过「已是活跃会话」短路，强制重走完整切换。调用方为「切工作区 + 进目标会话」时
+ *  必须传（setWorkspace 会把该目录首个根会话置为活跃，目标是它时短路会跳过消息合并与
+ *  agent 状态同步，见 setActiveConversation 调用点传 force 的说明）。 */
+async function switchActiveConversation(id: string | null, opts?: {force?: boolean}) {
     const store = useConversationStore.getState()
-    if (id === store.activeConversationId) return
+    if (!opts?.force && id === store.activeConversationId) return
 
     // 切换前先清理旧活跃会话的定时截断
     clearActiveTruncate()
 
     if (id) {
         store.markConversationRendered(id)
+        // ★ I-1(a)：激活会话决定「我在哪干活」（spec §5.1：currentWorkspacePath = 激活会话所属项目）。
+        //   组视图内点其他成员项目的会话行只经过本函数，不同步 → currentWorkspacePath 停在旧项目，
+        //   于是右键删除按旧项目展开后代、重命名/置顶只改旧项目的列表、头部项目名与分支显示旧项目。
+        //   ★ 不违反「禁止把 followScopeToProject 塞进切换链路」：本函数只同步 currentWorkspacePath，
+        //   **不写 viewScope**（组内换会话 ≠ 离开组视图），改 viewScope 的那条路径仍是调用方职责。
+        //   父/子会话都算：projectPathOfConv 按会话自身所属项目跨项目反查。
+        const homeProject = projectPathOfConv(id)
+        if (homeProject) useConversationStore.getState().syncCurrentProject(homeProject)
         const targetMsgs = store.messagesMap[id]
         // ★ 如果 messagesMap 已有消息但缺少用户消息（流式子会话场景），
         //   先从 SQLite 加载持久化消息，再合并流式消息，确保用户消息不丢失
@@ -517,7 +710,7 @@ async function switchActiveConversation(id: string | null) {
         //     · applyConvModesToAgentStore(id) → agentStore 顶层 permissionMode/messageDisplayMode
         //     · refreshActiveBatch?.(id)      → 全局待办批次
         //     · scheduleActiveTruncate(id)    → 全局唯一的 30s 截断定时器（会清掉新会话的）
-        //   触发场景：A→B→A 快速切换时 B 的迟到响应。MAX_MESSAGES_MAP_SIZE=20 的 LRU 淘汰
+        //   触发场景：A→B→A 快速切换时 B 的迟到响应。每项目 3 常驻预算的 LRU 淘汰
         //   提高了异步分支（驱逐 + 重新水合）的触发频率，使该竞态更易暴露。
         //   仍按 convId 键写的（updateConvData / reconcileStreamingContent / messagesMap[id]）
         //   不在此列——它们不会污染其他会话，保留执行。
@@ -562,6 +755,214 @@ export function subscribeGitBranchChanges(): () => void {
         useConversationStore.setState({gitBranch: branch})
     })
     return () => unsub?.()
+}
+
+// ── 工作区路径归一化（比较/去重，绝不可回传主进程）──────────
+
+/** 注册表工作区记录（与 env.d.ts 的 workspace.list() 元素同形） */
+type WorkspaceRecord = { id: string; path: string; name: string; createdAt: number; updatedAt: number }
+
+/**
+ * getByPath 精确未命中时的等价项扫描。
+ *
+ * 为什么需要：目录选择对话框返回的串不带尾分隔符，而 DB（workspaces 表）里可能存着
+ * 带尾分隔符的历史串（E:\workspace\ 之类），getByPath 是 `WHERE path = ?` 精确匹配 → 必然查不到。
+ * 若此时直接 create，同一目录就会写进第二条 DB 记录；渲染层也会多出一个键。
+ *
+ * · 恰好一条 → 用它（不 create）。
+ * · 多条 → 取 updatedAt 最新的一条并 warn（等价记录多条属历史 bug 遗留的数据异常，
+ *   静默挑一个会让问题不可观测）。
+ * · 零条 → 返回 null，由调用方决定是否 create。
+ */
+async function findEquivalentWorkspace(path: string): Promise<WorkspaceRecord | null> {
+    const all = await window.electronAPI?.workspace?.list?.()
+    if (!all) return null
+    const target = workspacePathKey(path)
+    const matches = (all as WorkspaceRecord[]).filter(w => workspacePathKey(w.path) === target)
+    if (matches.length === 0) return null
+    if (matches.length === 1) return matches[0]
+    console.warn(
+        `[workspace] 发现 ${matches.length} 条归一化等价的工作区记录（${path}），已取 updatedAt 最新的一条`,
+        matches.map(m => m.path),
+    )
+    return [...matches].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]
+}
+
+/**
+ * 解析「生效键」：决定写入 currentWorkspacePath / workspaces 用哪个串。
+ * setWorkspace / removeWorkspace / openConversationInWorkspace 三处共用，保证口径一致。
+ *
+ * 为什么需要：同一目录可能以多种写法出现（尾分隔符、分隔符方向、Windows 大小写），
+ * 用原始串写键会与已有等价键并存 → 侧栏同一项目两条记录、当前那条指向空列表。
+ *
+ * 解析顺序（固定）：
+ *  ① workspaces 里已有等价键 → 复用（优先取 conversations 非空的那个，保住已加载列表；都空取第一个）；
+ *  ② 注册表返回 / 扫描到的规范路径（DB 原串，与 getByPath 的精确串对齐）；
+ *  ③ 兜底原始 path（未登记路径）。
+ *
+ * ⚠ 归一化串仅用于比较，绝不作为键写回主进程。
+ */
+function resolveWorkspaceKey(path: string, canonicalPath?: string | null): string {
+    const target = workspacePathKey(path)
+    const workspaces = useConversationStore.getState().workspaces
+    const equivalentKeys = Object.keys(workspaces).filter(k => workspacePathKey(k) === target)
+    if (equivalentKeys.length > 0) {
+        return equivalentKeys.find(k => (workspaces[k]?.conversations.length ?? 0) > 0) ?? equivalentKeys[0]
+    }
+    return canonicalPath ?? path
+}
+
+/**
+ * 工作区登记（全仓库唯一口径）：精确命中 → 等价扫描 → create → 回读。
+ *
+ * 为什么必须唯一：`ensureWorkspaceRegistered` 与 `setWorkspace` 都要走这段序列，任何一处
+ * 再抄一遍，就会重新引入「同一目录被重复 create 成第二条记录」的缺陷（见 findEquivalentWorkspace 注释）。
+ * 两者都只调本函数 —— 只是需要的产物不同：前者要「生效键」，后者还要记录本身（setCurrent 要 id）。
+ *
+ * 返回 null = 登记未能确认（getByPath 回读为空）；调用方据此决定是否继续。
+ */
+async function registerWorkspace(path: string): Promise<WorkspaceRecord | null> {
+    // 必须传原始串：主进程 getByPath 是 `WHERE path = ?` 精确匹配，传归一化串查不到（既有契约，已有测试钉住）。
+    let workspace = (await window.electronAPI?.workspace?.getByPath(path)) ?? null
+    if (!workspace) {
+        // 精确未命中 → 先做等价扫描，避免同一目录（DB 里带着另一种写法的旧串）被重复 create 出第二条记录。
+        const equivalent = await findEquivalentWorkspace(path)
+        if (equivalent) {
+            workspace = equivalent
+        } else {
+            const id = `ws-${crypto.randomUUID()}`
+            const name = path.split(/[/\\]/).pop() || '新项目'
+            // create 仍写原始串（主进程精确匹配口径）
+            await window.electronAPI?.workspace?.create(id, path, name)
+            workspace = (await window.electronAPI?.workspace?.getByPath(path)) ?? null
+        }
+    }
+    return workspace
+}
+
+/**
+ * 视图作用域（spec §5.1）：只存 id，不缓存组对象快照
+ */
+export type ViewScope =
+    | {type: 'project'; path: string}
+    | {type: 'group'; groupId: string}
+
+const VIEW_SCOPE_KEY = PROJECT_GROUP_VIEW_CONFIG_KEY
+
+interface PersistedScope {
+    viewScope: ViewScope | null
+    collapsedGroupIds: string[]
+    singleViewWindowHintShown?: boolean
+}
+
+/** viewScope 形状守卫（持久化载荷来自 system_settings，可能被手工篡改 / 版本漂移） */
+function isPersistedViewScope(v: unknown): v is ViewScope {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return false
+    const o = v as Record<string, unknown>
+    if (o.type === 'project') return typeof o.path === 'string'
+    if (o.type === 'group') return typeof o.groupId === 'string'
+    return false
+}
+
+/**
+ * 持久化载荷形状校验：非法字段一律当作「无持久化」/缺省。
+ *
+ * 为什么必须做：App init 的整段初始化包在「全有全无」的 try 里（App.tsx:346），
+ * restoreScope 一旦抛错（例：篡改成 `{viewScope: {type: 'project'}}` 缺 path，
+ * resolveScopeFallback 里 `workspacePathKey(undefined)` 会 TypeError），后续
+ * 快捷键绑定 / 主题 / 汇率同步等初始化会被一并静默跳过 —— 失败面远大于「视图没恢复」。
+ */
+export function parsePersistedScope(raw: unknown): PersistedScope | null {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+    const o = raw as Record<string, unknown>
+    return {
+        viewScope: isPersistedViewScope(o.viewScope) ? o.viewScope : null,
+        collapsedGroupIds: Array.isArray(o.collapsedGroupIds)
+            ? o.collapsedGroupIds.filter((k): k is string => typeof k === 'string')
+            : [],
+        singleViewWindowHintShown: o.singleViewWindowHintShown === true,
+    }
+}
+
+/**
+ * 重启恢复的回退链（spec §5.2）：
+ *   存的是组 → 组还在？用；组已删 → 激活会话所属项目 → currentWorkspacePath → null
+ *   存的是项目 → 该项目还在（与 currentWorkspacePath 等价）？用；否则 → currentWorkspacePath → null
+ * 纯函数，便于单测（不读 store，全部入参传入）。
+ */
+export function resolveScopeFallback(input: {
+    stored: ViewScope | null
+    groups: Array<{id: string; members: Array<{projectPath: string}>}>
+    currentWorkspacePath: string | null
+    activeConvWorkspacePath: string | null
+}): ViewScope | null {
+    const {stored, groups, currentWorkspacePath, activeConvWorkspacePath} = input
+    const project = (path: string | null): ViewScope | null =>
+        path ? {type: 'project', path} : null
+
+    if (stored?.type === 'project') {
+        if (currentWorkspacePath && workspacePathKey(stored.path) === workspacePathKey(currentWorkspacePath)) {
+            return stored
+        }
+        return project(currentWorkspacePath)
+    }
+    if (stored?.type === 'group') {
+        if (groups.some(g => g.id === stored.groupId)) return stored
+        return project(activeConvWorkspacePath) ?? project(currentWorkspacePath)
+    }
+    return project(activeConvWorkspacePath) ?? project(currentWorkspacePath)
+}
+
+/**
+ * 当前作用域包含哪些项目路径（顺序即渲染顺序，spec §5.3）。
+ *
+ * 组视图 = 组内成员按 group_order（members 数组序）——但**只保留本端可见（已加载）的项目**：
+ * 组里的项目可能在别的窗口才登记，不可见时渲染空段只会误导。组不存在（被解散）或
+ * 成员全不可见 → 回退 currentWorkspacePath 单段（§5.2 回退链的运行期版本）。
+ * 项目视图 = viewScope.path 单段（**优先认 scope**，见下方 R-AU 注释）；该键不可见 / 无 scope
+ * → 落到 currentWorkspacePath 单段。
+ *
+ * 纯函数（组对象由 projectGroupStore 现取，不在本 store 缓存快照），便于单测。
+ */
+function resolveScopeProjectPaths(state: {
+    viewScope: ViewScope | null
+    workspaces: Record<string, WorkspaceInfo>
+    currentWorkspacePath: string | null
+}): string[] {
+    const {viewScope, workspaces, currentWorkspacePath} = state
+    if (viewScope?.type === 'project') {
+        // ★ 项目档必须认 scope（spec §5.1：viewScope 就是「我在看谁」）——否则会出现
+        //   「viewScope.path=B 而 currentWorkspacePath=A」的漂移：组视图内点其他成员项目的
+        //   会话行只调 setActiveConversation（组内换会话 ≠ 离开组视图），currentWorkspacePath
+        //   仍是 A；此后 handoff 跟随到 B 只写 viewScope → 取数却按 A 走，跟随沦为 no-op。
+        //   键比较走 workspacePathKey 归一（尾分隔符 / 大小写不同的等价串不得误判为不可见）。
+        const key = findWorkspaceKey(workspaces, viewScope.path)
+        if (key) return [key]
+        // 目标项目不可见 → 回退 currentWorkspacePath（与组档的回退对称，§5.2）
+    }
+    if (viewScope?.type === 'group') {
+        const group = useProjectGroupStore.getState().groups.find(g => g.id === viewScope.groupId)
+        const paths = (group?.members ?? [])
+            .map(m => findWorkspaceKey(workspaces, m.projectPath))
+            .filter((k): k is string => k !== null)
+        if (paths.length > 0) return paths
+        // 组已解散 / 成员都不可见 → 回退（§5.2）
+    }
+    return currentWorkspacePath ? [currentWorkspacePath] : []
+}
+
+/** 落盘（异步、失败静默：持久化失败不得影响交互）。
+ *  ★ 唯一构造点：入参是整个 state 切片，调用方一律传 get()——后续给持久化载荷加字段
+ *    （如 Task 14 的 singleViewWindowHintShown）时不必逐个手写字面量，避免漏改某一处。 */
+function persistScope(state: Pick<ConversationStore, 'viewScope' | 'collapsedGroupIds' | 'singleViewWindowHintShown'>): void {
+    void window.electronAPI?.configWrite?.(VIEW_SCOPE_KEY, {
+        viewScope: state.viewScope,
+        collapsedGroupIds: state.collapsedGroupIds,
+        // ★ 只在 true 时写入（brief 把该键定为可选）：false 与「老 payload 缺该键」同义
+        //   （restoreScope 读回时 `=== true` 兜底），故省略不丢信息，也让既有落盘断言
+        //   （toEqual 全量比对 {viewScope, collapsedGroupIds}）无需改动。
+        ...(state.singleViewWindowHintShown ? {singleViewWindowHintShown: true} : {}),
+    })?.catch?.(() => {})
 }
 
 /**
@@ -619,8 +1020,226 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       conversationLastActiveAt: {},
       searchQuery: '',
       handoffDismissed: {},
+      viewScope: null,
+      collapsedGroupIds: [],
+      sectionWindowSizes: {},
+      singleViewWindowHintShown: false,
+      pendingFocusProject: null,
+      gitBranches: {},
+
+      // ── View scope（我在看谁，spec §5.1）───────────────
+
+      setViewScope: (scope) => {
+          set({viewScope: scope})
+          persistScope(get())
+      },
+
+      /** 切到组视图：**只改 viewScope**（不动激活会话与 currentWorkspacePath，spec §5.1） */
+      setProjectGroupView: (groupId) => {
+          get().setViewScope({type: 'group', groupId})
+      },
+
+      toggleSectionCollapsed: (key) => {
+          const current = get().collapsedGroupIds
+          const next = current.includes(key) ? current.filter(k => k !== key) : [...current, key]
+          set({collapsedGroupIds: next})
+          persistScope(get())
+      },
+
+      // ── 作用域化取数（spec §5.3 / §7.2）─────────────────
+
+      /**
+       * 作用域化取数（spec §5.3）：渲染层唯一入口。
+       * 组视图 = 组内项目按 group_order 分段；项目视图 = `viewScope.path` 单段
+       * （**优先认 scope**，见 resolveScopeProjectPaths 的 R-AU 注释；该键不可见才回退
+       * currentWorkspacePath 单段）；无 scope = currentWorkspacePath 单段。
+       * 组已不存在（被解散）时自动回退到 currentWorkspacePath（§5.2 回退链的运行期版本）。
+       * 段窗口大小取 sectionWindowSizes[path]（缺省 10）；分支优先取批量结果 gitBranches，
+       * 仅对「当前项目」回退到既有的单值 gitBranch（由 refreshGitBranch 维护）。
+       */
+      getScopedSections: () => {
+          const state = get()
+          const {
+              viewScope, workspaces, currentWorkspacePath,
+              searchQuery, collapsedGroupIds, sectionWindowSizes, gitBranches,
+          } = state
+          const paths = resolveScopeProjectPaths(state)
+          // 「未归属」虚拟段的会话（workspacePath 为空的会话）。
+          //   排序口径与其他段一致：loadConversations 已按 createdAt desc 排好。
+          const unassignedConversations = workspaces[UNASSIGNED_WORKSPACE_KEY]?.conversations ?? []
+          // 组视图才追加未归属段；单项目视图（含 currentWorkspacePath 回退）不显示，
+          // 避免污染单项目列表。未归属段不取分支（无工作目录，git 无从谈起）。
+          const showUnassigned = viewScope?.type === 'group' && unassignedConversations.length > 0
+          // 未归属段入参单一来源（两处分支各自构造新对象，行为与原字面量一致）
+          const unassignedSection = () => ({
+              projectPath: UNASSIGNED_WORKSPACE_KEY,
+              projectName: '未归属',
+              gitBranch: null,
+              conversations: unassignedConversations,
+              visibleCount: sectionWindowSizes[UNASSIGNED_WORKSPACE_KEY] ?? 10,
+          })
+          // 无任何项目但有未归属会话 → 返回单独一个未归属段
+          // （关键场景：零项目新用户点 MCP「帮我检查」后能看到诊断会话）
+          if (paths.length === 0) {
+              if (unassignedConversations.length === 0) return []
+              return buildConversationSections({
+                  singleProject: false,
+                  searchQuery,
+                  collapsedKeys: collapsedGroupIds,
+                  projects: [unassignedSection()],
+              })
+          }
+          const single = paths.length === 1
+          return buildConversationSections({
+              singleProject: single && viewScope?.type !== 'group',
+              searchQuery,
+              collapsedKeys: collapsedGroupIds,
+              projects: [
+                  ...paths.map(path => ({
+                      projectPath: path,
+                      projectName: getBasename(path),
+                      gitBranch: gitBranches[path] ?? (path === currentWorkspacePath ? state.gitBranch : null),
+                      conversations: workspaces[path]?.conversations ?? [],
+                      visibleCount: sectionWindowSizes[path] ?? 10,
+                  })),
+                  // 组视图：成员项目段之后追加「未归属」段（仅当有未归属会话）
+                  ...(showUnassigned ? [unassignedSection()] : []),
+              ],
+          })
+      },
+
+      expandSection: (key) => set(s => ({
+          sectionWindowSizes: {...s.sectionWindowSizes, [key]: (s.sectionWindowSizes[key] ?? 10) + 10},
+      })),
+
+      /** 一次性提示已读：只置位 + 落盘（提示本身引导用户去点「···」，无独立关闭控件） */
+      dismissWindowHint: () => {
+          set({singleViewWindowHintShown: true})
+          persistScope(get())
+      },
+
+      focusProjectSegment: (path) => set({pendingFocusProject: path}),
+      clearFocusProject: () => set({pendingFocusProject: null}),
+
+      refreshVisibleBranches: async () => {
+          const api = window.electronAPI?.workspace?.getGitBranches
+          if (!api) return
+          const paths = resolveScopeProjectPaths(get())
+          if (paths.length === 0) return
+          try {
+              const map = await api(paths)
+              if (map) set({gitBranches: {...get().gitBranches, ...map}})
+          } catch { /* 分支读取失败不影响列表 */ }
+      },
+
+      /** 跨项目跳转类操作：让视图跟随目标项目（§5.2 / §15.1①）——只写「我在看谁」 */
+      followScopeToProject: (path) => {
+          get().setViewScope({type: 'project', path})
+          // ★ I-1(a)：跟随 = 「看谁」+「在哪干活」一起走。只写 viewScope 会让
+          //   currentWorkspacePath 停在旧项目，于是组视图下跟随到 B 之后：右键删除按 A
+          //   展开后代、重命名/置顶只改 A 的列表、MessageList 的「回到父会话」按 A 查而
+          //   静默消失、头部项目名/分支显示 A。同步「在哪干活」不动 viewScope，故另一半
+          //   「看谁」仍由本函数负责（分工见 syncCurrentProject 注释）。
+          get().syncCurrentProject(path)
+      },
+
+      /**
+       * 同步「我在哪干活」= currentWorkspacePath 到目标项目。
+       *
+       * ⚠ 与 followScopeToProject 的分工（两者**不可**互相替代，也**不可**混用）：
+       *   · followScopeToProject = 「我在看谁」（写 viewScope）：跨项目跳转类操作让列表作用域跟随。
+       *     计划明文禁止把它塞进 switchActiveConversation / setActiveConversation（switchActiveConversation
+       *     也保持不写 viewScope）——组内换会话 ≠ 离开组视图，跟随会直接把用户踢出组视图。
+       *   · syncCurrentProject = 「我在哪干活」（写 currentWorkspacePath）：**不写 viewScope**，
+       *     故可以安全地在切换会话链路里调用（组视图内点其他成员的会话 → 干活地点跟着走、
+       *     视图仍停在组视图）。它**不违反**上述禁令：禁的是改 viewScope 的那一个。
+       *
+       * 只做三件事：① 生效键等价则早返回；② 写 currentWorkspacePath（workspaces 缺该键时补一条
+       * 空条目，否则列表按段取数会查不到会话）；③ 刷新 git 分支 + 主进程 setCurrent（异步、失败静默）。
+       * **不**重设 activeConversationId、**不**加载消息、**不**写 viewScope。
+       */
+      syncCurrentProject: (path) => {
+          const key = resolveWorkspaceKey(path)
+          if (workspacePathKey(key) === workspacePathKey(get().currentWorkspacePath || '')) return
+          set((state) => ({
+              currentWorkspacePath: key,
+              workspaces: state.workspaces[key]
+                  ? state.workspaces
+                  : {...state.workspaces, [key]: {lastOpenedAt: Date.now(), conversations: []}},
+          }))
+          void refreshGitBranch(key)
+          // 主进程当前项目同步（重启后 current_workspace_id 不落伍）；竞态守卫：等待期间又切走则不写。
+          void (async () => {
+              try {
+                  const ws = await window.electronAPI?.workspace?.getByPath(key)
+                  if (ws && useConversationStore.getState().currentWorkspacePath === key) {
+                      await window.electronAPI?.workspace?.setCurrent(ws.id)
+                  }
+              } catch { /* 静默：同步失败不影响交互 */ }
+          })()
+      },
+
+      /**
+       * 启动恢复（App 启动时在 loadConversations 之后调用一次）：
+       * 读盘 → 载入组列表 → 用 resolveScopeFallback 走三级回退 → 落 state。
+       * 组列表必须先加载：本 store 不重复持有组对象，回退校验依赖 projectGroupStore 的 groups。
+       */
+      restoreScope: async () => {
+          let persisted: PersistedScope | null = null
+          try {
+              // ★ 形状校验（parsePersistedScope）：篡改/漂移的载荷按「无持久化」处理，
+              //   绝不让它把异常抛进 App init 的全有全无 try（见 parsePersistedScope 注释）。
+              persisted = parsePersistedScope(await window.electronAPI?.configRead?.(VIEW_SCOPE_KEY))
+          } catch { /* 读不到当作没有 */ }
+          await useProjectGroupStore.getState().load()
+          const groups = useProjectGroupStore.getState().groups
+          const state = get()
+          const activeConvWs = state.activeConversationId
+              ? Object.keys(state.workspaces).find(
+                  p => state.workspaces[p].conversations.some(c => c.id === state.activeConversationId),
+              ) ?? null
+              : null
+          const resolved = resolveScopeFallback({
+              stored: persisted?.viewScope ?? null,
+              groups,
+              currentWorkspacePath: state.currentWorkspacePath,
+              activeConvWorkspacePath: activeConvWs,
+          })
+          set({
+              viewScope: resolved,
+              collapsedGroupIds: Array.isArray(persisted?.collapsedGroupIds) ? persisted!.collapsedGroupIds : [],
+              // 老安装的存量 payload 没有该键 → 默认 false（未提示过）
+              singleViewWindowHintShown: persisted?.singleViewWindowHintShown === true,
+          })
+      },
 
       // ── Workspace ──────────────────────────────────────
+
+      /**
+       * 登记工作目录并返回「生效键」（路径 → 键的口径唯一：见 resolveWorkspaceKey）。
+       * 与 setWorkspace 的区别：**不** setCurrent、**不**切 currentWorkspacePath / viewScope / 激活会话，
+       * 只保证该目录在注册表里存在 + 渲染端 `workspaces` 里有一条（可为空）条目
+       * —— 组内「添加项目」需要它（spec §6.2 / §15.1① 停留组视图），且该段要立即可渲染。
+       * 返回 null = 登记未能确认（IPC 异常或 create 后回读为空），调用方不应继续。
+       */
+      ensureWorkspaceRegistered: async (path) => {
+          try {
+              const workspace = await registerWorkspace(path)
+              if (!workspace) return null
+              const key = resolveWorkspaceKey(path, workspace.path)
+              // ★ I-4：登记成功后给渲染端补一条空条目。resolveScopeProjectPaths 的组档只保留
+              //   「本端可见（已加载）的项目」，不补的话新入组项目既不出现也点不到（直到重启
+              //   加载会话列表）。只补空条目：**不**切视图、**不** setCurrent、不加载消息
+              //   ——「我在看谁 / 在哪干活」都不动。
+              set((state) => state.workspaces[key]
+                  ? state
+                  : {workspaces: {...state.workspaces, [key]: {lastOpenedAt: Date.now(), conversations: []}}})
+              return key
+          } catch (err) {
+              console.error('[ensureWorkspaceRegistered] error:', err)
+              return null
+          }
+      },
 
       setWorkspace: async (path) => {
           if (!path) {
@@ -628,63 +1247,92 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               return
           }
 
+          let canonicalPath: string | undefined
           try {
-              let workspace = await window.electronAPI?.workspace?.getByPath(path)
-              if (!workspace) {
-                  const id = `ws-${crypto.randomUUID()}`
-                  const name = path.split(/[/\\]/).pop() || '新工作区'
-                  await window.electronAPI?.workspace?.create(id, path, name)
-                  workspace = await window.electronAPI?.workspace?.getByPath(path)
-              }
+              // 登记口径唯一实现（getByPath → 等价扫描 → create → 回读，见 registerWorkspace）：
+              // 此处还要用它返回的记录本身（setCurrent 需要 id），故直接调 registerWorkspace。
+              const workspace = await registerWorkspace(path)
               if (workspace) {
+                  canonicalPath = workspace.path
                   await window.electronAPI?.workspace?.setCurrent(workspace.id)
               }
           } catch (err) {
               console.error('[setWorkspace] error:', err)
           }
 
-          set((state) => {
-              const convs = state.workspaces[path]?.conversations || []
-              const idSet = new Set(convs.map(c => c.id))
-              // 仅激活根会话（非子会话），避免子会话抢占激活态
-              const firstRoot = convs.find(c => isRootConversation(c, idSet))
-              return {
-                  currentWorkspacePath: path,
-                  activeConversationId: firstRoot?.id || null,
-                  workspaces: {...state.workspaces, [path]: {lastOpenedAt: Date.now(), conversations: convs}},
-              }
-          })
+          // 生效键：优先复用已有等价键 → 注册表返回的规范路径 → 兜底原始串
+          const key = resolveWorkspaceKey(path, canonicalPath)
+
+          // 会话列表只读一次：set 前后引用同一份，避免同一份数据算两遍
+          const convs = get().workspaces[key]?.conversations || []
+          const idSet = new Set(convs.map(c => c.id))
+          // 仅激活根会话（非子会话），避免子会话抢占激活态
+          const rootConv = convs.find(c => isRootConversation(c, idSet))
+
+          set((state) => ({
+              currentWorkspacePath: key,
+              activeConversationId: rootConv?.id || null,
+              workspaces: {...state.workspaces, [key]: {lastOpenedAt: Date.now(), conversations: convs}},
+          }))
 
           // 切换工作区：重新拉取 git 分支（主进程侧同时重建 watch）
-          void refreshGitBranch(path)
+          void refreshGitBranch(key)
 
           // 加载消息仅针对根会话（与激活保持一致）
-          const convs = get().workspaces[path]?.conversations || []
-          const idSet = new Set(convs.map(c => c.id))
-          const rootConv = convs.find(c => isRootConversation(c, idSet))
           if (rootConv) {
               get().loadMessages(rootConv.id)
+              // 冷启动/切工作区自动激活同样要按会话 meta 恢复输入栏模式
+              //（否则只剩 agentStore persist 的全局默认回退，显示被污染的默认值）
+              void applyConvModesToAgentStore(rootConv.id)
               // ★ 主动水合待办批次：应用重启后首次加载会话，从 DB 查询活跃批次
               void useAgentStore.getState().refreshActiveBatch?.(rootConv.id)
           }
+
+          // 切「项目」= 现有 setWorkspace + viewScope 同步（组视图 → 单项目视图的路径，spec §5.1）
+          set({viewScope: {type: 'project', path: key}})
+          persistScope(get())
       },
 
       removeWorkspace: async (path) => {
           // 先获取 workspace id，以便从数据库中删除
-          const workspace = await window.electronAPI?.workspace?.getByPath(path)
+          let workspace: WorkspaceRecord | null = null
+          try {
+              workspace = (await window.electronAPI?.workspace?.getByPath(path)) ?? null
+              // 精确未命中（DB 里存的是另一种写法的旧串）→ 等价扫描拿 id。
+              // 直连 getByPath 的后果是 workspaceId 为 undefined → DB 记录删不掉（只删了本地键，删一半）。
+              // 删除路径永远不 create。
+              if (!workspace) workspace = await findEquivalentWorkspace(path)
+          } catch (err) {
+              console.error('[removeWorkspace] error:', err)
+          }
           const workspaceId = workspace?.id
 
+          // 生效键与 workspace 解析同源
+          const key = resolveWorkspaceKey(path, workspace?.path)
+          const target = workspacePathKey(path)
+
           // 获取该工作区下的所有会话 ID，用于批量删除
-          const conversations = await window.electronAPI?.conversationListByWorkspace?.(path)
+          // ⚠ 已知残留（本轮不修）：主进程 conversation-list-by-workspace 仍是精确匹配，
+          //   DB 里若存在另一种写法的会话 workspacePath，这些会话可能删不干净。
+          const conversations = await window.electronAPI?.conversationListByWorkspace?.(key)
           const convIds = conversations?.map((c: any) => c.id) || []
+          // 删除前先释放这批会话的渲染端缓存（messagesMap 等五张会话级表、agentStore
+          // 运行时数据、截断链）并从 renderedConversationIds（LRU 已渲染表）移除，
+          // 只清被删工作区的会话，不影响其余会话状态。
+          evictConversations(convIds)
 
           set((state) => {
-              const {[path]: _, ...rest} = state.workspaces
+              // 清掉所有归一化等价的键（历史遗留的重复键一并清）
+              const rest = Object.fromEntries(
+                  Object.entries(state.workspaces).filter(([k]) => workspacePathKey(k) !== target)
+              )
+              // 当前工作区判断按归一化键比较（原串精确比较会漏掉等价写法的当前工作区）
+              const isCurrent = state.currentWorkspacePath !== null && workspacePathKey(state.currentWorkspacePath) === target
               return {
                   workspaces: rest,
-                  currentWorkspacePath: state.currentWorkspacePath === path ? null : state.currentWorkspacePath,
-                  activeConversationId: state.currentWorkspacePath === path ? null : state.activeConversationId,
-                  gitBranch: state.currentWorkspacePath === path ? null : state.gitBranch,
+                  currentWorkspacePath: isCurrent ? null : state.currentWorkspacePath,
+                  activeConversationId: isCurrent ? null : state.activeConversationId,
+                  gitBranch: isCurrent ? null : state.gitBranch,
               }
           })
 
@@ -693,12 +1341,67 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           if (workspaceId) await window.electronAPI?.workspace?.delete(workspaceId)
       },
 
+      /**
+       * 跨窗口跳转：切到目标会话所属的工作区并激活该会话。
+       *
+       * 与 setWorkspace 的差别（有意为之）：
+       *  · 不为未注册的路径新建工作区记录 —— 悬空 workspace_id / hclawDir 回退路径
+       *    不该被登记成用户的工作目录；
+       *  · 不抢占该工作区的首个根会话 —— 激活哪个会话由调用方决定；
+       *  · 工作区对比与去重按归一化键 workspacePathKey（去尾分隔符、统一 `/`、仅 Windows 忽略大小写）。
+       */
+      openConversationInWorkspace: async (convId, workspacePath, opts) => {
+          if (workspacePathKey(workspacePath) !== workspacePathKey(get().currentWorkspacePath || '')) {
+              const ws = await window.electronAPI?.workspace?.getByPath(workspacePath)
+              // 仅当该路径已登记为工作区时才切「当前工作区」；不 create（不登记悬空路径）
+              if (ws) await window.electronAPI?.workspace?.setCurrent(ws.id)
+              // 生效键统一由 resolveWorkspaceKey 解析（与 setWorkspace / removeWorkspace 同一口径）：
+              // ① 复用已有等价键（也保住该键下已加载的会话列表）② 注册表返回的规范路径 ③ 兜底投递原串。
+              // 写归一化串会查不到记录，写投递原串则可能与已有等价键并存 → 侧栏两条 + 当前工作区指向空列表。
+              const key = resolveWorkspaceKey(workspacePath, ws?.path)
+              set((state) => ({
+                  currentWorkspacePath: key,
+                  workspaces: state.workspaces[key]
+                      ? state.workspaces
+                      : {...state.workspaces, [key]: {lastOpenedAt: Date.now(), conversations: []}},
+              }))
+              void refreshGitBranch(key)
+              // §5.2 跟随矩阵：跨窗口/跨项目跳转（PM「发送到会话」、备忘录「跳转会话」、
+              // 配置窗口打开会话）必须离开组视图跟随目标项目。
+              // 例外：opts.follow === false（组视图内的窗口内跳转，如最近会话列表）只同步
+              // 「在哪干活」（上面已 set currentWorkspacePath），不写 viewScope —— 组内换会话
+              // ≠ 离开组视图（与 syncCurrentProject 分工注释同口径）。
+              if (opts?.follow !== false) get().followScopeToProject(key)
+          }
+          await get().setActiveConversation(convId)
+      },
+
       // ── Conversations ──────────────────────────────────
 
-      createConversation: async (title?: string) => {
+      createConversation: async (title?: string, opts?: {workspacePath?: string; follow?: boolean}) => {
           const id = `conv-${crypto.randomUUID()}`
           const now = Date.now()
-          const wsPath = get().currentWorkspacePath || ''
+          // 目标项目：显式传入优先（段头「+」/ 抽屉）；否则沿用当前项目（既有行为不变）
+          const target = opts?.workspacePath ?? get().currentWorkspacePath
+          const wsPath = target ?? ''
+          // 生效键：目标项目与当前项目等价 → 沿用当前键（不传 opts 时与改造前**逐字一致**，
+          // 也避免把摘要写进另一条等价键导致列表查不到）；换项目 → 用唯一归一化口径
+          // resolveWorkspaceKey 对齐本机登记（不新增第二条归一化路径）。
+          const key = !wsPath
+              ? ''
+              : workspacePathKey(wsPath) === workspacePathKey(get().currentWorkspacePath || '')
+                  ? (get().currentWorkspacePath || '')
+                  : resolveWorkspaceKey(wsPath)
+          if (key && workspacePathKey(key) !== workspacePathKey(get().currentWorkspacePath || '')) {
+              // 「在哪干活」切到目标项目；「我在看谁」由调用方决定（follow / stayInScope，见 opts.follow 注释）
+              set({currentWorkspacePath: key})
+              void refreshGitBranch(key)
+              // 主进程当前项目同步（重启后 current_workspace_id 不落伍）
+              void (async () => {
+                  const ws = await window.electronAPI?.workspace?.getByPath(key)
+                  if (ws) await window.electronAPI?.workspace?.setCurrent(ws.id)
+              })()
+          }
           // 新会话固化全局默认（session 级 mode 从创建那一刻生效；旧会话回退仍走全局）
           let defaultPerm: 'safe' | 'auto' = 'safe'
           let defaultDisp: 'detailed' | 'compact' | 'ultra-compact' = 'detailed'
@@ -714,7 +1417,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const meta = {
               id,
               title: convTitle,
-              workspacePath: wsPath,
+              workspacePath: key,
               createdAt: now,
               updatedAt: now,
               preview: '',
@@ -735,19 +1438,19 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           }
 
           set((state) => {
-              if (!wsPath) return {
+              if (!key) return {
                   activeConversationId: id,
                   loadedMessages: [],
                   messagesMap: {...state.messagesMap, [id]: []}
               }
-              const wsInfo = state.workspaces[wsPath] || {lastOpenedAt: now, conversations: []}
+              const wsInfo = state.workspaces[key] || {lastOpenedAt: now, conversations: []}
               return {
                   activeConversationId: id,
                   loadedMessages: [],
                   messagesMap: {...state.messagesMap, [id]: []},
                   workspaces: {
                       ...state.workspaces,
-                      [wsPath]: {...wsInfo, conversations: [summary, ...wsInfo.conversations]}
+                      [key]: {...wsInfo, conversations: [summary, ...wsInfo.conversations]}
                   },
               }
           })
@@ -816,11 +1519,27 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           if (handoffFromConvId) {
               void useAgentStore.getState().refreshActiveBatch(handoffFromConvId)
           }
+          // ★ §5.2 跟随矩阵：本函数**无条件跟随**（无需 {follow} 参数）。
+          //   已核实：它的调用点只有两个，都是「把新会话激活给用户看」的路径——
+          //     · App.tsx:577（`session_created` 事件；生产者 = sessionHandoffTool 的 handoff
+          //       与 memoStore 的备忘录新建会话）
+          //     · App.tsx:601（`conversation-created` + source === 'renderer-create'；
+          //       生产者 = src/main/conversation.ts，其他渲染窗口/独立窗口创建会话）
+          //   矩阵里「不跟随」的那些通路（渠道/定时任务 = onConversationCreated；
+          //   子会话 = handleChildConvCreated）是**另外的 action**，根本不经过本函数。
+          //   若日后新增后台调用点，需改为由调用方传 follow: false（回退成本：一个可选参数）。
+          if (workspacePath) get().followScopeToProject(workspacePath)
       },
 
-      // 子 Agent 独立会话创建事件处理：侧栏顶部插入 + 自动归属当前工作区
+      // 子 Agent 独立会话创建事件处理：插入父会话所属工作区列表顶部
+      // ★ 归属 workspacePath（父会话所属工作区），不用 currentWorkspacePath 兜底：
+      //   父会话不在当前工作区时，子会话会被错插到当前工作区的侧栏列表。
+      // ★ 归属策略与 handleSessionCreated、onConversationCreated（schedule 分支）统一：
+      //   目标工作区未在本地缓存（未加载）时新建条目再插入，使子会话立即出现在其
+      //   真实项目列表下；切换/刷新时再经 conversation-list-by-workspace 从 DB 补齐完整列表。
+      //   workspacePath 为空串时仍跳过（不为 '' 新建条目）；不回退 currentWorkspacePath。
       // ★ 必须保留其他工作区条目（...state.workspaces），否则项目选择器会丢失其他项目
-      handleChildConvCreated: (convId, title, parentConvId) => {
+      handleChildConvCreated: (convId, title, parentConvId, workspacePath) => {
           const now = Date.now()
           const summary: ConversationSummary = {
               id: convId,
@@ -831,16 +1550,17 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               parentConvId: parentConvId || undefined,
           }
           set((state) => {
-              const wsPath = state.currentWorkspacePath
-              if (!wsPath) return state
-              const wsInfo = state.workspaces[wsPath]
-              if (!wsInfo) return state
+              // 目标工作区未在本地缓存则新建条目（与 handleSessionCreated 同构）；
+              // workspacePath 为空串时不新建 '' 条目，直接跳过
+              const wsInfo = workspacePath
+                  ? (state.workspaces[workspacePath] || {lastOpenedAt: now, conversations: []})
+                  : undefined
               // 去重守卫：会话已存在（双投递）则跳过
-              if (wsInfo.conversations.some(c => c.id === convId)) return state
+              if (!wsInfo || wsInfo.conversations.some(c => c.id === convId)) return state
               return {
                   workspaces: {
                       ...state.workspaces,
-                      [wsPath]: {...wsInfo, conversations: [summary, ...wsInfo.conversations]},
+                      [workspacePath]: {...wsInfo, conversations: [summary, ...wsInfo.conversations]},
                   },
               }
           })
@@ -848,8 +1568,10 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
 
       deleteConversation: async (id) => {
           const state = get()
-          const wsPath = state.currentWorkspacePath
-          const conversations = wsPath ? state.workspaces[wsPath]?.conversations ?? [] : []
+          // ★ I-1(b)：按**会话自身所属项目**展开后代 —— 组视图下右键的对象可能不属于
+          //   currentWorkspacePath；按当前项目展开会让目标项目的后代成孤儿（列表里也删不掉）。
+          const convPath = findConvHome(state.workspaces, id)
+          const conversations = convPath ? state.workspaces[convPath]?.conversations ?? [] : []
           const toDelete = collectDescendants(conversations, [id])
           const wasActive = toDelete.includes(state.activeConversationId || '')
           await window.electronAPI?.conversationDeleteBatch?.(toDelete)
@@ -858,12 +1580,11 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               for (const delId of toDelete) {
                   delete restMap[delId]
               }
-              const wsPath = state.currentWorkspacePath
-              if (!wsPath || !state.workspaces[wsPath]) return {...state, messagesMap: restMap}
-              const remaining = state.workspaces[wsPath].conversations.filter(c => !toDelete.includes(c.id))
+              if (!convPath || !state.workspaces[convPath]) return {...state, messagesMap: restMap}
+              const remaining = state.workspaces[convPath].conversations.filter(c => !toDelete.includes(c.id))
               return {
                   messagesMap: restMap,
-                  workspaces: {...state.workspaces, [wsPath]: {...state.workspaces[wsPath], conversations: remaining}},
+                  workspaces: {...state.workspaces, [convPath]: {...state.workspaces[convPath], conversations: remaining}},
               }
           })
           if (wasActive) await switchActiveConversation(getFirstRootConversationId())
@@ -876,9 +1597,13 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       deleteConversations: async (ids) => {
           if (!ids.length) return
           const state = get()
-          const wsPath = state.currentWorkspacePath
-          const conversations = wsPath ? state.workspaces[wsPath]?.conversations ?? [] : []
-          const toDelete = collectDescendants(conversations, ids)
+          // ★ I-1(b)：后代展开必须**覆盖其它项目** —— 入参 id 可能分属不同项目（会话管理页
+          //   跨项目删除），只看 currentWorkspacePath 会漏掉其它项目的后代（成孤儿）。
+          const toDeleteSet = new Set<string>(ids)
+          for (const info of Object.values(state.workspaces)) {
+              for (const delId of collectDescendants(info.conversations, ids)) toDeleteSet.add(delId)
+          }
+          const toDelete = [...toDeleteSet]
           const wasActiveIncluded = toDelete.includes(state.activeConversationId || '')
           await window.electronAPI?.conversationDeleteBatch?.(toDelete)
           set((s) => {
@@ -900,16 +1625,18 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           releaseConvCaches(toDelete)
       },
 
-      setActiveConversation: async (id) => {
-          if (id === get().activeConversationId) return
+      setActiveConversation: async (id, opts) => {
+          if (id === get().activeConversationId && !opts?.force) return
           // 刷新待处理的批次数据（文本 + 工具结果），防止切换后丢失正在流式的内容
           useAgentStore.getState().flushPendingStreamData()
-          await switchActiveConversation(id)
+          await switchActiveConversation(id, opts)
       },
 
       updateConversationMeta: (id, updates) => {
           set((state) => {
-              const wsPath = state.currentWorkspacePath
+              // ★ I-1(b)：按会话自身所属项目写（否则组视图下重命名非当前项目的会话时
+              //   DB 已改、界面不变：改动落在当前项目的列表上）。
+              const wsPath = findConvHome(state.workspaces, id)
               if (!wsPath || !state.workspaces[wsPath]) return state
               return {
                   workspaces: {
@@ -946,7 +1673,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       togglePinConversation: (id) => {
           let newPinned = false
           set((state) => {
-                  const wsPath = state.currentWorkspacePath
+                  // ★ I-1(b)：按会话自身所属项目写（否则组视图下置顶非当前项目的会话
+                  //   会写错列表：界面看起来「永远置不上」，且落库的 pinned 与界面不一致）。
+                  const wsPath = findConvHome(state.workspaces, id)
                   if (!wsPath || !state.workspaces[wsPath]) return state
                   const conversations = state.workspaces[wsPath].conversations.map(c => {
                       if (c.id === id) {
@@ -971,16 +1700,25 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           set((s) => ({handoffDismissed: {...s.handoffDismissed, [convId]: true}})),
       clearHandoffDismissals: () => set({handoffDismissed: {}}),
 
+      /**
+       * 兼容既有消费方（ConversationSidebar / useGlobalHotkeys）的平铺视图：
+       * 口径与渲染一致 = 各段 rows 的顺序平铺（受窗口/折叠/搜索影响，spec §7.2）。
+       * 排序仍由 sections 保证（置顶优先 → createdAt desc），此处不再二次排序。
+       */
       getFilteredConversations: () => {
-          const {currentWorkspacePath, workspaces, searchQuery} = get()
-          if (!currentWorkspacePath || !workspaces[currentWorkspacePath]) return []
-          let filtered = workspaces[currentWorkspacePath].conversations
-          filtered = fuzzyFilter(filtered, searchQuery, ['title', 'preview'])
-          return [...filtered].sort((a, b) => {
-              if (a.pinned && !b.pinned) return -1
-              if (!a.pinned && b.pinned) return 1
-              return (b.createdAt || 0) - (a.createdAt || 0)
-          })
+          const sections = get().getScopedSections()
+          const workspaces = get().workspaces
+          const flat: ConversationSummary[] = []
+          for (const section of sections) {
+              const convs = workspaces[section.projectPath]?.conversations ?? []
+              const byId = new Map(convs.map(c => [c.id, c]))
+              // 行顺序即最终顺序（折叠段 rows 为空 → 折叠时不显示，与渲染一致）
+              for (const row of section.rows) {
+                  const conv = byId.get(row.id)
+                  if (conv) flat.push(conv)
+              }
+          }
+          return flat
       },
 
       getConversationTitle: () => {
@@ -1122,9 +1860,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   conversationLastActiveAt: {...state.conversationLastActiveAt, [convId]: Date.now()},
               }))
               // ★ 不变量：写回后立即执行数量上限约束。
-              //   写回本身可能把键数顶到 MAX_MESSAGES_MAP_SIZE 之上（驱逐后 / 期间其他会话
-              //   已把 messagesMap 填满）——只在 switchActiveConversation 末尾 enforce 覆盖不到
-              //   这条迟到写回路径，会永久破坏「上限 20」的不变量。
+              //   写回本身可能把键数顶到 MAX_RESIDENT_PER_PROJECT（每项目）之上（驱逐后 /
+              //   期间其他会话已把 messagesMap 填满）——只在 switchActiveConversation 末尾
+              //   enforce 覆盖不到这条迟到写回路径，会永久破坏「每项目 ≤3」的不变量。
               enforceMessagesMapSizeLimit()
           })
       },
@@ -1165,6 +1903,10 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           // 如果已有消息则跳过
           if (get().messagesMap[convId] && get().messagesMap[convId]!.length > 0) return
           await get().loadMessagesInitial(convId)
+          // ★ Task 17（§10.2 / R-BN）：预热进内存的会话同时登记进 LRU 缓存池。
+          //   此前 hover 路径从不登记 → 载入的会话不受「每项目缓存池 ≤5」约束，
+          //   逐个 hover 即可无界撑大 messagesMap（正是 §10.3 要消除的线性增长）。
+          get().markConversationRendered(convId)
       },
 
       getMessages: () => get().loadedMessages,
@@ -1202,8 +1944,11 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               const workspaces: Record<string, WorkspaceInfo> = {}
               for (const meta of allMetas as any[]) {
                   const wsPath = meta.workspacePath
-                  if (!wsPath) continue
-                  if (!workspaces[wsPath]) workspaces[wsPath] = {
+                  // ★ workspacePath 为空的会话（MCP 诊断弹窗 / scheduler 定时任务等创建）
+                  //   不再跳过：收进「未归属」虚拟段，使其在侧栏可见。
+                  //   UNASSIGNED_WORKSPACE_KEY 仅内存使用，不落库、不参与 workspacePathKey 匹配。
+                  const segKey = wsPath || UNASSIGNED_WORKSPACE_KEY
+                  if (!workspaces[segKey]) workspaces[segKey] = {
                       lastOpenedAt: meta.updatedAt || Date.now(),
                       conversations: []
                   }
@@ -1219,8 +1964,8 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                       parentConvId: meta.parentConvId,
                       handoffFromConvId: meta.handoffFromConvId,
                   }
-                  if (!workspaces[wsPath].conversations.find(c => c.id === summary.id)) {
-                      workspaces[wsPath].conversations.push(summary)
+                  if (!workspaces[segKey].conversations.find(c => c.id === summary.id)) {
+                      workspaces[segKey].conversations.push(summary)
                   }
               }
 
@@ -1244,6 +1989,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                       set({activeConversationId: root.id})
                       get().markConversationRendered(root.id)
                       await get().loadMessagesInitial(root.id)
+                      // 冷启动自动激活同样要按会话 meta 恢复输入栏模式
+                      //（否则只剩 agentStore persist 的全局默认回退，显示被污染的默认值）
+                      void applyConvModesToAgentStore(root.id)
                   }
               }
 
@@ -1258,13 +2006,16 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   //   src/shared/types/infra.ts:123；touchConversation / updateConversationMeta
                   //   均以它记录会话最近活跃），按降序取最近更新的前 10 个。
                   //   仅限当前工作区（保持原筛选范围）。
+                  // ★ Task 17（§10.2）：预热量再收敛为 min(PRELOAD_MAX_CONVERSATIONS,
+                  //   MAX_RESIDENT_PER_PROJECT)——预热进来的会话本身就是该项目的常驻会话，
+                  //   不能超过该项目的常驻预算（否则"预热即被驱逐"纯烧 CPU/IO）。
                   const toPreload = convs
                       .filter(c => {
                           const existing = get().messagesMap[c.id]
                           return !existing || existing.length === 0
                       })
                       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-                      .slice(0, PRELOAD_MAX_CONVERSATIONS)
+                      .slice(0, Math.min(PRELOAD_MAX_CONVERSATIONS, MAX_RESIDENT_PER_PROJECT))
                   const concurrency = 5
                   ;(async () => {
                       for (let i = 0; i < toPreload.length; i += concurrency) {
@@ -1273,7 +2024,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                           //   cleanupInactiveConversations 的输入集是 renderedConversationIds，
                           //   此前预热循环从不调 markConversationRendered → 集合差恒空 → 这批
                           //   会话永不被回收。登记后 10 分钟不活跃清理即可回收它们，
-                          //   与 messagesMap 数量上限（MAX_MESSAGES_MAP_SIZE）互补。
+                          //   与 messagesMap 每项目常驻预算（MAX_RESIDENT_PER_PROJECT）互补。
                           await Promise.allSettled(batch.map(async c => {
                               await get().loadMessagesInitial(c.id)
                               get().markConversationRendered(c.id)
@@ -1297,6 +2048,10 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   [convId]: Date.now(),
               },
           }))
+          // ★ 每项目缓存池 ≤ MAX_RENDERED_PER_PROJECT（§10.2-3）：本方法是缓存池的**唯一**
+          //   登记点，三条路径（switchActiveConversation / preloadConversation / 批量预热）
+          //   都在此处收口。守卫内部只淘汰非保护集的最冷者。
+          enforceRenderedPoolLimit(projectPathOfConv(convId))
       },
 
       cleanupInactiveConversations: () => {
@@ -1318,31 +2073,12 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const removedIds = state.renderedConversationIds.filter(id => !keepIds.includes(id))
           if (removedIds.length === 0) return
 
-          const newMsgMap = {...state.messagesMap}
-          const newHasMoreMap = {...state.hasMoreMap}
-          const newLoadingMoreMap = {...state.loadingMoreMap}
-          for (const id of removedIds) {
-              delete newMsgMap[id]
-              delete newHasMoreMap[id]
-              delete newLoadingMoreMap[id]
-          }
+          set({renderedConversationIds: keepIds})
 
-          set({
-              renderedConversationIds: keepIds,
-              conversationLastActiveAt: Object.fromEntries(
-                  Object.entries(state.conversationLastActiveAt).filter(([id]) => keepIds.includes(id))
-              ),
-              messagesMap: newMsgMap,
-              hasMoreMap: newHasMoreMap,
-              loadingMoreMap: newLoadingMoreMap,
-          })
-
-          // 同步清理非活跃会话的 agent 运行时状态（streamBuffer、thinkingContent 等）
-          for (const id of removedIds) {
-              useAgentStore.getState().removeConvData(id)
-          }
-          // 被清理会话若是截断链目标（理论上活跃会话不会被清理，此处仅作对称兜底）
-          cancelActiveTruncateFor(removedIds)
+          // 统一释放被清理会话的缓存：messagesMap/hasMoreMap/loadingMoreMap、
+          // 两个会话级 Record（conversationLastActiveAt / handoffDismissed）、agent
+          // 运行时状态（streamBuffer、thinkingContent 等）与截断链。
+          releaseConvCaches(removedIds)
       },
   })
 )
@@ -1359,10 +2095,19 @@ if (typeof window !== 'undefined') {
             if (ws.conversations?.some((c: any) => c.id === conv.id)) return
         }
 
-        // 定时任务会话：自动归入当前工作目录（不隔离开关）
-        const wsPath = conv.channel === 'schedule'
-          ? state.currentWorkspacePath
-          : (conv.workspacePath || state.currentWorkspacePath || '')
+        // ★ 归属策略与 handleSessionCreated 保持一致：一律按事件携带的真实
+        //   workspacePath 归位，绝不用 currentWorkspacePath 改写归属。
+        //   定时任务会话的 workspacePath 由主进程按该任务自身的 workspaceId 解析
+        //   后随本事件下发（scheduler/index.ts createSchedulerConversation）。
+        //   此前对 channel === 'schedule' 强制取 currentWorkspacePath：用户在项目 A
+        //   创建定时任务、切到项目 B 后触发时，会话被错归到 B；重载后
+        //   loadConversations 又按 meta.workspacePath 跳回 A，产生归属漂移。
+        //   与 handleChildConvCreated 同根因——不得用「当前工作区」语义归属
+        //   属于其他工作区的对象。
+        // ★ payload 无 workspacePath 时不回退 currentWorkspacePath（与
+        //   handleSessionCreated 的 `workspacePath ? ... : undefined` 守卫一致），
+        //   直接跳过；下方 500ms 兜底经 loadConversations 从 DB 正确归位。
+        const wsPath = conv.workspacePath as string | undefined
         if (!wsPath) return
 
         const summary: ConversationSummary = {
@@ -1378,6 +2123,10 @@ if (typeof window !== 'undefined') {
             handoffFromConvId: conv.handoffFromConvId || undefined,
         }
 
+        // 目标工作区未在本地缓存（未加载）时新建条目——与 handleSessionCreated 的
+        // `state.workspaces[workspacePath] || {lastOpenedAt, conversations: []}` 一致：
+        // 定时任务/渠道会话必须立即出现在其真实项目列表下，切换/刷新时再由
+        // conversation-list-by-workspace 从 DB 补齐完整列表。
         const wsInfo = workspaces[wsPath] || {lastOpenedAt: Date.now(), conversations: []}
         const updatedConvs = [summary, ...wsInfo.conversations]
             .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
@@ -1393,7 +2142,7 @@ if (typeof window !== 'undefined') {
         }
 
         // 如果当前未选中工作区，且会话所属工作区有效，自动切换过去
-        if (!state.currentWorkspacePath && wsPath) {
+        if (!state.currentWorkspacePath) {
             updates.currentWorkspacePath = wsPath
             updates.activeConversationId = summary.id
         }

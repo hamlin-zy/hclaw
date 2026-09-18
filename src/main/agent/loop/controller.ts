@@ -429,15 +429,11 @@ export class AgentLoopController {
             }
         }
 
-        // ── LLM 循环检测：按档位初始化（off / 子 Agent 运行 → 不检测）──
+        // ── LLM 循环检测：按档位惰性构建（off / 子 Agent 运行 → 不检测）──
         // 子 Agent 运行标识：modelRole 为 agentTool 子会话专用字段（grep agentTool.ts 确认，
         // 仅子 Agent 的 agentLoop 调用传入）；traceContext === 'subAgent' 同理。
-        const ldMode = getSettings()?.agent?.loopDetection?.mode ?? 'notify'
         const isSubagentRun = params.modelRole !== undefined || params.traceContext === 'subAgent'
-        let detector: LoopDetector | null =
-            (ldMode === 'off' || isSubagentRun)
-                ? null
-                : new LoopDetector(Math.max(2, getSettings()?.agent?.loopDetection?.threshold ?? 3))
+        let detector: LoopDetector | null = null
         let lastVerdict: LoopVerdict | null = null
         let lastReportedFingerprint: string | null = null
         let lastEscalationReported = false
@@ -449,6 +445,13 @@ export class AgentLoopController {
                 logger.info(`[AgentLoop] loop done turns:${turnCount} reason:aborted`)
                 yield {type: 'done', reason: 'aborted'}
                 return 'early_exit'
+            }
+
+            // 惰性构建（spec §5.3）：off→开 的运行中改动自下一轮起生效；一经构建阈值即冻结
+            const loopDetection = getSettings()?.agent?.loopDetection
+            if (!detector && !isSubagentRun && (loopDetection?.mode ?? 'notify') !== 'off') {
+                // threshold 下限由 LoopDetector 构造器统一 clamp（loopDetector.ts）
+                detector = new LoopDetector(loopDetection?.threshold ?? 3)
             }
 
             // ── LLM 循环检测门：上一轮记录的签名达到触发条件时按档位处理 ──
@@ -468,7 +471,7 @@ export class AgentLoopController {
                             && detector.isEscalationReached(lastVerdict.fingerprint)
                         if (!lastReportedFingerprint || isEscalation) {
                             const answer = await params.askUserQuestion?.(
-                                `检测到 Agent 可能陷入重复循环（${lastVerdict.kind === 'consecutive' ? '连续' : '周期'} ${lastVerdict.repeatCount} 轮执行了相同的工具调用并得到相同结果）。为避免打扰，任务已暂停。如果这是误判，抱歉打扰了您——您可以在 系统设置 → LLM循环检测 中调整档位或关闭此功能。`,
+                                `检测到 Agent 可能陷入重复循环（${lastVerdict.kind === 'consecutive' ? '连续' : '周期'} ${lastVerdict.repeatCount} 轮执行了相同的工具调用并得到相同结果）。为避免打扰，任务已暂停。如果这是误判，抱歉打扰了您——您可以在 系统设置 → 循环检测 中调整档位或关闭此功能。`,
                                 ['继续一轮', '终止 loop', '本会话不再提示'],
                             )
                             if (answer === '终止 loop') {
@@ -484,7 +487,7 @@ export class AgentLoopController {
                         }
                     } else {
                         // notify 档（含 pause 无 askUserQuestion 的降级路径）
-                        const threshold = Math.max(2, getSettings()?.agent?.loopDetection?.threshold ?? 3)
+                        const threshold = detector.threshold
                         if (lastReportedFingerprint !== lastVerdict.fingerprint) lastEscalationReported = false   // 新模式重置升级标记
                         const escalated = lastReportedFingerprint === lastVerdict.fingerprint
                             && detector.isEscalationReached(lastVerdict.fingerprint) && !lastEscalationReported

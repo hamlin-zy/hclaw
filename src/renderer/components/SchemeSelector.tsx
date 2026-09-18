@@ -1,9 +1,10 @@
-import {useCallback, useEffect, useRef, useState} from 'react'
+import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {motion} from 'framer-motion'
 import CopyToast from './common/CopyToast'
 import {switchActiveScheme, useModelSchemeStore} from '../stores/modelSchemeStore'
 import {useResetTimeout} from '../hooks/useResetTimeout'
+import {clampPanelRight} from '../lib/panelClamp'
 import type {ModelScheme} from '@shared/types'
 
 /** 模型方案的颜色标识 */
@@ -42,20 +43,27 @@ function FixedDropdown({
     const [position, setPosition] = useState<{top?: number; bottom?: number; right: number}>({right: 0})
     const dropdownRef = useRef<HTMLDivElement>(null)
 
-    useEffect(() => {
+    // 面板定位（useLayoutEffect 绘制前执行，避免闪烁）：
+    // 右缘贴按钮向左展开；面板实测宽度后钳制 right，保证左缘不溢出窗口（≥PANEL_EDGE_MARGIN 留白）
+    useLayoutEffect(() => {
         if (open && buttonRef.current) {
             const rect = buttonRef.current.getBoundingClientRect()
+            const right = clampPanelRight(
+                window.innerWidth - rect.right,
+                dropdownRef.current?.offsetWidth,
+                window.innerWidth,
+            )
             // 空间检测：按钮位于 footer（窗口底部），向下弹出会超出视口底边被裁剪，
             // 下方剩余空间不足时改为向上弹出（bottom 定位），保证面板完整可见。
             if (window.innerHeight - rect.bottom < 320) {
                 setPosition({
                     bottom: window.innerHeight - rect.top + 6,
-                    right: window.innerWidth - rect.right,
+                    right,
                 })
             } else {
                 setPosition({
                     top: rect.bottom + 6,
-                    right: window.innerWidth - rect.right,
+                    right,
                 })
             }
         }
@@ -108,7 +116,7 @@ function FixedDropdown({
                                     <div className={`w-2 h-2 rounded-full ${dotColor} ${isActive ? '' : 'opacity-60'}`}/>
 
                                     <div className="flex-1 min-w-0">
-                                        <div className={`font-medium truncate ${isActive ? 'text-[var(--brand-primary)]' : 'text-[var(--text-primary)]'}`}>
+                                        <div className={`font-medium truncate ${isActive ? 'text-[var(--text-brand)]' : 'text-[var(--text-primary)]'}`}>
                                             {scheme.name}
                                         </div>
                                         {scheme.description && (
@@ -120,7 +128,7 @@ function FixedDropdown({
 
                                     {/* 选中对勾 */}
                                     {isActive && (
-                                        <svg className="w-4 h-4 text-[var(--brand-primary)] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                        <svg className="w-4 h-4 [color:var(--brand-primary)] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                                             <polyline points="20 6 9 17 4 12"/>
                                         </svg>
                                     )}
@@ -245,13 +253,13 @@ export default function SchemeSelector() {
                     <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-[var(--brand-primary)]' : 'bg-[var(--text-muted)]'}`}/>
 
                     {/* 方案名称 */}
-                    <span className={`truncate whitespace-nowrap min-w-0 text-xs font-medium ${isActive ? 'text-[var(--brand-primary)]' : 'text-[var(--text-secondary)]'}`}>
+                    <span className={`truncate whitespace-nowrap min-w-0 text-xs font-medium ${isActive ? 'text-[var(--text-brand)]' : 'text-[var(--text-secondary)]'}`}>
                         {isSwitching ? '切换中...' : activeScheme?.name || '选择方案'}
                     </span>
 
                     {/* 下拉箭头 */}
                     <svg
-                        className={`w-3 h-3 transition-transform duration-200 ${isActive ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)]'} ${isOpen ? 'rotate-180' : ''}`}
+                        className={`w-3 h-3 transition-transform duration-200 ${isActive ? '[color:var(--brand-primary)]' : 'text-[var(--text-muted)]'} ${isOpen ? 'rotate-180' : ''}`}
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"

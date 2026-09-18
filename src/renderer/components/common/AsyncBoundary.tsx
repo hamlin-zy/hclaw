@@ -58,7 +58,7 @@ export function AsyncBoundary({
                     <button
                         type="button"
                         onClick={onRetry}
-                        className="rounded-md border border-[var(--border)] px-[var(--space-normal)] py-1 text-xs text-[var(--text-secondary)] transition-colors hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] dark-all:focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]"
+                        className="rounded-md border border-[var(--border)] px-[var(--space-normal)] py-1 text-xs text-[var(--text-secondary)] transition-colors hover:border-[var(--brand-primary)] hover:text-[var(--text-brand)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] dark-all:focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]"
                         data-name="async-boundary-retry-button"
                     >
                         重试

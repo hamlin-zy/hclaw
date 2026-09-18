@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react'
 import type {ConversationMeta} from '@shared/types/infra'
 import {fuzzyFilter} from '../../lib/search'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 /**
  * 「发送到指定会话」的受控选择器（spec §4.3）。
@@ -41,7 +42,7 @@ export function SessionPicker({items, value, onChange}: {
     <div className="pm-session-picker" data-testid="pm-session-picker">
       <input
         type="text"
-        className="pm-session-picker-input"
+        className={`pm-session-picker-input ${INPUT_FOCUS}`}
         value={search}
         onChange={e => setSearch(e.target.value)}
         onKeyDown={onKeyDown}

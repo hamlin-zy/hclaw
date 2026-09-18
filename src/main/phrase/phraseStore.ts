@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import {randomUUID} from 'crypto'
 import type {PhraseItem} from '@shared/types/phrase'
-import {getHclawDir} from '../config'
+import {getHclawDir} from '../hclawPaths'
 import {logger} from '../agent/logger'
 
 const PHRASE_FILE = () => path.join(getHclawDir(), 'data', 'phrases', 'phrases.json')

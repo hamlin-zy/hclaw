@@ -38,7 +38,7 @@ API类型 & API Base Url 务必匹配，请仔细阅读服务商文档，若配�
 
 在开始对话之前，还需要两步：
 1. [配置模型方案](./model_schema.md)
-2. [选择工作目录](work_dir.md)
+2. [选择项目](work_dir.md)
 
 ## 常见问题
 

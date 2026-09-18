@@ -8,21 +8,20 @@
  * 不 mock repository 层，验证完整持久化链路。
  */
 import {describe, expect, it, beforeEach, afterEach, vi} from 'vitest'
-import * as os from 'os'
-import * as path from 'path'
 
 // 隔离：重定向到 os.tmpdir() 下的独立临时目录，绝不触碰真实 ~/.hclaw/data/hclaw.db
-vi.mock('@/main/config', () => {
-    const os = require('os')
-    const path = require('path')
-    const testDir = path.join(os.tmpdir(), 'hclaw-test-permission-' + Date.now())
+vi.mock('@/main/config', async () => {
+    const {tmpdir} = await import('node:os')
+    const pathMod = await import('node:path')
+    const testDir = pathMod.join(tmpdir(), 'hclaw-test-permission-' + Date.now())
     return {
         getHclawDir: () => testDir,
         isSafePath: (p: string) => p.startsWith(testDir),
         HCLAW_DIR: testDir,
-        getHclawDataDir: () => path.join(testDir, 'data'),
+        getHclawDataDir: () => pathMod.join(testDir, 'data'),
     }
 })
+vi.mock('@/main/hclawPaths', async () => await import('@/main/config'))  // 路径能力已下沉到叶子 hclawPaths：让叶子跟随本文件对 config 的桩，避免绕过 mock 落到真实 ~/.hclaw
 
 import {initStorage} from '@/main/repositories'
 import {closeDatabase, getDatabase} from '@/main/repositories/sqlite'
@@ -236,6 +235,76 @@ describe('PermissionRulesManager — 持久化与加载', () => {
         expect(freshContext.strippedDangerousRules).toHaveLength(1)
         expect(freshContext.strippedDangerousRules![0]!.tool).toBe('bash')
         expect(freshContext.strippedDangerousRules![0]!.action).toBe('allow')
+    })
+})
+
+describe('PermissionRulesManager — reloadRulesOnly / dedupeAndSaveRules（只刷规则、保会话级 mode）', () => {
+    beforeEach(() => {
+        initStorage()
+        resetPermissionTables()
+    })
+    afterEach(() => {
+        closeDatabase()
+    })
+
+    it('reloadRulesOnly 刷新 DB 新规则，且保留会话级 auto（DB 全局 safe 不覆盖）', async () => {
+        const mgr = new PermissionRulesManager()
+        // 会话级 auto：仅内存，不落库
+        await mgr.applyUpdateNoPersist({type: 'setMode', mode: 'auto'})
+        // 面板（主进程）在 DB 新增一条 deny
+        const panel = new PermissionRulesManager()
+        await panel.applyUpdate({type: 'addRule', rule: makeRule('file_read', 'deny')})
+
+        const rules = await mgr.reloadRulesOnly()
+
+        expect(rules.map((r) => r.tool)).toEqual(['file_read'])
+        expect(rules[0]!.action).toBe('deny')
+        expect(await mgr.getMode()).toBe('auto')
+        // DB 全局未被 reloadRulesOnly 改写
+        const fresh = new PermissionRulesManager()
+        expect((await fresh.getContext()).mode).toBe('safe')
+    })
+
+    it('reloadRulesOnly 在 auto 下重跑危险规则剥离（新载入的危险 allow 不复活）', async () => {
+        const mgr = new PermissionRulesManager()
+        await mgr.applyUpdateNoPersist({type: 'setMode', mode: 'auto'})
+        const panel = new PermissionRulesManager()
+        await panel.applyUpdate({type: 'addRule', rule: makeRule('bash:python:*', 'allow')})
+        await panel.applyUpdate({type: 'addRule', rule: makeRule('file_read', 'allow')})
+
+        const rules = await mgr.reloadRulesOnly()
+
+        expect(rules.map((r) => r.tool)).toEqual(['file_read'])
+        const ctx = await mgr.getContext()
+        expect((ctx.strippedDangerousRules ?? []).map((r) => r.tool)).toContain('bash:python:*')
+    })
+
+    it('dedupeAndSaveRules 保会话级 auto，且规则集合完整落库', async () => {
+        const mgr = new PermissionRulesManager()
+        await mgr.applyUpdateNoPersist({type: 'setMode', mode: 'auto'})
+        const panel = new PermissionRulesManager()
+        await panel.applyUpdate({type: 'addRule', rule: makeRule('file_read', 'deny')})
+        await panel.applyUpdate({type: 'addRule', rule: makeRule('m_a', 'allow')})
+
+        const rules = await mgr.dedupeAndSaveRules()
+
+        expect(new Set(rules.map((r) => r.tool))).toEqual(new Set(['file_read', 'm_a']))
+        expect(await mgr.getMode()).toBe('auto')
+        const fresh = new PermissionRulesManager()
+        expect(new Set((await fresh.getRules()).map((r) => r.tool))).toEqual(new Set(['file_read', 'm_a']))
+    })
+
+    it('addRule 不把会话级 mode 写成全局默认（permission_mode 保持 DB 原值）', async () => {
+        const mgr = new PermissionRulesManager()
+        // 会话级 auto（仅内存）
+        await mgr.applyUpdateNoPersist({type: 'setMode', mode: 'auto'})
+        // 会话内「始终允许」→ addRule 落库规则，但不得回写会话级 mode
+        await mgr.applyUpdate({type: 'addRule', rule: makeRule('m_github_create_issue', 'allow')})
+
+        const fresh = new PermissionRulesManager()
+        const ctx = await fresh.getContext()
+        expect(ctx.mode).toBe('safe')
+        expect(ctx.rules.map((r) => r.tool)).toEqual(['m_github_create_issue'])
     })
 })
 

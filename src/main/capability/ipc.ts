@@ -7,15 +7,41 @@
  *   - 每个 handler 返回 CapabilityEntry[]（可序列化的纯对象数组）
  *   - 不做任何业务逻辑——业务逻辑在前端（过滤/排序/分组在 UI 层）
  *   - 所有 IPC 调用都是纯内存读取，无磁盘 IO
+ *   - 列表类出口默认**不外发能力正文**（`content`，技能正文/系统提示可达数十 KB），
+ *     确需正文的调用方显式传 `withContent: true`
+ *
+ * 正文裁剪的落点是**传输层**，不是投影层：CapabilityHub 的只读投影接口一字未动
+ * （其写 seam 已被静态契约测试锁死为单次 replaceAll，见
+ * tests/main/capability/capabilityChangedBroadcast.test.ts）。
  */
 
 import { ipcMain } from 'electron'
 import { capabilityHub } from './CapabilityHub'
 import { broadcastToAllWindows } from '../utils/windowBroadcast'
-import type { CapabilityFilter, CapabilityType } from './types'
+import type { CapabilityEntry, CapabilityFilter, CapabilityType } from './types'
 
 /** capabilityHub.onChanged 订阅的注销句柄（供 will-quit 释放） */
 let unsubscribeCapabilityChanged: (() => void) | null = null
+
+/** 列表类出口的可选参数：`withContent` 缺省即裁剪正文 */
+export interface CapabilityQueryOptions {
+    withContent?: boolean
+}
+
+/**
+ * 传输裁剪：按需剔除 `content` 字段（整键移除，不留 `undefined` 占位）。
+ *
+ * 只裁剪正文：`searchText`（name+description 预拼接，小体量）等投影字段原样保留，
+ * 保证消费端不必为了搜索再取一次。
+ */
+function applyContentPolicy(entries: CapabilityEntry[], withContent?: boolean): CapabilityEntry[] {
+    if (withContent) return entries
+    return entries.map(entry => {
+        if (entry.content === undefined) return entry
+        const { content: _content, ...rest } = entry
+        return rest
+    })
+}
 
 /** 注销 CapabilityHub → 渲染进程的变更订阅（幂等；will-quit 调用） */
 export function disposeCapabilityIPC(): void {
@@ -25,24 +51,27 @@ export function disposeCapabilityIPC(): void {
 
 /** 注册所有 CapabilityHub 的 IPC handlers */
 export function registerCapabilityIPC(): void {
-    // ── 通用查询 ──
-    ipcMain.handle('capability:query', (_event, filter: CapabilityFilter = {}) => {
-        return capabilityHub.query(filter)
+    // ── 通用查询（列表类出口）──
+    ipcMain.handle('capability:query', (_event, filter: CapabilityFilter = {}, options: CapabilityQueryOptions = {}) => {
+        return applyContentPolicy(capabilityHub.query(filter), options?.withContent)
     })
 
-    // ── 按类型获取 ──
-    ipcMain.handle('capability:get-by-type', (_event, type: CapabilityType) => {
-        return capabilityHub.getByType(type)
+    // ── 按类型获取（列表类出口）──
+    ipcMain.handle('capability:get-by-type', (_event, type: CapabilityType, options: CapabilityQueryOptions = {}) => {
+        return applyContentPolicy(capabilityHub.getByType(type), options?.withContent)
     })
 
-    // ── 搜索（Ctrl+K）─
-    ipcMain.handle('capability:search', (_event, query: string) => {
-        return capabilityHub.search(query)
+    // ── 搜索（Ctrl+K，列表类出口）─
+    ipcMain.handle('capability:search', (_event, query: string, options: CapabilityQueryOptions = {}) => {
+        return applyContentPolicy(capabilityHub.search(query), options?.withContent)
     })
 
-    // ── 插件分组 ──
-    ipcMain.handle('capability:plugin-groups', (_event, type?: CapabilityType) => {
-        return capabilityHub.getPluginGroups(type)
+    // ── 插件分组（列表类出口；分组内的 entries 同样受正文裁剪）──
+    ipcMain.handle('capability:plugin-groups', (_event, type?: CapabilityType, options: CapabilityQueryOptions = {}) => {
+        return capabilityHub.getPluginGroups(type).map(group => ({
+            ...group,
+            entries: applyContentPolicy(group.entries, options?.withContent),
+        }))
     })
 
     // ── 统计 ──
@@ -51,8 +80,12 @@ export function registerCapabilityIPC(): void {
     })
 
     // ── 单个条目 ──
-    ipcMain.handle('capability:get', (_event, id: string) => {
-        return capabilityHub.get(id) ?? null
+    // 单条「详情」出口（非列表），语义上就是「要这一条的完整内容」，故不做默认裁剪；
+    // 需要裁剪时显式传 withContent: false。
+    ipcMain.handle('capability:get', (_event, id: string, options: CapabilityQueryOptions = {}) => {
+        const entry = capabilityHub.get(id)
+        if (!entry) return null
+        return applyContentPolicy([entry], options?.withContent ?? true)[0]
     })
 
     // ── 变更通知（Hub → 渲染进程）──

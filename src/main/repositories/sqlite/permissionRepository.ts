@@ -11,7 +11,9 @@ export class SqlitePermissionRepository implements IPermissionRepository {
         const start = Date.now()
     try {
         const db = getDatabase()
-        const stmt = db.prepare('SELECT tool, action, created_at FROM permission_rules')
+        // 按 created_at 升序返回：调用方（findMatchingMcpRule 等）以「最后命中者覆盖」
+        // 表达「后创建者优先」，需要稳定的时序而非 SQLite 未定义的行序。
+        const stmt = db.prepare('SELECT tool, action, created_at FROM permission_rules ORDER BY created_at ASC, rowid ASC')
         const rows = stmt.all() as Array<{ tool: string, action: 'allow' | 'deny' | 'ask', created_at: number }>
         const rules = rows.map(row => ({
             tool: row.tool,

@@ -29,6 +29,12 @@ describe('ConversationsDialog.tsx — 独立窗口打开时显式初始化 store
         expect(src).toContain('if (!workspaceReady) return')
         expect(src).toContain('conversationListWithStats')
     })
+
+    it('ConversationsDialog 默认 scope = all，且不读主窗口 viewScope', () => {
+        const src = fs.readFileSync(DIALOG_TS, 'utf-8')
+        expect(src).toContain("{scope: 'all'}")
+        expect(src).not.toContain('useConversationStore((s) => s.viewScope)')
+    })
 })
 
 describe('独立窗口链路可用的 IPC', () => {
@@ -39,7 +45,7 @@ describe('独立窗口链路可用的 IPC', () => {
 
     it('preload 暴露 conversationListWithStats（会话列表统计查询所需）', () => {
         const src = fs.readFileSync(PRELOAD_TS, 'utf-8')
-        expect(src).toContain('conversationListWithStats: (workspacePath: string) =>')
-        expect(src).toContain("ipcRenderer.invoke('conversation-list-with-stats', workspacePath)")
+        expect(src).toContain('conversationListWithStats: (scope:')
+        expect(src).toContain("ipcRenderer.invoke('conversation-list-with-stats', scope)")
     })
 })

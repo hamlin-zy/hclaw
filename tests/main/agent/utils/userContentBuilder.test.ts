@@ -50,14 +50,16 @@ describe('buildUserHistoryContent', () => {
         expect(result).toBe('你好\n\n[附件]\n文件: b.txt\n路径: /a/b.txt')
     })
 
-    it('图片附件：返回 content 数组，文本含【图片文件路径】标记 + base64 image_url 块', async () => {
+    it('图片附件：返回 content 数组，文本含【附件图片路径】标记 + base64 image_url 块', async () => {
         const atts = [{path: imgPath, name: 'img.png'}]
         const result = await buildUserHistoryContent('看图', atts) as Array<{type: string; text?: string; image_url?: {url: string}}>
 
         expect(Array.isArray(result)).toBe(true)
         expect(result[0].type).toBe('text')
         expect(result[0].text).toContain('看图')
-        expect(result[0].text).toContain(`【图片文件路径】${imgPath}`)
+        expect(result[0].text).toContain(`【附件图片路径】${imgPath}`)
+        // 反向断言：附件标记与 load_image 快照标记【图片文件路径】不再混用
+        expect(result[0].text).not.toContain('【图片文件路径】')
         expect(result[1].image_url?.url.startsWith('data:image/png;base64,')).toBe(true)
     })
 

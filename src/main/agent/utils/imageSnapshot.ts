@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import crypto from 'crypto'
-import {getHclawDataDir} from '../../config'
+import {getHclawDataDir} from '../../hclawPaths'
 
 export {MAX_IMAGE_BYTES} from './imageCompress'
 

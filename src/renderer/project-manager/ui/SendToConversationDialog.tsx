@@ -4,6 +4,7 @@ import {SessionPicker} from '../components/SessionPicker'
 import {pickSessionCandidates} from '../lib/sessionCandidates'
 import {composeContent} from '../lib/sendContext'
 import {deriveConversationTitle} from '../../utils/conversationTitle'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 /**
  * 「发送到会话」弹窗（spec §4.4）：
@@ -90,7 +91,7 @@ export function SendToConversationDialog({open, context, workspacePath, onClose}
         <div className="pm-send-dialog-title">发送到会话</div>
         <pre className="pm-send-dialog-preview" data-testid="pm-send-dialog-preview">{context}</pre>
         <textarea
-          className="pm-send-dialog-input"
+          className={`pm-send-dialog-input ${INPUT_FOCUS}`}
           value={instruction}
           onChange={e => setInstruction(e.target.value)}
           placeholder="输入指令…"

@@ -226,14 +226,14 @@ export default function UsageStatsDialog() {
                                                 <span className="text-xs font-medium text-[var(--text-primary)]">{title}</span>
                                                 {dupModel && (
                                                     <span title="同名模型由不同服务商提供，价格/延迟可能不同"
-                                                          className="rounded border border-[var(--border)] bg-[var(--surface-muted)] px-1 py-px text-[9px] font-medium text-[var(--brand-primary)]">
+                                                          className="rounded border border-[var(--border)] bg-[var(--surface-muted)] px-1 py-px text-[9px] font-medium text-[var(--text-brand)]">
                                                         同名
                                                     </span>
                                                 )}
-                                                <span className={`text-[10px] ${dupModel ? 'font-medium text-[var(--brand-primary)]' : 'text-[var(--text-tertiary)]'}`}>
+                                                <span className={`text-[10px] ${dupModel ? 'font-medium text-[var(--text-brand)]' : 'text-[var(--text-tertiary)]'}`}>
                                                     {groupView === 'provider' ? `${modelCount} 个模型` : (dupModel ? `via ${b.providerName || b.providerType}` : (b.providerName || b.providerType))}
                                                 </span>
-                                                <span className="ml-auto text-xs font-semibold tabular-nums text-[var(--brand-primary)]">{pct}%</span>
+                                                <span className="ml-auto text-xs font-semibold tabular-nums text-[var(--text-brand)]">{pct}%</span>
                                             </div>
                                             <div className="h-[5px] rounded-sm bg-[var(--border)] mt-2 overflow-hidden">
                                                 <div className="h-full rounded-sm bg-[var(--brand-primary)]" style={{width: `${Math.max(pct, 2)}%`}}/>
@@ -247,7 +247,7 @@ export default function UsageStatsDialog() {
                                                 <div><div className="text-[9px] text-[var(--text-secondary)]">缓存命中</div><div className="text-xs tabular-nums">{b.cacheReadTokens > 0 ? formatTokenCount(b.cacheReadTokens) : '—'}</div></div>
                                                 <div>
                                                     <div className="text-[9px] text-[var(--text-secondary)]">综合价格/M</div>
-                                                    <div className="text-xs tabular-nums text-[var(--brand-primary)]">
+                                                    <div className="text-xs tabular-nums text-[var(--text-brand)]">
                                                         {formatPricePerMillionTokens(b.costUsd, b.inputTokens, b.outputTokens, b.cacheReadTokens, b.cacheWriteTokens, currency)}
                                                     </div>
                                                 </div>
@@ -256,7 +256,7 @@ export default function UsageStatsDialog() {
                                                         成本
                                                         <InfoTip text={getCostDisclaimer()} placement="top"/>
                                                     </div>
-                                                    <div className="text-xs tabular-nums text-[var(--brand-primary)]">{formatCost(b.costUsd, currency)}</div>
+                                                    <div className="text-xs tabular-nums text-[var(--text-brand)]">{formatCost(b.costUsd, currency)}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -302,7 +302,7 @@ export default function UsageStatsDialog() {
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-[var(--brand-muted)]">
-                                        <svg className="w-4.5 h-4.5 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <svg className="w-4.5 h-4.5 [color:var(--brand-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                             <line x1="18" y1="20" x2="18" y2="10"/>
                                             <line x1="12" y1="20" x2="12" y2="4"/>
                                             <line x1="6" y1="20" x2="6" y2="14"/>

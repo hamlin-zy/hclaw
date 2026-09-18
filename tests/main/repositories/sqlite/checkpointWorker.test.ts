@@ -1,10 +1,33 @@
 // @vitest-environment node
-import {describe, expect, it, beforeAll, afterAll} from 'vitest'
+import {describe, expect, it, beforeAll, afterAll, vi} from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import {DatabaseSync, enhance} from '@photostructure/sqlite'
 import {createCheckpointController} from '../../../../src/main/repositories/sqlite/checkpointWorker'
+
+// ── S7 关闭期竞态：Worker 构造计数（唯一观察点）───────────────────────
+// 真 Worker 需要 checkpointWorker.js 构建产物，单测环境不可用；此处只记录「拉起次数」。
+// 其余导出经 importOriginal 原样透传（checkpointWorker.ts 也用本模块的 parentPort/workerData）。
+const workerSpawns = vi.hoisted(() => ({scripts: [] as string[]}))
+vi.mock('node:worker_threads', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('node:worker_threads')>()
+    class CountingWorker {
+        constructor(script: string) {
+            workerSpawns.scripts.push(String(script))
+        }
+
+        on() {
+            return this
+        }
+
+        terminate() {
+            return Promise.resolve(0)
+        }
+    }
+
+    return {...actual, Worker: CountingWorker as unknown as typeof actual.Worker}
+})
 
 let dir: string
 let dbPath: string
@@ -46,5 +69,56 @@ describe('checkpoint worker 核心逻辑', () => {
         const walAfter = fs.statSync(dbPath + '-wal').size
         expect(walAfter).toBeLessThan(walBefore)  // TRUNCATE 后 WAL 缩小
         db.close()
+    })
+})
+
+describe('S7 关闭期不再启动 checkpoint worker', () => {
+    // 隔离：getHclawDir 重定向到 tmpdir，绝不触碰真实 ~/.hclaw/data/hclaw.db
+    // （mock 形态与 tests/main/persistence.integration.test.ts 一致）。
+    let closeDir: string
+
+    beforeAll(() => {
+        closeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sqlite-closing-'))
+        vi.doMock('../../../../src/main/hclawPaths', () => ({
+            getHclawDir: () => closeDir,
+            HCLAW_DIR: closeDir,
+            getHclawDataDir: () => path.join(closeDir, 'data'),
+            isSafePath: (p: string) => p.startsWith(closeDir),
+        }))
+    })
+
+    afterAll(() => {
+        try {
+            fs.rmSync(closeDir, {recursive: true, force: true})
+        } catch {
+            // ignore Windows file-lock cleanup errors
+        }
+    })
+
+    it('flushDatabase 后 saveDatabase 不重启 worker（关闭期走同步兜底）', async () => {
+        const sqlite = await import('../../../../src/main/repositories/sqlite/index')
+        sqlite.initDatabaseSync()
+        const spawned = workerSpawns.scripts.length
+        expect(spawned).toBeGreaterThan(0)   // 控制组：正常启动确实拉起 worker
+
+        sqlite.flushDatabase()   // 退出路径：置关闭标志 + 停 worker
+        sqlite.saveDatabase()    // 竞态点：in-flight 落库在 flush 之后触发
+
+        expect(workerSpawns.scripts.length).toBe(spawned)
+        sqlite.closeDatabase()   // 释放文件句柄，便于 tmpdir 清理
+    })
+
+    it('closeDatabase 后（关闭期仍有落库路径）不重启 worker', async () => {
+        vi.resetModules()   // 取一份全新的模块状态（关闭标志复位）
+        const sqlite = await import('../../../../src/main/repositories/sqlite/index')
+        sqlite.initDatabaseSync()
+        const spawned = workerSpawns.scripts.length
+
+        sqlite.closeDatabase()   // 置关闭标志 + 关库
+        sqlite.getDatabase()     // 关闭期仍有调用方重新打开连接
+        sqlite.saveDatabase()
+
+        expect(workerSpawns.scripts.length).toBe(spawned)
+        sqlite.closeDatabase()
     })
 })

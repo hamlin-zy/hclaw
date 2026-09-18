@@ -54,6 +54,7 @@ vi.mock('@/main/config', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- mock 工厂被提升，无法引用顶层 import 的 path
     return {getHclawDir: () => require('path').join(testHome, '.hclaw')}
 })
+vi.mock('@/main/hclawPaths', async () => await import('@/main/config'))  // 路径能力已下沉到叶子 hclawPaths：让叶子跟随本文件对 config 的桩，避免绕过 mock 落到真实 ~/.hclaw
 
 vi.mock('@/main/repositories/sqlite', () => {
     return {getDatabase: () => ({})}

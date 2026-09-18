@@ -46,7 +46,7 @@ const RunningGlyph = () => {
     const gradientId = useId()
     return (
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"
-             className="animate-spin text-[var(--brand-primary)]">
+             className="animate-spin [color:var(--brand-primary)]">
             <defs>
                 <linearGradient id={gradientId} x1="2.5" y1="12" x2="10.5" y2="3.5"
                                 gradientUnits="userSpaceOnUse">

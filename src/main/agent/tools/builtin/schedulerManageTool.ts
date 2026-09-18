@@ -1,13 +1,21 @@
 /**
  * scheduler_manage 工具 — 定时任务管理
  *
- * 支持：列出、查看详情、创建、更新、删除、立即执行、停止运行中的任务。
- * 通过 action 参数区分操作类型。
+ * 支持：列出、查看详情、创建、更新、删除、立即执行（action 依次为
+ * list / get / create / update / delete / run_now）。
+ *
+ * 边界：**没有 stop / pause / resume 动作**——终止正在运行的任务、暂停与恢复都只在界面侧，
+ * 走 IPC 通道 `scheduler-stop` / `scheduler-pause` / `scheduler-resume`（出口同为 scheduleOps）。
+ * 本工具的 action 枚举里不存在它们，文件头注释与运行时 description 都不得声称支持。
+ *
+ * 取数一律走 scheduleOps —— 与 IPC 通道同一出口，因此工具路径与界面路径
+ * 的可观察结果形状完全一致（{ok, data} | {ok, error}），此处只负责把它翻译成 ToolResult。
  */
 import {z} from 'zod'
 import type {Tool, ToolContext, ToolResult} from '../types'
-import {schedulerManager} from '../../../scheduler'
-import {scheduleRepo} from '../../../scheduler/ScheduleRepository'
+import {
+    createSchedule, deleteSchedule, getSchedule, listSchedules, runNowSchedule, updateSchedule,
+} from '../../../scheduler/scheduleOps'
 import {SqliteWorkspaceRepository} from '../../../repositories/sqlite/workspaceRepository'
 
 const inputSchema = z.object({
@@ -28,7 +36,7 @@ type SchedulerManageInput = z.infer<typeof inputSchema>
 
 export const schedulerManageTool: Tool<SchedulerManageInput, string> = {
     name: 'scheduler_manage',
-    description: '定时任务管理。支持列出所有任务、查看详情、创建、更新、删除、立即执行或停止任务。' +
+    description: '定时任务管理。支持列出所有任务、查看详情、创建、更新、删除、立即执行任务。' +
         '通过 action 参数区分操作。' +
         '例如："每天9点定时发送日报"→ action=create, name=日报, cronExpression="0 9 * * *", taskType=agent, taskTarget=日报技能名。',
     inputSchema,
@@ -39,7 +47,11 @@ export const schedulerManageTool: Tool<SchedulerManageInput, string> = {
         try {
             switch (args.action) {
                 case 'list': {
-                    const records = scheduleRepo.list()
+                    const listed = listSchedules()
+                    if (!listed.ok) {
+                        return {success: false, output: '', error: listed.error}
+                    }
+                    const records = listed.data
                     if (records.length === 0) {
                         return {success: true, output: '暂无定时任务。'}
                     }
@@ -60,10 +72,11 @@ export const schedulerManageTool: Tool<SchedulerManageInput, string> = {
                     if (!args.id) {
                         return {success: false, output: '', error: 'get 操作需要提供 id。'}
                     }
-                    const record = scheduleRepo.get(args.id)
-                    if (!record) {
-                        return {success: false, output: '', error: `未找到ID为 "${args.id}" 的定时任务。`}
+                    const found = getSchedule(args.id)
+                    if (!found.ok) {
+                        return {success: false, output: '', error: found.error}
                     }
+                    const record = found.data
                     return {
                         success: true,
                         output: [
@@ -91,13 +104,10 @@ export const schedulerManageTool: Tool<SchedulerManageInput, string> = {
                             error: 'create 操作需要提供 name、cronExpression、taskType、taskTarget。'
                         }
                     }
-                    const {randomUUID} = await import('crypto')
-                    const id = randomUUID()
                     // 根据当前工作目录自动获取 workspaceId
                     const wsRepo = new SqliteWorkspaceRepository()
                     const ws = context.workingDir ? wsRepo.getByPath(context.workingDir) : null
-                    const success = scheduleRepo.create({
-                        id,
+                    const created = createSchedule({
                         name: args.name,
                         description: args.description || '',
                         cronExpression: args.cronExpression,
@@ -105,19 +115,13 @@ export const schedulerManageTool: Tool<SchedulerManageInput, string> = {
                         taskTarget: args.taskTarget,
                         taskArgs: args.taskPrompt ? [args.taskPrompt] : [],
                         enabled: args.enabled !== false,
-                        paused: false,
-                        pausedAt: null,
                         workspaceId: ws?.id || null,
                     })
-                    if (success) {
-                        const record = scheduleRepo.get(id)
-                        if (record && record.enabled) {
-                            schedulerManager.upsertWorkerSchedule(record)
-                        }
-                        context.onEvent?.({type: 'schedules-changed'})
-                        return {success: true, output: `✅ 定时任务已创建: ${args.name} (ID: ${id.slice(0, 8)}...)`}
+                    if (!created.ok) {
+                        return {success: false, output: '', error: created.error}
                     }
-                    return {success: false, output: '', error: '创建定时任务失败。'}
+                    context.onEvent?.({type: 'schedules-changed', change: {type: 'created', record: created.data}})
+                    return {success: true, output: `✅ 定时任务已创建: ${args.name} (ID: ${created.data.id.slice(0, 8)}...)`}
                 }
 
                 case 'update': {
@@ -136,43 +140,45 @@ export const schedulerManageTool: Tool<SchedulerManageInput, string> = {
                         return {success: false, output: '', error: '请提供至少一个要更新的字段。'}
                     }
 
-                    const success = scheduleRepo.update(args.id, updates)
-                    if (success) {
-                        const record = scheduleRepo.get(args.id)
-                        if (record && record.enabled) schedulerManager.upsertWorkerSchedule(record)
-                        else schedulerManager.deleteWorkerSchedule(args.id)
-                        context.onEvent?.({type: 'schedules-changed'})
-                        return {success: true, output: `✅ 定时任务已更新: ${args.id.slice(0, 8)}...`}
+                    const updated = updateSchedule(args.id, updates)
+                    if (!updated.ok) {
+                        return {success: false, output: '', error: updated.error}
                     }
-                    return {success: false, output: '', error: '更新定时任务失败。'}
+                    context.onEvent?.({type: 'schedules-changed', change: {type: 'updated', record: updated.data}})
+                    return {success: true, output: `✅ 定时任务已更新: ${updated.data.id.slice(0, 8)}...`}
                 }
 
                 case 'delete': {
                     if (!args.id) {
                         return {success: false, output: '', error: 'delete 操作需要提供 id。'}
                     }
-                    // 先检查记录是否存在，避免误报成功
-                    const existing = scheduleRepo.get(args.id)
-                    if (!existing) {
-                        return {success: false, output: '', error: `未找到ID为 "${args.id}" 的定时任务。`}
+                    // 广播要用**解析后**的完整 id：本工具对外回显的是 8 位短 id，
+                    // agent 会复用它来调用，而渲染层按完整 id 匹配本地行——原样透传短 id
+                    // 会让「就地删除」退化成整表重取（口径与界面路径不一致）。
+                    const target = getSchedule(args.id)
+                    if (!target.ok) {
+                        return {success: false, output: '', error: target.error}
                     }
-                    schedulerManager.stop(args.id)
-                    schedulerManager.deleteWorkerSchedule(args.id)
-                    const success = scheduleRepo.delete(args.id)
-                    if (success) {
-                        context.onEvent?.({type: 'schedules-changed'})
-                        return {success: true, output: `✅ 定时任务已删除: ${args.id.slice(0, 8)}...`}
+                    const removed = deleteSchedule(target.data.id)
+                    if (!removed.ok) {
+                        return {success: false, output: '', error: removed.error}
                     }
-                    return {success: false, output: '', error: '删除定时任务失败。'}
+                    context.onEvent?.({type: 'schedules-changed', change: {type: 'deleted', id: target.data.id}})
+                    return {success: true, output: `✅ 定时任务已删除: ${target.data.id.slice(0, 8)}...`}
                 }
 
                 case 'run_now': {
                     if (!args.id) {
                         return {success: false, output: '', error: 'run_now 操作需要提供 id。'}
                     }
-                    const result = await schedulerManager.runNow(args.id)
-                    if (result.success) {
-                        context.onEvent?.({type: 'schedules-changed'})
+                    const result = await runNowSchedule(args.id)
+                    if (result.ok) {
+                        // 立即执行本身不改记录：广播读回后的记录（触发状态由引擎异步落库，
+                        // 与「改后整表重取」读到的是同一份状态），让各窗口就地更新那一行。
+                        const fresh = getSchedule(args.id)
+                        if (fresh.ok) {
+                            context.onEvent?.({type: 'schedules-changed', change: {type: 'updated', record: fresh.data}})
+                        }
                         return {success: true, output: `✅ 定时任务 ${args.id.slice(0, 8)}... 已触发执行。`}
                     }
                     return {

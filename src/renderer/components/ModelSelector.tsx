@@ -6,6 +6,7 @@ import {useAgentStore} from '../stores/agentStore'
 import {useLLMStore} from '../stores/llmStore'
 import {useDefaultRoleForSession} from '../hooks/usePrimaryRole'
 import {resolveActiveModel} from '../lib/modelResolution'
+import {clampPanelRight, PANEL_EDGE_MARGIN} from '../lib/panelClamp'
 import type {ModelOverride} from '@shared/types'
 
 interface ModelSelectorProps {
@@ -18,8 +19,7 @@ type ViewState = 'closed' | 'providers' | 'models'
 
 /** 子菜单与父项水平间隙 */
 const SUBMENU_GAP = 6
-/** 子菜单贴窗口边缘的最小留白 */
-const EDGE_MARGIN = 8
+/** 子菜单贴窗口边缘的最小留白（与 panelClamp 共享同一约束） */
 /** hover 开关防抖延迟（ms）：兼顾快速扫过不抖、跨间隙进子菜单不误关 */
 const HOVER_DELAY = 120
 
@@ -89,16 +89,24 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
 
     const activeLabel = activeResolution.label
 
-    // popover 向上展开定位（基于按钮 rect；子菜单独立 fixed 定位，见下方 useLayoutEffect）
-    useEffect(() => {
+    // popover 向上展开定位（基于按钮 rect；子菜单独立 fixed 定位，见下方 useLayoutEffect）。
+    // 用 useLayoutEffect 在绘制前完成「定位 + 左缘钳制」，避免与被动 effect 的执行顺序竞争：
+    // 卡片右缘贴按钮向左展开，按钮靠窗口左侧时会溢出窗口左缘，故按卡片实测宽度钳制 right
+    // 保证卡片左缘 ≥ PANEL_EDGE_MARGIN（与子菜单同款夹取）。
+    useLayoutEffect(() => {
         if (view !== 'closed' && buttonRef.current) {
             const rect = buttonRef.current.getBoundingClientRect()
+            const right = clampPanelRight(
+                window.innerWidth - rect.right,
+                panelRef.current?.offsetWidth,
+                window.innerWidth,
+            )
             setPosition({
                 bottom: window.innerHeight - rect.top + 6, // 向上展开
-                right: window.innerWidth - rect.right,
+                right,
             })
         }
-    }, [view])
+    }, [view, activeLabel])
 
     // 子菜单定位：默认从父项右侧水平展开；右缘空间不足则向左展开或贴右缘；
     // 垂直方向与父项对齐，贴近窗口顶部/底部时做 min/max 夹取保证完整可见。
@@ -110,12 +118,12 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
         const h = el.offsetHeight
 
         let left = submenuAnchor.right + SUBMENU_GAP
-        if (left + w > window.innerWidth - EDGE_MARGIN) {
+        if (left + w > window.innerWidth - PANEL_EDGE_MARGIN) {
             // 右侧放不下：优先向左展开（贴父项左缘），若左边也不够则贴窗口右缘
             const leftAlt = submenuAnchor.left - w - SUBMENU_GAP
-            left = leftAlt >= EDGE_MARGIN ? leftAlt : Math.max(EDGE_MARGIN, window.innerWidth - w - EDGE_MARGIN)
+            left = leftAlt >= PANEL_EDGE_MARGIN ? leftAlt : Math.max(PANEL_EDGE_MARGIN, window.innerWidth - w - PANEL_EDGE_MARGIN)
         }
-        const top = Math.max(EDGE_MARGIN, Math.min(submenuAnchor.top, window.innerHeight - h - EDGE_MARGIN))
+        const top = Math.max(PANEL_EDGE_MARGIN, Math.min(submenuAnchor.top, window.innerHeight - h - PANEL_EDGE_MARGIN))
         setSubmenuPos({left, top})
     }, [view, selProviderId, submenuAnchor])
 
@@ -210,7 +218,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                 onClick={() => setView(view === 'closed' ? 'providers' : 'closed')}
                 className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)] dark-all:focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface)] ${
                     view !== 'closed'
-                        ? 'border-[var(--brand-primary)] bg-[var(--brand-muted)] text-[var(--brand-primary)]'
+                        ? 'border-[var(--brand-primary)] bg-[var(--brand-muted)] text-[var(--text-brand)]'
                         : 'border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-secondary)] hover:border-[var(--border-emphasis)] hover:bg-[var(--surface-overlay)] active:bg-[var(--surface-overlay)]'
                 }`}
                 aria-expanded={view !== 'closed'}
@@ -259,7 +267,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                                     onMouseEnter={(e) => openProviderSubmenu(p.id, e.currentTarget)}
                                                     onMouseLeave={scheduleClose}
                                                     className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs rounded-lg transition-colors ${
-                                                        isActive ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--brand-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
+                                                        isActive ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--text-brand)]' : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
                                                     }`}
                                                 >
                                                     <span className="truncate">{p.name}</span>
@@ -313,7 +321,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                                     data-name={`model-selector-model-${m.id}`}
                                                     onClick={() => handleApply(selProviderId, m.id)}
                                                     className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs rounded-lg transition-colors ${
-                                                        isSelected ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--brand-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
+                                                        isSelected ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--text-brand)]' : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
                                                     }`}
                                                 >
                                                     <span className="truncate">{m.name}</span>

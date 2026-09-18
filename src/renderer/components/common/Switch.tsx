@@ -26,7 +26,7 @@ export function Switch({ checked, onChange, disabled = false, loading = false, a
       disabled={disabled || loading}
       onClick={() => onChange(!checked)}
       className={clsx(
-        'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface)]',
+        'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface)]',
         checked ? 'bg-[var(--brand-primary)]' : 'bg-[var(--border-emphasis)]',
         (disabled || loading) && 'opacity-50 cursor-not-allowed',
       )}

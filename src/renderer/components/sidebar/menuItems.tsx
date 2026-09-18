@@ -96,7 +96,7 @@ export const SIDEBAR_MENU_GROUPS: Array<{group: string; items: SidebarMenuItem[]
                 </svg>,
             },
             {
-                type: 'channels', label: '三方渠道',
+                type: 'channels', label: 'IM 渠道',
                 icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <circle cx="12" cy="12" r="3"/>
                     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.51.49"/>

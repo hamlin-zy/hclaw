@@ -1,30 +1,36 @@
 /**
  * MemoPanel - 备忘录面板（待办/历史双 Tab + 日期分组 + Reorder 拖拽）
  *
- * 挂载于右侧边栏容器（SidePanels）。挂载时 load 当前工作区备忘录并
- * subscribeMemoChanged（workspacePath 相等才刷新）。
+ * 挂载于右侧边栏容器（SidePanels）。挂载时按**视图作用域**取数
+ * （loadForScope：项目视图 = 当前项目；组视图 = 组内所有项目合并）并
+ * subscribeMemoChangedForScope（推送项目属于当前作用域才刷新）。
  *
- * 结构：标题+新建 → 搜索框 → Tab(待办|历史) → 列表
+ * 结构：标题+作用域名 → 新建 → 搜索框 → Tab(待办|历史) → 列表
  * - 待办 Tab：active 项，sortActiveMemos 排序（pinned→sortIndex→createdAt），
- *   framer-motion Reorder 拖拽（FLIP 挤压动画），置顶约束保留
+ *   framer-motion Reorder 拖拽（FLIP 挤压动画），置顶约束保留；
+ *   **组视图暂停拖拽重排**（D11：跨项目条目重排语义不成立，且 sortIndex 是项目内序号）
  * - 历史 Tab：processed 项，groupProcessedByDate 按创建日期层级分组
  *   （本月→日；本年→月→日；往年→年→月→日），组间倒序、组内 desc，
  *   各组默认折叠，点组头展开
  * - 搜索：只作用于当前 Tab，切 Tab 保留关键字
+ * - 组视图下每条显示所属项目徽章（文案 = 项目 basename，title = 完整路径）
  *
  * 其余视觉对齐（胶囊圆角项等）见各组件内联注释。
  */
 import React, {useEffect, useMemo, useRef, useState} from 'react'
 import {useResetTimeout} from '../../hooks/useResetTimeout'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 import {createPortal} from 'react-dom'
 import {Reorder} from 'framer-motion'
-import {useMemoStore, subscribeMemoChanged, openMemoCreateWindow} from '../../stores/memoStore'
+import {useMemoStore, openMemoCreateWindow} from '../../stores/memoStore'
 import {useConversationStore} from '../../stores/conversationStore'
+import {useProjectGroupStore} from '../../stores/projectGroupStore'
 import {useSidebarStore} from '../../stores/sidebarStore'
 import {confirm} from '../ConfirmDialog'
 import {PrioritySelect} from '../common/PrioritySelect'
 import {formatShortcut, formatShortcutSpoken} from '../common/Kbd'
 import {formatRelativeTime} from '../../lib/relativeTime'
+import {getBasename} from '../../lib/format'
 import {useDayBoundaryTick} from '../../hooks/useDayBoundaryTick'
 import {sortActiveMemos, groupProcessedByDate, renumberGroup, countGroupItems, collectGroupMemoIds} from './memoSort'
 import type {ProcessedDateGroup} from './memoSort'
@@ -39,23 +45,62 @@ type MemoTab = typeof PENDING_TAB | typeof HISTORY_TAB
 /** 面板内 hover 操作按钮共用的底样式，颜色类由调用处追加 */
 const ACTION_BTN_BASE = 'p-1 rounded hover:bg-[var(--surface-muted)] transition-colors'
 /** 底样式 + 默认灰字、hover 品牌色（新建/跳转等常规操作按钮） */
-const ACTION_BTN_MUTED = `${ACTION_BTN_BASE} text-[var(--text-muted)] hover:text-[var(--brand-primary)]`
+const ACTION_BTN_MUTED = `${ACTION_BTN_BASE} text-[var(--text-muted)] hover:[color:var(--brand-primary)]`
 
 export default function MemoPanel() {
     const memos = useMemoStore((s) => s.memos)
     const loading = useMemoStore((s) => s.loading)
-    const load = useMemoStore((s) => s.load)
+    const loadForScope = useMemoStore((s) => s.loadForScope)
+    const subscribeMemoChangedForScope = useMemoStore((s) => s.subscribeMemoChangedForScope)
     const wsPath = useConversationStore((s) => s.currentWorkspacePath) ?? ''
+    const viewScope = useConversationStore((s) => s.viewScope)
+    const groups = useProjectGroupStore((s) => s.groups)
     const setRightCollapsed = useSidebarStore((s) => s.setRightCollapsed)
 
     const [keyword, setKeyword] = useState('')
     const [tab, setTab] = useState<MemoTab>(PENDING_TAB)
 
+    const groupView = viewScope?.type === 'group'
+    const groupId = viewScope?.type === 'group' ? viewScope.groupId : null
+    const currentGroup = groupId ? groups.find((g) => g.id === groupId) : undefined
+
+    /**
+     * 作用域成员路径（顺序即渲染顺序）：组视图 = 该组成员按 group_order；
+     * 组不存在 / 无成员 → 回退当前项目单段（与 Task 12 resolveScopeProjectPaths 同口径）。
+     */
+    const memberPaths = useMemo(() => {
+        if (groupId) {
+            const paths = (currentGroup?.members ?? []).map((m) => m.projectPath)
+            if (paths.length > 0) return paths
+        }
+        return wsPath ? [wsPath] : []
+    }, [groupId, currentGroup, wsPath])
+
+    /**
+     * 作用域级竞态守卫 key（仅本文件内使用，不外泄）：
+     * 组视图 = `group:<groupId>`；项目视图 / 无作用域 = `project:<currentWorkspacePath>`。
+     */
+    const scopeKey = groupId ? `group:${groupId}` : `project:${wsPath}`
+    /** 作用域标题：组名 / 项目名（无作用域时不显示） */
+    const scopeLabel = groupId
+        ? currentGroup?.name ?? (wsPath ? getBasename(wsPath) : '')
+        : wsPath ? getBasename(wsPath) : ''
+    /** 组视图暂停拖拽重排（D11）：跨项目条目重排语义不成立 */
+    const canReorder = !groupId
+
+    // 订阅回调走 ref 读最新作用域，避免成员路径变化时反复重挂 IPC 监听
+    const scopeRef = useRef({paths: memberPaths, key: scopeKey})
+    scopeRef.current = {paths: memberPaths, key: scopeKey}
+    const memberPathsKey = memberPaths.join('\u0000')
+
     useEffect(() => {
-        if (!wsPath) return
-        void load(wsPath)
-        return subscribeMemoChanged(() => useConversationStore.getState().currentWorkspacePath ?? '')
-    }, [wsPath, load])
+        if (scopeRef.current.paths.length === 0) return
+        void loadForScope(scopeRef.current.paths, scopeRef.current.key)
+        return subscribeMemoChangedForScope(
+            () => scopeRef.current.paths,
+            () => { void useMemoStore.getState().loadForScope(scopeRef.current.paths, scopeRef.current.key) },
+        )
+    }, [scopeKey, memberPathsKey, loadForScope, subscribeMemoChangedForScope])
 
     const kw = keyword.trim().toLowerCase()
     const match = (m: MemoItem) => m.title.toLowerCase().includes(kw) || m.content.toLowerCase().includes(kw)
@@ -163,6 +208,8 @@ export default function MemoPanel() {
     }
     const openCreate = () => {
         if (!wsPath) return
+        // 默认项目解析收口在 openMemoCreateWindow（见 memoStore.resolveMemoProjectForScope）：
+        // 组视图下它会自行解析「组内最近活跃会话所属项目」，此处只传回退值
         openMemoCreateWindow(wsPath)
     }
 
@@ -174,7 +221,13 @@ export default function MemoPanel() {
         <div className="memo-panel-card flex flex-col h-full text-[var(--text-primary)]">
             {/* 顶部：标题 + 新建 */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-muted)] shrink-0">
-                <span className="text-xs font-medium text-[var(--text-secondary)]">备忘录</span>
+                <span
+                    data-testid="memo-panel-title"
+                    title={scopeLabel}
+                    className="text-xs font-medium text-[var(--text-secondary)] truncate"
+                >
+                    备忘录{scopeLabel ? ` · ${scopeLabel}` : ''}
+                </span>
                 <button
                     // 走全局 TooltipPortal：data-tooltip-placement="left" 使 tooltip
                     // 向左展开（按钮贴面板右缘，向右展开会溢出屏幕）
@@ -197,7 +250,7 @@ export default function MemoPanel() {
                     value={keyword}
                     onChange={(e) => setKeyword(e.target.value)}
                     placeholder="搜索备忘录..."
-                    className="w-full px-4 py-2 bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] border border-[var(--border)] rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:border-[var(--border-emphasis)] focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] dark-all:focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-all"
+                    className={`w-full px-4 py-2 bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] border border-[var(--border)] rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] ${INPUT_FOCUS}`}
                 data-name="memo-panel-input"/>
             </div>
 
@@ -228,13 +281,20 @@ export default function MemoPanel() {
                 )}
 
                 {tab === PENDING_TAB && (
-                    searching ? (
-                        // 搜索时不启用拖拽（避免在过滤子集上重排破坏全局 sortIndex）
+                    searching || !canReorder ? (
+                        // 搜索时不启用拖拽（避免在过滤子集上重排破坏全局 sortIndex）；
+                        // 组视图同样不启用（D11：sortIndex 是项目内序号，跨项目重排语义不成立）
                         activeList.map((m) => (
-                            <MemoItemRow key={m.id} item={m} onOpen={() => openEdit(m.id)}/>
+                            <MemoItemRow key={m.id} item={m} onOpen={() => openEdit(m.id)} showProject={groupView}/>
                         ))
                     ) : (
-                        <Reorder.Group axis="y" values={renderOrder} onReorder={handleReorder} className="space-y-1.5">
+                        <Reorder.Group
+                            axis="y"
+                            values={renderOrder}
+                            onReorder={handleReorder}
+                            className="space-y-1.5"
+                            data-testid="memo-reorder-list"
+                        >
                             {renderOrder.map((id) => {
                                 const m = memos.find((x) => x.id === id)
                                 if (!m) return null
@@ -273,6 +333,7 @@ export default function MemoPanel() {
                             onToggle={toggleGroup}
                             onOpen={openEdit}
                             onGroupMenu={openGroupMenu}
+                            showProject={groupView}
                         />
                     ))
                 )}
@@ -293,11 +354,11 @@ export default function MemoPanel() {
             {/* 底部统计 + 折叠按钮 */}
             <div className="shrink-0 px-3 py-2 border-t border-[var(--border-muted)] flex items-center justify-between gap-2">
                 <div data-testid="memo-stats" className="text-2xs text-[var(--text-muted)]">
-                    <span className={tab === PENDING_TAB ? 'text-[var(--brand-primary)] font-medium' : ''}>
+                    <span className={tab === PENDING_TAB ? 'text-[var(--text-brand)] font-medium' : ''}>
                         待处理 {activeCount}
                     </span>
                     {' · '}
-                    <span className={tab === HISTORY_TAB ? 'text-[var(--brand-primary)] font-medium' : ''}>
+                    <span className={tab === HISTORY_TAB ? 'text-[var(--text-brand)] font-medium' : ''}>
                         已处理 {processedCount}
                     </span>
                 </div>
@@ -321,7 +382,7 @@ function TabButton({active, onClick, children}: {active: boolean; onClick: () =>
     return (
         <button
             onClick={onClick}
-            className={`flex-1 py-2 text-xs font-medium transition-colors ${active ? 'text-[var(--brand-primary)] border-b-2 border-[var(--brand-primary)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
+            className={`flex-1 py-2 text-xs font-medium transition-colors ${active ? 'text-[var(--text-brand)] border-b-2 border-[var(--brand-primary)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
         >
             {children}
         </button>
@@ -329,13 +390,15 @@ function TabButton({active, onClick, children}: {active: boolean; onClick: () =>
 }
 
 /** 历史分组节点：递归渲染 year→month→day，day 叶子渲染条目 */
-function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen, onGroupMenu}: {
+function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen, onGroupMenu, showProject}: {
     group: ProcessedDateGroup
     parentKey: string
     expandedKeys: Set<string>
     onToggle: (key: string) => void
     onOpen: (id: string) => void
     onGroupMenu: (e: React.MouseEvent, group: ProcessedDateGroup) => void
+    /** 组视图下条目显示所属项目徽章 */
+    showProject?: boolean
 }) {
     const key = parentKey ? `${parentKey}/${group.label}` : group.label
     const expanded = expandedKeys.has(key)
@@ -365,7 +428,7 @@ function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen, onGroupMen
                 <div className="space-y-1.5" style={{paddingLeft: `${depth * 16 + 4}px`}}>
                     {group.kind === 'day'
                         ? group.items.map((m) => (
-                            <MemoItemRow key={m.id} item={m} onOpen={() => onOpen(m.id)} processed/>
+                            <MemoItemRow key={m.id} item={m} onOpen={() => onOpen(m.id)} processed showProject={showProject}/>
                         ))
                         : group.children.map((c, i) => (
                             <GroupNode
@@ -376,6 +439,7 @@ function GroupNode({group, parentKey, expandedKeys, onToggle, onOpen, onGroupMen
                                 onToggle={onToggle}
                                 onOpen={onOpen}
                                 onGroupMenu={onGroupMenu}
+                                showProject={showProject}
                             />
                         ))
                     }
@@ -470,19 +534,38 @@ function CapabilityBadge({capability}: {capability: MemoCapability}) {
 /** 置顶图标 path（徽标与操作按钮共用） */
 const PIN_PATH = 'M16 3v5.06c0 .53.21 1.04.59 1.41L19 12v2h-6v6l-1 1-1-1v-6H5v-2l2.41-2.53c.38-.37.59-.88.59-1.41V3h8z'
 
+/** 项目徽章（组视图）：轻量 chip，文案 = 项目 basename，title = 完整路径 */
+function ProjectBadge({workspacePath}: {workspacePath: string}) {
+    return (
+        <span
+            data-testid="memo-project-badge"
+            title={workspacePath}
+            className="flex-shrink-0 max-w-[8rem] truncate text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface-overlay)] text-[var(--text-secondary)]"
+        >
+            {getBasename(workspacePath)}
+        </span>
+    )
+}
+
 /** 单条备忘录行：能力徽章 + 标题 + 附件角标 + 创建时间；active 项可置顶，点击打开独立编辑窗口 */
-function MemoItemRow({item, onOpen, processed: processedProp}: {
+function MemoItemRow({item, onOpen, processed: processedProp, showProject}: {
     item: MemoItem
     onOpen: () => void
     /** 显式标记为已办（历史列表）；省略时按 item.status 推断 */
     processed?: boolean
+    /** 组视图下显示所属项目徽章（跨项目合并列表才需要） */
+    showProject?: boolean
 }) {
     const createSession = useMemoStore((s) => s.createSession)
     const remove = useMemoStore((s) => s.remove)
     const updateItem = useMemoStore((s) => s.updateItem)
     const processed = processedProp ?? item.status !== 'active'
-    const conversations = useConversationStore((s) => s.workspaces[s.currentWorkspacePath ?? '']?.conversations ?? [])
-    const convExists = item.relatedConvId ? conversations.some((c: {id: string}) => c.id === item.relatedConvId) : false
+    // ★ I-3：跨 `workspaces` 全域查找 —— 组视图下条目可能属于非当前项目，
+    //   按 currentWorkspacePath 判定会让这些条目的跳转按钮恒禁用（会话明明存在）。
+    const workspaces = useConversationStore((s) => s.workspaces)
+    const convExists = item.relatedConvId
+        ? Object.values(workspaces).some((ws) => ws.conversations.some((c: {id: string}) => c.id === item.relatedConvId))
+        : false
 
     const handleDelete = async () => {
         const ok = await confirm({
@@ -530,9 +613,10 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
                     )}
                 </div>
                 <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--text-secondary)]">
+                    {showProject && <ProjectBadge workspacePath={item.workspacePath}/>}
                     {item.pinned && !processed && (
                         <span title="已置顶" aria-label="已置顶">
-                            <svg className="w-3 h-3 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="currentColor">
+                            <svg className="w-3 h-3 [color:var(--brand-primary)]" viewBox="0 0 24 24" fill="currentColor">
                                 <path d={PIN_PATH}/>
                             </svg>
                         </span>
@@ -559,7 +643,7 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
                         aria-label={item.pinned ? '取消置顶' : '置顶'}
                         onClick={togglePin}
                         data-tooltip-placement="left"
-                        className={`${ACTION_BTN_BASE} ${item.pinned ? 'text-[var(--brand-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--brand-primary)]'}`}
+                        className={`${ACTION_BTN_BASE} ${item.pinned ? '[color:var(--brand-primary)]' : 'text-[var(--text-muted)] hover:[color:var(--brand-primary)]'}`}
                      data-name="memo-pin-button">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={item.pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
                             <path d={PIN_PATH}/>
@@ -575,7 +659,11 @@ function MemoItemRow({item, onOpen, processed: processedProp}: {
                             data-tooltip-placement="left"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                useConversationStore.getState().setActiveConversation(item.relatedConvId!)
+                                // ★ I-3：跳转走既有跨窗口入口（切项目 + 跟随视图；不为未登记路径
+                                //   create 悬空工作区）。原先只 setActiveConversation：组视图下跳到
+                                //   非当前项目的会话不会离开组视图（作用域仍不含该会话）。
+                                void useConversationStore.getState()
+                                    .openConversationInWorkspace(item.relatedConvId!, item.workspacePath)
                             }}
                             className={`${ACTION_BTN_MUTED} disabled:opacity-30 disabled:cursor-not-allowed`}
                          data-name="memo-open-conv-button">

@@ -82,7 +82,7 @@ function ToolCard({tool, serverName, isPlugin}: {
                         <span className="text-xs font-semibold text-[var(--text-primary)] font-mono truncate">
                             {isPlugin ? `mp_` : `m_`}{serverName}_{tool.name}
                         </span>
-                        <span className="px-1.5 py-0.5 rounded bg-[var(--brand-muted)] text-[var(--brand-primary)] text-2xs font-semibold shrink-0">
+                        <span className="px-1.5 py-0.5 rounded bg-[var(--brand-muted)] text-[var(--text-brand)] text-2xs font-semibold shrink-0">
                             TOOL
                         </span>
                         {/* 与服务卡片一致：工具全名可一键复制（供 Agent 提示词/调试粘贴） */}
@@ -166,7 +166,7 @@ function ToolCard({tool, serverName, isPlugin}: {
                                                 <div className="flex flex-wrap gap-1 mt-0.5">
                                                     {(prop.enum as string[]).map((v: string) => (
                                                         <span key={v}
-                                                              className="px-1 py-0.5 bg-[var(--brand-muted)] text-[var(--brand-primary)] text-2xs font-mono rounded">
+                                                              className="px-1 py-0.5 bg-[var(--brand-muted)] text-[var(--text-brand)] text-2xs font-mono rounded">
                                                             {v}
                                                         </span>
                                                     ))}
@@ -220,7 +220,7 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                                 <h2 className="text-sm font-bold text-[var(--text-primary)] truncate">{server.name}</h2>
                                 <span className={`px-1.5 py-0.5 rounded text-2xs font-semibold uppercase border shrink-0 ${
                                     isPlugin
-                                        ? 'bg-[var(--brand-muted)] text-[var(--brand-primary)] border-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]'
+                                        ? 'bg-[var(--brand-muted)] text-[var(--text-brand)] border-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]'
                                         : 'bg-[var(--surface-muted)] text-[var(--text-muted)] border-[var(--border)]'
                                 }`}>
                                     {isPlugin ? '插件' : server.transport}
@@ -293,7 +293,7 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                         <>
                             <section>
                                 <h4 className="text-2xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">来源插件</h4>
-                                <div className="p-3 rounded-lg bg-[var(--brand-muted)] border border-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] text-xs text-[var(--brand-primary)] font-medium">
+                                <div className="p-3 rounded-lg bg-[var(--brand-muted)] border border-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] text-xs text-[var(--text-brand)] font-medium">
                                     插件: {pluginName}
                                 </div>
                             </section>

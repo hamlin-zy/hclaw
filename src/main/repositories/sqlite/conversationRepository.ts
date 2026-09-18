@@ -4,6 +4,7 @@ import {SqliteMessageBlockRepository} from './messageBlockRepository'
 import {blocksToMessage, messageToBlocks} from './messageBlockHelper'
 import type {IConversationRepository} from '../interfaces'
 import type {BlockDeltaPatch, BlockType, ConversationMeta, ConversationWithStats, LlmStats, Message, MessageBlock} from '@shared/types'
+import type {ConversationStatsScope} from '@shared/types/conversationStats'
 
 // ★ 临时诊断（catalog 隐式消息渲染 bug）：捕获"catalog 内容 user 消息丢失 metadata"的写入方。
 // 调试结束后应连同 writeMessages / writeMessagesDelta 中的调用点一并删除。
@@ -299,11 +300,12 @@ export class SqliteConversationRepository implements IConversationRepository {
                     const existing = db.prepare('SELECT id, block_type, content FROM message_blocks WHERE id = ?').get(block.id) as {id: string; block_type: string; content: string | null} | undefined
                     if (existing) {
                         if (block.blockType === 'text' && existing.block_type === 'text') {
-                            // ★ text 块追加语义：渲染端 recordTextBlock 传的是「增量切片」（fullText.slice(lastOffset)），
-                            //   跨 flush 时同 id text 块携带的是自上次 flush 以来的新增字符。若这里整体覆盖，
-                            //   会丢掉上次 flush 已落库的旧切片（"历史正文只剩最后一个字符"的根因，05b219c 引入）。
-                            //   改为追加：DB 已存内容 + 本次切片 = 完整文本。think/tool_call/tool_result 保持覆盖
-                            //   （渲染端对这些块传完整内容，追加会重复）。
+                            // ★ text 块追加语义：主进程侧由 streamBridge 桥接调用 recordTextChunk，
+                            //   传的是「源头 chunk」（流式事件原始增量）；同 id 的 text 块多次到达、
+                            //   每次只携带新增字符。若这里整体覆盖，会丢掉此前已落库的前文
+                            //   （"历史正文只剩最后一个字符"的根因，05b219c 引入）。
+                            //   改为追加：DB 已存内容 + 本次 chunk = 完整文本。think/tool_call/tool_result 保持覆盖
+                            //   （写入方对这些块传完整内容，追加会重复）。
                             // ★ turn_index 只在 INSERT 时确定归属轮次；UPDATE 分支不得覆盖
                             //   （handleDone 重写 think 块置 complete 时 currentTurnIndex 已是末轮，
                             //    覆盖会错误地把所有 think 块标成末轮——实测 14 个 think 全变 turn 22）。
@@ -647,33 +649,85 @@ export class SqliteConversationRepository implements IConversationRepository {
 
     // ── Batch operations ─────────────────────────────────
 
-    listWithStats(workspacePath: string): ConversationWithStats[] {
+    /**
+     * 会话统计（消息数 / block 数），支持四种范围（spec §9 / §4.3）：
+     *  - all：全部项目（会话管理页默认）
+     *  - project：单项目（等价旧签名）
+     *  - unassigned：未归属会话（workspace_path 为空 / NULL——侧栏「未归属」虚拟段的同一口径）
+     *  - group：组内项目集（路径列表由渲染端给出——主进程没有 resolveWorkspaceKey，
+     *           按 path 精确匹配，故必须由渲染端提供生效键列表）
+     */
+    listWithStats(scope: ConversationStatsScope): ConversationWithStats[] {
         try {
-            const rows = getDatabase().prepare(`
-                SELECT c.id, c.meta, c.workspace_path, c.created_at, c.updated_at,
-                       COUNT(DISTINCT m.id) AS message_count,
-                       COUNT(mb.id) AS block_count,
-                       COALESCE(MAX(m.timestamp), c.created_at) AS sort_time
+            const db = getDatabase()
+            // 范围 → 路径列表：null 表示不限项目（全表）；unassigned 走空值条件，不走路径列表
+            const unassigned = scope.scope === 'unassigned'
+            const paths = unassigned
+                ? []
+                : scope.scope === 'all'
+                    ? null
+                    : scope.scope === 'project' ? [scope.workspacePath] : scope.workspacePaths
+            // 空项目集：SQL 会退化成非法的 IN ()，直接短路（unassigned 除外，它不用 IN）
+            if (paths && !unassigned && paths.length === 0) return []
+
+            // ★ 拆两条查询的理由：旧版三表 LEFT JOIN 会被 message_blocks（~285k 行）扇出，
+            //   使 messages 被放大成 ~285k 行并触发 3 个 TEMP B-TREE（GROUP BY + COUNT DISTINCT），
+            //   实测 3.78s 阻塞主进程 event loop。拆开后：
+            //   查询 1 只做相关子查询（走 conversation_id 索引），无 TEMP B-TREE，~46ms；
+            //   查询 2 独立一趟按会话聚合 block 计数，~364ms；两者用 Map 合并。
+
+            // 路径列表 → 绑定参数与 WHERE 片段（paths 为空数组已在上面短路）
+            const placeholders = paths ? paths.map(() => '?').join(',') : ''
+            const inCond = (col: string) => `${col} IN (${placeholders})`
+            // 未归属：workspace_path 为空串或 NULL（历史数据两种都可能存在）
+            const unassignedCond = (col: string) => `(${col} IS NULL OR ${col} = '')`
+            const cond = (col: string) => unassigned ? unassignedCond(col) : inCond(col)
+            const whereConv = paths || unassigned ? cond('c.workspace_path') : '1=1'
+            const whereMsg = paths || unassigned
+                ? `m.conversation_id IN (SELECT id FROM conversations WHERE ${cond('workspace_path')})`
+                : '1=1'
+            const args = unassigned ? [] : (paths ?? [])
+
+            // 查询 1：会话 + 消息统计（不碰 message_blocks）
+            const rows = db.prepare(`
+                SELECT c.id, c.meta, c.created_at, c.updated_at, c.workspace_path,
+                       (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count,
+                       COALESCE((SELECT MAX(m.timestamp) FROM messages m WHERE m.conversation_id = c.id),
+                                c.created_at) AS sort_time
                 FROM conversations c
-                LEFT JOIN messages m ON m.conversation_id = c.id
-                LEFT JOIN message_blocks mb ON mb.message_id = m.id
-                WHERE c.workspace_path = ?
-                GROUP BY c.id
+                WHERE ${whereConv}
                 ORDER BY sort_time DESC
-            `).all(workspacePath) as Array<{
+            `).all(...args) as Array<{
                 id: string;
                 meta: string;
-                workspace_path: string;
                 created_at: number;
                 updated_at: number;
+                workspace_path: string;
                 message_count: number;
-                block_count: number;
                 sort_time: number
             }>
 
+            // 查询 2：block 计数，独立一趟按会话聚合
+            const blockRows = db.prepare(`
+                SELECT m.conversation_id AS cid, COUNT(*) AS block_count
+                FROM messages m
+                JOIN message_blocks mb ON mb.message_id = m.id
+                WHERE ${whereMsg}
+                GROUP BY m.conversation_id
+            `).all(...args) as Array<{ cid: string; block_count: number }>
+
+            const blockCounts = new Map<string, number>()
+            for (const r of blockRows) blockCounts.set(r.cid, r.block_count)
+
             return rows.map(row => ({
-                ...JSON.parse(row.meta), id: row.id, workspacePath: row.workspace_path,
-                updatedAt: row.updated_at, messageCount: row.message_count, blockCount: row.block_count,
+                ...JSON.parse(row.meta),
+                id: row.id,
+                // ★ workspacePath 改为取行值：scope=all/group 时会话可能跨项目，不再是入参常量
+                workspacePath: row.workspace_path,
+                updatedAt: row.updated_at,
+                messageCount: row.message_count,
+                // 无 block 或该会话不在查询 2 结果里时兜底 0，保持旧 LEFT JOIN 语义
+                blockCount: blockCounts.get(row.id) ?? 0,
             }))
         } catch (err) {
             console.error('[SqliteConversationRepository] listWithStats failed:', err)

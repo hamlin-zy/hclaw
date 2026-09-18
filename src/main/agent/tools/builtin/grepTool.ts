@@ -8,7 +8,8 @@ import {z} from 'zod'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import {spawn} from 'child_process'
-import {rgPath} from '@vscode/ripgrep'
+// 打包后 rgPath 指向 app.asar 内的虚拟路径，spawn 必 ENOENT；此处取改写后的真实路径
+import {rgBinPath} from '../../../utils/ripgrepPath'
 import type {Tool, ToolContext, ToolResult} from '../types'
 
 const inputSchema = z.object({
@@ -97,7 +98,7 @@ async function searchWithRipgrep(
   return new Promise((resolve) => {
     let child
     try {
-      child = spawn(rgPath, rgArgs, { cwd: searchDir, windowsHide: true })
+      child = spawn(rgBinPath, rgArgs, { cwd: searchDir, windowsHide: true })
     } catch {
       resolve(null)
       return

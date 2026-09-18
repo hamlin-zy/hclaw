@@ -14,6 +14,7 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {createPortal} from 'react-dom';
 import {AnimatePresence, motion} from 'framer-motion';
 import {fade, scaleFade} from '../../lib/motionPresets';
+import {INPUT_FOCUS} from '../../lib/inputFocus';
 import {CommandList} from './CommandList';
 import {nextPaletteTab, PALETTE_TABS, PaletteTab, TAB_SOURCES} from '../../lib/paletteTabs';
 import {ParamInputModal} from './ParamInputModal';
@@ -206,9 +207,8 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
                     placeholder={PALETTE_TABS.find(t => t.id === activeTab)!.placeholder}
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-[var(--surface-muted)] rounded-lg
-                             text-[var(--text-primary)] placeholder-[var(--text-muted)]
-                             focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
+                    className={`w-full pl-10 pr-4 py-2.5 bg-[var(--surface-muted)] rounded-lg
+                             text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                     autoFocus
                   data-name="command-palette-input"/>
                 </div>
@@ -222,7 +222,7 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
                       onClick={() => setActiveTab(tab.id)}
                       className={`px-3 py-1.5 text-sm rounded-lg transition-colors focus:outline-none ${
                         activeTab === tab.id
-                          ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--brand-primary)] font-medium'
+                          ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--text-brand)] font-medium'
                           : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]'
                       }`}
                      data-name="command-palette-button">

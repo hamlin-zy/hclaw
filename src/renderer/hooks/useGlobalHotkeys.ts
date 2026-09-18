@@ -24,16 +24,10 @@ export function useGlobalHotkeys() {
         const stop = shortcutManager.startShortcutManager()
 
         const unsubNew = shortcutManager.on('newSession', () => {
-            const store = useConversationStore.getState()
-            if (store.currentWorkspacePath) {
-                store.createConversation().then(() => {
-                    // 创建会话后触发焦点事件，让 InputArea 获取焦点
-                    window.dispatchEvent(new CustomEvent('hclaw:focus-input'))
-                })
-            } else {
-                // 无工作空间时弹窗选择目录（由 NewChatButton 处理）
-                window.dispatchEvent(new CustomEvent('hclaw:new-conversation'))
-            }
+            // Ctrl+N 无条件派发事件：唯一路径 = 事件 → ConversationSidebar 的常驻监听 → newConversation 服务。
+            // 目标项目解析（激活会话所属项目 → currentWorkspacePath → 弹选夹框）与视图跟随都在服务内，
+            // hook 不再自行创建会话、也不自行派发 focus-input（焦点事件由消费侧创建成功后派发）。
+            window.dispatchEvent(new CustomEvent('hclaw:new-conversation'))
         })
         const unsubMemo = shortcutManager.on('newMemo', () => {
             const ws = useConversationStore.getState().currentWorkspacePath
@@ -90,15 +84,24 @@ export function useGlobalHotkeys() {
             }
         }
 
+        // 窗口失焦时 Alt 的 keyup 可能收不到（如 Alt+Tab 切走），
+        // altUsed 会残留为 true，导致下一次单独按 Alt 被误判为组合键（需按两次才弹菜单）。
+        // 失焦即按键序列不完整，直接重置。
+        const handleWindowBlur = () => {
+            altUsed = false
+        }
+
         document.addEventListener('keydown', handleAltTrackingKeyDown)
         document.addEventListener('keyup', handleKeyUp)
         document.addEventListener('keydown', handleEscKeyDown)
+        window.addEventListener('blur', handleWindowBlur)
 
         return () => {
             ;[unsubNew, unsubMemo, unsubPrev, unsubNext, unsubLeft, unsubRight, unsubTheme, unsubPalette].forEach(u => u())
             document.removeEventListener('keydown', handleAltTrackingKeyDown)
             document.removeEventListener('keyup', handleKeyUp)
             document.removeEventListener('keydown', handleEscKeyDown)
+        window.removeEventListener('blur', handleWindowBlur)
             stop()
         }
     }, [])

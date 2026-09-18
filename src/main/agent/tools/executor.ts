@@ -155,7 +155,7 @@ export async function executeTool(
           if (detail?.type === 'bash_command') {
               confirmMessage = `⚠️ 命令确认\n\n命令: ${detail.command}${reasonText}\n\n此命令不在安全白名单中，是否允许执行?`
           } else if (detail?.type === 'file_outside_working_dir') {
-              confirmMessage = `⚠️ 文件路径确认\n\n目标文件: ${detail.filePath}\n工作目录: ${detail.workingDir}\n\n此文件不在工作目录下，是否允许编辑?${reasonText}`
+              confirmMessage = `⚠️ 文件路径确认\n\n目标文件: ${detail.filePath}\n项目目录: ${detail.workingDir}\n\n此文件不在项目目录下，是否允许编辑?${reasonText}`
           } else {
               confirmMessage = `⚠️ 权限确认\n\n工具: ${tool.name}${reasonText}\n\n该操作在当前模式下需要手动确认。是否允许执行?`
           }

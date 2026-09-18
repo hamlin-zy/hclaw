@@ -27,7 +27,6 @@ import {permissionEngine} from '../tools/permission'
 import {runtimeConfigManager} from '../runtimeConfigManager'
 import {extractTextContent} from '../utils/contentUtils'
 import {parseCommandText} from './commandTextParser'
-import {setAgentToolConfig} from '../tools/builtin/agentTool'
 import {setSkillToolConfig} from '../tools/builtin/skillTool'
 import {isMcpToolName} from '@shared/mcp/naming'
 import {filterToolsForAgent} from '../tools/filter'
@@ -61,11 +60,14 @@ export async function* initializeRunEnvironment(
 
     const getSettings = () => runtimeConfig?.settings ?? initialSettings
     const state = createLoopState(params.messages || [])
-    const workingDir = runtimeConfigManager.getWorkingDir() || params.workingDir || ''
+    // ★ 会话绑定优先，全局仅兜底：params.workingDir 来自会话 meta.workspacePath
+    //   （startAgentCore → worker params → RunParams），而 runtimeConfigManager 的全局
+    //   工作目录会随用户切换工作区被改写（config.ts setWorkingDir），若全局优先，
+    //   切换工作区后旧会话会在新目录执行。
+    const workingDir = params.workingDir || runtimeConfigManager.getWorkingDir() || ''
 
     permissionEngine.setWorkingDir(workingDir)
 
-    setAgentToolConfig()
     setSkillToolConfig()
 
     return {state, getSettings, workingDir}

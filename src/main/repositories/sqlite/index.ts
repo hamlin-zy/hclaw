@@ -2,7 +2,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import {Worker} from 'node:worker_threads'
 import {DatabaseSync, enhance} from '@photostructure/sqlite'
-import {getHclawDir} from '../../config'
+import {getHclawDir} from '../../hclawPaths'
 import {CHECKPOINT_WORKER_RESOURCE_LIMITS} from '../../workerLimits'
 
 type EnhancedDB = ReturnType<typeof enhance>
@@ -11,8 +11,20 @@ let db: EnhancedDB | null = null
 let initialized = false
 let migrationsRun = false
 
-const DB_DIR = path.join(getHclawDir(), 'data')
-const DB_FILE = path.join(DB_DIR, 'hclaw.db')
+// DB_DIR / DB_FILE 惰性求值：getHclawDir 已改从叶子模块 hclawPaths（只依赖 node 内置
+// 模块）取值，本模块不再处于 config.ts ⇄ repositories 的 import 环内，原先"依赖 config.ts
+// 求值顺序 / _cachedHclawDir 尚未初始化（TDZ）"的风险不存在。此处保留惰性求值以维持既有
+// 取值时机（首次使用时才解析，getHclawDir 自身有缓存），行为与原先一致。
+let cachedDbDir: string | null = null
+
+function dbDir(): string {
+    if (!cachedDbDir) cachedDbDir = path.join(getHclawDir(), 'data')
+    return cachedDbDir
+}
+
+function dbFile(): string {
+    return path.join(dbDir(), 'hclaw.db')
+}
 
 // ── WAL checkpoint worker（主进程零阻塞）────────────────────────────
 // checkpoint 移入 worker_threads 独立连接：WAL 超阈值时的 TRUNCATE 合并
@@ -21,12 +33,20 @@ const DB_FILE = path.join(DB_DIR, 'hclaw.db')
 
 let checkpointWorker: Worker | null = null
 
-/** 启动 checkpoint worker（失败静默降级为同步 checkpoint 路径） */
+// 关闭标志（S7）：flushDatabase/closeDatabase 置位后不再拉起 checkpoint worker。
+// 动机：退出流程 stopCheckpointWorker() 与 in-flight 的 saveDatabase() 存在竞态 ——
+// 后者若在 stop 之后到达，会重新 new 一个持有 DB 连接的 worker，拖住退出 / 残留文件锁。
+// 置位后 saveDatabase() 的 `if (checkpointWorker) return` 不再命中，但会走同步兜底路径
+// （见下方 saveDatabase 注释），持久性与 WAL 收敛不受影响。
+let dbClosing = false
+
+/** 启动 checkpoint worker（失败静默降级为同步 checkpoint 路径；已进入关闭流程时早退） */
 function ensureCheckpointWorker(): void {
+    if (dbClosing) return
     if (checkpointWorker) return
     try {
         const w = new Worker(path.join(__dirname, 'checkpointWorker.js'), {
-            workerData: {dbPath: DB_FILE},
+            workerData: {dbPath: dbFile()},
             // ★ 内存加固（评审建议 4）：单次 TRUNCATE 合并，256/16 已是宽松上限；
             //   超限被杀 → 本函数的 error/exit 处理直接静默降级为同步 checkpoint，见 ../../workerLimits.ts。
             resourceLimits: CHECKPOINT_WORKER_RESOURCE_LIMITS,
@@ -58,9 +78,9 @@ function stopCheckpointWorker(): void {
 
 function ensureInitialized(): void {
     if (initialized) return
-    if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, {recursive: true})
+    if (!fs.existsSync(dbDir())) fs.mkdirSync(dbDir(), {recursive: true})
     try {
-        db = enhance(new DatabaseSync(DB_FILE))
+        db = enhance(new DatabaseSync(dbFile()))
         db.pragma('journal_mode = WAL')
         db.pragma('busy_timeout = 5000')
         initialized = true
@@ -71,7 +91,7 @@ function ensureInitialized(): void {
 
 /** 获取主数据库文件绝对路径（供只读连接等场景使用） */
 export function getDatabaseFilePath(): string {
-    return DB_FILE
+    return dbFile()
 }
 
 export function getDatabase(): EnhancedDB {
@@ -104,7 +124,7 @@ let checkpointTimer: NodeJS.Timeout | null = null
 
 function walFileSize(): number {
     try {
-        return fs.statSync(DB_FILE + '-wal').size
+        return fs.statSync(dbFile() + '-wal').size
     } catch {
         return 0
     }
@@ -153,6 +173,7 @@ export function saveDatabase(): void {
 
 /** 退出时强制 checkpoint，把 WAL 合并回主库并截断（应用正常退出路径） */
 export function flushDatabase(): void {
+    dbClosing = true   // 先置位再停 worker：堵住 stop 之后新到的 saveDatabase 重启 worker
     if (checkpointTimer) {
         clearTimeout(checkpointTimer)
         checkpointTimer = null
@@ -162,6 +183,7 @@ export function flushDatabase(): void {
 }
 
 export function closeDatabase(): void {
+    dbClosing = true   // db 为 null 时下面的 flushDatabase 不会执行，标志须在此独立置位
     if (db) {
         flushDatabase()
         db.close();

@@ -55,7 +55,7 @@ export default function RepoGroupCard({repo, skillCount, agentCount, children, o
             aria-label={collapsed ? '展开分组' : '折叠分组'}
             data-name="repo-group-card-header">
             <div className="flex items-center gap-2 min-w-0">
-              <Folder className="w-4 h-4 text-[var(--brand-primary)] shrink-0"/>
+              <Folder className="w-4 h-4 [color:var(--brand-primary)] shrink-0"/>
               <span className="text-xs font-semibold text-[var(--text-primary)] truncate">{repo.id}</span>
               <CopyButton name={repo.id} size="sm" />
               <span className="text-[10px] text-[var(--text-muted)] shrink-0">
@@ -70,7 +70,7 @@ export default function RepoGroupCard({repo, skillCount, agentCount, children, o
                     const ids = batchItems.filter(s => s.enabled !== target).map(s => s.id)
                     if (ids.length > 0) await onToggleBatch(ids, target)
                   }}
-                  className="text-[10px] font-medium text-[var(--brand-primary)] hover:text-[color-mix(in_srgb,var(--brand-primary)_80%,transparent)] transition-colors"
+                  className="text-[10px] font-medium text-[var(--text-brand)] hover:text-[color-mix(in_srgb,var(--brand-primary)_80%,transparent)] transition-colors"
                   data-name={`${batchType}-dialog-batch-toggle-button`}>
                   {allEnabled ? '全部禁用' : '全部启用'}
                 </button>

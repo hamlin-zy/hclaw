@@ -166,21 +166,21 @@ describe('pm:git-add / pm:git-rm-cached 路径校验', () => {
 
   it('pm:git-add 拒绝 ../ 越界路径', async () => {
     const handler = invokeHandler('pm:git-add')
-    await expect(handler({}, '/ws/a', ['../x'])).rejects.toThrow('路径超出工作目录')
+    await expect(handler({}, '/ws/a', ['../x'])).rejects.toThrow('路径超出项目目录')
     const ops = await import('../../../src/main/project-manager/git/operations')
     expect(ops.gitAdd).not.toHaveBeenCalled()
   })
 
   it('pm:git-add 拒绝数组中的部分越界路径', async () => {
     const handler = invokeHandler('pm:git-add')
-    await expect(handler({}, '/ws/a', ['a.txt', '/etc/passwd'])).rejects.toThrow('路径超出工作目录')
+    await expect(handler({}, '/ws/a', ['a.txt', '/etc/passwd'])).rejects.toThrow('路径超出项目目录')
     const ops = await import('../../../src/main/project-manager/git/operations')
     expect(ops.gitAdd).not.toHaveBeenCalled()
   })
 
   it('pm:git-rm-cached 拒绝绝对路径外部路径', async () => {
     const handler = invokeHandler('pm:git-rm-cached')
-    await expect(handler({}, '/ws/a', '/etc/passwd')).rejects.toThrow('路径超出工作目录')
+    await expect(handler({}, '/ws/a', '/etc/passwd')).rejects.toThrow('路径超出项目目录')
     const ops = await import('../../../src/main/project-manager/git/operations')
     expect(ops.gitRmCached).not.toHaveBeenCalled()
   })

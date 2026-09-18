@@ -23,6 +23,7 @@ import {sortReposByUpdate} from '../repo/repoGrouping'
 import {useRepoUpdateStore} from '../../stores/repoUpdateStore'
 import {Layers, Search, RefreshCw, Plus, Edit2, Trash2, X, GitBranch, Check, AlertCircle} from 'lucide-react'
 import LoadErrorBanner from '../common/LoadErrorBanner'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 // 标签样式配置（模块级常量，避免重复创建）
 const TAG_STYLES: Record<string, string> = {
@@ -80,7 +81,7 @@ function AgentCard({template, onEdit, onDelete, onToggle, onPreview, readOnly}: 
                         "p-1.5 rounded-md transition-all",
                         readOnly
                             ? "text-[color-mix(in_srgb,var(--text-muted)_50%,transparent)] cursor-not-allowed"
-                            : "text-[var(--text-muted)] hover:text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)]"
+                            : "text-[var(--text-muted)] hover:[color:var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)]"
                     )}
                     title="编辑"
                     aria-label="编辑"
@@ -128,7 +129,7 @@ function AgentCard({template, onEdit, onDelete, onToggle, onPreview, readOnly}: 
                         <span className={clsx(
                             "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors",
                             template.enabled
-                                ? "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]"
+                                ? "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] [color:var(--brand-primary)]"
                                 : "bg-[var(--surface-muted)] text-[var(--text-muted)]"
                         )}>
                             <Layers className="w-4 h-4"/>
@@ -167,7 +168,7 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                 {/* Header */}
                 <div className="shrink-0 bg-[var(--surface-elevated)] px-5 py-3 border-b border-[var(--border-muted)] flex items-center justify-between">
                     <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] [color:var(--brand-primary)]">
                             <Layers className="w-4 h-4"/>
                         </div>
                         <div className="min-w-0">
@@ -214,7 +215,7 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                     )}
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">系统提示词 (System Prompt)</label>
-                        <div className="rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] p-3 max-h-64 overflow-y-auto custom-scrollbar [&_h1,&_h2,&_h3,&_h4]:text-xs [&_h1,&_h2,&_h3,&_h4]:font-bold [&_h1,&_h2,&_h3,&_h4]:text-[var(--text-primary)] [&_h1,&_h2]:mt-3 [&_h1,&_h2]:mb-1.5 [&_h3,&_h4]:mt-2 [&_h3,&_h4]:mb-1 [&_h1:first-child,&_h2:first-child,&_h3:first-child,&_h4:first-child]:mt-0 [&_p]:text-xs [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul,&_ol]:text-xs [&_ul,&_ol]:my-1.5 [&_ul,&_ol]:pl-5 [&_li]:my-0.5 [&_code]:text-[11px] [&_code]:font-mono [&_code]:bg-[var(--surface-elevated)] [&_code]:border [&_code]:border-[var(--border)] [&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_pre]:bg-[var(--surface-elevated)] [&_pre]:border [&_pre]:border-[var(--border)] [&_pre]:rounded [&_pre]:p-2 [&_pre]:my-1.5 [&_pre]:overflow-x-auto [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--border)] [&_blockquote]:pl-2 [&_blockquote]:text-[var(--text-secondary)] [&_blockquote]:my-1.5 [&_hr]:border-[var(--border)] [&_hr]:my-2 [&_a]:text-[var(--brand-primary)] [&_a]:underline [&_strong]:font-semibold">
+                        <div className="rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] p-3 max-h-64 overflow-y-auto custom-scrollbar [&_h1,&_h2,&_h3,&_h4]:text-xs [&_h1,&_h2,&_h3,&_h4]:font-bold [&_h1,&_h2,&_h3,&_h4]:text-[var(--text-primary)] [&_h1,&_h2]:mt-3 [&_h1,&_h2]:mb-1.5 [&_h3,&_h4]:mt-2 [&_h3,&_h4]:mb-1 [&_h1:first-child,&_h2:first-child,&_h3:first-child,&_h4:first-child]:mt-0 [&_p]:text-xs [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul,&_ol]:text-xs [&_ul,&_ol]:my-1.5 [&_ul,&_ol]:pl-5 [&_li]:my-0.5 [&_code]:text-[11px] [&_code]:font-mono [&_code]:bg-[var(--surface-elevated)] [&_code]:border [&_code]:border-[var(--border)] [&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_pre]:bg-[var(--surface-elevated)] [&_pre]:border [&_pre]:border-[var(--border)] [&_pre]:rounded [&_pre]:p-2 [&_pre]:my-1.5 [&_pre]:overflow-x-auto [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--border)] [&_blockquote]:pl-2 [&_blockquote]:text-[var(--text-secondary)] [&_blockquote]:my-1.5 [&_hr]:border-[var(--border)] [&_hr]:my-2 [&_a]:text-[var(--text-brand)] [&_a]:underline [&_strong]:font-semibold">
                             <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{agent.systemPrompt}</ReactMarkdown>
                         </div>
                     </div>
@@ -277,7 +278,7 @@ function AgentPreviewModal({agent, onClose, onEdit, readOnly}: {
                                 "px-4 py-2 rounded-lg text-xs font-bold transition-colors",
                                 readOnly
                                     ? "bg-[var(--surface-muted)] text-[color-mix(in_srgb,var(--text-muted)_50%,transparent)] cursor-not-allowed"
-                                    : "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]"
+                                    : "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]"
                             )}
                          data-name="agents-dialog-detail-edit-button">
                             编辑
@@ -496,7 +497,7 @@ export default function AgentsDialog() {
                         <button
                             onClick={handleSync}
                             disabled={loading}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                          data-name="agents-dialog-sync-button">
                             <RefreshCw className={clsx("h-3.5 w-3.5", loading && "animate-spin")}/>
                             {syncStatus || '同步'}
@@ -507,7 +508,7 @@ export default function AgentsDialog() {
                                 setEditingId(null)
                                 setShowModal(true)
                             }}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-colors"
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] transition-colors"
                          data-name="agents-dialog-add-button">
                             <Plus className="h-3.5 w-3.5"/>
                             创建
@@ -525,12 +526,12 @@ export default function AgentsDialog() {
                     onChange={e => setRepoUrl(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && !repoInstalling && handleRepoInstall()}
                     placeholder="输入 Git 仓库地址，从仓库安装 Agent（克隆到 agents 目录并按仓库分组）"
-                    className="flex-1 px-2.5 py-1.5 text-xs bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--brand-primary)]"
+                    className={`flex-1 px-2.5 py-1.5 text-xs bg-[var(--surface)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                  data-name="agents-dialog-repo-input"/>
                 <button
                     onClick={handleRepoInstall}
                     disabled={repoInstalling || !repoUrl.trim()}
-                    className="flex-shrink-0 px-2 py-1 text-xs font-medium rounded-md border border-[var(--border)] text-[var(--brand-primary)] hover:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-shrink-0 px-2 py-1 text-xs font-medium rounded-md border border-[var(--border)] text-[var(--text-brand)] hover:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                  data-name="agents-dialog-repo-install-button">
                     {repoInstalling ? '安装中...' : '安装仓库'}
                 </button>
@@ -560,7 +561,7 @@ export default function AgentsDialog() {
                         className={clsx(
                             "rounded-md px-4 py-1.5 text-xs font-medium transition-all duration-200 whitespace-nowrap",
                             activeTab === 'local'
-                                ? "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] shadow-sm"
+                                ? "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)] shadow-sm"
                                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         )}
                      data-name="agents-dialog-local-tab-button">
@@ -571,7 +572,7 @@ export default function AgentsDialog() {
                         className={clsx(
                             "relative rounded-md px-4 py-1.5 text-xs font-medium transition-all duration-200 whitespace-nowrap",
                             activeTab === 'repo'
-                                ? "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] shadow-sm"
+                                ? "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)] shadow-sm"
                                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         )}
                      data-name="agents-dialog-repo-tab-button">
@@ -586,7 +587,7 @@ export default function AgentsDialog() {
                         className={clsx(
                             "rounded-md px-4 py-1.5 text-xs font-medium transition-all duration-200 whitespace-nowrap",
                             activeTab === 'plugin'
-                                ? "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] shadow-sm"
+                                ? "bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)] shadow-sm"
                                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         )}
                      data-name="agents-dialog-plugin-tab-button">
@@ -599,7 +600,7 @@ export default function AgentsDialog() {
                     <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                         <Search className={clsx(
                             "h-4 w-4 transition-colors",
-                            searchQuery ? "text-[var(--brand-primary)]" : "text-[var(--text-muted)]"
+                            searchQuery ? "[color:var(--brand-primary)]" : "text-[var(--text-muted)]"
                         )}/>
                     </div>
                     <input
@@ -607,7 +608,7 @@ export default function AgentsDialog() {
                         placeholder="按名称搜索..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="block w-full rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] py-2 pl-9 pr-8 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] shadow-sm focus:border-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)] focus:bg-[var(--surface-muted)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all"
+                        className={`block w-full rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] py-2 pl-9 pr-8 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] shadow-sm focus:bg-[var(--surface-muted)] ${INPUT_FOCUS}`}
                     data-name="agents-dialog-input"/>
                     {searchQuery && (
                         <button
@@ -1049,7 +1050,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             value={form.name}
                             onChange={e => setForm({...form, name: e.target.value})}
                             placeholder="如：安全审计专家"
-                            className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all"
+                            className={`w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                         data-name="agents-dialog-name-input"/>
                     </div>
 
@@ -1063,7 +1064,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             value={form.description}
                             onChange={e => setForm({...form, description: e.target.value})}
                             placeholder="该 Agent 主要负责什么任务？"
-                            className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all"
+                            className={`w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                         data-name="agents-dialog-description-input"/>
                     </div>
 
@@ -1078,7 +1079,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             value={form.whenToUse || ''}
                             onChange={e => setForm({...form, whenToUse: e.target.value})}
                             placeholder="如：代码审查、安全审计、性能优化时使用"
-                            className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all"
+                            className={`w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                         data-name="agents-dialog-when-to-use-input"/>
                     </div>
 
@@ -1092,7 +1093,7 @@ function AgentEditModal({form: initialForm, editingId, onSave, onCancel}: {
                             onChange={e => setForm({...form, systemPrompt: e.target.value})}
                             rows={8}
                             placeholder="详细定义该 Agent 的角色、知识边界、行动规则和输出格式要求..."
-                            className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm font-mono text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all resize-none"
+                            className={`w-full px-3 py-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm font-mono text-[var(--text-primary)] placeholder-[var(--text-muted)] resize-none ${INPUT_FOCUS}`}
                         data-name="agents-dialog-textarea"/>
                     </div>
 

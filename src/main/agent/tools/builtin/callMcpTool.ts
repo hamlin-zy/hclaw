@@ -19,10 +19,12 @@
  *   (serverId, 原始工具名) 判定。详见 spec §6.6 / §8.6。
  */
 import {z} from 'zod'
+import type {PermissionRule} from '@shared/types'
 import type {Tool, ToolContext, ToolResult} from '../types'
 import {toolRegistry} from '../registry'
 import {getMcpToolMeta, getMcpToolPermission} from '../../mcp/discovery'
 import {permissionRulesManager} from '../../permissions/permissionRule'
+import {permissionEngine, matchesToolRulePattern, isProxyScopedMcpToolPattern} from '../permission'
 import {logger} from '../../logger'
 
 const inputSchema = z.object({
@@ -83,22 +85,82 @@ export const callMcpTool: Tool<CallMcpToolInput, unknown> = {
             }
         }
 
-        if (!autoApproved) {
-            // auto 模式下全局放行；safe 模式下未列入 autoApprove 的 MCP 工具需用户确认。
-            // ★ 优先取本次执行的作用域模式（子代理固定 auto，且无确认通道）；
-            //   缺省时回落进程级 permissionRulesManager（主会话 safe/auto）。
-            const mode = context.permissionMode ?? (await permissionRulesManager.getContext()).mode
-            if (mode !== 'auto' && context.requestConfirmation) {
-                const decision = await context.requestConfirmation(
-                    `⚠️ MCP 工具调用确认\n\nServer: ${meta.serverName || meta.serverId}\n工具: ${meta.rawToolName}\n参数: ${safeStringify(input.args)}\n\n该工具未列入自动批准列表，是否允许执行?`,
-                )
-                if (decision === 'deny') {
-                    return {
-                        success: false,
-                        output: null,
-                        error: `用户拒绝执行 MCP 工具「${meta.rawToolName}」。`,
-                    }
+        // ── 显式权限规则（权限面板）──
+        // 顺序说明：放在 MCP denyList 之后（denyList 是 server 级硬约束，优先级最高），
+        // 但放在 autoApprove 之前 —— 规则 deny 必须能压过 autoApprove，否则面板里加的
+        // 拒绝规则会被 server 的 autoApprove 静默绕过。
+        //
+        // ★ 规则分工（避免与 executor 的 PermissionEngine.check 双重判定）：
+        //   - `m_*`（proxy 名）规则 = MCP 专属严格层，由**本工具内**消费：
+        //     deny 硬拒 / ask 弹确认 / allow 跳过确认（含 m_github_* glob）。
+        //   - `call_mcp_tool` / `*`（含 call_mcp_*）名规则 = **引擎层**语义：executor 对
+        //     tool=call_mcp_tool 的判定已消费这些规则（deny/ask 均表现为「需确认」，
+        //     弹窗由 executor 发起；用户允许后才会走到这里）。工具内不再重复判定，
+        //     否则会出现双弹窗，或「用户已授权却被工具内硬拒」的矛盾结论。
+        //     工具内仅借其 allow 结论 / 引擎已判定的既有事实跳过自己的确认。
+        const rules = await permissionRulesManager.getRules()
+
+        // proxy 作用域：唯一能产生「工具内硬拒」的来源
+        const matchedRule = findMatchingMcpRule(rules, meta.proxyName)
+
+        if (matchedRule?.action === 'deny') {
+            logger.info('[call_mcp_tool] denied by permission rule', {
+                tool: meta.rawToolName,
+                rule: matchedRule.tool,
+            })
+            return {
+                success: false,
+                output: null,
+                error: `MCP 工具「${meta.rawToolName}」被本地权限规则「${matchedRule.tool}」禁止调用，请先在权限设置中移除或修改该规则。`,
+            }
+        }
+
+        // 引擎层规则命中（* / call_mcp_tool / call_mcp_*）：deny/ask 已由 executor 弹过确认
+        // （用户允许才走到这里），allow 则由引擎放行 —— 工具内一律不再重复确认/拒绝。
+        const engineHandled = rules.some(r => r.tool && matchesToolRulePattern(r.tool, 'call_mcp_tool'))
+
+        // 跳过工具内确认的条件：autoApprove / proxy 作用域 allow / 引擎层规则已判定。
+        const skipInternalConfirm = autoApproved || matchedRule?.action === 'allow' || engineHandled
+
+        // auto 模式下全局放行；safe 模式下未列入 autoApprove 的 MCP 工具需用户确认。
+        // ★ 优先取本次执行的作用域模式（子代理固定 auto，且无确认通道）；
+        //   缺省时回落进程级 permissionRulesManager（主会话 safe/auto）。
+        // ★ proxy 作用域 ask 规则视为**模式无关**：引擎层对 ask 规则在 auto 下仍弹
+        //   （check() 先匹配规则再短路 auto），工具内不得因 auto / autoApprove / 引擎层已
+        //   判定而静默放行，否则面板里的「询问」规则形同虚设。
+        const needsConfirm =
+            matchedRule?.action === 'ask' ||
+            (!skipInternalConfirm &&
+                (context.permissionMode ?? (await permissionRulesManager.getContext()).mode) !== 'auto')
+
+        // ★ ask 规则在无确认通道时 fail-closed：该规则语义就是「必须经用户同意」，
+        //   没有通道却放行等于静默绕过（子代理固定 auto 且无确认回调，正是这种形态）。
+        //   非 auto 的缺省确认在无通道时保持既有语义（与 native 通道一致，直接执行）。
+        if (needsConfirm && !context.requestConfirmation && matchedRule?.action === 'ask') {
+            return {
+                success: false,
+                output: null,
+                error: `MCP 工具「${meta.rawToolName}」被本地权限规则「${matchedRule.tool}」设为需确认，但当前会话没有确认通道，已阻止调用。`,
+            }
+        }
+
+        if (needsConfirm && context.requestConfirmation) {
+            const decision = await context.requestConfirmation(
+                `⚠️ MCP 工具调用确认\n\nServer: ${meta.serverName || meta.serverId}\n工具: ${meta.rawToolName}\n参数: ${safeStringify(input.args)}\n\n该工具未列入自动批准列表，是否允许执行?`,
+            )
+            if (decision === 'deny') {
+                return {
+                    success: false,
+                    output: null,
+                    error: `用户拒绝执行 MCP 工具「${meta.rawToolName}」。`,
                 }
+            }
+            if (decision === 'always') {
+                // 「始终允许」→ 落库一条针对该 proxy 的 allow 规则（颗粒度对齐单个 MCP 工具），
+                // 否则下次调用仍会弹确认（旧实现只处理 deny，always 被静默吞掉）。
+                await permissionEngine.addRule({tool: meta.proxyName, action: 'allow'})
+                // 立即通知前端刷新规则列表，无需等待 agent loop 的下一次迭代
+                context.onEvent?.({type: 'permission-rules-updated'})
             }
         }
 
@@ -120,6 +182,40 @@ export const callMcpTool: Tool<CallMcpToolInput, unknown> = {
             return {success: false, output: null, error: `MCP 工具调用失败: ${message}`}
         }
     },
+}
+
+/**
+ * 从权限规则中挑选命中的 **proxy 作用域** MCP 规则。
+ *
+ * - 只接受精确等于 proxyName、或 glob 命中 proxyName 的 pattern（如 m_github_create_issue、
+ *   m_github_*）；这些才是 MCP 专属严格层，可产生本工具内的「硬拒 / 弹确认 / 放行」。
+ * - **排除** 引擎层 pattern（`*` 与任何命中 `call_mcp_tool` 的 pattern，如 `call_mcp_tool`
+ *   本身、`call_mcp_*`）：它们已由 executor 的 PermissionEngine.check(tool='call_mcp_tool')
+ *   消费，工具内再判会导致双弹窗或与用户授权矛盾的结论。
+ * - `bash:` 前缀规则属于另一命名空间，直接忽略。
+ * - 优先级：精确 proxy 名规则 > glob 规则；同级别（glob vs glob）按 createdAt
+ *   后写覆盖 —— repository.getRules() 已按 created_at 升序返回，故「最后命中的
+ *   glob」即「后创建者」，结论不再依赖 DB 行序。
+ */
+function findMatchingMcpRule(
+    rules: readonly PermissionRule[],
+    proxyName: string,
+): PermissionRule | undefined {
+    let best: PermissionRule | undefined
+    let bestIsExact = false
+    for (const rule of rules) {
+        const pattern = rule.tool
+        // 排除引擎层 pattern（* / call_mcp_tool / call_mcp_*）
+        if (!isProxyScopedMcpToolPattern(pattern)) continue
+        const isExact = pattern === proxyName
+        const matched = isExact || matchesToolRulePattern(pattern, proxyName)
+        if (!matched) continue
+        if (!best || isExact || !bestIsExact) {
+            best = rule
+            bestIsExact = isExact
+        }
+    }
+    return best
 }
 
 /** 参数摘要（确认文案用；超长截断避免确认框膨胀） */

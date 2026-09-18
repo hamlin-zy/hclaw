@@ -3,7 +3,7 @@ import {ChevronDown, ChevronUp} from 'lucide-react'
 import {useEditorTabStore} from '../stores/editorTabStore'
 import {useWorkspaceStore} from '../stores/workspaceStore'
 import {EditorTab} from './EditorTab'
-import {CodeEditor} from './CodeEditor'
+import {CodeEditor, type CodeEditorHandle} from './CodeEditor'
 import {DiffViewer} from './DiffViewer'
 import {ImageViewer} from './ImageViewer'
 import {MarkdownPreview} from './MarkdownPreview'
@@ -16,6 +16,13 @@ import {ToggleChip} from '../ui/ToggleChip'
 import {EmptyState} from '../ui/EmptyState'
 import {computeTabScrollLeft} from '../utils/tabScroll'
 import {toAbsoluteFilePath} from '../utils/mdImageSrc'
+import {useLocateRequestStore} from '../stores/locateRequestStore'
+import {
+  LOCATE_HIGHLIGHT_MS,
+  isLocateTargetForActiveFile,
+  planLocate,
+  type LocateTarget,
+} from '../lib/locateHighlight'
 
 const VIM_SIZE_THRESHOLD = 1024 * 1024   // >1MB 走 CodeMirror vim 模式（性能护栏）
 
@@ -148,6 +155,96 @@ export function EditorArea() {
     if (next !== container.scrollLeft) container.scrollLeft = next
   }, [activeTabId])
 
+  // ── 定位（工单 06）：订阅 locateRequestStore，把「打开后落到那一行」应用给当前激活 tab 的编辑器 ──
+  // 请求由 QuickOpen 的打开流程发出（工单 05），编辑器侧只做消费方。seq 单调前进，
+  // 因此「重复定位到同一行」也能被识别为一次新的定位（契约见 stores/locateRequestStore.ts）。
+  const locateSeq = useLocateRequestStore(s => s.seq)
+  const locatePath = useLocateRequestStore(s => s.path)
+  const locateLine = useLocateRequestStore(s => s.line)
+  /** 编辑器句柄；编辑器未挂载时为 null（挂载时机由 EditorArea 的条件渲染决定） */
+  const locateEditorRef = useRef<CodeEditorHandle | null>(null)
+  /** 编辑器就绪（EditorView 已创建）。视图是异步创建的，请求可能比它先到 */
+  const editorReadyRef = useRef(false)
+  /** 挂起中的定位请求：编辑器未挂载 / 视图未就绪时在此等候，就绪后由 applyPendingLocate 消费 */
+  const pendingLocateRef = useRef<LocateTarget | null>(null)
+  /** 上一次已点亮的落点：重复定位同一行时只重置计时、不重新滚动 */
+  const lastLocateRef = useRef<LocateTarget | null>(null)
+  /** 1500ms 自动硬清除的计时器 */
+  const locateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 当前激活文件路径：回调里同步读取（放进依赖会让每次 tabs 变化都重跑订阅 effect） */
+  const activePathRef = useRef<string | null>(null)
+  activePathRef.current = active?.filePath ?? null
+
+  const clearLocateTimer = useCallback(() => {
+    if (locateTimerRef.current !== null) {
+      clearTimeout(locateTimerRef.current)
+      locateTimerRef.current = null
+    }
+  }, [])
+
+  /**
+   * 把挂起中的定位请求应用到当前编辑器。三处会调用它：请求到达、编辑器就绪、视图就绪后重试。
+   * 未就绪（句柄缺失 / 视图未创建）时**保持挂起**，不丢请求——这正是「请求先到、编辑器后挂载」的处理点。
+   */
+  const applyPendingLocate = useCallback(() => {
+    const req = pendingLocateRef.current
+    const handle = locateEditorRef.current
+    if (req === null || handle === null || !editorReadyRef.current) return
+    // 不属于当前激活文件（切 tab 期间迟到的请求）→ 丢弃，绝不落到新 tab 上
+    if (!isLocateTargetForActiveFile(req.path, activePathRef.current)) {
+      pendingLocateRef.current = null
+      return
+    }
+    // 视图尚未创建 → locate 返回 false，继续挂起，等 onEditorReady 再来
+    if (!handle.locate(req.line, {scroll: planLocate(lastLocateRef.current, req).scroll})) return
+    pendingLocateRef.current = null
+    lastLocateRef.current = req
+    // 1500ms 后硬清除（无渐隐）。再次定位先清旧计时器，从新高亮重新计时。
+    clearLocateTimer()
+    locateTimerRef.current = setTimeout(() => {
+      locateTimerRef.current = null
+      locateEditorRef.current?.clearLocate()
+    }, LOCATE_HIGHLIGHT_MS)
+  }, [clearLocateTimer])
+
+  const onLocateEditorReady = useCallback(() => {
+    editorReadyRef.current = true
+    applyPendingLocate()
+  }, [applyPendingLocate])
+
+  /** CodeEditor 的 ref：挂载/卸载时同步句柄与就绪旗标 */
+  const setLocateEditor = useCallback((handle: CodeEditorHandle | null) => {
+    locateEditorRef.current = handle
+    if (handle !== null) return
+    // 编辑器实例销毁（切 tab / md 视图切换 / 关 tab / 淘汰重载）= 高亮的天然清除点：
+    // 视图连同其 StateField 一起没了。这里一并作废句柄、就绪旗标、挂起请求、落点记忆与计时器，
+    // 避免旧请求 / 旧计时器落到下一个实例上。
+    editorReadyRef.current = false
+    pendingLocateRef.current = null
+    lastLocateRef.current = null
+    clearLocateTimer()
+  }, [clearLocateTimer])
+
+  // 切 tab：旧高亮随编辑器视图重建天然消失；但计时器与「上一个落点」必须作废——否则回到旧 tab 时
+  // 会因「同一落点」判定而跳过滚动，目标行可能不在视口内。挂起请求**不在这里清**：
+  // 「打开并定位」是同一个 tick 里先建 tab 再发请求，清理晚于订阅就会把刚到的请求吞掉；
+  // 跨 tab 的迟到请求由 applyPendingLocate 里的路径校验拦下。
+  useEffect(() => {
+    clearLocateTimer()
+    lastLocateRef.current = null
+  }, [activeTabId, clearLocateTimer])
+
+  // 定位请求到达：只认属于当前激活 tab 的请求，其余丢弃（不挂起到别的 tab）
+  useEffect(() => {
+    if (locateSeq === 0 || locatePath === null) return
+    if (!isLocateTargetForActiveFile(locatePath, activePathRef.current)) return
+    pendingLocateRef.current = {path: locatePath, line: locateLine}
+    applyPendingLocate()
+  }, [locateSeq, locatePath, locateLine, applyPendingLocate])
+
+  // 卸载：计时器不能留着（回调会去碰已销毁的编辑器）
+  useEffect(() => clearLocateTimer, [clearLocateTimer])
+
   const pickerItems: ContextMenuItem[] = tabs.map(t => ({
     label: t.title,
     onClick: () => setActive(t.id),
@@ -235,7 +332,14 @@ export function EditorArea() {
             {mdViewMode === 'split' ? (
               <div className="pm-md-split">
                 <div className="pm-md-half" data-testid="md-source-pane">
-                  <CodeEditor content={active.content!} path={active.filePath ?? ''} forceVim={forceVim} onSelectionChange={onEditorSelection} />
+                  <CodeEditor
+                    ref={setLocateEditor}
+                    content={active.content!}
+                    path={active.filePath ?? ''}
+                    forceVim={forceVim}
+                    onSelectionChange={onEditorSelection}
+                    onEditorReady={onLocateEditorReady}
+                  />
                 </div>
                 <div className="pm-md-half" data-testid="md-preview-pane">
                   <MarkdownPreview content={active.content!} basePath={mdBasePath} />
@@ -249,7 +353,14 @@ export function EditorArea() {
           </div>
         )}
         {active?.type === 'file' && !evicted && !isPlaceholder && !isImage && !isMarkdown && active.content !== undefined && (
-          <CodeEditor content={active.content} path={active.filePath ?? ''} forceVim={forceVim} onSelectionChange={onEditorSelection} />
+          <CodeEditor
+            ref={setLocateEditor}
+            content={active.content}
+            path={active.filePath ?? ''}
+            forceVim={forceVim}
+            onSelectionChange={onEditorSelection}
+            onEditorReady={onLocateEditorReady}
+          />
         )}
         {active?.type === 'diff' && evictedDiff && !diffLoadFailed && <div className="pm-editor-note">加载中…</div>}
         {active?.type === 'diff' && evictedDiff && diffLoadFailed && <div className="pm-editor-note">无法加载此 diff</div>}

@@ -18,6 +18,8 @@ export const WORKER_MESSAGE_TYPES = {
     UPDATE_MODEL_OVERRIDE: 'update_model_override',
     /** 更新会话级权限模式（主进程 → Worker 广播，仅目标会话 worker 生效） */
     UPDATE_CONV_PERMISSION_MODE: 'update_conv_permission_mode',
+    /** 权限规则变更（主进程 → Worker 广播）：运行中 Worker 需重读 permission_rules，刷新规则快照 */
+    PERMISSION_RULES_CHANGED: 'permission-rules-changed',
     /** 请求权限确认 (Worker -> Main) */
     PERMISSION_CONFIRM: 'permission-confirm',
     /** 权限确认结果 (Main -> Worker) */

@@ -34,6 +34,7 @@ import {fuzzyFilter} from '../../lib/search'
 import {Folder, Search, Trash2, Plus, X} from 'lucide-react'
 import type {CapabilityEntry} from '../../capabilityTypes'
 import {CommandIcon} from '../icons'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 // ─── 类型定义 ─────────────────────────────────────────
 
@@ -97,7 +98,9 @@ export default function CommandsDialog() {
 
             // 2. 从 CapabilityHub 获取所有命令
             const api = window.electronAPI
-            const caps = await api?.capability?.getByType?.('command')
+            // 显式要正文：命令卡片点开后的「内容 (Content)」区要展示 content，
+            // 而列表类出口默认裁剪正文（该出口的唯一真实消费方就是这里）。
+            const caps = await api?.capability?.getByType?.('command', {withContent: true})
             if (Array.isArray(caps)) {
                 setCapabilities(caps as CapabilityEntry[])
             }
@@ -329,7 +332,7 @@ export default function CommandsDialog() {
                             </button>
                             <button
                                 onClick={handleResetPresets}
-                                className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] rounded-md transition-colors"
+                                className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-brand)] hover:bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] rounded-md transition-colors"
                                 title="重新生成预设命令文件（commit-msg）"
                              data-name="commands-dialog-reset-presets-button">
                                 重置预设
@@ -347,7 +350,7 @@ export default function CommandsDialog() {
                         onClick={() => setActiveTab(tab)}
                         className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
                             activeTab === tab
-                                ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)] font-medium'
+                                ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)] font-medium'
                                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                         }`}
                      data-name={`commands-dialog-tab-${i}`}>
@@ -365,9 +368,8 @@ export default function CommandsDialog() {
                         placeholder="搜索命令..."
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
-                        className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--surface)] border border-[var(--border)] rounded-md
-                                 text-[var(--text-primary)] placeholder-[var(--text-muted)]
-                                 focus:outline-none focus:border-[var(--brand-primary)]"
+                        className={`w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--surface)] border border-[var(--border)] rounded-md
+                                 text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                     data-name="commands-dialog-input"/>
                 </div>
             </div>
@@ -505,7 +507,7 @@ function LocalCommandCard({
                                 e.stopPropagation()
                                 window.electronAPI?.showItemInFolder?.(userCommand.filePath)
                             }}
-                            className="p-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors"
+                            className="p-1 text-[var(--text-muted)] hover:[color:var(--brand-primary)] transition-colors"
                             title="打开所在目录"
                          data-name="commands-dialog-open-folder-button">
                             <Folder className="w-4 h-4"/>
@@ -514,7 +516,7 @@ function LocalCommandCard({
                     {onEdit && (
                         <button
                             onClick={e => { e.stopPropagation(); onEdit?.() }}
-                            className="p-1 text-[var(--text-muted)] hover:text-[var(--brand-primary)] transition-colors"
+                            className="p-1 text-[var(--text-muted)] hover:[color:var(--brand-primary)] transition-colors"
                             title="编辑"
                          data-name="commands-dialog-edit-button">
                             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -667,7 +669,7 @@ function PluginCommandCard({
                             <span className={clsx(
                                 'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg',
                                 isEnabled
-                                    ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
+                                    ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] [color:var(--brand-primary)]'
                                     : 'bg-[var(--surface-muted)] text-[var(--text-muted)]',
                             )}>
                                 <CommandIcon className="w-3.5 h-3.5"/>
@@ -704,7 +706,7 @@ function SourceBadge({source}: { source: 'builtin' | 'user' | 'plugin' }) {
         },
         plugin: {
             label: '插件',
-            className: 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]',
+            className: 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)]',
         },
     }
     const {label, className} = config[source] || {label: source, className: 'bg-[var(--surface)] text-[var(--text-muted)]'}
@@ -728,7 +730,7 @@ function CommandPreviewModal({command, onClose}: {
                 <div className="flex items-center gap-3 min-w-0">
                     <span className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-xs font-bold ${
                         command.enabled
-                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
+                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] [color:var(--brand-primary)]'
                             : 'bg-[var(--surface)] text-[var(--text-muted)]'
                     }`}>
                         <CommandIcon className="w-4 h-4"/>
@@ -769,7 +771,7 @@ function CommandPreviewModal({command, onClose}: {
                         <div className="space-y-1.5">
                             {command.args.map((arg: any, i: number) => (
                                 <div key={i} className="flex items-center gap-2 text-sm">
-                                    <code className="px-1.5 py-0.5 rounded text-xs font-mono bg-[var(--surface-muted)] text-[var(--brand-primary)]">
+                                    <code className="px-1.5 py-0.5 rounded text-xs font-mono bg-[var(--surface-muted)] text-[var(--text-brand)]">
                                         {arg.name}
                                     </code>
                                     {arg.description && (

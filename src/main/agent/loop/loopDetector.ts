@@ -47,7 +47,12 @@ export class LoopDetector {
     private modeTurns = new Map<string, number>()                      // 模式指纹 -> 累计轮次
     private silencedSet = new Set<string>()
     // threshold 下限为 2（全局约束）
-    constructor(private threshold = 3) { this.threshold = Math.max(2, threshold) }
+    // 公开冻结值：事件载荷/展示复用（禁止把 getSettings() 现值当展示值——运行中改动会与判定分叉）
+    readonly threshold: number
+
+    constructor(threshold = 3) {
+        this.threshold = Math.max(2, threshold)
+    }
 
     recordTurn(calls: TurnToolCall[]): LoopVerdict | null {
         if (!calls || calls.length === 0) return null

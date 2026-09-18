@@ -109,23 +109,30 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
         })
     }
 
-    // 窗口控制 IPC：闭包引用当前 win 实例（同 id 重开时 safeHandle 幂等替换）
-    safeHandle(`${id}:minimize`, () => {
-        if (!win.isDestroyed()) win.minimize()
+    // 窗口控制 IPC：按 event.sender 解析目标窗口，而非闭包 win —— 同 id 可开多实例
+    // （如项目管理窗口），固定 channel + 闭包会让 handler 永远指向最后创建的窗口，
+    // 其他实例的关闭/最小化按钮全部失效。fromWebContents 兜底闭包 win（重开竞态时
+    // sender 可能已销毁，与旧行为一致地 no-op）。
+    safeHandle(`${id}:minimize`, (event) => {
+        const target = BrowserWindow.fromWebContents(event.sender) ?? win
+        if (!target.isDestroyed()) target.minimize()
     })
-    safeHandle(`${id}:maximize`, () => {
-        if (win.isDestroyed()) return
-        if (win.isMaximized()) {
-            win.unmaximize()
+    safeHandle(`${id}:maximize`, (event) => {
+        const target = BrowserWindow.fromWebContents(event.sender) ?? win
+        if (target.isDestroyed()) return
+        if (target.isMaximized()) {
+            target.unmaximize()
         } else {
-            win.maximize()
+            target.maximize()
         }
     })
-    safeHandle(`${id}:close`, () => {
-        if (!win.isDestroyed()) win.close()
+    safeHandle(`${id}:close`, (event) => {
+        const target = BrowserWindow.fromWebContents(event.sender) ?? win
+        if (!target.isDestroyed()) target.close()
     })
-    safeHandle(`${id}:is-maximized`, () => {
-        return win.isDestroyed() ? false : win.isMaximized()
+    safeHandle(`${id}:is-maximized`, (event) => {
+        const target = BrowserWindow.fromWebContents(event.sender) ?? win
+        return target.isDestroyed() ? false : target.isMaximized()
     })
 
     // 加载页面（加载决策用 isViteDevServer：不含 --devtools，否则打包版 --devtools 启动时

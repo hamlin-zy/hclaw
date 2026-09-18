@@ -117,8 +117,8 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                     <div onMouseDown={handleDragStart} onTouchStart={handleDragStart}
                         className={`flex items-center justify-between px-4 py-3 border-b border-[var(--border-muted)] shrink-0 select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}>
                         <h4 className="text-[13px] font-medium text-[var(--text-primary)] flex items-center gap-2 min-w-0 flex-1">
-                            {isAgent && <AgentIcon className="w-4 h-4 shrink-0 text-[var(--brand-primary)]"/>}
-                            {isSkill && <SkillIcon className="w-4 h-4 shrink-0 text-[var(--brand-primary)]"/>}
+                            {isAgent && <AgentIcon className="w-4 h-4 shrink-0 [color:var(--brand-primary)]"/>}
+                            {isSkill && <SkillIcon className="w-4 h-4 shrink-0 [color:var(--brand-primary)]"/>}
                             <span className="truncate">{displayTitle}</span>
                             {!isAgent && !isSkill && <span className="text-[10px] text-[var(--text-muted)] font-normal shrink-0">{toolCalls.length} 个调用</span>}
                         </h4>
@@ -138,17 +138,17 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                     return (
                                         <div key={tc.id} className="rounded-lg border border-[rgba(74,158,255,0.15)] bg-[rgba(74,158,255,0.04)] p-3">
                                             <div className="flex items-center gap-2 mb-2 text-[11px]">
-                                                <AgentIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)]"/>
+                                                <AgentIcon className="w-3.5 h-3.5 shrink-0 [color:var(--brand-primary)]"/>
                                                 <span className="text-[var(--text-muted)] font-normal">Agent</span>
                                                 {agentTypeLabel && (
-                                                    <span className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)] px-1.5 py-0.5 rounded shrink-0">
+                                                    <span className="text-[10px] font-medium text-[var(--text-brand)] bg-[var(--brand-muted)] px-1.5 py-0.5 rounded shrink-0">
                                                         {agentTypeLabel}
                                                     </span>
                                                 )}
                                                 <span className="font-semibold text-[var(--text-primary)] truncate flex-1">{agentDisplayName || '子 Agent'}</span>
                                                 {/* 动态刷新文本（运行时进度文本，与 ToolCallHeader 的 progressText 一致） */}
                                                 {state?.progress && ['running', 'pending'].includes(status) && (
-                                                    <span className="text-[11px] text-[var(--brand-primary)] px-1.5 py-0 border-l border-[rgba(74,158,255,0.15)] truncate animate-pulse">
+                                                    <span className="text-[11px] text-[var(--text-brand)] px-1.5 py-0 border-l border-[rgba(74,158,255,0.15)] truncate animate-pulse">
                                                         {state.progress.replace(/^子 Agent /, '')}
                                                     </span>
                                                 )}
@@ -157,7 +157,7 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                                     <button
                                                         onClick={() => handleJumpToSession(tc)}
                                                         className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium hover:bg-[var(--surface-muted)] border border-[var(--border)] shrink-0"
-                                                        style={{color: 'var(--brand-primary)'}}
+                                                        style={{color: 'var(--text-brand)'}}
                                                         title="跳转到子会话"
                                                      data-name="compact-popup-jump-to-session-button">
                                                         <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -212,7 +212,7 @@ const CompactToolPopup = memo(function CompactToolPopup() {
                                     return (
                                         <div key={tc.id} className="rounded-lg border border-[rgba(59,130,246,0.15)] bg-[rgba(59,130,246,0.04)] p-3">
                                             <div className="flex items-center gap-2 mb-2 text-[11px]">
-                                                <SkillIcon className="w-3.5 h-3.5 shrink-0 text-[var(--brand-primary)]"/>
+                                                <SkillIcon className="w-3.5 h-3.5 shrink-0 [color:var(--brand-primary)]"/>
                                                 <span className="text-[var(--text-muted)] font-normal">Skill</span>
                                                 <span className="font-semibold text-[var(--text-primary)] truncate flex-1">{skillDisplayName || '技能'}</span>
                                                 <span className={statusBadgeClass(status)}>{status === 'success' ? '已完成' : status === 'error' ? '失败' : '进行中'}</span>

@@ -10,6 +10,7 @@ export * from './types/theme'
 export * from './types/message'
 export * from './types/permissions'
 export * from './types/settings'
+export * from './types/schedule'
 
 // ─── Layer 1 — depends only on skillTypes (external) ───
 export * from './types/infra'

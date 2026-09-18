@@ -59,8 +59,9 @@ export function ProjectManagerApp() {
   const gitHeight = gitCollapsed ? COLLAPSED_GIT_HEIGHT : Math.min(sizes[GIT_HEIGHT_KEY], gitMax)
   const changedCount = summary ? Object.keys(summary.statusMap).length : 0
 
-  // QuickOpen：本窗口唯一的 capture 阶段 document keydown 宿主（独立于主窗口的 shortcutManager）
-  const quickOpen = useQuickOpen()
+  // QuickOpen：本窗口唯一的 capture 阶段 document keydown 宿主（独立于主窗口的 shortcutManager）。
+  // 传入 ws：Recent Files 的 MRU 按工作区分键、File Search 走 `pm.searchFiles(ws, …)`，切换工作区即整体失效
+  const quickOpen = useQuickOpen(ws)
 
   // 与 StatusBar / GitStatusPanel 同源：changedCount 数 statusMap 全量（含未跟踪 ??）。
   // git diff --numstat HEAD 不含未跟踪文件，只看 additions/deletions 会让"纯未跟踪"工作区
@@ -188,7 +189,7 @@ export function ProjectManagerApp() {
       <WindowTitleBar title={ws ? `${basename(ws)} (只读)` : '项目管理'} subtitle={ws} />
       <div className="flex-1 min-h-0 overflow-hidden">
         {!ws ? (
-          <div className="pm-no-workspace">未指定工作目录</div>
+          <div className="pm-no-workspace">未指定项目</div>
         ) : (
           <div className="pm-canvas">
             <SplitPane
@@ -236,7 +237,26 @@ export function ProjectManagerApp() {
       </div>
       {/* QuickOpen 浮层：条件渲染 → 关闭即整棵卸载（无残留 DOM / 无残留浮层内监听器） */}
       {quickOpen.mode !== null && (
-        <QuickOpen mode={quickOpen.mode} query={quickOpen.query} onQueryChange={quickOpen.setQuery} />
+        <QuickOpen
+          mode={quickOpen.mode}
+          query={quickOpen.query}
+          onQueryChange={quickOpen.setQuery}
+          results={quickOpen.results}
+          activeIndex={quickOpen.activeIndex}
+          loading={quickOpen.loading}
+          truncated={quickOpen.truncated}
+          error={quickOpen.error}
+          stalePaths={quickOpen.stalePaths}
+          onActivate={quickOpen.activateIndex}
+          onClearRecent={quickOpen.clearRecent}
+          onKeyDown={quickOpen.onKeyDown}
+          onCompositionStart={quickOpen.onCompositionStart}
+          onCompositionEnd={quickOpen.onCompositionEnd}
+          workspacePath={ws}
+          findFolds={quickOpen.findFolds}
+          loadingMore={quickOpen.loadingMore}
+          onListScroll={quickOpen.onListScroll}
+        />
       )}
       {/* 命令式 confirm() 需要有一个挂载中的实例才会 resolve（编辑区/变更列表共用） */}
       <ConfirmDialog />

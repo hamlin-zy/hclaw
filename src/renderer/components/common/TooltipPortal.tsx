@@ -102,6 +102,8 @@ function tooltipTransform(tooltip: NonNullable<TooltipState>, clamped: ClampSide
 export default function TooltipPortal() {
     const [tooltip, setTooltip] = useState<TooltipState>(null)
     const hideTimer = useRef<number | null>(null)
+    // 当前 tooltip 展示来源元素：Esc 关闭（document keydown，无事件目标）时据此恢复原生 title
+    const activeElRef = useRef<HTMLElement | null>(null)
     const tipRef = useRef<HTMLDivElement | null>(null)
     // 左缘钳制：居中放置时 tooltip 半宽可能越过触发元素左缘（会话列表
     // 靠窗口左侧时会溢出窗口）。渲染后测量实际宽度，若越界则改为与触发元素
@@ -135,25 +137,44 @@ export default function TooltipPortal() {
     }, [tooltip])
 
     useEffect(() => {
-        const handleMouseOver = (e: MouseEvent) => {
-            const el = (e.target as HTMLElement).closest<HTMLElement>(TOOLTIP_SELECTOR)
-            if (!el) {
-                // 延迟隐藏，防止移动到子元素时闪烁。
-                // 必须先清除旧的 hideTimer：快速移动时鼠标连续扫过多个无 title
-                // 元素会产生多个 mouseover，直接覆盖引用会让先前 timer 泄漏，
-                // 在进入元素显示 tooltip 后仍到期 setTooltip(null) ——
-                // 表现为"从右侧快速进入时 tooltip 闪现即消失"的竞态根因。
-                if (hideTimer.current) clearTimeout(hideTimer.current)
-                hideTimer.current = window.setTimeout(() => setTooltip(null), 100)
-                return
+        const clearHideTimer = () => {
+            if (hideTimer.current) clearTimeout(hideTimer.current)
+            hideTimer.current = null
+        }
+
+        // 延迟隐藏，防止移动到子元素时闪烁。
+        // 必须先清除旧的 hideTimer：快速移动时鼠标连续扫过多个无 title
+        // 元素会产生多个 mouseover，直接覆盖引用会让先前 timer 泄漏，
+        // 在进入元素显示 tooltip 后仍到期 setTooltip(null) ——
+        // 表现为"从右侧快速进入时 tooltip 闪现即消失"的竞态根因。
+        const scheduleHide = () => {
+            clearHideTimer()
+            hideTimer.current = window.setTimeout(() => setTooltip(null), 100)
+        }
+
+        /** 恢复被接管的原生 title，并摘掉接管标记 */
+        const restoreTitle = (el: HTMLElement) => {
+            if (el.dataset.titleOriginal) {
+                el.setAttribute('title', el.dataset.titleOriginal)
+                delete el.dataset.titleOriginal
+                delete el.dataset.tooltipActive
             }
+        }
 
-            // mouseenter 语义：鼠标在元素内部（含子元素）移动时也会触发 mouseover，
-            // 若 relatedTarget 仍在 el 内则视为内部移动——不重置/不重新触发，
-            // 避免 tooltip 在子元素边界处反复显隐（"闪一下消失"的根因）
-            const related = e.relatedTarget as HTMLElement | null
-            if (related && el.contains(related)) return
+        /**
+         * 立即隐藏 + 恢复 title + 清定时器。
+         * 无参时作用于当前展示来源元素——Esc 关闭没有事件目标，需靠 activeElRef 定位。
+         */
+        const hideNow = (el?: HTMLElement) => {
+            const target = el ?? activeElRef.current
+            clearHideTimer()
+            setTooltip(null)
+            if (target) restoreTitle(target)
+            activeElRef.current = null
+        }
 
+        /** 显示 el 的 tooltip 文本并接管其原生 title（mouseover / focusin 共用） */
+        const showFor = (el: HTMLElement) => {
             // 替换原生 title，避免两者同时显示。
             // 注意：title 已被本组件移除时（getAttribute 为 null）不能覆盖
             // dataset.titleOriginal，否则残留值会被覆盖成 "null"
@@ -169,8 +190,7 @@ export default function TooltipPortal() {
                 // 命中选择器但无文本（如重渲染后残留 data-tooltip-active 标记的元素）：
                 // 不能提前 return——否则旧 tooltip 既不排隐藏 timer 也不清除，永久滞留。
                 // 与 !el 分支同语义：清除旧 timer 后延迟隐藏。
-                if (hideTimer.current) clearTimeout(hideTimer.current)
-                hideTimer.current = window.setTimeout(() => setTooltip(null), 100)
+                scheduleHide()
                 // 残留标记清理：标记存在但 titleOriginal 已丢失 → 恢复不了 title，
                 // 只删标记让该元素退出选择器命中范围
                 if (el.dataset.tooltipActive && !el.dataset.titleOriginal) {
@@ -179,8 +199,9 @@ export default function TooltipPortal() {
                 return
             }
 
-            clearTimeout(hideTimer.current!)
-            hideTimer.current = null
+            clearHideTimer()
+            // 展示来源登记：Esc 关闭（document keydown，无事件目标）据此恢复 title
+            activeElRef.current = el
 
             const rect = el.getBoundingClientRect()
             // 放置方向：data-tooltip-placement="right" 显式指定（折叠侧边栏图标：
@@ -211,6 +232,22 @@ export default function TooltipPortal() {
             setTooltip({text, x, y, placement, minX: rect.left})
         }
 
+        const handleMouseOver = (e: MouseEvent) => {
+            const el = (e.target as HTMLElement).closest<HTMLElement>(TOOLTIP_SELECTOR)
+            if (!el) {
+                scheduleHide()
+                return
+            }
+
+            // mouseenter 语义：鼠标在元素内部（含子元素）移动时也会触发 mouseover，
+            // 若 relatedTarget 仍在 el 内则视为内部移动——不重置/不重新触发，
+            // 避免 tooltip 在子元素边界处反复显隐（"闪一下消失"的根因）
+            const related = e.relatedTarget as HTMLElement | null
+            if (related && el.contains(related)) return
+
+            showFor(el)
+        }
+
         const handleMouseOut = (e: MouseEvent) => {
             const el = (e.target as HTMLElement).closest<HTMLElement>(TOOLTIP_SELECTOR)
             if (!el) return
@@ -220,19 +257,49 @@ export default function TooltipPortal() {
             const related = e.relatedTarget as HTMLElement | null
             if (related && el.contains(related)) return
 
-            clearTimeout(hideTimer.current!)
-            hideTimer.current = null
-            setTooltip(null)
+            // 元素仍持有焦点（hover→focus 重叠）：键盘/点击聚焦后 tooltip 由 focus 态
+            // 维持，不能因 mouseout 隐藏，否则聚焦元素上的提示闪失
+            if (document.activeElement === el) return
 
-            if (el.dataset.titleOriginal) {
-                el.setAttribute('title', el.dataset.titleOriginal)
-                delete el.dataset.titleOriginal
-                delete el.dataset.tooltipActive
-            }
+            hideNow(el)
+        }
+
+        const handleFocusIn = (e: FocusEvent) => {
+            const el = (e.target as HTMLElement).closest<HTMLElement>(TOOLTIP_SELECTOR)
+            if (!el) return
+
+            // 焦点在元素内部（含子元素）流转不算进入——与 mouseenter 语义对齐
+            const related = e.relatedTarget as HTMLElement | null
+            if (related && el.contains(related)) return
+
+            showFor(el)
+        }
+
+        const handleFocusOut = (e: FocusEvent) => {
+            const el = (e.target as HTMLElement).closest<HTMLElement>(TOOLTIP_SELECTOR)
+            if (!el) return
+
+            // 焦点移到元素内部子元素：不算离开
+            const related = e.relatedTarget as HTMLElement | null
+            if (related && el.contains(related)) return
+
+            // 鼠标仍悬停在元素上（hover→focus 重叠）：隐藏交给 mouseout，
+            // 否则 hover 中的元素获得再失去焦点会让 tooltip 提前消失
+            if (el.matches(':hover')) return
+
+            hideNow(el)
+        }
+
+        // Esc 关闭：document 级监听（无事件目标），靠 activeElRef 恢复 title
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') hideNow()
         }
 
         document.addEventListener('mouseover', handleMouseOver)
         document.addEventListener('mouseout', handleMouseOut)
+        document.addEventListener('focusin', handleFocusIn)
+        document.addEventListener('focusout', handleFocusOut)
+        document.addEventListener('keydown', handleKeyDown)
         // 兜底：指针离开窗口（mouseleave 不冒泡，需挂 documentElement）或窗口失焦时，
         // 不会再有 mouseover 触发隐藏，tooltip 会滞留。对列表 reorder 替换按钮 DOM
         // （Chrome 不补发 mouseleave）的场景同样有效——下一个 mouseover 必然到来，
@@ -244,9 +311,12 @@ export default function TooltipPortal() {
         return () => {
             document.removeEventListener('mouseover', handleMouseOver)
             document.removeEventListener('mouseout', handleMouseOut)
+            document.removeEventListener('focusin', handleFocusIn)
+            document.removeEventListener('focusout', handleFocusOut)
+            document.removeEventListener('keydown', handleKeyDown)
             document.documentElement.removeEventListener('mouseleave', handleDocLeave)
             window.removeEventListener('blur', handleDocLeave)
-            if (hideTimer.current) clearTimeout(hideTimer.current)
+            clearHideTimer()
         }
     }, [])
 

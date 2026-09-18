@@ -8,7 +8,7 @@
  *
  * 为什么是「目录遍历 + 显式拒绝清单」而不是人工枚举文件？
  *   上一版枚举 15 个文件 + 冻结 EXPECTED_FILE_COUNT：新增文件永远不会变红，护栏会随目录
- *   生长而静默腐化。现在改为默认**纳入**——dialogs/ 与 repo/ 下任何新文件都会自动进扫描集，
+ *   生长而静默腐化。现在改为默认**纳入**——dialogs/、repo/ 与 settings/ 下任何新文件都会自动进扫描集，
  *   要么它是干净的，要么有人必须带理由把它写进 EXCLUDED。拒绝清单里不存在的路径会撞上
  *   元测试，无法变成永久豁免。
  *
@@ -67,8 +67,8 @@ function walkDir(relDir: string): string[] {
   return out
 }
 
-/** dialogs/ 与 repo/ 的全部源文件——默认全部纳入扫描，除非显式拒绝。 */
-const TRAVERSED = [...walkDir(DIALOGS), ...walkDir(REPO)].sort()
+/** dialogs/、repo/ 与 settings/ 的全部源文件——默认全部纳入扫描，除非显式拒绝。 */
+const TRAVERSED = [...walkDir(DIALOGS), ...walkDir(REPO), ...walkDir(`${COMPONENTS}/settings`)].sort()
 
 /**
  * 显式拒绝清单（每项必须带理由字符串）。
@@ -82,10 +82,10 @@ const EXCLUDED: Record<string, string> = {
   [`${DIALOGS}/ChannelsDialog.tsx`]: '用户已决定本轮不扩范围（能力四页之外的对话框）',
   [`${DIALOGS}/MCPDialog.tsx`]: '用户已决定本轮不扩范围（能力四页之外的对话框）',
   [`${DIALOGS}/ChannelIcons.tsx`]: '用户已决定本轮不扩范围（渠道图标资源组件）',
-  [`${DIALOGS}/ScheduleDialog.tsx`]: '用户已决定本轮不扩范围（定时任务对话框）',
   [`${DIALOGS}/MCPPluginServerCard.tsx`]: '用户已决定本轮不扩范围（MCP 插件服务器卡片）',
   [`${DIALOGS}/ToolsDialog.tsx`]: '用户已决定本轮不扩范围（工具管理对话框）',
-  [`${DIALOGS}/SettingsDialog.tsx`]: '用户已决定本轮不扩范围（设置对话框）',
+  // 注：`dialogs/SettingsDialog.tsx` 的豁免条目已随 T20 删除该文件一并移除（本测试的
+  // 「EXCLUDED 每项都真实存在」元断言禁止保留指向已删文件的过期白名单）。
   // ── 既存债务：遍历命中但尚未收敛的文件 ──
   [`${DIALOGS}/ConversationsDialog.tsx`]: DEBT_REASON,
   [`${DIALOGS}/LLMConfigDialog.tsx`]: DEBT_REASON,
@@ -102,7 +102,6 @@ const EXCLUDED: Record<string, string> = {
   [`${DIALOGS}/providerEdit/ModelDetailModal.tsx`]: DEBT_REASON,
   [`${DIALOGS}/providerEdit/ModelTable.tsx`]: DEBT_REASON,
   [`${DIALOGS}/ProviderEditModal.tsx`]: DEBT_REASON,
-  [`${DIALOGS}/ScheduleEditModal.tsx`]: DEBT_REASON,
   [`${DIALOGS}/TaskHistoryDialog.tsx`]: DEBT_REASON,
   [`${DIALOGS}/UpdateNoticeDialog.tsx`]: DEBT_REASON,
 }
@@ -113,6 +112,11 @@ const EXCLUDED: Record<string, string> = {
  */
 const COMMON_SUBSET = [
   'CapabilityCard',
+  // ui-09 复核整改：CapabilityPicker 被 ScheduleEditModal（本窗口）直接 import 并渲染，
+  // 却在「公共子集」里缺席——上一版的覆盖只在能力四页上成立，调度窗口这一消费面是盲区。
+  // 补进扫描集（覆盖只增不减；它此前因 `bg-amber-500/10 text-amber-500` 一类调色板类名
+  // 而不可能变绿，故整改与收录必须同一批完成）。
+  'CapabilityPicker',
   'StatusBadge',
   'EmptyState',
   'UpdateDot',
@@ -218,7 +222,7 @@ const ALPHA_LADDER: AlphaRule[] = [
     role: 'hover:bg',
     alphas: [40],
     tokens: ['surface-muted'],
-    note: '独立角色·设置行 hover 底（ShortcutRow:70）：1 处；token 为 --surface-muted 而非品牌色，来源是中性行高亮',
+    note: '独立角色·设置行 hover 底（ShortcutRow:69）：1 处；token 为 --surface-muted 而非品牌色，来源是中性行高亮',
   },
   {
     role: 'hover:bg',
@@ -227,7 +231,11 @@ const ALPHA_LADDER: AlphaRule[] = [
     note: '独立角色·行高拖拽把手的 hover 高亮（LlmLogsWindow:427）：1 处；token 为 --border，是结构性把手的交互提示',
   },
 
-  // ── 边框档（spec §3.3，归位到 3 档 + 焦点边框单列为 focus:border）──
+  // ── 边框档（spec §3.3，归位到 3 档）──
+  // 注：`focus:border` 的 color-mix 档位**已整体退役**（原 50% 单档）。焦点边框已收敛到
+  // src/renderer/lib/inputFocus.ts 的 INPUT_FOCUS（`focus:border-[var(--border-emphasis)]`，
+  // 纯令牌、不经 color-mix），全仓零 color-mix 站点 → 不再登记任何档位，
+  // 任何 `focus:border-[color-mix(...)]` 一律判违规（由下方 ALPHA_LADDER 自洽用例看守）。
   {role: 'border', alphas: [20], note: 'edge：常规/静息边框（同时是状态边框的默认档）'},
   {role: 'border', alphas: [30], note: 'edge-hover：选中 chip 边框与 spinner 环轨等次要边框（spec §5）'},
   {role: 'border', alphas: [45], note: 'edge-strong：状态/校验边框（error / success）'},
@@ -238,7 +246,6 @@ const ALPHA_LADDER: AlphaRule[] = [
     note: '独立角色·极淡提示面板边框（PermissionRulesPanel:182）：1 处；spec §5 明示「10% 为极淡面板边框」，与 edge 20% 不同档',
   },
   {role: 'hover:border', alphas: [30], note: 'hover 边框：统一到 30%（spec §3.3；全仓 6 处站点均为 30，与静态 edge-hover 同档）'},
-  {role: 'focus:border', alphas: [50], note: '焦点边框：统一到 50%（spec §3.3/§5；全仓 2 处站点均为 50）'},
 
   // ── 焦点环档（spec §3.4，归位到 2 档；暗色主题单列更低档）──
   {role: 'ring.light', alphas: [30, 50], note: '焦点环·浅色：30=常规焦点环（focus/ring/focus-visible/focus-within），50=强调焦点环（大控件/卡片级可聚焦项）'},
@@ -346,9 +353,17 @@ const MIN_COLOR_MIX_SITES = 200
  * `divide-[xy]`（`border-l-red-500` 这类变体不能漏）。
  * 变体前缀含 `dark-all`（深色主题变体，见 tailwind.config）：不写进表就只能靠「前缀段可空」
  * 的偶然性命中（`dark-all:bg-red-500` 会被当作以 `all:bg-red-500` 匹配），属脆弱，故显式列出。
+ *
+ * 起始负向后顾 `(?<![\w-])`：本正则要抓的是 **Tailwind 调色板类名**，不是长令牌名里的字面子串。
+ * 令牌集中有 `--text-brand`（C7 授权的**文字级**令牌，见 `scripts/audit-contrast.mjs:49`），
+ * 其写法 `text-[var(--text-brand)]` 内含字面子串 `text-brand` → 旧版会误判成调色板类名 `text-brand`。
+ * 而真正要抓的 `var(--brand-primary)` 恰好**不**命中（`brand-primary` 不满足 `(?:-\d{2,3})?`），
+ * 即旧版「假阳性 + 假阴性」同时存在。负向后顾要求匹配起点前不得是词字符或 `-`，
+ * 于是 `--text-brand` 里的 `text-brand`（前一位是 `-`）不再命中，裸类名（前一位是引号/空格/`:`）照抓。
+ * 回归断言见 `paletteViolations` 的自检用例。
  */
 const PALETTE =
-  /(?:(?:hover|focus|focus-visible|active|disabled|group-hover|group-focus|dark-all|dark|sm|md|lg|xl):)*!?(?:bg|text|border|border-[trblxy]|divide|divide-[xy]|ring|ring-offset|outline|fill|stroke|placeholder|from|via|to|accent|decoration|caret|shadow|drop-shadow)-(?:white|black|gray|slate|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|brand)(?:-\d{2,3})?(?:\/\d{1,3})?\b/g
+  /(?<![\w-])(?:(?:hover|focus|focus-visible|active|disabled|group-hover|group-focus|dark-all|dark|sm|md|lg|xl):)*!?(?:bg|text|border|border-[trblxy]|divide|divide-[xy]|ring|ring-offset|outline|fill|stroke|placeholder|from|via|to|accent|decoration|caret|shadow|drop-shadow)-(?:white|black|gray|slate|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|brand)(?:-\d{2,3})?(?:\/\d{1,3})?\b/g
 
 // ── 豁免机制（谓词数组 + 理由，逐 token 判定，不设整文件白名单）──────
 
@@ -538,6 +553,18 @@ describe('令牌合规：能力管理页及子组件', () => {
     ).toBeGreaterThanOrEqual(MIN_SCANNED_FILES)
   })
 
+  it('settings/ 子树必须留在扫描集内（MIN_SCANNED_FILES 兜不住子树整体消失）', () => {
+    // 为何单列这条：MIN_SCANNED_FILES 是「遍历整体塌缩」的哨兵，粒度太粗——一旦
+    // walkDir(settings) 被删，扫描集只掉 14 个文件，下界照样绿（实测：删掉该 walkDir 后
+    // 只有本用例变红），而整个设置页覆盖会静默消失。故按子树单独钉住：现测 14 个文件，
+    // 取下界时留出删文件的余量，但「一个都没扫到」必红。
+    const settingsFiles = FILES.filter(f => f.includes('/components/settings/'))
+    expect(
+      settingsFiles.length,
+      `settings/ 子树在扫描集里只剩 ${settingsFiles.length} 个文件——settings 目录的 walkDir 是不是被删了？`,
+    ).toBeGreaterThanOrEqual(14)
+  })
+
   it('禁止 `var(--x, #hex)` / `var(--x, rgb(...))` 兜底写法', () => {
     const hits = violations(ABS_FILES, VAR_FALLBACK)
     expect(hits, `发现带字面值兜底的 var() 用法:\n${hits.join('\n')}`).toEqual([])
@@ -556,6 +583,20 @@ describe('令牌合规：能力管理页及子组件', () => {
   it('禁止 Tailwind 调色板类名（brand/gray/red/orange/... 数字梯度不是令牌）', () => {
     const hits = scanPalette()
     expect(hits, `发现调色板类名（应改用 var(--token)）:\n${hits.join('\n')}`).toEqual([])
+  })
+
+  it('PALETTE 既不误伤 var(--token) 引用，也不放过裸调色板类名', () => {
+    // 令牌引用不是类名：`--text-brand` 是 C7 授权的文字级令牌（audit-contrast.mjs:49），
+    // 其类名写法 text-[var(--text-brand)] 内含子串 text-brand，旧版正则会误判。
+    expect(
+      paletteViolations('className="text-[var(--text-brand)]"'),
+      'var(--text-brand) 引用被误判为调色板类名（PALETTE 假阳性回归）',
+    ).toEqual([])
+    expect(paletteViolations('hover:[color:var(--text-brand)]')).toEqual([])
+    // 反向：真正的裸调色板类名必须照抓（含变体前缀与数字梯度）。
+    expect(paletteViolations('className="text-brand"')).toEqual(['text-brand'])
+    expect(paletteViolations('className="hover:bg-red-500"')).toEqual(['hover:bg-red-500'])
+    expect(paletteViolations('className="dark-all:text-blue-300"')).toEqual(['dark-all:text-blue-300'])
   })
 })
 
@@ -834,7 +875,10 @@ describe('令牌合规：护栏自检（防退化）', () => {
     expect(badIn('bg-[color-mix(in_srgb,var(--brand-primary)_40%,transparent)]')).toHaveLength(1)
     // F3：白名单已对齐到「阶梯」而非「历史并集」——把刚收敛的档位改回去必须变红
     expect(badIn('hover:border-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)]'), 'hover 边框应统一 30%').toHaveLength(1)
-    expect(badIn('focus:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)]'), '焦点边框应统一 50%').toHaveLength(1)
+    // 焦点边框的 color-mix 档位已整体退役（收敛到 INPUT_FOCUS 的 --border-emphasis，
+    // 纯令牌、不经 color-mix）→ 原 50% 档与任何其它档都必须变红。
+    expect(badIn('focus:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)]'), '焦点边框的 color-mix 档位已退役').toHaveLength(1)
+    expect(badIn('focus:border-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)]'), '焦点边框的 color-mix 档位已退役').toHaveLength(1)
     expect(badIn('hover:text-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)]'), 'hover 文字应统一 80%').toHaveLength(1)
     expect(badIn('marker:text-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)]'), '列表标记符应统一 70%').toHaveLength(1)
   })
@@ -862,10 +906,10 @@ describe('令牌合规：护栏自检（防退化）', () => {
     expect(badIn('to-[color-mix(in_srgb,var(--brand-primary)_60%,transparent)]')).toEqual([])
     // F3：收敛后的阶梯档位合法
     expect(badIn('hover:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)]')).toEqual([])
-    expect(badIn('focus:border-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)]')).toEqual([])
+    // （focus:border 的 color-mix 档位已退役，不再有「合法写法」——见上一用例）
     expect(badIn('hover:text-[color-mix(in_srgb,var(--brand-primary)_80%,transparent)]')).toEqual([])
     expect(badIn('marker:text-[color-mix(in_srgb,var(--brand-primary)_70%,transparent)]')).toEqual([])
-    // F1：静态边框 50 未被任何规则允许（border@50 已删除，其语义由 focus:border 承担）→ 必须变红。
+    // F1：静态边框 50 未被任何规则允许（border@50 已删除，其语义由 INPUT_FOCUS 的 --border-emphasis 承担）→ 必须变红。
     // 全仓静态 border@50 零站点，故此处删除不误伤存量。
     expect(badIn('border-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)]'), 'border 50% 不应被任何规则允许').toHaveLength(1)
     // 边界自洽：违规文案不得把 50 列进 border 的「允许」列表（诊断不得说谎）

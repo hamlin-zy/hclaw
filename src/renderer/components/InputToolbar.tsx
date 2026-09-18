@@ -130,7 +130,7 @@ export default function InputToolbar({
                 {/* 文案为可截断项：父级 min-w-0 + 自身 truncate/min-w-0 → 空间不足时省略号截断，
                     把宽度让给模式控件（见 STATUS_MAX_RESERVE）；scrollWidth 仍返回完整文本宽供测量 */}
                 <span ref={statusTextRef} className="truncate min-w-0">
-                    {needsSession ? '请先选择工作目录和会话'
+                    {needsSession ? '请先选择项目和会话'
                         : needsModel ? '请先在右上角选择 LLM 服务商'
                         : '按 Shift+Enter 换行，Enter 发送'}
                 </span>

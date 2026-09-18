@@ -28,6 +28,8 @@ beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memo-cs-'))
     vi.resetModules()
     vi.doMock('../../../src/main/config', () => ({getHclawDir: () => dir}))
+    // 路径能力已下沉到叶子 hclawPaths：与 config 桩取同一目录，避免绕过 mock 落到真实 ~/.hclaw
+    vi.doMock('../../../src/main/hclawPaths', () => ({getHclawDir: () => dir}))
 })
 afterEach(() => {
     fs.rmSync(dir, {recursive: true, force: true})
@@ -83,6 +85,8 @@ describe('createSessionFromMemo', () => {
         fs.writeFileSync(file, JSON.stringify(raw), 'utf8')
         vi.resetModules()
         vi.doMock('../../../src/main/config', () => ({getHclawDir: () => dir}))
+        // 路径能力已下沉到叶子 hclawPaths：与 config 桩取同一目录，避免绕过 mock 落到真实 ~/.hclaw
+    vi.doMock('../../../src/main/hclawPaths', () => ({getHclawDir: () => dir}))
         const store2 = await freshStore()
         mocks.create.mockClear()
         await store2.createSessionFromMemo(item.id)

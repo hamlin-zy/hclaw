@@ -284,7 +284,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                     onClick={() => handleSelectModel(item.key)}
                     className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 text-left text-[11px] transition-colors ${
                       isActive
-                        ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--brand-primary)]'
+                        ? 'bg-[color-mix(in_srgb,var(--brand-primary)_15%,transparent)] text-[var(--text-brand)]'
                         : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)]'
                     }`}
                    data-name="cache-rate-tooltip-button">
@@ -310,14 +310,14 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                   缓存命中率
                   <FormulaTip text={`平均命中率 = ${formatTokenCount(selectedStats.totalCacheReadTokens)} / (${formatTokenCount(selectedStats.totalInputTokens)} + ${formatTokenCount(selectedStats.totalCacheReadTokens)}) = ${selRate}%\n末次命中率 = ${formatTokenCount(selectedStats.currentCacheReadTokens)} / (${formatTokenCount(selectedStats.currentInputTokens)} + ${formatTokenCount(selectedStats.currentCacheReadTokens)}) = ${selLastRate}%`}/>
                 </span>
-                <span className="tabular-nums" style={{color: 'var(--brand-primary)'}}>
+                <span className="tabular-nums" style={{color: 'var(--text-brand)'}}>
                   <Dot color="var(--success)" glow="var(--success-muted)"/>
                   {selRate}%
                 </span>
               </div>
               <div className="flex items-center justify-between gap-8">
                 <span>窗口使用率</span>
-                <span className="tabular-nums" style={{color: 'var(--brand-primary)'}}>
+                <span className="tabular-nums" style={{color: 'var(--text-brand)'}}>
                   <Dot color="var(--info)" glow="var(--info-muted)"/>
                   {selWindowPct}%
                 </span>
@@ -327,18 +327,18 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                   窗口占用
                   <FormulaTip text={`窗口占用 = 输入 ${formatTokenCount(selectedStats.currentInputTokens)} + 缓存命中 ${formatTokenCount(selectedStats.currentCacheReadTokens)} = ${formatTokenCount(selWindowTokens ?? 0)}`}/>
                 </span>
-                <span className="tabular-nums" style={{color: 'var(--brand-primary)'}}>{formatTokenCount(selWindowTokens ?? 0)}</span>
+                <span className="tabular-nums" style={{color: 'var(--text-brand)'}}>{formatTokenCount(selWindowTokens ?? 0)}</span>
               </div>
               <div className="flex items-center justify-between gap-8">
                 <span>平均首字</span>
-                <span className="tabular-nums" style={{color: 'var(--brand-primary)'}}>
+                <span className="tabular-nums" style={{color: 'var(--text-brand)'}}>
                   <Dot color="var(--warning)" glow="var(--warning-muted)"/>
                   {selAvgTtftSeconds != null ? `${selAvgTtftSeconds.toFixed(1)}s` : '—'}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-8">
                 <span>平均吞吐</span>
-                <span className="tabular-nums" style={{color: 'var(--brand-primary)'}}>
+                <span className="tabular-nums" style={{color: 'var(--text-brand)'}}>
                   <Dot color="var(--brand-primary)" glow="var(--brand-muted)"/>
                   {selAvgDecodeRate != null ? `${formatTokensPerSecond(selAvgDecodeRate)} t/s` : '—'}
                 </span>
@@ -356,7 +356,7 @@ const CacheRateTooltip = memo(function CacheRateTooltip() {
                 <span className="text-right tabular-nums" style={{color: 'var(--info)'}}>{formatTokenCount(selectedStats.currentInputTokens)}</span>
                 <span className="text-[var(--text-muted)]">缓存命中</span>
                 <span className="text-right tabular-nums">{formatTokenCount(selectedStats.totalCacheReadTokens)}</span>
-                <span className="text-right tabular-nums" style={{color: 'var(--brand-primary)'}}>{formatTokenCount(selectedStats.currentCacheReadTokens)}</span>
+                <span className="text-right tabular-nums" style={{color: 'var(--text-brand)'}}>{formatTokenCount(selectedStats.currentCacheReadTokens)}</span>
                 <span className="text-[var(--text-muted)]">输出</span>
                 <span className="text-right tabular-nums">{formatTokenCount(selectedStats.totalOutputTokens)}</span>
                 <span className="text-right tabular-nums" style={{color: 'var(--info)'}}>{formatTokenCount(selectedStats.currentOutputTokens)}</span>

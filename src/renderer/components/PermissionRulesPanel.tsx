@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react'
 import {useAgentStore} from '../stores/agentStore'
 import {useResetTimeout} from '../hooks/useResetTimeout'
+import {INPUT_FOCUS} from '../lib/inputFocus'
 
 export default function PermissionRulesPanel() {
     const {permissionRules, fetchPermissionRules, removePermissionRule, addPermissionRule} = useAgentStore()
@@ -183,7 +184,7 @@ export default function PermissionRulesPanel() {
 
                     <div className="pt-4 border-t border-[var(--border-muted)]">
                         <div className="p-3 rounded-lg bg-[color-mix(in_srgb,var(--brand-primary)_5%,transparent)] border border-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)]">
-                            <p className="text-[11px] text-[var(--brand-primary)] font-medium mb-1">提示</p>
+                            <p className="text-[11px] text-[var(--text-brand)] font-medium mb-1">提示</p>
                             <p className="text-[10px] text-[var(--text-secondary)] leading-relaxed">
                                 点击规则可编辑匹配模式。删除规则后，再次调用该工具将需要手动确认。
                             </p>
@@ -206,7 +207,7 @@ export default function PermissionRulesPanel() {
                         <div className="px-5 py-4 border-b border-[var(--border-muted)] bg-[var(--surface-elevated)]">
                             <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-full bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] flex items-center justify-center shrink-0">
-                                    <svg className="w-4 h-4 text-[var(--brand-primary)]" viewBox="0 0 24 24"
+                                    <svg className="w-4 h-4 [color:var(--brand-primary)]" viewBox="0 0 24 24"
                                          fill="none" stroke="currentColor" strokeWidth="2">
                                         <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                                     </svg>
@@ -227,14 +228,14 @@ export default function PermissionRulesPanel() {
                                         type="text"
                                         value={editTool}
                                         onChange={(e) => setEditTool(e.target.value)}
-                                        className="w-full px-3 py-2 text-xs font-mono bg-[var(--surface-muted)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)] focus:border-[var(--brand-primary)] transition-all"
+                                        className={`w-full px-3 py-2 text-xs font-mono bg-[var(--surface-muted)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                                         placeholder="例如: bash:git*"
                                         autoFocus
                                         spellCheck={false}
                                     data-name="permission-rules-panel-input"/>
                                     <p className="mt-1.5 text-[10px] text-[var(--text-secondary)] leading-relaxed">
-                                        支持 <code className="text-[var(--brand-primary)]">*</code> 通配符，如
-                                        <code className="text-[var(--brand-primary)]"> bash:git*</code> 匹配所有以 git 开头的 bash 命令
+                                        支持 <code className="text-[var(--text-brand)]">*</code> 通配符，如
+                                        <code className="text-[var(--text-brand)]"> bash:git*</code> 匹配所有以 git 开头的 bash 命令
                                     </p>
                                 </div>
                             ) : (
@@ -320,7 +321,7 @@ export default function PermissionRulesPanel() {
                                             <button
                                                 onClick={() => setIsEditing(true)}
                                                 className="px-3 py-1.5 text-xs font-medium rounded-md transition-all
-                                                    bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]
+                                                    bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)]
                                                     hover:bg-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)] border border-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]"
                                              data-name="permission-rules-panel-edit-button">
                                                 编辑

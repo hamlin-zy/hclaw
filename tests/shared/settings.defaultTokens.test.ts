@@ -21,9 +21,7 @@ describe('DEFAULT_MAX_TOKENS', () => {
         // execute.ts 已改经 @shared/modelParams.resolveModelParams 消费 settings.model.defaultMaxTokens
         // （spec §6.3 统一解析），不再直接引用 DEFAULT_MAX_TOKENS，故从清单移除。
         const files = [
-            'src/main/agent/manager.impl.ts',
-            'src/main/agent/worker.ts',
-            'src/renderer/stores/settingsStore.ts',
+            'src/shared/settingsDefaults.ts',
         ]
         for (const file of files) {
             const content = readFileSync(resolve(PROJECT_ROOT, file), 'utf8')

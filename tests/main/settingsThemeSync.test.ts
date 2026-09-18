@@ -21,7 +21,7 @@ import path from 'path'
 
 const SETTINGS_STORE_TS = path.resolve(process.cwd(), 'src/renderer/stores/settingsStore.ts')
 const APP_TS = path.resolve(process.cwd(), 'src/renderer/App.tsx')
-const SETTINGS_DIALOG_TS = path.resolve(process.cwd(), 'src/renderer/components/dialogs/SettingsDialog.tsx')
+const SETTINGS_DIALOG_TS = path.resolve(process.cwd(), 'src/renderer/components/settings/SettingsDialog.tsx')
 const PRELOAD_TS = path.resolve(process.cwd(), 'src/preload/index.ts')
 const WINDOW_TS = path.resolve(process.cwd(), 'src/main/window.ts')
 

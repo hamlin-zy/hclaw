@@ -10,7 +10,7 @@ import * as path from 'path'
 import * as crypto from 'crypto'
 import {randomUUID} from 'crypto'
 import type {MemoItem, MemoAttachment, MemoCapability} from '@shared/types/memo'
-import {getHclawDir} from '../config'
+import {getHclawDir} from '../hclawPaths'
 import {logger} from '../agent/logger'
 
 const MEMO_ROOT = () => path.join(getHclawDir(), 'data', 'memo')

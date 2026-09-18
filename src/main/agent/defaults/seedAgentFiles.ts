@@ -16,7 +16,7 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
-import {getHclawDir} from '../../config'
+import {getHclawDir} from '../../hclawPaths'
 import {logger} from '../logger'
 import {
     MANIFEST_FILENAME,

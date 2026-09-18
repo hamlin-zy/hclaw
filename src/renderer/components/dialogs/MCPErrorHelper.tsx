@@ -56,7 +56,12 @@ export function useMcpErrorDialog(opts?: {
 
         try {
             // 3-6. 创建会话（指定诊断标题）→ 跳转 → 添加消息 → 启动 Agent
-            const convId = await useConversationStore.getState().createConversation(`MCP 检查 - ${server.name}`)
+            // 本组件运行在独立的 ConfigDialogWindow，conversationStore 的
+            // currentWorkspacePath 兜底为 null，必须显式传入当前项目归属
+            const ws = await window.electronAPI?.workspace?.getCurrent?.()
+            const convId = await useConversationStore.getState().createConversation(`MCP 检查 - ${server.name}`, {
+                workspacePath: ws?.path || undefined,
+            })
             useConversationStore.getState().setActiveConversation(convId)
             useConversationStore.getState().addMessage({role: 'user', content: msg})
             await useAgentStore.getState().startAgent({conversationId: convId, message: msg})

@@ -99,4 +99,14 @@ describe('CommandsDialog capability 刷新接线', () => {
 
         await waitFor(() => expect(getByType.mock.calls.length).toBe(2))
     })
+
+    it('拉取命令列表时显式索取正文（列表类出口默认裁剪 content，而命令预览需要它）', async () => {
+        renderWithStores(<CommandsDialog/>, {api: apiHandle.api})
+        const getByType = apiHandle.api.capability.getByType as ReturnType<typeof vi.fn>
+
+        await waitFor(() => expect(getByType).toHaveBeenCalledTimes(1))
+        // 这条断言护住真实链路上的一个坑：capability:get-by-type 默认剔除 content，
+        // 本页却是「要正文」的消费方——少了第二参，命令卡片的「内容 (Content)」区恒显示 (空)。
+        expect(getByType).toHaveBeenCalledWith('command', {withContent: true})
+    })
 })

@@ -3,6 +3,7 @@ import {AnimatePresence, motion} from 'framer-motion'
 import {WarningIcon} from './components/icons'
 import TitleBar from './components/TitleBar'
 import ConversationSidebar from './components/ConversationSidebar'
+import {SidebarResizeHandle} from './components/sidebar/SidebarResizeHandle'
 import MainWorkspace from './components/MainWorkspace'
 import SidePanels from './components/SidePanels'
 import MenuDialogRenderer from './components/MenuDialogRenderer'
@@ -33,6 +34,7 @@ import {useMenuBarStore} from './stores/menuBarStore'
 import {useGlobalHotkeys} from './hooks/useGlobalHotkeys'
 import {shortcutManager} from './services/shortcutManager'
 import {registerSendToConversationListener} from './services/sendToConversation'
+import {registerOpenConversationListener} from './services/openConversation'
 import TooltipPortal from './components/common/TooltipPortal'
 import {createGcScheduler} from './lib/gcScheduler'
 import {syncExchangeRate} from './lib/format'
@@ -278,7 +280,7 @@ async function syncModelSchemeToMain(llmState: ReturnType<typeof useLLMStore.get
 export default function App() {
   const registerStreamListener = useAgentStore((s) => s.registerStreamListener)
   const theme = useThemeStore((s) => s.theme)
-  const {leftCollapsed, rightCollapsed, setRightCollapsed} = useSidebarStore()
+  const {leftCollapsed, rightCollapsed, setRightCollapsed, leftWidth, setLeftWidth} = useSidebarStore()
   const background = useSettingsStore((s) => s.settings.ui.background)
 
   // 注册系统内快捷键（非全局快捷键）
@@ -351,6 +353,11 @@ export default function App() {
           //   缺失会导致重启后 agent 类命令（如 /code-simplifier）无法渲染徽章
           useAgentTemplateStore.getState().init(),
         ])
+
+        // 恢复上次的视图作用域（启动恢复 + 三级回退）。
+        // ★ 必须在上面 Promise.all 之后：restoreScope 读 workspaces / currentWorkspacePath /
+        //   activeConversationId，这些都是 loadConversations() 填充的，并发会读到空值。
+        await useConversationStore.getState().restoreScope()
 
         // 能力刷新独立发起：其 IPC 在主进程侧可能要等 powerManager 初始化（冷启动可达数秒），
         // 若并入上方 Promise.all 会把同组的 reloadShortcutBindings / resolveAndApplyTheme 一起拖后。
@@ -476,30 +483,14 @@ export default function App() {
     }
   }, [updateResult, updateIgnored, updateAlreadyNoticed])
 
-  // ── 监听 system_manage 等外部来源的配置变更（如 Agent 通过工具修改设置） ──
-  useEffect(() => {
-    const cleanup = window.electronAPI?.receive?.('settings-updated', (settings: any) => {
-      if (settings?.ui) {
-        useSettingsStore.getState().loadSettings()
-        if (settings.ui.theme) {
-          resolveAndApplyTheme(settings.ui.theme)
-        }
-      }
-      // 快捷键覆盖项变更 → 重建 shortcutManager 匹配表
-      reloadShortcutBindings()
-    })
-
-    return () => {
-      cleanup?.()
-    }
-  }, [])
-
-  // ── 订阅 settings-changed 广播：设置窗口保存背景图/遮罩/模糊等设置后主窗口刷新 settingsStore ──
+  // ── 订阅 settings-changed 广播：设置窗口或 system_manage 工具改了设置后主窗口刷新 settingsStore ──
   // loadSettings 内部会刷新 settings（含 ui.background）并 resolveAndApplyTheme：
   // 背景 effect（依赖 background 各字段）随之重跑应用新背景；主题若未变则同值 bail-out 无副作用。
-  // 与上方 'settings-updated'（agent 工具路径）订阅并存，互不替代。
+  // 统一 settings-changed 通道（settings-updated 通道已废弃，spec §6.3）：
+  // 应用主题 + 刷新快捷键绑定（reloadShortcutBindings 内部经 loadSettings 全量刷新 store）
   useEffect(() => {
-    const cleanup = window.electronAPI?.onSettingsChanged?.(() => {
+    const cleanup = window.electronAPI?.onSettingsChanged?.((settings: any) => {
+      if (settings?.ui?.theme) resolveAndApplyTheme(settings.ui.theme)
       reloadShortcutBindings()
     })
 
@@ -512,7 +503,7 @@ export default function App() {
   // 说明：设置窗口/主窗口 setWindowTheme 广播 theme-changed 回来后，主窗口经此订阅刷新 themeStore
   // （useEffect([theme]) 会自动 applyThemeClass + setWindowTheme，setWindowTheme 重发广播幂等无害；
   // 同值 set 后 React 对相同快照 bail-out，useEffect 不重跑，无回环）。
-  // 注意：此处仅刷新 themeStore，settingsStore.ui.theme 保持原值；后续 settings-updated/重启会自愈。
+  // 注意：此处仅刷新 themeStore，settingsStore.ui.theme 保持原值；后续 settings-changed 广播（见上方订阅）或重启会自愈。
   useEffect(() => {
     const cleanup = window.electronAPI?.onThemeChanged?.((theme: string) => {
       resolveAndApplyTheme(theme)
@@ -569,10 +560,10 @@ export default function App() {
 
   // ── 监听 agent 工具创建的子会话事件（实时刷新侧栏） ──
   useEffect(() => {
-    const cleanup = window.electronAPI?.receive?.('child_conv_created', (data: any) => {
+    const cleanup = window.electronAPI?.receive?.('child_conv_created', (data) => {
       if (!data?.id) return
       // 委托 store action：内部保留其他工作区条目（防止 workspaces 被整体覆盖导致项目选择器丢项目）
-      useConversationStore.getState().handleChildConvCreated(data.id, data.title || '子 Agent', data.parentConvId)
+      useConversationStore.getState().handleChildConvCreated(data.id, data.title || '子 Agent', data.parentConvId, data.workspacePath || '')
     })
 
     return () => {
@@ -595,6 +586,12 @@ export default function App() {
   // ── 订阅 PM 窗口「发送到会话」投递（主窗口是唯一执行者，spec §5.3） ──
   useEffect(() => {
     const cleanup = registerSendToConversationListener()
+    return () => { cleanup() }
+  }, [])
+
+  // ── 订阅配置窗口「打开会话」投递（独立窗口无会话 store 引导，主窗口是唯一执行者） ──
+  useEffect(() => {
+    const cleanup = registerOpenConversationListener()
     return () => { cleanup() }
   }, [])
 
@@ -755,12 +752,16 @@ export default function App() {
               折叠态紧贴窗口左缘无缝隙（main 去 pl），左上/左下圆角改直角；
               若整个卸载则折叠后只剩 Ctrl+B 可展开（Bug3 根因） */}
           <div
-            className={`app-surface-card bg-[var(--surface-chrome)] rounded-lg shadow-card border border-[var(--border)] transition-all ${
+            className={`app-surface-card relative bg-[var(--surface-chrome)] rounded-lg shadow-card border border-[var(--border)] transition-all ${
                 leftCollapsed ? 'overflow-visible rounded-l-none' : 'overflow-hidden'
             } flex flex-col`}
            data-name="left-sidebar-card"
-            style={{width: leftCollapsed ? 'var(--sidebar-collapsed-width, 36px)' : 'var(--sidebar-width)'}}>
+            style={{width: leftCollapsed ? 'var(--sidebar-collapsed-width, 36px)' : `${leftWidth}px`}}>
+            {/* 宽度用 inline px（leftWidth），不再走 --sidebar-width：该变量同时被右侧面板
+                消费，改它会连带右栏；拖拽调宽只针对左栏。折叠态保留 36px 内联 fallback。 */}
             <ConversationSidebar/>
+            {/* 拖拽调宽手柄：仅展开态渲染（折叠态是窄条语义，宽度固定不可调） */}
+            {!leftCollapsed && <SidebarResizeHandle onResizeEnd={setLeftWidth}/>}
           </div>
           {/* 中间主内容卡片 */}
           <div

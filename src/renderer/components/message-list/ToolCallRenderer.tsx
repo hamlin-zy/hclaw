@@ -420,10 +420,10 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
              data-name="tool-call-renderer-button">
                 {/* Agent / Skill 特殊图标 */}
                 {isAgent && (
-                    <AgentIcon className="w-3.5 h-3.5 text-[var(--brand-primary)] shrink-0 self-center"/>
+                    <AgentIcon className="w-3.5 h-3.5 [color:var(--brand-primary)] shrink-0 self-center"/>
                 )}
                 {isSkill && (
-                    <SkillIcon className="w-3.5 h-3.5 text-[var(--brand-primary)] shrink-0 self-center"/>
+                    <SkillIcon className="w-3.5 h-3.5 [color:var(--brand-primary)] shrink-0 self-center"/>
                 )}
 
                 {/* 状态圆点 */}
@@ -434,7 +434,7 @@ const UltraCompactToolGroup = memo(function UltraCompactToolGroup({
                     <span className="flex items-center gap-1.5 text-[11px] min-w-0 flex-1">
                         <span className="text-[var(--text-muted)] font-normal">Agent</span>
                         {agentTypeLabel && (
-                            <span className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)] px-1.5 py-0.5 rounded shrink-0">
+                            <span className="text-[10px] font-medium text-[var(--text-brand)] bg-[var(--brand-muted)] px-1.5 py-0.5 rounded shrink-0">
                                 {agentTypeLabel}
                             </span>
                         )}
@@ -566,7 +566,7 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
                 {/* 思考计数芯片（无思考块时隐藏） */}
                 {thinkCount > 0 && (
                     <span className="flex items-center gap-1 px-1.5 py-0.5 rounded
-                        bg-[rgba(91,141,217,0.15)] text-[var(--brand-primary)] shrink-0 font-mono font-semibold">
+                        bg-[rgba(91,141,217,0.15)] text-[var(--text-brand)] shrink-0 font-mono font-semibold">
                         思考 {thinkCount}
                     </span>
                 )}
@@ -576,8 +576,8 @@ const UltraCompactCombinedGroup = memo(function UltraCompactCombinedGroup({
                         className="flex items-center gap-1 px-1.5 py-0.5 rounded
                             bg-[var(--chip-bg)] border border-[var(--chip-border)] text-[var(--text-secondary)] shrink-0"
                     >
-                        {chip.isAgent && <AgentIcon className="w-3.5 h-3.5 text-[var(--brand-primary)]"/>}
-                        {chip.isSkill && <SkillIcon className="w-3.5 h-3.5 text-[var(--brand-primary)]"/>}
+                        {chip.isAgent && <AgentIcon className="w-3.5 h-3.5 [color:var(--brand-primary)]"/>}
+                        {chip.isSkill && <SkillIcon className="w-3.5 h-3.5 [color:var(--brand-primary)]"/>}
                         <span className="font-mono font-semibold">{chip.name}</span>
                         <span className={chip.error > 0 ? 'text-[var(--error)]' : 'text-[var(--success)]'}>
                             {chip.total - chip.error}/{chip.total}

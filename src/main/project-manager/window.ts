@@ -13,6 +13,15 @@ import {gitExec} from './git/gitExec'
 import {gitAdd, gitRmCached, gitCommit, gitPush, gitDiscardChanges, gitDeleteBranch} from './git/operations'
 import {assertValidHash, assertValidRef} from './git/validation'
 import {assertInWorkspace, deleteGitRepoCache, deletePath, listDirectory, readFileForViewer} from './fileSystem'
+import {
+  deleteFileListCache,
+  disposeSearchSessions,
+  getFindInFilesPage,
+  readLines,
+  searchFiles,
+  startFindInFiles,
+  stopFindInFiles,
+} from './search'
 import {startWatcher, stopWatcher} from './watcher'
 import {getMainWindow} from '../window'
 import {handleSendToConversation, resolveSendToConversationAck} from './sendToConversation'
@@ -83,6 +92,10 @@ export function openProjectManagerWindow(workspacePath: string): BrowserWindow {
     // 不做兜底清理的话，每个打开过的工作区会永久占一个 Map key（见 watcher 的 refcount 范式）。
     deleteGitRepoCache(workspacePath)
     invalidateStatusCache(workspacePath)
+    // QuickOpen 检索服务：文件清单缓存与 Find in Files 会话（含长驻 rg 子进程）同属窗口级资源，
+    // 一并回收——否则关窗后 rg 进程仍在扫描，缓存条目也永久占位。
+    deleteFileListCache(workspacePath)
+    disposeSearchSessions(workspacePath)
     // 注：不在此处停止 git 分支监听。该 watch 的唯一属主是主窗口（conversationStore 的
     // workspace:getGitBranch / setCurrent 驱动），项目管理窗口从不调用它；在此停止只会在
     // 「本窗口工作区恰等于主窗口当前工作区」时误停主窗口的监听。生命周期收口在 before-quit。
@@ -122,6 +135,22 @@ export function initProjectManagerIPC(): void {
   safeHandle('pm:list-directory', (_e, ws: string, dirPath: string) =>
     getGitStatusCached(ws).then(s => listDirectory(ws, dirPath, s.statusMap)))
   safeHandle('pm:read-file', (_e, ws: string, filePath: string) => readFileForViewer(ws, filePath))
+  // ── QuickOpen 检索服务（薄壳：规则全在 search.ts，此处只做入口校验）──
+  // 空查询直接返回空结果，不进扫描（对齐 spec「空输入不发请求」）
+  safeHandle('pm:search-files', (_e, ws: string, query: string, limit?: number) => {
+    if (typeof query !== 'string' || query.trim() === '') return []
+    return searchFiles(ws, query, limit)
+  })
+  // 路径入口校验（词法校验，不依赖文件存在）；readLines 内部亦自校验，二者互不替代
+  safeHandle('pm:read-lines', (_e, ws: string, relPath: string, startLine: number, endLine: number) => {
+    assertInWorkspace(ws, relPath)
+    return readLines(ws, relPath, startLine, endLine)
+  })
+  safeHandle('pm:find-in-files-start', (_e, ws: string, query: string) => startFindInFiles(ws, query))
+  // sessionId 已隐含 workspace 归属，故 page / stop 不再带 ws 参数（契约冻结）
+  safeHandle('pm:find-in-files-page', (_e, sessionId: string, offset: number, limit: number) =>
+    getFindInFilesPage(sessionId, offset, limit))
+  safeHandle('pm:find-in-files-stop', (_e, sessionId: string) => stopFindInFiles(sessionId))
   safeHandle('pm:git-status', (_e, ws: string) => getGitStatusCached(ws))
   safeHandle('pm:git-diff-file', async (_e, ws: string, filePath: string, mode?: DiffMode) => {
     assertInWorkspace(ws, filePath)

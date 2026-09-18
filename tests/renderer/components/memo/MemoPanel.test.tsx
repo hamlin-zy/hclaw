@@ -8,7 +8,8 @@
  * 3. 历史列表：按创建日期层级分组，默认折叠，点组头展开
  * 4. 历史 processed 项置灰
  * 5. 搜索只作用于当前 Tab
- * 6. 跳转按钮两态：会话存在可点 → setActiveConversation；已删除 → disabled
+ * 6. 跳转按钮两态：会话存在可点 → openConversationInWorkspace(convId, 条目所属项目)；已删除 → disabled
+ *    （I-3：跨项目存在性按 workspaces 全域查找，组视图下非当前项目条目也可点）
  * 7. 删除走 ConfirmDialog 确认
  * 8. 底部统计随 Tab 高亮
  * 9. 点击条目 → openConfigWindow('memo-edit', ['--hclaw-memo-id=<id>'])
@@ -28,6 +29,8 @@ const h = vi.hoisted(() => {
         loading: false,
         error: null,
         load: vi.fn(async () => {}),
+        loadForScope: vi.fn(async () => {}),
+        subscribeMemoChangedForScope: vi.fn(() => () => {}),
         create: vi.fn(async () => null),
         updateItem: vi.fn(async () => {}),
         remove: vi.fn(async () => {}),
@@ -48,14 +51,15 @@ const h = vi.hoisted(() => {
         }
     }
     const listeners: Array<(a: unknown, b: unknown) => void> = []
-    const subscribeMemoChanged = vi.fn(() => () => {})
 
     // ── conversationStore fake ──
     const setActiveConversation = vi.fn()
+    const openConversationInWorkspace = vi.fn(async () => {})
     const convState = {
         currentWorkspacePath: 'E:\\proj',
         workspaces: {'E:\\proj': {lastOpenedAt: 1, conversations: [{id: 'conv-1'}]}},
         setActiveConversation,
+        openConversationInWorkspace,
     }
     const useConversationStore: any = (selector?: (s: any) => unknown) => (selector ? selector(convState) : convState)
     useConversationStore.getState = () => convState as never
@@ -63,13 +67,12 @@ const h = vi.hoisted(() => {
     // ── electronAPI ──
     const openConfigWindow = vi.fn(async () => {})
 
-    return {useMemoStore, subscribeMemoChanged, useConversationStore, setActiveConversation, openConfigWindow,
+    return {useMemoStore, useConversationStore, setActiveConversation, openConversationInWorkspace, openConfigWindow,
         openMemoCreateWindow: (ws: string) => window.electronAPI?.openConfigWindow?.('memo-edit', [`--hclaw-memo-workspace=${encodeURIComponent(ws)}`])}
 })
 
 vi.mock('@/renderer/stores/memoStore', () => ({
     useMemoStore: h.useMemoStore,
-    subscribeMemoChanged: h.subscribeMemoChanged,
     openMemoCreateWindow: h.openMemoCreateWindow,
 }))
 vi.mock('@/renderer/stores/conversationStore', () => ({
@@ -456,7 +459,7 @@ describe('MemoPanel · 条目交互', () => {
         expect(h.openConfigWindow).toHaveBeenCalledWith('memo-edit', ['--hclaw-memo-workspace=' + encodeURIComponent('E:\\my projects\\app')])
     })
 
-    it('历史 Tab 跳转按钮：会话存在可点 → setActiveConversation；已删除 → disabled', () => {
+    it('历史 Tab 跳转按钮：会话存在可点 → openConversationInWorkspace（切项目 + 跟随视图）；已删除 → disabled', () => {
         setMemos([
             item('p1', {status: 'processed', createdAt: daysAgo(0), relatedConvId: 'conv-1'}),
             item('p2', {status: 'processed', createdAt: daysAgo(1), title: 'orphan', relatedConvId: 'conv-gone'}),
@@ -470,7 +473,34 @@ describe('MemoPanel · 条目交互', () => {
         const okBtn = screen.getByLabelText('跳转到关联会话') as HTMLButtonElement
         expect(okBtn.disabled).toBe(false)
         fireEvent.click(okBtn)
-        expect(h.setActiveConversation).toHaveBeenCalledWith('conv-1')
+        // ★ I-3：走跨窗口入口（会切项目 + 跟随视图），不再是裸 setActiveConversation
+        expect(h.openConversationInWorkspace).toHaveBeenCalledWith('conv-1', P)
+        expect(h.setActiveConversation).not.toHaveBeenCalled()
+    })
+
+    it('I-3 组视图下非当前项目条目：按钮可用 + 点击按该条目所属项目跳转', () => {
+        const saved = h.useConversationStore.getState().workspaces
+        h.useConversationStore.getState().workspaces = {
+            [P]: {lastOpenedAt: 1, conversations: [{id: 'conv-1'}]},
+            'E:\\other': {lastOpenedAt: 2, conversations: [{id: 'conv-b'}]},
+        }
+        try {
+            setMemos([item('p1', {
+                status: 'processed', createdAt: daysAgo(0), relatedConvId: 'conv-b', workspacePath: 'E:\\other',
+            })])
+            render(<MemoPanel/>)
+
+            fireEvent.click(screen.getByRole('button', {name: '历史'}))
+            fireEvent.click(screen.getAllByRole('button', {name: /^展开 /})[0])
+
+            // 旧代码按 currentWorkspacePath 判定 → 恒 disabled（会话明明存在）
+            const okBtn = screen.getByLabelText('跳转到关联会话') as HTMLButtonElement
+            expect(okBtn.disabled).toBe(false)
+            fireEvent.click(okBtn)
+            expect(h.openConversationInWorkspace).toHaveBeenCalledWith('conv-b', 'E:\\other')
+        } finally {
+            h.useConversationStore.getState().workspaces = saved
+        }
     })
 
     it('删除走 ConfirmDialog 确认', async () => {

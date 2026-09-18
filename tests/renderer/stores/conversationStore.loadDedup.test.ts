@@ -6,7 +6,8 @@
  *    `conversationReadTail`（`switchActiveConversation` 与预热/`preloadConversation`
  *    会对同一 convId 同时发起）。修复：模块级 Map<convId, Promise> 复用同一 Promise。
  * 1b) 驱逐后迟到写回破坏 messagesMap 上限不变量：`loadMessagesInitial` 写回后未调用
- *    `enforceMessagesMapSizeLimit()`，在途响应落地时键数可超过 MAX_MESSAGES_MAP_SIZE。
+ *    `enforceMessagesMapSizeLimit()`，在途响应落地时键数可超过每项目常驻预算
+ *    （Task 17 前为全局 MAX_MESSAGES_MAP_SIZE=20，现为 MAX_RESIDENT_PER_PROJECT=3）。
  *
  * 隔离：mock agentStore / electronAPI（不触碰真实 IPC / SQLite）。
  */
@@ -38,8 +39,8 @@ vi.mock('../../../src/renderer/lib/search', () => ({
 
 import {useConversationStore} from '../../../src/renderer/stores/conversationStore'
 
-/** 与实现常量一致；实现改动时此处红灯 */
-const MAP_MAX = 20
+/** 与实现常量一致（Task 17：每项目常驻预算）；实现改动时此处红灯 */
+const MAP_MAX = 3
 
 function userMsg(convId: string, content = `正文-${convId}`): Message {
     return {id: `m-${convId}`, role: 'user', content, timestamp: 1}
@@ -166,10 +167,15 @@ describe('1) loadMessagesInitial in-flight 去重', () => {
 
 describe('1b) loadMessagesInitial 写回后执行数量上限约束', () => {
     it('驱逐后迟到响应写回不会把键数顶到上限之上', async () => {
-        // 先塞满 MAP_MAX 个会话（conv-0 最旧 … conv-19 最新）
+        // 先塞满 MAP_MAX 个同项目会话（conv-0 最旧 … conv-4 最新）+
+        // 待水合的 conv-new（Task 17：项目归属反查读 workspaces.conversations，故须注册）
         const map: Record<string, Message[]> = {}
         const lastActive: Record<string, number> = {}
-        for (let i = 0; i < MAP_MAX; i++) {
+        const conversations = Array.from({length: MAP_MAX + 2}, (_, i) => ({
+            id: `conv-${i}`, title: `t${i}`, preview: '', createdAt: 1, updatedAt: 1,
+        }))
+        conversations.push({id: 'conv-new', title: 'conv-new', preview: '', createdAt: 1, updatedAt: 1})
+        for (let i = 0; i < MAP_MAX + 2; i++) {
             map[`conv-${i}`] = [userMsg(`conv-${i}`)]
             lastActive[`conv-${i}`] = 1000 + i
         }
@@ -177,10 +183,11 @@ describe('1b) loadMessagesInitial 写回后执行数量上限约束', () => {
             messagesMap: map,
             conversationLastActiveAt: lastActive,
             renderedConversationIds: Object.keys(map),
-            activeConversationId: 'conv-19',
+            activeConversationId: 'conv-4',
+            workspaces: {'/ws': {lastOpenedAt: 0, conversations}},
         })
 
-        // 切换新会话（uncached）→ 读取在途；此时 messagesMap 已满员
+        // 切换新会话（uncached）→ 读取在途；此时 messagesMap 已超每项目预算
         let resolveTail!: (v: any) => void
         readTailMock.mockImplementation(() => new Promise(r => { resolveTail = r }))
         const pending = useConversationStore.getState().loadMessagesInitial('conv-new')
@@ -193,7 +200,7 @@ describe('1b) loadMessagesInitial 写回后执行数量上限约束', () => {
         await pending
 
         const s = useConversationStore.getState()
-        // 写回后必须回落 ≤ 上限（迟到写回触发一次 enforce）
+        // 写回后必须回落 ≤ 每项目预算（迟到写回触发一次 enforce）
         expect(Object.keys(s.messagesMap).length).toBeLessThanOrEqual(MAP_MAX)
         expect(s.messagesMap['conv-new']).toBeDefined()
         // 最久未激活者被驱逐

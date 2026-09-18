@@ -13,11 +13,19 @@
  */
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 
-const {readMetaMock, agentGetModeMock, configReadMock, convCreateMock} = vi.hoisted(() => ({
+const {
+    readMetaMock, agentGetModeMock, configReadMock, convCreateMock,
+    getCurrentMock, branchMock, listMock, readTailMock, readMessagesMock,
+} = vi.hoisted(() => ({
     readMetaMock: vi.fn(),
     agentGetModeMock: vi.fn(async () => 'safe'),
     configReadMock: vi.fn(async (name: string) => name === 'message-display-mode' ? {mode: 'detailed'} : null),
     convCreateMock: vi.fn(async () => true),
+    getCurrentMock: vi.fn(async () => ({path: '/ws'})),
+    branchMock: vi.fn(async () => null),
+    listMock: vi.fn(async (): Promise<any[]> => []),
+    readTailMock: vi.fn(async () => ({messages: [], totalCount: 0})),
+    readMessagesMock: vi.fn(async () => ({messages: [], totalCount: 0})),
 }))
 
 vi.stubGlobal('window', {
@@ -26,6 +34,10 @@ vi.stubGlobal('window', {
         agentGetPermissionMode: agentGetModeMock,
         configRead: configReadMock,
         conversationCreate: convCreateMock,
+        conversationList: listMock,
+        conversationReadTail: readTailMock,
+        conversationReadMessages: readMessagesMock,
+        workspace: {getCurrent: getCurrentMock, getGitBranch: branchMock},
     },
 })
 
@@ -71,6 +83,41 @@ describe('会话级模式初始化（applyConvModesToAgentStore / createConversa
         await vi.waitFor(() => {
             expect(useAgentStore.getState().permissionMode).toBe('safe')
             expect(useAgentStore.getState().messageDisplayMode).toBe('detailed')
+        })
+    })
+})
+
+describe('冷启动自动激活会话恢复会话级模式（回归）', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        useAgentStore.setState({permissionMode: 'safe', messageDisplayMode: 'detailed'})
+    })
+
+    it('loadConversations 自动激活根会话 → 顶层 permissionMode 等于会话 meta（而非被污染的全局默认）', async () => {
+        // 会话 meta 固化 auto；全局默认返回 safe（对照：全局默认 ≠ 会话模式）
+        readMetaMock.mockResolvedValue({permissionMode: 'auto'})
+        agentGetModeMock.mockResolvedValue('safe')
+        listMock.mockResolvedValue([
+            {id: 'conv-root', title: 'root', workspacePath: '/ws', createdAt: 1, updatedAt: 1},
+        ])
+        useConversationStore.setState({
+            currentWorkspacePath: null,
+            activeConversationId: null,
+            workspaces: {},
+            messagesMap: {},
+            loadedMessages: [],
+            hasMoreMap: {},
+            loadingMoreMap: {},
+            renderedConversationIds: [],
+            conversationLastActiveAt: {},
+        })
+
+        await useConversationStore.getState().loadConversations()
+
+        expect(useConversationStore.getState().activeConversationId).toBe('conv-root')
+        // 关键：按会话 meta 恢复，而不是穿透到 agentGetPermissionMode 的全局 'safe'
+        await vi.waitFor(() => {
+            expect(useAgentStore.getState().permissionMode).toBe('auto')
         })
     })
 })

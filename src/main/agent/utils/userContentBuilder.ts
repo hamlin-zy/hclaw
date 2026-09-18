@@ -6,7 +6,8 @@
  * - agent-start 历史重建：从 DB 读回 user 消息（content + metadata.attachments）后重建 content
  *
  * 语义与 execution.ts 历史 user 消息重建分支一致：
- * - 图片（本地/网络）：文本追加【图片文件路径】标记（供非视觉模型 analyze_image 使用），
+ * - 图片（本地/网络）：文本追加【附件图片路径】标记（供非视觉模型 analyze_image 使用；
+ *   与 load_image 快照的【图片文件路径】分离，视觉模型下请求期会被定向剥离），
  *   本地图片转 base64 image_url 块，网络图片直接用 URL；读取失败回退文本描述
  * - 非图片附件：文本 + '\n\n' + `[附件]\n文件: ...\n路径: ...` 描述
  */
@@ -14,6 +15,7 @@
 import * as fs from 'fs/promises'
 import crypto from 'crypto'
 import {isImageFile, isNetworkImageUrl} from './imageProcessor'
+import {ATTACHMENT_IMAGE_PATH_PREFIX} from './imagePathMarkers'
 
 type ContentPart = {type: 'text'; text: string} | {type: 'image_url'; image_url: {url: string}}
 
@@ -79,7 +81,7 @@ export async function buildUserHistoryContent(
         }
     }
     const histImgPaths = imgAttachments.map(att =>
-        `\n【图片文件路径】${attPath(att)}`,
+        `\n${ATTACHMENT_IMAGE_PATH_PREFIX}${attPath(att)}`,
     ).join('')
     textParts.push(histImgPaths)
     return [{type: 'text', text: textParts.join('')}, ...imgParts]

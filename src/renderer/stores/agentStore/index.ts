@@ -43,6 +43,8 @@ let streamUnsubscribe: (() => void) | null = null
 //   否则「重入注册而不调用上一次的 dispose」会叠加监听（每条事件被处理多次）
 let batchesUnsubscribe: (() => void) | null = null
 let persistUnsubscribe: (() => void) | null = null
+// 全局默认权限模式同步订阅（主进程 → 渲染，普通 IPC 通道，非 agent-stream）
+let permModeSyncUnsubscribe: (() => void) | null = null
 
 /** 方案 A：后台窗口 setTimeout 被 Chromium 节流（1s），恢复可见时强制 flush，
  *  防积压后一次性涌出渲染风暴（spec §4.2 visibilitychange 兜底）。
@@ -474,6 +476,7 @@ export const useAgentStore = create<AgentStore>()(
                 // ★ 子订阅对称注销：重入注册时一并注销上一轮注册的批次/持久化监听
                 batchesUnsubscribe?.()
                 persistUnsubscribe?.()
+                permModeSyncUnsubscribe?.()
                 // ★ 与三条 IPC 子订阅对称：visibilitychange 监听也须在重入时先注销，
                 //   否则每次注册都会叠加一个监听器（依赖模块级具名引用才能正确移除）
                 document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -494,9 +497,20 @@ export const useAgentStore = create<AgentStore>()(
                         useConversationStore.getState().touchConversation(e.convId, Date.now())
                     }
                 }) || null
+                // ★ 全局默认权限模式同步：仅当「当前激活会话」在本次被同步的 convIds 内
+                //   才更新输入栏显示（有会话级覆盖的会话不在 convIds，显示保持用户选择）。
+                const unsubPermModeSync = window.electronAPI?.onPermissionModeSynced?.((payload) => {
+                    const mode = payload?.mode
+                    if (mode !== 'safe' && mode !== 'auto') return
+                    const activeId = useConversationStore.getState().activeConversationId
+                    if (activeId && payload?.convIds?.includes(activeId)) {
+                        set({permissionMode: mode})
+                    }
+                }) || null
                 streamUnsubscribe = unsub
                 batchesUnsubscribe = unsubBatches
                 persistUnsubscribe = unsubPersist
+                permModeSyncUnsubscribe = unsubPermModeSync
                 return () => {
                     document.removeEventListener('visibilitychange', onVisibilityChange)
                     flushAllTextBatches()
@@ -504,9 +518,11 @@ export const useAgentStore = create<AgentStore>()(
                     streamUnsubscribe?.()
                     batchesUnsubscribe?.()
                     persistUnsubscribe?.()
+                    permModeSyncUnsubscribe?.()
                     streamUnsubscribe = null
                     batchesUnsubscribe = null
                     persistUnsubscribe = null
+                    permModeSyncUnsubscribe = null
                 }
             },
         }),

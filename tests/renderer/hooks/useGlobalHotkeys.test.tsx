@@ -110,7 +110,7 @@ describe('useGlobalHotkeys', () => {
             (e as CustomEvent).type === 'hclaw:focus-input')).toBe(false)
     })
 
-    it('Ctrl+N 有工作空间 → 调用 createConversation 并在完成后派发焦点事件', async () => {
+    it('Ctrl+N 有工作空间 → 仍派发 hclaw:new-conversation 事件，不直接调 createConversation', () => {
         useConversationStore.setState({currentWorkspacePath: '/ws'})
         const createMock = vi.fn().mockResolvedValue('conv-1')
         useConversationStore.setState({createConversation: createMock})
@@ -119,13 +119,14 @@ describe('useGlobalHotkeys', () => {
 
         pressKey({key: 'n', ctrlKey: true})
 
-        expect(createMock).toHaveBeenCalledTimes(1)
-        // 微任务后验证 focus-input 事件
-        await act(async () => {
-            await Promise.resolve()
-        })
+        // 派发端不再按有无工作区分叉：唯一路径 = 事件 → ConversationSidebar 常驻监听 → newConversation 服务
         expect(dispatchSpy.mock.calls.some(([e]) =>
-            (e as CustomEvent).type === 'hclaw:focus-input')).toBe(true)
+            (e as CustomEvent).type === 'hclaw:new-conversation')).toBe(true)
+        // 不再由 hook 直接创建会话（目标项目解析 + 跟随视图交由服务）
+        expect(createMock).not.toHaveBeenCalled()
+        // 焦点事件改为消费侧（ConversationSidebar）在创建成功后派发，hook 不再自行派发
+        expect(dispatchSpy.mock.calls.some(([e]) =>
+            (e as CustomEvent).type === 'hclaw:focus-input')).toBe(false)
     })
 
     it('Alt+↑ 在顶级会话间切换，跳过子会话', () => {

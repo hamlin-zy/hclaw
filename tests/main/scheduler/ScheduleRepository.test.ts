@@ -1,7 +1,8 @@
 /**
  * ScheduleRepository 单元测试
  *
- * 覆盖：定时任务增删改查、enabled/paused 过滤、前缀 ID 解析、运行状态更新、持久化 round-trip。
+ * 覆盖：定时任务增删改查、enabled 过滤（暂停记录一并返回，暂停是引擎侧运行时状态）、
+ * 前缀 ID 解析、运行状态更新、持久化 round-trip。
  *
  * SQLite 策略（与 permissionRule.test.ts / conversationRepository.recovery.test.ts 一致）：
  * vi.mock config 重定向到 os.tmpdir() 独立临时目录，走真实 SQLite，
@@ -28,11 +29,25 @@ vi.mock('@/main/config', () => {
         getHclawDataDir: () => path.join(testDir, 'data'),
     }
 })
+vi.mock('@/main/hclawPaths', async () => await import('@/main/config'))  // 路径能力已下沉到叶子 hclawPaths：让叶子跟随本文件对 config 的桩，避免绕过 mock 落到真实 ~/.hclaw
 
 import {CronExpressionParser} from 'cron-parser'
 import {initStorage} from '@/main/repositories'
 import {closeDatabase, getDatabase} from '@/main/repositories/sqlite'
-import {ScheduleRepository, scheduleRepo, type ScheduleRecord} from '@/main/scheduler/ScheduleRepository'
+import {ScheduleRepository, scheduleRepo} from '@/main/scheduler/ScheduleRepository'
+import {ScheduleError} from '@/main/scheduler/scheduleErrors'
+import type {ScheduleRecord} from '@shared/types/schedule'
+
+/** 断言抛出的是指定 code 的 ScheduleError */
+function expectScheduleError(fn: () => unknown, code: 'NOT_FOUND' | 'INVALID_ARGUMENT' | 'STORAGE_FAILURE'): void {
+    try {
+        fn()
+        throw new Error(`期望抛出 ScheduleError(${code})，但没有抛出`)
+    } catch (err) {
+        expect(err).toBeInstanceOf(ScheduleError)
+        expect((err as ScheduleError).code).toBe(code)
+    }
+}
 
 function makeSchedule(overrides: Partial<ScheduleRecord> = {}): ScheduleRecord {
     return {
@@ -96,7 +111,7 @@ describe('ScheduleRepository — 增删改查', () => {
 
     it('创建任务后可查询', () => {
         const created = makeSchedule({id: 'sched-create'})
-        expect(repo.create(created)).toBe(true)
+        expect(() => repo.create(created)).not.toThrow()
 
         const record = repo.get('sched-create')
         expect(record).not.toBeNull()
@@ -114,10 +129,10 @@ describe('ScheduleRepository — 增删改查', () => {
         expect(record!.runCount).toBe(0)
     })
 
-    it('create 返回 false 当 id 冲突（主键约束）', () => {
+    it('create 在 id 冲突（主键约束）时抛 INVALID_ARGUMENT，不再降级为 false', () => {
         const record = makeSchedule({id: 'sched-dupe'})
-        expect(repo.create(record)).toBe(true)
-        expect(repo.create(record)).toBe(false)
+        repo.create(record)
+        expectScheduleError(() => repo.create(record), 'INVALID_ARGUMENT')
         // 原记录未被覆盖
         expect(repo.list()).toHaveLength(1)
     })
@@ -125,11 +140,11 @@ describe('ScheduleRepository — 增删改查', () => {
     it('更新任务字段', () => {
         repo.create(makeSchedule({id: 'sched-update'}))
 
-        expect(repo.update('sched-update', {
+        expect(() => repo.update('sched-update', {
             name: '更新后的任务',
             cronExpression: '0 9 * * *',
             taskArgs: ['x', 42],
-        })).toBe(true)
+        })).not.toThrow()
 
         const record = repo.get('sched-update')!
         expect(record.name).toBe('更新后的任务')
@@ -140,32 +155,32 @@ describe('ScheduleRepository — 增删改查', () => {
     it('update 更新 enabled/paused 布尔字段', () => {
         repo.create(makeSchedule({id: 'sched-bool'}))
 
-        expect(repo.update('sched-bool', {enabled: false})).toBe(true)
+        expect(() => repo.update('sched-bool', {enabled: false})).not.toThrow()
         expect(repo.get('sched-bool')!.enabled).toBe(false)
 
-        expect(repo.update('sched-bool', {paused: true})).toBe(true)
+        expect(() => repo.update('sched-bool', {paused: true})).not.toThrow()
         expect(repo.get('sched-bool')!.paused).toBe(true)
         expect(repo.get('sched-bool')!.enabled).toBe(false)
     })
 
-    it('update 空更新返回 false', () => {
+    it('update 空更新抛 INVALID_ARGUMENT', () => {
         repo.create(makeSchedule({id: 'sched-noop'}))
-        expect(repo.update('sched-noop', {})).toBe(false)
+        expectScheduleError(() => repo.update('sched-noop', {}), 'INVALID_ARGUMENT')
     })
 
-    it('update 不存在的 id 返回 false', () => {
-        expect(repo.update('sched-missing', {name: 'nope'})).toBe(false)
+    it('update 不存在的 id 抛 NOT_FOUND', () => {
+        expectScheduleError(() => repo.update('sched-missing', {name: 'nope'}), 'NOT_FOUND')
     })
 
     it('删除任务', () => {
         repo.create(makeSchedule({id: 'sched-del'}))
-        expect(repo.delete('sched-del')).toBe(true)
+        expect(() => repo.delete('sched-del')).not.toThrow()
         expect(repo.get('sched-del')).toBeNull()
         expect(repo.list()).toHaveLength(0)
     })
 
-    it('删除不存在的 id 返回 false', () => {
-        expect(repo.delete('sched-missing')).toBe(false)
+    it('删除不存在的 id 抛 NOT_FOUND，不再返回 false', () => {
+        expectScheduleError(() => repo.delete('sched-missing'), 'NOT_FOUND')
     })
 
     it('列出所有任务，按 created_at 倒序', () => {
@@ -200,10 +215,10 @@ describe('ScheduleRepository — 增删改查', () => {
         expect(record!.id).toBe('sched-prefix-abc')
     })
 
-    it('get/update/delete 对不存在的 id 前缀返回 null/false', () => {
+    it('get 对不存在的 id 前缀返回 null；update/delete 抛 NOT_FOUND', () => {
         expect(repo.get('sched-missing')).toBeNull()
-        expect(repo.update('sched-missing', {name: 'x'})).toBe(false)
-        expect(repo.delete('sched-missing')).toBe(false)
+        expectScheduleError(() => repo.update('sched-missing', {name: 'x'}), 'NOT_FOUND')
+        expectScheduleError(() => repo.delete('sched-missing'), 'NOT_FOUND')
     })
 })
 
@@ -217,25 +232,31 @@ describe('ScheduleRepository — enabled/paused 过滤', () => {
         closeDatabase()
     })
 
-    it('listEnabled 只返回 enabled 且未 paused 的任务', () => {
+    it('listEnabled 只返回 enabled 的任务，暂停记录也在内（暂停是运行时状态）', () => {
         repo.create(makeSchedule({id: 'sched-on', enabled: true, paused: false}))
         repo.create(makeSchedule({id: 'sched-disabled', enabled: false}))
         repo.create(makeSchedule({id: 'sched-paused', enabled: true, paused: true}))
 
         const records = repo.listEnabled()
-        expect(records.map(r => r.id)).toEqual(['sched-on'])
+        // 暂停记录必须一并返回：引擎据此把它装载进 schedules Map 并置暂停态，
+        // 否则 resume() 唤不醒一条从未装载的记录（F1）。
+        expect(records.map(r => r.id).sort()).toEqual(['sched-on', 'sched-paused'])
+        expect(repo.listEnabled().find(r => r.id === 'sched-paused')!.paused).toBe(true)
     })
 
-    it('enabled 任务 pause 后从 listEnabled 移除，resume 后恢复', () => {
+    it('enabled 任务 pause 后仍在 listEnabled 中（引擎据此装载暂停态），resume 后 paused 复位', () => {
         repo.create(makeSchedule({id: 'sched-toggle'}))
         expect(repo.listEnabled()).toHaveLength(1)
 
         repo.update('sched-toggle', {paused: true, pausedAt: Date.now()})
-        expect(repo.listEnabled()).toHaveLength(0)
+        // 仍在列表里，且带 paused=true —— init 装载后引擎立刻进暂停态，不起定时器
+        expect(repo.listEnabled()).toHaveLength(1)
+        expect(repo.listEnabled()[0].paused).toBe(true)
         expect(repo.list()).toHaveLength(1)
 
         repo.update('sched-toggle', {paused: false})
         expect(repo.listEnabled()).toHaveLength(1)
+        expect(repo.listEnabled()[0].paused).toBe(false)
     })
 })
 
@@ -252,7 +273,7 @@ describe('ScheduleRepository — 运行状态更新', () => {
     it('updateRunStatus 写入 running 状态，runCount 不变', () => {
         repo.create(makeSchedule({id: 'sched-run'}))
 
-        expect(repo.updateRunStatus('sched-run', 'running', 'conv-1')).toBe(true)
+        expect(() => repo.updateRunStatus('sched-run', 'running', 'conv-1')).not.toThrow()
 
         const record = repo.get('sched-run')!
         expect(record.lastRunStatus).toBe('running')
@@ -264,12 +285,36 @@ describe('ScheduleRepository — 运行状态更新', () => {
     it('updateRunStatus 成功后 runCount 递增', () => {
         repo.create(makeSchedule({id: 'sched-done'}))
 
-        expect(repo.updateRunStatus('sched-done', 'success', 'conv-2')).toBe(true)
+        expect(() => repo.updateRunStatus('sched-done', 'success', 'conv-2')).not.toThrow()
 
         const record = repo.get('sched-done')!
         expect(record.lastRunStatus).toBe('success')
         expect(record.lastRunConversationId).toBe('conv-2')
         expect(record.runCount).toBe(1)
+    })
+
+    it('resetRunningToFailure 只把 running 改写为 failure 并返回条数', () => {
+        repo.create(makeSchedule({id: 'stale-1'}))
+        repo.create(makeSchedule({id: 'stale-2'}))
+        repo.create(makeSchedule({id: 'fresh-none'}))
+        repo.create(makeSchedule({id: 'done'}))
+        repo.create(makeSchedule({id: 'broken'}))
+        repo.updateRunStatus('stale-1', 'running')
+        repo.updateRunStatus('stale-2', 'running')
+        repo.updateRunStatus('done', 'success')
+        repo.updateRunStatus('broken', 'failure')
+
+        expect(repo.resetRunningToFailure()).toBe(2)
+
+        expect(repo.get('stale-1')!.lastRunStatus).toBe('failure')
+        expect(repo.get('stale-2')!.lastRunStatus).toBe('failure')
+        expect(repo.get('fresh-none')!.lastRunStatus).toBe('none')
+        expect(repo.get('done')!.lastRunStatus).toBe('success')
+        expect(repo.get('broken')!.lastRunStatus).toBe('failure')
+        // 复位是状态改写，不是一次真实执行：runCount 不动
+        expect(repo.get('stale-1')!.runCount).toBe(0)
+        // 无残留时返回 0，不抛 NOT_FOUND（空集是正常情况）
+        expect(repo.resetRunningToFailure()).toBe(0)
     })
 })
 

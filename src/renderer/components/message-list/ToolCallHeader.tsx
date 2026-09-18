@@ -144,7 +144,7 @@ export default function ToolCallHeader({
                         onJumpToSession()
                     }}
                     className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium hover:bg-[var(--surface-muted)] border border-[var(--border)]"
-                    style={{color: 'var(--brand-primary)'}}
+                    style={{color: 'var(--text-brand)'}}
                     title="跳转到子会话"
                  data-name="tool-call-header-jump-to-session-button">
                     <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -167,7 +167,7 @@ export default function ToolCallHeader({
             <span className="text-[var(--text-muted)] shrink-0">Agent</span>
             {agentTypeLabel && (
                 <span
-                    className="text-[10px] font-medium text-[var(--brand-primary)] bg-[var(--brand-muted)] px-1.5 py-0.5 rounded shrink-0">
+                    className="text-[10px] font-medium text-[var(--text-brand)] bg-[var(--brand-muted)] px-1.5 py-0.5 rounded shrink-0">
                     {agentTypeLabel}
                 </span>
             )}
@@ -180,7 +180,7 @@ export default function ToolCallHeader({
     ) : toolCall.name === 'agent' ? (
         <span className="font-mono font-semibold text-[var(--text-primary)]">Agent</span>
     ) : toolCall.name === 'skill' && skillDisplayName ? (
-        <span className="font-semibold text-[var(--brand-primary)] flex items-center gap-1">
+        <span className="font-semibold text-[var(--text-brand)] flex items-center gap-1">
             <span className="text-[color-mix(in_srgb,var(--brand-primary)_70%,transparent)] font-normal inline-flex items-center gap-1">
                 <SkillIcon className="w-3.5 h-3.5"/>
                 Skill
@@ -188,7 +188,7 @@ export default function ToolCallHeader({
             <span>{skillDisplayName}</span>
         </span>
     ) : toolCall.name === 'skill' ? (
-        <span className="font-mono font-semibold text-[var(--brand-primary)] inline-flex items-center gap-1">
+        <span className="font-mono font-semibold text-[var(--text-brand)] inline-flex items-center gap-1">
             <SkillIcon className="w-3.5 h-3.5"/>
             Skill
         </span>
@@ -208,7 +208,7 @@ export default function ToolCallHeader({
                         )
                     } else if (i === 1) {
                         return (
-                            <span key={i} className="text-[var(--brand-primary)]">
+                            <span key={i} className="text-[var(--text-brand)]">
                                 {part}
                                 {'_'}
                             </span>

@@ -3,7 +3,7 @@ import {
   injectLoadedImages,
   parseSnapshotPath,
   buildLoadImageTextBlock,
-  LOAD_IMAGE_TEXT_PREFIX,
+  LOAD_IMAGE_SNAPSHOT_PATH_PREFIX,
 } from '../../../../src/main/agent/utils/loadImageInjection'
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])
@@ -27,7 +27,7 @@ describe('injectLoadedImages', () => {
     expect(inj.role).toBe('user')
     expect(inj.id).toBe('load-image:tc1')
     // 文本块 = 既有约定 `【图片文件路径】<快照绝对路径>`（降级剥图后仍是有效回退依据，不留谎言文案）
-    expect(inj.content[0]).toEqual({type: 'text', text: `${LOAD_IMAGE_TEXT_PREFIX}/snap/abc.png`})
+    expect(inj.content[0]).toEqual({type: 'text', text: `${LOAD_IMAGE_SNAPSHOT_PATH_PREFIX}/snap/abc.png`})
     expect(inj.content[0].text).toBe(buildLoadImageTextBlock('/snap/abc.png'))
     expect(inj.content[0].text).not.toContain('已加载')
     expect(inj.content[1].type).toBe('image_url')

@@ -1,6 +1,6 @@
 import path from 'path'
 import fs from 'fs'
-import {getHclawDir} from '../config'
+import {getHclawDir} from '../hclawPaths'
 import type {McpServer} from '../../shared/types/mcp'
 
 /** 获取 mcp.json 文件路径 */

@@ -9,6 +9,7 @@ import {useCallback, useEffect, useMemo, useState} from 'react'
 import {UserCommand, useUserCommandStore} from '../../stores/userCommandStore'
 import {getCommandNameError, DUPLICATE_COMMAND_NAME_ERROR} from '@shared/commandName'
 import {RemoveIcon} from '../icons'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 /** 出错字段，用于把校验提示定位到对应输入项 */
 type ErrorField = 'name' | 'content' | 'args' | 'general'
@@ -29,7 +30,8 @@ interface CommandEditModalProps {
 }
 
 // 公共表单输入样式
-const inputClass = 'w-full px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]'
+/** 文本输入共用非焦点类；焦点样式统一由 INPUT_FOCUS 提供（拼在标签上） */
+const inputClass = 'w-full px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] border border-[var(--border)]'
 
 interface ArgDef {
     name: string
@@ -198,7 +200,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom, exist
                         <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">命令名称</label>
                         <input type="text" value={name} onChange={e => setName(e.target.value)}
                                placeholder="例如: explain"
-                               className={`${inputClass} ${nameFieldError ? 'border-[var(--error)]' : ''}`}
+                               className={`${inputClass} ${nameFieldError ? 'border-[var(--error)]' : ''} ${INPUT_FOCUS}`}
                                autoFocus data-name="command-edit-modal-input"/>
                         {nameFieldError ? (
                             <p role="alert"
@@ -213,7 +215,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom, exist
                         <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">描述 <span
                             className="opacity-60">(可选)</span></label>
                         <input type="text" value={description} onChange={e => setDescription(e.target.value)}
-                               placeholder="简短描述命令用途" className={inputClass} data-name="command-edit-modal-description-input"/>
+                               placeholder="简短描述命令用途" className={`${inputClass} ${INPUT_FOCUS}`} data-name="command-edit-modal-description-input"/>
                     </div>
 
                     {/* 模板内容 */}
@@ -226,13 +228,13 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom, exist
                             onChange={e => setContent(e.target.value)}
                             placeholder={`# 命令模板，支持 $ARGUMENTS 占位符\n例如：请解释以下代码：\n$ARGUMENTS`}
                             rows={6}
-                            className="w-full px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md
+                            className={`w-full px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md
                                      text-[var(--text-primary)] placeholder-[var(--text-muted)]
-                                     border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]
-                                     font-mono resize-y"
+                                     border border-[var(--border)]
+                                     font-mono resize-y ${INPUT_FOCUS}`}
                         data-name="command-edit-modal-textarea"/>
                         <p className="mt-0.5 text-[10px] text-[var(--text-secondary)]">
-                            使用 <code className="text-[var(--brand-primary)]">$ARGUMENTS</code> 作为用户输入占位符
+                            使用 <code className="text-[var(--text-brand)]">$ARGUMENTS</code> 作为用户输入占位符
                             {content.length > 0 && (
                                 <span className="float-right">{content.length}/2000</span>
                             )}
@@ -248,7 +250,7 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom, exist
                             {args.length < 5 && (
                                 <button
                                     onClick={addArg}
-                                    className="text-[10px] text-[var(--brand-primary)] hover:underline"
+                                    className="text-[10px] text-[var(--text-brand)] hover:underline"
                                  data-name="command-edit-modal-button">
                                     + 添加参数
                                 </button>
@@ -263,11 +265,11 @@ export function CommandEditModal({command, onSave, onCancel, onSaveCustom, exist
                                     <input type="text" value={arg.name}
                                            onChange={e => updateArg(i, 'name', e.target.value)}
                                            placeholder="参数名"
-                                           className="flex-1 px-2 py-1 text-[10px] bg-[var(--surface-muted)] rounded text-[var(--text-primary)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]" data-name={`command-edit-modal-arg-name-input-${i}`}/>
+                                           className={`flex-1 px-2 py-1 text-[10px] bg-[var(--surface-muted)] rounded text-[var(--text-primary)] border border-[var(--border)] ${INPUT_FOCUS}`} data-name={`command-edit-modal-arg-name-input-${i}`}/>
                                     <input type="text" value={arg.default || ''}
                                            onChange={e => updateArg(i, 'default', e.target.value)}
                                            placeholder="默认值"
-                                           className="w-20 px-2 py-1 text-[10px] bg-[var(--surface-muted)] rounded text-[var(--text-primary)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]" data-name={`command-edit-modal-arg-default-input-${i}`}/>
+                                           className={`w-20 px-2 py-1 text-[10px] bg-[var(--surface-muted)] rounded text-[var(--text-primary)] border border-[var(--border)] ${INPUT_FOCUS}`} data-name={`command-edit-modal-arg-default-input-${i}`}/>
                                     <label className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
                                         <input type="checkbox" checked={arg.required || false}
                                                onChange={e => updateArg(i, 'required', e.target.checked)}

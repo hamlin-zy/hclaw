@@ -177,7 +177,7 @@ const StatusNote = memo(function StatusNote({note}: {note: StatusNoteData | null
                     <line x1="12" y1="16" x2="12.01" y2="16"/>
                 </svg>
             ) : (
-                <svg className="w-3 h-3 animate-spin text-[var(--brand-primary)] flex-shrink-0"
+                <svg className="w-3 h-3 animate-spin [color:var(--brand-primary)] flex-shrink-0"
                      viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
                             strokeWidth="4"/>
@@ -203,7 +203,7 @@ const StatusNote = memo(function StatusNote({note}: {note: StatusNoteData | null
                     title="复制错误详情"
                  data-name="message-bubble-button">
                     {copied ? (
-                        <svg className="w-3.5 h-3.5 text-[var(--brand-primary)]" viewBox="0 0 24 24"
+                        <svg className="w-3.5 h-3.5 [color:var(--brand-primary)]" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                             <polyline points="20 6 9 17 4 12"/>
                         </svg>
@@ -253,13 +253,13 @@ const MessageBubble = memo(function MessageBubble({message, statusNote, isAgentR
                 {!isUser && (
                     <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-[var(--border-muted)]">
                         <div className="w-5 h-5 rounded-full bg-[var(--brand-muted)] flex items-center justify-center">
-                            <svg className="w-3 h-3 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="none"
+                            <svg className="w-3 h-3 [color:var(--brand-primary)]" viewBox="0 0 24 24" fill="none"
                                  stroke="currentColor" strokeWidth="2" aria-hidden="true">
                                 <path d="M12 2L2 7l10 5 10-5-10-5z"/>
                                 <path d="M2 17l10 5 10-5"/>
                             </svg>
                         </div>
-                        <span className="text-xs font-medium text-[var(--brand-primary)]">HClaw</span>
+                        <span className="text-xs font-medium text-[var(--text-brand)]">HClaw</span>
                     </div>
                 )}
 
@@ -275,7 +275,7 @@ const MessageBubble = memo(function MessageBubble({message, statusNote, isAgentR
                                     <path d="M2 17l10 5 10-5"/>
                                 </svg>
                             </div>
-                            <span className="text-xs font-medium text-[var(--brand-primary)]">HClaw</span>
+                            <span className="text-xs font-medium text-[var(--text-brand)]">HClaw</span>
                         </div>
                     </div>
                 )}

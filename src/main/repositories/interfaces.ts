@@ -7,6 +7,10 @@ import type {
   MessageBlock,
   PermissionRule
 } from '@shared/types'
+import type {ConversationStatsScope} from '@shared/types/conversationStats'
+
+// 会话统计范围类型定义在 shared（主/渲染共用），此处 re-export 供主进程引用
+export type {ConversationStatsScope} from '@shared/types/conversationStats'
 
 // ─── Message Block Repository ─────────────────────────────────
 
@@ -74,8 +78,8 @@ export interface IConversationRepository {
 
   listByWorkspace(workspacePath: string): ConversationMeta[]
 
-    /** 查询所有会话及统计信息（消息数、block 数） */
-    listWithStats(workspacePath: string): ConversationWithStats[]
+    /** 查询会话及统计信息（消息数、block 数），支持 all/project/group 三种范围 */
+    listWithStats(scope: ConversationStatsScope): ConversationWithStats[]
 
     /** 读取多会话的 LLM 统计与工具调用计数（用量统计弹窗用，不读消息正文） */
     readUsageRaw(convIds: string[]): {

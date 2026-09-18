@@ -164,6 +164,37 @@ function escapeRegex(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+/**
+ * 权限规则的工具名匹配语义（唯一实现，PermissionEngine.matchRule 与
+ * call_mcp_tool 等工具内权限判定共用，避免出现两套漂移的语义）。
+ *
+ * - pattern === '*'            → 匹配任意工具
+ * - pattern === toolName       → 精确匹配
+ * - pattern 含 '*'             → glob（'*' 通配任意字符，如 m_github_* / file_*）
+ * - 其余                        → 不匹配
+ */
+export function matchesToolRulePattern(pattern: string, toolName: string): boolean {
+    if (pattern === '*') return true
+    if (pattern === toolName) return true
+    if (pattern.includes('*')) {
+        const escaped = escapeRegex(pattern).replace(/\\\*/g, '.*')
+        return new RegExp('^' + escaped + '$').test(toolName)
+    }
+    return false
+}
+
+/**
+ * proxy 作用域 pattern 判定（唯一实现）：排除引擎层 pattern（`*` 与任何命中
+ * `call_mcp_tool` 的 pattern）与 `bash:` 命名空间，只保留能命中 MCP proxy 名的
+ * pattern（精确 proxy 名 / `m_*` 类 glob）。
+ * PermissionEngine 的 proxy ask 规则探测与 call_mcp_tool 内的规则筛选共用，避免两套口径漂移。
+ */
+export function isProxyScopedMcpToolPattern(pattern: string): boolean {
+    if (!pattern || pattern.startsWith('bash:')) return false
+    if (matchesToolRulePattern(pattern, 'call_mcp_tool')) return false
+    return true
+}
+
 export class PermissionEngine {
   private rules: PermissionRule[] = []
     private mode: RunMode = 'safe'
@@ -275,11 +306,27 @@ export class PermissionEngine {
     this.mode = context.mode
   }
 
-    /** 清理重复规则并保存到文件（委托给 PermissionRulesManager） */
+    /**
+     * 只刷新规则快照（保持本引擎的 mode 不变）。
+     *
+     * 用途：权限面板增删规则后由主进程广播触发（PERMISSION_RULES_CHANGED）。
+     * 为何不用 reloadRules()：它会把 this.mode 重置为 DB 全局值，吞掉本 worker 的
+     * 会话级模式（会话覆盖只存在于内存，DB 只有全局默认值）。
+     */
+    async reloadRulesOnly(): Promise<void> {
+        const rules = await permissionRulesManager.reloadRulesOnly()
+        this.rules = rules
+    }
+
+    /**
+     * 清理重复规则并保存（委托给 PermissionRulesManager，**不重载 mode**）。
+     *
+     * 为何不用 reloadRules()：reloadRules 会把 this.mode 重置为 DB 全局值
+     * （system_settings.permission_mode），吞掉本 worker 的会话级模式 ——
+     * 会话级 auto 退回 safe（一直弹确认），而全局 auto + 会话级 safe 会被静默升级为 auto。
+     */
     async cleanAndSave(): Promise<void> {
-        // PermissionRulesManager 已经在保存时自动去重
-        // 这里只需重新加载即可
-        await this.reloadRules()
+        this.rules = await permissionRulesManager.dedupeAndSaveRules()
     }
 
     /**
@@ -294,28 +341,16 @@ export class PermissionEngine {
         return Array.from(seen.values())
     }
 
-    /** 编译规则的 glob pattern（如有 * 号），用于快速匹配 */
-    private compileGlobPattern(rule: PermissionRule): void {
-        if (rule.tool.includes('*')) {
-            const escaped = escapeRegex(rule.tool).replace(/\\\*/g, '.*')
-            ;(rule as any)._compiledRegex = new RegExp('^' + escaped + '$')
-        }
-    }
-
-  async addRule(rule: PermissionRule): Promise<void> {
+    async addRule(rule: PermissionRule): Promise<void> {
     await this.ensureInit()
       const newContext = await permissionRulesManager.applyUpdate({type: 'addRule', rule})
     this.rules = newContext.rules
-    this.compileGlobPattern(rule)
   }
 
   async setRules(rules: PermissionRule[]): Promise<void> {
     await this.ensureInit()
       const newContext = await permissionRulesManager.applyUpdate({type: 'setRules', rules})
     this.rules = newContext.rules
-    for (const rule of this.rules) {
-      this.compileGlobPattern(rule)
-    }
   }
 
   /** 删除指定工具的规则 */
@@ -515,16 +550,8 @@ export class PermissionEngine {
     }
 
   private matchRule(rule: PermissionRule, toolName: string): boolean {
-    if (rule.tool === '*') return true
-    if (rule.tool === toolName) return true
-    // 支持 glob: file_* 匹配 file_read, file_write 等
-    if (rule.tool.includes('*')) {
-      // 预编译的正则存储在 rule 对象上（由 addRule/setRules 设置）
-      if ((rule as any)._compiledRegex) {
-        return (rule as any)._compiledRegex.test(toolName)
-      }
-    }
-    return false
+    // 统一走 matchesToolRulePattern，保证与工具内权限判定（call_mcp_tool）语义一致。
+    return matchesToolRulePattern(rule.tool, toolName)
   }
 
     /**
@@ -676,17 +703,10 @@ export class PermissionEngine {
     }
 
     private matchCommandGlob(cmdPrefix: string, pattern: string): boolean {
-        if (pattern === '*') return true
-        if (pattern === cmdPrefix) return true
-
-        if (pattern.includes('*')) {
-            const escaped = escapeRegex(pattern).replace(/\\\*/g, '.*')
-            const regex = new RegExp('^' + escaped + '$')
-            return regex.test(cmdPrefix)
-        }
+        if (pattern.includes('*')) return matchesToolRulePattern(pattern, cmdPrefix)
 
         // 前缀匹配：'git add' 匹配 'git*'
-        return cmdPrefix.startsWith(pattern.replace(/\*+$/, ''))
+        return pattern === cmdPrefix || cmdPrefix.startsWith(pattern)
     }
 }
 

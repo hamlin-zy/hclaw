@@ -10,6 +10,8 @@ import * as path from 'path'
 import * as fs from 'fs'
 import type {ScriptFile, ScriptResult} from './types'
 import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
+// 脚本由解释器拉起时可能自带子孙进程：超时/取消必须按进程树杀，否则留下孤儿
+import {killProcessTree} from '../../common/killProcessTree'
 
 // ─── 常量 ──────────────────────────────────────────────
 
@@ -97,10 +99,10 @@ export async function executeScript(
 
     const proc = spawn(cmd, cmdArgs, spawnOptions)
 
-    // 设置超时
+    // 设置超时：树杀（内建 kill 只结束根进程，脚本拉起的子孙会成为孤儿继续占内存）
     const timer = setTimeout(() => {
       killed = true
-      proc.kill('SIGTERM')
+      killProcessTree(proc.pid)
     }, timeout)
 
     // 处理 stdout
@@ -111,7 +113,7 @@ export async function executeScript(
       if (outputSize > MAX_OUTPUT_SIZE) {
         stdout += chunk.slice(0, MAX_OUTPUT_SIZE - outputSize)
         stdout += '\n... [output truncated]'
-        proc.kill('SIGTERM')
+        killProcessTree(proc.pid)
         return
       }
 
@@ -312,12 +314,9 @@ function commandExists(cmd: string): Promise<boolean> {
 
       // 超时保护：2秒后强制结束检查
       // 保存句柄，使成功/失败两条路径都能 clearTimeout，避免定时器驻留到触发点。
+      // 走树杀：Windows 上 shell 模式经 cmd 中继，直接 kill 根进程会留下中继的子进程。
       const timer = setTimeout(() => {
-        try {
-          proc.kill()
-        } catch {
-          // 进程可能已结束，忽略错误
-        }
+        killProcessTree(proc.pid)
         resolve(false)
       }, 2000)
 

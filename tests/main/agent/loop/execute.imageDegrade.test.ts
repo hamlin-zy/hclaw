@@ -100,7 +100,7 @@ describe('executeLlmCallWithRetry 400 降级自愈（生成器级，mock adapter
     const imageMsg: ChatMessage = {
       role: 'user',
       content: [
-        {type: 'text', text: '看图'},
+        {type: 'text', text: '看图\n【附件图片路径】/tmp/a.png'},
         {type: 'image_url', image_url: {url: 'data:image/png;base64,AAA'}},
       ],
     }
@@ -161,7 +161,12 @@ describe('executeLlmCallWithRetry 400 降级自愈（生成器级，mock adapter
     expect(secondMsgs.some(m => Array.isArray(m.content) && m.content.some(p => (p as {type?: string}).type === 'image_url'))).toBe(false)
     expect((chat.mock.calls[1][0].tools as ToolDefinitionForLLM[]).map(t => t.name)).toContain('analyze_image')
 
-    // ★ 消息侧同源：supportsImageInput 以当前模型 id 被调用（降级场景消息侧路径仍在执行）
+    // ★ 附件路径标注的请求期剥离：
+    //   attempt 1（视觉、未降级）→ 图片已直接可见，标注为纯噪声，应剥离；
+    //   attempt 2（降级后 image_url 被剥）→ 必须保留，供 analyze_image 回退。
+    expect(JSON.stringify(firstMsgs)).not.toContain('【附件图片路径】')
+    expect(JSON.stringify(secondMsgs)).toContain('【附件图片路径】')
+
     // ★ 消息侧同源：supportsImageInput 以当前模型 id 被调用（降级场景消息侧路径仍在执行）；
     //   第二参为 modelConfig.modelTypes（未配置时 undefined）
     expect(supportsSpy).toHaveBeenCalledWith(MODEL_ID, undefined)

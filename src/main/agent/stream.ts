@@ -7,6 +7,7 @@
 import type {ToolResult} from './tools/types'
 import type {ToolCallInfo} from '@shared/types'
 import type {DoneReason} from '@shared/types/events'
+import type {ScheduleChangePayload} from '@shared/types/schedule'
 
 export type {ToolCallInfo} from '@shared/types'
 
@@ -130,8 +131,8 @@ export type AgentStreamEvent =
   | { type: 'plan_generated'; plan: string }
   // 系统配置更新事件
   | { type: 'settings-updated'; settings: Record<string, any> }
-  // 定时任务变更事件（工具修改后通知前端刷新）
-  | { type: 'schedules-changed' }
+  // 定时任务变更事件（工具修改后通知前端；载荷经 scheduleBroadcast 唯一出口广播）
+  | { type: 'schedules-changed'; change: ScheduleChangePayload }
   // 应用重启事件
   | { type: 'app-restart' }
   /** 循环检测：疑似循环（notify 档警告条 / pause 档弹窗数据源） */

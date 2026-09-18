@@ -2,6 +2,7 @@ import {useState} from 'react'
 import type {MCPServer} from '@shared/types'
 import ThemedSelect from '../ThemedSelect'
 import {SuccessIcon, ErrorIcon} from '../icons'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 // ─── Helpers ──────────────────────────────
 
@@ -41,11 +42,11 @@ function KVPairEditor({pairs, onChange, keyPlaceholder = '键名', valuePlacehol
                 <div key={i} className="flex gap-1.5 items-center">
                     <input type="text" value={pair.key} onChange={(e) => updatePair(i, 'key', e.target.value)}
                            placeholder={keyPlaceholder}
-                           className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded-lg font-mono focus:border-brand-500 outline-none min-w-0" data-name="mcpedit-card-input"/>
+                           className={`flex-1 px-2 py-1 text-xs border border-gray-200 rounded-lg font-mono outline-none min-w-0 ${INPUT_FOCUS}`} data-name="mcpedit-card-input"/>
                     <span className="text-[var(--text-muted)] text-xs shrink-0">=</span>
                     <input type="text" value={pair.value} onChange={(e) => updatePair(i, 'value', e.target.value)}
                            placeholder={valuePlaceholder}
-                           className="flex-[2] px-2 py-1 text-xs border border-gray-200 rounded-lg font-mono focus:border-brand-500 outline-none min-w-0" data-name={`mcpedit-card-env-value-${i}`}/>
+                           className={`flex-[2] px-2 py-1 text-xs border border-gray-200 rounded-lg font-mono outline-none min-w-0 ${INPUT_FOCUS}`} data-name={`mcpedit-card-env-value-${i}`}/>
                     <div className="flex gap-0.5 shrink-0" onClick={e => e.stopPropagation()} data-name="mcpedit-card-div">
                         <button onClick={async () => {
                             const filePath = await window.electronAPI?.selectFilePath?.()
@@ -279,7 +280,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                         onChange={(e) => setJsonInput(e.target.value)}
                         placeholder='{ "mcpServers": { "服务名": { "command": "", "args": ["", ""], "env": {} } } }'
                         rows={Math.max(4, jsonInput.split('\n').length + 3)}
-                        className="w-full px-2.5 py-2 text-xs border border-gray-200 rounded-lg font-mono resize-none focus:border-brand-500 outline-none custom-scrollbar"
+                        className={`w-full px-2.5 py-2 text-xs border border-gray-200 rounded-lg font-mono resize-none outline-none custom-scrollbar ${INPUT_FOCUS}`}
                     data-name="mcpedit-card-textarea"/>
                     {jsonError && <p className="text-[10px] text-red-500 px-1">{jsonError}</p>}
                     <button
@@ -297,7 +298,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                             <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">服务名称</label>
                             <input type="text" value={name} onChange={(e) => setName(e.target.value)}
                                    placeholder="如: SQLite 助手"
-                                   className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:border-brand-500 outline-none transition-all" data-name="mcpedit-card-server-name-input"/>
+                                   className={`w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg outline-none ${INPUT_FOCUS}`} data-name="mcpedit-card-server-name-input"/>
                         </div>
                         <div>
                             <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">传输协议</label>
@@ -324,7 +325,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                         </label>
                         <input type="text" value={userDescription} onChange={(e) => setUserDescription(e.target.value)}
                                placeholder="描述此服务的作用..."
-                               className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:border-brand-500 outline-none" data-name="mcpedit-card-user-description-input"/>
+                               className={`w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg outline-none ${INPUT_FOCUS}`} data-name="mcpedit-card-user-description-input"/>
                     </div>
 
                     {transport === 'stdio' ? (
@@ -334,7 +335,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                                     (Command)</label>
                                 <input type="text" value={command} onChange={(e) => setCommand(e.target.value)}
                                        placeholder="npx, python, docker..."
-                                       className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono focus:border-brand-500 outline-none" data-name="mcpedit-card-command-input"/>
+                                       className={`w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono outline-none ${INPUT_FOCUS}`} data-name="mcpedit-card-command-input"/>
                             </div>
                             <div>
                                 <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">参数 (Arguments,
@@ -342,7 +343,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                                 <textarea value={argsStr} onChange={(e) => setArgsStr(e.target.value)}
                                           placeholder="-y&#10;@modelcontextprotocol/server-sqlite"
                                           rows={Math.max(3, argsStr.split('\n').length + 2)}
-                                          className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono resize-none custom-scrollbar focus:border-brand-500 outline-none" data-name="mcpedit-card-args-textarea"/>
+                                          className={`w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono resize-none custom-scrollbar outline-none ${INPUT_FOCUS}`} data-name="mcpedit-card-args-textarea"/>
                             </div>
                             <div>
                                 <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">环境变量
@@ -351,11 +352,11 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                                               keyPlaceholder="KEY" valuePlaceholder="值"/>
                             </div>
                             <div>
-                                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">工作目录
+                                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">项目目录
                                     (Working Directory)</label>
                                 <input type="text" value={cwd} onChange={(e) => setCwd(e.target.value)}
                                        placeholder="/absolute/path/to/working/dir"
-                                       className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono focus:border-brand-500 outline-none" data-name="mcpedit-card-cwd-input"/>
+                                       className={`w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono outline-none ${INPUT_FOCUS}`} data-name="mcpedit-card-cwd-input"/>
                             </div>
                             {command && (
                                 <div>
@@ -368,7 +369,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                                         value={checkUrl}
                                         onChange={e => setCheckUrl(e.target.value)}
                                         placeholder="https://api.github.com/repos/owner/repo/releases/latest"
-                                        className="w-full px-3 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                        className={`w-full px-3 py-1.5 text-xs border border-gray-200 rounded-md ${INPUT_FOCUS}`}
                                         data-name="mcpedit-card-checkurl-input"
                                     />
                                 </div>
@@ -381,7 +382,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                                     URL</label>
                                 <input type="text" value={url} onChange={(e) => setUrl(e.target.value)}
                                        placeholder="http://localhost:3001/sse 或 ws://localhost:3002 或 https://example.com/mcp"
-                                       className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono focus:border-brand-500 outline-none" data-name="mcpedit-card-endpoint-url-input"/>
+                                       className={`w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono outline-none ${INPUT_FOCUS}`} data-name="mcpedit-card-endpoint-url-input"/>
                             </div>
                             <div>
                                 <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">请求头
@@ -399,7 +400,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                             <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">超时 (毫秒)</label>
                             <input type="number" value={timeoutStr} onChange={(e) => setTimeoutStr(e.target.value)}
                                    placeholder="60000" min="1000" max="300000" step="1000"
-                                   className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono focus:border-brand-500 outline-none" data-name="mcpedit-card-timeout-input"/>
+                                   className={`w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono outline-none ${INPUT_FOCUS}`} data-name="mcpedit-card-timeout-input"/>
                         </div>
                     </div>
                 </>

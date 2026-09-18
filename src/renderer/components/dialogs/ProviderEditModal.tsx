@@ -31,6 +31,15 @@ import ThemedCombobox from '../ThemedCombobox'
 import {useSettingsStore} from '../../stores/settingsStore'
 import {ModelDetailModal} from './providerEdit/ModelDetailModal'
 import {SettingsIcon} from '../icons'
+import {INPUT_FOCUS} from '../../lib/inputFocus'
+
+/**
+ * 表单错误态降级边框（焦点护栏的豁免项，见 tests/renderer/inputFocusSeam.test.ts）：
+ * 只表达「校验失败」，焦点环仍由 INPUT_FOCUS 提供。
+ * 提取成常量：护栏按「标签属性里的字符串字面量」扫 token，内联在模板里会被引号黏住而误判。
+ */
+const INVALID_INPUT_CLS = 'border-red-300 focus:border-red-400'
+const INVALID_INPUT_CLS_BG = 'border-red-300 focus:border-red-400 bg-red-50'
 
 interface ProviderEditModalProps {
   mode: 'add' | 'edit'
@@ -650,9 +659,9 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
               <label className="block text-xs font-medium text-gray-500 mb-1">服务商名称 <span className="text-red-400">*</span></label>
               <input type="text" value={name} onChange={(e) => setName(e.target.value)}
                 placeholder="例如：OpenAI"
-                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 focus:outline-none ${
-                  !isEdit && !name.trim() ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-brand-300'
-                }`} data-name="provider-edit-modal-name-input"/>
+                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 ${
+                  !isEdit && !name.trim() ? INVALID_INPUT_CLS : 'border-gray-200'
+                } ${INPUT_FOCUS}`} data-name="provider-edit-modal-name-input"/>
               {!isEdit && !name.trim() && <div className="text-[10px] text-red-400 mt-0.5">服务商名称不能为空</div>}
             </div>
 
@@ -664,9 +673,9 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                   <input type={showApiKey ? 'text' : 'password'} value={apiKey}
                     onChange={(e) => { setApiKey(e.target.value); setApiKeyTouched(true); setTestStates({}) }}
                     placeholder={isEncryptedKey ? '已加密' : 'sk-...'}
-                    className={`w-full px-2.5 py-1.5 pr-8 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 focus:outline-none ${
-                      !isEdit && !apiKey.trim() ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-brand-300'
-                    }`} data-name="provider-edit-modal-api-key-input"/>
+                    className={`w-full px-2.5 py-1.5 pr-8 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 ${
+                      !isEdit && !apiKey.trim() ? INVALID_INPUT_CLS : 'border-gray-200'
+                    } ${INPUT_FOCUS}`} data-name="provider-edit-modal-api-key-input"/>
                   <button type="button" onClick={() => setShowApiKey(!showApiKey)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600" data-name="provider-edit-modal-toggle-api-key-button">
                     {showApiKey ? (
@@ -729,9 +738,9 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                 <label className="block text-xs font-medium text-gray-500 mb-1">AI Studio API Key <span className="text-red-400">*</span></label>
                 <input type="password" value={apiKey} onChange={(e) => { setApiKey(e.target.value); setApiKeyTouched(true); setTestStates({}) }}
                   placeholder={isEncryptedKey ? '已加密' : 'AIza...'}
-                  className={`w-full px-2.5 py-1.5 text-xs border rounded-md text-gray-700 placeholder-gray-300 focus:outline-none ${
-                    !isEdit && !apiKey.trim() ? 'border-red-300 focus:border-red-400 bg-red-50' : 'border-gray-200 focus:border-brand-300 bg-white'
-                  }`} data-name="provider-edit-modal-google-api-key-input"/>
+                  className={`w-full px-2.5 py-1.5 text-xs border rounded-md text-gray-700 placeholder-gray-300 ${
+                    !isEdit && !apiKey.trim() ? INVALID_INPUT_CLS_BG : 'border-gray-200 bg-white'
+                  } ${INPUT_FOCUS}`} data-name="provider-edit-modal-google-api-key-input"/>
                 {!isEdit && !apiKey.trim() && <div className="text-[10px] text-red-400 mt-0.5">API Key 不能为空</div>}
               </div>
             )}
@@ -744,9 +753,9 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                 <div className="flex gap-2">
                 <input type="text" value={baseUrl} onChange={(e) => handleBaseUrlChange(e.target.value)} onBlur={handleBaseUrlBlur}
                   placeholder="https://api.openai.com/v1"
-                  className={`flex-1 min-w-0 px-2.5 py-1.5 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 focus:outline-none ${
-                    !isEdit && !baseUrl.trim() ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-brand-300'
-                  }`} data-name="provider-edit-modal-base-url-input"/>
+                  className={`flex-1 min-w-0 px-2.5 py-1.5 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 ${
+                    !isEdit && !baseUrl.trim() ? INVALID_INPUT_CLS : 'border-gray-200'
+                  } ${INPUT_FOCUS}`} data-name="provider-edit-modal-base-url-input"/>
                 {/* 自定义请求头入口：N>0 绿色标识已配置 */}
                 <button type="button" onClick={openHeadersModal}
                   className={`shrink-0 px-2 py-1 text-xs border rounded-md bg-white transition-colors whitespace-nowrap inline-flex items-center gap-1 ${
@@ -795,7 +804,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-[11px] font-medium text-gray-600 shrink-0">已获取 {fetchedResult.length} 个模型</span>
                   <input value={fetchSearch} onChange={(e) => setFetchSearch(e.target.value)} placeholder="搜索模型..."
-                    className="flex-1 min-w-0 px-2 py-1 text-[10px] border border-gray-200 rounded-md focus:outline-none focus:border-brand-300" data-name="provider-edit-modal-fetch-search-input"/>
+                    className={`flex-1 min-w-0 px-2 py-1 text-[10px] border border-gray-200 rounded-md ${INPUT_FOCUS}`} data-name="provider-edit-modal-fetch-search-input"/>
                   <ThemedSelect
                     value={fetchTypeFilter}
                     onChange={(v) => setFetchTypeFilter(v as any)}
@@ -951,7 +960,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                           ariaLabel="请求头名称"/>
                         <input type="text" value={h.prefix || ''} onChange={(e) => updateHeaderDraft(h.id, {prefix: e.target.value})}
                           placeholder="固定前缀，可空"
-                          className={`flex-1 min-w-0 px-2 py-1.5 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 focus:outline-none ${rowInvalid ? 'border-red-300' : 'border-gray-200 focus:border-brand-300'}`}
+                          className={`flex-1 min-w-0 px-2 py-1.5 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 ${rowInvalid ? 'border-red-300' : 'border-gray-200'} ${INPUT_FOCUS}`}
                           data-name="provider-edit-modal-header-prefix-input"/>
                         <span className="shrink-0 w-3.5 text-center leading-[30px] text-xs text-gray-400">+</span>
                         <ThemedSelect value={h.variable || ''} onChange={(v) => updateHeaderDraft(h.id, {variable: (v || undefined) as ProviderCustomHeader['variable']})}

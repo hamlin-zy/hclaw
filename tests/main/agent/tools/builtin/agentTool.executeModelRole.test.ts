@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     setOverride: vi.fn(),
     getPrimaryProvider: vi.fn(),
     getConfig: vi.fn(),
+    getWorkingDir: vi.fn(() => ''),
     getJson: vi.fn(),
     setWorkingDir: vi.fn(),
     createRepo: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock('../../../../../src/main/agent/runtimeConfigManager', () => ({
         setOverride: mocks.setOverride,
         getPrimaryProvider: mocks.getPrimaryProvider,
         getConfig: mocks.getConfig,
+        getWorkingDir: mocks.getWorkingDir,
     },
 }))
 

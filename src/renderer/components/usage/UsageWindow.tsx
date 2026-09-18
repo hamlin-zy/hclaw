@@ -103,17 +103,18 @@ function trendLabel(day: string, granularity: TrendGranularity): string {
 const REFRESH_ICON_BTN_CLS = 'px-2 py-1 text-xs rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
 
 /**
- * 自定义范围 DatePicker 输入框样式：对齐原 <input type="date"> 外观。
+ * 自定义范围 DatePicker 输入框样式：对齐原生日期输入控件外观。
  * 用 `!` 提升优先级覆盖 .dp-input 自带 padding/bg/radius（同为单类选择器，见 globals.css 的顺序）。
+ * 焦点样式由 DatePicker 内部的 INPUT_FOCUS 统一承担，此处不再声明。
  */
-const CUSTOM_DATE_INPUT_CLS = '!rounded-md !border !border-[var(--border)] !bg-[var(--surface-muted)] !px-2 !py-1 !text-xs !text-[var(--text-primary)] tabular-nums outline-none focus:!border-[var(--brand-border)] transition-colors'
+const CUSTOM_DATE_INPUT_CLS = '!rounded-md !border !bg-[var(--surface-muted)] !px-2 !py-1 !text-xs !text-[var(--text-primary)] tabular-nums outline-none'
 
 /** 趋势柱状条（纯 CSS，零图表库） */
 function TrendBar({value, max, label, isToday}: {value: number; max: number; label: string; isToday: boolean}) {
     const h = Math.max(2, Math.round(value / max * 100))
     return (
         <div className="flex-1 flex flex-col items-center justify-end gap-1.5 h-full" data-testid="trend-bar">
-            <div className={`text-[9.5px] tabular-nums ${isToday ? 'text-[var(--brand-primary)] font-semibold' : 'text-[var(--text-tertiary)]'}`}>
+            <div className={`text-[9.5px] tabular-nums ${isToday ? 'text-[var(--text-brand)] font-semibold' : 'text-[var(--text-tertiary)]'}`}>
                 {formatTokenCompact(value)}
             </div>
             <div
@@ -535,7 +536,7 @@ export default function UsageWindow() {
                                                         <span className="truncate">{label}</span>
                                                         {tip && <InfoTip text={tip} placement="top"/>}
                                                         {sort?.col === col && (
-                                                            <span className="text-[9px] text-[var(--brand-primary)]">{sort.dir === 1 ? '▲' : '▼'}</span>
+                                                            <span className="text-[9px] text-[var(--text-brand)]">{sort.dir === 1 ? '▲' : '▼'}</span>
                                                         )}
                                                     </span>
                                                     {/* 列宽拖拽把手（右缘 6px 热区）；阻止冒泡避免触发排序 */}
@@ -612,7 +613,7 @@ export default function UsageWindow() {
                                                     <td className="px-3 py-2.5 text-center text-[var(--text-secondary)]">{b.cacheReadTokens > 0 ? formatTokenCompact(b.cacheReadTokens) : '—'}</td>
                                                     <td className="px-3 py-2.5 text-center font-medium">{formatTokenCompact(b.totalTokens)}</td>
                                                     <td className="px-3 py-2.5 text-center text-[var(--text-primary)] font-medium tabular-nums">{pricePerMillion}</td>
-                                                    <td className="px-3 py-2.5 text-center text-[var(--brand-primary)] font-medium">{b.costUsd > 0 ? formatCost(b.costUsd, currency) : '—'}</td>
+                                                    <td className="px-3 py-2.5 text-center text-[var(--text-brand)] font-medium">{b.costUsd > 0 ? formatCost(b.costUsd, currency) : '—'}</td>
                                                     <td className="px-3 py-2.5 text-center">
                                                         <div className="flex items-center justify-center gap-2">
                                                             <div className="w-12 h-1 rounded-full bg-[var(--border)] overflow-hidden">

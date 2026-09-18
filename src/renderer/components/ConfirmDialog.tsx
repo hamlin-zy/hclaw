@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {fade, scaleFade} from '../lib/motionPresets'
+import {INPUT_FOCUS} from '../lib/inputFocus'
 
 /**
  * 确认弹窗选项接口
@@ -217,7 +218,7 @@ export default function ConfirmDialog() {
                                                 <line x1="12" y1="17" x2="12.01" y2="17"/>
                                             </svg>
                                         ) : (
-                                            <svg className="w-5 h-5 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <svg className="w-5 h-5 [color:var(--brand-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                 <circle cx="12" cy="12" r="10"/>
                                                 <line x1="12" y1="8" x2="12" y2="12"/>
                                                 <line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -260,7 +261,7 @@ export default function ConfirmDialog() {
                                                         void handleConfirm()
                                                     }
                                                 }}
-                                                className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--focus-ring)] focus:ring-1 focus:ring-[var(--focus-ring)]"
+                                                className={`w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] ${INPUT_FOCUS}`}
                                              data-name="confirm-dialog-textarea" />
                                         ) : (
                                             <input
@@ -276,7 +277,7 @@ export default function ConfirmDialog() {
                                                         void handleConfirm()
                                                     }
                                                 }}
-                                                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--focus-ring)] focus:ring-1 focus:ring-[var(--focus-ring)]"
+                                                className={`w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] ${INPUT_FOCUS}`}
                                              data-name="confirm-dialog-input" />
                                         )}
                                     </div>

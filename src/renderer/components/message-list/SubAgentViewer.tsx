@@ -134,13 +134,13 @@ export default function SubAgentViewer({
                  onMouseDown={onDragStart}>
                 <div className="flex items-center gap-2 min-w-0">
                     {/* ★ 代理机器人图标（与全站 agent 卡片 AgentIcon 保持一致，原为齿轮图标） */}
-                    <AgentIcon className="w-4 h-4 shrink-0 text-[var(--brand-primary)]"/>
+                    <AgentIcon className="w-4 h-4 shrink-0 [color:var(--brand-primary)]"/>
                     <span className="text-sm font-semibold truncate" style={{color: 'var(--text-primary)'}}>
                         {title.length > 50 ? title.slice(0, 50) + '...' : title}
                     </span>
                     {agentType && (
                         <span className="text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0"
-                              style={{backgroundColor: 'var(--brand-muted)/30', color: 'var(--brand-primary)'}}>
+                              style={{backgroundColor: 'var(--brand-muted)/30', color: 'var(--text-brand)'}}>
                             {agentType}
                         </span>
                     )}
@@ -150,7 +150,7 @@ export default function SubAgentViewer({
                         <button
                             onClick={onJumpToSession}
                             className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium hover:bg-[var(--surface-muted)] transition-colors"
-                            style={{color: 'var(--brand-primary)'}}
+                            style={{color: 'var(--text-brand)'}}
                             title="跳转到子会话"
                          data-name="sub-agent-viewer-button">
                             <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -234,7 +234,7 @@ export default function SubAgentViewer({
                         <span>Token:</span>
                         <span style={{color: 'var(--success)'}}>IN {tokenUsage.inputTokens.toLocaleString()}</span>
                         <span
-                            style={{color: 'var(--brand-primary)'}}>OUT {tokenUsage.outputTokens.toLocaleString()}</span>
+                            style={{color: 'var(--text-brand)'}}>OUT {tokenUsage.outputTokens.toLocaleString()}</span>
                         <span>TOTAL {tokenUsage.totalTokens.toLocaleString()}</span>
                     </div>
                 )}

@@ -25,9 +25,9 @@ interface DisplayGroup {
 const SOURCE_STYLE: Record<string, { icon: React.ComponentType<{ className?: string }>; header: string; iconRing: string; tag: string }> = {
     user: {
         icon: CommandIcon,
-        header: 'text-[var(--brand-primary)] bg-[var(--brand-muted)]',
-        iconRing: 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]',
-        tag: 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]',
+        header: 'text-[var(--text-brand)] bg-[var(--brand-muted)]',
+        iconRing: 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] [color:var(--brand-primary)]',
+        tag: 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)]',
     },
     skill: {
         icon: SkillIcon,
@@ -240,7 +240,7 @@ export function CommandList({
     if (error) return (
         <div className="p-8 text-center">
             <div className="text-sm text-[var(--error)]">{error}</div>
-            <button onClick={loadCommands} className="mt-2 text-xs text-[var(--brand-primary)] hover:underline" data-name="command-list-button">重试
+            <button onClick={loadCommands} className="mt-2 text-xs text-[var(--text-brand)] hover:underline" data-name="command-list-button">重试
             </button>
         </div>
     );
@@ -275,7 +275,7 @@ export function CommandList({
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1">
                         <span
-                            className={`font-medium truncate ${isSelected ? 'text-[var(--brand-primary)]' : 'text-[var(--text-primary)]'}`}>
+                            className={`font-medium truncate ${isSelected ? 'text-[var(--text-brand)]' : 'text-[var(--text-primary)]'}`}>
                           {cmd.name}
                         </span>
                                 <CopyButton name={cmd.name} size="sm" />

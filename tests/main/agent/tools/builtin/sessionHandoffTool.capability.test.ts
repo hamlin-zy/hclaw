@@ -38,6 +38,7 @@ vi.mock('../../../../../src/main/agent/runtimeConfigManager', () => ({
 }))
 
 vi.mock('@/main/config', () => ({getHclawDir: () => '/tmp/hclaw-test'}))
+vi.mock('@/main/hclawPaths', async () => await import('@/main/config'))  // 路径能力已下沉到叶子 hclawPaths：让叶子跟随本文件对 config 的桩，避免绕过 mock 落到真实 ~/.hclaw
 vi.mock('@/main/repositories/sqlite', () => ({getDatabase: () => ({})}))
 vi.mock('@/main/repositories/sqlite/systemSettingsRepository', () => ({systemSettingsRepo: {}}))
 // 交接迁移走真实 sqlite（getDatabase 被上面 mock 成 {}），单独 mock 掉批次迁移

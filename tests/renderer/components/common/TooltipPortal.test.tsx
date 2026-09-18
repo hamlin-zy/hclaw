@@ -24,7 +24,7 @@ function renderSubject() {
             </button>
         </>,
     )
-    const btn = container.querySelector('[data-testid="target"]')!
+    const btn = container.querySelector<HTMLButtonElement>('[data-testid="target"]')!
     const child = container.querySelector('[data-testid="child"]')!
     // portal 挂载在 document.body（render 容器之外），需从 body 查询
     const tip = () => document.querySelector('.tooltip-portal')
@@ -337,5 +337,45 @@ describe('TooltipPortal hover 语义', () => {
         } finally {
             vi.useRealTimers()
         }
+    })
+})
+
+describe('TooltipPortal focus 触发与 Esc 关闭（T10 扩展）', () => {
+    it('focusin 显示 tooltip 并移除原生 title', () => {
+        const {btn, tip} = renderSubject()
+        fireEvent.focusIn(btn)
+        expect(tip()!.textContent).toContain('完整提示文本')
+        expect(btn.getAttribute('title')).toBeNull()
+    })
+
+    it('focusout（焦点移出元素）隐藏并恢复 title；再次 focusin 后 Escape 关闭并恢复', () => {
+        const {btn, tip} = renderSubject()
+        const outside = document.createElement('button')
+        document.body.appendChild(outside)
+
+        fireEvent.focusIn(btn)
+        expect(tip()!.textContent).toContain('完整提示文本')
+        fireEvent.focusOut(btn, {relatedTarget: outside})
+        expect(tip()!.textContent).toBe('')
+        expect(btn.getAttribute('title')).toBe('完整提示文本')
+
+        fireEvent.focusIn(btn)
+        expect(tip()!.textContent).toContain('完整提示文本')
+        fireEvent.keyDown(document, {key: 'Escape'})
+        expect(tip()!.textContent).toBe('')
+        expect(btn.getAttribute('title')).toBe('完整提示文本')
+        outside.remove()
+    })
+
+    it('元素持有焦点时 mouseOut 不隐藏（hover→focus 重叠防闪烁）', () => {
+        const {btn, tip} = renderSubject()
+        const outside = document.createElement('div')
+        document.body.appendChild(outside)
+        fireEvent.focusIn(btn)
+        btn.focus() // jsdom：真正置为 activeElement
+        expect(document.activeElement).toBe(btn)
+        fireEvent.mouseOut(btn, {relatedTarget: outside})
+        expect(tip()!.textContent).toContain('完整提示文本')
+        outside.remove()
     })
 })

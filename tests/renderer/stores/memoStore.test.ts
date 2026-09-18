@@ -6,7 +6,7 @@
  * - create：成功 → 调用 api.create 并全量刷新；失败 → error 置位返回 null
  * - updateItem / remove：成功 → 全量刷新
  * - createSession：失败（resolve {ok:false,error}，不 reject）→ error 置位、返回 null
- * - subscribeMemoChanged：同 workspacePath 回调 → 重新 load；不同 workspacePath → 不刷新
+ * - subscribeMemoChangedForScope：作用域含该 workspacePath → 重新 load；不含 → 不刷新
  *
  * 隔离：node 环境 mock globalThis.window.electronAPI，不触碰真实 IPC。
  */
@@ -32,7 +32,7 @@ const h = vi.hoisted(() => {
     return {memo, onMemoChanged, changedHandlers}
 })
 
-import {useMemoStore, subscribeMemoChanged} from '@/renderer/stores/memoStore'
+import {useMemoStore} from '@/renderer/stores/memoStore'
 import type {MemoItem} from '@/shared/types/memo'
 
 const P = 'E:\\p'
@@ -121,8 +121,11 @@ describe('renderer memoStore', () => {
         expect(r).toEqual({convId: 'conv-9'})
     })
 
-    it('subscribeMemoChanged：同 workspacePath → 重新 load；不同 → 不刷新', async () => {
-        const unsub = subscribeMemoChanged(() => P)
+    it('subscribeMemoChangedForScope：同 workspacePath → 重新 load；不同 → 不刷新', async () => {
+        const unsub = useMemoStore.getState().subscribeMemoChangedForScope(
+            () => [P],
+            () => { void useMemoStore.getState().load(P) },
+        )
         expect(h.onMemoChanged).toHaveBeenCalledTimes(1)
 
         h.memo.list.mockResolvedValueOnce({ok: true, data: [item('m1')]})

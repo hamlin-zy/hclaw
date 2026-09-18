@@ -22,13 +22,13 @@ import {addMessage} from '../state'
 import {PreprocessCache} from './preprocessCache'
 import {injectLoadedImages} from '../utils/loadImageInjection'
 import {logger} from '../logger'
-import {permissionEngine} from '../tools/permission'
+import {permissionEngine, isProxyScopedMcpToolPattern} from '../tools/permission'
 import {isThirdPartyAnthropicAPI} from '../model/utils'
 import {classifyErrorEnhanced} from '../common/errorClassifier'
 import {LLM_TIMEOUT_MS, sleep, TimeoutError, withTimeout} from '../../utils/retry'
 import {attachMediaBlocksToMessage, extractMediaBlocksFromToolResults} from '../mediaExtractor'
 import {supportsImageInput} from '../modelCapability'
-import {sanitizeMessagesForModel, sanitizeThinkingForModel} from './helpers'
+import {sanitizeMessagesForModel, sanitizeThinkingForModel, stripAttachmentImagePaths} from './helpers'
 import {getToolRegistry} from '../tools/registry'
 import {computeTokenTiming, isTokenDelta} from './tokenTiming'
 import {resolveContextUsageTokens} from '../context'
@@ -62,7 +62,12 @@ type HandoffGateAction = 'none' | 'inject' | 'stop'
  * B1 重构后 loop 内存态 assistant 消息不再携带 llmStats（llm_usage 唯一源），
  * resolveContextUsageTokens 的真实 usage 路径恒回退 chars/4 估算（中文低估约 4 倍），
  * 导致 mid-loop 交接门永不触发。此处按 sessionId 记录成功请求的真实 usage，
- * 交接门分子优先消费；Worker 与会话一一对应，Map 仅在长生命周期 Worker 内多会话时增长。
+ * 交接门分子优先消费。
+ *
+ * ★ 有界性与宿主边界：本 Map 与下方 handoffInjectedBySession、chatStepCounters
+ *   均只有 set/get、无 delete；宿主 = 会话 agent Worker 线程（../manager.impl.ts:292
+ *   创建；abort 超时 terminate、运行结束随线程退出），条目随线程整体释放。
+ *   若 Worker 未来改为常驻/复用，必须补会话级清理。
  */
 const lastRequestUsageBySession = new Map<string, {inputTokens: number; cacheReadTokens: number}>()
 
@@ -341,12 +346,13 @@ export async function* executeLlmCallWithRetry(
                 recordLastSentToolNames(params.sessionId, toolsToSend.map(t => t.name))
             }
 
-            // ── 非视觉模型/降级：过滤消息中的 image_url ──
+            // ── 图片通道策略：按当前模型能力分流（两个分支互补，同一布尔的正面/反面） ──
             // ★ 判定与工具侧同源（supportsImageInput）：元数据优先，命名模式回退
             // ★ 400 降级后强制过滤（与工具侧恢复 analyze_image 同步）
             const modelSupportsImages = supportsImageInput(currentModel, modelConfig.modelTypes)
             const stripImages = !modelSupportsImages || degraded
             if (stripImages) {
+                // 非视觉模型/降级：把 image_url 块从消息里去掉（模型不认，发过去会 400）
                 const hasImageContent = messagesToSend.some(msg =>
                     Array.isArray(msg.content) && msg.content.some(p => p.type === 'image_url')
                 )
@@ -356,6 +362,17 @@ export async function* executeLlmCallWithRetry(
                     }
                     messagesToSend = sanitizeMessagesForModel(messagesToSend)
                 }
+            } else {
+                // 视觉模型且未降级：剥离附件路径标注
+                // ★ 条件 !stripImages ⇒ 图片已随消息以 image_url 直接可见，文本里的【附件图片路径】
+                //   是纯噪声，且会命中 load_image 触发条件 → 诱导对已可见图片重复加载（二次注入同一张图）。
+                // ★ 降级/非视觉不剥离：image_url 已被 sanitize 剥掉，analyze_image 仍需该路径回退。
+                // ★ 请求期纯派生：只作用于 messagesToSend，不写回 state/DB，每 attempt 重算；
+                //   同一模型能力下前缀恒定，不影响 KV cache 稳定性；会话内能力变化（400 降级）
+                //   本就会全量失效缓存，无额外代价。
+                // ★ 为何不放在消息构建期：构建期（startAgentCore / convertUserHistoryMessage）
+                //   拿不到本轮选定模型的能力，且 degraded 是 per-attempt 运行时状态。
+                messagesToSend = stripAttachmentImagePaths(messagesToSend)
             }
 
             // ── 推理模式启用前：检查历史消息中 thinking 块的完整性 ──
@@ -787,6 +804,46 @@ export async function* retryBackoff(
 //  工具执行
 // ═══════════════════════════════════════════════════════════
 
+/**
+ * 内部自行弹权限确认的工具（不走 PermissionEngine.check，因此 hasConfirmationRequired 看不到）。
+ *
+ * 为何需要串行：这些工具通过 context.requestConfirmation 发 PERMISSION_CONFIRM，而
+ * pendingPermissionConfirm 是**单值槽**（manager.impl.ts 只保存一个待确认请求），
+ * worker 侧 requestConfirmation **无超时** → 批内并行多个时后发的确认会覆盖先发的，
+ * 被覆盖的确认请求永久挂起（该工具调用与整个 loop 一起卡死）。
+ *
+ * 两类工具的确认与模式的关系不同，故分开计数：
+ * - modeIndependent：确认与模式无关（memo_tool 仅 delete 分支在工具内直接
+ *   requestConfirmation，无 mode 守卫；add/update/list 不弹）→ delete 类 ≥2 即串行，
+ *   与模式无关；
+ * - modeGated：仅非 auto 模式才弹确认（call_mcp_tool：auto 下工具内跳过确认）→
+ *   只有「非 auto 且此类累计 ≥2」才串行，否则 auto 下误伤并行度。
+ */
+const MODE_GATED_CONFIRM_TOOLS: readonly string[] = ['call_mcp_tool']
+
+/** memo_tool 仅 delete 分支在工具内弹确认（add/update/list 不弹），串行门只统计它 */
+function isModeIndependentConfirm(tc: {name: string; arguments: Record<string, unknown>}): boolean {
+    return tc.name === 'memo_tool' && tc.arguments?.action === 'delete'
+}
+
+/**
+ * 是否存在「proxy 作用域 ask 规则」——即可能让 call_mcp_tool 在 auto 下仍弹确认的规则。
+ *
+ * 判定口径镜像 callMcpTool 的 findMatchingMcpRule：排除引擎层 pattern（`*`、命中
+ * `call_mcp_tool` 的 pattern）与 `bash:` 命名空间，只保留能命中 MCP proxy 名的 pattern
+ * （精确 proxy 名 / `m_*` 类 glob）。这里不需要知道具体 proxy 名 —— 只要存在任一条此类
+ * ask 规则，就保守视为本批 call_mcp_tool「可能弹确认」，宁可串行也不冒永久挂起的风险。
+ * 读取失败时同样保守返回 true（fail-safe 向串行）。
+ */
+async function hasProxyScopeAskRule(): Promise<boolean> {
+    try {
+        const rules = await permissionEngine.getRules()
+        return rules.some(r => isProxyScopedMcpToolPattern(r.tool) && r.action === 'ask')
+    } catch {
+        return true
+    }
+}
+
 interface ExecuteToolCallsParams {
     toolExecutor: ToolExecutor
     collectedToolCalls: Array<{id: string; name: string; arguments: Record<string, unknown>}>
@@ -875,9 +932,35 @@ export async function* executeToolCalls(
         },
     }
 
+    // ★ 串行只改变执行顺序，不参与任何权限判定（判定结果由各工具/引擎自行决定）。
+    //   模式口径与工具内一致：作用域覆盖优先，缺省回落进程级引擎。
+    const modeIndependentCount = collectedToolCalls.filter(isModeIndependentConfirm).length
+    const modeGatedCount = collectedToolCalls
+        .filter(tc => MODE_GATED_CONFIRM_TOOLS.includes(tc.name))
+        .length
+
+    // 串行门只关心「本批会有几次内部弹确认」：pendingPermissionConfirm 是单值槽，
+    // ≥2 次确认并行必然互相覆盖 → 被覆盖的 requestId 永久悬空（worker 侧无超时），
+    // 该批 Promise.all 与整个 loop 一起挂死。
+    // 确认次数估算（口径必须与各工具**内部实现**一致）：
+    // - memo_tool(delete)：恒弹，与模式无关；
+    // - call_mcp_tool：非 auto 恒弹；auto 下仅当面板存在「proxy 作用域 ask 规则」时弹
+    //   —— 该规则模式无关（见 callMcpTool.needsConfirm），若这里仍把 auto 当作「不弹」，
+    //   auto + m_* ask 时批内多个 call_mcp_tool 会并行弹确认并撞单值槽。
+    // 惰性：仅当批内确有 call_mcp_tool 时才读模式（必要时再读规则），避免每批无条件触库。
+    const confirmCount = (async (): Promise<number> => {
+        let count = modeIndependentCount
+        if (modeGatedCount > 0) {
+            const mode = permissionModeOverride ?? (await permissionEngine.getMode())
+            if (mode !== 'auto' || (await hasProxyScopeAskRule())) count += modeGatedCount
+        }
+        return count
+    })()
+
     const needsSerial =
         toolExecutor.hasConfirmationRequired(collectedToolCalls, toolRegistry, permissionModeOverride) ||
-        collectedToolCalls.some(tc => tc.name === 'file_edit' || tc.name === 'ask_user')
+        collectedToolCalls.some(tc => tc.name === 'file_edit' || tc.name === 'ask_user') ||
+        (await confirmCount) >= 2
 
     const results = needsSerial
         ? await executeSerially(toolExecutor, collectedToolCalls, toolContext, abortSignal)

@@ -5,6 +5,7 @@
 import React, {useState, useRef, useEffect} from 'react';
 import PhrasePicker from '../PhrasePicker';
 import {usePhrasePicker, pickPhraseInto} from '../../hooks/usePhrasePicker';
+import {INPUT_FOCUS} from '../../lib/inputFocus';
 import {createPortal} from 'react-dom';
 import {AnimatePresence, motion} from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
@@ -118,6 +119,7 @@ export function ParamInputModal({ isOpen, command, onSubmit, onCancel }: ParamIn
                   onChange={handleTextareaChange}
                   placeholder="在此输入..."
                   autoFocus
+                  className={INPUT_FOCUS}
               data-name="param-input-modal-textarea"/>
             </section>
           </div>

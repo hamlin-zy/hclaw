@@ -213,7 +213,7 @@ export async function handleIncomingMessage(
         await sendViaWorker(
             msg.channelId,
             msg.userId,
-            `请先发送 /new <工作目录编号> 创建新会话：\n${formatWorkspaceList()}`,
+            `请先发送 /new <项目编号> 创建新会话：\n${formatWorkspaceList()}`,
             msg.contextToken
         )
         return
@@ -283,7 +283,7 @@ async function handleCommandResult(
             await sendViaWorker(
                 msg.channelId,
                 msg.userId,
-                `请选择工作区，发送 /new <工作目录编号> 创建新会话：\n${wsList}`,
+                `请选择项目，发送 /new <项目编号> 创建新会话：\n${wsList}`,
                 msg.contextToken
             )
         } else {
@@ -668,7 +668,7 @@ async function createNewSession(
         await sendViaWorker(
             msg.channelId,
             msg.userId,
-            '❌ 请先在桌面端选择或创建工作目录后再创建会话。',
+            '❌ 请先在桌面端选择或创建项目后再创建会话。',
             msg.contextToken
         )
         return
@@ -698,7 +698,7 @@ async function createNewSession(
     await sendViaWorker(
         msg.channelId,
         msg.userId,
-        `✅ 新会话已建立！\n工作区：${workspacePath}\n现在可以发送消息开始对话了。`,
+        `✅ 新会话已建立！\n项目：${workspacePath}\n现在可以发送消息开始对话了。`,
         msg.contextToken
     )
 }
@@ -751,7 +751,7 @@ async function createConversationRecord(
 function formatWorkspaceList(): string {
     const workspaces = workspaceRepo.list()
     if (workspaces.length === 0) {
-        return '暂无可用工作区，请先在桌面端配置'
+        return '暂无可用项目，请先在桌面端配置'
     }
     return workspaces.map((w: { name?: string; path: string }, i: number) =>
         `${i + 1}. ${w.name || w.path}`

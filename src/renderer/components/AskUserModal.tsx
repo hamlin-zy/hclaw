@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {AnimatePresence, motion} from 'framer-motion'
 import {fade, scaleFade} from '../lib/motionPresets'
+import {INPUT_FOCUS} from '../lib/inputFocus'
 import {useAgentStore} from '../stores/agentStore'
 import {useThemeStore} from '../stores/themeStore'
 import {MarkdownRenderer} from './message-list'
@@ -202,7 +203,7 @@ export default function AskUserModal() {
                         <div className="flex items-center gap-3">
                             <div
                                 className="w-10 h-10 rounded-full bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] flex items-center justify-center shrink-0">
-                                <svg className="w-5 h-5 text-[var(--brand-primary)]" viewBox="0 0 24 24" fill="none"
+                                <svg className="w-5 h-5 [color:var(--brand-primary)]" viewBox="0 0 24 24" fill="none"
                                      stroke="currentColor" strokeWidth="2">
                                     <path
                                         d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -239,7 +240,7 @@ export default function AskUserModal() {
                                             disabled={isSubmitting}
                                             className={`w-full text-left px-4 py-3 rounded-lg border transition-all text-sm ${
                                                 isSelected
-                                                    ? 'border-[var(--brand-primary)] bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
+                                                    ? 'border-[var(--brand-primary)] bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)]'
                                                     : 'border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-primary)] hover:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] disabled:cursor-not-allowed'
                                             }`}
                                         >
@@ -280,7 +281,7 @@ export default function AskUserModal() {
                                 placeholder="或者输入您的回答...（按 Enter 发送，Shift+Enter 换行）"
                                 rows={2}
                                 disabled={isSubmitting}
-                                className="w-full px-3 py-2 bg-[var(--surface-muted)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] rounded-lg border border-[var(--border)] focus:border-[var(--brand-primary)] focus:outline-none resize-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className={`w-full px-3 py-2 bg-[var(--surface-muted)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] rounded-lg border border-[var(--border)] resize-none disabled:opacity-50 disabled:cursor-not-allowed ${INPUT_FOCUS}`}
                             />
                         </div>
 

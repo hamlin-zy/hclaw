@@ -356,7 +356,7 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
                     <a
                         href={href}
                         onClick={handleClick}
-                        className="text-[var(--brand-primary)] hover:underline cursor-pointer"
+                        className="text-[var(--text-brand)] hover:underline cursor-pointer"
                         {...props}
                      data-name="markdown-renderer-a">
                         {children}
@@ -441,7 +441,7 @@ function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 
                 <code
                     className={`px-1.5 py-0.5 rounded font-mono text-xs whitespace-nowrap ${
                         isUser
-                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
+                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)]'
                             : 'bg-[var(--surface-muted)] text-[var(--text-secondary)]'
                     }`}
                     {...props}
@@ -457,7 +457,7 @@ function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 
                 <code
                     className={`px-1.5 py-0.5 rounded font-mono text-xs whitespace-nowrap ${
                         isUser
-                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--brand-primary)]'
+                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)]'
                             : 'bg-[var(--surface-muted)] text-[var(--text-secondary)]'
                     }`}
                 >
@@ -481,7 +481,7 @@ function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 
                 <a
                     href={href}
                     onClick={handleClick}
-                    className="text-[var(--brand-primary)] hover:underline cursor-pointer"
+                    className="text-[var(--text-brand)] hover:underline cursor-pointer"
                     {...props}
                  data-name="markdown-renderer-a-2">
                     {children}
@@ -545,7 +545,7 @@ function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 
                             type="checkbox"
                             checked={checked}
                             disabled
-                            className="mt-1 h-4 w-4 rounded border-[var(--border)] text-[var(--brand-primary)] accent-[var(--brand-primary)]"
+                            className="mt-1 h-4 w-4 rounded border-[var(--border)] text-[var(--text-brand)] accent-[var(--brand-primary)]"
                         data-name="markdown-renderer-input"/>
                         <span className={checked ? 'line-through text-[var(--text-muted)]' : ''}>
                             {children}

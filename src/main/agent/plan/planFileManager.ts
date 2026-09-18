@@ -10,7 +10,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import {spawn} from 'child_process'
-import {getHclawDir} from '../../config'
+import {getHclawDir} from '../../hclawPaths'
 
 // ─── 常量 ──────────────────────────────────────────────
 
