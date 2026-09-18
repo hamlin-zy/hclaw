@@ -171,9 +171,9 @@ export function initConversationIPC(): void {
     });
 
     // ── 批量操作 ────────────────────────────────────────
-    ipcMain.handle('conversation-list-with-stats', (_e, workspacePath: string) => {
+    ipcMain.handle('conversation-list-with-stats', (_e, scope) => {
         try {
-            return convRepo().listWithStats(workspacePath);
+            return convRepo().listWithStats(scope ?? {scope: 'all'});
         } catch (err) {
             console.error('[IPC] conversation-list-with-stats failed:', err);
             return [];

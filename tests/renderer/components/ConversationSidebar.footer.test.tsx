@@ -63,7 +63,7 @@ describe('ConversationSidebar footer / 折叠态', () => {
             icons!.querySelectorAll('[data-name="collapsed-item"]'), // 与点击按钮同元素，title/aria-label 均为 item.label
         ).map((el) => el.getAttribute('aria-label'))
         expect(collapsedLabels).toEqual([
-            '模型方案', '服务商', 'Agents', 'Skills', '命令', '插件', '内置工具', 'MCP 服务', '权限配置', '三方渠道',
+            '模型方案', '服务商', 'Agents', 'Skills', '命令', '插件', '内置工具', 'MCP 服务', '权限配置', 'IM 渠道',
             '历史会话', '任务历史', '快捷短语', '系统提示词', '定时任务', '系统设置', 'LLM调用日志', 'LLM用量统计', '关于',
         ])
     })

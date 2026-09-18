@@ -89,7 +89,7 @@ describe('InputToolbar 窄窗口溢出保护契约', () => {
 
     it('各状态文案均有 truncate 保护（非运行态分支不遗漏）', () => {
         const cases = [
-            {props: {needsSession: true}, text: '请先选择工作目录和会话'},
+            {props: {needsSession: true}, text: '请先选择项目和会话'},
             {props: {needsModel: true}, text: '请先在右上角选择 LLM 服务商'},
             {props: {}, text: '按 Shift+Enter 换行，Enter 发送'},
         ]

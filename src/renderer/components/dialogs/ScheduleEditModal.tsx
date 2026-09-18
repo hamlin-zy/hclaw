@@ -110,7 +110,7 @@ const INTERVAL_UNIT_OPTIONS = [
 ]
 
 /**
- * 「未设置工作目录」占位项的 value。
+ * 「未设置项目」占位项的 value。
  * 它只在当前任务确实没有工作目录时出现在列表里，且恒为 disabled —— 能被看见、
  * 点不动、也绝不会被选中，因此不会变成一条可选路径（旧的 `value: ''`「默认工作目录」
  * 是可以选中的，正是它把任务落到了非注册目录上）。
@@ -125,10 +125,10 @@ const UNSET_WORKSPACE_PLACEHOLDER_VALUE = '__unset_workspace__'
  * 「工作目录已失效（原值：ws-1）」，用户既看不懂也无法反驳。
  */
 function workspacePlaceholderLabel(status: WorkspaceSelectionStatus, workspaceId: string | null): string {
-    if (!workspaceId) return '未设置工作目录'
-    if (status === 'invalid') return `工作目录已失效（原值：${workspaceId}）`
-    if (status === 'unready') return `工作目录待校验（原值：${workspaceId}）`
-    return `未设置工作目录`
+    if (!workspaceId) return '未设置项目'
+    if (status === 'invalid') return `项目已失效（原值：${workspaceId}）`
+    if (status === 'unready') return `项目待校验（原值：${workspaceId}）`
+    return `未设置项目`
 }
 
 
@@ -389,26 +389,26 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                     </div>
 
                     {/*
-                      工作目录：`ThemedSelect` 是自绘控件（不是原生表单元素，`<label htmlFor>`
+                      项目：`ThemedSelect` 是自绘控件（不是原生表单元素，`<label htmlFor>`
                       点不到它），故控件名由它自己的 `aria-label` 提供，与这里的可见文字**同字**——
                       两者一旦改字必须同时改，否则可见标签与可访问名就会说两件事。
-                      这里刻意不套 `role="group" aria-labelledby`：那会让「工作目录」同时成为组的
-                      名字和控件的名字，`getByLabelText('工作目录')` 会一次命中两个节点。
+                      这里刻意不套 `role="group" aria-labelledby`：那会让「项目」同时成为组的
+                      名字和控件的名字，`getByLabelText('项目')` 会一次命中两个节点。
                     */}
                     <div>
-                        <span className={labelCls}>工作目录</span>
+                        <span className={labelCls}>项目</span>
                         <ThemedSelect
                             value={workspaceId || ''}
                             onChange={v => setWorkspaceId(v || null)}
                             options={workspaceOptions}
-                            placeholder="未设置工作目录（必选）"
-                            ariaLabel="工作目录"
+                            placeholder="未设置项目（必选）"
+                            ariaLabel="项目"
                             /* 列表没到手时列表里空无一物，展开一个空面板没有意义 —— 置灰并把
                                注意力引到下面的重试入口。 */
                             disabled={workspaceStatus === 'unready'}
                         />
                         {workspaceStatus === 'ok' ? (
-                            <p className="mt-0.5 text-2xs text-[var(--text-secondary)]">定时任务创建的会话将归属于此工作目录</p>
+                            <p className="mt-0.5 text-2xs text-[var(--text-secondary)]">定时任务创建的会话将归属于此项目</p>
                         ) : (
                             <p className="mt-0.5 text-2xs text-[var(--text-secondary)]"
                                data-name="schedule-edit-modal-workspace-warning">
@@ -427,7 +427,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                                 onClick={() => void retryWorkspaces()}
                                 data-name="schedule-edit-modal-workspace-retry-button"
                                 className="mt-1 inline-flex items-center rounded-md border border-[var(--border)] px-3 py-1 text-xs font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--surface-muted)]">
-                                重试加载工作区列表
+                                重试加载项目列表
                             </button>
                         )}
                     </div>
@@ -710,11 +710,11 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                 </div>
 
                 <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-muted)] bg-[var(--surface-muted)]">
-                    {/* 初值未就绪（新建路径正在问「当前工作目录」）时的等待态：按钮置灰 + 说清楚在等什么
-                        （复核 S1：此前按钮可点，点了却报「请选择工作目录」——那是用户没做过的动作）。 */}
+                    {/* 初值未就绪（新建路径正在问「当前项目」）时的等待态：按钮置灰 + 说清楚在等什么
+                        （复核 S1：此前按钮可点，点了却报「请选择项目」——那是用户没做过的动作）。 */}
                     {initializing && (
                         <span className="mr-auto text-2xs text-[var(--text-secondary)]"
-                              data-name="schedule-edit-modal-initializing-hint">正在读取当前工作目录…</span>
+                              data-name="schedule-edit-modal-initializing-hint">正在读取当前项目…</span>
                     )}
                     <button onClick={() => void requestClose()}
                             className="px-3 py-1.5 text-xs rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)] transition-colors" data-name="schedule-edit-modal-cancel-button">取消</button>

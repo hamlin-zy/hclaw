@@ -312,7 +312,7 @@ class SchedulerManager {
         reason: workspaceHealth.reason,
       })
       this.updateRunStatusSafe(msg.scheduleId, 'failure')
-      return {success: false, error: workspaceHealth.reason || '工作目录不可用'}
+      return {success: false, error: workspaceHealth.reason || '项目不可用'}
     }
 
     // 守卫判定 ok ⇒ 必带解析出的路径。显式断言而不是再查一次库（复核 S6）：
@@ -326,7 +326,7 @@ class SchedulerManager {
         source: msg.source, scheduleId: msg.scheduleId, state: workspaceHealth.state,
       })
       this.updateRunStatusSafe(msg.scheduleId, 'failure')
-      return {success: false, error: '工作目录不可用'}
+      return {success: false, error: '项目不可用'}
     }
 
     const startTime = Date.now()
@@ -741,7 +741,7 @@ class SchedulerManager {
         id, state: workspaceHealth.state, workspaceId: schedule.workspaceId,
         path: workspaceHealth.path, reason: workspaceHealth.reason,
       })
-      return {success: false, error: workspaceHealth.reason || '工作目录不可用'}
+      return {success: false, error: workspaceHealth.reason || '项目不可用'}
     }
     logger.info('runNow.found', {id, name: schedule.name, taskType: schedule.taskType})
     if (schedule.taskType === 'script') {

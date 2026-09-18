@@ -46,10 +46,10 @@ describe('assertInWorkspace', () => {
     expect(assertInWorkspace(ws, 'src/a.ts')).toBe(join(ws, 'src/a.ts'))
   })
   it('../ 逃逸被拒绝', () => {
-    expect(() => assertInWorkspace(ws, '../evil')).toThrow('路径超出工作目录')
+    expect(() => assertInWorkspace(ws, '../evil')).toThrow('路径超出项目目录')
   })
   it('绝对路径指向外部被拒绝', () => {
-    expect(() => assertInWorkspace(ws, 'C:\\other\\x.ts')).toThrow('路径超出工作目录')
+    expect(() => assertInWorkspace(ws, 'C:\\other\\x.ts')).toThrow('路径超出项目目录')
   })
   it('workspace 根本身通过', () => {
     expect(assertInWorkspace(ws, '.')).toBe(ws)
@@ -80,17 +80,17 @@ describe('deletePath', () => {
   })
 
   it('越界路径（../）抛错且不调 trashItem', async () => {
-    await expect(deletePath('/ws/a', '../evil')).rejects.toThrow('路径超出工作目录')
+    await expect(deletePath('/ws/a', '../evil')).rejects.toThrow('路径超出项目目录')
     expect(mockTrashItem).not.toHaveBeenCalled()
   })
 
   it('工作区根（.）抛错且不调 trashItem', async () => {
-    await expect(deletePath('/ws/a', '.')).rejects.toThrow('不能删除工作区根目录')
+    await expect(deletePath('/ws/a', '.')).rejects.toThrow('不能删除项目根目录')
     expect(mockTrashItem).not.toHaveBeenCalled()
   })
 
   it('空串等价工作区根，同样拒绝', async () => {
-    await expect(deletePath('/ws/a', '')).rejects.toThrow('不能删除工作区根目录')
+    await expect(deletePath('/ws/a', '')).rejects.toThrow('不能删除项目根目录')
     expect(mockTrashItem).not.toHaveBeenCalled()
   })
 })
@@ -197,8 +197,8 @@ describe('readFileForViewer', () => {
         console.warn('跳过：当前环境无权限创建 symlink')
       }
       if (linked) {
-        await expect(readFileForViewer(ws, 'leak.txt')).rejects.toThrow('路径超出工作目录')
-        await expect(readFileText(ws, 'leak.txt')).rejects.toThrow('路径超出工作目录')
+        await expect(readFileForViewer(ws, 'leak.txt')).rejects.toThrow('路径超出项目目录')
+        await expect(readFileText(ws, 'leak.txt')).rejects.toThrow('路径超出项目目录')
       }
     } finally {
       if (linked) rmSync(link, {force: true})

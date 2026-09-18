@@ -35,17 +35,17 @@ const editInitial = {
     taskPrompt: '',
     cronExpression: '0 9 * * *',
     enabled: true,
-    // 票 11 起工作目录必填：本文件的用例考的是写失败回声，故给一个非空值让保存能走到 onSave
+    // 票 11 起项目必填：本文件的用例考的是写失败回声，故给一个非空值让保存能走到 onSave
     workspaceId: 'ws-1',
 }
 
 /**
  * 等工作区列表取回再动手。
- * 复核整改（B1）后「列表未就绪」**不再放行**保存（手里没有列表就无从校验工作目录），
+ * 复核整改（B1）后「列表未就绪」**不再放行**保存（手里没有列表就无从校验项目），
  * 而列表是挂载后异步取回的 —— 本文件的用例考的是写失败回声，故必须先等它就绪。
  */
 async function waitWorkspacesReady() {
-    await waitFor(() => expect((screen.getByLabelText('工作目录') as HTMLButtonElement).disabled).toBe(false))
+    await waitFor(() => expect((screen.getByLabelText('项目') as HTMLButtonElement).disabled).toBe(false))
 }
 
 describe('ScheduleEditModal · 保存失败回声', () => {
@@ -74,7 +74,7 @@ describe('ScheduleEditModal · 保存失败回声', () => {
         const onSave = vi.fn(async () => ({ok: false, error: 'cron 表达式非法：0 9 *'} as const))
         render(<ScheduleEditModal initial={{...editInitial, id: undefined}} onSave={onSave} onClose={vi.fn()}/>)
 
-        // 新建路径的初值（「当前工作目录」）是异步回填的：复核 S1 后未就绪时保存按钮置灰，
+        // 新建路径的初值（「当前项目」）是异步回填的：复核 S1 后未就绪时保存按钮置灰，
         // 故先等它就绪再点 —— 这里等的是按钮可用，不是某个固定时长。
         await waitFor(() => expect((screen.getByRole('button', {name: '保存'}) as HTMLButtonElement).disabled).toBe(false))
         await waitWorkspacesReady()

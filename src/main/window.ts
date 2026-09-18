@@ -549,7 +549,7 @@ export function initWindowIPC(): void {
         if (!mainWindow) return null;
         const result = await dialog.showOpenDialog(mainWindow, {
             properties: ['openDirectory'],
-            title: '选择工作目录',
+            title: '选择项目文件夹',
         });
         if (result.canceled || result.filePaths.length === 0) return null;
         return result.filePaths[0];

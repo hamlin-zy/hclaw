@@ -1,4 +1,5 @@
 import type {PersistStorage, StorageValue} from 'zustand/middleware'
+import {SIDEBAR_STATE_CONFIG_KEY} from '../../shared/configKeys'
 import {refreshToolStore, syncSchemeToBackend} from '../stores/schemeSync'
 
 /**
@@ -156,6 +157,20 @@ const STORE_HANDLERS: Record<string, {
                     if (!r?.success) console.error('[sqliteStorage] promptScheme.save failed for scheme:', scheme.id, r?.error)
                 })
             ))
+        },
+    },
+
+    sidebar: {
+        // 侧栏状态（leftWidth / leftCollapsed / rightCollapsed）经 config-read/write
+        // 落 system_settings 表（键见 shared/configKeys.SIDEBAR_STATE_CONFIG_KEY）
+        getItem: async () => {
+            const state = await window.electronAPI?.configRead?.(SIDEBAR_STATE_CONFIG_KEY)
+            if (!state) return null
+            return {state, version: 1} as StorageValue<unknown>
+        },
+        setItem: async (state: any) => {
+            if (!state || typeof state !== 'object') return
+            await window.electronAPI?.configWrite?.(SIDEBAR_STATE_CONFIG_KEY, state)
         },
     },
 

@@ -1,9 +1,10 @@
-import {useCallback, useEffect, useRef, useState} from 'react'
+import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {motion} from 'framer-motion'
 import CopyToast from './common/CopyToast'
 import {switchActiveScheme, useModelSchemeStore} from '../stores/modelSchemeStore'
 import {useResetTimeout} from '../hooks/useResetTimeout'
+import {clampPanelRight} from '../lib/panelClamp'
 import type {ModelScheme} from '@shared/types'
 
 /** 模型方案的颜色标识 */
@@ -42,20 +43,27 @@ function FixedDropdown({
     const [position, setPosition] = useState<{top?: number; bottom?: number; right: number}>({right: 0})
     const dropdownRef = useRef<HTMLDivElement>(null)
 
-    useEffect(() => {
+    // 面板定位（useLayoutEffect 绘制前执行，避免闪烁）：
+    // 右缘贴按钮向左展开；面板实测宽度后钳制 right，保证左缘不溢出窗口（≥PANEL_EDGE_MARGIN 留白）
+    useLayoutEffect(() => {
         if (open && buttonRef.current) {
             const rect = buttonRef.current.getBoundingClientRect()
+            const right = clampPanelRight(
+                window.innerWidth - rect.right,
+                dropdownRef.current?.offsetWidth,
+                window.innerWidth,
+            )
             // 空间检测：按钮位于 footer（窗口底部），向下弹出会超出视口底边被裁剪，
             // 下方剩余空间不足时改为向上弹出（bottom 定位），保证面板完整可见。
             if (window.innerHeight - rect.bottom < 320) {
                 setPosition({
                     bottom: window.innerHeight - rect.top + 6,
-                    right: window.innerWidth - rect.right,
+                    right,
                 })
             } else {
                 setPosition({
                     top: rect.bottom + 6,
-                    right: window.innerWidth - rect.right,
+                    right,
                 })
             }
         }

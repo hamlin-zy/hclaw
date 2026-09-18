@@ -352,7 +352,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                                               keyPlaceholder="KEY" valuePlaceholder="值"/>
                             </div>
                             <div>
-                                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">工作目录
+                                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">项目目录
                                     (Working Directory)</label>
                                 <input type="text" value={cwd} onChange={(e) => setCwd(e.target.value)}
                                        placeholder="/absolute/path/to/working/dir"

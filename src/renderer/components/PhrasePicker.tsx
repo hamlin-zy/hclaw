@@ -106,17 +106,19 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
                 onKeyDown={onKeyDown}
                 data-name="phrase-picker-panel"
             >
-                <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
-                    <svg className="w-4 h-4 text-[var(--text-muted)] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" aria-hidden="true">
-                        <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
-                    </svg>
-                    <input
-                        ref={searchRef}
-                        value={query}
-                        onChange={e => setQuery(e.target.value)}
-                        placeholder="搜索快捷短语…"
-                        className={`flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
-                    />
+                <div className="px-3 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
+                    <div className="relative">
+                        <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" aria-hidden="true">
+                            <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
+                        </svg>
+                        <input
+                            ref={searchRef}
+                            value={query}
+                            onChange={e => setQuery(e.target.value)}
+                            placeholder="搜索快捷短语…"
+                            className={`w-full pl-8 pr-3 py-1.5 text-sm bg-[var(--surface)] rounded-lg border border-[var(--border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
+                        />
+                    </div>
                 </div>
 
                 <div ref={listRef} className="max-h-64 overflow-y-auto py-1">

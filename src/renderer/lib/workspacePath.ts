@@ -26,6 +26,17 @@ function isWindowsPlatform(): boolean {
     return /^win/i.test(nav || '')
 }
 
+/**
+ * 「未归属」虚拟工作区键：workspacePath 为空的会话（如 MCP 诊断弹窗、scheduler
+ * 定时任务创建的会话）在渲染层收进 workspaces[UNASSIGNED_WORKSPACE_KEY]。
+ *
+ * ⚠ 仅内存使用，不落库、不参与 workspacePathKey 归一化匹配：
+ *  - 归一化只会改分隔符/大小写/尾分隔符，任何真实路径都不可能得到 '__unassigned__'
+ *    （下划线开头且无分隔符），不会与真实路径冲突；
+ *  - 消费方必须只把它当渲染层段 key，不得传给主进程 IPC。
+ */
+export const UNASSIGNED_WORKSPACE_KEY = '__unassigned__'
+
 export function workspacePathKey(p: string): string {
     if (!p) return ''
     // 统一分隔符

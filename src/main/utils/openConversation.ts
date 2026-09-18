@@ -74,7 +74,7 @@ export async function handleOpenConversation(
   if (!deps.isAllowedSender(sender)) return {ok: false, error: '非法发送方'}
 
   const ids = await deps.listConvIdsInWorkspace(value.workspacePath)
-  if (!ids.includes(value.conversationId)) return {ok: false, error: '目标会话不属于该工作目录'}
+  if (!ids.includes(value.conversationId)) return {ok: false, error: '目标会话不属于该项目'}
 
   const win = await deps.getMainWindow()
   if (!win || win.isDestroyed()) return {ok: false, error: '主窗口不可用'}

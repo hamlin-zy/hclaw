@@ -4,6 +4,7 @@ import {getHclawDir, setHclawDir, getHclawDataDir, ensureDir} from '../hclawPath
 import {createConfigRepository} from '../repositories';
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository';
 import {workspaceRepo} from '../repositories/sqlite/workspaceRepository';
+import {PROJECT_GROUP_VIEW_CONFIG_KEY, SIDEBAR_STATE_CONFIG_KEY} from '@shared/configKeys';
 // gracefulRestart / gitBranch 使用处惰性 require：本模块原先位于 config.ts 内，而 config.ts
 // 处于 Agent Worker 的静态依赖闭包内（顶层 import 会把 window.ts/windowBroadcast.ts 等
 // electron 模块拉进 worker，见 tests/main/deps/workerNoElectron.test.ts）。搬迁到 ipc/ 后
@@ -49,7 +50,7 @@ export function initConfigIPC(): void {
 
     // Config file read/write (.json / SQLite)
     // SQLite 中存储的 key（新增请加入此 Set）
-    const SQLITE_KEYS = new Set(['settings', 'message-display-mode'])
+    const SQLITE_KEYS = new Set(['settings', 'message-display-mode', PROJECT_GROUP_VIEW_CONFIG_KEY, SIDEBAR_STATE_CONFIG_KEY])
 
     ipcMain.handle('config-read', async (_event: any, name: string) => {
         return SQLITE_KEYS.has(name)
@@ -185,6 +186,21 @@ export function initConfigIPC(): void {
             }
         }
         return getGitBranch(cwd);
+    });
+
+    /**
+     * 批量只读分支（组视图段头用）。
+     * ⚠ 只读、**不建 watch**：分支 watch 是单例，仍只跟当前项目（spec §7.5）。
+     */
+    ipcMain.handle('workspace:getGitBranches', async (_event: any, paths: string[]) => {
+        if (!Array.isArray(paths)) return {}
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- 惰性加载，同上方 getGitBranch
+        const {getGitBranch} = require('../workspace/gitBranch');
+        const entries = await Promise.all(
+            Array.from(new Set(paths.filter((p): p is string => typeof p === 'string' && p.length > 0)))
+                .map(async (p) => [p, await getGitBranch(p)] as const),
+        )
+        return Object.fromEntries(entries)
     });
 
     ipcMain.handle('workspace:setCurrent', async (_event: any, id: string) => {

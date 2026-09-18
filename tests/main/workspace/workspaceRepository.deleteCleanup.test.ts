@@ -103,14 +103,14 @@ describe('删除工作区 · 清理由它引用的定时任务（task-670265c2�
         expect(records.find(r => r.id === 'sched-none')!.workspaceId).toBeNull()
     })
 
-    it('用户可见结果：受影响任务被守卫拦下，且是「未设置工作目录」而非悬空态', () => {
+    it('用户可见结果：受影响任务被守卫拦下，且是「未设置项目」而非悬空态', () => {
         workspaceRepo.delete(WS_DOOMED)
         const record = scheduleRepo.get('sched-a')!
 
         // 执行拦截的唯一权威判定（与 cron 到点、立即执行共用同一函数）
         const health = checkScheduleWorkspace(record.workspaceId)
         expect(health.state).toBe('unset')
-        expect(health.reason).toBe('未设置工作目录')
+        expect(health.reason).toBe('未设置项目')
 
         // 对照：不清理时这里会是 missing（「工作目录已不存在」）—— 那是悬空引用的症状
         expect(checkScheduleWorkspace(WS_DOOMED).state).toBe('missing')

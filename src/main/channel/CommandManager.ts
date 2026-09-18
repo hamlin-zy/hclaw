@@ -111,7 +111,7 @@ class ChannelCommandManager {
                         '📋 HClaw 快捷指令（发送 ? 也可触发本帮助）',
                         '',
                         '🔄 会话管理',
-                        '  /new <工作目录编号> — 创建新会话',
+                        '  /new <项目编号> — 创建新会话',
                         '  /chats <页码> [编号] — 浏览/切换历史会话',
                         '  /rename <标题> — 重命名当前会话',
                         '  /clear — 清空当前对话上下文',
@@ -119,7 +119,7 @@ class ChannelCommandManager {
                         'ℹ️ 信息查询',
                         '  /help — 显示本帮助',
                         '  /status — 查看当前对话状态',
-                        '  /dir — 查看工作目录列表',
+                        '  /dir — 查看项目列表',
                         '  /skills — 查看可用技能列表',
                         '  /agents — 查看可用 Agent 列表',
                         '  /list — 查看全部会话列表',
@@ -159,10 +159,10 @@ class ChannelCommandManager {
             case '/dir': {
                 const workspaces = workspaceRepo.list()
                 if (workspaces.length === 0) {
-                    return {handled: true, reply: '暂无可用工作区，请先在桌面端配置'}
+                    return {handled: true, reply: '暂无可用项目，请先在桌面端配置'}
                 }
                 const lines = workspaces.map((w, i) => `${i + 1}. ${w.name || w.path}`)
-                return {handled: true, reply: `📁 工作目录列表:\n${lines.join('\n')}`}
+                return {handled: true, reply: `📁 项目列表:\n${lines.join('\n')}`}
             }
 
             case '/skills': {

@@ -4,31 +4,49 @@ import {render, screen, fireEvent, waitFor} from '@testing-library/react'
 import {ConversationList} from '../../../src/renderer/components/ConversationSidebar'
 
 // ── 依赖 mock ──
-const {mockState, getFilteredConversationsMock} = vi.hoisted(() => ({
-    mockState: {
-        currentWorkspacePath: 'E:/workspace/media/hclaw',
-        workspaces: {
-            'E:/workspace/media/hclaw': {lastOpenedAt: 300, conversations: []},
-        },
-        searchQuery: '',
-    },
-    getFilteredConversationsMock: vi.fn(() => [
+// ★ Task 13：列表取数入口由 getFilteredConversations 换成 getScopedSections（spec §5.3），
+//   本文件只更新数据夹具（段 + 段内会话摘要），右键菜单的断言与交互路径未变。
+const {mockState, getScopedSectionsMock} = vi.hoisted(() => {
+    const ws = 'E:/workspace/media/hclaw'
+    const convs = () => ([
         {id: 'conv-1', title: '第一个会话', parentConvId: null, createdAt: Date.now(), updatedAt: 300, preview: '', pinned: false},
         {id: 'conv-2', title: '第二个会话', parentConvId: null, createdAt: Date.now() - 60000, updatedAt: 200, preview: '', pinned: false},
-    ]),
-}))
+    ])
+    const sections = () => [{
+        key: ws,
+        projectPath: ws,
+        projectName: 'hclaw',
+        gitBranch: null,
+        collapsed: false,
+        count: 2,
+        hasMore: false,
+        rows: convs().map(c => ({id: c.id, parentConvId: c.parentConvId, indentLevel: 0, childCount: 0})),
+    }]
+    return {
+        mockState: {
+            currentWorkspacePath: ws,
+            viewScope: {type: 'project' as const, path: ws},
+            workspaces: {
+                [ws]: {lastOpenedAt: 300, conversations: convs()},
+            },
+            searchQuery: '',
+        },
+        getScopedSectionsMock: vi.fn(() => sections()),
+    }
+})
 
 vi.mock('../../../src/renderer/stores/conversationStore', () => ({
-    useConversationStore: (selector: (s: typeof mockState & {
-        getFilteredConversations: () => unknown[]
-        setSearchQuery: (q: string) => void
-        setActiveConversation: (id: string | null) => void
-    }) => unknown) =>
+    useConversationStore: (selector: (s: any) => unknown) =>
         selector({
             ...mockState,
-            getFilteredConversations: getFilteredConversationsMock,
+            getScopedSections: getScopedSectionsMock,
+            toggleSectionCollapsed: vi.fn(),
+            expandSection: vi.fn(),
+            clearFocusProject: vi.fn(),
+            refreshVisibleBranches: vi.fn(async () => {}),
             setSearchQuery: vi.fn(),
             setActiveConversation: vi.fn(),
+            updateConversationMeta: vi.fn(),
         }),
 }))
 
@@ -38,11 +56,23 @@ vi.mock('../../../src/renderer/stores/agentStore', () => ({
 }))
 
 beforeEach(() => {
-    getFilteredConversationsMock.mockReset()
-    getFilteredConversationsMock.mockReturnValue([
+    getScopedSectionsMock.mockReset()
+    const ws = 'E:/workspace/media/hclaw'
+    const convs = [
         {id: 'conv-1', title: '第一个会话', parentConvId: null, createdAt: Date.now(), updatedAt: 300, preview: '', pinned: false},
         {id: 'conv-2', title: '第二个会话', parentConvId: null, createdAt: Date.now() - 60000, updatedAt: 200, preview: '', pinned: false},
-    ])
+    ]
+    mockState.workspaces[ws].conversations = convs
+    getScopedSectionsMock.mockReturnValue([{
+        key: ws,
+        projectPath: ws,
+        projectName: 'hclaw',
+        gitBranch: null,
+        collapsed: false,
+        count: 2,
+        hasMore: false,
+        rows: convs.map(c => ({id: c.id, parentConvId: c.parentConvId, indentLevel: 0, childCount: 0})),
+    }])
 })
 
 afterEach(() => {

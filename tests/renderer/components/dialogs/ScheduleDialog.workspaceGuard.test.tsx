@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
- * 定时任务列表 · 工作目录失效的端到端接线（票 11 · workspace-guard）
+ * 定时任务列表 · 项目失效的端到端接线（票 11 · workspace-guard）
  *
  * 单测过的两个零件（store 的健康度、卡片的标记与禁用）在这里接起来验一次：
- * 列表渲染的可用性完全来自 store 里的健康度，改成有效工作目录后（store 重算 → 行重渲染）
+ * 列表渲染的可用性完全来自 store 里的健康度，改成有效项目后（store 重算 → 行重渲染）
  * 标记消失、按钮恢复可点 —— 不需要用户做任何额外动作。
  */
 import {describe, it, expect, vi, beforeEach} from 'vitest'
@@ -66,28 +66,28 @@ beforeEach(() => {
     setStore({schedules: [makeSchedule()]})
 })
 
-describe('列表行的工作目录可用性', () => {
-    it('失效：行上出现「工作目录失效」标记，「立即执行」禁用且原因可读出', () => {
+describe('列表行的项目可用性', () => {
+    it('失效：行上出现「项目失效」标记，「立即执行」禁用且原因可读出', () => {
         setStore({
             schedules: [makeSchedule()],
-            workspaceHealth: {s1: {state: 'missing', path: null, reason: '工作目录已不存在'}},
+            workspaceHealth: {s1: {state: 'missing', path: null, reason: '项目已不存在'}},
         })
         render(<ScheduleDialog/>)
 
-        expect(chip()?.textContent).toBe('工作目录失效')
+        expect(chip()?.textContent).toBe('项目失效')
         expect(runButton().disabled).toBe(true)
-        expect(runButton().getAttribute('aria-label')).toBe('立即执行不可用：工作目录已不存在')
+        expect(runButton().getAttribute('aria-label')).toBe('立即执行不可用：项目已不存在')
         // 禁用不等于不可读：可访问名可被查询到（读屏软件能念出来）
-        expect(screen.getByRole('button', {name: '立即执行不可用：工作目录已不存在'})).toBeTruthy()
+        expect(screen.getByRole('button', {name: '立即执行不可用：项目已不存在'})).toBeTruthy()
     })
 
-    it('改成有效工作目录（健康度重算为 ok）：标记消失、按钮恢复可点', () => {
+    it('改成有效项目（健康度重算为 ok）：标记消失、按钮恢复可点', () => {
         const {rerender} = render(<ScheduleDialog/>)
         expect(chip()).toBeNull()
 
         setStore({
             schedules: [makeSchedule()],
-            workspaceHealth: {s1: {state: 'missing', path: null, reason: '工作目录已不存在'}},
+            workspaceHealth: {s1: {state: 'missing', path: null, reason: '项目已不存在'}},
         })
         rerender(<ScheduleDialog/>)
         expect(chip()).not.toBeNull()

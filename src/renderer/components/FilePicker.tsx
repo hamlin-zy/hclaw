@@ -127,7 +127,7 @@ export function FilePicker({query, currentNav, onClose, onNavigate, onGoBack, on
     if (!ws) return (
         <motion.div {...dropdown}
                     className="absolute left-0 top-full mt-1.5 w-[420px] bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl z-50 p-6 text-center">
-            <p className="text-sm text-[var(--text-secondary)]">请先选择一个工作目录</p>
+            <p className="text-sm text-[var(--text-secondary)]">请先选择一个项目</p>
             <p className="text-xs text-[var(--text-secondary)] mt-1">左侧边栏可选择或新建</p>
         </motion.div>
     )

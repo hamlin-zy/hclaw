@@ -98,9 +98,9 @@ export function isWorkspaceRunnable(health: ScheduleWorkspaceHealth | undefined)
 const WORKSPACE_BADGE_CLASS = 'bg-[var(--error-muted)] border-[var(--border)] text-[var(--text-danger)]'
 
 const WORKSPACE_CHIP_LABEL: Record<Exclude<ScheduleWorkspaceState, 'ok'>, string> = {
-    unset: '未设置工作目录',
-    missing: '工作目录失效',
-    unavailable: '工作目录不可用',
+    unset: '未设置项目',
+    missing: '项目失效',
+    unavailable: '项目不可用',
 }
 
 /** 行内标记；可用（或拿不到判定）时返回 null —— 不渲染、不占位 */
@@ -128,7 +128,7 @@ export function getRunActionLabel(
     if (isRunning) return '停止'
     if (isWorkspaceRunnable(health)) return '立即执行'
     // 兜底原因用「不改变」的措辞：拿不到 reason 时也不能给出一个空的可访问名
-    const reason = health?.reason || '工作目录不可用'
+    const reason = health?.reason || '项目不可用'
     return `立即执行不可用：${reason}`
 }
 
@@ -154,9 +154,9 @@ export interface WorkspaceListSnapshot {
     ids: readonly string[]
 }
 
-export const WORKSPACE_LIST_UNREADY_MESSAGE = '工作区列表尚未就绪（或加载失败），无法校验工作目录'
-export const WORKSPACE_UNSET_MESSAGE = '请选择工作目录'
-export const WORKSPACE_INVALID_MESSAGE = '工作目录已失效，请重新选择一个现存的工作目录'
+export const WORKSPACE_LIST_UNREADY_MESSAGE = '项目列表尚未就绪（或加载失败），无法校验项目'
+export const WORKSPACE_UNSET_MESSAGE = '请选择项目'
+export const WORKSPACE_INVALID_MESSAGE = '项目已失效，请重新选择一个现存的项目'
 
 /**
  * 判定「当前 workspaceId + 工作区列表」这一对事实，得出唯一结论。

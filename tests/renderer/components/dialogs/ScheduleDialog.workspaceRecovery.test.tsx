@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * 定时任务窗口 · 「改成有效工作目录后自动恢复」的端到端接线（票 11 复核 S7）
+ * 定时任务窗口 · 「改成有效项目后自动恢复」的端到端接线（票 11 复核 S7）
  *
  * 为什么要有这一条：既有用例里，卡片层用 `vi.mock` 桩掉整个 store + 手动 `rerender`，
  * store 层只测到「健康度被重新拉取」——**没有一条**证明「主进程广播 → 渲染层 → 行标记
@@ -62,7 +62,7 @@ const rawSchedule = {
     workspaceId: 'ws-dead',
 }
 
-const MISSING = {state: 'missing' as const, path: null, reason: '工作目录已不存在'}
+const MISSING = {state: 'missing' as const, path: null, reason: '项目已不存在'}
 const OK = {state: 'ok' as const, path: 'E:/ws2', reason: null}
 
 const chip = () => document.querySelector('[data-name="schedule-dialog-workspace-chip"]')
@@ -87,15 +87,15 @@ async function renderLoaded() {
 }
 
 describe('自动恢复：主进程广播 → 渲染层 → 行标记消失 + 按钮恢复可点（S7）', () => {
-    it('用户把工作目录改成有效值，主进程广播 updated 后界面自己恢复（无需任何额外操作）', async () => {
+    it('用户把项目改成有效值，主进程广播 updated 后界面自己恢复（无需任何额外操作）', async () => {
         const listSpy = await renderLoaded()
 
-        expect(chip()?.textContent).toBe('工作目录失效')
+        expect(chip()?.textContent).toBe('项目失效')
         expect(runButton().disabled).toBe(true)
-        expect(screen.getByRole('button', {name: '立即执行不可用：工作目录已不存在'})).toBeTruthy()
+        expect(screen.getByRole('button', {name: '立即执行不可用：项目已不存在'})).toBeTruthy()
         const listCallsBefore = listSpy.mock.calls.length
 
-        // 主进程侧：改了工作目录 → 记录更新 → 健康度重算为 ok → 广播 updated
+        // 主进程侧：改了项目 → 记录更新 → 健康度重算为 ok → 广播 updated
         h.scheduler.workspaceHealth = vi.fn().mockResolvedValue({ok: true, data: {s1: OK}})
         h.changedHandlers[0]({type: 'updated', record: {...rawSchedule, workspaceId: 'ws-2'}})
 

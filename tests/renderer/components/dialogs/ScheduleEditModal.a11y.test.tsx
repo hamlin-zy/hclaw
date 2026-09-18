@@ -61,7 +61,7 @@ const editInitial: Partial<ScheduleFormData> = {
     taskPrompt: '',
     cronExpression: '0 9 * * *',
     enabled: true,
-    // 票 11 起工作目录必填：本文件的用例考的是可访问名与 live region，故给一个非空值
+    // 票 11 起项目必填：本文件的用例考的是可访问名与 live region，故给一个非空值
     workspaceId: 'ws-1',
 }
 
@@ -142,10 +142,10 @@ describe('表单标签与控件关联（H6）', () => {
         expect(screen.getByLabelText('脚本路径')).toBeTruthy()
     })
 
-    it('工作目录的可访问名与可见标签一致（自定义下拉同样有名字）', async () => {
+    it('项目的可访问名与可见标签一致（自定义下拉同样有名字）', async () => {
         await renderModal()
 
-        expect(screen.getByLabelText('工作目录')).toBeTruthy()
+        expect(screen.getByLabelText('项目')).toBeTruthy()
     })
 })
 

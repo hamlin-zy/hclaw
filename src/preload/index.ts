@@ -379,8 +379,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   conversationList: () =>
     ipcRenderer.invoke('conversation-list'),
-    conversationListWithStats: (workspacePath: string) =>
-        ipcRenderer.invoke('conversation-list-with-stats', workspacePath),
+    conversationListWithStats: (scope: import('../shared/types/conversationStats').ConversationStatsScope) =>
+        ipcRenderer.invoke('conversation-list-with-stats', scope),
     conversationListByWorkspace: (workspacePath: string) =>
         ipcRenderer.invoke('conversation-list-by-workspace', workspacePath),
     conversationDeleteBatch: (ids: string[]) =>
@@ -913,12 +913,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
         getCurrent: () => ipcRenderer.invoke('workspace:getCurrent'),
         setCurrent: (id: string) => ipcRenderer.invoke('workspace:setCurrent', id),
         getGitBranch: (cwd: string) => ipcRenderer.invoke('workspace:getGitBranch', cwd),
+        getGitBranches: (paths: string[]) => ipcRenderer.invoke('workspace:getGitBranches', paths),
         // git 分支变化推送（外部命令行切分支等）；返回取消订阅函数
         onGitBranchChanged: (callback: (branch: string | null) => void) => {
             const handler = (_: unknown, payload: unknown) => callback(payload as string | null)
             ipcRenderer.on('workspace:git-branch-changed', handler)
             return () => ipcRenderer.removeListener('workspace:git-branch-changed', handler)
         },
+    },
+
+    // ── Project Group 管理 ──────────────────────────────
+    projectGroup: {
+        list: () => ipcRenderer.invoke('project-group:list'),
+        create: (name: string) => ipcRenderer.invoke('project-group:create', name),
+        rename: (id: string, name: string) => ipcRenderer.invoke('project-group:rename', id, name),
+        dissolve: (id: string) => ipcRenderer.invoke('project-group:dissolve', id),
+        remove: (id: string) => ipcRenderer.invoke('project-group:delete', id),
+        assign: (projectPath: string, groupId: string | null) =>
+            ipcRenderer.invoke('project-group:assign', projectPath, groupId),
+        reorderGroups: (groupIds: string[]) => ipcRenderer.invoke('project-group:reorder', {groupIds}),
+        reorderProjects: (groupId: string, projectPaths: string[]) =>
+            ipcRenderer.invoke('project-group:reorder', {groupId, projectPaths}),
     },
 
     // CapabilityHub — 统一能力中心查询 API

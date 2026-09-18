@@ -7,6 +7,10 @@ export interface Workspace {
     name: string
     createdAt: number
     updatedAt: number
+    /** 所属项目组 id；null = 未分组（顶层项目） */
+    groupId: string | null
+    /** 组内顺序；null = 未指定 */
+    groupOrder: number | null
 }
 
 const CURRENT_WORKSPACE_KEY = 'currentWorkspaceId'
@@ -53,13 +57,15 @@ export class SqliteWorkspaceRepository {
     getById(id: string): Workspace | null {
         try {
             const db = getDatabase()
-            const stmt = db.prepare('SELECT id, path, name, created_at, updated_at FROM workspaces WHERE id = ?')
+            const stmt = db.prepare('SELECT id, path, name, created_at, updated_at, group_id, group_order FROM workspaces WHERE id = ?')
             const row = stmt.get(id) as {
                 id: string;
                 path: string;
                 name: string;
                 created_at: number;
-                updated_at: number
+                updated_at: number;
+                group_id: string | null;
+                group_order: number | null
             } | undefined
             if (!row) return null
             return {
@@ -68,6 +74,8 @@ export class SqliteWorkspaceRepository {
                 name: row.name,
                 createdAt: row.created_at,
                 updatedAt: row.updated_at,
+                groupId: row.group_id,
+                groupOrder: row.group_order,
             }
         } catch (err) {
             console.error('[SqliteWorkspaceRepository] getById failed:', err)
@@ -88,13 +96,15 @@ export class SqliteWorkspaceRepository {
     tryGetById(id: string): WorkspaceLookup {
         try {
             const db = getDatabase()
-            const stmt = db.prepare('SELECT id, path, name, created_at, updated_at FROM workspaces WHERE id = ?')
+            const stmt = db.prepare('SELECT id, path, name, created_at, updated_at, group_id, group_order FROM workspaces WHERE id = ?')
             const row = stmt.get(id) as {
                 id: string;
                 path: string;
                 name: string;
                 created_at: number;
-                updated_at: number
+                updated_at: number;
+                group_id: string | null;
+                group_order: number | null
             } | undefined
             if (!row) return {kind: 'missing'}
             return {
@@ -105,6 +115,8 @@ export class SqliteWorkspaceRepository {
                     name: row.name,
                     createdAt: row.created_at,
                     updatedAt: row.updated_at,
+                    groupId: row.group_id,
+                    groupOrder: row.group_order,
                 },
             }
         } catch (err) {
@@ -120,13 +132,15 @@ export class SqliteWorkspaceRepository {
     tryList(): WorkspaceListLookup {
         try {
             const db = getDatabase()
-            const stmt = db.prepare('SELECT id, path, name, created_at, updated_at FROM workspaces ORDER BY updated_at DESC')
+            const stmt = db.prepare('SELECT id, path, name, created_at, updated_at, group_id, group_order FROM workspaces ORDER BY updated_at DESC')
             const rows = stmt.all() as Array<{
                 id: string;
                 path: string;
                 name: string;
                 created_at: number;
-                updated_at: number
+                updated_at: number;
+                group_id: string | null;
+                group_order: number | null
             }>
             return {
                 kind: 'ok',
@@ -136,6 +150,8 @@ export class SqliteWorkspaceRepository {
                     name: row.name,
                     createdAt: row.created_at,
                     updatedAt: row.updated_at,
+                    groupId: row.group_id,
+                    groupOrder: row.group_order,
                 })),
             }
         } catch (err) {
@@ -150,13 +166,15 @@ export class SqliteWorkspaceRepository {
     getByPath(workspacePath: string): Workspace | null {
         try {
             const db = getDatabase()
-            const stmt = db.prepare('SELECT id, path, name, created_at, updated_at FROM workspaces WHERE path = ?')
+            const stmt = db.prepare('SELECT id, path, name, created_at, updated_at, group_id, group_order FROM workspaces WHERE path = ?')
             const row = stmt.get(workspacePath) as {
                 id: string;
                 path: string;
                 name: string;
                 created_at: number;
-                updated_at: number
+                updated_at: number;
+                group_id: string | null;
+                group_order: number | null
             } | undefined
             if (!row) return null
             return {
@@ -165,6 +183,8 @@ export class SqliteWorkspaceRepository {
                 name: row.name,
                 createdAt: row.created_at,
                 updatedAt: row.updated_at,
+                groupId: row.group_id,
+                groupOrder: row.group_order,
             }
         } catch (err) {
             console.error('[SqliteWorkspaceRepository] getByPath failed:', err)
@@ -178,13 +198,15 @@ export class SqliteWorkspaceRepository {
     list(): Workspace[] {
         try {
             const db = getDatabase()
-            const stmt = db.prepare('SELECT id, path, name, created_at, updated_at FROM workspaces ORDER BY updated_at DESC')
+            const stmt = db.prepare('SELECT id, path, name, created_at, updated_at, group_id, group_order FROM workspaces ORDER BY updated_at DESC')
             const rows = stmt.all() as Array<{
                 id: string;
                 path: string;
                 name: string;
                 created_at: number;
-                updated_at: number
+                updated_at: number;
+                group_id: string | null;
+                group_order: number | null
             }>
             return rows.map(row => ({
                 id: row.id,
@@ -192,6 +214,8 @@ export class SqliteWorkspaceRepository {
                 name: row.name,
                 createdAt: row.created_at,
                 updatedAt: row.updated_at,
+                groupId: row.group_id,
+                groupOrder: row.group_order,
             }))
         } catch (err) {
             console.error('[SqliteWorkspaceRepository] list failed:', err)

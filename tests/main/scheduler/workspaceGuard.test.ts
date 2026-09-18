@@ -1,5 +1,5 @@
 /**
- * 工作目录必填 + 失效守卫（票 11 · workspace-guard）
+ * 项目必填 + 失效守卫（票 11 · workspace-guard）
  *
  * 三件事被钉住：
  *   1. **判定口径唯一**：unset / missing / unavailable / ok 四态由 `checkScheduleWorkspace`
@@ -209,20 +209,20 @@ describe('判定函数：四态与边界（D1）', () => {
     it('null / undefined / 空串 / 全空白 都是「未设置」', () => {
         for (const v of [null, undefined, '', '   ']) {
             expect(checkScheduleWorkspace(v as string | null | undefined)).toEqual({
-                state: 'unset', path: null, reason: '未设置工作目录',
+                state: 'unset', path: null, reason: '未设置项目',
             })
         }
     })
 
     it('workspaces 表查不到记录 → missing（不给路径）', () => {
         expect(checkScheduleWorkspace('ws-a0b1dd77-不存在')).toEqual({
-            state: 'missing', path: null, reason: '工作目录已不存在',
+            state: 'missing', path: null, reason: '项目已不存在',
         })
     })
 
     it('记录存在但磁盘上不是一个存在的目录 → unavailable（附路径）', () => {
         expect(checkScheduleWorkspace('ws-nodir')).toEqual({
-            state: 'unavailable', path: MISSING_DIR, reason: `工作目录不可用（${MISSING_DIR}）`,
+            state: 'unavailable', path: MISSING_DIR, reason: `项目不可用（${MISSING_DIR}）`,
         })
     })
 
@@ -239,7 +239,7 @@ describe('判定函数：四态与边界（D1）', () => {
         expect(health.reason).toContain('C:/some/file.txt')
     })
 
-    it('查记录本身抛异常 → unavailable（读失败不是「记录不存在」），文案不写「工作目录已不存在」', () => {
+    it('查记录本身抛异常 → unavailable（读失败不是「记录不存在」），文案不写「项目已不存在」', () => {
         const health = checkScheduleWorkspace('ws-x', {
             findWorkspace: () => { throw new Error('db closed') },
             isDirectory: () => true,
@@ -248,7 +248,7 @@ describe('判定函数：四态与边界（D1）', () => {
         expect(health.state).toBe('unavailable')
         expect(health.path).toBeNull()
         expect(health.reason).toContain('db closed')
-        expect(health.reason).not.toContain('工作目录已不存在')
+        expect(health.reason).not.toContain('项目已不存在')
     })
 
     it('仓储读取故障（窄出口报 fault）经默认 deps 判成 unavailable，而不是 missing', () => {
@@ -258,29 +258,29 @@ describe('判定函数：四态与边界（D1）', () => {
 
         expect(health.state).toBe('unavailable')
         expect(health.reason).toContain('SQLITE_BUSY')
-        expect(health.reason).not.toContain('工作目录已不存在')
+        expect(health.reason).not.toContain('项目已不存在')
     })
 
     it('对照：库正常时四态判定一字不变（故障归因没有误伤正常路径）', () => {
         expect(checkScheduleWorkspace('ws-ok')).toEqual({state: 'ok', path: EXISTING_DIR, reason: null})
         expect(checkScheduleWorkspace('ws-nodir')).toEqual({
-            state: 'unavailable', path: MISSING_DIR, reason: `工作目录不可用（${MISSING_DIR}）`,
+            state: 'unavailable', path: MISSING_DIR, reason: `项目不可用（${MISSING_DIR}）`,
         })
         // 只有「库里确实没有这条记录」才叫 missing，文案保持原样
         expect(checkScheduleWorkspace('ws-gone')).toEqual({
-            state: 'missing', path: null, reason: '工作目录已不存在',
+            state: 'missing', path: null, reason: '项目已不存在',
         })
         expect(checkScheduleWorkspace(null)).toEqual({
-            state: 'unset', path: null, reason: '未设置工作目录',
+            state: 'unset', path: null, reason: '未设置项目',
         })
     })
 })
 
 describe('executeSchedule 拦截：三态都不执行、都记一次失败', () => {
     it.each([
-        ['unset', null, '未设置工作目录'],
-        ['missing', 'ws-a0b1dd77-不存在', '工作目录已不存在'],
-        ['unavailable', 'ws-nodir', `工作目录不可用（${MISSING_DIR}）`],
+        ['unset', null, '未设置项目'],
+        ['missing', 'ws-a0b1dd77-不存在', '项目已不存在'],
+        ['unavailable', 'ws-nodir', `项目不可用（${MISSING_DIR}）`],
     ])('%s：不跑、写 failure、cron 仍收到 ack', async (_label, workspaceId, expectedError) => {
         scheduleRepoStub.get.mockReturnValue(recordOf({id: 'sched-1', taskType: 'script', workspaceId: workspaceId as string | null}))
         const worker = spawnFakeWorker()
@@ -305,7 +305,7 @@ describe('executeSchedule 拦截：三态都不执行、都记一次失败', () 
         )
     })
 
-    it('仓储故障：照旧拦下（保守方向不变），但原因指向读失败而非「工作目录已不存在」', async () => {
+    it('仓储故障：照旧拦下（保守方向不变），但原因指向读失败而非「项目已不存在」', async () => {
         scheduleRepoStub.get.mockReturnValue(recordOf({id: 'sched-fault', taskType: 'script', workspaceId: 'ws-ok'}))
         workspaceRows.fault = new Error('SQLITE_BUSY: database is locked')
         const worker = spawnFakeWorker()
@@ -313,7 +313,7 @@ describe('executeSchedule 拦截：三态都不执行、都记一次失败', () 
         const result = await execute({scheduleId: 'sched-fault', taskType: 'script', source: 'cron'})
 
         expect(result.success).toBe(false)
-        expect(result.error).not.toContain('工作目录已不存在')
+        expect(result.error).not.toContain('项目已不存在')
         expect(result.error).toContain('SQLITE_BUSY')
         // 多拦不漏放：故障仍然拦住执行、仍然记一次失败、cron 仍然被 ack
         expect(startAgentCoreStub).not.toHaveBeenCalled()
@@ -371,19 +371,19 @@ describe('executeSchedule 拦截：三态都不执行、都记一次失败', () 
     it('任务记录已不存在时按「未设置」拦下，不会退化成在兜底目录里跑', async () => {
         scheduleRepoStub.get.mockReturnValue(null)
         const result = await execute({scheduleId: 'sched-deleted'})
-        expect(result).toEqual({success: false, error: '未设置工作目录'})
+        expect(result).toEqual({success: false, error: '未设置项目'})
         expect(startAgentCoreStub).not.toHaveBeenCalled()
     })
 })
 
 describe('手动入口：两个出口都返回可读错误（D2）', () => {
-    it('runNow：工作目录不可用 → {success:false,error}，且不写运行状态', async () => {
+    it('runNow：项目不可用 → {success:false,error}，且不写运行状态', async () => {
         scheduleRepoStub.get.mockReturnValue(recordOf({id: 's-missing', workspaceId: 'ws-a0b1dd77-不存在'}))
         const worker = spawnFakeWorker()
 
         const result = await schedulerManager.runNow('s-missing')
 
-        expect(result).toEqual({success: false, error: '工作目录已不存在'})
+        expect(result).toEqual({success: false, error: '项目已不存在'})
         expect(scheduleRepoStub.updateRunStatus).not.toHaveBeenCalled()
         expect(startAgentCoreStub).not.toHaveBeenCalled()
         // 手动路径不碰引擎的去重状态
@@ -394,14 +394,14 @@ describe('手动入口：两个出口都返回可读错误（D2）', () => {
         )
     })
 
-    it('runNow：未设置工作目录 → 明确原因', async () => {
+    it('runNow：未设置项目 → 明确原因', async () => {
         scheduleRepoStub.get.mockReturnValue(recordOf({id: 's-unset', workspaceId: null}))
-        expect(await schedulerManager.runNow('s-unset')).toEqual({success: false, error: '未设置工作目录'})
+        expect(await schedulerManager.runNow('s-unset')).toEqual({success: false, error: '未设置项目'})
     })
 
     it('runNowSchedule：同一个原因被拍成 {ok:false,error}', async () => {
         scheduleRepoStub.get.mockReturnValue(recordOf({id: 's-unset', workspaceId: null}))
-        expect(await runNowSchedule('s-unset')).toEqual({ok: false, error: '未设置工作目录'})
+        expect(await runNowSchedule('s-unset')).toEqual({ok: false, error: '未设置项目'})
     })
 
     it('runNowSchedule：ok 时照旧交给管理器执行', async () => {
@@ -522,7 +522,7 @@ describe('健康度 sweep 的成本口径（复核 S5）', () => {
         expect(healths[0].state).toBe('unavailable')
         expect(healths[0].path).toBeNull()
         expect(healths[0].reason).toContain('db closed')
-        expect(healths[0].reason).not.toContain('工作目录已不存在')
+        expect(healths[0].reason).not.toContain('项目已不存在')
     })
 
     it('库读故障时健康度出口不再把满列表集体标成 missing（票面症状：同时标红）', () => {
@@ -539,7 +539,7 @@ describe('健康度 sweep 的成本口径（复核 S5）', () => {
         // 两条都不是「记录不存在」，而是「这次读不到库」
         expect(res.data.a.state).toBe('unavailable')
         expect(res.data.b.state).toBe('unavailable')
-        expect(res.data.a.reason).not.toContain('工作目录已不存在')
-        expect(res.data.b.reason).not.toContain('工作目录已不存在')
+        expect(res.data.a.reason).not.toContain('项目已不存在')
+        expect(res.data.b.reason).not.toContain('项目已不存在')
     })
 })

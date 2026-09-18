@@ -314,6 +314,16 @@ export class MCPWorkerManager {
 
         // 返回 Promise，等待 Worker 回传 restart_complete
         return new Promise((resolve) => {
+            // 同 serverId 覆盖：先结算旧 waiter（语义"已被新请求覆盖"）——旧 Promise 不
+            // 结算即永挂起（调用方 await 卡死），旧 timer 也会在超时时误删新 entry。
+            // 先 delete 再 resolve：resolve 回调若同步重入登记同键，不会被误删。
+            const prev = this.restartWaiters.get(serverId)
+            if (prev) {
+                clearTimeout(prev.timer)
+                this.restartWaiters.delete(serverId)
+                prev.resolve({ success: false, error: '请求已被覆盖' })
+            }
+
             const timer = setTimeout(() => {
                 this.restartWaiters.delete(serverId)
                 logger.warn('[MCPWorkerManager] restartServer 超时', {serverId})
@@ -375,6 +385,14 @@ export class MCPWorkerManager {
             clearTimeout(this.restartTimer)
             this.restartTimer = null
             this.restarting = false
+        }
+
+        // 结算所有挂起的 restartServer 等待方：关闭期间不让调用方等满 60s 超时
+        // 先 delete 再 resolve（与 restartServer 覆盖逻辑一致，防止 resolve 回调同 tick 重入误删）
+        for (const [serverId, waiter] of this.restartWaiters) {
+            clearTimeout(waiter.timer)
+            this.restartWaiters.delete(serverId)
+            waiter.resolve({ success: false, error: '已关闭' })
         }
 
         if (this.worker) {

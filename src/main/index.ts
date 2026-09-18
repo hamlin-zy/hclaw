@@ -13,6 +13,7 @@ import './repositories/init';
 import {getHclawDir} from './hclawPaths';
 import {ensureConfigLayout} from './config/ensureConfigLayout';
 import {initConfigIPC} from './ipc/configIPC';
+import {initProjectGroupIPC} from './ipc/projectGroupIPC';
 import {initBackgroundIPC} from './ipc/background';
 import {createWindow, getMainWindow, initWindowIPC, setIsQuitting, broadcastUpdaterStatus} from './window';
 import {createTray} from './tray';
@@ -197,6 +198,7 @@ app.on('open-url', (event, url) => {
 
 initWindowIPC();
 initConfigIPC();
+initProjectGroupIPC();
 initBackgroundIPC();
 initConversationIPC();
 
@@ -344,10 +346,17 @@ app.on('ready', async () => {
                     const end = match[2] ? parseInt(match[2], 10) : fileSize - 1
                     const chunkSize = end - start + 1
 
+                    // fd 必须在所有路径下关闭：read 失败时若不 finally 释放，fd 会泄漏
                     const fd = await fsPromises.open(filePath, 'r')
-                    const buffer = Buffer.alloc(chunkSize)
-                    await fd.read(buffer, 0, chunkSize, start)
-                    await fd.close()
+                    let buffer: Buffer<ArrayBuffer>
+                    try {
+                        buffer = Buffer.alloc(chunkSize)
+                        await fd.read(buffer, 0, chunkSize, start)
+                    } finally {
+                        try {
+                            await fd.close()
+                        } catch { /* close 失败不覆盖原异常 */ }
+                    }
 
                     return new Response(buffer, {
                         status: 206,

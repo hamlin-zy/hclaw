@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
-import {render, screen, fireEvent, waitFor, within} from '@testing-library/react'
+import {render, screen, fireEvent, waitFor, within, act} from '@testing-library/react'
 import {WorkspaceSelector} from '../../../src/renderer/components/ConversationSidebar'
+import {useProjectGroupStore} from '../../../src/renderer/stores/projectGroupStore'
 
 // ── 依赖 mock ──
 const {mockState, setWorkspaceMock, removeWorkspaceMock, openFolderDialogMock, openPathMock} =
     vi.hoisted(() => ({
         mockState: {
             currentWorkspacePath: 'E:/workspace/media/hclaw',
+            // 视图作用域（R-AA：组视图下触发按钮无障碍名称附组名 + 成员数；其余为基串）
+            viewScope: undefined as {type: string; groupId?: string; path?: string} | undefined,
             workspaces: {
                 'E:/workspace/media/hclaw': {lastOpenedAt: 200, conversations: []},
                 'E:/workspace/guali/guali-backend': {lastOpenedAt: 100, conversations: []},
@@ -56,12 +59,12 @@ afterEach(() => {
 })
 
 function openDrawer(): void {
-    fireEvent.click(screen.getByRole('button', {name: '选择工作目录'}))
+    fireEvent.click(screen.getByRole('button', {name: '切换项目 / 项目组'}))
 }
 
 /** 当前打开的面板（listbox），用于把查询限定在抽屉内（避免按钮上重复路径的干扰） */
 function listbox(): HTMLElement {
-    return screen.getByRole('listbox', {name: '工作目录列表'})
+    return screen.getByRole('listbox', {name: '项目列表'})
 }
 
 describe('WorkspaceSelector 抽屉', () => {
@@ -85,7 +88,7 @@ describe('WorkspaceSelector 抽屉', () => {
     it('搜索过滤目录', () => {
         render(<WorkspaceSelector/>)
         openDrawer()
-        fireEvent.change(screen.getByPlaceholderText('搜索目录...'), {
+        fireEvent.change(screen.getByPlaceholderText('搜索项目…'), {
             target: {value: 'guali'},
         })
         const panel = listbox()
@@ -122,9 +125,21 @@ describe('WorkspaceSelector 抽屉', () => {
         expect(screen.queryAllByRole('option')).toHaveLength(0)
     })
 
+    it('组名输入中按 Esc 只取消输入：stopPropagation 挡住 document 上的关闭监听', () => {
+        render(<WorkspaceSelector/>)
+        openDrawer()
+        fireEvent.click(within(listbox()).getByText('创建项目组'))
+        const nameInput = screen.getByPlaceholderText('项目组名称')
+        // 从输入框冒泡到 document —— 真实用户按键的路径，也是侧栏 document 监听唯一能否收到该事件的地方。
+        // 若内联输入的 Esc 处理丢掉 stopPropagation，事件会冒泡到 document → 抽屉被关掉（本用例转红）。
+        fireEvent.keyDown(nameInput, {key: 'Escape'})
+        expect(screen.queryByPlaceholderText('项目组名称')).toBeNull() // 输入已取消
+        expect(screen.getByRole('listbox', {name: '项目列表'})).toBeTruthy() // 抽屉仍在
+    })
+
     it('触发按钮箭头状态感知：收起时向右，展开时向左旋转 180°', async () => {
         render(<WorkspaceSelector/>)
-        const btn = screen.getByRole('button', {name: '选择工作目录'})
+        const btn = screen.getByRole('button', {name: '切换项目 / 项目组'})
         const chevron = btn.querySelector(':scope > svg') as SVGElement
         // 收起：默认向右箭头（无 rotate-180）
         expect(chevron.classList.contains('rotate-180')).toBe(false)
@@ -136,11 +151,11 @@ describe('WorkspaceSelector 抽屉', () => {
         await waitFor(() => expect(chevron.classList.contains('rotate-180')).toBe(false))
     })
 
-    it('点击"打开新目录"调用 openFolderDialog 并切换工作区', async () => {
+    it('点击"添加项目"调用 openFolderDialog 并切换工作区', async () => {
         openFolderDialogMock.mockResolvedValue('E:/workspace/new')
         render(<WorkspaceSelector/>)
         openDrawer()
-        fireEvent.click(within(listbox()).getByText('打开新目录'))
+        fireEvent.click(within(listbox()).getByText('添加项目'))
         await waitFor(() => expect(openFolderDialogMock).toHaveBeenCalled())
         await waitFor(() => expect(setWorkspaceMock).toHaveBeenCalledWith('E:/workspace/new'))
         expect(screen.queryAllByRole('option')).toHaveLength(0)
@@ -170,5 +185,84 @@ describe('WorkspaceSelector 抽屉', () => {
         expect(setWorkspaceMock).not.toHaveBeenCalled()
         // 抽屉保持打开
         expect(within(panel).getAllByRole('option').length).toBeGreaterThan(0)
+    })
+
+    // R-AA（progress.md:215）：组视图触发按钮的无障碍名称 = 基串 + 「：${组名}（${成员数} 个项目）」
+    it('组视图：触发按钮无障碍名称附组名与成员数', () => {
+        mockState.viewScope = {type: 'group', groupId: 'pg-a'}
+        act(() => {
+            useProjectGroupStore.setState({
+                groups: [{
+                    id: 'pg-a',
+                    name: '组A',
+                    sortOrder: 0,
+                    createdAt: 0,
+                    updatedAt: 0,
+                    members: [
+                        {projectPath: 'E:/a', groupOrder: 0},
+                        {projectPath: 'E:/b', groupOrder: 1},
+                    ],
+                }],
+            })
+        })
+        try {
+            render(<WorkspaceSelector/>)
+            expect(
+                screen.getByRole('button', {name: '切换项目 / 项目组：组A（2 个项目）'}),
+            ).toBeTruthy()
+        } finally {
+            mockState.viewScope = undefined
+            act(() => {
+                useProjectGroupStore.setState({groups: []})
+            })
+        }
+    })
+
+    // 组视图下触发按钮的**可见内容**：组名 + 项目数徽章；不再显示项目名/分支/路径。
+    // （aria-label 已由上一条覆盖；这里守住"看见的是组，不是某个项目"。）
+    const btnEl = () => document.querySelector('[data-name="conversation-sidebar-workspace-select-button"]') as HTMLElement
+
+    it('组视图：可见内容 = 组名 + 项目数徽章，不显示项目名/路径', () => {
+        mockState.viewScope = {type: 'group', groupId: 'pg-a'}
+        act(() => {
+            useProjectGroupStore.setState({
+                groups: [{
+                    id: 'pg-a', name: '组A', sortOrder: 0, createdAt: 0, updatedAt: 0,
+                    members: [
+                        {projectPath: 'E:/a', groupOrder: 0},
+                        {projectPath: 'E:/b', groupOrder: 1},
+                    ],
+                }],
+            })
+        })
+        try {
+            render(<WorkspaceSelector/>)
+            const btn = btnEl()
+            // 组名可见
+            expect(btn.textContent).toContain('组A')
+            // 项目数徽章存在且显示成员数
+            const badge = btn.querySelector('[data-name="workspace-group-count-badge"]') as HTMLElement
+            expect(badge).toBeTruthy()
+            expect(badge.textContent).toContain('2')
+            // 不显示当前项目路径（组视图语义是"看整组"）
+            expect(btn.textContent).not.toContain(mockState.currentWorkspacePath)
+        } finally {
+            mockState.viewScope = undefined
+            act(() => {
+                useProjectGroupStore.setState({groups: []})
+            })
+        }
+    })
+
+    it('项目视图：可见内容 = 项目名 + 路径，无组徽章（保持现状）', () => {
+        mockState.viewScope = {type: 'project', path: mockState.currentWorkspacePath!}
+        render(<WorkspaceSelector/>)
+        const btn = btnEl()
+        // 项目名（末段）可见
+        expect(btn.textContent).toContain('hclaw')
+        // 完整路径可见
+        expect(btn.textContent).toContain(mockState.currentWorkspacePath)
+        // 不出现组徽章
+        expect(btn.querySelector('[data-name="workspace-group-count-badge"]')).toBeNull()
     })
 })

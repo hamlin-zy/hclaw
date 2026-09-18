@@ -14,7 +14,7 @@ export function assertInWorkspace(workspace: string, relPath: string): string {
   const wsRoot = resolve(workspace)
   const resolved = resolve(workspace, relPath)
   if (resolved !== wsRoot && !resolved.startsWith(wsRoot + sep)) {
-    throw new Error('路径超出工作目录')
+    throw new Error('路径超出项目目录')
   }
   return resolved
 }
@@ -29,7 +29,7 @@ async function assertRealInWorkspace(workspace: string, abs: string): Promise<vo
   const wsReal = await realpath(workspace)
   const absReal = await realpath(abs)
   if (absReal !== wsReal && !absReal.startsWith(wsReal + sep)) {
-    throw new Error('路径超出工作目录')
+    throw new Error('路径超出项目目录')
   }
 }
 
@@ -53,7 +53,7 @@ export async function readFileText(workspace: string, relPath: string): Promise<
  */
 export async function deletePath(workspace: string, relPath: string): Promise<void> {
   const abs = assertInWorkspace(workspace, relPath)
-  if (relative(resolve(workspace), abs) === '') throw new Error('不能删除工作区根目录')
+  if (relative(resolve(workspace), abs) === '') throw new Error('不能删除项目根目录')
   await shell.trashItem(abs)
 }
 

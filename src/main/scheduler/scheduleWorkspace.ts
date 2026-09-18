@@ -71,7 +71,7 @@ function evaluateWorkspace(
 ): ScheduleWorkspaceHealth {
     // 空串与 null 同义：都表示「这条任务没有工作目录」（新需求里这是不可保存的配置）
     if (workspaceId === null || workspaceId === undefined || workspaceId.trim() === '') {
-        return {state: 'unset', path: null, reason: '未设置工作目录'}
+        return {state: 'unset', path: null, reason: '未设置项目'}
     }
 
     let record: {path: string} | null
@@ -83,13 +83,13 @@ function evaluateWorkspace(
         return {
             state: 'unavailable',
             path: null,
-            reason: `工作目录不可用（工作区记录读取失败：${err instanceof Error ? err.message : String(err)}）`,
+            reason: `项目不可用（项目记录读取失败：${err instanceof Error ? err.message : String(err)}）`,
         }
     }
 
-    if (!record) return {state: 'missing', path: null, reason: '工作目录已不存在'}
+    if (!record) return {state: 'missing', path: null, reason: '项目已不存在'}
     if (!isDirectory(record.path)) {
-        return {state: 'unavailable', path: record.path, reason: `工作目录不可用（${record.path}）`}
+        return {state: 'unavailable', path: record.path, reason: `项目不可用（${record.path}）`}
     }
     return {state: 'ok', path: record.path, reason: null}
 }

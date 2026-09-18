@@ -309,13 +309,18 @@ export async function searchFiles(workspace: string, query: string, limit = DEFA
 
   const key = resolve(workspace)
   const cached = fileListCache.get(key)
-  if (cached && Date.now() - cached.at < FILE_LIST_TTL_MS) {
-    const hits: FileSearchHit[] = []
-    for (const p of cached.paths) {
-      const m = matchPath(p, q)
-      if (m) hits.push({path: p, ...m})
+  if (cached) {
+    if (Date.now() - cached.at < FILE_LIST_TTL_MS) {
+      const hits: FileSearchHit[] = []
+      for (const p of cached.paths) {
+        const m = matchPath(p, q)
+        if (m) hits.push({path: p, ...m})
+      }
+      return rankFileHits(hits, limit)
     }
-    return rankFileHits(hits, limit)
+    // 过期即回收：TTL 只在读路径生效，不显式 delete 则过期条目永久驻留
+    // （对齐 git/status.ts 读路径的既有模式）。
+    fileListCache.delete(key)
   }
 
   const hits: FileSearchHit[] = []
@@ -380,7 +385,7 @@ export async function readLines(
   try {
     abs = assertInWorkspace(workspace, relPath)
   } catch {
-    return sliceError(relPath, start, end, '路径超出工作目录')
+    return sliceError(relPath, start, end, '路径超出项目目录')
   }
 
   let size: number

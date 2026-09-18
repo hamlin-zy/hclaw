@@ -189,7 +189,7 @@ export function ProjectManagerApp() {
       <WindowTitleBar title={ws ? `${basename(ws)} (只读)` : '项目管理'} subtitle={ws} />
       <div className="flex-1 min-h-0 overflow-hidden">
         {!ws ? (
-          <div className="pm-no-workspace">未指定工作目录</div>
+          <div className="pm-no-workspace">未指定项目</div>
         ) : (
           <div className="pm-canvas">
             <SplitPane

@@ -305,7 +305,7 @@ declare global {
       conversationDelete: (convId: string) => Promise<boolean>
       conversationDeleteMessage: (convId: string, messageId: string) => Promise<boolean>
       conversationList: () => Promise<Record<string, unknown>[]>
-        conversationListWithStats: (workspacePath: string) => Promise<import('./types').ConversationWithStats[]>
+        conversationListWithStats: (scope: import('../shared/types/conversationStats').ConversationStatsScope) => Promise<import('./types').ConversationWithStats[]>
         conversationListByWorkspace: (workspacePath: string) => Promise<{id: string}[]>
         conversationDeleteBatch: (ids: string[]) => Promise<boolean>
         conversationUsageStats: (convId: string) => Promise<import('../shared/types/infra').ConversationUsageStats | null>
@@ -690,8 +690,21 @@ declare global {
             getCurrent: () => Promise<{ id: string; path: string; name: string; createdAt: number; updatedAt: number } | null>
             setCurrent: (id: string) => Promise<boolean>
             getGitBranch: (cwd: string) => Promise<string | null>
+            getGitBranches: (paths: string[]) => Promise<Record<string, string | null>>
             /** git 分支变化推送（外部命令行切分支等）；返回取消订阅函数 */
             onGitBranchChanged: (callback: (branch: string | null) => void) => () => void
+        }
+
+        // 项目组（project-group）：list 直接返回数组，其余返回 boolean / {ok}
+        projectGroup: {
+            list: () => Promise<import('../shared/types/projectGroup').ProjectGroupWithMembers[]>
+            create: (name: string) => Promise<import('../shared/types/projectGroup').ProjectGroupCreateResult>
+            rename: (id: string, name: string) => Promise<boolean>
+            dissolve: (id: string) => Promise<boolean>
+            remove: (id: string) => Promise<boolean>
+            assign: (projectPath: string, groupId: string | null) => Promise<boolean>
+            reorderGroups: (groupIds: string[]) => Promise<boolean>
+            reorderProjects: (groupId: string, projectPaths: string[]) => Promise<boolean>
         }
 
         // 任务批次（历史任务组窗口数据源；类型复用主进程 taskBatchRepository）

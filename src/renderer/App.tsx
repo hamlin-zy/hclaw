@@ -3,6 +3,7 @@ import {AnimatePresence, motion} from 'framer-motion'
 import {WarningIcon} from './components/icons'
 import TitleBar from './components/TitleBar'
 import ConversationSidebar from './components/ConversationSidebar'
+import {SidebarResizeHandle} from './components/sidebar/SidebarResizeHandle'
 import MainWorkspace from './components/MainWorkspace'
 import SidePanels from './components/SidePanels'
 import MenuDialogRenderer from './components/MenuDialogRenderer'
@@ -279,7 +280,7 @@ async function syncModelSchemeToMain(llmState: ReturnType<typeof useLLMStore.get
 export default function App() {
   const registerStreamListener = useAgentStore((s) => s.registerStreamListener)
   const theme = useThemeStore((s) => s.theme)
-  const {leftCollapsed, rightCollapsed, setRightCollapsed} = useSidebarStore()
+  const {leftCollapsed, rightCollapsed, setRightCollapsed, leftWidth, setLeftWidth} = useSidebarStore()
   const background = useSettingsStore((s) => s.settings.ui.background)
 
   // 注册系统内快捷键（非全局快捷键）
@@ -352,6 +353,11 @@ export default function App() {
           //   缺失会导致重启后 agent 类命令（如 /code-simplifier）无法渲染徽章
           useAgentTemplateStore.getState().init(),
         ])
+
+        // 恢复上次的视图作用域（启动恢复 + 三级回退）。
+        // ★ 必须在上面 Promise.all 之后：restoreScope 读 workspaces / currentWorkspacePath /
+        //   activeConversationId，这些都是 loadConversations() 填充的，并发会读到空值。
+        await useConversationStore.getState().restoreScope()
 
         // 能力刷新独立发起：其 IPC 在主进程侧可能要等 powerManager 初始化（冷启动可达数秒），
         // 若并入上方 Promise.all 会把同组的 reloadShortcutBindings / resolveAndApplyTheme 一起拖后。
@@ -746,12 +752,16 @@ export default function App() {
               折叠态紧贴窗口左缘无缝隙（main 去 pl），左上/左下圆角改直角；
               若整个卸载则折叠后只剩 Ctrl+B 可展开（Bug3 根因） */}
           <div
-            className={`app-surface-card bg-[var(--surface-chrome)] rounded-lg shadow-card border border-[var(--border)] transition-all ${
+            className={`app-surface-card relative bg-[var(--surface-chrome)] rounded-lg shadow-card border border-[var(--border)] transition-all ${
                 leftCollapsed ? 'overflow-visible rounded-l-none' : 'overflow-hidden'
             } flex flex-col`}
            data-name="left-sidebar-card"
-            style={{width: leftCollapsed ? 'var(--sidebar-collapsed-width, 36px)' : 'var(--sidebar-width)'}}>
+            style={{width: leftCollapsed ? 'var(--sidebar-collapsed-width, 36px)' : `${leftWidth}px`}}>
+            {/* 宽度用 inline px（leftWidth），不再走 --sidebar-width：该变量同时被右侧面板
+                消费，改它会连带右栏；拖拽调宽只针对左栏。折叠态保留 36px 内联 fallback。 */}
             <ConversationSidebar/>
+            {/* 拖拽调宽手柄：仅展开态渲染（折叠态是窄条语义，宽度固定不可调） */}
+            {!leftCollapsed && <SidebarResizeHandle onResizeEnd={setLeftWidth}/>}
           </div>
           {/* 中间主内容卡片 */}
           <div

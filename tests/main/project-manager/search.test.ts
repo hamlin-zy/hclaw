@@ -435,7 +435,7 @@ describe('readLines', () => {
     const ws = makeWs({})
     const r = await readLines(ws, '../evil.txt', 1, 10)
     expect(r.lines).toEqual([])
-    expect(r.error).toBe('路径超出工作目录')
+    expect(r.error).toBe('路径超出项目目录')
   })
 
   it('EOF 短路：范围抵达文件尾且 ≤256KB 时返回全文与 hash（省掉第二次全量读）', async () => {

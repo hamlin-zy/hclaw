@@ -92,13 +92,13 @@ describe('handleOpenConversation 校验分支', () => {
     const r = await handleOpenConversation(validPayload(), sender, makeDeps({isAllowedSender: vi.fn(() => false)}))
     expect(r).toEqual({ok: false, error: '非法发送方'})
   })
-  it('会话不属于该工作目录 → 拒绝', async () => {
+  it('会话不属于该项目 → 拒绝', async () => {
     const r = await handleOpenConversation(
       validPayload({conversationId: 'conv-x'}),
       sender,
       makeDeps({listConvIdsInWorkspace: vi.fn(async () => ['conv-a'])}),
     )
-    expect(r).toEqual({ok: false, error: '目标会话不属于该工作目录'})
+    expect(r).toEqual({ok: false, error: '目标会话不属于该项目'})
   })
   it('主窗口不可用（null） → 拒绝', async () => {
     const r = await handleOpenConversation(validPayload(), sender, makeDeps({getMainWindow: vi.fn(() => null)}))

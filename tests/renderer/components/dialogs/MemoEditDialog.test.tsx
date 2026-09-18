@@ -13,6 +13,7 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
 import {render, screen, fireEvent, createEvent, waitFor, cleanup} from '@testing-library/react'
 import type {MemoItem} from '@/shared/types/memo'
+import type {ProjectGroupWithMembers} from '@/shared/types/projectGroup'
 
 const h = vi.hoisted(() => {
     const memoApi = {
@@ -24,7 +25,10 @@ const h = vi.hoisted(() => {
         discardPending: vi.fn(async () => ({ok: true, data: true})),
     }
     const closeWindow = vi.fn()
-    return {memoApi, closeWindow}
+    // 级联字段数据源（Task 19）：独立窗口自行拉取 project-group:list / workspace:list
+    const groupList = vi.fn(async () => [] as ProjectGroupWithMembers[])
+    const workspaceList = vi.fn(async () => [] as Array<{id: string; path: string; name: string; createdAt: number; updatedAt: number}>)
+    return {memoApi, closeWindow, groupList, workspaceList}
 })
 
 vi.mock('@/renderer/components/common/CapabilityPicker', () => ({
@@ -47,7 +51,20 @@ const editItem = (over: Partial<MemoItem> = {}): MemoItem => ({
     ...over,
 })
 
-function stubWindow(opts: {memoId?: string; workspace?: string}) {
+function stubWindow(opts: {
+    memoId?: string
+    workspace?: string
+    /** project-group:list 返回值（默认空） */
+    groups?: ProjectGroupWithMembers[]
+    /** workspace:list 返回值（默认空） */
+    workspaces?: Array<{id: string; path: string; name: string; createdAt: number; updatedAt: number}>
+    /** 模拟 project-group:list 抛错（R-BV 降级用例） */
+    groupsFail?: boolean
+    /** 模拟 workspace:list 抛错（R-BV 降级用例） */
+    workspacesFail?: boolean
+}) {
+    h.groupList.mockResolvedValue(opts.groups ?? [])
+    h.workspaceList.mockResolvedValue(opts.workspaces ?? [])
     vi.stubGlobal('electronAPI', {
         memo: h.memoApi,
         closeWindow: h.closeWindow,
@@ -55,6 +72,12 @@ function stubWindow(opts: {memoId?: string; workspace?: string}) {
         saveTempFile: vi.fn(async () => 'E:\\tmp\\memo-test.txt'),
         memoId: opts.memoId ?? '',
         memoWorkspace: opts.workspace ?? '',
+        projectGroup: {
+            list: opts.groupsFail ? vi.fn(async () => { throw new Error('project-group:list 失败') }) : h.groupList,
+        },
+        workspace: {
+            list: opts.workspacesFail ? vi.fn(async () => { throw new Error('workspace:list 失败') }) : h.workspaceList,
+        },
     })
 }
 
@@ -478,5 +501,186 @@ describe('MemoEditDialog', () => {
 
         await waitFor(() => expect(h.memoApi.create).toHaveBeenCalledTimes(1))
         expect(h.memoApi.create).toHaveBeenCalledWith(expect.objectContaining({title: '带优先级', priority: 'low'}))
+    })
+})
+
+// ── Task 19：项目组 + 项目 级联两字段（§15.1②/§15.1③、D12）──
+describe('MemoEditDialog — 项目组 + 项目级联', () => {
+    const PA = 'E:\\ws\\a'
+    const PB = 'E:\\ws\\b'
+    const PTOP = 'E:\\ws\\top'
+
+    const wsRec = (path: string) => ({id: `w-${path}`, path, name: path.split('\\').pop()!, createdAt: 1, updatedAt: 1})
+    const pg = (id: string, name: string, paths: string[]): ProjectGroupWithMembers => ({
+        id,
+        name,
+        sortOrder: 0,
+        createdAt: 1,
+        updatedAt: 1,
+        members: paths.map((projectPath, i) => ({projectPath, groupOrder: i})),
+    })
+
+    /** 取 select 的选项值（去掉「未选择」占位项 ''） */
+    const optionValues = (select: HTMLSelectElement) =>
+        Array.from(select.options).map((o) => o.value).filter((v) => v !== '')
+
+    const groupSelect = () => document.querySelector('[data-name="memo-group-select"]') as HTMLSelectElement
+    const projectSelect = () => document.querySelector('[data-name="memo-project-select"]') as HTMLSelectElement
+
+    it('创建态渲染两个下拉，默认选中注入路径所属组与项目', async () => {
+        stubWindow({
+            workspace: PA,
+            groups: [pg('pg-a', '组A', [PA, PB])],
+            workspaces: [wsRec(PA), wsRec(PB), wsRec(PTOP)],
+        })
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(groupSelect()).toBeTruthy())
+        await waitFor(() => expect(groupSelect().value).toBe('pg-a'))
+        expect(projectSelect().value).toBe(PA)
+        // 组下拉含「未分组」+ 各组
+        expect(Array.from(groupSelect().options).map((o) => o.value)).toEqual(['', 'pg-a'])
+    })
+
+    it('注入路径不属于任何组 → 组默认「未分组」', async () => {
+        stubWindow({
+            workspace: PTOP,
+            groups: [pg('pg-a', '组A', [PA, PB])],
+            workspaces: [wsRec(PA), wsRec(PB), wsRec(PTOP)],
+        })
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(groupSelect()).toBeTruthy())
+        await waitFor(() => expect(projectSelect().value).toBe(PTOP))
+        expect(groupSelect().value).toBe('')
+        expect(optionValues(projectSelect())).toEqual([PTOP])
+    })
+
+    it('选「未分组」→ 项目列只列顶层项目（无组归属者）', async () => {
+        stubWindow({
+            workspace: PA,
+            groups: [pg('pg-a', '组A', [PA, PB])],
+            workspaces: [wsRec(PA), wsRec(PB), wsRec(PTOP)],
+        })
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(projectSelect().value).toBe(PA))
+        fireEvent.change(groupSelect(), {target: {value: ''}})
+
+        expect(optionValues(projectSelect())).toEqual([PTOP])
+    })
+
+    it('切换组后原项目不在新组 → 清空需重选（不自动猜）', async () => {
+        stubWindow({
+            workspace: PA,
+            groups: [pg('pg-a', '组A', [PA]), pg('pg-b', '组B', [PB, PTOP])],
+            workspaces: [wsRec(PA), wsRec(PB), wsRec(PTOP)],
+        })
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(projectSelect().value).toBe(PA))
+        fireEvent.change(groupSelect(), {target: {value: 'pg-b'}})
+
+        expect(projectSelect().value).toBe('')
+        expect(optionValues(projectSelect())).toEqual([PB, PTOP])
+    })
+
+    it('切换组后原项目仍在新组 → 保留原项目', async () => {
+        stubWindow({
+            workspace: PA,
+            groups: [pg('pg-a', '组A', [PA]), pg('pg-b', '组B', [PA, PB])],
+            workspaces: [wsRec(PA), wsRec(PB)],
+        })
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(projectSelect().value).toBe(PA))
+        fireEvent.change(groupSelect(), {target: {value: 'pg-b'}})
+        expect(projectSelect().value).toBe(PA)
+    })
+
+    it('两项必填：未选项目时保存被拒（不调 memo.create）', async () => {
+        stubWindow({
+            workspace: PA,
+            groups: [pg('pg-a', '组A', [PA, PB])],
+            workspaces: [wsRec(PA), wsRec(PB), wsRec(PTOP)],
+        })
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(projectSelect().value).toBe(PA))
+        // 切到「未分组」→ 原项目 PA 不在顶层项目内 → 清空
+        fireEvent.change(groupSelect(), {target: {value: ''}})
+        expect(projectSelect().value).toBe('')
+
+        fireEvent.change(screen.getByPlaceholderText('备忘录标题'), {target: {value: '标题'}})
+        fireEvent.change(screen.getByPlaceholderText('记录备忘...'), {target: {value: '正文'}})
+        fireEvent.click(screen.getByText('保存'))
+
+        expect(screen.getByText('请选择项目')).toBeTruthy()
+        expect(h.memoApi.create).not.toHaveBeenCalled()
+        expect(h.closeWindow).not.toHaveBeenCalled()
+    })
+
+    it('创建保存：memo.create 的 workspacePath = 所选项目', async () => {
+        stubWindow({
+            workspace: PA,
+            groups: [pg('pg-a', '组A', [PA, PB]), pg('pg-b', '组B', [PTOP])],
+            workspaces: [wsRec(PA), wsRec(PB), wsRec(PTOP)],
+        })
+        h.memoApi.create.mockResolvedValue({ok: true, data: null})
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(projectSelect().value).toBe(PA))
+        fireEvent.change(groupSelect(), {target: {value: 'pg-b'}})
+        fireEvent.change(projectSelect(), {target: {value: PTOP}})
+        fireEvent.change(screen.getByPlaceholderText('备忘录标题'), {target: {value: '标题'}})
+        fireEvent.change(screen.getByPlaceholderText('记录备忘...'), {target: {value: '正文'}})
+        fireEvent.click(screen.getByText('保存'))
+
+        await waitFor(() => expect(h.memoApi.create).toHaveBeenCalledTimes(1))
+        expect(h.memoApi.create).toHaveBeenCalledWith(expect.objectContaining({workspacePath: PTOP}))
+    })
+
+    it('编辑态：项目只读（渲染 memo-project-readonly，不渲染 select）', async () => {
+        stubWindow({memoId: 'memo-1', groups: [pg('pg-a', '组A', [P])], workspaces: [wsRec(P)]})
+        h.memoApi.getById.mockResolvedValue({ok: true, data: editItem()})
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(document.querySelector('[data-name="memo-project-readonly"]')).toBeTruthy())
+        const readonly = document.querySelector('[data-name="memo-project-readonly"]')!
+        expect(readonly.textContent).toContain(P)
+        // 不渲染两处 select（组字段同样文本展示，但不加 data-name）
+        expect(document.querySelector('[data-name="memo-project-select"]')).toBeNull()
+        expect(document.querySelector('[data-name="memo-group-select"]')).toBeNull()
+        // 组文本展示 = 所属组名
+        await waitFor(() => expect(screen.getByText('组A')).toBeTruthy())
+    })
+
+    it('R-BV 降级：project-group:list 失败 → 组下拉仅「未分组」，项目列退化为 workspace.list 结果', async () => {
+        stubWindow({workspace: PA, groupsFail: true, workspaces: [wsRec(PA), wsRec(PB)]})
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(groupSelect()).toBeTruthy())
+        expect(Array.from(groupSelect().options).map((o) => o.value)).toEqual([''])
+        await waitFor(() => expect(optionValues(projectSelect())).toEqual([PA, PB]))
+        expect(projectSelect().value).toBe(PA)
+        expect(screen.getByTestId('memo-edit-dialog')).toBeTruthy()
+    })
+
+    it('R-BV 降级：两个 IPC 均失败 → 空列表 + tip 提示，不抛异常不白屏', async () => {
+        stubWindow({workspace: PA, groupsFail: true, workspacesFail: true})
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(screen.getByText(/项目组\/项目列表加载失败/)).toBeTruthy())
+        expect(screen.getByTestId('memo-edit-dialog')).toBeTruthy()
+        expect(optionValues(projectSelect())).toEqual([PA]) // 至少保留注入路径，可提交
+    })
+
+    it('编辑态：getById 失败时不渲染级联字段（错误分支）', async () => {
+        stubWindow({memoId: 'memo-gone', groups: [pg('pg-a', '组A', [P])], workspaces: [wsRec(P)]})
+        h.memoApi.getById.mockResolvedValue({ok: false, error: '备忘录不存在'})
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(screen.getByText('备忘录不存在')).toBeTruthy())
+        expect(document.querySelector('[data-name="memo-project-readonly"]')).toBeNull()
     })
 })

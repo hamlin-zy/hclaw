@@ -276,7 +276,7 @@ export function useScheduleFormState({initial, onSave}: UseScheduleFormStateArgs
         // 放行等于把一个没校验过的 id 落库（复核 R3 的合法 ws-1 被显示成「已失效」+ 保存成功
         // 就是这么来的）。
         if (workspaceVerdict.status !== 'ok') {
-            return setError(workspaceVerdict.message || '工作目录不可用')
+            return setError(workspaceVerdict.message || '项目不可用')
         }
 
         onSave({

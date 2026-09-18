@@ -667,7 +667,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                 <div role="alert"
                      data-name="input-area-hint"
                      className="mb-2 px-3 py-2 rounded-lg bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] border border-[var(--warning)] text-xs text-[var(--warning)]">
-                    请先在左侧选择一个工作目录和会话，或点击「新建对话」
+                    请先在左侧选择一个项目和会话，或点击「新建对话」
                 </div>
             )}
 
@@ -715,7 +715,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
                         onContextMenu={handleContextMenu}
-                        placeholder={needsSession ? '请先选择工作目录和会话...' : '输入你的任务...'}
+                        placeholder={needsSession ? '请先选择项目和会话...' : '输入你的任务...'}
                         className="w-full px-3 py-2.5 rounded-2xl bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] resize-none outline-none focus:outline-none"
                         rows={1}
                     />

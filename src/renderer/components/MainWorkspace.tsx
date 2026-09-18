@@ -53,7 +53,7 @@ export default function MainWorkspace() {
             {/* 会话页面 / 空状态 */}
             <div className="flex-1 relative min-h-0">
                 {!activeConversationId ? (
-                    <EmptyStateCard message="请在左侧选择一个工作目录和会话"/>
+                    <EmptyStateCard message="请在左侧选择一个项目和会话"/>
                 ) : (
                     renderableIds.map(id => (
                         <div
