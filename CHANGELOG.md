@@ -7,6 +7,29 @@
 
 ---
 
+## [v0.5.16] - 2026-09-18
+
+### 新增
+- **项目分组管理** — 可以把多个项目编组管理，侧栏按组展示会话，切换项目组一目了然，支持创建/重命名/解散/删除 (`ProjectGroupDrawer` / `projectGroupStore` / `projectGroupRepository`)
+- **会话列表分段展示** — 会话按项目/组分段渲染，段头有快捷操作，展开/折叠更灵活，组视图还有跨项目「最近会话」区块 (`ConversationSidebar` / `conversationSections`)
+- **侧栏可拖拽调宽** — 展开态支持拖拽调整宽度（180-480px），重启后仍保持 (`SidebarResizeHandle` / `sidebarStore`)
+- **设置页全面改版** — 设置页拆分为标签页（通用/外观/模型/Agent/快捷键/渠道），查找更直观 (`settings/` / `SettingsDialog`)
+- **定时任务体验升级** — 定时任务新增脚本日志查看、执行状态追踪与更完善的错误反馈 (`ScheduleScriptLogPanel` / `scheduleErrors` / `scheduleCron`)
+- **任务历史批量删除** — 任务历史支持按批次范围删除，清理更方便 (`TaskHistoryDialog`)
+- **备忘录关联项目** — 备忘录编辑可选择项目组和项目，备忘录与项目关联更清晰 (`MemoEditDialog` / `MemoPanel`)
+
+### 变更
+- **界面术语统一** — "工作目录"统一改为"项目"，全应用用语一致 (`i18n.terminology` / 全局替换)
+- **调度器全链收敛** — 定时任务调度链路重构，工作区守卫更严格，执行更可靠 (`scheduler/` / `scheduleWorkspace`)
+- **会话行密度优化** — 侧栏会话行更紧凑，信息密度更高 (`ConversationSidebar`)
+
+### 修复
+- **修复多处内存泄漏** — 修复长会话或频繁操作时的内存泄漏问题，Agent 子进程设置内存上限 (`conversationStore` / `workerLimits`)
+- **修复会话删除时跨项目后代漏删** — 删除确认范围与实际删除集同源，跨项目后代不再遗漏 (`ConversationSidebar`)
+- **修复切换筛选后选区与列表不一致** — 切换项目/组筛选后选区自动取交，计数与实际收集不再脱节 (`conversationStore`)
+
+---
+
 ## [v0.5.15] - 2026-09-15
 
 ### 新增

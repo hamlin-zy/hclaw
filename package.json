@@ -1,6 +1,6 @@
 {
   "name": "hclaw",
-  "version": "0.5.15",
+  "version": "0.5.16",
   "description": "HClaw",
   "main": ".vite/main/index.js",
   "type": "commonjs",
