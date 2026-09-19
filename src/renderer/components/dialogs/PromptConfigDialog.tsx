@@ -37,13 +37,13 @@ function SchemeListItem({
             <div className="flex items-center gap-1.5 min-w-0">
                 <div
                     className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                        isActive ? 'bg-green-400' : 'bg-gray-300'
+                        isActive ? 'bg-[var(--success)]' : 'bg-gray-300'
                     }`}
                 />
                 <span className="text-xs truncate">{scheme.name}</span>
             </div>
             {isActive && (
-                <span className="shrink-0 text-[10px] text-green-500 font-medium">激活中</span>
+                <span className="shrink-0 text-[10px] text-[var(--success)] font-medium">激活中</span>
             )}
         </div>
     )
@@ -59,7 +59,7 @@ function DeleteConfirmButton({onConfirm}: { onConfirm: () => void }) {
             <div className="flex items-center gap-1">
                 <button
                     onClick={onConfirm}
-                    className="px-1.5 py-0.5 text-[10px] bg-red-500 text-white rounded hover:bg-red-600"
+                    className="px-1.5 py-0.5 text-[10px] bg-[var(--error)] text-white rounded hover:bg-[color-mix(in_srgb,var(--error)_85%,black)]"
                  data-name="prompt-config-dialog-button">
                     确认
                 </button>
@@ -76,7 +76,7 @@ function DeleteConfirmButton({onConfirm}: { onConfirm: () => void }) {
     return (
         <button
             onClick={() => setConfirming(true)}
-            className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+            className="p-1 text-gray-400 hover:text-[var(--error)] transition-colors"
             title="删除方案"
          data-name="prompt-config-dialog-delete-scheme-button">
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -315,7 +315,7 @@ export default function PromptConfigDialog() {
                                 </h4>
                                 {selectedScheme.id === activePromptSchemeId && (
                                     <span
-                                        className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded font-medium">
+                                        className="text-[10px] bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)] px-1.5 py-0.5 rounded font-medium">
                                         激活中
                                     </span>
                                 )}
@@ -401,7 +401,7 @@ export default function PromptConfigDialog() {
                               : <><TextFileIcon className="w-3 h-3 shrink-0"/>默认内容 (只读)</>}
                         </span>
                                                 {!isCustomized(selectedNode.key) && (
-                                                    <span className="text-[10px] text-amber-500 italic">
+                                                    <span className="text-[10px] text-[var(--warning)] italic">
                           修改下方文本以启用自定义
                         </span>
                                                 )}

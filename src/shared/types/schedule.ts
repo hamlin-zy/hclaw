@@ -53,6 +53,7 @@ export interface ScheduleRecord {
   createdAt: number
   updatedAt: number
   workspaceId: string | null
+  isSystem: boolean
 }
 
 /**
@@ -66,6 +67,11 @@ export type ScheduleChangePayload =
   | {type: 'created'; record: ScheduleRecord}
   | {type: 'updated'; record: ScheduleRecord}
   | {type: 'deleted'; id: string}
+
+/** 系统任务单个 id 的漂移信息：drifted=与出厂模板是否不一致；changedFields 列出不等字段名 */
+export interface SystemScheduleDriftInfo { drifted: boolean; changedFields: string[] }
+/** 系统任务 id → 漂移信息（仅 isSystem 且在 SYSTEM_SCHEDULE_DEFAULTS 中找得到的记录进 map） */
+export type SystemScheduleDriftMap = Record<string, SystemScheduleDriftInfo>
 
 /** cron 引擎实际持有的字段子集 — 由 `ScheduleRecord` 派生，不平行定义 */
 export type SchedulerEngineSchedule = Pick<

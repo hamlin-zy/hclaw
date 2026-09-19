@@ -12,6 +12,14 @@ export interface ModelDetailDraft {
   temperature: string
   maxOutputTokens: string
   modelTypes: string[]   // ModelType 字符串数组
+  /**
+   * OpenRouter 固定服务商 slug；留空 = undefined = 自动路由。
+   *
+   * ★ 必填（可为 undefined）：commitModelDetail 会无条件覆盖该字段，
+   *   调用方漏传在这之前等同于「静默清空已存 slug」。去掉 `?` 强制每个调用方
+   *   显式表态（传 undefined = 清空；传空串/纯空格 = 清空），由 tsc 兜底。
+   */
+  openRouterProvider: string | undefined
 }
 
 function toInt(v: string): number | undefined {
@@ -41,6 +49,7 @@ export function commitModelDetail(
     temperature: toTemp(draft.temperature),
     maxOutputTokens: toInt(draft.maxOutputTokens),
     modelTypes: draft.modelTypes.length > 0 ? (draft.modelTypes as ProviderModel['modelTypes']) : undefined,
+    openRouterProvider: draft.openRouterProvider?.trim() || undefined,
   }
 }
 

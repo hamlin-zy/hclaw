@@ -97,13 +97,24 @@ function evaluateWorkspace(
 /**
  * 判定一个任务的 workspaceId 能不能跑。
  *
+ * 系统内置任务（`isSystem = true`）没有工作目录约束——它们在全局上下文中运行，
+ * 不绑定任何项目。故 `isSystem` 为真时直接返回 ok，旁路工作目录守卫。
+ *
  * @param workspaceId 任务记录里的 workspaceId（允许 null / undefined / 空串）
  * @param deps 外部事实来源，缺省为生产实现
+ * @param isSystem 系统内置任务标记，为 true 时旁路工作目录守卫
  */
+/** 系统内置任务旁路的健康度结论：isSystem 不绑项目，守卫直接判 ok（唯一真相，两条出口共用） */
+const SYSTEM_BYPASS_HEALTH: ScheduleWorkspaceHealth = {state: 'ok', path: null, reason: null}
+
 export function checkScheduleWorkspace(
     workspaceId: string | null | undefined,
     deps: WorkspaceGuardDeps = defaultDeps,
+    isSystem?: boolean,
 ): ScheduleWorkspaceHealth {
+    if (isSystem) {
+        return SYSTEM_BYPASS_HEALTH
+    }
     return evaluateWorkspace(workspaceId, deps.findWorkspace, deps.isDirectory)
 }
 
@@ -115,6 +126,12 @@ export interface WorkspaceSweepDeps {
     listWorkspaces: () => Array<{id: string; path: string}>
     /** 该路径在磁盘上是否是一个存在的目录 */
     isDirectory: (dirPath: string) => boolean
+}
+
+/** sweep 的单条输入：任务的工作目录 id + 是否系统内置任务 */
+export interface WorkspaceSweepEntry {
+    workspaceId: string | null | undefined
+    isSystem?: boolean
 }
 
 const defaultSweepDeps: WorkspaceSweepDeps = {
@@ -141,7 +158,7 @@ const defaultSweepDeps: WorkspaceSweepDeps = {
  * 判定内核与单条共用 evaluateWorkspace，故两条出口结论必然一致。
  */
 export function sweepWorkspaceHealth(
-    workspaceIds: ReadonlyArray<string | null | undefined>,
+    entries: ReadonlyArray<WorkspaceSweepEntry>,
     deps: WorkspaceSweepDeps = defaultSweepDeps,
 ): ScheduleWorkspaceHealth[] {
     let index = new Map<string, {path: string}>()
@@ -164,13 +181,18 @@ export function sweepWorkspaceHealth(
         return verdict
     }
 
-    return workspaceIds.map((workspaceId) => evaluateWorkspace(
-        workspaceId,
-        (id) => {
-            if (listError !== null) throw new Error(listError)
-            return index.get(id) ?? null
-        },
-        isDirectory,
-    ))
+    // 系统任务与单条判定（checkScheduleWorkspace）同一口径：isSystem 旁路守卫判 ok。
+    // 否则健康度出口会漏出「第二真相」——执行路径放行、界面却禁用「立即执行」。
+    return entries.map((entry) => {
+        if (entry.isSystem) return SYSTEM_BYPASS_HEALTH
+        return evaluateWorkspace(
+            entry.workspaceId,
+            (id) => {
+                if (listError !== null) throw new Error(listError)
+                return index.get(id) ?? null
+            },
+            isDirectory,
+        )
+    })
 }
 

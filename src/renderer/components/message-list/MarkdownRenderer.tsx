@@ -572,7 +572,8 @@ function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 
         table({children}: any) {
             return (
                 <div className="my-3.5 overflow-x-auto rounded-lg border border-[var(--border)]">
-                    <table className="min-w-full divide-y divide-[var(--border)]">{children}</table>
+                    {/* w-max：列宽按内容自然宽度，不被容器压缩换行；超出由外层 overflow-x-auto 横向滚动 */}
+                    <table className="min-w-full w-max max-w-none divide-y divide-[var(--border)]">{children}</table>
                 </div>
             )
         },

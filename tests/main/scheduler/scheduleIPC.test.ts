@@ -92,6 +92,10 @@ const CHANNELS = [
     'scheduler-script-logs', 'scheduler-read-script-log',
     // 票 11 新增：工作目录健康度（只读派生查询，判定权仍在主进程）
     'scheduler-workspace-health',
+    // 还原系统任务默认配置（仅 isSystem 记录）
+    'scheduler-restore-default',
+    // 系统任务漂移检测（还原默认按钮禁用态，只读派生查询）
+    'scheduler-system-drift',
 ]
 
 function recordOf(id: string) {
@@ -139,7 +143,7 @@ beforeEach(async () => {
 })
 
 describe('scheduleIPC — 通道注册', () => {
-    it('注册全部 12 个通道，且不新增其它定时任务通道', () => {
+    it('注册全部 13 个通道，且不新增其它定时任务通道', () => {
         for (const ch of CHANNELS) expect(handlers.has(ch)).toBe(true)
         const schedulerChannels = [...handlers.keys()].filter(ch => ch.startsWith('scheduler-'))
         expect(schedulerChannels.sort()).toEqual([...CHANNELS].sort())
@@ -362,6 +366,32 @@ describe('scheduleIPC — 立即执行', () => {
         const res = await call('scheduler-run-now', 'nope')
         expect(res).toEqual({ok: false, error: '未找到ID为 "nope" 的定时任务。'})
         expect(m.runNow).not.toHaveBeenCalled()
+    })
+})
+
+describe('scheduleIPC — 还原默认', () => {
+    it('scheduler-restore-default 成功 → {ok:true,data:更新后记录} + 广播 {type:"updated", record}', async () => {
+        const r = await repo()
+        const def = (await import('../../../src/main/agent/defaults/systemSchedules'))
+            .SYSTEM_SCHEDULE_DEFAULTS.find(d => d.id === 'sys-memory-accumulation')!
+        r.get.mockReturnValueOnce({...recordOf('sys-memory-accumulation'), isSystem: true})
+            .mockReturnValueOnce({...recordOf('sys-memory-accumulation'), isSystem: true,
+                description: def.description, cronExpression: def.cronExpression, taskArgs: def.taskArgs})
+        const res = await call('scheduler-restore-default', 'sys-memory-accumulation')
+        expect(res.ok).toBe(true)
+        expect(res.data.description).toBe(def.description)
+        expect(r.update).toHaveBeenCalledWith('sys-memory-accumulation', {
+            description: def.description, cronExpression: def.cronExpression, taskArgs: def.taskArgs,
+        })
+        expect(sentChanges).toEqual([{type: 'updated', record: res.data}])
+    })
+
+    it('非系统任务 → {ok:false,error}', async () => {
+        const r = await repo()
+        r.get.mockReturnValueOnce(recordOf('s1'))
+        const res = await call('scheduler-restore-default', 's1')
+        expect(res.ok).toBe(false)
+        expect(res.error).toContain('仅系统内置任务')
     })
 })
 

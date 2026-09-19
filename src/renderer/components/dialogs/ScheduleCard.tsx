@@ -9,7 +9,8 @@
  * - **配置态**只有一个中性偏色的 chip（启用 / 已暂停 / 已禁用），文案区分，只有暂停带色；
  * - **执行结果**只有一处彩色载体：一个状态色圆点 + 文案（运行中/成功/失败/未执行）；
  * - 类型徽标只出现一次（原实现名称行与第二行各渲染一次，属 D2 违规）；
- * - 列表行内不再出现 cron 表达式原文，改为 `describeCron` 的人话摘要（H3）；
+ * - 行内频率摘要由 `describeCron` 给出：可归类模式是人话，高级模式回显 cron 表达式
+ *   （2026-09-19 用户拍板，原 H3「行内不得出现表达式」作废）；
  * - 行可聚焦，鼠标点击展开执行记录；键盘 Enter = 编辑（H6）。展开状态的 `aria-expanded`
  *   落在行内「执行记录」按钮上，**不在行本体上**（A6：行本体上「点=展开 / Enter=编辑」
  *   与 disclosure 语义自相矛盾，读屏用户按 Enter 拿不到它承诺的展开）。
@@ -20,6 +21,7 @@ import type {ScheduleUI} from '../../stores/scheduleStore'
 import {Switch} from '../common/Switch'
 import type {ScheduleWorkspaceHealth} from '@shared/types/scheduleWorkspace'
 import {describeCron} from './scheduleCron'
+import {ScheduleSystemActions} from './ScheduleSystemActions'
 import {
     TASK_TYPE_CLASS,
     TASK_TYPE_CLASS_FALLBACK,
@@ -87,6 +89,15 @@ export interface ScheduleCardProps {
      * 免得把一次取数失败演成用户看得见的假故障。
      */
     workspaceHealth?: ScheduleWorkspaceHealth
+    /** 是否为系统任务：系统任务不可删除，行内动作换成「还原默认」 */
+    isSystem?: boolean
+    /**
+     * 系统任务是否已漂移（与出厂模板不一致，主进程判定）。缺省按「已漂移」处理：
+     * 取不到判定时不禁用「还原默认」，免得一次取数失败演成用户点不动的假禁用。
+     */
+    isDrifted?: boolean
+    /** 系统任务的「还原默认」动作；未提供时不渲染该入口 */
+    onRestoreDefault?: () => Promise<void> | void
 }
 
 export default function ScheduleCard({
@@ -101,6 +112,9 @@ export default function ScheduleCard({
                                          onToggleExpand,
                                          isExpanded,
                                          workspaceHealth = WORKSPACE_HEALTH_OK,
+                                         isSystem = false,
+                                         isDrifted = true,
+                                         onRestoreDefault,
                                      }: ScheduleCardProps) {
     const configState = getConfigState(schedule)
     const configChip = getConfigChip(configState)
@@ -297,7 +311,17 @@ export default function ScheduleCard({
                         </svg>
                     </button>
 
-                    {/* 删除 */}
+                    {/* 还原默认（仅系统任务）：系统任务不可删除，配置回退走还原默认（通用确认弹窗确认） */}
+                    {isSystem && onRestoreDefault && (
+                        <ScheduleSystemActions
+                            scheduleId={schedule.id}
+                            onRestoreDefault={onRestoreDefault}
+                            disabled={!isDrifted}
+                        />
+                    )}
+
+                    {/* 删除（系统任务不提供） */}
+                    {!isSystem && (
                     <button
                         type="button"
                         onClick={onDelete}
@@ -312,6 +336,7 @@ export default function ScheduleCard({
                             <line x1="14" y1="11" x2="14" y2="17"/>
                         </svg>
                     </button>
+                    )}
                 </div>
             </div>
         </div>

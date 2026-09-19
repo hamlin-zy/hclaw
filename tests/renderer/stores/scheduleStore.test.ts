@@ -285,7 +285,7 @@ describe('onChanged — 变更载荷的就地更新与回退重取', () => {
         id: r.id, name: r.name, description: '', cronExpression: '0 0 * * *', taskType: 'agent',
         taskTarget: 't', taskArgs: [], taskPrompt: '', enabled: true, paused: false,
         lastRunAt: null, lastRunStatus: 'none', lastRunConversationId: null, runCount: 0,
-        createdAt: 1, updatedAt: 1, workspaceId: null,
+        createdAt: 1, updatedAt: 1, workspaceId: null, isSystem: false,
     }))})
 
     beforeEach(() => {
@@ -398,7 +398,7 @@ describe('就地更新只动那一行（M4）', () => {
             id: r.id, name: r.name, description: '', cronExpression: '0 0 * * *', taskType: 'agent',
             taskTarget: 't', taskArgs: [], taskPrompt: '', enabled: true, paused: false,
             lastRunAt: null, lastRunStatus: 'none', lastRunConversationId: null, runCount: 0,
-            createdAt: 1, updatedAt: 1, workspaceId: null,
+            createdAt: 1, updatedAt: 1, workspaceId: null, isSystem: false,
         })),
     })
 

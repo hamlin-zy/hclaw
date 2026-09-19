@@ -103,7 +103,7 @@ function recordOf(overrides: Partial<ScheduleRecord>): ScheduleRecord {
         id: 'sched-x', name: '任务', description: '', cronExpression: '0 9 * * *',
         taskType: 'agent', taskTarget: 't', taskArgs: [], enabled: true, paused: false,
         pausedAt: null, lastRunAt: null, lastRunStatus: 'none', lastRunConversationId: null,
-        runCount: 0, createdAt: 1, updatedAt: 1, workspaceId: 'ws-fixture',
+        runCount: 0, createdAt: 1, updatedAt: 1, workspaceId: 'ws-fixture', isSystem: false,
         ...overrides,
     }
 }

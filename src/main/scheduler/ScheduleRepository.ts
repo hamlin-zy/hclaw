@@ -9,7 +9,7 @@ const COL_MAP: Record<string, string> = {
   taskArgs: 'task_args', pausedAt: 'paused_at', lastRunAt: 'last_run_at',
   lastRunStatus: 'last_run_status', lastRunConversationId: 'last_run_conversation_id',
   runCount: 'run_count', createdAt: 'created_at', updatedAt: 'updated_at',
-  workspaceId: 'workspace_id',
+  workspaceId: 'workspace_id', isSystem: 'is_system',
 }
 
 function col(field: string): string { return COL_MAP[field] || field }
@@ -41,7 +41,7 @@ export class ScheduleRepository {
       lastRunStatus: row.last_run_status || 'none',
       lastRunConversationId: row.last_run_conversation_id || null,
       runCount: row.run_count || 0, createdAt: row.created_at, updatedAt: row.updated_at,
-      workspaceId: row.workspace_id || null,
+      workspaceId: row.workspace_id || null, isSystem: !!row.is_system,
     }
   }
 
@@ -87,13 +87,13 @@ export class ScheduleRepository {
   }
 
   /** 写入一条记录；ID 冲突 → INVALID_ARGUMENT，其余失败 → STORAGE_FAILURE */
-  create(data: Omit<ScheduleRecord, 'createdAt' | 'updatedAt' | 'lastRunAt' | 'lastRunStatus' | 'lastRunConversationId' | 'runCount'>): void {
+  create(data: Omit<ScheduleRecord, 'createdAt' | 'updatedAt' | 'lastRunAt' | 'lastRunStatus' | 'lastRunConversationId' | 'runCount' | 'isSystem'> & { isSystem?: boolean }): void {
     try {
-      getDatabase().prepare(`INSERT INTO schedules (id, name, description, cron_expression, task_type, task_target, task_args, enabled, paused, workspace_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      getDatabase().prepare(`INSERT INTO schedules (id, name, description, cron_expression, task_type, task_target, task_args, enabled, paused, workspace_id, is_system, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(data.id, data.name, data.description, data.cronExpression, data.taskType, data.taskTarget,
           JSON.stringify(data.taskArgs), data.enabled ? 1 : 0, data.paused ? 1 : 0,
-          data.workspaceId || null, Date.now(), Date.now())
+          data.workspaceId || null, data.isSystem ? 1 : 0, Date.now(), Date.now())
       saveDatabase()
     } catch (err) {
       console.error('[ScheduleRepository] create:', err)
@@ -112,6 +112,7 @@ export class ScheduleRepository {
     enabled: v => v ? 1 : 0, paused: v => v ? 1 : 0,
     pausedAt: v => v, lastRunStatus: v => v,
     lastRunConversationId: v => v, runCount: v => v, workspaceId: v => v,
+    isSystem: v => v ? 1 : 0,
   }
 
   /** 更新一条记录；未找到 → NOT_FOUND，无可更新字段 → INVALID_ARGUMENT */

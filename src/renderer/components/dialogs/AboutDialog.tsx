@@ -144,7 +144,7 @@ export default function AboutDialog() {
           disabled={checking}
           className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs
             text-[var(--text-secondary)] bg-[var(--surface)] border border-[var(--border)]
-            hover:border-[var(--brand-primary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]
+            hover:border-[var(--border-emphasis)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]
             active:scale-[0.97] active:bg-[var(--surface-muted)]
             disabled:opacity-60 disabled:cursor-wait transition-all duration-150"
          data-name="about-dialog-button">
@@ -169,7 +169,7 @@ export default function AboutDialog() {
               onClick={() => window.electronAPI?.openSystem?.(updateResult.downloads.baiduPan)}
               className="flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs
                 bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)]
-                hover:border-[var(--brand-primary)] transition-colors"
+                hover:border-[var(--border-emphasis)] transition-colors"
              data-name="about-dialog-baidu-download-button">
               网盘下载
             </button>
@@ -185,7 +185,7 @@ export default function AboutDialog() {
             onClick={(e) => handleLinkClick(link.url, e)}
             className={`flex flex-col items-center justify-center gap-1.5 px-3 py-3 rounded-xl text-xs
               text-[var(--text-secondary)] bg-[var(--surface)] border border-[var(--border)]
-              hover:border-[var(--brand-primary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]
+              hover:border-[var(--border-emphasis)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]
               transition-all duration-150 ${i === LINKS.length - 1 ? 'col-span-2' : ''}`}
            data-name={`about-dialog-link-${i}`}>
             <span className="w-4 h-4 flex items-center justify-center text-[var(--text-muted)]">

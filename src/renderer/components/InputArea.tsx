@@ -716,7 +716,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                         onPaste={handlePaste}
                         onContextMenu={handleContextMenu}
                         placeholder={needsSession ? '请先选择项目和会话...' : '输入你的任务...'}
-                        className="w-full px-3 py-2.5 rounded-2xl bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] resize-none outline-none focus:outline-none"
+                        className="w-full px-3 py-2.5 rounded-2xl bg-[var(--surface-muted)] border border-[var(--border)] shadow-[inset_0_1px_3px_rgba(0,0,0,0.06)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] resize-none outline-none focus:outline-none"
                         rows={1}
                     />
 

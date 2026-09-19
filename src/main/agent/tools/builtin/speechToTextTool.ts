@@ -162,6 +162,8 @@ export const speechToTextTool: Tool<Input, string> = {
                 messages,
                 maxTokens: 4096,
                 abortSignal: context.abortSignal,
+                // OpenRouter 固定服务商：辅助 LLM 出站同样透传模型级配置（空值绝不携带）
+                ...(modelConfig.openRouterProvider ? {openRouterProvider: modelConfig.openRouterProvider} : {}),
             }))
 
             // ── 8. 收集流式响应 ──

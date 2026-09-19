@@ -11,6 +11,7 @@ import {createLogger} from './agent/logger'
 import {broadcastToOtherWindows} from './utils/windowBroadcast'
 import {fetchProviderModels, testProviderModel} from './providerModelFetcher'
 import {modelMetaRegistry} from './modelMetaRegistry'
+import {openRouterEndpointsRegistry} from './openRouterEndpointsRegistry'
 import {exchangeRateRegistry} from './exchangeRateRegistry'
 import {createModelAdapter} from './agent/model'
 import {GoogleAuthService} from './auth/googleAuth'
@@ -300,6 +301,11 @@ export function initProviderIPC(): void {
       fetchedAt: modelMetaRegistry.getFetchedAt(),
     }
   })
+
+  // 模型可用服务商列表：OpenRouter /models/{author}/{slug}/endpoints（公开接口，无需 apiKey）
+  // 裸对象返回（与 model-meta:lookup 同风格）；失败返回 {fetchedAt: 0, providers: []}，UI 静默降级
+  ipcMain.handle('model-meta:model-endpoints', async (_, {model, force}: {model: string; force?: boolean}) =>
+    openRouterEndpointsRegistry.getModelEndpoints(model, force))
 
   logger.info('init', {module: 'provider-ipc'})
 }

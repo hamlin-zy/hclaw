@@ -940,7 +940,7 @@ function TagInput({value, onChange, placeholder, emptyHint, inputId, suggestions
                 </ul>
             )}
             <div
-                className="w-full min-h-[42px] px-2 py-1.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] focus-within:border-[var(--brand-primary)] focus-within:ring-1 focus-within:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all flex flex-wrap items-center gap-1.5 cursor-text"
+                className="w-full min-h-[42px] px-2 py-1.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] text-sm text-[var(--text-primary)] focus-within:border-[var(--border-emphasis)] focus-within:ring-1 focus-within:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] transition-all flex flex-wrap items-center gap-1.5 cursor-text"
                 onClick={e => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}
             >
                 {value.length === 0 && (

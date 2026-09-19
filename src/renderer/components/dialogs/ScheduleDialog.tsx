@@ -16,6 +16,7 @@ import {Toast} from '../usage/statsParts'
 import {ScheduleEditModal} from './ScheduleEditModal'
 import ScheduleCard from './ScheduleCard'
 import ScheduleConversationsPanel from './ScheduleConversationsPanel'
+import {ScheduleDisableConfirm} from './ScheduleDisableConfirm'
 import {ScheduleEmptyState, ScheduleListError, ScheduleListLoading} from './ScheduleListStates'
 import {INPUT_FOCUS} from '../../lib/inputFocus'
 import {
@@ -55,6 +56,7 @@ export default function ScheduleDialog() {
         filteredSchedules,
         filterCounts,
         workspaceHealth,
+        driftMap,
         runningTasks,
         expandedScheduleId,
         editModalOpen,
@@ -70,6 +72,10 @@ export default function ScheduleDialog() {
         handleToggleExpand,
         handleTogglePause,
         handleToggleEnabled,
+        disableConfirmSchedule,
+        handleCancelDisable,
+        handleConfirmDisable,
+        handleRestoreDefault,
     } = useScheduleListState()
 
     // 筛选后无结果的针对性文案（与「一条都没有」区分）
@@ -133,6 +139,8 @@ export default function ScheduleDialog() {
                     )
                 })}
                 <div className="flex-1"/>
+                {/* 「系统任务」tab 只读：系统任务由出厂定义，不提供新建入口 */}
+                {activeTab !== 'system' && (
                 <button
                     onClick={handleNew}
                     className="px-3 py-1.5 text-xs font-medium rounded-md
@@ -141,6 +149,7 @@ export default function ScheduleDialog() {
                  data-name="schedule-dialog-new-button">
                     新建
                 </button>
+                )}
             </div>
 
             {/* ── 搜索条 ── */}
@@ -207,6 +216,9 @@ export default function ScheduleDialog() {
                                         onToggleEnabled={() => handleToggleEnabled(schedule)}
                                         isExpanded={isExpanded}
                                         workspaceHealth={workspaceHealth?.[schedule.id]}
+                                        isDrifted={driftMap?.[schedule.id]?.drifted ?? true}
+                                        isSystem={schedule.isSystem}
+                                        onRestoreDefault={() => handleRestoreDefault(schedule.id)}
                                     />
                                     {isExpanded && (
                                         <ScheduleConversationsPanel
@@ -238,8 +250,15 @@ export default function ScheduleDialog() {
                     onSave={handleEditModalSave}
                     onClose={handleCloseEdit}
                     penetrable={true}
+                    isSystem={editingSchedule?.isSystem === true}
                 />
             )}
+            {/* ── 系统任务禁用确认：禁用「记忆沉淀」会同步关闭记忆功能，先问一句 ── */}
+            <ScheduleDisableConfirm
+                open={disableConfirmSchedule !== null}
+                onConfirm={() => disableConfirmSchedule && void handleConfirmDisable(disableConfirmSchedule)}
+                onCancel={handleCancelDisable}
+            />
             {/* ── 写操作失败回声（六条写路径共用；新建/编辑另在弹窗内呈现）──
                 Toast 自带 role="alert"，读屏软件会播报（契约 H6） */}
             {writeError && (

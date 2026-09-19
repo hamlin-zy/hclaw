@@ -38,6 +38,8 @@ export interface ModelConfig {
   features?: ProviderFeatures
   /** 模型类型（透传自 ProviderModel.modelTypes，供模态能力判定） */
   modelTypes?: ModelType[]
+  /** OpenRouter 固定服务商（透传自 ProviderModel，供 openaiAdapter 注入 OpenRouter provider routing） */
+  openRouterProvider?: string
   /** 模型级自定义运行时参数（透传自 ProviderModel，undefined=未配置） */
   modelParams?: {
     maxContextTokens?: number
@@ -179,6 +181,8 @@ export interface ProviderModel {
   temperature?: number
   /** 最大输出（token）；undefined = 未配置 → 系统设置 defaultMaxTokens */
   maxOutputTokens?: number
+  /** OpenRouter 服务商 slug（如 `deepinfra`、`deepinfra/turbo`）；undefined/空 = 自动路由（不注入 provider 参数） */
+  openRouterProvider?: string
 }
 
 /** 服务商扩展特性 */

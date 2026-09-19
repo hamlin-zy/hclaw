@@ -4,6 +4,7 @@ import {AnimatePresence, motion} from 'framer-motion'
 import {useConversationStore} from '../stores/conversationStore'
 import {useSidebarStore} from '../stores/sidebarStore'
 import {getBasename, getRelativeTime} from '../lib/format'
+import {workspaceBadgeLabel} from '../lib/workspacePath'
 import {useLLMStore} from '../stores/llmStore'
 import {useModelSchemeStore} from '../stores/modelSchemeStore'
 import {useAgentStore} from '../stores/agentStore'
@@ -278,7 +279,7 @@ function RunningSessionsPopover({open, anchorRef, convIds, onClose}: {
                                 <span className="flex-1 min-w-0">
                                     <span className={`block truncate text-xs ${isActive ? 'text-[var(--text-brand)] font-medium' : 'text-[var(--text-secondary)]'}`}>{entry.title}</span>
                                     {crossWorkspace && (
-                                        <span className="block truncate text-[10px] text-[var(--text-secondary)]">{getBasename(entry.workspacePath!)}</span>
+                                        <span className="block truncate text-[10px] text-[var(--text-secondary)]">{workspaceBadgeLabel(entry.workspacePath!)}</span>
                                     )}
                                 </span>
                                 {entry.updatedAt > 0 && (
@@ -1263,7 +1264,7 @@ export function ConversationList() {
                                 pinned={conv.pinned}
                                 channel={conv.channel}
                                 status={conv.status}
-                                projectLabel={getBasename(workspacePath)}
+                                projectLabel={workspaceBadgeLabel(workspacePath)}
                                 isRenaming={false}
                                 onStopRename={() => {}}
                                 onOpenMenu={(x, y) => setContextMenu({x, y, id: conv.id, title: conv.title, pinned: conv.pinned, parentConvId: conv.parentConvId})}
@@ -1688,7 +1689,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                         }}
                         onBlur={handleRenameConfirm}
                         onClick={(e) => e.stopPropagation()}
-                        className={`flex-1 text-xs font-medium px-1.5 py-0.5 rounded border border-[var(--brand-primary)] bg-[var(--surface)] outline-none text-[var(--text-primary)] ${INPUT_FOCUS}`}
+                        className={`flex-1 text-xs font-medium px-1.5 py-0.5 rounded border border-[var(--border-emphasis)] bg-[var(--surface)] outline-none text-[var(--text-primary)] ${INPUT_FOCUS}`}
                     data-name="conversation-sidebar-rename-input"/>
                 ) : (
                     <div

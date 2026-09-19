@@ -21,6 +21,7 @@ vi.mock('../../../src/renderer/stores/projectGroupStore', () => ({
 }))
 
 import {newConversation} from '../../../src/renderer/services/newConversation'
+import {UNASSIGNED_WORKSPACE_KEY} from '../../../src/renderer/lib/workspacePath'
 
 beforeEach(() => {
     vi.clearAllMocks()
@@ -86,5 +87,37 @@ describe('newConversation — 目标项目解析', () => {
         expect(store.setWorkspace).toHaveBeenCalledWith('/ws/picked')
         expect(store.setWorkspace.mock.invocationCallOrder[0])
             .toBeLessThan(store.createConversation.mock.invocationCallOrder[0])
+    })
+})
+
+describe('newConversation — 未归属虚拟键目标（视图不得跟随）', () => {
+    beforeEach(() => {
+        // 未归属会话处于激活态；当前视图为项目组视图（含真实项目 /ws/a）
+        store.activeConversationId = 'c-unassigned'
+        store.currentWorkspacePath = '/ws/a'
+        store.viewScope = {type: 'group', groupId: 'g-1'}
+        store.workspaces = {
+            '/ws/a': {lastOpenedAt: 1, conversations: [{id: 'c-1'}]},
+            [UNASSIGNED_WORKSPACE_KEY]: {lastOpenedAt: 0, conversations: [{id: 'c-unassigned'}]},
+        }
+        groupStore.groups = [{id: 'g-1', members: [{projectPath: '/ws/a'}]}]
+    })
+
+    it('★ 未归属会话激活 + Ctrl+N：新会话仍交虚拟键归属，但视图停留（follow=false + 段内定位，不切 viewScope）', async () => {
+        await newConversation()
+        expect(store.createConversation).toHaveBeenCalledWith(
+            undefined, {workspacePath: UNASSIGNED_WORKSPACE_KEY, follow: false},
+        )
+        expect(store.focusProjectSegment).toHaveBeenCalledWith(UNASSIGNED_WORKSPACE_KEY)
+        expect(store.followScopeToProject).not.toHaveBeenCalled()
+    })
+
+    it('未归属段头「+」（显式虚拟键 + stayInScope）：同样停留视图', async () => {
+        await newConversation({workspacePath: UNASSIGNED_WORKSPACE_KEY, stayInScope: true})
+        expect(store.createConversation).toHaveBeenCalledWith(
+            undefined, {workspacePath: UNASSIGNED_WORKSPACE_KEY, follow: false},
+        )
+        expect(store.focusProjectSegment).toHaveBeenCalledWith(UNASSIGNED_WORKSPACE_KEY)
+        expect(store.followScopeToProject).not.toHaveBeenCalled()
     })
 })

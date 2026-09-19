@@ -130,7 +130,7 @@ function recordOf(overrides: Partial<ScheduleRecord>): ScheduleRecord {
         id: 'sched-x', name: '任务', description: '', cronExpression: '0 9 * * *',
         taskType: 'agent', taskTarget: 't', taskArgs: [], enabled: true, paused: false,
         pausedAt: null, lastRunAt: null, lastRunStatus: 'none', lastRunConversationId: null,
-        runCount: 0, createdAt: 1, updatedAt: 1,
+        runCount: 0, createdAt: 1, updatedAt: 1, isSystem: false,
         // 票 11 起工作目录不可用即拦下执行：本文件的用例只考触发来源与脚本归属，
         // 故统一挂在一个真实存在的目录上（见上面的 workspaceRepository 桩）。
         workspaceId: 'ws-fixture',

@@ -45,9 +45,11 @@ function sameCronConfig(a: CronConfig, b: CronConfig): boolean {
 interface UseScheduleFormStateArgs {
     initial?: Partial<ScheduleFormData>
     onSave: (data: ScheduleFormData) => void
+    /** 系统任务不绑项目：workspace 判定直接放行（与主进程 checkScheduleWorkspace 的 isSystem 旁路同口径） */
+    isSystem?: boolean
 }
 
-export function useScheduleFormState({initial, onSave}: UseScheduleFormStateArgs) {
+export function useScheduleFormState({initial, onSave, isSystem = false}: UseScheduleFormStateArgs) {
     const [platform, setPlatform] = useState('win32')
 
     const [name, setNameRaw] = useState('')
@@ -255,10 +257,14 @@ export function useScheduleFormState({initial, onSave}: UseScheduleFormStateArgs
     /**
      * 工作目录判定 —— 弹窗内联提示与保存校验**共用的那一份结论**（票 11 复核 B1）。
      * 判定函数只在 ScheduleUtils 里有一份实现（checkWorkspaceSelection），这里只是喂数据。
+     * 系统任务不区分项目（会话归入未归属分组），直接放行——与主进程
+     * scheduleWorkspace.checkScheduleWorkspace 的 isSystem 旁路是同一口径的两条出口。
      */
     const workspaceVerdict = useMemo<WorkspaceSelectionVerdict>(
-        () => checkWorkspaceSelection(workspaceId, {ready: workspacesReady, ids: workspaces.map(ws => ws.id)}),
-        [workspaceId, workspacesReady, workspaces],
+        () => isSystem
+            ? {status: 'ok', message: null}
+            : checkWorkspaceSelection(workspaceId, {ready: workspacesReady, ids: workspaces.map(ws => ws.id)}),
+        [isSystem, workspaceId, workspacesReady, workspaces],
     )
 
     const handleSave = useCallback(() => {

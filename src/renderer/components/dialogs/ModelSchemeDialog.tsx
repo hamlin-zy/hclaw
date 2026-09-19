@@ -24,8 +24,8 @@ const EFFORT_LABELS: Record<string, string> = {
 }
 
 const EFFORT_COLORS: Record<string, string> = {
-    auto: 'text-brand-500', low: 'text-green-500', medium: 'text-amber-500',
-    high: 'text-red-500', xhigh: 'text-purple-600', max: 'text-purple-600',
+    auto: 'text-brand-500', low: 'text-[var(--success)]', medium: 'text-[var(--warning)]',
+    high: 'text-[var(--error)]', xhigh: 'text-purple-600', max: 'text-purple-600',
 }
 
 /** 更新 roles 数组中指定角色的字段 */
@@ -127,6 +127,18 @@ export default function ModelSchemeDialog() {
     } = useModelSchemeStore()
 
     const [selectedSchemeId, setSelectedSchemeId] = useState<string | null>(activeSchemeId)
+    // 「已初始化」标记：仅覆盖「挂载时 store 尚未 rehydrate」这一种情形；
+    // 用户后续手动清空选中不会被误复原
+    const selectedInitRef = useRef(activeSchemeId !== null)
+
+    // Store 异步 rehydrate 后，activeSchemeId 首次从 null 变为真实值时同步一次选中
+    useEffect(() => {
+        if (!selectedInitRef.current && activeSchemeId) {
+            setSelectedSchemeId(activeSchemeId)
+            selectedInitRef.current = true
+        }
+    }, [activeSchemeId])
+
     const [isEditingName, setIsEditingName] = useState(false)
     const [showPresetPicker, setShowPresetPicker] = useState(false)
     const [saveError, setSaveError] = useState<string | null>(null)
@@ -499,7 +511,7 @@ export default function ModelSchemeDialog() {
                                             保存更改
                                         </button>
                                         {saveError && (
-                                            <div className="text-xs text-red-500 mt-1">{saveError}</div>
+                                            <div className="text-xs text-[var(--error)] mt-1">{saveError}</div>
                                         )}
                                     </motion.div>
                                 )}
@@ -575,7 +587,7 @@ function SchemeListItem({
             <div className="flex items-center gap-1.5 min-w-0">
                 <div
                     className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-                        isActive ? 'bg-green-400' : scheme.enabled ? 'bg-gray-300' : 'bg-gray-200'
+                        isActive ? 'bg-[var(--success)]' : scheme.enabled ? 'bg-gray-300' : 'bg-gray-200'
                     }`}
                 />
                 <span className="text-[11px] font-medium truncate">{scheme.name}</span>
@@ -618,14 +630,14 @@ function SchemeListItem({
                 {confirmRemove ? (
                     <button
                         onClick={handleDelete}
-                        className="p-0.5 text-[9px] text-white bg-red-500 rounded hover:bg-red-600 transition-colors"
+                        className="p-0.5 text-[9px] text-white bg-[var(--error)] rounded hover:bg-[color-mix(in_srgb,var(--error)_85%,black)] transition-colors"
                      data-name="model-scheme-dialog-confirm-delete-button">
                         确认
                     </button>
                 ) : (
                     <button
                         onClick={handleDelete}
-                        className="p-0.5 text-[var(--text-muted)] hover:text-red-400 transition-colors"
+                        className="p-0.5 text-[var(--text-muted)] hover:text-[var(--error)] transition-colors"
                         title="删除"
                      data-name="model-scheme-dialog-delete-button">
                         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -712,11 +724,11 @@ function RoleConfigEditor({
     const effortValue = config.thinkingEffort
     const isEffortDisabled = !effortValue
     const effortLabel = isEffortDisabled ? '禁用' : EFFORT_LABELS[effortValue] ?? effortValue
-    const effortColor = isEffortDisabled ? 'text-gray-400' : EFFORT_COLORS[effortValue] ?? 'text-amber-500'
+    const effortColor = isEffortDisabled ? 'text-gray-400' : EFFORT_COLORS[effortValue] ?? 'text-[var(--warning)]'
 
     return (
         <div className={`p-3 rounded-lg border transition-colors ${
-            showError ? 'border-red-200' : showWarning ? 'border-amber-200' : 'border-gray-200 hover:border-gray-300'
+            showError ? 'border-[color-mix(in_srgb,var(--error)_30%,transparent)]' : showWarning ? 'border-[color-mix(in_srgb,var(--warning)_30%,transparent)]' : 'border-gray-200 hover:border-gray-300'
         }`}>
             {/* Header: icon + name + description + toggle */}
             <div className="flex items-start justify-between gap-2">

@@ -311,13 +311,13 @@ export default function ConversationsDialog() {
         return (
             <div className="flex items-center justify-center py-20">
                 <div className="flex flex-col items-center gap-3">
-                    <svg className="w-10 h-10 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    <svg className="w-10 h-10 text-[var(--error)]" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                          strokeWidth="1.5">
                         <circle cx="12" cy="12" r="10"/>
                         <line x1="12" y1="8" x2="12" y2="12"/>
                         <line x1="12" y1="16" x2="12.01" y2="16"/>
                     </svg>
-                    <span className="text-sm text-red-400">{error}</span>
+                    <span className="text-sm text-[var(--error)]">{error}</span>
                     <button
                         onClick={loadData}
                         className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
@@ -412,14 +412,14 @@ export default function ConversationsDialog() {
                             selectedCount === 0
                                 ? 'bg-[var(--surface-muted)] text-[var(--text-muted)] opacity-60 cursor-not-allowed'
                                 : deleting
-                                    ? 'bg-red-500/20 text-red-400 cursor-not-allowed'
-                                    : 'bg-red-500/12 text-red-400 hover:bg-red-500/20'
+                                    ? 'bg-[color-mix(in_srgb,var(--error)_20%,transparent)] text-[var(--error)] cursor-not-allowed'
+                                    : 'bg-[color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)] hover:bg-[color-mix(in_srgb,var(--error)_20%,transparent)]'
                         }`}
                      data-name="conversations-dialog-delete-button">
                         {deleting ? (
                             <>
                                 <div
-                                    className="w-3.5 h-3.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin"/>
+                                    className="w-3.5 h-3.5 border-2 border-[var(--error)] border-t-transparent rounded-full animate-spin"/>
                                 删除中...
                             </>
                         ) : (

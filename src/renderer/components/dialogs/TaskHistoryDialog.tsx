@@ -468,13 +468,13 @@ export default function TaskHistoryDialog() {
         return (
             <div className="flex items-center justify-center py-20">
                 <div className="flex flex-col items-center gap-3">
-                    <svg className="w-10 h-10 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    <svg className="w-10 h-10 text-[var(--error)]" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                          strokeWidth="1.5">
                         <circle cx="12" cy="12" r="10"/>
                         <line x1="12" y1="8" x2="12" y2="12"/>
                         <line x1="12" y1="16" x2="12.01" y2="16"/>
                     </svg>
-                    <span className="text-sm text-red-400">{error}</span>
+                    <span className="text-sm text-[var(--error)]">{error}</span>
                     <button onClick={reloadRef.current}
                             className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors" data-name="task-history-dialog-reload-button">
                         重试
@@ -550,13 +550,13 @@ export default function TaskHistoryDialog() {
                             selectedCount === 0
                                 ? 'bg-[var(--surface-muted)] text-[var(--text-muted)] opacity-60 cursor-not-allowed'
                                 : deleting
-                                    ? 'bg-red-500/20 text-red-400 cursor-not-allowed'
-                                    : 'bg-red-500/12 text-red-400 hover:bg-red-500/20'
+                                    ? 'bg-[color-mix(in_srgb,var(--error)_20%,transparent)] text-[var(--error)] cursor-not-allowed'
+                                    : 'bg-[color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)] hover:bg-[color-mix(in_srgb,var(--error)_20%,transparent)]'
                         }`}
                      data-name="task-history-dialog-delete-button">
                         {deleting ? (
                             <>
-                                <div className="w-3.5 h-3.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin"/>
+                                <div className="w-3.5 h-3.5 border-2 border-[var(--error)] border-t-transparent rounded-full animate-spin"/>
                                 删除中...
                             </>
                         ) : (
@@ -574,14 +574,14 @@ export default function TaskHistoryDialog() {
 
             {/* 删除失败横幅（用户可见反馈，手动关闭） */}
             {deleteError && (
-                <div className="flex items-center gap-2 px-5 py-2 bg-red-500/10 border-b border-red-500/30">
-                    <svg className="w-3.5 h-3.5 shrink-0 text-red-400" viewBox="0 0 24 24" fill="none"
+                <div className="flex items-center gap-2 px-5 py-2 bg-[color-mix(in_srgb,var(--error)_10%,transparent)] border-b border-[color-mix(in_srgb,var(--error)_30%,transparent)]">
+                    <svg className="w-3.5 h-3.5 shrink-0 text-[var(--error)]" viewBox="0 0 24 24" fill="none"
                          stroke="currentColor" strokeWidth="2">
                         <circle cx="12" cy="12" r="10"/>
                         <line x1="12" y1="8" x2="12" y2="12"/>
                         <line x1="12" y1="16" x2="12.01" y2="16"/>
                     </svg>
-                    <span className="text-xs text-red-400">{deleteError}</span>
+                    <span className="text-xs text-[var(--error)]">{deleteError}</span>
                     <button
                         onClick={() => setDeleteError(null)}
                         className="ml-auto shrink-0 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"

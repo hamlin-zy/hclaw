@@ -19,7 +19,7 @@ import SwitchStatus from '../primitives/SwitchStatus'
  * **不并入 pending**；其余字段一律 updatePending（与旧 SettingsDialog 行为一致）。
  */
 export default function GeneralTab() {
-    const {settings, pendingSettings, updatePending} = useSettingsStore()
+    const {settings, pendingSettings, updatePending, updateSettings} = useSettingsStore()
     // 系统配置目录：本地态（非 pending 字段），初值来自 IPC
     const [hclawDir, setHclawDir] = useState('')
     const [origHclawDir, setOrigHclawDir] = useState('')
@@ -116,6 +116,18 @@ export default function GeneralTab() {
                             ariaLabel="技能目录详细描述"
                         />
                         <SwitchStatus on={!!current.fullSkillDescriptions} className="ml-2"/>
+                    </div>
+                </FormRow>
+                {/* 用户习惯记忆：即改即存（走 updateSettings，主进程 controller 读 settings.memory?.enabled），
+                    不并入 pending —— 与「系统配置目录」同类的即时生效口径 */}
+                <FormRow label="用户习惯记忆" tip="会话首次请求时自动注入你的使用习惯和项目经验。由「记忆沉淀」定时任务自动维护。">
+                    <div className="flex items-center gap-2">
+                        <Switch
+                            checked={current.memory?.enabled ?? true}
+                            onChange={(checked) => void updateSettings({memory: {enabled: checked}})}
+                            ariaLabel="用户习惯记忆"
+                        />
+                        <SwitchStatus on={current.memory?.enabled ?? true} className="ml-2"/>
                     </div>
                 </FormRow>
             </section>

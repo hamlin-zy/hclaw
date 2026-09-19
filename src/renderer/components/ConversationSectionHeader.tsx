@@ -47,14 +47,28 @@ export function ConversationSectionHeader({section, singleProject, onToggleColla
                 </button>
             )}
 
-            {/* 项目名：不参与收缩，仅自身超长省略 */}
-            <span
-                data-name="section-project-name"
-                title={projectPath}
-                className="shrink-0 max-w-[55%] truncate text-[13px] font-semibold text-[var(--text-primary)]"
-            >
-                {projectName}
-            </span>
+            {/* 项目名：唯一弹性收缩项（flex-1 + min-w-0），超长省略，
+                保证右侧 shrink-0 的分支徽章/计数/按钮不被挤出列表。
+                非单项目视图时单击 = 折叠/展开本段（与 chevron 同口径，不切视图）。 */}
+            {!singleProject ? (
+                <button
+                    type="button"
+                    onClick={onToggleCollapsed}
+                    data-name="section-project-name"
+                    title={projectPath}
+                    className="flex-1 min-w-0 truncate cursor-pointer text-left text-[13px] font-semibold text-[var(--text-primary)] hover:opacity-80 transition-opacity"
+                >
+                    {projectName}
+                </button>
+            ) : (
+                <span
+                    data-name="section-project-name"
+                    title={projectPath}
+                    className="flex-1 min-w-0 truncate text-[13px] font-semibold text-[var(--text-primary)]"
+                >
+                    {projectName}
+                </span>
+            )}
 
             {collapsed && (
                 <span data-name="section-count" className="shrink-0 text-[10px] text-[var(--text-secondary)] opacity-70">

@@ -39,7 +39,7 @@ import {motion, type Transition} from 'framer-motion'
 import {useConversationStore} from '../stores/conversationStore'
 import {useProjectGroupStore} from '../stores/projectGroupStore'
 import {fuzzyFilter, fuzzyMatch} from '../lib/search'
-import {getBasename} from '../lib/format'
+import {workspaceBadgeLabel, workspacePathSubtitle} from '../lib/workspacePath'
 import {INPUT_FOCUS} from '../lib/inputFocus'
 import {collectDropZones, usePointerDrag, type DragPayload, type DropTarget} from '../lib/pointerDrag'
 import {confirm} from './ConfirmDialog'
@@ -113,6 +113,7 @@ function PlusIcon({className}: {className: string}) {
 /** 行主体（文件夹图标 + 项目名 + 路径）：层 1 项目行 / 搜索成员行 / 面板成员行三处共用。
     iconName 仅为个别槽位的 data-name（不传则不渲染该属性）。 */
 function ProjectRowBody({name, path, iconName}: {name: string; path: string; iconName?: string}) {
+    const pathLabel = workspacePathSubtitle(path)
     return (
         <>
             <svg className="w-3.5 h-3.5 shrink-0 opacity-50" viewBox="0 0 24 24" fill="none"
@@ -121,7 +122,7 @@ function ProjectRowBody({name, path, iconName}: {name: string; path: string; ico
             </svg>
             <div className="flex-1 min-w-0">
                 <div className="text-2xs font-medium truncate">{name}</div>
-                <div className="text-2xs text-[var(--text-muted)] [overflow-wrap:anywhere]">{path}</div>
+                <div className="text-2xs text-[var(--text-muted)] [overflow-wrap:anywhere]">{pathLabel}</div>
             </div>
         </>
     )
@@ -303,13 +304,13 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
     const groupedPaths = new Set(groups.flatMap((g) => g.members.map((m) => m.projectPath)))
     const topRows: TopProjectRow[] = Object.entries(workspaces)
         .filter(([path]) => !groupedPaths.has(path))
-        .map(([path, info]) => ({path, name: getBasename(path), lastOpenedAt: info.lastOpenedAt}))
+        .map(([path, info]) => ({path, name: workspaceBadgeLabel(path), lastOpenedAt: info.lastOpenedAt}))
         .sort((a, b) => b.lastOpenedAt - a.lastOpenedAt)
 
     // 搜索：按层级显示 —— 组名命中 → 该组全部成员；否则只留命中成员；顶层项目命中直接列出
     const query = search.trim()
     const groupViews: GroupView[] = groups
-        .map((g) => ({id: g.id, name: g.name, members: g.members.map((m) => ({path: m.projectPath, name: getBasename(m.projectPath)}))}))
+        .map((g) => ({id: g.id, name: g.name, members: g.members.map((m) => ({path: m.projectPath, name: workspaceBadgeLabel(m.projectPath)}))}))
         .map((g) => (query && !fuzzyMatch(query, g.name)
             ? {...g, members: fuzzyFilter(g.members, query, ['name', 'path'])}
             : g))
@@ -557,7 +558,7 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
     const draggedLabel = drag === null
         ? ''
         : drag.kind === 'project'
-            ? getBasename(drag.projectPath)
+            ? workspaceBadgeLabel(drag.projectPath)
             : groups.find((g) => g.id === drag.groupId)?.name ?? ''
 
     const handleTopAdd = async () => {
@@ -869,7 +870,7 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                                         }
                                     }}
                                     aria-label="项目组名称"
-                                    className={`flex-1 min-w-0 px-1 py-0.5 text-2xs bg-[var(--surface-muted)] border border-[var(--brand-primary)] rounded text-[var(--text-primary)] ${INPUT_FOCUS}`}
+                                    className={`flex-1 min-w-0 px-1 py-0.5 text-2xs bg-[var(--surface-muted)] border border-[var(--border-emphasis)] rounded text-[var(--text-primary)] ${INPUT_FOCUS}`}
                                     data-name="drawer-group-rename-input"/>
                             ) : (
                                 <span className="flex-1 min-w-0 truncate text-2xs font-semibold">{group.name}</span>

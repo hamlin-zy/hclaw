@@ -121,7 +121,12 @@ export function registerHandlers(): void {
                     context: 'background',
                 }
                                 // withLlmTraceStream：流消费时刻可能已离开创建作用域，代理每次 next() 重入 ctx
-                const stream = withLlmTraceStream(traceCtx, adapter.chat({messages, maxTokens: 4096}))
+                // OpenRouter 固定服务商：辅助 LLM 出站同样透传模型级配置（空值绝不携带）
+                const stream = withLlmTraceStream(traceCtx, adapter.chat({
+                    messages,
+                    maxTokens: 4096,
+                    ...(modelConfig.openRouterProvider ? {openRouterProvider: modelConfig.openRouterProvider} : {}),
+                }))
                 for await (const chunk of stream) {
                     if (chunk.type === 'text') {
                         textParts.push(chunk.content)

@@ -26,6 +26,7 @@ import {isSyntheticToolResult} from '../state'
 import {resolveToolName} from '../tools/toolNameResolver'
 import {logger} from '../logger'
 import {recordingFetch} from '../../utils/llmTraceRecorder'
+import {recognizeProvider} from '@shared/modelPresets'
 
 export class OpenAIAdapter implements ModelAdapter {
   private client: OpenAI
@@ -100,6 +101,15 @@ export class OpenAIAdapter implements ModelAdapter {
         delete (requestParams as any).temperature
     } else {
         requestParams.temperature = temperature ?? 0.7
+    }
+
+    // OpenRouter 固定服务商（单选 + 锁死）：
+    // order=[slug] 指定唯一服务商，allow_fallbacks=false 禁止回退（官方语义：设置 order 即禁用负载均衡）。
+    // ★ 刻意经 ChatParams 每轮下发而非进适配器构造/config：config 参与 computeConfigHash 指纹
+    //   （model/index.ts 与 llmCaller.ts），把模型级路由偏好混入会导致无谓的客户端重建。
+    const providerSlug = params.openRouterProvider?.trim()
+    if (providerSlug && this.isOpenRouterEndpoint()) {
+      ;(requestParams as any).provider = {order: [providerSlug], allow_fallbacks: false}
     }
 
     // 创建流；若因注入的思考关闭参数不被网关支持而报 400，剔除后重试一次
@@ -289,6 +299,12 @@ export class OpenAIAdapter implements ModelAdapter {
       requestParams.reasoning = { effort: finalEffort }
     }
 
+    // OpenRouter 固定服务商注入（与 chat 路径同语义，见该处注释）
+    const providerSlug = params.openRouterProvider?.trim()
+    if (providerSlug && this.isOpenRouterEndpoint()) {
+      requestParams.provider = {order: [providerSlug], allow_fallbacks: false}
+    }
+
     try {
       const stream = await this.client.responses.create(requestParams as any)
 
@@ -390,6 +406,18 @@ export class OpenAIAdapter implements ModelAdapter {
   }
 
   /**
+   * 判定端点是否为 OpenRouter 网关（决定是否注入固定服务商 provider 参数）。
+   *
+   * 回退链必须包含 client.baseURL：全局方案路径（model/index.ts）构造适配器时
+   * config.baseUrl 被硬编码为空串，端点信息只存在于注入的 client 上；
+   * 只读 config.baseUrl 会永远判定失败。
+   */
+  private isOpenRouterEndpoint(): boolean {
+    const url = this.config?.baseUrl || (this.client as any)?.baseURL || ''
+    return recognizeProvider(url)?.name === 'OpenRouter'
+  }
+
+  /**
    * 按端点来源解析 thinkingEffort 的实际发送值：
    * - 官方端点：'auto' → 'medium'（OpenAI 官方默认）；'xhigh'/'max' 原样透传（新模型原生支持）
    * - 第三方兼容网关：'auto' → 'high'；'xhigh'/'max' → 'high'（多数网关不认识新档位）
@@ -437,8 +465,10 @@ export class OpenAIAdapter implements ModelAdapter {
       requestParams.enable_thinking = false
       return true
     }
-    if (baseUrl.includes('openrouter.ai')) {
+    if (this.isOpenRouterEndpoint()) {
       // OpenRouter 统一网关：reasoning.effort=none（OpenRouter 归一化转发给上游）
+      // 判定复用 isOpenRouterEndpoint()（含 config.baseUrl || client.baseURL 回退），
+      // 与固定服务商注入出口合一，避免「第二真相」分叉（原 baseUrl.includes 字符串判定）。
       requestParams.reasoning = {effort: 'none'}
       return true
     }

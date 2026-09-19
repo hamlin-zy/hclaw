@@ -104,7 +104,7 @@ export default function MCPPluginServerCard({
                             title={copied ? '已复制' : '复制 JSON 配置'}
                          data-name="mcpplugin-server-card-copy-config-button">
                             {copied ? (
-                                <svg className="w-3.5 h-3.5 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <svg className="w-3.5 h-3.5 text-[var(--success)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                     <path d="M20 6L9 17l-5-5"/>
                                 </svg>
                             ) : (

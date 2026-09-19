@@ -35,6 +35,8 @@ import {checkScheduleWorkspace} from './scheduleWorkspace'
 import {SCHEDULER_WORKER_RESOURCE_LIMITS} from '../workerLimits'
 // 超时/取消时按 pid 树杀：根进程存活时才能遍历到子孙（见 ../common/killProcessTree）
 import {killProcessTree} from '../common/killProcessTree'
+// 系统内置任务的出厂默认值 + 启动补齐（纯常量无依赖，不污染 worker 闭包）
+import {SYSTEM_SCHEDULE_DEFAULTS, ensureSystemSchedules} from '../agent/defaults/systemSchedules'
 
 /**
  * 惰性获取主窗口：本模块位于 Agent Worker 的静态依赖闭包内
@@ -100,6 +102,25 @@ class SchedulerManager {
       this.resetInterruptedRunStatus()
 
       this.spawnCronWorker()
+
+      // ★ 启动时补齐系统内置任务（如「记忆沉淀」），并装载到 cron 引擎。
+      //   放在 spawnCronWorker 之后：upsert 需要已就绪的 Worker；
+      //   即使上面 listEnabled 兜底为空列表，这里也能把系统任务送达引擎。
+      try {
+        ensureSystemSchedules(this.scheduleRepo)
+        // 新创建的系统任务 upsert 到 cron 引擎（引擎侧按 id 幂等覆盖）
+        for (const def of SYSTEM_SCHEDULE_DEFAULTS) {
+          const record = this.scheduleRepo.get(def.id)
+          if (record && record.enabled) {
+            this.upsertWorkerSchedule(record)
+          }
+        }
+      } catch (err) {
+        // 存储异常不阻断启动：系统任务缺失只影响记忆沉淀，其余调度照常
+        logger.error('ensureSystemSchedules failed', {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
   }
 
   /**
@@ -301,7 +322,7 @@ class SchedulerManager {
     //    只把这一轮记成失败（走 updateRunStatusSafe，它照常广播 updated）。
     //    位置刻意在 ack 之后：cron 路径的 ack 必须先发，否则引擎的待确认去重会卡住
     //    该任务（见文件头的执行流程说明），拦截也不能踩这条。
-    const workspaceHealth = checkScheduleWorkspace(schedule?.workspaceId)
+    const workspaceHealth = checkScheduleWorkspace(schedule?.workspaceId, undefined, schedule?.isSystem)
     if (workspaceHealth.state !== 'ok') {
       logger.warn('execute.workspaceBlocked', {
         source: msg.source,
@@ -320,8 +341,11 @@ class SchedulerManager {
     // 那里的 catch 会静默回落到 getHclawDir() —— 守卫与二次解析之间没有任何事务保证，
     // DB 抖动就能复现本票要修的原始症状「会话落在 ~/.hclaw」。路径由守卫**传下去**，
     // 下游不再有兜底分支。真出现「ok 却无路径」说明判定被改坏了，按拦截处理并把原因留在日志里。
+    //
+    // **例外**：系统内置任务（isSystem）的守卫返回 ok 且 path=null —— 它们不绑定项目，
+    // 在全局上下文中运行。空路径对系统任务是合法的。
     const workspacePath = workspaceHealth.path
-    if (!workspacePath) {
+    if (!workspacePath && !schedule?.isSystem) {
       logger.error('execute.workspacePathMissing', {
         source: msg.source, scheduleId: msg.scheduleId, state: workspaceHealth.state,
       })
@@ -447,7 +471,7 @@ class SchedulerManager {
    * （复核 S6：那条兜底会把会话建到 `~/.hclaw` 上，正是本票要修的症状）。
    * 该会话会出现在主会话列表中，以定时任务图标标识
    */
-  private createSchedulerConversation(convId: string, scheduleId: string, name: string, startTime: number, workspacePath: string): void {
+  private createSchedulerConversation(convId: string, scheduleId: string, name: string, startTime: number, workspacePath: string | null): void {
     const pad = (n: number) => String(n).padStart(2, '0')
     const d = new Date(startTime)
     const timeStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
@@ -455,7 +479,7 @@ class SchedulerManager {
     const meta: ConversationMeta = {
       id: convId,
       title: `${name} - ${timeStr}`,
-      workspacePath,
+      workspacePath: workspacePath || '',
       createdAt: Date.now(),
       updatedAt: Date.now(),
       preview: '',
@@ -735,7 +759,7 @@ class SchedulerManager {
       logger.warn('runNow.notFound', {id})
       return {success: false, error: 'Schedule not found'}
     }
-    const workspaceHealth = checkScheduleWorkspace(schedule.workspaceId)
+    const workspaceHealth = checkScheduleWorkspace(schedule.workspaceId, undefined, schedule.isSystem)
     if (workspaceHealth.state !== 'ok') {
       logger.warn('runNow.workspaceBlocked', {
         id, state: workspaceHealth.state, workspaceId: schedule.workspaceId,

@@ -57,6 +57,11 @@ interface ScheduleEditModalProps {
     onSave: (data: ScheduleFormData) => SaveOutcome | Promise<SaveOutcome>
     onClose: () => void
     penetrable?: boolean
+    /**
+     * 是否为系统任务（本票）：系统任务的 name / taskType / taskTarget（执行什么）由
+     * 出厂定义锁定，编辑弹窗里禁用这些入口；description、cron 配置、任务提示词仍可改。
+     */
+    isSystem?: boolean
 }
 
 // ─── 公共样式 ─────────────────────────────────────
@@ -159,7 +164,7 @@ function NumField({value, min, max, onValue, dataName, ariaLabel}: {
 
 // ─── 主组件 ─────────────────────────────────────────
 
-export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalProps) {
+export function ScheduleEditModal({initial, onSave, onClose, isSystem = false}: ScheduleEditModalProps) {
     const fileInputRef = useRef<HTMLInputElement>(null)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     /**
@@ -255,7 +260,7 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
         handleModeSwitch,
         applyScriptFile,
         handleSave,
-    } = useScheduleFormState({initial, onSave: handleSubmit})
+    } = useScheduleFormState({initial, onSave: handleSubmit, isSystem})
 
     /**
      * 工作目录判定的**唯一来源**是本 hook 里的 `workspaceVerdict`（由 ScheduleUtils 的
@@ -379,12 +384,13 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                         <div className="flex-1 min-w-0">
                             <label htmlFor={FIELD_IDS.name} className={labelCls}>任务名称</label>
                             <input id={FIELD_IDS.name} type="text" value={name} onChange={e => setName(e.target.value)}
-                                   placeholder="例如: 每日代码审查" className={`${inputCls} ${INPUT_FOCUS}`} autoFocus data-name="schedule-edit-modal-input"/>
+                                   placeholder="例如: 每日代码审查" disabled={isSystem}
+                                   className={`${inputCls} ${INPUT_FOCUS} ${isSystem ? 'opacity-50 cursor-not-allowed' : ''}`} data-name="schedule-edit-modal-input"/>
                         </div>
                         <div className="flex-1 min-w-0">
                             <label htmlFor={FIELD_IDS.description} className={labelCls}>描述 <span className="opacity-60">(可选)</span></label>
                             <input id={FIELD_IDS.description} type="text" value={description} onChange={e => setDescription(e.target.value)}
-                                   placeholder="简短描述" className={`${inputCls} ${INPUT_FOCUS}`} data-name="schedule-edit-modal-description-input"/>
+                                   placeholder="简短描述" className={`${inputCls} ${INPUT_FOCUS}`} autoFocus data-name="schedule-edit-modal-description-input"/>
                         </div>
                     </div>
 
@@ -401,14 +407,18 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                             value={workspaceId || ''}
                             onChange={v => setWorkspaceId(v || null)}
                             options={workspaceOptions}
-                            placeholder="未设置项目（必选）"
+                            placeholder={isSystem ? '系统任务不区分项目' : '未设置项目（必选）'}
                             ariaLabel="项目"
+                            /* 系统任务不绑定项目（spec：仅 description/cron/taskArgs 可编辑），
+                               workspace 选择器与 name/taskType/taskTarget 一并锁定 */
                             /* 列表没到手时列表里空无一物，展开一个空面板没有意义 —— 置灰并把
                                注意力引到下面的重试入口。 */
-                            disabled={workspaceStatus === 'unready'}
+                            disabled={isSystem || workspaceStatus === 'unready'}
                         />
                         {workspaceStatus === 'ok' ? (
-                            <p className="mt-0.5 text-2xs text-[var(--text-secondary)]">定时任务创建的会话将归属于此项目</p>
+                            <p className="mt-0.5 text-2xs text-[var(--text-secondary)]">
+                                {isSystem ? '系统任务不区分项目，创建的会话归入未归属分组' : '定时任务创建的会话将归属于此项目'}
+                            </p>
                         ) : (
                             <p className="mt-0.5 text-2xs text-[var(--text-secondary)]"
                                data-name="schedule-edit-modal-workspace-warning">
@@ -435,22 +445,26 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                     {/* 模式选择：两个按钮是一个「组」，组名落在可见标签上 */}
                     <div role="group" aria-labelledby={FIELD_IDS.modeLabel}>
                         <span id={FIELD_IDS.modeLabel} className={labelCls}>执行什么？</span>
-                        <div className="flex gap-2">
-                            <button onClick={() => handleModeSwitch('capability')}
+                        {/*
+                          系统任务的「执行什么」由出厂定义锁定：两个模式按钮整体禁用并视觉降级
+                          （disabled 只挡鼠标键盘，视觉降级让「点不动」可被看见）。
+                        */}
+                        <div className={`flex gap-2 ${isSystem ? 'opacity-50' : ''}`}>
+                            <button onClick={() => handleModeSwitch('capability')} disabled={isSystem}
                                     aria-pressed={mode === 'capability'}
-                                    className={`flex-1 px-3 py-2 text-xs rounded-lg border transition-colors ${
+                                    className={`flex-1 px-3 py-2 text-xs rounded-lg border transition-colors ${isSystem ? 'cursor-not-allowed' : ''} ${
                                         mode === 'capability'
-                                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] border-[var(--brand-primary)] text-[var(--text-primary)] font-medium'
+                                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] border-[var(--border-emphasis)] text-[var(--text-primary)] font-medium'
                                             : 'border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                     }`} data-name="schedule-edit-modal-capability-mode-button">
                                 <div className="font-medium">可用能力</div>
                                 <div className="text-2xs opacity-70 mt-0.5">从 Agent / Skill / 命令中选择</div>
                             </button>
-                            <button onClick={() => handleModeSwitch('script')}
+                            <button onClick={() => handleModeSwitch('script')} disabled={isSystem}
                                     aria-pressed={mode === 'script'}
-                                    className={`flex-1 px-3 py-2 text-xs rounded-lg border transition-colors ${
+                                    className={`flex-1 px-3 py-2 text-xs rounded-lg border transition-colors ${isSystem ? 'cursor-not-allowed' : ''} ${
                                         mode === 'script'
-                                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] border-[var(--brand-primary)] text-[var(--text-primary)] font-medium'
+                                            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] border-[var(--border-emphasis)] text-[var(--text-primary)] font-medium'
                                             : 'border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)]'
                                     }`} data-name="schedule-edit-modal-script-mode-button">
                                 <div className="font-medium">本地脚本</div>
@@ -459,9 +473,11 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                         </div>
                     </div>
 
-                    {/* 可用能力 — 搜索 + 列表 */}
+                    {/* 可用能力 — 搜索 + 列表（系统任务锁定 taskTarget：整块只读降级） */}
                     {mode === 'capability' && (
-                        <CapabilityPicker selected={taskTarget} onSelect={handleCapabilitySelect}/>
+                        <div className={isSystem ? 'pointer-events-none opacity-50' : ''} aria-disabled={isSystem}>
+                            <CapabilityPicker selected={taskTarget} onSelect={handleCapabilitySelect} autoFocus={false}/>
+                        </div>
                     )}
 
                     {/* 本地脚本 — 路径输入 + 浏览 */}
@@ -470,9 +486,10 @@ export function ScheduleEditModal({initial, onSave, onClose}: ScheduleEditModalP
                             <label htmlFor={FIELD_IDS.scriptPath} className={labelCls}>脚本路径</label>
                             <div className="flex gap-2">
                                 <input id={FIELD_IDS.scriptPath} type="text" value={taskTarget} onChange={e => setTaskTarget(e.target.value)}
-                                       placeholder="例如: C:\scripts\backup.ps1" className={`flex-1 px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] border border-[var(--border)] font-mono ${INPUT_FOCUS}`} data-name="schedule-edit-modal-script-path-input"/>
-                                <button onClick={handleBrowse}
-                                        className="px-3 py-1.5 text-xs rounded-md bg-[var(--surface-muted)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)] border border-[var(--border)] transition-colors flex-shrink-0" data-name="schedule-edit-modal-browse-button">
+                                       placeholder="例如: C:\scripts\backup.ps1" disabled={isSystem}
+                                       className={`flex-1 px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] border border-[var(--border)] font-mono ${INPUT_FOCUS} ${isSystem ? 'opacity-50 cursor-not-allowed' : ''}`} data-name="schedule-edit-modal-script-path-input"/>
+                                <button onClick={handleBrowse} disabled={isSystem}
+                                        className={`px-3 py-1.5 text-xs rounded-md bg-[var(--surface-muted)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface)] border border-[var(--border)] transition-colors flex-shrink-0 ${isSystem ? 'opacity-50 cursor-not-allowed' : ''}`} data-name="schedule-edit-modal-browse-button">
                                     浏览
                                 </button>
                             </div>

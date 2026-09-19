@@ -12,12 +12,13 @@
  *   再由 scheduleBroadcast 这一个出口广播——详见 scheduleBroadcast.ts。
  */
 import crypto from 'crypto'
-import type {ScheduleRecord, ScheduleResult} from '@shared/types/schedule'
+import type {ScheduleRecord, ScheduleResult, SystemScheduleDriftMap} from '@shared/types/schedule'
 import type {ScheduleWorkspaceHealthMap} from '@shared/types/scheduleWorkspace'
 import {scheduleRepo} from './ScheduleRepository'
 import {schedulerManager} from './index'
 import {sweepWorkspaceHealth} from './scheduleWorkspace'
-import {ScheduleError, notFound, storageFailure} from './scheduleErrors'
+import {ScheduleError, notFound, storageFailure, invalidArgument} from './scheduleErrors'
+import {SYSTEM_SCHEDULE_DEFAULTS} from '../agent/defaults/systemSchedules'
 
 const ok = <T>(data: T): ScheduleResult<T> => ({ok: true, data})
 
@@ -88,7 +89,17 @@ export function createSchedule(input: CreateScheduleInput): ScheduleResult<Sched
 
 export function updateSchedule(id: string, updates: Partial<ScheduleRecord>): ScheduleResult<ScheduleRecord> {
   try {
-    scheduleRepo.update(id, updates)
+    // isSystem 结构性不可变：scheduler-update IPC 原样透传 updates，若不剥离，
+    // 任何调用方可把用户任务提升为系统任务（不可删除 + workspace 守卫旁路）。
+    // 与还原默认（restoreSystemSchedule）的口径一致：isSystem 不属于可编辑字段。
+    const {isSystem: _ignored, ...rest} = updates
+    if (Object.keys(rest).length === 0) {
+      // 仅 isSystem（不可变字段）被传入 = 没有实际可更新内容，直接返回现状而非报错
+      const current = scheduleRepo.get(id)
+      if (!current) throw notFound(id)
+      return ok(current)
+    }
+    scheduleRepo.update(id, rest)
     const record = scheduleRepo.get(id)
     if (!record) throw notFound(id)
     if (record.enabled) schedulerManager.upsertWorkerSchedule(record)
@@ -124,7 +135,10 @@ export function resumeSchedule(id: string): ScheduleResult<ScheduleRecord> {
 
 export function deleteSchedule(id: string): ScheduleResult<true> {
   try {
-    if (!scheduleRepo.get(id)) throw notFound(id)
+    const record = scheduleRepo.get(id)
+    if (!record) throw notFound(id)
+    // 系统内置任务不可删除：保护用户不丢失调度基础设施
+    if (record.isSystem) throw invalidArgument('系统内置任务不可删除')
     schedulerManager.stop(id)
     schedulerManager.deleteWorkerSchedule(id)
     scheduleRepo.delete(id)
@@ -165,11 +179,65 @@ export function runNowSchedule(id: string): Promise<ScheduleResult<true>> {
 export function workspaceHealthMap(): ScheduleResult<ScheduleWorkspaceHealthMap> {
   try {
     const records = scheduleRepo.list()
-    const healths = sweepWorkspaceHealth(records.map(record => record.workspaceId))
+    const healths = sweepWorkspaceHealth(
+        records.map(record => ({workspaceId: record.workspaceId, isSystem: record.isSystem})),
+    )
     const map: ScheduleWorkspaceHealthMap = {}
     records.forEach((record, index) => {
       map[record.id] = healths[index]
     })
     return ok(map)
+  } catch (err) { return fail(err) }
+}
+
+/**
+ * 系统内置任务的漂移检测：记录与出厂模板（SYSTEM_SCHEDULE_DEFAULTS）是否一致。
+ *
+ * 只比较还原默认可覆盖的三个字段：description（null 与 '' 等价归一，DB 中可能为 null）、
+ * cronExpression、taskArgs（JSON.stringify 比较）。仅 isSystem 记录进 map；
+ * defaults 中找不到 id 的记录不进 map。只读派生量，不落库。
+ * 「还原默认」按钮的禁用态由此判定（渲染层只消费，不自行推算）。
+ */
+export function systemScheduleDrift(): ScheduleResult<SystemScheduleDriftMap> {
+  try {
+    const map: SystemScheduleDriftMap = {}
+    for (const record of scheduleRepo.list()) {
+      if (!record.isSystem) continue
+      const defaults = SYSTEM_SCHEDULE_DEFAULTS.find(d => d.id === record.id)
+      if (!defaults) continue
+      const changedFields: string[] = []
+      const eq = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+      if ((record.description ?? '') !== (defaults.description ?? '')) changedFields.push('description')
+      if (record.cronExpression !== defaults.cronExpression) changedFields.push('cronExpression')
+      if (!eq(record.taskArgs ?? [], defaults.taskArgs ?? [])) changedFields.push('taskArgs')
+      map[record.id] = {drifted: changedFields.length > 0, changedFields}
+    }
+    return ok(map)
+  } catch (err) { return fail(err) }
+}
+
+/**
+ * 还原系统内置任务到默认配置。
+ *
+ * 系统任务不可删除（见 deleteSchedule），但用户可以修改它。当改乱了想回到出厂状态时，
+ * 用默认配置覆盖 description / cronExpression / taskArgs 三个可漂移字段，不动 id / name /
+ * taskType / taskTarget / enabled / isSystem（这些是结构性的，不应被还原覆盖）。
+ */
+export function restoreSystemSchedule(id: string): ScheduleResult<ScheduleRecord> {
+  try {
+    const record = scheduleRepo.get(id)
+    if (!record) throw notFound(id)
+    if (!record.isSystem) throw invalidArgument('仅系统内置任务支持还原默认')
+    const defaults = SYSTEM_SCHEDULE_DEFAULTS.find(d => d.id === id)
+    if (!defaults) throw invalidArgument(`未找到系统任务默认配置：${id}`)
+    scheduleRepo.update(id, {
+      description: defaults.description,
+      cronExpression: defaults.cronExpression,
+      taskArgs: defaults.taskArgs,
+    })
+    const updated = scheduleRepo.get(id)
+    if (!updated) throw storageFailure('restore', new Error('还原后无法读回记录'))
+    if (updated.enabled) schedulerManager.upsertWorkerSchedule(updated)
+    return ok(updated)
   } catch (err) { return fail(err) }
 }

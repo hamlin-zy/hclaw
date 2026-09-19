@@ -102,13 +102,32 @@ describe('视图跟随矩阵（§5.2）', () => {
         expect(store.getState().viewScope).toEqual({type: 'project', path: WS_B})
     })
 
-    it('handleSessionCreated（handoff 新建会话，带 workspacePath）→ viewScope 跟随', async () => {
+    it('handleSessionCreated（handoff 新建会话，组外项目）→ viewScope 跟随', async () => {
         const store = await loadStore()
         seed(store)
 
         store.getState().handleSessionCreated('c-new', '交接会话', WS_B, 'c-1', 3000, 3000)
 
         expect(store.getState().viewScope).toEqual({type: 'project', path: WS_B})
+        await settle()
+    })
+
+    it('handleSessionCreated（handoff 新建会话，组内成员项目）→ 停留组视图，不跟随', async () => {
+        const store = await loadStore()
+        seed(store)
+        // 当前组 pg-a 含 WS_A / WS_B 两个成员项目：目标在组内 → 离开组视图 = 强制切视图
+        const pgMod = await import('../../../src/renderer/stores/projectGroupStore')
+        pgMod.useProjectGroupStore.setState({
+            groups: [{
+                id: 'pg-a', name: 'G', sortOrder: 0, createdAt: 0, updatedAt: 0,
+                members: [{projectPath: WS_A, groupOrder: 0}, {projectPath: WS_B, groupOrder: 1}],
+            }],
+        })
+
+        store.getState().handleSessionCreated('c-new-in-group', '交接会话', WS_B, 'c-1', 3000, 3000)
+
+        expect(store.getState().viewScope).toEqual({type: 'group', groupId: 'pg-a'})
+        expect((store.getState() as any).pendingFocusProject).toBe(WS_B)
         await settle()
     })
 

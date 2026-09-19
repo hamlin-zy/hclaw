@@ -447,6 +447,9 @@ export async function* executeLlmCallWithRetry(
                 maxTokens,
                 temperature: resolvedParams.temperature.value,
                 ...(effectiveThinkingEffort ? {thinkingEffort: effectiveThinkingEffort} : {}),
+                // OpenRouter 固定服务商：无优先级链，直传模型级配置；
+                // 空/undefined 不携带（adapter 侧判定端点与 slug 后才注入 body）
+                ...(modelConfig.openRouterProvider ? {openRouterProvider: modelConfig.openRouterProvider} : {}),
             }))
 
             const stream = withTimeout(

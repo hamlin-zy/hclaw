@@ -123,6 +123,7 @@ async function createAdapterForRole(
     let refreshToken: string | undefined
     let tokenExpiryDate: number | undefined
     let features: import('@shared/types').ProviderFeatures | undefined
+    let providerName: string | undefined
 
     try {
         // 尝试从全局管理器获取
@@ -140,6 +141,7 @@ async function createAdapterForRole(
         features = result.features
         // apiStyle 透传：进入配置哈希，服务商 apiStyle 变更 → 适配器自动重建
         apiStyle = (result as any).apiStyle || 'chat'
+        providerName = (result as any).providerName
     } catch (error: any) {
         // 全局管理器获取失败，尝试使用兜底配置
         logger.error('[createAdapterForRole] getClientForCurrentScheme 失败', { error: error.message, stack: error.stack })
@@ -202,8 +204,9 @@ async function createAdapterForRole(
             provider: providerType as any,
             model: modelId,
             apiKey: apiKey,
-            baseUrl: '',
+            baseUrl: (client as any)?.baseURL || (client as any)?.baseUrl || '',
             authType: authType as any, // 注入 authType
+            _providerName: providerName,
             refreshToken,
             tokenExpiryDate,
             features,
