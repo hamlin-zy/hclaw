@@ -86,9 +86,11 @@ function toItems(entries: CapabilityEntry[]): CapabilityItem[] {
     return items
 }
 
-export default function CapabilityPicker({selected, onSelect}: {
+export default function CapabilityPicker({selected, onSelect, autoFocus = true}: {
     selected: string
     onSelect: (name: string, type: string) => void
+    /** 打开即聚焦搜索框；宿主弹窗有自己的初始焦点字段时传 false，避免两个 autoFocus 抢焦点 */
+    autoFocus?: boolean
 }) {
     const [search, setSearch] = useState('')
     const [allItems, setAllItems] = useState<CapabilityItem[]>([])
@@ -176,11 +178,12 @@ export default function CapabilityPicker({selected, onSelect}: {
             <div
                 className="flex items-center gap-1 px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md border border-[var(--border)] shadow-sm focus-within:border-[var(--border-emphasis)] focus-within:shadow-md transition-all">
                 {selected && (
-                    // 已选能力徽标（ui-09 复核整改 · C5/C7）：底色改 `--surface`（不透明，
-                    // 对上一层的 `--surface-muted` 仍可见），文字改 `--text-secondary`
-                    // （受 audit-contrast 门禁），替掉原先的调色板类名绿底绿字（10px，实测 3.15:1）。
+                    // 已选能力徽标：品牌实底 + 白字（设计系统承白组合，与 FilePicker 徽标同款）。
+                    // 曾试过「提亮底 + --brand-ink 深字」：四主题实测对比 2.08~3.45:1，
+                    // 10px 小字要求 4.5:1，无解（2026-09-19 实测披露）。亮度不足是主题
+                    // --brand-primary 取值问题（远山黛/石漾金偏低饱和），非徽标样式问题。
                     <span
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium bg-[var(--surface)] text-[var(--text-secondary)] shrink-0">
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium bg-[var(--brand-primary)] text-white shrink-0">
                         {selected}
                         <button
                             type="button"
@@ -202,7 +205,7 @@ export default function CapabilityPicker({selected, onSelect}: {
                     onKeyDown={onKeyDown}
                     placeholder={selected ? '' : '搜索可用能力...'}
                     className={`flex-1 min-w-0 bg-transparent text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
-                    autoFocus
+                    autoFocus={autoFocus}
                 data-name="capability-picker-input"/>
             </div>
             <div ref={listRef} className="mt-1.5 max-h-40 overflow-y-auto rounded-md border border-[var(--border)]">

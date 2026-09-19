@@ -1,5 +1,5 @@
 import {create} from 'zustand'
-import type {ScheduleChangePayload, ScheduleRecord, ScheduleResult, ScheduleRunStatus} from '@shared/types/schedule'
+import type {ScheduleChangePayload, ScheduleRecord, ScheduleResult, ScheduleRunStatus, SystemScheduleDriftMap} from '@shared/types/schedule'
 import type {ScheduleWorkspaceHealthMap} from '@shared/types/scheduleWorkspace'
 
 /**
@@ -22,7 +22,7 @@ function toUI(r: any): ScheduleUI {
     taskPrompt: typeof args[0] === 'string' ? args[0] : '',
     enabled: r.enabled, paused: r.paused, lastRunAt: r.lastRunAt, lastRunStatus: r.lastRunStatus,
     lastRunConversationId: r.lastRunConversationId, runCount: r.runCount, createdAt: r.createdAt, updatedAt: r.updatedAt,
-    workspaceId: r.workspaceId || null}
+    workspaceId: r.workspaceId || null, isSystem: !!r.isSystem}
 }
 
 /** bridge 缺失时的统一失败结果（消息口径与既有 runNow 兜底一致） */
@@ -41,10 +41,22 @@ export const useScheduleStore = create<{
    */
   workspaceHealth: ScheduleWorkspaceHealthMap
   /**
+   * 系统任务 id → 漂移信息（主进程判定，与出厂模板比较；还原默认按钮禁用态的唯一来源）。
+   * 刻意不并进 ScheduleUI：漂移不是任务记录的一部分，是只读派生量。
+   * 取不到时为空 map → 界面按「已漂移（可还原）」呈现，不制造假禁用。
+   */
+  driftMap: SystemScheduleDriftMap
+  /**
    * 拉取工作目录健康度。
    * 调用时机只有两处：列表取回之后、以及收到配置变更广播之后 —— **不新增轮询定时器**。
    */
   loadWorkspaceHealth: () => Promise<void>
+  /**
+   * 拉取系统任务漂移信息。调用时机与 loadWorkspaceHealth 相同：列表取回之后、
+   * 以及收到配置变更广播之后 —— 不新增轮询定时器。失败静默为空 map（只读派生量，
+   * 取不到不该升级成列表级错误态，按钮退回「可还原」的宽松呈现）。
+   */
+  loadDriftMap: () => Promise<void>
   /**
    * 取回整表。
    *
@@ -63,6 +75,8 @@ export const useScheduleStore = create<{
   /** 恢复：把暂停的任务放回调度。同上，不在这里整表重取。 */
   resume: (id: string) => Promise<ScheduleResult<ScheduleRecord>>
   runNow: (id: string) => Promise<ScheduleResult<boolean>>
+  /** 还原默认：把系统任务的配置恢复到出厂定义（Task 11 的 scheduler-restore-default 通道）。 */
+  restoreDefault: (id: string) => Promise<ScheduleResult<ScheduleRecord>>
 }>((set) => {
   const api = () => window.electronAPI?.scheduler
 
@@ -91,8 +105,23 @@ export const useScheduleStore = create<{
     }
   }
 
+  /**
+   * 漂移取数（与 fetchWorkspaceHealth 同一套降级口径）。
+   */
+  const fetchDriftMap = async (): Promise<void> => {
+    const call = api()?.systemDrift
+    if (!call) return
+    try {
+      const res = await call()
+      if (!res || !res.ok) return
+      set({driftMap: res.data || {}})
+    } catch {
+      // 静默：漂移是只读派生量，取不到就退回「可还原」呈现；列表本身的失败态由 loadSchedules 负责。
+    }
+  }
+
   return {
-    schedules: [], loading: false, error: null, workspaceHealth: {},
+    schedules: [], loading: false, error: null, workspaceHealth: {}, driftMap: {},
 
     // 失败不再被拍成空数组：区分「后端返回 ok:false（带可读原因）」与
     // 「桥接缺失（window.electronAPI.scheduler / list 不存在）」，两者都写进 error。
@@ -112,12 +141,15 @@ export const useScheduleStore = create<{
         set({schedules: res.data.map(toUI), error: null})
         // 列表与健康度同源同时刷新：界面上的可用性必须与刚取回的这批任务对得上。
         await fetchWorkspaceHealth()
+        await fetchDriftMap()
       } catch (err: unknown) {
         set({schedules: [], error: err instanceof Error ? err.message : String(err)})
       } finally { if (!silent) set({loading: false}) }
     },
 
     loadWorkspaceHealth: fetchWorkspaceHealth,
+
+    loadDriftMap: fetchDriftMap,
 
     // 写操作不再自行整表重取：主进程成功后会广播带载荷的变更，
     // 统一由下方 applySchedulesChange 就地更新那一行（写失败不广播，行为不变）
@@ -148,6 +180,8 @@ export const useScheduleStore = create<{
       if (!apiObj.runNow) return {ok: false, error: 'scheduler.runNow 不可用'}
       return await apiObj.runNow(id)
     },
+
+    restoreDefault: async (id) => call(() => api()?.restoreDefault?.(id)),
   }
 })
 
@@ -191,6 +225,8 @@ function scheduleHealthRefresh(): void {
     healthRefreshTimer = setTimeout(() => {
         healthRefreshTimer = null
         void useScheduleStore.getState().loadWorkspaceHealth()
+        // 配置一变漂移态也可能变（还原默认成功 → 该行按钮应回到禁用）：同一窗口内顺带刷新
+        void useScheduleStore.getState().loadDriftMap()
     }, HEALTH_REFRESH_COALESCE_MS)
 }
 

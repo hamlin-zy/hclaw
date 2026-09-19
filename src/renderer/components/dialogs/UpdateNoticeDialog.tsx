@@ -106,7 +106,7 @@ export default function UpdateNoticeDialog() {
             onClick={handleBaidu}
             className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium
               bg-[var(--surface)] border border-[var(--border)] text-[var(--text-primary)]
-              hover:border-[var(--brand-primary)] active:scale-[0.98] transition-all"
+              hover:border-[var(--border-emphasis)] active:scale-[0.98] transition-all"
            data-name="update-notice-dialog-baidu-download-button">
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />

@@ -92,7 +92,7 @@ function makeRecord(overrides: Partial<ScheduleRecord>): ScheduleRecord {
         id: 'sched-x', name: '任务', description: '', cronExpression: '* * * * *',
         taskType: 'agent', taskTarget: 't', taskArgs: [], enabled: true, paused: false,
         pausedAt: null, lastRunAt: null, lastRunStatus: 'none', lastRunConversationId: null,
-        runCount: 0, createdAt: 1, updatedAt: 1, workspaceId: null,
+        runCount: 0, createdAt: 1, updatedAt: 1, workspaceId: null, isSystem: false,
         ...overrides,
     }
 }

@@ -142,6 +142,9 @@ export function resolveModelConfig(
         // OpenRouter 元数据判定，导致多模态模型（如 glm-5.3-flash）被误判纯文本。
         // NULL = 未配置 → supportsImageInput 依次回退元数据/命名模式判定。
         modelTypes: model.modelTypes,
+        // OpenRouter 固定服务商（模型级单选）：未配置不携带，保持空对象语义不覆盖。
+        // 与 modelParams 同路按需携带；本字段无优先级链，由 execute.ts 直传给 adapter.chat。
+        ...(model.openRouterProvider ? {openRouterProvider: model.openRouterProvider} : {}),
         // 模型级运行时参数覆盖（spec §6：仅在至少一项有值时携带，避免空对象覆盖语义）
         ...(model.maxContextTokens != null || model.temperature != null || model.maxOutputTokens != null
             ? {
@@ -216,6 +219,7 @@ export function getModelConfigForAgentType(
  * 直接解析 provider+model 为 ModelConfig（绕过角色，会话 override 专用）
  * - provider 不存在/禁用 / model 不存在/禁用 → null（调用方降级 auto + warning）
  * - 复用 resolveModelConfig 的 OAuth2 token 解析与 apiStyle 透传
+ * - openRouterProvider 亦由 resolveModelConfig 从 ProviderModel 携带（本函数不重复处理）
  * - thinkingEffort：override 携带的会话级思考强度，经 resolveOverrideThinkingEffort
  *   （角色匹配继承 → auto 兜底）解析后传入，写入 ModelConfig 供 agentLoop 执行层使用
  */

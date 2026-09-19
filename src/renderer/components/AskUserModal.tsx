@@ -240,7 +240,7 @@ export default function AskUserModal() {
                                             disabled={isSubmitting}
                                             className={`w-full text-left px-4 py-3 rounded-lg border transition-all text-sm ${
                                                 isSelected
-                                                    ? 'border-[var(--brand-primary)] bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)]'
+                                                    ? 'border-[var(--border-emphasis)] bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] text-[var(--text-brand)]'
                                                     : 'border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-primary)] hover:border-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] disabled:cursor-not-allowed'
                                             }`}
                                         >
@@ -248,7 +248,7 @@ export default function AskUserModal() {
                                                 <div
                                                     className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${
                                                         isSelected
-                                                            ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]'
+                                                            ? 'border-[var(--border-emphasis)] bg-[var(--brand-primary)]'
                                                             : 'border-[var(--border-muted)]'
                                                     }`}
                                                 >

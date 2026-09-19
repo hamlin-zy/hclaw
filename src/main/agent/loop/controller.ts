@@ -39,6 +39,8 @@ import {LoopDetector, buildTurnToolCalls, isLoopPatternSilenced, type LoopVerdic
 import {restoreCatalogState, runCatalogPreStep, type CatalogState} from './catalogPublish'
 import {toolRegistry} from '../tools/registry'
 import {restoreEnvState, runEnvPreStep, type EnvState} from './envPublish'
+import {restoreMemoryState, runMemoryPreStep, type MemoryState} from './memoryPublish'
+import {getHclawDir} from '../../hclawPaths'
 import {buildCommandTaskContent} from '../utils/userContentBuilder'
 import {getLastSentToolNames, isSameToolNameSequence} from './toolsSentRecord'
 import {buildAgentDefinitionCtMessage, shouldInjectAgentDefinitionCt} from './agentDefinitionCt'
@@ -383,6 +385,12 @@ export class AgentLoopController {
         let catalogState: CatalogState = restoreCatalogState(currentState.messages)
         // ★ 环境快照状态（日期）：同构还原，崩溃重启零重复发布
         let envState: EnvState = restoreEnvState(currentState.messages)
+        // ★ 用户习惯记忆状态：同构还原，崩溃重启零重复发布
+        let memoryState: MemoryState = restoreMemoryState(currentState.messages)
+        // ★ 会话渠道在会话生命周期内不可变：循环外读一次，避免每轮 readMeta + JSON.parse
+        const sessionChannel: string | undefined = sessionId
+            ? (conversationRepo?.readMeta(sessionId)?.channel ?? undefined)
+            : undefined
 
         // ★ MCP 工具注入通道：catalog（唯一通道）。MCP 工具被移出 tools 数组，
         //   改由目录消息 + call_mcp_tool 承载。
@@ -604,6 +612,18 @@ export class AgentLoopController {
                 const r = runEnvPreStep(currentState, envState, conversationRepo, sessionId)
                 currentState = r.state
                 envState = r.envState
+            }
+
+            // ── 用户习惯记忆发布（pre-step）：记忆文件 digest 变化时追加记忆消息 ──
+            {
+                const r = runMemoryPreStep(currentState, memoryState, conversationRepo, sessionId, {
+                    hclawDir: getHclawDir(),
+                    workspacePath: workingDir,
+                    memoryEnabled: getSettings()?.memory?.enabled ?? true,
+                    channel: sessionChannel,
+                })
+                currentState = r.state
+                memoryState = r.memoryState
             }
 
             // ── 构建系统提示词 ──

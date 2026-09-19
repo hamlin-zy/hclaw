@@ -22,6 +22,8 @@ export interface SqlProviderModel {
   maxOutputTokens?: number
   /** 模型类型数组（新列，JSON）；undefined = 未配置 */
   modelTypes?: ModelType[]
+  /** OpenRouter 服务商 slug；undefined/空 = 自动路由（不注入 provider 参数） */
+  openRouterProvider?: string
 }
 
 export interface LLMProviderWithModels extends LLMProvider {
@@ -406,7 +408,7 @@ const parseModelTypes = (raw: string): ModelType[] | undefined => {
 
 const SQL_MODEL_COLUMNS =
     'id, provider_id, model_name, model_type, enabled, pricing, ' +
-    'max_context_tokens, temperature, max_output_tokens, model_types'
+    'max_context_tokens, temperature, max_output_tokens, model_types, open_router_provider'
 
 /** 将数据库行映射为 SqlProviderModel 对象 */
 const mapRowToSqlProviderModel = (row: Record<string, unknown>): SqlProviderModel => ({
@@ -424,6 +426,8 @@ const mapRowToSqlProviderModel = (row: Record<string, unknown>): SqlProviderMode
         row.model_types == null
             ? undefined
             : parseModelTypes(row.model_types as string),
+    // open_router_provider：NULL → undefined（自动路由）；空串同样归一为 undefined
+    openRouterProvider: (row.open_router_provider as string | null | undefined) || undefined,
 })
 
 export class SqliteProviderModelRepository {
@@ -492,6 +496,7 @@ export class SqliteProviderModelRepository {
         temperature?: number;
         maxOutputTokens?: number;
         modelTypes?: ModelType[];
+        openRouterProvider?: string;
     }, now: number): unknown[] {
         return [
             model.id,
@@ -504,6 +509,8 @@ export class SqliteProviderModelRepository {
             model.temperature ?? null,
             model.maxOutputTokens ?? null,
             model.modelTypes ? JSON.stringify(model.modelTypes) : null,
+            // 写侧归一：空串/纯空格 → NULL（不让读侧单点承担全部责任）
+            model.openRouterProvider?.trim() || null,
             now,
         ]
     }
@@ -521,15 +528,15 @@ export class SqliteProviderModelRepository {
         if (this.getById(model.id)) {
             db.prepare(`
           UPDATE provider_models SET provider_id=?, model_name=?, model_type=?, enabled=?,
-            pricing=?, max_context_tokens=?, temperature=?, max_output_tokens=?, model_types=?, updated_at=?
+            pricing=?, max_context_tokens=?, temperature=?, max_output_tokens=?, model_types=?, open_router_provider=?, updated_at=?
           WHERE id=?
         `).run(...params.slice(1).concat(params[0]))
       } else {
             db.prepare(`
           INSERT INTO provider_models (id,provider_id,model_name,model_type,enabled,pricing,
-            max_context_tokens,temperature,max_output_tokens,model_types,
+            max_context_tokens,temperature,max_output_tokens,model_types,open_router_provider,
             created_at,updated_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         `).run(...params, now)
       }
 
@@ -555,9 +562,9 @@ export class SqliteProviderModelRepository {
 
       const stmt = db.prepare(`
         INSERT INTO provider_models (id,provider_id,model_name,model_type,enabled,pricing,
-          max_context_tokens,temperature,max_output_tokens,model_types,
+          max_context_tokens,temperature,max_output_tokens,model_types,open_router_provider,
           created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
       `)
 
       for (const model of models) {

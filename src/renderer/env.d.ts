@@ -642,6 +642,19 @@ declare global {
         exchangeRateRefresh: () => Promise<{rate: number; date: string | null}>
         // 模型价目表手动刷新
         modelMetaRefresh: () => Promise<{count: number; fetchedAt: number}>
+        // 模型可用服务商列表（OpenRouter /endpoints；失败返回 {fetchedAt: 0, providers: []}）
+        modelMetaEndpoints: (model: string, force?: boolean) => Promise<{
+          fetchedAt: number
+          // ★ 下方内联形状与 src/shared/openRouterProviders.ts 的 OpenRouterProviderOption 保持同步
+          //   （ambient 脚本文件无法 import，任何一侧改动都要同步另一侧）
+          providers: Array<{
+            slug: string
+            name: string
+            supportsImplicitCaching: boolean
+            contextLength?: number
+            uptimeLast30m?: number
+          }>
+        }>
 
         // Model Scheme (模型方案) 管理
         modelScheme: {
@@ -800,6 +813,10 @@ declare global {
             delete: (id: string) => Promise<import('../shared/types/schedule').ScheduleResult<true>>
             stop: (scheduleId: string) => Promise<import('../shared/types/schedule').ScheduleResult<true>>
             runNow: (id: string) => Promise<import('../shared/types/schedule').ScheduleResult<true>>
+            /** 还原默认：把系统任务的配置恢复到出厂定义（scheduler-restore-default 通道） */
+            restoreDefault: (id: string) => Promise<import('../shared/types/schedule').ScheduleResult<import('../shared/types/schedule').ScheduleRecord>>
+            /** 系统任务漂移检测：记录与出厂模板是否一致（scheduler-system-drift 通道，只读） */
+            systemDrift: () => Promise<import('../shared/types/schedule').ScheduleResult<import('../shared/types/schedule').SystemScheduleDriftMap>>
             pause: (id: string) => Promise<import('../shared/types/schedule').ScheduleResult<import('../shared/types/schedule').ScheduleRecord>>
             resume: (id: string) => Promise<import('../shared/types/schedule').ScheduleResult<import('../shared/types/schedule').ScheduleRecord>>
             getConversations: (scheduleId: string) => Promise<import('../shared/types/schedule').ScheduleResult<any[]>>

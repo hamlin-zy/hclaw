@@ -146,6 +146,8 @@
     --surface-overlay: #e2e5ea;
     /* chrome（侧栏/窗口外框）：比内容面下沉一档。存在这层之后，「线」才不必承担分隔职责 */
     --surface-chrome: #f6f7f9;
+    /* 输入区卡片抬升底色：与页面 surface 拉开一档（浅色系靠描边+阴影分层，底色保持同值） */
+    --card-elevated: var(--surface);
 
     /* Text colors — 阶梯按可读性下限校准：secondary ≥4.5:1（正文级），muted ≥3.2:1（图标/次要）
        旧值 #888888(3.54:1) / #aaaaaa(2.32:1) 低于正文可读下限
@@ -322,6 +324,8 @@
     --surface-overlay: #333333;
     /* chrome：比内容面再暗一档（recessed），与既有 --surface 阶梯同向 */
     --surface-chrome: #1a1a1a;
+    /* 输入区卡片抬升底色：向白偏 4%，与页面 surface 拉开一档（demo-input-layering 2026-09-19 拍板） */
+    --card-elevated: color-mix(in srgb, #1e1e1e 96%, #ffffff 4%);
 
     /* Text colors */
     --text-primary: #d4d4d4;
@@ -867,6 +871,8 @@ kbd {
     --surface-elevated: #384d64;
     --surface-overlay: #273c52;
     --surface-chrome: #2b3f54;
+    /* 输入区卡片抬升底色：向白偏 4%，与页面 surface 拉开一档（demo-input-layering 2026-09-19 拍板） */
+    --card-elevated: color-mix(in srgb, #31475d 96%, #ffffff 4%);
 
     /* Text colors */
     --text-primary: #e8edf2;
@@ -987,6 +993,8 @@ kbd {
     --surface-elevated: #FFFFFF;
     --surface-overlay: #ffe0dc;
     --surface-chrome: #FCEEEC;
+    /* 输入区卡片抬升底色：暖白保持同值，层次由描边+阴影承担（demo-input-layering 2026-09-19 拍板） */
+    --card-elevated: var(--surface);
 
     /* Text colors — warm dark（同 :root 口径：secondary ≥4.5:1，muted ≥3.2:1，保持暖色相） */
     --text-primary: #3C2E2D;
@@ -4128,6 +4136,10 @@ html.bg-enabled,
 .pm-md-preview table {
     margin: 0.7em 0;
     border-collapse: collapse;
+    /* 与消息表格同一口径：列宽按内容自然宽度，超出横向滚动而非压缩换行 */
+    width: max-content;
+    min-width: 100%;
+    max-width: none;
 }
 .pm-md-preview th,
 .pm-md-preview td {

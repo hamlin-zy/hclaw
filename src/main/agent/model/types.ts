@@ -159,6 +159,13 @@ export interface ChatParams {
    * 非 Anthropic 适配器会将此拼接回 systemPrompt
    */
   commandTemplate?: string
+  /**
+   * OpenRouter 服务商 slug（如 `deepinfra`、`deepinfra/turbo`）。
+   * 仅当端点判定为 OpenRouter 时由 openaiAdapter 注入
+   * `provider: {order: [slug], allow_fallbacks: false}`（单选 + 锁死，禁 load balancing）。
+   * 空/undefined = 自动路由，请求 body 完全不变。
+   */
+  openRouterProvider?: string
 }
 
 // ─── 模型信息 ──────────────────────────────────────────

@@ -55,6 +55,7 @@ const MIGRATION_FILES = [
     '042_add_provider_model_pricing.sql',
     '043_add_provider_model_runtime_params.sql',
     '045_provider_custom_headers.sql',
+    '050_add_provider_model_openrouter_provider.sql',
 ]
 
 beforeEach(() => {

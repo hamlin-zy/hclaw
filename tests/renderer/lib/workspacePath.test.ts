@@ -8,7 +8,7 @@
  * 大小写折叠仅在 Windows（darwin 亦不折叠）、平台取不到时不折叠。
  */
 import {describe, expect, it, afterEach, vi} from 'vitest'
-import {workspacePathKey} from '@/renderer/lib/workspacePath'
+import {workspacePathKey, UNASSIGNED_WORKSPACE_KEY, workspaceBadgeLabel, workspacePathSubtitle} from '@/renderer/lib/workspacePath'
 
 /** 切换平台来源：window.electronAPI.platform（undefined → 模拟取不到，退回 navigator 口径） */
 function stubPlatform(platform: string | undefined) {
@@ -105,5 +105,34 @@ describe('workspacePathKey — 平台来源', () => {
         stubPlatform(undefined)
         stubNavigatorPlatform('Linux x86_64')
         expect(workspacePathKey('E:\\Foo\\')).toBe('E:/Foo')
+    })
+})
+
+describe('workspaceBadgeLabel — 显示出口的虚拟键映射', () => {
+    it('未归属虚拟键 → 「未归属」（不得把 __unassigned__ 原样透出到徽章）', () => {
+        expect(workspaceBadgeLabel(UNASSIGNED_WORKSPACE_KEY)).toBe('未归属')
+    })
+
+    it('真实路径 → 末段（getBasename 口径，两平台分隔符均可切）', () => {
+        expect(workspaceBadgeLabel('E:\\workspace\\media\\hclaw')).toBe('hclaw')
+        expect(workspaceBadgeLabel('/Users/Foo/Bar')).toBe('Bar')
+    })
+
+    it('空串 → 空串（ConversationsDialog 等调用点对空 workspacePath 自行显示「未归属」）', () => {
+        expect(workspaceBadgeLabel('')).toBe('')
+    })
+})
+
+describe('workspacePathSubtitle — 行副标题的虚拟键映射', () => {
+    it('未归属虚拟键 → 「无工作目录」（不得把 __unassigned__ 原样透出到副标题）', () => {
+        expect(workspacePathSubtitle(UNASSIGNED_WORKSPACE_KEY)).toBe('无工作目录')
+    })
+
+    it('真实路径原样透传（副标题展示完整路径）', () => {
+        expect(workspacePathSubtitle('E:\\workspace\\media\\hclaw')).toBe('E:\\workspace\\media\\hclaw')
+    })
+
+    it('空串 → 空串', () => {
+        expect(workspacePathSubtitle('')).toBe('')
     })
 })

@@ -115,7 +115,7 @@ export default function MCPUserServerCard({
                                         },
                                     })
                                 }}
-                                className="p-1.5 text-orange-400 hover:text-orange-500 hover:bg-orange-50 rounded-md transition-all"
+                                className="p-1.5 text-[var(--warning)] hover:text-[var(--warning)] hover:bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] rounded-md transition-all"
                                 title="升级到新版本"
                             >
                                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -142,7 +142,7 @@ export default function MCPUserServerCard({
                             title={copied ? '已复制' : '复制 JSON 配置'}
                          data-name="mcpuser-server-card-copy-config-button">
                             {copied ? (
-                                <svg className="w-3.5 h-3.5 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <svg className="w-3.5 h-3.5 text-[var(--success)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                     <path d="M20 6L9 17l-5-5"/>
                                 </svg>
                             ) : (
@@ -171,7 +171,7 @@ export default function MCPUserServerCard({
                                     onConfirm: onDelete,
                                 })
                             }}
-                            className="p-1.5 text-[var(--text-muted)] hover:text-red-400 hover:bg-red-50 rounded-md transition-all"
+                            className="p-1.5 text-[var(--text-muted)] hover:text-[var(--error)] hover:bg-[color-mix(in_srgb,var(--error)_10%,transparent)] rounded-md transition-all"
                          data-name="mcpuser-server-card-delete-button">
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                  strokeWidth="2">

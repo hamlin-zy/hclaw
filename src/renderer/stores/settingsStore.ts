@@ -43,6 +43,7 @@ export function mergeSystemSettings(base: SystemSettings, patch: SystemSettingsP
         channels: {...base.channels, ...(patch.channels || {})} as typeof base.channels,
         linkOpening: {...base.linkOpening, ...(patch.linkOpening || {})} as typeof base.linkOpening,
         shortcuts: {...base.shortcuts, ...(patch.shortcuts || {})},
+        memory: {...base.memory, ...(patch.memory || {})} as typeof base.memory,
         // 标量特例：不能对象展开（{...true} 会得到 {}）；`??` 语义 = 旧实现逐字一致
         fullSkillDescriptions: patch.fullSkillDescriptions ?? base.fullSkillDescriptions,
     }

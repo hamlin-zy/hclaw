@@ -38,7 +38,7 @@ export function MCPVersionBadge({
                 />
                 {hasUpdate && (
                     <span
-                        className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-orange-400 pointer-events-none"
+                        className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-[var(--warning)] pointer-events-none"
                         aria-label="有新版本可用"
                         title="有新版本可用"
                     />
@@ -53,12 +53,12 @@ export function MCPVersionBadge({
     return (
         <span
             className={`${BADGE_BASE} ${hasUpdate
-                ? 'bg-orange-50 text-orange-500 border-orange-100'
+                ? 'bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] text-[var(--warning)] border-[color-mix(in_srgb,var(--warning)_30%,transparent)]'
                 : 'bg-[var(--surface-muted)] text-gray-400 border-gray-100'}`}
             title={hasUpdate ? `有新版本 ${latest || ''}` : undefined}
         >
             v{current || latest}
-            {hasUpdate && <span className="w-1 h-1 rounded-full bg-orange-400" aria-hidden="true"/>}
+            {hasUpdate && <span className="w-1 h-1 rounded-full bg-[var(--warning)]" aria-hidden="true"/>}
         </span>
     )
 }

@@ -83,7 +83,7 @@ export default function ModelTable({
           <span className="text-[10px] text-gray-400">{models.length} 个模型</span>
           {batchTesting ? (
             <button onClick={onCancelBatch}
-              className="flex items-center gap-1 text-[10px] font-medium text-orange-500 hover:text-orange-600 transition-colors" data-name="model-table-cancel-batch-button">
+              className="flex items-center gap-1 text-[10px] font-medium text-[var(--warning)] hover:text-[var(--warning)] transition-colors" data-name="model-table-cancel-batch-button">
               {batchProgress ? `测试中 ${batchProgress.done}/${batchProgress.total} · 取消` : '测试中...'}
             </button>
           ) : (
@@ -141,7 +141,7 @@ export default function ModelTable({
                       className="relative p-1 text-[var(--text-muted)] hover:text-brand-500 transition-colors" data-name="model-table-detail-button">
                       <GearIcon />
                       {hasCustomParams(model) && (
-                        <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-orange-500 border border-white" />
+                        <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-[var(--warning)] border border-white" />
                       )}
                     </button>
                   </td>
@@ -150,12 +150,12 @@ export default function ModelTable({
                     {ts?.status === 'testing' ? (
                       <span className="inline-block w-3 h-3 border-2 border-brand-300 border-t-transparent rounded-full animate-spin" />
                     ) : ts?.status === 'ok' ? (
-                      <span className="text-green-500 text-[11px] whitespace-nowrap inline-flex items-center gap-0.5" title={`通过 · ${ts.latencyMs}ms`}><SuccessIcon className="w-3 h-3"/>{ts.latencyMs != null && <span className="text-[9px] text-gray-400">{ts.latencyMs}ms</span>}</span>
+                      <span className="text-[var(--success)] text-[11px] whitespace-nowrap inline-flex items-center gap-0.5" title={`通过 · ${ts.latencyMs}ms`}><SuccessIcon className="w-3 h-3"/>{ts.latencyMs != null && <span className="text-[9px] text-gray-400">{ts.latencyMs}ms</span>}</span>
                     ) : ts?.status === 'fail' ? (
                       <span className="inline-block"
                         onMouseEnter={(e) => openErrTip(e, ts.error)}
                         onMouseLeave={() => setErrTip(null)}>
-                        <span className="text-red-500 text-[11px] cursor-help inline-flex"><ErrorIcon className="w-3 h-3"/></span>
+                        <span className="text-[var(--error)] text-[11px] cursor-help inline-flex"><ErrorIcon className="w-3 h-3"/></span>
                         {errTip && (
                           <span className="fixed z-50 w-64 rounded-lg bg-gray-800 text-gray-100 text-[10px] leading-relaxed text-left shadow-lg"
                             style={{left: errTip.x, top: errTip.y - 2, transform: 'translateX(-50%)', paddingTop: 2}}>

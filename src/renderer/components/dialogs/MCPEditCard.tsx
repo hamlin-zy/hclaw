@@ -75,7 +75,7 @@ function KVPairEditor({pairs, onChange, keyPlaceholder = '键名', valuePlacehol
                         </button>
                     </div>
                     <button onClick={() => removePair(i)}
-                            className="shrink-0 p-1 text-[var(--text-muted)] hover:text-red-400 transition-colors"
+                            className="shrink-0 p-1 text-[var(--text-muted)] hover:text-[var(--error)] transition-colors"
                             title="删除" data-name={`mcpedit-card-env-remove-pair-${i}`}>
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                              strokeWidth="2.5">
@@ -282,7 +282,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                         rows={Math.max(4, jsonInput.split('\n').length + 3)}
                         className={`w-full px-2.5 py-2 text-xs border border-gray-200 rounded-lg font-mono resize-none outline-none custom-scrollbar ${INPUT_FOCUS}`}
                     data-name="mcpedit-card-textarea"/>
-                    {jsonError && <p className="text-[10px] text-red-500 px-1">{jsonError}</p>}
+                    {jsonError && <p className="text-[10px] text-[var(--error)] px-1">{jsonError}</p>}
                     <button
                         onClick={handleParseJson}
                         disabled={!jsonInput.trim()}
@@ -408,7 +408,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
 
             {testResult && (
                 <div
-                    className={`p-2.5 rounded-lg text-[10px] border flex items-start gap-2 ${testResult.success ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
+                    className={`p-2.5 rounded-lg text-[10px] border flex items-start gap-2 ${testResult.success ? 'bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)] border-[color-mix(in_srgb,var(--success)_30%,transparent)]' : 'bg-[color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)] border-[color-mix(in_srgb,var(--error)_30%,transparent)]'}`}>
                     <div className="flex-1 break-all">
                         {testResult.success
                             ? <span className="flex items-center gap-1"><SuccessIcon className="w-3.5 h-3.5 shrink-0"/>{`连接成功: 发现 ${testResult.toolCount} 个可用工具`}</span>

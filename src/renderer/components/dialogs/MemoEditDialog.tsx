@@ -323,7 +323,7 @@ export default function MemoEditDialog() {
                         e.stopPropagation()
                         removeAttachment(a.id)
                     }}
-                    className="absolute top-0.5 right-0.5 w-4 h-4 leading-none rounded-full text-[10px] bg-[var(--surface-overlay)] text-[var(--text-muted)] hover:text-red-500"
+                    className="absolute top-0.5 right-0.5 w-4 h-4 leading-none rounded-full text-[10px] bg-[var(--surface-overlay)] text-[var(--text-muted)] hover:text-[var(--error)]"
                  data-name="memo-edit-dialog-button">×</button>
             </div>
         )
@@ -335,7 +335,7 @@ export default function MemoEditDialog() {
     if (loadError) {
         return (
             <div className="p-4 space-y-3">
-                <div className="text-sm text-red-500">{loadError}</div>
+                <div className="text-sm text-[var(--error)]">{loadError}</div>
                 <button
                     onClick={() => window.electronAPI?.closeWindow()}
                     className="px-3 py-1.5 text-xs rounded bg-[var(--surface-muted)] border border-[var(--border)] hover:bg-[var(--surface-hover)]"
@@ -372,20 +372,20 @@ export default function MemoEditDialog() {
                 {/* 项目组 + 项目（Task 19，§15.1②/§15.1③）：创建态级联可改；
                     编辑态项目只读（跨项目迁移本期不做，§12），组字段同为文本展示 */}
                 {isEdit ? (
-                    <div className="space-y-2">
-                        <div>
-                            <label className="block text-xs text-[var(--text-secondary)] mb-1">项目组</label>
-                            <div className="text-sm truncate" title={groupName}>{groupName}</div>
+                    <div className="space-y-1">
+                        <div className="flex text-sm">
+                            <span className="w-14 shrink-0 text-xs leading-5 text-[var(--text-secondary)]">项目组：</span>
+                            <span className="flex-1 min-w-0 truncate" title={groupName}>{groupName}</span>
                         </div>
-                        <div>
-                            <label className="block text-xs text-[var(--text-secondary)] mb-1">项目</label>
-                            <div
-                                data-name="memo-project-readonly"
-                                className="text-sm truncate"
-                                title={projectPath}>
+                        <div
+                            data-name="memo-project-readonly"
+                            className="flex text-sm"
+                            title={projectPath}>
+                            <span className="w-14 shrink-0 text-xs leading-5 text-[var(--text-secondary)]">项目：</span>
+                            <span className="flex-1 min-w-0 truncate">
                                 {projectLabel(projectPath)}{' '}
                                 <span className="text-xs text-[var(--text-secondary)]">{projectPath}</span>
-                            </div>
+                            </span>
                         </div>
                     </div>
                 ) : (
@@ -473,8 +473,8 @@ export default function MemoEditDialog() {
                         setCapability(name && name !== capability?.name ? {name, type: type as MemoCapability['type']} : undefined)
                     }}
                 />
-                {cascadeTip && <div className="text-xs text-red-500">{cascadeTip}</div>}
-                {tip && <div className="text-xs text-red-500">{tip}</div>}
+                {cascadeTip && <div className="text-xs text-[var(--error)]">{cascadeTip}</div>}
+                {tip && <div className="text-xs text-[var(--error)]">{tip}</div>}
             </div>
             {/* 底部操作栏 */}
             <div className="shrink-0 flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--border-muted)]">

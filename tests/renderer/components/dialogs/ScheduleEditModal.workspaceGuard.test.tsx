@@ -149,6 +149,36 @@ describe('项目下拉：不再有「默认项目」', () => {
     })
 })
 
+/**
+ * 系统任务不区分项目：workspaceId 为 null 也必须放行（主进程 checkScheduleWorkspace
+ * 对 isSystem 已旁路守卫，渲染层是同一口径的唯一另一条出口——不得只放一条）。
+ */
+describe('系统任务：不绑项目也可保存', () => {
+    it('workspaceId 为 null 的系统任务：不报「请选择项目」，保存放行且 workspaceId 为 null', async () => {
+        const onSave = vi.fn(async (_data: ScheduleFormData) => ({ok: true, data: null} as const))
+        render(<ScheduleEditModal initial={{...base, workspaceId: null}} onSave={onSave} onClose={vi.fn()}
+                                  isSystem={true}/>)
+
+        // 项目行说明「不区分项目」，而不是「未设置项目（必选）」的禁用态摆设
+        expect(screen.getByLabelText('项目').textContent).toContain('系统任务不区分项目')
+        await waitFor(() => expect(screen.getByText('系统任务不区分项目，创建的会话归入未归属分组')).toBeTruthy())
+
+        fireEvent.click(screen.getByText('保存'))
+        await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
+        expect(onSave.mock.calls[0][0].workspaceId).toBeNull()
+        expect(screen.queryByRole('alert')).toBeNull()
+    })
+
+    it('非系统任务的同一形态仍被拦（防旁路误伤普通任务）', async () => {
+        const onSave = vi.fn(async (_data: ScheduleFormData) => ({ok: true, data: null} as const))
+        render(<ScheduleEditModal initial={{...base, workspaceId: null}} onSave={onSave} onClose={vi.fn()}/>)
+
+        await waitFor(() => expect((screen.getByLabelText('项目') as HTMLButtonElement).disabled).toBe(false))
+        expect(await clickSaveAndReadAlert()).toBe(WORKSPACE_UNSET_MESSAGE)
+        expect(onSave).not.toHaveBeenCalled()
+    })
+})
+
 describe('保存校验：项目必填且必须解析得到现存工作区', () => {
     it('未设置项目 → 拦在弹窗内，给出原因，不关窗、不丢表单', async () => {
         const onSave = vi.fn(async (_data: ScheduleFormData) => ({ok: true, data: null} as const))

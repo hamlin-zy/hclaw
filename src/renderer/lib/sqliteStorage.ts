@@ -44,6 +44,8 @@ const STORE_HANDLERS: Record<string, {
                     temperature: m.temperature ?? undefined,
                     maxOutputTokens: m.maxOutputTokens ?? undefined,
                     modelTypes: m.modelTypes ?? undefined,
+                    // OpenRouter 固定服务商：缺失须透传，否则重开配置页即丢失
+                    openRouterProvider: m.openRouterProvider ?? undefined,
                 })),
             }))
             const activeProviderId = providers.find((p: any) => p.enabled)?.id || null
@@ -71,6 +73,8 @@ const STORE_HANDLERS: Record<string, {
                     temperature: m.temperature,
                     maxOutputTokens: m.maxOutputTokens,
                     modelTypes: m.modelTypes,
+                    // OpenRouter 固定服务商：未配置传 undefined（repo 层落 NULL），有值必须透传防抹除
+                    openRouterProvider: m.openRouterProvider,
                 }))
                 await window.electronAPI?.providerModel?.saveByProvider?.(provider.id, models)
             }
@@ -160,7 +164,9 @@ const STORE_HANDLERS: Record<string, {
         },
     },
 
-    sidebar: {
+    // 键 = persist name（sidebarStore 的 name 是 SIDEBAR_STATE_CONFIG_KEY='sidebar-state'，
+    // 不是简写 'sidebar'——错键会让 getItem/setItem 双双命中 unsupported store 早退）
+    'sidebar-state': {
         // 侧栏状态（leftWidth / leftCollapsed / rightCollapsed）经 config-read/write
         // 落 system_settings 表（键见 shared/configKeys.SIDEBAR_STATE_CONFIG_KEY）
         getItem: async () => {

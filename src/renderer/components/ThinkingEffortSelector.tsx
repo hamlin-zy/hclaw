@@ -113,7 +113,7 @@ export default function ThinkingEffortSelector({conversationId}: ThinkingEffortS
                 onClick={() => setOpen(v => !v)}
                 className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_50%,transparent)] dark-all:focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface)] ${
                     open
-                        ? 'border-[var(--brand-primary)] bg-[var(--brand-muted)] text-[var(--text-brand)]'
+                        ? 'border-[var(--border-emphasis)] bg-[var(--brand-muted)] text-[var(--text-brand)]'
                         : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:border-[var(--border-emphasis)] hover:bg-[var(--surface-muted)] active:bg-[var(--surface-overlay)]'
                 }`}
                 aria-expanded={open}

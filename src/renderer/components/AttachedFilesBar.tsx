@@ -15,7 +15,7 @@ export default function AttachedFilesBar({files, onRemove, onPreview, onOpenFile
     if (files.length === 0) return null
 
     return (
-        <div className="px-3 py-2 border-b border-[var(--border-muted)] bg-[color-mix(in_srgb,var(--surface-muted)_30%,transparent)]">
+        <div className="px-3 py-2 rounded-2xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-muted)_30%,transparent)] shadow-[inset_0_1px_3px_rgba(0,0,0,0.05)] mb-2">
             <div className="flex items-center gap-2 min-h-[48px]">
                 {/* 文件列表 */}
                 <div className="flex items-center gap-2 flex-1 overflow-x-auto">
@@ -29,7 +29,7 @@ export default function AttachedFilesBar({files, onRemove, onPreview, onOpenFile
                                         onOpenFile(file.path)
                                     }
                                 }}
-                                className="cursor-pointer w-10 h-10 rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--brand-primary)] transition-colors"
+                                className="cursor-pointer w-10 h-10 rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-emphasis)] transition-colors"
                                 title={file.isImage ? '点击预览图片' : `打开文件: ${file.path || file.name}`}
                              data-name="attached-files-bar-div">
                                 {file.isImage && file.previewUrl ? (

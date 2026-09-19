@@ -1,5 +1,6 @@
 import {useConversationStore} from '../stores/conversationStore'
 import {useProjectGroupStore} from '../stores/projectGroupStore'
+import {UNASSIGNED_WORKSPACE_KEY, workspacePathKey} from '../lib/workspacePath'
 
 /**
  * 新建会话的唯一入口（顶部大按钮 / 段头「+」/ Ctrl+N 共用）。
@@ -11,6 +12,12 @@ import {useProjectGroupStore} from '../stores/projectGroupStore'
  * 视图归属：
  *   stayInScope=true（组视图内新建）→ 停留组视图 + 定位该项目段（不跟随）
  *   否则（Ctrl+N 等跨项目跳转类）→ 跟随视图，保证新会话可见
+ *   ★ 例外：目标为未归属虚拟键（UNASSIGNED_WORKSPACE_KEY，如激活的是定时任务
+ *     会话后按 Ctrl+N）→ 恒停留：虚拟键不是真实项目（workspacePath.ts 约定仅内存
+ *     使用，不落库 / 不传主进程），跟随会把 viewScope 切成「未归属」单项目视图、
+ *     还把虚拟键写进 currentWorkspacePath（违反两处既有约定）。此前未拦截的症状：
+ *     未归属会话激活时按 Ctrl+N，顶部视图被切走。新会话本身仍归未归属段
+ *     （createConversation 对虚拟键落库空路径 + 插未归属段）。
  */
 export async function newConversation(opts?: {
     workspacePath?: string
@@ -27,7 +34,7 @@ export async function newConversation(opts?: {
         await store.setWorkspace(picked)
         target = picked
     }
-    const follow = !stayInScope(target, opts?.stayInScope)
+    const follow = target !== UNASSIGNED_WORKSPACE_KEY && !stayInScope(target, opts?.stayInScope)
     const id = await store.createConversation(undefined, {workspacePath: target, follow})
     if (!follow) store.focusProjectSegment(target)
     else store.followScopeToProject(target)
@@ -45,7 +52,9 @@ function stayInScope(target: string, explicit: boolean | undefined): boolean {
     const {viewScope} = useConversationStore.getState()
     if (viewScope?.type !== 'group') return false
     const group = useProjectGroupStore.getState().groups.find(g => g.id === viewScope.groupId)
-    return group?.members.some(m => m.projectPath === target) ?? false
+    // 归一化键比较（与 handleSessionCreated 的 inCurrentGroup 同口径）：Windows 忽略
+    // 大小写、去尾分隔符后同一目录不应被误判为「组外」而强制跟随（第二真相止血）。
+    return group?.members.some(m => workspacePathKey(m.projectPath) === workspacePathKey(target)) ?? false
 }
 
 /** 激活会话所属项目（无激活会话 / 找不到 → null） */

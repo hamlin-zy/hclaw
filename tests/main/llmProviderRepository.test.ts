@@ -48,6 +48,7 @@ const MIGRATION_FILES = [
     '042_add_provider_model_pricing.sql',
     '043_add_provider_model_runtime_params.sql',
     '045_provider_custom_headers.sql',
+    '050_add_provider_model_openrouter_provider.sql',
 ]
 
 beforeEach(() => {
@@ -128,6 +129,29 @@ describe('SqliteProviderModelRepository — 运行时参数 + modelTypes 持久�
 
         const got = repo.getById('m-legacy')!
         expect(got.modelTypes).toBeUndefined()
+    })
+
+    it('openRouterProvider 往返一致；未配置存回读出为 undefined', () => {
+        const repo = new SqliteProviderModelRepository()
+        repo.saveByProviderId('p1', [
+            makeModel({id: 'm-or', openRouterProvider: 'deepinfra/turbo'}),
+            makeModel({id: 'm-or-bare', modelName: 'bare-model'}), // 未配置 → undefined
+        ])
+
+        const got = repo.listByProviderId('p1')
+        expect(got.find((m) => m.id === 'm-or')!.openRouterProvider).toBe('deepinfra/turbo')
+        expect(got.find((m) => m.id === 'm-or-bare')!.openRouterProvider).toBeUndefined()
+
+        // 落库为 NULL（非空串），重读仍为 undefined
+        const raw = db.prepare("SELECT open_router_provider FROM provider_models WHERE id = 'm-or-bare'").get() as {
+            open_router_provider: string | null
+        }
+        expect(raw.open_router_provider).toBeNull()
+        expect(repo.getById('m-or-bare')!.openRouterProvider).toBeUndefined()
+
+        // save 更新路径不丢字段
+        repo.save(repo.getById('m-or')!)
+        expect(repo.getById('m-or')!.openRouterProvider).toBe('deepinfra/turbo')
     })
 
     it('model_types 非法 JSON / 非数组 → 读取为 undefined', () => {

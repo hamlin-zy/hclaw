@@ -61,7 +61,7 @@ function newSchedule(id: string): ScheduleRecord {
         id, name: `任务-${id}`, description: '', cronExpression: '*/5 * * * *',
         taskType: 'agent', taskTarget: '巡检', taskArgs: [], enabled: true, paused: false,
         pausedAt: null, lastRunAt: null, lastRunStatus: 'none', lastRunConversationId: null,
-        runCount: 0, createdAt: Date.now(), updatedAt: Date.now(), workspaceId: null,
+        runCount: 0, createdAt: Date.now(), updatedAt: Date.now(), workspaceId: null, isSystem: false,
     }
 }
 

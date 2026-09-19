@@ -1,8 +1,8 @@
 /**
- * describeCron — 列表行内使用的人话频率摘要（ui-06 / 设计契约 H3）
+ * describeCron — 列表行内使用的频率摘要（ui-06；custom 回显表达式为 2026-09-19 用户拍板）
  *
  * 断言五种形态：daily / weekly / monthly / interval / custom。
- * custom 必须回退成**中性文案**，绝不回退成裸露表达式。
+ * custom 必须回显 cron 表达式原文（空表达式除外）。
  */
 import {describe, it, expect} from 'vitest'
 import {configToCron, cronToConfig, describeCron} from '../../../../src/renderer/components/dialogs/scheduleCron'
@@ -26,16 +26,12 @@ describe('describeCron', () => {
         expect(describeCron('0 */2 * * *')).toBe('每 2 小时')
     })
 
-    it('无法归类时回退成中性文案，不回退成裸露表达式', () => {
-        const out = describeCron('0 9 1,15 * *')
-        expect(out).toBe('自定义（高级表达式）')
-        expect(out).not.toContain('0 9 1,15 * *')
+    it('无法归类时回显表达式原文（用户拍板：高级模式直接看到表达式）', () => {
+        expect(describeCron('0 9 1,15 * *')).toBe('自定义 0 9 1,15 * *')
     })
 
-    it('非五段表达式同样落中性文案', () => {
-        const out = describeCron('not-a-cron')
-        expect(out).toBe('自定义（高级表达式）')
-        expect(out).not.toContain('not-a-cron')
+    it('非五段表达式同样回显原文', () => {
+        expect(describeCron('not-a-cron')).toBe('自定义 not-a-cron')
     })
 })
 
@@ -58,9 +54,9 @@ describe('步长为 0：落高级模式并告警，不谎报频率（ui-06 复�
         expect(configToCron(c)).toBe(expr)
     })
 
-    it.each(ZERO_STEP)('%s → describeCron 给中性文案，不得含「0 分钟」「0 小时」', (expr) => {
+    it.each(ZERO_STEP)('%s → describeCron 回显原文，不得含「0 分钟」「0 小时」', (expr) => {
         const out = describeCron(expr)
-        expect(out).toBe('自定义（高级表达式）')
+        expect(out).toBe(`自定义 ${expr}`)
         expect(out).not.toContain('0 分钟')
         expect(out).not.toContain('0 小时')
     })

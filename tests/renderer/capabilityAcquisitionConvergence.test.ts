@@ -58,9 +58,9 @@ describe('CapabilityPicker —— 取数收敛到 CapabilityHub', () => {
         expect(src).not.toContain('pluginEnabled ===')
     })
 
-    it('props 面保持不变（{selected, onSelect}）', () => {
+    it('props 面保持 {selected, onSelect}，autoFocus 为可选第三参（宿主弹窗可关其自动聚焦）', () => {
         const src = read(PICKER_TSX)
-        expect(src).toContain('export default function CapabilityPicker({selected, onSelect}: {')
+        expect(src).toContain('export default function CapabilityPicker({selected, onSelect, autoFocus = true}: {')
     })
 })
 

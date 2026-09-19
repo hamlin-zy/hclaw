@@ -140,6 +140,11 @@ export interface SystemSettings {
     background?: UiBackground
   }
   subagent?: SubagentConfig
+  /** 用户习惯记忆设置 */
+  memory?: {
+    /** 总开关（缺省 true） */
+    enabled: boolean
+  }
   /** 链接打开方式 */
   linkOpening?: {
     /** 链接打开模式: builtin=内置浏览器, system=系统浏览器, ask=每次都问 */

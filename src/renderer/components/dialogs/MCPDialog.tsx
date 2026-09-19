@@ -433,7 +433,7 @@ export default function MCPDialog() {
                     </div>
 
                     {importResult && (
-                        <div className={`p-2 rounded-lg text-[10px] ${importResult.imported > 0 ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-red-50 text-red-700 border border-red-100'}`}>
+                        <div className={`p-2 rounded-lg text-[10px] ${importResult.imported > 0 ? 'bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)] border border-[color-mix(in_srgb,var(--success)_30%,transparent)]' : 'bg-[color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)] border border-[color-mix(in_srgb,var(--error)_30%,transparent)]'}`}>
                             {importResult.imported > 0
                                 ? (
                                     <span className="flex items-center gap-1">

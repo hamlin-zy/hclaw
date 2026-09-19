@@ -455,7 +455,7 @@ const NavButton = memo(function NavButton({
             aria-label={ariaLabel}
             className={`w-12 h-12 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated flex items-center justify-center transition-all ${
                 active
-                    ? 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--brand-primary)] cursor-pointer'
+                    ? 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-emphasis)] cursor-pointer'
                     : 'text-[var(--text-muted)] opacity-30 cursor-default'
             }`}
         >
@@ -1196,7 +1196,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                                     transition={{duration: 0.15}}
                                     onClick={goToBottom}
                                     aria-label="回到底部"
-                                    className="w-12 h-12 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--brand-primary)] transition-all"
+                                    className="w-12 h-12 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-emphasis)] transition-all"
                                 >
                                     {newMsgCount > 0 ? (
                                         <span className="relative flex items-center justify-center">
@@ -1228,7 +1228,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                                         transition={{duration: 0.15}}
                                         onClick={() => goToOriginConversation(originParentConvId)}
                                         aria-label="←父会话"
-                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-brand)] hover:border-[var(--brand-primary)] transition-all cursor-pointer"
+                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-brand)] hover:border-[var(--border-emphasis)] transition-all cursor-pointer"
                                     >
                                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                              strokeWidth="2" aria-hidden="true">
@@ -1244,7 +1244,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                                         transition={{duration: 0.15}}
                                         onClick={() => goToOriginConversation(originHandoffFromId)}
                                         aria-label="←前会话"
-                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-brand)] hover:border-[var(--brand-primary)] transition-all cursor-pointer"
+                                        className="h-8 px-3 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-elevated text-xs flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-brand)] hover:border-[var(--border-emphasis)] transition-all cursor-pointer"
                                     >
                                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                              strokeWidth="2" aria-hidden="true">
@@ -1298,7 +1298,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                         <button
                             onClick={find.goToPrev}
                             disabled={find.totalMatches === 0}
-                            className="p-1.5 rounded bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--brand-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            className="p-1.5 rounded bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-emphasis)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                             aria-label="上一条"
                             title="上一条 (↑ / Shift+Enter)"
                          data-name="message-list-find-prev-button">
@@ -1307,7 +1307,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                         <button
                             onClick={find.goToNext}
                             disabled={find.totalMatches === 0}
-                            className="p-1.5 rounded bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--brand-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            className="p-1.5 rounded bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-emphasis)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                             aria-label="下一条"
                             title="下一条 (↓ / Enter)"
                          data-name="message-list-find-next-button">

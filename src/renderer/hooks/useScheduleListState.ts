@@ -8,13 +8,14 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {ScheduleUI, useScheduleStore} from '../stores/scheduleStore'
+import {useSettingsStore} from '../stores/settingsStore'
 import {confirm} from '../components/ConfirmDialog'
 import type {ScheduleFormData} from '../components/dialogs/ScheduleEditModal'
 import type {ScheduleRecord, ScheduleResult} from '@shared/types/schedule'
 import {fuzzyFilter} from '../lib/search'
 
 /** 列表筛选维度 —— 同时也是统计维度（筛选行即统计行） */
-export type ScheduleListTab = 'all' | 'enabled' | 'disabled'
+export type ScheduleListTab = 'user' | 'system' | 'enabled' | 'disabled'
 
 /**
  * 筛选行/统计行的**唯一**枚举来源：key 与 label 同源，杜绝「启用/运行中」这类两套命名。
@@ -24,7 +25,8 @@ export type ScheduleListTab = 'all' | 'enabled' | 'disabled'
  * 按行表达即可（卡片状态圆点 + 「上次：失败」文案）。
  */
 export const SCHEDULE_LIST_TABS: ReadonlyArray<{key: ScheduleListTab; label: string}> = [
-    {key: 'all', label: '全部'},
+    {key: 'user', label: '用户'},
+    {key: 'system', label: '系统任务'},
     {key: 'enabled', label: '启用'},
     {key: 'disabled', label: '禁用'},
 ]
@@ -39,6 +41,10 @@ export const SCHEDULE_LIST_TABS: ReadonlyArray<{key: ScheduleListTab; label: str
  */
 export function matchesTab(s: ScheduleUI, tab: ScheduleListTab): boolean {
     switch (tab) {
+        case 'user':
+            return !s.isSystem
+        case 'system':
+            return s.isSystem
         case 'enabled':
             return s.enabled
         case 'disabled':
@@ -73,11 +79,11 @@ function throwReason(err: unknown): string {
 }
 
 export function useScheduleListState() {
-    const {schedules, loading, error, loadSchedules, create, update, delete: deleteSchedule, stop, pause, resume, runNow, workspaceHealth} =
+    const {schedules, loading, error, loadSchedules, create, update, delete: deleteSchedule, stop, pause, resume, runNow, restoreDefault, workspaceHealth, driftMap} =
         useScheduleStore()
 
     const [searchQuery, setSearchQuery] = useState('')
-    const [activeTab, setActiveTab] = useState<ScheduleListTab>('all')
+    const [activeTab, setActiveTab] = useState<ScheduleListTab>('user')
 
     // 编辑弹窗状态
     const [editModalOpen, setEditModalOpen] = useState(false)
@@ -290,8 +296,15 @@ export function useScheduleListState() {
     /**
      * 启用 / 禁用 —— **不做乐观翻转**：开关始终由 `schedule.enabled`（真实数据）驱动，
      * 本地不预改状态；失败时开关自然停在原位，配合可读原因，不留「以为自己点上了」的假象。
+     *
+     * 系统任务的禁用特殊（本票）：禁用「记忆沉淀」这类系统任务会连带关闭记忆功能，
+     * 影响面超出这一行本身，故先弹确认框（ScheduleDisableConfirm），用户确认后才执行。
      */
     const handleToggleEnabled = useCallback(async (schedule: ScheduleUI) => {
+        if (schedule.isSystem && schedule.enabled) {
+            setDisableConfirmSchedule(schedule)
+            return
+        }
         const action = schedule.enabled ? '禁用' : '启用'
         try {
             const result = await update(schedule.id, {enabled: !schedule.enabled})
@@ -301,9 +314,50 @@ export function useScheduleListState() {
         }
     }, [update, reportWriteFailure])
 
-    /** 清除全部筛选（筛选后无结果时的出路），并把列表带回「全部」 */
+    // ─── 系统任务禁用确认（记忆功能联动） ────────────────
+
+    /** 待确认禁用的系统任务（null = 确认框关闭） */
+    const [disableConfirmSchedule, setDisableConfirmSchedule] = useState<ScheduleUI | null>(null)
+
+    const handleCancelDisable = useCallback(() => setDisableConfirmSchedule(null), [])
+
+    /** 确认禁用：禁用任务 + 同步关闭记忆功能（记忆文件不删除，重新启用任务不自动恢复记忆开关） */
+    const handleConfirmDisable = useCallback(async (schedule: ScheduleUI) => {
+        setDisableConfirmSchedule(null)
+        const action = '禁用'
+        try {
+            const result = await update(schedule.id, {enabled: false})
+            if (!result.ok) {
+                reportWriteFailure(action, result.error)
+                return
+            }
+        } catch (err: unknown) {
+            reportWriteFailure(action, throwReason(err))
+            return
+        }
+        // 任务禁用成功后才动记忆开关：任务没禁掉就不该连带关功能
+        try {
+            await useSettingsStore.getState().updateSettings({memory: {enabled: false}})
+        } catch (err: unknown) {
+            reportWriteFailure('关闭记忆功能', throwReason(err))
+        }
+    }, [update, reportWriteFailure])
+
+    // ─── 系统任务「还原默认」 ────────────────────────────
+
+    /** 还原默认：把系统任务的配置恢复到出厂定义（Task 11 的 scheduler-restore-default 通道） */
+    const handleRestoreDefault = useCallback(async (scheduleId: string) => {
+        try {
+            const result = await restoreDefault(scheduleId)
+            if (!result.ok) reportWriteFailure('还原默认', result.error)
+        } catch (err: unknown) {
+            reportWriteFailure('还原默认', throwReason(err))
+        }
+    }, [restoreDefault, reportWriteFailure])
+
+    /** 清除全部筛选（筛选后无结果时的出路），并把列表带回「用户」 */
     const handleClearFilters = useCallback(() => {
-        setActiveTab('all')
+        setActiveTab('user')
         setSearchQuery('')
     }, [])
 
@@ -318,6 +372,11 @@ export function useScheduleListState() {
          * 不显示失效标记、不禁用按钮（见 ScheduleCard 的默认值）。
          */
         workspaceHealth,
+        /**
+         * 系统任务 id → 漂移信息（主进程唯一判定，见 scheduleOps.systemScheduleDrift）。
+         * 消费方按 id 取值时容缺：取不到按「已漂移」处理（还原默认按钮不禁用）。
+         */
+        driftMap,
         handleClearFilters,
         searchQuery,
         setSearchQuery,
@@ -341,5 +400,9 @@ export function useScheduleListState() {
         handleToggleExpand,
         handleTogglePause,
         handleToggleEnabled,
+        disableConfirmSchedule,
+        handleCancelDisable,
+        handleConfirmDisable,
+        handleRestoreDefault,
     }
 }

@@ -68,6 +68,7 @@ function makeSchedule(overrides: Partial<ScheduleRecord> = {}): ScheduleRecord {
         createdAt: overrides.createdAt ?? 0,
         updatedAt: overrides.updatedAt ?? 0,
         workspaceId: overrides.workspaceId ?? null,
+        isSystem: overrides.isSystem ?? false,
     }
 }
 

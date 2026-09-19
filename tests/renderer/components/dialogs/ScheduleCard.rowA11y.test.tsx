@@ -79,11 +79,11 @@ describe('行本体的可访问名来自行内可见内容（H2）', () => {
         expect(row.getAttribute('data-name')).toBe('schedule-dialog-row')
     })
 
-    it('无法归类的表达式在行内给中性摘要，可访问名里不出现 cron 原文', () => {
+    it('无法归类的表达式在行内回显 cron 原文（前缀「自定义」）', () => {
         renderCard(makeSchedule({cronExpression: '0 9 1,15 * *'}))
 
-        const row = screen.getByRole('button', {name: /^每日构建[\s\S]*自定义（高级表达式）/})
-        expect(row.textContent).not.toContain('0 9 1,15 * *')
+        const row = screen.getByRole('button', {name: /^每日构建[\s\S]*自定义 0 9 1,15 \* \*/})
+        expect(row.textContent).toContain('自定义 0 9 1,15 * *')
     })
 })
 

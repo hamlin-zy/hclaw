@@ -207,7 +207,7 @@ function RetryCard({attempts, onOpenDetail}: {
         <div className="my-1.5">
             {/* 主行：显示最后一次 attempt 数据；点击仅展开/收起，不打开详情 */}
             <div
-                className={`flex items-center gap-2.5 py-2 px-3 rounded-lg bg-[var(--surface-elevated)] border cursor-pointer select-none transition-colors hover:border-[var(--text-muted)] ${open ? 'border-[var(--brand-primary)]' : 'border-[var(--border)]'}`}
+                className={`flex items-center gap-2.5 py-2 px-3 rounded-lg bg-[var(--surface-elevated)] border cursor-pointer select-none transition-colors hover:border-[var(--text-muted)] ${open ? 'border-[var(--border-emphasis)]' : 'border-[var(--border)]'}`}
                 onClick={() => setOpen(o => !o)}
              data-name="timeline-view-div">
                 <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[last.status]}`} title={STATUS_TXT[last.status]} />
@@ -257,7 +257,7 @@ function CallRow({record: r, selected, onClick}: {
     return (
         <div>
             <div
-                className={`flex items-center gap-2.5 py-2 px-3 my-1.5 rounded-lg bg-[var(--surface-elevated)] border cursor-pointer select-none transition-colors hover:border-[var(--text-muted)] ${selected ? 'border-[var(--brand-primary)]' : 'border-[var(--border)]'}`}
+                className={`flex items-center gap-2.5 py-2 px-3 my-1.5 rounded-lg bg-[var(--surface-elevated)] border cursor-pointer select-none transition-colors hover:border-[var(--text-muted)] ${selected ? 'border-[var(--border-emphasis)]' : 'border-[var(--border)]'}`}
                 onClick={onClick}
              data-name="timeline-view-call-row">
                 <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[r.status]}`} title={STATUS_TXT[r.status]} />

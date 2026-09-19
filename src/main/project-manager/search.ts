@@ -36,6 +36,32 @@ import {assertInWorkspace} from './fileSystem'
 const EXCLUDED_DIRS = ['.git', 'node_modules', '.vite', '.cache', '.trash']
 const EXCLUDED_DIR_SET = new Set(EXCLUDED_DIRS)
 
+/**
+ * 明文排除清单（不解析 .gitignore/.ignore，清单口径完全由此决定）：
+ * - 目录：构建产物 / 依赖缓存 / 覆盖率等（EXCLUDED_DIRS 之外的补充集合）；
+ * - 文件模式：临时文件 / 编辑器交换文件 / 系统元数据 / 编译产物。
+ * rg 路径逐项追加 `!` glob；JS 遍历回退按目录名 / 文件后缀 / 精确文件名排除，两条出口同一真相。
+ */
+const EXCLUDED_TEMP_DIR_GLOBS = [
+  'target', 'build', 'dist', 'out', '.next', '.nuxt', '.gradle',
+  '__pycache__', '.venv', 'venv', 'coverage',
+]
+const EXCLUDED_TEMP_FILE_PATTERNS = ['*.log', '*.tmp', '*.bak', '*.swp', '.DS_Store', 'Thumbs.db', '*.pyc']
+const EXCLUDED_FILE_GLOBS = [...EXCLUDED_TEMP_DIR_GLOBS, ...EXCLUDED_TEMP_FILE_PATTERNS]
+const EXCLUDED_TEMP_DIR_SET = new Set(EXCLUDED_TEMP_DIR_GLOBS)
+const EXCLUDED_TEMP_FILE_NAME_SET = new Set(EXCLUDED_TEMP_FILE_PATTERNS.filter(p => !p.startsWith('*')))
+const EXCLUDED_TEMP_FILE_EXT_SET = new Set(
+  EXCLUDED_TEMP_FILE_PATTERNS.filter(p => p.startsWith('*')).map(p => p.slice(1).toLowerCase()),
+)
+
+/** JS 回退：文件名命中明文排除模式（.DS_Store/Thumbs.db 精确匹配，其余按后缀） */
+function isExcludedFileName(name: string): boolean {
+  if (EXCLUDED_TEMP_FILE_NAME_SET.has(name)) return true
+  const dot = name.lastIndexOf('.')
+  if (dot < 0) return false
+  return EXCLUDED_TEMP_FILE_EXT_SET.has(name.slice(dot).toLowerCase())
+}
+
 /** 文件清单缓存 TTL：30 秒（spec「数据来源」段） */
 const FILE_LIST_TTL_MS = 30_000
 
@@ -209,16 +235,19 @@ export function deleteFileListCache(workspace: string): void {
 
 /**
  * rg `--files` 参数：
- * - 默认即尊重 .gitignore、跳过隐藏文件（未传 --hidden）；
- * - **`--no-require-git` 必传**：rg 默认 `require_git(true)`，即不在 git 仓库内时**完全不解析
- *   `.gitignore`**。PM 的工作区可以是任意目录（非 git 仓库同样要能打开），
- *   此时目录里的 `.gitignore` 会被无视、被忽略的文件照旧列出。显式关掉该要求后，
- *   非 git 工作区也尊重 `.gitignore`（仓库内行为不变）。
- * - 逐个排除依赖 / 构建目录，口径对齐 fileSystem.ts 的 BLACKLIST。
+ * - **不再解析 .gitignore/.ignore**：清单口径完全由明文排除规则决定——忽略文件属于用户
+ *   手写的运行时过滤，会静默吞掉真实存在的文件；改传 `--no-ignore`（单旗标关闭全部 ignore
+ *   解析：VCS ignore（.gitignore）与非 VCS ignore（.ignore/.rgignore）一并失效，
+ *   `--no-ignore-parent` 的父目录冒泡也随之不再生效——rg 15.0.0 实测，`--no-ignore-parents`
+ *   是非法旗标名）后，被忽略的文件照样列出，可被 File Search 搜到。
+ * - 未传 `--hidden`：隐藏文件仍跳过（与 fileSystem.ts 口径一致）。
+ * - 逐个排除依赖 / 构建目录 / 临时文件（EXCLUDED_DIRS + EXCLUDED_FILE_GLOBS），
+ *   口径对齐 fileSystem.ts 的 BLACKLIST。
  */
 function rgFileListArgs(): string[] {
-  const args = ['--files', '--no-messages', '--no-require-git']
+  const args = ['--files', '--no-messages', '--no-ignore']
   for (const dir of EXCLUDED_DIRS) args.push('-g', `!${dir}`)
+  for (const glob of EXCLUDED_FILE_GLOBS) args.push('-g', `!${glob}`)
   args.push('.')
   return args
 }
@@ -274,8 +303,8 @@ function streamRgPaths(workspace: string, sink: PathSink): Promise<boolean> {
 }
 
 /**
- * JS 遍历回退：跳过隐藏文件 / 隐藏目录 + 排除目录（对齐 rg 的默认行为）。
- * 注：回退路径不解析 .gitignore —— rg 缺失本就是降级场景，此处只保证隐藏与排除规则。
+ * JS 遍历回退：跳过隐藏文件 / 隐藏目录 + 排除目录 + 明文临时/构建项（口径对齐 rg 路径）。
+ * 注：与 rg 路径一致，回退路径也不解析 .gitignore——清单完全由明文排除规则决定。
  */
 async function walkWorkspacePaths(workspace: string, sink: PathSink, dir = '', depth = 0): Promise<void> {
   if (depth > WALK_MAX_DEPTH) return
@@ -287,10 +316,10 @@ async function walkWorkspacePaths(workspace: string, sink: PathSink, dir = '', d
   }
   for (const entry of entries) {
     if (entry.name.startsWith('.')) continue
-    if (entry.isDirectory() && EXCLUDED_DIR_SET.has(entry.name)) continue
+    if (entry.isDirectory() && (EXCLUDED_DIR_SET.has(entry.name) || EXCLUDED_TEMP_DIR_SET.has(entry.name))) continue
     const rel = dir ? `${dir}/${entry.name}` : entry.name
     if (entry.isDirectory()) await walkWorkspacePaths(workspace, sink, rel, depth + 1)
-    else sink(rel)
+    else if (!isExcludedFileName(entry.name)) sink(rel)
   }
 }
 
@@ -516,14 +545,15 @@ let findSessionSeq = 0
 /**
  * rg 全文检索参数（spec「数据来源」段）：
  * `--json` 流式事件、`-F` 固定字符串（不做正则解释）、`--max-filesize 1M`、
- * 排除依赖目录；cwd = workspace，未传 --no-ignore 故尊重 .gitignore，未传 --hidden 故跳过隐藏文件。
+ * 排除依赖/构建/临时项；cwd = workspace，未传 --hidden 故跳过隐藏文件。
  *
- * **`--no-require-git` 必传**：同 `rgFileListArgs`——rg 默认只在 git 仓库内解析 `.gitignore`，
- * 非 git 工作区必须显式关掉该要求，否则 `.gitignore` 形同虚设、被忽略的文件也会被检索到。
+ * **ignore 口径与 `rgFileListArgs` 同一真相**：传 `--no-ignore`，不解析任何 ignore 文件
+ * （含父目录冒泡），检索范围由明文排除清单决定——被忽略的文件同样能被全文检索到。
  */
 function rgFindArgs(query: string): string[] {
-  const args = ['--json', '--no-messages', '-F', '--max-filesize', '1M', '--no-require-git']
+  const args = ['--json', '--no-messages', '-F', '--max-filesize', '1M', '--no-ignore']
   for (const dir of EXCLUDED_DIRS) args.push('-g', `!${dir}`)
+  for (const glob of EXCLUDED_FILE_GLOBS) args.push('-g', `!${glob}`)
   args.push('-e', query, '.')
   return args
 }

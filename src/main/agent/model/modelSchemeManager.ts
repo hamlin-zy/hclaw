@@ -296,6 +296,12 @@ export async function getClientForCurrentScheme(
     features?: import('@shared/types').ProviderFeatures;
     /** API 协议形态（chat / responses） */
     apiStyle?: 'chat' | 'responses';
+    /**
+     * 服务商人类可读名（= provider.name || provider.id）。
+     * 透传给适配器 config._providerName，用于按服务商名判定行为
+     * （如 MiniMax stream_options 抑制）。与 direct 路径 modelSelector 同口径。
+     */
+    providerName?: string;
 }> {
     const currentScheme = getConfigBridge().getScheme()
 
@@ -339,6 +345,7 @@ export async function getClientForCurrentScheme(
         tokenExpiryDate: isOAuth2 ? creds?.expiryDate : undefined,
         features: provider.features,
         apiStyle: provider.apiStyle || 'chat',
+        providerName: provider.name || provider.id,
     }
 }
 

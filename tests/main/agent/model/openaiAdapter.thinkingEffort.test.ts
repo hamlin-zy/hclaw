@@ -132,6 +132,34 @@ describe('OpenAIAdapter thinkingEffort 端点来源策略', () => {
         })
     })
 
+    describe('applyThinkingDisabled · OpenRouter 分支经 isOpenRouterEndpoint 合一', () => {
+        // 「第二真相」合并回归：applyThinkingDisabled 的 OpenRouter 判定
+        // 原为 baseUrl.includes('openrouter.ai') 字符串包含，合并为复用
+        // isOpenRouterEndpoint()（含 config.baseUrl || client.baseURL 回退）。
+        it('config.baseUrl 空 + client.baseURL 指向 OpenRouter → 走 OpenRouter 分支发 reasoning.effort=none（chat）', async () => {
+            const client = makeMockClient('chat')
+            ;(client as any).baseURL = 'https://openrouter.ai/api/v1'
+            const adapter = new OpenAIAdapter(
+                {provider: 'openai', model: 'gpt-5.5', apiKey: 'sk-test', apiStyle: 'chat', baseUrl: ''} as any,
+                client as any,
+            )
+            await runChat(adapter, 'disabled')
+            const args = firstCall(client.chat.completions.create)
+            // 合并前：baseUrl='' → 不含 openrouter.ai → 落官方分支发 reasoning_effort='none'
+            // 合并后：isOpenRouterEndpoint 经 client.baseURL 回退命中 → OpenRouter 分支发 reasoning.effort='none'
+            expect(args.reasoning).toEqual({effort: 'none'})
+            expect(args.reasoning_effort).toBeUndefined()
+        })
+
+        it('config.baseUrl 显式 OpenRouter → 同样走 OpenRouter 分支（无回退依赖）', async () => {
+            const {adapter, client} = makeAdapter('chat', 'https://openrouter.ai/api/v1')
+            await runChat(adapter, 'disabled')
+            const args = firstCall(client.chat.completions.create)
+            expect(args.reasoning).toEqual({effort: 'none'})
+            expect(args.reasoning_effort).toBeUndefined()
+        })
+    })
+
     it('OllamaAdapter（继承）走兼容降级路径：auto/xhigh/max → high', async () => {
         const client = makeMockClient('chat')
         const adapter = new OllamaAdapter(

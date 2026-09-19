@@ -312,8 +312,10 @@ export function configToCron(c: CronConfig): string {
 }
 
 /**
- * 人话摘要（几点、周几、几号）。**不含原始表达式**——原始表达式只在高级模式的输入框里出现。
- * custom 分支给一句通用说明而非回显表达式，避免折叠摘要把开发者语言与用户语言混排。
+ * 人话摘要（几点、周几、几号）。
+ * custom 分支回显 cron 表达式（2026-09-19 用户拍板：高级模式的任务应在列表/摘要里
+ * 直接看到表达式，而不是一句「高级表达式」的遮掩；原契约 H3「行内不得出现表达式」就此作废）。
+ * 空表达式（II-5 拒存路径）给一句中性说明，避免渲染出「自定义 」这样的残句。
  */
 export function cronToHuman(c: CronConfig): string {
     switch (c.mode) {
@@ -329,17 +331,15 @@ export function cronToHuman(c: CronConfig): string {
         case 'interval':
             return `每 ${c.intervalValue} ${c.intervalUnit === 'minutes' ? '分钟' : '小时'}`
         case 'custom':
-            return '自定义（高级表达式）'
+            return c.customExpr ? `自定义 ${c.customExpr}` : '自定义（高级表达式）'
     }
 }
 
 /**
  * 人话频率摘要（直接吃表达式）。
  *
- * 列表行内只允许出现人话摘要，**不得出现 cron 表达式原文**（设计契约 H3）。
- * 实现即「读成 config → 渲染成人话」两步，与编辑弹窗折叠摘要共用同一份 `cronToHuman`，
- * 故两处措辞永远一致；无法归类的表达式回退成中性文案（`自定义（高级表达式）`），
- * **绝不回退成裸露表达式**。
+ * 列表行、编辑弹窗折叠摘要共用同一份 `cronToHuman`，措辞永远一致。
+ * custom 分支回显表达式原文（含无法归类的写法——那正是用户需要看到的信息）。
  */
 export function describeCron(cron: string): string {
     return cronToHuman(cronToConfig(cron))

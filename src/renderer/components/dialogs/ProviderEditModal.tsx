@@ -326,6 +326,9 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
     }
   }
 
+  /** 当前 Base URL 是否识别为 OpenRouter（实时派生）：驱动固定服务商提示与模型详情弹窗的服务商选择字段 */
+  const isOpenRouter = recognizeProvider(baseUrl)?.name === 'OpenRouter'
+
   /** 拉取前置校验：无 key 不可用 */
   const canFetch = useMemo(() => {
     if (providerType === 'ollama') return true
@@ -656,19 +659,19 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
             <div className="grid grid-cols-2 gap-3">
             {/* 服务商名称 */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">服务商名称 <span className="text-red-400">*</span></label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">服务商名称 <span className="text-[var(--error)]">*</span></label>
               <input type="text" value={name} onChange={(e) => setName(e.target.value)}
                 placeholder="例如：OpenAI"
                 className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded-md text-gray-700 placeholder-gray-400 ${
                   !isEdit && !name.trim() ? INVALID_INPUT_CLS : 'border-gray-200'
                 } ${INPUT_FOCUS}`} data-name="provider-edit-modal-name-input"/>
-              {!isEdit && !name.trim() && <div className="text-[10px] text-red-400 mt-0.5">服务商名称不能为空</div>}
+              {!isEdit && !name.trim() && <div className="text-[10px] text-[var(--error)] mt-0.5">服务商名称不能为空</div>}
             </div>
 
             {/* 凭据位 — 随认证形态切换：通用 API Key ｜ Google 授权状态面板 ｜ AI Studio 密钥 */}
             {providerType !== 'google' && (
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">API Key <span className="text-red-400">*</span></label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">API Key <span className="text-[var(--error)]">*</span></label>
                 <div className="relative">
                   <input type={showApiKey ? 'text' : 'password'} value={apiKey}
                     onChange={(e) => { setApiKey(e.target.value); setApiKeyTouched(true); setTestStates({}) }}
@@ -691,7 +694,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                     )}
                   </button>
                 </div>
-                {!isEdit && !apiKey.trim() && <div className="text-[10px] text-red-400 mt-0.5">API Key 不能为空</div>}
+                {!isEdit && !apiKey.trim() && <div className="text-[10px] text-[var(--error)] mt-0.5">API Key 不能为空</div>}
               </div>
             )}
 
@@ -700,17 +703,17 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
               <div className="space-y-1.5">
                 <label className="block text-xs font-medium text-gray-500 mb-1">授权状态</label>
                 {authStatus === 'valid' ? (
-                  <div className="flex items-center justify-between px-2.5 py-1.5 bg-green-50/50 border border-green-100 rounded-md">
-                    <span className="text-[10px] text-green-600 font-medium flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                  <div className="flex items-center justify-between px-2.5 py-1.5 bg-[color-mix(in_srgb,var(--success)_10%,transparent)] border border-[color-mix(in_srgb,var(--success)_30%,transparent)] rounded-md">
+                    <span className="text-[10px] text-[var(--success)] font-medium flex items-center gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" />
                       已授权{email ? ` · ${email}` : ''}
                     </span>
                     <button onClick={handleGoogleLogin} className="text-[10px] text-brand-500 hover:underline shrink-0" data-name="provider-edit-modal-switch-account-button">切换账号</button>
                   </div>
                 ) : authStatus === 'expired' ? (
-                  <div className="flex items-center justify-between px-2.5 py-1.5 bg-orange-50/50 border border-orange-100 rounded-md">
-                    <span className="text-[10px] text-orange-500 font-medium flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
+                  <div className="flex items-center justify-between px-2.5 py-1.5 bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] border border-[color-mix(in_srgb,var(--warning)_30%,transparent)] rounded-md">
+                    <span className="text-[10px] text-[var(--warning)] font-medium flex items-center gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse" />
                       授权已过期
                     </span>
                     <button onClick={handleGoogleLogin} className="text-[10px] text-brand-500 font-medium hover:underline shrink-0" data-name="provider-edit-modal-relogin-button">重新登录</button>
@@ -725,7 +728,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                   </div>
                 )}
                 {oauthError && (
-                  <div className="text-[10px] text-red-500 bg-red-50 border border-red-100 rounded px-2 py-1">
+                  <div className="text-[10px] text-[var(--error)] bg-[color-mix(in_srgb,var(--error)_10%,transparent)] border border-[color-mix(in_srgb,var(--error)_30%,transparent)] rounded px-2 py-1">
                     Google 授权失败：{oauthError}
                   </div>
                 )}
@@ -735,13 +738,13 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
             {/* google api-key：AI Studio 密钥输入框 */}
             {providerType === 'google' && authType === 'api-key' && (
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">AI Studio API Key <span className="text-red-400">*</span></label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">AI Studio API Key <span className="text-[var(--error)]">*</span></label>
                 <input type="password" value={apiKey} onChange={(e) => { setApiKey(e.target.value); setApiKeyTouched(true); setTestStates({}) }}
                   placeholder={isEncryptedKey ? '已加密' : 'AIza...'}
                   className={`w-full px-2.5 py-1.5 text-xs border rounded-md text-gray-700 placeholder-gray-300 ${
                     !isEdit && !apiKey.trim() ? INVALID_INPUT_CLS_BG : 'border-gray-200 bg-white'
                   } ${INPUT_FOCUS}`} data-name="provider-edit-modal-google-api-key-input"/>
-                {!isEdit && !apiKey.trim() && <div className="text-[10px] text-red-400 mt-0.5">API Key 不能为空</div>}
+                {!isEdit && !apiKey.trim() && <div className="text-[10px] text-[var(--error)] mt-0.5">API Key 不能为空</div>}
               </div>
             )}
             </div>
@@ -749,7 +752,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
             {/* Base URL — Google 使用 SDK 固定端点，无需用户配置（独立成行） */}
             {providerType !== 'google' && (
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">API Base URL <span className="text-red-400">*</span></label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">API Base URL <span className="text-[var(--error)]">*</span></label>
                 <div className="flex gap-2">
                 <input type="text" value={baseUrl} onChange={(e) => handleBaseUrlChange(e.target.value)} onBlur={handleBaseUrlBlur}
                   placeholder="https://api.openai.com/v1"
@@ -766,10 +769,14 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                   <SettingsIcon className="w-3.5 h-3.5"/>自定义请求头 ({customHeaders.length})
                 </button>
                 </div>
-                {!isEdit && !baseUrl.trim() && <div className="text-[10px] text-red-400 mt-0.5">API Base URL 不能为空</div>}
+                {!isEdit && !baseUrl.trim() && <div className="text-[10px] text-[var(--error)] mt-0.5">API Base URL 不能为空</div>}
+                {/* OpenRouter 固定服务商建议：实时跟随 baseUrl（不经 300ms 防抖），仅提示不阻断 */}
+                {isOpenRouter && (
+                  <p className="text-[10px] text-[var(--warning)] mt-1 leading-relaxed">⚠ OpenRouter 默认按价格在多个服务商间负载均衡，同一模型可能落到不同服务商，提示词缓存因此频繁失效。建议为下方每个模型指定固定服务商。</p>
+                )}
                 {/* Base URL 格式校验提示（onBlur 触发，只提示不修改） */}
                 {baseUrlValidation?.level === 'warn' && (
-                  <div className="mt-1 text-[10px] text-amber-500 flex items-start gap-1">
+                  <div className="mt-1 text-[10px] text-[var(--warning)] flex items-start gap-1">
                     <svg className="w-3 h-3 mt-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
                       <line x1="12" y1="8" x2="12" y2="12"/>
@@ -779,7 +786,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                   </div>
                 )}
                 {baseUrlValidation?.level === 'error' && (
-                  <div className="mt-1 text-[10px] text-red-400 flex items-start gap-1">
+                  <div className="mt-1 text-[10px] text-[var(--error)] flex items-start gap-1">
                     <svg className="w-3 h-3 mt-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
                       <line x1="12" y1="8" x2="12" y2="12"/>
@@ -844,7 +851,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
             )}
 
             {fetchError && (
-              <div className="mb-2 text-[10px] text-red-400">{fetchError}</div>
+              <div className="mb-2 text-[10px] text-[var(--error)]">{fetchError}</div>
             )}
 
             {/* 模型管理 */}
@@ -858,7 +865,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
               toolbarExtra={
                 <>
                   {fillNotice && (
-                    <span className={`text-[10px] ${fillNotice.kind === 'error' ? 'text-red-400' : 'text-gray-400'}`}>
+                    <span className={`text-[10px] ${fillNotice.kind === 'error' ? 'text-[var(--error)]' : 'text-gray-400'}`}>
                       {fillNotice.text}
                     </span>
                   )}
@@ -887,7 +894,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
 
           {/* Footer */}
           <div className="sticky bottom-0 bg-[var(--surface)] border-t border-gray-200 px-5 py-3 flex items-center justify-between">
-            <div className="text-[11px] text-red-400">{nameValidationError || formValidationError || modelValidationError || ''}</div>
+            <div className="text-[11px] text-[var(--error)]">{nameValidationError || formValidationError || modelValidationError || ''}</div>
             <div className="flex items-center gap-2">
               <button onClick={onClose}
                 className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors" data-name="provider-edit-modal-cancel-button">
@@ -912,6 +919,7 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
           onClose={() => setDetailModelId(null)}
           onConfirm={(next) => setModels(prev => prev.map(m => m.id === next.id ? next : m))}
           rate={rate}
+          isOpenRouter={isOpenRouter}
           settingsDefaults={{defaultTemperature: settingsModel.defaultTemperature, defaultMaxTokens: settingsModel.defaultMaxTokens}}
         />
       )}
@@ -969,13 +977,13 @@ export default function ProviderEditModal({mode, provider, onClose, onSave}: Pro
                           error={rowInvalid}
                           ariaLabel="系统变量"/>
                         <button type="button" title="删除" onClick={() => setHeadersDraft(prev => prev.filter(x => x.id !== h.id))}
-                          className="shrink-0 p-1 text-[var(--text-muted)] hover:text-red-400 transition-colors" data-name="provider-edit-modal-header-delete-button">
+                          className="shrink-0 p-1 text-[var(--text-muted)] hover:text-[var(--error)] transition-colors" data-name="provider-edit-modal-header-delete-button">
                           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
                         </button>
                       </div>
                       {/* 行预览：前缀灰、变量品牌蓝高亮；两者皆空不显示 */}
                       {rowInvalid ? (
-                        <div className="text-[10px] text-red-400 pl-[136px] mt-0.5">
+                        <div className="text-[10px] text-[var(--error)] pl-[136px] mt-0.5">
                           固定前缀与系统变量不能同时为空
                         </div>
                       ) : hasPreview && (

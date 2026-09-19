@@ -251,7 +251,7 @@ export default function LlmLogsWindow() {
                         onClick={() => setFilter(f => ({...f, status: key}))}
                         className={`py-0.5 px-2.5 rounded-full text-xs cursor-pointer select-none border transition-colors ${
                             filter.status === key
-                                ? 'border-[var(--brand-primary)] text-[var(--text-brand)] bg-[var(--brand-muted)]'
+                                ? 'border-[var(--border-emphasis)] text-[var(--text-brand)] bg-[var(--brand-muted)]'
                                 : 'border-[var(--border)] text-[var(--text-secondary)]'
                         }`}
                      data-name={`llm-logs-window-status-filter-${i}`}>{label}</button>

@@ -45,11 +45,11 @@ const makeSchedule = (over: Record<string, unknown> = {}) => ({
     ...over,
 })
 
-/** 三条记录：启用+成功 / 启用+失败 / 禁用+成功 */
+/** 三条记录：启用+成功 / 启用+失败 / 禁用+成功（s3 为系统任务，归入「系统任务」维度） */
 const FIXTURE = [
     makeSchedule({id: 's1', name: '每日构建', enabled: true, lastRunStatus: 'success'}),
     makeSchedule({id: 's2', name: '备份失败重试', enabled: true, lastRunStatus: 'failure'}),
-    makeSchedule({id: 's3', name: '周末巡检', enabled: false, lastRunStatus: 'success'}),
+    makeSchedule({id: 's3', name: '周末巡检', enabled: false, lastRunStatus: 'success', isSystem: true}),
 ]
 
 function setStore(partial: Record<string, unknown> = {}) {
@@ -63,6 +63,7 @@ function setStore(partial: Record<string, unknown> = {}) {
         delete: vi.fn(async () => ({ok: true, data: true})),
         stop: vi.fn(async () => ({ok: true, data: true})),
         runNow: vi.fn(async () => ({ok: true, data: true})),
+        restoreDefault: vi.fn(async () => ({ok: true, data: null})),
         ...partial,
     }
     return store.current
@@ -87,13 +88,15 @@ describe('筛选即统计', () => {
         setStore({schedules: FIXTURE})
         render(<ScheduleDialog/>)
 
-        // 筛选行的三个维度都在，且各带一个计数（「失败」tab 已于 2026-09-16 移除）。
+        // 筛选行的四个维度都在，且各带一个计数（「失败」tab 已于 2026-09-16 移除）。
         // 用 `^` 锚定：行本体也是 role=button，且其可访问名来自行内可见内容（无 aria-label，见 H2），
         // 因而含「已禁用」等字样；不加锚点会让 /禁用/ 同时命中筛选 tab 与那些行。
-        expect(screen.getByRole('button', {name: /^全部/})).toBeTruthy()
+        expect(screen.getByRole('button', {name: /^用户/})).toBeTruthy()
+        expect(screen.getByRole('button', {name: /^系统任务/})).toBeTruthy()
         expect(screen.getByRole('button', {name: /^启用/})).toBeTruthy()
         expect(screen.getByRole('button', {name: /^禁用/})).toBeTruthy()
         expect(screen.queryByRole('button', {name: /^失败/})).toBeNull()
+        expect(screen.queryByRole('button', {name: /^全部/})).toBeNull()
 
         // 旧的底部统计栏独有的两个说法不再出现
         expect(screen.queryByText(/总数/)).toBeNull()
@@ -104,14 +107,15 @@ describe('筛选即统计', () => {
         setStore({schedules: FIXTURE})
         render(<ScheduleDialog/>)
 
-        expect(countText('all')).toBe('3')
+        expect(countText('user')).toBe('2')
+        expect(countText('system')).toBe('1')
         expect(countText('enabled')).toBe('2')
         expect(countText('disabled')).toBe('1')
 
-        // 全部 → 三条都在
+        // 用户（默认 tab）→ 用户任务都在
         expect(screen.getByText('每日构建')).toBeTruthy()
         expect(screen.getByText('备份失败重试')).toBeTruthy()
-        expect(screen.getByText('周末巡检')).toBeTruthy()
+        expect(screen.queryByText('周末巡检')).toBeNull()
 
         // 禁用（计数 1）→ 只剩禁用的那条
         fireEvent.click(screen.getByRole('button', {name: /^禁用/}))
@@ -140,7 +144,8 @@ describe('筛选即统计', () => {
 
         fireEvent.change(screen.getByPlaceholderText('搜索定时任务...'), {target: {value: '备份'}})
 
-        expect(countText('all')).toBe('1')
+        expect(countText('user')).toBe('1')
+        expect(countText('system')).toBe('0')
         expect(countText('enabled')).toBe('1')
         expect(countText('disabled')).toBe('0')
         // 命中项仍在列表里（搜索词被高亮成独立节点，故断言命中词之后的那段文本）
@@ -155,7 +160,7 @@ describe('零值不着色', () => {
         setStore({schedules: FIXTURE})
         render(<ScheduleDialog/>)
 
-        for (const key of ['all', 'enabled', 'disabled']) {
+        for (const key of ['user', 'system', 'enabled', 'disabled']) {
             const classes = countClasses(key)
             expect(classes, `${key} 计数应中性`).toContain('text-[var(--text-muted)]')
             expect(classes, `${key} 计数不应带状态色`).not.toMatch(/danger|error|success|info/)

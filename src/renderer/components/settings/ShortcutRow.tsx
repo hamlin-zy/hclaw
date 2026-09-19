@@ -100,7 +100,7 @@ export function ShortcutRow({def, current, overrides, onChange, globalFailure}: 
                         title={`重置 ${def.label} 为默认快捷键`}
                         className="inline-flex items-center text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)]
                                    border border-[var(--border-muted)] rounded px-1.5 h-[24px] leading-none
-                                   hover:border-[var(--brand-primary)] transition-colors cursor-pointer"
+                                   hover:border-[var(--border-emphasis)] transition-colors cursor-pointer"
                     >
                         重置
                     </button>

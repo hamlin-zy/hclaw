@@ -37,6 +37,24 @@ function isWindowsPlatform(): boolean {
  */
 export const UNASSIGNED_WORKSPACE_KEY = '__unassigned__'
 
+/**
+ * 显示出口的虚拟键映射（徽章 / 项目名等 UI 展示用）：
+ * `__unassigned__` → 「未归属」，真实路径 → getBasename（末段）。
+ *
+ * 为什么存在：虚拟键会从「收纳」出口进入 workspaces / sections（getScopedSections
+ * 的未归属段），显示层若直接对它做 getBasename，会因无分隔符而原样透出
+ * `__unassigned__`（第二真相模式：同一判定多出口，勿逐出口内联，统一走本函数）。
+ */
+export function workspaceBadgeLabel(p: string): string {
+    if (p === UNASSIGNED_WORKSPACE_KEY) return '未归属'
+    const parts = p.split(/[/\\]/).filter(Boolean)
+    return parts[parts.length - 1] || p
+}
+
+export function workspacePathSubtitle(p: string): string {
+    return p === UNASSIGNED_WORKSPACE_KEY ? '无工作目录' : p
+}
+
 export function workspacePathKey(p: string): string {
     if (!p) return ''
     // 统一分隔符

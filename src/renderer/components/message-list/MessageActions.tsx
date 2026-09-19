@@ -33,7 +33,7 @@ const RetryButton = memo(function RetryButton({message}: { message: Message }) {
         <button
             onClick={handleRetry}
             disabled={isRunning}
-            className="mb-[22px] flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-sm text-[var(--text-muted)] hover:[color:var(--brand-primary)] hover:border-[var(--brand-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex-shrink-0"
+            className="mb-[22px] flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-sm text-[var(--text-muted)] hover:[color:var(--brand-primary)] hover:border-[var(--border-emphasis)] disabled:opacity-40 disabled:cursor-not-allowed transition-all flex-shrink-0"
             title="重试"
             aria-label="重试此消息"
          data-name="message-actions-button">
@@ -60,7 +60,7 @@ const UserCopyButton = memo(function UserCopyButton({message}: { message: Messag
     return (
         <button
             onClick={handleCopy}
-            className="mb-[22px] flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-sm text-[var(--text-muted)] hover:[color:var(--brand-primary)] hover:border-[var(--brand-primary)] transition-all flex-shrink-0"
+            className="mb-[22px] flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-sm text-[var(--text-muted)] hover:[color:var(--brand-primary)] hover:border-[var(--border-emphasis)] transition-all flex-shrink-0"
             title="复制"
             aria-label="复制消息正文"
             data-find-exclude data-name="message-actions-copy-button">
@@ -218,7 +218,7 @@ const CopyButton = memo(function CopyButton({message}: { message: Message }) {
     return (
         <button
             onClick={handleCopy}
-            className="flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-sm text-[var(--text-muted)] hover:[color:var(--brand-primary)] hover:border-[var(--brand-primary)] transition-all flex-shrink-0"
+            className="flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border border-[var(--border)] shadow-sm text-[var(--text-muted)] hover:[color:var(--brand-primary)] hover:border-[var(--border-emphasis)] transition-all flex-shrink-0"
             title={copied ? '已复制' : '复制'}
             aria-label={copied ? '已复制' : '复制此消息'}
          data-name="message-actions-assistant-copy-button">

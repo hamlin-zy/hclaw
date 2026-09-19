@@ -78,6 +78,13 @@ describe('ConversationList — 段头三操作分工（A 变体）', () => {
         expect(convState.setProjectGroupView).not.toHaveBeenCalled()
     })
 
+    it('项目名单击 = toggleSectionCollapsed（与 chevron 同口径，不切视图）', () => {
+        render(<ConversationList/>)
+        fireEvent.click(document.querySelector('[data-name="section-project-name"]') as HTMLElement)
+        expect(convState.toggleSectionCollapsed).toHaveBeenCalledWith('/ws/a')
+        expect(convState.setProjectGroupView).not.toHaveBeenCalled()
+    })
+
     it('文件夹图标 = 打开项目管理窗口（带项目路径）', () => {
         render(<ConversationList/>)
         fireEvent.click(document.querySelector('[data-name="section-pm-button"]') as HTMLElement)
@@ -98,11 +105,12 @@ describe('ConversationList — 段头三操作分工（A 变体）', () => {
         ).toBe('feat/project-group-management')
     })
 
-    it('项目名带 title（完整路径）且不参与收缩', () => {
+    it('项目名带 title（完整路径）且作为唯一弹性收缩项（不挤出右侧按钮）', () => {
         render(<ConversationList/>)
         const name = document.querySelector('[data-name="section-project-name"]') as HTMLElement
         expect(name.getAttribute('title')).toBe('/ws/a')
-        expect(name.className).not.toContain('flex-1')
+        expect(name.className).toContain('min-w-0')
+        expect(name.className).toContain('truncate')
     })
 })
 

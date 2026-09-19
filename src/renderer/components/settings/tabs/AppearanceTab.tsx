@@ -155,7 +155,7 @@ export default function AppearanceTab() {
                                 )}
                                 <div className="flex flex-col gap-1.5">
                                     <button
-                                        className="px-2.5 py-1.5 text-xs bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded text-[var(--text-primary)] hover:border-[var(--brand-primary)] transition-colors"
+                                        className="px-2.5 py-1.5 text-xs bg-[var(--surface-muted)] border border-[var(--border-muted)] rounded text-[var(--text-primary)] hover:border-[var(--border-emphasis)] transition-colors"
                                         onClick={async () => {
                                             const result = await window.electronAPI?.backgroundPick()
                                             if (result?.path) {
@@ -211,8 +211,8 @@ export default function AppearanceTab() {
                                                         data-testid="bg-thumb"
                                                         className={`w-16 h-10 rounded border object-cover cursor-pointer transition-all ${
                                                             isActive
-                                                                ? 'border-[var(--brand-primary)] ring-2 ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)]'
-                                                                : 'border-[var(--border)] hover:border-[var(--brand-primary)]'
+                                                                ? 'border-[var(--border-emphasis)] ring-2 ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)]'
+                                                                : 'border-[var(--border)] hover:border-[var(--border-emphasis)]'
                                                         }`}
                                                         onClick={() => updatePending('ui', {
                                                             background: {...current.ui.background!, imagePath: img.path}

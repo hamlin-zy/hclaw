@@ -284,18 +284,31 @@ describe('searchFiles', () => {
     expect(calls).toHaveLength(2)
   })
 
-  it('rg 参数尊重 .gitignore/隐藏文件（未传 --hidden）并排除依赖目录', async () => {
+  it('rg 参数：不再解析 ignore 文件（明文清单过滤），排除依赖/构建/临时项', async () => {
     const calls = installFakeSpawn({chunks: ['a.ts\n']})
     const ws = makeWs({})
     await searchFiles(ws, 'a')
     const {args} = calls[0]
     expect(args).toContain('--files')
     expect(args).not.toContain('--hidden')
-    // 非 git 工作区也要尊重 .gitignore：rg 默认 require_git(true)，不传这面旗 .gitignore 形同虚设
-    expect(args).toContain('--no-require-git')
+    // 不再尊重 .gitignore/.ignore：改由明文排除清单过滤（--no-ignore 一个旗标关闭全部 ignore 解析）
+    expect(args).toContain('--no-ignore')
+    expect(args).not.toContain('--no-ignore-vcs')
+    expect(args).not.toContain('--no-require-git')
     for (const dir of ['node_modules', '.git', '.vite', '.cache', '.trash']) {
       expect(args.join(' ')).toContain(`!${dir}`)
     }
+    // 明文排除：构建产物目录与临时文件模式
+    for (const g of ['target', 'dist', 'coverage', '*.log', '*.pyc', '.DS_Store', 'Thumbs.db']) {
+      expect(args.join(' ')).toContain(`!${g}`)
+    }
+  })
+
+  it('.gitignore 排除的文件仍可被搜到（清单不再解析 ignore 文件）', async () => {
+    installFakeSpawn({chunks: ['vendor/ignored.ts\n']})
+    const ws = makeWs({'.gitignore': 'vendor/\n'})
+    const hits = await searchFiles(ws, 'ignored')
+    expect(hits.map(h => h.path)).toEqual(['vendor/ignored.ts'])
   })
 
   it('30 秒 TTL 内复用清单缓存；deleteFileListCache 后重新扫描', async () => {
@@ -330,7 +343,7 @@ describe('searchFiles', () => {
     expect(calls).toHaveLength(2)
   })
 
-  it('rg 不可用（spawn error）回退 JS 遍历：排除目录与隐藏文件同样生效', async () => {
+  it('rg 不可用（spawn error）回退 JS 遍历：排除目录、隐藏文件与明文临时/构建项', async () => {
     installFakeSpawn({error: true})
     const ws = makeWs(
       {
@@ -339,11 +352,16 @@ describe('searchFiles', () => {
         '.hidden.ts': 'x',
         'node_modules/dep.ts': 'x',
         '.git/config': 'x',
-        'dist/bundle.js': 'x',
+        'dist/app.ts': 'x',
+        'debug.log': 'x',
+        'sub/crash.bak': 'x',
+        '.DS_Store': 'x',
+        'Thumbs.db': 'x',
+        'cache.pyc': 'x',
       },
-      ['node_modules', '.git'],
+      ['node_modules', '.git', 'dist'],
     )
-    const hits = await searchFiles(ws, '.ts')
+    const hits = await searchFiles(ws, '.')
     expect(hits.map(h => h.path).sort()).toEqual(['keep.ts', 'sub/nested.ts'])
   })
 })
@@ -496,10 +514,14 @@ describe('Find in Files 会话', () => {
     const {args, cwd} = calls[0]
     expect(args).toContain('--json')
     expect(args).toContain('-F')
-    // 非 git 工作区也要尊重 .gitignore（同 rgFileListArgs）
-    expect(args).toContain('--no-require-git')
+    expect(args).toContain('--no-ignore')
+    expect(args).not.toContain('--no-ignore-vcs')
+    expect(args).not.toContain('--no-ignore-parents')
+    expect(args).not.toContain('--no-require-git')
     expect(args.join(' ')).toContain('--max-filesize 1M')
     expect(args.join(' ')).toContain('!node_modules')
+    expect(args.join(' ')).toContain('!dist')
+    expect(args.join(' ')).toContain('!*.log')
     expect(args.slice(-2)).toEqual(['needle', '.'])
     expect(cwd).toBe(ws)
   })

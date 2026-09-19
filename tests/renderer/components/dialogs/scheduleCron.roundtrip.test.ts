@@ -149,10 +149,8 @@ describe('cronToHuman 只出人话、不复述表达式', () => {
         expect(cronToHuman(cronToConfig('0 */6 * * *'))).toBe('每 6 小时')
     })
 
-    it('高级模式摘要不含原始表达式', () => {
-        const human = cronToHuman(cronToConfig('0 9 1,15 * *'))
-        expect(human).not.toContain('0 9')
-        expect(human).toContain('高级')
+    it('高级模式摘要回显原始表达式（前缀「自定义」，2026-09-19 用户拍板）', () => {
+        expect(cronToHuman(cronToConfig('0 9 1,15 * *'))).toBe('自定义 0 9 1,15 * *')
     })
 
     it('默认 config 的人话摘要可用', () => {

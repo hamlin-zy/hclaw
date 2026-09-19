@@ -167,21 +167,19 @@ describe('配置态文案（C3）', () => {
     })
 })
 
-describe('行内频率摘要（H3）', () => {
-    it('列表行内不出现 cron 表达式原文，而是人话摘要', () => {
+describe('行内频率摘要', () => {
+    it('列表行内可归类表达式出人话摘要', () => {
         setStore({schedules: [makeSchedule({id: 's1', cronExpression: '0 9 * * *'})]})
         render(<ScheduleDialog/>)
 
-        expect(screen.queryByText('0 9 * * *')).toBeNull()
         expect(screen.getByText('每天 09:00')).toBeTruthy()
     })
 
-    it('无法归类的表达式回退成中性文案，而不是把原文摆出来', () => {
+    it('无法归类的表达式回显 cron 原文（2026-09-19 用户拍板）', () => {
         setStore({schedules: [makeSchedule({id: 's1', cronExpression: '0 9 1,15 * *'})]})
         render(<ScheduleDialog/>)
 
-        expect(screen.queryByText('0 9 1,15 * *')).toBeNull()
-        expect(screen.getByText('自定义（高级表达式）')).toBeTruthy()
+        expect(screen.getByText('自定义 0 9 1,15 * *')).toBeTruthy()
     })
 })
 

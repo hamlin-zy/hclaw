@@ -358,6 +358,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 模型价目表手动刷新
   modelMetaRefresh: () =>
     ipcRenderer.invoke('model-meta:refresh'),
+  // 模型可用服务商列表（OpenRouter /endpoints，失败返回空列表）
+  modelMetaEndpoints: (model: string, force?: boolean) =>
+    ipcRenderer.invoke('model-meta:model-endpoints', {model, force}),
 
   // Conversation management
   conversationCreate: (convId: string, meta: Record<string, unknown>) =>
@@ -564,6 +567,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
         pause: (id: string) => ipcRenderer.invoke('scheduler-pause', id),
         resume: (id: string) => ipcRenderer.invoke('scheduler-resume', id),
         runNow: (id: string) => ipcRenderer.invoke('scheduler-run-now', id),
+        restoreDefault: (id: string) => ipcRenderer.invoke('scheduler-restore-default', id),
+        // 系统任务漂移检测：记录与出厂模板是否一致（还原默认按钮禁用态，只读）
+        systemDrift: () => ipcRenderer.invoke('scheduler-system-drift'),
         getConversations: (scheduleId: string) => ipcRenderer.invoke('scheduler-get-conversations', scheduleId),
         scriptLogs: (scheduleId: string) => ipcRenderer.invoke('scheduler-script-logs', scheduleId),
         readScriptLog: (logPath: string) => ipcRenderer.invoke('scheduler-read-script-log', logPath),

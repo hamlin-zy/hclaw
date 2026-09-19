@@ -1383,7 +1383,16 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const now = Date.now()
           // 目标项目：显式传入优先（段头「+」/ 抽屉）；否则沿用当前项目（既有行为不变）
           const target = opts?.workspacePath ?? get().currentWorkspacePath
-          const wsPath = target ?? ''
+          // ★ 未归属目标（显式空串 / UNASSIGNED_WORKSPACE_KEY 虚拟键，如未归属会话
+          //   激活时按 Ctrl+N、未归属段头「+」）：落库走**空路径**真相口径（与
+          //   loadConversations / onConversationCreated 的「空 = 未归属」同一真相；
+          //   workspacePath.ts 约定虚拟键不落库、不传主进程），且不切
+          //   currentWorkspacePath（:2148 约定：虚拟键不得写入）、不刷分支、不向
+          //   主进程 setCurrent。此前虚拟键被当真实项目：'__unassigned__' 落库污染
+          //   DB（归段靠字符串巧合而非空路径真相）、currentWorkspacePath 被写进
+          //   虚拟键。列表条目插未归属虚拟段（实时可见，不依赖兜底刷新）。
+          const isUnassignedTarget = !target || target === UNASSIGNED_WORKSPACE_KEY
+          const wsPath = isUnassignedTarget ? '' : target
           // 生效键：目标项目与当前项目等价 → 沿用当前键（不传 opts 时与改造前**逐字一致**，
           // 也避免把摘要写进另一条等价键导致列表查不到）；换项目 → 用唯一归一化口径
           // resolveWorkspaceKey 对齐本机登记（不新增第二条归一化路径）。
@@ -1438,19 +1447,17 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           }
 
           set((state) => {
-              if (!key) return {
-                  activeConversationId: id,
-                  loadedMessages: [],
-                  messagesMap: {...state.messagesMap, [id]: []}
-              }
-              const wsInfo = state.workspaces[key] || {lastOpenedAt: now, conversations: []}
+              // 未归属（key 为空串真相）→ 插未归属虚拟段（不存在则建）：不写
+              // currentWorkspacePath、不依赖 500ms 兜底；真实项目 → 插该项目段。
+              const segKey = key || UNASSIGNED_WORKSPACE_KEY
+              const wsInfo = state.workspaces[segKey] || {lastOpenedAt: now, conversations: []}
               return {
                   activeConversationId: id,
                   loadedMessages: [],
                   messagesMap: {...state.messagesMap, [id]: []},
                   workspaces: {
                       ...state.workspaces,
-                      [key]: {...wsInfo, conversations: [summary, ...wsInfo.conversations]}
+                      [segKey]: {...wsInfo, conversations: [summary, ...wsInfo.conversations]},
                   },
               }
           })
@@ -1519,16 +1526,23 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           if (handoffFromConvId) {
               void useAgentStore.getState().refreshActiveBatch(handoffFromConvId)
           }
-          // ★ §5.2 跟随矩阵：本函数**无条件跟随**（无需 {follow} 参数）。
-          //   已核实：它的调用点只有两个，都是「把新会话激活给用户看」的路径——
-          //     · App.tsx:577（`session_created` 事件；生产者 = sessionHandoffTool 的 handoff
-          //       与 memoStore 的备忘录新建会话）
-          //     · App.tsx:601（`conversation-created` + source === 'renderer-create'；
-          //       生产者 = src/main/conversation.ts，其他渲染窗口/独立窗口创建会话）
-          //   矩阵里「不跟随」的那些通路（渠道/定时任务 = onConversationCreated；
-          //   子会话 = handleChildConvCreated）是**另外的 action**，根本不经过本函数。
-          //   若日后新增后台调用点，需改为由调用方传 follow: false（回退成本：一个可选参数）。
-          if (workspacePath) get().followScopeToProject(workspacePath)
+          // ★ §5.2 跟随矩阵（口径与 newConversation.stayInScope 一致）：
+          //   「激活新会话」由上方 switchActiveConversation 负责（只同步「在哪干活」，
+          //   不写 viewScope）；本处只补「看谁」——但组视图内目标项目是组员时，
+          //   跟随会把用户强制踢出组视图（组内新建/交接 ≠ 离开组视图，与组内点
+          //   其他成员会话不写 viewScope 同理）→ 只做段内滚动定位。
+          //   目标不在当前组（备忘录处理非组内项目 / 跨项目交接 / 无组视图）→ 跟随，
+          //   保证新会话对用户可见。
+          if (!workspacePath) return
+          const scope = get().viewScope
+          const group = scope?.type === 'group'
+              ? useProjectGroupStore.getState().groups.find(g => g.id === scope.groupId)
+              : null
+          const inCurrentGroup = Boolean(group?.members.some(
+              m => workspacePathKey(m.projectPath) === workspacePathKey(workspacePath),
+          ))
+          if (inCurrentGroup) get().focusProjectSegment(workspacePath)
+          else get().followScopeToProject(workspacePath)
       },
 
       // 子 Agent 独立会话创建事件处理：插入父会话所属工作区列表顶部
@@ -1659,7 +1673,14 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
        *  后台 loop 结束落库不会把会话顶到列表最上方（用户诉求：顺序稳定优于活动时间排序）。 */
       touchConversation: (convId, updatedAt) => {
           set((state) => {
-              const wsPath = state.currentWorkspacePath
+              // ★ I-1(b)：按会话自身所属项目写（与 togglePinConversation /
+              //   onConversationUpdated 的 findConvHome 范式一致）。此前只在
+              //   currentWorkspacePath 单段 map，未命中静默返回 → 未归属会话
+              //   （UNASSIGNED_WORKSPACE_KEY 虚拟段）与其他非当前工作区会话的
+              //   updatedAt 不实时刷新（列表排序不动、预览位置不更新），重载
+              //   后才恢复。此处也不得因 currentWorkspacePath 为空整体早退
+              //   （零项目场景的未归属会话同样需要收到更新）。
+              const wsPath = findConvHome(state.workspaces, convId)
               if (!wsPath || !state.workspaces[wsPath]) return state
               const conversations = state.workspaces[wsPath].conversations.map(c =>
                   c.id === convId ? {...c, updatedAt: Math.max(c.updatedAt || 0, updatedAt)} : c
@@ -2104,11 +2125,12 @@ if (typeof window !== 'undefined') {
         //   loadConversations 又按 meta.workspacePath 跳回 A，产生归属漂移。
         //   与 handleChildConvCreated 同根因——不得用「当前工作区」语义归属
         //   属于其他工作区的对象。
-        // ★ payload 无 workspacePath 时不回退 currentWorkspacePath（与
-        //   handleSessionCreated 的 `workspacePath ? ... : undefined` 守卫一致），
-        //   直接跳过；下方 500ms 兜底经 loadConversations 从 DB 正确归位。
-        const wsPath = conv.workspacePath as string | undefined
-        if (!wsPath) return
+        // ★ payload 无 workspacePath 时收进「未归属」虚拟段（UNASSIGNED_WORKSPACE_KEY），
+        //   与 loadConversations 的归位口径同一真相（空路径 = 未归属，如定时任务会话）；
+        //   不回退 currentWorkspacePath（归属语义由 `|| UNASSIGNED_WORKSPACE_KEY` 表达）。
+        //   此前此处直接 return：定时任务「立即执行」产生的会话在实时路径被丢弃，
+        //   500ms 兜底虽会从 DB 归位，但组视图外用户全程看不到新会话出现。
+        const wsPath = (conv.workspacePath as string | undefined) || UNASSIGNED_WORKSPACE_KEY
 
         const summary: ConversationSummary = {
             id: conv.id,
@@ -2142,7 +2164,8 @@ if (typeof window !== 'undefined') {
         }
 
         // 如果当前未选中工作区，且会话所属工作区有效，自动切换过去
-        if (!state.currentWorkspacePath) {
+        // （「未归属」是内存虚拟键，不是真实工作区，不得写入 currentWorkspacePath）
+        if (!state.currentWorkspacePath && wsPath !== UNASSIGNED_WORKSPACE_KEY) {
             updates.currentWorkspacePath = wsPath
             updates.activeConversationId = summary.id
         }
@@ -2179,7 +2202,6 @@ if (typeof window !== 'undefined') {
     }) => {
         const state = useConversationStore.getState()
         const {workspaces, currentWorkspacePath, messagesMap, activeConversationId} = state
-        if (!currentWorkspacePath) return
 
         // 只清除非活跃会话的消息缓存，确保切换回该会话时从 DB 重新读取最新消息（如手机端消息）
         // 活跃会话的缓存不清除：1) 避免丢失尚未持久化的内存消息（新会话首条 Ctrl+K 自动重命名）
@@ -2190,14 +2212,32 @@ if (typeof window !== 'undefined') {
             useConversationStore.setState({messagesMap: newMap})
         }
 
-        const wsInfo = workspaces[currentWorkspacePath]
-        if (!wsInfo) return
-
-        const convIndex = wsInfo.conversations.findIndex(c => c.id === data.id)
-        if (convIndex === -1) return
+        // ★ 匹配范围：先查 currentWorkspacePath（高频路径，保持原序），未命中再经
+        //   findConvHome 遍历全部已加载工作区（含「未归属」虚拟段）——I-1(b) 原则：
+        //   会话操作按会话自身所属段读写，与 onConversationDeleted /
+        //   togglePinConversation 的范式一致。此前只在 currentWorkspacePath 单段
+        //   findIndex、未命中直接 return：定时任务会话完成后主进程推送
+        //   {status:'active'}，但未归属会话（workspacePath 为空，收纳于
+        //   UNASSIGNED_WORKSPACE_KEY，而该键永不写入 currentWorkspacePath）与
+        //   其他非当前工作区的会话都匹配不到，status 永远停在 'running' → 侧栏
+        //   isSchedulerRunning 恒真，图标闪烁不止（重载后 loadConversations 从
+        //   DB 读到 active 才消失）。此处也不得因 currentWorkspacePath 为空整体
+        //   早退（零项目场景的未归属会话同样需要收到状态更新）。
+        let targetWsPath: string = currentWorkspacePath ?? ''
+        let wsInfo = currentWorkspacePath ? workspaces[currentWorkspacePath] : undefined
+        let convIndex = wsInfo?.conversations.findIndex(c => c.id === data.id) ?? -1
+        if (convIndex === -1) {
+            const home = findConvHome(workspaces, data.id)
+            if (!home) return
+            targetWsPath = home
+            wsInfo = workspaces[home]
+            // findConvHome 命中的不变式：该段 conversations 必含 data.id，
+            // 故此处 findIndex 必然 ≥ 0（只取下标，不再二次防御）。
+            convIndex = wsInfo.conversations.findIndex(c => c.id === data.id)
+        }
 
         // 更新会话列表中的对应会话
-        const updatedConversations = [...wsInfo.conversations]
+        const updatedConversations = [...wsInfo!.conversations]
         updatedConversations[convIndex] = {
             ...updatedConversations[convIndex],
             ...(data.preview !== undefined && {preview: data.preview}),
@@ -2209,8 +2249,8 @@ if (typeof window !== 'undefined') {
         useConversationStore.setState({
             workspaces: {
                 ...workspaces,
-                [currentWorkspacePath]: {
-                    ...wsInfo,
+                [targetWsPath]: {
+                    ...wsInfo!,
                     conversations: updatedConversations,
                 },
             },

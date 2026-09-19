@@ -35,6 +35,9 @@ const inputSchema = z.object({
         subagent: z.object({
             maxConcurrency: z.number().optional().describe('最大并发子任务数'),
         }).optional(),
+        memory: z.object({
+            enabled: z.boolean().optional().describe('是否启用用户习惯记忆功能'),
+        }).optional(),
     }).optional().describe('update_settings 时的配置项（增量合并，只需提供要修改的字段）'),
 })
 
@@ -77,6 +80,9 @@ export const systemManageTool: Tool<SystemManageInput, string> = {
                         lines.push('')
                         lines.push('=== 子任务配置 ===')
                         lines.push(`  最大并发: ${parsed.subagent?.maxConcurrency ?? '-'}`)
+                        lines.push('')
+                        lines.push('=== 用户习惯记忆 ===')
+                        lines.push(`  启用: ${(parsed.memory ?? {enabled: true}).enabled}`)
                         lines.push('')
                         return {success: true, output: lines.join('\n')}
                     } catch {

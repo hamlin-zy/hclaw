@@ -149,7 +149,7 @@ function recordOf(overrides: Partial<ScheduleRecord>): ScheduleRecord {
         id: 'sched-x', name: '任务', description: '', cronExpression: '0 9 * * *',
         taskType: 'agent', taskTarget: 't', taskArgs: [], enabled: true, paused: false,
         pausedAt: null, lastRunAt: null, lastRunStatus: 'none', lastRunConversationId: null,
-        runCount: 0, createdAt: 1, updatedAt: 1, workspaceId: null,
+        runCount: 0, createdAt: 1, updatedAt: 1, workspaceId: null, isSystem: false,
         ...overrides,
     }
 }
@@ -432,6 +432,22 @@ describe('只读健康度出口（D3）', () => {
         expect(res.data.d.path).toBe(MISSING_DIR)
     })
 
+    it('系统任务（isSystem）不绑定项目：健康度旁路工作目录守卫判 ok，与执行拦截同一真相', () => {
+        // 症状：系统任务 workspaceId 为 null，sweep 不感知 isSystem → 判 unset →
+        // 前端「立即执行」被禁用，而执行路径（checkScheduleWorkspace 传 isSystem）实际放行。
+        scheduleRepoStub.list.mockReturnValue([
+            recordOf({id: 'sys', workspaceId: null, isSystem: true}),
+            recordOf({id: 'user', workspaceId: null, isSystem: false}),
+        ])
+
+        const res = workspaceHealthMap()
+
+        expect(res.ok).toBe(true)
+        if (!res.ok) return
+        expect(res.data.sys.state).toBe('ok')
+        expect(res.data.user.state).toBe('unset')
+    })
+
     it('IPC 通道 scheduler-workspace-health 已注册且返回同一份真相', () => {
         scheduleRepoStub.list.mockReturnValue([recordOf({id: 'a', workspaceId: 'ws-ok'})])
 
@@ -498,7 +514,11 @@ describe('健康度 sweep 的成本口径（复核 S5）', () => {
     it('一批任务里同一工作区被反复引用时，目录判定按路径记忆化（stat 次数 = 不同路径数）', () => {
         const seen: string[] = []
         const healths = sweepWorkspaceHealth(
-            ['ws-ok', 'ws-ok', 'ws-ok', 'ws-nodir', 'ws-nodir', null, ''],
+            [
+                {workspaceId: 'ws-ok'}, {workspaceId: 'ws-ok'}, {workspaceId: 'ws-ok'},
+                {workspaceId: 'ws-nodir'}, {workspaceId: 'ws-nodir'},
+                {workspaceId: null}, {workspaceId: ''},
+            ],
             {
                 listWorkspaces: () => [
                     {id: 'ws-ok', path: 'E:/same'},
@@ -514,7 +534,7 @@ describe('健康度 sweep 的成本口径（复核 S5）', () => {
     })
 
     it('整表读取失败：不静默按「全部可用」放行，判成 unavailable 并说明读失败（不是 missing）', () => {
-        const healths = sweepWorkspaceHealth(['ws-any'], {
+        const healths = sweepWorkspaceHealth([{workspaceId: 'ws-any'}], {
             listWorkspaces: () => { throw new Error('db closed') },
             isDirectory: () => true,
         })

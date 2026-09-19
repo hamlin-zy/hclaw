@@ -146,7 +146,7 @@ function ProviderCard({ provider, isActive, onSelect, onEdit, onRemove }: {
         <div className="flex items-center gap-2.5 min-w-0">
           {/* 状态指示灯 */}
           <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-            isOAuth2Expired ? 'bg-orange-400' : provider.enabled ? 'bg-green-400' : 'bg-gray-300'
+            isOAuth2Expired ? 'bg-[var(--warning)]' : provider.enabled ? 'bg-[var(--success)]' : 'bg-gray-300'
           }`} aria-label={provider.enabled ? '已启用' : '已禁用'} />
           <div className="min-w-0">
             <div className="text-sm font-medium text-gray-800 truncate leading-tight">{provider.name}</div>

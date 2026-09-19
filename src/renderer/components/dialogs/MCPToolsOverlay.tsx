@@ -153,7 +153,7 @@ function ToolCard({tool, serverName, isPlugin}: {
                                              className="flex flex-col gap-0.5 p-2 rounded bg-[var(--surface)] border border-[var(--border-muted)]">
                                             <div className="flex items-baseline gap-2">
                                                 <span className="text-xs font-mono font-semibold text-[var(--text-primary)]">
-                                                    {key}{isRequired && <span className="text-red-400 ml-0.5">*</span>}
+                                                    {key}{isRequired && <span className="text-[var(--error)] ml-0.5">*</span>}
                                                 </span>
                                                 <span className="text-2xs px-1 py-0.5 rounded bg-[var(--surface-muted)] text-[var(--text-muted)] font-mono">
                                                     {String(prop.type || 'any')}
@@ -210,8 +210,8 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                         {/* 状态指示灯 */}
                         <div className={`w-3 h-3 rounded-full shrink-0 ${
                             server.enabled === false ? 'bg-gray-300' :
-                                server.status === 'connected' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.3)]' :
-                                    server.status === 'error' ? 'bg-red-500' :
+                                server.status === 'connected' ? 'bg-[var(--success)] shadow-[0_0_8px_-2px_var(--success)]' :
+                                    server.status === 'error' ? 'bg-[var(--error)]' :
                                         server.status === 'connecting' || server.status === 'reconnecting' ? 'bg-yellow-300 animate-pulse' :
                                             'bg-gray-300'
                         }`}/>
@@ -228,8 +228,8 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                             </div>
                             <div className="flex items-center gap-3 mt-0.5">
                                 <span className={`text-2xs font-medium ${
-                                    server.status === 'connected' ? 'text-green-500' :
-                                        server.status === 'error' ? 'text-red-400' :
+                                    server.status === 'connected' ? 'text-[var(--success)]' :
+                                        server.status === 'error' ? 'text-[var(--error)]' :
                                             server.status === 'connecting' || server.status === 'reconnecting' ? 'text-yellow-400' :
                                                 'text-[var(--text-muted)]'
                                 }`}>
@@ -277,8 +277,8 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                             <div className="p-3 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)]">
                                 <div className="text-2xs text-[var(--text-muted)] font-medium uppercase tracking-wider mb-1">当前状态</div>
                                 <div className={`text-xs font-semibold ${
-                                    server.status === 'connected' ? 'text-green-500' :
-                                        server.status === 'error' ? 'text-red-400' :
+                                    server.status === 'connected' ? 'text-[var(--success)]' :
+                                        server.status === 'error' ? 'text-[var(--error)]' :
                                             server.status === 'connecting' || server.status === 'reconnecting' ? 'text-yellow-400' :
                                                 'text-[var(--text-secondary)]'
                                 }`}>
@@ -332,8 +332,8 @@ export default function MCPToolsOverlay({server, onClose}: MCPToolsOverlayProps)
                     {server.status === 'error' && server.errorDetail && (
                         <>
                             <section>
-                                <h4 className="text-2xs font-semibold text-red-400 uppercase tracking-wider mb-2">错误详情</h4>
-                                <div className="p-3 rounded-lg bg-red-50 border border-red-100 text-xs text-red-600 break-all font-mono leading-relaxed">
+                                <h4 className="text-2xs font-semibold text-[var(--error)] uppercase tracking-wider mb-2">错误详情</h4>
+                                <div className="p-3 rounded-lg bg-[color-mix(in_srgb,var(--error)_10%,transparent)] border border-[color-mix(in_srgb,var(--error)_30%,transparent)] text-xs text-[var(--error)] break-all font-mono leading-relaxed">
                                     {server.errorDetail}
                                 </div>
                             </section>

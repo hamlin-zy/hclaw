@@ -10,7 +10,7 @@ import path from 'path'
 import fs from 'fs'
 import {
     createSchedule, deleteSchedule, fail, listSchedules, pauseSchedule, resumeSchedule,
-    runNowSchedule, stopSchedule, updateSchedule, workspaceHealthMap,
+    runNowSchedule, restoreSystemSchedule, stopSchedule, systemScheduleDrift, updateSchedule, workspaceHealthMap,
 } from './scheduleOps'
 import {broadcastSchedulesChanged} from './scheduleBroadcast'
 import {schedulerManager} from './index'
@@ -81,6 +81,16 @@ export function initScheduleIPC() {
   ipcMain.handle('scheduler-stop', (_e, scheduleId: string) => stopSchedule(scheduleId))
 
   ipcMain.handle('scheduler-run-now', (_e, id: string) => runNowSchedule(id))
+
+  // 还原系统内置任务到默认配置（仅 isSystem 记录可还原，见 scheduleOps.restoreSystemSchedule）
+  ipcMain.handle('scheduler-restore-default', (_e, id: string) => {
+    const result = restoreSystemSchedule(id)
+    if (result.ok) broadcastSchedulesChanged({type: 'updated', record: result.data})
+    return result
+  })
+
+  // 系统任务漂移检测：只读派生查询（还原默认按钮禁用态的唯一判定来源）
+  ipcMain.handle('scheduler-system-drift', () => systemScheduleDrift())
 
   ipcMain.handle('scheduler-get-conversations', (_e, scheduleId: string) => {
     try {

@@ -70,9 +70,9 @@ describe('折叠摘要 —— 人话、不与原始表达式混排', () => {
         expect(screen.queryByText(/30 8 \* \* 1-5/)).toBeNull()
     })
 
-    it('写法写不回的表达式：摘要只说「高级」，原文不外露，且给出可见告知', () => {
+    it('写法写不回的表达式：摘要回显表达式（前缀「自定义」），且给出可见告知', () => {
         render(<ScheduleEditModal initial={{cronExpression: '0 9 1,15 * *'}} onSave={vi.fn()} onClose={vi.fn()}/>)
-        expect(screen.getByText('自定义（高级表达式）')).toBeTruthy()
+        expect(screen.getByText('自定义 0 9 1,15 * *')).toBeTruthy()
         // 未展开时原始表达式不出现在页面上
         expect(screen.queryByDisplayValue('0 9 1,15 * *')).toBeNull()
         // 明确告知——且措辞不说错话（I-3）：这条表达式语义能懂，只是写法写不回，
@@ -278,9 +278,9 @@ describe('II-5 —— 高级表达式清空后不静默写成别的频率', () =
 })
 
 describe('回归 —— 非法周区间 `7-k` 不被判成可归类、不被静默改写', () => {
-    it.each(['0 9 * * 7-1', '0 9 * * 7-6'])('%s：给出告知 + 摘要只说「高级」，不冒充四种说法', (expr) => {
+    it.each(['0 9 * * 7-1', '0 9 * * 7-6'])('%s：给出告知 + 摘要回显表达式，不冒充四种说法', (expr) => {
         render(<ScheduleEditModal initial={{cronExpression: expr}} onSave={vi.fn()} onClose={vi.fn()}/>)
-        expect(screen.getByText('自定义（高级表达式）')).toBeTruthy()
+        expect(screen.getByText(`自定义 ${expr}`)).toBeTruthy()
         expect(unrecognizedNotice()).toBeTruthy()
         expect(screen.getByText(/没能原样对应/)).toBeTruthy()
     })
