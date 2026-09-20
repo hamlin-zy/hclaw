@@ -71,6 +71,8 @@ mockStatFn.mockImplementation(async (...args: unknown[]) => {
 // ── spawn 注入：测试不得真起 rg 进程 ──
 interface FakeRgSpec {
   chunks?: string[]
+  /** 原始字节 chunk：用于模拟多字节字符被切在 chunk 边界中间 */
+  rawChunks?: Buffer[]
   /** 立即 emit 'error'（模拟 rg 未安装 / spawn 失败） */
   error?: boolean
   code?: number | null
@@ -97,7 +99,9 @@ function installFakeSpawn(spec: FakeRgSpec | ((args: string[]) => FakeRgSpec)): 
         c.emit('error', new Error('spawn rg ENOENT'))
         return
       }
-      for (const chunk of s.chunks ?? []) c.stdout.emit('data', Buffer.from(chunk, 'utf8'))
+      for (const chunk of s.rawChunks ?? s.chunks ?? []) {
+        c.stdout.emit('data', Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf8'))
+      }
       c.emit('close', s.code ?? 0)
     })
     return child
@@ -161,6 +165,36 @@ describe('toPosixPath / matchPath', () => {
 
   it('空查询返回 null', () => {
     expect(matchPath('a.ts', '')).toBeNull()
+  })
+})
+
+// ───────────────────── 多字节字符跨 stdout chunk 边界（StringDecoder 兜底） ─────────────────────
+
+describe('rg stdout chunk 边界多字节截断', () => {
+  /** 等待 fake spawn 的 setImmediate 把 data/close 全部派发完 */
+  const flush = (): Promise<void> => new Promise(r => setTimeout(r, 0))
+
+  it('searchFiles：文件名中的汉字被切在两个 chunk 中间仍完整', async () => {
+    const full = Buffer.from('src/中文abc.ts\n', 'utf8')
+    // 切在「中」的第二个字节上（真正半个汉字）
+    const cut = full.indexOf('中', 0, 'utf8') + 2
+    installFakeSpawn({rawChunks: [full.subarray(0, cut), full.subarray(cut)]})
+    const ws = makeWs({})
+    const hits = await searchFiles(ws, 'abc')
+    expect(hits.map(h => h.path)).toEqual(['src/中文abc.ts'])
+  })
+
+  it('Find in Files：rg 事件行跨 chunk 截断时行文本/路径不出现 U+FFFD', async () => {
+    const full = Buffer.from(`${rgJsonEvent('中文.md', 1, 'hit')}\n`, 'utf8')
+    const cut = full.indexOf('中', 0, 'utf8') + 2
+    installFakeSpawn({rawChunks: [full.subarray(0, cut), full.subarray(cut)]})
+    const ws = makeWs({})
+    const {sessionId} = startFindInFiles(ws, 'hit')
+    await flush()
+    const {matches} = getFindInFilesPage(sessionId, 0, 20)
+    expect(matches).toHaveLength(1)
+    expect(matches[0].path).toBe('中文.md')
+    expect(matches[0].text).not.toContain('\uFFFD')
   })
 })
 

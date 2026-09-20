@@ -753,6 +753,18 @@ async function refreshGitBranch(wsPath: string | null): Promise<void> {
 export function subscribeGitBranchChanges(): () => void {
     const unsub = window.electronAPI?.workspace?.onGitBranchChanged?.((branch) => {
         useConversationStore.setState({gitBranch: branch})
+        // ★ 段头徽章同步：gitBranches[path] 的旧缓存会挡住 getScopedSections 里的 ??
+        //   回退（仅当前项目才回退到 gitBranch），不刷则徽章停留旧值。
+        //   先显式覆盖当前工作区键（无 getGitBranches IPC 时也生效），
+        //   再触发 refreshVisibleBranches 兜底批量刷新（失败静默，不影响交互）。
+        const wsPath = useConversationStore.getState().currentWorkspacePath
+        if (wsPath) {
+            const {gitBranches} = useConversationStore.getState()
+            if (wsPath in gitBranches) {
+                useConversationStore.setState({gitBranches: {...gitBranches, [wsPath]: branch}})
+            }
+        }
+        void useConversationStore.getState().refreshVisibleBranches()
     })
     return () => unsub?.()
 }

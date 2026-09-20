@@ -1,5 +1,6 @@
 // src/main/project-manager/window.ts
 import {ipcMain} from 'electron'
+import {safeHandle} from '../lib/safeHandle'
 import {basename, resolve} from 'path'
 import {createAppWindow} from '../utils/windowFactory'
 import type {BrowserWindow} from 'electron'
@@ -114,15 +115,6 @@ export function stopAllWatchers(): void {
   // ★ 用条目内保存的**原始** workspacePath：watcher 的 key 是 resolve(原始串)，
   //   传归一化后的 key（win32 下已折叠大小写）会与条目对不上而静默漏停。
   for (const {workspacePath} of projectWindows.values()) void stopWatcher(workspacePath)
-}
-
-// 幂等注册：重复 init 时先移除旧 handler 再注册（窗口重开 / 重复 init 场景）。
-// ★ 不能用 ipcMain.listenerCount 判定：ipcMain.handle 不写入 EventEmitter 的 listener
-//   列表，listenerCount 恒为 0 → 守卫恒真、无幂等效果，重复 init 会抛
-//   "Attempted to register a second handler for 'xxx'"。对齐 utils/windowFactory.ts:37-40。
-function safeHandle(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown): void {
-  ipcMain.removeHandler(channel)
-  ipcMain.handle(channel, handler)
 }
 
 /** pm:send-to-conversation:ack 当前注册的 handler（重复 init 时用同一引用先 removeListener） */

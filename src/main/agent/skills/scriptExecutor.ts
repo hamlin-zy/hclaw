@@ -6,12 +6,14 @@
  */
 
 import {spawn, SpawnOptions} from 'child_process'
+import {StringDecoder} from 'string_decoder'
 import * as path from 'path'
 import * as fs from 'fs'
 import type {ScriptFile, ScriptResult} from './types'
 import {systemSettingsRepo} from '../../repositories/sqlite/systemSettingsRepository'
 // 脚本由解释器拉起时可能自带子孙进程：超时/取消必须按进程树杀，否则留下孤儿
 import {killProcessTree} from '../../common/killProcessTree'
+import {getPowerShellUtf8Init} from '../../utils/powershellUtf8'
 
 // ─── 常量 ──────────────────────────────────────────────
 
@@ -105,29 +107,37 @@ export async function executeScript(
       killProcessTree(proc.pid)
     }, timeout)
 
+    // StringDecoder 跨 chunk 拼接多字节 UTF-8（chunk.toString() 逐块独立解码会截断中文出 U+FFFD）
+    const outDec = new StringDecoder('utf8')
+    const errDec = new StringDecoder('utf8')
+
     // 处理 stdout
     proc.stdout?.on('data', (_data: Buffer) => {
-      const chunk = _data.toString()
-      outputSize += chunk.length
+      const chunk = outDec.write(_data)
+      const remaining = MAX_OUTPUT_SIZE - outputSize
+      if (remaining <= 0) return // 已截断并树杀，后续块丢弃
 
-      if (outputSize > MAX_OUTPUT_SIZE) {
-        stdout += chunk.slice(0, MAX_OUTPUT_SIZE - outputSize)
+      const keep = remaining < chunk.length ? chunk.slice(0, remaining) : chunk
+      outputSize += keep.length
+      stdout += keep
+      if (keep.length < chunk.length) {
         stdout += '\n... [output truncated]'
         killProcessTree(proc.pid)
         return
       }
 
-      stdout += chunk
       options?.onOutput?.(chunk)
     })
 
     // 处理 stderr
     proc.stderr?.on('data', (data: Buffer) => {
-      const chunk = data.toString()
-      stderr += chunk
+      stderr += errDec.write(data)
     })
 
     proc.on('close', (code) => {
+      // 收尾残字节（truncation 后不再追加，避免超上限）
+      if (MAX_OUTPUT_SIZE - outputSize > 0) stdout += outDec.end()
+      stderr += errDec.end()
       clearTimeout(timer)
       const duration = Date.now() - startTime
 
@@ -216,7 +226,11 @@ async function buildCommand(script: ScriptFile, args: Record<string, unknown>): 
             : 'PowerShell (pwsh) 未安装。请安装 PowerShell Core: https://aka.ms/powershell'
         )
       }
-      return {cmd: psCmd, cmdArgs: ['-File', scriptPath, '-Args', argsJson]}
+      // PS 5.1 在 GBK 等代码页下 stdout 走 ANSI，Node 按 UTF-8 解码会乱码——前置 UTF-8 初始化（pwsh 7+ 幂等无害）
+      return {
+          cmd: psCmd,
+          cmdArgs: ['-NoProfile', '-Command', `${getPowerShellUtf8Init()} & '& '${scriptPath.replace(/'/g, "''")}' -Args '${argsJson.replace(/'/g, "''")}'`],
+      }
     }
 
     default:

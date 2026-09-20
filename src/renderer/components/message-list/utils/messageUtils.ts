@@ -57,6 +57,10 @@ export function getToolSummary(tc: ToolCall): string | null {
         const cmdStr = toStringOrNull(args.command)
         return cmdStr ? truncate(cmdStr, 60) : null
     }
+    if (tc.name === 'hclaw_db_query') {
+        const sqlStr = toStringOrNull(args.sql)
+        return sqlStr ? truncate(sqlStr, 60) : null
+    }
     // catalog 通道下的 MCP 通用调用器：展示实际调用的 MCP 工具名（而非 call_mcp_tool）
     if (tc.name === 'call_mcp_tool') {
         const target = toStringOrNull(args.name)
@@ -81,6 +85,7 @@ export function getToolArgSummary(tc: ToolCall): string | null {
         return truncate(toStringOrNull(args.filePath) || toStringOrNull(args.path) || toStringOrNull(args.pattern) || '', 50)
     }
     if (tc.name === 'bash') return truncate(toStringOrNull(args.command) || '', 50)
+    if (tc.name === 'hclaw_db_query') return truncate(toStringOrNull(args.sql) || '', 50)
     // catalog 通道：展示实际 MCP 工具名
     if (tc.name === 'call_mcp_tool') return truncate(toStringOrNull(args.name) || '', 50)
     if (isMcpToolName(tc.name)) {
@@ -97,6 +102,7 @@ export function getToolDetail(tc: ToolCall): string | null {
     const args = tc.arguments as any
     if (!args) return null
     if (tc.name === 'bash') return toStringOrNull(args.command)
+    if (tc.name === 'hclaw_db_query') return toStringOrNull(args.sql)
     if (tc.name.startsWith('file_') || tc.name === 'glob' || tc.name === 'grep') {
         return toStringOrNull(args.filePath) || toStringOrNull(args.path) || toStringOrNull(args.pattern)
     }
@@ -114,7 +120,13 @@ export function getToolDetail(tc: ToolCall): string | null {
         for (const [k, v] of Object.entries(args)) if (k !== 'reason') cleaned[k] = v
         return Object.keys(cleaned).length > 0 ? JSON.stringify(cleaned, null, 2) : null
     }
-    return null
+    // 通用兜底（举一反三）：未列名的内置工具（task_create / channel_send / scheduler_manage 等）
+    // 同样需要展示参数，否则弹窗参数区空白。与 ToolCallBody 的 generic fallback 对称。
+    {
+        const cleaned: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(args)) if (k !== 'reason') cleaned[k] = v
+        return Object.keys(cleaned).length > 0 ? JSON.stringify(cleaned, null, 2) : null
+    }
 }
 
 /**

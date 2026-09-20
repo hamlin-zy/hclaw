@@ -34,8 +34,9 @@ import {cruise} from 'dependency-cruiser'
 /** 所有 size>1 的 SCC，其尺寸上限（P2 实测值） */
 const MAX_SCC_SIZE = 6
 
-/** 入环模块总数上限（P2 实测值） */
-const MAX_IN_CYCLE_TOTAL = 9
+/** 入环模块总数上限（P2 实测值 9；companion-apps 窗口入口接入后：tray → configWindow
+ *  （其经 dynamic import 引 window）使 SCC#2 {window, attention, tray} 扩为 4 模块，有意放宽至 10） */
+const MAX_IN_CYCLE_TOTAL = 10
 
 /** 图规模守卫阈值：正则/配置写错导致图塌成几个模块时，测试必须失败而不是静默变绿 */
 const MIN_MODULE_COUNT = 100

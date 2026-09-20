@@ -40,6 +40,8 @@ const DIALOG_CONFIG: Record<string, DialogConfig> = {
     'task-history-conv': {title: '任务历史', loader: () => import('./dialogs/TaskHistoryDialog')},
     'memo-edit': {title: '备忘录编辑', loader: () => import('./dialogs/MemoEditDialog')},
     'quick-phrases': {title: '快捷短语', loader: () => import('./dialogs/PhraseDialog')},
+    'memory-manager': {title: '记忆管理', loader: () => import('./dialogs/MemoryManagerDialog')},
+    'companion-apps': {title: '跟随启动', loader: () => import('./companion/CompanionAppsWindow')},
 }
 
 /** 独立窗口支持的 dialogType 集合（供跨层一致性测试与路由校验复用） */

@@ -1,5 +1,6 @@
 // src/main/project-manager/git/gitExec.ts
 import {execFile, spawn} from 'child_process'
+import {StringDecoder} from 'string_decoder'
 
 export function gitExec(workspace: string, args: string[], timeoutMs = 30 * 1000): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -46,6 +47,9 @@ export function gitExecResult(
     })
     let stdout = ''
     let stderr = ''
+    // chunk 边界可能落在多字节字符中间，逐 chunk 拼接会各自解出 U+FFFD
+    const outDec = new StringDecoder('utf8')
+    const errDec = new StringDecoder('utf8')
     let settled = false
     // error / close / timeout 三条终止路径统一收尾：先清定时器、再 kill、最后 resolve。
     // kill 已退出的进程是安全 no-op。
@@ -54,11 +58,11 @@ export function gitExecResult(
       child.kill()
       if (settled) return
       settled = true
-      resolve({code, stdout, stderr})
+      resolve({code, stdout: stdout + outDec.end(), stderr: stderr + errDec.end()})
     }
     const timer = setTimeout(() => finish(-1), timeoutMs)
-    child.stdout?.on('data', chunk => { stdout += chunk })
-    child.stderr?.on('data', chunk => { stderr += chunk })
+    child.stdout?.on('data', chunk => { stdout += outDec.write(chunk as Buffer) })
+    child.stderr?.on('data', chunk => { stderr += errDec.write(chunk as Buffer) })
     // git 未安装 → ENOENT，按 -1 返回而不是抛错
     child.on('error', () => finish(-1))
     child.on('close', code => finish(code ?? -1))

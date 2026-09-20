@@ -180,14 +180,15 @@ afterEach(() => {
 })
 
 describe('S1b — 脚本任务显式持有 child', () => {
-    it('用 spawn 起脚本，命令串与 shell 语义与改造前一致', async () => {
+    it('用 spawn 起脚本，命令串含 UTF-8 初始化 + 原 shell 语义（PS5.1 ANSI 乱码修复）', async () => {
         scheduleRepoStub.get.mockReturnValue(recordOf({id: 'sched-spawn', taskTarget: 'pkg.js', taskArgs: ['a b']}))
 
         fireTask({scheduleId: 'sched-spawn', taskTarget: 'pkg.js', taskArgs: ['a b']})
         await vi.waitFor(() => expect(spawnCalls).toHaveLength(1))
 
         const {cmd, opts} = spawnCalls[0]
-        expect(cmd).toBe('"pkg.js" "a b"')
+        expect(cmd).toContain('[Console]::OutputEncoding=[System.Text.Encoding]::UTF8')
+        expect(cmd).toContain('& "pkg.js" "a b"')
         expect(opts.shell).toBe('powershell.exe')
 
         // 收尾：放行退出，避免用例结束后仍有在途 promise
@@ -247,7 +248,8 @@ describe('S1b — 取消路径在根进程存活时树杀', () => {
         child.close(1)
 
         await vi.waitFor(() => expect(scriptLogOf('sched-fail')).toContain('Status: FAILURE'))
-        expect(scriptLogOf('sched-fail')).toContain('Command failed: "tree.js"')
+        expect(scriptLogOf('sched-fail')).toContain('Command failed:')
+        expect(scriptLogOf('sched-fail')).toContain('tree.js')
     })
 })
 

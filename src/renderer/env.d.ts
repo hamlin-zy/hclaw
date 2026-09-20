@@ -154,6 +154,22 @@ declare global {
             touch: (id: string) => Promise<{ok: boolean, data?: import('../shared/types/phrase').PhraseItem, error?: string}>
         }
         onPhraseChanged: (handler: () => void) => () => void
+        // 记忆管理（memory:* IPC）：主进程 safeHandle 直接返回结果对象（union 判别式）
+        memory: {
+            list: () => Promise<import('../shared/types/memoryIPC').MemoryListResult>
+            read: (filePath: string) => Promise<import('../shared/types/memoryIPC').MemoryReadResult>
+            write: (filePath: string, content: string) => Promise<import('../shared/types/memoryIPC').MemoryWriteResult>
+            delete: (targetPath: string, recursive: boolean) => Promise<import('../shared/types/memoryIPC').MemoryDeleteResult>
+        }
+        // 跟随启动（companion:* IPC）：主进程 safeHandle 直接返回结果对象（union 判别式）
+        companion: {
+            list: () => Promise<import('../shared/types/companion').CompanionApp[]>
+            save: (app: import('../shared/types/companion').CompanionApp) => Promise<import('../shared/types/companion').CompanionSaveResult>
+            remove: (id: string) => Promise<{success: boolean; error?: string}>
+            enumerate: () => Promise<import('../shared/types/companion').EnumeratedApp[]>
+            browse: () => Promise<import('../shared/types/companion').EnumeratedApp | null>
+            getIcon: (exePath: string) => Promise<import('../shared/types/companion').CompanionIconResult>
+        }
         // 项目管理窗口（pm:* IPC）：safeHandle 直接返回 handler 结果（裸值，错误以 reject 抛出）
         projectManager: {
             workspacePath: string
@@ -443,6 +459,14 @@ declare global {
             onPageTitle: (callback: (title: string) => void) => () => void
             /** 内置浏览器：网页首次加载完成（done）或失败（failed），用于隐藏加载动画 */
             onPageLoaded: (callback: (status: string) => void) => () => void
+            /** 关窗拦截（opt-in）：armed=true 时主进程拦截 close 并发 close-request，由渲染层结算 */
+            setCloseIntercept: (enabled: boolean) => Promise<void>
+            /** 主进程关窗请求（close 已被拦截）：结算后须 confirmClose，否则 2s 兜底强关 */
+            onCloseRequest: (callback: () => void) => () => void
+            /** 结算完成，允许真正关窗 */
+            confirmClose: () => Promise<void>
+            /** 用户取消关窗：解除 2s 兜底强关计时器，窗口保持打开 */
+            cancelClose: () => Promise<void>
         }
 
         // Skills management

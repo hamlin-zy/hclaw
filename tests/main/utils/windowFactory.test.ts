@@ -3,7 +3,7 @@ import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
 
 // vi.hoisted 共享状态（vi.mock 工厂被提升，无法引用外部变量）
 const state = vi.hoisted(() => ({
-    instances: [] as Array<{options: any; loadURL: any; loadFile: any}>,
+    instances: [] as Array<any>,
     handlers: new Map<string, Function>(),
     removed: [] as string[],
     sent: [] as Array<{channel: string; payload: any}>,
@@ -13,8 +13,11 @@ const state = vi.hoisted(() => ({
 vi.mock('electron', () => {
     class MockBrowserWindow {
         options: any
+        __uid: string = ''
+        __destroyed?: boolean
         constructor(options: any) {
             this.options = options
+            this.__uid = `uid-${state.instances.length}`
             state.instances.push(this)
         }
         setMenu() {}
@@ -39,8 +42,14 @@ vi.mock('electron', () => {
             return {
                 send: (channel: string, payload: any) => state.sent.push({channel, payload}),
                 openDevTools: () => {},
+                isDestroyed: () => this.__destroyed === true,
             }
         }
+    }
+    // 按实例 uid 反查，模拟 BrowserWindow.fromWebContents
+    ;(MockBrowserWindow as any).fromWebContents = (wc: any) => {
+        if (!wc?.__uid) return null
+        return state.instances.find((i: any) => i.__uid === wc.__uid) ?? null
     }
     return {
         BrowserWindow: MockBrowserWindow,
@@ -69,6 +78,7 @@ beforeEach(() => {
     state.handlers.clear()
     state.removed.length = 0
     state.sent.length = 0
+    state.events.length = 0
     restorePlatform('win32')
 })
 
@@ -144,5 +154,41 @@ describe('windowFactory.createAppWindow', () => {
         const win = state.instances[0]
         expect(win.loadFile).toHaveBeenCalled()
         vi.unstubAllEnvs()
+    })
+
+    it('confirm-close 来自其他实例时，不得污染本闭包的 closeConfirmed', () => {
+        // 注意：safeHandle 先 removeHandler 再 handle，channel 永远绑定最后创建
+        // 实例（win2）的闭包。武装 win2 后，win1（早期实例）渲染层若调
+        // confirm-close，target=win1 !== win2，不得置位 win2 的 closeConfirmed。
+        createAppWindow({...BASE_OPTS})
+        createAppWindow({...BASE_OPTS})
+        const win1 = state.instances[0] as any
+        const win2 = state.instances[1] as any
+        win1.close = vi.fn()
+        win2.close = vi.fn()
+
+        // 武装（channel 属 win2 闭包）
+        state.handlers.get('test-win:set-close-intercept')!(
+            {sender: {__uid: win2.__uid}}, true
+        )
+        const allClose = state.events.filter(e => e.event === 'close')
+        const win2Close = allClose[1]
+
+        // win2 收到 close：拦截
+        const evt1 = {preventDefault: vi.fn()}
+        win2Close.handler(evt1)
+        expect(evt1.preventDefault).toHaveBeenCalled()
+
+        // win1 渲染层调 confirm-close（早期实例，channel 已被 win2 抢占）：
+        // target=win1 !== win2 → 不得置位 win2 的 closeConfirmed，也不关 win2
+        state.handlers.get('test-win:confirm-close')!(
+            {sender: {__uid: win1.__uid}}
+        )
+        expect(win2.close).not.toHaveBeenCalled()
+
+        // win2 再次 close：closeConfirmed 未被污染 → 仍走拦截
+        const evt2 = {preventDefault: vi.fn()}
+        win2Close.handler(evt2)
+        expect(evt2.preventDefault).toHaveBeenCalled()
     })
 })

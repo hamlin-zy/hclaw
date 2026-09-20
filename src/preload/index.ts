@@ -679,6 +679,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
                       ipcRenderer.on(`${windowId}-page-loaded`, handler)
                       return () => ipcRenderer.removeListener(`${windowId}-page-loaded`, handler)
                   },
+                  // 关窗拦截（opt-in，Spec §4.5）：armed=true 时主进程 close 事件被拦截并向渲染层
+                  // 发 close-request；渲染层结算后 confirmClose 真正关窗，用户取消则 cancelClose
+                  // 解除 2s 兜底强关。默认不武装，X 直接关窗。
+                  setCloseIntercept: (enabled: boolean) =>
+                      ipcRenderer.invoke(`${windowId}:set-close-intercept`, enabled),
+                  onCloseRequest: (callback: () => void) => {
+                      const handler = () => callback()
+                      ipcRenderer.on(`${windowId}-close-request`, handler)
+                      return () => ipcRenderer.removeListener(`${windowId}-close-request`, handler)
+                  },
+                  confirmClose: () => ipcRenderer.invoke(`${windowId}:confirm-close`),
+                  cancelClose: () => ipcRenderer.invoke(`${windowId}:cancel-close`),
               },
           }
         : {}),
@@ -983,6 +995,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
         const handler = (_: unknown, payload: unknown) => callback(payload as {conversationIds: string[]})
         ipcRenderer.on('task-batches-changed', handler)
         return () => ipcRenderer.removeListener('task-batches-changed', handler)
+    },
+
+    // 记忆管理（mem/ref 文件 CRUD，安全校验在主进程）
+    memory: {
+        list: () => ipcRenderer.invoke('memory:list'),
+        read: (filePath: string) => ipcRenderer.invoke('memory:read', { filePath }),
+        write: (filePath: string, content: string) => ipcRenderer.invoke('memory:write', { filePath, content }),
+        delete: (targetPath: string, recursive: boolean) => ipcRenderer.invoke('memory:delete', { targetPath, recursive }),
+    },
+
+    // 跟随启动（companion:* IPC）
+    companion: {
+        list: () => ipcRenderer.invoke('companion:list'),
+        save: (app: import('../shared/types/companion').CompanionApp) => ipcRenderer.invoke('companion:save', app),
+        remove: (id: string) => ipcRenderer.invoke('companion:remove', id),
+        enumerate: () => ipcRenderer.invoke('companion:enumerate'),
+        browse: () => ipcRenderer.invoke('companion:browse'),
+        getIcon: (exePath: string) => ipcRenderer.invoke('companion:get-icon', exePath),
     },
 
 },)

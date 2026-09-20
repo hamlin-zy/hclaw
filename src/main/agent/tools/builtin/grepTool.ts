@@ -8,6 +8,7 @@ import {z} from 'zod'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import {spawn} from 'child_process'
+import {StringDecoder} from 'string_decoder'
 // 打包后 rgPath 指向 app.asar 内的虚拟路径，spawn 必 ENOENT；此处取改写后的真实路径
 import {rgBinPath} from '../../../utils/ripgrepPath'
 import type {Tool, ToolContext, ToolResult} from '../types'
@@ -144,8 +145,10 @@ async function searchWithRipgrep(
       }
     }
 
+    // chunk 边界可能落在多字节字符中间，逐 chunk toString 会产生 U+FFFD
+    const decoder = new StringDecoder('utf8')
     child.stdout.on('data', (chunk: Buffer) => {
-      buffer += chunk.toString('utf-8')
+      buffer += decoder.write(chunk)
       let idx: number
       while ((idx = buffer.indexOf('\n')) !== -1) {
         const line = buffer.slice(0, idx)
@@ -177,6 +180,8 @@ async function searchWithRipgrep(
     child.stderr.on('data', () => { /* ignore stderr（--no-messages 已抑制大部分） */ })
 
     child.on('close', (code) => {
+      // flush 解码器残留的半个多字节字符
+      buffer += decoder.end()
       // rg 退出码：0=有匹配，1=无匹配，2=错误
       if (code !== null && code > 1 && results.length === 0) {
         finish(true)
