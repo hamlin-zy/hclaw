@@ -656,6 +656,9 @@ app.on('will-quit', async () => {
   // 关闭持久化 Shell 会话池，销毁常驻 shell 进程
   const {disposeAllShellSessions} = await import('./agent/tools/shellPool/pool');
   try { disposeAllShellSessions(); } catch { /* ignore */ }
+  // 回收文件检索 findSessions（进行中的 rg 子进程显式 kill，不靠 OS 回收）
+  const {disposeAllFindSessions} = await import('./project-manager/search');
+  try { disposeAllFindSessions(); } catch { /* ignore */ }
   // 关闭 hclaw_db_query 只读连接
   const {closeConnection} = await import('./agent/tools/builtin/hclawDbQueryConnection');
   try { closeConnection(); } catch { /* ignore */ }

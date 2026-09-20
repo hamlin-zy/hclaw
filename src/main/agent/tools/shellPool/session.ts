@@ -210,8 +210,8 @@ export class PersistentShellSession {
 
   private pending: Buffer = Buffer.alloc(0)
   private pendingTruncated = {value: false}
-  /** 截断后仍持续更新的滚动扫描窗口（latin1），保证 END 标记仍可判定 */
-  private scanWindow = ''
+  /** 截断后仍持续更新的滚动扫描窗口（原始字节），保证 END 标记仍可判定 */
+  private scanWindow: Buffer = Buffer.alloc(0)
   private waiter: PendingWaiter | null = null
   private dead = false
   /** 每会话 promise 链 mutex：同一会话的命令严格串行 */
@@ -261,6 +261,7 @@ export class PersistentShellSession {
       }
       this.waiter = null
       this.pending = Buffer.alloc(0)
+      this.resetTruncationState()
       this.onDead?.()
     })
   }
@@ -297,8 +298,7 @@ export class PersistentShellSession {
       throw new Error(`Shell 会话编码探针验证失败 (${this.shellInfo.shell})`)
     }
     this.pending = Buffer.alloc(0)
-    this.pendingTruncated.value = false
-    this.scanWindow = ''
+    this.resetTruncationState()
   }
 
   /**
@@ -344,6 +344,16 @@ export class PersistentShellSession {
   }
 
   // ─── 内部实现 ──────────────────────────────────
+
+  /**
+   * 复位截断标志与扫描窗口。
+   * 所有命令出口（成功/超时/abort/进程 close/初始化收尾）统一调用：
+   * 任一出口漏复位都会让 pendingTruncated 恒 true，同会话后续命令 stdout 恒空。
+   */
+  private resetTruncationState(): void {
+    this.pendingTruncated.value = false
+    this.scanWindow = Buffer.alloc(0)
+  }
 
   /**
    * 等待进程 close 事件（Node reap 子进程后 OS 句柄才真正释放）
@@ -398,6 +408,7 @@ export class PersistentShellSession {
         if (this.proc.pid) killProcessTree(this.proc.pid)
         waiter.resolve({status: 'aborted', exitCode: null, signal: null, output: this.pending})
         this.pending = Buffer.alloc(0)
+        this.resetTruncationState()
       }
 
       waiter.timer = setTimeout(() => {
@@ -407,6 +418,7 @@ export class PersistentShellSession {
         if (this.proc.pid) killProcessTree(this.proc.pid)
         waiter.resolve({status: 'timeout', exitCode: null, signal: null, output: this.pending})
         this.pending = Buffer.alloc(0)
+        this.resetTruncationState()
       }, opts.timeout)
 
       this.waiter = waiter
@@ -430,7 +442,10 @@ export class PersistentShellSession {
     if (this.pendingTruncated.value) {
       // 截断后输出缓冲冻结，但标记扫描必须继续（END 标记可能落在截断点之后），
       // 维护一个滚动扫描窗口兜底
-      this.scanWindow = (this.scanWindow + chunk.toString('latin1')).slice(-SCAN_WINDOW_SIZE)
+      const merged = Buffer.concat([this.scanWindow, chunk])
+      this.scanWindow = merged.length > SCAN_WINDOW_SIZE
+        ? merged.subarray(merged.length - SCAN_WINDOW_SIZE)
+        : merged
     }
     this.tryComplete()
   }
@@ -447,9 +462,10 @@ export class PersistentShellSession {
 
     if (this.pendingTruncated.value) {
       // 截断模式：输出取冻结的 pending（已含截断标记），在滚动窗口中找标记
-      codeMatch = new RegExp(`${endToken}:(-?\\d+)\\r?\\n`).exec(this.scanWindow)
+      const win = this.scanWindow.toString('latin1')
+      codeMatch = new RegExp(`${endToken}:(-?\\d+)\\r?\\n`).exec(win)
       if (!codeMatch) return
-      const pwdMatch = new RegExp(`__HCLAW_PWD_${waiter.nonce}__:(.*)\\r?\\n`).exec(this.scanWindow)
+      const pwdMatch = new RegExp(`__HCLAW_PWD_${waiter.nonce}__:(.*)\\r?\\n`).exec(win)
       if (pwdMatch) pwdValue = pwdMatch[1]
       outputBuf = Buffer.from(this.pending)
       this.pending = Buffer.alloc(0)
@@ -475,6 +491,10 @@ export class PersistentShellSession {
     }
 
     if (pwdValue) this.cwd = pwdValue
+
+    // T3：成功完成一条命令即复位截断标志与扫描窗口（两个成功分支汇合点），
+    // 否则一次截断后 pendingTruncated 恒 true，同会话后续命令 stdout 恒空
+    this.resetTruncationState()
 
     waiter.resolve({
       status: 'ok',

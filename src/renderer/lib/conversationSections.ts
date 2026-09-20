@@ -34,13 +34,20 @@ export interface ConversationSection {
     collapsed: boolean
     /** 该项目下全量会话数（含子会话；即使窗口截断也显示 DB 真实总数） */
     count: number
-    /** 是否显示「···」：还有被窗口截掉的非置顶根会话 */
+    /** 是否显示「加载更多」：还有被窗口截掉的非置顶根会话 */
     hasMore: boolean
-    /** 已按「置顶优先 → createdAt desc」排好序、且按父子关系展开成行的会话 */
-    rows: Array<{id: string; parentConvId?: string; indentLevel: number; childCount: number}>
+    /** 已按「置顶优先 → createdAt desc」排好序、且按父子关系展开成行（含子会话「加载更多」占位行） */
+    rows: SectionRow[]
 }
 
+/** 段内行：普通会话行，或某父会话子列表的「加载更多」占位行 */
+export type SectionRow =
+    | {kind: 'conv'; id: string; parentConvId?: string; indentLevel: number; childCount: number}
+    | {kind: 'load-more'; /** 稳定 key；不会与真实会话 id 冲突（前缀命名空间） */ id: string; /** 触发展开的父会话 id；祖先链可见性检查与 conv 行同口径 */ parentConvId?: string; indentLevel: number; hiddenCount: number}
+
 const DEFAULT_WINDOW_SIZE = 10
+/** 每个父会话默认可见的子会话数（其余收进「加载更多」，一次展开全部剩余） */
+export const CHILD_WINDOW_SIZE = 3
 
 export function buildConversationSections(input: {
     projects: SectionInput[]
@@ -49,8 +56,10 @@ export function buildConversationSections(input: {
     /** 单项目视图 = true（无 chevron、不提供折叠） */
     singleProject?: boolean
     windowSize?: number
+    /** 已被用户点「加载更多」整体展开子列表的父会话 id 集合（会话级，不持久化） */
+    expandedChildParents?: Record<string, true>
 }): ConversationSection[] {
-    const {projects, searchQuery, collapsedKeys, singleProject = false} = input
+    const {projects, searchQuery, collapsedKeys, singleProject = false, expandedChildParents} = input
     const windowSize = input.windowSize ?? DEFAULT_WINDOW_SIZE
     const searching = searchQuery.trim().length > 0
 
@@ -104,8 +113,22 @@ export function buildConversationSections(input: {
         const rows: ConversationSection['rows'] = []
         const pushWithChildren = (conv: ConversationSummary, indentLevel: number) => {
             const children = (childrenOf.get(conv.id) ?? []).slice().sort(compareConversations)
-            rows.push({id: conv.id, parentConvId: conv.parentConvId, indentLevel, childCount: children.length})
-            for (const child of children) pushWithChildren(child, indentLevel + 1)
+            rows.push({kind: 'conv', id: conv.id, parentConvId: conv.parentConvId, indentLevel, childCount: children.length})
+            // 子会话窗口：默认只显示前 CHILD_WINDOW_SIZE 条（最新的在前），其余收进
+            // 「加载更多」占位行（点击一次性展开全部剩余）。搜索态豁免窗口（与根会话
+            // 窗口口径一致，spec §7.2）。
+            const expandedAll = searching || !!expandedChildParents?.[conv.id]
+            const visible = expandedAll ? children : children.slice(0, CHILD_WINDOW_SIZE)
+            for (const child of visible) pushWithChildren(child, indentLevel + 1)
+            if (!expandedAll && children.length > visible.length) {
+                rows.push({
+                    kind: 'load-more',
+                    id: `load-more:${conv.id}`,
+                    parentConvId: conv.id,
+                    indentLevel: indentLevel + 1,
+                    hiddenCount: children.length - visible.length,
+                })
+            }
         }
         for (const root of visibleRoots) {
             pushWithChildren(root, 0)

@@ -697,8 +697,8 @@ export function disposeSearchSessions(workspace: string): void {
   }
 }
 
-/** 测试用：清空全部检索会话 */
-export function resetSearchSessions(): void {
+/** 回收全部检索会话（应用退出 will-quit 时调用） */
+export function disposeAllFindSessions(): void {
   for (const session of findSessions.values()) killChild(session)
   findSessions.clear()
 }

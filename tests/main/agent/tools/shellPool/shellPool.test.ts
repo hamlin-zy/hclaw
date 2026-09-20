@@ -17,6 +17,7 @@ import * as os from 'os'
 import * as path from 'path'
 import {acquireSession, disposeAllShellSessions, disposeAllShellSessionsAsync} from '@/main/agent/tools/shellPool/pool'
 import {bashTool, getShellInfo} from '@/main/agent/tools/builtin/bashTool'
+import {PersistentShellSession} from '@/main/agent/tools/shellPool/session'
 
 const shellInfo = getShellInfo()
 
@@ -189,6 +190,105 @@ describe('shellPool — 会话基本行为', () => {
         const r = await session.run({command: "echo '中文内容测试-特殊字符✓'", timeout: 15000})
         expect(r.status).toBe('ok')
         expect(r.output.toString('utf8')).toContain('中文内容测试-特殊字符✓')
+    })
+
+    it('输出超过 2MB 触发截断：含截断标记，END 仍命中、exitCode 正确', async () => {
+        const session = await acquireSession({workingDir: tmpDir, shellInfo})
+        // 输出约 3MB，超过 2MB 硬上限
+        const bigCmd = shellInfo.name === 'powershell'
+            ? 'Write-Output ([string]::new("a", 3000000))'
+            : 'head -c 3000000 /dev/zero | tr "\\0" "a"'
+
+        const res = await session.run({command: bigCmd, timeout: 30000})
+
+        expect(res.status).toBe('ok')
+        expect(res.exitCode).toBe(0)
+        const text = res.output.toString('utf8')
+        expect(text.length).toBeLessThanOrEqual(2 * 1024 * 1024 + 200)
+        expect(text).toContain('[输出已截断')
+    })
+
+    it('T3：截断后同一会话第二条命令 stdout 正常返回（修复前恒空）', async () => {
+        const session = await acquireSession({workingDir: tmpDir, shellInfo})
+        const bigCmd = shellInfo.name === 'powershell'
+            ? 'Write-Output ([string]::new("a", 3000000))'
+            : 'head -c 3000000 /dev/zero | tr "\\0" "a"'
+
+        const r1 = await session.run({command: bigCmd, timeout: 30000})
+        expect(r1.status).toBe('ok')
+
+        const r2 = await session.run({command: 'echo SECOND_AFTER_TRUNCATE_OK', timeout: 15000})
+        expect(r2.status).toBe('ok')
+        expect(r2.output.toString('utf8')).toContain('SECOND_AFTER_TRUNCATE_OK')
+    })
+
+    // ── fake proc 单元测试：runLocked 分支的截断态复位 ──
+    // 真实子进程下 timeout/abort 后 close 事件会立即复位（close 回调兜底），
+    // 脏态窗口不可观察；用 fake proc（无 close 事件）直接驱动分支验证复位行为。
+    // Object.create 绕开 constructor，避免 spawn 真实进程。
+    function makeFakeSession(): any {
+        const session: any = Object.create(PersistentShellSession.prototype)
+        session.key = 'fake-key'
+        session.cwd = '.'
+        session.pending = Buffer.alloc(0)
+        session.pendingTruncated = {value: false}
+        session.scanWindow = Buffer.alloc(0)
+        session.waiter = null
+        session.dead = false
+        session.queue = Promise.resolve()
+        session.proc = {pid: undefined, exitCode: 0, kill: () => {}, stdin: {write: () => {}}} as any
+        return session
+    }
+
+    function makeTruncated(session: any): void {
+        // 模拟已截断状态：pending 冻结在 2MB + 截断标记，扫描窗口非空
+        session.pending = Buffer.alloc(2 * 1024 * 1024, 0x61)
+        session.pendingTruncated.value = true
+        session.scanWindow = Buffer.alloc(100, 0x62)
+    }
+
+    it('fake proc：截断态下命令超时，timeout 分支复位截断标志与扫描窗口', async () => {
+        const session = makeFakeSession()
+        makeTruncated(session)
+
+        const r = await session.runLocked({command: 'hang', timeout: 20})
+        expect(r.status).toBe('timeout')
+        expect(session.pendingTruncated.value).toBe(false)
+        expect(session.scanWindow.length).toBe(0)
+    })
+
+    it('fake proc：截断态下命令中途 abort，abort 分支复位截断标志与扫描窗口', async () => {
+        const session = makeFakeSession()
+        makeTruncated(session)
+
+        const ac = new AbortController()
+        setTimeout(() => ac.abort(), 10)
+        const r = await session.runLocked({command: 'hang', timeout: 30000, abortSignal: ac.signal})
+        expect(r.status).toBe('aborted')
+        expect(session.pendingTruncated.value).toBe(false)
+        expect(session.scanWindow.length).toBe(0)
+    })
+
+    it('截断命令超时后：截断态复位 + 同会话下一条命令输出正常', async () => {
+        const session = await acquireSession({workingDir: tmpDir, shellInfo})
+        const bigCmd = shellInfo.name === 'powershell'
+            ? 'Write-Output ([string]::new("a", 3000000)); Start-Sleep -Seconds 30'
+            : 'head -c 3000000 /dev/zero | tr "\\0" "a"; sleep 30'
+
+        // 输出超 2MB 触发截断，随后命令挂起走 timeout 路径（杀会话）
+        const r1 = await session.run({command: bigCmd, timeout: 3000})
+        expect(r1.status).toBe('timeout')
+
+        // close 事件尚未分发（await 续体是微任务，先于 I/O 事件回调）：
+        // 此刻断言 timeout 分支已复位截断标志与扫描窗口
+        expect((session as any).pendingTruncated.value).toBe(false)
+        expect((session as any).scanWindow.length).toBe(0)
+
+        // reap 窗口内同 key 下一条命令（池重建会话）输出正常
+        const session2 = await acquireSession({workingDir: tmpDir, shellInfo})
+        const r2 = await session2.run({command: 'echo AFTER_TRUNCATE_TIMEOUT_OK', timeout: 15000})
+        expect(r2.status).toBe('ok')
+        expect(r2.output.toString('utf8')).toContain('AFTER_TRUNCATE_TIMEOUT_OK')
     })
 
     it('性能：同会话第二条简单命令延迟显著低于首次（日志量化）', async () => {

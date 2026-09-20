@@ -280,7 +280,7 @@ describe('ConversationList — 单项目视图窗口化一次性提示（§15.1�
         convState.singleViewWindowHintShown = false
         convState.getScopedSections.mockReturnValue([section({hasMore: true})])
         render(<ConversationList/>)
-        expect(screen.getByText(/点 ··· 可加载更多会话/)).toBeTruthy()
+        expect(screen.getByText(/「加载更多」可展开更多会话/)).toBeTruthy()
     })
 
     it('已提示过 → 不再显示', () => {
@@ -288,7 +288,7 @@ describe('ConversationList — 单项目视图窗口化一次性提示（§15.1�
         convState.singleViewWindowHintShown = true
         convState.getScopedSections.mockReturnValue([section({hasMore: true})])
         render(<ConversationList/>)
-        expect(screen.queryByText(/点 ··· 可加载更多会话/)).toBeNull()
+        expect(screen.queryByText(/「加载更多」可展开更多会话/)).toBeNull()
     })
 
     it('组视图不显示该提示（组视图每段本来就有 ···）', () => {
@@ -296,10 +296,10 @@ describe('ConversationList — 单项目视图窗口化一次性提示（§15.1�
         convState.singleViewWindowHintShown = false
         convState.getScopedSections.mockReturnValue([section({hasMore: true})])
         render(<ConversationList/>)
-        expect(screen.queryByText(/点 ··· 可加载更多会话/)).toBeNull()
+        expect(screen.queryByText(/「加载更多」可展开更多会话/)).toBeNull()
     })
 
-    it('单项目视图点击「···」既展开段也置位已读（提示无独立关闭控件）', () => {
+    it('单项目视图点击「加载更多」既展开段也置位已读（提示无独立关闭控件）', () => {
         convState.viewScope = {type: 'project', path: '/ws/a'}
         convState.singleViewWindowHintShown = false
         convState.getScopedSections.mockReturnValue([section({hasMore: true})])
@@ -309,7 +309,7 @@ describe('ConversationList — 单项目视图窗口化一次性提示（§15.1�
         expect(convState.dismissWindowHint).toHaveBeenCalledTimes(1)
     })
 
-    it('组视图点击「···」只展开段，不置位全局一次性标记（不提前吃掉提示）', () => {
+    it('组视图点击「加载更多」只展开段，不置位全局一次性标记（不提前吃掉提示）', () => {
         convState.viewScope = {type: 'group', groupId: 'pg-a'}
         convState.singleViewWindowHintShown = false
         convState.getScopedSections.mockReturnValue([section({hasMore: true})])

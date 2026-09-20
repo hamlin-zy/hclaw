@@ -19,7 +19,7 @@ import {
   rankFileHits,
   readLines,
   resetFileListCache,
-  resetSearchSessions,
+  disposeAllFindSessions,
   searchFiles,
   startFindInFiles,
   stopFindInFiles,
@@ -141,7 +141,7 @@ afterEach(() => {
   __setFileListLimitsForTest(null)
   __setFindBufferLimitsForTest(null)
   resetFileListCache()
-  resetSearchSessions()
+  disposeAllFindSessions()
   statHook.override = null
 })
 
@@ -662,6 +662,35 @@ describe('Find in Files 会话', () => {
     expect(getFindInFilesPage(s2.sessionId, 0, 20).matches).toHaveLength(1)
     expect(calls).toHaveLength(2)
     disposeSearchSessions(other)
+  })
+
+  it('disposeAllFindSessions：回收全部会话（kill 进行中的 rg 子进程并清空 Map）', async () => {
+    // 自定义 spawn：捕获 child，验证 dispose 时 kill 被调用
+    const children: Array<ChildProcess & {kill: ReturnType<typeof vi.fn>}> = []
+    const fake = ((cmd: string, args: string[], options?: {cwd?: string}) => {
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(),
+        stderr: new EventEmitter(),
+        kill: vi.fn(),
+      }) as unknown as ChildProcess & {stdout: EventEmitter; stderr: EventEmitter; kill: ReturnType<typeof vi.fn>}
+      children.push(child)
+      setImmediate(() => child.stdout.emit('data', Buffer.from(`${rgJsonEvent('a.ts', 1, 'hit')}\n`, 'utf8')))
+      return child
+    }) as unknown as typeof import('child_process').spawn
+    __setSpawnForTest(fake)
+    const ws = makeWs({})
+    startFindInFiles(ws, 'hit')
+    startFindInFiles(ws, 'hit2')
+    expect(children).toHaveLength(2)
+    disposeAllFindSessions()
+    for (const c of children) expect(c.kill).toHaveBeenCalledTimes(1)
+    // Map 已清空：再次 startFindInFiles 产生全新会话且行为正常
+    const {sessionId} = startFindInFiles(ws, 'hit')
+    await new Promise(r => setTimeout(r, 0))
+    const page = getFindInFilesPage(sessionId, 0, 20)
+    expect(page.done).toBe(false)
+    expect(page.matches).toHaveLength(1)
+    expect(children).toHaveLength(3)
   })
 
   it('rg 不可用（spawn error）时会话标记结束且不崩', async () => {
