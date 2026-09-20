@@ -3,6 +3,7 @@ import path from 'path';
 import {createWindow, getMainWindow} from './window';
 import {getAppIconPath} from './utils/icon';
 import {gracefulRestart} from './utils/restart';
+import {openConfigWindow} from './utils/configWindow';
 import {trace} from './startupTrace';
 
 let tray: Tray | null = null;
@@ -103,6 +104,11 @@ export const createTray = (): void => {
     });
     menuItems.push({ type: 'separator' });
   }
+
+  menuItems.push({
+    label: '跟随启动',
+    click: () => openConfigWindow('companion-apps'),
+  });
 
   menuItems.push({
     label: '重启',

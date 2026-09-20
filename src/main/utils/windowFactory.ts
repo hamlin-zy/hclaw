@@ -13,6 +13,7 @@ import {getAppIconPath} from './icon'
 import {readThemeSetting} from './theme'
 import {createLogger} from '../agent/logger'
 import {isDevMode, isViteDevServer} from './devMode'
+import {safeHandle} from '../lib/safeHandle'
 
 const logger = createLogger('windowFactory')
 
@@ -31,12 +32,6 @@ export interface AppWindowOptions {
     additionalArguments?: string[]
     /** 开发模式是否自动打开 DevTools（默认开；配置窗口传 false 关闭） */
     devTools?: boolean
-}
-
-/** 幂等注册 ipcMain.handle：同 channel 重复创建时先移除旧 handler（窗口关闭后重开场景） */
-function safeHandle(channel: string, listener: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any): void {
-    ipcMain.removeHandler(channel)
-    ipcMain.handle(channel, listener)
 }
 
 export function createAppWindow(options: AppWindowOptions): BrowserWindow {
@@ -109,10 +104,72 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
         })
     }
 
+    // 关窗拦截（opt-in，Spec §4.5 记忆管理关窗结算）：渲染层 setCloseIntercept(true)
+    // 武装后，close 事件被 preventDefault 并向渲染层发 `${id}-close-request`，
+    // 渲染层结算后调 confirm-close 真正关窗；2s 内未响应则主进程兜底强关防挂死。
+    // 未武装（默认）时 close 直接放行，行为与其余窗口一致。
+    let closeInterceptArmed = false
+    let closeConfirmed = false
+    let closeFallbackTimer: ReturnType<typeof setTimeout> | null = null
+
+    win.on('close', (e) => {
+        if (!closeInterceptArmed || closeConfirmed) return
+        // 渲染层已销毁/不可达：无法结算，直接放行防挂死
+        if (win.webContents.isDestroyed()) {
+            closeConfirmed = true
+            return
+        }
+        e.preventDefault()
+        win.webContents.send(`${id}-close-request`)
+        if (closeFallbackTimer === null) {
+            closeFallbackTimer = setTimeout(() => {
+                closeFallbackTimer = null
+                if (!win.isDestroyed()) {
+                    closeConfirmed = true
+                    win.close()
+                }
+            }, 2000)
+        }
+    })
+    win.on('closed', () => {
+        if (closeFallbackTimer !== null) {
+            clearTimeout(closeFallbackTimer)
+            closeFallbackTimer = null
+        }
+    })
+
     // 窗口控制 IPC：按 event.sender 解析目标窗口，而非闭包 win —— 同 id 可开多实例
     // （如项目管理窗口），固定 channel + 闭包会让 handler 永远指向最后创建的窗口，
     // 其他实例的关闭/最小化按钮全部失效。fromWebContents 兜底闭包 win（重开竞态时
     // sender 可能已销毁，与旧行为一致地 no-op）。
+    safeHandle(`${id}:set-close-intercept`, (event, enabled: boolean) => {
+        const target = BrowserWindow.fromWebContents(event.sender) ?? win
+        if (target !== win) return
+        closeInterceptArmed = !!enabled
+    })
+    safeHandle(`${id}:confirm-close`, (event) => {
+        const target = BrowserWindow.fromWebContents(event.sender) ?? win
+        if (target.isDestroyed()) return
+        // 置位收进 target === win 分支：channel 绑定最后创建实例的闭包，
+        // 早期实例（target !== win）的 confirm-close 不得污染本闭包的
+        // closeConfirmed，否则本实例的关窗拦截被旁路、结算流程被跳过。
+        if (target === win) {
+            if (closeFallbackTimer !== null) {
+                clearTimeout(closeFallbackTimer)
+                closeFallbackTimer = null
+            }
+            closeConfirmed = true
+        }
+        target.close()
+    })
+    safeHandle(`${id}:cancel-close`, (event) => {
+        const target = BrowserWindow.fromWebContents(event.sender) ?? win
+        if (target !== win) return
+        if (closeFallbackTimer !== null) {
+            clearTimeout(closeFallbackTimer)
+            closeFallbackTimer = null
+        }
+    })
     safeHandle(`${id}:minimize`, (event) => {
         const target = BrowserWindow.fromWebContents(event.sender) ?? win
         if (!target.isDestroyed()) target.minimize()

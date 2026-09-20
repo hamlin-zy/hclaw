@@ -1,6 +1,7 @@
 import path from 'path'
 import fs from 'fs'
 import {getHclawDir} from '../hclawPaths'
+import {hashName as sharedHashName} from '../lib/hashName'
 import type {McpServer} from '../../shared/types/mcp'
 
 /** 获取 mcp.json 文件路径 */
@@ -26,16 +27,10 @@ interface McpServerInput {
 }
 
 /**
- * 从 name 哈希派生稳定的 id
+ * 从 name 哈希派生稳定的 id（与 companionConfig 共用 lib/hashName）
  */
 function hashName(name: string): string {
-    let hash = 0
-    for (let i = 0; i < name.length; i++) {
-        const char = name.charCodeAt(i)
-        hash = ((hash << 5) - hash) + char
-        hash = hash & hash
-    }
-    return `mcp-${Math.abs(hash).toString(36)}`
+    return sharedHashName('mcp', name)
 }
 
 /** 从 JSON map 解析为 McpServer[]（补全默认值） */

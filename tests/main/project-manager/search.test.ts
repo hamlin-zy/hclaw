@@ -19,7 +19,7 @@ import {
   rankFileHits,
   readLines,
   resetFileListCache,
-  resetSearchSessions,
+  disposeAllFindSessions,
   searchFiles,
   startFindInFiles,
   stopFindInFiles,
@@ -71,6 +71,8 @@ mockStatFn.mockImplementation(async (...args: unknown[]) => {
 // ── spawn 注入：测试不得真起 rg 进程 ──
 interface FakeRgSpec {
   chunks?: string[]
+  /** 原始字节 chunk：用于模拟多字节字符被切在 chunk 边界中间 */
+  rawChunks?: Buffer[]
   /** 立即 emit 'error'（模拟 rg 未安装 / spawn 失败） */
   error?: boolean
   code?: number | null
@@ -97,7 +99,9 @@ function installFakeSpawn(spec: FakeRgSpec | ((args: string[]) => FakeRgSpec)): 
         c.emit('error', new Error('spawn rg ENOENT'))
         return
       }
-      for (const chunk of s.chunks ?? []) c.stdout.emit('data', Buffer.from(chunk, 'utf8'))
+      for (const chunk of s.rawChunks ?? s.chunks ?? []) {
+        c.stdout.emit('data', Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf8'))
+      }
       c.emit('close', s.code ?? 0)
     })
     return child
@@ -137,7 +141,7 @@ afterEach(() => {
   __setFileListLimitsForTest(null)
   __setFindBufferLimitsForTest(null)
   resetFileListCache()
-  resetSearchSessions()
+  disposeAllFindSessions()
   statHook.override = null
 })
 
@@ -161,6 +165,36 @@ describe('toPosixPath / matchPath', () => {
 
   it('空查询返回 null', () => {
     expect(matchPath('a.ts', '')).toBeNull()
+  })
+})
+
+// ───────────────────── 多字节字符跨 stdout chunk 边界（StringDecoder 兜底） ─────────────────────
+
+describe('rg stdout chunk 边界多字节截断', () => {
+  /** 等待 fake spawn 的 setImmediate 把 data/close 全部派发完 */
+  const flush = (): Promise<void> => new Promise(r => setTimeout(r, 0))
+
+  it('searchFiles：文件名中的汉字被切在两个 chunk 中间仍完整', async () => {
+    const full = Buffer.from('src/中文abc.ts\n', 'utf8')
+    // 切在「中」的第二个字节上（真正半个汉字）
+    const cut = full.indexOf('中', 0, 'utf8') + 2
+    installFakeSpawn({rawChunks: [full.subarray(0, cut), full.subarray(cut)]})
+    const ws = makeWs({})
+    const hits = await searchFiles(ws, 'abc')
+    expect(hits.map(h => h.path)).toEqual(['src/中文abc.ts'])
+  })
+
+  it('Find in Files：rg 事件行跨 chunk 截断时行文本/路径不出现 U+FFFD', async () => {
+    const full = Buffer.from(`${rgJsonEvent('中文.md', 1, 'hit')}\n`, 'utf8')
+    const cut = full.indexOf('中', 0, 'utf8') + 2
+    installFakeSpawn({rawChunks: [full.subarray(0, cut), full.subarray(cut)]})
+    const ws = makeWs({})
+    const {sessionId} = startFindInFiles(ws, 'hit')
+    await flush()
+    const {matches} = getFindInFilesPage(sessionId, 0, 20)
+    expect(matches).toHaveLength(1)
+    expect(matches[0].path).toBe('中文.md')
+    expect(matches[0].text).not.toContain('\uFFFD')
   })
 })
 
@@ -628,6 +662,35 @@ describe('Find in Files 会话', () => {
     expect(getFindInFilesPage(s2.sessionId, 0, 20).matches).toHaveLength(1)
     expect(calls).toHaveLength(2)
     disposeSearchSessions(other)
+  })
+
+  it('disposeAllFindSessions：回收全部会话（kill 进行中的 rg 子进程并清空 Map）', async () => {
+    // 自定义 spawn：捕获 child，验证 dispose 时 kill 被调用
+    const children: Array<ChildProcess & {kill: ReturnType<typeof vi.fn>}> = []
+    const fake = ((cmd: string, args: string[], options?: {cwd?: string}) => {
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(),
+        stderr: new EventEmitter(),
+        kill: vi.fn(),
+      }) as unknown as ChildProcess & {stdout: EventEmitter; stderr: EventEmitter; kill: ReturnType<typeof vi.fn>}
+      children.push(child)
+      setImmediate(() => child.stdout.emit('data', Buffer.from(`${rgJsonEvent('a.ts', 1, 'hit')}\n`, 'utf8')))
+      return child
+    }) as unknown as typeof import('child_process').spawn
+    __setSpawnForTest(fake)
+    const ws = makeWs({})
+    startFindInFiles(ws, 'hit')
+    startFindInFiles(ws, 'hit2')
+    expect(children).toHaveLength(2)
+    disposeAllFindSessions()
+    for (const c of children) expect(c.kill).toHaveBeenCalledTimes(1)
+    // Map 已清空：再次 startFindInFiles 产生全新会话且行为正常
+    const {sessionId} = startFindInFiles(ws, 'hit')
+    await new Promise(r => setTimeout(r, 0))
+    const page = getFindInFilesPage(sessionId, 0, 20)
+    expect(page.done).toBe(false)
+    expect(page.matches).toHaveLength(1)
+    expect(children).toHaveLength(3)
   })
 
   it('rg 不可用（spawn error）时会话标记结束且不崩', async () => {

@@ -5,6 +5,7 @@
  * 窗口创建走 windowFactory；数据层复用渲染进程 store + sqliteStorage，无需新 IPC 数据通道。
  */
 import {BrowserWindow, ipcMain, screen} from 'electron'
+import {safeHandle} from '../lib/safeHandle'
 import {createAppWindow} from './windowFactory'
 import {handleOpenConversation, resolveOpenConversationAck} from './openConversation'
 
@@ -30,6 +31,8 @@ export const CONFIG_DIALOG_TYPES = new Set([
     'task-history', 'task-history-conv',
     'memo-edit',
     'quick-phrases',
+    'memory-manager',
+    'companion-apps',
 ])
 
 /** 窗口标题（与 MenuDialogRenderer DIALOG_CONFIG 的 title 对齐） */
@@ -57,6 +60,8 @@ export const DIALOG_TITLES: Record<string, string> = {
     'task-history-conv': '任务历史',
     'memo-edit': '备忘录编辑',
     'quick-phrases': '快捷短语',
+    'memory-manager': '记忆管理',
+    'companion-apps': '跟随启动',
 }
 
 /**
@@ -88,6 +93,8 @@ export const DIALOG_SIZES: Record<string, {width?: number; widthRatio?: number; 
     'task-history-conv': {width: 720},
     'memo-edit': {width: 560},
     'quick-phrases': {width: 560},
+    'memory-manager': {width: 900, height: 680},
+    'companion-apps': {width: 720, height: 560, minWidth: 600},
 }
 const DEFAULT_DIALOG_SIZE = {width: 680, height: 700, minWidth: 420, minHeight: 400}
 
@@ -156,17 +163,6 @@ export function isConfigWindowSender(sender: Electron.WebContents): boolean {
 
 /** app:open-conversation:ack 当前注册的 handler（重复 init 时用同一引用先 removeListener） */
 let openConversationAckHandler: ((event: Electron.IpcMainEvent, payload: {requestId: string; ok: boolean; error?: string}) => void) | null = null
-
-/**
- * 幂等注册：重复 init 时先移除旧 handler 再注册（窗口重开 / 重复 init 场景）。
- * ★ 不能用 ipcMain.listenerCount 判定：ipcMain.handle 不写入 EventEmitter 的 listener
- *   列表，listenerCount 恒为 0 → 守卫恒真、无幂等效果，重复 init 会抛
- *   "Attempted to register a second handler for 'xxx'"。对齐 project-manager/window.ts:37-40。
- */
-function safeHandle(channel: string, handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown): void {
-    ipcMain.removeHandler(channel)
-    ipcMain.handle(channel, handler)
-}
 
 /** 注册 IPC（main/index.ts 调用） */
 export function initConfigWindowIPC(): void {

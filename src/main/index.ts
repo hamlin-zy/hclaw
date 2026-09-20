@@ -28,6 +28,7 @@ import {mcpService} from './services/mcpService';
 import {initLlmTraceIPC} from './utils/llmCallLogStore';
 import {initUsageStatsIPC} from './utils/usageWindow';
 import {initConfigWindowIPC} from './utils/configWindow';
+import {initMemoryIPC} from './ipc/memoryIPC';
 import {initTaskBatchIPC} from './ipc/taskBatches';
 import {startConfigWatcher, stopConfigWatcher} from './config-watcher';
 import {initProgress, setInitProgressTransport} from './initProgress';
@@ -57,6 +58,8 @@ import {mcpWorkerManager} from './agent/mcp/mcpWorkerManager';
 import {runtimeConfigManager} from './agent/runtimeConfigManager';
 import {setConfigBridge} from './agent/common/configBridge';
 import {init as initUpdater} from './updater/updateChecker';
+import {initCompanionIPC} from './companion/companionIPC';
+import {launchBeforeApps, launchAfterApps} from './companion/companionLaunchService';
 import {versionManager} from './plugin/versionManager';
 import {mcpVersionManager} from './agent/mcp/versionManager';
 import {getConversationPersistence} from './persistence/conversationPersistence';
@@ -272,6 +275,9 @@ app.on('ready', async () => {
   ipcMain.handle('system:get-init-progress', () => initProgress.getSnapshot());
 
   ensureConfigLayout();
+
+  // 跟随启动（before）：阻塞直到全部就绪或超时（全局上限 MAX_BEFORE_WAIT_MS=30s；空配置 near-zero）
+  await launchBeforeApps();
 
   void modelMetaRegistry.init();
   void exchangeRateRegistry.init();
@@ -554,6 +560,12 @@ app.on('ready', async () => {
   // 配置对话框独立窗口注册表 + open-config-window IPC
   initConfigWindowIPC();
 
+  // 记忆管理窗口 IPC（list/read/write/delete ~/.hclaw/mem 与 ref）
+  initMemoryIPC();
+
+  // 跟随启动窗口 IPC（list/save/remove/enumerate/browse/get-icon）
+  initCompanionIPC();
+
   // Scheduler system initialization (loads enabled schedules into worker)
   schedulerManager.init()
 
@@ -580,6 +592,9 @@ app.on('ready', async () => {
   // Startup complete
   trace('main:ready-block-done');
   logger.info('[App] HClaw ready');
+
+  // 跟随启动（after）：fire-and-forget，不阻塞 initUpdater
+  void launchAfterApps();
 
   // 启动时静默检查更新（fire-and-forget，不阻塞主窗口显示）
   initUpdater()
@@ -641,6 +656,9 @@ app.on('will-quit', async () => {
   // 关闭持久化 Shell 会话池，销毁常驻 shell 进程
   const {disposeAllShellSessions} = await import('./agent/tools/shellPool/pool');
   try { disposeAllShellSessions(); } catch { /* ignore */ }
+  // 回收文件检索 findSessions（进行中的 rg 子进程显式 kill，不靠 OS 回收）
+  const {disposeAllFindSessions} = await import('./project-manager/search');
+  try { disposeAllFindSessions(); } catch { /* ignore */ }
   // 关闭 hclaw_db_query 只读连接
   const {closeConnection} = await import('./agent/tools/builtin/hclawDbQueryConnection');
   try { closeConnection(); } catch { /* ignore */ }

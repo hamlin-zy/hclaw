@@ -283,8 +283,10 @@ function streamRgPaths(workspace: string, sink: PathSink): Promise<boolean> {
     child.on('error', () => finish(false))
 
     let rest = ''
+    // chunk 边界可能落在多字节字符中间，逐 chunk toString 会产生 U+FFFD（同 slice 口径）
+    const decoder = new StringDecoder('utf8')
     child.stdout?.on('data', (chunk: Buffer) => {
-      rest += chunk.toString('utf-8')
+      rest += decoder.write(chunk)
       let idx: number
       while ((idx = rest.indexOf('\n')) !== -1) {
         const line = rest.slice(0, idx)
@@ -295,6 +297,7 @@ function streamRgPaths(workspace: string, sink: PathSink): Promise<boolean> {
     })
     child.stderr?.on('data', () => { /* --no-messages 已抑制大部分；此处不参与判定 */ })
     child.on('close', () => {
+      rest += decoder.end()
       const tail = rest.replace(/\r$/, '')
       if (tail.trim()) sink(toRelativePosix(workspace, tail))
       finish(true)
@@ -605,13 +608,15 @@ function spawnRgFind(session: FindSession, query: string): void {
   }
 
   let rest = ''
+  // chunk 边界可能落在多字节字符中间，逐 chunk toString 会产生 U+FFFD（同 slice 口径）
+  const decoder = new StringDecoder('utf8')
   // spawn 本身成功但二进制起不来（ENOENT / EACCES，例如打包产物缺少 rg.exe）会走这里
   child.on('error', () => {
     session.done = true
     if (session.matches.length === 0) session.error = RG_UNAVAILABLE
   })
   child.stdout?.on('data', (chunk: Buffer) => {
-    rest += chunk.toString('utf-8')
+    rest += decoder.write(chunk)
     let idx: number
     while ((idx = rest.indexOf('\n')) !== -1) {
       const line = rest.slice(0, idx)
@@ -621,6 +626,7 @@ function spawnRgFind(session: FindSession, query: string): void {
   })
   child.stderr?.on('data', () => { /* rg 非匹配行不参与解析 */ })
   child.on('close', (code) => {
+    rest += decoder.end()
     if (rest) ingest(rest)
     session.done = true
     // rg 退出码：0 = 有匹配，1 = 无匹配，2 = 出错（参数不支持 / 权限等）。
@@ -691,8 +697,8 @@ export function disposeSearchSessions(workspace: string): void {
   }
 }
 
-/** 测试用：清空全部检索会话 */
-export function resetSearchSessions(): void {
+/** 回收全部检索会话（应用退出 will-quit 时调用） */
+export function disposeAllFindSessions(): void {
   for (const session of findSessions.values()) killChild(session)
   findSessions.clear()
 }

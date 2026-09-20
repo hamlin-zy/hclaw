@@ -15,7 +15,7 @@ import {PROJECT_GROUP_VIEW_CONFIG_KEY} from '@shared/configKeys'
 //   此处 re-export 保持既有导入方（agentStore/index.ts、toolResultBatch.ts 等）不变。
 export {flatString}
 
-interface WorkspaceInfo {
+export interface WorkspaceInfo {
   lastOpenedAt: number
   conversations: ConversationSummary[]
 }
@@ -47,6 +47,8 @@ interface ConversationStore {
     sectionWindowSizes: Record<string, number>
     /** §15.1⑤ / §13-2「单项目视图窗口化」的一次性提示已读标记（随 scope 载荷持久化，初值 false） */
     singleViewWindowHintShown: boolean
+    /** 已被用户点「加载更多」整体展开子列表的父会话 id 集合（子会话窗口豁免；会话级，不持久化） */
+    expandedChildParents: Record<string, true>
     /** §15.1①「定位该项目段」：待滚动定位的段 key，由消费方渲染后 clearFocusProject 复位 */
     pendingFocusProject: string | null
     /** 段 key（项目路径）→ 该项目 git 分支；由 refreshVisibleBranches 批量只读填充 */
@@ -59,6 +61,8 @@ interface ConversationStore {
     getScopedSections: () => ConversationSection[]
     /** 展开段窗口 +10（即时：摘要已在内存，无需等待） */
     expandSection: (key: string) => void
+    /** 批量把父会话子列表标记为「已展开」（子会话窗口豁免；激活会话祖先链兜底用） */
+    expandChildParents: (ids: string[]) => void
     /** 置位「单项目视图窗口化」一次性提示的已读标记并落盘（§15.1⑤：此后不再出现） */
     dismissWindowHint: () => void
     /** 请求把某项目段滚入视野（组视图「添加项目」后定位用） */
@@ -753,6 +757,18 @@ async function refreshGitBranch(wsPath: string | null): Promise<void> {
 export function subscribeGitBranchChanges(): () => void {
     const unsub = window.electronAPI?.workspace?.onGitBranchChanged?.((branch) => {
         useConversationStore.setState({gitBranch: branch})
+        // ★ 段头徽章同步：gitBranches[path] 的旧缓存会挡住 getScopedSections 里的 ??
+        //   回退（仅当前项目才回退到 gitBranch），不刷则徽章停留旧值。
+        //   先显式覆盖当前工作区键（无 getGitBranches IPC 时也生效），
+        //   再触发 refreshVisibleBranches 兜底批量刷新（失败静默，不影响交互）。
+        const wsPath = useConversationStore.getState().currentWorkspacePath
+        if (wsPath) {
+            const {gitBranches} = useConversationStore.getState()
+            if (wsPath in gitBranches) {
+                useConversationStore.setState({gitBranches: {...gitBranches, [wsPath]: branch}})
+            }
+        }
+        void useConversationStore.getState().refreshVisibleBranches()
     })
     return () => unsub?.()
 }
@@ -924,7 +940,7 @@ export function resolveScopeFallback(input: {
  *
  * 纯函数（组对象由 projectGroupStore 现取，不在本 store 缓存快照），便于单测。
  */
-function resolveScopeProjectPaths(state: {
+export function resolveScopeProjectPaths(state: {
     viewScope: ViewScope | null
     workspaces: Record<string, WorkspaceInfo>
     currentWorkspacePath: string | null
@@ -1024,6 +1040,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       collapsedGroupIds: [],
       sectionWindowSizes: {},
       singleViewWindowHintShown: false,
+      expandedChildParents: {},
       pendingFocusProject: null,
       gitBranches: {},
 
@@ -1062,6 +1079,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const {
               viewScope, workspaces, currentWorkspacePath,
               searchQuery, collapsedGroupIds, sectionWindowSizes, gitBranches,
+              expandedChildParents,
           } = state
           const paths = resolveScopeProjectPaths(state)
           // 「未归属」虚拟段的会话（workspacePath 为空的会话）。
@@ -1086,6 +1104,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   singleProject: false,
                   searchQuery,
                   collapsedKeys: collapsedGroupIds,
+                  expandedChildParents,
                   projects: [unassignedSection()],
               })
           }
@@ -1094,6 +1113,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               singleProject: single && viewScope?.type !== 'group',
               searchQuery,
               collapsedKeys: collapsedGroupIds,
+              expandedChildParents,
               projects: [
                   ...paths.map(path => ({
                       projectPath: path,
@@ -1111,6 +1131,16 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       expandSection: (key) => set(s => ({
           sectionWindowSizes: {...s.sectionWindowSizes, [key]: (s.sectionWindowSizes[key] ?? 10) + 10},
       })),
+
+      expandChildParents: (ids) => set(s => {
+          if (ids.length === 0) return s
+          const next = {...s.expandedChildParents}
+          let changed = false
+          for (const id of ids) {
+              if (!next[id]) { next[id] = true; changed = true }
+          }
+          return changed ? {expandedChildParents: next} : s
+      }),
 
       /** 一次性提示已读：只置位 + 落盘（提示本身引导用户去点「···」，无独立关闭控件） */
       dismissWindowHint: () => {

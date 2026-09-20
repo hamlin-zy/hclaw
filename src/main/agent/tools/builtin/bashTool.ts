@@ -21,6 +21,7 @@ import {parseFileWriteTargets, detectFileEncoding, alignFileEncoding} from './en
 import {acquireSession, stripProtocolMarkers} from '../shellPool/pool'
 import * as fsSync from 'fs'
 import path from 'path'
+import {getPowerShellUtf8Init} from '../../../utils/powershellUtf8'
 
 // 默认超时
 const DEFAULT_TIMEOUT = 30000
@@ -206,14 +207,6 @@ function buildExecEnv(): NodeJS.ProcessEnv {
   }
 
   return env
-}
-
-/**
- * PowerShell UTF-8 初始化命令
- * 拼接在用户命令之前，确保 PowerShell 会话以 UTF-8 编码运行
- */
-function getPowerShellUtf8Init(): string {
-  return '$PSDefaultParameterValues["Out-File:Encoding"]="utf8"; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::InputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8;'
 }
 
 /** Out-String 输出宽度上限，避免长行被默认宽度（通常 80）折断 */

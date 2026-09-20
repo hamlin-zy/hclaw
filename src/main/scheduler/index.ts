@@ -18,6 +18,7 @@ import crypto from 'crypto'
 import fs from 'fs'
 import {spawn} from 'child_process'
 import {StringDecoder} from 'node:string_decoder'
+import {getPowerShellUtf8Init} from '../utils/powershellUtf8'
 import {scheduleRepo} from './ScheduleRepository'
 import {createConversationRepository} from '../repositories'
 import type {IConversationRepository} from '../repositories/interfaces'
@@ -528,7 +529,8 @@ class SchedulerManager {
     signal: AbortSignal
   ): Promise<{success: boolean; output: string; error?: string}> {
     // 命令串与改造前逐字一致：exec 同样是按 shell 语义把整条命令交给 powershell.exe
-    const command = `"${target}" ${args.map((a) => `"${String(a).replace(/"/g, '\\"')}"`).join(' ')}`
+    // 前置 UTF-8 初始化：PS 5.1 在 GBK 等代码页下 stdout 走 ANSI，Node 按 UTF-8 解码会乱码（同 companion 枚举根因）
+    const command = `${getPowerShellUtf8Init()} & "${target}" ${args.map((a) => `"${String(a).replace(/"/g, '\\"')}"`).join(' ')}`
     const child = spawn(command, {shell: 'powershell.exe', windowsHide: true})
 
     return new Promise((resolve) => {

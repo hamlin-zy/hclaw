@@ -1,7 +1,7 @@
 import {type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
-import {useConversationStore} from '../stores/conversationStore'
+import {useConversationStore, resolveScopeProjectPaths} from '../stores/conversationStore'
 import {useSidebarStore} from '../stores/sidebarStore'
 import {getBasename, getRelativeTime} from '../lib/format'
 import {workspaceBadgeLabel} from '../lib/workspacePath'
@@ -21,6 +21,7 @@ import {useRepoUpdateStore} from '../stores/repoUpdateStore'
 import {useMcpUpdateStore} from '../stores/mcpUpdateStore'
 import {useInitProgressStore} from '../stores/initProgressStore'
 import {useProjectGroupStore} from '../stores/projectGroupStore'
+import {resolveRunningSessionJumpPlan} from '../lib/runningSessionsJump'
 import {newConversation} from '../services/newConversation'
 import type {ConversationSection} from '../lib/conversationSections'
 import SchemeSelector from './SchemeSelector'
@@ -231,23 +232,33 @@ function RunningSessionsPopover({open, anchorRef, convIds, onClose}: {
         return () => document.removeEventListener('keydown', onKey)
     }, [open, onClose])
 
-    /** 跳转：跨工作目录先切目录，再激活会话 */
+    /**
+     * 跳转 = 视图跟随矩阵（lib/runningSessionsJump）+ 跨目录切换：
+     * · stay —— 目标在当前视图内：openConversationInWorkspace(follow:false) 只切工作区+激活，不写 viewScope。
+     * · group —— 目标已入组：先 setProjectGroupView + focusProjectSegment 定位段，再同上。
+     * · project —— 目标未入组：openConversationInWorkspace 缺省 follow:true → followScopeToProject（单项目视图）。
+     * · activate-only —— 未归属：只激活会话，不动视图。
+     * 跨目录走 openConversationInWorkspace（不抢占首个根会话），故无需 force 补水合特判
+     * （旧路径经 setWorkspace 抢占首个根会话、踩 DB 快照，已弃用——根因见该函数注释）。
+     */
     const handleJump = useCallback(async (entry: RunningSessionEntry) => {
         onClose()
         const store = useConversationStore.getState()
-        const switchingWorkspace = !!entry.workspacePath && entry.workspacePath !== store.currentWorkspacePath
-        if (switchingWorkspace) {
-            // 与 sendToConversation 同款跨目录路径：setWorkspace 会同时持久化主进程当前工作区。
-            // 但它会把该目录首个根会话置为活跃（内部水合是 fire-and-forget，conversationStore.ts:669）——
-            // 目标恰是首个根会话时 setActiveConversation 会幂等短路，跳过消息合并与 agent 状态同步，
-            // 运行中会话只会显示 DB 半成品快照。故此处必须 force 重走完整切换。
-            await store.setWorkspace(entry.workspacePath!)
-            await store.setActiveConversation(entry.id, {force: true})
-        } else {
-            // 同目录：目标本就是当前会话时 setActiveConversation 幂等短路（no-op），
-            // 绝不能再补水合——DB 快照会覆盖内存中正在流式的内容
-            await store.setActiveConversation(entry.id)
+        const plan = resolveRunningSessionJumpPlan({
+            scopeProjectPaths: resolveScopeProjectPaths(store),
+            viewScope: store.viewScope,
+            groups: useProjectGroupStore.getState().groups,
+            targetWorkspacePath: entry.workspacePath,
+        })
+        if (plan.kind === 'group') {
+            store.setProjectGroupView(plan.groupId)
+            store.focusProjectSegment(entry.workspacePath!)
         }
+        if (!entry.workspacePath) {
+            await store.setActiveConversation(entry.id)
+            return
+        }
+        await store.openConversationInWorkspace(entry.id, entry.workspacePath, {follow: plan.kind !== 'project'})
     }, [onClose])
 
     return createPortal(
@@ -923,6 +934,23 @@ function addSelfAndAncestors<T extends {parentConvId?: string}>(
     return set
 }
 
+/**
+ * 判断某行的祖先链（沿 parentConvId 向上）是否全部处于展开状态。
+ * convById 为会话 id→对象 映射，T 只需满足 parentConvId?: string 即可。
+ */
+function isAncestorChainExpanded(
+    parentConvId: string | undefined | null,
+    expandedParentIds: Set<string>,
+    convById: Map<string, {parentConvId?: string}>,
+): boolean {
+    let cur: string | null = parentConvId || null
+    while (cur) {
+        if (!expandedParentIds.has(cur)) return false
+        cur = convById.get(cur)?.parentConvId || null
+    }
+    return true
+}
+
 import {buildRecentConversations} from '../lib/recentConversations'
 
 export function ConversationList() {
@@ -947,6 +975,8 @@ export function ConversationList() {
     const pendingFocusProject = useConversationStore((s) => s.pendingFocusProject)
     const toggleSectionCollapsed = useConversationStore((s) => s.toggleSectionCollapsed)
     const expandSection = useConversationStore((s) => s.expandSection)
+    const expandedChildParents = useConversationStore((s) => s.expandedChildParents)
+    const expandChildParents = useConversationStore((s) => s.expandChildParents)
     const dismissWindowHint = useConversationStore((s) => s.dismissWindowHint)
     const clearFocusProject = useConversationStore((s) => s.clearFocusProject)
     const refreshVisibleBranches = useConversationStore((s) => s.refreshVisibleBranches)
@@ -986,7 +1016,7 @@ export function ConversationList() {
     //   例：组视图内点其他成员项目的会话只动 viewScope，段集合却按旧值渲染。
     const sections = useMemo(
         () => getScopedSections(),
-        [getScopedSections, workspaces, viewScope, searchQuery, collapsedGroupIds, sectionWindowSizes, gitBranches, gitBranch, currentWorkspacePath, groups],
+        [getScopedSections, workspaces, viewScope, searchQuery, collapsedGroupIds, sectionWindowSizes, gitBranches, gitBranch, currentWorkspacePath, groups, expandedChildParents],
     )
 
     // ★ 段路径签名 = 段集合的「项目路径集合」指纹。用它而不是 sections 数组身份来驱动
@@ -1023,7 +1053,10 @@ export function ConversationList() {
     //   查不到（缓存未加载）的行跳过，不崩。
     const rowById = useMemo(() => {
         const map = new Map<string, ConversationSection['rows'][number]>()
-        for (const section of sections) for (const row of section.rows) map.set(row.id, row)
+        for (const section of sections) for (const row of section.rows) {
+            if (row.kind !== 'conv') continue
+            map.set(row.id, row)
+        }
         return map
     }, [sections])
 
@@ -1031,7 +1064,7 @@ export function ConversationList() {
     const childIdsMap = useMemo(() => {
         const map = new Map<string, string[]>()
         for (const section of sections) for (const row of section.rows) {
-            if (!row.parentConvId) continue
+            if (row.kind !== 'conv' || !row.parentConvId) continue
             map.set(row.parentConvId, [...(map.get(row.parentConvId) ?? []), row.id])
         }
         return map
@@ -1101,20 +1134,52 @@ export function ConversationList() {
     //    其余父会话一律折叠 —— 修复「父会话 A ↔ B 切换时旧父会话不折叠」的问题。
     useEffect(() => {
         if (!activeConversationId) return
-        const activeRow = rowById.get(activeConversationId)
+        // 激活会话可能被子会话窗口截掉（不在 rows 里）→ 回退到段内全量会话查
+        const findActiveRowFallback = (): {id: string; parentConvId?: string} | undefined => {
+            for (const section of sections) {
+                const conv = (workspaces[section.projectPath]?.conversations ?? [])
+                    .find(c => c.id === activeConversationId)
+                if (conv) return {id: conv.id, parentConvId: conv.parentConvId}
+            }
+            return undefined
+        }
+        const activeRow: {id: string; parentConvId?: string} | undefined =
+            rowById.get(activeConversationId) ?? findActiveRowFallback()
         if (!activeRow) return
 
-        setExpandedParentIds(prev => {
-            // 需要保持展开的父级：active 的祖先链 + active 自身（若其有子会话）
-            const keep = new Set<string>()
-            if (activeRow.parentConvId) {
-                addSelfAndAncestors(keep, rowById, activeRow.parentConvId)
-            }
-            if (childIdsMap.has(activeRow.id)) {
-                keep.add(activeRow.id)
-            }
+        // 需要保持展开的父级：active 的祖先链 + active 自身（若其有子会话）
+        const keep = new Set<string>()
+        if (activeRow.parentConvId) {
+            addSelfAndAncestors(keep, rowById, activeRow.parentConvId)
+        }
+        if (childIdsMap.has(activeRow.id)) {
+            keep.add(activeRow.id)
+        }
 
-            // 折叠不在 keep 内的父会话，并确保 keep 内的父会话均展开
+        // 子会话窗口兜底：仅当激活会话**确实被窗口截掉**（不在可见行里）才触发，
+        // 沿父链向上展开各祖先的子列表，直到遇到已在可见行中的祖先——
+        // 避免激活父会话本身时把它的全部子会话展开、窗口形同虚设。
+        if (!rowById.has(activeConversationId)) {
+            // 全量会话索引（rows 只含窗口内可见行，链路回溯需真实父子关系）
+            const convById = new Map<string, {id: string; parentConvId?: string}>()
+            for (const section of sections) {
+                for (const c of workspaces[section.projectPath]?.conversations ?? []) {
+                    convById.set(c.id, c)
+                }
+            }
+            const toExpand: string[] = []
+            let curId: string | undefined = convById.get(activeConversationId)?.parentConvId
+            while (curId && !rowById.has(curId)) {
+                toExpand.push(curId)
+                curId = convById.get(curId)?.parentConvId
+            }
+            // 最近的一个可见祖先 = 截掉激活会话的那个父会话，也要展开
+            if (curId) toExpand.push(curId)
+            if (toExpand.length > 0) expandChildParents(toExpand)
+        }
+
+        // 折叠不在 keep 内的父会话，并确保 keep 内的父会话均展开
+        setExpandedParentIds(prev => {
             const next = new Set<string>()
             for (const id of prev) {
                 if (keep.has(id)) next.add(id)
@@ -1124,7 +1189,7 @@ export function ConversationList() {
             }
             return next
         })
-    }, [activeConversationId])
+    }, [activeConversationId]) // 保留原口径：仅激活会话变化时执行（rowById/childIdsMap 闭包取当轮值即可）
 
     // ★ §15.1①「定位该项目段」：pendingFocusProject 变化时把对应段滚入视野并复位。
     //   段 key = projectPath（与 toggleSectionCollapsed 的入参口径一致）。
@@ -1164,12 +1229,23 @@ export function ConversationList() {
         const convs = workspaces[section.projectPath]?.conversations ?? []
         const byId = new Map(convs.map(c => [c.id, c]))
         return section.rows.map(row => {
-            // 祖先链未全部展开 → 隐藏该子树
-            let cur = row.parentConvId || null
-            while (cur) {
-                if (!expandedParentIds.has(cur)) return null
-                cur = rowById.get(cur)?.parentConvId || null
+            // 「加载更多」占位行：与 conv 行同口径做祖先链可见性检查（父折叠则隐藏）
+            if (row.kind === 'load-more') {
+                if (!isAncestorChainExpanded(row.parentConvId, expandedParentIds, rowById)) return null
+                return (
+                    <button
+                        key={row.id}
+                        data-name="child-load-more"
+                        title={row.hiddenCount > 0 ? `加载更多子会话（还有 ${row.hiddenCount} 条）` : '加载更多子会话'}
+                        aria-label="加载更多子会话"
+                        onClick={() => row.parentConvId && expandChildParents([row.parentConvId])}
+                        style={row.indentLevel ? {paddingLeft: 16 + row.indentLevel * 16 + 8} : undefined}
+                        className="w-full py-0.5 text-left text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                    >加载更多</button>
+                )
             }
+            // 祖先链未全部展开 → 隐藏该子树
+            if (!isAncestorChainExpanded(row.parentConvId, expandedParentIds, rowById)) return null
             // 段窗口内查不到摘要（会话缓存未加载）→ 跳过整行，不中断渲染
             const conv = byId.get(row.id)
             if (!conv) return null
@@ -1217,17 +1293,17 @@ export function ConversationList() {
                         说明文案用 --text-secondary（globals.css 的 muted 用途契约：muted 为 AA 豁免档） */}
                     {!section.collapsed && section.hasMore && singleProject && !singleViewWindowHintShown && (
                         <p data-name="single-view-window-hint" className="px-2 pb-1 text-2xs text-[var(--text-secondary)]">
-                            列表已按项目分页展示，点 ··· 可加载更多会话
+                            列表已按项目分页展示，点「加载更多」可展开更多会话
                         </p>
                     )}
                     {!section.collapsed && section.hasMore && (
                         <button
                             data-name="section-show-more"
-                            title="加载更多"
+                            title="加载更多会话"
                             aria-label="加载更多会话"
                             onClick={() => { expandSection(section.key); if (singleProject) dismissWindowHint() }}
-                            className="w-full py-1 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                        >···</button>
+                            className="w-full py-0.5 px-2 text-left text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                        >加载更多</button>
                     )}
                 </section>
             ))}

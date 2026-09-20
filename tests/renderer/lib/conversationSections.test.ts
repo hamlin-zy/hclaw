@@ -111,6 +111,50 @@ describe('buildConversationSections — 父子关系', () => {
     })
 })
 
+describe('buildConversationSections — 子会话窗口', () => {
+    function parentWithChildren(n: number) {
+        const parent = conv(30, {id: 'p-1'})
+        const children = Array.from({length: n}, (_, i) => conv(40 + i, {id: `k-${i}`, parentConvId: 'p-1'}))
+        return [parent, ...children]
+    }
+
+    it('子会话超过 3 条：只显示最新 3 条 + load-more 占位行（hiddenCount 正确）', () => {
+        const sections = buildConversationSections({...base, projects: [project({conversations: parentWithChildren(5)})]})
+        const rows = sections[0].rows
+        expect(rows.map(r => r.kind === 'conv' ? r.id : 'LOAD-MORE')).toEqual([
+            'p-1', 'k-4', 'k-3', 'k-2', 'LOAD-MORE',
+        ])
+        const more = rows[4]
+        expect(more).toMatchObject({kind: 'load-more', parentConvId: 'p-1', indentLevel: 1, hiddenCount: 2})
+    })
+
+    it('子会话 ≤3 条：全量显示，无 load-more 行', () => {
+        const sections = buildConversationSections({...base, projects: [project({conversations: parentWithChildren(3)})]})
+        expect(sections[0].rows.every(r => r.kind === 'conv')).toBe(true)
+    })
+
+    it('expandedChildParents 命中：全部子会话可见，无 load-more 行', () => {
+        const sections = buildConversationSections({
+            ...base,
+            expandedChildParents: {'p-1': true},
+            projects: [project({conversations: parentWithChildren(5)})],
+        })
+        const ids = sections[0].rows.filter(r => r.kind === 'conv').map(r => r.id)
+        expect(ids).toEqual(['p-1', 'k-4', 'k-3', 'k-2', 'k-1', 'k-0'])
+        expect(sections[0].rows.some(r => r.kind === 'load-more')).toBe(false)
+    })
+
+    it('搜索态豁免子会话窗口（全部可见）', () => {
+        const sections = buildConversationSections({
+            ...base,
+            searchQuery: '会话',
+            projects: [project({conversations: parentWithChildren(5)})],
+        })
+        expect(sections[0].rows.filter(r => r.kind === 'conv')).toHaveLength(6)
+        expect(sections[0].rows.some(r => r.kind === 'load-more')).toBe(false)
+    })
+})
+
 describe('buildConversationSections — 搜索与折叠', () => {
     it('搜索命中忽略窗口（旧会话也出现）', () => {
         const conversations = [

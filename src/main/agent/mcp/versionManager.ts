@@ -26,6 +26,7 @@ import {
   parseVersionOutput,
 } from './versionUtils'
 import {exec, execFile, spawn} from 'child_process'
+import {StringDecoder} from 'string_decoder'
 import {promisify} from 'util'
 import path from 'path'
 import {mcpWorkerManager} from './mcpWorkerManager'
@@ -154,6 +155,8 @@ export class McpVersionManager {
   private spawnWithTimeout(command: string, args: string[], timeout: number): Promise<string | null> {
     return new Promise((resolve) => {
       let stdout = ''
+      // chunk 边界可能落在多字节字符中间，逐 chunk toString 会产生 U+FFFD
+      const decoder = new StringDecoder('utf8')
       let timedOut = false
       // P0#1 fix: declare child BEFORE setTimeout to avoid TDZ reference
       let child: ReturnType<typeof spawn> | null = null
@@ -193,7 +196,7 @@ export class McpVersionManager {
       })
 
       child.stdout?.on('data', (data: Buffer) => {
-        stdout += data.toString()
+        stdout += decoder.write(data)
       })
 
       child.stderr?.on('data', () => {
@@ -205,6 +208,7 @@ export class McpVersionManager {
       })
 
       child.on('close', (code: number) => {
+        stdout += decoder.end()
         if (timedOut || code !== 0) {
           finish(null)
           return
