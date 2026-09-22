@@ -307,6 +307,7 @@ describe('warmCache / getVersions / exportMap / getAllVersionMeta', () => {
   })
 
   it('getAllVersionMeta 仅返回红点相关字段', async () => {
+    seedPlugin('a')
     mockState.tags = ['v2.0.0', 'v1.0.0']
     mockState.currentRef = 'v1.0.0'
     await versionManager.warmCache('a', '/tmp/a', '1.0.0')

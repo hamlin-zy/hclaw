@@ -321,21 +321,21 @@ describe('streamBridge.persistStreamEvent（渲染端 record* 平移验证）', 
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => {vi.useRealTimers(); vi.restoreAllMocks()})
 
-  it('text 事件 → text chunk 累积；think/tool 后 textSeq 递增换段', () => {
+  it('text 事件 → text chunk 累积；同轮 think 前后 text 恒为同一块（id 后缀 = 轮次）', () => {
     const repo = fakeRepo()
     const p = new ConversationPersistence(repo as never)
     const pending = mkPending()
-    // text 段 0
+    // 轮次 0 的 text 块
     persistStreamEvent(p, 'c1', 'm1', pending, {type: 'text', content: 'a'} as never)
     vi.advanceTimersByTime(30000)
-    // thinking 首块 → textSeq 递增
+    // thinking 不改变轮次（无 tool_result）→ text 块 id 不变
     persistStreamEvent(p, 'c1', 'm1', pending, {type: 'thinking', content: '想'} as never)
     persistStreamEvent(p, 'c1', 'm1', pending, {type: 'text', content: 'b'} as never)
     vi.advanceTimersByTime(30000)
     const calls = repo.writeBlockDelta.mock.calls as Array<[string, string, BlockDeltaPatch]>
-    expect(calls[0][2].upsertBlocks![0].id).toBe('text-m1-0')
+    expect(calls[0][2].upsertBlocks![0].id).toBe('text-m1-t0')
     // 第二次 flush 的 patch 合并了 think 段与 text 段（同 msgId patch 合并）
-    const textB = calls[1][2].upsertBlocks!.find(b => b.id === 'text-m1-1')
+    const textB = calls[1][2].upsertBlocks!.find(b => b.id === 'text-m1-t0')
     expect(textB).toBeTruthy()
     expect(textB!.content).toBe('b')
   })

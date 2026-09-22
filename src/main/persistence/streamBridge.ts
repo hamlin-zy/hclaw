@@ -12,11 +12,18 @@ import type {AgentStreamEvent} from '../agent/stream'
 import type {PendingAssistantMsg} from '../agent/manager.types'
 import type {ConversationPersistence, ToolCallPersistable} from './conversationPersistence'
 
-// ── P5 修正：think 段号状态（writeBlockDelta 对 think 块是覆盖语义，交错思考
-//    think→tool→think 场景下固定单 id 会覆盖丢段；渲染端现状为每段独立 id）──
-const thinkSegByMsg = new Map<string, number>()          // msgId → 当前段号
-const thinkSegAccumByMsg = new Map<string, string>()     // msgId → 当前段内累积内容（段边界重置）
-const lastWasThinking = new Set<string>()                // msgId → 上一事件是否 thinking
+// ── 块 id 轮次派生（2026-09-22 修复：废除段号漂移）────────────────────────
+// 契约（冻结）：text 块 id = `text-${msgId}-t${turn}`；think 块 id = `think-${msgId}-t${turn}`。
+// 一次 LLM 调用（= 一个 turnIndex）内：think 恒为一个块、text 恒为一个块，先后由同轮内
+// 首次 INSERT 顺序决定。
+// 废除项（原 P5 段号机制）：thinkSegByMsg / lastWasThinking —— 段号随 text 事件漂移，
+// 使一段连续思考被 text 切成 think-…-12 / think-…-13，text 块后缀（段号 + toolCalls 数）
+// 随之漂移，同一段正文被切成 text-…-31 / text-…-32 → 重启后 think 尾部碎片插进正文中间。
+//
+// 段累积保留（think 块是同 id 覆盖语义，必须累积后整体写），但重置边界由「转出 think 态」
+// 改为「轮次边界」：同轮内 think→text→think 交错必须继续累加，否则覆盖写会丢掉前半段思考。
+const thinkAccumByMsg = new Map<string, string>()        // msgId → 当前轮内 think 增量累积
+const thinkAccumTurnByMsg = new Map<string, number>()    // msgId → 累积所属轮次
 
 // ── 方案 2 根治：LLM 调用轮次标注（turnIndex）────────────────────────────
 // 契约：一次 LLM 调用 = 一个 turnIndex。tool_result/tool_denied 必然是一次
@@ -53,15 +60,26 @@ function closeTurn(msgId: string): void {
 }
 
 /**
- * 退出 thinking 态：释放段累积字符串并清除 think 标记（4 个非 thinking 分支共用）。
- * 边界安全性：段内内容已由 recordThinkBlock(accum) 推式全量落库，accum 在此后
- * 无用途；段累积仅在 think 态存在，故仅在 lastWasThinking 仍有该 msgId 时释放。
- * 下一段 thinking 到达时仍走 :82-85 的段起始守卫（set('') 重置 + 段号 +1），
- * 因此段内容与段 id 语义完全不变。
+ * 释放「已跨轮」的 think 段累积（累积所属轮次 ≠ 当前轮次时）。
+ * 同类重置的唯一出口：thinking 分支进入新轮时、以及 text/tool 事件转出 think 态时共用。
+ */
+function releaseStaleThinkAccum(msgId: string): void {
+  const turn = thinkAccumTurnByMsg.get(msgId)
+  if (turn === undefined || turn === currentTurn(msgId)) return
+  thinkAccumByMsg.delete(msgId)
+  thinkAccumTurnByMsg.delete(msgId)
+}
+
+/**
+ * 转出 thinking 态（text / tool_use / tool_result / tool_denied 4 个分支共用）：
+ * 释放已跨轮的段累积。
+ * ★ 契约变更（块 id 轮次派生）：释放边界从「转出 think 态」改为「轮次边界」——
+ *   同轮内 think→text→think 交错必须保留累积（think 块同 id 覆盖写，重置即丢前文）；
+ *   tool_result/tool_denied 收尾后由 turnForContent 递增轮次，下一次转出时随之释放。
+ * ★ 本函数不再参与任何块 id 派生（旧实现中段号 +1 在此触发）。
  */
 function endThinking(msgId: string): void {
-  if (lastWasThinking.has(msgId)) thinkSegAccumByMsg.delete(msgId)
-  lastWasThinking.delete(msgId)
+  releaseStaleThinkAccum(msgId)
 }
 
 // ── P4 修正：子会话排除（与渲染端 isChildConversation 守卫等价）──────────
@@ -81,31 +99,31 @@ export function persistStreamEvent(
   event: AgentStreamEvent,
 ): void {
   if (isChildConv(convId)) return   // ★P4：子会话由 childAcc 唯一负责
-  const thinkSeq = () => thinkSegByMsg.get(msgId) ?? 0
   switch (event.type) {
     case 'text': {
       const chunk = (event as {type: 'text'; content?: string}).content || ''
-      if (chunk) p.recordTextChunk(convId, msgId, thinkSeq() + pending.toolCalls.length, chunk, turnForContent(msgId))
-      endThinking(msgId)   // ★S1：think 段结束（转出 think 态）→ 释放段累积
+      // ★ turnForContent 有副作用（消费 tool_result 标记、可能递增轮次）→ 同一事件只调用一次
+      const turn = turnForContent(msgId)
+      if (chunk) p.recordTextChunk(convId, msgId, `t${turn}`, chunk, turn)
+      endThinking(msgId)   // 释放已跨轮的段累积（同轮保留 → 正文恒为一块）
       break
     }
     case 'thinking': {
-      // 进入新 think 段（think→text→think 交错）→ 段号 +1（渲染端每段独立 id 语义）
-      if (!lastWasThinking.has(msgId)) {
-        thinkSegByMsg.set(msgId, thinkSeq() + 1)
-        thinkSegAccumByMsg.set(msgId, '')
-      }
-      lastWasThinking.add(msgId)
-      // ★ 段内增量累积，而非 pending.thinkParts.join('') 全量快照：
+      // ★ turnForContent 有副作用 → 同一事件只调用一次
+      const turn = turnForContent(msgId)
+      // 轮次变化才重置段累积（旧「段起始守卫 + 段号 +1」的替代）
+      releaseStaleThinkAccum(msgId)
+      // ★ 轮内增量累积，而非 pending.thinkParts.join('') 全量快照：
       //   thinkParts 是整条消息（跨所有 LLM 调用轮）的 UI 聚合，每轮写一份
       //   全量快照会使 historyConverter 按 turn 分组拼接后每轮 reasoningContent
       //   都携带之前所有轮的 thinking → 重建请求 input 暴涨（74.6k→151k tokens）。
-      //   段内累积（delta 之和）与 loop 内存态 execute.ts thinkingParts.join('')
-      //   （每轮增量）逐字节一致：同 turn 多段拼接 = 该轮全部 thinking delta。
+      //   轮内累积（delta 之和）与 loop 内存态 execute.ts thinkingParts.join('')
+      //   （每轮增量）逐字节一致：同 turn 的 think 增量之和 = 该轮全部 thinking。
       const delta = (event as {content?: string}).content || ''
-      const accum = (thinkSegAccumByMsg.get(msgId) ?? '') + delta
-      thinkSegAccumByMsg.set(msgId, accum)
-      if (accum) p.recordThinkBlock(convId, msgId, `think-${msgId}-${thinkSeq()}`, accum, 'thinking', turnForContent(msgId))
+      const accum = (thinkAccumByMsg.get(msgId) ?? '') + delta
+      thinkAccumByMsg.set(msgId, accum)
+      thinkAccumTurnByMsg.set(msgId, turn)
+      if (accum) p.recordThinkBlock(convId, msgId, `think-${msgId}-t${turn}`, accum, 'thinking', turn)
       break
     }
     case 'tool_use':
@@ -120,7 +138,7 @@ export function persistStreamEvent(
       }
       if (seen.has(tc.id)) break
       seen.add(tc.id)
-      endThinking(msgId)   // ★S1：think 段结束（转出 think 态）→ 释放段累积
+      endThinking(msgId)   // 转出 think 态：释放已跨轮的段累积（同轮保留）
       // 契约补全：LLM 调用可能只返回 tool_calls（零 thinking/text），
       // 此时 tool_use 也处于 tool_result 之后 → 必须开启新轮，否则该调用的
       // tool_call 块沿用上一轮 turnIndex，重建时并入上一组 assistant，
@@ -133,7 +151,7 @@ export function persistStreamEvent(
       const ev = event as {toolCallId?: string; result?: unknown}
       const tc = pending.toolCalls.find(t => t.id === ev.toolCallId)
       if (!tc) break
-      endThinking(msgId)   // ★S1：think 段结束（转出 think 态）→ 释放段累积
+      endThinking(msgId)   // 转出 think 态：释放已跨轮的段累积（同轮保留）
       // 终态修复语义（conversationStore.ts:267-271 平移）：result 由事件携带；
       // manager 私有 accumulateEvent 双轨已把 normalized result 写回 pending.toolCalls，
       // 桥接以事件优先（pending 未及更新时仍能落终态）。
@@ -154,7 +172,7 @@ export function persistStreamEvent(
       const ev = event as {toolCallId?: string; reason?: string}
       const tc = pending.toolCalls.find(t => t.id === ev.toolCallId)
       if (!tc) break
-      endThinking(msgId)   // ★S1：think 段结束（转出 think 态）→ 释放段累积
+      endThinking(msgId)   // 转出 think 态：释放已跨轮的段累积（同轮保留）
       const deniedReason = `[PERMISSION_DENIED] ${ev.reason || '权限被拒绝'}`
       p.recordToolResultBlock(convId, msgId, {
         ...tc,
@@ -170,18 +188,21 @@ export function persistStreamEvent(
   }
 }
 
-/** 消息终结时清理桥接段号状态（7.2：finalize 为必然事件触发，finalizeMessage 成功路径调用） */
+/** 消息终结时清理桥接段累积与轮次状态（7.2：finalize 为必然事件触发，finalizeMessage 成功路径调用） */
 export function resetBridgeMsgState(msgId: string): void {
-  thinkSegByMsg.delete(msgId)
-  thinkSegAccumByMsg.delete(msgId)
-  lastWasThinking.delete(msgId)
+  thinkAccumByMsg.delete(msgId)
+  thinkAccumTurnByMsg.delete(msgId)
   turnSeqByMsg.delete(msgId)
   contentAfterToolByMsg.delete(msgId)
   persistedToolCallIds.delete(msgId)
 }
 
 /** text 段序号 = 已出现的非 text 块数(对齐 conversationStore.ts:216-221 语义)。
- *  think 段数: pending 有 think 内容即 1 段；若 manager 引入多 think 段累积须同步改段计数。 */
+ *  think 段数: pending 有 think 内容即 1 段；若 manager 引入多 think 段累积须同步改段计数。
+ *  ★ 核验结论（2026-09-22 块 id 轮次派生）：本函数不参与块 id 派生——生产代码 0 调用点
+ *  （仅 tests/main/conversationPersistence.test.ts 引用；manager.impl.ts:1427 为注释提及），
+ *  且全量写路径的 text 块 id 为 offset 型 `${msgId}-text-${offset}`（messageBlockHelper.ts:105）、
+ *  与增量路径（桥接）已无共享 id 空间。故保持不动。 */
 export function deriveTextSeq(pending: PendingAssistantMsg): number {
   const thinkSegs = (pending.thinkParts?.length ?? 0) > 0 || pending.thinkContent ? 1 : 0
   return thinkSegs + pending.toolCalls.length

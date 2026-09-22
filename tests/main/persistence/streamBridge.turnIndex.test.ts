@@ -225,7 +225,7 @@ describe('persistStreamEvent — think 块落库内容为段内增量（重建�
     expect(ids.size).toBe(1)
   })
 
-  it('think→text→think 交错开启新段，段内容不跨段携带', () => {
+  it('think→text→think 交错（同轮）落库为同一 think 块，内容为两段拼接', () => {
     const {p, calls} = makeRecorder()
 
     persistStreamEvent(p, 'c1', 'm1', pending(), {type: 'thinking', content: '段1'})
@@ -233,34 +233,33 @@ describe('persistStreamEvent — think 块落库内容为段内增量（重建�
     persistStreamEvent(p, 'c1', 'm1', pending(), {type: 'thinking', content: '段2'})
 
     const thinkCalls = calls.filter(c => c.method === 'recordThinkBlock')
-    expect(thinkCalls.map(c => c.args[3])).toEqual(['段1', '段2'])
-    expect(new Set(thinkCalls.map(c => c.args[2])).size).toBe(2)
+    // ★ 块 id 轮次派生（2026-09-22）：同轮内 text 不重置累积，think 恒为一块
+    //   （id = `think-${msgId}-t${turn}`），内容为两段之和，不再切段
+    expect(thinkCalls.map(c => c.args[3])).toEqual(['段1', '段1段2'])
+    expect([...new Set(thinkCalls.map(c => c.args[2]))]).toEqual(['think-m1-t0'])
   })
 
   /**
-   * ★S1 护栏：think 段结束（转出 think 态）时释放段累积字符串。
-   * 释放本身是内存行为，从公开 API 不可直接观测；本用例锁定"释放不得破坏
-   * 段边界语义"这一不变量：下一段必须从 0 重新累加（绝不携带上一段全文），
-   * 且段 id 递增、同段内仍为覆盖语义。
+   * ★ 块 id 轮次派生（2026-09-22）后的不变量：累积释放边界 = 轮次边界，不再是「转出 think 态」。
+   * 同轮 text 转出必须保留累积（think 块同 id 覆盖写，重置即丢前文）；跨轮才释放。
    */
-  it('think 段结束释放 accum：下一段从 0 重新累加且段 id 递增（text 转出）', () => {
+  it('同轮 text 转出不解累积：后续 think 继续累加、同 id 覆盖（正文恒为一块）', () => {
     const {p, calls} = makeRecorder()
 
-    // 段 1：同段多次增量 → 段内累积 A → AB
+    // 同轮：先 think 两次增量 → 段内累积 A → AB
     persistStreamEvent(p, 'c1', 'm1', pending(), {type: 'thinking', content: 'A'})
     persistStreamEvent(p, 'c1', 'm1', pending(), {type: 'thinking', content: 'B'})
-    // 段结束：text 事件转出 think 态（此处释放 accum）
+    // 同轮 text 转出 think 态（不递增轮次）→ 累积必须保留
     persistStreamEvent(p, 'c1', 'm1', pending(), {type: 'text', content: '正文'})
-    // 段 2：必须从 0 重新累加，绝不能是 'ABC'
+    // 同轮 think 回归：继续累加为 ABC（覆盖写不丢前文）
     persistStreamEvent(p, 'c1', 'm1', pending(), {type: 'thinking', content: 'C'})
 
     const thinkCalls = calls.filter(c => c.method === 'recordThinkBlock')
-    expect(thinkCalls.map(c => c.args[3])).toEqual(['A', 'AB', 'C'])
-    // 段 id：第 1 段固定 think-m1-1（覆盖语义），第 2 段递增为 think-m1-2
-    expect(thinkCalls.map(c => c.args[2])).toEqual(['think-m1-1', 'think-m1-1', 'think-m1-2'])
+    expect(thinkCalls.map(c => c.args[3])).toEqual(['A', 'AB', 'ABC'])
+    expect([...new Set(thinkCalls.map(c => c.args[2]))]).toEqual(['think-m1-t0'])
   })
 
-  it('think 段结束释放 accum：tool_result 转出同样从 0 重新累加', () => {
+  it('跨轮释放 accum：tool_result 后新一轮 think 从 0 重新累加且换块（t0 → t1）', () => {
     const {p, calls} = makeRecorder()
     const tc = {id: 'tc-1', name: 'bash', arguments: {}, status: 'running'}
 
@@ -271,6 +270,6 @@ describe('persistStreamEvent — think 块落库内容为段内增量（重建�
 
     const thinkCalls = calls.filter(c => c.method === 'recordThinkBlock')
     expect(thinkCalls.map(c => c.args[3])).toEqual(['X', 'Y'])
-    expect(thinkCalls.map(c => c.args[2])).toEqual(['think-m1-1', 'think-m1-2'])
+    expect(thinkCalls.map(c => c.args[2])).toEqual(['think-m1-t0', 'think-m1-t1'])
   })
 })

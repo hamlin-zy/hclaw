@@ -149,7 +149,7 @@ export default function AboutDialog() {
       <div className="w-full h-px mb-4" style={{ backgroundColor: 'var(--border)' }} />
 
       {/* 检查更新区块 */}
-      <div className="w-full max-w-[300px] mb-3 space-y-2">
+      <div className="w-full mb-3 space-y-2">
         <button
           onClick={handleCheckUpdate}
           disabled={checking}
@@ -173,9 +173,9 @@ export default function AboutDialog() {
            data-name="about-dialog-update-detail">
             <ChangelogEntryHeader
               entry={latestEntry}
-              className="flex items-center gap-2 px-3.5 py-2.5"
+              className="flex items-start gap-2 px-3.5 py-2.5"
               style={{ borderBottom: '1px solid var(--border-muted)' }}
-              titleClassName="min-w-0 truncate text-[12.5px] font-semibold"
+              titleClassName="min-w-0 break-words text-[12.5px] font-semibold"
               dateClassName="ml-auto shrink-0 text-[11px] font-mono"
               dateText={`${latestEntry.version} · ${latestEntry.date}`}
             />
@@ -210,7 +210,7 @@ export default function AboutDialog() {
       </div>
 
       {/* Links Grid — 2 行：GitHub/Gitee 一行，B站独占一行 */}
-      <div className="grid grid-cols-2 gap-2.5 w-full max-w-[300px]">
+      <div className="grid grid-cols-2 gap-2.5 w-full">
         {LINKS.map((link, i) => (
           <button
             key={link.label}

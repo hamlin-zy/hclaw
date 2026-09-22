@@ -358,3 +358,110 @@ describe('decidePublish two-stage', () => {
         expect(decidePublish(snapFor(one), 'names', d, false, 0).decision.action).toBe('publish')
     })
 })
+
+/**
+ * 组 C · P1-6：插件启用/禁用（plugin.enabled 翻转）走「追加 + replacement 语义」
+ *
+ * 背景：插件禁用后 `skillRegistry.getEnabled()` 不再返回其技能 → 目录条目集合变化
+ * → digest 变化。此时**禁止**原地改写既有目录消息（会让历史前缀逐字节漂移、
+ * 供应商 KV cache 全失效）；必须按 decideCatalogPublish 决策表追加一条新消息，
+ * 并在正文中声明"本条取代此前的全部目录"（replacement 文案，见 renderCatalogContent）。
+ *
+ * 判别力：digest 若漏掉 name（或集合变化被吞），禁用后 digest 不变 →
+ * decidePublish 返回 none → 首条断言红；若语义退化为"原地替换"（返回 none/改写旧消息），
+ * 第二条断言（旧消息字节不变、消息数 +1）红。
+ */
+describe('P1-6 插件启停：目录变化走追加 + replacement（旧注入字节不变）', () => {
+    const pluginSkill = (id: string, pluginName: string): SkillDefinition => ({
+        id,
+        name: id,
+        description: `desc-${id}`,
+        whenToUse: `trigger-${id}`,
+        enabled: true,
+        content: 'body',
+        source: 'plugin',
+        pluginName,
+    } as SkillDefinition)
+
+    /** 记忆化的目录消息流：模拟 loop 侧「只追加、不改写」的宿主行为 */
+    const stream = () => {
+        const messages: string[] = []
+        let lastDigest: string | undefined
+        return {
+            messages,
+            /** 走一次 pre-step：返回本轮动作（调用方负责追加） */
+            step: (entries: CatalogEntry[]) => {
+                const snap = snapFor(entries)
+                const r = decidePublish(snap, 'names', lastDigest, !!lastDigest, 0)
+                if (r.decision.action === 'publish') {
+                    messages.push(r.decision.content!)
+                    lastDigest = r.decision.metadata!.catalogDigest
+                }
+                return r
+            },
+            digestOf: (entries: CatalogEntry[]) => computeDigest({mode: 'names', entries}),
+        }
+    }
+
+    it('插件禁用 → digest 变化 → 追加 replacement 消息，旧目录消息字节不变', () => {
+        const entries = [entry('alpha'), entry('beta')]
+        const s = stream()
+
+        // ① 插件启用态：首次发布
+        const first = s.step(entries)
+        expect(first.decision.action).toBe('publish')
+        expect(first.decision.content).toContain('The following capabilities are available')
+        const firstContent = s.messages[0]
+
+        // ② 插件禁用：beta 从 getEnabled() 消失
+        const afterDisable = [entry('alpha')]
+        const second = s.step(afterDisable)
+        expect(second.decision.action).toBe('publish')                       // 不是 none：digest 必须敏感于集合变化
+        expect(second.decision.content).toContain('replaces every earlier capability list')
+        expect(second.decision.content).toContain('Use only names in this replacement catalog.')
+        // 追加式：消息流长度 +1，首条逐字节不变
+        expect(s.messages).toHaveLength(2)
+        expect(s.messages[0]).toBe(firstContent)
+        // 新旧 digest 不同（集合被 digest 覆盖）
+        expect(second.decision.metadata!.catalogDigest).not.toBe(first.decision.metadata!.catalogDigest)
+    })
+
+    it('启用/禁用抖动：每次 digest 变化都追加（绝不回写旧消息），历史目录字节全程不变', () => {
+        const enabled = [entry('alpha'), entry('beta')]
+        const s = stream()
+        const r1 = s.step(enabled)
+        const r2 = s.step([entry('alpha')])       // 禁用
+        expect(r2.decision.action).toBe('publish')
+        // 抖动回来：与**上一次发布的 digest**（alpha-only）不同 → 仍走追加（追加式代价：
+        // 多一条消息，而非原地改写历史）。决策表只与 lastDigest 比较，不做历史回溯。
+        const r3 = s.step(enabled)                // 重新启用
+        expect(r3.decision.action).toBe('publish')
+        expect(r3.decision.metadata!.catalogDigest).toBe(r1.decision.metadata!.catalogDigest)
+        expect(s.messages).toHaveLength(3)        // 三条都在，零改写
+        expect(s.messages[1]).toContain('replaces every earlier capability list')
+        expect(s.messages[2]).toContain('replaces every earlier capability list')
+    })
+
+    it('真实 registry 路径（getEnabled 翻转）：digest 随启用集合变化，replacement 声明取代旧目录', () => {
+        const spy = vi.spyOn(skillRegistry, 'getEnabled')
+        try {
+            spy.mockReturnValue([pluginSkill('plugin-a', 'p1'), pluginSkill('plugin-b', 'p1')] as any)
+            const on = collectCatalogSnapshot()
+            expect(on.skills.map(e => e.name)).toEqual(['plugin-a', 'plugin-b'])
+
+            spy.mockReturnValue([pluginSkill('plugin-a', 'p1')] as any)     // 插件 p1 部分技能禁用
+            const off = collectCatalogSnapshot()
+            expect(off.skills.map(e => e.name)).toEqual(['plugin-a'])
+
+            const dOn = computeDigest({mode: 'names', entries: on.skills})
+            const dOff = computeDigest({mode: 'names', entries: off.skills})
+            expect(dOff).not.toBe(dOn)
+
+            const r = decidePublish(off, 'names', dOn, true, 0)
+            expect(r.decision.action).toBe('publish')
+            expect(r.decision.content).toContain('replaces every earlier')
+        } finally {
+            spy.mockRestore()
+        }
+    })
+})

@@ -110,13 +110,18 @@ vi.mock('@/main/common/eventBus', () => ({
     MCPThemeEvents: {},
 }))
 
-vi.mock('@/main/persistence/conversationPersistence', () => ({
-    getConversationPersistence: () => ({
+vi.mock('@/main/persistence/conversationPersistence', () => {
+    // 单例桩：D 组需断言 finalizeMessage 的调用与 pending 终结顺序，故保持同一份对象引用
+    const persistence = {
         onPersistEvent: () => () => {},
         flush: vi.fn(),
         clearConversation: vi.fn(),
-    }),
-}))
+        finalizeMessage: vi.fn(() => true),
+        // D 组：handleStreamEvent 对 done 事件也走 accumulateEvent → #rowEnsured 首次建行
+        ensureMessageRow: vi.fn(),
+    }
+    return {getConversationPersistence: () => persistence}
+})
 
 vi.mock('@/main/persistence/streamBridge', () => ({
     persistStreamEvent: vi.fn(),
@@ -134,7 +139,9 @@ vi.mock('@/main/agent/loop/loopDetector', () => ({clearLoopSilence: vi.fn()}))
 
 import {AgentManager} from '@/main/agent/manager.impl'
 import {SESSION_AGENT_WORKER_RESOURCE_LIMITS} from '@/main/workerLimits'
-import type {AgentStartParams} from '@/main/agent/manager.types'
+import type {AgentStartParams, PendingAssistantMsg} from '@/main/agent/manager.types'
+import {resetBridgeMsgState} from '@/main/persistence/streamBridge'
+import {getConversationPersistence} from '@/main/persistence/conversationPersistence'
 
 function makeParams(conversationId: string): AgentStartParams {
     return {
@@ -258,3 +265,67 @@ describe('C) worker 因超限被杀时的用户可见行为', () => {
         expect(lastErrorPayload().event.error).toBe('boom')
     })
 })
+
+// ── D) resetBridgeMsgState 调用点守护（G3）──────────────────────────────
+// 缺口：manager.impl.ts:610 / 766 / 1846 三处 `resetBridgeMsgState` 调用任一被重构
+// 删除时，streamBridge 侧单测仍全绿——manager 层测试把 streamBridge 整个 mock 掉了
+// （本文件即如此），而桥接侧单测只看 persistStreamEvent 自身的行为。
+// 本组在 manager 层「消息终结 / pending 替换 / 异常清理」三个场景下断言
+// resetBridgeMsgState 被以对应 msgId 调用，把这三条调用点接入回归防护网。
+describe('D) resetBridgeMsgState 调用点守护（消息终结 / pending 替换 / 异常清理）', () => {
+    const resetSpy = resetBridgeMsgState as unknown as ReturnType<typeof vi.fn>
+    const persistence = getConversationPersistence() as unknown as {finalizeMessage: ReturnType<typeof vi.fn>}
+
+    beforeEach(() => {
+        resetSpy.mockClear()
+        persistence.finalizeMessage.mockClear()
+        persistence.finalizeMessage.mockReturnValue(true)
+    })
+
+    /** 最小合法 pending（空内容 → #mergeAndPersist 首个判据即 return，不触碰真实 DB 写路径） */
+    function seedPending(manager: AgentManager, convId: string, msgId: string): void {
+        const pending = {
+            id: msgId, content: '', contentLength: 0, toolCalls: [], thinkContent: null,
+            timestamp: 1, toolStates: {}, progressLog: {}, subAgentStream: {},
+            pendingQuestion: null, pendingPermissionConfirm: null,
+        } as unknown as PendingAssistantMsg
+        ;(manager as unknown as {pendingAssistantMsg: Map<string, PendingAssistantMsg | null>})
+            .pendingAssistantMsg.set(convId, pending)
+    }
+
+    function driveStream(manager: AgentManager, convId: string, event: unknown): Promise<void> {
+        return (manager as unknown as {
+            handleStreamEvent: (c: string, w: unknown, e: unknown) => Promise<void>
+        }).handleStreamEvent(convId, {}, event)
+    }
+
+    it('消息终结（done 事件 → #finalizeThenMerge）：finalize 后释放该 msgId 的桥接状态', async () => {
+        const manager = makeManager()
+        seedPending(manager, 'conv-done', 'msg-done-1')
+
+        await driveStream(manager, 'conv-done', {type: 'done', reason: 'completed'})
+
+        expect(persistence.finalizeMessage).toHaveBeenCalledWith('conv-done', 'msg-done-1', expect.any(Number))
+        expect(resetSpy).toHaveBeenCalledWith('msg-done-1')
+    })
+
+    it('pending 替换（user_message_injected）：旧 pending 终结后释放桥接状态', async () => {
+        const manager = makeManager()
+        seedPending(manager, 'conv-inject', 'msg-old-1')
+
+        await driveStream(manager, 'conv-inject', {type: 'user_message_injected', content: 'hi'})
+
+        expect(resetSpy).toHaveBeenCalledWith('msg-old-1')
+    })
+
+    it('异常清理（onWorkerError → cleanup）：兜底释放当前 pending 的桥接状态', () => {
+        const manager = makeManager()
+        seedPending(manager, 'conv-oom-2', 'msg-crash-1')
+
+        ;(manager as unknown as {onWorkerError: (c: string, e: Error) => void})
+            .onWorkerError('conv-oom-2', new Error('boom'))
+
+        expect(resetSpy).toHaveBeenCalledWith('msg-crash-1')
+    })
+})
+

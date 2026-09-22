@@ -451,9 +451,10 @@ export default function PluginDialog() {
                                                       ]
                                                   })()}
                                                 />
-                                                {/* 更新红点 */}
+                                                {/* 更新红点；禁用插件不亮红点（数据可保留 —— updateMap 照常写入，
+                                                    本窗口「同步版本」的乐观更新不改写它，仅在此展示出口按启用态过滤） */}
                                                 <span className="absolute -top-1 -right-1">
-                                                    <UpdateDot show={!!pluginUpdateMap[plugin.name]} title="有新版本可用"/>
+                                                    <UpdateDot show={!!pluginUpdateMap[plugin.name] && plugin.enabled} title="有新版本可用"/>
                                                 </span>
                                               </span>
                                           )}

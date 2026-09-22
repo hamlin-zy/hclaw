@@ -773,6 +773,54 @@ export class AgentManager {
   }
 
   /**
+   * abort 兜底收尾（幂等）：手动终止时 worker 未必来得及回送 done(aborted)。
+   *
+   * ★ 根因：abort() 在 WORKER_GRACEFUL_SHUTDOWN_MS 优雅窗口到期后直接
+   *   worker.terminate() + cleanup()；而 cleanup() 只丢弃 pendingAssistantMsg
+   *   （不 finalize、不写 messages.ended_at），其后的 persistence.flush() +
+   *   clearConversation() 也只落已累积的增量 patch、不补 end 块 / ended_at。
+   *   因此只要 worker 未在窗口内把 done(aborted) 送回主进程（例如正在跑 bash 工具、
+   *   正在等子 agent），pending 即被丢弃，该 assistant 消息的 ended_at 永久为 NULL
+   *   ——表现为「手动终止后没有记录终止时间」。
+   *
+   * 语义：
+   * - 无 pending → 直接返回（本会话没有进行中的助手消息）。
+   * - 消息行已存在且 ended_at 非 NULL → 直接返回：幂等，绝不覆盖既有结束时间
+   *   （例如 worker 已在窗口内正常回送 done 并走过 finalize）。
+   * - 其余（行存在但 ended_at 为 NULL，或行尚未落库）→ 复用 #finalizeThenMerge
+   *   补写 end 块与 ended_at。
+   * - 查询异常按「未终结」处理（fail-open：宁可重复终结也不漏写终止时间）并
+   *   logger.warn；finalize 自身异常同样吞并告警——本方法是 setTimeout 回调里
+   *   的最后兜底，绝不能让异常逃逸。
+   */
+  async #finalizePendingIfUnfinalized(conversationId: string): Promise<void> {
+    const pending = this.pendingAssistantMsg.get(conversationId)
+    if (!pending) return
+
+    try {
+      const {getDatabase} = await import('../repositories/sqlite')
+      const row = getDatabase()
+        .prepare('SELECT ended_at FROM messages WHERE id = ?')
+        .get(pending.id) as {ended_at: number | null} | undefined
+      if (row && row.ended_at != null) return
+    } catch (err) {
+      logger.warn('[AgentManager] abort 兜底查询 ended_at 失败，按未终结处理', {
+        conversationId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+
+    try {
+      await this.#finalizeThenMerge(conversationId)
+    } catch (err) {
+      logger.warn('[AgentManager] abort 兜底 finalize 失败，终止时间仍缺失', {
+        conversationId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  /**
    * 合并 pending assistant 消息并写入 SQLite（核心方法）
    *
    * 使用 UPSERT 只写入/更新该条 assistant 消息及其 blocks，
@@ -1410,11 +1458,29 @@ export class AgentManager {
       this.notifyStreamListeners(conversationId, {type: 'done', reason: 'aborted'} as unknown as AgentStreamEvent)
     }
 
-    setTimeout(() => {
+    // ★ 方案A：立即级联清子孙会话的 UI 运行态，不等 1s 优雅窗口。
+    //   根因：cleanup 挂在带身份守卫的 setTimeout 上（下方），1s 内 start() 接管新 worker
+    //   会让 cleanup 整体早退 → 子孙的 done(aborted) 永不发出 → 侧边栏子会话永久卡「运行中」。
+    //   parentToChildren 与 worker 身份无关，此刻即可广播；映射不在此删——窗口内子会话事件
+    //   仍可能复活 UI 状态，cleanup（若执行）的第二次级联作兜底，重复 done(aborted) 对 UI 幂等。
+    //   不受 sendFallbackDone 控制：该参数只抑制主会话的内部兜底，旧 worker 的子孙运行态
+    //   同样已死、同样需要清除，且事件按 conversationId 路由不会干扰新流。
+    this.cascadeAbortedToDescendants(conversationId)
+
+    setTimeout(async () => {
       const currentEntry = this.workers.get(conversationId)
       if (currentEntry && currentEntry.worker === entry.worker) {
-        entry.worker.terminate()
-        this.cleanup(conversationId)
+        // ★ 顺序强制：先兜底 finalize（补 end 块 + ended_at），再 terminate + cleanup。
+        //   反序会让 cleanup 先丢弃 pending 并清空 persistence patch，兜底即失效
+        //   （见 #finalizePendingIfUnfinalized 的根因说明）。
+        await this.#finalizePendingIfUnfinalized(conversationId)
+        // ★ 上面的 await 会让出事件循环：本会话可能已被新 worker 接管（start() 重建），
+        //   故 terminate/cleanup 前复检同一身份条件，避免误杀新 worker。
+        const latestEntry = this.workers.get(conversationId)
+        if (latestEntry && latestEntry.worker === entry.worker) {
+          entry.worker.terminate()
+          this.cleanup(conversationId)
+        }
       }
     }, WORKER_GRACEFUL_SHUTDOWN_MS)
   }
@@ -1718,16 +1784,13 @@ export class AgentManager {
     }
   }
 
-  /** 清理会话资源 */
-  private cleanup(conversationId: string): void {
-    // ★ 级联清理子会话：父会话终止时，确保所有子会话的 running 状态也被清除
-    //    即使 Worker 侧的 catch 块已寄送 done 事件，Worker termination 可能导致消息丢失，
-    //    此处从主进程侧兜底发送 done 事件到渲染进程
-    // ★ 多级级联：递归遍历 parentToChildren 树（而非仅直接子级），
-    //   主会话终止 → 一级子会话 → 二级子会话…逐层下发 done(aborted)，
-    //   否则二级子会话的 running 状态永远无法清除。
-    const collectDescendantConvs = (rootId: string, acc: string[] = []): string[] => {
-      const children = this.parentToChildren.get(rootId)
+  /** ★ 多级级联：递归遍历 parentToChildren 树（而非仅直接子级），
+   *  向全部子孙会话广播 done(aborted) 以清除其 UI 运行态；不清映射（映射清理属 cleanup 职责）。
+   *  两处调用：abort() 进入时立即级联（主路径，不依赖身份守卫）、cleanup() 优雅窗口到期后兜底。
+   *  重复广播对 UI 幂等（handleDone 置 idle 可重入）。返回全部子孙 ID（含各中间层）供调用方清映射。 */
+  private cascadeAbortedToDescendants(rootId: string): string[] {
+    const collectDescendantConvs = (id: string, acc: string[] = []): string[] => {
+      const children = this.parentToChildren.get(id)
       if (children) {
         for (const childConvId of children) {
           acc.push(childConvId)
@@ -1736,10 +1799,23 @@ export class AgentManager {
       }
       return acc
     }
-    const allDescendants = collectDescendantConvs(conversationId)
+    const allDescendants = collectDescendantConvs(rootId)
     for (const childConvId of allDescendants) {
-      // 逐级下发 done(aborted)，同时清理该子会话的关系映射（含各中间层条目）
       this.forwardToRenderer(childConvId, {type: 'done', reason: 'aborted'} as AgentStreamEvent)
+    }
+    return allDescendants
+  }
+
+  /** 清理会话资源 */
+  private cleanup(conversationId: string): void {
+    // ★ 级联清理子会话：父会话终止时，确保所有子会话的 running 状态也被清除
+    //    即使 Worker 侧的 catch 块已寄送 done 事件，Worker termination 可能导致消息丢失，
+    //    此处从主进程侧兜底发送 done 事件到渲染进程。
+    //    （abort() 进入时已立即级联一次；此处为 1s 优雅窗口到期后的兜底重发——
+    //    窗口内子会话迟到事件可能复活 UI 运行态，本兜底负责最终清除，重复发送对 UI 幂等）
+    const allDescendants = this.cascadeAbortedToDescendants(conversationId)
+    for (const childConvId of allDescendants) {
+      // 逐级清理该子会话的关系映射（含各中间层条目）
       this.parentToChildren.delete(childConvId)
     }
     this.parentToChildren.delete(conversationId)

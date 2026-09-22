@@ -42,6 +42,7 @@ import {getCommandNameError, DUPLICATE_COMMAND_NAME_ERROR} from '@shared/command
 import {versionManager} from './versionManager';
 import type {VersionInfo, SwitchResult} from './versionManager';
 import {broadcastToOtherWindows} from '../utils/windowBroadcast';
+import {broadcastToAllWindows} from '../utils/windowBroadcast';
 
 const logger = createLogger('plugin')
 
@@ -338,6 +339,11 @@ async function refreshCapabilities(): Promise<void> {
 
 /**
  * Enable a plugin by name
+ *
+ * 启用成功后 fire-and-forget 补查一次版本（git fetch --tags + 比版本 + 广播）：
+ * 禁用插件不参与启动自动检查，重新启用后需要补齐红点数据。补查失败只记日志，
+ * 不影响本 handler 的返回值与响应时长。
+ * 补查完成后广播给所有窗口（含发起窗口），发起窗口 store 不主动更新 updateMap。
  */
 async function handleEnable(
   _event: IpcMainInvokeEvent,
@@ -359,11 +365,26 @@ async function handleEnable(
   // common/pluginOwnership 判定，状态自然正确
 
   const {skills, agents} = await refreshPowerManagerAndGetCapabilities();
+
+  // 跨窗口广播给所有窗口（含发起窗口）：togglePlugin 的返回值不更新 renderer 的
+  // updateMap，发起窗口 store 不主动更新，跳过它会让红点残留。
+  // 不 await —— 补查耗时（git fetch）不得拖慢启用响应。
+  void versionManager.syncVersions(name)
+    .then(() => {
+      const meta = versionManager.getAllVersionMeta();
+      broadcastToAllWindows('plugin:status-update', meta);
+    })
+    .catch((err: unknown) => {
+      logger.warn('handleEnable.sync-versions-failed', {plugin: name, error: asError(err)});
+    });
+
   return { success: true, skills, agents };
 }
 
 /**
  * Disable a plugin by name
+ *
+ * 成功后广播给所有窗口（含发起窗口），发起窗口 store 不主动更新 updateMap。
  */
 async function handleDisable(
   _event: IpcMainInvokeEvent,
@@ -383,6 +404,12 @@ async function handleDisable(
   // 注：不需要手动同步 Hub，同上
 
   const {skills, agents} = await refreshPowerManagerAndGetCapabilities();
+
+  // 跨窗口广播：禁用后该插件不再出现在红点数据源中，各窗口红点立即消失。
+  // 含发起窗口（发起窗口 store 不主动更新 updateMap，跳过它红点会残留）。
+  const meta = versionManager.getAllVersionMeta();
+  broadcastToAllWindows('plugin:status-update', meta);
+
   return { success: true, skills, agents };
 }
 
@@ -682,8 +709,9 @@ async function handleSwitchVersion(
 }
 
 /**
- * 获取所有插件的版本元数据（不含 tags/branches 列表，仅红点相关字段）。
+ * 获取所有**已启用**插件的版本元数据（不含 tags/branches 列表，仅红点相关字段）。
  * 用于渲染进程页面打开后即时同步红点状态，无需重新 fetch。
+ * 禁用插件不导出（渲染端覆盖式写入 → 条目缺席即红点消失）。
  */
 async function handleGetAllVersionMeta(
   _event: IpcMainInvokeEvent,

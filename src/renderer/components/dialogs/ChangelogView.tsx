@@ -74,7 +74,7 @@ export function ChangelogItemList({ items, className }: ChangelogItemListProps) 
             className="shrink-0 w-[5px] h-[5px] rounded-full mt-[6px] opacity-[.85]"
             style={{ background: 'var(--brand-primary)' }}
           />
-          <span className="min-w-0">{line}</span>
+          <span className="min-w-0 break-words">{line}</span>
         </div>
       ))}
     </>

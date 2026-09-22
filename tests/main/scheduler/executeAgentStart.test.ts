@@ -56,4 +56,45 @@ describe('scheduler 统一启动入口冒烟', () => {
         const users = call.messages.filter((m: any) => m.role === 'user' && m.content === '每日站会摘要')
         expect(users.length).toBe(1)
     })
+
+    /**
+     * 组 C · P1-8：cron / 交互路径首轮请求体字节确定
+     *
+     * 口径说明（重要）：system 与 tools **不在** startAgentCore 内构建（分别由 loop
+     * 的 buildSystemPrompt / filterTools 在 worker 侧产出），本层可观测的是它们的**全部输入**：
+     * workingDir、agentType/agentDefinition、messageMetadata.commandId、schemeConfig、messages。
+     * 因此本文件锁两件事：
+     *   ① 同参数两次启动 → workerParams 除「新 user 消息的随机 id」外逐字节相等；
+     *   ② origin（scheduler / ipc）不参与行为分支 → 两条路径的输入逐字节相等，
+     *      同一 (workspace, agentType) 下 system+tools 必然同字节（system 由 buildSystemPrompt
+     *      纯函数 + 签名门控决定，tools 由 filterTools 依 modelId 决定，二者均不读 origin）。
+     * 泄漏面：workerParams 里不得出现日期/毫秒戳形式的正文（随机 id 例外，它不进 LLM content）。
+     */
+    const stripVolatileIds = (p: {messages: Array<{id?: string}>}) =>
+        JSON.stringify({...p, messages: p.messages.map(({id: _id, ...rest}) => rest)})
+
+    it('同参数两次启动：workerParams 除新 user 随机 id 外逐字节相等（首轮请求体确定）', async () => {
+        await startAgentCore({conversationId: 'conv-x', message: '每日站会摘要'}, 'scheduler')
+        await startAgentCore({conversationId: 'conv-x', message: '每日站会摘要'}, 'scheduler')
+        const [a, b] = vi.mocked(agentManager.start).mock.calls.map(c => c[0])
+
+        expect(stripVolatileIds(a)).toBe(stripVolatileIds(b))
+        // 新 user 消息的 id 之外，content 也不得随时间漂移
+        const lastA = a.messages[a.messages.length - 1]
+        expect(lastA.content).toBe('每日站会摘要')
+        expect(String(lastA.content)).not.toMatch(/\d{4}-\d{2}-\d{2}/)
+    })
+
+    it('cron 与交互路径：origin 不影响启动输入（system+tools 的输入逐字节相同）', async () => {
+        await startAgentCore({conversationId: 'conv-x', message: '每日站会摘要'}, 'scheduler')
+        await startAgentCore({conversationId: 'conv-x', message: '每日站会摘要'}, 'renderer')
+        const [cron, interactive] = vi.mocked(agentManager.start).mock.calls.map(c => c[0])
+
+        expect(stripVolatileIds(cron)).toBe(stripVolatileIds(interactive))
+        // 直接影响 system / tools 的输入字段逐一比对（任一漂移都会让两条路径前缀不同）
+        expect(cron.workingDir).toBe(interactive.workingDir)
+        expect(cron.messageMetadata).toEqual(interactive.messageMetadata)
+        expect(JSON.stringify(cron.schemeConfig ?? null)).toBe(JSON.stringify(interactive.schemeConfig ?? null))
+        expect(cron.agentDefinition ?? null).toEqual(interactive.agentDefinition ?? null)
+    })
 })
