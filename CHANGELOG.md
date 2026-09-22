@@ -7,6 +7,37 @@
 
 ---
 
+## [v0.5.19] - 2026-09-22
+
+### 新增
+- **母语漂移纠正** — 模型回复语言漂移时自动纠正回用户母语，纠正注入消息对用户不可见；设置新增「语言」章节（策略 / 次数上限） (`languageGuardPublish` / `controller` / `GeneralTab` / `settings`)
+- **更新弹窗展示变更详情** — 升级弹窗最新版本默认展开、历史版本可折叠收起，关于页同样展示版本区间与条目详情 (`ChangelogView` / `UpdateNoticeDialog` / `AboutDialog`)
+- **后台会话「完成」徽章** — 跑完的后台会话在侧栏亮绿色徽章直到被打开，与确认类徽章、定时任务会话互斥 (`ConversationSidebar`)
+- **助手消息「继续」按钮** — 最后一条助手消息悬停显示圆形按钮，等同于发送「继续」 (`MessageActions` / `MessageBubble`)
+- **输入框内联能力徽标** — 选中命令 / 技能 / agent 后不再立即执行，改为在输入框上方显示可清除的胶囊徽标 (`CapabilityBadge` / `InputArea` / `CapabilityPicker`)
+- **记忆沉淀前置探针** — 无待沉淀会话时零 token 短路，避免定时任务空转 (`memoryProbe` / `scheduler`)
+
+### 变更
+- **更新检查改由 CHANGELOG.json 单一数据源驱动** — GitHub raw 优先、Gitee raw 兜底，渲染与版本比较收敛为单出口 (`updateChecker` / `constants`)
+- **消息列表自动跟随改由输入事件接管** — 滚轮 / 触摸 / 翻页键触发脱底，程序化滚动不再误接管 (`MessageList`，移除 `useScrollToBottom`)
+- **键盘导航与选区抑制补齐** — Git 提交 DAG、QuickOpen、会话模式切换器支持方向键 / 回车 / Esc，左键 mousedown 抑制原生文本选区 (`GitDagGraph` / `QuickOpen` / `ConvModeSegs`)
+- **项目文件树首开提速** — 文件行状态改读 git status 缓存，不再阻塞首次渲染 (`FileTree` / `fileSystem`)
+- **命令来源以 `metadata.commandId` 为准** — 显示名含空格（如 `/General Agent`）不再误命中同名技能，CT 注入幂等守卫统一 (`setup` / `controller` / `agentDefinitionCt`)
+- **交接总结写入 `handoffSummary` 参数** (`sessionHandoffTool` / `handoff`)
+- **工具组头与合并卡片改 `div[role=button]`** — 消除 button 嵌套非法结构，键鼠行为一致 (`ToolCallHeader` / `CombinedCardPopup`)
+- **记忆注入文案去除多余标题层级** (`memoryPublish`)
+
+### 修复
+- **分页游标改 (timestamp, rowid) 双键** — 同毫秒多条消息不再在分页边界被永久漏取 (`conversationRepository`)
+- **内容风控错误立即中断** — 命中风控关键词不再空转重试耗尽余额 (`errorClassifier` / `execute`)
+- **「已完成未读」标记内存泄漏** — `removeWorkspace` 真删路径补清标记，避免悬空 key (`conversationStore`)
+- **语言守卫注入消息不再渲染为气泡** (`MessageList` / `isVisibleUserMessage`)
+- **能力选择器激活边框圆角** — 摘除内层 INPUT_FOCUS 改 focus-within 外框 (`CapabilityPicker`)
+- **CommandPalette 关闭后焦点回归输入框** (`InputArea`)
+
+### 删除
+- 移除未接线能力：插件 hooks、沙箱审计、飞书交互卡片，及失效文档 (`plugin/loader` / `localSandbox` / `feishuAdapter` / `docs`)
+
 ## [v0.5.18] - 2026-09-20
 
 ### 新增
