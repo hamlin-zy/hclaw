@@ -1,4 +1,4 @@
-import {memo, useCallback, useEffect, useRef, useState, type UIEvent} from 'react'
+import {memo, useCallback, useEffect, useRef, useState, type KeyboardEvent, type UIEvent} from 'react'
 import type {GitLogEntry} from '@shared/types/project-manager'
 import {useGitLogStore} from '../stores/gitLogStore'
 import {useWorkspaceStore} from '../stores/workspaceStore'
@@ -21,6 +21,10 @@ interface CommitRowProps {
       不要把每次渲染都新建的数组/箭头函数当 prop 传进来，否则 memo 会整体失效 */
   onSelect(hash: string, mods: {ctrl?: boolean, shift?: boolean}): void
   onContextMenu(hash: string, x: number, y: number): void
+  /** 键盘导航（ArrowUp/Down、Home/End、Enter/Space）：父级持有 entries 显示顺序，故导航在父级处理 */
+  onRowKeyDown(hash: string, ev: KeyboardEvent<HTMLDivElement>): void
+  /** roving tabindex 的 Tab 入口行（布尔原始值，memo 比对安全） */
+  tabbable: boolean
 }
 
 /**
@@ -28,7 +32,7 @@ interface CommitRowProps {
  * React.memo：loadMore 追加新页时旧行的 entry 引用不变、selected 不变、回调稳定 → 跳过重渲染；
  * 否则每翻一页都会把已加载的上千行重新渲染一遍。
  */
-const CommitRow = memo(function CommitRow({entry: e, selected, onSelect, onContextMenu}: CommitRowProps) {
+const CommitRow = memo(function CommitRow({entry: e, selected, tabbable, onSelect, onContextMenu, onRowKeyDown}: CommitRowProps) {
   const isMerge = e.parents.length > 1
   const refs = [
     ...(e.isHead ? [{key: 'HEAD', text: 'HEAD'}] : []),
@@ -43,6 +47,19 @@ const CommitRow = memo(function CommitRow({entry: e, selected, onSelect, onConte
       aria-selected={selected}
       aria-label={`${e.abbreviatedHash} ${e.message}`}
       title={e.message}
+      // roving tabindex：Tab 进列表落在「当前行」（tabbable），其余行 -1。
+      // 无选中行时必须仍有一个 0，否则整个列表不可 Tab 进入（方向键无从起步）。
+      // 行内键盘（ArrowUp/Down、Home/End、Enter/Space）由父级 onRowKeyDown 统一处理。
+      tabIndex={tabbable ? 0 : -1}
+      onKeyDown={ev => onRowKeyDown(e.hash, ev)}
+      // 行是 <div>（不是 <button>），行内文本默认可被浏览器原生选区选中：单击把 caret 落进行内即成为
+      // selection anchor，之后的 Shift+单击触发原生「扩展选区」→ 视觉上出现一段被选中的文字。
+      // 列表行是选择控件、文本本就不该可选（.pm-tree-row 因用 <button> 天然免疫），故左键按下即抑制
+      // 原生文本选择（与 DiffViewer.startSelect 同口径）；右键放行，交给 onContextMenu 弹菜单。
+      onMouseDown={ev => {
+        if (ev.button !== 0) return
+        ev.preventDefault()
+      }}
       onClick={ev => {
         if (ev.detail > 1) return
         onSelect(e.hash, modsOf(ev))
@@ -94,6 +111,12 @@ export function GitDagGraph({sortAsc = false}: {sortAsc?: boolean}) {
   const entries = sortAsc ? [...rawEntries].reverse() : rawEntries
   /** 显示顺序（sortAsc 时已倒序）——Shift 区间选必须用这个顺序 */
   const displayOrder = entries.map(e => e.hash)
+  /**
+   * roving tabindex 的 Tab 入口行：优先当前选中行；用户从未点选过（selectedHash 为 null）或选中行
+   * 已不在当前列表（如被过滤掉）时退化为首行。若无此退化，所有行 tabIndex=-1 且 role="tree" 容器
+   * 本身不可聚焦 → 键盘用户根本无法进入该列表，方向键也无从起步。
+   */
+  const focusableHash = entries.some(e => e.hash === selectedHash) ? selectedHash : entries[0]?.hash
   // displayOrder 用 ref 承载最新值：行组件的 onSelect 必须是稳定引用（memo 前提），
   // 但 Shift 区间选要基于「当前」显示顺序，因此在点击时刻经 ref 读取，而不是把数组当 prop 传。
   const displayOrderRef = useRef(displayOrder)
@@ -102,6 +125,40 @@ export function GitDagGraph({sortAsc = false}: {sortAsc?: boolean}) {
   const handleSelect = useCallback((hash: string, mods: {ctrl?: boolean, shift?: boolean}) => {
     selectWithMods(hash, displayOrderRef.current, mods)
   }, [selectWithMods])
+
+  /**
+   * 行内键盘导航。roving tabindex 决定 Tab 入口，这里处理行内的方向键/Home/End/Enter/Space。
+   * - ArrowUp/Down、Home/End：在**显示顺序**上移动，并按「移动即选中」调用既有选中通路（与鼠标单击同语义）；
+   * - 边界处停在原位（不循环），但仍吞掉按键——行位于可滚动容器内，方向键默认会滚动页面；
+   * - Enter/Space：等价鼠标单击，修饰键经 modsOf 解析（Ctrl/Cmd 多选切换、Shift 区间选）。
+   */
+  const handleRowKeyDown = useCallback((hash: string, ev: KeyboardEvent<HTMLDivElement>) => {
+    const order = displayOrderRef.current
+    const idx = order.indexOf(hash)
+    if (idx < 0) return
+    if (ev.key === 'Enter' || ev.key === ' ') {
+      ev.preventDefault()
+      handleSelect(hash, modsOf(ev))
+      return
+    }
+    let nextIdx: number
+    switch (ev.key) {
+      case 'ArrowDown': nextIdx = Math.min(idx + 1, order.length - 1); break
+      case 'ArrowUp': nextIdx = Math.max(idx - 1, 0); break
+      case 'Home': nextIdx = 0; break
+      case 'End': nextIdx = order.length - 1; break
+      default: return
+    }
+    ev.preventDefault()
+    if (nextIdx === idx) return
+    handleSelect(order[nextIdx], {ctrl: false, shift: false})
+    // 列表无虚拟化、全量渲染：目标行节点已存在于 DOM，按显示顺序取第 nextIdx 个即可。
+    // 限定在 scrollRef 容器内查询（而非 document），避免多实例/弹层里的同名节点干扰。
+    const el = scrollRef.current?.querySelectorAll<HTMLElement>('[data-testid="pm-commit-row"]')[nextIdx]
+    if (!el) return
+    el.scrollIntoView({block: 'nearest'})
+    el.focus()
+  }, [handleSelect])
 
   const handleRowContextMenu = useCallback((hash: string, x: number, y: number) => {
     // 右键落在选区外 → 先收敛为单行（保持原语义）
@@ -176,8 +233,10 @@ export function GitDagGraph({sortAsc = false}: {sortAsc?: boolean}) {
             key={e.hash}
             entry={e}
             selected={selectedHashes.has(e.hash) || selectedHash === e.hash}
+            tabbable={e.hash === focusableHash}
             onSelect={handleSelect}
             onContextMenu={handleRowContextMenu}
+            onRowKeyDown={handleRowKeyDown}
           />
         ))}
         {/* v2：commit > 300 时在过滤栏提示缩小范围；完整列号分配 + viewport 虚拟化（spec §4.4.3 / §5.5） */}

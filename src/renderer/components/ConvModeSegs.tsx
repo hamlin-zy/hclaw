@@ -64,7 +64,13 @@ function CollapsedSeg<T extends string>({
     readOnlyTitle?: string
 }) {
     const pillRef = useRef<HTMLSpanElement>(null)
+    /** 弹层容器（Portal 内），用于在选项间移动 DOM 焦点 */
+    const popRef = useRef<HTMLSpanElement>(null)
     const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    /** 键盘路径下的当前选项下标（不依赖 document.activeElement，测试与真实浏览器口径一致） */
+    const activeIndexRef = useRef(0)
+    /** 键盘打开弹层后待移焦标记：鼠标 hover 打开时保持 false，不动焦点（鼠标路径零变化） */
+    const pendingFocusRef = useRef(false)
     const [open, setOpen] = useState(false)
     const [pos, setPos] = useState<{left: number; top: number} | null>(null)
     const active = options.find((o) => o.id === activeId)
@@ -84,8 +90,29 @@ function CollapsedSeg<T extends string>({
         if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
         hideTimerRef.current = setTimeout(() => setOpen(false), 180)
     }
+    /** 关闭弹层；focusPill=true 时归还焦点给胶囊（键盘路径专用，鼠标路径行为不变） */
+    const closePop = (focusPill = false) => {
+        clearHideTimer()
+        pendingFocusRef.current = false
+        setOpen(false)
+        if (focusPill) pillRef.current?.focus()
+    }
+    /** 把 DOM 焦点移到第 idx 项选项（越界则夹到边界；依赖弹层已渲染） */
+    const focusOptionAt = (idx: number) => {
+        const items = popRef.current?.querySelectorAll<HTMLElement>('[role="option"]')
+        if (!items || items.length === 0) return
+        const clamped = Math.min(Math.max(idx, 0), items.length - 1)
+        activeIndexRef.current = clamped
+        items[clamped]?.focus()
+    }
     // 卸载时清理定时器
     useEffect(() => clearHideTimer, [])
+    // 键盘打开弹层后移焦到首项（鼠标 hover 打开时不抢焦点）
+    useEffect(() => {
+        if (!open || !pendingFocusRef.current) return
+        pendingFocusRef.current = false
+        focusOptionAt(0)
+    }, [open])
 
     return (
         <span
@@ -102,6 +129,20 @@ function CollapsedSeg<T extends string>({
                 tabIndex={readOnly ? undefined : 0}
                 aria-label={groupLabel}
                 title={readOnly ? readOnlyTitle : undefined}
+                onKeyDown={readOnly ? undefined : (e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return
+                    e.preventDefault()
+                    // 清掉 hover 的关闭定时器：键盘接管后弹层不应被鼠标离开的延时关闭打断
+                    clearHideTimer()
+                    if (open) {
+                        // 已由 hover 打开（state 未变，effect 不会触发）：直接移焦首项
+                        focusOptionAt(0)
+                        return
+                    }
+                    // 待移焦标记必须在 effect 消费前置位（effect 依赖 [open]，渲染提交后才跑）
+                    pendingFocusRef.current = true
+                    openPop()
+                }}
             >
                 {active?.label}
             </span>
@@ -109,20 +150,45 @@ function CollapsedSeg<T extends string>({
             {/* hover 上弹其余选项（Portal 到 body，向上弹出不被 overflow 裁剪）；只读态不弹 */}
             {!readOnly && open && pos && createPortal(
                 <span
+                    ref={popRef}
                     className="seg-pop"
                     role="listbox"
                     aria-label={`${groupLabel}选项`}
                     style={{left: pos.left, top: pos.top, transform: 'translate(-50%, -100%) translateY(-4px)'}}
                     onMouseEnter={clearHideTimer}
                     onMouseLeave={scheduleHide}
+                    onKeyDown={(e) => {
+                        // 方向键在选项间移焦：到边界停住（不循环），避免焦点从末项突然跳回首项
+                        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                            e.preventDefault()
+                            const next = e.key === 'ArrowDown' ? activeIndexRef.current + 1 : activeIndexRef.current - 1
+                            if (next < 0 || next >= options.length) return
+                            focusOptionAt(next)
+                            return
+                        }
+                        // Enter/Space 等价鼠标单击：preventDefault 兼防原生 click 二次触发（双触发）
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            const picked = options[activeIndexRef.current] ?? active
+                            if (picked) onSelect(picked.id)
+                            closePop(true)
+                            return
+                        }
+                        if (e.key === 'Escape') {
+                            e.preventDefault()
+                            closePop(true)
+                        }
+                    }}
                 >
-                    {options.map((o) => (
+                    {options.map((o, idx) => (
                         <button
                             key={o.id}
                             type="button"
                             role="option"
                             aria-selected={o.id === activeId}
                             className={`seg-pop-item ${o.id === activeId ? 'active' : ''}`}
+                            // 选项天然可被 Tab 聚焦：落焦即同步下标，避免 Tab 后 Enter 选中的仍是首项
+                            onFocus={() => { activeIndexRef.current = idx }}
                             onClick={() => onSelect(o.id)}
                             title={title(o.id)}
                         >

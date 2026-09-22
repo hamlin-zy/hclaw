@@ -4,10 +4,8 @@
  * 提供命令搜索和选择界面，支持：
  * - 搜索过滤
  * - 按插件分组显示
- * - 无参数命令直接执行
- * - 有参数命令打开独立 ParamInputModal
- *
- * 优化：用户消息显示 /commandName [args]，而不是完整的提示词模板
+ * - 选中能力后回调 onSelectCapability，由 InputArea 显示能力徽标
+ *   用户在主输入框写正文，回车发送时正文作为命令 args 填入模板
  */
 
 import React, {useCallback, useEffect, useState} from 'react';
@@ -17,7 +15,6 @@ import {fade, scaleFade} from '../../lib/motionPresets';
 import {INPUT_FOCUS} from '../../lib/inputFocus';
 import {CommandList} from './CommandList';
 import {nextPaletteTab, PALETTE_TABS, PaletteTab, TAB_SOURCES} from '../../lib/paletteTabs';
-import {ParamInputModal} from './ParamInputModal';
 
 export interface Command {
   id: string;
@@ -25,28 +22,22 @@ export interface Command {
   description?: string;
   hasArgs: boolean;
   content?: string; // 命令模板，包含 $ARGUMENTS 占位符
+  source?: 'plugin' | 'user' | 'skill' | 'agent';
 }
 
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
-  /** 
-   * 执行命令
+  /**
+   * 选中能力回调（不再打开参数弹窗，改为内联到输入框）
    * @param commandId - 命令 ID（plugin:command 格式）
-   * @param args - 用户输入的参数
-   * @param displayMessage - UI 显示用的简洁消息（/commandName [args]）
+   * @param type - 能力类型（'command' | 'plugin' | 'skill' | 'agent'）
+   * @param name - 能力名称（用于显示徽标）
    */
-  onExecuteCommand: (commandId: string, args: string | undefined, displayMessage: string) => void;
+  onSelectCapability: (commandId: string, type: 'command' | 'plugin' | 'skill' | 'agent', name: string) => void;
 }
 
-/**
- * 从命令列表中根据 commandId 查找命令
- */
-function findCommandById(commands: Command[], commandId: string): Command | undefined {
-  return commands.find(cmd => cmd.id === commandId)
-}
-
-export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPaletteProps) {
+export function CommandPalette({ isOpen, onClose, onSelectCapability }: CommandPaletteProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<PaletteTab>('all');
@@ -57,11 +48,7 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
   // 过滤后的命令列表（用于搜索场景）
   const [filteredCommands, setFilteredCommands] = useState<Command[]>([]);
 
-  // 参数输入弹窗状态
-  const [paramModalOpen, setParamModalOpen] = useState(false);
-  const [selectedCommand, setSelectedCommand] = useState<Command | null>(null);
-
-  // 监听命令列表加载完成，获取所有命令（用于参数弹窗中的 findCommandById）
+  // 监听命令列表加载完成
   const handleCommandsLoaded = useCallback((commands: Command[]) => {
     setAllCommands(commands);
     setSelectedIndex(0);
@@ -73,21 +60,16 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
       setSearchQuery('');
       setSelectedIndex(0);
       setActiveTab('all');
-      setParamModalOpen(false);
-      setSelectedCommand(null);
     }
   }, [isOpen]);
 
-  // 生成显示用消息：命令名与任务内容以换行分隔（气泡内分行显示）
-  const getDisplayMessage = useCallback((command: Command, args?: string): string =>
-      args ? `/${command.name}\n${args}` : `/${command.name}`, [])
-
-  // 处理命令点击
+  // 处理命令点击：选中能力后关闭面板，由 InputArea 显示徽标
   const handleCommandClick = useCallback((command: Command) => {
-    // 所有命令都打开参数输入弹窗，允许用户填写参数或直接发送
-    setSelectedCommand(command);
-    setParamModalOpen(true);
-  }, []);
+    // 'user' 命令归一化为 'command' 类型（与 SelectedCapability.type 对齐）
+    const type = command.source === 'user' ? 'command' : (command.source ?? 'command')
+    onSelectCapability(command.id, type, command.name)
+    onClose()
+  }, [onSelectCapability, onClose]);
 
   // 执行当前选中的命令
   const executeSelectedCommand = useCallback(() => {
@@ -110,29 +92,8 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
     setFilteredCommands(commands);
   }, []);
 
-  // 参数弹窗回调
-  const handleParamSubmit = useCallback((commandId: string, args: string) => {
-    // 根据 commandId 找到命令，获取显示名称
-    const command = findCommandById(allCommands, commandId)
-    const displayMessage = command ? getDisplayMessage(command, args) : `/${commandId}\n${args}`
-    onExecuteCommand(commandId, args, displayMessage)
-    onClose();
-    setParamModalOpen(false);
-    setSelectedCommand(null);
-  }, [onExecuteCommand, onClose, allCommands, getDisplayMessage]);
-
-  const handleParamCancel = useCallback(() => {
-    setParamModalOpen(false);
-    setSelectedCommand(null);
-  }, []);
-
   // 键盘事件处理
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // 参数弹窗开启时，键盘事件由 ParamInputModal 处理
-    if (paramModalOpen) {
-      return;
-    }
-
     const currentList = filteredCommands.length > 0 ? filteredCommands : allCommands;
 
     // tab 切换：Alt+← / Alt+→（循环）
@@ -167,12 +128,12 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
         onClose();
         break;
     }
-  }, [paramModalOpen, filteredCommands, allCommands, executeSelectedCommand, onClose]);
+  }, [filteredCommands, allCommands, executeSelectedCommand, onClose]);
 
   return createPortal(
     <>
       <AnimatePresence>
-        {isOpen && !paramModalOpen && (
+        {isOpen && (
           <motion.div
             {...fade}
             className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] bg-black/50"
@@ -254,13 +215,6 @@ export function CommandPalette({ isOpen, onClose, onExecuteCommand }: CommandPal
         )}
       </AnimatePresence>
 
-      {/* 独立的参数输入弹窗 */}
-      <ParamInputModal
-        isOpen={paramModalOpen}
-        command={selectedCommand}
-        onSubmit={handleParamSubmit}
-        onCancel={handleParamCancel}
-      />
     </>,
     document.body
   );

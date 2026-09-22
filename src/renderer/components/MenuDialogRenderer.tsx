@@ -16,7 +16,7 @@ interface DialogConfig {
 }
 
 const DIALOG_CONFIG: Record<string, DialogConfig> = {
-    'update-notice': {title: '更新通知', Component: UpdateNoticeDialog, initialWidth: 380, minWidth: 340, initialHeight: 360},
+    'update-notice': {title: '更新通知', Component: UpdateNoticeDialog, initialWidth: 380, minWidth: 340, initialHeight: 460},
 }
 
 /** 根据当前视图宽度和配置，计算居中 Modal 的实际最大宽度 */

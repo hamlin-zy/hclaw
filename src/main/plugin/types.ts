@@ -51,8 +51,6 @@ export interface LoadedPlugin {
   commands?: CommandDef[];
   skills?: SkillDefinition[];
   agents?: AgentDefinition[];
-  /** 兼容保留：Hook 系统已移除，parseHooks 恒返回 [] */
-  hooks?: Record<string, unknown>[];
   mcpServers?: McpServerConfig[];
   userConfig?: UserConfigSchema;
 }

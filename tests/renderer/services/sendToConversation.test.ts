@@ -42,6 +42,8 @@ beforeEach(() => {
   h.agent.startAgent = vi.fn()
   h.agent.updateConvData = vi.fn()
   h.agent.convAgentStates = {}
+  // 「完成未读」清除（startAgent 内调用）；本文件断言不涉及，仅需可调用
+  h.agent.clearConvDoneUnread = vi.fn()
   ;(window as any).electronAPI = {
     agentStatus: vi.fn(async () => ({running: false})),
     agentInjectMessage: vi.fn(async () => ({success: true})),

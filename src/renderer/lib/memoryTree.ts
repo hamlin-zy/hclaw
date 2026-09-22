@@ -11,20 +11,19 @@ export interface TreeNodeData {
   defaultExpanded?: boolean;
   subtitle?: string;
   /** Node type for context menu differentiation */
-  nodeType: 'root-user' | 'root-mem' | 'root-projects' | 'project' | 'file' | 'archive-folder' | 'archive-file';
+  nodeType: 'root-user' | 'root-projects' | 'project' | 'file' | 'archive-folder' | 'archive-file';
 }
 
 export function buildTreeData(listResult: MemoryListResult): TreeNodeData[] {
   const tree: TreeNodeData[] = [];
 
-  // Group globalFiles by _user and mem（按路径段精确判定，避免子串误命中）
+  // Group globalFiles by _user（按路径段精确判定，避免子串误命中）
   const segsByPath = new Map<string, string[]>();
   for (const f of listResult.globalFiles) {
     segsByPath.set(f.path, f.path.split(/[\\/]+/));
   }
   const isUserFile = (f: { path: string }) => segsByPath.get(f.path)!.includes('_user');
   const userFiles = listResult.globalFiles.filter(isUserFile);
-  const memFiles = listResult.globalFiles.filter((f) => !isUserFile(f));
 
   // _user node
   if (userFiles.length > 0) {
@@ -35,25 +34,6 @@ export function buildTreeData(listResult: MemoryListResult): TreeNodeData[] {
       expandable: true,
       defaultExpanded: true,
       children: userFiles.map((f) => ({
-        key: `file:${f.path}`,
-        label: f.label,
-        filePath: f.path,
-        sizeLimit: f.sizeLimit,
-        nodeType: 'file' as const,
-      })),
-    });
-  }
-
-  // mem node
-  if (memFiles.length > 0) {
-    tree.push({
-      key: 'root-mem',
-      label: '记忆索引',
-      nodeType: 'root-mem',
-      expandable: true,
-      defaultExpanded: false,
-      subtitle: '自动生成',
-      children: memFiles.map((f) => ({
         key: `file:${f.path}`,
         label: f.label,
         filePath: f.path,

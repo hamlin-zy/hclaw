@@ -8,6 +8,7 @@ on:
       - 'docs/**'
       - 'README.md'
       - '.github/workflows/deploy-website.yml'
+      - 'CHANGELOG.json'
   workflow_dispatch:
 
 permissions:

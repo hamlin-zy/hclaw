@@ -19,6 +19,12 @@ export interface SystemScheduleDefault {
 const MEMORY_ACCUMULATION_PROMPT = `## 任务目标
 分析自上次积累以来的新对话，提取用户习惯和项目经验，更新记忆文件。
 
+## 准入规则（优先级排序）
+P0：用户明确说"记住"/"以后都"/"always"/"每次"——豁免消息数门槛（≥3）；步骤 2 与步骤 3 块 1 均已为 P0 开例外，但仍遵守 30 分钟冷却期与准入排除项
+P1：用户多次重复强调的要求、稳定的协作约定与授权边界
+P2：可复用的经验与坑（模式级结论 + 修复口诀）
+P3：项目契约（关键路径、字段命名、命令、流程骨架）
+
 ## 记忆准入规则（写任何文件前先过这一关）
 准入——值得沉淀的：
 - 用户明确要求记住的内容、多次重复强调的要求
@@ -57,15 +63,29 @@ ORDER BY updated_at ASC
 质量门槛：剔除消息总数 < 3 的会话（一问即弃、纯探索）——
 SELECT conversation_id, COUNT(*) AS n FROM messages GROUP BY conversation_id，
 保留 n >= 3 的会话再进入步骤 3。
+P0 例外（否则 P0 豁免在流程上不可达——短会话会在本步被剔除，永远到不了步骤 4）：
+对 n < 3 的会话，再查其用户消息是否命中 P0 触发词（"记住"/"以后都"/"always"/"每次"）——
+SELECT 1 FROM messages m
+WHERE m.conversation_id = '{会话ID}' AND m.role = 'user'
+  AND m.timestamp > {lastAnalyzedAt}
+  AND json_extract(m.metadata, '$.sourceKind') IS NULL
+  AND json_extract(m.metadata, '$.content') IS NOT NULL
+  AND json_extract(m.metadata, '$.content') NOT LIKE '<system-reminder>%'
+  AND (json_extract(m.metadata, '$.content') LIKE '%记住%'
+       OR json_extract(m.metadata, '$.content') LIKE '%以后都%'
+       OR json_extract(m.metadata, '$.content') LIKE '%always%'
+       OR json_extract(m.metadata, '$.content') LIKE '%每次%')
+LIMIT 1
+命中则保留该会话进入步骤 3（仍须过 30 分钟冷却期与准入排除项）；未命中按原规则剔除。
+时间窗限在 {lastAnalyzedAt} 之后——只看本轮新消息，避免会话里很久以前的旧「记住」把无新内容的短会话复活。
 
 ## 步骤 3：提取对话内容（三块数据，控制数据量）
-只处理步骤 2 中已过冷却期且通过质量门槛的会话。
+只处理步骤 2 中已过冷却期且通过质量门槛的会话（含按 P0 例外保留的短会话）。
 对每个项目，分三块提取对话内容：
 
 ### 块 1：用户消息
-SELECT m.id AS msg_id, m.timestamp, mb.content
+SELECT m.id AS msg_id, m.timestamp, json_extract(m.metadata, '$.content') AS content
 FROM messages m
-JOIN message_blocks mb ON mb.message_id = m.id
 WHERE m.conversation_id IN (
   SELECT id FROM conversations
   WHERE workspace_path = '{workspace_path}'
@@ -74,11 +94,23 @@ WHERE m.conversation_id IN (
     AND (IFNULL(json_extract(meta, '$.channel'), '') != 'schedule')
 )
   AND m.role = 'user'
-  AND mb.block_type = 'text'
-  AND mb.content IS NOT NULL
-  AND length(mb.content) > 20
-  AND mb.content NOT LIKE '<system-reminder>%'
-ORDER BY m.timestamp ASC, mb.sequence ASC
+  AND m.timestamp > {lastAnalyzedAt}
+  AND json_extract(m.metadata, '$.content') IS NOT NULL
+  AND json_extract(m.metadata, '$.sourceKind') IS NULL
+  AND json_extract(m.metadata, '$.content') NOT LIKE '<system-reminder>%'
+  AND (length(json_extract(m.metadata, '$.content')) > 20
+       OR json_extract(m.metadata, '$.content') LIKE '%记住%'
+       OR json_extract(m.metadata, '$.content') LIKE '%以后都%'
+       OR json_extract(m.metadata, '$.content') LIKE '%always%'
+       OR json_extract(m.metadata, '$.content') LIKE '%每次%')
+ORDER BY m.timestamp DESC
+注：user 正文落在 messages.metadata 的 content 字段，message_blocks 对 user 消息常为 0 行，
+故不得从 message_blocks 取用户正文（该组合对 user 恒返回空集，曾致本节整个失效）。
+sourceKind IS NULL 用于排除注入消息——注入正文本身含"记住"等词会污染 P0 判定，
+且 command-task 类注入不带 <system-reminder> 前缀，仅靠前缀过滤会漏。
+长度门槛用于滤除噪声；P0 触发指令通常很短，故 OR 分支为例外保留（与步骤 2 的 P0 例外同源）。
+消息级时间窗与步骤 2 同源：只看 {lastAnalyzedAt} 之后的新消息，避免重复沉淀上一轮已分析过的旧内容。
+ORDER BY DESC：配合「超限取最近 N 条」，避免 ASC 取到最老的一批。
 
 ### 块 2：ask_user 响应
 SELECT mb.message_id, mb.data
@@ -92,8 +124,10 @@ WHERE mb.block_type = 'tool_call'
       AND c.updated_at > {lastAnalyzedAt}
       AND c.updated_at < {冷却截止时间戳}
       AND (IFNULL(json_extract(c.meta, '$.channel'), '') != 'schedule')
+      AND m.timestamp > {lastAnalyzedAt}
   )
 然后对每个 tool_call，用其 toolCallId 查 tool_result 的 output。
+消息级时间窗与步骤 2 同源：只看 {lastAnalyzedAt} 之后的新消息，避免重复沉淀上一轮已分析过的旧内容。
 
 ### 块 3：Assistant 最终摘要
 SELECT m.id AS msg_id, m.timestamp, mb.turn_index, mb.content
@@ -107,18 +141,24 @@ WHERE m.conversation_id IN (
     AND (IFNULL(json_extract(meta, '$.channel'), '') != 'schedule')
 )
   AND m.role = 'assistant'
+  AND m.timestamp > {lastAnalyzedAt}
   AND mb.block_type = 'text'
   AND mb.content IS NOT NULL
   AND length(mb.content) > 50
-ORDER BY m.timestamp ASC, mb.sequence ASC
+ORDER BY m.timestamp DESC, mb.sequence ASC
 对同一 msg_id，只取 sequence 最大的（最后一条 text 块）。
 注意：每个会话只取最后一轮的 assistant 摘要作为「终稿」依据，中间轮次的摘要只是过程稿，
 仅当终稿缺失（会话中途被打断）时才参考，且按准入规则不得从中提取结论。
+消息级时间窗与步骤 2 同源：只看 {lastAnalyzedAt} 之后的新消息，避免重复沉淀上一轮已分析过的旧内容。
+ORDER BY DESC：配合「超限取最近 N 条」，避免 ASC 取到最老的一批；组内 sequence 仍为 ASC
+（同 msg_id 组内行 timestamp 相同且在结果集中连续，故「取 sequence 最大」不受跨消息方向影响）。
 
 ### 数据量控制
 - 每个项目最多取最近 30 条会话
 - 每个会话最多提取前 20 条用户消息 + 20 条 ask_user 响应 + 10 条 assistant 摘要
 - 超限时取最近的，跳过旧的
+- 单条消息超 2000 字符时截断：保留前 1500 + 后 500 字符，中间标注「…（已截断 N 字符）…」
+  用户原话通常很短，超长的多是粘贴的报错/日志，截断以免撑爆每轮预算
 
 ## 步骤 4：分析与提取
 逐项目分析对话内容，特别关注：
@@ -152,10 +192,17 @@ ORDER BY m.timestamp ASC, mb.sequence ASC
      - 例外：稳定复用的同类型积累（如缺陷模式库）允许开 archive/patterns.md 类型卷，需在 memory.md 归档段注明
   4. 重测直到 ≤8192，禁止凭感觉估算字节数（中文 UTF-8 每字 3 字节，估算不可靠）
 - memory.md 末尾维护「归档卷」指针段（一行一卷：卷名 + 一句话内容），主会话靠它发现归档卷
-- archive/ 下的卷不进 SKILL.md 索引，卷名自描述
 
 用户级偏好（跨项目通用习惯）：
 - 读取现有 ref/_user/preferences.md，合并更新（同样执行合并纪律）
+- preferences.md 固定骨架（禁止新建平行标题段）：
+  # 用户偏好（跨项目通用习惯）
+  ## 身份与环境
+  ## 沟通与决策
+  ## 工程习惯
+  ## 兴趣与例行任务
+  场景相关偏好用"场景：规则"格式写入对应章节（如"调试场景：一律 /systematic-debugging"）。
+  新内容归入既有段，禁止新建平行顶层标题。
 - 上限 4096 字节，同上大小闭环（路径 ref/_user/preferences.md）
 
 ## 步骤 6：更新 index.json
@@ -168,35 +215,29 @@ ORDER BY m.timestamp ASC, mb.sequence ASC
 - 未建 memory.md 的项目不登记
 用 file_write 写入 index.json。
 
-## 步骤 7：更新 SKILL.md 索引
-读取现有 SKILL.md（不存在则创建）。
-- 「用户偏好（摘要）」≤4 行，从 ref/_user/preferences.md 提炼
-- 「记忆索引」只列活跃项目（memory.md 近 30 天有更新）；轻项目合并为一行列名；未建 memory.md 的项目不出现
-- 大小闭环：写后 bash 实测 ≤2048 字节；超限优先删注解文字、折叠轻项目行
-用 file_write 写入。
-
-## 步骤 8：过期清理提示（只提示，不自动删）
+## 步骤 7：过期清理提示（只提示，不自动删）
 扫描各项目 archive/ 目录：卷龄超过 6 个月且对应专项已完结的卷，在最终输出中列出"建议删除的归档卷"清单，等用户确认，不自动删除。patterns.md 类型卷（模式库）豁免过期清理。
 
-## 步骤 9：更新状态
+## 步骤 8：更新状态
 用 file_write 更新 .state.json：
 { "lastAnalyzedAt": {当前时间戳}, "lastConversationId": "{最后处理的会话ID}" }
-
 ## 约束
 - 每个文件严格不超过大小上限，且必须经 bash 实测验证，禁止估算
 - 合并而非追加——旧条目与新条目同类时改写合并，禁止重复标题段
 - 只记录有价值的习惯，不记录具体对话内容；进行中状态、未拍板方案、commit 清单一律排除归备忘录
 - 冷却期与质量门槛的跳过不是丢弃——被跳过的会话仍在时间窗口内，后续轮次自然补上；lastAnalyzedAt 不得因跳过而前移
 - 项目经验落地到项目 memory.md，跨项目通用习惯落地到 preferences.md
-- index.json 和 SKILL.md 必须在最后统一更新，确保与 ref 文件内容一致`
+- index.json 必须在最后统一更新，确保与 ref 文件内容一致`
+
+export const MEMORY_ACCUMULATION_SCHEDULE_ID = 'sys-memory-accumulation'
 
 export const SYSTEM_SCHEDULE_DEFAULTS: SystemScheduleDefault[] = [
   {
-    id: 'sys-memory-accumulation',
+    id: MEMORY_ACCUMULATION_SCHEDULE_ID,
     name: '记忆沉淀',
     description:
-      '每 6 小时分析新会话，沉淀用户习惯与项目经验到 mem/ref/。带准入规则、冷却期、质量门槛、去重纪律、专项卷归档与写后字节实测闭环，防止脏知识与记忆膨胀。',
-    cronExpression: '0 * * * *',
+      '每 2 小时分析新会话，沉淀用户习惯与项目经验到 mem/ref/。带准入规则、冷却期、质量门槛、去重纪律、专项卷归档与写后字节实测闭环，防止脏知识与记忆膨胀。',
+    cronExpression: '0 */2 * * *',
     taskType: 'agent',
     taskTarget: 'General',
     taskArgs: [MEMORY_ACCUMULATION_PROMPT],

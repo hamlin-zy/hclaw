@@ -112,6 +112,9 @@ export interface HistoryUserRow {
     catalogSuperseded?: unknown
     /** catalog 种类（skills | mcp）：漏收拢会让 restoreCatalogState 无法区分两源 → 重复发布 */
     catalogKind?: unknown
+    /** 语言守卫恢复字段（DB 读回约定：展开到消息顶层；漏收拢会让重启后重复 seed、配额重置） */
+    languageGuardCount?: unknown
+    languageGuardDigest?: unknown
 }
 
 /** 重建后的 user 消息 */
@@ -147,6 +150,8 @@ export async function convertUserHistoryMessage(msg: HistoryUserRow): Promise<Re
         ...(msg.catalogEntries !== undefined ? {catalogEntries: msg.catalogEntries} : {}),
         ...(msg.catalogKind !== undefined ? {catalogKind: msg.catalogKind} : {}),
         ...(msg.catalogSuperseded !== undefined ? {catalogSuperseded: msg.catalogSuperseded} : {}),
+        ...(msg.languageGuardCount !== undefined ? {languageGuardCount: msg.languageGuardCount} : {}),
+        ...(msg.languageGuardDigest !== undefined ? {languageGuardDigest: msg.languageGuardDigest} : {}),
     }
 
     const result: RebuiltUserMessage[] = [{

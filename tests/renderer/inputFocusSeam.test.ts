@@ -82,6 +82,48 @@ const EXEMPT: Exemption[] = [
     revisit:
       '若 QuickOpen 的搜索框改为「自带边框的独立控件」（行内留出对称内边距 + 圆角），则回来重评。',
   },
+  {
+    file: 'src/renderer/components/common/CapabilityPicker.tsx',
+    anchor: 'flex-1 min-w-0 bg-transparent',
+    reason:
+      'CapabilityPicker 的搜索框（备忘录/定时任务新增·编辑弹窗共用）：与上面 TagInput、QuickOpen ' +
+      '同一形态——**无边框的隐形 inner input**，视觉外壳是父容器（rounded-md + border + bg + ' +
+      'focus-within 焦点态）。补 INPUT_FOCUS 会在圆角容器内侧多套一层 radius=0 的 2px ring，' +
+      '渲染成直角描边（2026-09-21 用户反馈「激活时的边框没有圆角」），故主动不套，' +
+      '焦点改由容器 focus-within:border/ring 承担。',
+    revisit: '若该搜索框改为「input 自带边框」形态，或把父容器外壳也纳入 INPUT_FOCUS 契约，则回来重评。',
+  },
+  {
+    file: 'src/renderer/components/dialogs/ModelSchemeDialog.tsx',
+    anchor: 'bg-transparent border-b-2',
+    reason:
+      'ModelSchemeDialog 的行内重命名框（双击标题进入编辑）：这是**下划线式输入框**（自带 ' +
+      'border-b-2），形态上没有任何圆角，INPUT_FOCUS 的 2px ring 会沿 radius=0 渲染成环绕文字的 ' +
+      '直角矩形描边、与下划线并存成两层信号（2026-09-21 用户反馈）。故主动不套，焦点改由自身的 ' +
+      'focus:border-b-[var(--brand-primary)] 提亮下划线表达。锚点粒度，同文件另一处带边框的输入框不受影响。',
+    revisit: '若该行内编辑框改为「带边框 + 圆角的独立输入框」形态，则回来重评。',
+  },
+  {
+    file: 'src/renderer/project-manager/ui/SearchInput.tsx',
+    anchor: 'pm-search-input',
+    reason:
+      'PM 搜索框（会话侧栏 / GitLogPanel / GitBranchTree 共用）：globals.css 的 .pm-search 是 ' +
+      'radius 4px 的圆角外壳，.pm-search-input 是**透明无边框的隐形内层**（background: transparent; ' +
+      'border: 0）。容器没有 overflow 声明，INPUT_FOCUS 的 2px ring 会随内层 radius=0 变成直角描边 ' +
+      '并溢出圆角外壳——与 CapabilityPicker 完全同型（2026-09-21 全仓同类审计）。故主动不套，' +
+      '焦点改由外壳的 focus-within:ring 承担。',
+    revisit: '若 .pm-search-input 改为「自带边框」形态，或 .pm-search 外壳改为直角，则回来重评。',
+  },
+  {
+    file: 'src/renderer/components/dialogs/PromptConfigDialog.tsx',
+    anchor: 'flex-1 w-full p-3 text-xs text-gray-700 font-mono resize-none outline-none leading-relaxed',
+    reason:
+      '提示词编辑区的 textarea：贴满父容器（bg-white border rounded-lg **overflow-hidden**），' +
+      '自身 border 与 radius 均为 0。INPUT_FOCUS 的 ring 画在元素外侧，左右下三边落在容器外被 ' +
+      'overflow-hidden 裁掉、只剩顶边一条 2px 横线——焦点指示残缺（2026-09-21 全仓同类审计）。' +
+      '故主动不套，焦点改由父容器的 focus-within:ring 承担（环画在容器外扩，不受自身 overflow 裁剪）。',
+    revisit: '若该 textarea 改为「自带边框/圆角且留出内边距」的形态，或容器去掉 overflow-hidden，则回来重评。',
+  },
 ]
 
 /** 该标签是否被登记豁免 */

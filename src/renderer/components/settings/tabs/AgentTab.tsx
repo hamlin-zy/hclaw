@@ -153,7 +153,20 @@ export default function AgentTab() {
             </section>
 
             {/* 高级项收进折叠区（spec §5.4：默认值合理，慢模型需可调） */}
-            <CollapsibleSection title="高级·超时与重试" defaultExpanded={false}>
+            {/* R: 折叠标题曾因字号小且排最末被误认为「配置丢失」→ 加徽章 + 提色提升发现性 */}
+            <CollapsibleSection
+                title="高级·超时与重试"
+                defaultExpanded={false}
+                className="pb-[var(--space-spacious)]"
+                buttonClassName="text-[var(--text-primary)]"
+                headerContent={
+                    <span
+                        className="shrink-0 rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] leading-none text-[var(--text-secondary)]"
+                    >
+                        重试 / 超时
+                    </span>
+                }
+            >
                 <div className="space-y-[var(--space-relaxed)] pt-3">
                     <NumberField
                         label="最大尝试次数"

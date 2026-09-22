@@ -49,7 +49,6 @@ export function readIndex(hclawDir: string): MemoryIndex | null {
 
 /**
  * 加载记忆内容：
- * - mem/SKILL.md（可选）
  * - mem/ref/_user/preferences.md（可选）
  * - index.json 命中当前 workspace 时加载 mem/ref/<dir>/memory.md
  */
@@ -57,7 +56,6 @@ export function loadMemory(hclawDir: string, workspacePath: string | null): Memo
   const memDir = getMemDir(hclawDir)
   if (!existsSync(memDir)) return null
 
-  const skillMd = readTextCached(join(memDir, 'SKILL.md'))
   const preferencesMd = readTextCached(join(memDir, 'ref', '_user', 'preferences.md'))
 
   let projectMemoryMd: string | null = null
@@ -69,7 +67,7 @@ export function loadMemory(hclawDir: string, workspacePath: string | null): Memo
     projectName = entry.projectName
   }
 
-  return {skillMd, preferencesMd, projectMemoryMd, projectName}
+  return {preferencesMd, projectMemoryMd, projectName}
 }
 
 /** 创建 mem/ 目录结构（幂等） */

@@ -35,6 +35,7 @@ vi.mock('../../../src/renderer/stores/agentStore', () => ({
             convAgentStates: runningConvStates,
             updateConvData: () => {},
             removeConvData: () => {},
+            clearConvDoneUnread: () => {},
             flushPendingStreamData: () => {},
             // 模拟真实 reconcileStreamingContent 的状态守卫（仅运行中会话补全）
             reconcileStreamingContent: (convId: string) => {

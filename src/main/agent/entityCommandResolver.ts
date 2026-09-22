@@ -13,7 +13,15 @@ import {skillRegistry} from './skills'
 import {buildSkillCommandTemplate} from './skills/guidance'
 import {agentRegistry} from './agentRegistry'
 
-/** 构建代理模式的命令模板 */
+/**
+ * 构建代理模式的命令模板。
+ *
+ * whenToUse 为空时回落 description 在本函数内统一完成 —— 这是两条 CT 注入路径
+ * （commandContext / agentDefinition）字节一致、内容去重成立的前提，勿在调用侧再各自回落。
+ *
+ * ★ 安全决策：权限模式不下发模型（本地 permissionEngine 兜底），模板不得输出
+ * 「权限模式」行 —— 故本函数不接收 permissionMode。详见 prompts/renderer.ts。
+ */
 export function buildAgentCommandTemplate(agent: {
     name: string
     description?: string
@@ -21,16 +29,14 @@ export function buildAgentCommandTemplate(agent: {
     model?: string
     allowedTools?: string[]
     disallowedTools?: string[]
-    permissionMode?: string
     systemPrompt: string
 }): string {
     const fields = [
         ['描述', agent.description],
-        ['适用场景', agent.whenToUse],
+        ['适用场景', agent.whenToUse || agent.description],
         ['模型', agent.model],
         ['可用工具', agent.allowedTools?.join(', ')],
         ['禁用工具', agent.disallowedTools?.join(', ')],
-        ['权限模式', agent.permissionMode],
     ] as const
 
     const metaLines = fields

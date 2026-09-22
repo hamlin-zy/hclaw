@@ -7,7 +7,6 @@ import {
 } from '@shared/prompts'
 import MarkdownRenderer from '../message-list/MarkdownRenderer'
 import {ToolIcon, TextFileIcon} from '../icons'
-import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 // ─── 子组件: 方案列表项 ───────────────────────────────────
 
@@ -392,7 +391,7 @@ export default function PromptConfigDialog() {
                                         </div>
 
                                         <div
-                                            className="flex-1 flex flex-col min-h-0 bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                                            className="flex-1 flex flex-col min-h-0 bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm focus-within:ring-1 focus-within:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)]">
                                             <div
                                                 className="px-3 py-1.5 bg-[var(--surface-muted)] border-b border-gray-100 flex items-center justify-between">
                         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight flex items-center gap-1">
@@ -406,13 +405,16 @@ export default function PromptConfigDialog() {
                         </span>
                                                 )}
                                             </div>
+                                            {/* 焦点环由父容器承担：本 textarea 贴满 rounded-lg + overflow-hidden
+                                                的外壳，自身 radius=0 的 ring 会被外壳裁掉左右下三边、只剩顶边一条线
+                                                （2026-09-21 同类审计）。契约豁免见 inputFocusSeam.test.ts。 */}
                                             <textarea
                                                 value={getNodeValue(selectedNodeKey!)}
                                                 onChange={(e) => {
                                                     updateNodeValue(selectedNodeKey!, e.target.value)
                                                 }}
                                                 placeholder="在此输入自定义提示词内容..."
-                                                className={`flex-1 w-full p-3 text-xs text-gray-700 font-mono resize-none outline-none leading-relaxed ${INPUT_FOCUS}`}
+                                                className="flex-1 w-full p-3 text-xs text-gray-700 font-mono resize-none outline-none leading-relaxed"
                                             data-name="prompt-config-dialog-textarea"/>
                                         </div>
                                     </div>

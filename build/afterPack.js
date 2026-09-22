@@ -198,12 +198,10 @@ async function embedIcon(context) {
   const iconPath = path.resolve(__dirname, '..', 'public', 'icon.ico');
 
   if (!fs.existsSync(exePath)) {
-    console.log(`[embed-icon] SKIP: ${exePath} not found`);
-    return;
+    throw new Error(`[embed-icon] exe not found: ${exePath}`);
   }
   if (!fs.existsSync(iconPath)) {
-    console.log(`[embed-icon] SKIP: ${iconPath} not found`);
-    return;
+    throw new Error(`[embed-icon] icon not found: ${iconPath}`);
   }
 
   // electron-winstaller 是 @electron-forge/maker-squirrel 的间接依赖，
@@ -222,8 +220,7 @@ async function embedIcon(context) {
   }
 
   if (!rceditPath) {
-    console.log('[embed-icon] SKIP: rcedit.exe not found in node_modules');
-    return;
+    throw new Error('[embed-icon] rcedit.exe not found in node_modules (candidates: ' + rceditCandidates.join(', ') + ')');
   }
 
   const { spawnSync } = require('child_process');
@@ -251,13 +248,11 @@ async function embedIcon(context) {
   });
 
   if (result.error) {
-    console.log(`[embed-icon] FAILED: ${result.error.message}`);
-    return;
+    throw new Error(`[embed-icon] rcedit spawn failed: ${result.error.message}`);
   }
   if (result.status !== 0) {
     const stderr = result.stderr?.toString().trim();
-    console.log(`[embed-icon] FAILED (exit ${result.status}): ${stderr || 'unknown error'}`);
-    return;
+    throw new Error(`[embed-icon] rcedit exited with code ${result.status}: ${stderr || 'unknown error'}`);
   }
 
   console.log(`[embed-icon] OK: icon + version strings set (${path.basename(iconPath)})`);

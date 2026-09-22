@@ -12,6 +12,7 @@ import PendingQuestionCard from './PendingQuestionCard'
 import InputToolbar from './InputToolbar'
 import ConvModeSegs from './ConvModeSegs'
 import {CommandPalette} from './plugin/CommandPalette'
+import {CapabilityBadge, type SelectedCapability} from './common/CapabilityBadge'
 import {HandoffDialog, type HandoffChoice} from './HandoffDialog'
 import {resolveHandoffThresholdTokens} from '@shared/handoffThreshold'
 import {buildHandoffMessage} from '../utils/handoff'
@@ -23,6 +24,9 @@ import {usePhrasePicker, pickPhraseInto} from '../hooks/usePhrasePicker'
 
 import ImagePreviewModal from './common/ImagePreviewModal'
 import {generateFileId} from '../lib/format'
+
+/** 兼容出口：SelectedCapability 现定义在 CapabilityBadge（组件侧不再反向依赖本文件） */
+export type {SelectedCapability}
 
 /** 从 Blob 创建附件条目（右键粘贴/剪贴板粘贴共用） */
 async function blobToAttachedFile(blob: Blob): Promise<AttachedFile> {
@@ -87,6 +91,8 @@ export default function InputArea({isActive = true}: InputAreaProps) {
     const [isDragging, setIsDragging] = useState(false)
     const [showModelAlert, setShowModelAlert] = useState(false)
     const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+    // 已选能力：CommandPalette 选中后内联显示，用户在主输入框写正文
+    const [selectedCapability, setSelectedCapability] = useState<SelectedCapability | null>(null)
     // 发送前交接引导弹窗状态（空闲发送时达标触发）
     const [handoffPrompt, setHandoffPrompt] = useState<{
         conversationId: string
@@ -373,6 +379,7 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                         // 换行分隔（与 CommandPalette 一致）：cmdArgs 里的换行必须原样保留，
                         // 否则手打的 /General\n## 标题… 会被并成同一行。
                         const displayMessage = cmdArgs ? `/${cmdName}\n${cmdArgs}` : `/${cmdName}`;
+                        setSelectedCapability(null)  // / 前缀覆盖已选能力
                         await handleSubmitWithMessage(displayMessage, {
                             metadata: {
                                 commandTemplate: resolved.template,
@@ -385,6 +392,27 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                 } catch {
                     // 解析失败，回退到普通消息
                 }
+            }
+        }
+
+        // 分支3：有 selectedCapability → commandPrepareMessage → submitMessage
+        if (selectedCapability) {
+            try {
+                const template = await window.electronAPI?.commandPrepareMessage(selectedCapability.commandId, text)
+                // agent 名可含空格（本机实测如 "General Agent"），拼 `/` 会被 commandTextParser 的 \S+ 截成
+                // `/General`（错误命令名，可能误命中同名技能）。agent 模板由 messageMetadata.commandId →
+                // resolveAgentDefinitionForTurn → controller 的 agentDefinition 分支注入，不依赖正文前缀，
+                // 故 agent 保持无前缀（与本次修复前的既有行为一致）。
+                const displayMessage = selectedCapability.type === 'agent'
+                    ? `${selectedCapability.name}\n${text}`
+                    : `/${selectedCapability.name}\n${text}`
+                setSelectedCapability(null)  // 发送后清除
+                await handleSubmitWithMessage(displayMessage, {
+                    metadata: {commandTemplate: template, commandId: selectedCapability.commandId, commandArgs: text}
+                })
+                return
+            } catch {
+                // 静默处理错误，回退到普通提交
             }
         }
 
@@ -418,6 +446,18 @@ export default function InputArea({isActive = true}: InputAreaProps) {
         window.addEventListener('hclaw:toggle-command-palette', handler)
         return () => window.removeEventListener('hclaw:toggle-command-palette', handler)
     }, [isActive])
+
+    // ★ 命令面板关闭 → 焦点交还输入框：面板搜索框 autoFocus，关闭时随节点卸载把焦点丢给
+    //   document.body，用户 Enter 选中能力后无法直接接着打正文（需再点一次输入框）。
+    //   用「状态翻转检测」而非在各关闭出口逐个 focus()，覆盖 Enter 选中 / Esc / 点遮罩 /
+    //   Ctrl+K 再按一次 / 点击能力徽标重开再关 全部路径。
+    const paletteOpenPrevRef = useRef(false)
+    useEffect(() => {
+        if (paletteOpenPrevRef.current && !commandPaletteOpen) {
+            textareaRef.current?.focus()
+        }
+        paletteOpenPrevRef.current = commandPaletteOpen
+    }, [commandPaletteOpen])
 
     // 输入历史导航（Ctrl+↑/↓，可配置）：经 shortcutManager 订阅；用 ref 镜像闭包状态避免 stale closure
     const inputRef = useRef(input)
@@ -585,33 +625,6 @@ export default function InputArea({isActive = true}: InputAreaProps) {
         }
     }, [abortAgent])
 
-    // 处理命令执行：从 CommandPalette 选择的命令
-    // displayMessage 是显示用的简洁消息（/commandName [args]）
-    // 完整模板存储在 metadata 中，供 Agent Loop 使用
-    const handleExecuteCommand = useCallback(async (
-        commandId: string,
-        args: string | undefined,
-        displayMessage: string
-    ) => {
-        try {
-            // 通过 IPC 获取命令的完整提示词模板
-            const template = await window.electronAPI?.commandPrepareMessage(commandId, args)
-
-            // 使用 displayMessage 作为用户消息显示，模板存储在 metadata 中
-            // 这样用户看到的是简洁的 /commandName [args]，而不是冗长的模板内容
-            await handleSubmitWithMessage(displayMessage, {
-                metadata: {
-                    commandTemplate: template,
-                    commandId: commandId,
-                    commandArgs: args,
-                }
-            })
-        } catch {
-            // 静默处理错误
-        }
-        setCommandPaletteOpen(false)
-    }, [handleSubmitWithMessage])
-
     // 处理剪贴板粘贴（支持图片）
     const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
         const items = e.clipboardData?.items
@@ -696,6 +709,15 @@ export default function InputArea({isActive = true}: InputAreaProps) {
                 {/* 待办计划条 — 有待办项时显示于输入区上方 */}
                 <TodoStrip/>
 
+                {/* 已选能力徽标 — CommandPalette 选中后内联显示 */}
+                {selectedCapability && (
+                    <CapabilityBadge
+                        capability={selectedCapability}
+                        onClear={() => setSelectedCapability(null)}
+                        onClick={() => setCommandPaletteOpen(true)}
+                    />
+                )}
+
                 {/* 用户提问条 - 用于 ask_user 工具（无 requestId） */}
                 <PendingQuestionCard
                     isPaused={isPaused}
@@ -743,7 +765,10 @@ export default function InputArea({isActive = true}: InputAreaProps) {
             <CommandPalette
                 isOpen={commandPaletteOpen}
                 onClose={() => setCommandPaletteOpen(false)}
-                onExecuteCommand={handleExecuteCommand}
+                onSelectCapability={(commandId, type, name) => {
+                    setSelectedCapability({commandId, type, name})
+                    setCommandPaletteOpen(false)
+                }}
             />
 
             {/* 图片预览弹窗（仅活跃会话） */}

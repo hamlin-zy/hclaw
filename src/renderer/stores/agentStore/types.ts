@@ -1,4 +1,4 @@
-import type {AgentState, RunMode, Task} from '@shared/types'
+import type {AgentState, DoneReason, RunMode, Task} from '@shared/types'
 import type {AgentStreamEvent} from '../../../main/agent/stream'
 
 /** Agent Stream Payload 类型 */
@@ -91,6 +91,10 @@ export interface ConvAgentData {
         turns?: number
         maxTurns?: number
     }
+    /** 本会话最近一次 run 的结束原因（done 写入；error 路径写 'error'；下一 run 开始时清）。
+     *  仅作「继续」按钮的视觉权重，不作显示开关：静默结束（有残文、无工具调用的
+     *  completed）与正常完成无法区分，故按钮常显。 */
+    lastDoneReason?: DoneReason
     /** 工具执行开始时的临时提示消息（如"工具执行中..."），tool_start 后清除；
      *  重试等待时对象结构（label + urgent 紧迫态），字符串分支保留兼容 */
     executingToolsMessage: string | { label: string; urgent: boolean } | null
@@ -194,6 +198,20 @@ export interface AgentStore {
     getConvData: (convId: string) => ConvAgentData
     updateConvData: (convId: string, updates: Partial<ConvAgentData>) => void
     removeConvData: (convId: string) => void
+
+    /**
+     * 后台会话「已完成未读」标记：convId → 完成时间戳。
+     * ★ 刻意放在**顶层**而非 convAgentStates[convId]：后者会被 releaseConvCaches
+     *   释放（LRU 预算淘汰 / 10 分钟渲染清理），标记会随之静默消失——恰好是本
+     *   标记要消灭的「信号无声丢失」。顶层 map 不参与任何驱逐，只在
+     *   「会话被激活 / 新 run 开始 / 会话被真实删除」三条路径清除。
+     * （口径详见 brainstorming：仅 completed / max_turns_reached 置位；子会话与
+     *   定时任务会话排除；不做冒泡。） */
+    doneUnreadIds: Record<string, number>
+    /** 置位「已完成未读」（done 收尾时由 handleDone 调用） */
+    markConvDoneUnread: (convId: string) => void
+    /** 清除「已完成未读」（激活 / 新 run / 真实删除时调用；不存在时零副作用） */
+    clearConvDoneUnread: (convId: string) => void
 
     setAgentState: (state: Partial<AgentState>) => void
     setPermissionMode: (mode: RunMode) => Promise<void>

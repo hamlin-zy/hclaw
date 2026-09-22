@@ -12,7 +12,7 @@ import {describe, expect, it, beforeEach, afterEach, vi} from 'vitest'
 vi.mock('../../../src/renderer/stores/agentStore', () => ({
     useAgentStore: {
         getState: () => ({
-            convAgentStates: {}, updateConvData: () => {}, removeConvData: () => {},
+            convAgentStates: {}, updateConvData: () => {}, removeConvData: () => {}, clearConvDoneUnread: () => {},
             flushPendingStreamData: () => {}, reconcileStreamingContent: () => {},
             refreshActiveBatch: () => {},
         }),

@@ -110,6 +110,12 @@ interface MessageBubbleProps {
      * 运行结束（done/error/abort）后释放，历史消息不占位。
      */
     isAgentRunning?: boolean
+    /**
+     * 是否是消息列表里「最后一条助手消息」。
+     * 仅 MessageList 传给最后一条助手消息，用于在其操作区挂「继续」按钮；
+     * 历史消息不携带（默认 false）。布尔 prop，引用稳定不影响 memo。
+     */
+    isLastAssistant?: boolean
 }
 
 // ── statusNote 独立 memo 组件 ──────────────────────────────
@@ -223,7 +229,7 @@ const StatusNote = memo(function StatusNote({note}: {note: StatusNoteData | null
 /**
  * 消息气泡组件
  */
-const MessageBubble = memo(function MessageBubble({message, statusNote, isAgentRunning}: MessageBubbleProps) {
+const MessageBubble = memo(function MessageBubble({message, statusNote, isAgentRunning, isLastAssistant = false}: MessageBubbleProps) {
     const isUser = message.role === 'user'
     // 已知能力名集合（历史消息 commandId 缺失时降级渲染 /能力 徽章用）
     const knownCapabilities = useKnownCapabilities()
@@ -390,7 +396,7 @@ const MessageBubble = memo(function MessageBubble({message, statusNote, isAgentR
 
             {/* 助手消息右侧的操作按钮 - 仅在悬停时显示 */}
             {!isUser && (
-                <AssistantMessageActions message={message}/>
+                <AssistantMessageActions message={message} isLastAssistant={isLastAssistant}/>
             )}
         </div>
     )

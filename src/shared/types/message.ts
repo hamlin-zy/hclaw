@@ -387,6 +387,8 @@ export const SOURCE_KIND_CATALOG = 'capability-catalog' as const
 export const SOURCE_KIND_COMMAND_TASK = 'command-task' as const
 /** 系统（会话级环境快照）内部消息标记：日期等环境信息 digest 变化时追加，UI 层过滤为不可见 */
 export const SOURCE_KIND_SYSTEM_ENV = 'system-env' as const
+/** 语言守卫内部消息标记：模型输出漂移出母语时追加的纠正消息，UI 层过滤为不可见 */
+export const SOURCE_KIND_LANGUAGE_GUARD = 'language-guard' as const
 
 export interface CatalogMetadata {
   sourceKind: typeof SOURCE_KIND_CATALOG

@@ -3,7 +3,7 @@
  * MemoryManagerDialog 组件测试（memory-manager Task 4）
  *
  * 覆盖：
- * 1. 窗口标题渲染 + 树加载（用户偏好 / 记忆索引 / 项目分组）
+ * 1. 窗口标题渲染 + 树加载（用户偏好 / 项目分组）
  * 2. 空树空态文案
  * 3. 语义 label 树渲染
  * 4. 点击文件节点加载内容 → 默认 Markdown 预览
@@ -158,18 +158,6 @@ describe('MemoryManagerDialog', () => {
             expect(screen.getByText('hclaw')).toBeInTheDocument()
             // 虚拟分组节点 + 项目文件同名，均为「项目记忆」
             expect(screen.getAllByText('项目记忆').length).toBeGreaterThanOrEqual(2)
-        })
-    })
-
-    it('converges top level to 用户偏好/记忆索引/项目记忆; 记忆索引 collapsed by default with 自动生成', async () => {
-        stubMemoryApi({list: vi.fn(async () => memListResult)})
-        render(<MemoryManagerDialog />)
-        await waitFor(() => {
-            expect(screen.getByText('用户偏好')).toBeInTheDocument()
-            expect(screen.getByText('项目记忆')).toBeInTheDocument()
-            expect(screen.getByText('自动生成')).toBeInTheDocument()
-            // 默认折叠：SKILL.md 文件节点（label 记忆索引）不可见，仅虚拟分组节点可见
-            expect(screen.getAllByText('记忆索引')).toHaveLength(1)
         })
     })
 
@@ -393,7 +381,6 @@ describe('MemoryManagerDialog', () => {
     const memListResult = {
         globalFiles: [
             {path: '/ref/_user/preferences.md', label: '跨项目偏好', sizeLimit: 4096},
-            {path: '/mem/SKILL.md', label: '记忆索引', sizeLimit: 2048},
         ],
         projects: [
             {
@@ -411,54 +398,19 @@ describe('MemoryManagerDialog', () => {
         render(<MemoryManagerDialog />)
         await waitFor(() => {
             expect(screen.getByText('用户偏好')).toBeInTheDocument()
+            expect(screen.getByText('项目记忆')).toBeInTheDocument()
         })
-        // 初始：记忆索引折叠 → SKILL.md 不可见
-        expect(screen.getAllByText('记忆索引')).toHaveLength(1)
+        // 初始：全折叠 → 项目子节点不可见
+        expect(screen.queryByText('hclaw')).not.toBeInTheDocument()
         fireEvent.click(screen.getByRole('button', {name: '展开全部'}))
         await waitFor(() => {
-            // 展开全部 → SKILL.md 文件节点出现（与虚拟分组节点同名）
-            expect(screen.getAllByText('记忆索引')).toHaveLength(2)
+            // 展开全部 → 项目节点 hclaw 可见
+            expect(screen.getByText('hclaw')).toBeInTheDocument()
         })
         fireEvent.click(screen.getByRole('button', {name: '折叠全部'}))
         await waitFor(() => {
-            expect(screen.getAllByText('记忆索引')).toHaveLength(1)
+            expect(screen.queryByText('hclaw')).not.toBeInTheDocument()
         })
-    })
-
-    it('F-B: mem 子树节点右键无删除入口（不触发 confirm/delete）', async () => {
-        stubMemoryApi({list: vi.fn(async () => memListResult)})
-        const {memory} = (window as any).electronAPI
-        render(<MemoryManagerDialog />)
-        await waitFor(() => {
-            expect(screen.getAllByText('记忆索引').length).toBeGreaterThan(0)
-        })
-        // 记忆索引默认折叠：先展开虚拟分组节点露出 SKILL.md 文件节点
-        fireEvent.click(screen.getAllByText('记忆索引')[0]!)
-        await waitFor(() => {
-            expect(screen.getAllByText('记忆索引').length).toBe(2)
-        })
-        fireEvent.contextMenu(screen.getAllByText('记忆索引')[1]!)
-        await waitFor(() => {
-            expect(memory.delete).not.toHaveBeenCalled()
-        })
-        expect(confirm).not.toHaveBeenCalled()
-    })
-
-    it('F-B: mem 子树文件选中后无编辑按钮（只读预览保留）', async () => {
-        stubMemoryApi({list: vi.fn(async () => memListResult)})
-        render(<MemoryManagerDialog />)
-        await waitFor(() => {
-            expect(screen.getAllByText('记忆索引').length).toBeGreaterThan(0)
-        })
-        fireEvent.click(screen.getAllByText('记忆索引')[0]!)
-        await waitFor(() => {
-            expect(screen.getAllByText('记忆索引').length).toBe(2)
-        })
-        fireEvent.click(screen.getAllByText('记忆索引')[1]!)
-        await waitFor(() => {
-            expect(screen.getByTestId('markdown-preview')).toBeInTheDocument()
-        })
-        expect(screen.queryByText('编辑')).not.toBeInTheDocument()
     })
 
     it('F-B: ref 子树文件仍可删除（行为不回退）', async () => {

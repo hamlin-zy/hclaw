@@ -67,6 +67,15 @@ describe('session_handoff Tool', () => {
         expect(desc).toContain('只写指针')
     })
 
+    it('handoffSummary 描述要求直接写进参数、禁止正文重复输出', () => {
+        const desc = (sessionHandoffTool.inputSchema as any).shape.handoffSummary.description
+        expect(desc).toContain('不要在回复正文里重复输出')
+    })
+
+    it('工具描述禁止先输出一遍总结再交接', () => {
+        expect(sessionHandoffTool.description).toContain('不要在调用前于回复正文里先输出一遍总结全文')
+    })
+
     it('attachments 描述禁止为交接临时新建文件', () => {
         const desc = (sessionHandoffTool.inputSchema as any).shape.attachments.description
         expect(desc).toContain('严禁为交接临时新建')

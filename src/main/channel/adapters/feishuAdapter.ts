@@ -260,26 +260,6 @@ export class FeishuAdapter implements ChannelAdapter {
     return attachments
   }
 
-  /**
-   * 发送飞书交互卡片消息（Interactive Card）
-   */
-  async sendCard(
-    toUserId: string,
-    card: Record<string, any>,
-    _contextToken?: string,
-  ): Promise<{success: boolean; error?: string}> {
-    if (!this.channel) {
-      return {success: false, error: 'Channel not connected'}
-    }
-
-    try {
-      await this.channel.send(toUserId, {card})
-      return {success: true}
-    } catch (err: any) {
-      return {success: false, error: err.message}
-    }
-  }
-
   // ─── 私有方法 ────────────────────────────────────────
 
   /**

@@ -4,9 +4,14 @@ import {buildHandoffMessage} from '../../../src/renderer/utils/handoff'
 describe('buildHandoffMessage（发送前交接模板）', () => {
   it('普通输入拼接正确', () => {
     const result = buildHandoffMessage('修复登录 bug')
-    expect(result).toContain('总结当前对话历史，准备交接(session_handoff)到新会话执行：修复登录 bug')
+    expect(result).toContain('总结当前对话历史，并交接(session_handoff)到新会话执行：修复登录 bug')
     expect(result).toContain('【重要】若希望新会话自动启动特定技能')
     expect(result).toContain('capability 参数')
+  })
+  it('输出口径：总结直接写进 handoffSummary 参数，禁止正文重复输出一遍', () => {
+    const result = buildHandoffMessage('继续任务')
+    expect(result).toContain('handoffSummary 参数')
+    expect(result).toContain('不要在回复正文里重复输出总结全文')
   })
   it('含换行与引号的输入不被破坏', () => {
     const input = '继续做\n"任务A" 和 \'任务B\''
@@ -16,7 +21,7 @@ describe('buildHandoffMessage（发送前交接模板）', () => {
   })
   it('空输入也拼接（不会抛错）', () => {
     const result = buildHandoffMessage('')
-    expect(result).toContain('总结当前对话历史，准备交接(session_handoff)到新会话执行：')
+    expect(result).toContain('总结当前对话历史，并交接(session_handoff)到新会话执行：')
     expect(result).toContain('【重要】若希望新会话自动启动特定技能')
   })
   it('含「复用清单」段要求与 toolCallId 回读指引', () => {

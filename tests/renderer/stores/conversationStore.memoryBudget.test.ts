@@ -28,6 +28,7 @@ vi.mock('../../../src/renderer/stores/agentStore', () => ({
             convAgentStates: mockAgent.convAgentStates,
             updateConvData: () => {},
             removeConvData: (id: string) => { mockAgent.removeConvDataCalls.push(id) },
+            clearConvDoneUnread: () => {},
             flushPendingStreamData: () => {},
             reconcileStreamingContent: () => {},
             refreshActiveBatch: () => {},

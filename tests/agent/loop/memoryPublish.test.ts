@@ -58,7 +58,6 @@ describe('runMemoryPreStep', () => {
 
   function writeMemoryFixture(): void {
     mkdirSync(join(hclawDir, 'mem', 'ref', '_user'), {recursive: true})
-    writeFileSync(join(hclawDir, 'mem', 'SKILL.md'), '# 习惯\n喜欢简洁回复')
     writeFileSync(join(hclawDir, 'mem', 'ref', '_user', 'preferences.md'), '偏好 markdown')
   }
 
@@ -98,12 +97,39 @@ describe('runMemoryPreStep', () => {
     expect(msg.content).toContain('# 用户习惯记忆')
 
     const expected = computeMemoryDigest({
-      skillMd: '# 习惯\n喜欢简洁回复',
       preferencesMd: '偏好 markdown',
       projectMemoryMd: null,
       projectName: null,
     })
     expect(result.memoryState.lastMemoryDigest).toBe(expected)
+  })
+
+  it('注入文本直接拼文件正文，不重复加 `## 用户偏好` / `## 项目记忆（x）` 前缀标题', () => {
+    // 真实文件首行即 H1（与 ref/_user/preferences.md、ref/{dir}/memory.md 出厂骨架一致）
+    const WS = '/ws-h1'
+    mkdirSync(join(hclawDir, 'mem', 'ref', '_user'), {recursive: true})
+    mkdirSync(join(hclawDir, 'mem', 'ref', 'proj'), {recursive: true})
+    writeFileSync(join(hclawDir, 'mem', 'ref', '_user', 'preferences.md'),
+      '# 用户偏好（跨项目通用习惯）\n\n## 身份与环境\n- 资深 Java 后端工程师\n')
+    writeFileSync(join(hclawDir, 'mem', 'ref', 'proj', 'memory.md'),
+      '# 项目记忆：hclaw\n\n## 项目背景\n- Electron + React\n')
+    writeFileSync(join(hclawDir, 'mem', 'ref', 'index.json'),
+      JSON.stringify({[WS]: {dir: 'proj', projectName: 'hclaw'}}))
+
+    const state = createLoopState([])
+    const result = runMemoryPreStep(state, {lastMemoryDigest: null}, null, 'sess-h1',
+      {hclawDir, workspacePath: WS, memoryEnabled: true})
+    const content = String(result.state.messages[0].content)
+
+    // 外层包裹必须保留（渲染端靠它隐藏该消息）
+    expect(content).toContain('<system-reminder>')
+    expect(content).toContain('</system-reminder>')
+    // 文件自身 H1 原样进入注入文本
+    expect(content).toContain('# 用户偏好')
+    expect(content).toContain('# 项目记忆')
+    // 注入层不得再叠一层同级标题（否则每次注入两个同级标题）
+    expect(content).not.toContain('## 用户偏好')
+    expect(content).not.toContain('## 项目记忆')
   })
 
   it('skips republish when digest unchanged', () => {

@@ -115,7 +115,9 @@ async function collectIgnored(workspace: string, relPaths: string[]): Promise<Se
   return ignored
 }
 
-export async function listDirectory(workspace: string, relDir: string, statusMap: Record<string, GitStatus>): Promise<DirEntry[]> {
+/** statusMap 可选：pm:list-directory 已解耦 git 状态（先回列表、徽章由渲染层从 statusMap 派生），
+ *  传省时条目 gitStatus 一律 'none'。保留参数供测试与可能的后续调用方注入。 */
+export async function listDirectory(workspace: string, relDir: string, statusMap: Record<string, GitStatus> = {}): Promise<DirEntry[]> {
   const absDir = assertInWorkspace(workspace, relDir || '.')
   // 归一化相对路径（./sub、sub/../x 等），保证返回 path 与 statusMap 键一致
   const base = relative(resolve(workspace), absDir).replace(/\\/g, '/')

@@ -18,6 +18,7 @@ import type {CommandExecutionContext, HClawAgentType} from '@shared/types'
 import {TEXT_MODEL_ROLES} from '@shared/types'
 import type {ModelRole, RunMode} from '@shared/types'
 import type {ModelOverride, ModelScheme, LLMProvider} from '@shared/types'
+import type {LlmTraceContextKind} from '@shared/types/llmTrace'
 import type {ToolRegistry} from '../tools/registry'
 
 import {container, DI_TOKENS} from '../common/container'
@@ -37,7 +38,7 @@ import {resolveModelConfig, resolveDirectModelConfig, selectModelForTaskWithRole
 import {getRoleConfig} from '@shared/modelSchemeHelpers'
 import {resolveOverrideThinkingEffort} from '@shared/thinkingEffort'
 import {getRoleDisplayName} from './helpers'
-import {resolveEntityCommand} from '../entityCommandResolver'
+import {resolveEntityCommand, resolveSkillCommand} from '../entityCommandResolver'
 
 const toolRegistry: ToolRegistry = container.get<ToolRegistry>(DI_TOKENS.ToolRegistry)
 
@@ -109,9 +110,42 @@ export async function detectCommandContext(params: RunParams): Promise<{
 
     const messageContent = extractTextContent(lastUserMessage.content)
 
+    // ★ 命令来源权威化（在正文解析之前判定）：metadata.commandId（startAgentCore 随消息下发并落库）
+    //   为 `skill:` / `agent:` 前缀时以 metadata 为准，正文不参与解析 —— 否则显示名含空格的 agent
+    //   （如 `/General Agent`，仅由 scheduler / memoStore 产出）会被 `\S+` 截断成 `General`，
+    //   误命中同名技能。
+    const rawCommandId = lastUserMessage.metadata?.commandId
+    const metadataCommandId = typeof rawCommandId === 'string' ? rawCommandId : undefined
+
+    // ① agent：交由 resolveAgentDefinitionForTurn + controller 的 agentDefinition 分支注入，此处返回 null。
+    if (metadataCommandId?.startsWith('agent:')) {
+        logger.debug(`[AgentLoop] skip text command parsing (metadata command): ${metadataCommandId}`)
+        return {commandContext: null}
+    }
+
+    // ② skill：以 metadata 为准，正文全文作为 commandArgs（未命中注册表则不注入）
+    if (metadataCommandId?.startsWith('skill:')) {
+        const skillResolved = resolveSkillCommand(metadataCommandId.slice('skill:'.length))
+        if (skillResolved) {
+            logger.info(`[AgentLoop] command mode (metadata fallback): ${skillResolved.name}`)
+            return {
+                commandContext: {
+                    commandId: skillResolved.commandId,
+                    commandName: skillResolved.name,
+                    commandArgs: messageContent,
+                    commandTemplate: skillResolved.template,
+                },
+            }
+        }
+        return {commandContext: null}
+    }
+
+    // ③ 其余（plugin: / user: / 未识别前缀 / 无 commandId）→ 维持正文解析
     // 解析命令文本（纯函数，见 commandTextParser.ts；支持换行/空格两种分隔）
     const parsed = parseCommandText(messageContent)
-    if (!parsed) return {commandContext: null}
+    if (!parsed) {
+        return {commandContext: null}
+    }
     const {commandName, commandArgs} = parsed
 
     // 辅助：统一构建 CommandExecutionContext + 日志 + 事件
@@ -188,6 +222,16 @@ function findEffectiveOverride(convId: string): ModelOverride | null {
  */
 export function defaultRoleForTrace(traceContext?: string): ModelRole {
     return traceContext === 'subAgent' ? 'lightweight' : 'primary'
+}
+
+/**
+ * 运行身份归一化：会话身份（meta.isChildSession，落库真相）优先于入口声明。
+ * 子会话无论经 agentTool 内联派发（agentTool.ts）还是 Worker 再次激活（worker.ts），
+ * 运行语义必须一致：traceContext='subAgent' 同时驱动四项契约 ——
+ * LoopDetector 豁免、handoff 门豁免、默认模型角色 lightweight、llm-trace 归因 subAgent。
+ */
+export function resolveRunTraceContext(isChildSession?: boolean): LlmTraceContextKind {
+    return isChildSession === true ? 'subAgent' : 'main'
 }
 
 /**
@@ -407,6 +451,11 @@ export interface BuildSystemPromptParams {
     cacheSignature?: string | null
     /** 缓存载荷中记录的构建时签名；与 cacheSignature 不一致 → 强制重建 */
     cachedSignature?: string | null
+    /**
+     * 子会话常驻语言要求段（主会话为 null/未传）。影响 system 文本 → 必须同时
+     * 进入 cacheSignature（由 controller 负责入键），否则签名一致会错误复用旧文本。
+     */
+    languageSection?: string | null
 }
 
 export async function buildSystemPrompt(params: BuildSystemPromptParams): Promise<string> {
@@ -422,6 +471,7 @@ export async function buildSystemPrompt(params: BuildSystemPromptParams): Promis
         cachedSystemPrompt,
         cacheSignature,
         cachedSignature,
+        languageSection,
     } = params
 
     // ★ 缓存命中：无新命令、DB 有缓存、且 system 签名（workingDir / agentType /
@@ -449,6 +499,7 @@ export async function buildSystemPrompt(params: BuildSystemPromptParams): Promis
         agentType: (agentTypeOverride ?? agentType) as HClawAgentType,
         agentTemplates,
         taskDescription: '',
+        languageSection: languageSection ?? undefined,
     })
 
     if (commandContext) {

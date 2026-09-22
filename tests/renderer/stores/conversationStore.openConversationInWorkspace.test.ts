@@ -24,6 +24,7 @@ vi.mock('../../../src/renderer/stores/agentStore', () => ({
             convAgentStates: {},
             updateConvData: () => {},
             removeConvData: () => {},
+            clearConvDoneUnread: () => {},
             flushPendingStreamData: () => {},
             reconcileStreamingContent: reconcileSpy,
             refreshActiveBatch: refreshBatchSpy,

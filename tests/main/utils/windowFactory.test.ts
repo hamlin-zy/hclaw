@@ -8,6 +8,8 @@ const state = vi.hoisted(() => ({
     removed: [] as string[],
     sent: [] as Array<{channel: string; payload: any}>,
     events: [] as Array<{event: string; handler: Function}>,
+    // app.getLocale() 返回值（每个用例可在 beforeEach 里改，模拟系统语言）
+    systemLocale: 'zh-CN',
 }))
 
 vi.mock('electron', () => {
@@ -53,6 +55,11 @@ vi.mock('electron', () => {
     }
     return {
         BrowserWindow: MockBrowserWindow,
+        // readSystemLocale（--hclaw-system-locale 注入）读取 app.getLocale()
+        app: {
+            isReady: () => true,
+            getLocale: () => state.systemLocale,
+        },
         ipcMain: {
             handle: (channel: string, fn: Function) => { state.handlers.set(channel, fn) },
             removeHandler: (channel: string) => { state.removed.push(channel) },
@@ -79,6 +86,7 @@ beforeEach(() => {
     state.removed.length = 0
     state.sent.length = 0
     state.events.length = 0
+    state.systemLocale = 'zh-CN'
     restorePlatform('win32')
 })
 
@@ -103,13 +111,21 @@ describe('windowFactory.createAppWindow', () => {
         expect(opts.frame).toBeUndefined()
     })
 
-    it('additionalArguments 注入 theme + win11 + darwin + window-id 四参数', () => {
+    it('additionalArguments 注入 theme + win11 + darwin + window-id + system-locale 五参数', () => {
         createAppWindow({...BASE_OPTS})
         const args = state.instances[0].options.webPreferences.additionalArguments
         expect(args.some((a: string) => a.startsWith('--hclaw-theme='))).toBe(true)
         expect(args.some((a: string) => a.startsWith('--hclaw-win11='))).toBe(true)
         expect(args.some((a: string) => a.startsWith('--hclaw-darwin='))).toBe(true)
         expect(args).toContain('--hclaw-window-id=test-win')
+        expect(args).toContain('--hclaw-system-locale=zh-CN')
+    })
+
+    it('系统语言经 encodeURIComponent 编码（含子标签的 locale 不被 argv 切断）', () => {
+        state.systemLocale = 'zh-Hans-CN'
+        createAppWindow({...BASE_OPTS})
+        const args = state.instances[0].options.webPreferences.additionalArguments
+        expect(args).toContain('--hclaw-system-locale=zh-Hans-CN')
     })
 
     it('additionalArguments 透传 extra 参数（如 --hclaw-dialog）', () => {

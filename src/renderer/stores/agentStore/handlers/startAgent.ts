@@ -23,6 +23,10 @@ export async function startAgentImpl(
 
     clearAllBatches(conversationId)
 
+    // ★ 新 run 开始即失效「已完成未读」标记：该会话又有新活动，上一轮的「完成」不再是
+    //   用户要回来看的信号（无标记时为早退，零副作用）。
+    get().clearConvDoneUnread(conversationId)
+
     // 注意：不要清空 toolCallsStore！
     // 运行时状态（progress、tokenUsage 等）在工具完成时已即时清理（handleToolResult），
     // 此处无需清空；仅保留极少数跨轮次展示场景（如 pending 结果），
@@ -96,6 +100,8 @@ export async function startAgentImpl(
         errorMessage: null,
         // ★ 新一轮开始即清上一轮的「达轮数上限」提示条（与 per-conv 复位同处）
         turnLimitNotice: undefined,
+        // ★ 新一轮开始即清上一轮的结束原因（「继续」按钮视觉权重复位）
+        lastDoneReason: undefined,
     })
 
     try {

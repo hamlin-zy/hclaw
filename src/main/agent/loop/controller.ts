@@ -40,10 +40,11 @@ import {restoreCatalogState, runCatalogPreStep, type CatalogState} from './catal
 import {toolRegistry} from '../tools/registry'
 import {restoreEnvState, runEnvPreStep, type EnvState} from './envPublish'
 import {restoreMemoryState, runMemoryPreStep, type MemoryState} from './memoryPublish'
+import {restoreLanguageGuardState, runLanguageGuardPreStep, isLanguageGuardIteration, resolveSubagentLanguageSection, type LanguageGuardState} from './languageGuardPublish'
 import {getHclawDir} from '../../hclawPaths'
 import {buildCommandTaskContent} from '../utils/userContentBuilder'
 import {getLastSentToolNames, isSameToolNameSequence} from './toolsSentRecord'
-import {buildAgentDefinitionCtMessage, shouldInjectAgentDefinitionCt} from './agentDefinitionCt'
+import {buildAgentDefinitionCtMessage, shouldInjectCommandTaskCt} from './agentDefinitionCt'
 // ─── LLM 调用事件与工具方法（内联自历史 compress.ts） ───
 import type {ChatMessage} from '../model/types'
 
@@ -245,6 +246,8 @@ interface CachePayload {
  *   用户消息注入），system 文本与 agent 无关，切换 agent 不应触发重建。
  *   agentType 参数保留：非 agentDefinition 路径（如 agentType 模板分支）仍影响 system。
  * 不含日期/权限模式（已移出 system，不构成缓存破坏）。
+ * 不含子会话语言段以外的任何运行态：languageSection 以**条件入键**承载 —— 主会话不写该键，
+ * 签名 JSON 与历史格式逐字相同（存量会话不因"多一个空键"而重建 system）。
  */
 export function buildSystemSignature(
     workingDir: string,
@@ -252,12 +255,12 @@ export function buildSystemSignature(
     /** @deprecated 方案 A 后不再参与签名（模板已移出 system）；保留参数兼容调用方 */
     _agentDefinition: {agentType: string; systemPromptTemplate: string} | undefined,
     customInstructions: string | undefined,
+    /** 子会话语言段（影响 system 文本 → 必须入键）；主会话恒为 null/未传 */
+    languageSection?: string | null,
 ): string {
-    return JSON.stringify({
-        workingDir,
-        agentType,
-        customInstructions: customInstructions ?? '',
-    })
+    const base = {workingDir, agentType, customInstructions: customInstructions ?? ''}
+    // ★ 条件入键：无语言段时键集与历史格式逐字相同 → 存量会话不因"多一个空键"而重建 system。
+    return JSON.stringify(languageSection ? {...base, languageSection} : base)
 }
 
 /** 安全解析 DB 缓存 JSON，兼容旧格式纯字符串 */
@@ -387,10 +390,14 @@ export class AgentLoopController {
         let envState: EnvState = restoreEnvState(currentState.messages)
         // ★ 用户习惯记忆状态：同构还原，崩溃重启零重复发布
         let memoryState: MemoryState = restoreMemoryState(currentState.messages)
-        // ★ 会话渠道在会话生命周期内不可变：循环外读一次，避免每轮 readMeta + JSON.parse
-        const sessionChannel: string | undefined = sessionId
-            ? (conversationRepo?.readMeta(sessionId)?.channel ?? undefined)
-            : undefined
+        // ★ 语言守卫状态（母语漂移纠正）：同构还原，崩溃重启零重复 seed
+        let languageGuardState: LanguageGuardState = restoreLanguageGuardState(currentState.messages)
+        // ★ 会话元信息在会话生命周期内不可变：循环外读一次，避免每轮 readMeta + JSON.parse
+        const sessionMeta = sessionId ? conversationRepo?.readMeta(sessionId) : undefined
+        const sessionChannel: string | undefined = sessionMeta?.channel ?? undefined
+        // ★ 子会话身份（落库真相）：语言段判定以此为准——运行入口（agentTool 内联 / 再次激活）
+        //   都可能不同，仅凭 traceContext 会漏（worker 侧硬编码 'main'）。
+        const isChildSession = sessionMeta?.isChildSession === true
 
         // ★ MCP 工具注入通道：catalog（唯一通道）。MCP 工具被移出 tools 数组，
         //   改由目录消息 + call_mcp_tool 承载。
@@ -408,23 +415,33 @@ export class AgentLoopController {
                 //   sourceKind 契约同构；messageBlockHelper 用 ...(msg.metadata) 透传持久化）。
                 metadata: {sourceKind: SOURCE_KIND_COMMAND_TASK},
             }
-            currentState = addMessage(currentState, ctMessage)
-            if (conversationRepo && sessionId) {
-                try {
-                    conversationRepo.writeMessagesDelta(sessionId, {...ctMessage, timestamp: Date.now()} as unknown as Message)
-                } catch (err) {
-                    logger.debug('[AgentLoop] CT message persist failed (in-memory only)', {error: String(err)})
+            // 幂等守卫（与 agentDefinition 分支同一实现）：重试/续聊时正文仍以 /xxx 开头 →
+            // 再次解析出同一 commandContext —— state 已有内容相同的 CT 消息时跳过，
+            // 避免技能指导（KB 级）被重复注入（token 双计）。
+            if (shouldInjectCommandTaskCt(currentState.messages, ctMessage.content)) {
+                currentState = addMessage(currentState, ctMessage)
+                logger.info('[AgentLoop] commandContext CT injected via CT message')
+                if (conversationRepo && sessionId) {
+                    try {
+                        conversationRepo.writeMessagesDelta(sessionId, {...ctMessage, timestamp: Date.now()} as unknown as Message)
+                    } catch (err) {
+                        logger.debug('[AgentLoop] CT message persist failed (in-memory only)', {error: String(err)})
+                    }
                 }
+            } else {
+                logger.debug('[AgentLoop] commandContext CT skipped (duplicate)')
             }
         } else if (agentDefinition) {
             // ★ 方案 A：commandContext 为 null 但 agentDefinition 存在（/aside 经
             //   messageMetadata.commandId → resolveAgentDefinitionForTurn，或子 Agent
             //   agentTool 派发）→ agent 专属模板经 CT 用户消息注入，system 保持稳定 base。
-            //   commandContext 优先（其 commandTemplate 即 agent 模板，二者相同，不重复注入）。
+            //   commandContext 优先（其 commandTemplate 即 agent 模板；二者字节一致由
+            //   buildAgentCommandTemplate 内统一的 whenToUse 回落保证 —— 否则 whenToUse 为空时
+            //   agentDefinition 路径会多出「适用场景」行，内容去重失效、重复注入）。
             //   幂等守卫：agentDefinition 会被跨轮从缓存载荷 commandId 恢复，每次 run 都到
             //   此处 —— state 已有内容相同的 CT 消息时跳过，防止重复注入。
             const ctMessage = buildAgentDefinitionCtMessage(agentDefinition)
-            if (ctMessage && shouldInjectAgentDefinitionCt(currentState.messages, ctMessage.content)) {
+            if (ctMessage && shouldInjectCommandTaskCt(currentState.messages, ctMessage.content)) {
                 currentState = addMessage(currentState, ctMessage)
                 logger.info('[AgentLoop] agentDefinition template injected via CT message (stable base system)')
                 if (conversationRepo && sessionId) {
@@ -441,6 +458,10 @@ export class AgentLoopController {
         // 子 Agent 运行标识：modelRole 为 agentTool 子会话专用字段（grep agentTool.ts 确认，
         // 仅子 Agent 的 agentLoop 调用传入）；traceContext === 'subAgent' 同理。
         const isSubagentRun = params.modelRole !== undefined || params.traceContext === 'subAgent'
+        // ★ 子会话语言要求：常驻 system 段。会话身份或运行身份任一命中即注入。
+        //   主会话恒为 null → system 字节与签名不变。
+        //   与 sessionChannel 同款：循环外读一次，run 内视为不可变。
+        const languageSection = resolveSubagentLanguageSection(isSubagentRun || isChildSession, getSettings())
         let detector: LoopDetector | null = null
         let lastVerdict: LoopVerdict | null = null
         let lastReportedFingerprint: string | null = null
@@ -626,6 +647,16 @@ export class AgentLoopController {
                 memoryState = r.memoryState
             }
 
+            // ── 语言守卫（pre-step）：模型输出漂移出母语时追加纠正消息 ──
+            //   ★ §3.2 硬约束：只在每个 run 的首次迭代注入。DB 层"一次用户发言 =
+            //   一条 assistant 行"，iteration ≥2 追加会让重建序列在注入点分叉、
+            //   前缀缓存全失效（代价：中途漂移推迟到用户下次发言纠正）。
+            if (isLanguageGuardIteration(turnCount)) {
+                const r = runLanguageGuardPreStep(currentState, languageGuardState, conversationRepo, sessionId, getSettings())
+                currentState = r.state
+                languageGuardState = r.languageGuardState
+            }
+
             // ── 构建系统提示词 ──
             const sysPromptContext = await permissionRulesManager.getContext()
             const currentPermissionMode = sysPromptContext.mode
@@ -637,7 +668,7 @@ export class AgentLoopController {
             // ★ system 签名：真正影响 system 文本的项（日期/权限模式已移出 system，
             //   不参与签名——system 可跨天、跨权限模式复用）
             const cacheSignature = buildSystemSignature(
-                workingDir, agentType, agentDefinition, customInstructions,
+                workingDir, agentType, agentDefinition, customInstructions, languageSection,
             )
 
             const systemPrompt = await buildSystemPrompt({
@@ -649,6 +680,7 @@ export class AgentLoopController {
                 customInstructions,
                 agentType,
                 agentTemplates,
+                languageSection,
                 cachedSystemPrompt: cachedCore,
                 cacheSignature,
                 cachedSignature: cached?.signature ?? null,

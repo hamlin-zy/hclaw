@@ -41,7 +41,7 @@ import {PreprocessCache} from '../../../../src/main/agent/loop/preprocessCache'
 import {createLoopState, addMessage, type LoopState} from '../../../../src/main/agent/state'
 import type {ChatMessage} from '../../../../src/main/agent/state'
 import {buildCommandTaskContent} from '../../../../src/main/agent/utils/userContentBuilder'
-import {SOURCE_KIND_CATALOG} from '../../../../src/shared/types/message'
+import {SOURCE_KIND_CATALOG, SOURCE_KIND_COMMAND_TASK} from '../../../../src/shared/types/message'
 import {randomUUID} from 'crypto'
 
 function makeSkill(id: string, extra: Partial<SkillDefinition> = {}): SkillDefinition {
@@ -67,6 +67,8 @@ function insertCommandTask(
         id: randomUUID(),
         role: 'user',
         content: buildCommandTaskContent(commandTemplate),
+        // 与 controller.ts 同款：CT 带 sourceKind 内部消息标记
+        metadata: {sourceKind: SOURCE_KIND_COMMAND_TASK},
     }
     const next = addMessage(state, ctMessage)
     if (repo && sessionId) {
@@ -83,8 +85,10 @@ function insertCommandTask(
 const catalogsOf = (messages: ReadonlyArray<ChatMessage>) =>
     messages.filter(m => (m.metadata as Record<string, unknown> | undefined)?.sourceKind === SOURCE_KIND_CATALOG)
 
+/** CT 判别与运行时同口径（controller.ts 用 metadata.sourceKind），不用 includes：
+ *  catalog reminder 正文含字面量 `/name` <command-task> 例外句，includes 会把它误计为 CT。 */
 const ctOf = (messages: ReadonlyArray<ChatMessage>) =>
-    messages.filter(m => String(m.content ?? '').includes('<command-task>'))
+    messages.filter(m => (m.metadata as Record<string, unknown> | undefined)?.sourceKind === SOURCE_KIND_COMMAND_TASK)
 
 function makeState(): LoopState {
     return createLoopState([{id: 'u1', role: 'user', content: '/skill-a 做事'}])

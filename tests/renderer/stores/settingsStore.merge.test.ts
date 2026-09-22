@@ -28,6 +28,26 @@ describe('mergeSystemSettings', () => {
         const merged = mergeSystemSettings(DEFAULT_SETTINGS, {mcp: {mcpTestTimeout: 1}} as any)
         expect('mcp' in merged).toBe(false)
     })
+
+    it('language 分类浅合并不丢未覆盖键（防静默丢配置）', () => {
+        const merged = mergeSystemSettings(DEFAULT_SETTINGS, {language: {nativeLocale: 'en'}})
+        expect(merged.language!.nativeLocale).toBe('en')
+        // 未覆盖键保留默认值（否则语言守卫策略被静默重置）
+        expect(merged.language!.strategy).toBe('first-and-drift')
+        expect(merged.language!.correctionLimit).toBe(3)
+
+        const merged2 = mergeSystemSettings(
+            {...DEFAULT_SETTINGS, language: {...DEFAULT_SETTINGS.language, nativeLocale: 'zh-CN'}},
+            {language: {strategy: 'off'}},
+        )
+        expect(merged2.language).toEqual({nativeLocale: 'zh-CN', strategy: 'off', correctionLimit: 3})
+    })
+
+    it('language 在 patch 缺省时整段沿用 base（含运行时写入的 nativeLocale）', () => {
+        const base = {...DEFAULT_SETTINGS, language: {...DEFAULT_SETTINGS.language, nativeLocale: 'ja'}}
+        const merged = mergeSystemSettings(base, {agent: {maxTurns: 7}})
+        expect(merged.language).toEqual({nativeLocale: 'ja', strategy: 'first-and-drift', correctionLimit: 3})
+    })
 })
 
 describe('loadSettings 经 merge 行为不变', () => {

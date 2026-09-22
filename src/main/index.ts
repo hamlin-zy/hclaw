@@ -12,6 +12,7 @@ import './repositories/init';
 // 装配根：直接指向各职责模块（config.ts 已退化为兼容门面，见该文件头注释）
 import {getHclawDir} from './hclawPaths';
 import {ensureConfigLayout} from './config/ensureConfigLayout';
+import {ensureDefaultLocale} from './settings/defaultLocale';
 import {initConfigIPC} from './ipc/configIPC';
 import {initProjectGroupIPC} from './ipc/projectGroupIPC';
 import {initBackgroundIPC} from './ipc/background';
@@ -275,6 +276,10 @@ app.on('ready', async () => {
   ipcMain.handle('system:get-init-progress', () => initProgress.getSnapshot());
 
   ensureConfigLayout();
+
+  // 语言守卫（spec §6.4）：母语缺失时写入系统语言。必须在 app ready 之后
+  // （app.getLocale 依赖 ready），且早于任何会话启动。
+  ensureDefaultLocale({getLocale: () => app.getLocale()});
 
   // 跟随启动（before）：阻塞直到全部就绪或超时（全局上限 MAX_BEFORE_WAIT_MS=30s；空配置 near-zero）
   await launchBeforeApps();

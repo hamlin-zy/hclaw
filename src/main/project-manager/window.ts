@@ -124,8 +124,9 @@ export function initProjectManagerIPC(): void {
   // 注：pm:list-directory / pm:read-file 的路径校验在 listDirectory / readFileForViewer
   // 内部通过 assertInWorkspace 完成；pm:git-diff-file / pm:git-add / pm:git-rm-cached
   // 在 handler 入口对路径参数显式 assertInWorkspace 校验（词法校验，不依赖文件存在）
-  safeHandle('pm:list-directory', (_e, ws: string, dirPath: string) =>
-    getGitStatusCached(ws).then(s => listDirectory(ws, dirPath, s.statusMap)))
+  // 首开性能（spec 2026-09-21）：不再等待 getGitStatusCached 的全量 git status 扫描，
+  // 列表立即返回（gitStatus 恒 'none'）；文件行徽章由渲染层从 gitStatusStore.statusMap 派生
+  safeHandle('pm:list-directory', (_e, ws: string, dirPath: string) => listDirectory(ws, dirPath))
   safeHandle('pm:read-file', (_e, ws: string, filePath: string) => readFileForViewer(ws, filePath))
   // ── QuickOpen 检索服务（薄壳：规则全在 search.ts，此处只做入口校验）──
   // 空查询直接返回空结果，不进扫描（对齐 spec「空输入不发请求」）

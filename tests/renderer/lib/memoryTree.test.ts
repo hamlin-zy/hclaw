@@ -6,7 +6,6 @@ describe('buildTreeData', () => {
   const input: MemoryListResult = {
     globalFiles: [
       { path: '/ref/_user/preferences.md', label: '跨项目偏好', sizeLimit: 4096 },
-      { path: '/mem/SKILL.md', label: '记忆索引', sizeLimit: 2048 },
     ],
     projects: [
       {
@@ -29,10 +28,10 @@ describe('buildTreeData', () => {
     ],
   };
 
-  it('converges top level to three nodes in fixed order: 用户偏好 / 记忆索引 / 项目记忆', () => {
+  it('converges top level to two nodes in fixed order: 用户偏好 / 项目记忆', () => {
     const tree = buildTreeData(input);
-    expect(tree).toHaveLength(3);
-    expect(tree.map((n) => n.label)).toEqual(['用户偏好', '记忆索引', '项目记忆']);
+    expect(tree).toHaveLength(2);
+    expect(tree.map((n) => n.label)).toEqual(['用户偏好', '项目记忆']);
   });
 
   it('用户偏好 node keeps children and default expanded', () => {
@@ -43,17 +42,9 @@ describe('buildTreeData', () => {
     expect(tree[0]!.children![0].filePath).toBe('/ref/_user/preferences.md');
   });
 
-  it('记忆索引 node defaults collapsed with 自动生成 subtitle', () => {
-    const tree = buildTreeData(input);
-    expect(tree[1]!.label).toBe('记忆索引');
-    expect(tree[1]!.defaultExpanded).toBe(false);
-    expect(tree[1]!.subtitle).toBe('自动生成');
-    expect(tree[1]!.children![0].filePath).toBe('/mem/SKILL.md');
-  });
-
   it('项目记忆 is a virtual grouping node (no filePath) containing project nodes', () => {
     const tree = buildTreeData(input);
-    const projectsNode = tree[2]!;
+    const projectsNode = tree[1]!;
     expect(projectsNode.label).toBe('项目记忆');
     expect(projectsNode.nodeType).toBe('root-projects');
     expect(projectsNode.filePath).toBeUndefined();

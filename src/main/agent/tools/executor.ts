@@ -205,7 +205,7 @@ export async function executeTool(
     } else if (tool.name === 'file_read' && typeof args.filePath === 'string') {
         sandboxOp = {type: 'file_read', path: args.filePath}
     } else if ((tool.name === 'file_write' || tool.name === 'file_edit') && typeof args.filePath === 'string') {
-        sandboxOp = {type: 'file_write', path: args.filePath, size: 0}
+        sandboxOp = {type: 'file_write', path: args.filePath}
     } else if (tool.name === 'bash') {
         return {
             toolCallId: toolCall.id,

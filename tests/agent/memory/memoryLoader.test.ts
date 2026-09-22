@@ -15,21 +15,18 @@ describe('memoryLoader', () => {
     expect(result).toBeNull()
   })
 
-  it('should load SKILL.md and preferences only when workspace not in index', () => {
+  it('should load preferences only when workspace not in index', () => {
     ensureMemoryDir(tmpDir)
-    writeFileSync(join(tmpDir, 'mem', 'SKILL.md'), '---\nname: user-memory\n---\n# Memory')
     mkdirSync(join(tmpDir, 'mem', 'ref', '_user'), {recursive: true})
     writeFileSync(join(tmpDir, 'mem', 'ref', '_user', 'preferences.md'), '# Prefs')
     const result = loadMemory(tmpDir, 'E:\\workspace\\unknown')
     expect(result).not.toBeNull()
-    expect(result!.skillMd).toContain('# Memory')
     expect(result!.preferencesMd).toContain('# Prefs')
     expect(result!.projectMemoryMd).toBeNull()
   })
 
   it('should load project memory when workspace matches index', () => {
     ensureMemoryDir(tmpDir)
-    writeFileSync(join(tmpDir, 'mem', 'SKILL.md'), '# Memory')
     mkdirSync(join(tmpDir, 'mem', 'ref', '_user'), {recursive: true})
     writeFileSync(join(tmpDir, 'mem', 'ref', '_user', 'preferences.md'), '# Prefs')
     mkdirSync(join(tmpDir, 'mem', 'ref', 'hclaw'), {recursive: true})
@@ -48,9 +45,9 @@ describe('memoryLoader', () => {
   })
 
   it('computeMemoryDigest should change when content changes', () => {
-    const a = computeMemoryDigest({skillMd: 'a', preferencesMd: null, projectMemoryMd: null, projectName: null})
-    const b = computeMemoryDigest({skillMd: 'b', preferencesMd: null, projectMemoryMd: null, projectName: null})
-    const c = digestFromStore({skillMd: 'a', preferencesMd: null, projectMemoryMd: null, projectName: null})
+    const a = computeMemoryDigest({preferencesMd: 'a', projectMemoryMd: null, projectName: null})
+    const b = computeMemoryDigest({preferencesMd: 'b', projectMemoryMd: null, projectName: null})
+    const c = digestFromStore({preferencesMd: 'a', projectMemoryMd: null, projectName: null})
     expect(a).not.toBe(b)
     expect(a).toBe(c)
   })

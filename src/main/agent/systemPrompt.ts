@@ -32,6 +32,11 @@ export interface SystemPromptContext {
     agentTemplates?: AgentTemplate[]
     /** 当前任务描述，用于预取相关记忆 */
     taskDescription?: string
+    /**
+     * 子会话常驻语言要求段（由 resolveSubagentLanguageSection 产出）。
+     * 主会话不传 → 本段零字节，system 文本与缓存签名均不变。
+     */
+    languageSection?: string
 }
 
 export async function buildSystemPrompt(
@@ -71,6 +76,9 @@ export async function buildSystemPrompt(
     sections.push(r.resolve('system.rules'))
     sections.push(r.resolve('system.workflow'))
     sections.push(r.resolve('system.output'))
+
+    // ★ 子会话语言要求常驻段：仅子会话传值（主会话不传 → 本段零字节，缓存契约不变）
+    if (ctx.languageSection) sections.push(ctx.languageSection)
 
     sections.push(buildImageHandlingSection(ctx, r))
     sections.push(buildMediaSection(r))

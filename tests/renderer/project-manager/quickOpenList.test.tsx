@@ -154,3 +154,29 @@ describe('QuickOpen 列表渲染', () => {
     expect(screen.getByTestId('pm-quickopen-preview')).toHaveTextContent('src/a.ts')
   })
 })
+
+// 行是 <div role="option">（不是 <button>），行内文本默认可被浏览器原生选区选中：
+// 普通单击会把 caret 落在行内成为 selection anchor，此后的 Shift+单击会触发原生「扩展选区」
+// → 视觉上出现一段被选中的文字（与 commit 237a82d 修的 Git 提交列表同源）。
+// 列表行是选择控件、文本本就不该可选（.pm-tree-row 用 <button> 天然如此），
+// 故左键按下即 preventDefault 抑制原生文本选择；右键必须放行，交给 onContextMenu 弹菜单。
+describe('QuickOpen 行不发生原生文本选择（Shift 区间选的副作用）', () => {
+  it('左键 mousedown 被 preventDefault（抑制原生选区，含 Shift 扩展）', () => {
+    renderQuickOpen({query: 'a', results: [item('a.ts'), item('b.ts')]})
+    const row = rows()[0]
+    expect(fireEvent.mouseDown(row, {button: 0})).toBe(false)
+    expect(fireEvent.mouseDown(row, {button: 0, shiftKey: true})).toBe(false)
+  })
+
+  it('右键 mousedown 放行：不吞掉上下文菜单', () => {
+    renderQuickOpen({query: 'a', results: [item('a.ts')]})
+    expect(fireEvent.mouseDown(rows()[0], {button: 2})).toBe(true)
+  })
+
+  it('点击语义不受影响（QuickOpen 行无区间选语义，click 即激活）', () => {
+    const onActivate = vi.fn()
+    renderQuickOpen({query: 'a', results: [item('a.ts'), item('b.ts')], onActivate})
+    fireEvent.click(rows()[1])
+    expect(onActivate).toHaveBeenCalledWith(1)
+  })
+})

@@ -203,6 +203,8 @@ export default function CompanionAppsWindow() {
                             className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[var(--surface-muted)] rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] dark-all:focus-visible:ring-[color-mix(in_srgb,var(--brand-primary)_20%,transparent)]"
                             onClick={() => setExpandedId(expandedId === app.id ? null : app.id)}
                             onKeyDown={e => {
+                                // 守卫：行内含 Switch / 移除按钮，其按键冒泡到此处会误触发展开折叠
+                                if (e.target !== e.currentTarget) return
                                 if (e.key === 'Enter' || e.key === ' ') {
                                     e.preventDefault()
                                     setExpandedId(expandedId === app.id ? null : app.id)

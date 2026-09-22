@@ -68,13 +68,21 @@ export function buildPreview(skill: SkillDefinition): string {
     return parts.join('\n')
 }
 
-/** 构建技能命令模板（含 skillDir 路径，供命令模式使用） */
+/**
+ * 构建技能命令模板（含 skillDir 路径，供命令模式使用）
+ *
+ * ★ 第 5 行为「已加载」否定句，不可删：能力目录 reminder（catalogInjector 的
+ *   delegation rules）在消息流中追加于本 CT 消息之后，且无条件要求"先调 skill
+ *   工具"；缺此句时模型会对已注入的技能再调用一次 skill/describe_skills，
+ *   重复拉取整份指导正文（纯 token 浪费）。
+ */
 export function buildSkillCommandTemplate(skill: SkillDefinition): string {
     const guidance = buildGuidance(skill)
     return (
         `# 技能模式: ${skill.name}\n\n` +
         `你正在使用技能 "${skill.name}"。\n` +
         `技能安装路径: \`${skill.skillDir || ''}\`\n` +
+        `本技能的完整指导已在下文注入，视为已加载完成：请直接按其执行，不要再用 skill / describe_skills 工具重复加载本技能。\n` +
         `请按照以下指导执行此技能：\n\n` +
         guidance
     )

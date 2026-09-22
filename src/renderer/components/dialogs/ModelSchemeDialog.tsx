@@ -396,6 +396,9 @@ export default function ModelSchemeDialog() {
                     <>
                         <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-between">
                             <div className="flex items-center gap-2">
+                                {/* 行内重命名输入框是下划线式（自带 border-b-2），焦点只提亮下划线、不套
+                                    INPUT_FOCUS——2px ring 会沿 radius=0 退化成环绕文字的直角描边
+                                    （2026-09-21 用户反馈）。契约豁免见 inputFocusSeam.test.ts。 */}
                                 {isEditingName ? (
                                     <input
                                         type="text"
@@ -407,7 +410,7 @@ export default function ModelSchemeDialog() {
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') setIsEditingName(false)
                                         }}
-                                        className={`text-sm font-medium text-gray-700 bg-transparent border-b-2 border-gray-300 outline-none ${INPUT_FOCUS}`}
+                                        className="text-sm font-medium text-gray-700 bg-transparent border-b-2 border-gray-300 outline-none focus:border-b-[var(--brand-primary)] transition-colors"
                                         autoFocus
                                     data-name="model-scheme-dialog-input"/>
                                 ) : (

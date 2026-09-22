@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import {describe, it, expect, beforeAll, beforeEach} from 'vitest'
-import {render, screen} from '@testing-library/react'
+import {render, screen, fireEvent} from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import {readFileSync} from 'fs'
 import {join} from 'path'
@@ -114,5 +114,35 @@ describe('Commit 行四段式（spec §9.1 / G9）', () => {
     render(<GitDagGraph sortAsc={false} />)
     const row = screen.getByTestId('pm-commit-row')
     expect(row.children).toHaveLength(5)   // rail / hash / subject / refs / meta
+  })
+})
+
+// 行是 <div role="treeitem">（不是 <button>），行内文本默认可被浏览器原生选区选中：
+// 普通单击会把 caret 落在行内成为 selection anchor，此后的 Shift+单击会触发原生「扩展选区」
+// → 视觉上出现一段被选中的文字（用户报告的缺陷）。
+// 列表行是选择控件、文本本就不该可选（.pm-tree-row 用 <button> 天然如此），
+// 故左键按下即 preventDefault 抑制原生文本选择；右键必须放行，交给 onContextMenu 弹菜单。
+describe('Commit 行不发生原生文本选择（Shift 区间选的副作用）', () => {
+  it('左键 mousedown 被 preventDefault（抑制原生选区，含 Shift 扩展）', () => {
+    render(<GitDagGraph sortAsc={false} />)
+    const row = screen.getByTestId('pm-commit-row')
+    expect(fireEvent.mouseDown(row, {button: 0})).toBe(false)
+    expect(fireEvent.mouseDown(row, {button: 0, shiftKey: true})).toBe(false)
+  })
+
+  it('右键 mousedown 放行：不吞掉上下文菜单', () => {
+    render(<GitDagGraph sortAsc={false} />)
+    const row = screen.getByTestId('pm-commit-row')
+    expect(fireEvent.mouseDown(row, {button: 2})).toBe(true)
+  })
+
+  it('Shift 区间选语义不受影响（仍由 click 完成）', () => {
+    const two = [entry, {...entry, hash: 'b'.repeat(40), abbreviatedHash: 'b1b2c3d4e'}]
+    setEntries(two)
+    render(<GitDagGraph sortAsc={false} />)
+    const rows = screen.getAllByTestId('pm-commit-row')
+    fireEvent.click(rows[0])
+    fireEvent.click(rows[1], {shiftKey: true})
+    expect([...useGitLogStore.getState().selectedHashes]).toEqual([two[0].hash, two[1].hash])
   })
 })

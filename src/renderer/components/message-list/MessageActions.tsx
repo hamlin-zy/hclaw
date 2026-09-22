@@ -236,6 +236,57 @@ const CopyButton = memo(function CopyButton({message}: { message: Message }) {
     )
 })
 
+// 继续按钮组件 - 发送一条内容为「继续」的用户消息，让 Agent 接着做
+// ★ 按钮「常显」于最后一条助手消息（由 MessageList 决定挂载点），不据信号开关：
+//   静默结束（有残文、无工具调用的 completed）与正常完成无法区分，用信号当开关会漏提示。
+//   信号仅决定视觉权重：highlight=true 高亮（异常收尾 / 达轮数上限 / 有未完成任务），否则弱化。
+const ContinueButton = memo(function ContinueButton() {
+    const activeConversationId = useConversationStore((s) => s.activeConversationId)
+    const agentStatus = useAgentStore((s) => s.agentState.status)
+    const startAgent = useAgentStore((s) => s.startAgent)
+    // 只订阅最终的 highlight 布尔：流式期间 convAgentStates 高频更新（textBatch 约 42 次/秒），
+    // 订阅整个 convData 对象会让本按钮随之反复重渲染，而 highlight 实际并未变化。
+    const highlight = useAgentStore((s) => {
+        const d = activeConversationId ? s.convAgentStates[activeConversationId] : undefined
+        const abnormalDone = d?.lastDoneReason !== undefined && d?.lastDoneReason !== 'completed'
+        const hasUnfinishedTasks = (d?.tasks ?? []).some(t => t.status === 'pending' || t.status === 'running')
+        return abnormalDone || !!d?.turnLimitNotice || hasUnfinishedTasks
+    })
+    const isRunning = agentStatus === 'running' || agentStatus === 'thinking'
+
+    const handleContinue = useCallback(() => {
+        if (isRunning) return
+
+        const convId = useConversationStore.getState().activeConversationId
+        if (!convId) return
+
+        // 与 InputArea 打字发送完全同一链路（不得 force 绕开残留运行态守卫）
+        startAgent({conversationId: convId, message: '继续'})
+    }, [isRunning, startAgent])
+
+    if (!activeConversationId) return null
+
+    return (
+        <button
+            onClick={handleContinue}
+            disabled={isRunning}
+            className={`flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border shadow-sm transition-all flex-shrink-0 ${
+                highlight
+                    ? 'border-[var(--brand-primary)] [color:var(--brand-primary)]'
+                    : 'border-[var(--border)] text-[var(--text-muted)]'
+            } hover:[color:var(--brand-primary)] hover:border-[var(--border-emphasis)] disabled:opacity-40 disabled:cursor-not-allowed`}
+            title="继续（等同于发送「继续」）"
+            aria-label="继续"
+         data-name="message-actions-continue-button">
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                 strokeLinecap="round" strokeLinejoin="round">
+                <path d="M6 17l5-5-5-5"/>
+                <path d="M13 17l5-5-5-5"/>
+            </svg>
+        </button>
+    )
+})
+
 // 导出操作按钮组组件（用户消息）
 export const MessageActions = memo(function MessageActions({message}: { message: Message }) {
     return (
@@ -248,9 +299,14 @@ export const MessageActions = memo(function MessageActions({message}: { message:
 })
 
 // 导出助手消息操作按钮组组件
-export const AssistantMessageActions = memo(function AssistantMessageActions({message}: { message: Message }) {
+// isLastAssistant：仅由 MessageList 传给「最后一条助手消息」，决定是否挂「继续」按钮
+//（按钮顺序：继续 → 复制 → 删除）
+export const AssistantMessageActions = memo(function AssistantMessageActions(
+    {message, isLastAssistant = false}: {message: Message; isLastAssistant?: boolean},
+) {
     return (
         <div className="flex items-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 mb-[22px]">
+            {isLastAssistant && <ContinueButton/>}
             <CopyButton message={message}/>
             <DeleteButton message={message} bottomMargin="mb-[0px]"/>
         </div>

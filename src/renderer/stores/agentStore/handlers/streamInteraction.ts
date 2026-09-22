@@ -4,7 +4,7 @@
 import type {StreamCtx} from './streamContext'
 import type {ConvAgentData} from '../types'
 import {IDLE_STATE, makeAgentState, createDefaultConvData} from '../defaultState'
-import {useConversationStore} from '../../conversationStore'
+import {useConversationStore, findConvAcrossWorkspaces} from '../../conversationStore'
 import {textBlockId} from '../contentBlocks'
 import {useAgentStore} from '..'
 import {
@@ -30,6 +30,23 @@ function flushPendingStreamBatches(convId: string, streamingMessageId: string | 
     clearTextBatch(convId)
     flushThinkingBatch(convId)
     clearThinkingBatch(convId)
+}
+
+/**
+ * 后台会话「已完成未读」置位判定（纯函数；条件与求值顺序与原先内联的 4 个布尔完全一致）。
+ * ① reason 仅 completed / max_turns_reached；② 非当前激活会话；③ 排除子会话与调度会话；
+ * ④ 「马上会续跑」（pendingCount > 0）不置位。
+ */
+function shouldMarkDoneUnread(params: {
+    reason: string | undefined
+    isActiveConv: boolean
+    pendingCount: number
+    summary: {parentConvId?: string | null; channel?: string | null} | null | undefined
+}): boolean {
+    const isDoneUnreadReason = params.reason === 'completed' || params.reason === 'max_turns_reached'
+    const willContinue = params.reason === 'completed' && params.pendingCount > 0
+    const isExcludedConv = !!params.summary && (!!params.summary.parentConvId || params.summary.channel === 'schedule')
+    return isDoneUnreadReason && !params.isActiveConv && !willContinue && !isExcludedConv
 }
 
 export async function handleDone(ctx: StreamCtx) {
@@ -151,9 +168,32 @@ export async function handleDone(ctx: StreamCtx) {
         ...(event.reason === 'max_turns_reached'
             ? {turnLimitNotice: {turns: event.turns, maxTurns: event.maxTurns}}
             : {}),
+        // ★ 本 run 结束原因：供「继续」按钮算视觉权重（按钮常显，不据此开关）
+        lastDoneReason: event.reason,
     })
 
     // ★ 段边界落库（done 收尾 flush）已随渲染端落库退出（Phase 3）删除。
+
+    // ── 后台会话「已完成未读」标记（侧栏「完成」徽章） ──────────────
+    // 只给「用户没在看、且真的跑到底」的顶层普通会话置位：
+    // ① reason：仅 completed / max_turns_reached（aborted 是用户自己取消；error /
+    //    loop_detected / tools_change_cancelled 各有自己的界面语义，不借「完成」表达）；
+    // ② 非当前激活会话（用户正看着它，收尾即可见，无需补提示）；
+    // ③ 排除子会话与定时任务会话（子会话不参与本机制、调度会话不打扰）；
+    // ④ 「马上会续跑」（pendingMessages 非空，见下方续跑分支）不置位 —— 下一轮
+    //    立刻开始，标记只会闪一下。★ 续跑分支同样排除 max_turns_reached，故仅
+    //    completed 需要看 pendingMessages。
+    const doneSummary = findConvAcrossWorkspaces(convStore.workspaces, convId)?.conv
+    // 摘要查不到（会话不在已加载的项目段）→ 按普通顶层会话放行：宁可多一个无害徽章，
+    // 也不让信号静默缺失（漏报正是本标记要修的缺陷）。
+    if (shouldMarkDoneUnread({
+        reason: event.reason,
+        isActiveConv: ctx.isActiveConv,
+        pendingCount: doneConvData.pendingMessages?.length ?? 0,
+        summary: doneSummary,
+    })) {
+        get().markConvDoneUnread(convId)
+    }
 
     // loop_detected / max_turns_reached 与 aborted 走同款收尾（不触发 pendingMessages 续跑）；
     // 达上限截断先让用户看到提示，再决定是否继续。
@@ -210,6 +250,8 @@ export function handleError(ctx: StreamCtx) {
         pendingToolsChangeConfirm: null,
         // ★ 与 done/abort 对称：终态清除循环检测警告条，避免陈旧 banner 常驻
         loopWarning: undefined,
+        // ★ error 是独立收尾路径（不经过 handleDone），须单独写结束原因供「继续」按钮用
+        lastDoneReason: 'error',
     })
     set((state: any) => ({
         errorMessage: state.errorMessage || errorMessage,

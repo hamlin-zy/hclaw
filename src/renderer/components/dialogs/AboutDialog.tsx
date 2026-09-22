@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useUpdaterStore } from '../../stores/updaterStore'
 import LinkContextMenu from '../common/LinkContextMenu'
+import { splitChangelog, formatVersionRange } from '../../lib/changelogView'
+import { ChangelogEntryHeader, ChangelogItemList } from './ChangelogView'
 import type { UpdateResult } from '../../../shared/types/updater'
 
 interface LinkItem {
@@ -76,6 +78,15 @@ export default function AboutDialog() {
   })
   const [checking, setChecking] = useState(false)
 
+  // ── 变更详情（仅 update-available 且存在条目时展示最新一条） ──
+  const latestEntry = updateResult?.status === 'update-available'
+    ? splitChangelog(updateResult.changelog).latest
+    : undefined
+  // 跨版本升级（>1 条）时头部版本行改为范围文案，避免与详情卡版本号重复
+  const versionRange = updateResult?.status === 'update-available'
+    ? formatVersionRange(updateResult.currentVersion, updateResult.latestVersion, updateResult.changelog.length)
+    : null
+
   useEffect(() => {
     window.electronAPI?.getAppVersion?.().then(setAppVersion).catch(() => setAppVersion(''))
   }, [])
@@ -129,7 +140,7 @@ export default function AboutDialog() {
 
       {/* App Name & Version */}
       <h1 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>HClaw</h1>
-      <p className="text-xs mb-3 font-mono" style={{ color: 'var(--text-muted)' }}>v{appVersion || '...'}</p>
+      <p className="text-xs mb-3 font-mono" style={{ color: 'var(--text-muted)' }}>{versionRange ?? `v${appVersion || '...'}`}</p>
 
       {/* Author */}
       <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>作者：Hamlin</p>
@@ -155,6 +166,27 @@ export default function AboutDialog() {
           )}
           {renderUpdateLabel(updateResult, checking)}
         </button>
+
+        {latestEntry && (
+          <div className="w-full rounded-[10px] overflow-hidden"
+            style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}
+           data-name="about-dialog-update-detail">
+            <ChangelogEntryHeader
+              entry={latestEntry}
+              className="flex items-center gap-2 px-3.5 py-2.5"
+              style={{ borderBottom: '1px solid var(--border-muted)' }}
+              titleClassName="min-w-0 truncate text-[12.5px] font-semibold"
+              dateClassName="ml-auto shrink-0 text-[11px] font-mono"
+              dateText={`${latestEntry.version} · ${latestEntry.date}`}
+            />
+            <div className="px-[14px] py-[10px] pb-[12px]">
+              <ChangelogItemList
+                items={latestEntry.items}
+                className="text-xs leading-[18px] mb-[6px] last:mb-0"
+              />
+            </div>
+          </div>
+        )}
 
         {updateResult?.status === 'update-available' && (
           <div className="grid grid-cols-2 gap-2">

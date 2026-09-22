@@ -374,9 +374,9 @@ describe('MessageList 查找功能（CSS Highlight API 回归）', () => {
             expect(highlightsMap.get('find-match')?.ranges.size ?? 0).toBe(0)
         })
 
-        // 点击工具卡片 header（Normal 模式整行按钮）展开
-        const headerBtn = Array.from(document.querySelectorAll('button'))
-            .find(b => b.textContent?.includes('bash'))
+        // 点击工具卡片 header（Normal 模式整行展开开关；该开关已由 <button> 改为 div[role=button]，
+        // 以免内层「查看/跳转」按钮构成 button 嵌套 button 的非法结构）展开
+        const headerBtn = document.querySelector('[data-name="tool-call-header-toggle-expanded-button"]')
         expect(headerBtn).toBeTruthy()
         fireEvent.click(headerBtn!)
 

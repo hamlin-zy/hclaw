@@ -24,7 +24,7 @@ export interface MemoryProjectEntry {
 
 /** memory:list 返回结构 */
 export interface MemoryListResult {
-  /** 全局文件（_user/preferences.md, mem/SKILL.md） */
+  /** 全局文件（_user/preferences.md） */
   globalFiles: MemoryFileEntry[];
   /** 项目列表 */
   projects: MemoryProjectEntry[];

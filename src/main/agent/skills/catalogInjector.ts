@@ -175,12 +175,22 @@ export function computeMcpDigest(entries: CatalogEntry[]): string {
   return createHash('sha256').update(`mcp\n${payload}`).digest('hex')
 }
 
+/**
+ * 例外句：与 buildSkillCommandTemplate 的「已加载」说明成对存在。
+ * 上方规则无条件要求"先调 skill 工具"，而 `/name` 前缀注入的 CT 消息已携带完整
+ * 指导；缺此例外时模型会对同一技能重复加载一次（详见 guidance.buildSkillCommandTemplate）。
+ */
+const PRELOADED_SKILL_EXCEPTION =
+  '  Exception: a skill already injected through a `/name` <command-task> message is loaded — do not call `skill` or `describe_skills` for that skill again.'
+
 const INDEX_DELEGATION_RULES = `Delegation rules:
 - skill: call the \`skill\` tool with the exact skill name before taking task actions. Names are an index only \u2014 call \`describe_skills\` passing the exact name(s) in \`names\` when a name looks relevant but you need to know what it does before invoking it.
+${PRELOADED_SKILL_EXCEPTION}
 - agent: no roster is provided in this session. When delegation might help, call \`list_agents\` first, then delegate via the \`agent\` tool by exact name.`
 
 const FULL_DELEGATION_RULES = `Delegation rules:
 - skill: call the \`skill\` tool with the exact skill name before taking task actions. Catalog entries are summaries only; do not infer or follow a skill's instructions until it has been loaded via the tool.
+${PRELOADED_SKILL_EXCEPTION}
 - agent: delegate via the \`agent\` tool, selecting the agent by name. If unsure which agent fits, call \`list_agents\` first.`
 
 /**

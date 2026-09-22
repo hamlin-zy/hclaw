@@ -10,6 +10,7 @@ import {systemSettingsRepo} from './repositories/sqlite/systemSettingsRepository
 import * as updateChecker from './updater/updateChecker';
 import type {UpdateResult} from '../shared/types/updater';
 import {readThemeSetting} from './utils/theme';
+import {readSystemLocale} from './utils/systemLocale';
 import {isDevMode} from './utils/devMode';
 import {createAppWindow} from './utils/windowFactory';
 import {trace} from './startupTrace';
@@ -204,6 +205,8 @@ export const createWindow = (): void => {
 
     // ── 读取主题配置，渲染窗口前就确定正确主题，避免闪现 ──
     const {backgroundColor: initialTheme, rawTheme: rawThemeForRenderer} = readThemeSetting()
+    // 系统语言：设置页「跟随系统(简体中文)」标签的真源（app 未 ready 时为空串，渲染端回退快照）
+    const systemLocale = readSystemLocale()
 
     // ── 平台检测 ──
     const isMac = process.platform === 'darwin'
@@ -282,6 +285,7 @@ export const createWindow = (): void => {
                 `--hclaw-win11=${isWin11 ? '1' : '0'}`,
                 `--hclaw-darwin=${isMac ? '1' : '0'}`,
                 `--hclaw-dev=${isDevMode() ? '1' : '0'}`,
+                `--hclaw-system-locale=${encodeURIComponent(systemLocale)}`,
             ],
             // 允许渲染进程加载本地文件（file://），用于 Markdown 图片渲染
             // 注意：contextIsolation: true 已将主进程 Node.js 与渲染进程隔离，风险可控

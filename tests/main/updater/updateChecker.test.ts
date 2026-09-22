@@ -1,17 +1,7 @@
 /**
  * updateChecker service 单测
  *
- * 覆盖设计文档中的 9 个用例：
- *   1. update-available
- *   2. up-to-date
- *   3. prerelease（已被 /releases/latest 过滤，mock 层不验证 — 此处验证 graceful）
- *   4. 网络错误 → network code
- *   5. 403 + X-RateLimit-Reset → rate-limit code
- *   6. 404 → parse code
- *   7. 非 semver tag → graceful up-to-date
- *   8. TTL 9 分钟内连续 2 次 → 第 2 次不调 axios
- *   9. TTL 11 分钟后 → 调 axios
- *   10. 并发 2 次 checkForUpdate → 只 1 次 axios 调用
+ * 版本判断 + 变更内容统一来自 CHANGELOG.json（GitHub raw 优先，Gitee raw 兜底，同一文件镜像）。
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -37,6 +27,7 @@ import {
   checkForUpdate,
   getStatus,
   init,
+  parseChangelogPayload,
 } from '../../../src/main/updater/updateChecker'
 
 const mockedAxiosGet = axios.get as unknown as ReturnType<typeof vi.fn>
@@ -59,99 +50,195 @@ function makeAxiosError(opts: {
   return err
 }
 
+const sampleChangelog = [
+  {
+    version: 'v0.2.88',
+    date: '2026-08-01',
+    title: '新功能上线',
+    items: ['支持自定义短语', '修复若干问题'],
+  },
+  {
+    version: 'v0.2.87',
+    date: '2026-07-30',
+    title: '稳定性修复',
+    items: ['修复缓存断裂'],
+  },
+]
+
+const GITHUB_CHANGELOG_URL = 'https://raw.githubusercontent.com/hamlin-zy/hclaw/main/CHANGELOG.json'
+const GITEE_CHANGELOG_URL = 'https://gitee.com/sunshao/hclaw/raw/main/CHANGELOG.json'
+
 beforeEach(() => {
   __resetCacheForTesting()
   mockedAxiosGet.mockReset()
+  mockedIsAxiosError.mockReset()
 })
 
 afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('updateChecker — happy path', () => {
-  it('GitHub 返回 v0.2.88，本地 v0.2.87 → update-available', async () => {
-    mockedAxiosGet.mockResolvedValueOnce({
-      data: {
-        tag_name: 'v0.2.88',
-        body: '## 新功能\n- xxx',
-        published_at: '2026-08-01T00:00:00Z',
-        html_url: 'https://github.com/hamlin-zy/hclaw/releases/tag/v0.2.88',
-      },
-    })
-
+describe('updateChecker — CHANGELOG.json 主路径', () => {
+  it('GitHub raw 返回更高版本 → update-available，changelog 含跨越条目', async () => {
+    mockedAxiosGet.mockResolvedValueOnce({ data: sampleChangelog })
     const result = await checkForUpdate()
-
     expect(result.status).toBe('update-available')
     expect(result.latestVersion).toBe('0.2.88')
-    expect(result.currentVersion).toBe('0.2.87')
-    expect(result.downloads.github).toBe(
-      'https://github.com/hamlin-zy/hclaw/releases/tag/v0.2.88'
-    )
-    expect(result.downloads.baiduPan).toContain('pan.baidu.com')
-    expect(result.releaseNotes).toBe('## 新功能\n- xxx')
-    expect(result.publishedAt).toBe('2026-08-01T00:00:00Z')
-    expect(result.error).toBeUndefined()
-  })
-
-  it('GitHub 返回 v0.2.86，本地 v0.2.87 → up-to-date', async () => {
-    mockedAxiosGet.mockResolvedValueOnce({
-      data: {
-        tag_name: 'v0.2.86',
-        body: '',
-        published_at: '2026-07-01T00:00:00Z',
-        html_url: 'https://github.com/hamlin-zy/hclaw/releases/tag/v0.2.86',
+    expect(result.changelog).toEqual([
+      {
+        version: 'v0.2.88',
+        date: '2026-08-01',
+        title: '新功能上线',
+        items: ['支持自定义短语', '修复若干问题'],
       },
-    })
-
-    const result = await checkForUpdate()
-
-    expect(result.status).toBe('up-to-date')
-    expect(result.latestVersion).toBe('0.2.87') // 填充为 currentVersion
-    expect(result.currentVersion).toBe('0.2.87')
+    ])
+    expect(result.source).toBe('github')
+    expect(mockedAxiosGet).toHaveBeenCalledWith(
+      GITHUB_CHANGELOG_URL,
+      expect.objectContaining({ timeout: 5000 })
+    )
   })
 
-  it('GitHub 返回 v0.2.87，本地 v0.2.87 → up-to-date（相等）', async () => {
+  it('多方条目都高于当前 → changelog 含全部跨越条目（倒序）', async () => {
     mockedAxiosGet.mockResolvedValueOnce({
-      data: { tag_name: 'v0.2.87', html_url: '...', published_at: '' },
+      data: [
+        { version: 'v0.2.90', date: '2026-08-03', title: '三', items: ['a'] },
+        { version: 'v0.2.88', date: '2026-08-01', title: '一', items: ['b'] },
+        { version: 'v0.2.87', date: '2026-07-30', title: '旧', items: ['c'] },
+      ],
+    })
+    const result = await checkForUpdate()
+    expect(result.status).toBe('update-available')
+    expect(result.latestVersion).toBe('0.2.90')
+    expect(result.changelog.map((e) => e.version)).toEqual(['v0.2.90', 'v0.2.88'])
+  })
+
+  it('首条版本 ≤ 当前版本 → up-to-date，changelog 为 []，latestVersion 填 currentVersion', async () => {
+    mockedAxiosGet.mockResolvedValueOnce({ data: sampleChangelog }) // 首条 v0.2.88 > 0.2.87，故构造相反数据
+    // 实际用首条 ≤ 当前的数据
+    mockedAxiosGet.mockReset()
+    mockedAxiosGet.mockResolvedValueOnce({
+      data: [
+        { version: 'v0.2.87', date: '2026-07-30', title: '稳定性修复', items: ['修复缓存断裂'] },
+      ],
     })
     const result = await checkForUpdate()
     expect(result.status).toBe('up-to-date')
+    expect(result.changelog).toEqual([])
+    expect(result.latestVersion).toBe('0.2.87')
+    expect(result.source).toBe('github')
   })
 
-  it('GitHub 返回非 semver tag（如 garbage）→ graceful up-to-date', async () => {
+  it('首条版本 == 当前版本 → up-to-date（相等）', async () => {
     mockedAxiosGet.mockResolvedValueOnce({
-      data: { tag_name: 'garbage', html_url: '...', published_at: '' },
+      data: [{ version: 'v0.2.87', date: '2026-07-30', title: 'x', items: [] }],
+    })
+    const result = await checkForUpdate()
+    expect(result.status).toBe('up-to-date')
+    expect(result.changelog).toEqual([])
+  })
+
+  it('首条非 semver → graceful up-to-date', async () => {
+    mockedAxiosGet.mockResolvedValueOnce({
+      data: [{ version: 'garbage', date: '', title: 'x', items: [] }],
     })
     const result = await checkForUpdate()
     expect(result.status).toBe('up-to-date')
     expect(result.latestVersion).toBe('0.2.87')
+    expect(result.changelog).toEqual([])
+  })
+
+  it('空数组 → graceful up-to-date（空 changelog，latestVersion 填 currentVersion）', async () => {
+    mockedAxiosGet.mockResolvedValueOnce({ data: [] })
+    const result = await checkForUpdate()
+    expect(result.status).toBe('up-to-date')
+    expect(result.latestVersion).toBe('0.2.87')
+    expect(result.changelog).toEqual([])
+    expect(result.error).toBeUndefined()
+  })
+
+  it('下载 URL = GITHUB_DOWNLOADS_BASE_URL/releases/tag/v${latestVersion}', async () => {
+    mockedAxiosGet.mockResolvedValueOnce({ data: sampleChangelog })
+    const result = await checkForUpdate()
+    expect(result.downloads.github).toBe(
+      'https://github.com/hamlin-zy/hclaw/releases/tag/v0.2.88'
+    )
+    expect(result.downloads.baiduPan).toContain('pan.baidu.com')
+  })
+})
+
+describe('updateChecker — parseChangelogPayload', () => {
+  it('payload 非数组 → null', () => {
+    expect(parseChangelogPayload('not-array', '0.2.87')).toBeNull()
+    expect(parseChangelogPayload({}, '0.2.87')).toBeNull()
+  })
+
+  it('payload 空数组 → graceful up-to-date', () => {
+    expect(parseChangelogPayload([], '0.2.87')).toEqual({
+      status: 'up-to-date',
+      latestVersion: '0.2.87',
+      changelog: [],
+    })
+  })
+
+  it('非法的 JSON 字符串（data 为 string 时非数组）→ null', () => {
+    expect(parseChangelogPayload('not-json', '0.2.87')).toBeNull()
   })
 })
 
 describe('updateChecker — 错误分类', () => {
-  it('ECONNREFUSED → network 错误', async () => {
-    mockedAxiosGet.mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
+  it('JSON 非法（data 非数组）→ error 且 code 为 parse', async () => {
+    mockedAxiosGet.mockResolvedValueOnce({ data: 'not-json' })
+    const result = await checkForUpdate()
+    expect(result.status).toBe('error')
+    expect(result.error?.code).toBe('parse')
+    expect(result.changelog).toEqual([])
+  })
+
+  it('ECONNREFUSED + Gitee raw 成功（更高版本）→ update-available、source === gitee', async () => {
+    mockedAxiosGet
+      .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
+      .mockResolvedValueOnce({ data: sampleChangelog })
+    const result = await checkForUpdate()
+    expect(result.status).toBe('update-available')
+    expect(result.latestVersion).toBe('0.2.88')
+    expect(result.source).toBe('gitee')
+    expect(result.changelog.length).toBeGreaterThan(0)
+    expect(mockedAxiosGet).toHaveBeenLastCalledWith(
+      GITEE_CHANGELOG_URL,
+      expect.objectContaining({ timeout: 5000 })
+    )
+  })
+
+  it('双渠道失败 → error 且 code 为 network', async () => {
+    mockedAxiosGet
+      .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
+      .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
     const result = await checkForUpdate()
     expect(result.status).toBe('error')
     expect(result.error?.code).toBe('network')
     expect(result.error?.message).toBe('网络异常')
   })
 
+  it('ECONNREFUSED → network 错误', async () => {
+    mockedAxiosGet
+      .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
+      .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
+    const result = await checkForUpdate()
+    expect(result.status).toBe('error')
+    expect(result.error?.code).toBe('network')
+  })
+
   it('ETIMEDOUT → network 错误', async () => {
-    mockedAxiosGet.mockRejectedValueOnce(makeAxiosError({ code: 'ETIMEDOUT' }))
+    mockedAxiosGet
+      .mockRejectedValueOnce(makeAxiosError({ code: 'ETIMEDOUT' }))
+      .mockRejectedValueOnce(makeAxiosError({ code: 'ETIMEDOUT' }))
     const result = await checkForUpdate()
     expect(result.status).toBe('error')
     expect(result.error?.code).toBe('network')
   })
 
-  it('ENOTFOUND → network 错误', async () => {
-    mockedAxiosGet.mockRejectedValueOnce(makeAxiosError({ code: 'ENOTFOUND' }))
-    const result = await checkForUpdate()
-    expect(result.status).toBe('error')
-    expect(result.error?.code).toBe('network')
-  })
-
-  it('HTTP 403 + X-RateLimit-Reset → rate-limit 错误（带分钟数）', async () => {
+  it('HTTP 403 + X-RateLimit-Reset → rate-limit 错误（带分钟数，GitHub API 移除后不再触发）', async () => {
     const futureReset = Math.floor((Date.now() + 5 * 60 * 1000) / 1000)
     mockedAxiosGet.mockRejectedValueOnce(
       makeAxiosError({
@@ -198,87 +285,49 @@ describe('updateChecker — 错误分类', () => {
     expect(result.status).toBe('error')
     expect(result.error?.code).toBe('unknown')
   })
-
-  it('axios.isAxiosError 返回 false 但错误有 status → unknown（不应误判为 axios 错误）', async () => {
-    // 边界情况：__isAxiosError 没设置时
-    mockedIsAxiosError.mockReturnValueOnce(false)
-    mockedAxiosGet.mockRejectedValueOnce({ status: 500, message: 'fake' })
-    const result = await checkForUpdate()
-    expect(result.status).toBe('error')
-    expect(result.error?.code).toBe('unknown')
-  })
 })
 
 describe('updateChecker — Gitee 兜底', () => {
-  it('GitHub 失败 + Gitee 返回更高版本 → update-available（notes/publishedAt 为空）', async () => {
-    mockedAxiosGet
-      .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
-      .mockResolvedValueOnce({ data: { version: '0.2.90' } })
-
-    const result = await checkForUpdate()
-
-    expect(result.status).toBe('update-available')
-    expect(result.latestVersion).toBe('0.2.90')
-    expect(result.currentVersion).toBe('0.2.87')
-    expect(result.releaseNotes).toBe('')
-    expect(result.publishedAt).toBe('')
-    expect(result.downloads.baiduPan).toContain('pan.baidu.com')
-    // 第 2 次调用是 Gitee raw package.json
-    expect(mockedAxiosGet).toHaveBeenLastCalledWith(
-      'https://gitee.com/sunshao/hclaw/raw/main/package.json',
-      expect.objectContaining({ timeout: 5000 })
-    )
-  })
-
   it('GitHub 失败 + Gitee 版本 ≤ 当前版本 → up-to-date', async () => {
     mockedAxiosGet
       .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
-      .mockResolvedValueOnce({ data: { version: '0.2.87' } })
-
+      .mockResolvedValueOnce({
+        data: [{ version: 'v0.2.87', date: '2026-07-30', title: 'x', items: [] }],
+      })
     const result = await checkForUpdate()
     expect(result.status).toBe('up-to-date')
+    expect(result.changelog).toEqual([])
+    expect(result.source).toBe('gitee')
   })
 
   it('GitHub 失败 + Gitee 返回非 semver 版本 → graceful up-to-date', async () => {
     mockedAxiosGet
       .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
-      .mockResolvedValueOnce({ data: { version: 'garbage' } })
-
+      .mockResolvedValueOnce({
+        data: [{ version: 'garbage', date: '', title: 'x', items: [] }],
+      })
     const result = await checkForUpdate()
     expect(result.status).toBe('up-to-date')
   })
 
-  it('GitHub 失败 + Gitee 也失败 → 返回原 error 分类', async () => {
+  it('GitHub 失败 + Gitee 也失败 → 返回 network 分类', async () => {
     mockedAxiosGet
       .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
       .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
-
     const result = await checkForUpdate()
     expect(result.status).toBe('error')
     expect(result.error?.code).toBe('network')
-  })
-
-  it('GitHub 失败 + Gitee 兜底成功 → 结果写入缓存', async () => {
-    mockedAxiosGet
-      .mockRejectedValueOnce(makeAxiosError({ code: 'ECONNREFUSED' }))
-      .mockResolvedValueOnce({ data: { version: '0.2.90' } })
-
-    await checkForUpdate()
-    const cached = await getStatus()
-    expect(cached?.status).toBe('update-available')
-    expect(cached?.latestVersion).toBe('0.2.90')
   })
 })
 
 describe('updateChecker — 缓存行为', () => {
   it('init() 触发首次检查并填充缓存', async () => {
-    mockedAxiosGet.mockResolvedValueOnce({
-      data: { tag_name: 'v0.2.88', html_url: '...', published_at: '' },
-    })
+    mockedAxiosGet.mockResolvedValueOnce({ data: sampleChangelog })
     await init()
     const cached = await getStatus()
     expect(cached).not.toBeNull()
     expect(cached?.status).toBe('update-available')
+    expect(cached?.changelog.length).toBeGreaterThan(0)
   })
 
   it('getStatus() 在缓存为空时返回 null', async () => {
@@ -286,17 +335,10 @@ describe('updateChecker — 缓存行为', () => {
     expect(cached).toBeNull()
   })
 
-  it('TTL 内连续 2 次 getStatus — 第 2 次返回缓存，不调 axios', async () => {
-    mockedAxiosGet.mockResolvedValueOnce({
-      data: { tag_name: 'v0.2.88', html_url: '...', published_at: '' },
-    })
+  it('TTL 内 getStatus 返回缓存，不调 axios', async () => {
+    mockedAxiosGet.mockResolvedValueOnce({ data: sampleChangelog })
     await checkForUpdate()
-    // 此时 axios 已被调 1 次
-
-    // 重置 mock 调用计数，但保留实现
     mockedAxiosGet.mockClear()
-
-    // TTL 内 getStatus 应返回缓存，不再调 axios
     const cached = await getStatus()
     expect(cached).not.toBeNull()
     expect(mockedAxiosGet).not.toHaveBeenCalled()
@@ -309,18 +351,10 @@ describe('updateChecker — 缓存行为', () => {
         resolveAxios = resolve
       })
     )
-
-    // 启动 2 个并发请求
     const p1 = checkForUpdate()
     const p2 = checkForUpdate()
-
-    // 让 axios resolve
-    resolveAxios({
-      data: { tag_name: 'v0.2.88', html_url: '...', published_at: '' },
-    })
-
+    resolveAxios({ data: sampleChangelog })
     const [r1, r2] = await Promise.all([p1, p2])
-
     expect(r1.status).toBe('update-available')
     expect(r2.status).toBe('update-available')
     expect(mockedAxiosGet).toHaveBeenCalledTimes(1)
@@ -330,37 +364,31 @@ describe('updateChecker — 缓存行为', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-24T00:00:00Z'))
 
-    mockedAxiosGet.mockResolvedValueOnce({
-      data: { tag_name: 'v0.2.88', html_url: '...', published_at: '' },
-    })
+    mockedAxiosGet.mockResolvedValueOnce({ data: sampleChangelog })
     await checkForUpdate()
     expect(mockedAxiosGet).toHaveBeenCalledTimes(1)
 
-    // 时间快进 11 分钟（超过 10 分钟 TTL）
     vi.setSystemTime(new Date('2026-07-24T00:11:00Z'))
 
     mockedAxiosGet.mockResolvedValueOnce({
-      data: { tag_name: 'v0.2.89', html_url: '...', published_at: '' },
+      data: [
+        { version: 'v0.2.89', date: '2026-08-02', title: '二', items: ['x'] },
+      ],
     })
     const result = await checkForUpdate()
     expect(mockedAxiosGet).toHaveBeenCalledTimes(2)
     expect(result.latestVersion).toBe('0.2.89')
-
-    vi.useRealTimers()
   })
 })
 
-describe('updateChecker — GitHub API 请求参数', () => {
-  it('使用正确的 URL 和 headers', async () => {
-    mockedAxiosGet.mockResolvedValueOnce({
-      data: { tag_name: 'v0.2.88', html_url: '...', published_at: '' },
-    })
+describe('updateChecker — GitHub raw 请求参数', () => {
+  it('使用正确的 URL 和 User-Agent header', async () => {
+    mockedAxiosGet.mockResolvedValueOnce({ data: sampleChangelog })
     await checkForUpdate()
     expect(mockedAxiosGet).toHaveBeenCalledWith(
-      'https://api.github.com/repos/hamlin-zy/hclaw/releases/latest',
+      GITHUB_CHANGELOG_URL,
       expect.objectContaining({
         headers: expect.objectContaining({
-          Accept: 'application/vnd.github+json',
           'User-Agent': 'HClaw-Updater/0.2.87',
         }),
       })
@@ -368,9 +396,7 @@ describe('updateChecker — GitHub API 请求参数', () => {
   })
 
   it('设置了 5 秒超时', async () => {
-    mockedAxiosGet.mockResolvedValueOnce({
-      data: { tag_name: 'v0.2.88', html_url: '...', published_at: '' },
-    })
+    mockedAxiosGet.mockResolvedValueOnce({ data: sampleChangelog })
     await checkForUpdate()
     expect(mockedAxiosGet).toHaveBeenCalledWith(
       expect.any(String),
@@ -380,24 +406,36 @@ describe('updateChecker — GitHub API 请求参数', () => {
 })
 
 describe('updateChecker — 边界情况', () => {
-  it('GitHub 返回的 data 缺字段（如 html_url 缺失）→ 仍能构建 result', async () => {
+  it('changelog 中缺 items 的中间条目 → 被丢弃、不出现、不抛错', async () => {
     mockedAxiosGet.mockResolvedValueOnce({
-      data: { tag_name: 'v0.2.88' /* 其他字段缺失 */ },
+      data: [
+        { version: 'v0.2.90', date: '2026-08-03', title: '三', items: ['c'] },
+        { version: 'v0.2.89', date: '2026-08-02', title: '缺 items 的中间条目' },
+        { version: 'v0.2.88', date: '2026-08-01', title: '二', items: ['a'] },
+      ],
     })
     const result = await checkForUpdate()
     expect(result.status).toBe('update-available')
-    expect(result.downloads.github).toBe('https://github.com/hamlin-zy/hclaw/releases')
-    expect(result.downloads.baiduPan).toContain('pan.baidu.com')
-    expect(result.releaseNotes).toBe('')
-    expect(result.publishedAt).toBe('')
+    expect(result.latestVersion).toBe('0.2.90')
+    expect(result.changelog.map((e) => e.version)).toEqual(['v0.2.90', 'v0.2.88'])
+    expect(result.changelog.some((e) => e.title === '缺 items 的中间条目')).toBe(false)
+    // 每个保留条目的 items 都可安全 map（Task 4/5 消费不崩溃）
+    expect(() => result.changelog.forEach((e) => e.items.map((i) => i))).not.toThrow()
   })
 
-  it('GitHub 返回 tag_name 为空字符串 → graceful up-to-date', async () => {
+  it('changelog 中缺 date/title/items 的条目一律丢弃 → 仅保留完整条目', async () => {
     mockedAxiosGet.mockResolvedValueOnce({
-      data: { tag_name: '', html_url: '...', published_at: '' },
+      data: [
+        { version: 'v0.2.90', date: '2026-08-03', title: '三', items: ['c'] },
+        { version: 'v0.2.89', date: '2026-08-02', title: '缺 items' },
+        { version: 'v0.2.88', date: '', title: '空日期', items: ['b'] },
+        { version: 'v0.2.87', date: '2026-07-30', title: '', items: ['a'] },
+      ],
     })
     const result = await checkForUpdate()
-    expect(result.status).toBe('up-to-date')
+    expect(result.changelog).toEqual([
+      { version: 'v0.2.90', date: '2026-08-03', title: '三', items: ['c'] },
+    ])
   })
 
   it('错误结果也写入缓存 — 避免每次打开关于页面都重试', async () => {

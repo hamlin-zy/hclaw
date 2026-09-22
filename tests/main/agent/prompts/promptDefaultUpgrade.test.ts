@@ -66,8 +66,11 @@ describe('promptDefaultUpgrade — 默认值守卫', () => {
             'routing-refresh-baseline',
             'routing-patch-duty-bullet',
             'routing-patch-priority-block',
+            'output-refresh-baseline',
+            'output-patch-thinking-bullet',
         ])
-        expect(PROMPT_NODE_MIGRATIONS.every((m) => m.nodeKey === 'system.routing')).toBe(true)
+        expect(PROMPT_NODE_MIGRATIONS.filter((m) => m.nodeKey === 'system.routing')).toHaveLength(3)
+        expect(PROMPT_NODE_MIGRATIONS.filter((m) => m.nodeKey === 'system.output')).toHaveLength(2)
     })
 })
 
@@ -178,6 +181,71 @@ describe('锚点补丁 — 用户改过时', () => {
         const result = migrateById('routing-patch-priority-block', userEdited)
         expect(result.outcome).toBe('skipped')
         expect(result.reason).toBe('anchor-miss-priority-block')
+        expect(result.content).toBe(userEdited)
+    })
+})
+
+// ─── system.output：思考不预写正文 ──────────────────────────
+
+const OUTPUT_DEFAULT_V1 = `## 输出规范
+
+- **结论先行** — 直接回答，不要铺垫
+- **简洁** — 不用 emoji（除非用户要求），不重复用户的话
+- **可追溯** — 引用代码用 \`file:line\`，GitHub 用 \`owner/repo#123\`
+- **高效更新** — 增量修改时简短说明变更即可`
+
+function newOutputDefault(): string {
+    const node = getPromptNodeByKey('system.output')
+    if (!node) throw new Error('system.output 节点缺失')
+    return node.defaultValue
+}
+
+function migrateOutput(content: string) {
+    return runPromptNodeMigrations('system.output', content)
+}
+
+describe('system.output — 思考不预写正文', () => {
+    it('新默认值含「思考不预写正文」条目，且旧默认值全文不含该条目（防误判已升级）', () => {
+        expect(newOutputDefault()).toContain('- **思考不预写正文**')
+        expect(OUTPUT_DEFAULT_V1).not.toContain('思考不预写正文')
+    })
+
+    it('旧默认值全文 → 基线命中，整体替换为新默认值', () => {
+        const result = migrateOutput(OUTPUT_DEFAULT_V1)
+        expect(result.applied).toContain('output-refresh-baseline')
+        expect(result.content).toBe(newOutputDefault())
+    })
+
+    it('用户改过输出规范 → 基线跳过，只追加新条目（其余自定义保留）', () => {
+        const userEdited = OUTPUT_DEFAULT_V1.replace('- **简洁** — 不用 emoji（除非用户要求），不重复用户的话', '- **简洁** — 我们团队要求极简输出')
+        const result = migrateOutput(userEdited)
+
+        expect(result.applied).toEqual(['output-patch-thinking-bullet'])
+        expect(result.content).toContain('- **简洁** — 我们团队要求极简输出')
+        expect(result.content).toContain('- **思考不预写正文**')
+        // 只追加一条，不重复
+        expect(result.content.match(/- \*\*思考不预写正文\*\*/g)?.length).toBe(1)
+    })
+
+    it('已含新条目 → 幂等 noop', () => {
+        const result = migrateOutput(newOutputDefault())
+        expect(result.applied).toEqual([])
+        expect(result.content).toBe(newOutputDefault())
+    })
+
+    it('CRLF 版本命中的锚点保持 CRLF 风格', () => {
+        const crlf = OUTPUT_DEFAULT_V1.replace(/\n/g, '\r\n')
+        const result = migrateOutput(crlf)
+        expect(result.applied).toContain('output-patch-thinking-bullet')
+        expect(result.content).toContain('\r\n')
+        expect(result.content).not.toMatch(/[^\r]\n/)
+    })
+
+    it('锚点行被用户改写 → skipped，内容原样（不误覆盖）', () => {
+        const userEdited = OUTPUT_DEFAULT_V1.replace('- **高效更新** — 增量修改时简短说明变更即可', '- **高效更新** — 我们自己决定怎么写')
+        const result = migrateById('output-patch-thinking-bullet', userEdited)
+        expect(result.outcome).toBe('skipped')
+        expect(result.reason).toBe('anchor-miss-output-last-line')
         expect(result.content).toBe(userEdited)
     })
 })

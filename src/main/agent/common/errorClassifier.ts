@@ -460,6 +460,65 @@ function isContextLengthError(err: any): boolean {
 }
 
 // ============================================
+// 不可重试错误模式（内容风控等）
+// ============================================
+
+/**
+ * 不可重试错误模式列表。
+ *
+ * 命中时立即中断重试，将原始错误返回给调用方（上级 Agent），
+ * 让调用方自主决定下一步（换服务商 / 跳过 / 改写内容）。
+ *
+ * 判定依据：这些错误重发同样的请求内容也不会通过（风控非确定性偶尔放行，
+ * 但 100 次重试的空转成本 + 余额耗尽风险远大于偶尔通过的价值）。
+ *
+ * 后续发现新的"重试不可能恢复"的错误时，随时补充。
+ */
+const NON_RETRYABLE_PATTERNS: readonly string[] = [
+    'content exists risk',   // DeepSeek / 部分国内服务商内容风控
+    'content_filter',        // Azure OpenAI 内容过滤
+    'content policy',        // OpenAI 内容策略
+    'content_violation',     // 通用内容违规
+]
+
+/**
+ * 判定错误是否属于不可重试模式（内容风控等）。
+ *
+ * 匹配范围：error.message + 响应体 error.message + 响应体原始 JSON。
+ * 大小写不敏感，子串匹配。
+ */
+export function isNonRetryableError(error: any): boolean {
+    if (!error) return false
+    const candidates: string[] = []
+
+    // 1. error.message（SDK 泛化文案，常含状态码 + 响应体片段）
+    if (typeof error.message === 'string') candidates.push(error.message)
+
+    // 2. 响应体 error.message（OpenAI 风格 {error: {message}}）
+    const data = error.response?.data ?? error.data ?? error.body
+    if (data) {
+        if (typeof data === 'string') {
+            candidates.push(data)
+        } else if (data.error && typeof data.error === 'object' && typeof data.error.message === 'string') {
+            candidates.push(data.error.message)
+        } else if (typeof data.error === 'string') {
+            candidates.push(data.error)
+        } else if (typeof data.message === 'string') {
+            candidates.push(data.message)
+        }
+        // 响应体原始 JSON（兜底：部分服务商的自定义字段不在 message 里）
+        try { candidates.push(JSON.stringify(data)) } catch { /* 循环引用忽略 */ }
+    }
+
+    // 3. SDK 顶层 error 属性
+    if (typeof error.error === 'string') candidates.push(error.error)
+    if (typeof error.error?.message === 'string') candidates.push(error.error.message)
+
+    const haystack = candidates.join(' ').toLowerCase()
+    return NON_RETRYABLE_PATTERNS.some(p => haystack.includes(p))
+}
+
+// ============================================
 // 向后兼容的 API
 // ============================================
 

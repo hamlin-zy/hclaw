@@ -81,6 +81,7 @@ export const useAgentStore = create<AgentStore>()(
             errorMessage: null,
             modelOverride: null,
             convAgentStates: {},
+            doneUnreadIds: {},
 
             // ── 多会话状态管理 ──────────────────────────────
             getConvData: (convId) => {
@@ -130,6 +131,23 @@ export const useAgentStore = create<AgentStore>()(
                 // ★ 兜底清理：会话删除/不活跃回收时清掉该会话的运行时工具状态与段边界状态
                 //   （常规路径工具完成时已即时清理，此处兜底异常残留）
                 clearConversationRuntimeState(convId)
+            },
+
+            // ── 后台会话「已完成未读」标记 ──────────────────────
+            // ★ 顶层 map（不进 convAgentStates）：见 types.ts doneUnreadIds 说明。
+            //   置位口径在 handleDone（reason / 激活态 / 子会话 / 调度会话 / 续跑多条件
+            //   集中在事件侧一处判定），此处只做纯状态写入。
+            markConvDoneUnread: (convId) => {
+                set({doneUnreadIds: {...get().doneUnreadIds, [convId]: Date.now()}})
+            },
+
+            clearConvDoneUnread: (convId) => {
+                const cur = get().doneUnreadIds
+                // 不存在即早退：避免每次激活都产出新对象引用，触发无关订阅重渲染
+                if (!(convId in cur)) return
+                const next = {...cur}
+                delete next[convId]
+                set({doneUnreadIds: next})
             },
 
             // ── 任务批次水合（应用重启/刷新恢复） ──────────────────────
