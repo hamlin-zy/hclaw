@@ -180,11 +180,13 @@ export class ConversationPersistence {
 
   // ─── record* 便捷方法（streamBridge 桥接用，全部委托 accumulate；语义平移自 conversationStore.ts:213-295）───
 
-  /** text 增量块：id = `text-${msgId}-${textSeq}`（同 id 增量拼接，mergeBlocksById text 分支） */
-  recordTextChunk(convId: string, msgId: string, textSeq: number, chunk: string, turnIndex?: number): void {
+  /** text 增量块：id = `text-${msgId}-${blockSuffix}`（同 id 增量拼接，mergeBlocksById text 分支）。
+   *  ★ blockSuffix 由 streamBridge 按轮次派生（`t${turn}`，2026-09-22 块 id 稳定化）——
+   *  一次 LLM 调用内 text 恒为一个块；此前传的段号型 textSeq 会随 think 段漂移把正文切成多块。 */
+  recordTextChunk(convId: string, msgId: string, blockSuffix: string, chunk: string, turnIndex?: number): void {
     if (!chunk) return
     this.accumulate(convId, msgId, {upsertBlocks: [{
-      id: `text-${msgId}-${textSeq}`, messageId: msgId, blockType: 'text',
+      id: `text-${msgId}-${blockSuffix}`, messageId: msgId, blockType: 'text',
       content: chunk, data: null, sequence: 0, timestamp: Date.now(), turnIndex,
     }]})
   }

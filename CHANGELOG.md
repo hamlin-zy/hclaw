@@ -7,6 +7,24 @@
 
 ---
 
+## [v0.5.20] - 2026-09-22
+
+### 新增
+- **禁用插件不参与更新检查** — 启动自动检查跳过禁用插件、导出红点数据按启用态过滤；重新启用后后台补查一次版本（不 await，不拖慢启用响应），手动「同步版本」「升级」不受限 (`versionManager` / `plugin/ipc` / `PluginDialog`)
+
+### 修复
+- **重启后助手消息块序错位、长会话重建丢正文** — 助手消息块 id 改按轮次派生（一次 LLM 调用内 text 恒为一个块，不再随 think 段漂移切块）；旧形态重排产物继承原 text 块 `turnIndex`，避免被按轮分组时丢弃 (`streamBridge` / `messageBlockHelper` / `conversationPersistence`)
+- **重启后环境快照 / 记忆消息重复注入** — 重建白名单补收拢 `envDigest` / `memoryDigest`，否则重建时重复 seed (`userContentBuilder`)
+- **手动终止后子会话卡「运行中」/ 助手消息缺终止时间** — abort 进入即级联向全部子孙广播 `done(aborted)`（不依赖优雅窗口身份守卫）；窗口到期先兜底 finalize（补 end 块 + `ended_at`，幂等）再 terminate + cleanup，并对新 worker 复检身份 (`manager.impl`)
+- **构建：rcedit 写 PE 资源偶发失败** — 遇瞬时文件锁改为有限退避重试 (`build/afterPack.js`)
+- **关于页 / 变更日志长文本不换行** — 标题与条目改 `break-words`，移除容器限宽 (`AboutDialog` / `ChangelogView`)
+
+### 变更
+- **`message_blocks` 四列不可变守卫** — 迁移 051 在 SQL 层拦截 `id` / `sequence` / `block_type` / `message_id` 的 UPDATE（`REPLACE` 路径为已知盲区，由测试固化边界） (`migrations/051_message_blocks_immutable_columns.sql`)
+- **补回归用例** — 前缀一致性（冷启动 / 会话切换 / 子会话 / abort 后继续）、abort 级联与兜底 finalize、块不可变守卫、插件红点启用态过滤、缓存命中率分层口径 (`tests/main/**`)
+
+---
+
 ## [v0.5.19] - 2026-09-22
 
 ### 新增

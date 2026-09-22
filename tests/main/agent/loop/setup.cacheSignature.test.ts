@@ -87,3 +87,41 @@ describe('buildSystemPrompt 签名守卫', () => {
         expect(changed).toBe(noDef)
     })
 })
+
+/**
+ * P1-11：签名键集固化（controller.ts:252-263）。
+ *
+ * 现状（方案 A）：键集 = {workingDir, agentType, customInstructions}（无语言段时），
+ * 有子会话语言段时 +languageSection。shell / Node 版本 / hclawDir / MCP 元数据
+ * 均不入键 —— 这些字段只影响**构建时的字节**，签名一致即复用旧字节（前缀稳定）。
+ * 若将来扩签名（方案 B），本文件与 systemPrompt.envStability.test.ts 的复用用例必须同改。
+ */
+describe('buildSystemSignature 键集（P1-11）', () => {
+    it('workingDir 变化 → 签名不同（workspace 变更必须重建 system）', () => {
+        const a = buildSystemSignature('/x', 'General', undefined, undefined)
+        const b = buildSystemSignature('/y', 'General', undefined, undefined)
+        expect(b).not.toBe(a)
+    })
+
+    it('键集固化：仅 workingDir / agentType / customInstructions（无语言段时）', () => {
+        const sig = buildSystemSignature('/x', 'General', undefined, undefined)
+        expect(Object.keys(JSON.parse(sig))).toEqual(['workingDir', 'agentType', 'customInstructions'])
+    })
+
+    it('键集固化：有子会话语言段时追加 languageSection', () => {
+        const sig = buildSystemSignature('/x', 'General', undefined, undefined, '始终用简体中文')
+        expect(Object.keys(JSON.parse(sig))).toEqual(['workingDir', 'agentType', 'customInstructions', 'languageSection'])
+        expect(sig).toContain('始终用简体中文')
+    })
+
+    it('环境字段不在键内：同参重复调用恒等（shell / Node / hclawDir / MCP 无可入键通道）', () => {
+        const a = buildSystemSignature('/x', 'General', undefined, undefined)
+        const b = buildSystemSignature('/x', 'General', undefined, undefined)
+        expect(a).toBe(b)
+        // 结构保证：签名函数只接收上述 5 个参数，环境字段无任何入键通道
+        expect(JSON.parse(a)).not.toHaveProperty('shell')
+        expect(JSON.parse(a)).not.toHaveProperty('nodeVersion')
+        expect(JSON.parse(a)).not.toHaveProperty('hclawDir')
+        expect(JSON.parse(a)).not.toHaveProperty('mcp')
+    })
+})

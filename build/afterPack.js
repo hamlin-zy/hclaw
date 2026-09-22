@@ -242,20 +242,55 @@ async function embedIcon(context) {
     args.push('--set-version-string', 'CompanyName', appInfo.companyName);
   }
 
-  const result = spawnSync(rceditPath, args, {
-    stdio: 'pipe',
-    timeout: 30000,
-  });
+  // ★ 为什么需要重试（实测根因，勿删）：
+  // rcedit 内部走 Windows 的 UpdateResource/EndUpdateResource API，属于**就地改写** PE 资源。
+  // 只要该 exe 在改写期间被任何第三方进程短暂持有，commit 阶段就会直接失败，报
+  //   Fatal error: Unable to commit changes
+  // afterPack 恰好紧跟在 electron-builder 自己重写 exe 之后执行
+  // （app-builder-lib 的 addWinAsarIntegrity 会 readFile + writeFile 整个 235MB exe），
+  // 实测命中该瞬时锁的概率约 50%（同一 exe 在构建结束后手工 rcedit 则必然成功，
+  // 换个目录、换台盘符同样会随机失败），表现为「几乎每次构建都报这个错」。
+  // 因此对这类瞬时错误做有限退避重试（累计等待约 15.5s，足以越过扫描/索引窗口）；
+  // 非瞬时错误（参数错误、文件缺失等）立即抛出，不做无谓等待。
+  const RETRY_DELAYS_MS = [0, 500, 1000, 2000, 4000, 8000];
+  const isTransientResourceError = (stderr) =>
+    /Unable to commit changes|resource busy|busy or locked|sharing violation|being used by another process|Access is denied/i.test(
+      stderr,
+    );
 
-  if (result.error) {
-    throw new Error(`[embed-icon] rcedit spawn failed: ${result.error.message}`);
-  }
-  if (result.status !== 0) {
-    const stderr = result.stderr?.toString().trim();
-    throw new Error(`[embed-icon] rcedit exited with code ${result.status}: ${stderr || 'unknown error'}`);
+  let lastError = '';
+  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
+    if (RETRY_DELAYS_MS[attempt] > 0) {
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+    }
+
+    const result = spawnSync(rceditPath, args, {
+      stdio: 'pipe',
+      timeout: 30000,
+    });
+
+    if (result.error) {
+      throw new Error(`[embed-icon] rcedit spawn failed: ${result.error.message}`);
+    }
+    if (result.status === 0) {
+      console.log(
+        attempt === 0
+          ? `[embed-icon] OK: icon + version strings set (${path.basename(iconPath)})`
+          : `[embed-icon] OK on attempt ${attempt + 1}/${RETRY_DELAYS_MS.length}: icon + version strings set (${path.basename(iconPath)})`,
+      );
+      return;
+    }
+
+    lastError = result.stderr?.toString().trim() || `exit code ${result.status}`;
+    if (!isTransientResourceError(lastError)) {
+      break;
+    }
+    console.warn(
+      `[embed-icon] attempt ${attempt + 1}/${RETRY_DELAYS_MS.length} failed (transient, will retry): ${lastError}`,
+    );
   }
 
-  console.log(`[embed-icon] OK: icon + version strings set (${path.basename(iconPath)})`);
+  throw new Error(`[embed-icon] rcedit failed after ${RETRY_DELAYS_MS.length} attempts: ${lastError}`);
 }
 
 /**

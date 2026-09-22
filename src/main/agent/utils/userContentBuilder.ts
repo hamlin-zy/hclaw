@@ -115,6 +115,10 @@ export interface HistoryUserRow {
     /** 语言守卫恢复字段（DB 读回约定：展开到消息顶层；漏收拢会让重启后重复 seed、配额重置） */
     languageGuardCount?: unknown
     languageGuardDigest?: unknown
+    /** 环境快照恢复字段（DB 读回约定：展开到消息顶层；漏收拢会让重启后重复注入环境快照） */
+    envDigest?: unknown
+    /** 记忆恢复字段（DB 读回约定：展开到消息顶层；漏收拢会让重启后重复注入记忆消息） */
+    memoryDigest?: unknown
 }
 
 /** 重建后的 user 消息 */
@@ -152,6 +156,8 @@ export async function convertUserHistoryMessage(msg: HistoryUserRow): Promise<Re
         ...(msg.catalogSuperseded !== undefined ? {catalogSuperseded: msg.catalogSuperseded} : {}),
         ...(msg.languageGuardCount !== undefined ? {languageGuardCount: msg.languageGuardCount} : {}),
         ...(msg.languageGuardDigest !== undefined ? {languageGuardDigest: msg.languageGuardDigest} : {}),
+        ...(msg.envDigest !== undefined ? {envDigest: msg.envDigest} : {}),
+        ...(msg.memoryDigest !== undefined ? {memoryDigest: msg.memoryDigest} : {}),
     }
 
     const result: RebuiltUserMessage[] = [{

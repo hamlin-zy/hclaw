@@ -2,7 +2,7 @@
  * PluginVersionManager — 插件版本管理核心模块
  *
  * 职责：
- *   1. 启动时对所有 git 源插件执行 git fetch --tags，缓存版本列表
+ *   1. 启动时对所有已启用的 git 源插件执行 git fetch --tags，缓存版本列表
  *   2. 提供版本查询（tags/branches/latest/hasUpdate）
  *   3. 提供版本切换能力（git checkout + powerManager.refresh）
  *   4. 检测有可用更新的插件并推送红点状态
@@ -11,6 +11,10 @@
  *   index.ts (启动) → startupCheck() → 缓存 → webContents.send 推送
  *   PluginDialog  → syncVersions(name) → 更新缓存 → 推送
  *   PluginDialog  → switchVersion(name, ref) → git checkout → powerManager.refresh
+ *   plugin/ipc.ts → handleEnable() → 后台 syncVersions(name) → 推送（重新启用后补红点）
+ *
+ * 红点口径：只有已启用插件参与 —— startupCheck 跳过禁用插件，getAllVersionMeta 导出时
+ * 按注册表启用态过滤；禁用插件仍可手动「同步版本」「升级」。
  */
 
 import {PluginInstaller} from './installer'
@@ -54,7 +58,8 @@ class PluginVersionManagerImpl {
 
   /**
    * 启动时调用 — fire-and-forget。
-   * 对所有 git 源插件执行 git fetch --tags 并缓存版本信息。
+   * 对**已启用**的 git 源插件执行 git fetch --tags 并缓存版本信息。
+   * 禁用插件不参与自动检查（不亮红点）；用户手动「同步版本」「升级」不受此限。
    * 结果通过 webContents.send('plugin:status-update', data) 推送，
    * 由调用方（index.ts 中的 ipc handler）获取 mainWindow 发送。
    */
@@ -62,7 +67,7 @@ class PluginVersionManagerImpl {
     const registry = PluginRegistry.getInstance()
     const allPlugins = registry.getAll()
     const gitPlugins = allPlugins.filter(p =>
-      ['github', 'gitee', 'gitlab'].includes(p.source)
+      ['github', 'gitee', 'gitlab'].includes(p.source) && p.enabled
     )
 
     logger.info('startupCheck.start', {total: allPlugins.length, gitPlugins: gitPlugins.length})
@@ -215,12 +220,18 @@ class PluginVersionManagerImpl {
   }
 
   /**
-   * 获取所有插件的版本元数据（不含 tags/branches 列表，仅红点相关字段）。
+   * 获取所有**已启用**插件的版本元数据（不含 tags/branches 列表，仅红点相关字段）。
    * 供渲染进程 via IPC 调用，用于页面打开后即时同步红点状态。
+   *
+   * 红点是「可升级」提示，禁用插件不应亮红点：导出时逐个 name 查注册表按启用态过滤
+   * （VersionInfo 无 enabled 字段）；注册表中已不存在的残留条目（卸载/重命名后）一律
+   * 不导出 —— 渲染端是覆盖式写入，条目缺席即代表删除。
    */
   getAllVersionMeta(): Record<string, { current: string; latest: string; hasUpdate: boolean }> {
+    const registry = PluginRegistry.getInstance()
     const meta: Record<string, { current: string; latest: string; hasUpdate: boolean }> = {}
     for (const [name, info] of this.versionMap) {
+      if (registry.get(name)?.enabled !== true) continue
       meta[name] = { current: info.current, latest: info.latest, hasUpdate: info.hasUpdate }
     }
     return meta

@@ -409,7 +409,7 @@ function useFind(
 function WelcomeMessage() {
     const shortcuts = [
         {label: '新建会话', keys: ['Ctrl', 'N']},
-        {label: '快速搜索', keys: ['Ctrl', 'K']},
+        {label: '使用技能', keys: ['Ctrl', 'K']},
         {label: '查找消息', keys: ['Ctrl', 'F']},
         {label: '切换会话', keys: ['Alt', ['↑', '↓']]},
         {label: '输入历史', keys: ['Ctrl', ['↑', '↓']]},

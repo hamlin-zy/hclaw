@@ -351,6 +351,7 @@ export function blocksToMessage(messageRecord: Message, blocks: MessageBlock[]):
   // 旧版代码（无 contentBlocks 的存储路径）将所有文本存为一个 block、
   // 所有工具调用放在末尾，导致 contentBlocks 失去时序交错。
   // 若检测到 tool_use 块集中在文本之后且携带有效 textOffset，则按 textOffset 重建交错。
+  // 重排产出的 text 块会继承原块的 turnIndex（见下方说明），后续 historyConverter 才能按轮分组。
   const firstToolIdx = contentBlocks.findIndex(cb => cb.type === 'tool_use')
   const lastTextIdx = (() => {
     for (let i = contentBlocks.length - 1; i >= 0; i--)
@@ -363,6 +364,13 @@ export function blocksToMessage(messageRecord: Message, blocks: MessageBlock[]):
       cb => cb.type === 'tool_use' && (cb.toolCall?.textOffset ?? 0) > 0
     )
     if (hasTextOffset) {
+      // 重排是旧存储形态的修复产物：能进到这里说明同一条消息内「所有 text 块都在 tool_use 之前」，
+      // 而同轮内 text 块与 tool_use 块的 turnIndex 一致（streamBridge 的 text/tool_use 分支同经
+      // turnForContent(msgId)），故这些 text 块同属首轮 —— 继承首个 text 块的 turnIndex 即可让
+      // historyConverter.convertFromTurnIndex 分组正确；不携带则新 rt-* 块无 turnIndex，
+      // 会被当作「首个无 turnIndex 块」丢弃 ⇒ 重建出的 assistant content === ''、丢中段正文。
+      // 无 turnIndex 可继承时（旧数据）产物同样不带 turnIndex，行为与修复前一致。
+      const inheritedTurnIndex = contentBlocks.find(cb => cb.type === 'text')?.turnIndex
       // 收集非 text/tool_use 块（think, media 等）；end 块单独保留（收尾哨兵，
       // 重排后追加到末尾——end 语义恒为消息收尾，位置必须在所有内容块之后）
       const prefix: typeof contentBlocks = []
@@ -381,7 +389,7 @@ export function blocksToMessage(messageRecord: Message, blocks: MessageBlock[]):
       const rebuilt: typeof contentBlocks = [...prefix]
       for (const seg of interleaveTextAndTools(sortedTools, fullText, t => t.toolCall?.textOffset)) {
         if (seg.type === 'text') {
-          rebuilt.push({ id: `rt-${seg.offset}`, type: 'text', text: seg.text })
+          rebuilt.push({ id: `rt-${seg.offset}`, type: 'text', text: seg.text, turnIndex: inheritedTurnIndex })
         } else {
           rebuilt.push(seg.item)
         }
