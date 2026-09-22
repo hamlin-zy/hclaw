@@ -15,7 +15,6 @@
 
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {fuzzyFilter} from '../../lib/search'
-import {INPUT_FOCUS} from '../../lib/inputFocus'
 import {useCapabilityRefresh} from '../../hooks/useCapabilityRefresh'
 import type {CapabilityEntry} from '../../capabilityTypes'
 
@@ -175,8 +174,12 @@ export default function CapabilityPicker({selected, onSelect, autoFocus = true}:
 
     return (
         <div>
+            {/* 视觉外壳（假输入框）：内层 input 无边框、radius=0，故焦点样式由本容器承担——
+                与 AgentsDialog 的 TagInput、QuickOpen 的搜索框同一配方。若把 INPUT_FOCUS 套在内层
+                input 上，ring 会跟随其 0 圆角退化成直角描边、贴在圆角容器内侧（2026-09-21 用户反馈
+                「激活时的边框没有圆角」）。契约豁免见 tests/renderer/inputFocusSeam.test.ts。 */}
             <div
-                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md border border-[var(--border)] shadow-sm focus-within:border-[var(--border-emphasis)] focus-within:shadow-md transition-all">
+                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-[var(--surface-muted)] rounded-md border border-[var(--border)] shadow-sm focus-within:border-[var(--border-emphasis)] focus-within:ring-1 focus-within:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)] focus-within:shadow-md transition-all">
                 {selected && (
                     // 已选能力徽标：品牌实底 + 白字（设计系统承白组合，与 FilePicker 徽标同款）。
                     // 曾试过「提亮底 + --brand-ink 深字」：四主题实测对比 2.08~3.45:1，
@@ -204,7 +207,7 @@ export default function CapabilityPicker({selected, onSelect, autoFocus = true}:
                     onChange={e => setSearch(e.target.value)}
                     onKeyDown={onKeyDown}
                     placeholder={selected ? '' : '搜索可用能力...'}
-                    className={`flex-1 min-w-0 bg-transparent text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
+                    className="flex-1 min-w-0 bg-transparent text-[var(--text-primary)] placeholder-[var(--text-muted)]"
                     autoFocus={autoFocus}
                 data-name="capability-picker-input"/>
             </div>

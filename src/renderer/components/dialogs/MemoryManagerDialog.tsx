@@ -1,8 +1,8 @@
 // 记忆管理窗口（memory-manager，Task 4）
-// 左侧：记忆文件树（用户偏好 / 记忆索引 / 项目分组 + 归档卷）
+// 左侧：记忆文件树（用户偏好 / 项目记忆 + 归档卷）
 // 右侧：Markdown 预览（默认）/ CodeMirror 编辑态（MemoryEditor 包装，受控 onChange）
 // 删除走右键菜单 + ConfirmDialog；未保存修改在切换文件（store 内结算）与模式切换时提示。
-import {useState, useEffect, useCallback, useMemo, useRef} from 'react'
+import {useState, useEffect, useCallback, useRef} from 'react'
 import {useMemoryManagerStore} from '../../stores/memoryManagerStore'
 import {buildTreeData, type TreeNodeData} from '../../lib/memoryTree'
 import {TreeNode} from '../common/TreeNode'
@@ -38,7 +38,7 @@ function ArchiveIcon() {
 }
 
 function nodeIcon(node: TreeNodeData) {
-    if (node.nodeType === 'project' || node.nodeType === 'root-user' || node.nodeType === 'root-mem' || node.nodeType === 'root-projects') return <FolderIcon/>
+    if (node.nodeType === 'project' || node.nodeType === 'root-user' || node.nodeType === 'root-projects') return <FolderIcon/>
     if (node.nodeType === 'archive-folder') return <ArchiveIcon/>
     return <FileIcon/>
 }
@@ -102,7 +102,6 @@ function getDeleteWarning(node: TreeNodeData): string {
     if (node.filePath?.endsWith('memory.md')) {
         return '定时任务将在下次运行时重新生成此文件。'
     }
-    // mem/ 子树（SKILL.md）只读：入口已在 UI 层隐藏，此分支不可达（Ruling：mem 保持只读）
     if (node.filePath?.endsWith('preferences.md')) {
         return '用户偏好将在下次沉淀时重建。'
     }
@@ -185,30 +184,6 @@ export default function MemoryManagerDialog() {
     }, [loadTree])
 
     const treeNodes = treeData ? buildTreeData(treeData) : []
-
-    // F-B：mem/ 子树（root-mem，如 SKILL.md）只读（Ruling：选方案①）——收集 mem 子树文件路径，
-    // 用于隐藏右键删除与编辑按钮（不能按 path 子串判 mem：ref/ 实际位于 mem/ref/ 下）
-    const memFilePaths = useMemo(() => {
-        const set = new Set<string>()
-        const walk = (nodes: TreeNodeData[]) => {
-            for (const n of nodes) {
-                if (n.nodeType === 'root-mem') {
-                    const collect = (children: TreeNodeData[]) => {
-                        for (const c of children) {
-                            if (c.filePath) set.add(c.filePath)
-                            if (c.children) collect(c.children)
-                        }
-                    }
-                    if (n.children) collect(n.children)
-                    continue
-                }
-                if (n.children) walk(n.children)
-            }
-        }
-        walk(treeNodes)
-        return set
-    }, [treeData])
-    const selectedFileIsMem = selectedFile !== null && memFilePaths.has(selectedFile.path)
 
     // 关窗结算（F-A，Spec §4.5）：close-request 处理器走 store.getState() 取最新状态，
     // 监听器只注册一次不受闭包过期影响
@@ -403,8 +378,6 @@ export default function MemoryManagerDialog() {
                                 onSelect: (node) => void handleSelect(node),
                                 onContextMenu: (e, node) => {
                                     e.preventDefault()
-                                    // F-B：mem/ 子树只读——不提供删除入口
-                                    if (node.filePath && memFilePaths.has(node.filePath)) return
                                     void handleDelete(node)
                                 },
                             })}
@@ -420,15 +393,12 @@ export default function MemoryManagerDialog() {
                             <span className="text-sm font-medium text-[var(--text-primary)] truncate">
                                 {selectedFile.label}
                             </span>
-                            {/* F-B：mem/ 子树只读——隐藏编辑入口，仅保留只读预览 */}
-                            {!selectedFileIsMem && (
-                                <button
-                                    className="shrink-0 text-sm px-3 py-1 rounded border border-[var(--border)] hover:bg-[var(--surface-muted)] text-[var(--text-secondary)]"
-                                    onClick={() => void handleModeSwitch()}
-                                >
-                                    {editMode ? '预览' : '编辑'}
-                                </button>
-                            )}
+                            <button
+                                className="shrink-0 text-sm px-3 py-1 rounded border border-[var(--border)] hover:bg-[var(--surface-muted)] text-[var(--text-secondary)]"
+                                onClick={() => void handleModeSwitch()}
+                            >
+                                {editMode ? '预览' : '编辑'}
+                            </button>
                         </div>
                     )}
 

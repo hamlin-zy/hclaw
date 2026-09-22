@@ -1,4 +1,7 @@
-import {useCallback, useEffect, useState} from 'react'
+import {useCallback, useEffect, useMemo, useState} from 'react'
+import NumberField from '../primitives/NumberField'
+import {localeDisplayName, SELECTABLE_LOCALES, SYSTEM_LOCALE, systemLocaleLabel} from '@shared/localeNames'
+import type {LanguageGuardStrategy} from '@shared/types'
 import {Switch} from '../../common/Switch'
 import ThemedSelect from '../../ThemedSelect'
 import {confirm} from '../../ConfirmDialog'
@@ -10,6 +13,15 @@ import {PageResetRow} from '../primitives/ResetButton'
 import SectionHeader from '../primitives/SectionHeader'
 import SelectRow from '../primitives/SelectRow'
 import SwitchStatus from '../primitives/SwitchStatus'
+import {DEFAULT_SETTINGS} from '@shared/settingsDefaults'
+
+/**
+ * 纠正次数上限的默认值（单一真源：@shared/settingsDefaults，不再散落魔法数 3）。
+ * 该字段类型含 'always'，需窄化到数值；`1` 分支当前不可达，仅为类型收窄而存在。
+ */
+const DEFAULT_CORRECTION_LIMIT = typeof DEFAULT_SETTINGS.language?.correctionLimit === 'number'
+    ? DEFAULT_SETTINGS.language.correctionLimit
+    : 1
 
 /**
  * 通用设置 Tab（spec §3.1）：分节「系统」（系统配置目录 / 链接打开方式 / 技能目录详细描述）
@@ -25,6 +37,34 @@ export default function GeneralTab() {
     const [origHclawDir, setOrigHclawDir] = useState('')
     // 当前生效的值：优先 pending（未保存），否则用已保存值
     const current = pendingSettings || settings
+
+    const language = current.language
+    const languageStrategy: LanguageGuardStrategy = language?.strategy ?? 'first-and-drift'
+    const correctionLimit = language?.correctionLimit ?? DEFAULT_CORRECTION_LIMIT
+    // 数值形态的纠正上限（'always' 或缺失时回落默认值）；NumberField 与「始终」开关共用
+    const numericCorrectionLimit = typeof correctionLimit === 'number' ? correctionLimit : DEFAULT_CORRECTION_LIMIT
+    // 母语来源：仅 manual 且值非空才算手选；其余（含缺省/老数据）一律落回「跟随系统」，
+    // 避免出现 value='' 时下拉无匹配项而显示空白
+    const manualLocale = language?.nativeLocaleMode === 'manual' ? language?.nativeLocale : undefined
+    const isManualLocale = !!manualLocale
+    const localeValue = manualLocale || SYSTEM_LOCALE
+
+    // 系统语言（主进程经窗口 argv 同步传入，零 IPC 往返）：跟随系统标签的真源。
+    // nativeLocale 只作回退 —— 它同时承担「当前生效母语」，从手选切回跟随时要到下次启动才刷新，
+    // 若直接用它做标签，会短暂显示成刚被放弃的旧语言。
+    const systemLocale = window.electronAPI?.systemLocale || undefined
+
+    // 母语下拉：跟随系统（标签带当前系统语言）+ 手选项（手选到表外 locale，如老数据 ja，追加动态项）
+    const localeOptions = useMemo(() => {
+        const opts: {value: string; label: string}[] = [
+            {value: SYSTEM_LOCALE, label: systemLocaleLabel(systemLocale ?? language?.nativeLocale)},
+            ...SELECTABLE_LOCALES.map(o => ({value: o.value, label: o.label})),
+        ]
+        if (manualLocale && !opts.some(o => o.value === manualLocale)) {
+            opts.push({value: manualLocale, label: localeDisplayName(manualLocale) ?? manualLocale})
+        }
+        return opts
+    }, [language?.nativeLocale, manualLocale, systemLocale])
 
     // 加载当前系统配置目录（可选调用：无该 IPC 通道的环境下静默跳过）
     useEffect(() => {
@@ -130,6 +170,64 @@ export default function GeneralTab() {
                         <SwitchStatus on={current.memory?.enabled ?? true} className="ml-2"/>
                     </div>
                 </FormRow>
+            </section>
+
+            <section className="space-y-[var(--space-relaxed)]">
+                <SectionHeader>语言</SectionHeader>
+                <SelectRow
+                    label="母语"
+                    tip="模型输出漂移成英文时，追加一条对用户不可见的纠正消息，让后续回复回到母语"
+                    hint={isManualLocale
+                        ? `已指定：${localeDisplayName(manualLocale) ?? manualLocale}（系统语言变化后不再自动跟随）`
+                        : '跟随系统语言，每次启动自动更新'}
+                    value={localeValue}
+                    onChange={(v) => {
+                        if (v === SYSTEM_LOCALE) {
+                            // 切回跟随：立即把母语对齐到系统语言，否则本会话内母语会停留在刚被放弃的旧值
+                            // （worker 读的是 nativeLocale），要等下次启动兜底刷新才生效
+                            updatePending('language', {
+                                nativeLocaleMode: 'system',
+                                ...(systemLocale ? {nativeLocale: systemLocale} : {}),
+                            })
+                        } else {
+                            updatePending('language', {nativeLocaleMode: 'manual', nativeLocale: v})
+                        }
+                    }}
+                    options={localeOptions}
+                />
+                <SelectRow
+                    label="语言纠正"
+                    tip="仅首次=会话首轮预防注入一次；首次+漂移纠正=检测到英文输出时补一条纠正"
+                    value={languageStrategy}
+                    onChange={(v) => updatePending('language', {strategy: v as LanguageGuardStrategy})}
+                    options={[
+                        {value: 'first-and-drift', label: '首次 + 漂移纠正（推荐）'},
+                        {value: 'first-only', label: '仅首次'},
+                        {value: 'off', label: '关闭'},
+                    ]}
+                />
+                <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                        <NumberField
+                            label="会话内累计纠正次数上限"
+                            tip="含首次预防注入；达到上限后本次会话不再纠正"
+                            value={numericCorrectionLimit}
+                            min={1}
+                            fallback={DEFAULT_CORRECTION_LIMIT}
+                            disabled={correctionLimit === 'always' || languageStrategy === 'off'}
+                            onChange={(v) => updatePending('language', {correctionLimit: v})}
+                        />
+                    </div>
+                    <div className="flex items-center gap-2 pb-1.5">
+                        <Switch
+                            checked={correctionLimit === 'always'}
+                            disabled={languageStrategy === 'off'}
+                            onChange={(checked) => updatePending('language', {correctionLimit: checked ? 'always' : DEFAULT_CORRECTION_LIMIT})}
+                            ariaLabel="始终纠正"
+                        />
+                        <span className="text-xs text-[var(--text-secondary)]">始终</span>
+                    </div>
+                </div>
             </section>
 
             <section className="space-y-[var(--space-relaxed)]">

@@ -301,6 +301,7 @@ export async function startAgentCore(params: CoreStartParams, origin: StartOrigi
     // 构建 worker 参数
     const workerParams: AgentStartParams = {
         conversationId: params.conversationId,
+        isChildSession: meta?.isChildSession === true,
         messages,
         messageAttachments: params.messageAttachments,
         // 将消息元数据传递给 Worker，供 Agent Loop 识别命令模式

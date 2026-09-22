@@ -1527,13 +1527,31 @@ function GlobalContextMenu({x, y, id, title, pinned, parentConvId, onClose, onSt
     )
 }
 
-/** 待确认/权限确认徽章 */
-function StatusBadge({type, children}: { type: 'error' | 'warning'; children: ReactNode }) {
-    const pulseClass = type === 'error' ? 'animate-badge-pulse' : 'animate-badge-pulse-warning'
+/** 徽章底色（按类型映射）。
+ *  error/warning 沿用语义色原值（既有配方）。
+ *  success 改为混黑 62%：白字 + 纯 var(--success) 实测四主题仅 2.54~2.90:1（低于文字级
+ *  4.5:1，也低于非文本图形级 3:1），混黑后四主题 5.89~6.52:1 全达标 —— 单一公式覆盖
+ *  四主题、不新增令牌、不动既有两态。见 demo/done-badge-variants.html 实测表。 */
+const BADGE_BACKGROUNDS: Record<'error' | 'warning' | 'success', string> = {
+    error: 'var(--error)',
+    warning: 'var(--warning)',
+    success: 'color-mix(in srgb, var(--success) 62%, #000)',
+}
+
+/** 待确认/权限确认徽章 + 完成徽章。
+ *  ★ success（完成）刻意静态无脉冲：完成不紧急，与三种「无限等待用户决策」的
+ *    阻塞态徽章拉开层级（后者的脉冲 = 需要你介入）。 */
+const BADGE_PULSE_CLASSES: Record<'error' | 'warning' | 'success', string> = {
+    error: 'animate-badge-pulse',
+    warning: 'animate-badge-pulse-warning',
+    success: '',
+}
+
+function StatusBadge({type, children}: { type: 'error' | 'warning' | 'success'; children: ReactNode }) {
     return (
         <span
-            className={`text-[9px] font-bold text-white leading-none px-[7px] py-[3px] rounded-[10px] ${pulseClass} flex-shrink-0`}
-            style={{backgroundColor: `var(--${type})`}}>
+            className={`text-[9px] font-bold text-white leading-none px-[7px] py-[3px] rounded-[10px] ${BADGE_PULSE_CLASSES[type]} flex-shrink-0`}
+            style={{backgroundColor: BADGE_BACKGROUNDS[type]}}>
             {children}
         </span>
     )
@@ -1646,6 +1664,22 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
     //   完全空闲。去掉 120s 自动放行后，这是用户唯一的可发现线索。
     const hasToolsChangeConfirm = !!convData?.pendingToolsChangeConfirm
     const hasPending = hasPendingQuestion || hasPermissionConfirm || hasToolsChangeConfirm
+
+    // 「已完成未读」标记（agentStore 顶层 map，不随 convAgentStates 驱逐丢失）。
+    // isActive 门禁 = 「激活即视为已读」的渲染侧表达：主清除路径在
+    // switchActiveConversation，此处兜住不走它的直接 setState 激活站点，避免
+    // 刚点开的会话还闪一帧「完成」。
+    // channel 门禁 = 定时任务会话不亮（口径 6）。源侧（streamInteraction 置位）已按
+    // 摘要定位排除 schedule，但那一刻若所属项目段未加载则摘要查不到、源侧放行；
+    // 此处按渲染侧唯一的权威 channel 兜底，不再依赖「摘要查得到」这个前提。
+    const doneUnreadAt = useAgentStore((s) => s.doneUnreadIds[id])
+    const clearConvDoneUnread = useAgentStore((s) => s.clearConvDoneUnread)
+    const showDoneUnread = !!doneUnreadAt && !isActive && channel !== 'schedule'
+
+    // 激活该会话 → 清标记（清空动作本身幂等，重复渲染无副作用）
+    useEffect(() => {
+        if (isActive) clearConvDoneUnread(id)
+    }, [isActive, id, clearConvDoneUnread])
 
     // 当外部触发重命名时，重置内部状态
     useEffect(() => {
@@ -1791,6 +1825,9 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                             <StatusBadge type="warning">权限确认</StatusBadge>}
                         {hasToolsChangeConfirm && !hasPendingQuestion && !hasPermissionConfirm &&
                             <StatusBadge type="warning">工具确认</StatusBadge>}
+                        {/* 后台会话跑完的信号：与三种阻塞态互斥渲染（有 pending 时不显示，
+                            避免同一行堆两个徽章 —— pending 语义更强，且两者构造上互斥） */}
+                        {!hasPending && showDoneUnread && <StatusBadge type="success">完成</StatusBadge>}
                         <div
                             className={`text-[11px] whitespace-nowrap shrink-0 transition-colors ${isActive ? 'font-medium text-[var(--text-brand)] opacity-70' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-400'}`}>
                             {getRelativeTime(timestamp)}

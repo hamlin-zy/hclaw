@@ -100,6 +100,32 @@ export interface UiBackground {
   blur: number
 }
 
+/** 语言守卫策略：off=停止新注入；first-only=仅会话首次预防注入；first-and-drift=首次 + 漂移纠正 */
+export type LanguageGuardStrategy = 'off' | 'first-only' | 'first-and-drift'
+
+/**
+ * 母语来源模式：
+ * - 'system'（缺省）= 跟随系统：每次启动由主进程刷新 nativeLocale = app.getLocale()
+ * - 'manual' = 用户手选：启动兜底不再覆盖，系统语言变化也不跟随
+ */
+export type NativeLocaleMode = 'system' | 'manual'
+
+/** 语言守卫（母语漂移纠正）设置 */
+export interface LanguageSettings {
+    /** 母语来源模式。缺省视为 'system'（跟随系统） */
+    nativeLocaleMode?: NativeLocaleMode
+    /**
+     * 当前生效的母语 locale（如 'zh-CN'）。
+     * 跟随系统模式下由启动兜底每次刷新为 app.getLocale()（主进程侧）；
+     * manual 模式下为用户手选值，启动不覆盖。
+     */
+    nativeLocale?: string
+    /** 策略，默认 'first-and-drift' */
+    strategy?: LanguageGuardStrategy
+    /** 会话内累计注入次数上限（含首次预防注入）。默认 3；'always' = 不设限 */
+    correctionLimit?: number | 'always'
+}
+
 export interface SystemSettings {
   agent: {
     maxTurns: number
@@ -159,6 +185,8 @@ export interface SystemSettings {
   }
   /** 技能目录详细描述开关（true=完整描述格式，false/undefined=仅名称索引，缺省关闭） */
   fullSkillDescriptions?: boolean
+  /** 语言守卫（母语漂移纠正）设置 */
+  language?: LanguageSettings
   /** 快捷键覆盖项（仅存偏离默认的绑定；空/缺省 = 全默认） */
   shortcuts?: {
     overrides?: Partial<Record<import('@shared/shortcuts').ShortcutAction, string>>

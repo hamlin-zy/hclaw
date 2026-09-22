@@ -9,6 +9,7 @@ import {FileTree} from '../../../src/renderer/project-manager/components/FileTre
 import {useFileTreeStore} from '../../../src/renderer/project-manager/stores/fileTreeStore'
 import {useWorkspaceStore} from '../../../src/renderer/project-manager/stores/workspaceStore'
 import {useEditorTabStore} from '../../../src/renderer/project-manager/stores/editorTabStore'
+import {useGitStatusStore} from '../../../src/renderer/project-manager/stores/gitStatusStore'
 
 // ConfirmDialog 必须 mock：真实实现依赖 window 事件 + 用户点击才会 resolve，
 // 否则 `await confirm(...)` 会永久挂起（测试超时）
@@ -46,6 +47,7 @@ beforeEach(() => {
   useWorkspaceStore.setState({workspacePath: '/ws'})
   useFileTreeStore.setState({expanded: new Set(), childrenCache: {}, cacheOrder: [], selectedPath: null})
   useEditorTabStore.setState({tabs: [], activeTabId: null})
+  useGitStatusStore.setState({ws: null, summary: null, loading: false, generation: 0})
 })
 
 /** 复刻浏览器真实双击序列（见 spec §7.2：直接 fireEvent.doubleClick 会假绿通过） */
@@ -62,9 +64,15 @@ const fileEntry = (name: string, path: string, ignored = false) =>
 
 describe('FileTree', () => {
   it('首层加载并跳过黑名单后渲染', async () => {
+    // 文件行的 git 状态改从 gitStatusStore.statusMap 派生（spec：pm:list-directory 不再等待
+    // 全量 git status，条目自带 gitStatus 恒为 'none'，徽章晚于骨架屏点亮）
+    useGitStatusStore.setState({
+      ws: '/ws',
+      summary: {additions: 0, deletions: 0, updatedAt: 0, statusMap: {'a.ts': {path: 'a.ts', status: 'M', indexStatus: ' ', worktreeStatus: 'M'}}},
+    })
     listDir.mockResolvedValue([
       {name: 'src', path: 'src', isDir: true, size: 0, gitStatus: 'none', hasChildren: true, ignored: false},
-      {name: 'a.ts', path: 'a.ts', isDir: false, size: 10, gitStatus: 'M', hasChildren: false, ignored: false},
+      {name: 'a.ts', path: 'a.ts', isDir: false, size: 10, gitStatus: 'none', hasChildren: false, ignored: false},
     ])
     render(<FileTree />)
     expect(await screen.findByText('src')).toBeInTheDocument()
@@ -75,6 +83,27 @@ describe('FileTree', () => {
     expect(fileName).toHaveClass('pm-ft--code')
     expect(fileName).toHaveStyle({color: 'var(--ft-code)'})
     expect(document.querySelector('.pm-status-badge')).toHaveStyle({color: 'var(--vcs-modified)'})
+  })
+
+  it('statusMap 未就绪时不显示状态徽章，就绪后点亮（条目 gitStatus 被忽略）', async () => {
+    listDir.mockResolvedValue([
+      {name: 'b.ts', path: 'b.ts', isDir: false, size: 1, gitStatus: 'none', hasChildren: false, ignored: false},
+    ])
+    render(<FileTree />)
+    expect(await screen.findByText('b.ts')).toBeInTheDocument()
+    // statusMap 未就绪：无徽章、文件名无状态色类
+    expect(document.querySelector('.pm-status-badge')).toBeNull()
+    expect(screen.getByText('b.ts')).not.toHaveClass('pm-c--M')
+
+    // statusMap 就绪（模拟 git status 迟到落地）：徽章与状态色点亮
+    await act(async () => {
+      useGitStatusStore.setState({
+        ws: '/ws',
+        summary: {additions: 0, deletions: 0, updatedAt: 0, statusMap: {'b.ts': {path: 'b.ts', status: 'M', indexStatus: ' ', worktreeStatus: 'M'}}},
+      })
+    })
+    expect(document.querySelector('.pm-status-badge')).toBeInTheDocument()
+    expect(screen.getByText('b.ts')).toHaveClass('pm-c--M')
   })
 
   it('根节点存在（workspace 基名 "ws"）且默认展开', async () => {
@@ -623,7 +652,12 @@ describe('FileTree 全部展开（R5 / spec §3.3）', () => {
 
 describe('FileTree 未跟踪行徽章（R1 作用范围守卫）', () => {
   it('A4 作用范围守卫：文件树未跟踪行仍渲染 ?? 徽章（本次只改变更列表）', async () => {
-    listDir.mockResolvedValue([{name: 'u.txt', path: 'u.txt', isDir: false, size: 1, gitStatus: '??', hasChildren: false, ignored: false}])
+    // 条目自带 gitStatus 已不被渲染层采信（pm:list-directory 解耦后恒 'none'），状态走 statusMap
+    useGitStatusStore.setState({
+      ws: '/ws',
+      summary: {additions: 0, deletions: 0, updatedAt: 0, statusMap: {'u.txt': {path: 'u.txt', status: '??', indexStatus: ' ', worktreeStatus: '?'}}},
+    })
+    listDir.mockResolvedValue([{name: 'u.txt', path: 'u.txt', isDir: false, size: 1, gitStatus: 'none', hasChildren: false, ignored: false}])
     render(<FileTree />)
     const row = await screen.findByRole('treeitem', {name: 'u.txt'})
     expect(row.querySelector('[data-testid="status-badge"]')).toHaveTextContent('??')

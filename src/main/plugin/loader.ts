@@ -74,9 +74,6 @@ export class PluginLoader {
       const skills: SkillDefinition[] = [];
       const agents: AgentDefinition[] = [];
 
-    // Hook 系统已移除，parseHooks 为兼容占位（恒返回 []）
-    const hooks = await this.parseHooks(pluginPath, pluginName);
-
     // Parse MCP servers configuration
     const mcpServers = await this.parseMcpServers(pluginPath, pluginName);
 
@@ -97,7 +94,6 @@ export class PluginLoader {
       commands,
         skills,
         agents,
-      hooks,
       mcpServers,
     };
 
@@ -310,14 +306,6 @@ export class PluginLoader {
     }
 
     return undefined;
-  }
-
-  /**
-   * Hook 系统已移除：插件自带 hooks/hooks.json 被静默忽略，
-   * skills/agents/commands/mcpServers 解析不受影响
-   */
-  private async parseHooks(_pluginPath: string, _pluginName: string): Promise<Record<string, unknown>[]> {
-    return []
   }
 
   /**

@@ -7,6 +7,7 @@
 
 import {MessagePort, parentPort, workerData} from 'worker_threads'
 import {agentLoop} from './loop'
+import {resolveRunTraceContext} from './loop/setup'
 import {registerBuiltinTools} from './tools/index'
 import {permissionEngine} from './tools/permission'
 import {registerMCPTools, registerAllMcpTools, setMcpMessagePort, unregisterMCPTools, clearAllMcpToolMeta} from './mcp/discovery'
@@ -615,7 +616,7 @@ async function main(): Promise<void> {
     // 运行 Agent Loop，传递 abortSignal 和 askUserQuestion
         let lastRuleCount = (await permissionEngine.getRules()).length
         for await (const event of agentLoop({
-            traceContext: 'main',
+            traceContext: resolveRunTraceContext(params.isChildSession),
             sessionId: params.conversationId,
             messages: params.messages,
             modelConfig: params.modelConfig,

@@ -66,11 +66,16 @@ const isDevMode = devArg ? devArg.split('=')[1] === '1' : false
 // 项目管理窗口的工作区路径（仅 project-manager 窗口有）
 const pmWorkspacePath = readEncodedArg('--hclaw-workspace=')
 
+// 系统语言（主进程 app.getLocale() 经 additionalArguments 同步传入，如 'zh-CN'）。
+// 设置页「母语」下拉的「跟随系统(简体中文)」标签用它显示；主进程未 ready 时为空串 → 渲染端回退快照。
+const systemLocale = readEncodedArg('--hclaw-system-locale=')
+
 contextBridge.exposeInMainWorld('electronAPI', {
     initialTheme: initialThemeValue,
     isWin11,
     isDarwin,
     isDevMode,
+    systemLocale,
     // 冷启动观测：向主进程投递打点（fire-and-forget，不等待返回）
     startup: {
         mark: (label: string, data?: Record<string, unknown>) => ipcRenderer.send('startup:mark', label, data),
@@ -371,8 +376,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('conversation-read-messages', convId),
     conversationReadTail: (convId: string, count: number) =>
         ipcRenderer.invoke('conversation-read-tail', convId, count),
-    conversationReadBefore: (convId: string, beforeTimestamp: number, count: number) =>
-        ipcRenderer.invoke('conversation-read-before', convId, beforeTimestamp, count),
+    // beforeId：追加的可选游标第二键（消息 id），启用 (timestamp, rowid) 双键游标
+    conversationReadBefore: (convId: string, beforeTimestamp: number, count: number, beforeId?: string) =>
+        ipcRenderer.invoke('conversation-read-before', convId, beforeTimestamp, count, beforeId),
   conversationUpdateMeta: (convId: string, updates: Record<string, unknown>) =>
     ipcRenderer.invoke('conversation-update-meta', convId, updates),
   conversationDelete: (convId: string) =>

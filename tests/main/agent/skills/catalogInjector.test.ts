@@ -270,6 +270,14 @@ describe('dual-mode rendering & digest', () => {
     expect(out).not.toContain('[command]')
   })
 
+  it('U1c: 两种模式的委派规则均声明「已注入技能无需重复加载」例外', () => {
+    for (const mode of ['names', 'full'] as const) {
+      const out = renderCatalogContent(entries, mode, 'first')
+      expect(out).toContain('already injected through a `/name` <command-task> message is loaded')
+      expect(out).toContain('do not call `skill` or `describe_skills` for that skill again')
+    }
+  })
+
   it('U1b: names 索引块内不含反引号/竖线等装饰字符', () => {
     const out = renderCatalogContent(entries, 'names', 'first')
     const indexBlock = out.split('<available_skills>')[1]?.split('</available_skills>')[0] ?? ''

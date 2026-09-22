@@ -8,9 +8,9 @@ import {resolve} from 'path'
 import {DEFAULT_SETTINGS} from '@shared/settingsDefaults'
 
 describe('DEFAULT_SETTINGS（shared 单一真源）', () => {
-    it('形状：7 个分类 + 关键默认值', () => {
+    it('形状：8 个分类 + 关键默认值', () => {
         expect(Object.keys(DEFAULT_SETTINGS).sort()).toEqual(
-            ['agent', 'channels', 'linkOpening', 'model', 'shortcuts', 'subagent', 'ui'],
+            ['agent', 'channels', 'language', 'linkOpening', 'model', 'shortcuts', 'subagent', 'ui'],
         )
         expect(DEFAULT_SETTINGS.agent.maxTurns).toBe(500)
         expect(DEFAULT_SETTINGS.agent.handoffThresholdTokens).toBe(200_000)
@@ -20,6 +20,9 @@ describe('DEFAULT_SETTINGS（shared 单一真源）', () => {
         expect(DEFAULT_SETTINGS.model.imageCompressQuality).toBe(85)
         expect(DEFAULT_SETTINGS.subagent).toEqual({maxConcurrency: 3, maxDepth: 3})
         expect(DEFAULT_SETTINGS.shortcuts).toEqual({overrides: {}})
+        // 语言守卫（spec §6.1）：策略与上限有默认值；nativeLocale 由启动兜底写入，不进默认值
+        expect(DEFAULT_SETTINGS.language).toEqual({strategy: 'first-and-drift', correctionLimit: 3})
+        expect('nativeLocale' in DEFAULT_SETTINGS.language!).toBe(false)
         // 不引入 fullSkillDescriptions（零行为变化；缺省 = 关闭）
         expect('fullSkillDescriptions' in DEFAULT_SETTINGS).toBe(false)
     })

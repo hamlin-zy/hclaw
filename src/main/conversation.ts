@@ -242,6 +242,7 @@ export function initConversationIPC(): void {
     }
     ipcMain.handle('conversation-read-tail', (_e, convId: string, count: number) =>
         handle('conversation-read-tail', () => convRepo().readMessagesTail(convId, count)))
-    ipcMain.handle('conversation-read-before', (_e, convId: string, beforeTimestamp: number, count: number) =>
-        handle('conversation-read-before', () => convRepo().readMessagesBefore(convId, beforeTimestamp, count)))
+    // beforeId 为追加的可选游标第二键（消息 id）—— 通道名与既有参数顺序不变
+    ipcMain.handle('conversation-read-before', (_e, convId: string, beforeTimestamp: number, count: number, beforeId?: string) =>
+        handle('conversation-read-before', () => convRepo().readMessagesBefore(convId, beforeTimestamp, count, beforeId)))
 }

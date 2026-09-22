@@ -14,7 +14,7 @@
 
 ```
 message-list/
-├── index.ts                    # 模块导出 (11 行)
+├── index.ts                    # 模块导出 (10 行)
 ├── MessageList.tsx             # 主容器 (126 行)
 ├── MessageBubble.tsx           # 消息气泡 (135 行)
 ├── InterleavedContent.tsx      # 交错内容渲染 (134 行)
@@ -22,7 +22,6 @@ message-list/
 ├── AttachmentPreview.tsx        # 附件预览 (94 行)
 ├── StatusIndicators.tsx        # 阶段文案常量 (20 行)
 ├── MarkdownRenderer.tsx        # Markdown 渲染 (109 行)
-├── useScrollToBottom.ts        # 滚动管理 Hook (194 行)
 └── utils/
     ├── messageUtils.ts         # 消息工具函数 (23 行)
     └── fileTypes.ts            # 文件类型配置 (83 行)
@@ -39,7 +38,6 @@ message-list/
 | **AttachmentPreview.tsx**  | 附件预览（图片/文件）                | utils       |
 | **StatusIndicators.tsx**   | 阶段文案常量与工具函数（供气泡 statusNote 复用） | -           |
 | **MarkdownRenderer.tsx**   | Markdown 渲染器               | 外部库         |
-| **useScrollToBottom.ts**   | 滚动管理（自动跟随、用户检测）            | -           |
 | **utils/messageUtils.ts**  | 工具函数（toString, formatArgs） | -           |
 | **utils/fileTypes.ts**     | 文件类型配置（FILE_TYPE_CONFIG）   | -           |
 
@@ -85,8 +83,6 @@ import { MessageBubble } from './message-list'
 // 使用工具调用渲染器
 import { ToolCallRenderer } from './message-list'
 
-// 使用滚动 Hook
-import { useScrollToBottom } from './message-list'
 ```
 
 ## 注意事项
@@ -98,7 +94,7 @@ import { useScrollToBottom } from './message-list'
 
 2. **状态管理**:
     - 仍然使用 Zustand stores
-    - 滚动状态由 `useScrollToBottom` Hook 管理
+    - 滚动跟随 / 用户接管状态由 `MessageList.tsx` 内联管理
 
 3. **类型定义**:
     - 共享类型来自 `@shared/types`

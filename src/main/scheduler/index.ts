@@ -37,7 +37,8 @@ import {SCHEDULER_WORKER_RESOURCE_LIMITS} from '../workerLimits'
 // 超时/取消时按 pid 树杀：根进程存活时才能遍历到子孙（见 ../common/killProcessTree）
 import {killProcessTree} from '../common/killProcessTree'
 // 系统内置任务的出厂默认值 + 启动补齐（纯常量无依赖，不污染 worker 闭包）
-import {SYSTEM_SCHEDULE_DEFAULTS, ensureSystemSchedules} from '../agent/defaults/systemSchedules'
+import {MEMORY_ACCUMULATION_SCHEDULE_ID, SYSTEM_SCHEDULE_DEFAULTS, ensureSystemSchedules} from '../agent/defaults/systemSchedules'
+import {hasPendingConversations} from './memoryProbe'
 
 /**
  * 惰性获取主窗口：本模块位于 Agent Worker 的静态依赖闭包内
@@ -286,16 +287,19 @@ class SchedulerManager {
    *
    * cron 与手动共享同一套执行流程：
    *   1. 工作目录守卫（不 ok 直接拦下：记一次失败，不执行、不改任务状态）
-   *   2. 并发保护检查（同一任务并行时跳过）
-   *   3. 创建 AbortController（支持 stop() 终止）
-   *   4. 创建调度会话记录
-   *   5. 写入 /{能力名} {提示词} 用户消息
-   *   6. 通过 agentManager.start 执行（Worker 线程 + 完整的会话生命周期）
-   *   7. 更新最终状态：success / failure
+   *   2. 记忆沉淀前置探针（仅 cron 到点：无待沉淀会话时本地短路，不建会话、不进 LLM）
+   *   3. 并发保护检查（同一任务并行时跳过）
+   *   4. 创建 AbortController（支持 stop() 终止）
+   *   5. 创建调度会话记录
+   *   6. 写入 /{能力名} {提示词} 用户消息
+   *   7. 通过 agentManager.start 执行（Worker 线程 + 完整的会话生命周期）
+   *   8. 更新最终状态：success / failure
    *
-   * 唯一差异：source='cron' 时向 Worker 发送 ack 确认信号。
-   * 注意 ack **先于**工作目录守卫：被拦也要先认领本轮触发，否则引擎的待确认去重
-   * 会一直挂着这条任务。
+   * 两处来源差异（其余完全共享）：
+   *   - ack：source='cron' 时向 Worker 发送确认信号。注意它 **先于**工作目录守卫：
+   *     被拦也要先认领本轮触发，否则引擎的待确认去重会一直挂着这条任务。
+   *   - 前置探针：只作用于 cron 到点路径。手动「立即执行」是用户显式意图，必须真跑
+   *     （渲染端会乐观置「运行中」，静默跳过会表现为「点了没反应」）。
    *
    * 触发来源由调用方显式传入（`ScheduleFireSource` 为唯一来源），不从执行状态反推：
    * 手动触发没有「本轮已认领」的语义，因而不得发送 ack —— ack 清的是引擎的
@@ -354,17 +358,33 @@ class SchedulerManager {
       return {success: false, error: '项目不可用'}
     }
 
+    // ③ 记忆沉淀前置探针：cron 到点且无待沉淀的新会话时本地短路，不建会话、不进 LLM（零 token）。
+    //    仅作用于 cron 到点路径 —— 手动「立即执行」是用户显式意图，必须真跑（UI 会乐观置「运行中」，
+    //    静默跳过会表现为「点了没反应」）。
+    //    异常一律放行（fail-open），退回无探针时的行为。
+    //    条件顺序有意为之：先判来源再判探针 —— 手动路径连探针都不该查（省一次无谓 SQL）。
+    if (
+      msg.source === 'cron' &&
+      msg.scheduleId === MEMORY_ACCUMULATION_SCHEDULE_ID &&
+      !hasPendingConversations(Date.now())
+    ) {
+      logger.info('execute.skipped', {
+        source: msg.source, scheduleId: msg.scheduleId, reason: 'no-pending-conversations',
+      })
+      return {success: true}
+    }
+
     const startTime = Date.now()
 
     logger.info('execute.start', {source: msg.source, scheduleId: msg.scheduleId, name: schedule?.name || '', type: msg.taskType, target: msg.taskTarget})
 
-    // ③ 并发保护：同一任务正在运行时跳过
+    // ④ 并发保护：同一任务正在运行时跳过
     if (this.activeRuns.has(msg.scheduleId)) {
       logger.info('execute.duplicate', {scheduleId: msg.scheduleId})
       return {success: false, error: 'Task already running'}
     }
 
-    // ④ 创建 AbortController，支持 stop() 终止
+    // ⑤ 创建 AbortController，支持 stop() 终止
     const ac = new AbortController()
     this.activeRuns.set(msg.scheduleId, ac)
 
@@ -387,7 +407,7 @@ class SchedulerManager {
         this.createSchedulerConversation(convId, msg.scheduleId, schedule?.name || '', startTime, workspacePath)
         logger.debug('execute.conversationCreated', {source: msg.source, convId, scheduleId: msg.scheduleId})
 
-        const userContent = this.buildUserMessage(msg.taskTarget, msg.taskArgs)
+        const {content: userContent, commandId} = await this.buildUserMessage(msg.taskTarget, msg.taskArgs)
         this.writeUserMessage(convId, userContent)
         logger.debug('execute.userMessageWritten', {source: msg.source, convId, content: userContent})
 
@@ -395,6 +415,8 @@ class SchedulerManager {
         await startAgentCore({
           conversationId: convId,
           message: userContent,
+          // 与 memo/session_handoff 链路同源：命中能力才透传 commandId，渲染端据此画徽章
+          ...(commandId ? {messageMetadata: {commandId}} : {}),
         }, 'scheduler')
 
         logger.info('execute.agentDone', {source: msg.source, scheduleId: msg.scheduleId, convId})
@@ -420,17 +442,29 @@ class SchedulerManager {
   }
 
   /**
-   * 构建用户消息内容：/{taskTarget}\n{prompt}
+   * 构建用户消息内容：/{taskTarget}\n{prompt}（命中能力时）或纯 prompt（未命中时）。
    *
    * 分隔符必须是换行而非空格：prompt 常以 Markdown 标题（`## 任务目标`）开头，
    * 空格拼接会把标题并进第一行（`/General ## 任务目标`），解析侧虽用 `\s+` 兼容，
    * 但正文首行结构被破坏。与 CommandPalette / sessionHandoffTool / memoStore 的既有范式对齐。
    * 末尾 `.trim()` 同时兜住 prompt 为空时的尾随换行（`/${taskTarget}\n`.trim() === `/${taskTarget}`）。
+   *
+   * 同源解析（与 memoStore.createSessionFromMemo 一致）：拼前缀前先经
+   * resolveEntityCommand 解析 taskTarget —— 命中才拼 `/{name}` 前缀并返回 commandId
+   * （由调用方经 messageMetadata 透传，渲染端据此画能力徽章）；未命中（如 'General'
+   * 不是注册名）或解析器抛错时降级为纯正文、无 commandId。
    */
-  private buildUserMessage(taskTarget: string, taskArgs: any[]): string {
+  private async buildUserMessage(taskTarget: string, taskArgs: any[]): Promise<{content: string; commandId?: string}> {
     const prompt = typeof taskArgs[0] === 'string' ? taskArgs[0].trim() : ''
-    const content = `/${taskTarget}\n${prompt || ''}`.trim()
-    return content
+    let commandId: string | undefined
+    try {
+      const {resolveEntityCommand} = await import('../agent/entityCommandResolver')
+      commandId = resolveEntityCommand(taskTarget)?.commandId
+    } catch (err) {
+      logger.warn('execute.entityResolveFailed', {taskTarget, error: String(err)})
+    }
+    const content = commandId ? `/${taskTarget}\n${prompt}`.trim() : prompt
+    return {content, commandId}
   }
 
   /**

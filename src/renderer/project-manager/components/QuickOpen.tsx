@@ -202,6 +202,14 @@ export function QuickOpen({
                                     data-path={item.path}
                                     ref={active ? activeRowRef : undefined}
                                     className={`pm-quickopen-row${isFind ? ' pm-quickopen-row--find' : ''}${active ? ' is-active' : ''}${stale ? ' is-stale' : ''}`}
+                                    // 行是 <div>（不是 <button>），行内文本默认可被浏览器原生选区选中：单击把 caret 落进行内即成为
+                                    // selection anchor，之后的 Shift+单击触发原生「扩展选区」→ 视觉上出现一段被选中的文字。
+                                    // 浮层行是选择控件、文本本就不该可选（.pm-tree-row 因用 <button> 天然免疫），故左键按下即抑制
+                                    // 原生文本选择（与 GitDagGraph / DiffViewer.startSelect 同口径）；右键放行，留给上下文菜单。
+                                    onMouseDown={ev => {
+                                        if (ev.button !== 0) return
+                                        ev.preventDefault()
+                                    }}
                                     onClick={() => onActivate(i)}
                                 >
                                     <span className="pm-quickopen-row-name">

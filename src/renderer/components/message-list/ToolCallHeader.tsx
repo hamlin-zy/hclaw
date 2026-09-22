@@ -8,7 +8,7 @@
 import type {ComponentType} from 'react'
 import type {ToolCall} from '@shared/types'
 import ToolCountdown from './ToolCountdown'
-import {SkillIcon} from '../icons'
+import {AgentIcon, SkillIcon} from '../icons'
 import type {IconProps} from '../icons'
 
 interface ToolCallHeaderProps {
@@ -164,7 +164,8 @@ export default function ToolCallHeader({
     // ── 工具名称区域（根据类型显示不同内容） ──
     const toolDisplayName = toolCall.name === 'agent' && agentDisplayName ? (
         <span className="font-semibold text-[var(--text-primary)] flex items-center gap-1 min-w-0">
-            <span className="text-[var(--text-muted)] shrink-0">Agent</span>
+            {/* 类型标识：仅机器人图标（与子会话查看器 SubAgentViewer 一致；此前误为纯文本 "Agent"） */}
+            <AgentIcon className="w-3.5 h-3.5 shrink-0 [color:var(--brand-primary)]"/>
             {agentTypeLabel && (
                 <span
                     className="text-[10px] font-medium text-[var(--text-brand)] bg-[var(--brand-muted)] px-1.5 py-0.5 rounded shrink-0">
@@ -178,7 +179,11 @@ export default function ToolCallHeader({
             </span>
         </span>
     ) : toolCall.name === 'agent' ? (
-        <span className="font-mono font-semibold text-[var(--text-primary)]">Agent</span>
+        /* 兜底：未能解析出 agent 显示名（与 skill 兜底分支结构对称） */
+        <span className="font-semibold text-[var(--text-primary)] inline-flex items-center gap-1">
+            <AgentIcon className="w-3.5 h-3.5 shrink-0 [color:var(--brand-primary)]"/>
+            Agent
+        </span>
     ) : toolCall.name === 'skill' && skillDisplayName ? (
         <span className="font-semibold text-[var(--text-brand)] flex items-center gap-1">
             <span className="text-[color-mix(in_srgb,var(--brand-primary)_70%,transparent)] font-normal inline-flex items-center gap-1">
@@ -274,9 +279,24 @@ export default function ToolCallHeader({
 
     // ── Normal 模式 ──
     return (
-        <button
+        /* 用 div[role=button] 承载展开开关：内部 metaSection 含「查看」「跳转」两个 button，
+           若外层用 <button> 会构成 HTML 非法嵌套（button 不能是 button 后代，React 会报 hydration 警告）。
+           焦点环复刻 globals.css 的 button:focus-visible 口径（2px solid var(--focus-ring) + offset 2px），
+           不另造 ring，保证与原 button 及全站键盘焦点反馈一致 */
+        <div
+            role="button"
+            tabIndex={0}
+            aria-expanded={expanded}
             onClick={onToggleExpanded}
-            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--surface-overlay)] transition-colors text-left"
+            onKeyDown={(e) => {
+                // 内层按钮的 Enter/Space 会冒泡至此，必须只在事件源为外层自身时才响应
+                if (e.target !== e.currentTarget) return
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    onToggleExpanded()
+                }
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--surface-overlay)] transition-colors text-left focus-visible:[outline:2px_solid_var(--focus-ring)] focus-visible:[outline-offset:2px]"
          data-name="tool-call-header-toggle-expanded-button">
             {statusIndicator}
             {toolDisplayName}
@@ -288,6 +308,6 @@ export default function ToolCallHeader({
             <span className="text-[var(--text-secondary)] text-[10px]" aria-hidden="true">
                 {expanded ? '▾' : '▸'}
             </span>
-        </button>
+        </div>
     )
 }

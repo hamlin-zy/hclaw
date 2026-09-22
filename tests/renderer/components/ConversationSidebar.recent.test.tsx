@@ -47,6 +47,8 @@ vi.mock('../../../src/renderer/stores/conversationStore', () => ({
 }))
 const agentState = vi.hoisted(() => ({
     convAgentStates: {} as Record<string, any>,
+    doneUnreadIds: {} as Record<string, number>,
+    clearConvDoneUnread: vi.fn(),
 }))
 vi.mock('../../../src/renderer/stores/agentStore', () => ({
     useAgentStore: (sel: (s: typeof agentState) => unknown) => sel(agentState),

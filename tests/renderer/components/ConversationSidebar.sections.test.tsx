@@ -39,7 +39,7 @@ vi.mock('../../../src/renderer/stores/conversationStore', () => ({
     ),
 }))
 vi.mock('../../../src/renderer/stores/agentStore', () => ({
-    useAgentStore: (sel: (s: unknown) => unknown) => sel({convAgentStates: {}}),
+    useAgentStore: (sel: (s: unknown) => unknown) => sel({convAgentStates: {}, doneUnreadIds: {}, clearConvDoneUnread: () => {}}),
 }))
 vi.mock('../../../src/renderer/stores/sidebarStore', () => ({
     useSidebarStore: {getState: () => ({leftCollapsed: false})},

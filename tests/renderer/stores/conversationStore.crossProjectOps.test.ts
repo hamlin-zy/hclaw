@@ -16,10 +16,13 @@
 // 再动态 import（vi.resetModules + import，同 conversationStore.viewFollow.test.ts）。
 import {describe, expect, it, beforeEach, afterEach, vi} from 'vitest'
 
+/** agentStore 侧的可观测替身：真实删除必须清「已完成未读」标记（H1c） */
+const agentSpies = vi.hoisted(() => ({clearConvDoneUnread: vi.fn()}))
+
 vi.mock('../../../src/renderer/stores/agentStore', () => ({
     useAgentStore: {
         getState: () => ({
-            convAgentStates: {}, updateConvData: () => {}, removeConvData: () => {},
+            convAgentStates: {}, updateConvData: () => {}, removeConvData: () => {}, clearConvDoneUnread: agentSpies.clearConvDoneUnread,
             flushPendingStreamData: () => {}, reconcileStreamingContent: () => {},
             refreshActiveBatch: () => {},
         }),
@@ -105,6 +108,7 @@ function seed(store: any, groupStore: any) {
 const settle = () => new Promise(r => setTimeout(r, 0))
 
 beforeEach(() => {
+    agentSpies.clearConvDoneUnread.mockClear()
     stubWindow()
 })
 
@@ -124,6 +128,9 @@ describe('I-1(b) 会话操作按「会话自身所属项目」（组视图 + 非
         expect([...deleted].sort()).toEqual(['c-b1', 'c-b2'])
         expect(store.getState().workspaces[WS_B].conversations).toEqual([])
         expect(store.getState().workspaces[WS_A].conversations.map((c: any) => c.id)).toEqual(['c-a1'])
+        // ★ H1c：真实删除必须清「已完成未读」标记，且覆盖全部后代（否则「绿底完成」徽章
+        //   会挂在一个已不存在的会话 id 上——即使不渲染也属泄漏，且 id 复用时会误亮）
+        expect(agentSpies.clearConvDoneUnread.mock.calls.map(c => c[0]).sort()).toEqual(['c-b1', 'c-b2'])
     })
 
     it('deleteConversations：入参会话的后代跨项目展开（不只看 currentWorkspacePath）', async () => {
@@ -135,6 +142,8 @@ describe('I-1(b) 会话操作按「会话自身所属项目」（组视图 + 非
         const deleted = (globalThis as any).window.electronAPI.conversationDeleteBatch.mock.calls[0][0]
         expect([...deleted].sort()).toEqual(['c-b1', 'c-b2'])
         expect(store.getState().workspaces[WS_B].conversations.map((c: any) => c.id)).toEqual([])
+        // ★ H1c：批量删除同样清标记（含后代）
+        expect(agentSpies.clearConvDoneUnread.mock.calls.map(c => c[0]).sort()).toEqual(['c-b1', 'c-b2'])
     })
 
     it('togglePinConversation：pinned 真的落到 B 的列表条目 + 真落库（不是恒 false）', async () => {

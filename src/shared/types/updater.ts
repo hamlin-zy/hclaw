@@ -5,9 +5,22 @@
  *   主进程 updateChecker → IPC → 渲染层 updaterStore → AboutDialog / MenuBar
  */
 
+export interface ChangelogEntry {
+  /** 带 v 前缀，如 v0.5.18 */
+  version: string
+  /** YYYY-MM-DD */
+  date: string
+  tag?: string
+  title: string
+  items: string[]
+}
+
 export type UpdateStatus = 'up-to-date' | 'update-available' | 'error'
 
 export type UpdateErrorCode = 'network' | 'rate-limit' | 'parse' | 'unknown'
+
+/** 版本数据的实际来源渠道 */
+export type UpdateSource = 'github' | 'gitee'
 
 export interface UpdateError {
   code: UpdateErrorCode
@@ -21,10 +34,10 @@ export interface UpdateResult {
   currentVersion: string
   /** 最新稳定版版本号（仅在 update-available 时有值） */
   latestVersion?: string
-  /** Release notes Markdown（仅在 update-available 时有值） */
-  releaseNotes?: string
-  /** 发布时间 ISO 8601（仅在 update-available 时有值） */
-  publishedAt?: string
+  /** 本次可升级跨越的所有版本条目（倒序，最新在前）；非 update-available 时为 [] */
+  changelog: ChangelogEntry[]
+  /** 版本数据的实际来源渠道（供 UI 调试提示可选使用） */
+  source?: UpdateSource
   /** 两个下载源 URL（错误时 baiduPan 仍保留作为兜底入口） */
   downloads: {
     /** GitHub Release tag 详情页 */

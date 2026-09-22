@@ -46,4 +46,8 @@ describe('MID_LOOP_HANDOFF_PROMPT', () => {
     expect(MID_LOOP_HANDOFF_PROMPT).toContain('只写指针')
     expect(MID_LOOP_HANDOFF_PROMPT).toContain('严禁为交接新建')
   })
+  it('输出口径：要求直接写进 handoffSummary 参数，禁止正文重复输出一遍总结', () => {
+    expect(MID_LOOP_HANDOFF_PROMPT).toContain('handoffSummary 参数')
+    expect(MID_LOOP_HANDOFF_PROMPT).toContain('不要在回复正文里重复输出总结全文')
+  })
 })

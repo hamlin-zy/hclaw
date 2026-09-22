@@ -11,6 +11,7 @@ import path from 'path'
 import os from 'os'
 import {getAppIconPath} from './icon'
 import {readThemeSetting} from './theme'
+import {readSystemLocale} from './systemLocale'
 import {createLogger} from '../agent/logger'
 import {isDevMode, isViteDevServer} from './devMode'
 import {safeHandle} from '../lib/safeHandle'
@@ -38,6 +39,8 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
     const {id, title, entryHtml, additionalArguments = [], devTools = true} = options
     const iconPath = getAppIconPath()
     const {backgroundColor, rawTheme} = readThemeSetting()
+    // 系统语言：设置页「跟随系统(简体中文)」标签的真源（app 未 ready 时为空串，渲染端回退快照）
+    const systemLocale = readSystemLocale()
 
     // 平台检测（与主窗口 window.ts 一致）
     const isMac = process.platform === 'darwin'
@@ -73,6 +76,7 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
                 `--hclaw-darwin=${isMac ? '1' : '0'}`,
                 `--hclaw-window-id=${id}`,
                 `--hclaw-dev=${isDevMode() ? '1' : '0'}`,
+                `--hclaw-system-locale=${encodeURIComponent(systemLocale)}`,
                 ...additionalArguments,
             ],
         },

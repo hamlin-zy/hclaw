@@ -24,7 +24,7 @@ import {injectLoadedImages} from '../utils/loadImageInjection'
 import {logger} from '../logger'
 import {permissionEngine, isProxyScopedMcpToolPattern} from '../tools/permission'
 import {isThirdPartyAnthropicAPI} from '../model/utils'
-import {classifyErrorEnhanced} from '../common/errorClassifier'
+import {classifyErrorEnhanced, isNonRetryableError} from '../common/errorClassifier'
 import {LLM_TIMEOUT_MS, sleep, TimeoutError, withTimeout} from '../../utils/retry'
 import {attachMediaBlocksToMessage, extractMediaBlocksFromToolResults} from '../mediaExtractor'
 import {supportsImageInput} from '../modelCapability'
@@ -46,7 +46,9 @@ const toolRegistry = getToolRegistry()
 // 不再硬编码 0.9（用户 2026-08-18 拍板：完全尊重用户配置）。
 
 /** mid-loop 专用交接指令（与发送前模板不同——无用户新输入，交接进行中的任务） */
-export const MID_LOOP_HANDOFF_PROMPT = `当前任务执行中上下文接近窗口上限，请总结对话历史与任务进度，准备交接(session_handoff)到新会话继续执行当前任务。
+export const MID_LOOP_HANDOFF_PROMPT = `当前任务执行中上下文接近窗口上限，请总结对话历史与任务进度，并交接(session_handoff)到新会话继续执行当前任务。
+
+【输出口径】交接总结直接写进 session_handoff 的 handoffSummary 参数，不要在回复正文里重复输出总结全文（重复一遍等于白烧一遍输出 token）；正文只写一行说明，如"已交接至新会话『标题』"。
 
 【要求】总结必须含「复用清单」段，只列新会话仍会用到的已委派子任务（无则写"无"；这些已完成，勿重复派发）：
 - 只写指针，禁止把子任务正文抄进总结；
@@ -121,13 +123,17 @@ export interface ExecuteLlmCallParams {
  * 依据：错误重试不产生额外损失（LLM 按成功 token 计费，失败调用不计费），
  * 错误分类器误判（如 OpenRouter worker error 被划为不可重试）只会白白放弃本可恢复的调用。
  * 重试次数上限由 settings.agent.retryCount 控制，达到上限才报最终错误。
+ *
+ * 例外（2026-09-21）：内容风控类错误（Content Exists Risk 等）立即中断不重试。
+ * 同样的请求内容重发仍会被拦截，重试只会空转浪费时间并可能耗尽余额。
+ * 命中时将原始错误返回给上级调用方，由调用方自主决策下一步。
  */
 export function shouldRetryAttempt(
-    _error: any,
+    error: any,
     _isContextLengthError: boolean,
     _retryableFromClassifier: boolean,
 ): boolean {
-    return true
+    return !isNonRetryableError(error)
 }
 
 /** ★ 每会话 chat 调用序号（跨请求持久）：
@@ -607,7 +613,8 @@ export async function* executeLlmCallWithRetry(
 
             // ★ 分类器仅用于日志/提示，绝不能因分类器自身异常阻断重试流程。
             //   用户决策（2026-08-19）：LLM 报错无论什么原因都自动重试。
-            //   分类器失败时按可重试处理（与 shouldRetryAttempt 恒 true 的语义一致）。
+            //   分类器失败时按可重试处理（分类器只作日志/提示，是否重试由 shouldRetryAttempt
+            //   按错误类型裁决：风控类错误返回 false）。
             let retryableFromClassifier = true
             try {
                 retryableFromClassifier = classifyErrorEnhanced(error).retryable
@@ -629,12 +636,18 @@ export async function* executeLlmCallWithRetry(
         }
     }
 
-    // ── 所有重试都失败 ──
+    // ── 所有重试都失败（或不可重试错误立即失败）──
     if (!abortSignal?.aborted) {
         const isCtx = checkContextLengthError(lastError)
-        const errorMessage = isCtx
-            ? `上下文已超出模型窗口，本会话无法继续执行。请新建会话（原会话历史仍可查看）；可在设置中调整交接引导阈值，让后续会话更早收到交接提醒。`
-            : `LLM call failed after ${retryCount} retries: ${extractErrorDetail(lastError)}`
+        const isNonRetryable = isNonRetryableError(lastError)
+        let errorMessage: string
+        if (isCtx) {
+            errorMessage = `上下文已超出模型窗口，本会话无法继续执行。请新建会话（原会话历史仍可查看）；可在设置中调整交接引导阈值，让后续会话更早收到交接提醒。`
+        } else if (isNonRetryable) {
+            errorMessage = `服务商拒绝处理（不可重试）：${extractErrorDetail(lastError)}`
+        } else {
+            errorMessage = `LLM call failed after ${retryCount} retries: ${extractErrorDetail(lastError)}`
+        }
         logger.info(`[AgentLoop] llm_call_failed: ${errorMessage}`)
         yield {type: 'error', error: errorMessage}
     }

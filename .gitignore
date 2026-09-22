@@ -80,3 +80,10 @@ docs/superpowers/
 docs/architecture/
 # docs 下所有子目录（本地文档区，不跟踪）
 docs/*/
+
+# SDD 派活产物留档（Implementer / Reviewer / Verification 报告，仅本地保留）
+# 主位置仍是 .superpowers/sdd/{feature}/，此处兜底散落报告
+reports/
+
+# 视觉验证 demo 页（本地保留，不入库）
+demo/

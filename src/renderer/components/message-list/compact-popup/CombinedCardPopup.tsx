@@ -381,11 +381,27 @@ const ToolSubCard = memo(function ToolSubCard({
     }
 
     return (
-        <button
+        /* 用 div[role=button] 承载：内部含「跳转」button，用 <button> 会构成 HTML 非法嵌套
+           （button 不能是 button 后代，React 会报 hydration 警告）。
+           本元素是「打开 L2 弹窗 / 跳转子会话」的动作按钮（无展开状态），故不加 aria-expanded；
+           焦点环复刻 globals.css 的 button:focus-visible 口径（2px solid var(--focus-ring) + offset 2px），
+           不另造 ring，保证与原 button 及全站键盘焦点反馈一致 */
+        <div
+            role="button"
+            tabIndex={0}
             onClick={handleCardClick}
+            onKeyDown={(e) => {
+                // 内层「跳转」按钮的 Enter/Space 会冒泡至此，必须只在事件源为外层自身时才响应
+                if (e.target !== e.currentTarget) return
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    handleCardClick()
+                }
+            }}
             className="w-full flex items-center gap-2 px-3 py-2 my-1.5 rounded-lg text-left transition-colors
                 border border-[var(--border)] bg-[var(--surface-muted)]
-                hover:bg-[var(--surface-overlay)] hover:border-[var(--border-emphasis)] cursor-pointer"
+                hover:bg-[var(--surface-overlay)] hover:border-[var(--border-emphasis)] cursor-pointer
+                focus-visible:[outline:2px_solid_var(--focus-ring)] focus-visible:[outline-offset:2px]"
          data-name="combined-card-popup-agent-card-button">
             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`}/>
 
@@ -435,7 +451,7 @@ const ToolSubCard = memo(function ToolSubCard({
                     跳转
                 </button>
             )}
-        </button>
+        </div>
     )
 })
 

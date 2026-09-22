@@ -120,3 +120,89 @@ describe('scheduleOps.systemScheduleDrift', () => {
         expect(Object.keys(map)).toEqual([DEF.id])
     })
 })
+
+/**
+ * 出厂 prompt 内容锚点：一次性迁移步骤曾长期驻留每小时的 cron prompt
+ * （SKILL.md 已不存在 → 条件恒假，每轮白烧 token）。
+ */
+describe('SYSTEM_SCHEDULE_DEFAULTS 出厂 prompt 内容', () => {
+    const memoryPrompt = () =>
+        SYSTEM_SCHEDULE_DEFAULTS.find(d => d.id === 'sys-memory-accumulation')!.taskArgs.join('\n')
+    /** 取 [from, to) 之间的段落，把断言限定在指定步骤内（避免别处的同名文案蒙混通过） */
+    const section = (text: string, from: string, to: string) => {
+        const start = text.indexOf(from)
+        const end = text.indexOf(to)
+        expect(start).toBeGreaterThanOrEqual(0)
+        expect(end).toBeGreaterThan(start)
+        return text.slice(start, end)
+    }
+    const step2 = () => section(memoryPrompt(), '## 步骤 2', '## 步骤 3')
+    const block1 = () => section(memoryPrompt(), '### 块 1', '### 块 2')
+    const block2 = () => section(memoryPrompt(), '### 块 2', '### 块 3')
+    const block3 = () => section(memoryPrompt(), '### 块 3', '### 数据量控制')
+
+    it('记忆沉淀 prompt 不再含 SKILL.md 迁移步骤，且步骤序列连续', () => {
+        const prompt = memoryPrompt()
+        expect(prompt).not.toContain('SKILL.md')
+        // 步骤 8 之后直接进「约束」段（无残留的步骤 9 / 断号）
+        expect(prompt).toContain('## 步骤 8：更新状态')
+        expect(prompt).toContain('## 约束')
+    })
+
+    it('用户消息取自 messages.metadata，不得 JOIN message_blocks（该组合恒空）', () => {
+        // user 正文在 messages.metadata.content，message_blocks 对 user 常 0 行；
+        // 曾因 JOIN message_blocks 使块 1 与 P0 探测恒返回空集，修复形同虚设
+        for (const seg of [step2(), block1()]) {
+            expect(seg).toContain('metadata')
+            expect(seg).not.toContain('JOIN message_blocks')
+        }
+    })
+
+    it('P0 豁免在步骤 2 与块 1 两处生效，且四个触发词都覆盖', () => {
+        // 步骤 2 决定会话是否进入分析；块 1 决定 P0 短指令是否被取到——
+        // 缺任一处，P0 豁免在流程上都不可达
+        expect(step2()).toContain('P0 例外')
+        // 断言必须带 SQL 上下文：切片内的散文/注释本身也含这四个词，
+        // 只断言 toContain(word) 的话，删掉 SQL 分支测试仍会绿
+        for (const word of ['记住', '以后都', 'always', '每次']) {
+            expect(step2()).toContain(`LIKE '%${word}%'`)
+            expect(block1()).toContain(`LIKE '%${word}%'`)
+        }
+    })
+
+    it('P0 探测排除注入消息并限定时间窗', () => {
+        // 注入正文本身含"记住"等词会污染 P0 判定；command-task 类注入不带
+        // <system-reminder> 前缀，故须靠 sourceKind 判别而非前缀过滤
+        const seg = step2()
+        expect(seg).toContain('sourceKind')
+        expect(seg).toContain('{lastAnalyzedAt}')
+        // 与块 1 条件集对称：前缀过滤兜住 sourceKind 机制引入前的隐式注入
+        expect(seg).toContain("NOT LIKE '<system-reminder>%'")
+    })
+
+    it('块 1/2/3 与步骤 2 同源限定消息级时间窗，块 1 按时间倒序取最近 N 条', () => {
+        // 块 1/2/3 若缺消息级时间窗，会把上一轮已沉淀过的旧消息重复送入 LLM（与步骤 2 不对称）；
+        // 块 1 的 ORDER BY 若为 ASC，数据量控制「超限取最近 N 条」会退化成取最老的一批
+        // 断言必须锚定「消息级」字面量：三块本就含会话级 updated_at > {lastAnalyzedAt}，
+        // 只断言 toContain('{lastAnalyzedAt}') 在改动前的旧文案上同样为真（恒真假阳性，已实测）
+        expect(block1()).toContain('AND m.timestamp > {lastAnalyzedAt}')
+        // 块 2 的时间窗落在 messages 子查询内（mb 取到的是 assistant 的 tool_call）
+        expect(block2()).toMatch(/AND m\.timestamp > \{lastAnalyzedAt\}\s*\)/)
+        // 块 3 的时间窗与 role 过滤同层
+        expect(block3()).toMatch(/AND m\.role = 'assistant'[\s\S]*AND m\.timestamp > \{lastAnalyzedAt\}/)
+        expect(block1()).toContain('ORDER BY m.timestamp DESC')
+        expect(block1()).not.toContain('ORDER BY m.timestamp ASC')
+        // 块 3 的跨消息方向须同为 DESC（配合「超限取最近 N 条」），防止被后人改回 ASC；
+        // 组内排序（同 msg_id 取最大 sequence）须保持 ASC，防止被后人误改成 DESC
+        expect(block3()).toContain('ORDER BY m.timestamp DESC, mb.sequence ASC')
+        expect(block3()).not.toContain('ORDER BY m.timestamp ASC')
+    })
+
+    it('块 1 恢复取数后仍受数据量控制（超长消息截断）', () => {
+        // 块 1 由恒空恢复取数后，单条超长粘贴会显著抬高每轮预算，
+        // 故「数据量控制」段须含截断规则
+        const seg = section(memoryPrompt(), '### 数据量控制', '## 步骤 4')
+        expect(seg).toContain('2000')
+        expect(seg).toContain('已截断')
+    })
+})

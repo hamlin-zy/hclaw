@@ -40,6 +40,7 @@ import {runCatalogPreStep, restoreCatalogState, type CatalogState} from '../../.
 import {createLoopState, addMessage, type LoopState} from '../../../../src/main/agent/state'
 import type {ChatMessage} from '../../../../src/main/agent/state'
 import {buildCommandTaskContent} from '../../../../src/main/agent/utils/userContentBuilder'
+import {SOURCE_KIND_COMMAND_TASK} from '../../../../src/shared/types/message'
 import {randomUUID} from 'crypto'
 
 function makeSkill(id: string, extra: Partial<SkillDefinition> = {}): SkillDefinition {
@@ -60,9 +61,16 @@ function insertCommandTask(state: LoopState, commandTemplate: string): LoopState
         id: randomUUID(),
         role: 'user',
         content: buildCommandTaskContent(commandTemplate),
+        // 与 controller.ts 同款：CT 带 sourceKind 内部消息标记
+        metadata: {sourceKind: SOURCE_KIND_COMMAND_TASK},
     }
     return addMessage(state, ctMessage)
 }
+
+/** CT 判别与运行时同口径（controller.ts 用 metadata.sourceKind），不用 includes：
+ *  catalog reminder 正文含字面量 `/name` <command-task> 例外句，includes 会把它误计为 CT。 */
+const ctOf = (messages: ReadonlyArray<ChatMessage>) =>
+    messages.filter(m => (m.metadata as Record<string, unknown> | undefined)?.sourceKind === SOURCE_KIND_COMMAND_TASK)
 
 const seq = (messages: ReadonlyArray<ChatMessage>) => JSON.stringify(messages)
 
@@ -158,8 +166,8 @@ describe('注入消息追加式：请求前缀单调增长', () => {
         const textCall = state.messages
         // 前缀单调：cmd1Call 完整保留；纯文本轮无新 CT
         expect(seq(textCall.slice(0, cmd1Call.length))).toBe(seq(cmd1Call))
-        expect(textCall.some(m => String(m.content ?? '').includes('<command-task>'))).toBe(true) // 仅 CT1
-        expect(textCall.filter(m => String(m.content ?? '').includes('<command-task>'))).toHaveLength(1)
+        expect(ctOf(textCall).map(m => m.id)).toEqual([cmd1Call[1].id]) // 仅 CT1
+        expect(ctOf(textCall)).toHaveLength(1)
 
         // ── cmd2 轮 ──
         state = addMessage(state, {id: 'u3', role: 'user', content: '/skill-a cmd2'} as ChatMessage)

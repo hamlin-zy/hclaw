@@ -7,7 +7,6 @@ export interface MemoryState {
 
 /** 加载的记忆内容 */
 export interface MemoryContent {
-  skillMd: string | null
   preferencesMd: string | null
   projectMemoryMd: string | null
   projectName: string | null

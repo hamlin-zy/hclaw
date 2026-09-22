@@ -36,6 +36,7 @@ vi.mock('../../../src/renderer/stores/agentStore', () => ({
             updateConvData: (convId: string) => { h.updateConvDataCalls.push(convId) },
             refreshActiveBatch: (convId: string) => { h.refreshCalls.push(convId) },
             removeConvData: () => {},
+            clearConvDoneUnread: () => {},
             flushPendingStreamData: () => {},
             reconcileStreamingContent: (convId: string) => { h.reconcileCalls.push(convId) },
             getState: () => ({convAgentStates: h.agentStateMap, activeConversationId: null}),

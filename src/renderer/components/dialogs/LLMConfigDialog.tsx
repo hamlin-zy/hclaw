@@ -139,7 +139,14 @@ function ProviderCard({ provider, isActive, onSelect, onEdit, onRemove }: {
       onClick={onSelect}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() }}
+      onKeyDown={(e) => {
+        // 守卫：内部编辑/删除 <button> 的按键会冒泡到这里，直接回车会连带触发选中（双触发）
+        if (e.target !== e.currentTarget) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()   // Space 默认会滚动容器，Enter 可能触发原生 click
+          onSelect()
+        }
+      }}
     >
       {/* Header */}
       <div className="flex items-center justify-between p-3 pb-0">

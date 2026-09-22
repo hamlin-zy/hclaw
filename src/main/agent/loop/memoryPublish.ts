@@ -2,7 +2,7 @@
  * 用户习惯记忆 pre-step（追加式，spec §3）
  *
  * 在 agent 主循环每轮"构建系统提示词"之前调用：
- * - loadMemory 加载 mem/SKILL.md、用户偏好、项目记忆并计算 digest
+ * - loadMemory 加载 用户偏好、项目记忆并计算 digest
  * - 仅在 digest 变化（或尚未发布）时追加一条新的 user 角色记忆消息
  * - 持久化走 conversationRepository.writeMessagesDelta（与 catalogPublish 相同模式）
  *
@@ -99,17 +99,15 @@ export function runMemoryPreStep(
 
 /** 拼装记忆注入消息文本；无任何内容时返回 null */
 function buildMemoryMessageText(content: {
-    skillMd: string | null
     preferencesMd: string | null
     projectMemoryMd: string | null
     projectName: string | null
 }): string | null {
+    // 文件正文自带 H1（`# 用户偏好（跨项目通用习惯）` / `# 项目记忆：{项目名}`），
+    // 注入层不再叠 `## …` 前缀标题——否则每次注入出现两个同级标题。
     const sections: string[] = []
-    if (content.skillMd) sections.push(content.skillMd)
-    if (content.preferencesMd) sections.push(`## 用户偏好\n\n${content.preferencesMd}`)
-    if (content.projectMemoryMd) {
-        sections.push(`## 项目记忆（${content.projectName ?? 'unknown'}）\n\n${content.projectMemoryMd}`)
-    }
+    if (content.preferencesMd) sections.push(content.preferencesMd)
+    if (content.projectMemoryMd) sections.push(content.projectMemoryMd)
     if (sections.length === 0) return null
     return `<system-reminder>\n# 用户习惯记忆\n\n${sections.join('\n\n---\n\n')}\n</system-reminder>`
 }

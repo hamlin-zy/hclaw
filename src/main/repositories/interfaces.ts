@@ -38,8 +38,12 @@ export interface IConversationRepository {
     /** 加载最近 N 条消息，返回消息列表和总条数（用于判断 hasMore） */
     readMessagesTail(convId: string, count: number): { messages: Message[]; totalCount: number }
 
-    /** 加载某条消息之前的 N 条消息（按 timestamp 降序取，返回升序排列） */
-    readMessagesBefore(convId: string, beforeTimestamp: number, count: number): {
+    /**
+     * 加载某条消息之前的 N 条消息（按 timestamp 降序取，返回升序排列）。
+     * beforeId 为可选的游标第二键（消息 id）：提供时启用 (timestamp, rowid) 双键游标，
+     * 修「同毫秒消息被 LIMIT 切在边界时漏取」；不提供时退化为单键（旧调用兼容）。
+     */
+    readMessagesBefore(convId: string, beforeTimestamp: number, count: number, beforeId?: string): {
         messages: Message[];
         totalCount: number
     }

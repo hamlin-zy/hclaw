@@ -70,7 +70,6 @@ function hasSymlinkAncestor(baseDir: string, absPath: string): boolean {
 const SIZE_LIMITS: Record<string, number> = {
   'memory.md': 8192,
   'preferences.md': 4096,
-  'SKILL.md': 2048,
 };
 
 function resolveArchiveLabel(filePath: string): string {
@@ -99,22 +98,13 @@ export async function listMemory(): Promise<MemoryListResult> {
 
   const globalFiles: MemoryFileEntry[] = [];
 
-  // Global files: _user/preferences.md and mem/SKILL.md
+  // Global files: _user/preferences.md
   const prefPath = path.join(refDir, '_user', 'preferences.md');
   if (fs.existsSync(prefPath)) {
     globalFiles.push({
       path: prefPath,
       label: '跨项目偏好',
       sizeLimit: SIZE_LIMITS['preferences.md'],
-    });
-  }
-
-  const skillPath = path.join(memDir, 'SKILL.md');
-  if (fs.existsSync(skillPath)) {
-    globalFiles.push({
-      path: skillPath,
-      label: '记忆索引',
-      sizeLimit: SIZE_LIMITS['SKILL.md'],
     });
   }
 
@@ -223,7 +213,7 @@ export async function writeMemory(
   content: string
 ): Promise<MemoryWriteResult> {
   const validated = validateMemoryPath(filePath);
-  // mem/（SKILL.md 为系统生成）只读，写入仅允许 ref/ 子树
+  // mem/ 只读，写入仅允许 ref/ 子树
   if (!validated || validated.kind !== 'ref')
     return { error: 'invalid-path', message: 'Path outside memory directories' };
   // Spec §3.5：拒绝符号链接（防止经由链接写边界外文件），含祖先链目录 junction
@@ -244,7 +234,7 @@ export async function deleteMemory(
   recursive: boolean
 ): Promise<MemoryDeleteResult> {
   const validated = validateMemoryPath(targetPath);
-  // mem/（系统生成）与 ref/ 根目录只读，删除仅允许 ref/ 子树内的条目
+  // mem/ 与 ref/ 根目录只读，删除仅允许 ref/ 子树内的条目
   if (!validated || validated.kind !== 'ref')
     return { error: 'invalid-path', message: 'Path outside memory directories' };
 

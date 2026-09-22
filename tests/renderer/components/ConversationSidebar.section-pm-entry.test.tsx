@@ -29,7 +29,7 @@ const convState = {
 vi.mock('../../../src/renderer/stores/conversationStore', () => ({
     useConversationStore: Object.assign((sel: (s: unknown) => unknown) => sel(convState), {getState: () => convState}),
 }))
-vi.mock('../../../src/renderer/stores/agentStore', () => ({useAgentStore: (sel: (s: unknown) => unknown) => sel({convAgentStates: {}})}))
+vi.mock('../../../src/renderer/stores/agentStore', () => ({useAgentStore: (sel: (s: unknown) => unknown) => sel({convAgentStates: {}, doneUnreadIds: {}, clearConvDoneUnread: () => {}})}))
 vi.mock('../../../src/renderer/stores/sidebarStore', () => ({useSidebarStore: {getState: () => ({leftCollapsed: false})}}))
 vi.mock('../../../src/renderer/stores/themeStore', () => ({useThemeStore: {getState: () => ({theme: 'light'})}}))
 

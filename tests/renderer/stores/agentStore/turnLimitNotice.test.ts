@@ -27,6 +27,7 @@ const {mockConversationState, mockAgentState} = vi.hoisted(() => ({
         errorMessage: null,
         agentState: {status: 'running'},
         startAgent: vi.fn(),
+        markConvDoneUnread: vi.fn(),
     },
 }))
 
@@ -34,6 +35,8 @@ vi.mock('../../../../src/renderer/stores/conversationStore', () => ({
     useConversationStore: {getState: () => mockConversationState},
     flushConversationDirty: vi.fn(),
     finalizeMessageDelta: vi.fn(),
+    // 「完成未读」判定用（本文件断言不涉及）：摘要查不到 → 按普通顶层会话处理
+    findConvAcrossWorkspaces: () => null,
 }))
 
 vi.mock('../../../../src/renderer/stores/agentStore', () => ({

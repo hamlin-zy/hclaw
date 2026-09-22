@@ -11,17 +11,36 @@
  *   - 点稍后更新：关闭弹窗 + 标记 ignored（本次会话不再弹）
  *   - 不能主动关闭（无 X、无 ESC、无 backdrop 关闭）
  *
- * 不显示 release notes / changelog —— 简洁弹出，点击按钮跳转查看完整内容。
+ * 变更内容（Task 4）：
+ *   - 最新版本条目默认展开（tag 徽章 + title + date + items 列表，items 区可滚动、有高度上限）
+ *   - 更早版本收进折叠区（点击行展开该版本 items，默认全收起）
+ *   - changelog 为空时不渲染展示区（防御）
+ *   - 跨版本时头部版本行显示 `v{current} → v{latest} · 跨越 N 个版本`
  */
 
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { useUpdaterStore } from '../../stores/updaterStore'
 import { useMenuBarStore } from '../../stores/menuBarStore'
+import { splitChangelog, formatVersionRange } from '../../lib/changelogView'
+import { ChangelogEntryHeader, ChangelogItemList } from './ChangelogView'
 
 export default function UpdateNoticeDialog() {
   const result = useUpdaterStore((s) => s.result)
   const setIgnored = useUpdaterStore((s) => s.setIgnored)
   const closeDialog = useMenuBarStore((s) => s.closeDialog)
+  const [expandedVersions, setExpandedVersions] = useState<Set<string>>(new Set())
+
+  const toggleVersion = useCallback((version: string) => {
+    setExpandedVersions((prev) => {
+      const next = new Set(prev)
+      if (next.has(version)) {
+        next.delete(version)
+      } else {
+        next.add(version)
+      }
+      return next
+    })
+  }, [])
 
   const close = useCallback(() => {
     closeDialog()
@@ -51,10 +70,19 @@ export default function UpdateNoticeDialog() {
     return null
   }
 
+  // changelog 为空时不渲染展示区（契约：消费方须防御）
+  const changelog = result.changelog
+  const { latest, older } = splitChangelog(changelog)
+  const versionRange = formatVersionRange(
+    result.currentVersion,
+    result.latestVersion,
+    changelog.length
+  )
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* 顶部 icon + 标题 */}
-      <div className="flex flex-col items-center pt-8 pb-5 px-6">
+      <div className="flex flex-col items-center shrink-0 pt-8 pb-5 px-6">
         <div
           className="w-12 h-12 rounded-full flex items-center justify-center mb-3"
           style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)' }}
@@ -85,9 +113,91 @@ export default function UpdateNoticeDialog() {
           className="text-sm font-mono"
           style={{ color: 'var(--text-secondary)' }}
         >
-          v{result.latestVersion}
+          {versionRange ?? `v${result.latestVersion}`}
         </p>
+
+        {/* 最新版本条目：tag 徽章 + title + date */}
+        {latest && (
+          <div
+            className="w-full mt-3 rounded-[10px] overflow-hidden"
+            style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}
+          >
+            <ChangelogEntryHeader
+              entry={latest}
+              className="flex items-center gap-2 px-[14px] py-[9px] min-w-0"
+              titleClassName="flex-1 min-w-0 truncate text-[12.5px] font-semibold"
+              dateClassName="shrink-0 text-[11px]"
+              dateText={latest.date}
+            />
+          </div>
+        )}
       </div>
+
+      {/* 变更内容区：最新条目 items + 跨版本折叠列表 */}
+      {latest && (
+        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto px-6 pb-4">
+          <div
+            className="w-full shrink-0 overflow-y-auto px-[14px] py-3 rounded-[10px] mb-3"
+            style={{
+              background: 'var(--surface-muted)',
+              border: '1px solid var(--border-muted)',
+              maxHeight: '120px',
+            }}
+          >
+            <ChangelogItemList
+              items={latest.items}
+              className="text-xs leading-[18px] mb-[7px] last:mb-0"
+            />
+          </div>
+
+          {older.length > 0 && (
+            <div
+              className="w-full shrink-0 rounded-lg overflow-hidden"
+              style={{ border: '1px solid var(--border-muted)', background: 'var(--surface)' }}
+            >
+              {older.map((entry, i) => {
+                const expanded = expandedVersions.has(entry.version)
+                return (
+                  <div
+                    key={entry.version}
+                    style={i > 0 ? { borderTop: '1px solid var(--border-muted)' } : undefined}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleVersion(entry.version)}
+                      aria-expanded={expanded}
+                      className="w-full flex items-center gap-2 px-3 py-[7px] text-left
+                        hover:bg-[var(--surface-muted)] transition-colors"
+                      style={{ color: 'var(--text-secondary)' }}
+                      data-name="update-version-row"
+                    >
+                      <span className="shrink-0 text-[9px]" style={{ color: 'var(--text-muted)' }}>
+                        {expanded ? '▼' : '▶'}
+                      </span>
+                      <span className="shrink-0 text-[11px] font-mono">{entry.version}</span>
+                      <span className="flex-1 min-w-0 truncate text-xs">{entry.title}</span>
+                      <span className="shrink-0 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                        {entry.date.slice(5)}
+                      </span>
+                    </button>
+                    {expanded && (
+                      <div
+                        className="px-6 py-2"
+                        style={{ borderTop: '1px solid var(--border-muted)' }}
+                      >
+                        <ChangelogItemList
+                          items={entry.items}
+                          className="text-[11px] leading-[17px] mb-[6px] last:mb-0"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 底部按钮区：固定不动 */}
       <div className="border-t px-4 py-3 mt-auto" style={{ borderColor: 'var(--border)' }}>

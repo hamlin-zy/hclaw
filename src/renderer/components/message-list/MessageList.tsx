@@ -14,7 +14,7 @@ import {useAgentStore} from '../../stores/agentStore'
 import MessageBubble from './MessageBubble'
 import {CatalogStatusLine, parseCatalogEntriesFromContent} from './CatalogStatusLine'
 import {getPhaseLabel} from './StatusIndicators'
-import {SOURCE_KIND_CATALOG, SOURCE_KIND_COMMAND_TASK, SOURCE_KIND_SYSTEM_ENV} from '@shared/types/message'
+import {SOURCE_KIND_CATALOG, SOURCE_KIND_COMMAND_TASK, SOURCE_KIND_SYSTEM_ENV, SOURCE_KIND_LANGUAGE_GUARD} from '@shared/types/message'
 import type {CatalogEntry, Message} from '@shared/types/message'
 
 /** 稳定的空数组引用：`messagesMap[convId]` 为 undefined 时复用，避免每次渲染新建数组
@@ -47,6 +47,21 @@ function isSystemEnvMessage(msg: {metadata?: unknown; sourceKind?: unknown}): bo
     return getCatalogMeta(msg)?.sourceKind === SOURCE_KIND_SYSTEM_ENV
 }
 /**
+ * language-guard（语言漂移纠正）内部消息：仅驱动 LLM 消息流尾部，不渲染为气泡。
+ * ★ 必须显式谓词，不依赖 <system-reminder> 内容兜底 —— 改文案即回归（spec §5.7）。
+ */
+function isLanguageGuardMessage(msg: {metadata?: unknown; sourceKind?: unknown}): boolean {
+    return getCatalogMeta(msg)?.sourceKind === SOURCE_KIND_LANGUAGE_GUARD
+}
+/**
+ * 可见的 user 消息：role 为 user 且非内部注入（catalog / command-task / system-env / language-guard）。
+ * 内部注入消息「对用户不可见、对 LLM 可见」，不得参与用户消息导航索引，
+ * 也不得触发「新消息到达即回到底部」。
+ */
+function isVisibleUserMessage(msg: {metadata?: unknown; sourceKind?: unknown; content?: unknown; role?: string}): boolean {
+    return msg.role === 'user' && !isImplicitReminderMessage(msg)
+}
+/**
  * 内容兜底：检测在 sourceKind 元数据系统引入之前写入的隐式消息。
  * 这些消息的内容整个是一个 <system-reminder> 或 <command-task> 块，但没有 sourceKind。
  * ★ 必须只匹配内容完全由标签包裹的消息——如果用户消息中引用了 <system-reminder>
@@ -54,7 +69,7 @@ function isSystemEnvMessage(msg: {metadata?: unknown; sourceKind?: unknown}): bo
  */
 function isImplicitReminderMessage(msg: {metadata?: unknown; sourceKind?: unknown; content?: unknown; role?: string}): boolean {
     // 先走 sourceKind 正常路径
-    if (isCatalogMessage(msg) || isCommandTaskMessage(msg) || isSystemEnvMessage(msg)) return true
+    if (isCatalogMessage(msg) || isCommandTaskMessage(msg) || isSystemEnvMessage(msg) || isLanguageGuardMessage(msg)) return true
     if (msg.role !== 'user') return false
     const content = typeof msg.content === 'string' ? msg.content.trim() : ''
     // 仅匹配整个内容是单个 <system-reminder> 或 <command-task> 块的消息
@@ -511,6 +526,19 @@ const LoadMoreTrigger = memo(function LoadMoreTrigger({
 // ─── 工具函数 ─────────────────────────────────────────────
 
 /**
+ * 交还自动跟随的「真正到底」阈值（px）。
+ * ★ 不得复用 100px 的「回到底部」按钮阈值：滚轮单格位移≈100px，
+ *   用 100 判定会把「用户刚上滚一格」误判为仍在底部 → 跟随立刻回拉（上滚滚不动）。
+ */
+const BOTTOM_EPS = 4
+
+/** 用户接管自动跟随的滚动输入事件（模块级常量，避免每次 effect 重建）。 */
+const FOLLOW_TAKEOVER_INPUT_EVENTS: Array<keyof HTMLElementEventMap> = ['wheel', 'touchstart']
+
+/** 用户接管自动跟随的键盘导航键（容器聚焦时；模块级常量，避免每次 effect 重建）。 */
+const FOLLOW_TAKEOVER_NAV_KEYS = new Set(['PageUp', 'PageDown', 'Home', 'End', 'ArrowUp', 'ArrowDown'])
+
+/**
  * 在容器中查找视口顶部最近的 data-msg-idx 元素索引。
  *
  * 原理：遍历可见 DOM 子元素，用 getBoundingClientRect().top 找到
@@ -609,9 +637,24 @@ export default function MessageList({conversationId}: { conversationId?: string 
     // ── 查找功能 (CSS Highlight API) ─────────────────────────
     const find = useFind(containerRef, activeConversationId)
 
+    /**
+     * 接管自动跟随：用户显式导航 / 用户滚动输入意图 → 写 true。
+     * ★ 接管只能由用户意图触发，程序化滚动一律不得调用（见 handleScroll 内说明）。
+     */
+    function takeOverFollow() {
+        userScrolledAwayRef.current = true
+    }
+
+    /**
+     * 交还自动跟随：真正回到底部 → 写 false。
+     */
+    function releaseFollow() {
+        userScrolledAwayRef.current = false
+    }
+
     /** 重置"用户已离开底部"相关状态（3 处共用） */
     function resetScrollState() {
-        userScrolledAwayRef.current = false
+        releaseFollow()
         setShowScrollBtn(false)
         setNewMsgCount(0)
     }
@@ -621,7 +664,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
     // 避免它们进入"用户消息导航"索引（否则滚动定位会锚定到不可见气泡上）。
     const userMessageIndices = useMemo(() => {
         return messages.reduce<number[]>((acc, msg, index) => {
-            if (msg.role === 'user' && !isImplicitReminderMessage(msg)) acc.push(index)
+            if (isVisibleUserMessage(msg)) acc.push(index)
             return acc
         }, [])
     }, [messages])
@@ -672,6 +715,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
             .filter(idx => idx < viewportIdx)
             .pop()
         if (targetIdx !== undefined) {
+            takeOverFollow() // 用户显式导航 = 接管自动跟随
             lastNavigatedMsgIdxRef.current = targetIdx
             setCurrentMsgIdx(targetIdx)
             scrollToMessageIdx(targetIdx)
@@ -695,6 +739,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
             .filter(idx => idx > viewportIdx)
             .shift()
         if (targetIdx !== undefined) {
+            takeOverFollow() // 用户显式导航 = 接管自动跟随
             lastNavigatedMsgIdxRef.current = targetIdx
             setCurrentMsgIdx(targetIdx)
             scrollToMessageIdx(targetIdx)
@@ -709,7 +754,14 @@ export default function MessageList({conversationId}: { conversationId?: string 
         const {scrollTop, scrollHeight, clientHeight} = el
         const distFromBottom = scrollHeight - scrollTop - clientHeight
         setShowScrollBtn(distFromBottom > 100)
-        userScrolledAwayRef.current = distFromBottom > 100
+        // ★ 自动跟随的接管/交还（勿改回「距底 > 100px 即视为用户上翻」）：
+        //   · 接管（true）只由用户输入事件触发（见下方「用户输入意图监听」effect），
+        //     程序化滚动（el.scrollTo / el.scrollTop=）与内容增长派发的 scroll 事件
+        //     一律不得接管，否则一次落点偏差就永久关闭跟随（「点回到底部后脱底」事故）；
+        //   · 交还（false）只发生在真正到底（距底 ≤ BOTTOM_EPS）。
+        if (distFromBottom <= BOTTOM_EPS) {
+            releaseFollow()
+        }
 
         // 如果最近有导航操作，检测目标元素是否仍在视口顶部附近
         const lastNav = lastNavigatedMsgIdxRef.current
@@ -741,6 +793,34 @@ export default function MessageList({conversationId}: { conversationId?: string 
         }
     }, [])
 
+    // ── 用户输入意图监听（用户接管 / 交还自动跟随）──────────
+    // 用户一产生滚动输入（滚轮 / 触摸 / 键盘导航 / 拖动垂直滚动条）即接管：
+    // 立即停止自动跟随，不等「距底 > 阈值」——滚轮单格位移与阈值同量级，
+    // 等距离判定会让跟随把视口立刻拉回（上滚滚不动）。
+    // 滚动容器仅在「未加载态=false 且 messages.length>0」时挂载，用该布尔量做依赖。
+    const hasScrollContainer = !messagesUnloaded && messages.length > 0
+    useEffect(() => {
+        const el = containerRef.current
+        if (!el) return
+        FOLLOW_TAKEOVER_INPUT_EVENTS.forEach(ev => el.addEventListener(ev, takeOverFollow, {passive: true}))
+        // 键盘导航（容器聚焦时）同样属于用户接管
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (FOLLOW_TAKEOVER_NAV_KEYS.has(e.key)) takeOverFollow()
+        }
+        el.addEventListener('keydown', onKeyDown)
+        // 点击落在容器自身（垂直滚动条区域 / 行间空白）也算接管；
+        // 仅 target === el 才算，避免点击消息气泡、选文本时误触。
+        const onPointerDown = (e: PointerEvent) => {
+            if (e.target === el) takeOverFollow()
+        }
+        el.addEventListener('pointerdown', onPointerDown)
+        return () => {
+            FOLLOW_TAKEOVER_INPUT_EVENTS.forEach(ev => el.removeEventListener(ev, takeOverFollow))
+            el.removeEventListener('keydown', onKeyDown)
+            el.removeEventListener('pointerdown', onPointerDown)
+        }
+    }, [hasScrollContainer])
+
     // ── 滚动到底部 ─────────────────────────────────────────
     const scrollToBottom = useCallback((behavior: 'smooth' | 'auto' | boolean = 'smooth') => {
         const el = containerRef.current
@@ -754,16 +834,23 @@ export default function MessageList({conversationId}: { conversationId?: string 
     // ── 回到底部 ────────────────────────────────────────────
     // content-visibility 占位使滚动中途 scrollHeight 不断变化（smooth 目标基于旧估算值），
     // 单次滚到底常停在中间。策略：首跳 auto 对齐估算底部（触发底部真实渲染）→
-    // 短延迟校验距底偏差 → 未到位则平滑补跳，最多 2 轮收敛。
+    // 短延迟校验距底偏差 → 未到位则平滑补跳；预算用尽仍未到位则强制瞬时对齐兜底
+    // （目标在内容持续增长下会不断过期，纯平滑补跳无法收敛）。
     const goToBottom = useCallback(() => {
         resetScrollState()
         lastNavigatedMsgIdxRef.current = null
         setCurrentMsgIdx(messages.length - 1)
         const el = containerRef.current
         if (!el) return
+        // 平滑跳的目标在 content-visibility 懒渲染 + 内容持续增长下会过期 → 落点落后；
+        // 前几跳保留平滑手感，超出预算后强制瞬时对齐，保证必然到底。
+        const MAX_ATTEMPTS = 3
         const attempt = (n = 0) => {
+            if (n >= MAX_ATTEMPTS) {
+                el.scrollTop = el.scrollHeight - el.clientHeight
+                return
+            }
             el.scrollTo({top: el.scrollHeight, behavior: n === 0 ? 'auto' : 'smooth'})
-            if (n >= 2) return
             window.setTimeout(() => {
                 if (!el.isConnected) return
                 if (el.scrollHeight - el.scrollTop - el.clientHeight > 40) attempt(n + 1)
@@ -874,7 +961,10 @@ export default function MessageList({conversationId}: { conversationId?: string 
         const prevCount = prevCountRef.current
         if (messages.length > prevCount) {
             const newMsgs = messages.slice(prevCount)
-            const hasUser = newMsgs.some(m => m.role === 'user')
+            // ★ 排除内部注入消息（catalog/env/memory/command-task/language-guard）：
+            //   语言守卫注入频次远高于既有三源，若计入会在用户上翻时反复
+            //   resetScrollState + 拉回底部（spec §6.7）
+            const hasUser = newMsgs.some(isVisibleUserMessage)
 
             if (hasUser) {
                 resetScrollState()
@@ -935,10 +1025,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
             rafId = requestAnimationFrame(() => {
                 rafId = 0
                 if (!userScrolledAwayRef.current) {
-                    const dist = el.scrollHeight - el.scrollTop - el.clientHeight
-                    if (dist < 200) {
-                        el.scrollTop = el.scrollHeight - el.clientHeight
-                    }
+                    el.scrollTop = el.scrollHeight - el.clientHeight
                 }
             })
         }
@@ -1005,6 +1092,10 @@ export default function MessageList({conversationId}: { conversationId?: string 
                 }
                 if (isSystemEnvMessage(message)) {
                     // system-env（环境快照）内部消息：不渲染气泡
+                    return
+                }
+                if (isLanguageGuardMessage(message)) {
+                    // language-guard（语言漂移纠正）内部消息：不渲染气泡
                     return
                 }
                 if (isCatalogMessage(message)) {
@@ -1165,6 +1256,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                             {catalogEntries && <CatalogStatusLine entries={catalogEntries}/>}
                             <MessageBubble
                                 message={message}
+                                isLastAssistant={message.id === lastAssistantId}
                                 isAgentRunning={message.id === lastAssistantId && isAgentRunning}
                                 statusNote={message.id === lastAssistantId ? statusNote : null}
                             />

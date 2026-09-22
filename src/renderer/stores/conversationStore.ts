@@ -126,8 +126,9 @@ interface ConversationStore {
 
     // Messages
   addMessage: (message: Omit<Message, 'id' | 'timestamp'> & { id?: string }) => void
-    /** 向指定会话添加消息（用于非活跃会话的后台 agent 写入） */
-    addMessageToConv: (convId: string, message: Omit<Message, 'id' | 'timestamp'> & { id?: string }) => void
+    /** 向指定会话添加消息（用于非活跃会话的后台 agent 写入）
+     *  timestamp 为显式第三参数（省略时取当前时刻）；刻意不从 message 对象读取，见实现处说明 */
+    addMessageToConv: (convId: string, message: Omit<Message, 'id' | 'timestamp'> & { id?: string }, timestamp?: number) => void
   updateMessage: (id: string, updates: Partial<Message>) => void
     /** 更新指定会话中的消息（用于非活跃会话的后台 agent 写入） */
     updateMessageForConv: (convId: string, id: string, updates: Partial<Message>) => void
@@ -162,6 +163,16 @@ const TOOL_RESULT_MEMORY_CAP = 2000
 
 /** 截断提示后缀（output 与 toolResult 共用） */
 const TRUNCATE_SUFFIX = '\n\n*(输出过长，已截断。展开加载完整内容)*'
+
+/** ★ INV-ORDER：消息时间序的**唯一入口**。
+ *  `messagesMap[convId]` 恒为「按 timestamp 升序、同值保持既有相对顺序」的稳定序列
+ *  （Array.prototype.sort 自 ES2019 起保证稳定，与 DB 侧 (timestamp, rowid) 口径一致）。
+ *  所有把数组顺序当时间序用的消费者 —— 气泡渲染顺序、上/下一条用户消息导航、
+ *  loadMoreMessages 的前插游标（existing[0].timestamp）—— 都依赖该不变量。
+ *  因此任何「取内存数组直接用」的位置必须先过本函数，禁止再写第二处排序语义。 */
+function orderMessages(list: Message[]): Message[] {
+    return [...list].sort((a, b) => a.timestamp - b.timestamp)
+}
 
 /** 截断 message 中大型工具结果的内存副本，完整内容已通过块级增量落库。
  *  幂等短路由 _fullOutputStored 标记承担：已截断过则跳过，避免双重截断提示。
@@ -433,8 +444,19 @@ function projectPathOfConv(convId: string): string | null {
  *  会话操作必须按**会话自身所属项目**读写（I-1(b)）：组视图下操作对象可能不属于
  *  currentWorkspacePath，「按当前项目」会改错列表 / 展开错后代 / 界面不变。 */
 function findConvHome(workspaces: Record<string, WorkspaceInfo>, convId: string): string | null {
-    for (const [path, info] of Object.entries(workspaces)) {
-        if (info.conversations.some(c => c.id === convId)) return path
+    return findConvAcrossWorkspaces(workspaces, convId)?.workspacePath ?? null
+}
+
+/** 跨工作区按 convId 取会话摘要 + 所属目录（未加载的项目段查不到 → null）。
+ *  供渲染端「完成未读」判定读取 parentConvId / channel 两个口子；口径与侧栏
+ *  「最近会话」区块的定位一致（同一份 workspaces 真相，避免第二真相）。 */
+export function findConvAcrossWorkspaces(
+    workspaces: Record<string, WorkspaceInfo>,
+    convId: string,
+): {conv: ConversationSummary; workspacePath: string} | null {
+    for (const [workspacePath, ws] of Object.entries(workspaces)) {
+        const conv = ws.conversations.find(c => c.id === convId)
+        if (conv) return {conv, workspacePath}
     }
     return null
 }
@@ -650,6 +672,11 @@ async function switchActiveConversation(id: string | null, opts?: {force?: boole
     const store = useConversationStore.getState()
     if (!opts?.force && id === store.activeConversationId) return
 
+    // ★ 用户看到即消：激活会话即清「已完成未读」标记（放置在此处 = setActiveConversation 与
+    //   删除后回退激活两条路径共用同一落点）。render 侧 ConversationItem 另有同 action 兜底，
+    //   覆盖不走本函数的直接 setState 激活站点。
+    if (id) useAgentStore.getState().clearConvDoneUnread(id)
+
     // 切换前先清理旧活跃会话的定时截断
     clearActiveTruncate()
 
@@ -667,7 +694,18 @@ async function switchActiveConversation(id: string | null, opts?: {force?: boole
         // ★ 如果 messagesMap 已有消息但缺少用户消息（流式子会话场景），
         //   先从 SQLite 加载持久化消息，再合并流式消息，确保用户消息不丢失
         if (targetMsgs && targetMsgs.some(m => m.role === 'user')) {
-            useConversationStore.setState({ activeConversationId: id, loadedMessages: targetMsgs })
+            // ★ INV-ORDER：本分支此前直接采信内存数组顺序，是**唯一跳过排序的出口**
+            //   （判定条件是「内存已有 user 角色」，注入消息 catalog/env/memory/language-guard
+            //   也是 user 角色 → 命中率被放大）。内存里若 assistant 先落、user 后落，
+            //   气泡顺序就永久颠倒，且切走切回不复原，只有整段重载（重开）才自愈。
+            //   此处过 orderMessages，并**写回会话级键 messagesMap[id]** ——
+            //   只写全局镜像 loadedMessages 不生效（会话级数组仍是乱序的第二真相）。
+            const ordered = orderMessages(targetMsgs)
+            useConversationStore.setState(state => ({
+                activeConversationId: id,
+                messagesMap: {...state.messagesMap, [id]: ordered},
+                loadedMessages: ordered,
+            }))
         } else {
             useConversationStore.setState({ activeConversationId: id })
             await store.loadMessagesInitial(id)
@@ -689,8 +727,7 @@ async function switchActiveConversation(id: string | null, opts?: {force?: boole
                     const {messagesMap} = useConversationStore.getState()
                     const sqliteMsgs = messagesMap[id] || []
                     const targetIds = new Set(targetMsgs.map(m => m.id))
-                    const merged = [...sqliteMsgs.filter(m => !targetIds.has(m.id)), ...targetMsgs]
-                        .sort((a, b) => a.timestamp - b.timestamp)
+                    const merged = orderMessages([...sqliteMsgs.filter(m => !targetIds.has(m.id)), ...targetMsgs])
                     // messagesMap 按 convId 键写（不污染其他会话）；
                     // loadedMessages 是全局镜像 → 必须按当前 active 条件写（见下方竞态说明）
                     useConversationStore.setState(state => ({
@@ -1022,6 +1059,18 @@ function releaseConvCaches(ids: string[]): void {
     cancelActiveTruncateFor(ids)
 }
 
+/**
+ * 「真实删除」专用：释放缓存 + 清「已完成未读」标记。
+ * ★ 刻意不复用 releaseConvCaches —— 后者同时被 LRU 预算淘汰（evictConversations）与
+ *   10 分钟渲染清理（cleanupInactiveConversations）调用，把标记清理挂上去会让后台完成
+ *   标记随驱逐静默消失，正是本标记要消灭的场景。只有真删才该销毁标记。
+ */
+function releaseDeletedConvs(ids: string[]): void {
+    if (!ids.length) return
+    releaseConvCaches(ids)
+    for (const id of ids) useAgentStore.getState().clearConvDoneUnread(id)
+}
+
 export const useConversationStore = createWithEqualityFn<ConversationStore>()(
   (set, get) => ({
       currentWorkspacePath: null,
@@ -1350,6 +1399,13 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           // 运行时数据、截断链）并从 renderedConversationIds（LRU 已渲染表）移除，
           // 只清被删工作区的会话，不影响其余会话状态。
           evictConversations(convIds)
+          // ★ 「已完成未读」标记不能挂进 evictConversations（= releaseConvCaches）：后者同时
+          //   被 LRU 预算驱逐与 10 分钟渲染清理调用，挂上去会让后台完成信号随驱逐静默消失
+          //   （见 conversationStore.doneUnreadInvariant.test.ts H2-a/H2-b）。本路径下方
+          //   conversationDeleteBatch 是真删库行，故按真删口径在此显式销毁标记，与
+          //   releaseDeletedConvs 语义对齐 —— 漏接即产生永久悬空 key（会话已不存在，不会再
+          //   被激活、也不会再触发删除事件，标记在进程生命周期内驻留）。
+          for (const id of convIds) useAgentStore.getState().clearConvDoneUnread(id)
 
           set((state) => {
               // 清掉所有归一化等价的键（历史遗留的重复键一并清）
@@ -1635,7 +1691,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           // 删除会话时统一释放消息缓存（messagesMap/hasMoreMap/loadingMoreMap）、
           // 两个会话级 Record（conversationLastActiveAt / handoffDismissed）与 agent
           // 运行时状态（含全部后代子会话），避免按 convId 的残留
-          releaseConvCaches(toDelete)
+          releaseDeletedConvs(toDelete)
       },
 
       deleteConversations: async (ids) => {
@@ -1666,7 +1722,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           })
           if (wasActiveIncluded) await switchActiveConversation(getFirstRootConversationId())
           // 同上：批量删除也需清两个会话级 Record 与 agent 运行时状态
-          releaseConvCaches(toDelete)
+          releaseDeletedConvs(toDelete)
       },
 
       setActiveConversation: async (id, opts) => {
@@ -1779,11 +1835,22 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
 
       // ── Messages ──────────────────────────────────────
 
-      /** 向指定会话添加消息（仅更新 UI 状态，持久化由主进程处理） */
-      addMessageToConv: (convId: string, message: Omit<Message, 'id' | 'timestamp'> & { id?: string }) => {
-          const newMessage: Message = {...message, id: message.id || crypto.randomUUID(), timestamp: Date.now()}
+      /** 向指定会话添加消息（仅更新 UI 状态，持久化由主进程处理）
+       *  timestamp 为**显式第三参数**，不是消息对象字段：调用方给不出更准的时间时可省略 → 取当前时刻。
+       *  ★ 刻意不从 message 对象读 timestamp：既有调用方传的对象运行时带该字段，
+       *    从中读取会把真实时间改写成旧值（类型上用 Omit 挡掉了，运行时挡不住）。 */
+      addMessageToConv: (convId: string, message: Omit<Message, 'id' | 'timestamp'> & { id?: string }, timestamp?: number) => {
+          const newMessage: Message = {...message, id: message.id || crypto.randomUUID(), timestamp: timestamp ?? Date.now()}
           const convMsgs = get().messagesMap[convId] || []
-          const newConvMsgs = [...convMsgs, newMessage]
+          // ★ INV-ORDER：按 ts 落位，而非无条件 append（旧实现永远追加末尾，越晚写入越靠后，
+          //   补写历史消息时会造出与时间轴不符的假序）。数组恒有序（不变量）时，
+          //   ts ≥ 末条 ts 的常见路径 findIndex 必然落空 → 仍追加末尾，与旧行为逐字等价；
+          //   只有 ts 更早才插到正确位置。条件用 `>` 使同 ts 的后来者保持靠后，
+          //   与 DB 侧 (timestamp, rowid) 口径一致。
+          const insertAt = convMsgs.findIndex(m => m.timestamp > newMessage.timestamp)
+          const newConvMsgs = insertAt === -1
+              ? [...convMsgs, newMessage]
+              : [...convMsgs.slice(0, insertAt), newMessage, ...convMsgs.slice(insertAt)]
           set(state => ({
               messagesMap: {...state.messagesMap, [convId]: newConvMsgs},
               loadedMessages: convId === state.activeConversationId ? newConvMsgs : state.loadedMessages,
@@ -1876,7 +1943,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const msgs = await window.electronAPI?.conversationReadMessages?.(convId) || []
           // ★ 内存泄漏修复：全量读回（启动/压缩/渠道 reload）的大工具结果同样在进
           //   messagesMap 前截断。DB 仍存完整 result 供主进程 LLM 上下文，此处只截内存副本。
-          const msgsTyped = (msgs as Message[]).map(m => truncateLargeResults(m))
+          const msgsTyped = orderMessages((msgs as Message[]).map(m => truncateLargeResults(m)))
           set(state => ({
               messagesMap: {...state.messagesMap, [convId]: msgsTyped},
               loadedMessages: convId === state.activeConversationId ? msgsTyped : state.loadedMessages,
@@ -1898,7 +1965,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               //   DB（message_blocks.tool_result.data）存的是完整 result，供主进程 LLM 上下文
               //   完整复原（execution.ts:72 readMessages）与缓存命中率——此处只在渲染内存副本上
               //   截断，绝不动 DB，故不影响 LLM 通路。_fullOutputStored 幂等短路避免重复截断。
-              const msgs = (result.messages as Message[]).map(m => truncateLargeResults(m))
+              const msgs = orderMessages((result.messages as Message[]).map(m => truncateLargeResults(m)))
               const totalCount = result.totalCount
               set(state => ({
                   messagesMap: {...state.messagesMap, [convId]: msgs},
@@ -1923,11 +1990,16 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           if (get().loadingMoreMap[convId]) return // 防止重复加载
           const existing = get().messagesMap[convId]
           if (!existing || existing.length === 0) return
+          // ★ 游标为 (timestamp, id) 双键：同毫秒存在多条消息且被 LIMIT 切在边界时，
+          //   只传 timestamp 会让主进程用严格 `<` 把同 ts 的更早消息永久排除（分页漏取）。
+          //   earliestId 经 IPC 追加为可选第 4 参，主进程据此改为
+          //   `timestamp < ? OR (timestamp = ? AND rowid < cursor)`，游标严格单调后退 → 必然终止。
           const earliestTs = existing[0].timestamp
+          const earliestId = existing[0].id
 
           set(state => ({loadingMoreMap: {...state.loadingMoreMap, [convId]: true}}))
           try {
-              const result = await window.electronAPI?.conversationReadBefore?.(convId, earliestTs, pageSize) || {
+              const result = await window.electronAPI?.conversationReadBefore?.(convId, earliestTs, pageSize, earliestId) || {
                   messages: [],
                   totalCount: 0
               }
@@ -1938,7 +2010,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   set(state => ({hasMoreMap: {...state.hasMoreMap, [convId]: false}}))
                   return
               }
-              const newMsgs = [...olderMsgs, ...existing]
+              const newMsgs = orderMessages([...olderMsgs, ...existing])
               set(state => ({
                   messagesMap: {...state.messagesMap, [convId]: newMsgs},
                   loadedMessages: convId === state.activeConversationId ? newMsgs : state.loadedMessages,
@@ -2321,6 +2393,6 @@ if (typeof window !== 'undefined') {
         // ★ 无论被删会话是否激活，统一释放其消息缓存（messagesMap/hasMoreMap/loadingMoreMap）
         //   与 agent 运行时数据；否则非激活会话（后台流式/子会话/其他工作区）的缓存会永久残留。
         //   （messagesMap 在激活分支已删，此处对 ids 统一 delete 幂等。）
-        releaseConvCaches(ids)
+        releaseDeletedConvs(ids)
     })
 }

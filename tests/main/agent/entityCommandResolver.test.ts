@@ -70,6 +70,14 @@ describe('resolveSkillCommand — 仅解析技能', () => {
         expect(result!.template).toContain('# 技能模式: Brainstorming')
     })
 
+    it('模板携带「已加载」否定句（能力目录 delegation rules 追加于 CT 之后，否则模型重复调用 skill）', () => {
+        skillRegistry.register(makeSkill({id: 'brainstorming', name: 'Brainstorming'}))
+
+        const result = resolveSkillCommand('brainstorming')
+        expect(result!.template).toContain('视为已加载完成')
+        expect(result!.template).toContain('不要再用 skill / describe_skills 工具重复加载')
+    })
+
     it('用别名（id）查询仍返回规范名（保证 /name 前缀可被 detectCommandContext 解析）', () => {
         skillRegistry.register(makeSkill({id: 'code-review', name: '代码审查'}))
 

@@ -113,6 +113,8 @@ function AgentCard({template, onEdit, onDelete, onToggle, onPreview, readOnly}: 
             aria-label={`查看 Agent ${template.name} 详情`}
             onClick={() => onPreview?.()}
             onKeyDown={e => {
+                // 守卫：卡片内部含 CopyButton / 动作按钮等可聚焦元素，其按键冒泡到此处会误触发预览
+                if (e.target !== e.currentTarget) return
                 if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
                     onPreview?.()

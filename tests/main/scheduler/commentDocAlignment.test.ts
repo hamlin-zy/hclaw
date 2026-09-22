@@ -51,6 +51,8 @@ const MANAGED_SOURCES = [
     'src/main/scheduler/scheduleBroadcast.ts',
     'src/main/scheduler/scheduleErrors.ts',
     'src/main/scheduler/index.ts',
+    // 记忆沉淀前置探针：无待办时本地短路（判定口径与 systemSchedules.ts 的步骤 1 同源）
+    'src/main/scheduler/memoryProbe.ts',
     'src/main/scheduler/scriptLogPath.ts',
     'src/main/scheduler/worker.ts',
     'src/main/agent/tools/builtin/schedulerManageTool.ts',

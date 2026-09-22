@@ -11,6 +11,8 @@ import {describe, expect, it, beforeEach, vi} from 'vitest'
 import type {Message} from '../../../src/shared/types/message'
 
 const refreshSpy = vi.hoisted(() => vi.fn())
+/** 「已完成未读」标记清除：本文件断言 switchActiveConversation 的清除落点 */
+const clearDoneSpy = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../src/renderer/stores/agentStore', () => ({
     useAgentStore: {
@@ -18,6 +20,7 @@ vi.mock('../../../src/renderer/stores/agentStore', () => ({
             convAgentStates: {},
             updateConvData: () => {},
             removeConvData: () => {},
+            clearConvDoneUnread: clearDoneSpy,
             flushPendingStreamData: () => {},
             reconcileStreamingContent: () => {},
             refreshActiveBatch: refreshSpy,
@@ -62,6 +65,7 @@ function setupWorkspace() {
 
 beforeEach(() => {
     refreshSpy.mockClear()
+    clearDoneSpy.mockClear()
     ;(globalThis as unknown as {window: unknown}).window = {
         electronAPI: {
             conversationReadTail: vi.fn(async () => ({messages: [], totalCount: 0})),
@@ -87,5 +91,26 @@ describe('switchActiveConversation 主动水合待办批次', () => {
         await store.setActiveConversation(ROOT_ID)
 
         expect(refreshSpy).toHaveBeenCalledWith(ROOT_ID)
+    })
+})
+
+describe('switchActiveConversation 清除「已完成未读」标记（H1a）', () => {
+    it('切到某会话 → clearConvDoneUnread(该会话 id)', async () => {
+        const store = useConversationStore.getState()
+
+        await store.setActiveConversation(CHILD_ID)
+
+        expect(clearDoneSpy).toHaveBeenCalledWith(CHILD_ID)
+        expect(clearDoneSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('切到 null（清空激活态）→ 不调用 clearConvDoneUnread（守卫：id 为空不产生无谓写）', async () => {
+        const store = useConversationStore.getState()
+        expect(useConversationStore.getState().activeConversationId).toBe(ROOT_ID)
+
+        await store.setActiveConversation(null)
+
+        expect(useConversationStore.getState().activeConversationId).toBeNull()
+        expect(clearDoneSpy).not.toHaveBeenCalled()
     })
 })

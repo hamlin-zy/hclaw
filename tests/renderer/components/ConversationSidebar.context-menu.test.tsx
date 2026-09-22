@@ -51,8 +51,12 @@ vi.mock('../../../src/renderer/stores/conversationStore', () => ({
 }))
 
 vi.mock('../../../src/renderer/stores/agentStore', () => ({
-    useAgentStore: (selector: (s: {convAgentStates: Record<string, unknown>}) => unknown) =>
-        selector({convAgentStates: {}}),
+    useAgentStore: (selector: (s: {
+        convAgentStates: Record<string, unknown>
+        doneUnreadIds: Record<string, number>
+        clearConvDoneUnread: (convId: string) => void
+    }) => unknown) =>
+        selector({convAgentStates: {}, doneUnreadIds: {}, clearConvDoneUnread: () => {}}),
 }))
 
 beforeEach(() => {

@@ -34,6 +34,7 @@ const CONV = 'conv-1'
 
 /** 构造最小 store 替身：只保留 startAgentImpl 实际使用的 get/updateConvData */
 function makeStore(status: string) {
+    const clearConvDoneUnread = vi.fn()
     const store: any = {
         convAgentStates: {
             [CONV]: {...createDefaultConvData(), agentState: {...IDLE_STATE, status}},
@@ -42,10 +43,11 @@ function makeStore(status: string) {
             const prev = store.convAgentStates[convId] || createDefaultConvData()
             store.convAgentStates = {...store.convAgentStates, [convId]: {...prev, ...updates}}
         },
+        clearConvDoneUnread,
     }
     const get = () => store
     const set = vi.fn()
-    return {store, get, set}
+    return {store, get, set, clearConvDoneUnread}
 }
 
 beforeEach(() => {
@@ -134,5 +136,34 @@ describe('startAgent — 启动失败兜底置 error', () => {
 
         expect(store.convAgentStates[CONV].agentState.status).toBe('thinking')
         expect(store.convAgentStates[CONV].errorMessage).toBeNull()
+    })
+})
+
+describe('startAgent — 新 run 失效「已完成未读」标记（H1b）', () => {
+    it('新 run 启动 ⇒ clearConvDoneUnread(该会话)', async () => {
+        const {get, set, clearConvDoneUnread} = makeStore('idle')
+        ;(window as any).electronAPI = {agentStart: vi.fn(async () => ({success: true}))}
+
+        await startAgentImpl(set, get, {conversationId: CONV, message: 'hi'} as any)
+
+        expect(clearConvDoneUnread).toHaveBeenCalledWith(CONV)
+    })
+
+    it('thinking/running 守卫提前 return ⇒ 不调用 clearConvDoneUnread（既有语义：该路径不产生新 run）', async () => {
+        const {get, set, clearConvDoneUnread} = makeStore('running')
+        ;(window as any).electronAPI = {agentStart: vi.fn(async () => ({success: true}))}
+
+        await startAgentImpl(set, get, {conversationId: CONV, message: 'hi'} as any)
+
+        expect(clearConvDoneUnread).not.toHaveBeenCalled()
+    })
+
+    it('paused 残留（无 force）同样提前 return ⇒ 不调用 clearConvDoneUnread', async () => {
+        const {get, set, clearConvDoneUnread} = makeStore('paused')
+        ;(window as any).electronAPI = {agentStart: vi.fn(async () => ({success: true}))}
+
+        await startAgentImpl(set, get, {conversationId: CONV, message: 'hi'} as any)
+
+        expect(clearConvDoneUnread).not.toHaveBeenCalled()
     })
 })

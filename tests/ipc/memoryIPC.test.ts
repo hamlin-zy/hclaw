@@ -42,12 +42,6 @@ describe('validateMemoryPath', () => {
     expect(result?.kind).toBe('ref');
   });
 
-  it('accepts path under mem/', () => {
-    const result = validateMemoryPath(path.join(memDir, 'SKILL.md'));
-    expect(result).not.toBeNull();
-    expect(result?.kind).toBe('mem');
-  });
-
   it('rejects path with ../ traversal', () => {
     const malicious = path.join(refDir, '..', '..', '..', 'etc', 'passwd');
     const result = validateMemoryPath(malicious);
@@ -100,7 +94,6 @@ describe('listMemory', () => {
       path.join(refDir, '_user', 'preferences.md'),
       '# user prefs'
     );
-    fs.writeFileSync(path.join(memDir, 'SKILL.md'), '# skill index');
 
     // index.json
     fs.writeFileSync(
@@ -113,7 +106,7 @@ describe('listMemory', () => {
     expect(result.projects[0].dir).toBe('hclaw');
     expect(result.projects[0].projectName).toBe('hclaw');
     expect(result.projects[0].memoryFile?.label).toBe('项目记忆');
-    expect(result.globalFiles).toHaveLength(2); // preferences + SKILL
+    expect(result.globalFiles).toHaveLength(1); // only preferences, SKILL.md removed
   });
 
   it('reads archive H2 title as label', async () => {

@@ -388,11 +388,17 @@ export function FileTree() {
 
   const dirStatus = (dirPath: string): VcsStatus => dirStatusMap.get(dirPath) ?? 'none'
 
+  /** 文件行 git 状态：与目录染色同源自 gitStatusStore.statusMap（不再信条目自带的
+   *  gitStatus——主进程已解耦，pm:list-directory 不等全量 git status，该字段恒 'none'，
+   *  徽章在 statusMap 落地后点亮）。被忽略条目一律"无状态"（spec §6.3）。 */
+  const fileStatus = (e: DirEntry): VcsStatus =>
+    e.ignored ? 'none' : (statusMap?.[e.path]?.status ?? 'none')
+
   const renderEntries = (dirPath: string, depth: number): React.ReactNode =>
     visible(childrenCache[dirPath] ?? []).map(e => {
       const isExpanded = e.isDir && expanded.has(e.path)
       // 被忽略条目一律按"无状态"呈现（spec §6.3）
-      const status: VcsStatus = e.ignored ? 'none' : (e.isDir ? dirStatus(e.path) : e.gitStatus)
+      const status: VcsStatus = e.isDir ? dirStatus(e.path) : fileStatus(e)
       const iconSpec = e.isDir ? (isExpanded ? FOLDER_OPEN_SPEC : FOLDER_SPEC) : fileIcon(e.name)
       const Icon = iconSpec.Icon
       // 被忽略文件与隐藏文件统一弱化；目录不画删除线，所以只有文件走 pm-file-name。
@@ -413,7 +419,7 @@ export function FileTree() {
             hasChildren={e.isDir}
             icon={<Icon size={13} color={iconSpec.color} aria-hidden="true" />}
             label={<span className={nameClass}>{e.name}</span>}
-            trailing={!e.isDir && !e.ignored && e.gitStatus !== 'none' ? <StatusBadge status={e.gitStatus} /> : undefined}
+            trailing={!e.isDir && status !== 'none' ? <StatusBadge status={status} /> : undefined}
             ariaLabel={e.name}
             path={e.path}
             onClick={onRowClick(e.path)}
@@ -428,10 +434,12 @@ export function FileTree() {
               // 目录行双击 = 切换展开（IDEA 语义）
               if (e.isDir) { toggleDir(e); return }
               const reqWs = ws
+              // 复用本行已算出的 status（同一条目 e、同一纯函数 fileStatus，等价于重算）
+              const fStatus = status
               void window.electronAPI?.projectManager.readFile(reqWs, e.path).then(r => {
                 // 归属守卫：期间切了 workspace / 组件已卸载 → 丢弃，不写 tab
                 if (!isCurrent(reqWs)) return
-                openFileTab(toOpenFileTabInput(e.path, e.name, r, e.gitStatus === 'none' ? undefined : e.gitStatus))
+                openFileTab(toOpenFileTabInput(e.path, e.name, r, fStatus === 'none' ? undefined : fStatus))
                 // QuickOpen 的 Recent Files：真实文件打开成功即记录（diff 标签页不记，见 spec §Recent Files）
                 recordRecentFile(reqWs, e.path)
               })

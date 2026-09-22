@@ -624,7 +624,15 @@ export class SqliteConversationRepository implements IConversationRepository {
         }
     }
 
-    readMessagesBefore(convId: string, beforeTimestamp: number, count: number): {
+    /**
+     * @param beforeId 可选游标第二键：消息 id。提供时启用 (timestamp, rowid) 双键游标——
+     *   同一毫秒存在多条消息且被 LIMIT 切在边界时，只靠 `timestamp < ?` 会把同 ts 的更早
+     *   消息永久排除（分页漏取）。不提供时退化为旧的单键语义（保持旧调用兼容）。
+     *   游标 id 查不到对应行（消息已删）时子查询为 NULL → `rowid < NULL` 恒 false，
+     *   等价于退化为单键 `timestamp < ?`：不会漏取 timestamp 严格更小的批次，
+     *   但同 ts 组内 rowid 更小的剩余消息仍会被漏（与改动前的单键行为一致）。
+     */
+    readMessagesBefore(convId: string, beforeTimestamp: number, count: number, beforeId?: string): {
         messages: Message[];
         totalCount: number
     } {
@@ -635,9 +643,13 @@ export class SqliteConversationRepository implements IConversationRepository {
             }
             const totalCount = totalRow?.cnt ?? 0
 
-            const msgRows = db.prepare(
-                'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ? AND timestamp < ? ORDER BY timestamp DESC, rowid DESC LIMIT ?'
-            ).all(convId, beforeTimestamp, count) as typeof this.msgRowType[]
+            const selectCols = 'SELECT id, role, timestamp, ended_at, metadata, llm_stats, is_partial FROM messages WHERE conversation_id = ?'
+            const orderLimit = 'ORDER BY timestamp DESC, rowid DESC LIMIT ?'
+            const msgRows = (beforeId
+                ? db.prepare(
+                    `${selectCols} AND (timestamp < ? OR (timestamp = ? AND rowid < (SELECT rowid FROM messages WHERE id = ?))) ${orderLimit}`
+                ).all(convId, beforeTimestamp, beforeTimestamp, beforeId, count)
+                : db.prepare(`${selectCols} AND timestamp < ? ${orderLimit}`).all(convId, beforeTimestamp, count)) as typeof this.msgRowType[]
             msgRows.reverse()
 
             return {messages: this.buildMessagesFromRows(msgRows), totalCount}

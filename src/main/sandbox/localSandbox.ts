@@ -17,7 +17,7 @@
  */
 
 import * as path from 'path'
-import type {Sandbox, SandboxAuditEntry, SandboxCheckResult, SandboxOperation, SandboxPolicy,} from './types'
+import type {Sandbox, SandboxCheckResult, SandboxOperation, SandboxPolicy,} from './types'
 import {permissionEngine} from '../agent/tools/permission'
 
 // ─── 默认策略 ──────────────────────────────────────────
@@ -50,7 +50,6 @@ const DEFAULT_POLICY: SandboxPolicy = {
         'C:\\Program Files (x86)',
     ],
     deniedCommands: DEFAULT_DENIED_COMMANDS,
-    maxFileSize: 10 * 1024 * 1024, // 10 MB
     maxCommandTimeout: 120_000, // 2 分钟
 }
 
@@ -58,8 +57,6 @@ const DEFAULT_POLICY: SandboxPolicy = {
 
 export class LocalSandbox implements Sandbox {
     private policy: SandboxPolicy
-    private auditLog: SandboxAuditEntry[] = []
-    private maxAuditEntries = 10_000
 
     constructor(initialPaths: string[] = []) {
         this.policy = {
@@ -78,14 +75,8 @@ export class LocalSandbox implements Sandbox {
             case 'file_write':
                 return this.checkFileAccess(operation.path, 'write')
 
-            case 'file_delete':
-                return this.checkFileAccess(operation.path, 'delete')
-
             case 'command_execute':
                 return this.checkCommand(operation.command, operation.args)
-
-            case 'network_request':
-                return this.checkNetwork(operation.url)
 
             default:
                 return {
@@ -94,31 +85,6 @@ export class LocalSandbox implements Sandbox {
                     riskLevel: 'high',
                 }
         }
-    }
-
-    // ─── 审计日志 ────────────────────────────────────────
-
-    audit(entry: Omit<SandboxAuditEntry, 'id' | 'timestamp'>): void {
-        const fullEntry: SandboxAuditEntry = {
-            id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            timestamp: Date.now(),
-            ...entry,
-        }
-
-        this.auditLog.push(fullEntry)
-
-        // 超限时移除最早的
-        if (this.auditLog.length > this.maxAuditEntries) {
-            this.auditLog.shift()
-        }
-    }
-
-    getAuditLog(limit = 100): SandboxAuditEntry[] {
-        return this.auditLog.slice(-limit)
-    }
-
-    clearAuditLog(): void {
-        this.auditLog = []
     }
 
     // ─── 策略管理 ────────────────────────────────────────
@@ -149,7 +115,7 @@ export class LocalSandbox implements Sandbox {
 
     private checkFileAccess(
         filePath: string,
-        mode: 'read' | 'write' | 'delete',
+        mode: 'read' | 'write',
     ): SandboxCheckResult {
         const normalized = path.normalize(filePath)
 
@@ -173,16 +139,6 @@ export class LocalSandbox implements Sandbox {
                     reason: `路径不在白名单中: ${normalized}`,
                     riskLevel: 'medium',
                 }
-            }
-        }
-
-        // 删除操作需要确认
-        if (mode === 'delete') {
-            return {
-                allowed: true,
-                needsConfirmation: true,
-                confirmationMessage: `确认删除文件: ${normalized}?`,
-                riskLevel: 'high',
             }
         }
 
@@ -260,25 +216,6 @@ export class LocalSandbox implements Sandbox {
         }
     }
 
-    private checkNetwork(url: string): SandboxCheckResult {
-        // 检查网络目标黑名单
-        if (this.policy.deniedNetworkTargets) {
-            for (const denied of this.policy.deniedNetworkTargets) {
-                if (url.includes(denied)) {
-                    return {
-                        allowed: false,
-                        reason: `网络目标被禁止: ${denied}`,
-                        riskLevel: 'medium',
-                    }
-                }
-            }
-        }
-
-        return {
-            allowed: true,
-            riskLevel: 'low',
-        }
-    }
 }
 
 // ─── 工具函数 ──────────────────────────────────────────

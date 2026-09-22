@@ -71,7 +71,11 @@ describe('FileTree 忽略开关（spec §6.3 方案 A）', () => {
 
 describe('FileTree 三重编码（spec §6.2）', () => {
   it('文件名按状态着色并带状态字母', async () => {
-    listDir.mockResolvedValue([entry('a.ts', 'a.ts', false, {gitStatus: 'M'})])
+    // 状态自 statusMap 派生（条目 gitStatus 已不被采信，pm:list-directory 解耦）
+    useGitStatusStore.setState({
+      summary: {statusMap: {'a.ts': {path: 'a.ts', status: 'M', indexStatus: ' ', worktreeStatus: 'M'}}, additions: 0, deletions: 0, updatedAt: 1},
+    })
+    listDir.mockResolvedValue([entry('a.ts', 'a.ts', false)])
     render(<FileTree />)
     const row = await screen.findByRole('treeitem', {name: 'a.ts'})
     expect(screen.getByText('a.ts')).toHaveClass('pm-c--M')

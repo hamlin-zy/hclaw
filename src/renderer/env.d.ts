@@ -20,6 +20,9 @@ declare global {
         isDarwin: boolean
         // 开发模式标识（主进程判定，经 additionalArguments 透传；控制调试类 UI 如"复制会话 ID"）
         isDevMode: boolean
+        // 系统语言（主进程 app.getLocale() 经 additionalArguments 透传，如 'zh-CN'）；
+        // 设置页「跟随系统(简体中文)」标签的真源；app 未 ready 时为空串
+        systemLocale?: string
         // 冷启动观测：向主进程投递打点（fire-and-forget）
         startup?: {
             mark: (label: string, data?: Record<string, unknown>) => void
@@ -313,7 +316,8 @@ declare global {
       conversationReadMeta: (convId: string) => Promise<Record<string, unknown> | null>
       conversationReadMessages: (convId: string) => Promise<unknown[]>
         conversationReadTail: (convId: string, count: number) => Promise<{ messages: unknown[]; totalCount: number }>
-        conversationReadBefore: (convId: string, beforeTimestamp: number, count: number) => Promise<{
+        // beforeId：追加的可选游标第二键（消息 id），启用 (timestamp, rowid) 双键游标
+        conversationReadBefore: (convId: string, beforeTimestamp: number, count: number, beforeId?: string) => Promise<{
             messages: unknown[];
             totalCount: number
         }>

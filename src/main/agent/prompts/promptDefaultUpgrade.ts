@@ -123,6 +123,23 @@ const ROUTING_PRIORITY_BLOCK_NEW = `### 委派节奏：先铺开，再收敛
 
 const ROUTING_NEW_HEADING = '### 委派节奏：先铺开，再收敛'
 
+// ─── 上一版 system.output 默认值（基线 hash 来源，逐字，勿改）──
+
+const OUTPUT_DEFAULT_V1 = `## 输出规范
+
+- **结论先行** — 直接回答，不要铺垫
+- **简洁** — 不用 emoji（除非用户要求），不重复用户的话
+- **可追溯** — 引用代码用 \`file:line\`，GitHub 用 \`owner/repo#123\`
+- **高效更新** — 增量修改时简短说明变更即可`
+
+// ─── system.output 锚点（旧 → 新）────────────────────────
+
+/** 旧默认值末条：作为新条目追加锚点（保持与新默认值同序） */
+const OUTPUT_LAST_LINE = `- **高效更新** — 增量修改时简短说明变更即可`
+
+/** 新增条目（与 prompts.ts 新版默认值逐字一致） */
+const OUTPUT_THINKING_BULLET = `- **思考不预写正文** — 思考只用于推理决策；不要在其中完整预写最终正文再誊抄一遍，正文一次成稿（同一内容生成两遍会白烧一遍输出 token，且思考内容随历史回传、后续每轮再按输入计费一次）`
+
 // ─── 迁移注册表 ──────────────────────────────────────────
 
 export const PROMPT_NODE_MIGRATIONS: PromptNodeDefaultMigration[] = [
@@ -184,6 +201,34 @@ export const PROMPT_NODE_MIGRATIONS: PromptNodeDefaultMigration[] = [
         apply: (content) => {
             if (content.includes(ROUTING_NEW_HEADING)) return {outcome: 'noop', content, reason: 'already-latest'}
             return replaceTextBlock(content, ROUTING_PRIORITY_BLOCK_OLD, ROUTING_PRIORITY_BLOCK_NEW, 'anchor-miss-priority-block')
+        },
+    },
+    {
+        id: 'output-refresh-baseline',
+        nodeKey: 'system.output',
+        description: 'system.output 内容等于上一版默认值（用户未改）→ 整体替换为新默认值',
+        apply: (content) => {
+            const target = getPromptNodeByKey('system.output')?.defaultValue
+            if (!target) return {outcome: 'noop', content, reason: 'no-code-default'}
+            if (content.trim() === target.trim()) return {outcome: 'noop', content, reason: 'already-latest'}
+            if (contentHash(content) !== contentHash(OUTPUT_DEFAULT_V1)) {
+                return {outcome: 'skipped', content, reason: 'user-modified-baseline-miss'}
+            }
+            return {outcome: 'applied', content: target}
+        },
+    },
+    {
+        id: 'output-patch-thinking-bullet',
+        nodeKey: 'system.output',
+        description: '输出规范补入「思考不预写正文」条目（用户改过时不整体覆盖，只追加）',
+        apply: (content) => {
+            if (content.includes(OUTPUT_THINKING_BULLET)) return {outcome: 'noop', content, reason: 'already-satisfied'}
+            return replaceTextBlock(
+                content,
+                OUTPUT_LAST_LINE,
+                `${OUTPUT_LAST_LINE}\n${OUTPUT_THINKING_BULLET}`,
+                'anchor-miss-output-last-line',
+            )
         },
     },
 ]

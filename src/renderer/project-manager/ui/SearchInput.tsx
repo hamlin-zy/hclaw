@@ -2,7 +2,6 @@
 // onSubmit 为显式触发：Enter 或点击提交按钮。不做输入即过滤——Commit 过滤要走 IPC 重拉 git log。
 import React from 'react'
 import {Search, X} from 'lucide-react'
-import {INPUT_FOCUS} from '../../lib/inputFocus'
 
 interface SearchInputProps {
   value: string
@@ -18,10 +17,13 @@ interface SearchInputProps {
 
 export function SearchInput({value, onChange, placeholder, ariaLabel, onSubmit, submitLabel = '搜索', testId}: SearchInputProps) {
   return (
-    <div className="pm-search" data-testid={testId}>
+    /* 焦点环由圆角外壳 .pm-search（radius 4px）承担：内层 .pm-search-input 是 globals.css 里的
+       隐形 input（background: transparent; border: 0），radius=0 会把 INPUT_FOCUS 的 ring
+       渲染成直角描边并溢出圆角外壳（与 CapabilityPicker 同型）。契约豁免见 inputFocusSeam.test.ts。 */
+    <div className="pm-search focus-within:ring-1 focus-within:ring-[color-mix(in_srgb,var(--brand-primary)_30%,transparent)]" data-testid={testId}>
       <Search className="pm-search-icon" size={12} aria-hidden="true" />
       <input
-        className={`pm-search-input ${INPUT_FOCUS}`}
+        className="pm-search-input"
         type="text"
         value={value}
         placeholder={placeholder}
