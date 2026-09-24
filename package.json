@@ -1,6 +1,6 @@
 {
   "name": "hclaw",
-  "version": "0.5.20",
+  "version": "0.5.21",
   "description": "HClaw",
   "main": ".vite/main/index.js",
   "type": "commonjs",
@@ -48,6 +48,7 @@
     "@codemirror/state": "^6.7.4",
     "@codemirror/view": "^6.43.11",
     "@google/generative-ai": "^0.24.1",
+    "@joplin/turndown-plugin-gfm": "^1.0.68",
     "@larksuiteoapi/node-sdk": "^1.65.0",
     "@lezer/highlight": "^1.2.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -80,6 +81,7 @@
     "remark-gfm": "^4.0.1",
     "sharp": "^0.34.5",
     "simple-git": "^3.36.0",
+    "turndown": "^7.2.4",
     "use-sync-external-store": "^1.6.0",
     "zod": "^4.3.6",
     "zustand": "^5.0.13"
@@ -94,6 +96,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/react-syntax-highlighter": "^15.5.11",
+    "@types/turndown": "^5.0.6",
     "@typescript-eslint/eslint-plugin": "^8.59.4",
     "@typescript-eslint/parser": "^8.59.4",
     "@vitejs/plugin-react": "^6.0.1",

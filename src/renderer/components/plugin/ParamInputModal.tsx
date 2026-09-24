@@ -102,7 +102,7 @@ export function ParamInputModal({ isOpen, command, onSubmit, onCancel }: ParamIn
           </header>
 
           {/* Content */}
-          <div className="param-modal-body">
+          <div className="param-modal-body select-text">
             {command.content && (
                 <section className="param-preview-section">
                   <div className="param-section-label">命令预览</div>

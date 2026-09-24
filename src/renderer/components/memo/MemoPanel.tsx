@@ -265,7 +265,7 @@ export default function MemoPanel() {
             </div>
 
             {/* 列表区 */}
-            <div className="flex-1 overflow-y-auto px-[var(--space-relaxed)] py-[var(--space-snug)] space-y-1.5">
+            <div className="flex-1 overflow-y-auto px-[var(--space-relaxed)] py-[var(--space-snug)] space-y-1.5 select-text">
                 {loading && memos.length === 0 && (
                     <div className="p-4 text-center text-xs text-[var(--text-secondary)]">加载中...</div>
                 )}

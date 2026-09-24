@@ -119,7 +119,7 @@ export default function UpdateNoticeDialog() {
         {/* 最新版本条目：tag 徽章 + title + date */}
         {latest && (
           <div
-            className="w-full mt-3 rounded-[10px] overflow-hidden"
+            className="w-full mt-3 rounded-[10px] overflow-hidden select-text"
             style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}
           >
             <ChangelogEntryHeader
@@ -135,7 +135,7 @@ export default function UpdateNoticeDialog() {
 
       {/* 变更内容区：最新条目 items + 跨版本折叠列表 */}
       {latest && (
-        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto px-6 pb-4">
+        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto px-6 pb-4 select-text">
           <div
             className="w-full shrink-0 overflow-y-auto px-[14px] py-3 rounded-[10px] mb-3"
             style={{

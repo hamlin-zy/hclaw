@@ -56,7 +56,7 @@ export default function WindowTitleBar({title, subtitle}: WindowTitleBarProps) {
                 <div className="titlebar-left no-drag">
                     <div className="logo-container">
                         <span className="logo-text" data-testid="titlebar-title">{title}</span>
-                        {subtitle && <span style={{fontSize: 10, color: 'var(--text-muted)', fontWeight: 'normal', marginLeft: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60vw'}} title={subtitle} data-testid="titlebar-subtitle">{subtitle}</span>}
+                        {subtitle && <span className="select-text" style={{fontSize: 10, color: 'var(--text-muted)', fontWeight: 'normal', marginLeft: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60vw'}} title={subtitle} data-testid="titlebar-subtitle">{subtitle}</span>}
                     </div>
                 </div>
                 <div className="titlebar-center drag-region"/>

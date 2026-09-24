@@ -356,7 +356,7 @@ export function GitStatusPanel({workspace}: {workspace: string}) {
       {!summary || changed === 0
         ? <EmptyState icon={CheckCircle2} text="工作区干净 · 没有待提交的改动" />
         : (
-          <div role="tree" className="pm-tree-scroll">
+          <div role="tree" className="pm-tree-scroll select-text">
             {groups.map(([label, status, files]) => files.length > 0 && (
               <React.Fragment key={label}>
                 {renderGroupTitle(`${label} (${files.length})`, status)}

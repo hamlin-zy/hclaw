@@ -27,6 +27,7 @@ vi.mock('@/main/hclawPaths', async () => await import('@/main/config'))  // è·¯å
 
 vi.mock('@/main/agent/tools/builtin/agentTool', () => ({
     injectChildMessage: vi.fn(() => true),
+    abortChildSession: vi.fn(() => false),
 }))
 
 vi.mock('@/main/repositories', () => ({

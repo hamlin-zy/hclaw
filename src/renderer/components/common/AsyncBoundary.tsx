@@ -50,7 +50,7 @@ export function AsyncBoundary({
         return (
             <div
                 role="alert"
-                className="flex flex-col items-center justify-center gap-[var(--space-snug)] px-4 py-8 text-center"
+                className="flex flex-col items-center justify-center gap-[var(--space-snug)] px-4 py-8 text-center select-text"
                 data-name="async-boundary-error"
             >
                 <div className="max-w-[48ch] text-xs leading-relaxed break-words text-[var(--error)]">{error}</div>

@@ -33,6 +33,7 @@ vi.mock('@/main/hclawPaths', async () => await import('@/main/config'))  // 路�
 // manager.impl 仅从此模块导入 injectChildMessage，整体替换安全
 vi.mock('@/main/agent/tools/builtin/agentTool', () => ({
     injectChildMessage: vi.fn(() => true),
+    abortChildSession: vi.fn(() => false),
 }))
 
 // getConvModeOverride 经 repositories 读 conversation meta

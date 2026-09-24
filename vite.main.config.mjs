@@ -169,6 +169,40 @@ export default defineConfig({
                 });
                 console.log('[channel-worker] Bundled channelWorker.cjs (CJS format)');
             }
+        },
+        {
+            // 项目管理窗口的 watcher 跑在 Electron utilityProcess 里（把 chokidar 的全量递归扫描
+            // 从主进程的 fs 线程池 / 事件循环上摘出去）。utilityProcess 加载 ESM 入口在 asar 下有
+            // 兼容坑，故与 channelWorker 同一范式：esbuild 单独打成 CJS 单文件，
+            // 产物路径 .vite/main/watcherWorker.cjs 与 watcher.ts 里的 path.join(__dirname, ...) 对应。
+            name: 'bundle-watcher-worker',
+            apply: 'build',
+            async closeBundle() {
+                const esbuild = await import('esbuild');
+                esbuild.buildSync({
+                    entryPoints: ['src/main/project-manager/watcherWorker.ts'],
+                    outfile: '.vite/main/watcherWorker.cjs',
+                    bundle: true,
+                    platform: 'node',
+                    format: 'cjs',
+                    target: 'es2020',
+                    // electron、native addon 等必须 external，worker 进程不需要这些模块
+                    // format:cjs 下 esbuild 会生成 require()，CJS 互操作无问题
+                    external: [
+                        'electron',
+                        '@photostructure/sqlite',
+                        '@larksuiteoapi/node-sdk',
+                        'axios',
+                        'form-data',
+                        'combined-stream',
+                        '@vscode/ripgrep',
+                    ],
+                    alias: {
+                        '@shared': path.resolve(__dirname, 'src/shared'),
+                    },
+                });
+                console.log('[watcher-worker] Bundled watcherWorker.cjs (CJS format)');
+            }
         }
     ],
   optimizeDeps: {

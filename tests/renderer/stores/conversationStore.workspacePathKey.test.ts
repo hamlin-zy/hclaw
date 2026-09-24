@@ -211,6 +211,29 @@ describe('removeWorkspace — 归一化等价的既有工作区', () => {
         expect(state.currentWorkspacePath).toBeNull()
     })
 
+    it('同时清掉按项目路径索引的 sectionWindowSizes / gitBranches（改前红：删项目后永久悬空）', async () => {
+        useConversationStore.setState({
+            currentWorkspacePath: null,
+            activeConversationId: null,
+            workspaces: {
+                'E:\\workspace\\': {lastOpenedAt: 0, conversations: []},
+                'E:\\keep': {lastOpenedAt: 0, conversations: []},
+            },
+            sectionWindowSizes: {'E:\\workspace\\': 20, 'E:\\keep': 30},
+            gitBranches: {'E:\\workspace\\': 'main', 'E:\\keep': 'dev'},
+            messagesMap: {},
+        })
+        getByPath.mockResolvedValue(null)
+        list.mockResolvedValue([])
+
+        await useConversationStore.getState().removeWorkspace('E:\\workspace')
+
+        const state = useConversationStore.getState()
+        // 归一化等价的历史遗留键一并清（与下方 workspaces 清理同口径），无关项目不动
+        expect(Object.keys(state.sectionWindowSizes)).toEqual(['E:\\keep'])
+        expect(Object.keys(state.gitBranches)).toEqual(['E:\\keep'])
+    })
+
     it('完全找不到：不抛错、不 create，会话删除仍按原串进行', async () => {
         useConversationStore.setState({
             currentWorkspacePath: 'E:\\other',

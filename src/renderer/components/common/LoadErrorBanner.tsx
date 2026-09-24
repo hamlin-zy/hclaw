@@ -47,7 +47,7 @@ export default function LoadErrorBanner({errors, title, tip}: Props) {
             </div>
             <div className="space-y-1">
                 {errors.map((err, i) => (
-                    <div key={i} className="pl-5 text-[var(--text-muted)]">
+                    <div key={i} className="pl-5 text-[var(--text-muted)] select-text">
                         <span className="font-medium text-[var(--text-primary)]">{err.name}</span>
                         : {err.error}
                     </div>

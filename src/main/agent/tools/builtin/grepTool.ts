@@ -19,6 +19,7 @@ const inputSchema = z.object({
   filePattern: z.string().optional().describe('文件名过滤，如 *.ts'),
     maxResults: z.coerce.number().optional().describe('最大返回结果数，默认 50'),
   caseInsensitive: z.boolean().optional().describe('是否忽略大小写，默认 false'),
+  includeIgnored: z.boolean().optional().describe('是否搜索被 .gitignore 忽略的文件与隐藏目录，默认 false'),
   maxDepth: z.coerce.number().optional().describe('最大递归深度，默认无限制'),
 })
 
@@ -29,7 +30,7 @@ const MAX_FILE_SIZE = 1024 * 1024
 
 export const grepTool: Tool<GrepInput, string> = {
   name: 'grep',
-  description: '在文件中搜索匹配的文本内容。支持正则表达式。',
+  description: '在文件中搜索匹配的文本内容。支持正则表达式。默认跳过被 .gitignore 忽略的文件与隐藏目录；需要在其中搜索时传 includeIgnored: true（会包含 .env、密钥配置等被忽略文件，谨慎开启）。',
   inputSchema,
   requiredPermissions: ['fs:read'],
   isDestructive: false,
@@ -88,12 +89,16 @@ async function searchWithRipgrep(
   rootDir: string,
   abortSignal?: AbortSignal | null,
 ): Promise<string | null> {
-  const { pattern, filePattern, maxResults = 50, caseInsensitive = false, maxDepth } = args
+  const { pattern, filePattern, maxResults = 50, caseInsensitive = false, maxDepth, includeIgnored } = args
 
   const rgArgs: string[] = ['--json', '--no-messages', '--max-filesize', '1M', '-g', '!node_modules']
   if (caseInsensitive) rgArgs.push('-i')
   if (maxDepth !== undefined) rgArgs.push('--max-depth', String(maxDepth))
   if (filePattern) rgArgs.push('-g', filePattern)
+  // includeIgnored 开启时才放开忽略规则：--no-ignore 让 rg 不再读 .gitignore，--hidden 让它进入隐藏目录。
+  // .git 必须始终排除——其内部是版本库对象/引用（松散对象为压缩二进制），搜之既无意义又极慢；
+  // 同理 node_modules 由上方恒定的 -g '!node_modules' 兜底，因为 --no-ignore 后 .gitignore 不再拦它。
+  if (includeIgnored === true) rgArgs.push('--no-ignore', '--hidden', '-g', '!.git')
   rgArgs.push('-e', pattern, '.')
 
   return new Promise((resolve) => {
@@ -208,7 +213,7 @@ export async function searchWithJs(
   const fileRegex = filePattern ? globToRegex(filePattern) : undefined
   const skipCounter = { value: 0 }
 
-  await walkAndSearch(searchDir, regex, fileRegex, results, maxResults, maxDepth, rootDir, skipCounter)
+  await walkAndSearch(searchDir, regex, fileRegex, results, maxResults, maxDepth, rootDir, skipCounter, args.includeIgnored === true)
 
   if (results.length === 0 && skipCounter.value === 0) {
     return ''
@@ -226,6 +231,7 @@ async function walkAndSearch(
   maxDepth: number | undefined,
   rootDir: string,
   skipCounter: { value: number },
+  includeIgnored: boolean,
   depth = 0,
 ): Promise<void> {
   if (results.length >= maxResults) return
@@ -241,9 +247,12 @@ async function walkAndSearch(
     const fullPath = path.join(dir, entry.name)
 
     if (entry.isDirectory()) {
-      // 跳过隐藏目录和 node_modules
-      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue
-      await walkAndSearch(fullPath, regex, fileRegex, results, maxResults, maxDepth, rootDir, skipCounter, depth + 1)
+      // node_modules 与 .git 始终跳过：前者是体积巨大的依赖树（非用户代码），
+      // 后者是版本库内部数据（对象/引用，多为二进制），即使 includeIgnored 也不应进入。
+      if (entry.name === 'node_modules' || entry.name === '.git') continue
+      // 隐藏目录（. 开头）仅在未开启 includeIgnored 时跳过，开启后纳入搜索
+      if (!includeIgnored && entry.name.startsWith('.')) continue
+      await walkAndSearch(fullPath, regex, fileRegex, results, maxResults, maxDepth, rootDir, skipCounter, includeIgnored, depth + 1)
     } else {
       // 文件名过滤
       if (fileRegex && !fileRegex.test(entry.name)) continue

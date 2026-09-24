@@ -1,20 +1,17 @@
 // @vitest-environment jsdom
 /**
- * 抽屉拖拽（Task 11）：五个落点（spec §6.3 表）+ 点击判定 + Esc 取消 + 搜索态禁用
- * + 自动滚动下的落点时效性 + 组区空白不是落点。
+ * 抽屉拖拽：五个落点（spec §6.3 表）+ 点击判定 + Esc 取消 + 搜索态禁用
+ * + 滚动后的落点时效性（抽屉根与二级面板根各一条）+ "面板根的非行区域不是落点"。
  *
  * **jsdom 无布局引擎**：`getBoundingClientRect()` 默认全零，而"离中线更近"的插入判定
  * 完全依赖真实矩形（全零会让所有行退化成一个零面积落点，用例会因错误的原因通过/失败）。
- * 因此这里按 DOM 契约造一份确定性布局表 —— 行（`data-drag-row`）、组块
- * （`data-drag-group-block`）、容器（`data-drag-scroll`）：
- *  · 容器矩形非零、且高于行矩形总和 → 自动滚动可达（旧版给容器零矩形，把这条路径整个藏掉了）；
- *  · 行与行之间留出真实空隙 → 组区空白（空组占位、mb-1 间隙）可以被指到；
- *  · 行/组块坐标按容器 scrollTop 平移 → 滚动后的几何是真的，不然"随滚动重采"无从验证。
- *
- * §16 二级化之后这里多了一条几何事实：**成员行搬进了 portal 到 body 的二级面板** ——
- * 面板是 fixed 定位、自己独立滚动，所以它的行既不平移于抽屉内容区的 scrollTop，
- * x 也落在抽屉右侧（`PANEL_LEFT..PANEL_RIGHT`）。两片区域在坐标上互不重叠，
- * 才能验证"落点表 = 抽屉根 + 面板根 拼起来"这件事（否则 drawPath 会互相串台）。
+ * 因此这里按 DOM 契约造一份确定性布局表 —— 挡位有两块根：
+ *  · 抽屉内容区（`data-drag-scroll`）：组头（`data-drag-row="group"`）+ 未分组行（`"top"`）；
+ *  · 二级面板（`data-name="drawer-group-panel"`，portal 到 body）：面板头行 + 成员行（`"member"`）。
+ *  面板是 fixed 定位，横向与抽屉错开（左缘 320）→ "指针落在哪块根"由 x 区分。
+ *  · 容器矩形非零、且高于行矩形总和 → 自动滚动可达；
+ *  · 行与行之间留出真实空隙 → 组区空白（mb-1 间隙、面板头行）可以被指到；
+ *  · 行/组块坐标按**各自根**的 scrollTop 平移 → 滚动后的几何是真的，不然"随滚动重采"无从验证。
  */
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
 import {render, screen, fireEvent, act, waitFor} from '@testing-library/react'
@@ -55,54 +52,35 @@ vi.mock('../../../src/renderer/stores/conversationStore', () => ({
 import {ProjectGroupDrawer} from '../../../src/renderer/components/ProjectGroupDrawer'
 
 const ROW_HEIGHT = 40
-/** 滚动容器矩形：高度 320 > 行矩形总和（5×40），且下方留白 —— 自动滚动与组区空白都必须可达 */
-const CONTAINER = {top: 0, bottom: 320}
-/** 组块里的组头高度；空组再多一段占位文字（与下方 GROUP_BLOCK_TOPS 一起还原真实块高） */
+/**
+ * 抽屉内容区矩形：高度 320 > 行矩形总和，下方留白 —— 自动滚动可达。
+ * `let` 而非 const：F7 的窄窗口用例要把两块根钳进同一段横向区间（面板盖到抽屉上），
+ * 其余用例读到的仍是这里的默认值（用例内 try/finally 还原）。
+ */
+let CONTAINER = {top: 0, bottom: 320, left: 0, right: 300}
+/** 抽屉内组头高度 */
 const HEADER_HEIGHT = 40
-const EMPTY_HINT_HEIGHT = 36
-/** 二级面板的水平范围：贴在抽屉（0..300）右侧，两块坐标不重叠 */
-const PANEL_LEFT = 310
-const PANEL_RIGHT = 570
-/**
- * 二级面板**根**的垂直范围（面板内部坐标）：0..40 = 面板头行，之后是成员行，
- * 末尾是空组占位文字 / 「添加项目」行。
- *
- * 这块矩形是给 `collectDropZones(面板根)` 的"空态兜底顶层落点"分支用的：
- * 该分支要求 `container.width/height > 0`，而面板根此前在 `layoutRect` 里落到 ZERO_RECT
- * （key `'::'` 不在 LAYOUT 表里）→ 零矩形 → 分支在 jsdom 里**结构上不可能触发**，
- * 于是"面板根被整块注册成 top-level 落点、成员拖到面板头行静默移出组"这条缺陷
- * 23 条拖拽用例全都发现不了。给面板根一个真实矩形，这条集成级用例才真的能抓住它。
- */
-const PANEL_TOP = 0
-const PANEL_BOTTOM = 200
+/** 二级面板矩形（fixed；默认横向与抽屉错开，故"指针落在哪块根"看 x） */
+let PANEL = {top: 0, bottom: 320, left: 320, right: 584}
 
 /**
- * 行布局表（内容坐标，自上而下）：key = `data-drag-row:data-group-id:data-index`。
- * 行与行之间的空隙 = 真实 DOM 里的组区（组块间 mb-1 间隙、空组占位文字区）。
- *
- * 层 1 现在只有组头（成员行与「添加项目」都在二级面板里，见 §16）：
- *  · 组A 块 = 0..40（只有组头，成员不在层 1）；
- *  · 组B 块 = 44..120（组头 44..84 + 空组占位 84..120）；
- *  · 未分组行 /ws/c = 124..164。
- * 面板那一半（member:*）是面板内部坐标，不受抽屉 content 滚动影响。
+ * 抽屉内组块顶边表（内容坐标，自上而下）。常态下成员行在二级面板里 → 组块 = 组头：
+ *  · 组A 块 = 0..40；
+ *  · 组块间 mb-1 间隙 = 40..44；
+ *  · 组B 块 = 44..84（空组，常态无内联占位）；
+ *  · 未分组行 /ws/c = 88..128。
  */
-const LAYOUT: Record<string, number> = {
-    'group:pg-a:': 0,      // 组A 组头
-    'group:pg-b:': 44,     // 组B 组头（40..44 = 组块间 mb-1 间隙）
-    'top::0': 124,         // /ws/c（未分组区唯一项目）
-    'member:pg-a:0': 40,   // /ws/a（面板头行占 0..40）
-    'member:pg-a:1': 80,   // /ws/b
-}
-
-/** 组块顶边：底边 = 顶边 + 组头 40 +（空组时）占位 36 */
 const GROUP_BLOCK_TOPS: Record<string, number> = {'pg-a': 0, 'pg-b': 44}
 
 const ZERO_RECT = {
     top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}),
 } as unknown as DOMRect
 
-/** 当前渲染出来的滚动容器（行坐标按它的 scrollTop 平移） */
+/** 当前渲染出来的两块根（行坐标按各自 scrollTop 平移） */
 let scrollEl: HTMLElement | null = null
+let panelEl: HTMLElement | null = null
+let drawerScrollTop = 0
+let panelScrollTop = 0
 
 function rectOf(top: number, bottom: number, left = 0, right = 300): DOMRect {
     const box = {top, bottom, left, right, width: right - left, height: bottom - top, x: left, y: top}
@@ -110,34 +88,36 @@ function rectOf(top: number, bottom: number, left = 0, right = 300): DOMRect {
 }
 
 function layoutRect(el: Element): DOMRect {
-    if (scrollEl && el === scrollEl) return rectOf(CONTAINER.top, CONTAINER.bottom) // 容器不随自身滚动移动
-    // 面板根自己有真实矩形（理由见 PANEL_TOP/PANEL_BOTTOM 的注释）：它不随任何滚动移动
-    if (el.getAttribute('data-name') === 'drawer-group-panel') {
-        return rectOf(PANEL_TOP, PANEL_BOTTOM, PANEL_LEFT, PANEL_RIGHT)
+    if (scrollEl && el === scrollEl) return rectOf(CONTAINER.top, CONTAINER.bottom, CONTAINER.left, CONTAINER.right)
+    if (panelEl && el === panelEl) return rectOf(PANEL.top, PANEL.bottom, PANEL.left, PANEL.right)
+    // 面板内的节点：面板头行（无 drag 契约）+ 成员行（data-index）
+    if (panelEl && panelEl.contains(el)) {
+        const shift = panelScrollTop
+        const index = el.getAttribute('data-index')
+        if (el.getAttribute('data-drag-row') === 'member' && index !== null) {
+            const top = PANEL.top + HEADER_HEIGHT + Number(index) * ROW_HEIGHT
+            return rectOf(top - shift, top + ROW_HEIGHT - shift, PANEL.left, PANEL.right)
+        }
+        return rectOf(PANEL.top - shift, PANEL.top + HEADER_HEIGHT - shift, PANEL.left, PANEL.right)
     }
-    const shift = scrollEl?.scrollTop ?? 0
+    const shift = drawerScrollTop
     const blockId = el.getAttribute('data-drag-group-block')
     if (blockId !== null) {
         const top = GROUP_BLOCK_TOPS[blockId]
         if (top === undefined) return ZERO_RECT
-        // 空组的占位文字是组块的一部分（所以"组块之上的空白"要把整块排除掉）；成员行在面板里，不算块高
-        const bottom = top + HEADER_HEIGHT
-            + (document.querySelector(`[data-name="drawer-group-empty-${blockId}"]`) ? EMPTY_HINT_HEIGHT : 0)
-        return rectOf(top - shift, bottom - shift)
+        // 组块高度 = 组头 +（搜索态才有的）内联成员行数；常态成员行在面板里 → 只剩组头
+        const memberCount = el.querySelectorAll('[data-drag-row="member"]').length
+        return rectOf(top - shift, top + HEADER_HEIGHT + memberCount * ROW_HEIGHT - shift)
     }
-    // 二级面板：fixed + 独立滚动 → 只按**面板自己**的 scrollTop 平移（不跟抽屉内容区），且在抽屉右侧
-    const panelRoot = el.closest('[data-name="drawer-group-panel"]')
     const key = [
         el.getAttribute('data-drag-row') ?? '',
         el.getAttribute('data-group-id') ?? '',
         el.getAttribute('data-index') ?? '',
     ].join(':')
-    const top = LAYOUT[key]
-    if (top === undefined) return ZERO_RECT
-    const rowShift = panelRoot ? panelRoot.scrollTop : shift
-    return panelRoot
-        ? rectOf(top - rowShift, top + ROW_HEIGHT - rowShift, PANEL_LEFT, PANEL_RIGHT)
-        : rectOf(top - rowShift, top + ROW_HEIGHT - rowShift)
+    if (key.startsWith('group:pg-a:')) return rectOf(GROUP_BLOCK_TOPS['pg-a'] - shift, GROUP_BLOCK_TOPS['pg-a'] + HEADER_HEIGHT - shift)
+    if (key.startsWith('group:pg-b:')) return rectOf(GROUP_BLOCK_TOPS['pg-b'] - shift, GROUP_BLOCK_TOPS['pg-b'] + HEADER_HEIGHT - shift)
+    if (key === 'top::0') return rectOf(88 - shift, 128 - shift)
+    return ZERO_RECT
 }
 
 let rectSpy: ReturnType<typeof vi.spyOn>
@@ -152,46 +132,47 @@ beforeEach(() => {
 afterEach(() => {
     rectSpy.mockRestore()
     scrollEl = null
+    panelEl = null
+    drawerScrollTop = 0
+    panelScrollTop = 0
     document.body.style.userSelect = ''
-    Reflect.deleteProperty(document, 'elementFromPoint') // 按用例补的桩，别漏给下一条用例
 })
 
-/**
- * jsdom 没有 `elementFromPoint`（连方法都不存在），而钉住结束时正要用它判定"指针还在不在面板/组头上"。
- * 这里按用例补一个返回固定元素的桩：传 null 表示"指针处什么都没有"。
- */
-function stubElementFromPoint(el: Element | null) {
-    const fn = vi.fn(() => el)
-    Object.defineProperty(document, 'elementFromPoint', {value: fn, writable: true, configurable: true})
-    return fn
-}
-
 function renderDrawer(search = '') {
-    // 真实 ref：二级面板的定位要读 drawerRef.current 的矩形（{current: null} 会让面板开不出来）
     const drawerRef = {current: null as HTMLDivElement | null}
     const utils = render(
         <ProjectGroupDrawer drawerRef={drawerRef} search={search} setSearch={() => {}} onClose={() => {}}/>,
     )
     scrollEl = document.querySelector('[data-drag-scroll]') as HTMLElement
     if (!scrollEl) throw new Error('缺少滚动容器 data-drag-scroll')
+    panelEl = null
     return utils
 }
 
-/** 展开某组的二级面板（成员行在那里）：层 1 拖不动成员，所有成员相关的用例都必须先走这一步 */
-async function openPanel(groupName = '组A') {
-    fireEvent.mouseEnter(screen.getByText(groupName))
-    await waitFor(() => expect(document.querySelector('[data-name="drawer-group-panel"]')).toBeTruthy())
+function groupHeader(groupId: string): HTMLElement {
+    return document.querySelector(`[data-name="group-block-header"][data-group-id="${groupId}"]`) as HTMLElement
 }
 
-function row(name: string): HTMLElement {
-    const el = document.querySelector(`[data-name="${name}"]`)
-    if (!el) throw new Error(`缺少行 ${name}`)
+/** 焦点路径开面板（组头 onFocus 立即开，D4）—— 成员行在面板里，拖它之前必须先开面板 */
+function openPanel(groupId = 'pg-a') {
+    fireEvent.focus(groupHeader(groupId))
+    panelEl = document.querySelector('[data-name="drawer-group-panel"]') as HTMLElement
+    if (!panelEl) throw new Error('焦点进组头后未打开二级面板')
+}
+
+/** 按拖拽契约定位行：data-drag-row + data-group-id + data-index */
+function dragRow(kind: string, groupId: string | null, index: number): HTMLElement {
+    const sel = groupId === null
+        ? `[data-drag-row="${kind}"][data-index="${index}"]`
+        : `[data-drag-row="${kind}"][data-group-id="${groupId}"][data-index="${index}"]`
+    const el = document.querySelector(sel)
+    if (!el) throw new Error(`缺少行 ${sel}`)
     return el as HTMLElement
 }
 
 /** 按下 + 拖到目标点（一次 pointermove 同时越过阈值并算出落点） */
-function pressAndDrag(name: string, from: [number, number], to: [number, number]) {
-    fireEvent.pointerDown(row(name), {clientX: from[0], clientY: from[1], button: 0})
+function pressAndDrag(el: HTMLElement, from: [number, number], to: [number, number]) {
+    fireEvent.pointerDown(el, {clientX: from[0], clientY: from[1], button: 0})
     fireEvent.pointerMove(window, {clientX: to[0], clientY: to[1]})
 }
 
@@ -199,7 +180,7 @@ function releaseAt(x: number, y: number) {
     fireEvent.pointerUp(window, {clientX: x, clientY: y})
 }
 
-/** 无任何写操作（五落点表之外的组合一律不落库） */
+/** 无任何写操作（五落点表之外的组合不落库） */
 function expectNoWrites() {
     expect(groupState.assign).not.toHaveBeenCalled()
     expect(groupState.reorderGroups).not.toHaveBeenCalled()
@@ -207,68 +188,76 @@ function expectNoWrites() {
 }
 
 describe('ProjectGroupDrawer — 拖拽五落点', () => {
-    it('1) 未分组项目拖到组头 → assign(path, groupId)', async () => {
+    it('1) 未分组项目拖到组头 → assign(path, groupId)', () => {
         renderDrawer()
-        pressAndDrag('drawer-top-project-0', [100, 140], [100, 20]) // 未分组 /ws/c → 组A 组头
+        pressAndDrag(dragRow('top', null, 0), [100, 108], [100, 20]) // 未分组 /ws/c → 组A 组头
         expect(document.querySelector('.drawer-drop-over')?.textContent).toContain('组A') // 落点高亮
         releaseAt(100, 20)
         expect(groupState.assign).toHaveBeenCalledWith('/ws/c', 'pg-a')
         expect(groupState.reorderGroups).not.toHaveBeenCalled()
         expect(groupState.reorderProjects).not.toHaveBeenCalled()
-        await Promise.resolve()
     })
 
-    it('2) 面板成员行拖到另一组 → assign(path, otherGroupId)', async () => {
+    it('2) 面板成员行拖到另一组 → assign(path, otherGroupId)', () => {
         renderDrawer()
-        await openPanel()
-        pressAndDrag('drawer-group-member-0', [400, 50], [100, 60]) // /ws/a → 组B 组头
-        releaseAt(100, 60)
+        openPanel()
+        pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [100, 64]) // /ws/a → 组B 组头
+        releaseAt(100, 64)
         expect(groupState.assign).toHaveBeenCalledWith('/ws/a', 'pg-b')
         expect(groupState.reorderProjects).not.toHaveBeenCalled()
     })
 
-    it('3) 面板成员行拖到未分组区 → assign(path, null)', async () => {
+    it('2b) 成员拖到自己所在组组头 → 同组短路不写库（避免 assign 幂等闪回）', () => {
         renderDrawer()
-        await openPanel()
-        pressAndDrag('drawer-group-member-0', [400, 50], [100, 140]) // /ws/a → 未分组区 /ws/c
-        releaseAt(100, 140)
+        openPanel()
+        pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [100, 20]) // /ws/a → 组A 自己的组头
+        releaseAt(100, 20)
+        expectNoWrites()
+    })
+
+    it('3) 成员行拖到未分组区 → assign(path, null)', () => {
+        renderDrawer()
+        openPanel()
+        pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [100, 108]) // /ws/a → 未分组区 /ws/c
+        releaseAt(100, 108)
         expect(groupState.assign).toHaveBeenCalledWith('/ws/a', null)
     })
 
-    it('4) 面板成员行上下换位 → reorderProjects(groupId, newOrder)', async () => {
+    it('4) 面板成员行上下换位 → reorderProjects(groupId, newOrder)', () => {
         renderDrawer()
-        await openPanel()
-        // 拖到 /ws/b 行的**下半**（中线 100 以下，y=110 更靠近"b 之后"的间隙）
-        pressAndDrag('drawer-group-member-0', [400, 50], [400, 110])
+        openPanel()
+        // 面板内：a 占 40..80、b 占 80..120；拖 a 到 b 的**下半**（中线 100；y=110 → 插到 b 之后）
+        pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [400, 110])
         expect(document.querySelector('.drawer-insert-line')).toBeTruthy() // 插入线
         releaseAt(400, 110)
         expect(groupState.reorderProjects).toHaveBeenCalledWith('pg-a', ['/ws/b', '/ws/a'])
         expect(groupState.assign).not.toHaveBeenCalled()
     })
 
-    it('4b) 面板内反向排序（成员 b 拖到 a 之前）→ reorderProjects 反向', async () => {
+    it('4b) 反向排序（成员 b 拖到 a 之前）→ reorderProjects 反向', () => {
         renderDrawer()
-        await openPanel()
-        pressAndDrag('drawer-group-member-1', [400, 90], [400, 50]) // /ws/b → /ws/a 上半（插到 a 之前）
+        openPanel()
+        // /ws/b 占 80..120；拖到 a（40..80）的上半（中线 60；y=50 → 插到 a 之前）
+        pressAndDrag(dragRow('member', 'pg-a', 1), [400, 100], [400, 50])
         releaseAt(400, 50)
         expect(groupState.reorderProjects).toHaveBeenCalledWith('pg-a', ['/ws/b', '/ws/a'])
         expect(groupState.assign).not.toHaveBeenCalled()
     })
 
-    it('5) 组头上下换位 → reorderGroups(newOrder)', async () => {
+    it('5) 组头上下换位 → reorderGroups(newOrder)', () => {
         renderDrawer()
-        pressAndDrag('drawer-group-header-pg-a', [100, 20], [100, 60]) // 组A 组头 → 组B 组头
-        releaseAt(100, 60)
+        pressAndDrag(dragRow('group', 'pg-a', 0), [100, 20], [100, 64]) // 组A 组头 → 组B 组头
+        releaseAt(100, 64)
         expect(groupState.reorderGroups).toHaveBeenCalledWith(['pg-b', 'pg-a'])
         expect(groupState.assign).not.toHaveBeenCalled()
     })
 
     it('6) 位移 2px 后抬起 → 视为点击，不触发任何写操作', () => {
         renderDrawer()
-        const target = row('drawer-top-project-0')
-        fireEvent.pointerDown(target, {clientX: 100, clientY: 140, button: 0})
-        fireEvent.pointerMove(window, {clientX: 102, clientY: 142}) // √8 ≈ 2.83 < 4
-        fireEvent.pointerUp(window, {clientX: 102, clientY: 142})
+        const target = dragRow('top', null, 0)
+        fireEvent.pointerDown(target, {clientX: 100, clientY: 108, button: 0})
+        fireEvent.pointerMove(window, {clientX: 102, clientY: 110}) // √8 ≈ 2.83 < 4
+        fireEvent.pointerUp(window, {clientX: 102, clientY: 110})
         expectNoWrites()
         expect(document.querySelector('.drawer-insert-line')).toBeNull() // 没进拖拽态
         expect(document.body.style.userSelect).not.toBe('none')
@@ -277,24 +266,26 @@ describe('ProjectGroupDrawer — 拖拽五落点', () => {
         expect(convState.setWorkspace).toHaveBeenCalledWith('/ws/c')
     })
 
-    it('7) 拖拽中按 Esc → 取消，不落库', async () => {
+    it('7) 拖拽中按 Esc → 取消，不落库', () => {
         renderDrawer()
-        await openPanel()
-        pressAndDrag('drawer-group-member-0', [400, 50], [100, 60])
+        openPanel()
+        pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [100, 64])
         expect(document.querySelector('.drawer-insert-line') ?? document.querySelector('.drawer-drop-over')).toBeTruthy()
         fireEvent.keyDown(window, {key: 'Escape'})
         expectNoWrites()
         expect(document.body.style.userSelect).not.toBe('none') // 副作用已还原
         // 取消后再抬手也不会落库（监听已摘）
-        releaseAt(100, 60)
+        releaseAt(100, 64)
         expectNoWrites()
     })
 
-    it('8) 搜索态（search 非空）→ 按下拖动不进入拖拽', async () => {
+    it('8) 搜索态（search 非空）→ 按下拖动不进入拖拽', () => {
         renderDrawer('ws')
-        // 搜索态面板不开（§6.1 回归修复）：成员已内联在层 1（drawer-search-member-*）
-        expect(row('drawer-search-member-pg-a-0')).toBeTruthy() // 命中行确实在（不是空列表导致的假通过）
-        pressAndDrag('drawer-search-member-pg-a-0', [100, 50], [100, 20]) // 拖到组A 组头
+        // 两态分离（§5.8.5）：搜索态成员行内联在层 1、不带拖拽契约 → 用 data-name 定位
+        const member = document.querySelector('[data-name="group-member-row"]') as HTMLElement
+        expect(member).toBeTruthy()
+        expect(member.getAttribute('data-drag-row')).toBeNull()
+        pressAndDrag(member, [100, 60], [100, 20])
         expect(document.querySelector('.drawer-insert-line')).toBeNull()
         expect(document.querySelector('.drawer-drop-over')).toBeNull()
         releaseAt(100, 20)
@@ -303,7 +294,7 @@ describe('ProjectGroupDrawer — 拖拽五落点', () => {
 
     it('拖拽期间显示跟手预览，含被拖项目名', () => {
         renderDrawer()
-        pressAndDrag('drawer-top-project-0', [100, 140], [100, 20])
+        pressAndDrag(dragRow('top', null, 0), [100, 108], [100, 20])
         const ghost = document.querySelector('[data-name="drawer-drag-ghost"]')
         expect(ghost?.textContent).toBe('c')
         releaseAt(100, 20)
@@ -314,31 +305,31 @@ describe('ProjectGroupDrawer — 拖拽五落点', () => {
 describe('ProjectGroupDrawer — 拖拽与既有交互不冲突', () => {
     it('拖拽结束后浏览器补发的 click 不切视图（组头）', () => {
         renderDrawer()
-        pressAndDrag('drawer-group-header-pg-a', [100, 20], [100, 60])
-        releaseAt(100, 60)
-        fireEvent.click(row('drawer-group-header-pg-a')) // 拖拽后浏览器紧随补发的那次 click
+        pressAndDrag(dragRow('group', 'pg-a', 0), [100, 20], [100, 64])
+        releaseAt(100, 64)
+        fireEvent.click(dragRow('group', 'pg-a', 0)) // 拖拽后浏览器紧随补发的那次 click
         expect(convState.setProjectGroupView).not.toHaveBeenCalled()
     })
 
     it('组头落在自己身上 = 无变化，不写 reorderGroups', () => {
         renderDrawer()
         // 位移 10px（已进入拖拽态）但落点仍是自己 → 顺序没变，不写
-        pressAndDrag('drawer-group-header-pg-a', [100, 20], [100, 30])
+        pressAndDrag(dragRow('group', 'pg-a', 0), [100, 20], [100, 30])
         releaseAt(100, 30)
         expectNoWrites()
     })
 
     it('未分组项目落回未分组区 = 无变化，不写 assign', () => {
         renderDrawer()
-        pressAndDrag('drawer-top-project-0', [100, 140], [100, 150])
-        releaseAt(100, 150)
+        pressAndDrag(dragRow('top', null, 0), [100, 108], [100, 118])
+        releaseAt(100, 118)
         expectNoWrites()
     })
 
-    it('拖到空白处（无落点）抬起 → 取消，不落库', async () => {
+    it('拖到空白处（无落点）抬起 → 取消，不落库', () => {
         renderDrawer()
-        await openPanel()
-        pressAndDrag('drawer-group-member-0', [400, 50], [100, 999])
+        openPanel()
+        pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [100, 999])
         releaseAt(100, 999)
         expectNoWrites()
     })
@@ -346,56 +337,56 @@ describe('ProjectGroupDrawer — 拖拽与既有交互不冲突', () => {
     it('搜索框仍在、行仍可点击（拖拽接线不影响既有交互）', () => {
         renderDrawer()
         expect(screen.getByPlaceholderText('搜索项目…')).toBeTruthy()
-        fireEvent.click(row('drawer-top-project-0'))
+        fireEvent.click(dragRow('top', null, 0))
         expect(convState.setWorkspace).toHaveBeenCalledWith('/ws/c')
-    })
-
-    it('拖拽中 hover 别的组头不会打开二级面板（否则落点表会被浮层搅乱）', async () => {
-        renderDrawer()
-        pressAndDrag('drawer-top-project-0', [100, 140], [100, 20]) // 已进入拖拽态
-        fireEvent.mouseEnter(row('drawer-group-header-pg-b'))
-        // 等过 120ms 的打开延时。包在 act 里：拖拽期间 rAF 循环本身也在写 state，
-        // 裸等真实计时器会让那些更新落在 act 之外（React 会告警）
-        await act(async () => { await new Promise((r) => setTimeout(r, 160)) })
-        expect(document.querySelector('[data-name="drawer-group-panel"]')).toBeNull()
-        releaseAt(100, 20)
     })
 })
 
-describe('ProjectGroupDrawer — 组区空白不是落点（回归：容器整块兜底）', () => {
-    it('空组占位文字区（组块内、行之外）不写库', async () => {
+describe('ProjectGroupDrawer — 非行区域不是落点（回归：面板根不得吃空态兜底）', () => {
+    it('面板头行区域（面板根内、成员行之外）不写库', () => {
         renderDrawer()
-        await openPanel()
-        pressAndDrag('drawer-group-member-0', [400, 50], [100, 100]) // 84..120 = 组B 空组占位
+        openPanel()
+        pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [400, 20]) // 40..80 之上 = 面板头行
         expect(document.querySelector('.drawer-insert-line')).toBeNull()
         expect(document.querySelector('.drawer-drop-over')).toBeNull()
-        releaseAt(100, 100)
-        expectNoWrites() // 组块内的空白若被当成"未分组区"，会把 /ws/a 静默移出组
+        releaseAt(400, 20)
+        // 若面板根也吃「顶层区兜底」，这里会把 /ws/a 静默移出组（append 到顶层区）
+        expectNoWrites()
     })
 
-    it('组块之间的 mb-1 间隙（40..44）不写库', async () => {
+    it('面板成员行之下的空白（面板根内）不写库', () => {
         renderDrawer()
-        await openPanel()
-        pressAndDrag('drawer-group-member-0', [400, 50], [100, 42])
+        openPanel()
+        pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [400, 220]) // 成员行（40..120）之下的空白
+        expect(document.querySelector('.drawer-insert-line')).toBeNull()
+        expect(document.querySelector('.drawer-drop-over')).toBeNull()
+        releaseAt(400, 220)
+        expectNoWrites()
+    })
+
+    it('组块之间的 mb-1 间隙（40..44）不写库', () => {
+        renderDrawer()
+        openPanel()
+        pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [100, 42])
         releaseAt(100, 42)
         expectNoWrites()
     })
 
-    it('未分组区非空时不再有容器兜底：最后一行之下的空白也不是落点', async () => {
+    it('未分组区非空时不再有容器兜底：最后一行之下的空白也不是落点', () => {
         renderDrawer()
-        await openPanel()
-        pressAndDrag('drawer-group-member-0', [400, 50], [100, 300]) // 未分组行 124..164 之下、容器内
+        openPanel()
+        pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [100, 300]) // 未分组行 88..128 之下、容器内
         releaseAt(100, 300)
         expectNoWrites()
     })
 
-    it('全部归组（未分组区为空）时：最后一个组块之下仍是"移出组"的落点', async () => {
+    it('全部归组（未分组区为空）时：最后一个组块之下仍是"移出组"的落点', () => {
         groupState.groups[1].members.push({projectPath: '/ws/c', groupOrder: 0})
         try {
             renderDrawer()
-            await openPanel()
-            // 组B 块此时没有占位文字 → 块底 = 44 + 40 = 84；84 之下 = 空态未分组区渲染的位置 → §6.3 第 3 行仍有落点
-            pressAndDrag('drawer-group-member-0', [400, 50], [100, 300])
+            openPanel()
+            // 组B 块此时 = 组头 44..84（成员 c 在面板里）；84 之下 = 空态顶层区渲染的位置 → §6.3 第 3 行仍有落点
+            pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [100, 300])
             releaseAt(100, 300)
             expect(groupState.assign).toHaveBeenCalledWith('/ws/a', null)
         } finally {
@@ -404,170 +395,190 @@ describe('ProjectGroupDrawer — 组区空白不是落点（回归：容器整�
     })
 })
 
-/**
- * 面板根**整体**不是落点（集成级回归）。
- *
- * 上面那组用例盯的是"抽屉根里的空白"，这组盯的是"面板根里的空白 / 非行区域"：
- * 面板根没有 `data-drag-row="top"`，`collectDropZones(面板根)` 的 `topCount === 0` 成立，
- * 于是面板头行、空组占位文字、面板内空白一度被整块注册成 `top-level` 落点 ——
- * 成员拖到上面会走 `assign(path, null)` **静默移出组**。
- *
- * 这条缺陷在 jsdom 里曾经测不出来：面板根在 `layoutRect` 里落到零矩形（key `'::'`），
- * 而兜底分支要求 `container.width/height > 0` —— 分支压根不会被执行到，用例无从发现。
- * 现在面板根有了真实矩形（`PANEL_TOP..PANEL_BOTTOM × PANEL_LEFT..PANEL_RIGHT`），
- * 这几条用例才真的"有资格"发现它。
- */
-describe('ProjectGroupDrawer — 面板根的非行区域不是落点（集成级：空态兜底只属于抽屉根）', () => {
-    it('成员落在面板头行（面板内部 0..40）→ 不落库、也不画插入线', async () => {
-        renderDrawer()
-        await openPanel()
-        pressAndDrag('drawer-group-member-0', [400, 50], [400, 20])
-        expect(document.querySelector('.drawer-insert-line')).toBeNull()
-        expect(document.querySelector('.drawer-drop-over')).toBeNull()
-        releaseAt(400, 20)
-        expectNoWrites() // 修前：assign('/ws/a', null) —— 静默移出组
-    })
-
-    it('成员落在「添加项目」行（面板内末段空白）→ 不落库', async () => {
-        renderDrawer()
-        await openPanel()
-        // 成员行占 40..120；120 之下到面板根底边 200 = 「添加项目」行（它不是 data-drag-row）
-        pressAndDrag('drawer-group-member-0', [400, 50], [400, 180])
-        expect(document.querySelector('.drawer-insert-line')).toBeNull()
-        releaseAt(400, 180)
-        expectNoWrites()
-    })
-
-    it('落在空组面板的占位文字区 → 不落库、也不画插入线', async () => {
-        renderDrawer()
-        await openPanel('组B') // 组B 在本次夹具里是空组：面板里一个成员行都没有 → 整块面板都是"非行区域"
-        // 空组面板里没有成员可拖 → 用组头做载荷（到不了写库那一步），断言点放在"落点表本身"：
-        // 兜底一旦生效，hoverTarget 会变成 top-level，未分组区会画出一条假的插入线。
-        pressAndDrag('drawer-group-header-pg-a', [100, 20], [400, 60])
-        expect(document.querySelector('.drawer-insert-line')).toBeNull()
-        expect(document.querySelector('.drawer-drop-over')).toBeNull()
-        releaseAt(400, 60)
-        expectNoWrites()
-    })
-})
-
-describe('ProjectGroupDrawer — 面板滚动后的落点重采（extraScrollRefs 接线）', () => {
+describe('ProjectGroupDrawer — 滚动后的落点重采（指针不动）', () => {
     /**
-     * 让面板处于"已向下滚过"的状态。jsdom 的 scrollTop 赋值不生效（无布局引擎），
-     * 与抽屉容器同一个处理：定义成可写属性。
+     * jsdom 的 scrollTop 赋值不生效（无布局引擎）：定义成可写属性，让"已滚过"的状态可构造。
      */
-    function scrollPanelTo(value: number) {
-        const panelEl = document.querySelector('[data-name="drawer-group-panel"]') as HTMLElement
-        let current = value
-        Object.defineProperty(panelEl, 'scrollTop', {
+    function setDrawerScrollTop(value: number) {
+        Object.defineProperty(scrollEl!, 'scrollTop', {
             configurable: true,
-            get: () => current,
+            get: () => drawerScrollTop,
             set: (next: number) => {
-                current = next
+                drawerScrollTop = next
             },
         })
-        return panelEl
+        scrollEl!.scrollTop = value
     }
 
-    it('滚轮滚面板（没有 pointermove）也要重采：落点判定基于滚动后的新位置', async () => {
+    function setPanelScrollTop(value: number) {
+        Object.defineProperty(panelEl!, 'scrollTop', {
+            configurable: true,
+            get: () => panelScrollTop,
+            set: (next: number) => {
+                panelScrollTop = next
+            },
+        })
+        panelEl!.scrollTop = value
+    }
+
+    it('抽屉滚动：没有 pointermove 也要重采，落点判定基于滚动后的新位置', () => {
         renderDrawer()
-        await openPanel()
-        pressAndDrag('drawer-group-member-0', [400, 50], [400, 35])
-        // 未滚动时 y=35 谁都命中不到（面板头行 0..40 不是落点、成员 a 从 40 起、兜底已按守卫关闭）
+        openPanel()
+        // 指针停在组块间隙（40..44）：此刻无落点、无插入线
+        pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [100, 42])
         expect(document.querySelector('.drawer-insert-line')).toBeNull()
 
-        const panelEl = scrollPanelTo(80) // 面板下滚 80：成员 a → -40..0、成员 b → 0..40（中线 20）
-        fireEvent.scroll(panelEl) // 面板自身的滚动 = 落点表整体偏移 → 必须重采
+        setDrawerScrollTop(40)
+        fireEvent.scroll(scrollEl!) // 抽屉滚动 = 落点表整体偏移 → 必须重采
 
-        // y=35 落在"滚动后"的成员 b 下半 → 插到 b 之后（index 2）
+        // 滚动后（抽屉行整体上移 40）：y=42 落在组B 组头（4..44）→ 高亮出现
+        expect(document.querySelector('.drawer-drop-over')?.textContent).toContain('组B')
+        releaseAt(100, 42)
+        expect(groupState.assign).toHaveBeenCalledWith('/ws/a', 'pg-b')
+        expect(groupState.reorderProjects).not.toHaveBeenCalled()
+    })
+
+    it('面板自身滚动：成员行落点同步重采（extraScrollRefs 接线）', () => {
+        renderDrawer()
+        openPanel()
+        // 指针停在面板内 y=30：此刻那是**面板头行**区域（成员 a 占 40..80）→ 无落点
+        pressAndDrag(dragRow('member', 'pg-a', 1), [400, 100], [400, 30])
+        expect(document.querySelector('.drawer-insert-line')).toBeNull()
+
+        setPanelScrollTop(20)
+        fireEvent.scroll(panelEl!) // 面板滚动 = 面板内行整体偏移 → 必须重采
+
+        // 重采的直接证据（不靠抬手兜底）：滚动后面板内容上移 20 → a 行变 20..60（中线 40）
+        // → y=30 落在 a 的上半 → 插入线出现。缺 extraScrollRefs 时这里仍是"无落点"。
         expect(document.querySelector('.drawer-insert-line')).toBeTruthy()
-        releaseAt(400, 35)
+        releaseAt(400, 30)
+        // 拖的是 /ws/b（原 index 1）→ 插到 index 0 = 顺序变化
         expect(groupState.reorderProjects).toHaveBeenCalledWith('pg-a', ['/ws/b', '/ws/a'])
-        expect(groupState.assign).not.toHaveBeenCalled()
     })
 })
 
-describe('ProjectGroupDrawer — 钉住（拖拽 / 菜单）结束后自动收面板', () => {
-    const PANEL = '[data-name="drawer-group-panel"]'
+/** 钉住收尾判定（`pointerOverPanelOrGroupHeader`）用的命中测试桩：传 null = "指针处什么都没有" */
+function stubElementFromPoint(el: Element | null) {
+    const fn = vi.fn(() => el)
+    Object.defineProperty(document, 'elementFromPoint', {value: fn, writable: true, configurable: true})
+    return fn
+}
 
-    it('拖拽在面板外结束 → 宽限期后自动关闭（不用等鼠标下次进出组头）', async () => {
-        renderDrawer()
-        await openPanel()
-        const fromPoint = stubElementFromPoint(null) // 抬手处既不在面板里、也不在组头上
-        pressAndDrag('drawer-group-member-0', [400, 50], [100, 140]) // 面板成员 → 未分组区
-        releaseAt(100, 140)
-        expect(fromPoint).toHaveBeenCalled() // 判定真的走了 elementFromPoint，不是"压根没判"
-        expect(document.querySelector(PANEL)).toBeTruthy() // 宽限期内仍在（不是"抬手即关"）
-        await waitFor(() => expect(document.querySelector(PANEL)).toBeNull())
-    })
-
-    it('拖拽在面板内结束（elementFromPoint 命中面板）→ 保持打开', async () => {
-        renderDrawer()
-        await openPanel()
-        stubElementFromPoint(document.querySelector(PANEL))
-        pressAndDrag('drawer-group-member-0', [400, 50], [400, 110]) // 面板内换位
-        releaseAt(400, 110)
-        await new Promise((r) => setTimeout(r, 260)) // 超过 200ms 宽限
-        expect(document.querySelector(PANEL)).toBeTruthy()
-    })
-})
-
-describe('ProjectGroupDrawer — 自动滚动下的落点时效性（回归：陈旧落点表）', () => {
-    const rafCallbacks = new Map<number, FrameRequestCallback>()
-    let rafSeq = 0
-
-    beforeEach(() => {
-        rafCallbacks.clear()
-        rafSeq = 0
-        // 用可控 rAF 驱动自动滚动：指针贴在容器顶边不动，让内容在它底下滚过去
-        vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-            const id = ++rafSeq
-            rafCallbacks.set(id, cb)
-            return id
-        })
-        vi.stubGlobal('cancelAnimationFrame', (id: number) => {
-            rafCallbacks.delete(id)
-        })
-    })
+describe('ProjectGroupDrawer — 钉住（拖拽）结束后面板的去留', () => {
+    const PANEL_SEL = '[data-name="drawer-group-panel"]'
 
     afterEach(() => {
-        vi.unstubAllGlobals()
-        rafCallbacks.clear()
+        // elementFromPoint 是本组用例现场打的桩（jsdom 本无此方法）→ 用完即删，避免串到后面的用例
+        delete (document as unknown as {elementFromPoint?: unknown}).elementFromPoint
     })
 
-    function flushFrames(n: number) {
-        for (let i = 0; i < n; i++) {
-            const due = [...rafCallbacks.values()]
-            rafCallbacks.clear()
-            for (const cb of due) cb(performance.now())
-        }
-    }
-
-    /** 让容器先处于"已向下滚过"的状态（行坐标随 scrollTop 上移） */
-    function setInitialScrollTop(value: number) {
-        let current = value
-        Object.defineProperty(scrollEl, 'scrollTop', {
-            configurable: true,
-            get: () => current,
-            set: (next: number) => {
-                current = next
-            },
-        })
-    }
-
-    it('指针不动也随滚动重采：高亮跟随内容，抬手落在滚动后指针下的那一行', async () => {
+    it('拖拽中 hover 别的组头不会打开二级面板（否则落点表会被浮层搅乱）', async () => {
         renderDrawer()
-        await openPanel()
-        setInitialScrollTop(100)
-        // 指针贴顶边（<24px）→ 触发自动向上滚动；此刻指针处没有任何行（组头 -100..-60、未分组行 24..64）
-        pressAndDrag('drawer-group-member-0', [400, 50], [100, 10])
-        expect(document.querySelector('.drawer-drop-over')).toBeNull()
+        pressAndDrag(dragRow('top', null, 0), [100, 108], [100, 20]) // 已进入拖拽态
+        fireEvent.mouseEnter(groupHeader('pg-b'))
+        // 等过 120ms 的打开延时。包在 act 里：拖拽期间 rAF 循环本身也在写 state，
+        // 裸等真实计时器会让那些更新落在 act 之外（React 会告警）
+        await act(async () => { await new Promise((r) => setTimeout(r, 160)) })
+        expect(document.querySelector(PANEL_SEL)).toBeNull()
+        releaseAt(100, 20)
+    })
 
-        act(() => flushFrames(12)) // 12 帧 × 8px = 96px：组A 组头从 -100..-60 滚到 -4..36，正落在指针下
+    it('拖拽在面板外收尾 → 宽限后自动关闭（不用等鼠标下次进出组头）', async () => {
+        renderDrawer()
+        openPanel()
+        const fromPoint = stubElementFromPoint(null) // 抬手处既不在面板里、也不在组头上
+        pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [100, 108]) // 面板成员 → 未分组区
+        releaseAt(100, 108)
+        expect(fromPoint).toHaveBeenCalled() // 判定真的走了 elementFromPoint，不是"压根没判"
+        expect(document.querySelector(PANEL_SEL)).toBeTruthy() // 宽限期内仍在（不是"抬手即关"）
+        await waitFor(() => expect(document.querySelector(PANEL_SEL)).toBeNull())
+    })
 
-        expect(document.querySelector('.drawer-drop-over')?.textContent).toContain('组A') // 插入线/高亮跟随内容
-        releaseAt(100, 10)
-        expect(groupState.assign).toHaveBeenCalledWith('/ws/a', 'pg-a') // 陈旧表在 y=10 什么都命中不了 → 不写
-        expect(groupState.reorderProjects).not.toHaveBeenCalled()
+    it('拖拽在面板内收尾（elementFromPoint 命中面板）→ 保持打开', async () => {
+        renderDrawer()
+        openPanel()
+        stubElementFromPoint(document.querySelector(PANEL_SEL))
+        pressAndDrag(dragRow('member', 'pg-a', 0), [400, 60], [400, 110]) // 面板内换位
+        releaseAt(400, 110)
+        await act(async () => { await new Promise((r) => setTimeout(r, 260)) }) // 超过 200ms 宽限
+        expect(document.querySelector(PANEL_SEL)).toBeTruthy()
+    })
+})
+
+describe('ProjectGroupDrawer — 窄窗口：面板与抽屉几何重叠时的落点优先级（回归：抽屉兜底抢落点）', () => {
+    /**
+     * 复现条件（复核 I1）：
+     *  · 窗口足够窄 → `panelGeometry` 的 left 钳制把面板拉到抽屉正上方（两块根横向重叠）；
+     *  · 未分组区为空（项目全部归组）→ 抽屉根据此启用"空态兜底顶层落点"。
+     * 此时抽屉根的兜底 zone（覆盖容器全宽、只按 y 判）会先于面板成员行 zone 命中，
+     * 把"拖面板成员到面板内"判成"移到顶层区" → `assign(path, null)` 静默移出组（或排序失效）。
+     * 面板在视觉上层（z-index 9999）→ 重叠区落点应归面板，故采集顺序必须面板根在前。
+     */
+    it('面板内换位仍走 reorderProjects（不得 assign(path, null)）', () => {
+        const prev = [CONTAINER, PANEL]
+        groupState.groups[1].members.push({projectPath: '/ws/c', groupOrder: 0}) // 未分组区为空 → 抽屉兜底生效
+        CONTAINER = {top: 0, bottom: 300, left: 0, right: 320}
+        PANEL = {top: 8, bottom: 272, left: 0, right: 320}
+        try {
+            renderDrawer()
+            openPanel()
+            // 面板内：头行 8..48、成员 a 占 48..88、成员 b 占 88..128；拖 a 到 b 的下半（中线 108）
+            pressAndDrag(dragRow('member', 'pg-a', 0), [150, 60], [150, 118])
+            releaseAt(150, 118)
+            expect(groupState.reorderProjects).toHaveBeenCalledWith('pg-a', ['/ws/b', '/ws/a'])
+            expect(groupState.assign).not.toHaveBeenCalled() // 修前：抽屉兜底先命中 → assign('/ws/a', null)
+        } finally {
+            groupState.groups[1].members.pop()
+            CONTAINER = prev[0]
+            PANEL = prev[1]
+        }
+    })
+
+    /**
+     * R1：面板矩形内、面板行落点之外的空白，现状没有任何 zone →
+     * 穿透到抽屉根的“空态兜底顶层落点” → `assign(path, null)` 静默移出组。
+     * 面板在视觉上层，这片空白对用户来说就是“面板内的空白”（= 取消），不落库。
+     */
+    it('拖到面板内空白（成员行之下、面板底缘之上）→ 零写操作（R1）', () => {
+        const prev = [CONTAINER, PANEL]
+        groupState.groups[1].members.push({projectPath: '/ws/c', groupOrder: 0}) // 未分组区为空 → 抽屉兜底生效
+        CONTAINER = {top: 0, bottom: 300, left: 0, right: 320}
+        PANEL = {top: 8, bottom: 272, left: 0, right: 320}
+        try {
+            renderDrawer()
+            openPanel()
+            // 面板内行：头行 8..48、成员 a 48..88、成员 b 88..128；y=200 在成员行之下、面板底缘 272 之上
+            pressAndDrag(dragRow('member', 'pg-a', 0), [150, 60], [150, 200])
+            releaseAt(150, 200)
+            // 修前：这片空白无 zone → 命中抽屉兜底 zone（y∈[84,300] × x∈[0,320]）→ assign('/ws/a', null)
+            expectNoWrites()
+        } finally {
+            groupState.groups[1].members.pop()
+            CONTAINER = prev[0]
+            PANEL = prev[1]
+        }
+    })
+
+    /**
+     * 防过度修复（同几何、面板部分重叠）：被面板压住的那部分抽屉空白不落库，
+     * 但**面板右缘之外**的抽屉空白仍是“移出组”的合法落点 —— 校验修复是“挖掉面板矩形”，
+     * 不是“有重叠就让下层根整体退出命中”（后者会让窄窗口下入组 / 移出组 / 组间排序全废）。
+     */
+    it('部分重叠：面板右缘之外的抽屉空白仍应移出组', () => {
+        const prev = [CONTAINER, PANEL]
+        groupState.groups[1].members.push({projectPath: '/ws/c', groupOrder: 0})
+        CONTAINER = {top: 0, bottom: 300, left: 0, right: 320}
+        PANEL = {top: 8, bottom: 272, left: 0, right: 272} // 面板收窄：右缘 272 < 抽屉右缘 320
+        try {
+            renderDrawer()
+            openPanel()
+            pressAndDrag(dragRow('member', 'pg-a', 0), [150, 60], [285, 250]) // 面板之外、抽屉兜底之内
+            releaseAt(285, 250)
+            expect(groupState.assign).toHaveBeenCalledWith('/ws/a', null)
+        } finally {
+            groupState.groups[1].members.pop()
+            CONTAINER = prev[0]
+            PANEL = prev[1]
+        }
     })
 })

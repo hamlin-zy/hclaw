@@ -186,7 +186,7 @@ export default function PermissionConfirmModal() {
 
                     <div className="p-5 space-y-4 overflow-y-auto flex-1">
                         {commands.length > 0 && (
-                            <div className="bg-[var(--surface-muted)] rounded-lg p-3 space-y-1.5">
+                            <div className="bg-[var(--surface-muted)] rounded-lg p-3 space-y-1.5 select-text">
                                 {commands.map((cmd: string, index: number) => (
                                     <div key={index} className="flex items-start gap-2 text-sm">
                                         <svg className="w-3.5 h-3.5 [color:var(--brand-primary)] shrink-0 mt-0.5"

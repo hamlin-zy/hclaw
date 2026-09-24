@@ -146,6 +146,8 @@
     --surface-overlay: #e2e5ea;
     /* chrome（侧栏/窗口外框）：比内容面下沉一档。存在这层之后，「线」才不必承担分隔职责 */
     --surface-chrome: #f6f7f9;
+    /* 会话行激活底块（中性；绿色只留给运行状态，spec §3 裁决 #2）；浅色底上用黑色低透明度叠加，白色叠加不可见 */
+    --act-bg: rgba(0, 0, 0, .06);
     /* 输入区卡片抬升底色：与页面 surface 拉开一档（浅色系靠描边+阴影分层，底色保持同值） */
     --card-elevated: var(--surface);
 
@@ -172,7 +174,7 @@
        （浅底色上的白字/深字对比度另算）。审计：`npm run audit:contrast`。 */
     --text-primary: #333333;
     --text-secondary: #6e6e6e;
-    --text-muted: #8e8e8e;
+    --text-muted: #707070;
     --text-inverse: #ffffff;
 
     /* Border colors — 三档分层：元素轮廓 / 结构分隔线 / 交互态。
@@ -240,6 +242,7 @@
     --space-relaxed: 16px;
     --space-loose: 24px;
     --space-spacious: 32px;
+    --indent-step: 16px;
 
     /* Layout dimensions */
     --sidebar-width: 256px;
@@ -324,13 +327,15 @@
     --surface-overlay: #333333;
     /* chrome：比内容面再暗一档（recessed），与既有 --surface 阶梯同向 */
     --surface-chrome: #1a1a1a;
+    /* 会话行激活底块（中性；绿色只留给运行状态，spec §3 裁决 #2） */
+    --act-bg: rgba(255, 255, 255, .10);
     /* 输入区卡片抬升底色：向白偏 4%，与页面 surface 拉开一档（demo-input-layering 2026-09-19 拍板） */
     --card-elevated: color-mix(in srgb, #1e1e1e 96%, #ffffff 4%);
 
     /* Text colors */
     --text-primary: #d4d4d4;
     --text-secondary: #9e9e9e;
-    --text-muted: #808080;
+    --text-muted: #8a8a8a;
     --text-inverse: #1e1e1e;
 
     /* Border colors */
@@ -778,12 +783,37 @@ input[type="checkbox"]:not(.sr-only):disabled {
   box-sizing: border-box;
 }
 
+/* [selection-policy] 窗口级默认：整应用文本不可选。
+   白名单规则必须紧跟在本规则之后（同特异性靠顺序取胜），顺序不可颠倒。 */
 body {
+  user-select: none;
+  -webkit-user-select: none;
   font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
   background-color: var(--surface);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* [selection-policy] 白名单：这些元素及其子树始终可选。
+   - input/textarea：UA 兜底 + 复制降级路径（MessageBubble.tsx 临时 textarea）
+   - [contenteditable]：CodeMirror 等编辑面，缺它会与编辑器自身选区管理冲突
+   - .cm-editor：CodeMirror 外层，兜住 .cm-content 子树
+   - .select-text：Tailwind 工具类，内容型容器的挂载点 */
+input, textarea, [contenteditable]:not([contenteditable="false"]), .cm-editor, .select-text {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* 子会话树引导线：位置对齐父行缩进位（spec §5.5） */
+.tree-line::before {
+    content: '';
+    position: absolute;
+    left: var(--indent-step);
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border-muted);
 }
 
 /* ========================================
@@ -871,13 +901,15 @@ kbd {
     --surface-elevated: #384d64;
     --surface-overlay: #273c52;
     --surface-chrome: #2b3f54;
+    /* 会话行激活底块（中性；绿色只留给运行状态，spec §3 裁决 #2） */
+    --act-bg: rgba(255, 255, 255, .10);
     /* 输入区卡片抬升底色：向白偏 4%，与页面 surface 拉开一档（demo-input-layering 2026-09-19 拍板） */
     --card-elevated: color-mix(in srgb, #31475d 96%, #ffffff 4%);
 
     /* Text colors */
     --text-primary: #e8edf2;
     --text-secondary: #bdc8d3;
-    --text-muted: #8a9aad;
+    --text-muted: #9dabbc;
     --text-inverse: #1e1e1e;
 
     /* Border colors（与浅色同目标 Δ 0.50 / 0.22 / 1.30，按自身蓝灰底以白色叠加求解） */
@@ -993,13 +1025,15 @@ kbd {
     --surface-elevated: #FFFFFF;
     --surface-overlay: #ffe0dc;
     --surface-chrome: #FCEEEC;
+    /* 会话行激活底块（中性；绿色只留给运行状态，spec §3 裁决 #2）；浅色底上用黑色低透明度叠加，白色叠加不可见 */
+    --act-bg: rgba(0, 0, 0, .06);
     /* 输入区卡片抬升底色：暖白保持同值，层次由描边+阴影承担（demo-input-layering 2026-09-19 拍板） */
     --card-elevated: var(--surface);
 
     /* Text colors — warm dark（同 :root 口径：secondary ≥4.5:1，muted ≥3.2:1，保持暖色相） */
     --text-primary: #3C2E2D;
     --text-secondary: #736664;
-    --text-muted: #9a8583;
+    --text-muted: #7a6763;
     --text-inverse: #FFFFFF;
 
     /* Border colors — warm & subtle（与 :root 同目标 Δ 0.50 / 0.22 / 1.30，按暖色相求解） */
@@ -3446,6 +3480,33 @@ html.bg-enabled,
     overflow: hidden;
     text-overflow: ellipsis;
 }
+/* 状态栏右端容器：时间 + 快捷键说明按钮同侧，整段不参与压缩（三段 space-between 语义不变） */
+.pm-status-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+/* 快捷键说明按钮：常态次要色，hover / 键盘聚焦时可辨 */
+.pm-status-bar-shortcut-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.pm-status-bar-shortcut-btn:hover,
+.pm-status-bar-shortcut-btn:focus-visible {
+    color: var(--text-primary);
+    background: var(--surface-muted);
+}
 
 /* 文件树滚动容器与根节点名（spec §6.3 / §6.5）*/
 .pm-tree-scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
@@ -4687,3 +4748,10 @@ html.bg-enabled,
     .pm-spin { animation: none; }
     .animate-spin { animation: none; }
 }
+
+/* ========================================
+   窄宽度降级：先牺牲可推断信息（条数、分支），操作入口任何宽度都不消失（spec §5.3.4）
+   ======================================== */
+.is-narrow [data-name="section-count"] { display: none; }
+.is-tight [data-name="section-branch-badge"] { display: none; }
+.is-tight [data-name="section-count"] { display: none; }

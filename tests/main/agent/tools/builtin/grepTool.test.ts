@@ -9,7 +9,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
-import {grepTool} from '@/main/agent/tools/builtin/grepTool'
+import {grepTool, searchWithJs} from '@/main/agent/tools/builtin/grepTool'
 
 describe('grepTool — 文件内容搜索工具', () => {
   let tmpRoot: string
@@ -137,5 +137,95 @@ describe('grepTool — 文件内容搜索工具', () => {
 
     expect(result.success).toBe(true)
     expect(result.output).toContain('d.txt:1: hello from sub')
+  })
+})
+
+describe('grepTool — includeIgnored（被忽略文件与隐藏目录）', () => {
+  let tmpRoot: string
+  let workingDir: string
+
+  beforeEach(async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'grep-tool-ignored-'))
+    workingDir = path.join(tmpRoot, 'root')
+    await fs.mkdir(path.join(workingDir, '.hidden'), {recursive: true})
+    await fs.mkdir(path.join(workingDir, '.git'), {recursive: true})
+    await fs.mkdir(path.join(workingDir, 'node_modules'), {recursive: true})
+
+    await fs.writeFile(path.join(workingDir, '.hidden/target.txt'), 'needle-hidden line\n')
+    await fs.writeFile(path.join(workingDir, '.hidden/real.txt'), 'needle-excl in hidden\n')
+    await fs.writeFile(path.join(workingDir, '.git/config.txt'), 'needle-excl in git\n')
+    await fs.writeFile(path.join(workingDir, 'node_modules/x.txt'), 'needle-excl in node_modules\n')
+  })
+
+  afterEach(async () => {
+    await fs.rm(tmpRoot, {recursive: true, force: true})
+  })
+
+  function makeContext() {
+    return {
+      workingDir,
+      abortSignal: new AbortController().signal,
+      sendMessage: vi.fn(),
+    }
+  }
+
+  it('不传 includeIgnored 时隐藏目录被跳过（0 命中）', async () => {
+    const result = await grepTool.execute({pattern: 'needle-hidden'}, makeContext() as any)
+
+    expect(result.success).toBe(true)
+    expect(result.output).toBe('No matching results found')
+  })
+
+  it('includeIgnored: true 时命中隐藏目录内文件且输出为 相对路径:行号: 内容', async () => {
+    const result = await grepTool.execute(
+      {pattern: 'needle-hidden', includeIgnored: true},
+      makeContext() as any,
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.output).toContain('.hidden/target.txt:1: needle-hidden line')
+  })
+
+  it('includeIgnored: true 仍排除 .git 与 node_modules（含正向对照）', async () => {
+    const result = await grepTool.execute(
+      {pattern: 'needle-excl', includeIgnored: true},
+      makeContext() as any,
+    )
+
+    expect(result.success).toBe(true)
+    const output = result.output as string
+    // 正向对照：搜索确实在跑（隐藏目录内的普通文件被命中）
+    expect(output).toContain('.hidden/real.txt')
+    // 排除项：.git 与 node_modules 始终不进入结果
+    expect(output).not.toContain('.git/config.txt')
+    expect(output).not.toContain('node_modules/x.txt')
+  })
+
+  it('searchWithJs 直调：默认 0 命中，includeIgnored: true 命中隐藏文件', async () => {
+    const withoutIgnored = await searchWithJs({pattern: 'needle-hidden'}, workingDir, workingDir)
+    expect(withoutIgnored).toBe('')
+
+    const withIgnored = await searchWithJs(
+      {pattern: 'needle-hidden', includeIgnored: true},
+      workingDir,
+      workingDir,
+    )
+    expect(withIgnored).toMatch(/\.hidden[\\/]target\.txt/)
+
+    // 恒排除判据（walkAndSearch 的 .git / node_modules 跳过）回归守卫：
+    // 这两个目录即使 includeIgnored: true 也必须被排除
+    await fs.writeFile(path.join(workingDir, '.git/marker.txt'), 'needle-hidden in git\n')
+    await fs.writeFile(path.join(workingDir, 'node_modules/marker.txt'), 'needle-hidden in node_modules\n')
+
+    const excluded = await searchWithJs(
+      {pattern: 'needle-hidden', includeIgnored: true},
+      workingDir,
+      workingDir,
+    )
+    // 正向对照：搜索确实在跑（隐藏目录内的普通文件被命中）
+    expect(excluded).toMatch(/\.hidden[\\/]target\.txt/)
+    // 排除项：.git 与 node_modules 始终不进入结果
+    expect(excluded).not.toMatch(/\.git[\\/]marker\.txt/)
+    expect(excluded).not.toMatch(/node_modules[\\/]marker\.txt/)
   })
 })

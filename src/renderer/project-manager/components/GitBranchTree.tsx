@@ -395,7 +395,7 @@ export function GitBranchTree() {
           testId="pm-branch-search"
         />
       </PanelToolbar>
-      <div role="tree" className="pm-tree-scroll">
+      <div role="tree" className="pm-tree-scroll select-text">
         <BranchGroup label={`HEAD (${headName})`} list={headList} prefix="HEAD " {...rowProps} />
         <LocalGroup list={filtered.filter(n => n.type === 'local')} {...rowProps} />
         <RemoteGroups branches={filtered.filter(n => n.type === 'remote')} {...rowProps} />

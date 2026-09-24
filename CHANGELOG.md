@@ -7,6 +7,34 @@
 
 ---
 
+## [v0.5.21] - 2026-09-24
+
+### 新增
+- **侧边栏分页三级口径** — PagerBar 取代 load-more，段级 / 子级 / 最近区三级分页口径，控制条对齐与紧凑化 (`ConversationSidebar` / `PagerBar`)
+- **子会话树独立分页** — 祖先链高亮、行内缩进与激活背景令牌化；新子会话自动展开收窄至当前激活分支 (`ConversationSidebar` / `conversationStore`)
+- **组视图段集合与二级面板恢复** — 段集合改全成员段 + 未加载占位，抽屉二级面板恢复、落点穿透与拖拽三写修复 (`ConversationSidebar`)
+- **侧栏宽度分级与最近区拖拽** — 宽度分级 + 320px 默认宽度；最近会话区固定高度可拖拽 + 复位 (`ConversationSidebar`)
+- **grep 支持 includeIgnored** — 可搜索被 .gitignore 忽略的文件 (`builtin/grep`)
+- **项目管理：git log 多行正文修复** — 多行提交正文不再被丢弃；新增状态栏快捷键说明按钮与弹窗 (`project-manager`)
+
+### 变更
+- **全局文本选区守卫** — 全局禁用文档级文本选中，内容容器走 select-text 白名单；Ctrl/Cmd+A 守卫统一挂主窗口 / 项目窗口 / 配置窗口 (`styles` / `SelectionGuard`)
+- **Enter 判定单源化** — paused 态禁止提交，判定逻辑单源化 (`InputArea`)
+- **主题令牌同步与对比度审计扩面** — 侧栏激活背景等令牌化，审计用例扩面 (`tokens` / `auditContrast`)
+- **Electron 43 边框回归规避** — Linux 窗口阴影规避 (`window`)
+- **sqlite native 按 glibc 2.28 重建** — 兼容旧发行版 (`scripts`)
+- **文件监听迁 utilityProcess** — IO 隔离到独立进程，避免阻塞主进程 (`fileWatcher`)
+- **会话删除补齐子会话窗口覆写回收路径** (`manager.impl`)
+
+### 修复
+- **web_fetch 渲染层升级** — charset 解码、正文提取、表格转换与深度守卫 (`webFetchRenderer`)
+- **工具变更确认后运行态恢复** (`conversationStore`)
+
+### 测试
+- 补齐分页口径、子会话展开、选区守卫、对比度审计、abortChildRouting 等定向用例 (`tests/**`)
+
+---
+
 ## [v0.5.20] - 2026-09-22
 
 ### 新增

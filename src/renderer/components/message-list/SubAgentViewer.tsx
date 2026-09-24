@@ -172,7 +172,7 @@ export default function SubAgentViewer({
             </div>
 
             {/* ── 内容区：只展示最终输出（已完成 Agent 不展示思考、工具执行等过程细节） ── */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3"
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3 select-text"
                  style={{backgroundColor: 'var(--surface)'}}>
                 {result?.output ? (
                     <div className="space-y-2">

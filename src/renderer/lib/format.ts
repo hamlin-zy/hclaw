@@ -6,13 +6,13 @@ import {DEFAULT_USD_CNY_RATE} from '@shared/exchangeRate'
 // tokensPerSecond 已下沉到 shared（弹窗 / 独立窗口共用口径），此处 re-export 保持调用方兼容
 export {tokensPerSecond} from '@shared/llmUsage'
 
-/** 相对时间格式化 */
+/** 相对时间格式化（会话列表口径：不带「前」字，如「5分钟」「3小时」「2天」；≥7 天走 zh-CN 绝对日期） */
 export function getRelativeTime(ts: number): string {
   const diff = Date.now() - ts
   if (diff < 60000) return '刚刚'
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
-  if (diff < 604800000) return `${Math.floor(diff / 86400000)}天前`
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时`
+  if (diff < 604800000) return `${Math.floor(diff / 86400000)}天`
   return new Date(ts).toLocaleDateString('zh-CN')
 }
 

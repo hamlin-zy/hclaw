@@ -1230,7 +1230,7 @@ export default function MessageList({conversationId}: { conversationId?: string 
                 ref={containerRef}
                 onScroll={handleScroll}
                data-name="message-list-scroll-container"
-                className="flex-1 overflow-y-auto overflow-x-hidden"
+                className="flex-1 overflow-y-auto overflow-x-hidden select-text"
                 tabIndex={0}
             >
                 <div data-name="message-list-inner" className="px-4 py-4">

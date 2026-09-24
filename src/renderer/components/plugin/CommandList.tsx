@@ -254,7 +254,7 @@ export function CommandList({
     );
 
     return (
-        <div ref={scrollRef} className="max-h-96 overflow-y-auto">
+        <div ref={scrollRef} className="max-h-96 overflow-y-auto select-text">
             {flatCommands.map((cmd, flatIdx) => {
                 const style = SOURCE_STYLE[cmd.source] ?? SOURCE_STYLE.plugin
                 const SourceIcon = style.icon

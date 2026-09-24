@@ -181,6 +181,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # 上游 @photostructure/sqlite 的预编译产物按 glibc 2.31 基线构建，要求 GLIBC_2.29 符号，
+      # 在 deepin v20 / UOS 20（glibc 2.28）等系统上启动即崩溃（应用商店审核环境即此类系统）。
+      # 此处就地重建为 glibc 2.28 基线产物；脚本内含符号版本断言与冒烟测试，不达标即中断发布。
+      - name: Rebuild sqlite native module for glibc 2.28
+        run: bash scripts/rebuild-sqlite-linux-glibc228.sh
+
       - name: Build Linux
         run: npm run make:linux
 

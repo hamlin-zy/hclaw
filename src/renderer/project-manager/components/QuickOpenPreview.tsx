@@ -54,7 +54,7 @@ export function QuickOpenPreview({mode, item, workspacePath = null}: QuickOpenPr
                 <p className="pm-quickopen-preview-error" data-testid="pm-quickopen-preview-error">{view.error}</p>
             )}
             {view.status === 'ready' && (
-                <div className="pm-quickopen-preview-lines" data-testid="pm-quickopen-preview-lines">
+                <div className="pm-quickopen-preview-lines select-text" data-testid="pm-quickopen-preview-lines">
                     {view.rows.map((row, i) => (
                         <div
                             key={row.lineNumber}

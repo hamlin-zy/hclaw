@@ -271,7 +271,7 @@ export default function LlmLogsWindow() {
             </div>
 
             {/* ── 摘要条 ── */}
-            <div className="flex gap-3 px-4 py-3 border-b border-[var(--border-muted)] bg-[color-mix(in_srgb,var(--surface-muted)_50%,transparent)] shrink-0 flex-wrap">
+            <div className="flex gap-3 px-4 py-3 border-b border-[var(--border-muted)] bg-[color-mix(in_srgb,var(--surface-muted)_50%,transparent)] shrink-0 flex-wrap select-text" data-name="llm-logs-summary">
                 <StatCard value={String(stats.calls)} label="总调用" />
                 <StatCard value={String(stats.errors + stats.aborts)} label="失败 / 中断" tone={stats.errors + stats.aborts > 0 ? 'err' : 'ok'} />
                 <StatCard value={fmtCompact(stats.inputTokens)} label="输入 tokens" />
@@ -454,7 +454,7 @@ function DetailView({state, tab, onTab, onClose}: {
                  data-name="llm-logs-window-close-detail-button"><RemoveIcon className="w-3.5 h-3.5"/></button>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-auto p-3 font-mono text-xs leading-relaxed">
+            <div className="flex-1 min-h-0 overflow-auto p-3 font-mono text-xs leading-relaxed select-text">
                 {loading && <div className="text-center text-[var(--text-muted)] py-6">加载原始文件…</div>}
                 {!loading && tab === 'request' && (
                     reqBody.kind === 'missing' ? <MissingNote /> : <RequestTab record={r} reqBody={reqBody} />

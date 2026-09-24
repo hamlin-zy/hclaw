@@ -221,7 +221,7 @@ export default function AskUserModal() {
                     </div>
 
                     {/* Content — 可滚动区域 */}
-                    <div className="p-5 space-y-4 max-h-[50vh] overflow-y-auto">
+                    <div className="p-5 space-y-4 max-h-[50vh] overflow-y-auto select-text">
                         <div className="text-sm text-[var(--text-primary)] leading-relaxed">
                             <MarkdownRenderer isUser={false} theme={theme}>
                                 {pendingQuestion.question}

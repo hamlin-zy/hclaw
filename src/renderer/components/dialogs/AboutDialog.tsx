@@ -131,7 +131,7 @@ export default function AboutDialog() {
   }, [linkMode])
 
   return (
-    <div className="flex flex-col items-center pt-7 pb-6 px-8 h-full overflow-y-auto">
+    <div className="flex flex-col items-center pt-7 pb-6 px-8 h-full overflow-y-auto select-text">
       {/* Icon */}
       <div className="w-14 h-14 rounded-2xl overflow-hidden mb-3 flex-shrink-0 shadow-sm"
         style={{ backgroundColor: 'var(--surface-muted)' }}>
@@ -168,7 +168,7 @@ export default function AboutDialog() {
         </button>
 
         {latestEntry && (
-          <div className="w-full rounded-[10px] overflow-hidden"
+          <div className="w-full rounded-[10px] overflow-hidden select-text"
             style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}
            data-name="about-dialog-update-detail">
             <ChangelogEntryHeader

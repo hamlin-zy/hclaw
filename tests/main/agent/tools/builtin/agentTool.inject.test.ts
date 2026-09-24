@@ -88,6 +88,9 @@ function mockAgentLoopStream(events: AgentStreamEvent[]) {
                         await gate.promise
                         return i < events.length ? {value: events[i++], done: false} : {value: undefined, done: true}
                     },
+                    // 消费侧（agentTool）在 done/error break 前显式 return() 关闭迭代器
+                    // （与 for-await 的 iterator close 语义对齐），mock 须补齐协议方法
+                    return: async () => ({value: undefined, done: true}) as IteratorResult<AgentStreamEvent>,
                 }
             },
         } as any

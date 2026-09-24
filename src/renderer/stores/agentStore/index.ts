@@ -337,7 +337,18 @@ export const useAgentStore = create<AgentStore>()(
                         decision,
                     })
                     set({pendingToolsChangeConfirm: null})
-                    get().updateConvData(convId, {pendingToolsChangeConfirm: null})
+                    // ★ 恢复运行态（对齐 respondQuestion 的应答后恢复模式）：
+                    //   放行路径立即回到 running，否则 status 滞留 paused 直到 LLM
+                    //   首包 chunk 才被 thinking/textBatch 恢复——tools 前缀失配场景
+                    //   缓存重建 → TTFT 十余秒，期间思考动画与终止按钮消失，用户误判已停止。
+                    //   cancel 不恢复：本轮已 yield done(tools_change_cancelled)，交由 handleDone 归 idle。
+                    const convState = get().convAgentStates[convId]
+                    get().updateConvData(convId, {
+                        pendingToolsChangeConfirm: null,
+                        ...(decision !== 'cancel' && convState
+                            ? {agentState: {...convState.agentState, status: 'running' as const}}
+                            : {}),
+                    })
                 } catch { /* 静默处理错误 */ }
             },
 

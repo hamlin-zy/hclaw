@@ -19,9 +19,9 @@ function renderHeader(projectPath: string, props: Partial<Parameters<typeof Conv
                 collapsed: false,
                 count: 1,
                 hasMore: false,
+                totalRoots: 1,
                 rows: [],
             }}
-            singleProject={false}
             onToggleCollapsed={() => {}}
             onOpenProjectManager={() => {}}
             onNewConversation={() => {}}
@@ -39,6 +39,8 @@ describe('ConversationSectionHeader — 未归属段', () => {
         expect(screen.getByText('未归属')).toBeTruthy()
         expect(byName('section-new-conversation')).toBeNull()
         expect(byName('section-pm-button')).toBeNull()
+        // 操作列是 fit-content(46px)：没有按钮时轨道塌陷，省下的宽度归项目名（2026-09-24 拍板）
+        expect((byName('conversation-section-header') as HTMLElement).className).toContain('fit-content(46px)')
     })
 
     it('真实项目段仍渲染两个操作按钮', () => {

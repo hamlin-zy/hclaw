@@ -327,7 +327,7 @@ export default function UsageStatsDialog() {
                                 </div>
                             </div>
 
-                            <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
+                            <div className="px-5 py-4 max-h-[60vh] overflow-y-auto select-text">
                                 {renderBody()}
                             </div>
                         </div>

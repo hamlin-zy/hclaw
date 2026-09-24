@@ -121,7 +121,7 @@ export default function PhrasePicker({open, anchorRef, onClose, onPick}: PhraseP
                     </div>
                 </div>
 
-                <div ref={listRef} className="max-h-64 overflow-y-auto py-1">
+                <div ref={listRef} className="max-h-64 overflow-y-auto py-1 select-text">
                     {filtered.length === 0 ? (
                         <div className="p-6 text-center text-sm text-[var(--text-secondary)]">
                             {phrases.length === 0

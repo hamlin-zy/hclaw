@@ -38,6 +38,12 @@ export type DropTarget =
     | {kind: 'group'; groupId: string}
     | {kind: 'group-member'; groupId: string; index: number}
     | {kind: 'top-level'; index: number}
+    /**
+     * 无落点：**只用于上层根吞掉穿透** —— 上层根把自身矩形声明成一条不产生任何写操作的 zone，
+     * 靠"先入先命中"挡住下层根在这片区域注册的落点（例如抽屉根的空态兜底顶层落点）。
+     * 落到它上等于落到空白处：不落库、不画插入线、不高亮（`handleDrop` 首行直接返回）。
+     */
+    | {kind: 'none'}
 
 export interface DropZone {
     rect: {top: number; bottom: number; left: number; right: number}

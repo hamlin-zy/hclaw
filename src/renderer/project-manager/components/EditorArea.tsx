@@ -312,7 +312,7 @@ export function EditorArea() {
         </div>
       </div>
 
-      <div className="pm-editor-body" onContextMenu={onEditorContextMenu}>
+      <div className="pm-editor-body select-text" onContextMenu={onEditorContextMenu}>
         {!active && <EmptyState text="双击左侧文件树或右侧 Git Status 打开文件" testId="pm-editor-empty" />}
         {active?.type === 'file' && evicted && <div className="pm-editor-note">加载中…</div>}
         {active?.type === 'file' && isImage && <ImageViewer src={active.content!} />}

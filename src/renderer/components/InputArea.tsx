@@ -431,7 +431,11 @@ export default function InputArea({isActive = true}: InputAreaProps) {
         onPhraseShortcut(e)
         // Enter (不含 Shift/Ctrl/Meta) → 发送
         if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+            // ★ 与发送按钮共用 canSend 单源：preventDefault 先于判定（canSend=false
+            //   时仍不插入换行，保持空输入现状）；缺此检查则 paused 挂起期 Enter 穿透
+            //   → 消息落库后被 startAgent 的 paused 守卫静默吞掉，零反馈。
             e.preventDefault()
+            if (!canSend) return
             handleSubmit()
             return
         }
@@ -613,7 +617,9 @@ export default function InputArea({isActive = true}: InputAreaProps) {
 
     // 有文本 或 附件 或 [文件名] 徽章时允许发送
     const hasBadgeContent = /\[[^\]]+\]/.test(input.trim())
-    const canSend = (input.trim().length > 0 || attachedFiles.length > 0 || hasBadgeContent) && !isPaused
+    // ★ 判定单源（与 Enter 路径共用）：pendingAttachmentFiles（积压附件）计入，
+    //   与 handleSubmit 的 hasFiles 口径对齐——漏算会让积压态按钮禁用而 Enter 可发。
+    const canSend = (input.trim().length > 0 || attachedFiles.length > 0 || pendingAttachmentFiles.length > 0 || hasBadgeContent) && !isPaused
     const needsSession = !activeConversationId
     const needsModel = !activeModelName
 

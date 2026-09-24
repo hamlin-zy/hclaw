@@ -88,7 +88,7 @@ export default function ConfigDialogWindow() {
             {/* 独立窗口缺省无主题 tooltip：挂载全局 TooltipPortal 接管弹窗内所有原生 title */}
             <TooltipPortal/>
             <WindowTitleBar title={config?.title ?? '配置'}/>
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-hidden select-text">
                 <DialogChunkErrorBoundary>
                     {LazyDialog
                         ? (

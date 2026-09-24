@@ -4,9 +4,11 @@ import {AnimatePresence, motion} from 'framer-motion'
 import {popoverUp} from '../lib/motionPresets'
 import {useAgentStore} from '../stores/agentStore'
 import {useLLMStore} from '../stores/llmStore'
+import {useModelSchemeStore} from '../stores/modelSchemeStore'
 import {useDefaultRoleForSession} from '../hooks/usePrimaryRole'
 import {resolveActiveModel} from '../lib/modelResolution'
 import {clampPanelRight, PANEL_EDGE_MARGIN} from '../lib/panelClamp'
+import {resolveOverrideEffortToWrite} from '@shared/thinkingEffort'
 import type {ModelOverride} from '@shared/types'
 
 interface ModelSelectorProps {
@@ -79,6 +81,9 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
     // 会话默认角色（无 override 时作为虚拟选中目标；只读匹配，不写库；
     // 与 CacheRateTooltip 共用 useDefaultRoleForSession，防口径漂移）
     const defaultRole = useDefaultRoleForSession(conversationId)
+
+    // 当前生效方案：写入 override 时按方案角色档位决策（只读，见 resolveOverrideEffortToWrite）
+    const activeScheme = useModelSchemeStore(s => s.schemes.find(x => x.id === s.activeSchemeId) ?? null)
 
     // 生效模型解析（与 CacheRateTooltip 共用 resolveActiveModel，防口径漂移）
     const activeResolution = useMemo(() => resolveActiveModel({
@@ -169,6 +174,15 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
             endpointId: providerId,
             modelId,
             providerName: provider?.name,
+            // 写入侧补齐档位：override 不带档位会让读取侧（徽章 / 运行层）静默兜底 auto，
+            // 与方案里配的档位脱钩；决策规则见 resolveOverrideEffortToWrite
+            thinkingEffort: resolveOverrideEffortToWrite({
+                endpointId: providerId,
+                modelId,
+                scheme: activeScheme,
+                defaultRole,
+                currentEffort: modelOverride?.thinkingEffort,
+            }),
         }
         setModelOverride(conversationId, ov)
         setView('closed')
@@ -252,7 +266,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                     </div>
 
                                     {/* 服务商列表：已启用服务商（hover/点击 → 右侧级联子菜单） */}
-                                    <div className="flex-1 min-h-0 overflow-y-auto">
+                                    <div className="flex-1 min-h-0 overflow-y-auto select-text">
                                         {enabledProviders.length === 0 && (
                                             <div className="px-2.5 py-2 text-xs text-[var(--text-secondary)]">暂无已启用服务商</div>
                                         )}
@@ -308,7 +322,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                     <div className="px-2 py-1.5 text-[10px] font-medium text-[var(--text-secondary)] border-b border-[var(--border-muted)] mb-1 truncate">
                                         {selProvider.name}
                                     </div>
-                                    <div className="max-h-72 overflow-y-auto">
+                                    <div className="max-h-72 overflow-y-auto select-text">
                                         {selModels.length === 0 && (
                                             <div className="px-2.5 py-2 text-xs text-[var(--text-secondary)]">该服务商暂无可用模型</div>
                                         )}

@@ -43,6 +43,8 @@ export const WORKER_MESSAGE_TYPES = {
     REFRESH_MCP_TOOLS: 'refresh-mcp-tools',
     /** 注入用户消息到运行中的 Agent 循环 (Main -> Worker) */
     INJECT_USER_MESSAGE: 'inject-user-message',
+    /** 中止子会话（agentTool in-process loop，Main -> Worker 广播） */
+    ABORT_CHILD_SESSION: 'abort-child-session',
     /** 能力快照刷新：技能/插件启停后广播最新序列化能力，运行中 Worker 重建本地 registry (Main -> Worker) */
     CAPABILITIES_REFRESH: 'capabilities-refresh',
     /** 渠道消息发送请求 (Worker -> Main) */

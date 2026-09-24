@@ -30,29 +30,35 @@ vi.mock('../../../src/renderer/stores/conversationStore', () => ({
     useConversationStore: Object.assign((sel: (s: unknown) => unknown) => sel(convState), {getState: () => convState}),
 }))
 vi.mock('../../../src/renderer/stores/agentStore', () => ({useAgentStore: (sel: (s: unknown) => unknown) => sel({convAgentStates: {}, doneUnreadIds: {}, clearConvDoneUnread: () => {}})}))
-vi.mock('../../../src/renderer/stores/sidebarStore', () => ({useSidebarStore: {getState: () => ({leftCollapsed: false})}}))
+vi.mock('../../../src/renderer/stores/sidebarStore', async () => {
+    // 透传真实 store：组件直接消费 useSidebarStore hook（Task 14 起），整体 mock 会落空
+    const actual = await vi.importActual<Record<string, unknown>>('../../../src/renderer/stores/sidebarStore')
+    return {...actual}
+})
 vi.mock('../../../src/renderer/stores/themeStore', () => ({useThemeStore: {getState: () => ({theme: 'light'})}}))
 
-import {ConversationList} from '../../../src/renderer/components/ConversationSidebar'
+import {ConversationList, WorkspaceSelector} from '../../../src/renderer/components/ConversationSidebar'
+import {useProjectGroupStore} from '../../../src/renderer/stores/projectGroupStore'
 import * as Sidebar from '../../../src/renderer/components/ConversationSidebar'
 
 const SIDEBAR_TSX = path.resolve(process.cwd(), 'src/renderer/components/ConversationSidebar.tsx')
 
 beforeEach(() => {
     vi.clearAllMocks()
+    useProjectGroupStore.setState({groups: []})
     ;(window as any).electronAPI = {projectManager: {openProjectManager: openPM}}
 })
 
-describe('段头文件夹图标 = PM 入口（D15：顶部原按钮已移除）', () => {
+describe('入口行文件夹图标 = PM 入口（D15：顶部原按钮已移除，段头 PM 迁至入口行）', () => {
     it('点击用项目路径调 openProjectManager', () => {
-        render(<ConversationList/>)
-        fireEvent.click(document.querySelector('[data-name="section-pm-button"]') as HTMLElement)
+        render(<WorkspaceSelector/>)
+        fireEvent.click(document.querySelector('[data-name="workspace-pm-button"]') as HTMLElement)
         expect(openPM).toHaveBeenCalledWith('/ws/proj')
     })
 
     it('aria-label 仍为「打开项目管理窗口」（无障碍名称不漂移）', () => {
-        render(<ConversationList/>)
-        expect(document.querySelector('[data-name="section-pm-button"]')?.getAttribute('aria-label'))
+        render(<WorkspaceSelector/>)
+        expect(document.querySelector('[data-name="workspace-pm-button"]')?.getAttribute('aria-label'))
             .toBe('打开项目管理窗口')
     })
 })

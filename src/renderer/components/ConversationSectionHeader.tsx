@@ -5,15 +5,13 @@ import {UNASSIGNED_WORKSPACE_KEY} from '../lib/workspacePath'
  * 项目段段头（spec §7.3，变体 A）。
  *
  * 三操作分工：chevron = 折叠本段（不动 viewScope）；文件夹 = 打开项目管理窗口；
- * 「+」= 在该项目新建会话（停留当前视图）。单项目视图不渲染 chevron 与「+」
- * （新建仍用顶部大按钮），但 PM 入口保留（项目 > 项目组的语义层级）。
+ * 「+」= 在该项目新建会话（停留当前视图）。
  *
  * 视觉约束（不得加码）：段头轻量 —— 小字 + 图标 + 分支徽章；不做卡片；
- * 展开态不显示会话计数，仅折叠态显示「N 条」。
+ * 五列栅格，条数常显（展开态与折叠态均显示「N 条」）。
  */
-export function ConversationSectionHeader({section, singleProject, onToggleCollapsed, onOpenProjectManager, onNewConversation}: {
+export function ConversationSectionHeader({section, onToggleCollapsed, onOpenProjectManager, onNewConversation}: {
     section: ConversationSection
-    singleProject: boolean
     onToggleCollapsed: () => void
     onOpenProjectManager: () => void
     onNewConversation: () => void
@@ -28,60 +26,43 @@ export function ConversationSectionHeader({section, singleProject, onToggleColla
         <div
             data-name="conversation-section-header"
             data-project-path={projectPath}
-            className="flex items-center gap-1 px-2 pt-1 pb-0.5"
+            className="grid grid-cols-[12px_minmax(0,1fr)_fit-content(84px)_44px_fit-content(46px)] items-center gap-1.5 px-2 pt-1 pb-0.5"
         >
-            {!singleProject && (
-                <button
-                    onClick={onToggleCollapsed}
-                    aria-label={collapsed ? `展开 ${projectName}` : `折叠 ${projectName}`}
-                    aria-expanded={!collapsed}
-                    data-name="section-collapse-toggle"
-                    className={iconButtonClass}
+            <button
+                onClick={onToggleCollapsed}
+                aria-label={collapsed ? `展开 ${projectName}` : `折叠 ${projectName}`}
+                aria-expanded={!collapsed}
+                data-name="section-collapse-toggle"
+                className={iconButtonClass}
+            >
+                <svg
+                    className={`w-3 h-3 transition-transform duration-200 ${collapsed ? '' : 'rotate-90'}`}
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"
                 >
-                    <svg
-                        className={`w-3 h-3 transition-transform duration-200 ${collapsed ? '' : 'rotate-90'}`}
-                        viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"
-                    >
-                        <polyline points="9 18 15 12 9 6"/>
-                    </svg>
-                </button>
-            )}
+                    <polyline points="9 18 15 12 9 6"/>
+                </svg>
+            </button>
 
             {/* 项目名：唯一弹性收缩项（flex-1 + min-w-0），超长省略，
                 保证右侧 shrink-0 的分支徽章/计数/按钮不被挤出列表。
                 非单项目视图时单击 = 折叠/展开本段（与 chevron 同口径，不切视图）。 */}
-            {!singleProject ? (
-                <button
-                    type="button"
-                    onClick={onToggleCollapsed}
-                    data-name="section-project-name"
-                    title={projectPath}
-                    className="flex-1 min-w-0 truncate cursor-pointer text-left text-[13px] font-semibold text-[var(--text-primary)] hover:opacity-80 transition-opacity"
-                >
-                    {projectName}
-                </button>
-            ) : (
-                <span
-                    data-name="section-project-name"
-                    title={projectPath}
-                    className="flex-1 min-w-0 truncate text-[13px] font-semibold text-[var(--text-primary)]"
-                >
-                    {projectName}
-                </span>
-            )}
+            <button
+                type="button"
+                onClick={onToggleCollapsed}
+                data-name="section-project-name"
+                title={projectPath}
+                className="min-w-0 truncate cursor-pointer text-left text-[13px] font-semibold text-[var(--text-secondary)] hover:opacity-80 transition-opacity"
+            >
+                {projectName}
+            </button>
 
-            {collapsed && (
-                <span data-name="section-count" className="shrink-0 text-[10px] text-[var(--text-secondary)] opacity-70">
-                    {count} 条
-                </span>
-            )}
-
-            {/* 分支徽章：可收缩（样式口径沿用 GitBranchBadge，line 638） */}
-            {gitBranch && (
+            {/* 分支徽章：可收缩（样式口径沿用 GitBranchBadge，line 638）；
+                无分支时留空占位，保证同构 —— fit-content(84px) 轨道不因无分支而收缩（spec §5.3.1） */}
+            {gitBranch ? (
                 <span
                     data-name="section-branch-badge"
                     title={gitBranch}
-                    className="inline-flex items-center gap-0.5 flex-initial max-w-[130px] min-w-[calc(5ch+26px)] rounded-full bg-[var(--chip-bg)] border border-[var(--chip-border)] px-1.5 py-px text-[11px] font-medium text-gray-500 dark:text-gray-400 overflow-hidden"
+                    className="inline-flex items-center gap-0.5 rounded-full bg-[var(--chip-bg)] border border-[var(--chip-border)] px-1.5 py-px text-[11px] font-medium text-gray-500 dark:text-gray-400 overflow-hidden"
                 >
                     <svg className="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                          strokeWidth="2" aria-hidden="true">
@@ -90,9 +71,21 @@ export function ConversationSectionHeader({section, singleProject, onToggleColla
                     </svg>
                     <span className="truncate">{gitBranch}</span>
                 </span>
+            ) : (
+                // 无分支不留 84px 空占位（2026-09-24 用户拍板）：分支列是 fit-content，
+                // 空内容即 0 宽，省下的宽度全归项目名 —— 窄侧栏下项目名不再被挤成「rea…」。
+                // 代价：各段「N 条」的右缘不再严格对齐（有分支的段会略左移）。
+                <span data-name="section-branch-placeholder" aria-hidden="true" className="w-0"/>
             )}
 
-            <div className="ml-auto flex items-center gap-0.5 shrink-0">
+            {/* 条数：紧邻右侧操作列（段头的栅格次序为 chev → 项目名 → 分支 → 条数 → 操作）。
+                排在分支之后而非项目名之后：项目名吃掉弹性宽度后，条数才真正贴住项目管理 / 新建会话按钮，
+                中间不再隔着一段空的分支占位。 */}
+            <span data-name="section-count" className="text-right tabular-nums text-[10px] text-[var(--text-secondary)]">
+                {count} 条
+            </span>
+
+            <div className="flex items-center gap-0.5 justify-end">
                 {!isUnassigned && (
                     <button
                         onClick={onOpenProjectManager}
@@ -106,7 +99,7 @@ export function ConversationSectionHeader({section, singleProject, onToggleColla
                         </svg>
                     </button>
                 )}
-                {!singleProject && !isUnassigned && (
+                {!isUnassigned && (
                     <button
                         onClick={onNewConversation}
                         aria-label="在该项目新建会话"

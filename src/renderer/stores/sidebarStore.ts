@@ -6,7 +6,7 @@ import {SIDEBAR_STATE_CONFIG_KEY} from '../../shared/configKeys'
 /** 左侧边栏可调宽度边界（px） */
 export const SIDEBAR_MIN_WIDTH = 180
 export const SIDEBAR_MAX_WIDTH = 480
-export const SIDEBAR_DEFAULT_WIDTH = 256
+export const SIDEBAR_DEFAULT_WIDTH = 320
 
 interface SidebarStore {
     leftCollapsed: boolean
@@ -22,12 +22,15 @@ interface SidebarStore {
     rightCollapsed: boolean
     toggleRight: () => void
     setRightCollapsed: (collapsed: boolean) => void
+    /** 最近会话区固定高度（px）。null = 自然高度（由内容撑开）；仅拖拽提交后为数值 */
+    recentHeight: number | null
+    setRecentHeight: (height: number | null) => void
     /** 消费一次性动画抑制标志（下帧渲染恢复正常动画） */
     clearLeftWidthAnimationSuppress: () => void
 }
 
 /** 持久化子集（partialize） */
-type PersistedSidebar = Pick<SidebarStore, 'leftWidth' | 'leftCollapsed' | 'rightCollapsed'>
+type PersistedSidebar = Pick<SidebarStore, 'leftWidth' | 'leftCollapsed' | 'rightCollapsed' | 'recentHeight'>
 
 export const useSidebarStore = create<SidebarStore>()(
     // 第四个泛型 = partialized 类型（与 partialize 返回一致），使 storage 泛型可对齐
@@ -56,6 +59,10 @@ export const useSidebarStore = create<SidebarStore>()(
             setRightCollapsed: (collapsed) => {
                 set({rightCollapsed: collapsed})
             },
+            recentHeight: null,
+            setRecentHeight: (height) => {
+                set({recentHeight: height === null ? null : Math.round(height)})
+            },
             clearLeftWidthAnimationSuppress: () => {
                 if (useSidebarStore.getState().suppressLeftWidthAnimation) {
                     set({suppressLeftWidthAnimation: false})
@@ -71,6 +78,7 @@ export const useSidebarStore = create<SidebarStore>()(
                 leftWidth: s.leftWidth,
                 leftCollapsed: s.leftCollapsed,
                 rightCollapsed: s.rightCollapsed,
+                recentHeight: s.recentHeight,
             }),
         },
     ),

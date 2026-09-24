@@ -224,7 +224,7 @@ export function GitDagGraph({sortAsc = false}: {sortAsc?: boolean}) {
     <>
       <div
         role="tree"
-        className="pm-commits-scroll"
+        className="pm-commits-scroll select-text"
         ref={scrollRef}
         onScroll={onScroll}
       >
