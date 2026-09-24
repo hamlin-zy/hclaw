@@ -1074,10 +1074,16 @@ export function ConversationList() {
     // 上缘拖拽：mousemove 期直改 DOM 高度（不进 store、不触发渲染），mouseup 时
     // clampRecentHeight 收敛后一次性提交（与左侧栏宽度手柄同款「直改 DOM + 抬手提交」口径）。
     // 向上拖 = 拉高最近区（挤占主列表），故 delta = startY - clientY。
+    // ★ 2026-09-24 收口（内存审计）：手势期间的 window 监听句柄存 ref，组件卸载时统一解绑 ——
+    //   原实现只在 onUp 内解绑，拖拽途中若组件卸载（如按 Ctrl+B 折叠侧栏），window 上会残留
+    //   mousemove/mouseup 闭包，持有 section DOM 与 setRecentHeight。
+    const recentResizeDetachRef = useRef<(() => void) | null>(null)
     const startRecentResize = useCallback((e: React.MouseEvent) => {
         e.preventDefault()
         const section = recentSectionRef.current
         if (!section) return
+        // 异常路径下上一轮手势未收尾时先解绑，避免监听叠加
+        recentResizeDetachRef.current?.()
         const startY = e.clientY
         const startHeight = section.getBoundingClientRect().height
         const onMove = (ev: MouseEvent) => {
@@ -1090,9 +1096,13 @@ export function ConversationList() {
             section.style.height = `${base > 0 ? clampRecentHeight(next, base, RECENT_ROW_HEIGHT) : Math.max(RECENT_ROW_HEIGHT, next)}px`
             section.style.overflow = 'hidden'
         }
-        const onUp = (ev: MouseEvent) => {
+        const detach = () => {
             window.removeEventListener('mousemove', onMove)
             window.removeEventListener('mouseup', onUp)
+            if (recentResizeDetachRef.current === detach) recentResizeDetachRef.current = null
+        }
+        const onUp = (ev: MouseEvent) => {
+            detach()
             const committed = clampRecentHeight(startHeight + (startY - ev.clientY), recentBaseHeight(listRef.current), RECENT_ROW_HEIGHT)
             section.style.height = ''
             section.style.overflow = ''
@@ -1100,7 +1110,11 @@ export function ConversationList() {
         }
         window.addEventListener('mousemove', onMove)
         window.addEventListener('mouseup', onUp)
+        recentResizeDetachRef.current = detach
     }, [setRecentHeight])
+
+    // 组件卸载时解绑未收尾的拖拽监听（本组件在折叠侧栏时整体卸载）
+    useEffect(() => () => recentResizeDetachRef.current?.(), [])
 
     // 监听全局点击以关闭菜单
     // ★ 注意：不监听 window 的 scroll 事件。原因见 tasks/01-context-menu-close.md：
@@ -1206,6 +1220,12 @@ export function ConversationList() {
     //   覆盖掉「激活会话展开」逻辑）；后续变化时只展开真正新增的子会话的父级。
     //   同时沿 parentConvId 链向上展开所有祖先，确保二级子会话出现时其父（一级子会话）
     //   与其祖父（主会话）都处于展开态，侧栏才能完整显示嵌套树。
+    //   ★ 2026-09-24 用户反馈收窄（口径 A）：仅当父会话属于**当前激活分支**时才自动展开 ——
+    //   判据 = 父会话即激活会话自身（激活会话刚获得首个子会话时，下方「激活链重建」effect
+    //   的 deps 不含 childIdsMap、不会重跑，故仍需本 effect 兜底），或父会话位于激活会话的
+    //   祖先链上（与激活链 effect 的 keep 集合同口径）。列表里其它会话（非激活的、后台仍在
+    //   跑的）诞生的子会话不再抢占展开态 —— 否则任何会话的新子会话都会把它的父行连同整条
+    //   祖先链塞进集合，绕过 spec §5.5「同一时刻只允许一个父分支展开」。
     const prevChildrenRef = useRef<Map<string, Set<string>> | null>(null)
 
     // ★ I-2：折叠/展开或「···」增长窗口会改变段内行集——折叠态 rows 为空 → childIdsMap
@@ -1214,9 +1234,12 @@ export function ConversationList() {
     //   2026-09-24 用户反馈补：**切换视图**（单项目 ↔ 组视图、换组）同样会整换段集合 ——
     //   新视图里的父会话会被误判成「新子会话诞生」而自动展开，故 viewScope 也进这一组。
     //   本 effect 必须声明在下方「新子会话自动展开」effect 之前（React 按声明顺序执行）。
+    //   ★ 2026-09-24 内存审计补：**子会话级窗口**（childWindowSizes）同理会改行集 ——
+    //   点 ∨∨/∧∧ 让某父会话的子行增减，收起时 childIdsMap 塌缩、再展开时回弹被判成「新增」，
+    //   故 childWindowSizes 也进这一组。
     useEffect(() => {
         prevChildrenRef.current = null
-    }, [collapsedGroupIds, sectionWindowSizes, viewScope])
+    }, [collapsedGroupIds, sectionWindowSizes, viewScope, childWindowSizes])
 
     // ★ 2026-09-24 用户反馈（「切进工作组视图时，含子会话的父会话子列表全都被展开了，看起来有点乱」）：
     //   段集合随视图整体换一套，旧视图里点开过的父会话在新视图里多半已不可见。而下方「激活链重建」
@@ -1238,18 +1261,24 @@ export function ConversationList() {
             // 查找新增的子会话
             for (const [parentId, childIds] of current) {
                 const prevIds = prev.get(parentId) || new Set<string>()
+                let hasNewChild = false
                 for (const cid of childIds) {
                     if (!prevIds.has(cid)) {
-                        // 新子会话出现 → 展开其父会话及其所有祖先
-                        setExpandedParentIds(prevSet =>
-                            addSelfAndAncestors(new Set(prevSet), rowById, parentId))
+                        hasNewChild = true
                         break
                     }
+                }
+                // 新子会话出现 → 仅当父会话属于当前激活分支（激活会话自身或其祖先链）时
+                // 才展开其父会话及其所有祖先；其余会话诞生的子会话不动当前展开态
+                // （用户仍可点父行手动展开）。口径 A，见上方注释。
+                if (hasNewChild && (parentId === activeConversationId || ancestorIdsOfActive.has(parentId))) {
+                    setExpandedParentIds(prevSet =>
+                        addSelfAndAncestors(new Set(prevSet), rowById, parentId))
                 }
             }
         }
         prevChildrenRef.current = current
-    }, [childIdsMap])
+    }, [childIdsMap, activeConversationId, ancestorIdsOfActive])
 
     // ★ handleParentClick 必须在早期 return 之前声明（React Hooks 规则）
     // expandedParentIds: 已展开的父会话 ID 集合（空 = 所有父会话子会话折叠）。
@@ -1380,7 +1409,16 @@ export function ConversationList() {
         // 子会话按父分组：只有根级行（无 parentConvId 或其父不在段内可见行中）直接渲染，
         // 子行由其父的 child-list 容器递归渲染。
         const rowIds = new Set(section.rows.map(r => r.id))
-        const childrenOf = (parentId: string) => section.rows.filter(r => r.parentConvId === parentId)
+        // ★ 2026-09-24 简化：按父预建一次索引（O(n)），替代每个父行各扫一遍全表（O(n²)）。
+        //   push 顺序 = rows 顺序，取值结果与 filter 逐字等价（零行为变化）。
+        const childrenByParent = new Map<string, ConversationSection['rows']>()
+        for (const row of section.rows) {
+            if (!row.parentConvId) continue
+            const siblings = childrenByParent.get(row.parentConvId)
+            if (siblings) siblings.push(row)
+            else childrenByParent.set(row.parentConvId, [row])
+        }
+        const childrenOf = (parentId: string) => childrenByParent.get(parentId) ?? []
 
         function renderRowWithChildren(row: ConversationSection['rows'][number]): ReactNode {
             if (!isAncestorChainExpanded(row.parentConvId, expandedParentIds, rowById)) return null

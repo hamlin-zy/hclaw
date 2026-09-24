@@ -23,7 +23,7 @@ import {randomUUID} from 'crypto'
 import {parentPort} from 'worker_threads'
 import type {Tool, ToolResult} from '../types'
 import type {ChatMessage} from '../../model/types'
-import {agentLoop} from '../../loop'
+import {agentLoop, type ModeChangeEvent} from '../../loop'
 import type {AgentStreamEvent} from '../../stream'
 import type {ChildConvCreatedWorkerPayload} from '../../manager.types'
 import type {ChildConvCreatedRendererPayload} from '@shared/types/events'
@@ -76,6 +76,31 @@ export function injectChildMessage(conversationId: string, content: string, mess
         id: messageId || `inject-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     })
     logger.info('[AgentTool] 已注入用户消息到运行中子会话', {conversationId, contentPreview: (content || '').slice(0, 80)})
+    return true
+}
+
+// ─── 运行中子会话的中止控制 ────────────────────────────────
+
+/**
+ * 运行中子会话 → AbortController（含嵌套的二级及以上子会话）。
+ *
+ * 与 childInjectionQueues 同理：子会话不注册为独立 Worker（in-process agentLoop），
+ * 主进程/父 Worker 的 abort() 无法通过 workers map 找到它；此注册表提供中止入口。
+ *
+ * 生命周期与子 loop 运行期严格一致：loop 启动前 set，finally 中 delete。
+ * abortChildSession 只读不删（避免中止后表项提前消失，导致重复调用误判未命中）。
+ */
+const childAbortControllers = new Map<string, AbortController>()
+
+/**
+ * 中止运行中的 in-process 子会话
+ * @returns true = 命中并已触发中止；false = 该子会话未在本进程运行（no-op）
+ */
+export function abortChildSession(conversationId: string): boolean {
+    const controller = childAbortControllers.get(conversationId)
+    if (!controller) return false
+    controller.abort()
+    logger.info('[AgentTool]', {action: 'abortingChildConv', conversationId})
     return true
 }
 
@@ -463,6 +488,17 @@ export const agentTool: Tool<AgentToolInput, string> = {
         const childPendingInjected: ChatMessage[] = []
         childInjectionQueues.set(childConvId, childPendingInjected)
 
+        // ★ 子会话独立终止：注册 AbortController 并把 signal 与父 signal 合并
+        //   （父存在 → any([父, 子])：保留"父死子死"，新增"子可独立死"；
+        //    父 signal 缺失 → 只用子 signal）。清理见本段 finally。
+        const childAbort = new AbortController()
+        // ★ 注册顺序：先算合并 signal 再 set。AbortSignal.any 若抛错，表项不会残留
+        //   （残留会让此后 abortChildSession 命中而跳过 Worker 广播 → 子会话永久无法终止）
+        const childAbortSignal = context.abortSignal
+            ? AbortSignal.any([context.abortSignal, childAbort.signal])
+            : childAbort.signal
+        childAbortControllers.set(childConvId, childAbort)
+
         // ★ 向渲染进程发送子会话 begin 事件，使侧边栏显示运行状态动画。
         //   messageId 必须携带累积器固定消息 id（msg-<ts>-<rand>）：渲染端
         //   ensureStreamingMessage 以此 id 创建占位，与主进程 SQLite 增量落库
@@ -471,12 +507,28 @@ export const agentTool: Tool<AgentToolInput, string> = {
         //   begin 退化为 UUID 占位，后续事件带 id 也被忽略，双 id 并存）。
         sendChildAgentEvent(childConvId, {type: 'begin', messageId: childAcc.assistantMsgId})
 
+        // ★ 子会话中止哨兵：用户终止子会话时唤醒下面的 race（否则卡住的 next() 永不结算）。
+        //   监听器 {once:true} 单次触发，并由 removeChildAbortListener 在 finally 中移除，
+        //   绝不泄漏（正常完成 / 抛错 / 中止三条路径都走同一 finally）。
+        let removeChildAbortListener = (): void => {}
+        const childAbortPromise = new Promise<{aborted: true}>((resolve) => {
+            if (childAbort.signal.aborted) {
+                resolve({aborted: true})
+                return
+            }
+            const onChildAbort = () => resolve({aborted: true})
+            childAbort.signal.addEventListener('abort', onChildAbort, {once: true})
+            removeChildAbortListener = () => childAbort.signal.removeEventListener('abort', onChildAbort)
+        })
+        // 中止分支置位：循环外 ⑩.5 段落之后据此立即返回失败结果
+        let abortedByUser = false
+
         // ⑩ 子代理作用域权限模式：固定 auto，经 RunParams.permissionModeOverride 下发到
         //    本 loop 的 ToolContext → permissionEngine.check(tool, args, modeOverride)。
         //    ★ 绝不翻转共享引擎（permissionEngine 是 worker 线程级单例，父子 loop 共享；
         //      翻转会连带父会话，同批并行工具也会互相踩）。auto 只在本子 loop 内生效。
         try {
-            for await (const event of agentLoop({
+            const childIterator = agentLoop({
                 sessionId: childConvId,
                 messages: [
                     {role: 'user', content: args.task},
@@ -493,7 +545,8 @@ export const agentTool: Tool<AgentToolInput, string> = {
                 // ★ 子代理一律 auto：作用域覆盖，不改写共享引擎（见 ⑩）
                 permissionModeOverride: 'auto' as const,
                 conversationTitle: `子 Agent: ${args.task.slice(0, 50)}`,
-                abortSignal: context.abortSignal,
+                // 父 signal 与子 signal 合并（见上方 ★ 子会话独立终止段的 childAbortSignal）：父终止仍连坐，子会话可被单独终止
+                abortSignal: childAbortSignal,
                 // 运行中注入的用户消息队列（子会话版，与 worker 主会话同构）
                 pendingInjectedMessages: childPendingInjected,
                 // ★ 关键：转发嵌套子 Agent（二级及以上）的 subagent_* 事件到父上下文。
@@ -512,7 +565,53 @@ export const agentTool: Tool<AgentToolInput, string> = {
                         })
                     }
                 },
-            })) {
+            })[Symbol.asyncIterator]()
+
+            while (true) {
+                const nextPromise = childIterator.next()
+                // race 落败方（中止先到时仍在飞的 next）后续可能 reject，先挂 handler
+                // 避免 unhandled rejection（不影响 race 结果）。warn 记录而非静默：
+                // 子 loop 在 race 落败后的 reject 是唯一可诊断线索（用户主动中止属预期路径，故非 error）
+                nextPromise.catch((err) => {
+                    logger.warn('[AgentTool]', {
+                        action: 'childNextRejected',
+                        childConvId,
+                        error: err instanceof Error ? err.message : String(err),
+                    })
+                })
+                const raced = await Promise.race([nextPromise, childAbortPromise])
+
+                // ── 中止分支：用户终止本子会话 ──
+                //   停止消费迭代器（让子 loop 走自己的收尾，其残余事件不再转发）
+                //   → 父卡片 subagent_done(失败) → 子会话 UI done(aborted) → break 到循环外
+                //   ⑩.5 段落（finalizeChildConv 唯一调用点）→ 立即返回失败结果。
+                if ((raced as {aborted?: boolean}).aborted === true) {
+                    abortedByUser = true
+                    logger.info('[AgentTool]', {action: 'childConvAborted', childConvId})
+                    // 不 await：return 需等正在飞的 next 结算，await 会把父工具调用重新拖住
+                    void childIterator.return(undefined).catch((err) => {
+                        logger.warn('[AgentTool]', {
+                            action: 'childIteratorReturnFailed',
+                            childConvId,
+                            error: err instanceof Error ? err.message : String(err),
+                        })
+                    })
+                    context.sendMessage({
+                        type: 'subagent_done',
+                        taskId: childConvId,
+                        success: false,
+                        output: '',
+                        error: '已中止',
+                        toolCallId: context.toolCallId,
+                    })
+                    sendChildAgentEvent(childConvId, {type: 'done', reason: 'aborted'})
+                    break
+                }
+
+                const result = raced as IteratorResult<AgentStreamEvent | ModeChangeEvent>
+                if (result.done) break
+                const event = result.value
+
                 // ── 跳过内部事件 ──
                 if (event.type === 'mode_change') continue
 
@@ -575,16 +674,33 @@ export const agentTool: Tool<AgentToolInput, string> = {
                         toolCallId: context.toolCallId,
                     })
                     sendChildAgentEvent(childConvId, event)
+                    // 与 for-await 的 iterator close 语义对齐：手写迭代器后 break 不再隐式关闭，
+                    // 显式 return() 让子 loop 走自己的收尾（不 await：同中止分支，避免拖住父工具调用）
+                    void childIterator.return(undefined).catch((err) => {
+                        logger.warn('[AgentTool]', {
+                            action: 'childIteratorReturnFailed',
+                            childConvId,
+                            error: err instanceof Error ? err.message : String(err),
+                        })
+                    })
                     break
                 } else if (event.type === 'error') {
                     hasError = true
                     errorMsg = event.error || '未知错误'
                     context.sendMessage({type: 'subagent_done', taskId: childConvId, success: false, error: errorMsg, toolCallId: context.toolCallId})
                     sendChildAgentEvent(childConvId, {type: 'done', reason: 'error'})
+                    // 与 for-await 的 iterator close 语义对齐：见上方 done 分支
+                    void childIterator.return(undefined).catch((err) => {
+                        logger.warn('[AgentTool]', {
+                            action: 'childIteratorReturnFailed',
+                            childConvId,
+                            error: err instanceof Error ? err.message : String(err),
+                        })
+                    })
                     break
                 }
                 // 说明：嵌套子 Agent（二级及以上）的 subagent_start/progress/done
-                // 由下方 agentLoop 的 onEvent 侧通道转发到父上下文，不会进入此 for-await
+                // 由下方 agentLoop 的 onEvent 侧通道转发到父上下文，不会进入本消费
                 // 循环（agentLoop 生成器不产出 subagent_* 事件），故此处无需再处理。
 
                 // ★ 转发所有流事件到子会话渲染进程（text/thinking/tool_*/agent_start 等）
@@ -610,14 +726,18 @@ export const agentTool: Tool<AgentToolInput, string> = {
             // ★ 异常也通知渲染进程结束运行状态
             sendChildAgentEvent(childConvId, {type: 'done', reason: 'error'})
         } finally {
+            // 中止监听器移除（{once:true} 若已触发则为 no-op）——绝不泄漏
+            removeChildAbortListener()
             activeChildSessions.delete(childConvId)
             // 兜底：abort 等异常退出路径可能残留未消费的注入消息（Controller 正常
             // 路径经 no-tool-call 守卫保证 done 前清空）。清理注册表防止泄漏；
             // 残留消息已由渲染端 addMessage 持久化到子会话历史，不丢内容。
             childInjectionQueues.delete(childConvId)
+            // 中止注册表：生命周期与子 loop 运行期一致（abortChildSession 只读不删）
+            childAbortControllers.delete(childConvId)
         }
 
-        // ⑩ 写入子会话的辅助消息历史（最终落库）
+        // ⑩.5 写入子会话的辅助消息历史（最终落库）
         // ★ 完整执行过程（思考/工具调用/正文）已累积为单条 assistant 消息，
         //   运行中增量 UPSERT（tool_result / llm_call_done 时机），此处最终写入（endedAt）。
         //   空轮次（极早退出）由累积器内部兜底为占位消息。
@@ -630,6 +750,23 @@ export const agentTool: Tool<AgentToolInput, string> = {
         // 主进程路径已由 notifyMainProcessChildConvCreated 覆盖，Worker 线程路径也由
         // createMessageHandler 中 child_conv_created 分发覆盖，此处仅作兜底
         notifyMainProcessChildConvCreated(childConvId, agentName, args.task, parentConvId, workspacePath)
+
+        // ★ 用户中止子会话：子会话已由上面 ⑩.5 段落收尾（finalizeChildConv 唯一调用点），
+        //   父卡片与子会话 UI 的收尾事件已在消费循环的中止分支发出，此处立即返回失败结果，
+        //   父 LLM 按"工具失败"继续（不再等子 loop 的残余事件）。
+        if (abortedByUser) {
+            logger.info('[AgentTool]', {
+                action: 'childConvAbortedReturn',
+                childConvId,
+                outputLen: finalOutput.length,
+            })
+            return {
+                success: false,
+                output: '',
+                error: '已中止',
+                _meta: {childConvId},
+            }
+        }
 
         if (hasError) {
             return {

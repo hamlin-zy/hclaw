@@ -118,6 +118,15 @@ describe('子会话分页', () => {
         expect(document.querySelector('[data-name="pager-bar"][data-pager-key="child"]')).toBeNull()
     })
 
+    it('子行数量与顺序契约：默认窗口 3 条、按 createdAt desc 排在父行后（判别力：childrenOf 若顺序反转/漏兄弟行/多带全表，本用例即红）', () => {
+        render(<ConversationList/>)
+        const titles = Array.from(document.querySelectorAll('[data-name="conversation-sidebar-item-row"]'))
+            .map(r => r.querySelector('[data-name="conversation-sidebar-item-title"]')?.textContent)
+        // 改前红不存在（本用例是 2026-09-24 childrenOf 预建索引重构的判别力守卫：
+        // 旧实现与其等价，两实现都须绿；实现若偏差才红）
+        expect(titles).toEqual(['p1', 'k0', 'k1', 'k2'])
+    })
+
     it('搜索态不渲染子级控制条', () => {
         const originalSearchQuery = convState.searchQuery
         try {
@@ -127,6 +136,78 @@ describe('子会话分页', () => {
         } finally {
             convState.searchQuery = originalSearchQuery
         }
+    })
+})
+
+describe('新子会话自动展开收窄（2026-09-24 用户反馈：非激活会话诞生子会话不再抢占展开态）', () => {
+    const mk = (id: string, extra: Record<string, unknown> = {}) =>
+        ({id, title: id, preview: '', createdAt: 900, updatedAt: 900, status: 'active', ...extra})
+    const sectionOf = (count: number, rows: any[]) => [{
+        key: '/ws/a', projectPath: '/ws/a', projectName: 'a', gitBranch: null,
+        collapsed: false, count, hasMore: false, totalRoots: 2, rows,
+    }]
+
+    beforeEach(() => {
+        convState.activeConversationId = 'p1'
+        convState.searchQuery = ''
+        convState.viewScope = {type: 'project', path: '/ws/a'}
+    })
+
+    it('非激活父会话诞生新子会话：不自动展开该分支（改前红）', () => {
+        const p1 = mk('p1', {createdAt: 900})
+        const p2 = mk('p2', {createdAt: 800})
+        const k7 = mk('k7', {createdAt: 700, parentConvId: 'p2'})
+        convState.workspaces = {'/ws/a': {lastOpenedAt: 1, conversations: [p1, p2, k7]}}
+        convState.getScopedSections.mockReturnValue(sectionOf(3, [
+            {id: 'p1', indentLevel: 0, childCount: 0},
+            {id: 'p2', indentLevel: 0, childCount: 1, childShownCount: 1},
+            {id: 'k7', parentConvId: 'p2', indentLevel: 1, childCount: 0},
+        ]) as any)
+        const {rerender} = render(<ConversationList/>)
+        expect(document.querySelector('[data-name="child-list"]')).toBeNull()
+
+        // p2（非激活）诞生第二个子会话
+        const k8 = mk('k8', {createdAt: 600, parentConvId: 'p2'})
+        convState.workspaces = {'/ws/a': {lastOpenedAt: 1, conversations: [p1, p2, k7, k8]}}
+        convState.getScopedSections.mockReturnValue(sectionOf(4, [
+            {id: 'p1', indentLevel: 0, childCount: 0},
+            {id: 'p2', indentLevel: 0, childCount: 2, childShownCount: 2},
+            {id: 'k7', parentConvId: 'p2', indentLevel: 1, childCount: 0},
+            {id: 'k8', parentConvId: 'p2', indentLevel: 1, childCount: 0},
+        ]) as any)
+        rerender(<ConversationList/>)
+
+        // 改前红：旧实现无条件 addSelfAndAncestors → p2 的子列表被强行展开
+        expect(document.querySelector('[data-name="child-list"]')).toBeNull()
+    })
+
+    it('激活会话诞生首个子会话：仍自动展开（回归守卫）', () => {
+        const p1 = mk('p1', {createdAt: 900})
+        const p2 = mk('p2', {createdAt: 800})
+        const k7 = mk('k7', {createdAt: 700, parentConvId: 'p2'})
+        convState.workspaces = {'/ws/a': {lastOpenedAt: 1, conversations: [p1, p2, k7]}}
+        convState.getScopedSections.mockReturnValue(sectionOf(3, [
+            {id: 'p1', indentLevel: 0, childCount: 0},
+            {id: 'p2', indentLevel: 0, childCount: 1, childShownCount: 1},
+            {id: 'k7', parentConvId: 'p2', indentLevel: 1, childCount: 0},
+        ]) as any)
+        const {rerender} = render(<ConversationList/>)
+        expect(document.querySelector('[data-name="child-list"]')).toBeNull()
+
+        // 激活会话 p1 诞生首个子会话（激活链 effect 不重跑 → 需本 effect 兜底展开）
+        const k1 = mk('k1', {createdAt: 950, parentConvId: 'p1'})
+        convState.workspaces = {'/ws/a': {lastOpenedAt: 1, conversations: [p1, p2, k7, k1]}}
+        convState.getScopedSections.mockReturnValue(sectionOf(4, [
+            {id: 'p1', indentLevel: 0, childCount: 1, childShownCount: 1},
+            {id: 'k1', parentConvId: 'p1', indentLevel: 1, childCount: 0},
+            {id: 'p2', indentLevel: 0, childCount: 1, childShownCount: 1},
+            {id: 'k7', parentConvId: 'p2', indentLevel: 1, childCount: 0},
+        ]) as any)
+        rerender(<ConversationList/>)
+
+        const list = document.querySelector('[data-name="child-list"]')
+        expect(list).not.toBeNull()
+        expect(list!.textContent).toContain('k1')
     })
 })
 

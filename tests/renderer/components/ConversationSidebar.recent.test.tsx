@@ -246,6 +246,33 @@ describe('最近会话区固定底部与控制条（§5.6 / V9）', () => {
             fireEvent.mouseUp(window, {clientY: -2000}) // 收尾：摘掉 window 监听
         })
 
+        it('拖拽途中卸载：window 监听被解绑（改前红：残留闭包持有 section DOM 与 setRecentHeight）', () => {
+            const {unmount} = render(<ConversationList/>)
+            const handle = document.querySelector('[data-name="recent-resize-handle"]') as HTMLElement
+            const added: Array<[string, any]> = []
+            const removed: Array<[string, any]> = []
+            const addSpy = vi.spyOn(window, 'addEventListener').mockImplementation((((t: string, l: any) => {
+                added.push([t, l])
+            }) as any))
+            const rmSpy = vi.spyOn(window, 'removeEventListener').mockImplementation((((t: string, l: any) => {
+                removed.push([t, l])
+            }) as any))
+            try {
+                fireEvent.mouseDown(handle, {clientY: 300})
+                const moveFn = added.find(([t]) => t === 'mousemove')?.[1]
+                const upFn = added.find(([t]) => t === 'mouseup')?.[1]
+                expect(moveFn).toBeTruthy()
+                expect(upFn).toBeTruthy()
+                unmount()
+                // 改前红：旧实现只在 onUp 内解绑 → 拖拽途中组件卸载后，window 上仍挂着这两个闭包
+                expect(removed.some(([t, l]) => t === 'mousemove' && l === moveFn)).toBe(true)
+                expect(removed.some(([t, l]) => t === 'mouseup' && l === upFn)).toBe(true)
+            } finally {
+                addSpy.mockRestore()
+                rmSpy.mockRestore()
+            }
+        })
+
         it('基准为 0（未布局）时退回只钳下界（防御口径，与收敛 effect 同）', () => {
             render(<ConversationList/>)
             const sec = document.querySelector('[data-name="sidebar-recent-section"]') as HTMLElement

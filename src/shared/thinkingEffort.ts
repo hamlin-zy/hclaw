@@ -86,3 +86,45 @@ export function resolveOverrideThinkingEffort(
     }
     return 'auto'
 }
+
+/** 会话 override 写入决策的输入 */
+export interface OverrideEffortWriteInput {
+    /** 新选中的模型（override 的 endpointId/modelId） */
+    endpointId: string
+    modelId: string
+    /** 当前生效方案（可为空） */
+    scheme?: ModelScheme | null
+    /** 会话默认角色（主会话 primary / 子会话 lightweight），只取其档位（防御脏值） */
+    defaultRole?: {thinkingEffort?: unknown} | null
+    /** 当前 override 已有的档位（可能是任意脏值） */
+    currentEffort?: unknown
+}
+
+/**
+ * 会话 override 写入时的思考强度决策（纯函数，写入侧专用）：
+ * 1. 当前 override 已有合法档位（含 `disabled` 哨兵）→ 原样沿用（保护用户显式选择）
+ * 2. 新模型命中方案中某角色（endpointId+modelId 匹配，取 `find` 首个匹配项，
+ *    与读取侧 resolveOverrideThinkingEffort 口径一致）且该角色档位合法 → 用该角色档位
+ * 3. 未命中 → 会话默认角色配了合法档位 → 用该角色档位
+ * 4. 以上都不满足 → 'auto'
+ *
+ * 写入值恒为合法档位，故读取侧第 1 级必然直接命中 ⟹ 徽章显示 = 实际发送。
+ */
+export function resolveOverrideEffortToWrite(input: OverrideEffortWriteInput): ThinkingEffort {
+    if (isValidEffort(input.currentEffort)) {
+        return input.currentEffort
+    }
+    if (input.scheme) {
+        const matched = (input.scheme.roles as ModelRoleConfig[]).find(
+            r => r.endpointId === input.endpointId && r.modelId === input.modelId,
+        )
+        if (matched?.thinkingEffort && isValidEffort(matched.thinkingEffort)) {
+            return matched.thinkingEffort
+        }
+    }
+    const roleEffort = input.defaultRole?.thinkingEffort
+    if (isValidEffort(roleEffort)) {
+        return roleEffort
+    }
+    return 'auto'
+}

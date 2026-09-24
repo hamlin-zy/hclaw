@@ -572,6 +572,13 @@ async function main(): Promise<void> {
                 // - 其他会话 → 运行中的子会话（agentTool in-process loop），经 agentTool
                 //   注册表入队（父会话在本 Worker 中运行的场景，见 manager.impl 路径 3）
                 await routeInjectedUserMessage(msg as {convId?: string; message?: {content?: string; id?: string}}, params.conversationId, pendingInjectedMessages)
+            } else if (msg.type === WORKER_MESSAGE_TYPES.ABORT_CHILD_SESSION) {
+                // 接收主进程广播的子会话终止（子会话不占用 Worker，由 agentTool 注册表路由）：
+                // 本 Worker 中若正运行该子会话的 in-process loop 则触其中止；未命中为 no-op
+                // 哨兵：convId 缺失直接早退（不用空串塞进注册表查询）
+                if (!msg.convId) return
+                const {abortChildSession} = await import('./tools/builtin/agentTool')
+                abortChildSession(msg.convId)
             } else if (msg.type === WORKER_MESSAGE_TYPES.LOOP_SILENCE) {
                 // 渲染端"这是误判"：指纹入队，Controller 检测门每轮 shift 消费（detector.silence）
                 if (msg.fingerprint) {

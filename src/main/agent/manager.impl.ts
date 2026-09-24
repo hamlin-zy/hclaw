@@ -20,7 +20,7 @@ import {gracefulRestart} from '../utils/restart'
 import {capabilityManager} from './capabilityManager'
 import {logger} from './logger'
 import {mcpWorkerManager, setAgentManagerRef} from './mcp/mcpWorkerManager'
-import {injectChildMessage} from './tools/builtin/agentTool'
+import {abortChildSession, injectChildMessage} from './tools/builtin/agentTool'
 import {systemSettingsRepo} from '../repositories/sqlite/systemSettingsRepository'
 import {upsertSnapshot, getActiveBatch} from '../repositories/sqlite/taskBatchRepository'
 import {runtimeConfigManager} from './runtimeConfigManager'
@@ -1446,43 +1446,59 @@ export class AgentManager {
 
   // ─── 公开 API ────────────────────────────────────────
 
-  /** 中止指定会话的 Agent */
+  /** 中止指定会话的 Agent：本会话 Worker（entry 分支）+ 子会话（agentTool
+   *  in-process loop，经注册表 / 广播）两条路径，后者见方法末尾注释 */
   async abort(conversationId: string, sendFallbackDone: boolean = true): Promise<void> {
     const entry = this.workers.get(conversationId)
-    if (!entry) return
 
-    entry.abortController.abort()
-    entry.worker.postMessage({type: WORKER_MESSAGE_TYPES.ABORT})
+    if (entry) {
+      entry.abortController.abort()
+      entry.worker.postMessage({type: WORKER_MESSAGE_TYPES.ABORT})
 
-    if (sendFallbackDone) {
-      this.notifyStreamListeners(conversationId, {type: 'done', reason: 'aborted'} as unknown as AgentStreamEvent)
+      if (sendFallbackDone) {
+        this.notifyStreamListeners(conversationId, {type: 'done', reason: 'aborted'} as unknown as AgentStreamEvent)
+      }
+
+      // ★ 方案A：立即级联清子孙会话的 UI 运行态，不等 1s 优雅窗口。
+      //   根因：cleanup 挂在带身份守卫的 setTimeout 上（下方），1s 内 start() 接管新 worker
+      //   会让 cleanup 整体早退 → 子孙的 done(aborted) 永不发出 → 侧边栏子会话永久卡「运行中」。
+      //   parentToChildren 与 worker 身份无关，此刻即可广播；映射不在此删——窗口内子会话事件
+      //   仍可能复活 UI 状态，cleanup（若执行）的第二次级联作兜底，重复 done(aborted) 对 UI 幂等。
+      //   不受 sendFallbackDone 控制：该参数只抑制主会话的内部兜底，旧 worker 的子孙运行态
+      //   同样已死、同样需要清除，且事件按 conversationId 路由不会干扰新流。
+      this.cascadeAbortedToDescendants(conversationId)
+
+      setTimeout(async () => {
+        const currentEntry = this.workers.get(conversationId)
+        if (currentEntry && currentEntry.worker === entry.worker) {
+          // ★ 顺序强制：先兜底 finalize（补 end 块 + ended_at），再 terminate + cleanup。
+          //   反序会让 cleanup 先丢弃 pending 并清空 persistence patch，兜底即失效
+          //   （见 #finalizePendingIfUnfinalized 的根因说明）。
+          await this.#finalizePendingIfUnfinalized(conversationId)
+          // ★ 上面的 await 会让出事件循环：本会话可能已被新 worker 接管（start() 重建），
+          //   故 terminate/cleanup 前复检同一身份条件，避免误杀新 worker。
+          const latestEntry = this.workers.get(conversationId)
+          if (latestEntry && latestEntry.worker === entry.worker) {
+            entry.worker.terminate()
+            this.cleanup(conversationId)
+          }
+        }
+      }, WORKER_GRACEFUL_SHUTDOWN_MS)
     }
 
-    // ★ 方案A：立即级联清子孙会话的 UI 运行态，不等 1s 优雅窗口。
-    //   根因：cleanup 挂在带身份守卫的 setTimeout 上（下方），1s 内 start() 接管新 worker
-    //   会让 cleanup 整体早退 → 子孙的 done(aborted) 永不发出 → 侧边栏子会话永久卡「运行中」。
-    //   parentToChildren 与 worker 身份无关，此刻即可广播；映射不在此删——窗口内子会话事件
-    //   仍可能复活 UI 状态，cleanup（若执行）的第二次级联作兜底，重复 done(aborted) 对 UI 幂等。
-    //   不受 sendFallbackDone 控制：该参数只抑制主会话的内部兜底，旧 worker 的子孙运行态
-    //   同样已死、同样需要清除，且事件按 conversationId 路由不会干扰新流。
-    this.cascadeAbortedToDescendants(conversationId)
-
-    setTimeout(async () => {
-      const currentEntry = this.workers.get(conversationId)
-      if (currentEntry && currentEntry.worker === entry.worker) {
-        // ★ 顺序强制：先兜底 finalize（补 end 块 + ended_at），再 terminate + cleanup。
-        //   反序会让 cleanup 先丢弃 pending 并清空 persistence patch，兜底即失效
-        //   （见 #finalizePendingIfUnfinalized 的根因说明）。
-        await this.#finalizePendingIfUnfinalized(conversationId)
-        // ★ 上面的 await 会让出事件循环：本会话可能已被新 worker 接管（start() 重建），
-        //   故 terminate/cleanup 前复检同一身份条件，避免误杀新 worker。
-        const latestEntry = this.workers.get(conversationId)
-        if (latestEntry && latestEntry.worker === entry.worker) {
-          entry.worker.terminate()
-          this.cleanup(conversationId)
-        }
+    // ★ 子会话路由（对称 injectMessage 的三级路由）：子会话由 agentTool 在父会话
+    //   Worker（或主进程）内 in-process 运行，永不入 workers 表 → 上面的 entry 分支
+    //   覆盖不到它，故此处无条件再走一遍：
+    //   路径 2：本进程 agentTool 注册表命中（父会话跑在主进程）→ 命中即止；
+    //   路径 3：未命中且存在运行中 Worker → 广播 ABORT_CHILD_SESSION，由 worker 侧
+    //   agentTool 注册表路由到目标子会话（miss 为 no-op，无法回 ack，与注入同款）。
+    if (abortChildSession(conversationId)) return
+    if (this.workers.size > 0) {
+      for (const [, w] of this.workers) {
+        w.worker.postMessage({type: WORKER_MESSAGE_TYPES.ABORT_CHILD_SESSION, convId: conversationId})
       }
-    }, WORKER_GRACEFUL_SHUTDOWN_MS)
+      logger.info('[AgentManager] 已广播子会话终止到 Workers（子会话路由）', {conversationId})
+    }
   }
 
   /** 中止所有 Agent */

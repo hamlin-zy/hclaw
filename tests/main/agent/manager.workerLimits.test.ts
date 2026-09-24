@@ -100,7 +100,7 @@ vi.mock('@/main/agent/mcp/mcpWorkerManager', () => ({
     setAgentManagerRef: vi.fn(),
 }))
 
-vi.mock('@/main/agent/tools/builtin/agentTool', () => ({injectChildMessage: vi.fn()}))
+vi.mock('@/main/agent/tools/builtin/agentTool', () => ({injectChildMessage: vi.fn(), abortChildSession: vi.fn(() => false)}))
 
 vi.mock('@/main/agent/tools/permission', () => ({permissionEngine: {}}))
 

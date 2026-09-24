@@ -4,9 +4,11 @@ import {AnimatePresence, motion} from 'framer-motion'
 import {popoverUp} from '../lib/motionPresets'
 import {useAgentStore} from '../stores/agentStore'
 import {useLLMStore} from '../stores/llmStore'
+import {useModelSchemeStore} from '../stores/modelSchemeStore'
 import {useDefaultRoleForSession} from '../hooks/usePrimaryRole'
 import {resolveActiveModel} from '../lib/modelResolution'
 import {clampPanelRight, PANEL_EDGE_MARGIN} from '../lib/panelClamp'
+import {resolveOverrideEffortToWrite} from '@shared/thinkingEffort'
 import type {ModelOverride} from '@shared/types'
 
 interface ModelSelectorProps {
@@ -79,6 +81,9 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
     // 会话默认角色（无 override 时作为虚拟选中目标；只读匹配，不写库；
     // 与 CacheRateTooltip 共用 useDefaultRoleForSession，防口径漂移）
     const defaultRole = useDefaultRoleForSession(conversationId)
+
+    // 当前生效方案：写入 override 时按方案角色档位决策（只读，见 resolveOverrideEffortToWrite）
+    const activeScheme = useModelSchemeStore(s => s.schemes.find(x => x.id === s.activeSchemeId) ?? null)
 
     // 生效模型解析（与 CacheRateTooltip 共用 resolveActiveModel，防口径漂移）
     const activeResolution = useMemo(() => resolveActiveModel({
@@ -169,6 +174,15 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
             endpointId: providerId,
             modelId,
             providerName: provider?.name,
+            // 写入侧补齐档位：override 不带档位会让读取侧（徽章 / 运行层）静默兜底 auto，
+            // 与方案里配的档位脱钩；决策规则见 resolveOverrideEffortToWrite
+            thinkingEffort: resolveOverrideEffortToWrite({
+                endpointId: providerId,
+                modelId,
+                scheme: activeScheme,
+                defaultRole,
+                currentEffort: modelOverride?.thinkingEffort,
+            }),
         }
         setModelOverride(conversationId, ov)
         setView('closed')

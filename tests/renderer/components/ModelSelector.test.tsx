@@ -15,9 +15,11 @@
  *   返回含 primary 角色的活动方案（虚拟选中语义），并支持 selector 订阅调用。
  */
 import {describe, expect, it, vi} from 'vitest'
-import {render, screen} from '@testing-library/react'
+import {fireEvent, render, screen, act} from '@testing-library/react'
 import ModelSelector from '../../../src/renderer/components/ModelSelector'
 import {useAgentStore} from '../../../src/renderer/stores/agentStore'
+import {useModelSchemeStore} from '../../../src/renderer/stores/modelSchemeStore'
+import {resolveOverrideEffortToWrite} from '../../../src/shared/thinkingEffort'
 
 vi.mock('../../../src/renderer/stores/agentStore', () => ({
     useAgentStore: vi.fn((selector: any) => {
@@ -86,5 +88,67 @@ describe('ModelSelector', () => {
         })
         render(<ModelSelector conversationId="conv-1"/>)
         expect(screen.getByText(/gpt-5/)).toBeTruthy()
+    })
+
+    // 装配层用例：handleApply 写入 override 时必须带上 resolveOverrideEffortToWrite 决策的档位，
+    // 且 endpointId/modelId/providerName 与用户点选的目标一致（否则读取侧徽章/运行层会脱钩）
+    it('handleApply 写入 override：thinkingEffort 与 resolveOverrideEffortToWrite 对相同输入一致', () => {
+        vi.useFakeTimers()
+        try {
+            const setOverrideSpy = vi.fn()
+            // 方案副本：仅给 lightweight 角色配档位 low —— 选 p2/m3（命中 lightweight 角色）时
+            // 级 2 应写入 'low'；若装配漏写该字段，断言 undefined !== 'low' 会失败（证判别力）
+            const schemeWithEffort = {
+                ...activeScheme,
+                roles: activeScheme.roles.map(r =>
+                    r.role === 'lightweight' ? {...r, thinkingEffort: 'low'} : r,
+                ),
+            }
+            const originalGetState = (useModelSchemeStore as any).getState
+            vi.mocked(useAgentStore).mockImplementation((sel: any) => {
+                const state = {modelOverride: null, setModelOverride: setOverrideSpy}
+                return sel ? sel(state) : state
+            })
+            vi.mocked(useModelSchemeStore).mockImplementation((sel: any) =>
+                sel ? sel({schemes: [schemeWithEffort], activeSchemeId: 'scheme-1'}) : null)
+            ;(useModelSchemeStore as any).getState = vi.fn(() => ({
+                schemes: [schemeWithEffort],
+                activeSchemeId: 'scheme-1',
+                getActiveScheme: () => schemeWithEffort,
+            }))
+
+            render(<ModelSelector conversationId="conv-1"/>)
+            // 打开 popover → 点服务商 DeepSeek → 子菜单延迟 HOVER_DELAY 展开 → 点模型 deepseek-v3
+            fireEvent.click(screen.getByTitle('选择模型'))
+            fireEvent.click(screen.getByText('DeepSeek'))
+            act(() => { vi.advanceTimersByTime(120) })
+            fireEvent.click(screen.getByText('deepseek-v3'))
+
+            expect(setOverrideSpy).toHaveBeenCalledTimes(1)
+            const [convId, ov] = setOverrideSpy.mock.calls[0]
+            // 与写入决策纯函数对相同输入的结果逐一比对
+            const expected = resolveOverrideEffortToWrite({
+                endpointId: 'p2',
+                modelId: 'm3',
+                scheme: schemeWithEffort as any,
+                // 会话默认角色 = primary（本用例未配档位，防御脏值后不参与决策）
+                defaultRole: {thinkingEffort: undefined},
+                currentEffort: undefined,
+            })
+            expect(convId).toBe('conv-1')
+            expect(ov.endpointId).toBe('p2')
+            expect(ov.modelId).toBe('m3')
+            expect(ov.providerName).toBe('DeepSeek')
+            expect(ov.thinkingEffort).toBe(expected)
+            // 显式钉死 'low'：防止 expected 意外为 undefined 时双向假绿
+            expect(expected).toBe('low')
+
+            // 恢复 mock factory 默认实现（本用例为 describe 最后一个，防御性收尾）
+            vi.mocked(useAgentStore).mockReset()
+            vi.mocked(useModelSchemeStore).mockReset()
+            ;(useModelSchemeStore as any).getState = originalGetState
+        } finally {
+            vi.useRealTimers()
+        }
     })
 })

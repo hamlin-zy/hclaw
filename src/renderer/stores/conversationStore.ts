@@ -1488,10 +1488,22 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               const rest = Object.fromEntries(
                   Object.entries(state.workspaces).filter(([k]) => workspacePathKey(k) !== target)
               )
+              // ★ 2026-09-24 内存审计收口：同属「按项目路径索引」的两张表一并清 —— 否则删项目后
+              //   sectionWindowSizes[key] / gitBranches[key] 会永久悬空（该项目不会再出现在侧栏，
+              //   键也不会再被读写）。口径与上方 workspaces 一致：归一化等价的历史键同清。
+              //   会话级 childWindowSizes 已由上方 clearDeletedConvChildWindows 按真删口径销毁。
+              const restWindowSizes = Object.fromEntries(
+                  Object.entries(state.sectionWindowSizes).filter(([k]) => workspacePathKey(k) !== target)
+              )
+              const restGitBranches = Object.fromEntries(
+                  Object.entries(state.gitBranches).filter(([k]) => workspacePathKey(k) !== target)
+              )
               // 当前工作区判断按归一化键比较（原串精确比较会漏掉等价写法的当前工作区）
               const isCurrent = state.currentWorkspacePath !== null && workspacePathKey(state.currentWorkspacePath) === target
               return {
                   workspaces: rest,
+                  sectionWindowSizes: restWindowSizes,
+                  gitBranches: restGitBranches,
                   currentWorkspacePath: isCurrent ? null : state.currentWorkspacePath,
                   activeConversationId: isCurrent ? null : state.activeConversationId,
                   gitBranch: isCurrent ? null : state.gitBranch,
