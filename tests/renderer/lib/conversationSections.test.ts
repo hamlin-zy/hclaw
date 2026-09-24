@@ -39,14 +39,14 @@ describe('buildConversationSections — 排序与窗口', () => {
         expect(sections[0].rows.map(r => r.id)).toEqual(['c-00', 'c-02', 'c-01'])
     })
 
-    it('非置顶超过窗口（默认 10）时被截断，且 hasMore = true', () => {
+    it('非置顶超过窗口（默认 6）时被截断，且 hasMore = true', () => {
         const conversations = Array.from({length: 12}, (_, i) => conv(i))
         const sections = buildConversationSections({...base, projects: [project({conversations})]})
-        expect(sections[0].rows).toHaveLength(10)
+        expect(sections[0].rows).toHaveLength(6)
         expect(sections[0].hasMore).toBe(true)
-        // 最新 10 条 = c-11 … c-02
+        // 最新 6 条 = c-11 … c-06
         expect(sections[0].rows.map(r => r.id)).toEqual([
-            'c-11', 'c-10', 'c-09', 'c-08', 'c-07', 'c-06', 'c-05', 'c-04', 'c-03', 'c-02',
+            'c-11', 'c-10', 'c-09', 'c-08', 'c-07', 'c-06',
         ])
     })
 
@@ -60,13 +60,13 @@ describe('buildConversationSections — 排序与窗口', () => {
         expect(sections[0].hasMore).toBe(true)
     })
 
-    it('置顶不参与截断：12 条非置顶 + 3 条置顶 → 13 行，hasMore = true', () => {
+    it('置顶不参与截断：12 条非置顶 + 3 条置顶 → 9 行，hasMore = true', () => {
         const conversations = [
             conv(0, {pinned: true}), conv(1, {pinned: true}), conv(2, {pinned: true}),
             ...Array.from({length: 12}, (_, i) => conv(10 + i)),
         ]
         const sections = buildConversationSections({...base, projects: [project({conversations})]})
-        expect(sections[0].rows).toHaveLength(13)
+        expect(sections[0].rows).toHaveLength(9)
         expect(sections[0].rows.slice(0, 3).map(r => r.id)).toEqual(['c-02', 'c-01', 'c-00'])
         expect(sections[0].hasMore).toBe(true)
     })
@@ -118,30 +118,28 @@ describe('buildConversationSections — 子会话窗口', () => {
         return [parent, ...children]
     }
 
-    it('子会话超过 3 条：只显示最新 3 条 + load-more 占位行（hiddenCount 正确）', () => {
+    it('子会话超过 3 条：只显示最新 3 条，childShownCount 正确', () => {
         const sections = buildConversationSections({...base, projects: [project({conversations: parentWithChildren(5)})]})
         const rows = sections[0].rows
-        expect(rows.map(r => r.kind === 'conv' ? r.id : 'LOAD-MORE')).toEqual([
-            'p-1', 'k-4', 'k-3', 'k-2', 'LOAD-MORE',
-        ])
-        const more = rows[4]
-        expect(more).toMatchObject({kind: 'load-more', parentConvId: 'p-1', indentLevel: 1, hiddenCount: 2})
+        expect(rows.map(r => r.id)).toEqual(['p-1', 'k-4', 'k-3', 'k-2'])
+        expect(rows[0]).toMatchObject({kind: 'conv', id: 'p-1', childCount: 5, childShownCount: 3})
     })
 
-    it('子会话 ≤3 条：全量显示，无 load-more 行', () => {
+    it('子会话 ≤3 条：全量显示，childShownCount 等于 childCount', () => {
         const sections = buildConversationSections({...base, projects: [project({conversations: parentWithChildren(3)})]})
         expect(sections[0].rows.every(r => r.kind === 'conv')).toBe(true)
+        expect(sections[0].rows[0]).toMatchObject({childCount: 3, childShownCount: 3})
     })
 
-    it('expandedChildParents 命中：全部子会话可见，无 load-more 行', () => {
+    it('childWindowSizes 调大：子会话窗口扩展', () => {
         const sections = buildConversationSections({
             ...base,
-            expandedChildParents: {'p-1': true},
+            childWindowSizes: {'p-1': 6},
             projects: [project({conversations: parentWithChildren(5)})],
         })
-        const ids = sections[0].rows.filter(r => r.kind === 'conv').map(r => r.id)
+        const ids = sections[0].rows.map(r => r.id)
         expect(ids).toEqual(['p-1', 'k-4', 'k-3', 'k-2', 'k-1', 'k-0'])
-        expect(sections[0].rows.some(r => r.kind === 'load-more')).toBe(false)
+        expect(sections[0].rows[0]).toMatchObject({childShownCount: 5})
     })
 
     it('搜索态豁免子会话窗口（全部可见）', () => {
@@ -150,8 +148,8 @@ describe('buildConversationSections — 子会话窗口', () => {
             searchQuery: '会话',
             projects: [project({conversations: parentWithChildren(5)})],
         })
-        expect(sections[0].rows.filter(r => r.kind === 'conv')).toHaveLength(6)
-        expect(sections[0].rows.some(r => r.kind === 'load-more')).toBe(false)
+        expect(sections[0].rows).toHaveLength(6)
+        expect(sections[0].rows[0]).toMatchObject({childShownCount: 5})
     })
 })
 

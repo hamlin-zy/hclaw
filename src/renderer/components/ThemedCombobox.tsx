@@ -160,7 +160,7 @@ export default function ThemedCombobox({
                         }}
                         className="z-[100002]"
                     >
-                        <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden max-h-[240px] overflow-y-auto">
+                        <div className="bg-[var(--surface-elevated)] border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden max-h-[240px] overflow-y-auto select-text">
                             <div className="p-1.5 flex flex-col">
                                 {filtered.map((s, i) => (
                                     <button

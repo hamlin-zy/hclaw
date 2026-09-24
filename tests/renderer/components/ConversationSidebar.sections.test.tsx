@@ -4,7 +4,7 @@ import {render, screen, fireEvent, act} from '@testing-library/react'
 
 const section = (over: Partial<any> = {}) => ({
     key: '/ws/a', projectPath: '/ws/a', projectName: 'a', gitBranch: 'main',
-    collapsed: false, count: 3, hasMore: false,
+    collapsed: false, count: 3, hasMore: false, totalRoots: 3,
     rows: [{id: 'c-1', indentLevel: 0, childCount: 0}], ...over,
 })
 
@@ -23,6 +23,7 @@ const convState = vi.hoisted(() => ({
     workspaces: {'/ws/a': {lastOpenedAt: 1, conversations: []}} as Record<string, {lastOpenedAt: number; conversations: any[]}>,
     getScopedSections: vi.fn(() => [section()]),
     expandSection: vi.fn(),
+    setSectionWindowSize: vi.fn(),
     dismissWindowHint: vi.fn(),
     toggleSectionCollapsed: vi.fn(),
     focusProjectSegment: vi.fn(),
@@ -41,9 +42,11 @@ vi.mock('../../../src/renderer/stores/conversationStore', () => ({
 vi.mock('../../../src/renderer/stores/agentStore', () => ({
     useAgentStore: (sel: (s: unknown) => unknown) => sel({convAgentStates: {}, doneUnreadIds: {}, clearConvDoneUnread: () => {}}),
 }))
-vi.mock('../../../src/renderer/stores/sidebarStore', () => ({
-    useSidebarStore: {getState: () => ({leftCollapsed: false})},
-}))
+vi.mock('../../../src/renderer/stores/sidebarStore', async () => {
+    // 透传真实 store：组件直接消费 useSidebarStore hook（Task 14 起），整体 mock 会落空
+    const actual = await vi.importActual<Record<string, unknown>>('../../../src/renderer/stores/sidebarStore')
+    return {...actual}
+})
 vi.mock('../../../src/renderer/stores/themeStore', () => ({
     useThemeStore: {getState: () => ({theme: 'light'})},
 }))
@@ -115,21 +118,23 @@ describe('ConversationList — 段头三操作分工（A 变体）', () => {
 })
 
 describe('ConversationList — 折叠语义', () => {
-    it('折叠态显示「N 条」，展开态不显示', () => {
-        render(<ConversationList/>)
-        expect(document.querySelector('[data-name="section-count"]')).toBeNull()
+    it('折叠态与展开态都显示「N 条」（常显）', () => {
+        const {unmount: u1} = render(<ConversationList/>)
+        expect(document.querySelector('[data-name="section-count"]')?.textContent).toContain('3 条')
+        u1()
         convState.getScopedSections.mockReturnValue([section({collapsed: true, count: 7, rows: []})])
         const {unmount} = render(<ConversationList/>)
         expect(document.querySelector('[data-name="section-count"]')?.textContent).toContain('7 条')
         unmount()
     })
 
-    it('单项目视图：无 chevron、无「+」（新建仍用顶部大按钮）', () => {
+    it('单项目视图：不渲染段头（chevron/+/PM 全迁至入口行）', () => {
         convState.viewScope = {type: 'project', path: '/ws/a'}
         render(<ConversationList/>)
+        expect(document.querySelector('[data-name="conversation-section-header"]')).toBeNull()
         expect(document.querySelector('[data-name="section-collapse-toggle"]')).toBeNull()
         expect(document.querySelector('[data-name="section-new-conversation"]')).toBeNull()
-        expect(document.querySelector('[data-name="section-pm-button"]')).toBeTruthy()
+        expect(document.querySelector('[data-name="section-pm-button"]')).toBeNull()
     })
 })
 
@@ -141,10 +146,15 @@ describe('ConversationList — 空态（§7.6 / §3.2）', () => {
         expect(screen.getByText('选择项目或项目组')).toBeTruthy()
     })
 
-    it('项目无会话 → 「暂无会话」', () => {
+    it('项目无会话 → 「暂无会话」（居中 + 更浅的 muted 色）', () => {
         convState.getScopedSections.mockReturnValue([section({rows: [], count: 0})])
         render(<ConversationList/>)
-        expect(screen.getByText('暂无会话')).toBeTruthy()
+        const el = screen.getByText('暂无会话') as HTMLElement
+        expect(el).toBeTruthy()
+        // 2026-09-24 收尾：占位文案居中，且降一档到 muted（原 secondary 偏亮、左对齐）
+        expect(el.className).toContain('text-center')
+        expect(el.className).toContain('text-[var(--text-muted)]')
+        expect(el.className).not.toContain('text-[var(--text-secondary)]')
     })
 })
 
@@ -278,44 +288,44 @@ describe('ConversationList — 单项目视图窗口化一次性提示（§15.1�
     it('单项目视图 + hasMore + 未提示过 → 显示一次性提示', () => {
         convState.viewScope = {type: 'project', path: '/ws/a'}
         convState.singleViewWindowHintShown = false
-        convState.getScopedSections.mockReturnValue([section({hasMore: true})])
+        convState.getScopedSections.mockReturnValue([section({hasMore: true, totalRoots: 20})])
         render(<ConversationList/>)
-        expect(screen.getByText(/「加载更多」可展开更多会话/)).toBeTruthy()
+        expect(screen.getByText(/∨∨ 展开更多会话/)).toBeTruthy()
     })
 
     it('已提示过 → 不再显示', () => {
         convState.viewScope = {type: 'project', path: '/ws/a'}
         convState.singleViewWindowHintShown = true
-        convState.getScopedSections.mockReturnValue([section({hasMore: true})])
+        convState.getScopedSections.mockReturnValue([section({hasMore: true, totalRoots: 20})])
         render(<ConversationList/>)
-        expect(screen.queryByText(/「加载更多」可展开更多会话/)).toBeNull()
+        expect(screen.queryByText(/∨∨ 展开更多会话/)).toBeNull()
     })
 
     it('组视图不显示该提示（组视图每段本来就有 ···）', () => {
         convState.viewScope = {type: 'group', groupId: 'pg-a'}
         convState.singleViewWindowHintShown = false
-        convState.getScopedSections.mockReturnValue([section({hasMore: true})])
+        convState.getScopedSections.mockReturnValue([section({hasMore: true, totalRoots: 20})])
         render(<ConversationList/>)
-        expect(screen.queryByText(/「加载更多」可展开更多会话/)).toBeNull()
+        expect(screen.queryByText(/∨∨ 展开更多会话/)).toBeNull()
     })
 
-    it('单项目视图点击「加载更多」既展开段也置位已读（提示无独立关闭控件）', () => {
+    it('单项目视图点击 ∨∨ 既设窗口大小也置位已读（提示无独立关闭控件）', () => {
         convState.viewScope = {type: 'project', path: '/ws/a'}
         convState.singleViewWindowHintShown = false
-        convState.getScopedSections.mockReturnValue([section({hasMore: true})])
+        convState.getScopedSections.mockReturnValue([section({hasMore: true, totalRoots: 20})])
         render(<ConversationList/>)
-        fireEvent.click(document.querySelector('[data-name="section-show-more"]') as HTMLElement)
-        expect(convState.expandSection).toHaveBeenCalledWith('/ws/a')
+        fireEvent.click(document.querySelector('[data-name="pager-expand"]') as HTMLElement)
+        expect(convState.setSectionWindowSize).toHaveBeenCalledWith('/ws/a', 16)
         expect(convState.dismissWindowHint).toHaveBeenCalledTimes(1)
     })
 
-    it('组视图点击「加载更多」只展开段，不置位全局一次性标记（不提前吃掉提示）', () => {
+    it('组视图点击 ∨∨ 只设窗口大小，不置位全局一次性标记（不提前吃掉提示）', () => {
         convState.viewScope = {type: 'group', groupId: 'pg-a'}
         convState.singleViewWindowHintShown = false
-        convState.getScopedSections.mockReturnValue([section({hasMore: true})])
+        convState.getScopedSections.mockReturnValue([section({hasMore: true, totalRoots: 20})])
         render(<ConversationList/>)
-        fireEvent.click(document.querySelector('[data-name="section-show-more"]') as HTMLElement)
-        expect(convState.expandSection).toHaveBeenCalledWith('/ws/a')
+        fireEvent.click(document.querySelector('[data-name="pager-expand"]') as HTMLElement)
+        expect(convState.setSectionWindowSize).toHaveBeenCalledWith('/ws/a', 16)
         expect(convState.dismissWindowHint).not.toHaveBeenCalled()
         expect(convState.singleViewWindowHintShown).toBe(false)
     })

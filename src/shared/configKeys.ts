@@ -9,5 +9,5 @@
 /** 视图作用域持久化载荷（`{viewScope, collapsedGroupIds, singleViewWindowHintShown?}`）的配置键 */
 export const PROJECT_GROUP_VIEW_CONFIG_KEY = 'project-group-view'
 
-/** 侧栏状态持久化载荷（`{leftWidth, leftCollapsed, rightCollapsed}`）的配置键 */
+/** 侧栏状态持久化载荷（`{leftWidth, leftCollapsed, rightCollapsed, recentHeight}`）的配置键 */
 export const SIDEBAR_STATE_CONFIG_KEY = 'sidebar-state'

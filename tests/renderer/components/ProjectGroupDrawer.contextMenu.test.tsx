@@ -3,25 +3,25 @@ import {describe, it, expect, vi, beforeEach} from 'vitest'
 import {render, screen, fireEvent, waitFor} from '@testing-library/react'
 import {useState, useRef, useEffect} from 'react'
 
-/**
- * 成员行现在只在二级面板里（§16.1）——右键它们之前必须先 hover 组头把面板打开。
- * 面板的定位要读 drawerRef.current 的矩形，所以这里用真实 ref（`{current: null}` 面板开不出来）。
- */
-async function openPanel(groupName = '组A') {
-    fireEvent.mouseEnter(screen.getByText(groupName))
-    await waitFor(() => expect(document.querySelector('[data-name="drawer-group-panel"]')).toBeTruthy())
-}
-
-function panelMember(index: number): HTMLElement {
+/** 常态成员行在二级面板里（§16.2）：右键成员行 = 先让面板浮出来 */
+function memberRow(index: number): HTMLElement {
     return document.querySelector(`[data-name="drawer-group-member-${index}"]`) as HTMLElement
 }
 
-/** 真实 ref：面板开关依赖 drawerRef.current 的矩形 */
 function renderDrawer() {
-    const drawerRef = {current: null as HTMLDivElement | null}
     return render(
-        <ProjectGroupDrawer drawerRef={drawerRef} search="" setSearch={() => {}} onClose={() => {}}/>,
+        <ProjectGroupDrawer drawerRef={{current: null}} search="" setSearch={() => {}} onClose={() => {}}/>,
     )
+}
+
+/** 焦点路径开面板（组头 onFocus = 立即开，D4） */
+function openPanel(groupId = 'pg-a') {
+    fireEvent.focus(
+        document.querySelector(`[data-name="group-block-header"][data-group-id="${groupId}"]`) as HTMLElement)
+}
+
+function panel(): HTMLElement | null {
+    return document.querySelector('[data-name="drawer-group-panel"]') as HTMLElement | null
 }
 
 const groupState = vi.hoisted(() => ({
@@ -128,11 +128,11 @@ describe('ProjectGroupDrawer — 组右键菜单', () => {
     })
 })
 
-describe('ProjectGroupDrawer — 组内项目右键', () => {
-    it('三项：移出组 / 在文件管理器中打开 / 移除项目', async () => {
+describe('ProjectGroupDrawer — 组内项目右键（面板成员行）', () => {
+    it('三项：移出组 / 在文件管理器中打开 / 移除项目', () => {
         renderDrawer()
-        await openPanel()
-        fireEvent.contextMenu(panelMember(0))
+        openPanel()
+        fireEvent.contextMenu(memberRow(0))
         expect(screen.getByText('移出组')).toBeTruthy()
         expect(screen.getByText('在文件管理器中打开')).toBeTruthy()
         expect(screen.getByText('移除项目')).toBeTruthy()
@@ -140,21 +140,24 @@ describe('ProjectGroupDrawer — 组内项目右键', () => {
 
     it('移出组 → assign(path, null)', async () => {
         renderDrawer()
-        await openPanel()
-        fireEvent.contextMenu(panelMember(0))
+        openPanel()
+        fireEvent.contextMenu(memberRow(0))
         fireEvent.click(screen.getByText('移出组'))
         await waitFor(() => expect(groupState.assign).toHaveBeenCalledWith('/ws/a', null))
     })
 
-    it('右键菜单从面板行打开时面板钉住不关（menu 期间鼠标会离开面板）', async () => {
+    it('菜单打开期间面板被钉住：鼠标离开面板越过宽限也不关；菜单关闭后回落再走宽限', async () => {
         renderDrawer()
-        await openPanel()
-        fireEvent.contextMenu(panelMember(0))
-        expect(screen.getByText('移出组')).toBeTruthy()
-        // 面板自身的 mouseleave 不该把面板关掉：菜单还锚在它上面
-        fireEvent.mouseLeave(document.querySelector('[data-name="drawer-group-panel"]') as HTMLElement)
-        await new Promise((r) => setTimeout(r, 260)) // 超过 200ms 宽限
-        expect(document.querySelector('[data-name="drawer-group-panel"]')).toBeTruthy()
+        openPanel()
+        fireEvent.contextMenu(memberRow(0))
+        expect(panel()).toBeTruthy()
+        // 菜单开着时鼠标离开面板 → 钉住，宽限期不生效
+        fireEvent.mouseLeave(panel() as HTMLElement)
+        await new Promise((resolve) => setTimeout(resolve, 260)) // 越过 200ms 宽限
+        expect(panel()).toBeTruthy()
+        // 关掉菜单 → 钉住回落 → 指针不在面板/组头上（jsdom 无 elementFromPoint）→ 宽限关闭
+        fireEvent.keyDown(window, {key: 'Escape'})
+        await waitFor(() => expect(panel()).toBeNull())
     })
 })
 
@@ -197,5 +200,15 @@ describe('ProjectGroupDrawer — 右键菜单 onMouseDown 防护', () => {
         // 随后 click 真的触发了动作（以「解散」为例）
         fireEvent.click(dissolveBtn)
         await waitFor(() => expect(groupState.dissolve).toHaveBeenCalledWith('pg-a'))
+    })
+
+    it('面板 mousedown 不冒泡到 document：否则面板行的 mousedown 会先关掉抽屉，click 打空', () => {
+        render(<DrawerWithOutsideClose/>)
+        openPanel()
+        expect(panel()).toBeTruthy()
+        fireEvent.mouseDown(memberRow(0))
+        // 抽屉没被"点外部"关掉 → 面板与成员行都还在
+        expect(panel()).toBeTruthy()
+        expect(memberRow(0)).toBeTruthy()
     })
 })

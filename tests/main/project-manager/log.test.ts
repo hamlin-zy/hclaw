@@ -6,10 +6,12 @@ vi.mock('../../../src/main/project-manager/git/gitExec', () => ({
   gitExec: vi.fn(async () => ''),
 }))
 
+// 记录分隔符 RS(\x1e)：真实 git 输出以此开头，body 的多行续行不再带记录前缀
+const RS = '\x1e'
 // %D 真实形态：同一字段承载 HEAD -> / 远端 / tag: 前缀
 const RAW = [
-  '<abc123def|def456abc|Alice|alice@x.com|1700000000|1700000000|HEAD -> main, origin/main, tag: v1.0, tag: v0.9|subject line|body text',
-  '<bbb222|ccc333|Bob|bob@x.com|1699000000|1699000000|||merge subject|',
+  `${RS}abc123def|def456abc|Alice|alice@x.com|1700000000|1700000000|HEAD -> main, origin/main, tag: v1.0, tag: v0.9|subject line|body line 1\nbody line 2\n\nbody line 4`,
+  `${RS}bbb222|ccc333|Bob|bob@x.com|1699000000|1699000000|||merge subject|`,
 ].join('\n') + '\n'
 
 describe('parseLog', () => {
@@ -27,6 +29,16 @@ describe('parseLog', () => {
     const entries = parseLog(RAW)
     expect(entries[1]!.branches).toEqual([])
     expect(entries[1]!.tags).toEqual([])
+  })
+  it('多行 body 完整保留（续行不得被丢弃）', () => {
+    const entries = parseLog(RAW)
+    expect(entries[0]!.message).toBe('subject line')
+    expect(entries[0]!.body).toBe('body line 1\nbody line 2\n\nbody line 4')
+  })
+  it('body 中的竖线原样保留', () => {
+    const raw = `${RS}ccc444|ddd555|Cara|cara@x.com|1698000000|1698000000||subject with pipe|a | b\nc`
+    const entries = parseLog(raw)
+    expect(entries[0]!.body).toBe('a | b\nc')
   })
   it('空输入返回空数组', () => {
     expect(parseLog('')).toEqual([])

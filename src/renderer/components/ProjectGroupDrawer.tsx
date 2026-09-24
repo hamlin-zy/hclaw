@@ -1,6 +1,7 @@
 /**
- * 项目抽屉内容（spec §6 / §16）：两层结构 —— 层 1 = 组头列表 + 顶层项目，
- * 层 2 = 组头 hover 展开的二级面板（成员项目 + 「添加项目」，Chrome 标签组式 flyout）。
+ * 项目抽屉内容（spec §6 / §16）：两层结构 —— 层 1 = 组头（组名 + 「n 个项目」 + 「+ 加入本组」）
+ * + 顶层项目行；层 2 = 组头 hover / focus 展开的二级面板（成员项目 + 面板头行，Chrome 标签组式 flyout）。
+ * 唯一例外是搜索态：命中成员内联在层 1 组头下方、面板不开（搜索是"查找 + 切换"场景，见 groupViews）。
  *
  * 为什么层 2 要 portal 到 body：抽屉根节点是 `position: fixed` + transform + overflow-hidden，
  * 就地渲染的浮层既会被裁掉、fixed 又会以抽屉为 containing block 而错位（与拖拽跟手预览、右键菜单同理）。
@@ -19,10 +20,12 @@
  *  · 拖拽（spec §6.3）：手势与落点判定在 `lib/pointerDrag`，本组件只负责"落点 → store 调用"
  *    （五种落点表见 handleDrop）、行的 `data-drag-row` 契约、插入线/高亮渲染。
  *    成员行在二级面板里（另一个根），所以落点表要把抽屉内容区与面板两块拼起来（§16.3）。
- *  · 面板开关（§16.1）：组头 hover 延时开、离开组头/面板宽限关；拖拽 / 右键菜单期间**钉住**
- *    （开与关都挂起）。钉住从"生效"回落到"结束"的那一刻要补一次判定：指针已不在面板 / 组头上
- *    就照常宽限关闭，命中则保持打开 —— 否则拖拽在远离面板处收尾后面板会一直悬着
- *    （见 `pointerOverPanelOrGroupHeader` 与钉住回落 effect）。
+ *  · 面板开关（§16.1）：组头 hover 延时开 / focus 立即开，离开组头/面板宽限关；拖拽 / 右键菜单 /
+ *    行内重命名期间**钉住**（开与关都挂起）。钉住从"生效"回落到"结束"的那一刻要补一次判定：
+ *    指针已不在面板 / 组头上就照常宽限关闭，命中则保持打开 —— 否则拖拽在远离面板处收尾后
+ *    面板会一直悬着（见 `pointerOverPanelOrGroupHeader` 与钉住回落 effect）。
+ *  · 「+ 加入本组」与面板头行都是独立控件，onPointerDown / onClick 各自 stopPropagation，
+ *    阻断组头行的 beginDrag 与 onClick（否则点按钮等于点组头 = 进组视图 + 关抽屉）。
  */
 import {
     Fragment,
@@ -41,7 +44,7 @@ import {useProjectGroupStore} from '../stores/projectGroupStore'
 import {fuzzyFilter, fuzzyMatch} from '../lib/search'
 import {workspaceBadgeLabel, workspacePathSubtitle} from '../lib/workspacePath'
 import {INPUT_FOCUS} from '../lib/inputFocus'
-import {collectDropZones, usePointerDrag, type DragPayload, type DropTarget} from '../lib/pointerDrag'
+import {collectDropZones, usePointerDrag, type DragPayload, type DropTarget, type DropZone} from '../lib/pointerDrag'
 import {confirm} from './ConfirmDialog'
 
 /** 抽屉宽度（px）：全仓库唯一定义（侧栏定位计算与抽屉宽度共用；反向定义会造成循环导入） */
@@ -68,6 +71,12 @@ const PANEL_OPEN_DELAY_MS = 120
 
 /** 离开组头/面板到面板关闭的宽限（ms）：要够用户从组头移到面板（以及反向移回） */
 const PANEL_CLOSE_GRACE_MS = 200
+
+/**
+ * 组头的 DOM 契约（面板开关、几何、焦点回还共用一份口径）。
+ * 组头同时带 `data-name="group-block-header"` 与 `data-group-id`，两者组合即唯一定位。
+ */
+const groupHeaderSelector = (groupId: string) => `[data-name="group-block-header"][data-group-id="${groupId}"]`
 
 interface ProjectGroupDrawerProps {
     drawerRef: RefObject<HTMLDivElement | null>
@@ -97,6 +106,10 @@ const FOLDER_ICON = 'M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 
 /** 右键菜单项统一样式（与 ConversationSidebar 的 GlobalContextMenu 同口径） */
 const MENU_ITEM_CLASS = 'w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)] transition-colors'
 
+/** 行态样式（组头行 / 面板头行 / 成员行 / 顶层项目行四处共用）：当前项中性灰，常态次级灰 + hover 提亮（§6.2） */
+const ROW_CURRENT_CLASS = 'bg-[var(--surface-muted)] text-[var(--text-primary)]'
+const ROW_IDLE_CLASS = 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
+
 /** 落位动画（spec §6.3「落位动画用 framer-motion」）：与 memo 面板 Reorder 的 FLIP 观感对齐 */
 const LAYOUT_TRANSITION: Transition = {duration: 0.15, ease: 'easeOut'}
 
@@ -120,16 +133,15 @@ function ProjectRowBody({name, path, iconName}: {name: string; path: string; ico
                  stroke="currentColor" strokeWidth="2" aria-hidden="true" data-name={iconName}>
                 <path d={FOLDER_ICON}/>
             </svg>
-            <div className="flex-1 min-w-0">
-                <div className="text-2xs font-medium truncate">{name}</div>
-                <div className="text-2xs text-[var(--text-muted)] [overflow-wrap:anywhere]">{pathLabel}</div>
-            </div>
+            {/* 单行两段（demo .gdrow）：项目名定宽 shrink-0 + 路径 flex:1 淡色截断，溢出隐藏 */}
+            <span className="text-2xs font-medium truncate shrink-0">{name}</span>
+            <span className="flex-1 min-w-0 text-2xs text-[var(--text-muted)] truncate">{pathLabel}</span>
         </>
     )
 }
 
 /** 行 hover 操作按钮对（文件管理器打开 / 移除）：未分组行与面板成员行共用。
-    focusWithin：面板成员行可 Tab，需 group-focus-within 补键盘可见性；未分组行保持原样。
+    focusWithin：行可 Tab 时补 group-focus-within 键盘可见性（面板成员行与未分组行均启用）。
     removeLabel：两处文案不同（「从历史中移除」vs「移除项目」），aria 与 title 同源。 */
 function ProjectRowActions({path, onRemove, focusWithin, openDataName, removeDataName, removeLabel}: {
     path: string
@@ -183,7 +195,7 @@ function sameTarget(a: DropTarget, b: DropTarget): boolean {
  *
  * 两条钳制都是为了"面板矩形完整落在视口内"：
  *  · top：组头贴视口底部时 `innerHeight - top - 12` 会小于面板内容高度甚至为负 ——
- *    面板下沿越出视口，末尾几行（含「添加项目」）够不着也滚不到。所以 top 先上钳到
+ *    面板下沿越出视口，末尾几行够不着也滚不到。所以 top 先上钳到
  *    `innerHeight - MIN_PANEL_HEIGHT - 12`，maxHeight 再按**钳后**的 top 取
  *    `max(MIN_PANEL_HEIGHT, ...)`。两步必须共用钳后的 top：先按钳前的 top 算 maxHeight，
  *    面板照样越出底边（只是整体往上挪了一截、底部仍然漏在视口外）。
@@ -247,7 +259,7 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
     const scrollRef = useRef<HTMLDivElement | null>(null)
 
     /**
-     * 二级面板（组头 hover flyout，§16）：同一时刻最多一个，groupId + 视口几何。
+     * 二级面板（组头 hover / focus 展开的 flyout，§16）：同一时刻最多一个，groupId + 视口几何。
      * 几何存在 state 里而不是每次渲染现算 —— 面板的定位基准是"组头当时的矩形"，
      * 而滚动会让这个基准变化，所以要在滚动/resize 时主动重算并写回（见下方 effect）。
      */
@@ -258,11 +270,13 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
     const panelCloseTimerRef = useRef<number | null>(null)
     /**
      * "正在把焦点还给组头"的瞬时标记。
-     * 面板里按 Esc 关闭后焦点要回到组头（否则焦点停在已卸载的节点上会掉到 body，
+     * 面板里按 Esc / ArrowLeft 关闭后焦点要回到组头（否则焦点停在已卸载的节点上会掉到 body，
      * 键盘用户从此丢了位置），但组头的 onFocus 语义就是"打开面板" —— 不跳过一次的话
      * Esc 会立刻把面板又弹回来，形成"关不掉"的观感。focus() 同步派发事件，所以设完即复位。
      */
     const restoringFocusRef = useRef(false)
+    /** ArrowRight 请求的"焦点送进面板头行"：面板要等这一轮渲染挂载后才存在，故记一个待办 */
+    const pendingPanelFocusRef = useRef(false)
 
     /** 「创建项目组」内联输入态（Esc 取消输入但不关抽屉） */
     const [naming, setNaming] = useState(false)
@@ -331,6 +345,9 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
      * 表外的组合（例如组头落到项目区）不落库；"原位落回"也不算变化，不写（免得白跑一次 IPC）。
      */
     const handleDrop = (payload: DragPayload, target: DropTarget) => {
+        // {kind:'none'} = 上层根（面板）吞掉穿透用的"无落点"标记（见下方 collectZones 的 shadow zone）：
+        // 落在它上等同落在空白处，不落库。放在最前，后面各分支才能安全假设 target 是具体落点形态。
+        if (target.kind === 'none') return
         if (payload.kind === 'project') {
             const path = payload.projectPath
             if (target.kind === 'top-level') {
@@ -339,6 +356,9 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                 return
             }
             if (target.kind === 'group') {
+                // 同组短路：项目已在该组时 assign 会乐观挪到末尾 → IPC 幂等早返回 → 对账弹回原位 = 闪回 bug
+                const fromGroup = groups.find((g) => g.members.some((m) => m.projectPath === path))
+                if (fromGroup?.id === target.groupId) return
                 void assign(path, target.groupId)
                 return
             }
@@ -372,7 +392,28 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
         onDrop: handleDrop,
         // 成员行在二级面板里（portal 到 body，不在 scrollRef 子树内）→ 两个根都要采。
         // rect 是视口坐标，天然可以跨根拼成一张落点表。
-        collectZones: () => [...collectDropZones(scrollRef.current), ...collectDropZones(panelRef.current)],
+        // 先后顺序 = 落点优先级（resolveDropTarget 取"先入先命中"）：面板根排前。
+        // 两块根的几何默认不重叠（面板贴抽屉右缘 8px，顺序无影响）；但窄窗口下 panelGeometry 的
+        // left 钳制会把面板拉到抽屉正上方，此时抽屉根那条"空态兜底顶层落点"（覆盖容器全宽、
+        // 只按 y 判）会先命中，把"拖面板成员到面板内"判成"移到顶层区" → assign(path, null)
+        // 静默移出组（或组内排序静默失效）。重叠区里面板在视觉上层（z-index 9999），落点归面板。
+        //
+        // 但"面板根排前"只解决了**面板行**之间的优先级：面板的行 zone 只覆盖成员行本身，
+        // 面板矩形内的空白（面板头行、末尾成员行之下）在面板根里没有 zone → 依旧穿透到抽屉兜底
+        // → 拖到面板内空白仍会 assign(path, null) 静默移出组（R1）。
+        // 所以在面板行 zone **之后**、抽屉 zone **之前**补一条覆盖面板矩形的 {kind:'none'} zone：
+        // 面板矩形内除行落点之外的一切都归面板（等价于"取消"），下层根在这片区域的落点
+        // 被"先入先命中"挡住；面板矩形之外的抽屉落点（含窄窗口下面板没压住的那部分空白）不受影响。
+        collectZones: () => {
+            const panelEl = panelRef.current
+            const panelZones = collectDropZones(panelEl)
+            const shadow: DropZone[] = []
+            if (panelEl) {
+                const r = panelEl.getBoundingClientRect()
+                shadow.push({rect: {top: r.top, bottom: r.bottom, left: r.left, right: r.right}, target: {kind: 'none'}})
+            }
+            return [...panelZones, ...shadow, ...collectDropZones(scrollRef.current)]
+        },
         scrollContainerRef: scrollRef,
         // 面板自身可滚动：它一滚落点表整体偏移，也要重采（自动滚动仍只作用于抽屉内容区）
         extraScrollRefs: [panelRef],
@@ -392,11 +433,18 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
     // 卸载时清定时器：回调里会 setPanel，卸载后再触发就是对着已卸载组件写状态
     useEffect(() => clearPanelTimers, [])
 
-    /** 立即展开某组的面板（几何按"此刻"的组头矩形算） */
+    /**
+     * 立即展开某组的面板（几何按"此刻"的组头矩形算）。
+     *
+     * 搜索态守卫在这里**再判一次**（`schedulePanelOpen` 里也有同一守卫，两处不是重复）：
+     * 那里守的是 hover / focus 两条入口，而键盘 `ArrowRight`（`openPanelAndFocusHeader`）
+     * 绕过 `schedulePanelOpen` 直呼本函数 —— 只在那边判，这条路径就会在搜索态强开面板（D2）。
+     */
     const openPanelNow = (groupId: string) => {
+        if (query) return
         const drawerEl = drawerRef.current
-        // 组头的 DOM 契约由 data-name 提供（与测试同源），避免为此再存一份行节点引用
-        const headerEl = drawerEl?.querySelector<HTMLElement>(`[data-name="drawer-group-header-${groupId}"]`)
+        // 组头的 DOM 契约由 data-name + data-group-id 提供（与测试同源），避免为此再存一份行节点引用
+        const headerEl = drawerEl?.querySelector<HTMLElement>(groupHeaderSelector(groupId))
         if (!drawerEl || !headerEl) return
         setPanel({groupId, ...panelGeometry(drawerEl, headerEl)})
     }
@@ -413,7 +461,8 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
      * 原地改名中不开：鼠标就停在组头上（重命名输入框在组头里），面板会盖在输入框旁边。
      */
     const schedulePanelOpen = (groupId: string, immediate = false) => {
-        // 搜索态不开面板：成员已在层 1 内联渲染（见下方搜索态成员渲染），hover 面板多余且会遮住内联行
+        // 搜索态不开面板：成员已在层 1 内联渲染（见下方搜索态成员渲染），hover 面板多余且会遮住内联行。
+        // 与 `openPanelNow` 里的同一守卫配合，不是重复：这里守 hover / focus，那里守直呼本函数的入口。
         if (query) return
         if (drag !== null || menu !== null) return
         if (renamingId === groupId) return
@@ -500,11 +549,17 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
 
     const panelGroupId = panel?.groupId ?? null
 
+    // D2：搜索态不开面板 —— 已经开着的也要收（面板会悬在层 1 内联命中成员之上，
+    // 且面板成员取自过滤后的 groupViews，与内联行内容对不上）
+    useEffect(() => {
+        if (query) setPanel(null)
+    }, [query])
+
     /** 面板要渲染的组：组被删掉 / 被搜索过滤掉时面板自动消失，不需要手动清状态 */
     const panelGroup = panelGroupId === null ? null : groupViews.find((g) => g.id === panelGroupId) ?? null
 
     /**
-     * 面板内的 `Esc`：只关面板（不落库、不关抽屉），关闭后焦点回到该组头。
+     * 面板内的 `Esc` / `ArrowLeft`：只关面板（不落库、不关抽屉），关闭后焦点回到该组头。
      * 调用处负责 `e.stopPropagation()` —— 侧栏的「Esc 关抽屉」挂在 document 的冒泡阶段
      * （ConversationSidebar.tsx），不拦就会一次 Esc 关两样（既有先例：组名重命名输入框的 Esc）。
      * 焦点回还见 `restoringFocusRef`（不跳过就会立刻重开）。
@@ -514,19 +569,40 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
         clearPanelTimers()
         setPanel(null)
         if (groupId === null) return
-        const headerEl = drawerRef.current?.querySelector<HTMLElement>(`[data-name="drawer-group-header-${groupId}"]`)
+        const headerEl = drawerRef.current?.querySelector<HTMLElement>(groupHeaderSelector(groupId))
         if (!headerEl) return
         restoringFocusRef.current = true
         headerEl.focus()
         restoringFocusRef.current = false
     }
 
+    /**
+     * 组头 `ArrowRight`：开面板并把焦点送进面板头行（§16.1 的焦点桥补口）。
+     * 面板要等这一轮渲染提交后才挂载 → 先记待办，由下方 effect 落地。
+     */
+    const openPanelAndFocusHeader = (groupId: string) => {
+        pendingPanelFocusRef.current = true
+        openPanelNow(groupId)
+    }
+
+    // 焦点桥落地：面板头行在 portal 里，当帧还不存在。无依赖 effect 每帧检查待办；
+    // 面板没开成（组头节点找不到/几何算不出）时待办一并作废，避免下次列表渲染时突然抢焦点。
+    useEffect(() => {
+        if (!pendingPanelFocusRef.current) return
+        pendingPanelFocusRef.current = false
+        if (panelGroupId === null) return
+        panelRef.current
+            ?.querySelector<HTMLElement>(`[data-name="drawer-group-panel-header-${panelGroupId}"]`)
+            ?.focus()
+    })
+
     // 面板是 fixed + 视口坐标：抽屉内容区一滚（或窗口尺寸变化），"组头在哪"就失效了 → 重算
+    // （只重算几何，不关面板）
     useEffect(() => {
         if (!panelGroupId) return
         const reposition = () => {
             const drawerEl = drawerRef.current
-            const headerEl = drawerEl?.querySelector<HTMLElement>(`[data-name="drawer-group-header-${panelGroupId}"]`)
+            const headerEl = drawerEl?.querySelector<HTMLElement>(groupHeaderSelector(panelGroupId))
             if (!drawerEl || !headerEl) return
             const geometry = panelGeometry(drawerEl, headerEl)
             setPanel((prev) => (prev && prev.groupId === panelGroupId ? {...prev, ...geometry} : prev))
@@ -670,7 +746,7 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
         })
     }
 
-    const rowClass = 'group flex items-center gap-[var(--space-snug)] px-[var(--space-relaxed)] py-[var(--space-normal)] rounded-md transition-colors'
+    const rowClass = 'group flex items-center gap-[var(--space-snug)] h-[30px] px-2 rounded-lg transition-colors'
 
     // 菜单项（组头菜单 / 组内项目菜单两套）。开销点：每个菜单项都先关菜单再执行动作，
     // 避免动作引发的重渲染把菜单留在原地（例如"解散"后组头已不存在）。
@@ -734,13 +810,13 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
             aria-label="项目列表"
             data-name="project-group-drawer"
         >
-            {/* 顶部按钮区 */}
+            {/* 顶部按钮区（demo .gd-top）：带边框、高 28px、11.5px，hover 提边框亮 */}
             <div className="flex items-center gap-[var(--space-snug)] p-[var(--space-snug)] pb-0">
                 <button
                     onClick={handleTopAdd}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-2xs font-medium text-[var(--text-brand)] bg-[var(--brand-muted)] hover:bg-[var(--surface-overlay)] transition-colors"
+                    className="flex-1 flex items-center justify-center gap-1 px-2 h-7 rounded-md text-[11.5px] font-medium text-[var(--text-secondary)] border border-[var(--border)] hover:bg-[var(--surface-muted)] hover:border-[var(--border-emphasis)] transition-colors"
                     data-name="drawer-add-project">
-                    <PlusIcon className="w-3 h-3"/>
+                    <PlusIcon className="w-3 h-3 opacity-85"/>
                     <span>添加项目</span>
                 </button>
                 <button
@@ -748,9 +824,9 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                         setNaming(true)
                         setNameInput('')
                     }}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-2xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] transition-colors"
+                    className="flex-1 flex items-center justify-center gap-1 px-2 h-7 rounded-md text-[11.5px] font-medium text-[var(--text-secondary)] border border-[var(--border)] hover:bg-[var(--surface-muted)] hover:border-[var(--border-emphasis)] transition-colors"
                     data-name="drawer-create-group">
-                    <PlusIcon className="w-3 h-3"/>
+                    <PlusIcon className="w-3 h-3 opacity-85"/>
                     <span>创建项目组</span>
                 </button>
             </div>
@@ -787,8 +863,8 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                 </div>
             )}
 
-            {/* 搜索 */}
-            <div className="p-[var(--space-snug)] pt-[var(--space-loose)] border-b border-[var(--border-muted)]">
+            {/* 搜索（demo .gd-search/.gd-sep）：独立一行、高 28px、带边框输入；分隔线在搜索框之下 */}
+            <div className="p-2 border-b border-[var(--border)]">
                 <div className="relative">
                     <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--text-muted)]"
                          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -801,43 +877,73 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                         onChange={(e) => setSearch(e.target.value)}
                         placeholder="搜索项目…"
                         aria-label="搜索项目…"
-                        className={`w-full pl-6 pr-2 py-1.5 text-2xs bg-[var(--surface-muted)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
+                        className={`w-full h-7 pl-6 pr-2 text-[11.5px] bg-[var(--surface-muted)] border border-[var(--border)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                         data-name="conversation-sidebar-input"/>
                 </div>
             </div>
 
-            {/* 组区（层 1 = 组头；层 2 = 成员项目 + 「添加项目」）+ 顶层项目区 */}
+            {/* 组区（层 1 只剩组头；成员在 hover/focus 浮出的二级面板里）+ 顶层项目区 */}
             {/* data-drag-scroll = 落点采集的根 + 自动滚动的目标（collectDropZones 的 DOM 契约之一） */}
             <div ref={scrollRef} data-drag-scroll className="overflow-y-auto p-[var(--space-tight)] flex-1">
-                {groupViews.map((group) => (
+                {groupViews.map((group, gi) => (
                     <motion.div layout transition={LAYOUT_TRANSITION} key={group.id} className="mb-1"
-                                data-name={`drawer-group-${group.id}`} data-drag-group-block={group.id}>
+                                data-name="group-block" data-group-id={group.id} data-drag-group-block={group.id}>
                         <div
-                            role="option"
-                            aria-selected={scopedGroupId === group.id}
-                            data-name={`drawer-group-header-${group.id}`}
+                            role="button"
+                            tabIndex={0}
+                            data-name="group-block-header"
                             data-drag-row="group"
+                            data-index={gi}
                             data-group-id={group.id}
                             onPointerDown={(e) => beginDrag(e, {kind: 'group', groupId: group.id})}
                             // hover 展开二级面板（成员行都在那里）；延时/宽限的取舍见 schedulePanelOpen/Close
                             onMouseEnter={() => schedulePanelOpen(group.id)}
                             onMouseLeave={schedulePanelClose}
-                            // 键盘 / AT：组头是面板（成员行 + 「添加项目」）的唯一入口，必须能被 Tab 到。
-                            // D1 之前这条路径是组块里那个可 Tab 的「添加项目」按钮，按钮下沉后才丢的。
-                            tabIndex={0}
+                            // 键盘 / AT：组头是面板（成员行 + 面板头行）的唯一入口，必须能被 Tab 到。
                             // 焦点进入组头 = "移入"：键盘用户没有 hover 概念，而他本来就是按 Tab 主动走到这里的，
-                            // 所以不要 120ms 延时（见 schedulePanelOpen 的 immediate）。
-                            onFocus={() => {
-                                if (restoringFocusRef.current) return // Esc 关面板后的焦点回还，不重开
+                            // 所以不要 120ms 延时（见 schedulePanelOpen 的 immediate）
+                            onFocus={(e) => {
+                                if (restoringFocusRef.current) return // Esc/ArrowLeft 关面板后的焦点回还，不重开
+                                // 焦点落在组头内部的子控件（「+ 加入本组」/ 重命名输入框）时不算"焦点进了组头"：
+                                // onFocus 是 focusin 委托、会从子控件冒泡上来，鼠标点一下「+」就会把面板顶出来
+                                // （组头里出现常驻按钮是恢复二级面板后才有的事）。Tab 到组头自身时
+                                // target === currentTarget，照常开面板。
+                                if (e.target !== e.currentTarget) return
                                 schedulePanelOpen(group.id, true)
                             }}
                             // 焦点移出组头：若新焦点既不在组头内部（重命名输入框）也不在面板里 → 按宽限期关。
                             // 宽限期给的是"焦点落到面板里去"这条路（面板是 portal，与组头在 DOM 上并不相邻）。
+                            // relatedTarget 为 null 时不在这里判：那种情况同样交给宽限期，由面板侧的 onBlur 兜。
                             onBlur={(e) => {
                                 const next = e.relatedTarget as Node | null
                                 if (next !== null && e.currentTarget.contains(next)) return
                                 if (next !== null && panelRef.current?.contains(next)) return
                                 schedulePanelClose()
+                            }}
+                            // 键盘激活 = 等价点击（进组视图 + 关抽屉）。子元素（「+ 加入本组」）自带 onClick，
+                            // 焦点在它们身上时不重复触发 → target 守卫。
+                            // 方向键（§16.1）：Right = 开面板并把焦点送进面板头行；Left = 关面板并回焦点到组头。
+                            // Right 与 Enter/Space 同理要 target 守卫：焦点在组头内子控件（「+ 加入本组」、
+                            // 重命名输入框）上时，方向键是"在控件里按的"，不该被解释成"打开本组面板"并抢走焦点。
+                            // Left 不加：从任何位置按 ← 都是"关面板 + 焦点收回组头"，属无害收敛。
+                            onKeyDown={(e) => {
+                                if (e.key === 'ArrowRight') {
+                                    if (e.target !== e.currentTarget) return
+                                    e.preventDefault()
+                                    openPanelAndFocusHeader(group.id)
+                                    return
+                                }
+                                if (e.key === 'ArrowLeft') {
+                                    if (panelGroupId !== group.id) return
+                                    e.preventDefault()
+                                    closePanelAndRestoreFocus()
+                                    return
+                                }
+                                if (e.key !== 'Enter' && e.key !== ' ') return
+                                if (e.target !== e.currentTarget) return
+                                e.preventDefault()
+                                setProjectGroupView(group.id)
+                                onClose()
                             }}
                             onClick={() => {
                                 if (isClickSuppressed()) return // 刚拖完的那次 click 不切视图
@@ -849,8 +955,9 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                                 hoverTarget !== null && sameTarget(hoverTarget, {kind: 'group', groupId: group.id})
                                     ? 'drawer-drop-over bg-[var(--brand-muted)] text-[var(--text-brand)]'
                                     : scopedGroupId === group.id
-                                        ? 'bg-[var(--brand-muted)] text-[var(--text-brand)]'
-                                        : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
+                                        // 当前所在组 = 中性灰（§6.2，绿色只表达运行状态）
+                                        ? ROW_CURRENT_CLASS
+                                        : ROW_IDLE_CLASS
                             }`}>
                             {/* 组 = 多文件夹（Folders），项目 = 单文件夹轮廓：两者形状必须一眼可分，
                                 否则"组头"与"项目行"在同一列表里只靠缩进区分 */}
@@ -875,47 +982,83 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                             ) : (
                                 <span className="flex-1 min-w-0 truncate text-2xs font-semibold">{group.name}</span>
                             )}
-                            {scopedGroupId === group.id && (
-                                <svg className="w-3 h-3 [color:var(--brand-primary)] shrink-0" viewBox="0 0 24 24" fill="none"
-                                     stroke="currentColor" strokeWidth="3" aria-hidden="true">
-                                    <polyline points="20 6 9 17 4 12"/>
-                                </svg>
-                            )}
+                            <span data-name="group-member-count"
+                                  className="ml-auto shrink-0 text-2xs text-[var(--text-secondary)]">{group.members.length} 个项目</span>
+                            {/* 「+ 加入本组」：与组头内其它子控件同款 stopPropagation（重命名输入框的 onClick 亦然）
+                                —— 不进组视图、不关抽屉、不触发拖拽 */}
+                            <button
+                                data-name="group-add-project"
+                                aria-label={`将项目加入「${group.name}」`}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    void handleGroupAdd(group.id)
+                                }}
+                                className="p-0.5 rounded shrink-0 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors">
+                                <PlusIcon className="w-3 h-3"/>
+                            </button>
                         </div>
 
-                        {/* 搜索态：命中成员内联渲染在层 1 组头下方（恢复旧路径，但仅搜索态启用）。
-                            非搜索态成员只在 hover 面板里（§16.1），层 1 不渲染成员 —— 防回归。
-                            为什么搜索态例外（对 D2「层 2 不可点」的搜索态例外）：
-                            搜索是查找+切换场景，命中成员不可点等于搜索无用 —— 用户搜索就是为了切换到该项目。 */}
-                        {query && group.members.map((member, i) => (
-                            <div
-                                key={member.path}
-                                data-name={`drawer-search-member-${group.id}-${i}`}
-                                className={`${rowClass} pl-[var(--space-loose)] ${
-                                    isTopRowSelected(member.path)
-                                        ? 'bg-[var(--brand-muted)] text-[var(--text-brand)]'
-                                        : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
-                                }`}>
-                                <button
-                                    onClick={() => {
-                                        setWorkspace(member.path)
-                                        onClose()
-                                    }}
-                                    aria-current={isTopRowSelected(member.path) ? 'true' : undefined}
-                                    className="flex-1 min-w-0 flex items-center gap-[var(--space-snug)] text-left cursor-pointer rounded"
-                                    data-name={`drawer-search-member-open-${group.id}-${i}`}>
-                                    <ProjectRowBody name={member.name} path={member.path}/>
-                                </button>
-                            </div>
-                        ))}
+                        {/* 搜索态例外（§16.1）：命中成员内联渲染在层 1 组头下方 —— 搜索是"查找 + 切换"场景，
+                            命中成员不可点等于搜索无用；此态下面板不开（schedulePanelOpen 短路）。
+                            非搜索态成员只在 hover / focus 的二级面板里，层 1 不渲染成员 ——
+                            常态内联树已废止（R-30：全放在一级抽屉里太拥挤）—— 常态渲染不得出现这个容器。 */}
+                        {query && (
+                            <div data-name="group-member-list" className="tree-line relative ml-2 flex flex-col">
+                                {group.members.map((member, mi) => (
+                                    <Fragment key={member.path}>
+                                        {insertLine({kind: 'group-member', groupId: group.id, index: mi})}
+                                        <motion.div
+                                            layout
+                                            transition={LAYOUT_TRANSITION}
+                                            data-name="group-member-row"
+                                            /* 两态分离（§5.8.5）：这里渲染的成员列表是搜索过滤结果，不是稳定排序
+                                               视图 → 不携带拖拽契约（无 data-drag-row / data-group-id /
+                                               data-index）、也不绑定 beginDrag（写库路径按渲染序取 index 的
+                                               前提是列表＝稳定排序视图）。常态成员行在二级面板里，契约在那边。 */
+                                            onContextMenu={(e) => openMenu(e, {kind: 'member', path: member.path})}
+                                            // 当前所在项目 = 中性灰底 + aria-current（§5.8.3，不再用品牌绿）
+                                            className={`${rowClass} ${
+                                                isTopRowSelected(member.path)
+                                                    ? ROW_CURRENT_CLASS
+                                                    : ROW_IDLE_CLASS
+                                            }`}>
+                                            {/* 行主体 = 真正的 <button>：切到该项目可聚焦、可回车；aria-current 表达当前项
+                                                （aria-selected 只对 option/row/tab 有效，button 上无效） */}
+                                            <button
+                                                onClick={() => {
+                                                    if (isClickSuppressed()) return // 刚拖完的那次 click 不切视图
+                                                    setWorkspace(member.path)
+                                                    onClose()
+                                                }}
+                                                aria-current={isTopRowSelected(member.path) ? 'true' : undefined}
+                                                className="flex-1 min-w-0 flex items-center gap-[var(--space-snug)] text-left cursor-pointer rounded"
+                                                data-name={`group-member-open-${group.id}-${mi}`}>
+                                                <ProjectRowBody name={member.name} path={member.path}/>
+                                            </button>
+                                            {/* hover 操作与未分组行同构；focusWithin：行可 Tab，需补键盘可见性 */}
+                                            <ProjectRowActions
+                                                path={member.path}
+                                                onRemove={() => handleRemove(member.path)}
+                                                focusWithin={true}
+                                                openDataName="drawer-member-open-in-explorer-button"
+                                                removeDataName="drawer-member-remove-button"
+                                                removeLabel="移除项目"/>
+                                        </motion.div>
+                                    </Fragment>
+                                ))}
+                                {insertLine({kind: 'group-member', groupId: group.id, index: group.members.length})}
 
-                        {/* 空组占位：非搜索态引导用户 hover 添加；搜索态组名命中但无成员可列时，
-                            "还没有项目"文案语义错误（用户在搜索，不是在管理空组）→ 改为"无匹配成员" */}
-                        {group.members.length === 0 && (
-                            <div
-                                className="px-[var(--space-relaxed)] py-[var(--space-snug)] text-2xs text-[var(--text-muted)]"
-                                data-name={`drawer-group-empty-${group.id}`}>
-                                {query ? '无匹配成员' : '还没有项目，鼠标移入可添加或拖入项目'}
+                                {/* 空组占位（仅搜索态渲染）：组名命中但无成员可列 —— "还没有项目"在这里语义错误
+                                    （用户在搜索，不是在管理空组）→ 改为"无匹配成员"。
+                                    常态空组的引导在二级面板里（面板空组占位）。 */}
+                                {group.members.length === 0 && (
+                                    <div
+                                        className="px-2 py-[var(--space-snug)] text-2xs text-[var(--text-muted)]"
+                                        data-name={`drawer-group-empty-${group.id}`}>
+                                        无匹配成员
+                                    </div>
+                                )}
                             </div>
                         )}
                     </motion.div>
@@ -951,13 +1094,14 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                             }}
                             className={`${rowClass} cursor-pointer ${
                                 isTopRowSelected(entry.path)
-                                    ? 'bg-[var(--brand-muted)] text-[var(--text-brand)]'
-                                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
+                                    // 选中顶层项目行 = 中性灰（§6.2，与成员行当前项同口径；绿色只表达运行状态）
+                                    ? ROW_CURRENT_CLASS
+                                    : ROW_IDLE_CLASS
                             }`}
-                            data-name={`drawer-top-project-${i}`}>
+                            data-name="top-project-row">
                             <ProjectRowBody name={entry.name} path={entry.path} iconName="drawer-project-icon"/>
                             {isTopRowSelected(entry.path) && (
-                                <svg className="w-3 h-3 [color:var(--brand-primary)] shrink-0" viewBox="0 0 24 24" fill="none"
+                                <svg className="w-3 h-3 text-[var(--text-secondary)] shrink-0" viewBox="0 0 24 24" fill="none"
                                      stroke="currentColor" strokeWidth="3" aria-hidden="true">
                                     <polyline points="20 6 9 17 4 12"/>
                                 </svg>
@@ -965,7 +1109,7 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                             <ProjectRowActions
                                 path={entry.path}
                                 onRemove={() => handleRemove(entry.path)}
-                                focusWithin={false}
+                                focusWithin={true}
                                 openDataName="conversation-sidebar-open-in-explorer-button"
                                 removeDataName="conversation-sidebar-remove-button"
                                 removeLabel="从历史中移除"/>
@@ -998,8 +1142,8 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                 document.body,
             )}
 
-            {/* 二级面板（§16）：组头 hover 打开的 Chrome 标签组式 flyout。
-                portal 到 body 的理由同右键菜单（transform + overflow-hidden）。
+            {/* 二级面板（§16）：组头 hover / focus 打开的 Chrome 标签组式 flyout。
+                portal 到 body 的理由同右键菜单（抽屉根带 transform + overflow-hidden）。
                 定位是 fixed + 视口坐标，几何在打开时算一次、滚动/resize 时重算。
 
                 onMouseDown 必须 stopPropagation：侧栏在 document 的 mousedown 上做"点外部关抽屉"
@@ -1009,15 +1153,13 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                 同理 onMouseEnter/onMouseLeave 用来接住"从组头移到面板"这段路程（见 schedulePanelClose）。
 
                 ARIA 口径：面板根是 `role="dialog"` + aria-label，不再是 `listbox`。
-                为什么：面板里既有成员行、又有面板头行 / 两个 hover 按钮 / 底部「添加项目」——
-                一堆彼此独立的控件。ARIA 1.2 里 `listbox` 的直接子节点只能是 `option`（`option` 的子树
-                还会被当成 presentational），把 `<button>` 放进去是违规嵌套，那些按钮在 AT 树里会直接消失。
+                为什么：面板里既有成员行、又有面板头行 / 两个 hover 按钮 —— 一堆彼此独立的控件。
+                ARIA 1.2 里 `listbox` 的直接子节点只能是 `option`（`option` 的子树还会被当成
+                presentational），把 `<button>` 放进去是违规嵌套，那些按钮在 AT 树里会直接消失。
                 dialog 是"可以容纳任意内容与控件"的容器角色，与"这是一块浮层 flyout"的事实也对得上。
-                随之成员行不再是 `option`：行主体改成真正的 `<button>`（当前项用 `aria-current` 表达），
-                行内两个操作按钮是它的兄弟节点 —— 三者各自是独立可聚焦的控件，嵌套关系自洽。
-                层 1 抽屉的 `role="listbox"` + 内置按钮是二级化之前的既有先例，本次**不动**（避免扩大 diff）；
-                两处口径的差异是遗留问题，后续统一方向：层 1 要么把"可点的行"也换成 `<button>` 行
-                （`aria-selected` → `aria-current`），要么让 listbox 回到"纯选择"语义、把行内操作收进右键菜单。 */}
+                随之成员行不是 `option`：行主体是真正的 `<button>`（当前项用 `aria-current` 表达），
+                行内两个操作按钮是它的兄弟节点 —— 三者各自是独立可聚焦的控件。
+                层 1 抽屉的 `role="listbox"` + 内置按钮是二级化之前的既有先例，本次**不动**（避免扩大 diff）。 */}
             {panel && panelGroup && createPortal(
                 <div
                     ref={panelRef}
@@ -1028,10 +1170,10 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                     onMouseEnter={cancelPanelClose}
                     onMouseLeave={schedulePanelClose}
                     onMouseDown={(e) => e.stopPropagation()}
-                    // 面板内 Esc = 只关面板：stopPropagation 拦住侧栏 document 上的「Esc 关抽屉」
-                    // （既有先例：组名重命名输入框的 Esc）
+                    // 面板内 Esc / ArrowLeft = 只关面板 + 焦点回组头：stopPropagation 拦住侧栏
+                    // document 上的「Esc 关抽屉」（既有先例：组名重命名输入框的 Esc）
                     onKeyDown={(e) => {
-                        if (e.key !== 'Escape') return
+                        if (e.key !== 'Escape' && e.key !== 'ArrowLeft') return
                         e.stopPropagation()
                         closePanelAndRestoreFocus()
                     }}
@@ -1042,12 +1184,13 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                         const next = e.relatedTarget as Node | null
                         if (next === null || e.currentTarget.contains(next)) return
                         const headerEl = drawerRef.current?.querySelector<HTMLElement>(
-                            `[data-name="drawer-group-header-${panelGroup.id}"]`)
+                            groupHeaderSelector(panelGroup.id))
                         if (headerEl && headerEl.contains(next)) return
                         schedulePanelClose()
                     }}
                     data-name="drawer-group-panel">
-                    {/* 面板头行 = 进组视图的入口（§6.2 不变：点组 = 切组视图并关抽屉） */}
+                    {/* 面板头行 = 进组视图的入口（§6.2 不变：点组 = 切组视图并关抽屉），
+                        同时是组头 ArrowRight 的焦点落点（焦点桥） */}
                     <button
                         onClick={() => {
                             setProjectGroupView(panelGroup.id)
@@ -1055,8 +1198,9 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                         }}
                         className={`${rowClass} w-full cursor-pointer ${
                             scopedGroupId === panelGroup.id
-                                ? 'bg-[var(--brand-muted)] text-[var(--text-brand)]'
-                                : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
+                                // 当前所在组 = 中性灰（§6.2，绿色只表达运行状态）
+                                ? ROW_CURRENT_CLASS
+                                : ROW_IDLE_CLASS
                         }`}
                         data-name={`drawer-group-panel-header-${panelGroup.id}`}>
                         {/* 独立 data-name（规范要求全局唯一）：面板头与层 1 组头是两处不同的图标槽位，
@@ -1067,9 +1211,9 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                         <span className="shrink-0 text-2xs text-[var(--text-muted)]">{panelGroup.members.length} 个项目</span>
                     </button>
 
-                    {/* 成员项目行：可点击（§16.2 —— 原 D2"层 2 不可点"作废：面板里不可点等于面板没用），
-                        拖拽契约与层 1 项目行同源（data-drag-row="member" + group-id/index），
-                        所以落点表把面板也算作一个根。 */}
+                    {/* 成员项目行：可点击（切到该项目 + 关抽屉），拖拽契约与层 1 项目行同源
+                        （data-drag-row="member" + group-id/index）—— 面板是常态唯一的成员根，
+                        所以这里恒带契约（搜索态不开面板）。 */}
                     {panelGroup.members.map((member, i) => (
                         <Fragment key={member.path}>
                             {insertLine({kind: 'group-member', groupId: panelGroup.id, index: i})}
@@ -1084,8 +1228,9 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                                 onContextMenu={(e) => openMenu(e, {kind: 'member', path: member.path})}
                                 className={`${rowClass} pl-[var(--space-loose)] ${
                                     isTopRowSelected(member.path)
-                                        ? 'bg-[var(--brand-muted)] text-[var(--text-brand)]'
-                                        : 'text-[var(--text-secondary)] hover:bg-[var(--surface-muted)]'
+                                        // 当前所在项目 = 中性灰底（§6.2，与未分组行同口径）
+                                        ? ROW_CURRENT_CLASS
+                                        : ROW_IDLE_CLASS
                                 }`}>
                                 {/* 行主体 = 一个真正的 <button>：「切到该项目」是用户可以聚焦、可以回车触发的控件，
                                     不是"带 onClick 的普通行"（那对键盘/AT 等于不存在）。行本身不再是 option，
@@ -1102,7 +1247,8 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                                     aria-current={isTopRowSelected(member.path) ? 'true' : undefined}
                                     className="flex-1 min-w-0 flex items-center gap-[var(--space-snug)] text-left cursor-pointer rounded"
                                     data-name={`drawer-group-member-open-${i}`}>
-                                    <ProjectRowBody name={member.name} path={member.path} iconName="drawer-panel-project-icon"/>
+                                    <ProjectRowBody name={member.name} path={member.path}
+                                                    iconName="drawer-panel-project-icon"/>
                                 </button>
                                 {/* hover 操作与未分组行同构（不占常驻宽度）。
                                     多一个 group-focus-within:opacity-100：本行现在是可 Tab 的，
@@ -1119,23 +1265,13 @@ export function ProjectGroupDrawer({drawerRef, search, setSearch, onClose}: Proj
                     ))}
                     {insertLine({kind: 'group-member', groupId: panelGroup.id, index: panelGroup.members.length})}
 
+                    {/* 空组占位：常态唯一引导（「+ 加入本组」在层 1 组头，不在此重复入口） */}
                     {panelGroup.members.length === 0 && (
-                        <div className="px-[var(--space-relaxed)] py-[var(--space-snug)] text-2xs text-[var(--text-muted)]">
-                            还没有项目，拖入或点下方「添加项目」
+                        <div className="px-[var(--space-relaxed)] py-[var(--space-snug)] text-2xs text-[var(--text-muted)]"
+                             data-name={`drawer-group-empty-${panelGroup.id}`}>
+                            还没有项目，拖入或点组头 + 添加
                         </div>
                     )}
-
-                    {/* 「添加项目」从层 1 组块迁到这里（§16.1）：行为一字未改 —— 选文件夹 → 登记 → 入组 →
-                        定位该项目段，停留组视图（handleGroupAdd）。 */}
-                    <button
-                        onClick={() => void handleGroupAdd(panelGroup.id)}
-                        aria-label="添加项目"
-                        title="添加项目"
-                        className={`${rowClass} w-full cursor-pointer text-[var(--text-brand)] hover:bg-[var(--brand-muted)]`}
-                        data-name={`drawer-group-panel-add-${panelGroup.id}`}>
-                        <PlusIcon className="w-3 h-3 shrink-0"/>
-                        <span className="text-2xs font-medium">添加项目</span>
-                    </button>
                 </div>,
                 document.body,
             )}

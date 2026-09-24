@@ -26,9 +26,68 @@ const {gitExecMock} = vi.hoisted(() => ({
     async () => { throw new Error('not a git repository') }),
 }))
 vi.mock('../../../src/main/project-manager/git/gitExec', () => ({gitExec: gitExecMock}))
+// 主进程壳 import {utilityProcess} from 'electron'（vitest 环境无 Electron）：这里只保证模块能加载；
+// 真正的 fork 一律由 __setWatcherForkForTest 注入的假实现接管（见 FakeWorkerProcess）
+vi.mock('electron', () => ({
+  utilityProcess: {fork: vi.fn(() => { throw new Error('fork must be injected in tests') })},
+}))
 import chokidar from 'chokidar'
-import {startWatcher, stopWatcher, getWatcherCount, getGitWatchPaths, watchRefDirs} from '../../../src/main/project-manager/watcher'
+import {
+  startWatcher,
+  stopWatcher,
+  getWatcherCount,
+  getGitWatchPaths,
+  watchRefDirs,
+  shutdownWatcherProcess,
+  __setWatcherForkForTest,
+  __resetWatcherForTest,
+  type WorkerProcessLike,
+} from '../../../src/main/project-manager/watcher'
+import {createWatcherCore, type WatcherOutMessage, type WatchEventType} from '../../../src/main/project-manager/watcherCore'
 import {getGitStatusCached, invalidateStatusCache} from '../../../src/main/project-manager/git/status'
+
+/**
+ * 假 utilityProcess：记录主进程下发的消息，并允许手动触发 ready / 崩溃 / 伪造 worker → 主进程的消息。
+ * 迁移后工作区 watcher 在 worker 进程里，主进程壳的行为（refcount 镜像、消息转发、去抖、崩溃恢复）
+ * 只能在假 worker 上验证；worker 侧的真实 chokidar 行为由下面的 watcherCore 用例覆盖。
+ */
+class FakeWorkerProcess implements WorkerProcessLike {
+  sent: unknown[] = []
+  killed = false
+  private handlers = new Map<string, ((...args: unknown[]) => void)[]>()
+
+  postMessage(message: unknown): void { this.sent.push(message) }
+
+  on(event: 'message' | 'exit' | 'error', listener: (...args: unknown[]) => void): void {
+    const list = this.handlers.get(event) ?? []
+    list.push(listener)
+    this.handlers.set(event, list)
+  }
+
+  kill(): boolean { this.killed = true; return true }
+
+  emit(event: 'message' | 'exit' | 'error', ...args: unknown[]): void {
+    for (const listener of this.handlers.get(event) ?? []) listener(...args)
+  }
+
+  /** 模拟 worker 启动完成 */
+  ready(): void { this.emit('message', {type: 'ready'}) }
+
+  /** 模拟 worker 上报的工作区文件事件（变更类型字段为 changeType，见 WatcherOutMessage 注释） */
+  fileChanged(workspace: string, path: string, type: WatchEventType): void {
+    this.emit('message', {type: 'file-changed', workspace, path, changeType: type})
+  }
+
+  /** 模拟 worker 进程退出（code !== 0 视为崩溃） */
+  exit(code = 1): void { this.emit('exit', code) }
+
+  get messages(): {type?: string, workspace?: string}[] { return this.sent as {type?: string, workspace?: string}[] }
+
+  /** 主进程下发的 watch 目标（原始 workspace 串） */
+  watchTargets(): string[] {
+    return this.messages.filter(m => m.type === 'watch').map(m => m.workspace ?? '')
+  }
+}
 
 /**
  * 造一个「真实 worktree 布局」的仓库：
@@ -56,11 +115,29 @@ function makeWorktreeLayout() {
   return {main, gitDir, commonDir}
 }
 
-describe('watcher 生命周期', () => {
+describe('watcher 主进程壳（refcount / 消息路由 / 去抖 / 崩溃恢复）', () => {
   let ws: string
+  let procs: FakeWorkerProcess[]
+  const latest = () => procs[procs.length - 1]
+
   beforeEach(() => {
     vi.useFakeTimers()
     ws = mkdtempSync(join(tmpdir(), 'pm-watch-'))
+    procs = []
+    __resetWatcherForTest()
+    __setWatcherForkForTest(() => {
+      const proc = new FakeWorkerProcess()
+      procs.push(proc)
+      return proc
+    })
+  })
+
+  afterEach(() => {
+    __resetWatcherForTest()
+    gitExecMock.mockReset()
+    gitExecMock.mockImplementation(async () => { throw new Error('not a git repository') })
+    vi.useRealTimers()
+    rmSync(ws, {recursive: true, force: true})
   })
 
   it('同 workspace 重复 start 只建一个实例', async () => {
@@ -74,15 +151,40 @@ describe('watcher 生命周期', () => {
     expect(getWatcherCount(ws)).toBe(0)
   })
 
-  it('文件变更防抖 500ms 后推送 status', async () => {
+  it('refcount 归零才向 worker 下发 unwatch', async () => {
     const send = vi.fn()
+    startWatcher(ws, send)
+    latest().ready()
+    startWatcher(ws, send)                // 2：不重复下发 watch
+    expect(latest().watchTargets()).toEqual([ws])
+
+    await stopWatcher(ws)                 // 2 -> 1
+    expect(latest().messages.filter(m => m.type === 'unwatch')).toHaveLength(0)
+    await stopWatcher(ws)                 // 1 -> 0
+    expect(latest().messages.filter(m => m.type === 'unwatch')).toEqual([{type: 'unwatch', workspace: ws}])
+  })
+
+  it('worker 未 ready 时不丢登记：ready 后按活跃集合补发 watch', () => {
+    const send = vi.fn()
+    startWatcher(ws, send)
+    // 未就绪：消息先不发（避开 fork 后立刻 postMessage 的时序竞态），寄存器只记状态
+    expect(latest().sent).toEqual([])
+    latest().ready()
+    expect(latest().watchTargets()).toEqual([ws])   // 补发时用原始 workspace 串（相对路径基准不变）
+  })
+
+  it('file-changed 转发为 pm:file-changed，并 500ms 去抖后推送 status', async () => {
+    const send = vi.fn()
+    startWatcher(ws, send)
+    latest().ready()
     vi.mocked(getGitStatusCached).mockClear()
     vi.mocked(invalidateStatusCache).mockClear()
-    startWatcher(ws, send)
-    await pump(300)   // 等待 watcher ready
-    writeFileSync(join(ws, 'x.txt'), 'change')
-    await pump(1500)  // awaitWriteFinish 500ms + 防抖 500ms + I/O 轮转
+
+    latest().fileChanged(ws, 'x.txt', 'add')
     expect(send).toHaveBeenCalledWith('pm:file-changed', ws, {path: 'x.txt', type: 'add'})
+    expect(send).not.toHaveBeenCalledWith('pm:status-changed', ws, expect.anything())   // 去抖窗口内不推 status
+
+    await vi.advanceTimersByTimeAsync(500)
     expect(send).toHaveBeenCalledWith('pm:status-changed', ws, expect.objectContaining({updatedAt: 1}))
     // notify 取 status 前先失效缓存，避免推送 5s TTL 内的陈旧状态
     expect(invalidateStatusCache).toHaveBeenCalledWith(ws)
@@ -94,44 +196,281 @@ describe('watcher 生命周期', () => {
     await stopWatcher(ws)
   })
 
-  it('子目录变更推送相对正斜杠路径（Windows 反斜杠规范化）', async () => {
+  it('去抖窗口内的连续变更只推一次 status（每次重置计时）', async () => {
     const send = vi.fn()
     startWatcher(ws, send)
-    await pump(300)
-    const fs = await import('fs')
-    fs.mkdirSync(join(ws, 'sub'))
-    writeFileSync(join(ws, 'sub', 'y.txt'), 'new')
-    await pump(1500)
-    expect(send).toHaveBeenCalledWith('pm:file-changed', ws, {path: 'sub/y.txt', type: 'add'})
+    latest().ready()
+    latest().fileChanged(ws, 'a.txt', 'add')
+    await vi.advanceTimersByTimeAsync(400)
+    latest().fileChanged(ws, 'b.txt', 'add')
+    await vi.advanceTimersByTimeAsync(400)   // 距第二次仅 400ms：不应触发
+    expect(send.mock.calls.filter(c => c[0] === 'pm:status-changed')).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(send.mock.calls.filter(c => c[0] === 'pm:status-changed')).toHaveLength(1)
     await stopWatcher(ws)
+  })
+
+  it('stopWatcher 后不再转发该 workspace 的事件', async () => {
+    const send = vi.fn()
+    startWatcher(ws, send)
+    latest().ready()
+    await stopWatcher(ws)
+    send.mockClear()
+    vi.mocked(getGitStatusCached).mockClear()
+    latest().fileChanged(ws, 'late.txt', 'add')
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(send).not.toHaveBeenCalled()
+    expect(getGitStatusCached).not.toHaveBeenCalled()
   })
 
   it('close 后防抖定时器被清除，不再 notify', async () => {
     const send = vi.fn()
     startWatcher(ws, send)
-    await pump(300)
-    await stopWatcher(ws)   // close：clearTimeout + closed 标记
+    latest().ready()
+    latest().fileChanged(ws, 'x.txt', 'add')
+    await stopWatcher(ws)   // 在 500ms 窗口内停止：clearTimeout + disposed 标记
+    send.mockClear()
     vi.mocked(getGitStatusCached).mockClear()
     vi.mocked(invalidateStatusCache).mockClear()
-    writeFileSync(join(ws, 'late.txt'), 'change')
-    await pump(1500)
+    await vi.advanceTimersByTimeAsync(1500)
     expect(send).not.toHaveBeenCalled()
     expect(getGitStatusCached).not.toHaveBeenCalled()
     expect(invalidateStatusCache).not.toHaveBeenCalled()
   })
 
-  it('清理临时目录', async () => {
-    await stopWatcher(ws).catch(() => {})
+  it('worker 崩溃后按活跃集合重建并重新下发 watch（退避 500ms 后）', async () => {
+    const send = vi.fn()
+    startWatcher(ws, send)
+    latest().ready()
+    const dead = latest()
+    dead.exit(1)
+
+    expect(procs).toHaveLength(1)          // 退避窗口内不立刻 fork：把连打变成可观测的退避序列
+    await vi.advanceTimersByTimeAsync(600)
+    expect(procs).toHaveLength(2)          // 已重建
+    expect(latest()).not.toBe(dead)
+    latest().ready()                       // 新 worker 就绪后补发
+    expect(latest().watchTargets()).toEqual([ws])
+  })
+
+  it('崩溃重建达上限后，同 workspace 再次 startWatcher 能重新 fork 并补发 watch', async () => {
+    const send = vi.fn()
+    startWatcher(ws, send)
+    latest().ready()
+    // 连崩到上限：每次崩溃退避 500ms * 2^(n-1) 后重建
+    for (let i = 0; i < 5; i++) {
+      latest().exit(1)
+      await vi.advanceTimersByTimeAsync(16_000)
+    }
+    expect(procs).toHaveLength(6)
+    latest().exit(1)                       // 第 6 次：达上限，放弃自动重建
+    await vi.advanceTimersByTimeAsync(16_000)
+    expect(procs).toHaveLength(6)
+    expect(getWatcherCount(ws)).toBe(1)    // 镜像仍认为活跃：此前 worker 为 null，推送静默失效
+
+    startWatcher(ws, send)                 // 同一 workspace 再 start（refs 1 -> 2）
+    expect(procs).toHaveLength(7)          // 必须重新 fork
+    latest().ready()
+    expect(latest().watchTargets()).toEqual([ws])   // 并补发该 workspace 的 watch
+  })
+
+  it('worker 未 ready 期间 stopWatcher：之后 ready 到达也不补发该 workspace', async () => {
+    const send = vi.fn()
+    startWatcher(ws, send)
+    await stopWatcher(ws)                  // 未 ready：unwatch 被丢弃，壳侧条目已删除
+    expect(latest().messages.filter(m => m.type === 'unwatch')).toHaveLength(0)
+
+    latest().ready()
+    // 补发只按壳侧活跃集合：已归零的 workspace 不得被重新 watch（否则 worker 侧残留无人关闭的实例）
+    expect(latest().watchTargets()).toEqual([])
+    expect(getWatcherCount(ws)).toBe(0)
+  })
+
+  it('崩溃（exit）与 unwatch 交错：refcount 不失衡、无幽灵补发', async () => {
+    const send = vi.fn()
+    const wsB = mkdtempSync(join(tmpdir(), 'pm-watch-b-'))
+    try {
+      // 顺序 A：unwatch 先于崩溃
+      startWatcher(ws, send)
+      startWatcher(wsB, send)
+      latest().ready()
+      await stopWatcher(ws)                          // ws 归零 → 下发 unwatch
+      latest().exit(1)
+      await vi.advanceTimersByTimeAsync(16_000)      // 退避后重建
+      expect(procs).toHaveLength(2)
+      latest().ready()
+      expect(latest().watchTargets()).toEqual([wsB]) // 不为已归零的 ws 补发
+      expect(latest().messages.filter(m => m.type === 'unwatch')).toEqual([])
+      expect(getWatcherCount(ws)).toBe(0)
+      expect(getWatcherCount(wsB)).toBe(1)
+
+      // 顺序 B：崩溃先于 unwatch（退避窗口内归零 → 到点不得重建）
+      latest().exit(1)                               // wsB 仍活跃 → 排退避
+      expect(procs).toHaveLength(2)
+      await stopWatcher(wsB)                         // 退避窗口内归零
+      await vi.advanceTimersByTimeAsync(16_000)
+      expect(procs).toHaveLength(2)                  // 无活跃 workspace：不重建、不产生幽灵进程
+      expect(getWatcherCount(wsB)).toBe(0)
+    } finally {
+      await stopWatcher(ws).catch(() => {})
+      await stopWatcher(wsB).catch(() => {})
+      rmSync(wsB, {recursive: true, force: true})
+    }
+  })
+
+  it('worker 崩溃时若已无活跃 watcher 则不重建', async () => {
+    const send = vi.fn()
+    startWatcher(ws, send)
+    latest().ready()
+    await stopWatcher(ws)
+    latest().exit(1)
+    expect(procs).toHaveLength(1)
+  })
+
+  it('shutdownWatcherProcess 终止 worker，其 exit 不触发重建', () => {
+    const send = vi.fn()
+    startWatcher(ws, send)
+    latest().ready()
+    const proc = latest()
+    shutdownWatcherProcess()
+    expect(proc.killed).toBe(true)
+    proc.exit(0)                           // 主动 kill 带来的 exit
+    expect(procs).toHaveLength(1)
+  })
+
+  it('回归守卫：主进程壳不再对工作区直接 chokidar.watch（扫描只在 worker 侧）', async () => {
+    // 让 git watcher 真的建起来（否则应断言的目标集合为空，判别力不足）
+    gitExecMock.mockImplementation(async (_ws: string, args: string[]) => args[0] === 'rev-parse' ? '.git\n' : '')
+    const watchSpy = vi.spyOn(chokidar, 'watch')
+    try {
+      const send = vi.fn()
+      startWatcher(ws, send)
+      await vi.advanceTimersByTimeAsync(500)   // 等 gitdir 的 rev-parse 落地
+      const targets = watchSpy.mock.calls.map(c => c[0])
+      // 工作区 watcher 的目标是单个字符串路径；主进程只允许出现 git watcher 的单文件数组
+      expect(targets.some(t => typeof t === 'string')).toBe(false)
+      expect(targets.every(t => Array.isArray(t))).toBe(true)
+      await stopWatcher(ws)
+    } finally {
+      watchSpy.mockRestore()
+    }
+  })
+})
+
+describe('watcherCore（worker 侧核心：真实 chokidar + tmpdir）', () => {
+  let ws: string
+  let messages: WatcherOutMessage[]
+  let core: ReturnType<typeof createWatcherCore>
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    ws = mkdtempSync(join(tmpdir(), 'pm-core-'))
+    messages = []
+    core = createWatcherCore(m => messages.push(m))
+  })
+
+  afterEach(async () => {
+    await core.dispose()
     vi.useRealTimers()
     rmSync(ws, {recursive: true, force: true})
+  })
+
+  it('文件变更上报 file-changed（相对正斜杠路径）', async () => {
+    core.handleMessage({type: 'watch', workspace: ws})
+    await pump(300)   // 等 chokidar ready
+    writeFileSync(join(ws, 'x.txt'), 'change')
+    await pump(1500)  // awaitWriteFinish 500ms + I/O 轮转
+    expect(messages).toContainEqual({type: 'file-changed', workspace: ws, path: 'x.txt', changeType: 'add'})
+  })
+
+  it('子目录变更推送相对正斜杠路径（Windows 反斜杠规范化）', async () => {
+    core.handleMessage({type: 'watch', workspace: ws})
+    await pump(300)
+    mkdirSync(join(ws, 'sub'))
+    writeFileSync(join(ws, 'sub', 'y.txt'), 'new')
+    await pump(1500)
+    expect(messages).toContainEqual({type: 'file-changed', workspace: ws, path: 'sub/y.txt', changeType: 'add'})
+  })
+
+  it('chokidar 选项与迁移前一字不差（ignored / depth / ignoreInitial / awaitWriteFinish）', () => {
+    const watchSpy = vi.spyOn(chokidar, 'watch')
+    try {
+      core.handleMessage({type: 'watch', workspace: ws})
+      expect(watchSpy).toHaveBeenCalledWith(ws, {
+        ignored: expect.any(Array),
+        depth: 15,
+        ignoreInitial: true,
+        awaitWriteFinish: {stabilityThreshold: 500},
+      })
+    } finally {
+      watchSpy.mockRestore()
+    }
+  })
+
+  it('ignored 规则沿用：node_modules 下的变更不上报', async () => {
+    core.handleMessage({type: 'watch', workspace: ws})
+    await pump(300)
+    mkdirSync(join(ws, 'node_modules'))
+    writeFileSync(join(ws, 'node_modules', 'pkg.js'), 'x')
+    await pump(1500)
+    expect(messages).toEqual([])
+  })
+
+  it('同一 workspace 的两种写法归一到同一条目（只建一个 chokidar 实例）', () => {
+    const watchSpy = vi.spyOn(chokidar, 'watch')
+    try {
+      core.handleMessage({type: 'watch', workspace: ws})
+      core.handleMessage({type: 'watch', workspace: `${ws}\\`})   // 尾斜杠写法
+      expect(watchSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      watchSpy.mockRestore()
+    }
+  })
+
+  it('refcount 归零才关闭 chokidar，归零后不再上报事件', async () => {
+    core.handleMessage({type: 'watch', workspace: ws})
+    core.handleMessage({type: 'watch', workspace: ws})
+    core.handleMessage({type: 'unwatch', workspace: ws})   // 2 -> 1：仍活跃
+    await pump(300)
+    writeFileSync(join(ws, 'a.txt'), 'x')
+    await pump(1500)
+    expect(messages).toHaveLength(1)
+
+    core.handleMessage({type: 'unwatch', workspace: ws})   // 归零
+    await pump(300)                                        // 等 close 落地
+    messages.length = 0
+    writeFileSync(join(ws, 'b.txt'), 'y')
+    await pump(1500)
+    expect(messages).toEqual([])
+  })
+
+  it('shutdown 关闭全部 watcher', async () => {
+    core.handleMessage({type: 'watch', workspace: ws})
+    await pump(300)
+    core.handleMessage({type: 'shutdown'})
+    await pump(300)
+    messages.length = 0
+    writeFileSync(join(ws, 'z.txt'), 'z')
+    await pump(1500)
+    expect(messages).toEqual([])
   })
 })
 
 describe('gitdir 内部监听（外部 add / commit / push 只改 .git）', () => {
   let gws: string
+  let procs: FakeWorkerProcess[]
+  const latest = () => procs[procs.length - 1]
+
   beforeEach(() => {
     vi.useFakeTimers()
     gws = mkdtempSync(join(tmpdir(), 'pm-watch-git-'))
+    procs = []
+    __resetWatcherForTest()
+    __setWatcherForkForTest(() => {
+      const proc = new FakeWorkerProcess()
+      procs.push(proc)
+      return proc
+    })
     gitExecMock.mockReset()
     // 普通仓库：rev-parse --git-dir 输出相对 cwd 的 '.git'
     gitExecMock.mockImplementation(async (_ws: string, args: string[]) =>
@@ -139,6 +478,8 @@ describe('gitdir 内部监听（外部 add / commit / push 只改 .git）', () =
   })
   afterEach(async () => {
     await stopWatcher(gws).catch(() => {})
+    __resetWatcherForTest()
+    gitExecMock.mockReset()
     vi.useRealTimers()
     rmSync(gws, {recursive: true, force: true})
   })
@@ -264,7 +605,7 @@ describe('gitdir 内部监听（外部 add / commit / push 只改 .git）', () =
       const send = vi.fn()
       startWatcher(gws, send)
       await pump(500)
-      // chokidar 的目标 = 数组参数（工作区 watcher 传的是单个字符串路径）
+      // chokidar 的目标 = 数组参数（工作区 watcher 已移出主进程；此处的数组只可能来自 git watcher）
       const targets = watchSpy.mock.calls
         .map(c => c[0])
         .filter((a): a is string[] => Array.isArray(a))
@@ -278,13 +619,13 @@ describe('gitdir 内部监听（外部 add / commit / push 只改 .git）', () =
     }
   })
 
-  it('非 git 仓库：静默跳过，工作区 watcher 不受影响', async () => {
+  it('非 git 仓库：静默跳过，工作区事件链路不受影响', async () => {
     gitExecMock.mockImplementation(async () => { throw new Error('not a git repository') })
     const send = vi.fn()
     startWatcher(gws, send)
     await pump(500)
-    writeFileSync(join(gws, 'a.txt'), 'x')
-    await pump(1500)
+    latest().ready()
+    latest().fileChanged(gws, 'a.txt', 'add')   // 工作区变更由 worker 侧上报
     expect(send).toHaveBeenCalledWith('pm:file-changed', gws, {path: 'a.txt', type: 'add'})
     expect(send).not.toHaveBeenCalledWith('pm:refs-changed', gws, undefined)
     await stopWatcher(gws)

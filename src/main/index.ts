@@ -52,6 +52,7 @@ import {stopPendingAttachmentsCleanup} from './channel/messageHandler';
 import {initChannelIPC} from './channel/channelIPC';
 import {initMemoIPC} from './memo/memoIPC';
 import {initProjectManagerIPC, stopAllWatchers} from './project-manager/window';
+import {shutdownWatcherProcess} from './project-manager/watcher';
 import {initPhraseIPC} from './phrase/phraseIPC';
 import {memoStore} from './memo/memoStore';
 import {createLogger} from './agent/logger';
@@ -626,6 +627,9 @@ app.on('activate', () => {
 app.on('before-quit', async () => {
   setIsQuitting(true);
   stopAllWatchers();
+  // ★ 终止项目管理窗口 watcher 的 utilityProcess（stopAllWatchers 只把各 workspace 的
+  //   refcount 归零，进程本身驻留；此前无调用者则退出时会被整体带走而非优雅终止）
+  shutdownWatcherProcess();
   // 停止全局 git 分支 watch（.git/HEAD 的 fs.watch / 降级轮询）
   stopGitBranchWatch();
 

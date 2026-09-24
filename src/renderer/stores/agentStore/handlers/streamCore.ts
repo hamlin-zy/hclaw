@@ -113,9 +113,13 @@ export function handleAgentStart(ctx: StreamCtx) {
     const {set, get, convId, event} = ctx
     console.log('[handleStreamEvent] agent_start event, convId:', convId)
     const agentStartConvState = get().convAgentStates[convId] || createDefaultConvData()
-    // ★ 只有 idle 状态才需要重置为 running
-    //   避免注入消息轮次因 status==='idle' 被 text/thinking 守卫跳过
-    if (agentStartConvState.agentState.status === 'idle') {
+    // ★ idle（新一轮启动归位，避免注入消息轮次被 text/thinking 守卫跳过）与
+    //   paused（阻塞弹窗应答后的恢复兜底）才重置为 running：
+    //   paused 是三类阻塞弹窗（ask_user / 权限 / tools 变动）的挂起态，应答后
+    //   agent_start 是首包前唯一的恢复信号——错过则状态滞留 paused 直到
+    //   thinking/text chunk（tools 失配场景缓存重建 TTFT 十余秒，期间思考动画
+    //   与终止按钮消失，用户误判已停止）。running/thinking 不重置，防无谓写入。
+    if (agentStartConvState.agentState.status === 'idle' || agentStartConvState.agentState.status === 'paused') {
         get().updateConvData(convId, {
             agentState: {...agentStartConvState.agentState, ...STREAMING_STATE},
         })

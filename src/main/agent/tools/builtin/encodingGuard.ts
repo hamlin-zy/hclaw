@@ -64,12 +64,41 @@ const MAX_DETECT_BYTES = 64 * 1024
 // ─── 编码检测 ─────────────────────────────────────────────
 
 /**
- * 检测文件的实际编码
+ * 检测 Buffer 的实际编码（纯内存，不做任何 IO）
  *
  * 策略优先级：
  * 1. BOM 检测（前 4 字节）
- * 2. jschardet 检测（读取前 64KB）
- * 3. 纯 ASCII 文件回退到 'utf8'
+ * 2. 纯 ASCII 短路
+ * 3. jschardet 检测（置信度阈值）
+ * 4. 兜底 'UTF-8'
+ */
+export function detectBufferEncoding(buf: Buffer): string {
+  // 1. BOM 检测
+  for (const [signature, encoding] of BOM_SIGNATURES) {
+    if (buf.subarray(0, signature.length).equals(signature)) {
+      return encoding
+    }
+  }
+
+  // 2. 纯 ASCII 跳过（无需继续检测）
+  if (isPureAscii(buf)) {
+    return 'UTF-8'
+  }
+
+  // 3. jschardet 检测
+  const result = jschardet.detect(buf)
+  if (result && result.confidence >= CONFIDENCE_THRESHOLD) {
+    const mapped = ENCODING_MAP[result.encoding]
+    if (mapped) return mapped
+  }
+
+  return 'UTF-8'
+}
+
+/**
+ * 检测文件的实际编码
+ *
+ * 读取文件前 64KB 后交给 detectBufferEncoding 判定；空文件保持历史行为返回 'utf8'
  */
 export async function detectFileEncoding(filePath: string): Promise<string> {
   let fd: number | null = null
@@ -84,27 +113,7 @@ export async function detectFileEncoding(filePath: string): Promise<string> {
     fsSync.readSync(fd, buf, 0, readSize, 0)
 
     const bufSlice = readSize < MAX_DETECT_BYTES ? buf.subarray(0, readSize) : buf
-
-    // 1. BOM 检测
-    for (const [signature, encoding] of BOM_SIGNATURES) {
-      if (bufSlice.subarray(0, signature.length).equals(signature)) {
-        return encoding
-      }
-    }
-
-    // 2. 纯 ASCII 跳过（无需继续检测）
-    if (isPureAscii(bufSlice)) {
-      return 'UTF-8'
-    }
-
-    // 3. jschardet 检测
-    const result = jschardet.detect(bufSlice)
-    if (result && result.confidence >= CONFIDENCE_THRESHOLD) {
-      const mapped = ENCODING_MAP[result.encoding]
-      if (mapped) return mapped
-    }
-
-    return 'UTF-8'
+    return detectBufferEncoding(bufSlice)
   } finally {
     if (fd !== null) fsSync.closeSync(fd)
   }

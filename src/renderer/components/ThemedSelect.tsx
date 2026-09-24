@@ -160,7 +160,7 @@ export default function ThemedSelect({
                     >
                         <div className={`${bgEnabled
                             ? 'bg-[color-mix(in_srgb,var(--surface-elevated)_92%,transparent)] backdrop-blur-lg'
-                            : 'bg-[var(--surface-elevated)]'} border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden max-h-[240px] overflow-y-auto`}>
+                            : 'bg-[var(--surface-elevated)]'} border border-[var(--border)] rounded-xl shadow-2xl shadow-black/20 overflow-hidden max-h-[240px] overflow-y-auto select-text`}>
                             <div className="p-1.5 flex flex-col">
                                 {options.map((opt, i) => {
                                     const isActive = opt.value === value

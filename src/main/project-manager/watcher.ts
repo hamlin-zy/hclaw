@@ -1,24 +1,98 @@
 // src/main/project-manager/watcher.ts
-import chokidar, {type FSWatcher} from 'chokidar'
-import {statSync, watch as fsWatch} from 'fs'
+import {utilityProcess} from 'electron'
+import chokidar from 'chokidar'
+import {existsSync, statSync, watch as fsWatch} from 'fs'
 import {isAbsolute, join, relative, resolve} from 'path'
+import {createLogger} from '../agent/logger'
 import {getGitStatusCached, invalidateStatusCache} from './git/status'
 import {gitExec} from './git/gitExec'
+import type {WatcherInMessage, WatcherOutMessage} from './watcherCore'
+
+/**
+ * 本模块是**主进程壳**：工作区文件 watcher 的 chokidar 全量递归扫描已移入 utilityProcess
+ * （见 watcherCore.ts / watcherWorker.ts 与 docs/superpowers/specs/2026-09-23-pm-watcher-perf-design.md）。
+ * 壳的职责：fork / 消息路由 / refcount 镜像 / 崩溃恢复 / app 退出清理；对外签名保持不变。
+ *
+ * 留在主进程的部分：**git 内部 watcher**（startGitWatcher / watchRefDirs / getGitWatchPaths）。
+ * 它是常数句柄、无扫描，本就不是重活；且它触发的 pm:status-changed / pm:refs-changed 依赖主进程的
+ * git status 缓存（invalidateStatusCache 由各写操作 handler 调用），迁进 worker 会造成缓存分裂
+ * 与失效不可达。同理，工作区 watcher 事件 500 ms 去抖后的 status 推送也留在壳里（见 scheduleStatusRefresh）。
+ */
+
+const logger = createLogger('PMWatcher')
 
 /** 主进程 → 渲染进程的推送回调（window.ts 里绑定到具体窗口） */
 type SendToWindow = (channel: string, workspace: string, data: unknown) => void
 
-// key 一律用 resolve(workspace)（见 startWatcher 注释）：同一目录的两种写法（`E:\ws` / `E:\ws\`）
-// 必须落到同一条目，否则 refs 永不归零 → chokidar 实例与 OS 句柄成倍、Map key 永久残留。
-const watchers = new Map<string, {watcher: FSWatcher, refs: number, dispose?: () => void}>()
+/** utilityProcess 里我们用到的部分（便于测试注入假实现，不必 import 整个 electron 类型） */
+export interface WorkerProcessLike {
+  postMessage(message: unknown): void
+  on(event: 'message' | 'exit' | 'error', listener: (...args: unknown[]) => void): void
+  kill(): boolean
+}
 
-const IGNORED = [
-  /(^|[\\/])\.git([\\/]|$)/,
-  /(^|[\\/])node_modules([\\/]|$)/,
-  /(^|[\\/])\.vite([\\/]|$)/,
-  /(^|[\\/])\.cache([\\/]|$)/,
-  /(^|[\\/])\.trash([\\/]|$)/,
-]
+export type WatcherForkImpl = (modulePath: string) => WorkerProcessLike
+
+/** worker 产物：由 vite.main.config.mjs 的 bundle-watcher-worker 插件输出到 .vite/main/（__dirname 即该目录） */
+const WORKER_ENTRY = join(__dirname, 'watcherWorker.cjs')
+
+/** 连续崩溃重建的次数上限：fork 完立刻崩溃时不至于无限重启（收到 ready 即清零） */
+const MAX_CRASH_RESTARTS = 5
+
+/** 崩溃重建的退避：500 ms 起、每次翻倍、封顶 8 s（收到 ready 即清零） */
+const RESTART_BACKOFF_BASE_MS = 500
+const RESTART_BACKOFF_MAX_MS = 8000
+
+/**
+ * 默认 fork 实现。
+ *
+ * **产物存在性检查放在默认实现内部，而不是注入点外层**：测试注入的假 fork 不需要真实产物，
+ * 外层前置检查会把它一起挡掉。产物缺失（漏跑 main 构建 / asar 路径异常 / 运行目录不对）时
+ * fork 会得到一个永不 ready 的子进程——所有 watch 被静默丢弃、UI 无任何提示，因此这里直接以
+ * error 级日志写明期望路径并抛错，由 ensureWorker 的 catch 记 worker-fork-failed（不上抛）。
+ */
+const defaultFork: WatcherForkImpl = (modulePath) => {
+  if (!existsSync(modulePath)) {
+    logger.error('worker-entry-missing', {
+      entry: modulePath,
+      hint: 'worker 产物缺失：文件变更推送已禁用（需先构建 main 产物 .vite/main/watcherWorker.cjs）',
+    })
+    throw new Error(`watcher worker entry not found: ${modulePath}`)
+  }
+  return utilityProcess.fork(modulePath) as unknown as WorkerProcessLike
+}
+
+/** 注入点：vitest 环境没有 Electron，测试用 __setWatcherForkForTest 注入假实现 */
+let forkImpl: WatcherForkImpl = defaultFork
+
+let worker: WorkerProcessLike | null = null
+let workerReady = false
+let crashRestarts = 0
+/** 崩溃重建的退避定时器（pending 期间 worker 为 null；ready / shutdown / 测试隔离时取消） */
+let restartTimer: NodeJS.Timeout | null = null
+
+interface ShellEntry {
+  /** 创建 watcher 时的**原始** workspace 串：worker 侧 chokidar 的 root 与相对路径基准都用它 */
+  workspace: string
+  /**
+   * 引用计数镜像：语义与迁移前一致（同一 workspace 重复 startWatcher 只 +1）。
+   * 只镜像「是否活跃」，真正的 chokidar refcount 在 worker 侧；两者重合，因为下发给 worker 的
+   * watch / unwatch 严格由这里的 0→1 / 1→0 边沿驱动。
+   */
+  refs: number
+  /** 500 ms 去抖定时器（迁移前 debounced 的第二段：失效 status 缓存并推送最新 status） */
+  timer: NodeJS.Timeout | null
+  /** 主进程内的 git 内部 watcher 句柄（gitdir 解析是异步的，落地后回填） */
+  gitWatcher: {close: () => Promise<void>} | null
+  /** 推送回调（window.ts 传入） */
+  send: SendToWindow
+  /** 已停止：异步落地与消息转发都要先看它 */
+  disposed: boolean
+}
+
+// key 一律用 resolve(workspace)（见 startWatcher 注释）：同一目录的两种写法（`E:\ws` / `E:\ws\`）
+// 必须落到同一条目，否则 refs 永不归零 → 句柄与 Map key 永久残留。
+const watchers = new Map<string, ShellEntry>()
 
 /**
  * 解析 git 内部目录的绝对路径。
@@ -245,61 +319,199 @@ async function startGitWatcher(
   }
 }
 
+// ─── worker 壳：fork / 消息路由 / 崩溃恢复 ───────────────────────────
+
+/**
+ * 下发消息给 worker。未就绪时直接丢弃：就绪（或崩溃重建）后由 handleWorkerMessage 按活跃集合补发。
+ *
+ * 丢弃语义是正确的（见下面不变式），但「消息发了却没有刷新」必须在日志里留痕，否则只剩 worker-exit 可反推。
+ * 不变式：`unwatch` 同样可以安全丢弃 —— 补发只按壳侧活跃集合下发，被丢弃的 unwatch 对应的 workspace
+ * 不在其中，因此 worker 侧不会残留「已归零却仍在监听」的实例。
+ */
+function postToWorker(message: WatcherInMessage): void {
+  if (!worker || !workerReady) {
+    logger.warn('worker-message-dropped', {
+      type: message.type,
+      workspace: message.type === 'shutdown' ? undefined : message.workspace,
+      hasWorker: worker !== null,
+      ready: workerReady,
+      active: watchers.size,
+    })
+    return
+  }
+  worker.postMessage(message)
+}
+
+/** 取消失效的退避重建（ready 到达 / 显式 shutdown / 测试隔离时调用） */
+function cancelScheduledRestart(): void {
+  if (!restartTimer) return
+  clearTimeout(restartTimer)
+  restartTimer = null
+}
+
+/** 丢弃 worker 引用并清空重建状态（shutdown / 测试隔离共用；不触碰已 fork 出去的进程本身） */
+function resetWorkerState(): void {
+  worker = null
+  workerReady = false
+  crashRestarts = 0
+  cancelScheduledRestart()
+}
+
+/** 崩溃重建的退避时长：第 n 次重建 = 500ms * 2^(n-1)，封顶 8s */
+function restartBackoffMs(attempt: number): number {
+  return Math.min(RESTART_BACKOFF_BASE_MS * 2 ** (attempt - 1), RESTART_BACKOFF_MAX_MS)
+}
+
+/**
+ * 安排一次退避后的崩溃重建。退避窗口内若 refcount 已归零则不再重建（否则会在无活跃 workspace 时
+ * 白起一个进程）；窗口内出现显式 startWatcher 时由 ensureWorker 取消本定时器。
+ */
+function scheduleWorkerRestart(): void {
+  if (restartTimer) return
+  const attempt = crashRestarts
+  const delayMs = restartBackoffMs(attempt)
+  restartTimer = setTimeout(() => {
+    restartTimer = null
+    if (worker || watchers.size === 0) return
+    ensureWorker()
+  }, delayMs)
+  // 退避轮询不应单独阻止进程退出（app 退出走 before-quit 的 shutdownWatcherProcess）
+  restartTimer.unref()
+  logger.info('worker-restart-scheduled', {attempt, delayMs})
+}
+
+function ensureWorker(): void {
+  if (worker) return
+  cancelScheduledRestart()
+  workerReady = false
+  let proc: WorkerProcessLike
+  try {
+    proc = forkImpl(WORKER_ENTRY)
+  } catch (err) {
+    // fork 失败不上抛：最坏结果是收不到文件变更推送，不应把开窗流程带崩
+    logger.error('worker-fork-failed', {entry: WORKER_ENTRY, error: err instanceof Error ? err.message : String(err)})
+    return
+  }
+  worker = proc
+  proc.on('message', (message) => handleWorkerMessage(message as WatcherOutMessage))
+  // 'error' 不是单一 Error：Electron UtilityProcess 的签名是 (type, location, report)，
+  // location 是 V8 出错位置、report 是 Node diagnostic report（含崩溃栈），是崩溃现场的唯一证据
+  proc.on('error', (type, location, report) => {
+    logger.error('worker-error', {
+      type: String(type),
+      location: String(location ?? ''),
+      report: String(report ?? '').slice(0, 4000),
+    })
+  })
+  proc.on('exit', (code) => {
+    // 主动 kill（shutdownWatcherProcess）或已被替换的旧进程：签名不符，忽略
+    if (worker !== proc) return
+    worker = null
+    workerReady = false
+    const active = watchers.size
+    logger.warn('worker-exit', {code, active})
+    if (active === 0) return
+    if (crashRestarts >= MAX_CRASH_RESTARTS) {
+      // 达上限后不再自动重建：但 worker 引用已清空，下次 startWatcher（含同 workspace 的 refs += 1）
+      // 会补一次 ensureWorker 立刻重新 fork，即这里是「放弃自动恢复」而非「永久放弃」
+      logger.error('worker-restart-abandoned', {attempts: crashRestarts, active})
+      return
+    }
+    crashRestarts += 1
+    // 崩溃恢复：退避后按当前活跃集合重建 worker 并重新下发 watch（ready 时统一补发）。
+    // 退避把「产物损坏 / 环境性崩溃」下的立刻连打 5 次 fork 变成可观测的退避序列。
+    // 恢复期间丢事件由渲染层刷新兜底，可接受。
+    scheduleWorkerRestart()
+  })
+  logger.info('worker-forked', {entry: WORKER_ENTRY})
+}
+
+function handleWorkerMessage(message: WatcherOutMessage): void {
+  switch (message.type) {
+    case 'ready':
+      workerReady = true
+      crashRestarts = 0          // 就绪即清零：退避预算随之重置
+      cancelScheduledRestart()
+      // 补发积压：worker 启动（或崩溃重建）之前登记的活跃 workspace 在这里统一下发
+      for (const entry of watchers.values()) worker?.postMessage({type: 'watch', workspace: entry.workspace})
+      return
+    case 'file-changed': {
+      const entry = watchers.get(resolve(message.workspace))
+      if (!entry || entry.disposed) return
+      // ① 与迁移前 debounced 的第一段一致：立即推送（载荷结构 {path, type} 与渲染层契约一致）
+      entry.send('pm:file-changed', entry.workspace, {path: message.path, type: message.changeType})
+      // ② 与迁移前 debounced 的第二段一致：去抖后刷新 status 缓存并推送
+      scheduleStatusRefresh(entry)
+      return
+    }
+    case 'error':
+      // worker 侧 chokidar 的 error（迁移前会变成主进程的 uncaught exception）
+      logger.error('worker-watch-error', {message: message.message})
+      return
+  }
+}
+
+/**
+ * 迁移前 debounced 的第二段：500 ms 去抖后失效 status 缓存并推送最新 status。
+ * 留在主进程壳的原因：git status 缓存在主进程，且 invalidateStatusCache 由各写操作 handler
+ * 调用，迁进 worker 会造成缓存分裂与失效不可达。
+ */
+function scheduleStatusRefresh(entry: ShellEntry): void {
+  if (entry.timer) clearTimeout(entry.timer)
+  entry.timer = setTimeout(() => {
+    entry.timer = null
+    if (entry.disposed) return
+    const {workspace, send} = entry
+    invalidateStatusCache(workspace)   // 写操作后强制刷新，避免推送 5s TTL 内的陈旧 status
+    getGitStatusCached(workspace).then(summary => {
+      if (entry.disposed) return
+      send('pm:status-changed', workspace, summary)
+    }).catch(() => {})   // 防 unhandled rejection
+  }, 500)
+}
+
+/** 释放单个条目在主进程侧持有的资源：标记 disposed、清去抖定时器、关闭 git 内部 watcher */
+function releaseEntry(entry: ShellEntry): void {
+  entry.disposed = true
+  if (entry.timer) {
+    clearTimeout(entry.timer)
+    entry.timer = null
+  }
+  if (entry.gitWatcher) {
+    void entry.gitWatcher.close()   // 内部同时关闭 refs 目录的 fs.watch
+    entry.gitWatcher = null
+  }
+}
+
 export function startWatcher(workspace: string, sendToWindow: SendToWindow): void {
-  // key 归一化（与 fileSystem.ts 的 gitRepoCache 同一约定）。只归一化 key：
-  // chokidar 的 root 与 relative() 基准仍用原始 workspace，推送路径/行为保持不变。
+  // key 归一化（与 fileSystem.ts 的 gitRepoCache 同一约定）。只归一化壳的 key：
+  // worker 侧 chokidar 的 root 与 relative() 基准仍用原始 workspace，推送路径/行为保持不变。
   const key = resolve(workspace)
   const existing = watchers.get(key)
   if (existing) {
     existing.refs += 1
+    // 这里必须补一次 ensureWorker（幂等：worker 已存在时是 no-op）：refcount 0→1 边沿不是唯一
+    // 需要拉起 worker 的时机。已有条目但 worker 为空有三种状态——崩溃重建达上限后、
+    // shutdownWatcherProcess() 之后、fork 抛错之后——此时只 refs += 1 会让该 workspace 永远收不到
+    // 文件变更推送（getWatcherCount 仍返回 1，静默失效）。补这一次后「下次 startWatcher 仍可重新拉起」
+    // 对**同一** workspace 也真正成立。
+    ensureWorker()
     return
   }
-  const watcher = chokidar.watch(workspace, {
-    ignored: IGNORED,
-    depth: 15,
-    ignoreInitial: true,
-    awaitWriteFinish: {stabilityThreshold: 500},
-  })
-  let timer: NodeJS.Timeout | null = null
-  let closed = false
-  const notify = () => {
-    if (closed) return
-    invalidateStatusCache(workspace)   // 写操作后强制刷新，避免推送 5s TTL 内的陈旧 status
-    getGitStatusCached(workspace).then(summary => {
-      sendToWindow('pm:status-changed', workspace, summary)
-    }).catch(() => {})   // 防 unhandled rejection
-  }
-  // 规范化为 workspace 相对路径 + 正斜杠：渲染端 fileTreeStore/editorTab 均以相对正斜杠路径为 key
-  const normalize = (p: string) => relative(workspace, p).replace(/\\/g, '/')
-  const debounced = (path: string, type: string) => {
-    if (closed) return
-    sendToWindow('pm:file-changed', workspace, {path: normalize(path), type})
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(notify, 500)
-  }
-  watcher.on('ready', () => {
-    watcher.on('add', (p) => debounced(p, 'add')).on('change', (p) => debounced(p, 'change')).on('unlink', (p) => debounced(p, 'unlink'))
-      .on('addDir', (p) => debounced(p, 'addDir')).on('unlinkDir', (p) => debounced(p, 'unlinkDir'))
-  })
-  // gitdir 解析是异步的：落地时窗口可能已被关闭（stopWatcher 已置 closed），
-  // 此时必须把刚建好的 watcher 立刻关掉，否则会漏一个无人引用、也无人关闭的 chokidar 实例
-  let gitWatcher: {close: () => Promise<void>} | null = null
-  void startGitWatcher(workspace, sendToWindow, () => closed).then(gw => {
+  const entry: ShellEntry = {workspace, refs: 1, timer: null, gitWatcher: null, send: sendToWindow, disposed: false}
+  watchers.set(key, entry)
+  // 工作区文件 watcher 在 utilityProcess 内：全量递归扫描不得占用主进程的 fs 线程池与事件循环。
+  // worker 未就绪时这条 watch 会被丢弃，ready 后由 handleWorkerMessage 按活跃集合补发。
+  ensureWorker()
+  postToWorker({type: 'watch', workspace})
+  // git 内部 watcher 留在主进程（见文件头）。gitdir 解析是异步的：落地时窗口可能已被关闭
+  // （stopWatcher 已置 disposed），此时必须把刚建好的 watcher 立刻关掉，否则会漏一个
+  // 无人引用、也无人关闭的 chokidar 实例
+  void startGitWatcher(workspace, sendToWindow, () => entry.disposed).then(gw => {
     if (!gw) return
-    if (closed) { void gw.close(); return }
-    gitWatcher = gw
+    if (entry.disposed) { void gw.close(); return }
+    entry.gitWatcher = gw
   }).catch(() => {})   // 非 git 仓库已在内部返回 null，这里只是兜底
-  watchers.set(key, {watcher, refs: 1, dispose: () => {
-    closed = true
-    if (timer) {
-      clearTimeout(timer)
-      timer = null
-    }
-    if (gitWatcher) {
-      void gitWatcher.close()
-      gitWatcher = null
-    }
-  }})
 }
 
 export async function stopWatcher(workspace: string): Promise<void> {
@@ -308,13 +520,34 @@ export async function stopWatcher(workspace: string): Promise<void> {
   const entry = watchers.get(key)
   if (!entry) return
   entry.refs -= 1
-  if (entry.refs <= 0) {
-    entry.dispose?.()   // 内部同时关闭 git 内部 watcher
-    await entry.watcher.close()
-    watchers.delete(key)
-  }
+  if (entry.refs > 0) return
+  watchers.delete(key)
+  releaseEntry(entry)
+  // refcount 归零才真正关闭 worker 侧的 chokidar（与迁移前的 Map 语义一致）
+  postToWorker({type: 'unwatch', workspace: entry.workspace})
 }
 
 export function getWatcherCount(workspace: string): number {
   return watchers.has(resolve(workspace)) ? 1 : 0
+}
+
+/** app 退出时终止 worker 进程（before-quit 调用；幂等，不抛） */
+export function shutdownWatcherProcess(): void {
+  const proc = worker
+  resetWorkerState()
+  if (!proc) return
+  try { proc.postMessage({type: 'shutdown'}) } catch { /* 进程可能已退出：忽略 */ }
+  try { proc.kill() } catch { /* 同上 */ }
+}
+
+/** 测试注入点：替换 utilityProcess.fork（vitest 环境没有 Electron） */
+export function __setWatcherForkForTest(fn: WatcherForkImpl | null): void {
+  forkImpl = fn ?? defaultFork
+}
+
+/** 测试隔离：丢弃 worker 引用并清空 refcount 镜像（不触碰注入的假进程） */
+export function __resetWatcherForTest(): void {
+  for (const entry of watchers.values()) releaseEntry(entry)
+  watchers.clear()
+  resetWorkerState()
 }

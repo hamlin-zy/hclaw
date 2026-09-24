@@ -246,6 +246,9 @@ describe('WorkspaceSelector 抽屉', () => {
             expect(badge.textContent).toContain('2')
             // 不显示当前项目路径（组视图语义是"看整组"）
             expect(btn.textContent).not.toContain(mockState.currentWorkspacePath)
+            // 回炉反馈 4：组名行左对齐（demo .wsel.gv）——不再整行居中（改前红：旧实现带 justify-center）
+            const nameLine = badge.parentElement as HTMLElement
+            expect(nameLine.className).not.toContain('justify-center')
         } finally {
             mockState.viewScope = undefined
             act(() => {

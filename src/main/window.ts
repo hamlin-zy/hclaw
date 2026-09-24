@@ -210,6 +210,7 @@ export const createWindow = (): void => {
 
     // ── 平台检测 ──
     const isMac = process.platform === 'darwin'
+    const isLinux = process.platform === 'linux'
     let isWin11 = false
     if (process.platform === 'win32') {
         const winBuild = parseInt(os.release().split('.')[2] || '0', 10)
@@ -270,6 +271,21 @@ export const createWindow = (): void => {
         transparent: false,
         backgroundColor: initialTheme === 'dark' ? '#1e1e1e' : '#ffffff',
         roundedCorners: isMac || isWin11,
+
+        /**
+         * Linux: hasShadow: false —— 规避 Electron 43 的 frameless 边框回归
+         *
+         * Electron 43 起，Linux 上「frameless + hasShadow(默认 true) + 非透明」的窗口走
+         * ElectronFrameViewLinux：它在窗口自身 buffer 内沿四边绘制一圈取色于系统 GTK frame 色的
+         * 边框（左/右/下各 8px、上 0，对应 _GTK_FRAME_EXTENTS = 8, 8, 0, 8），并把直角内容
+         * 包进圆角框 —— 深色系统主题下呈黑边、浅色主题下呈白边；最大化时归零、还原后复现。
+         * 该绘制发生在窗口 buffer 内，只改窗口管理器属性（xprop 清零 _GTK_FRAME_EXTENTS）无效。
+         *
+         * 关掉阴影后 SetWantsFrame(false)：跳过边框绘制，且 GetRestoredFrameBorderInsets() 归零，
+         * 窗口四周不再有环带（上游：electron/electron#52024；42.4.1 无此问题）。
+         * Windows/macOS 保持默认 true：阴影由 DWM / 原生合成处理，不受影响。
+         */
+        ...(isLinux ? {hasShadow: false} : {}),
 
         // ---- 图标配置 ----
         icon,

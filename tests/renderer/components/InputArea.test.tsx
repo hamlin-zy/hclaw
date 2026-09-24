@@ -10,6 +10,8 @@
  * 5. CommandPalette 回车选中能力后焦点回到主输入框
  * 6. 点击徽标本体重开 CommandPalette
  * 7. / 前缀检测解析成功时清除 selectedCapability
+ * 8. paused 挂起期 Enter 不穿透（canSend 判定单源化：Enter 与按钮对齐）
+ * 9. 积压附件（pendingAttachmentFiles）计入 canSend（修复按钮反向过度禁用）
  */
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
 import {render, screen, fireEvent, cleanup, waitFor} from '@testing-library/react'
@@ -77,9 +79,9 @@ vi.mock('@/renderer/components/AttachedFilesBar', () => ({default: () => null}))
 vi.mock('@/renderer/components/TodoStrip', () => ({default: () => null}))
 vi.mock('@/renderer/components/PendingQuestionCard', () => ({default: () => null}))
 vi.mock('@/renderer/components/InputToolbar', () => ({
-    default: ({onSubmit, onOpenCommandPalette}: {onSubmit: () => void; onOpenCommandPalette: () => void}) => (
+    default: ({onSubmit, onOpenCommandPalette, canSend}: {onSubmit: () => void; onOpenCommandPalette: () => void; canSend?: boolean}) => (
         <div>
-            <button data-name="input-toolbar-submit" onClick={onSubmit}>发送</button>
+            <button data-name="input-toolbar-submit" disabled={!canSend} onClick={onSubmit}>发送</button>
             <button data-name="input-toolbar-cmdk" onClick={onOpenCommandPalette}>CmdK</button>
         </div>
     ),
@@ -353,6 +355,108 @@ describe('InputArea 能力内联选择', () => {
         // 徽标已清除
         await waitFor(() => {
             expect(document.querySelector('[data-name="capability-badge"]')).toBeNull()
+        })
+    })
+})
+
+/**
+ * canSend 判定单源化（Enter 与按钮对齐）
+ *
+ * 根因：发送按钮受 canSend（含 !isPaused）约束，但 Enter 路径 handleKeyDown
+ * 直接调 handleSubmit，不看 canSend → paused 挂起期（ask_user / 权限 / tools
+ * 变动三类阻塞弹窗应答前）Enter 提交走空闲分支，消息 addMessage 落库后被
+ * startAgent 的 paused 守卫静默吞掉，零反馈。
+ *
+ * 反向漂移：canSend 只算 attachedFiles、漏 pendingAttachmentFiles（积压附件），
+ * 而 handleSubmit 的 hasFiles 含 pending → 积压态下按钮禁用、Enter 却能发。
+ *
+ * 修复（B+）：① canSend 补 pendingAttachmentFiles；② Enter 分支与 canSend 对齐
+ * （preventDefault 保持先于判定：canSend=false 时仍不插入换行，与空输入现状一致）。
+ */
+describe('InputArea canSend 判定单源化', () => {
+    it('paused 挂起期：Enter 不穿透（消息不落库、startAgent 不触发）', async () => {
+        agentStoreState.convAgentStates = {
+            'conv-1': {agentState: {status: 'paused', mode: 'auto', phase: 'starting'}},
+        }
+        const {getByPlaceholderText} = render(<InputArea />)
+
+        const textarea = getByPlaceholderText('输入你的任务...') as HTMLTextAreaElement
+        fireEvent.change(textarea, {target: {value: '挂起期误发'}})
+        fireEvent.keyDown(textarea, {key: 'Enter'})
+
+        // 修复前：空闲分支落库 + startAgent 被 paused 守卫静默吞 → 断言均红
+        await waitFor(() => {
+            expect(conversationStoreState.addMessage).not.toHaveBeenCalled()
+            expect(agentStoreState.startAgent).not.toHaveBeenCalled()
+        })
+        // 输入内容保留在输入框（零丢失）
+        expect(textarea.value).toBe('挂起期误发')
+    })
+
+    it('paused 挂起期：发送按钮同步禁用（isPaused 拦截护栏）', async () => {
+        agentStoreState.convAgentStates = {
+            'conv-1': {agentState: {status: 'paused', mode: 'auto', phase: 'starting'}},
+        }
+        const {getByPlaceholderText, container} = render(<InputArea />)
+
+        fireEvent.change(getByPlaceholderText('输入你的任务...'), {target: {value: 'x'}})
+
+        const submit = container.querySelector('[data-name="input-toolbar-submit"]') as HTMLButtonElement
+        expect(submit.disabled).toBe(true)
+    })
+
+    it('积压附件（pending-only）计入 canSend：按钮可用（修复反向过度禁用）', async () => {
+        const {getByPlaceholderText, container} = render(<InputArea />)
+
+        // 1. 拖入附件 → attachedFiles
+        //    drop 必须打在 onDrop 宿主（内层 input-area-drop-region）上：
+        //    打 RTL container（React 树外）或根 [data-input-area]（onDrop 在其子节点，
+        //    事件向上冒泡够不到）都不会触发 handleDrop
+        const file = new File(['hello'], 'a.txt', {type: 'text/plain'})
+        const dropTarget = container.querySelector('[data-name="input-area-drop-region"]') as HTMLElement
+        expect(dropTarget).toBeTruthy()
+        fireEvent.drop(dropTarget, {dataTransfer: {files: [file]}})
+        await waitFor(() => {
+            const submit = container.querySelector('[data-name="input-toolbar-submit"]') as HTMLButtonElement
+            expect(submit.disabled).toBe(false)
+        })
+
+        // 2. 无文字 Enter → 纯附件积压提交 → attached 清空、pending 形成
+        fireEvent.keyDown(getByPlaceholderText('输入你的任务...'), {key: 'Enter'})
+        await waitFor(() => {
+            expect(conversationStoreState.addMessage).toHaveBeenCalledTimes(1)
+            expect(conversationStoreState.addMessage.mock.calls[0][0].content).toBe('(附件已保存，请发送指令)')
+        })
+
+        // 3. pending-only：修复前 canSend 漏 pending → 按钮禁用（红灯）；修复后可用
+        await waitFor(() => {
+            const submit = container.querySelector('[data-name="input-toolbar-submit"]') as HTMLButtonElement
+            expect(submit.disabled).toBe(false)
+        })
+    })
+
+    it('护栏：idle + 文本 + Enter 正常发送（canSend 对齐不误伤常规路径）', async () => {
+        const {getByPlaceholderText} = render(<InputArea />)
+
+        const textarea = getByPlaceholderText('输入你的任务...') as HTMLTextAreaElement
+        fireEvent.change(textarea, {target: {value: '正常发送'}})
+        fireEvent.keyDown(textarea, {key: 'Enter'})
+
+        await waitFor(() => {
+            expect(conversationStoreState.addMessage).toHaveBeenCalledTimes(1)
+            expect(conversationStoreState.addMessage.mock.calls[0][0].content).toBe('正常发送')
+            expect(agentStoreState.startAgent).toHaveBeenCalledTimes(1)
+        })
+        expect(textarea.value).toBe('')
+    })
+
+    it('护栏：空输入 + Enter 无动作（现状语义保持）', async () => {
+        const {getByPlaceholderText} = render(<InputArea />)
+
+        fireEvent.keyDown(getByPlaceholderText('输入你的任务...'), {key: 'Enter'})
+
+        await waitFor(() => {
+            expect(conversationStoreState.addMessage).not.toHaveBeenCalled()
         })
     })
 })

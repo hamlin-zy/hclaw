@@ -236,7 +236,7 @@ export default function ConfirmDialog() {
                             </div>
 
                             {/* Content */}
-                            <div className="px-5 py-4">
+                            <div className="px-5 py-4 select-text">
                                 <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap">
                                     {options.message}
                                 </p>

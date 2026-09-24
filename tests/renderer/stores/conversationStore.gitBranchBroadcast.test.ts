@@ -1,7 +1,9 @@
 import {describe, expect, it, beforeEach, vi} from 'vitest'
 
+const groupState = vi.hoisted(() => ({groups: [] as any[]}))
+
 vi.mock('../../../src/renderer/stores/projectGroupStore', () => ({
-    useProjectGroupStore: {getState: () => ({groups: []})},
+    useProjectGroupStore: {getState: () => groupState},
     projectGroupOf: () => null,
 }))
 vi.mock('../../../src/renderer/lib/search', () => ({
@@ -34,6 +36,7 @@ function captureBroadcast(): (branch: string | null) => void {
 }
 
 beforeEach(() => {
+    groupState.groups = []
     useConversationStore.setState({
         workspaces: {'/ws/a': {lastOpenedAt: 1, conversations: []}},
         gitBranches: {'/ws/a': 'main'},
@@ -82,5 +85,32 @@ describe('subscribeGitBranchChanges — 段头徽章同步', () => {
         await vi.waitFor(() => expect(getGitBranches).toHaveBeenCalledTimes(1))
         unsub()
         expect(useConversationStore.getState().gitBranches['/ws/a']).toBe('feat-y')
+    })
+})
+
+// 2026-09-24 用户反馈：组视图下某个项目「明确有 git 分支，段头徽章却不渲染」。
+// 根因：refreshVisibleBranches 把「不在 workspaces 里的组成员」过滤掉了 —— 而 R-28 之后这些
+// 未加载成员照样会被渲染成段（显示「暂无会话」占位），于是它们的段头永远拿不到分支（null）。
+describe('refreshVisibleBranches — 组视图的未加载成员', () => {
+    it('未加载的组成员同样被下发查询，分支写进 gitBranches（段头徽章不再永远空着）', async () => {
+        const getGitBranches = vi.fn(async (paths: string[]) =>
+            Object.fromEntries(paths.map(p => [p, p === '/ws/b' ? 'dev' : 'main'])))
+        ;(globalThis as any).window = {electronAPI: {workspace: {getGitBranches}}}
+        groupState.groups = [{
+            id: 'g1', name: 'g1', sortOrder: 0, createdAt: 1, updatedAt: 1,
+            members: [{projectPath: '/ws/a', groupOrder: 0}, {projectPath: '/ws/b', groupOrder: 1}],
+        }]
+        useConversationStore.setState({
+            viewScope: {type: 'group', groupId: 'g1'} as never,
+            workspaces: {'/ws/a': {lastOpenedAt: 1, conversations: []}}, // /ws/b 从未打开过
+            gitBranches: {},
+            currentWorkspacePath: '/ws/a',
+        })
+
+        await useConversationStore.getState().refreshVisibleBranches()
+
+        // 改前红：filter(p => findWorkspaceKey(get().workspaces, p)) 把 /ws/b 挡在 IPC 之外
+        expect((getGitBranches.mock.calls[0][0] as string[]).slice().sort()).toEqual(['/ws/a', '/ws/b'])
+        expect(useConversationStore.getState().gitBranches['/ws/b']).toBe('dev')
     })
 })

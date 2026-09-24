@@ -3,7 +3,7 @@ import type {ConversationSummary, Message, ContentBlock, ToolCall} from '@shared
 
 import {useAgentStore, createDefaultConvData} from './agentStore'
 import {useProjectGroupStore} from './projectGroupStore'
-import {buildConversationSections, type ConversationSection} from '../lib/conversationSections'
+import {buildConversationSections, type ConversationSection, SECTION_DEFAULT, SECTION_STEP, CHILD_DEFAULT} from '../lib/conversationSections'
 import {getBasename} from '../lib/format'
 import {workspacePathKey, UNASSIGNED_WORKSPACE_KEY} from '../lib/workspacePath'
 import {collectDescendants} from './conversationTree'
@@ -45,9 +45,16 @@ interface ConversationStore {
     collapsedGroupIds: string[]
     /** 段 key（项目路径）→ 该段窗口大小（已加载的非置顶根会话上限），缺省 10（spec §7.2） */
     sectionWindowSizes: Record<string, number>
+    /** 子会话窗口大小（父会话 id → 可见条数；缺省 CHILD_DEFAULT；不落盘） */
+    childWindowSizes: Record<string, number>
     /** §15.1⑤ / §13-2「单项目视图窗口化」的一次性提示已读标记（随 scope 载荷持久化，初值 false） */
     singleViewWindowHintShown: boolean
-    /** 已被用户点「加载更多」整体展开子列表的父会话 id 集合（子会话窗口豁免；会话级，不持久化） */
+    /**
+     * 【已失效，待清理】Task 12 后 `buildConversationSections` 用 `searching`
+     * 取代了旧「展开父会话」语义，该状态不再影响任何渲染/窗口口径；store 保留
+     * `expandedChildParents` + `expandChildParents` 仅为最小变更、避免连带删调用点。
+     * 原语义：已被用户点「加载更多」整体展开子列表的父会话 id 集合（子会话窗口豁免；会话级，不持久化）。
+     */
     expandedChildParents: Record<string, true>
     /** §15.1①「定位该项目段」：待滚动定位的段 key，由消费方渲染后 clearFocusProject 复位 */
     pendingFocusProject: string | null
@@ -61,7 +68,16 @@ interface ConversationStore {
     getScopedSections: () => ConversationSection[]
     /** 展开段窗口 +10（即时：摘要已在内存，无需等待） */
     expandSection: (key: string) => void
-    /** 批量把父会话子列表标记为「已展开」（子会话窗口豁免；激活会话祖先链兜底用） */
+    /** 设定段窗口展示条数（分页控制条专用） */
+    setSectionWindowSize: (key: string, count: number) => void
+    /** 设定子会话窗口展示条数（子级分页控制条专用；不落盘） */
+    setChildWindowSize: (parentId: string, count: number) => void
+    /**
+     * 【已失效，待清理】Task 12 后 `expandedChildParents` 不再影响 `buildConversationSections`
+     * 的窗口/豁免口径，该 action 写入的 state 也不再被任何渲染路径读取；保留仅为
+     * 兼容 `ConversationSidebar` 的兜底调用点（同样失效）。后续清理时与上述 state 一并移除。
+     * 原语义：批量把父会话子列表标记为「已展开」（子会话窗口豁免；激活会话祖先链兜底用）。
+     */
     expandChildParents: (ids: string[]) => void
     /** 置位「单项目视图窗口化」一次性提示的已读标记并落盘（§15.1⑤：此后不再出现） */
     dismissWindowHint: () => void
@@ -995,11 +1011,13 @@ export function resolveScopeProjectPaths(state: {
     }
     if (viewScope?.type === 'group') {
         const group = useProjectGroupStore.getState().groups.find(g => g.id === viewScope.groupId)
+        // R-28（用户指示改 spec 口径）：组视图显示全部组成员段——已加载的用归一化 key（段有会话），
+        //   未加载的用原 path（workspaces[原path] 不存在 → conversations=[] → 显示「暂无会话」占位，
+        //   点击进项目视图时 registerWorkspace 水合）。不再过滤未加载成员（避免 assign/reorder 后段少显示）。
         const paths = (group?.members ?? [])
-            .map(m => findWorkspaceKey(workspaces, m.projectPath))
-            .filter((k): k is string => k !== null)
+            .map(m => findWorkspaceKey(workspaces, m.projectPath) ?? m.projectPath)
         if (paths.length > 0) return paths
-        // 组已解散 / 成员都不可见 → 回退（§5.2）
+        // 组已解散 / 无成员 → 回退（§5.2）
     }
     return currentWorkspacePath ? [currentWorkspacePath] : []
 }
@@ -1069,6 +1087,28 @@ function releaseDeletedConvs(ids: string[]): void {
     if (!ids.length) return
     releaseConvCaches(ids)
     for (const id of ids) useAgentStore.getState().clearConvDoneUnread(id)
+    clearDeletedConvChildWindows(ids)
+}
+
+/**
+ * 真删专用：清掉这批会话的子会话窗口覆写（childWindowSizes）。
+ * ★ 与「已完成未读」标记同口径，刻意不挂 releaseConvCaches —— 后者同时服务 LRU 预算
+ *   驱逐与 10 分钟渲染清理（会话仍在），挂上去会让「重新打开会话时的子列表窗口偏好」
+ *   随驱逐丢失；只有真删才该销毁。原实现仅 setSectionWindowSize 的段复位分支按段内
+ *   现存会话 id 过滤，真删路径无人清理 → 被删会话的条目在进程生命周期内永久驻留。
+ */
+function clearDeletedConvChildWindows(ids: string[]): void {
+    if (!ids.length) return
+    const state = useConversationStore.getState()
+    const childWindowSizes = {...state.childWindowSizes}
+    let changed = false
+    for (const id of ids) {
+        if (childWindowSizes[id] !== undefined) {
+            delete childWindowSizes[id]
+            changed = true
+        }
+    }
+    if (changed) useConversationStore.setState({childWindowSizes})
 }
 
 export const useConversationStore = createWithEqualityFn<ConversationStore>()(
@@ -1088,6 +1128,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       viewScope: null,
       collapsedGroupIds: [],
       sectionWindowSizes: {},
+      childWindowSizes: {},
       singleViewWindowHintShown: false,
       expandedChildParents: {},
       pendingFocusProject: null,
@@ -1128,7 +1169,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const {
               viewScope, workspaces, currentWorkspacePath,
               searchQuery, collapsedGroupIds, sectionWindowSizes, gitBranches,
-              expandedChildParents,
+              expandedChildParents, childWindowSizes, activeConversationId,
           } = state
           const paths = resolveScopeProjectPaths(state)
           // 「未归属」虚拟段的会话（workspacePath 为空的会话）。
@@ -1143,7 +1184,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               projectName: '未归属',
               gitBranch: null,
               conversations: unassignedConversations,
-              visibleCount: sectionWindowSizes[UNASSIGNED_WORKSPACE_KEY] ?? 10,
+              visibleCount: sectionWindowSizes[UNASSIGNED_WORKSPACE_KEY] ?? SECTION_DEFAULT,
           })
           // 无任何项目但有未归属会话 → 返回单独一个未归属段
           // （关键场景：零项目新用户点 MCP「帮我检查」后能看到诊断会话）
@@ -1154,6 +1195,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
                   searchQuery,
                   collapsedKeys: collapsedGroupIds,
                   expandedChildParents,
+                  childWindowSizes,
+                  // 窗口截断豁免：激活会话必须可见（spec §5.2.4 / V11 / F16）
+                  activeConversationId: activeConversationId ?? undefined,
                   projects: [unassignedSection()],
               })
           }
@@ -1163,13 +1207,16 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               searchQuery,
               collapsedKeys: collapsedGroupIds,
               expandedChildParents,
+              childWindowSizes,
+              // 窗口截断豁免：激活会话必须可见（spec §5.2.4 / V11 / F16）
+              activeConversationId: activeConversationId ?? undefined,
               projects: [
                   ...paths.map(path => ({
                       projectPath: path,
                       projectName: getBasename(path),
                       gitBranch: gitBranches[path] ?? (path === currentWorkspacePath ? state.gitBranch : null),
                       conversations: workspaces[path]?.conversations ?? [],
-                      visibleCount: sectionWindowSizes[path] ?? 10,
+                      visibleCount: sectionWindowSizes[path] ?? SECTION_DEFAULT,
                   })),
                   // 组视图：成员项目段之后追加「未归属」段（仅当有未归属会话）
                   ...(showUnassigned ? [unassignedSection()] : []),
@@ -1178,7 +1225,28 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       },
 
       expandSection: (key) => set(s => ({
-          sectionWindowSizes: {...s.sectionWindowSizes, [key]: (s.sectionWindowSizes[key] ?? 10) + 10},
+          sectionWindowSizes: {...s.sectionWindowSizes, [key]: (s.sectionWindowSizes[key] ?? SECTION_DEFAULT) + SECTION_STEP},
+      })),
+
+      /** 设定段窗口展示条数（分页控制条专用）；复位（∧∧∧ 回默认）时单向传播段 → 子：该段子会话窗口一并回默认（spec §5.4 L217） */
+      setSectionWindowSize: (key, count) => {
+          const next = Math.max(SECTION_DEFAULT, Math.round(count))
+          if (next !== SECTION_DEFAULT) {
+              set(s => ({sectionWindowSizes: {...s.sectionWindowSizes, [key]: next}}))
+              return
+          }
+          // 复位语义：清掉该段（key = 项目路径）下所有父会话的子窗口覆写 → 回 CHILD_DEFAULT
+          const ids = new Set(get().workspaces[key]?.conversations.map(c => c.id) ?? [])
+          set(s => {
+              const childWindowSizes = {...s.childWindowSizes}
+              for (const id of Object.keys(childWindowSizes)) if (ids.has(id)) delete childWindowSizes[id]
+              return {sectionWindowSizes: {...s.sectionWindowSizes, [key]: SECTION_DEFAULT}, childWindowSizes}
+          })
+      },
+
+      /** 设定子会话窗口展示条数（子级分页控制条专用；不落盘） */
+      setChildWindowSize: (parentId, count) => set(s => ({
+          childWindowSizes: {...s.childWindowSizes, [parentId]: Math.max(CHILD_DEFAULT, Math.round(count))},
       })),
 
       expandChildParents: (ids) => set(s => {
@@ -1203,6 +1271,11 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       refreshVisibleBranches: async () => {
           const api = window.electronAPI?.workspace?.getGitBranches
           if (!api) return
+          // 2026-09-24 用户反馈修复：**不再过滤未加载成员**。R-28 之后组成员段一律渲染（未加载的显示
+          // 「暂无会话」占位），但这里曾把「不在 workspaces 里的组成员」挡住不查 → 这些项目的段头
+          // 永远拿不到分支（徽章位空着），用户看到的就是「明明有分支却不显示」。
+          // 主进程 getGitBranch 对「非 git 仓库 / 路径不存在 / 不可读」一律返回 null（语义已收敛），
+          // 且批量查询只读、不建 watch（watch 仍是当前项目单例），所以整组下发是安全的。
           const paths = resolveScopeProjectPaths(get())
           if (paths.length === 0) return
           try {
@@ -1406,6 +1479,9 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           //   releaseDeletedConvs 语义对齐 —— 漏接即产生永久悬空 key（会话已不存在，不会再
           //   被激活、也不会再触发删除事件，标记在进程生命周期内驻留）。
           for (const id of convIds) useAgentStore.getState().clearConvDoneUnread(id)
+          // 子会话窗口覆写同属「只有真删才销毁」的状态（口径见 clearDeletedConvChildWindows 注释）；
+          // 本路径走 evictConversations（= releaseConvCaches），故需在此显式接力清理
+          clearDeletedConvChildWindows(convIds)
 
           set((state) => {
               // 清掉所有归一化等价的键（历史遗留的重复键一并清）

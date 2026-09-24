@@ -2,7 +2,7 @@ import {describe, expect, it, beforeEach, vi} from 'vitest'
 
 const groupsState = {groups: [
     {id: 'pg-a', name: '组A', sortOrder: 0, createdAt: 1, updatedAt: 1,
-     members: [{projectPath: '/ws/a', groupOrder: 0}, {projectPath: '/ws/b', groupOrder: 1}]},
+     members: [{projectPath: '/ws/a', groupOrder: 0}, {projectPath: '/ws/b', groupOrder: 1}, {projectPath: '/ws/c', groupOrder: 2}]},
 ]}
 vi.mock('../../../src/renderer/stores/projectGroupStore', () => ({
     useProjectGroupStore: {getState: () => groupsState},
@@ -49,8 +49,17 @@ beforeEach(() => {
 describe('getScopedSections — 组视图', () => {
     it('组内项目按 group_order 顺序分段，各自带分支', () => {
         const sections = useConversationStore.getState().getScopedSections()
-        expect(sections.map(s => s.projectPath)).toEqual(['/ws/a', '/ws/b'])
-        expect(sections.map(s => s.gitBranch)).toEqual(['main', 'dev'])
+        expect(sections.map(s => s.projectPath)).toEqual(['/ws/a', '/ws/b', '/ws/c'])
+        expect(sections.map(s => s.gitBranch)).toEqual(['main', 'dev', null])
+    })
+
+    it('R-28：未加载 workspaces 的组成员仍出现段（空会话占位，不过滤）', () => {
+        // /ws/c 在 groupsState 里但 workspaces 不含 → 改前 filter 掉，改后保留
+        const sections = useConversationStore.getState().getScopedSections()
+        const wsC = sections.find(s => s.projectPath === '/ws/c')
+        expect(wsC).toBeDefined()
+        expect(wsC!.rows).toEqual([])
+        expect(wsC!.count).toBe(0)
     })
 
     it('组已不存在 → 回退到 currentWorkspacePath 单段（不渲染空列表）', () => {
@@ -69,9 +78,9 @@ describe('getScopedSections — 组视图', () => {
             workspaces: {'/ws/a': {lastOpenedAt: 1, conversations: Array.from({length: 15}, (_, i) => conv(i))}},
             viewScope: {type: 'project', path: '/ws/a'},
         })
-        expect(useConversationStore.getState().getScopedSections()[0].rows).toHaveLength(10)
+        expect(useConversationStore.getState().getScopedSections()[0].rows).toHaveLength(6)
         useConversationStore.getState().expandSection('/ws/a')
-        expect(useConversationStore.getState().sectionWindowSizes['/ws/a']).toBe(20)
+        expect(useConversationStore.getState().sectionWindowSizes['/ws/a']).toBe(16)
         expect(useConversationStore.getState().getScopedSections()[0].rows).toHaveLength(15)
     })
 
@@ -106,13 +115,17 @@ describe('getFilteredConversations — 兼容既有消费方', () => {
 })
 
 describe('refreshVisibleBranches — 批量只读', () => {
-    it('对当前可见项目一次性调 getGitBranches，不新增 watch', async () => {
-        const getGitBranches = vi.fn(async (_paths: string[]) => ({'/ws/a': 'main', '/ws/b': 'dev'}))
+    it('对当前可见项目一次性调 getGitBranches（含未加载组员），不新增 watch', async () => {
+        // 2026-09-24 口径修订（用户反馈「有分支却不显示徽章」）：组视图下 /ws/c 从未作为工作区打开，
+        // 但它照样会被渲染成段（R-28 占位），所以这里也必须下发查询 —— 旧口径曾把它过滤掉，
+        // 导致该项目的段头分支永远是 null。主进程对不存在/非 git 路径返回 null，无需渲染端预筛。
+        const getGitBranches = vi.fn(async (_paths: string[]) => ({'/ws/a': 'main', '/ws/b': 'dev', '/ws/c': 'feat'}))
         ;(globalThis as any).window = {electronAPI: {workspace: {getGitBranches}}}
         await useConversationStore.getState().refreshVisibleBranches()
         expect(getGitBranches).toHaveBeenCalledTimes(1)
-        expect(getGitBranches.mock.calls[0][0].sort()).toEqual(['/ws/a', '/ws/b'])
-        expect(useConversationStore.getState().gitBranches).toEqual({'/ws/a': 'main', '/ws/b': 'dev'})
+        expect(getGitBranches.mock.calls[0][0].slice().sort()).toEqual(['/ws/a', '/ws/b', '/ws/c'])
+        expect(useConversationStore.getState().gitBranches)
+            .toEqual({'/ws/a': 'main', '/ws/b': 'dev', '/ws/c': 'feat'})
     })
 
     it('electronAPI 缺失时安全返回', async () => {

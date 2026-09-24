@@ -508,7 +508,7 @@ export function FileTree() {
         }
       />
       {/* 容器级加载态：根缓存未就绪即整树 busy（role="tree" 内不得放 role="status"，见 TreeSkeleton） */}
-      <div role="tree" aria-label="文件树" aria-busy={!rootLoaded} className="pm-tree-scroll" ref={containerRef}>
+      <div role="tree" aria-label="文件树" aria-busy={!rootLoaded} className="pm-tree-scroll select-text" ref={containerRef}>
         <TreeRow
           depth={0}
           icon={<FOLDER_OPEN_SPEC.Icon size={13} color={FOLDER_OPEN_SPEC.color} aria-hidden="true" />}

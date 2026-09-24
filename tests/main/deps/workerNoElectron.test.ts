@@ -36,6 +36,9 @@ const WORKER_ENTRY_PATTERNS: RegExp[] = [
     /^src\/main\/channel\/worker\.ts$/,
     /^src\/main\/scheduler\/worker\.ts$/,
     /^src\/main\/repositories\/sqlite\/checkpointWorker\.ts$/,
+    // Electron utilityProcess 入口（非 worker_threads，但同样是"无 electron"环境：独立 Node 进程，
+    // 且 vitest 环境无 Electron —— 见 src/main/project-manager/watcherWorker.ts 的文件头）
+    /^src\/main\/project-manager\/watcherWorker\.ts$/,
 ]
 
 // 白名单：worker 闭包内允许存在 electron 依赖边的模块（新增须逐个审查）

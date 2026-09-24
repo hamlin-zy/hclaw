@@ -20,6 +20,7 @@ const {mockState, getScopedSectionsMock} = vi.hoisted(() => {
         collapsed: false,
         count: 2,
         hasMore: false,
+        totalRoots: 2,
         rows: convs().map(c => ({id: c.id, parentConvId: c.parentConvId, indentLevel: 0, childCount: 0})),
     }]
     return {
@@ -39,9 +40,20 @@ vi.mock('../../../src/renderer/stores/conversationStore', () => ({
     useConversationStore: (selector: (s: any) => unknown) =>
         selector({
             ...mockState,
+            sectionWindowSizes: {},
+            singleViewWindowHintShown: false,
+            gitBranches: {},
+            gitBranch: null,
+            collapsedGroupIds: [],
+            expandedChildParents: {},
+            activeConversationId: null,
+            pendingFocusProject: null,
             getScopedSections: getScopedSectionsMock,
             toggleSectionCollapsed: vi.fn(),
             expandSection: vi.fn(),
+            setSectionWindowSize: vi.fn(),
+            expandChildParents: vi.fn(),
+            dismissWindowHint: vi.fn(),
             clearFocusProject: vi.fn(),
             refreshVisibleBranches: vi.fn(async () => {}),
             setSearchQuery: vi.fn(),
@@ -75,6 +87,7 @@ beforeEach(() => {
         collapsed: false,
         count: 2,
         hasMore: false,
+        totalRoots: 2,
         rows: convs.map(c => ({id: c.id, parentConvId: c.parentConvId, indentLevel: 0, childCount: 0})),
     }])
 })

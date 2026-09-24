@@ -32,14 +32,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '..');
 const CSS_FILE = path.join(ROOT, 'src', 'renderer', 'styles', 'globals.css');
 
-const THRESHOLD = 4.5;
+export const THRESHOLD = 4.5;
 
 /** 主题块选择器，顺序即覆盖顺序（后三者覆盖 :root） */
 const THEMES = [':root', '.dark', '.yuanshandai', '.shiyangjin'];
@@ -68,6 +68,24 @@ const SURFACE_TOKENS = ['--surface', '--surface-muted', '--surface-elevated'];
 
 /** 半透明背景层（选中态）：本身不是实色，必须先与 --surface 合成再比对 */
 const LAYER_BG = {alphaToken: '--brand-muted', label: '--brand-muted over --surface'};
+
+/**
+ * 定点配对（spec §10.5 质量门勘误）：不进 INK_TOKENS/SURFACE_TOKENS 全量循环，
+ * 只对清单里的组合做门禁——其中 --text-muted 按其用途契约本来就是弱化文本
+ * （globals.css「--text-muted 的用途契约」），不参与全量 4.5:1 门禁。
+ */
+const EXTRA_PAIR_TOKENS = ['--text-primary', '--text-secondary', '--text-muted'];
+const EXTRA_PAIRS = [
+  {ink: '--text-muted', bg: '--surface-chrome', note: '抽屉内联成员路径'},
+  {ink: '--text-secondary', bg: '--surface-chrome', note: '抽屉组头「n 个项目」'},
+  {
+    ink: '--text-primary',
+    bg: '--surface-chrome',
+    alphaToken: '--act-bg',
+    label: '--act-bg over --surface-chrome',
+    note: '会话行激活底块',
+  },
+];
 
 /* ------------------------------------------------------------------ */
 /* CSS parsing                                                         */
@@ -166,6 +184,123 @@ function contrastRatio(a, b) {
 }
 
 /* ------------------------------------------------------------------ */
+/* pure core (exported for tests)                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 解析样式表，产出全部待测配对：
+ *   - 既有：INK_TOKENS ×（SURFACE_TOKENS + 选中态合成层）
+ *   - 新增：EXTRA_PAIRS（含 --act-bg 半透明层按主题合成）
+ * 每条：{token, theme, surfaceToken, note?, inkRgb, bgRgb, composite?}
+ * 解析失败时抛 Error（调用方据此走失败出口）。
+ */
+export function collectPairs(css) {
+  css = stripComments(css);
+  const rootBody = ruleBody(css, ':root');
+  if (rootBody === null) throw new Error('解析失败，找不到 `:root {` 块');
+
+  const pairs = [];
+
+  for (const theme of THEMES) {
+    let body = rootBody;
+    if (theme !== ':root') {
+      const themeBody = ruleBody(css, theme);
+      if (themeBody === null) throw new Error(`解析失败，找不到主题块 \`${theme} {\``);
+      body = `${rootBody}\n${themeBody}`; // 后者覆盖前者
+    }
+
+    const surfaces = {};
+    for (const token of SURFACE_TOKENS) {
+      const raw = decl(body, token);
+      const hex = raw ? parseHex(raw) : null;
+      if (!hex) {
+        throw new Error(`主题 ${theme} 的 ${token} 不是可解析的 hex（读到 ${raw ?? '（无声明）'}）`);
+      }
+      surfaces[token] = hex;
+    }
+
+    const extras = {};
+    for (const token of EXTRA_PAIR_TOKENS) {
+      const raw = decl(body, token);
+      const hex = raw ? parseHex(raw) : null;
+      if (!hex) {
+        throw new Error(`主题 ${theme} 的 ${token} 不是可解析的 hex（读到 ${raw ?? '（无声明）'}）`);
+      }
+      extras[token] = hex;
+    }
+    const chromeRaw = decl(body, '--surface-chrome');
+    const chrome = chromeRaw ? parseHex(chromeRaw) : null;
+    if (!chrome) {
+      throw new Error(`主题 ${theme} 的 --surface-chrome 不是可解析的 hex（读到 ${chromeRaw ?? '（无声明）'}）`);
+    }
+
+    // 选中态底：--brand-muted 是半透明层，必须合成到 --surface 之后再比对比度
+    const layerRaw = decl(body, LAYER_BG.alphaToken);
+    const layer = layerRaw ? parseRgba(layerRaw) : null;
+    if (!layer) {
+      throw new Error(
+        `主题 ${theme} 的 ${LAYER_BG.alphaToken} 不是可解析的 rgba()（读到 ${layerRaw ?? '（无声明）'}）`,
+      );
+    }
+
+    // --act-bg 半透明激活底块：alpha 与底层色随主题不同（浅色黑 .06 / 深色白 .10），
+    // 必须逐主题解析并合成，禁止取单一假设值
+    const actRaw = decl(body, '--act-bg');
+    const act = actRaw ? parseRgba(actRaw) : null;
+    if (!act) {
+      throw new Error(
+        `主题 ${theme} 的 --act-bg 不是可解析的 rgba()（读到 ${actRaw ?? '（无声明）'}）`,
+      );
+    }
+
+    for (const spec of EXTRA_PAIRS) {
+      const pair = {
+        token: spec.ink,
+        theme,
+        surfaceToken: spec.alphaToken ? spec.label : spec.bg,
+        note: spec.note,
+        inkRgb: extras[spec.ink],
+        bgRgb: spec.alphaToken ? chrome : surfaces[spec.bg] ?? chrome,
+      };
+      if (spec.alphaToken) pair.composite = act;
+      pairs.push(pair);
+    }
+
+    const backgrounds = [
+      ...SURFACE_TOKENS.map((token) => ({label: token, rgb: surfaces[token]})),
+      {label: LAYER_BG.label, rgb: composite(layer, surfaces['--surface'])},
+    ];
+
+    for (const token of INK_TOKENS) {
+      const raw = decl(body, token);
+      const ink = raw ? parseHex(raw) : null;
+      if (!ink) {
+        throw new Error(
+          `主题 ${theme} 的 ${token} 不是可解析的 hex（读到 ${raw ?? '（无声明）'}）——文字级令牌必须是逐主题字面值`,
+        );
+      }
+      for (const bg of backgrounds) {
+        pairs.push({token, theme, surfaceToken: bg.label, inkRgb: ink, bgRgb: bg.rgb});
+      }
+    }
+  }
+
+  return pairs;
+}
+
+/**
+ * 计算每条配对的对比度并给出 pass 判定（纯函数，供测试与 CLI 共用）。
+ * composite（rgba 层）先合成到 bgRgb 之上再算比率。
+ */
+export function evaluatePairs(pairs) {
+  return pairs.map((p) => {
+    const bg = p.composite ? composite(p.composite, p.bgRgb) : p.bgRgb;
+    const ratio = contrastRatio(p.inkRgb, bg);
+    return {...p, ratio, pass: ratio >= THRESHOLD};
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /* main                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -179,70 +314,17 @@ function main() {
     fail(`audit-contrast: 找不到样式表 ${path.relative(ROOT, CSS_FILE)}`);
     return;
   }
-  const css = stripComments(fs.readFileSync(CSS_FILE, 'utf8'));
+  // 注释剥除在 collectPairs 内完成（该函数需同时服务 CLI 与测试两条入口），此处不重复处理
+  const css = fs.readFileSync(CSS_FILE, 'utf8');
 
-  // 解析：:root 打底，三个主题块逐层覆盖
-  const rootBody = ruleBody(css, ':root');
-  if (rootBody === null) {
-    fail('audit-contrast: 解析失败，找不到 `:root {` 块');
+  let pairs;
+  try {
+    pairs = evaluatePairs(collectPairs(css));
+  } catch (err) {
+    fail(`audit-contrast: ${err && err.message}`);
     return;
   }
-
-  const failures = [];
-  const pairs = [];
-
-  for (const theme of THEMES) {
-    let body = rootBody;
-    if (theme !== ':root') {
-      const themeBody = ruleBody(css, theme);
-      if (themeBody === null) {
-        fail(`audit-contrast: 解析失败，找不到主题块 \`${theme} {\``);
-        return;
-      }
-      body = `${rootBody}\n${themeBody}`; // 后者覆盖前者
-    }
-
-    const surfaces = {};
-    for (const token of SURFACE_TOKENS) {
-      const raw = decl(body, token);
-      const hex = raw ? parseHex(raw) : null;
-      if (!hex) {
-        fail(`audit-contrast: 主题 ${theme} 的 ${token} 不是可解析的 hex（读到 ${raw ?? '（无声明）'}）`);
-        return;
-      }
-      surfaces[token] = hex;
-    }
-
-    // 选中态底：--brand-muted 是半透明层，必须合成到 --surface 之后再比对比度
-    const layerRaw = decl(body, LAYER_BG.alphaToken);
-    const layer = layerRaw ? parseRgba(layerRaw) : null;
-    if (!layer) {
-      fail(
-        `audit-contrast: 主题 ${theme} 的 ${LAYER_BG.alphaToken} 不是可解析的 rgba()（读到 ${layerRaw ?? '（无声明）'}）`,
-      );
-      return;
-    }
-    const backgrounds = [
-      ...SURFACE_TOKENS.map((token) => ({label: token, rgb: surfaces[token]})),
-      {label: LAYER_BG.label, rgb: composite(layer, surfaces['--surface'])},
-    ];
-
-    for (const token of INK_TOKENS) {
-      const raw = decl(body, token);
-      const ink = raw ? parseHex(raw) : null;
-      if (!ink) {
-        fail(`audit-contrast: 主题 ${theme} 的 ${token} 不是可解析的 hex（读到 ${raw ?? '（无声明）'}）——文字级令牌必须是逐主题字面值`);
-        return;
-      }
-      for (const bg of backgrounds) {
-        const ratio = contrastRatio(ink, bg.rgb);
-        pairs.push({ token, theme, surfaceToken: bg.label, ratio });
-        if (ratio < THRESHOLD) {
-          failures.push({ token, theme, surfaceToken: bg.label, ratio });
-        }
-      }
-    }
-  }
+  const failures = pairs.filter((p) => !p.pass);
 
   if (failures.length > 0) {
     console.error('audit-contrast: FAIL');
@@ -261,15 +343,22 @@ function main() {
   }
 
   const min = pairs.reduce((a, b) => (b.ratio < a.ratio ? b : a));
+  const bgCount = new Set(pairs.map((p) => p.surfaceToken)).size;
+  const inkCount = new Set(pairs.map((p) => p.token)).size;
   console.log(
-    `audit-contrast: OK — ${INK_TOKENS.length} tokens × ${THEMES.length} themes × ${SURFACE_TOKENS.length + 1} backgrounds ` +
+    `audit-contrast: OK — ${inkCount} gate tokens + 定点配对 × ${THEMES.length} themes × ${bgCount} backgrounds ` +
       `= ${pairs.length} combos ≥ ${THRESHOLD.toFixed(1)}:1 ` +
       `(min ${min.ratio.toFixed(2)} = ${min.token} @ ${min.theme}/${min.surfaceToken})`,
   );
 }
 
-try {
-  main();
-} catch (err) {
-  fail(`audit-contrast: unexpected error: ${err && err.message}`);
+// 仅作为 CLI 直接运行时才执行 main；被测试 import 时保持无副作用
+const isCli = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isCli) {
+  try {
+    main();
+  } catch (err) {
+    fail(`audit-contrast: unexpected error: ${err && err.message}`);
+  }
 }

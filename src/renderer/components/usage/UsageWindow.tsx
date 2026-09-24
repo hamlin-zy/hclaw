@@ -429,7 +429,7 @@ export default function UsageWindow() {
             </div>
 
             {/* 主体 */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+            <div className="flex-1 overflow-y-auto p-5 space-y-5 select-text">
                 {error && (
                     <div className="rounded-lg border border-[var(--border)] py-12 text-center">
                         <div className="text-sm text-[var(--error)]">统计数据加载失败</div>

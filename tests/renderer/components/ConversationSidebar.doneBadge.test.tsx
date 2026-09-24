@@ -57,9 +57,11 @@ const agentState = vi.hoisted(() => ({
 vi.mock('../../../src/renderer/stores/agentStore', () => ({
     useAgentStore: (sel: (s: typeof agentState) => unknown) => sel(agentState),
 }))
-vi.mock('../../../src/renderer/stores/sidebarStore', () => ({
-    useSidebarStore: {getState: () => ({leftCollapsed: false})},
-}))
+vi.mock('../../../src/renderer/stores/sidebarStore', async () => {
+    // 透传真实 store：组件直接消费 useSidebarStore hook（Task 14 起），整体 mock 会落空
+    const actual = await vi.importActual<Record<string, unknown>>('../../../src/renderer/stores/sidebarStore')
+    return {...actual}
+})
 vi.mock('../../../src/renderer/stores/themeStore', () => ({
     useThemeStore: {getState: () => ({theme: 'light'})},
 }))

@@ -165,7 +165,7 @@ export function QuickOpen({
                     )}
                 </div>
                 <div
-                    className="pm-quickopen-list"
+                    className="pm-quickopen-list select-text"
                     role="listbox"
                     aria-label="匹配列表"
                     data-testid="pm-quickopen-list"

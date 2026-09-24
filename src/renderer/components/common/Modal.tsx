@@ -99,6 +99,7 @@ export function Modal({open, onClose, size = 'md', ariaLabel, closeOnOverlay = t
                 className={clsx(
                     'relative flex w-full max-h-[85vh] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-elevated focus:outline-none',
                     SIZE_CLASS[size],
+                    'select-text',
                 )}
                 data-name="modal-panel"
             >

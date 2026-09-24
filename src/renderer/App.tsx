@@ -37,6 +37,7 @@ import {registerSendToConversationListener} from './services/sendToConversation'
 import {registerOpenConversationListener} from './services/openConversation'
 import TooltipPortal from './components/common/TooltipPortal'
 import {createGcScheduler} from './lib/gcScheduler'
+import {installSelectAllGuard} from './lib/selectionGuard'
 import {syncExchangeRate} from './lib/format'
 import {applyThemeClass} from './lib/theme'
 import {registerStoreMemorySources} from './utils/memorySources'
@@ -90,7 +91,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     if (this.state.hasError) {
       return (
         <div className="h-screen flex items-center justify-center bg-gray-50">
-          <div className="text-center space-y-3">
+          <div className="text-center space-y-3 select-text">
             <div className="flex justify-center"><WarningIcon className="w-9 h-9 text-amber-500"/></div>
             <h2 className="text-lg font-medium text-gray-700">应用出现了错误</h2>
             <p className="text-sm text-gray-400 max-w-md">{this.state.error?.message}</p>
@@ -285,6 +286,9 @@ export default function App() {
 
   // 注册系统内快捷键（非全局快捷键）
   useGlobalHotkeys()
+
+  // 抑制文档级 Ctrl+A 选区（豁免文本类 input/textarea，编辑器内同样拦截）。详见 lib/selectionGuard.ts
+  useEffect(() => installSelectAllGuard(), [])
 
   // ── 冷启动观测：llm + modelScheme store 首次同时 rehydrate 完成时打点（仅一次）──
   // persist 的 onRehydrateStorage 直接 mutate state，不触发 subscribe，故用轻量轮询。

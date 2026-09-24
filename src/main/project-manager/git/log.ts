@@ -2,9 +2,16 @@
 import type {GitLogEntry} from '../../../shared/types/project-manager'
 import {gitExec} from './gitExec'
 
-// 行格式：<hash|parents|author|email|authorDate|date|refs|subject|body
+// 记录格式（RS 记录分隔）：<RS>hash|parents|author|email|authorDate|date|refs|subject|body…
 // refs 字段使用 %D，同一字段同时承载 branches（HEAD -> main、origin/main）与 tags（tag: v1.0）
-const LOG_FORMAT = '--pretty=format:<%H|%P|%an|%ae|%at|%at|%D|%s|%b'
+//
+// 必须用 ASCII RS(\x1e) 而不是换行来分隔记录：%b 是含换行的多行正文，按 '\n' 切分后
+// 只能靠行首特征辨认记录起点，正文续行会被整行丢弃（详情面板的提交信息于是永远只剩
+// 标题与正文第一行）。RS 不会出现在正文里，切分与正文内容无关。
+const RECORD_SEP = '\x1e'
+const LOG_FORMAT = `--pretty=format:${RECORD_SEP}%H|%P|%an|%ae|%at|%at|%D|%s|%b`
+// 固定字段数（hash/parents/author/email/authorDate/date/refs/subject），其后全部属于正文
+const FIXED_FIELD_COUNT = 8
 
 export interface LogOptions {
   limit: number
@@ -18,11 +25,11 @@ export interface LogOptions {
 }
 
 export function parseLog(raw: string): GitLogEntry[] {
-  return raw.split('\n')
-    .filter(line => line.startsWith('<'))
-    .map(line => {
-      const parts = line.slice(1).split('|')
-      const [hash, parents, author, email, date, , refs, message, ...bodyParts] = parts
+  return raw.split(RECORD_SEP)
+    .filter(record => record.trim().length > 0)
+    .map(record => {
+      const parts = record.split('|')
+      const [hash, parents, author, email, date, , refs, message] = parts
       const commitHash = hash ?? ''
       const dateMs = parseInt(date ?? '0', 10) * 1000
       const refList = (refs ?? '').split(', ')
@@ -35,7 +42,8 @@ export function parseLog(raw: string): GitLogEntry[] {
         abbreviatedHash: commitHash.slice(0, 9),
         parents: (parents ?? '').split(' ').filter(Boolean),
         message: message ?? '',
-        body: bodyParts.join('\n').trim(),
+        // 正文自身可能含 '|'，按段 join 回来，避免竖线被解析成换行
+        body: parts.slice(FIXED_FIELD_COUNT).join('|').trim(),
         author: author ?? '',
         authorEmail: email ?? '',
         authorDate: dateMs,

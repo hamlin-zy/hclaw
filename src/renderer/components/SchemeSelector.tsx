@@ -93,7 +93,7 @@ function FixedDropdown({
         >
             {/* 下拉面板 - 毛玻璃效果 */}
             <div className="bg-[color-mix(in_srgb,var(--surface-elevated)_92%,transparent)] backdrop-blur-lg border border-[var(--border)] rounded-2xl shadow-2xl shadow-black/20 overflow-hidden">
-                <div className="p-1.5 flex flex-col">
+                <div className="p-1.5 flex flex-col select-text">
                     {/* 方案列表 */}
                     {schemes.map((scheme, index) => {
                         const colorIndex = index % SCHEME_COLORS.length

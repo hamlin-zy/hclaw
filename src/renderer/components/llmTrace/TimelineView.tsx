@@ -112,7 +112,7 @@ export function TimelineView({projection, filter, onOpenDetail, conversationTitl
     }
 
     return (
-        <div className="flex-1 overflow-y-auto px-4 pt-3 pb-10">
+        <div className="flex-1 overflow-y-auto px-4 pt-3 pb-10 select-text">
             {groups.map(([convId, turns]) => (
                 <div key={convId}>
                     {/* conversation 头 */}

@@ -67,4 +67,12 @@ describe('ConversationSidebar footer / 折叠态', () => {
             '历史会话', '任务历史', '快捷短语', '记忆管理', '系统提示词', '定时任务', '系统设置', 'LLM调用日志', 'LLM用量统计', '关于',
         ])
     })
+
+    it('系统状态条外框为胶囊形（§5.7）', () => {
+        useSidebarStore.setState({leftCollapsed: false})
+        const {container} = render(<ConversationSidebar/>)
+        const bar = container.querySelector('[data-name="running-sessions-pill"]') as HTMLElement | null
+        expect(bar).not.toBeNull()
+        expect(bar!.className).toContain('rounded-full')
+    })
 })

@@ -252,7 +252,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                     </div>
 
                                     {/* 服务商列表：已启用服务商（hover/点击 → 右侧级联子菜单） */}
-                                    <div className="flex-1 min-h-0 overflow-y-auto">
+                                    <div className="flex-1 min-h-0 overflow-y-auto select-text">
                                         {enabledProviders.length === 0 && (
                                             <div className="px-2.5 py-2 text-xs text-[var(--text-secondary)]">暂无已启用服务商</div>
                                         )}
@@ -308,7 +308,7 @@ export default function ModelSelector({conversationId}: ModelSelectorProps) {
                                     <div className="px-2 py-1.5 text-[10px] font-medium text-[var(--text-secondary)] border-b border-[var(--border-muted)] mb-1 truncate">
                                         {selProvider.name}
                                     </div>
-                                    <div className="max-h-72 overflow-y-auto">
+                                    <div className="max-h-72 overflow-y-auto select-text">
                                         {selModels.length === 0 && (
                                             <div className="px-2.5 py-2 text-xs text-[var(--text-secondary)]">该服务商暂无可用模型</div>
                                         )}

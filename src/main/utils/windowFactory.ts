@@ -44,6 +44,7 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
 
     // 平台检测（与主窗口 window.ts 一致）
     const isMac = process.platform === 'darwin'
+    const isLinux = process.platform === 'linux'
     let isWin11 = false
     if (process.platform === 'win32') {
         const winBuild = parseInt(os.release().split('.')[2] || '0', 10)
@@ -64,6 +65,9 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
         ),
         transparent: false,
         roundedCorners: isMac || isWin11,
+        // Linux: 关闭阴影，规避 Electron 43 在 frameless 窗口四边自绘的系统色边框（黑边/白边）。
+        // 根因与判定详见主窗口 src/main/window.ts 同名字段注释（上游 electron/electron#52024）。
+        ...(isLinux ? {hasShadow: false} : {}),
 
         webPreferences: {
             preload: path.join(__dirname, '../preload/index.js'),

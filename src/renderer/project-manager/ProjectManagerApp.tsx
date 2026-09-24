@@ -18,6 +18,7 @@ import {usePaneSize, GIT_HEIGHT_KEY, COLLAPSED_GIT_HEIGHT, type PaneSizeSpecs} f
 import {usePaneOrder, type PaneId} from './hooks/paneOrder'
 import {useQuickOpen} from './hooks/useQuickOpen'
 import {useThemeSync} from '../lib/theme'
+import {installSelectAllGuard} from '../lib/selectionGuard'
 import WindowTitleBar from '../components/common/WindowTitleBar'
 import ConfirmDialog from '../components/ConfirmDialog'
 import TooltipPortal from '../components/common/TooltipPortal'
@@ -42,6 +43,11 @@ function gitMaxHeight(): number {
 
 export function ProjectManagerApp() {
   useThemeSync()
+
+  // 抑制文档级 Ctrl+A 选区（豁免文本类 input/textarea，含代码编辑器与 diff 视图内一致拦截）。
+  // 与主窗口共用同一工具：详见 ../lib/selectionGuard.ts
+  useEffect(() => installSelectAllGuard(), [])
+
   const ws = useWorkspaceStore(s => s.workspacePath)
   const refresh = useGitStatusStore(s => s.refresh)
   const applyPushed = useGitStatusStore(s => s.applyPushed)

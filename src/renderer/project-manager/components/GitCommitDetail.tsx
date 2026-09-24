@@ -237,7 +237,7 @@ export function GitCommitDetail({workspace}: {workspace: string}) {
   return (
     <PanelCard testId="pm-commit-detail">
       <PanelHeader title="提交详情" testId="pm-detail-header" actions={actions} />
-      <div className="pm-detail-scroll">
+      <div className="pm-detail-scroll select-text">
         <div>已更改 {detail?.files.length ?? 0} 个文件</div>
         {[...tree.entries()].map(([dir, files]) => {
           const isOpen = expandedDirs.has(dir)
@@ -259,7 +259,7 @@ export function GitCommitDetail({workspace}: {workspace: string}) {
           )
         })}
       </div>
-      <div className="pm-detail-footer">
+      <div className="pm-detail-footer select-text">
         <div className="pm-detail-message">{commit.message}</div>
         {commit.body && <div className="pm-detail-body">{commit.body}</div>}
       </div>

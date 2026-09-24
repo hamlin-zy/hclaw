@@ -1,8 +1,9 @@
-import {type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {Fragment, type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useConversationStore, resolveScopeProjectPaths} from '../stores/conversationStore'
 import {useSidebarStore} from '../stores/sidebarStore'
+import {widthTier} from '../lib/sidebarWidthTier'
 import {getBasename, getRelativeTime} from '../lib/format'
 import {workspaceBadgeLabel} from '../lib/workspacePath'
 import {useLLMStore} from '../stores/llmStore'
@@ -24,7 +25,10 @@ import {useProjectGroupStore} from '../stores/projectGroupStore'
 import {resolveRunningSessionJumpPlan} from '../lib/runningSessionsJump'
 import {newConversation} from '../services/newConversation'
 import type {ConversationSection} from '../lib/conversationSections'
+import {SECTION_DEFAULT, SECTION_STEP, CHILD_DEFAULT, CHILD_STEP, RECENT_DEFAULT, RECENT_STEP} from '../lib/conversationSections'
+import {clampRecentHeight, RECENT_ROW_HEIGHT} from '../lib/recentHeight'
 import SchemeSelector from './SchemeSelector'
+import {PagerBar} from './sidebar/PagerBar'
 import {DRAWER_WIDTH, ProjectGroupDrawer} from './ProjectGroupDrawer'
 import {Folders} from 'lucide-react'
 import {ConversationSectionHeader} from './ConversationSectionHeader'
@@ -332,8 +336,9 @@ function SystemStatusIndicator() {
 
     return (
         <>
-            <div ref={anchorRef} className="flex items-center gap-[var(--space-snug)] text-2xs text-[var(--text-muted)]"
-                 title={clickable ? undefined : label}>
+            <div ref={anchorRef} className="rounded-full flex items-center gap-[var(--space-snug)] text-2xs text-[var(--text-muted)]"
+                 title={clickable ? undefined : label}
+                 data-name="running-sessions-pill">
                 <div className={`w-1.5 h-1.5 rounded-full ${dotClass}`} aria-hidden="true"/>
                 {clickable ? (
                     <button type="button"
@@ -525,6 +530,8 @@ function SidebarGearMenu({anchorRef}: {anchorRef: RefObject<HTMLDivElement | nul
 
 export default function ConversationSidebar() {
     const {leftCollapsed, setLeftCollapsed, toggleLeft, leftWidth, suppressLeftWidthAnimation, clearLeftWidthAnimationSuppress} = useSidebarStore()
+    const tier = leftCollapsed ? '' : widthTier(leftWidth)
+    const tierCls = tier === 'narrow' ? 'is-narrow' : tier === 'tight' ? 'is-tight' : ''
     const {theme, toggleTheme} = useThemeStore()
     const viewScope = useConversationStore((s) => s.viewScope)
     const gearRef = useRef<HTMLDivElement>(null)
@@ -559,7 +566,7 @@ export default function ConversationSidebar() {
               initial={false}
               animate={{width: leftCollapsed ? 'var(--sidebar-collapsed-width, 36px)' : `${leftWidth}px`}}
               transition={suppressLeftWidthAnimation ? {duration: 0} : {duration: 0.2, ease: [0.4, 0, 0.2, 1]}}
-              className="h-full flex flex-col overflow-hidden sidebar-shadow"
+              className={`h-full flex flex-col overflow-hidden sidebar-shadow ${tierCls}`.trim()}
               data-name="conversation-sidebar-inner"
               role="navigation"
               aria-label="会话列表"
@@ -693,6 +700,9 @@ function GitBranchBadge({branch, className}: {branch: string | null, className?:
     )
 }
 
+/** 工作区行右侧的操作按钮（项目管理 / 新建会话）：两枚按钮共用一份样式 */
+const WORKSPACE_ACTION_BUTTON_CLASS = 'flex items-center justify-center w-7 h-7 shrink-0 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-100 hover:bg-[var(--surface-overlay)] transition-colors'
+
 export function WorkspaceSelector() {
   const currentWorkspacePath = useConversationStore((s) => s.currentWorkspacePath)
   const gitBranch = useConversationStore((s) => s.gitBranch)
@@ -780,6 +790,25 @@ export function WorkspaceSelector() {
           groupScope={groupScope}
           ariaLabel={triggerLabel}
         />
+        {viewScope?.type !== 'group' && (
+          <>
+            <button type="button" data-name="workspace-pm-button" aria-label="打开项目管理窗口" title="打开项目管理窗口"
+                    className={WORKSPACE_ACTION_BUTTON_CLASS}
+                    onClick={() => window.electronAPI?.projectManager?.openProjectManager(currentWorkspacePath ?? '')}>
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+              </svg>
+            </button>
+            <button type="button" data-name="workspace-new-conversation" aria-label="新建会话" title="新建会话"
+                    className={WORKSPACE_ACTION_BUTTON_CLASS}
+                    onClick={() => void newConversation({workspacePath: currentWorkspacePath ?? '', stayInScope: true})}>
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            </button>
+          </>
+        )}
       </div>
 
       {isOpen && (
@@ -828,14 +857,15 @@ function WorkspaceNameButton({isOpen, onToggle, currentWorkspacePath, gitBranch,
       <div className="flex items-center flex-1 min-w-0">
           <div className="flex flex-col items-start overflow-hidden text-left w-full">
           {groupScope ? (
-              <div className="flex items-center justify-center gap-1.5 w-full min-w-0">
+              // 组视图（demo .wsel.gv L375-377）：名称+徽章左聚、chevron 靠右 —— 回炉反馈 4 去居中
+              <div className="flex items-center gap-1.5 w-full min-w-0">
                   <span
                       className="font-semibold text-gray-900 dark:text-gray-100 text-[13px] tracking-tight truncate shrink-0 max-w-[65%]"
                       title={groupScope.name}>
                       {groupScope.name}
                   </span>
                   <span
-                      className="inline-flex items-center gap-0.5 min-w-0 shrink-0 rounded-full bg-[var(--chip-bg)] border border-[var(--chip-border)] px-1.5 py-px text-[11px] font-medium text-gray-500 dark:text-gray-400"
+                      className="inline-flex items-center gap-0.5 min-w-0 shrink-0 rounded-full bg-[var(--surface-muted)] border border-[var(--border)] px-1.5 py-px text-[11px] font-medium text-gray-500 dark:text-gray-400"
                       data-name="workspace-group-count-badge"
                       title={`${groupScope.count} 个项目`}>
                       <Folders className="w-2.5 h-2.5 shrink-0" aria-hidden="true"/>
@@ -855,7 +885,7 @@ function WorkspaceNameButton({isOpen, onToggle, currentWorkspacePath, gitBranch,
           </div>
           {currentWorkspacePath && (
               <span className="w-full min-w-0">
-                  <span className="text-[11px] text-gray-400 dark:text-gray-500 font-medium truncate block w-full">{currentWorkspacePath}</span>
+                  <span className="text-[11px] text-gray-400 dark:text-gray-500 font-medium truncate block w-full select-text">{currentWorkspacePath}</span>
               </span>
           )}
           </>
@@ -909,7 +939,7 @@ function SearchInput() {
         onChange={(e) => setSearchQuery(e.target.value)}
         placeholder="搜索对话..."
         aria-label="搜索对话"
-        className={`w-full pl-9 pr-4 py-2 bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] border border-[var(--border)] rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] ${INPUT_FOCUS}`}
+        className={`w-full pl-9 pr-4 h-[34px] bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] border border-transparent rounded-[36px] text-[13px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] ${INPUT_FOCUS}`}
       data-name="conversation-sidebar-search-input"/>
     </div>
   )
@@ -953,6 +983,10 @@ function isAncestorChainExpanded(
 
 import {buildRecentConversations} from '../lib/recentConversations'
 
+/** 最近区高度收敛基准 = 主列表与最近区的共同父容器高度（详见 ConversationList 的收敛注释）；
+    0 = 未布局（无父容器 / 无尺寸） */
+const recentBaseHeight = (listEl: HTMLElement | null) => listEl?.parentElement?.clientHeight ?? 0
+
 export function ConversationList() {
     const getScopedSections = useConversationStore((s) => s.getScopedSections)
     const workspaces = useConversationStore((s) => s.workspaces)
@@ -974,7 +1008,9 @@ export function ConversationList() {
     const activeConversationId = useConversationStore((s) => s.activeConversationId)
     const pendingFocusProject = useConversationStore((s) => s.pendingFocusProject)
     const toggleSectionCollapsed = useConversationStore((s) => s.toggleSectionCollapsed)
-    const expandSection = useConversationStore((s) => s.expandSection)
+    const setSectionWindowSize = useConversationStore((s) => s.setSectionWindowSize)
+    const childWindowSizes = useConversationStore((s) => s.childWindowSizes)
+    const setChildWindowSize = useConversationStore((s) => s.setChildWindowSize)
     const expandedChildParents = useConversationStore((s) => s.expandedChildParents)
     const expandChildParents = useConversationStore((s) => s.expandChildParents)
     const dismissWindowHint = useConversationStore((s) => s.dismissWindowHint)
@@ -991,7 +1027,80 @@ export function ConversationList() {
     } | null>(null)
     const [renamingId, setRenamingId] = useState<string | null>(null)
     const [expandedParentIds, setExpandedParentIds] = useState<Set<string>>(new Set())
+    // ★ 最近会话区的取数窗口（spec §5.4：默认 10、步长 10）。与段/子会话窗口不同，它
+    //   只被本组件消费（不进 store 的取数口径），故用组件局部 state —— 切视图不重挂载，值自然保留。
+    const [recentCount, setRecentCount] = useState(RECENT_DEFAULT)
+    // ★ 最近会话区固定高度（spec §5.6 / Task 14）：null = 自然高度；拖拽上缘手柄提交后持久化
+    const recentHeight = useSidebarStore((s) => s.recentHeight)
+    const setRecentHeight = useSidebarStore((s) => s.setRecentHeight)
+    const recentSectionRef = useRef<HTMLDivElement>(null)
     const listRef = useRef<HTMLDivElement>(null)
+
+    // ★ 最近区高度收敛（spec §5.6，Task 14 回炉）：记录值必须在「读取时按 clamp 收敛」，
+    //   防小窗口下持久化值吃掉主列表一半以上。收敛落 store（非渲染期临时钳制）——
+    //   拖拽提交值已是 clamp 结果，但跨窗口/跨会话的持久化值可能因窗口缩小而越界。
+    //   ★ 基准 = 主列表与最近区的**共同父容器**（listRef.parentElement）：主列表是 flex-1
+    //   min-h-0，其 clientHeight 是被 recent 挤压后的实际值——用它算上限是正反馈收缩
+    //   （recent 越高 → 主列表越小 → 上限越小 → recent 被压到 ~1/3，回炉反馈 3）。
+    //   父容器高度与 recent 无关，clamp 收敛是稳定不动点。spec §5.6 的意图即
+    //   demo `max-height:50%`（相对父容器）：主列表至少占一半。
+    //   两处收敛：挂载（读取时）+ 主列表尺寸变化（ResizeObserver）。基准 0（未布局）
+    //   时跳过。jsdom 无 ResizeObserver / 布局 → 两处都天然防御（存在才挂、>0 才收敛）。
+    /** 收敛提交：按收敛基准 clamp 后写回 store；值未变则不写（避免无谓渲染）。
+        两处收敛（挂载 / RO）共用，`current == null` 与基准 ≤ 0 时不动。 */
+    const commitClampedRecentHeight = useCallback((current: number | null) => {
+        const base = recentBaseHeight(listRef.current)
+        if (current == null || base <= 0) return
+        const clamped = clampRecentHeight(current, base, RECENT_ROW_HEIGHT)
+        if (clamped !== current) useSidebarStore.getState().setRecentHeight(clamped)
+    }, [])
+
+    useLayoutEffect(() => {
+        commitClampedRecentHeight(recentHeight)
+    }, [recentHeight, commitClampedRecentHeight])
+
+    // RO 依赖只在 null ⇄ 非 null 翻转时重挂（收敛写 store 触发的 recentHeight 变化不必重建 RO），
+    // 故用显式布尔变量表达该翻转、恢复 exhaustive-deps 语义（不用表达式内联进依赖数组）。
+    const recentCollapsed = recentHeight === null
+    useEffect(() => {
+        if (recentHeight == null || typeof ResizeObserver === 'undefined') return
+        const ro = new ResizeObserver(() => {
+            commitClampedRecentHeight(useSidebarStore.getState().recentHeight)
+        })
+        if (listRef.current) ro.observe(listRef.current)
+        return () => ro.disconnect()
+    }, [recentCollapsed, commitClampedRecentHeight])
+
+    // 上缘拖拽：mousemove 期直改 DOM 高度（不进 store、不触发渲染），mouseup 时
+    // clampRecentHeight 收敛后一次性提交（与左侧栏宽度手柄同款「直改 DOM + 抬手提交」口径）。
+    // 向上拖 = 拉高最近区（挤占主列表），故 delta = startY - clientY。
+    const startRecentResize = useCallback((e: React.MouseEvent) => {
+        e.preventDefault()
+        const section = recentSectionRef.current
+        if (!section) return
+        const startY = e.clientY
+        const startHeight = section.getBoundingClientRect().height
+        const onMove = (ev: MouseEvent) => {
+            const next = startHeight + (startY - ev.clientY)
+            // ★ 拖动期即钳上界（2026-09-24 收尾）：原只钳下界，向上拖时视觉可越过上限、松手才回弹。
+            //   基准 = 主列表与最近区的**共同父容器**高度（与 §5.6 收敛口径一致）；不能用 listRef
+            //   自身 —— 它是被 recent 挤压后的实际值，用它算上限会正反馈收缩（详见上方收敛注释）。
+            //   基准 ≤ 0（jsdom / 未布局）→ 退回只钳下界，与收敛 effect 同款防御。
+            const base = recentBaseHeight(listRef.current)
+            section.style.height = `${base > 0 ? clampRecentHeight(next, base, RECENT_ROW_HEIGHT) : Math.max(RECENT_ROW_HEIGHT, next)}px`
+            section.style.overflow = 'hidden'
+        }
+        const onUp = (ev: MouseEvent) => {
+            window.removeEventListener('mousemove', onMove)
+            window.removeEventListener('mouseup', onUp)
+            const committed = clampRecentHeight(startHeight + (startY - ev.clientY), recentBaseHeight(listRef.current), RECENT_ROW_HEIGHT)
+            section.style.height = ''
+            section.style.overflow = ''
+            setRecentHeight(committed)
+        }
+        window.addEventListener('mousemove', onMove)
+        window.addEventListener('mouseup', onUp)
+    }, [setRecentHeight])
 
     // 监听全局点击以关闭菜单
     // ★ 注意：不监听 window 的 scroll 事件。原因见 tasks/01-context-menu-close.md：
@@ -1014,9 +1123,11 @@ export function ConversationList() {
     // ★ 取数唯一入口 = getScopedSections（spec §5.3，Task 12 交付）。deps 必须覆盖它读取的
     //   全部 state —— 少了任一项（尤其 viewScope），「仅该项变化」时列表会陈旧：
     //   例：组视图内点其他成员项目的会话只动 viewScope，段集合却按旧值渲染。
+    //   activeConversationId 同理：它现在是「窗口截断豁免」的入参（spec §5.2.4 / V11 / F16），
+    //   少了它 → 切到落在窗口外的会话时段集合不重算，激活项仍不可见。
     const sections = useMemo(
         () => getScopedSections(),
-        [getScopedSections, workspaces, viewScope, searchQuery, collapsedGroupIds, sectionWindowSizes, gitBranches, gitBranch, currentWorkspacePath, groups, expandedChildParents],
+        [getScopedSections, workspaces, viewScope, searchQuery, collapsedGroupIds, sectionWindowSizes, childWindowSizes, gitBranches, gitBranch, currentWorkspacePath, groups, expandedChildParents, activeConversationId],
     )
 
     // ★ 段路径签名 = 段集合的「项目路径集合」指纹。用它而不是 sections 数组身份来驱动
@@ -1029,15 +1140,20 @@ export function ConversationList() {
     //   （与 §7.2 段内 createdAt 口径不同，见 recentConversations.ts 的注释）。
     //   只读启动时已全量在内存的摘要，不做任何消息预热（§10.2-1 禁组视图批量预热）。
     //   搜索态 / 非组视图 → 空数组（区块不渲染）。
-    const recentConversations = useMemo(
+    //   ★ 分页（spec §5.4「最近会话列表 10 / 10」）：`recentAll` = 不截断的全量（排序成本与
+    //   原实现相同 —— buildRecentConversations 本就全量排序后再截断），`recentCount` 只负责
+    //   截断条数，`recentTotal` = 真总数，供控制条判断 ∨∨ 是否该出现。
+    const recentAll = useMemo(
         () => (viewScope?.type !== 'group' || searchQuery)
             ? []
             : buildRecentConversations(sections.map(s => ({
                 workspacePath: s.projectPath,
                 conversations: workspaces[s.projectPath]?.conversations ?? [],
-            }))),
+            })), Number.MAX_SAFE_INTEGER),
         [sections, workspaces, viewScope, searchQuery],
     )
+    const recentTotal = recentAll.length
+    const recentConversations = recentAll.slice(0, recentCount)
 
     // ★ 段头分支徽章的批量来源（I-1）：gitBranches 此前无填充方（refreshVisibleBranches
     //   无调用点）。挂载与段集合变化时各跑一次；它只写 gitBranches、不改段集合 → 不重触发。
@@ -1047,6 +1163,7 @@ export function ConversationList() {
 
     // 单项目视图：只有一个段且不在组视图 → 段头不渲染 chevron 与「+」（§7.3）
     const singleProject = sections.length <= 1 && viewScope?.type !== 'group'
+    const searching = searchQuery.trim().length > 0
 
     // ★ rows 只带 {id, parentConvId, indentLevel, childCount}：渲染行时需按 id 从该段
     //   会话列表查回 ConversationSummary（与 store.getFilteredConversations 同口径）；
@@ -1054,17 +1171,31 @@ export function ConversationList() {
     const rowById = useMemo(() => {
         const map = new Map<string, ConversationSection['rows'][number]>()
         for (const section of sections) for (const row of section.rows) {
-            if (row.kind !== 'conv') continue
             map.set(row.id, row)
         }
         return map
     }, [sections])
 
+    // ★ 当前激活会话的祖先链（不含激活会话自身）：激活行不是自己的祖先。
+    //   数据源 = 段内全量会话摘要（workspaces），而非 rowById —— rows 只含窗口内可见行，
+    //   激活会话被窗口截掉时其祖先仍应提亮；沿 parentConvId 向上收集，复用 addSelfAndAncestors。
+    const ancestorIdsOfActive = useMemo(() => {
+        const set = new Set<string>()
+        if (!activeConversationId) return set
+        const convById = new Map<string, {parentConvId?: string}>()
+        for (const section of sections) {
+            for (const c of workspaces[section.projectPath]?.conversations ?? []) convById.set(c.id, c)
+        }
+        const activeParentConvId = convById.get(activeConversationId)?.parentConvId
+        if (activeParentConvId) addSelfAndAncestors(set, convById, activeParentConvId)
+        return set
+    }, [activeConversationId, sections, workspaces])
+
     // ★ 预计算 parentId → childIds 映射（子会话祖先链判断 + 父会话运行脉冲共用）
     const childIdsMap = useMemo(() => {
         const map = new Map<string, string[]>()
         for (const section of sections) for (const row of section.rows) {
-            if (row.kind !== 'conv' || !row.parentConvId) continue
+            if (!row.parentConvId) continue
             map.set(row.parentConvId, [...(map.get(row.parentConvId) ?? []), row.id])
         }
         return map
@@ -1080,10 +1211,22 @@ export function ConversationList() {
     // ★ I-2：折叠/展开或「···」增长窗口会改变段内行集——折叠态 rows 为空 → childIdsMap
     //   塌缩；展开时这些父会话会被下方 effect 误判为「新子会话出现」，从而自动展开它们
     //   及其全部祖先。折叠集合 / 段窗口变化时清空记录，下一轮重新记录（不误判为新增）。
+    //   2026-09-24 用户反馈补：**切换视图**（单项目 ↔ 组视图、换组）同样会整换段集合 ——
+    //   新视图里的父会话会被误判成「新子会话诞生」而自动展开，故 viewScope 也进这一组。
     //   本 effect 必须声明在下方「新子会话自动展开」effect 之前（React 按声明顺序执行）。
     useEffect(() => {
         prevChildrenRef.current = null
-    }, [collapsedGroupIds, sectionWindowSizes])
+    }, [collapsedGroupIds, sectionWindowSizes, viewScope])
+
+    // ★ 2026-09-24 用户反馈（「切进工作组视图时，含子会话的父会话子列表全都被展开了，看起来有点乱」）：
+    //   段集合随视图整体换一套，旧视图里点开过的父会话在新视图里多半已不可见。而下方「激活链重建」
+    //   effect 的 deps 只含 activeConversationId（切视图时它不变）→ 不重跑 → 历史展开项被原样保留，
+    //   新视图里就出现几个父会话的子列表无端全开，违反 spec §5.5「同一时刻只允许一个父分支展开」。
+    //   这里先清空，下面的 effect 再按新视图的激活链重建（声明顺序在前 → 同一轮里先清后重建，
+    //   激活会话的祖先链照旧自动展开，不损失"定位到当前会话"的能力）。
+    useEffect(() => {
+        setExpandedParentIds(new Set())
+    }, [viewScope])
 
     useEffect(() => {
         const current = new Map<string, Set<string>>()
@@ -1156,8 +1299,13 @@ export function ConversationList() {
             keep.add(activeRow.id)
         }
 
-        // 子会话窗口兜底：仅当激活会话**确实被窗口截掉**（不在可见行里）才触发，
-        // 沿父链向上展开各祖先的子列表，直到遇到已在可见行中的祖先——
+        // 【已失效，待清理】Task 12 后 `buildConversationSections` 已内置「激活会话
+        // 祖先链豁免」（`activeAncestryIds`），被截的激活行连同祖先链都直接进入 `rows`，
+        // 此处的 `!rowById.has(activeConversationId)` 分支不再触发；下方
+        // `expandChildParents` 调用即便发生，其写入的 state 也已不再被任何渲染读取。
+        // 保留仅为最小变更、避免连带删调用点。
+        // 原语义：子会话窗口兜底——仅当激活会话确实被窗口截掉（不在可见行里）才触发，
+        // 沿父链向上展开各祖先的子列表，直到遇到已在可见行中的祖先，
         // 避免激活父会话本身时把它的全部子会话展开、窗口形同虚设。
         if (!rowById.has(activeConversationId)) {
             // 全量会话索引（rows 只含窗口内可见行，链路回溯需真实父子关系）
@@ -1189,7 +1337,8 @@ export function ConversationList() {
             }
             return next
         })
-    }, [activeConversationId]) // 保留原口径：仅激活会话变化时执行（rowById/childIdsMap 闭包取当轮值即可）
+    }, [activeConversationId, viewScope]) // 激活会话变化，或视图切换（段集合换套）时重建：
+    // 切视图那一路由上方「清空展开集合」effect 先清、本 effect 随即按新视图的激活链重建
 
     // ★ §15.1①「定位该项目段」：pendingFocusProject 变化时把对应段滚入视野并复位。
     //   段 key = projectPath（与 toggleSectionCollapsed 的入参口径一致）。
@@ -1228,28 +1377,16 @@ export function ConversationList() {
     function renderSectionRows(section: ConversationSection) {
         const convs = workspaces[section.projectPath]?.conversations ?? []
         const byId = new Map(convs.map(c => [c.id, c]))
-        return section.rows.map(row => {
-            // 「加载更多」占位行：与 conv 行同口径做祖先链可见性检查（父折叠则隐藏）
-            if (row.kind === 'load-more') {
-                if (!isAncestorChainExpanded(row.parentConvId, expandedParentIds, rowById)) return null
-                return (
-                    <button
-                        key={row.id}
-                        data-name="child-load-more"
-                        title={row.hiddenCount > 0 ? `加载更多子会话（还有 ${row.hiddenCount} 条）` : '加载更多子会话'}
-                        aria-label="加载更多子会话"
-                        onClick={() => row.parentConvId && expandChildParents([row.parentConvId])}
-                        style={row.indentLevel ? {paddingLeft: 16 + row.indentLevel * 16 + 8} : undefined}
-                        className="w-full py-0.5 text-left text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                    >加载更多</button>
-                )
-            }
-            // 祖先链未全部展开 → 隐藏该子树
+        // 子会话按父分组：只有根级行（无 parentConvId 或其父不在段内可见行中）直接渲染，
+        // 子行由其父的 child-list 容器递归渲染。
+        const rowIds = new Set(section.rows.map(r => r.id))
+        const childrenOf = (parentId: string) => section.rows.filter(r => r.parentConvId === parentId)
+
+        function renderRowWithChildren(row: ConversationSection['rows'][number]): ReactNode {
             if (!isAncestorChainExpanded(row.parentConvId, expandedParentIds, rowById)) return null
-            // 段窗口内查不到摘要（会话缓存未加载）→ 跳过整行，不中断渲染
             const conv = byId.get(row.id)
             if (!conv) return null
-            return (
+            const item = (
                 <ConversationItem
                     key={conv.id}
                     id={conv.id}
@@ -1261,75 +1398,159 @@ export function ConversationList() {
                     indentLevel={row.indentLevel}
                     childCount={row.childCount}
                     childIds={childIdsMap.get(conv.id)}
+                    isAncestorOfActive={ancestorIdsOfActive.has(conv.id)}
                     onParentClick={row.childCount > 0 ? handleParentClick : undefined}
                     isRenaming={renamingId === conv.id}
                     onStopRename={() => setRenamingId(null)}
                     onOpenMenu={(x, y) => setContextMenu({x, y, id: conv.id, title: conv.title, pinned: conv.pinned, parentConvId: conv.parentConvId})}
                 />
             )
-        })
+            if (row.childCount > 0 && expandedParentIds.has(row.id)) {
+                const childRows = childrenOf(row.id)
+                return (
+                    <Fragment key={conv.id}>
+                        {item}
+                        <div data-name="child-list" className="tree-line relative ml-2 flex flex-col items-start">
+                            {childRows.map(childRow => renderRowWithChildren(childRow))}
+                            {/* 2026-09-24 收口新增条件（与段级同口径，见 §5.4 / R-31/R-33）：
+                               子会话总数 ≤ 子会话第一页（CHILD_DEFAULT = 3）＝ 一页装得下 →
+                               整条控制条（∨∨ / ∧∧ / ∧∧∧）不渲染，不再挂永远点不动的灰图标。 */}
+                            {!searching && row.childCount > CHILD_DEFAULT && (
+                                <PagerBar listKey="child" align="left"
+                              className="pl-[calc(8px+var(--indent-step))] pr-2"
+                                          count={row.childShownCount ?? CHILD_DEFAULT} defaultCount={CHILD_DEFAULT} step={CHILD_STEP}
+                                          total={row.childCount} onChange={(n) => setChildWindowSize(row.id, n)}/>
+                            )}
+                        </div>
+                    </Fragment>
+                )
+            }
+            return item
+        }
+
+        return section.rows
+            .filter(row => !row.parentConvId || !rowIds.has(row.parentConvId))
+            .map(row => renderRowWithChildren(row))
     }
 
     return (
-        <div
-            ref={listRef}
-            className="flex-1 overflow-y-auto px-[var(--space-relaxed)] py-[var(--space-tight)] scrollbar-thin relative space-y-3"
-        >
+        // ★ §5.6 固定底部：外层只负责纵向分配（主滚动区 flex-1 + 最近会话区 shrink-0），
+        //   最近会话区因此落在滚动手势作用域之外 —— 主列表滚到底也不会把它带走。
+        <div className="flex-1 min-h-0 flex flex-col">
+            <div
+                ref={listRef}
+                data-scroll-root
+                className="flex-1 min-h-0 overflow-y-auto px-[var(--space-relaxed)] py-[var(--space-tight)] scrollbar-thin relative space-y-3 select-text"
+            >
             {sections.map(section => (
                 <section key={section.key} data-name="conversation-section" data-project-path={section.projectPath}>
-                    <ConversationSectionHeader
-                        section={section}
-                        singleProject={singleProject}
-                        onToggleCollapsed={() => toggleSectionCollapsed(section.key)}
-                        onOpenProjectManager={() => window.electronAPI?.projectManager?.openProjectManager(section.projectPath)}
-                        onNewConversation={() => void newConversation({workspacePath: section.projectPath, stayInScope: true})}
-                    />
+                    {viewScope?.type === 'group' && (
+                        <ConversationSectionHeader
+                            section={section}
+                            onToggleCollapsed={() => toggleSectionCollapsed(section.key)}
+                            onOpenProjectManager={() => window.electronAPI?.projectManager?.openProjectManager(section.projectPath)}
+                            onNewConversation={() => void newConversation({workspacePath: section.projectPath, stayInScope: true})}
+                        />
+                    )}
                     {!section.collapsed && <div className="space-y-0.5">{renderSectionRows(section)}</div>}
                     {!section.collapsed && section.rows.length === 0 && (
-                        <p className="px-2 py-1 text-[11px] text-[var(--text-secondary)]">暂无会话</p>
+                        /* eslint-disable-next-line muted-text/informative -- 装饰性空态占位文案（非信息载体、无可操作语义），按 globals.css muted 用途契约走 AA 豁免档 */
+                        <p className="px-2 py-1 text-[11px] text-center text-[var(--text-muted)]">暂无会话</p>
                     )}
-                    {/* §15.1⑤ 单项目视图窗口化是「无截断全量列表 → 10 条 + ···」的可感知行为变更：
-                        一次性小字提示（只由点击「···」置位，此后不再出现）。
+                    {/* §15.1⑤ 单项目视图窗口化是「无截断全量列表 → 默认条数 + 分页控制条」的可感知行为变更：
+                        一次性小字提示（只由点击 ∨∨ 置位，此后不再出现）。
                         说明文案用 --text-secondary（globals.css 的 muted 用途契约：muted 为 AA 豁免档） */}
                     {!section.collapsed && section.hasMore && singleProject && !singleViewWindowHintShown && (
                         <p data-name="single-view-window-hint" className="px-2 pb-1 text-2xs text-[var(--text-secondary)]">
-                            列表已按项目分页展示，点「加载更多」可展开更多会话
+                            列表已按项目分页展示，用底部 ∨∨ 展开更多会话
                         </p>
                     )}
-                    {!section.collapsed && section.hasMore && (
-                        <button
-                            data-name="section-show-more"
-                            title="加载更多会话"
-                            aria-label="加载更多会话"
-                            onClick={() => { expandSection(section.key); if (singleProject) dismissWindowHint() }}
-                            className="w-full py-0.5 px-2 text-left text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                        >加载更多</button>
+                    {!section.collapsed && !searching && section.totalRoots > SECTION_DEFAULT && (
+                        /* 2026-09-24 用户反馈：段末控制条原先默认居中，与上面的父会话行没有从属关系 ——
+                           改为左对齐，缩进对齐到父会话行的图标左缘（行盒 mx-2(8) + px-2(8)）。
+                           段间距本就宽裕，故用 -按钮高度 抵消控制条自身高度，行间不再被顶出一截。 */
+                        /* 2026-09-24 收尾新增条件：totalRoots（段根会话总数，与下方 total 入参同源）
+                           ≤ SECTION_DEFAULT(6) = 段内无页可翻 → 整条控制条（含 ∧∧∧）不渲染，
+                           不再挂一枚永不可点的复位图标。 */
+                        <PagerBar listKey="section" align="left" className="pl-4 -mb-[16px]"
+                                  count={sectionWindowSizes[section.key] ?? SECTION_DEFAULT}
+                                  defaultCount={SECTION_DEFAULT} step={SECTION_STEP}
+                                  total={section.totalRoots}
+                                  onChange={(n) => { setSectionWindowSize(section.key, n); if (singleProject) dismissWindowHint() }}/>
                     )}
                 </section>
             ))}
 
-            {/* 组视图「最近会话」区块：上下双区结构的下半区（上半区 = 组内项目分段）。
+            {/* 统一的全局右键菜单 */}
+            <AnimatePresence>
+                {contextMenu && (
+                    <GlobalContextMenu
+                        {...contextMenu}
+                        onClose={() => setContextMenu(null)}
+                        onStartRename={(id) => {
+                            setRenamingId(id)
+                            setContextMenu(null)
+                        }}
+                        onCopyId={async (id) => {
+                            setContextMenu(null)
+                            try {
+                                await navigator.clipboard.writeText(id)
+                                flashCopyToast()
+                            } catch { /* clipboard unavailable */ }
+                        }}
+                    />
+                )}
+            </AnimatePresence>
+            <CopyToast visible={showCopyToast}/>
+            </div>
+
+            {/* 组视图「最近会话」固定底部区（spec §5.6，修订 §16.7 的上下双区形态）。
                 仅组视图 + 非搜索态 + 结果非空时渲染；行复用 ConversationItem ——
                 运行脉冲 / 待确认徽章 / hover 行为全部免费继承。
                 ★ 组视图下 ConversationItem 的 hover 预热本就禁用（hoverPreloadAllowed
                 = viewScope?.type !== 'group'，见 ConversationItem :1466-1467），最近列表
-                行也在组视图内渲染 → 自动免预热，符合 §10.2-1。 */}
-            {recentConversations.length > 0 && (
+                行也在组视图内渲染 → 自动免预热，符合 §10.2-1。
+                ★ 它是主滚动容器（[data-scroll-root]）的**兄弟**且 shrink-0：主列表再长也
+                挤不掉它（V9）；固定不外滚，内容超出由高度上限收敛（§5.6）。 */}
+            {recentAll.length > 0 && (
                 <div
+                    ref={recentSectionRef}
                     data-name="sidebar-recent-section"
-                    className="border-t border-[var(--border-muted)] pt-[var(--space-tight)]"
+                    // recentHeight 非 null 时直接渲染 store 值；null = 自然高度（不设 height）。
+                    // 渲染期不做临时钳制（Task 14 回炉）：越界值在挂载/尺寸变化时由下方
+                    // 收敛逻辑按「主列表一半」clamp 后落定 store（spec §5.6），渲染读到的恒是已收敛值。
+                    style={recentHeight == null ? undefined : {height: recentHeight, overflow: 'hidden'}}
+                    // ★ flex 列布局（findings Critical-1）：固定 height + overflow hidden 下，
+                    //   .recent-list 需以 flex 子项参与压缩（flex-1 min-h-0）才真正内部滚动；
+                    //   handle/标题行 shrink-0 不被压缩。
+                    className="flex flex-col shrink-0 border-t border-[var(--border-muted)] pt-[var(--space-tight)]"
                 >
-                    {/* 轻量节头（不带段头操作位，故不用 ConversationSectionHeader） */}
+                    {/* 上缘拖拽手柄（§5.6）：拖拽调最近区高度、双击复位为自然高度 */}
+                    <div
+                        data-name="recent-resize-handle"
+                        className="h-1 shrink-0 cursor-row-resize select-none"
+                        onMouseDown={startRecentResize}
+                        onDoubleClick={() => setRecentHeight(null)}
+                    />
+                    {/* 轻量节头（不带段头操作位，故不用 ConversationSectionHeader）；
+                        ∧∧∧ 常驻标题右侧（§5.6）：列表被裁切后，它是唯一仍可及的「收起」入口 */}
                     <div
                         data-name="sidebar-recent-header"
-                        className="flex items-center gap-1.5 px-2 pb-1 text-[11px] text-[var(--text-secondary)]"
+                        className="flex shrink-0 items-center gap-1.5 px-2 pb-1 text-[11px] text-[var(--text-secondary)]"
                     >
                         <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
                         </svg>
                         最近会话
+                        {!searching && (
+                            <span className="ml-auto">
+                                <PagerBar listKey="recent" only="reset"
+                                          count={recentCount} defaultCount={RECENT_DEFAULT} step={RECENT_STEP}
+                                          total={recentTotal} onChange={setRecentCount}/>
+                            </span>
+                        )}
                     </div>
-                    <div className="space-y-0.5">
+                    <div className="recent-list flex-1 min-h-0 space-y-0.5 overflow-y-auto">
                         {recentConversations.map(({conv, workspacePath}) => (
                             <ConversationItem
                                 key={`recent-${conv.id}`}
@@ -1353,31 +1574,16 @@ export function ConversationList() {
                                 }}
                             />
                         ))}
+                        {/* ∨∨ / ∧∧ 是列表的最后一个元素（§5.6）：随列表一起被裁切，
+                            不钉容器底、无额外包裹层 —— 翻页动作就发生在列表末尾 */}
+                        {!searching && (
+                            <PagerBar listKey="recent"
+                                      count={recentCount} defaultCount={RECENT_DEFAULT} step={RECENT_STEP}
+                                      total={recentTotal} onChange={setRecentCount}/>
+                        )}
                     </div>
                 </div>
             )}
-
-            {/* 统一的全局右键菜单 */}
-            <AnimatePresence>
-                {contextMenu && (
-                    <GlobalContextMenu
-                        {...contextMenu}
-                        onClose={() => setContextMenu(null)}
-                        onStartRename={(id) => {
-                            setRenamingId(id)
-                            setContextMenu(null)
-                        }}
-                        onCopyId={async (id) => {
-                            setContextMenu(null)
-                            try {
-                                await navigator.clipboard.writeText(id)
-                                flashCopyToast()
-                            } catch { /* clipboard unavailable */ }
-                        }}
-                    />
-                )}
-            </AnimatePresence>
-            <CopyToast visible={showCopyToast}/>
         </div>
     )
 }
@@ -1559,68 +1765,57 @@ function StatusBadge({type, children}: { type: 'error' | 'warning' | 'success'; 
 
 /* ─── Session Icon ─── */
 
-/** 根据 channel 值渲染对应的会话图标 */
-function SessionIcon({channel, pinned, isActive}: { channel?: string; pinned?: boolean; isActive: boolean }) {
-    if (pinned) {
-        return (
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24"
-                 fill={isActive ? 'currentColor' : 'none'}
-                 stroke="currentColor" strokeWidth={isActive ? '0' : '2'}>
-                <path d="M12 2L9.5 9.5 2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5z"/>
-            </svg>
-        )
-    }
+/** 根据 channel 值渲染对应的会话图标。
+ *  统一规格（spec §5.1）：14px 画布 / strokeWidth 1.5 / 纯描边（fill none），
+ *  四个类型共用同一组 svg 属性，只有内部的剪影路径不同；
+ *  颜色由 isActive 决定 —— 选中 currentColor，未选中 --text-muted。
+ *  `pinned` 仍为合法入参（调用点继续传），但不再参与视觉：
+ *  置顶改由行尾角标表达，类型剪影不再被星形替换。 */
+export function SessionIcon({channel, isActive}: { channel?: string; pinned?: boolean; isActive: boolean }) {
+    const colorClass = isActive ? '[color:currentColor]' : 'text-[var(--text-muted)]'
 
-    // 平台专属图标映射
-    const ch = channel ?? ''
-    switch (ch) {
-        case 'wechat': {
-            const colorClass = isActive ? '[color:var(--brand-primary)]' : 'text-[var(--text-muted)]'
-            const opacityClass = isActive ? '' : 'opacity-60'
-            return (
-                <svg className={`w-[15px] h-[15px] ${colorClass} ${opacityClass}`} viewBox="0 0 24 24" fill="currentColor"
-                     stroke="currentColor" strokeWidth="0.5">
-                    {/* 微信风格双气泡 */}
+    // 平台专属剪影（仅路径不同，外观规格统一）
+    let glyph: ReactNode
+    switch (channel ?? '') {
+        case 'wechat':
+            // 微信风格双气泡
+            glyph = (
+                <>
                     <path
                         d="M8.5 3C4.36 3 1 5.8 1 9.25c0 1.82 1 3.44 2.62 4.56l-.66 1.99 2.34-1.17c.67.2 1.4.32 2.2.32.2 0 .4-.01.6-.02-.2-.53-.32-1.1-.32-1.68 0-3.15 2.73-5.75 6.22-5.75.2 0 .4.01.6.02C13.16 4.8 11.07 3 8.5 3z"/>
                     <path
                         d="M15.5 8C11.91 8 9 10.57 9 13.75S11.91 19.5 15.5 19.5c.62 0 1.22-.08 1.78-.23l2.52 1.23-.7-2.1C19.55 17.56 21 15.82 21 13.75 21 10.57 18.09 8 15.5 8z"/>
-                </svg>
+                </>
             )
-        }
-        case 'feishu': {
-            const opacityClass = isActive ? '' : 'opacity-60'
-            return (
-                <svg className={`w-3.5 h-3.5 ${opacityClass}`} viewBox="0 0 24 24" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    {/* 飞书折纸/飞鸟轮廓 — 从 Feishu.exe 图标提取 */}
-                    <path d="M4 2 Q7 2 10 8 Q11 10 12 12 Q12 14 10 14 Q7 14 5 12 Q2 9 0 8 Q0 9 0 19 Q2 21 5 21 Q9 21 11 21 Q15 21 17 18 Q19 16 21 12 Q23 9 23 8 Q23 7 21 7 Q19 7 18 7 Q16 5 15 2 Q11 1 4 2 Z"/>
-                </svg>
-            )
-        }
-        case 'schedule': {
-            const colorClass = isActive ? '[color:var(--brand-primary)]' : 'text-[var(--text-muted)]'
-            return (
-                <svg className={`w-3.5 h-3.5 ${colorClass}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    {/* 时钟图标 - 定时任务 */}
+            break
+        case 'feishu':
+            // 飞书折纸/飞鸟轮廓 — 从 Feishu.exe 图标提取
+            glyph = <path d="M4 2 Q7 2 10 8 Q11 10 12 12 Q12 14 10 14 Q7 14 5 12 Q2 9 0 8 Q0 9 0 19 Q2 21 5 21 Q9 21 11 21 Q15 21 17 18 Q19 16 21 12 Q23 9 23 8 Q23 7 21 7 Q19 7 18 7 Q16 5 15 2 Q11 1 4 2 Z"/>
+            break
+        case 'schedule':
+            // 时钟图标 - 定时任务
+            glyph = (
+                <>
                     <circle cx="12" cy="12" r="10"/>
                     <path d="M12 6v6l4 2"/>
-                </svg>
+                </>
             )
-        }
-        default: {
-            // 默认聊天气泡 — 选中态用实心填充
-            return (
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24"
-                     fill={isActive ? 'currentColor' : 'none'}
-                     stroke="currentColor" strokeWidth={isActive ? '0' : '2.5'}>
-                    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
-                </svg>
-            )
-        }
+            break
+        default:
+            // 默认聊天气泡
+            glyph = <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+            break
     }
+
+    return (
+        <svg className={colorClass} width="14" height="14" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+            {glyph}
+        </svg>
+    )
 }
 
-function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpenMenu, pinned, channel, status, indentLevel, childCount, childIds, onParentClick, onOpen, projectLabel}: {
+function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpenMenu, pinned, channel, status, indentLevel, childCount, childIds, isAncestorOfActive, onParentClick, onOpen, projectLabel}: {
     id: string; title: string; timestamp: number;
     isRenaming: boolean; onStopRename: () => void;
     onOpenMenu: (x: number, y: number) => void;
@@ -1630,6 +1825,8 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
     indentLevel?: number;
     childCount?: number;
     childIds?: string[];
+    /** 本行是否当前激活会话的祖先父行（由 ConversationList 计算祖先链后传入）；仅影响文字提亮 */
+    isAncestorOfActive?: boolean;
     onParentClick?: (convId: string, isActive: boolean, activeChildOfThisParent: boolean) => void;
     /** 覆盖默认点击行为（默认 setActiveConversation）：最近会话列表用它走 openConversationInWorkspace（跨项目跳转） */
     onOpen?: (convId: string) => void;
@@ -1731,19 +1928,27 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
         setActiveConversation(id)
     }, [isRenaming, onOpen, hasChildren, onParentClick, id, isActive, activeChildOfThisParent, setActiveConversation])
 
-    // spec §7.3：选中态收窄为「轻底色 + 左侧 2px 品牌条」（去边框 / 去阴影 / 不再是胶囊圆角）
+    // spec §7.3：选中态 = 中性灰底（--act-bg 随主题切换）+ 文字提亮，无左侧竖条、无品牌色
+    // §5.2.3 父行弱提示：当前激活会话的祖先父行只提亮文字（--text-secondary → --text-primary），
+    // 不铺底色、不加竖条 —— 父行收起或子会话被分页遮住时，仍能看出「当前会话在这条分支下」。
+    // 激活行不是自己的祖先，故排除 isActive；两态层级差 = 激活行（底色 + 提亮）/ 父行（仅提亮）。
+    const showAsActiveAncestor = !!isAncestorOfActive && !isActive
     const containerClass = [
-        'group relative flex items-center justify-between gap-3 px-4 py-1.5 rounded-md transition-all cursor-pointer',
+        'group relative flex items-center justify-between gap-3 mx-2 px-2 py-1.5 transition-all cursor-pointer',
         isActive
-            ? 'bg-[color-mix(in_srgb,var(--brand-primary)_10%,transparent)] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-[2px] before:rounded-full before:bg-[var(--brand-primary)]'
-            : 'hover:bg-[var(--surface-muted)] active:bg-[var(--surface-overlay)]',
+            ? 'rounded-lg bg-[var(--act-bg)] text-[var(--text-primary)]'
+            : showAsActiveAncestor
+                ? 'rounded-md text-[var(--text-primary)] hover:bg-[var(--surface-muted)] active:bg-[var(--surface-overlay)]'
+                : 'rounded-md text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] active:bg-[var(--surface-overlay)]',
         hasPending && 'ring-1 ring-[color-mix(in_srgb,var(--error)_30%,transparent)]',
     ].filter(Boolean).join(' ')
 
-    // 图标容器 w-5 h-5：行高密度收敛后（py-1.5）目标行高 ≈32px；子会话数徽章偏移随之微调保持视觉居中
+    // 图标容器 w-5 h-5：行高密度收敛后（py-1.5）目标行高 ≈32px
+    // （子会话数徽章就叠在本容器左上角：绝对定位角标，渲染在 SessionIcon 之前）
+    // 激活态容器无底色，只给 currentColor 一个提亮值（由 SessionIcon 内部据 isActive 消费）
     const iconContainerClass = `relative flex items-center justify-center w-5 h-5 rounded-md shrink-0 transition-colors ${
         isActive
-            ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400'
+            ? 'text-[var(--text-primary)]'
             : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-400'
     }`
 
@@ -1762,7 +1967,10 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
             className={containerClass}
-            style={indentLevel ? { paddingLeft: 16 + indentLevel * 16 } : undefined}
+            style={indentLevel ? { paddingLeft: `calc(8px + ${indentLevel} * var(--indent-step))` } : undefined}
+         data-active={isActive || undefined}
+         data-parent-of-active={showAsActiveAncestor || undefined}
+         data-indent={indentLevel}
          data-name="conversation-sidebar-item-row">
             <div className={iconContainerClass}>
                 {showRunningPulse && (
@@ -1771,6 +1979,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                 )}
                 {childCount !== undefined && childCount > 0 && (
                     <span
+                        data-name="row-child-count-badge"
                         className={`absolute -left-1 -top-1 min-w-[16px] h-[16px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none px-[3px] z-20 pointer-events-none ${
                             showRunningPulse
                                 ? 'bg-[var(--brand-primary)] text-white shadow-sm ring-1 ring-[var(--surface)]'
@@ -1804,7 +2013,8 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                 ) : (
                     <div
                         title={title}
-                        className={`flex-1 min-w-0 truncate transition-colors text-[13px] ${isActive ? 'font-medium text-[var(--text-brand)]' : 'text-gray-600 dark:text-[var(--text-muted)] group-hover:text-gray-900 dark:group-hover:text-gray-100'}`}>
+                        data-name="conversation-sidebar-item-title"
+                        className={`flex-1 min-w-0 truncate transition-colors text-[13px] ${isActive ? 'font-medium text-[var(--text-primary)]' : showAsActiveAncestor ? 'text-[var(--text-primary)]' : 'text-gray-600 dark:text-[var(--text-muted)] group-hover:text-gray-900 dark:group-hover:text-gray-100'}`}>
                         {title}
                     </div>
                 )}
@@ -1813,7 +2023,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                     <span
                         data-name="recent-item-project-badge"
                         title={projectLabel}
-                        className="inline-flex shrink-0 max-w-[6ch] truncate text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface-overlay)] text-[var(--text-secondary)]"
+                        className="inline-flex shrink-0 max-w-[8ch] truncate text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface-overlay)] text-[var(--text-secondary)]"
                     >
                         {projectLabel}
                     </span>
@@ -1829,10 +2039,22 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                             避免同一行堆两个徽章 —— pending 语义更强，且两者构造上互斥） */}
                         {!hasPending && showDoneUnread && <StatusBadge type="success">完成</StatusBadge>}
                         <div
-                            className={`text-[11px] whitespace-nowrap shrink-0 transition-colors ${isActive ? 'font-medium text-[var(--text-brand)] opacity-70' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-400'}`}>
+                            className={`text-[11px] whitespace-nowrap shrink-0 transition-colors ${isActive ? 'font-medium text-[var(--text-primary)] opacity-70' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-400'}`}>
                             {getRelativeTime(timestamp)}
                         </div>
                     </>
+                )}
+                {/* 置顶的表达 = 行尾图钉角标（spec §5.1 / V2）：类型剪影不再被替换，
+                    故置顶与类型两个信息同时可见。纯装饰、不参与点击（pointer-events-none）。 */}
+                {pinned && (
+                    <span data-name="row-pin-badge"
+                          className="shrink-0 pointer-events-none text-[var(--text-muted)]"
+                          aria-hidden="true">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             strokeWidth="2">
+                            <path d="M12 17v5M9 3h6l-1 9 3 3H7l3-3z"/>
+                        </svg>
+                    </span>
                 )}
             </div>
         </div>
