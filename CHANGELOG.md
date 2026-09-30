@@ -7,6 +7,32 @@
 
 ---
 
+## [v0.5.22] - 2026-09-30
+
+### 新增
+- **mermaid 图表渲染** — 助手回复中的 mermaid 代码块懒加载渲染为图，失败自动降级为源码 (`message-list/MermaidBlock` / `mermaidSource` / `MarkdownRenderer`)
+- **Worker 池预热** — 新会话首条消息冷启动 471ms → 34ms (`agent/manager.impl` / `manager.constants`)
+- **子会话快捷跳转** — 点工具卡上的 Agent 卡片直接跳到对应子会话 (`message-list/ToolCallHeader` / `ToolCallRenderer` / `SubAgentViewer`)
+- **记忆归档卷索引** — 归档卷索引构建（缓存/预算/逐卷降级）、卷首摘要抽取纯函数、索引注入 pre-step 与首轮窗口接线、状态 digest 与恢复链路 (`agent/memory/archiveIndex` / `agent/loop/archiveIndexPublish` / `memoryIPC` / `memoryTree`)
+- **索引预算配置项** — 配置项补齐类型与工具链路，索引硬截断口径统一 (`shared/types/settings` / `configKeys` / `systemManageTool`)
+- **记忆管理跨项目归档卷** — 记忆管理窗口支持跨项目归档卷 (`memoryIPC` / `memoryTree` / `MemoryManagerDialog`)
+- **子 Agent 工具集扩展** — agent 工具支持 additionalTools 并集扩展，list_agents 名册输出各 Agent 工具集 (`builtin/agentToolTools` / `agentTool` / `listAgentsTool`)
+
+### 变更
+- **侧栏项目段默认折叠** — 展开集 expandedGroupIds 落盘 + 激活段实时展开；段头折叠入口改为项目图标；会话行密度收敛、图标容器与段头对齐 (`ConversationSidebar` / `sidebarStore` / `conversationSections`)
+- **file_read 输出统一** — 行号 + 总行数摘要 (`builtin/fileReadTool`)
+- **思考块渲染统一** — ThinkBlock 内容改走 MarkdownRenderer，展开态语义收敛 (`ThinkBlock` / `globals.css`)
+- **快捷键弹窗原语复用** — 抽出公共键位卡 ShortcutGroupCard/StaticRow，恢复设置页 chunk 隔离 (`ShortcutGroupCard` / `ShortcutHelpDialog` / `ShortcutsTab`)
+
+### 修复
+- **流式块排序口径统一** — textOffset 后按 timestamp 判序，streamBatch 保序、子会话块落库补 turnIndex (`stores/agentStore` / `streamBatch` / `childConvMessages`)
+- **预热 Worker 回收缺口** — pending 态被退出回收、迟到 ready 不再复活 (`agent/worker` / `manager.impl`)
+- **中文路径显示** — git core.quotepath 关闭还原非 ASCII 路径 + absPath 分隔符统一 (`project-manager/gitExec` / `absPath`)
+- **mermaid 临时容器泄漏** — 渲染失败清理遗留在 body 的临时容器 (`MermaidBlock`)
+- **文件树交互** — 双击清选、树/列表行不可选（选区抑制扩展）(`TreeRow` / `FileTree` / `selectionPolicy`)
+- **配色 token** — 方案选择器 color-mix 档位归位并改深色降档 (`SchemeSelector` / `globals.css`)
+- **子会话查看器布局** — 去掉 max-height 恢复内容展开 (`SubAgentViewer`)
+
 ## [v0.5.21] - 2026-09-24
 
 ### 新增
