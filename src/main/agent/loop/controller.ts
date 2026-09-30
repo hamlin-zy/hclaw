@@ -40,6 +40,8 @@ import {restoreCatalogState, runCatalogPreStep, type CatalogState} from './catal
 import {toolRegistry} from '../tools/registry'
 import {restoreEnvState, runEnvPreStep, type EnvState} from './envPublish'
 import {restoreMemoryState, runMemoryPreStep, type MemoryState} from './memoryPublish'
+import {runArchiveIndexPreStep} from './archiveIndexPublish'
+import {ARCHIVE_INDEX_DEFAULTS} from '../memory/archiveIndex'
 import {restoreLanguageGuardState, runLanguageGuardPreStep, isLanguageGuardIteration, resolveSubagentLanguageSection, type LanguageGuardState} from './languageGuardPublish'
 import {getHclawDir} from '../../hclawPaths'
 import {buildCommandTaskContent} from '../utils/userContentBuilder'
@@ -642,6 +644,28 @@ export class AgentLoopController {
                     workspacePath: workingDir,
                     memoryEnabled: getSettings()?.memory?.enabled ?? true,
                     channel: sessionChannel,
+                })
+                currentState = r.state
+                memoryState = r.memoryState
+            }
+
+            // ── 归档卷索引发布（pre-step）：索引 digest 变化时追加索引消息 ──
+            //   ★ 与语言守卫同因，只在每个 run 的首次迭代注入：iteration ≥2 追加会让
+            //     重建序列在注入点分叉、前缀缓存全失效（R16：门禁在 controller 侧）。
+            if (turnCount === 1) {
+                // memory.archiveIndex 为新增可选配置：键缺省即用默认（刻意设计），
+                // 三个字段逐字段回落 ARCHIVE_INDEX_DEFAULTS。
+                const archiveIndexCfg = getSettings()?.memory?.archiveIndex
+                const r = runArchiveIndexPreStep(currentState, memoryState, conversationRepo, sessionId, {
+                    hclawDir: getHclawDir(),
+                    workspacePath: workingDir,
+                    memoryEnabled: getSettings()?.memory?.enabled ?? true,
+                    channel: sessionChannel,
+                    limits: {
+                        maxBytes: archiveIndexCfg?.maxBytes ?? ARCHIVE_INDEX_DEFAULTS.maxBytes,
+                        summaryMaxChars: archiveIndexCfg?.summaryMaxChars ?? ARCHIVE_INDEX_DEFAULTS.summaryMaxChars,
+                        recentKeep: archiveIndexCfg?.recentKeep ?? ARCHIVE_INDEX_DEFAULTS.recentKeep,
+                    },
                 })
                 currentState = r.state
                 memoryState = r.memoryState

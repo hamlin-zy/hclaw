@@ -6,9 +6,15 @@ describe('absPath', () => {
     expect(absPath('/home/me/proj', 'src/a.ts')).toBe('/home/me/proj/src/a.ts')
   })
 
+  it('Windows 工作区：分隔符统一为 \\', () => {
+    expect(absPath('E:\\workspace\\customers\\yk-agents', 'docs/guide/ligratrag-guide.md'))
+      .toBe('E:\\workspace\\customers\\yk-agents\\docs\\guide\\ligratrag-guide.md')
+    expect(absPath('C:\\work\\proj\\', 'src/a.ts')).toBe('C:\\work\\proj\\src\\a.ts')
+  })
+
   it('去除工作区尾部分隔符（兼容 / 与 \\）', () => {
     expect(absPath('/home/me/proj/', 'src/a.ts')).toBe('/home/me/proj/src/a.ts')
-    expect(absPath('C:\\work\\proj\\', 'src/a.ts')).toBe('C:\\work\\proj/src/a.ts')
+    expect(absPath('C:\\work\\proj\\', 'src/a.ts')).toBe('C:\\work\\proj\\src\\a.ts')
   })
 
   it("relPath 为 '.' → 工作区根（去尾分隔符）", () => {

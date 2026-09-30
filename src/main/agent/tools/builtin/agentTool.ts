@@ -30,6 +30,8 @@ import type {ChildConvCreatedRendererPayload} from '@shared/types/events'
 import {logger} from '../../logger'
 import {agentRegistry} from '../../agentRegistry'
 import {agentTemplateToDefinition} from '../../agentTemplateConverter'
+import {toolRegistry} from '../registry'
+import {resolveEffectiveTools, formatToolsNotice} from './agentToolTools'
 import type {AgentDefinition} from '@shared/agent'
 import type {LLMProvider, ModelOverride, ModelRole, ModelScheme} from '@shared/types'
 import {getRoleConfig, isTextRoleUsable, getUsableTextRoles} from '@shared/modelSchemeHelpers'
@@ -133,7 +135,7 @@ function getRecursionDepth(convId: string): number {
 
 // ─── 输入 Schema ──────────────────────────────────────────
 
-type AgentToolInput = { task: string; agent: string; tools?: string[]; modelRole: ModelRole }
+type AgentToolInput = { task: string; agent: string; tools?: string[]; additionalTools?: string[]; modelRole: ModelRole }
 
 /**
  * 解析子会话应固化的模型 override（ModelSelector 显示 + 子会话内后续轮次一致）。
@@ -214,6 +216,8 @@ function buildInputSchema(): z.ZodType<AgentToolInput> {
             .describe(`必填。要作为子 Agent 运行的已启用 Agent 名称，从以下候选中选择：${candidates}。名称需完整精确（含" Agent"后缀），如 "Implementer Agent"；传入前缀近义词会由系统容错匹配。类型映射：实现/修复→Implementer、审查→Code Reviewer、代码搜索/调研→Explore、架构规划→Plan、验证→Verification、模糊或跨领域→General。`),
         tools: z.array(z.string()).optional()
             .describe('允许使用的工具白名单（指定 agent 时覆盖 Agent 定义的白名单）'),
+        additionalTools: z.array(z.string()).optional()
+            .describe('在 agent 默认工具之外补充工具（并集，不替换默认集）。仅在需要 agent 默认没有的能力时使用（如给只读 agent 补 web_fetch）。填错不报错，未生效项会在返回结果中说明。'),
         modelRole: z.enum(availableRoles.length ? availableRoles as [ModelRole, ...ModelRole[]] : ['primary' as ModelRole])
             .describe(
                 `必填。子 Agent 使用的模型档位，取值仅限当前可用文本角色：${availableRoles.join('、') || 'primary（当前无可用文本角色，请先在设置中配置）'}。` +
@@ -249,10 +253,13 @@ function buildAgentToolDescription(): string {
         '架构规划→Plan、验证→Verification、模糊或跨领域→General。' +
         '名称不含插件后缀，可选项之外的名称会报错重试。\n' +
         `【必填】modelRole：子 Agent 使用的模型档位${roleGuidance}。\n` +
-        '【编排】① 先规划再派遣：识别关键路径上的阻塞任务与可并行旁路任务，' +
-        '不把阻塞自己的任务派出去空等；② 独立步骤尽量一次并行派遣；' +
-        '③ 编码优先派 Implementer（可落地）、调研才派 Explore，简单任务自己做。' +
-        ' If unsure which agent fits the task, call list_agents first.'
+        '【编排】① 先规划再派遣：会阻塞自己的任务自己做，不要派出去后空等；' +
+        '② 独立步骤尽量一次并行派遣；' +
+        '③ 编码优先派 Implementer（可落地）、调研才派 Explore，简单任务自己做。\n' +
+        '【可选】additionalTools：在 agent 默认工具之外补充工具（并集，不替换默认集）。\n' +
+        '仅在需要默认没有的能力时填（如给 Explore 补 web_fetch）；填错不报错，未生效项会在返回结果中说明。\n' +
+        '【可选】tools：整体替换 agent 默认工具集（需写全，漏写即丢失能力），仅在确需缩小时使用。\n' +
+        '不确定该派哪个 Agent 时，先调用 list_agents 查看名册。'
     )
 }
 
@@ -424,6 +431,19 @@ export const agentTool: Tool<AgentToolInput, string> = {
         //   而 session_handoff 会创建独立顶层新会话并把子任务移交给它 —— 子 Agent 随即结束，
         //   父 Agent 拿到的却是"已完成"的空/半成品结果（交接门已对子会话短路，此处防模型自发调用）。
         //   黑名单比白名单更可靠：args.tools 可能把白名单覆盖为 ['*']。
+        // 子会话黑名单（agent 定义自带项 ∪ session_handoff）：同一数组同时供
+        //   工具集装配（解析 additionalTools 时判拦截）与下方 effectiveAgentDef 使用，
+        //   避免两处口径漂移；Set 去重语义保持不变。
+        const childDisallowedTools = [...(effectiveAgentDefinition.disallowedTools ?? []), 'session_handoff']
+        const toolResolution = resolveEffectiveTools({
+            baseTools: effectiveAgentDefinition.tools,
+            additionalTools: args.additionalTools,
+            agentName,
+            disallowedTools: childDisallowedTools,
+            // 与运行期注入源（loop/setup.ts 的 getToolDefinitions）同源：按 DB 启用状态过滤，
+            // 否则已禁用工具会被判为「已生效」，导致摘要漏报甚至反向提示。
+            registryNames: (await toolRegistry.getToolDefinitions()).map(d => d.name),
+        })
         const effectiveAgentDef: AgentDefinition = {
             source: 'user' as const,
             agentType: agentName,
@@ -431,10 +451,8 @@ export const agentTool: Tool<AgentToolInput, string> = {
             description: effectiveAgentDefinition.description || '',
             systemPromptTemplate: effectiveAgentDefinition.systemPromptTemplate || '',
             renderedSystemPrompt: '',
-            tools: effectiveAgentDefinition.tools || args.tools,
-            disallowedTools: [
-                ...new Set([...(effectiveAgentDefinition.disallowedTools ?? []), 'session_handoff']),
-            ],
+            tools: toolResolution.tools,
+            disallowedTools: [...new Set(childDisallowedTools)],
         }
 
         // ⑧ 构建 agentLoop 参数（当前进程/线程中运行）
@@ -742,6 +760,8 @@ export const agentTool: Tool<AgentToolInput, string> = {
         //   运行中增量 UPSERT（tool_result / llm_call_done 时机），此处最终写入（endedAt）。
         //   空轮次（极早退出）由累积器内部兜底为占位消息。
         const finalOutput = (hasError ? '' : output.trim()) || '(无输出)'
+        // 工具集提示（additionalTools 未生效项；空数组 → ''，各返回路径逐字不变）
+        const toolsNotice = formatToolsNotice(toolResolution.notices)
         finalizeChildConv(childAcc, conversationRepo, childConvId)
 
         // 通知 UI 刷新（子会话在侧栏中出现）
@@ -771,7 +791,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
         if (hasError) {
             return {
                 success: false,
-                output: `执行失败: ${errorMsg}`,
+                output: `执行失败: ${errorMsg}` + toolsNotice,
                 error: errorMsg,
             }
         }
@@ -781,7 +801,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
         if (truncatedReason) {
             return {
                 success: false,
-                output: finalOutput,
+                output: finalOutput + toolsNotice,
                 error: truncatedReason,
                 _meta: {childConvId},
             }
@@ -797,7 +817,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
 
         return {
             success: true,
-            output: finalOutput,
+            output: finalOutput + toolsNotice,
             _meta: {childConvId},
         }
     },

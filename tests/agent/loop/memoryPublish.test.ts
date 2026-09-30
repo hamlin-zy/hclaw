@@ -41,6 +41,49 @@ describe('restoreMemoryState', () => {
     const state = restoreMemoryState(messages)
     expect(state.lastMemoryDigest).toBeNull()
   })
+  it('restoreMemoryState 分别恢复记忆与索引 digest', () => {
+    const messages = [
+      {metadata: {sourceKind: 'memory', memoryDigest: 'm1'}},
+      {metadata: {sourceKind: 'memory', archiveIndexDigest: 'i1'}},
+      {metadata: {sourceKind: 'memory', memoryDigest: 'm2'}},
+    ] as unknown as Parameters<typeof restoreMemoryState>[0]
+    const s = restoreMemoryState(messages)
+    expect(s.lastMemoryDigest).toBe('m2')
+    expect(s.lastArchiveIndexDigest).toBe('i1')
+  })
+  it('只有索引消息时 lastMemoryDigest 仍为 null', () => {
+    const s = restoreMemoryState([{metadata: {sourceKind: 'memory', archiveIndexDigest: 'i1'}}] as unknown as Parameters<typeof restoreMemoryState>[0])
+    expect(s.lastMemoryDigest).toBeNull()
+    expect(s.lastArchiveIndexDigest).toBe('i1')
+  })
+  it('两者都无时为 null/null', () => {
+    const s = restoreMemoryState([{metadata: {sourceKind: 'catalog'}}] as unknown as Parameters<typeof restoreMemoryState>[0])
+    expect(s).toEqual({lastMemoryDigest: null, lastArchiveIndexDigest: null})
+  })
+  // ★ 脏行继续向前扫描（R13 ②）：倒序扫描遇「无 digest / digest 值非法 / 非法 JSON 的
+  //   metadata」一律跳过而非终止 —— 终止会让被脏行遮挡的更早 digest 永久丢失，
+  //   表现为重启后重复注入（门控恒判未发布）。
+  it('★ 脏行不终止扫描：跨过脏行仍能取到更早的有效 digest', () => {
+    const messages = [
+      {metadata: {sourceKind: 'memory', memoryDigest: 'm1', archiveIndexDigest: 'i1'}},
+      {metadata: 'not-json{'},                                    // 非法 JSON（parse 失败回落原始文本）
+      {metadata: {sourceKind: 'memory'}},                          // 无 digest
+      {metadata: {sourceKind: 'memory', archiveIndexDigest: 'i2'}},
+      {metadata: {sourceKind: 'memory', memoryDigest: 123}},       // digest 值非法（非 string）
+      {metadata: undefined},
+      {metadata: {sourceKind: 'memory', memoryDigest: 'm2'}},
+    ] as unknown as Parameters<typeof restoreMemoryState>[0]
+    const s = restoreMemoryState(messages)
+    expect(s.lastMemoryDigest).toBe('m2')
+    // 判别力：若实现遇脏行提前 break，索引 3 的 i2 永远扫不到 → 此处为 null（红）
+    expect(s.lastArchiveIndexDigest).toBe('i2')
+  })
+
+  it('单条同时带两 key 时两字段都恢复', () => {
+    const s = restoreMemoryState([{metadata: {sourceKind: 'memory', memoryDigest: 'm1', archiveIndexDigest: 'i1'}}] as unknown as Parameters<typeof restoreMemoryState>[0])
+    expect(s.lastMemoryDigest).toBe('m1')
+    expect(s.lastArchiveIndexDigest).toBe('i1')
+  })
 })
 
 describe('runMemoryPreStep', () => {
@@ -63,7 +106,7 @@ describe('runMemoryPreStep', () => {
 
   it('returns unchanged when memoryEnabled is false', () => {
     const state = createLoopState([])
-    const result = runMemoryPreStep(state, {lastMemoryDigest: null}, null, undefined, {hclawDir, workspacePath: '/ws', memoryEnabled: false})
+    const result = runMemoryPreStep(state, {lastMemoryDigest: null, lastArchiveIndexDigest: null}, null, undefined, {hclawDir, workspacePath: '/ws', memoryEnabled: false})
     expect(result.state).toBe(state)
     expect(result.memoryState.lastMemoryDigest).toBeNull()
   })
@@ -71,14 +114,14 @@ describe('runMemoryPreStep', () => {
   it('returns unchanged for schedule channel', () => {
     writeMemoryFixture()
     const state = createLoopState([])
-    const result = runMemoryPreStep(state, {lastMemoryDigest: null}, null, undefined, {hclawDir, workspacePath: '/ws', memoryEnabled: true, channel: 'schedule'})
+    const result = runMemoryPreStep(state, {lastMemoryDigest: null, lastArchiveIndexDigest: null}, null, undefined, {hclawDir, workspacePath: '/ws', memoryEnabled: true, channel: 'schedule'})
     expect(result.state).toBe(state)
   })
 
   it('returns unchanged when loadMemory yields null (no mem dir)', () => {
     const missing = join(hclawDir, 'nonexistent')
     const state = createLoopState([])
-    const result = runMemoryPreStep(state, {lastMemoryDigest: null}, null, undefined, {hclawDir: missing, workspacePath: '/ws', memoryEnabled: true})
+    const result = runMemoryPreStep(state, {lastMemoryDigest: null, lastArchiveIndexDigest: null}, null, undefined, {hclawDir: missing, workspacePath: '/ws', memoryEnabled: true})
     expect(result.state).toBe(state)
   })
 
@@ -86,7 +129,7 @@ describe('runMemoryPreStep', () => {
     mkdirSync(join(hclawDir, 'mem', 'ref', '_user'), {recursive: true})
     writeMemoryFixture()
     const state = createLoopState([])
-    const result = runMemoryPreStep(state, {lastMemoryDigest: null}, null, 'sess-1', {hclawDir, workspacePath: '/ws', memoryEnabled: true})
+    const result = runMemoryPreStep(state, {lastMemoryDigest: null, lastArchiveIndexDigest: null}, null, 'sess-1', {hclawDir, workspacePath: '/ws', memoryEnabled: true})
 
     expect(result.state).not.toBe(state)
     expect(result.state.messages.length).toBe(1)
@@ -117,7 +160,7 @@ describe('runMemoryPreStep', () => {
       JSON.stringify({[WS]: {dir: 'proj', projectName: 'hclaw'}}))
 
     const state = createLoopState([])
-    const result = runMemoryPreStep(state, {lastMemoryDigest: null}, null, 'sess-h1',
+    const result = runMemoryPreStep(state, {lastMemoryDigest: null, lastArchiveIndexDigest: null}, null, 'sess-h1',
       {hclawDir, workspacePath: WS, memoryEnabled: true})
     const content = String(result.state.messages[0].content)
 
@@ -136,7 +179,7 @@ describe('runMemoryPreStep', () => {
     mkdirSync(join(hclawDir, 'mem', 'ref', '_user'), {recursive: true})
     writeMemoryFixture()
     const state = createLoopState([])
-    const first = runMemoryPreStep(state, {lastMemoryDigest: null}, null, undefined, {hclawDir, workspacePath: '/ws', memoryEnabled: true})
+    const first = runMemoryPreStep(state, {lastMemoryDigest: null, lastArchiveIndexDigest: null}, null, undefined, {hclawDir, workspacePath: '/ws', memoryEnabled: true})
     const second = runMemoryPreStep(first.state, first.memoryState, null, undefined, {hclawDir, workspacePath: '/ws', memoryEnabled: true})
     expect(second.state).toBe(first.state)
     expect(second.memoryState.lastMemoryDigest).toBe(first.memoryState.lastMemoryDigest)
@@ -146,14 +189,14 @@ describe('runMemoryPreStep', () => {
     writeMemoryFixture()
     const state = createLoopState([])
     loadMemoryMock.throwOnLoad = true
-    const result = runMemoryPreStep(state, {lastMemoryDigest: null}, null, undefined, {hclawDir, workspacePath: '/ws', memoryEnabled: true})
+    const result = runMemoryPreStep(state, {lastMemoryDigest: null, lastArchiveIndexDigest: null}, null, undefined, {hclawDir, workspacePath: '/ws', memoryEnabled: true})
     expect(result.state).toBe(state)
     expect(result.memoryState.lastMemoryDigest).toBeNull()
   })
 
   it('returns unchanged and does not throw on load error (invalid path)', () => {
     const state = createLoopState([])
-    const result = runMemoryPreStep(state, {lastMemoryDigest: null}, null, undefined, {hclawDir: '\0invalid', workspacePath: '/ws', memoryEnabled: true})
+    const result = runMemoryPreStep(state, {lastMemoryDigest: null, lastArchiveIndexDigest: null}, null, undefined, {hclawDir: '\0invalid', workspacePath: '/ws', memoryEnabled: true})
     expect(result.state).toBe(state)
   })
 })

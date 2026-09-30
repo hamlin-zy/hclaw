@@ -187,9 +187,7 @@ export default function SubAgentViewer({
                         <div className="rounded-lg p-3 text-xs leading-relaxed" style={{
                             backgroundColor: 'var(--surface-muted)',
                             border: '1px solid var(--border)',
-                            color: 'var(--text-primary)',
-                            maxHeight: 300,
-                            overflow: 'auto'
+                            color: 'var(--text-primary)'
                         }}>
                             <MarkdownRenderer>{String(result.output)}</MarkdownRenderer>
                         </div>
@@ -216,9 +214,7 @@ export default function SubAgentViewer({
                              style={{
                                  backgroundColor: 'var(--error-muted)/15',
                                  border: '1px solid rgba(239,68,68,0.2)',
-                                 color: 'var(--error)',
-                                 maxHeight: 300,
-                                 overflow: 'auto'
+                                 color: 'var(--error)'
                              }}>
                             {String(result.error)}
                         </pre>

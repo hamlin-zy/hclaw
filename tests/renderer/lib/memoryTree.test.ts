@@ -7,6 +7,9 @@ describe('buildTreeData', () => {
     globalFiles: [
       { path: '/ref/_user/preferences.md', label: '跨项目偏好', sizeLimit: 4096 },
     ],
+    crossProjectArchiveFiles: [
+      { path: '/ref/_user/archive/2026-09-cross.md', label: '跨项目经验', sizeLimit: 0 },
+    ],
     projects: [
       {
         dir: 'hclaw',
@@ -38,8 +41,49 @@ describe('buildTreeData', () => {
     const tree = buildTreeData(input);
     expect(tree[0]!.label).toBe('用户偏好');
     expect(tree[0]!.defaultExpanded).toBe(true);
-    expect(tree[0]!.children).toHaveLength(1);
+    // children：跨项目偏好文件 + 跨项目归档卷分组
+    expect(tree[0]!.children).toHaveLength(2);
     expect(tree[0]!.children![0].filePath).toBe('/ref/_user/preferences.md');
+  });
+
+  it('用户偏好 node 下渲染「跨项目归档卷」分组（节点类型同项目归档卷）', () => {
+    const tree = buildTreeData(input);
+    const group = tree[0]!.children!.find((n) => n.label === '跨项目归档卷');
+    expect(group).toBeDefined();
+    expect(group!.nodeType).toBe('archive-folder');
+    expect(group!.expandable).toBe(true);
+    expect(group!.defaultExpanded).toBe(false);
+    expect(group!.children).toHaveLength(1);
+    expect(group!.children![0]).toMatchObject({
+      label: '跨项目经验',
+      filePath: '/ref/_user/archive/2026-09-cross.md',
+      sizeLimit: 0,
+      nodeType: 'archive-file',
+    });
+  });
+
+  it('crossProjectArchiveFiles 为 undefined 时不崩且不渲染该分组', () => {
+    const result: MemoryListResult = {
+      globalFiles: [{ path: '/ref/_user/preferences.md', label: '跨项目偏好', sizeLimit: 4096 }],
+      projects: [],
+    };
+    const tree = buildTreeData(result);
+    expect(tree).toHaveLength(1);
+    expect(tree[0]!.children!.some((n) => n.label === '跨项目归档卷')).toBe(false);
+  });
+
+  it('仅有跨项目归档卷（无全局文件）时仍渲染用户偏好节点与分组', () => {
+    const result: MemoryListResult = {
+      globalFiles: [],
+      projects: [],
+      crossProjectArchiveFiles: [
+        { path: '/ref/_user/archive/a.md', label: '卷 A', sizeLimit: 0 },
+      ],
+    };
+    const tree = buildTreeData(result);
+    expect(tree).toHaveLength(1);
+    expect(tree[0]!.label).toBe('用户偏好');
+    expect(tree[0]!.children![0]!.label).toBe('跨项目归档卷');
   });
 
   it('项目记忆 is a virtual grouping node (no filePath) containing project nodes', () => {

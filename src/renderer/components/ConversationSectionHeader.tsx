@@ -1,14 +1,18 @@
+import {Briefcase} from 'lucide-react'
 import type {ConversationSection} from '../lib/conversationSections'
 import {UNASSIGNED_WORKSPACE_KEY} from '../lib/workspacePath'
 
 /**
  * 项目段段头（spec §7.3，变体 A）。
  *
- * 三操作分工：chevron = 折叠本段（不动 viewScope）；文件夹 = 打开项目管理窗口；
- * 「+」= 在该项目新建会话（停留当前视图）。
+ * 三操作分工：项目图标 = 折叠本段（不动 viewScope，颜色区分展开/折叠态）；
+ * 项目管理按钮（文件夹图标）= 打开项目管理窗口；「+」= 在该项目新建会话（停留当前视图）。
  *
  * 视觉约束（不得加码）：段头轻量 —— 小字 + 图标 + 分支徽章；不做卡片；
  * 五列栅格，条数常显（展开态与折叠态均显示「N 条」）。
+ * 左缘对齐内容区（pl-0）：段头图标左缘与搜索框/列表内容左缘齐平，不再额外内缩
+ * 8px（2026-09-30 用户反馈「项目左侧距卡片左边框太远」）。
+ * 折叠入口 = 项目图标 + 项目名（2 处，与旧 chevron + 项目名的两处口径等量）。
  */
 export function ConversationSectionHeader({section, onToggleCollapsed, onOpenProjectManager, onNewConversation}: {
     section: ConversationSection
@@ -26,21 +30,29 @@ export function ConversationSectionHeader({section, onToggleCollapsed, onOpenPro
         <div
             data-name="conversation-section-header"
             data-project-path={projectPath}
-            className="grid grid-cols-[12px_minmax(0,1fr)_fit-content(84px)_44px_fit-content(46px)] items-center gap-1.5 px-2 pt-1 pb-0.5"
+            className="grid grid-cols-[16px_minmax(0,1fr)_fit-content(84px)_44px_fit-content(46px)] items-center gap-1.5 pl-0 pr-2 pt-1 pb-0.5"
         >
+            {/* 项目图标按钮：既是折叠入口（替代原 chevron），也是展开/折叠态的视觉信号
+                —— 展开态灰（--text-muted，与项目名同色系、清晰可辨 = 当前展开可折叠），
+                折叠态淡品牌色（--brand-primary 40% + transparent —— 六成透到背景，暗示「已收起」）。
+                aria-expanded / aria-label 与原 chevron 口径完全一致（无障碍不变）。
+                图标用 Briefcase（公文包）= "一个工作项目"，与段头 PM 按钮的 Folder（单文件夹，
+                项目管理窗口本体）以及组视图徽章上的 Folders（多文件夹，多个项目的组）视觉区分。
+                用 inline style 指定颜色：Tailwind JIT 对「任意值色值类名内嵌 color-mix」这种
+                方括号 + 括号嵌套的写法可能不生成（观察色不生效），inline style 保证渲染路径单一。
+                折叠态混色锚 transparent 而非 white：white 只在浅色主题下「退到背景」，
+                深色主题下反被提亮成高对比（2026-09-30 用户反馈深色下展开/折叠效果反转）；
+                transparent 让折叠态在深浅两套主题下都弱于展开态。 */}
             <button
                 onClick={onToggleCollapsed}
                 aria-label={collapsed ? `展开 ${projectName}` : `折叠 ${projectName}`}
                 aria-expanded={!collapsed}
-                data-name="section-collapse-toggle"
-                className={iconButtonClass}
+                title={collapsed ? `展开 ${projectName}` : `折叠 ${projectName}`}
+                data-name="section-project-icon"
+                className="flex items-center justify-center w-4 h-4 shrink-0 rounded transition-colors hover:bg-[var(--surface-muted)]"
+                style={{color: collapsed ? 'color-mix(in srgb, var(--brand-primary) 40%, transparent)' : 'var(--text-muted)'}}
             >
-                <svg
-                    className={`w-3 h-3 transition-transform duration-200 ${collapsed ? '' : 'rotate-90'}`}
-                    viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"
-                >
-                    <polyline points="9 18 15 12 9 6"/>
-                </svg>
+                <Briefcase className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true"/>
             </button>
 
             {/* 项目名：唯一弹性收缩项（flex-1 + min-w-0），超长省略，

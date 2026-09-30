@@ -50,13 +50,15 @@ function openDialog() {
 }
 
 describe('ShortcutHelpDialog', () => {
-  it('状态栏按钮打开弹窗：模态语义 + 四个档位标题齐备', () => {
+  it('状态栏按钮打开弹窗：模态语义 + 三个档位标题齐备', () => {
     const dialog = openDialog()
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog).toHaveTextContent('快捷键说明')
-    for (const title of ['呼出（PM 窗口内全局生效）', 'QuickOpen 浮层内', '编辑区 / 差异视图（按行选中）', '面板拖拽重排中']) {
+    for (const title of ['呼出（PM 窗口内全局生效）', '编辑区 / 差异视图（按行选中）', '面板拖拽重排中']) {
       expect(dialog).toHaveTextContent(title)
     }
+    // 判别力：「QuickOpen 浮层内」档位已删除（旧版含此节 → 断言必红）
+    expect(dialog).not.toHaveTextContent('QuickOpen 浮层内')
   })
 
   it('呼出三键文案 = quickOpenBindings(IS_MAC) 计算值（改键位表必红）', () => {

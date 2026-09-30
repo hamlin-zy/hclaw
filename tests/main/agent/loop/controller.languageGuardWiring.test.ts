@@ -102,4 +102,47 @@ describe('controller 语言守卫挂载（spec §9-T7）', () => {
         // 顺序不变量：先算签名（含语言段）→ 再构建 system
         expect(sigCallIdx).toBeLessThan(buildCallIdx)
     })
+
+    /**
+     * 归档卷索引 pre-step 的挂载点契约（Task 4 / R16、R17）。
+     * 与语言守卫同因：iteration ≥2 追加会让重建序列在注入点分叉、前缀缓存全失效，
+     * 因此门禁同样落在 controller 侧（函数本身不做 iteration 判断）。
+     */
+    it('索引 pre-step 顺序夹在 memory 与 languageGuard 之间（顺序固定）', () => {
+        const memoryIdx = SOURCE.indexOf('runMemoryPreStep(')
+        const archiveIdx = SOURCE.indexOf('runArchiveIndexPreStep(')
+        const langIdx = SOURCE.indexOf('runLanguageGuardPreStep(')
+        expect(archiveIdx).toBeGreaterThan(-1)
+        expect(memoryIdx).toBeLessThan(archiveIdx)
+        expect(archiveIdx).toBeLessThan(langIdx)
+    })
+
+    it('索引 pre-step 调用点被 turnCount === 1 门禁守卫（turnCount ≥ 2 零副作用）', () => {
+        const callIdx = SOURCE.indexOf('runArchiveIndexPreStep(')
+        expect(callIdx).toBeGreaterThan(-1)
+        // 全文件唯一调用点：不得存在第二个未守卫的调用
+        expect(SOURCE.indexOf('runArchiveIndexPreStep(', callIdx + 1)).toBe(-1)
+
+        // 调用点之前**最后一个** turnCount 门禁（不用 indexOf：文件别处还有同名守卫，
+        // 误命中会让本断言恒真）。门禁必须逐字是 `=== 1`（`>= 1` 之类会让 iteration ≥2 也注入）。
+        const guardIdx = SOURCE.lastIndexOf('if (turnCount === 1) {', callIdx)
+        expect(guardIdx).toBeGreaterThan(-1)
+        expect(SOURCE.slice(guardIdx, SOURCE.indexOf('\n', guardIdx))).toBe('if (turnCount === 1) {')
+
+        // 结构级：调用点必须落在该门禁块内（块闭合为 12 空格缩进的 }），移出即红
+        const closeIdx = SOURCE.indexOf('\n            }', guardIdx)
+        expect(closeIdx).toBeGreaterThan(guardIdx)
+        expect(SOURCE.slice(guardIdx, closeIdx)).toContain('runArchiveIndexPreStep(')
+
+        // R16：iteration 判断不得下沉到 pre-step 自身
+        const PUBLISH_SRC = readFileSync(resolve(process.cwd(), 'src/main/agent/loop/archiveIndexPublish.ts'), 'utf8')
+        expect(PUBLISH_SRC).not.toContain('turnCount')
+    })
+
+    it('索引预算取自 memory.archiveIndex 并逐字段回落默认可选配置（R17）', () => {
+        expect(SOURCE).toContain('getSettings()?.memory')
+        expect(SOURCE).toContain('ARCHIVE_INDEX_DEFAULTS.maxBytes')
+        expect(SOURCE).toContain('ARCHIVE_INDEX_DEFAULTS.summaryMaxChars')
+        expect(SOURCE).toContain('ARCHIVE_INDEX_DEFAULTS.recentKeep')
+    })
 })

@@ -840,3 +840,40 @@ describe('FileTree 加载态（骨架屏 + 刷新 spin）', () => {
     expect(btn.querySelector('svg')).not.toHaveClass('pm-spin')
   })
 })
+
+describe('双击不残留选中（用户反馈：双击的净语义是展开/打开，不是选中）', () => {
+  it('双击文件行：打开 tab 且不残留选中', async () => {
+    listDir.mockResolvedValue([fileEntry('a.ts', 'a.ts')])
+    readFile.mockResolvedValue({
+      path: 'a.ts', size: 1, content: 'x', isBinary: false, isImage: false,
+      decodeError: false, mimeType: '', truncated: false, mtime: 0, hash: 'h',
+    })
+    render(<FileTree />)
+    const row = await screen.findByRole('treeitem', {name: 'a.ts'})
+    doubleClickWithClicks(row, row)
+    await waitFor(() => expect(useEditorTabStore.getState().tabs).toHaveLength(1))
+    expect(useFileTreeStore.getState().selectedPaths.size).toBe(0)
+    expect(useFileTreeStore.getState().selectedPath).toBeNull()
+  })
+
+  it('双击目录行：展开且不残留选中', async () => {
+    listDir.mockResolvedValueOnce([dirEntry('src', 'src')])
+    listDir.mockResolvedValueOnce([])
+    render(<FileTree />)
+    const row = await screen.findByRole('treeitem', {name: 'src'})
+    doubleClickWithClicks(row, row)
+    expect(useFileTreeStore.getState().expanded.has('src')).toBe(true)
+    expect(useFileTreeStore.getState().selectedPaths.size).toBe(0)
+    expect(useFileTreeStore.getState().selectedPath).toBeNull()
+  })
+
+  it('双击 root 行：翻转展开且不残留选中', async () => {
+    listDir.mockResolvedValue([dirEntry('src', 'src')])
+    render(<FileTree />)
+    const root = await screen.findByRole('treeitem', {name: 'ws'})
+    doubleClickWithClicks(root, root)
+    await waitFor(() => expect(screen.queryByRole('treeitem', {name: 'src'})).toBeNull())
+    expect(useFileTreeStore.getState().selectedPaths.size).toBe(0)
+    expect(useFileTreeStore.getState().selectedPath).toBeNull()
+  })
+})

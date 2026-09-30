@@ -24,22 +24,43 @@ export function buildTreeData(listResult: MemoryListResult): TreeNodeData[] {
   }
   const isUserFile = (f: { path: string }) => segsByPath.get(f.path)!.includes('_user');
   const userFiles = listResult.globalFiles.filter(isUserFile);
+  // 跨项目归档卷：字段可选，渲染层一律兜底为空数组
+  const crossProjectArchiveFiles = listResult.crossProjectArchiveFiles ?? [];
 
-  // _user node
-  if (userFiles.length > 0) {
+  // _user node（含跨项目归档卷分组；只有跨项目归档卷时也渲染该节点）
+  if (userFiles.length > 0 || crossProjectArchiveFiles.length > 0) {
+    const userChildren: TreeNodeData[] = userFiles.map((f) => ({
+      key: `file:${f.path}`,
+      label: f.label,
+      filePath: f.path,
+      sizeLimit: f.sizeLimit,
+      nodeType: 'file' as const,
+    }));
+
+    if (crossProjectArchiveFiles.length > 0) {
+      userChildren.push({
+        key: 'archive:_user',
+        label: '跨项目归档卷',
+        nodeType: 'archive-folder',
+        expandable: true,
+        defaultExpanded: false,
+        children: crossProjectArchiveFiles.map((f) => ({
+          key: `file:${f.path}`,
+          label: f.label,
+          filePath: f.path,
+          sizeLimit: f.sizeLimit,
+          nodeType: 'archive-file' as const,
+        })),
+      });
+    }
+
     tree.push({
       key: 'root-user',
       label: '用户偏好',
       nodeType: 'root-user',
       expandable: true,
       defaultExpanded: true,
-      children: userFiles.map((f) => ({
-        key: `file:${f.path}`,
-        label: f.label,
-        filePath: f.path,
-        sizeLimit: f.sizeLimit,
-        nodeType: 'file' as const,
-      })),
+      children: userChildren,
     });
   }
 

@@ -4,6 +4,7 @@
  * 会话目录不推送 agents 名册；委派意图出现时先通过此工具枚举，
  * 再用确切 name 经 `agent` 工具委派。只读、无副作用。
  * 跳过 `cmd:*` 条目（已禁用条目由 getEnabled 过滤）。
+ * 每条附带 `tools`：允许工具集（定义态白名单），缺失/空/通配输出 'unrestricted'。
  *
  * spec: docs/superpowers/specs/2025-12-04-capability-catalog-hybrid-design.md §7.2
  */
@@ -67,6 +68,10 @@ export const listAgentsTool: Tool<Record<string, never>, string> = {
                     name: a.name,
                     description: briefDesc(a),
                     plugin: pluginOf(a),
+                    // 定义态白名单：不解析别名、不叠加黑名单、不过滤。缺失/空/通配统一为 'unrestricted'
+                    tools: (!a.allowedTools || a.allowedTools.length === 0 || (a.allowedTools.length === 1 && a.allowedTools[0] === '*'))
+                        ? 'unrestricted'
+                        : a.allowedTools,
                 }))
             return {success: true, output: JSON.stringify(items)}
         } catch (err) {

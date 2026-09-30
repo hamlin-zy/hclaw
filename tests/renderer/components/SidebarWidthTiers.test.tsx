@@ -14,9 +14,10 @@ describe('宽度档位', () => {
         expect(widthTier(180)).toBe('tight')
     })
 
-    it('默认宽度 320 落在 full（段头条数常显）；下限 180 落在 tight（C5）', () => {
+    it('默认宽度 320 落在 full（段头条数常显）；下限 300 落在 narrow（C5）', () => {
         expect(SIDEBAR_DEFAULT_WIDTH).toBe(320)
         expect(widthTier(SIDEBAR_DEFAULT_WIDTH)).toBe('full')
-        expect(widthTier(SIDEBAR_MIN_WIDTH)).toBe('tight')
+        // 2026-09-30：下限由 180 提到 300 → 下限落入 narrow（tight 档 <270 已不可达）
+        expect(widthTier(SIDEBAR_MIN_WIDTH)).toBe('narrow')
     })
 })

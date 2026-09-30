@@ -1,5 +1,6 @@
-import {useEffect, useState, type ComponentType, type ReactNode} from 'react'
+import {useEffect, useState, type ComponentType} from 'react'
 import {Kbd, KbdCombo} from '../../common/Kbd'
+import {GroupCard, StaticRow, type ShortcutEntry} from '../../common/ShortcutGroupCard'
 import {useSettingsStore} from '../../../stores/settingsStore'
 import {ShortcutRow} from '../ShortcutRow'
 import {PAGE_FIELD_SETS} from '../primitives/fieldSets'
@@ -7,8 +8,6 @@ import {PageResetRow} from '../primitives/ResetButton'
 import {SHORTCUT_DEFS, mergeOverrides, type ShortcutAction} from '../../../../shared/shortcuts'
 import {CommandIcon, GlobeIcon, KeyboardIcon, LayoutIcon} from '../../icons'
 import type {IconProps} from '../../icons'
-
-type ShortcutEntry = { label: string; keys: ReactNode }
 
 /** 可自定义组名（取自 SHORTCUT_DEFS 的 group 字段） */
 type ShortcutGroupName = '面板 & 窗口' | '输入 & 会话' | '全局'
@@ -37,36 +36,6 @@ const GROUP_CARDS: { title: string; icon: ComponentType<IconProps>; group?: Shor
         ],
     },
 ]
-
-/** 键位卡外壳：组标题条 + divide-y 行容器（可自定义组的行经 children 传入） */
-function GroupCard({title, icon: GroupIcon, children}: { title: string; icon: ComponentType<IconProps>; children: ReactNode }) {
-    return (
-        <div className="border border-[var(--border)] rounded-xl bg-[var(--surface)] overflow-hidden">
-            <div
-                className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-muted)] bg-[var(--surface-muted)]">
-                <span className="opacity-60 flex items-center"><GroupIcon className="w-3.5 h-3.5"/></span>
-                <h4 className="text-xs font-semibold text-[var(--text-secondary)]">
-                    {title}
-                </h4>
-            </div>
-            <div className="divide-y divide-[var(--border-muted)]">
-                {children}
-            </div>
-        </div>
-    )
-}
-
-/** 不支持自定义的静态键位行（跟随组展示，只读） */
-function StaticRow({item}: { item: ShortcutEntry }) {
-    return (
-        <div className="flex items-center justify-between px-4 py-2.5 hover:bg-[var(--surface-muted)] transition-colors">
-            <span className="text-sm text-[var(--text-primary)]">{item.label}</span>
-            <div className="flex items-center gap-1 shrink-0 ml-4">
-                {item.keys}
-            </div>
-        </div>
-    )
-}
 
 /**
  * 快捷键 Tab（spec §3.1）：四组键位卡（面板 & 窗口 / 输入 & 会话 / 全局 / Agent & 权限）。

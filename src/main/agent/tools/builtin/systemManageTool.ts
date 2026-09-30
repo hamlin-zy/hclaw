@@ -9,6 +9,8 @@ import type {Tool, ToolContext, ToolResult} from '../types'
 import type {SystemSettings} from '@shared/types'
 import {THEME_SETTINGS} from '@shared/types'
 import {systemSettingsRepo} from '../../../repositories/sqlite/systemSettingsRepository'
+// 索引预算默认值单一真源：与 controller.ts 读取侧同源，避免默认值三处漂移
+import {ARCHIVE_INDEX_DEFAULTS} from '../../memory/archiveIndex'
 
 const themeSchema = z.enum(THEME_SETTINGS).optional()
 
@@ -37,6 +39,11 @@ const inputSchema = z.object({
         }).optional(),
         memory: z.object({
             enabled: z.boolean().optional().describe('是否启用用户习惯记忆功能'),
+            archiveIndex: z.object({
+                maxBytes: z.number().optional().describe('归档卷索引正文合计上限（两级合计，字节），默认 3072'),
+                summaryMaxChars: z.number().optional().describe('归档卷单卷摘要最大码点数，默认 20'),
+                recentKeep: z.number().optional().describe('索引退化到「仅最近卷」时保留的卷数，默认 15'),
+            }).optional().describe('归档卷索引预算（缺省字段逐字段回落到内置默认）'),
         }).optional(),
     }).optional().describe('update_settings 时的配置项（增量合并，只需提供要修改的字段）'),
 })
@@ -83,6 +90,7 @@ export const systemManageTool: Tool<SystemManageInput, string> = {
                         lines.push('')
                         lines.push('=== 用户习惯记忆 ===')
                         lines.push(`  启用: ${(parsed.memory ?? {enabled: true}).enabled}`)
+                        lines.push(`  索引预算: maxBytes=${parsed.memory?.archiveIndex?.maxBytes ?? ARCHIVE_INDEX_DEFAULTS.maxBytes}, summaryMaxChars=${parsed.memory?.archiveIndex?.summaryMaxChars ?? ARCHIVE_INDEX_DEFAULTS.summaryMaxChars}, recentKeep=${parsed.memory?.archiveIndex?.recentKeep ?? ARCHIVE_INDEX_DEFAULTS.recentKeep}`)
                         lines.push('')
                         return {success: true, output: lines.join('\n')}
                     } catch {

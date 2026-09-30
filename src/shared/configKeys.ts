@@ -6,7 +6,11 @@
  * 存储后端（读回 null、静默丢配置）。收敛为单一导出，双向引用。
  */
 
-/** 视图作用域持久化载荷（`{viewScope, collapsedGroupIds, singleViewWindowHintShown?}`）的配置键 */
+/**
+ * 视图作用域持久化载荷（`{viewScope, expandedGroupIds, singleViewWindowHintShown?}`）的配置键。
+ * 2026-09-26 修订 D19：组视图段默认折叠，载荷由折叠集 `collapsedGroupIds` 反转为展开集
+ * `expandedGroupIds`（手动展开集落盘）；旧字段停读停写，键名不变。
+ */
 export const PROJECT_GROUP_VIEW_CONFIG_KEY = 'project-group-view'
 
 /** 侧栏状态持久化载荷（`{leftWidth, leftCollapsed, rightCollapsed, recentHeight}`）的配置键 */

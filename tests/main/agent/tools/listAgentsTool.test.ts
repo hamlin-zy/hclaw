@@ -66,4 +66,23 @@ describe('list_agents', () => {
         expect(result.error).toContain('boom')
         expect(result.output).toBe('')
     })
+
+    it('tools: 显式白名单输出数组，缺失 / 空 / 通配输出 unrestricted', async () => {
+        vi.spyOn(agentRegistry, 'getEnabled').mockReturnValue([
+            {enabled: true, name: 'Explore Agent', description: 'x', allowedTools: ['glob', 'grep']},
+            {enabled: true, name: 'A', description: 'x'},
+            {enabled: true, name: 'B', description: 'x', allowedTools: []},
+            {enabled: true, name: 'C', description: 'x', allowedTools: ['*']},
+            // Ruling-9：'*' 与具体项混排按数组原样输出，不归一为 unrestricted
+            //（与 filter.ts 第 4 层「'*' 解析不到即丢弃」语义一致）
+            {enabled: true, name: 'D', description: 'x', allowedTools: ['*', 'glob']},
+        ] as any)
+        const result = await listAgentsTool.execute({} as any, {} as any)
+        const parsed = JSON.parse(result.output)
+        expect(parsed[0].tools).toEqual(['glob', 'grep'])
+        expect(parsed[1].tools).toBe('unrestricted')
+        expect(parsed[2].tools).toBe('unrestricted')
+        expect(parsed[3].tools).toBe('unrestricted')
+        expect(parsed[4].tools).toEqual(['*', 'glob'])
+    })
 })

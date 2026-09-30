@@ -54,7 +54,18 @@ function isLanguageGuardMessage(msg: {metadata?: unknown; sourceKind?: unknown})
     return getCatalogMeta(msg)?.sourceKind === SOURCE_KIND_LANGUAGE_GUARD
 }
 /**
- * 可见的 user 消息：role 为 user 且非内部注入（catalog / command-task / system-env / language-guard）。
+ * 归档卷索引（长期记忆索引，按需 file_read 读取卷全文）内部消息：仅驱动 LLM 消息流，
+ * 不渲染为气泡、不参与用户消息导航。
+ * ★ 判据是 metadata 的 archiveIndexDigest（不新增 sourceKind 类别 —— 索引消息与记忆消息
+ *   共用 sourceKind='memory'）。必须在 <system-reminder> 包裹失效（指引行跑到包裹外）时
+ *   仍然过滤，否则索引消息会渲染成用户气泡并进入用户消息导航。
+ * ★ getCatalogMeta 已兼容「内存态 metadata 子对象」与「DB 读回展开到顶层」两种形态。
+ */
+function isArchiveIndexMessage(msg: {metadata?: unknown; sourceKind?: unknown}): boolean {
+    return getCatalogMeta(msg)?.archiveIndexDigest !== undefined
+}
+/**
+ * 可见的 user 消息：role 为 user 且非内部注入（catalog / command-task / system-env / language-guard / 归档卷索引）。
  * 内部注入消息「对用户不可见、对 LLM 可见」，不得参与用户消息导航索引，
  * 也不得触发「新消息到达即回到底部」。
  */
@@ -70,6 +81,8 @@ function isVisibleUserMessage(msg: {metadata?: unknown; sourceKind?: unknown; co
 function isImplicitReminderMessage(msg: {metadata?: unknown; sourceKind?: unknown; content?: unknown; role?: string}): boolean {
     // 先走 sourceKind 正常路径
     if (isCatalogMessage(msg) || isCommandTaskMessage(msg) || isSystemEnvMessage(msg) || isLanguageGuardMessage(msg)) return true
+    // 归档卷索引：复用 sourceKind='memory'，靠 metadata.archiveIndexDigest 识别
+    if (isArchiveIndexMessage(msg)) return true
     if (msg.role !== 'user') return false
     const content = typeof msg.content === 'string' ? msg.content.trim() : ''
     // 仅匹配整个内容是单个 <system-reminder> 或 <command-task> 块的消息

@@ -77,7 +77,7 @@ function seed(store: any) {
         messagesMap: {},
         loadedMessages: [],
         viewScope: {type: 'group', groupId: 'pg-a'},
-        collapsedGroupIds: [],
+        expandedGroupIds: [],
     })
 }
 

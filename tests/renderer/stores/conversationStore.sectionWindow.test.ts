@@ -32,7 +32,7 @@ beforeEach(() => {
         currentWorkspacePath: '/ws/a',
         activeConversationId: null,
         viewScope: null,
-        collapsedGroupIds: [],
+        expandedGroupIds: [],
         childWindowSizes: {'conv-1': 9, 'conv-x': 9},
     } as never)
 })

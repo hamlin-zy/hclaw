@@ -170,6 +170,18 @@ export interface SystemSettings {
   memory?: {
     /** 总开关（缺省 true） */
     enabled: boolean
+    /**
+     * 归档卷索引预算（三字段全部可选；键缺省即用内置保守默认，读取侧逐字段回落，
+     * 刻意不写入 DEFAULT_SETTINGS）。
+     */
+    archiveIndex?: {
+      /** 索引正文合计上限（两级合计，字节）。默认 3072 */
+      maxBytes?: number
+      /** 单卷摘要最大码点数。默认 20 */
+      summaryMaxChars?: number
+      /** 退化到「仅最近卷」时保留的卷数。默认 15 */
+      recentKeep?: number
+    }
   }
   /** 链接打开方式 */
   linkOpening?: {

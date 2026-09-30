@@ -3,7 +3,7 @@
  * 组视图「最近会话」跨项目区块（spec §16 追加）
  *
  * 覆盖：渲染条件（组视图 / 非组视图 / 搜索态 / 空结果）、updatedAt desc 排序、
- * 项目徽章、运行脉冲与「待确认」徽章、点击跳转 openConversationInWorkspace。
+ * 项目徽章、运行中指示与「待确认」徽章、点击跳转 openConversationInWorkspace。
  * mock 口径复刻 ConversationSidebar.sections.test.tsx。
  */
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
@@ -20,7 +20,7 @@ const convState = vi.hoisted(() => ({
     currentWorkspacePath: '/ws/a' as string | null,
     activeConversationId: null as string | null,
     searchQuery: '',
-    collapsedGroupIds: [] as string[],
+    expandedGroupIds: [] as string[],
     sectionWindowSizes: {} as Record<string, number>,
     singleViewWindowHintShown: false,
     gitBranches: {} as Record<string, string | null>,
@@ -112,8 +112,9 @@ describe('组视图「最近会话」区块', () => {
         // 项目徽章（basename）
         const badges = Array.from(document.querySelectorAll('[data-name="recent-item-project-badge"]'))
         expect(badges.map(b => b.textContent)).toEqual(['b', 'a']) // b 项目 updatedAt 更新，排前
-        // 徽章最大宽度 8ch（2026-09-24 由 6ch 加宽 2 个字符）：basename 常在 6 字符左右被截断
-        expect(badges[0].className).toContain('max-w-[8ch]')
+        // 徽章定宽 8ch（2026-09-30 方案 C：徽章移到行尾 + 定宽，作为全行对齐的锚点；
+        // 旧口径是 max-w-[8ch] 的「最大宽度」，定宽后才锁得住时间右缘与行尾）
+        expect(badges[0].className).toContain('w-[8ch]')
         expect(badges[0].className).toContain('truncate')
     })
 
@@ -135,10 +136,28 @@ describe('组视图「最近会话」区块', () => {
         expect(sectionEl()).toBeNull()
     })
 
-    it('运行中会话：脉冲环类（animate-running-pulse）', () => {
+    it('运行中会话：行尾渲染转圈指示器（替换时间），非运行行仍渲染时间列', () => {
         agentState.convAgentStates = {'c-b1': {agentState: {status: 'running'}}}
         render(<ConversationList/>)
-        expect(rows()[0].querySelector('.animate-running-pulse')).not.toBeNull()
+        const runningRow = rows()[0]   // c-b1（updatedAt 300，排前）
+        const idleRow = rows()[1]      // c-a1
+        const spinner = runningRow.querySelector('[data-name="conversation-running-spinner"]')
+        expect(spinner).not.toBeNull()
+        expect(spinner?.getAttribute('aria-label')).toBe('运行中')
+        // 判别力：运行中行不渲染时间列（.tabular-nums 是时间 div 的标志类），非运行行反之
+        expect(runningRow.querySelector('.tabular-nums')).toBeNull()
+        expect(idleRow.querySelector('.tabular-nums')).not.toBeNull()
+        expect(idleRow.querySelector('[data-name="conversation-running-spinner"]')).toBeNull()
+    })
+
+    it('激活会话运行中：同样渲染转圈指示器（2026-09-30 用户要求，旧口径带 !isActive 门禁）', () => {
+        convState.activeConversationId = 'c-b1'
+        agentState.convAgentStates = {'c-b1': {agentState: {status: 'running'}}}
+        render(<ConversationList/>)
+        const activeRow = rows()[0]   // c-b1，同时是激活会话
+        const spinner = activeRow.querySelector('[data-name="conversation-running-spinner"]')
+        expect(spinner).not.toBeNull()
+        expect(activeRow.querySelector('.tabular-nums')).toBeNull()
     })
 
     it('待确认会话：「待确认」徽章', () => {

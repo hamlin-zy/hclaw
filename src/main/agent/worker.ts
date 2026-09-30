@@ -99,17 +99,31 @@ function requestMcpPort(): Promise<MessagePort | null> {
 }
 
 async function main(): Promise<void> {
-    const params = workerData.params as AgentStartParams & { settings?: import('@shared/types').SystemSettings }
+    const directParams = workerData.params
+    if (directParams) {
+        // 兼容模式：直接运行
+        await runSession(directParams)
+    } else {
+        // standby 模式：模块已加载，等待 attach
+        logger.info('[Worker] standby mode: modules loaded, waiting for attach')
+        parentPort?.postMessage({type: 'standby_ready'})
 
-    if (!params) {
-        parentPort?.postMessage({
-            type: 'error',
-            conversationId: 'unknown',
-            event: {type: 'error', error: 'No params provided'},
+        const params = await new Promise<AgentStartParams & { settings?: import('@shared/types').SystemSettings; llmTraceEnabled?: boolean }>((resolve) => {
+            const handler = (msg: any) => {
+                if (msg.type === 'attach') {
+                    parentPort?.off('message', handler)
+                    resolve(msg.params)
+                }
+            }
+            parentPort?.on('message', handler)
         })
-        return
-    }
 
+        logger.info('[Worker] attach received, starting runSession')
+        await runSession(params)
+    }
+}
+
+async function runSession(params: AgentStartParams & { settings?: import('@shared/types').SystemSettings; llmTraceEnabled?: boolean }): Promise<void> {
     // 加载全局系统设置（从主进程传递，不再从本地文件读取）；
     // 无传递时回退 shared 单一真源默认值（spec §6.4）
     let currentSettings: import('@shared/types').SystemSettings = params.settings || DEFAULT_SETTINGS
@@ -268,7 +282,7 @@ async function main(): Promise<void> {
     // ── llm-trace 录制开关同步 ──
     // 初态：spawn 时主进程经 workerData.params.llmTraceEnabled 下发；
     // 运行中：主进程 AgentManager.broadcastToWorkers 广播变更。
-    setRecordingEnabled((workerData as {params?: {llmTraceEnabled?: boolean}}).params?.llmTraceEnabled === true)
+    setRecordingEnabled(params.llmTraceEnabled === true)
     parentPort?.on('message', (msg: any) => {
         if (msg?.type === 'llm-trace-recording') setRecordingEnabled(!!msg.enabled)
     })

@@ -12,6 +12,8 @@ import {Component, memo, useEffect, useMemo, useState} from 'react'
 import {createPortal} from 'react-dom'
 import rehypeRaw from 'rehype-raw'
 import MediaPlayer, {extractFileName} from './MediaPlayer'
+import {MermaidBlock} from './MermaidBlock'
+import {isMermaidSource} from './mermaidSource'
 import {inferMediaTypeFromUrl, isDarkTheme, type ThemeName} from '@shared/types'
 import ImagePreviewModal from '../common/ImagePreviewModal'
 import {useSettingsStore} from '../../stores/settingsStore'
@@ -408,6 +410,10 @@ function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 
             if (/language-\w+/.test(cls)) return <>{children}</>
             const raw = child?.props?.children
             const codeText = typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.join('') : null
+            // 无语言标注但内容像 mermaid 流程图 → 交给 MermaidBlock（否则会被渲染成普通 pre）
+            if (codeText != null && isMermaidSource(codeText)) {
+                return <MermaidBlock code={codeText.replace(/\n$/, '')} isDark={isDarkTheme(theme)}/>
+            }
             return (
                 <div className="relative group my-3.5">
                     {/* 无语言围栏同样给复制入口，行为与带语言围栏对齐 */}
@@ -424,6 +430,10 @@ function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 
             // react-markdown v9 的 children 可能是数组，需要处理
             const codeString = Array.isArray(children) ? children.join('') : String(children ?? '')
             const trimmedCode = codeString.replace(/\n$/, '')
+            // mermaid 代码块 → 流程图（语言标注 mermaid，或内容嗅探命中）
+            if (!inline && isMermaidSource(trimmedCode, match?.[1])) {
+                return <MermaidBlock code={trimmedCode} isDark={isDarkTheme(theme)}/>
+            }
             return !inline && match ? (
                 <div className="relative group overflow-x-auto">
                     <CopyButton code={trimmedCode} />

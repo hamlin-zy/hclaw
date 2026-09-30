@@ -656,7 +656,14 @@ app.on('will-quit', async () => {
   // ★ 关闭 Scheduler Worker（此前 shutdown() 无任何调用者，退出时 cron worker 线程会被整体带走
   //   而非优雅终止；线程内的定时器与在跑的脚本任务也就无从收尾）
   try { schedulerManager.shutdown(); } catch { /* ignore */ }
-  agentManager.abortAll();
+  // ★ D3：回收常驻 idleWorker（此前退出路径只遍历 this.workers，不碰 idleWorker）。
+  //   disposeIdleWorker 同步幂等：terminate 已就绪的预热 Worker + 清预热态标志与临时监听器。
+  try { agentManager.disposeIdleWorker(); } catch { /* ignore */ }
+  // ★ N3：abortAll 含 1s 优雅窗口（内部 fire-and-forget setTimeout，有界不阻塞事件循环）。
+  //   显式 void + catch 消除浮动 promise；不采用 preventDefault+app.quit() 方案——现有
+  //   will-quit 已为 async 清理序列且各步均有 try/catch 兜底，preventDefault 会二次触发
+  //   will-quit（需额外 guard 防死循环），改动面与风险远大于收益，违背最小变更。
+  void agentManager.abortAll().catch(() => { /* 退出阶段兜底，忽略 */ });
   await mcpWorkerManager.shutdown();
   // ★ 关闭 Channel Worker（此前 shutdown() 无任何调用者，退出时 Channel worker 进程会被整体带走而非优雅终止）
   try { channelManager.shutdown(); } catch { /* ignore */ }

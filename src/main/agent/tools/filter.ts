@@ -12,7 +12,7 @@ export {parseToolSpec} from './toolNameResolver'
 /**
  * 全局工具黑名单（所有 Agent 都不能使用）
  */
-const GLOBAL_DISALLOWED_TOOLS = new Set<string>([
+export const GLOBAL_DISALLOWED_TOOLS = new Set<string>([
   'skill',        // 技能工具由主 Agent 管理（注册名为小写 'skill'）
 ])
 

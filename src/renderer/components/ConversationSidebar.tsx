@@ -996,7 +996,7 @@ export function ConversationList() {
     //   否则停在组视图时抽屉里的这些操作不会让列表重算（列表陈旧）。
     const groups = useProjectGroupStore((s) => s.groups)
     const searchQuery = useConversationStore((s) => s.searchQuery)
-    const collapsedGroupIds = useConversationStore((s) => s.collapsedGroupIds)
+    const expandedGroupIds = useConversationStore((s) => s.expandedGroupIds)
     const sectionWindowSizes = useConversationStore((s) => s.sectionWindowSizes)
     const singleViewWindowHintShown = useConversationStore((s) => s.singleViewWindowHintShown)
     const gitBranches = useConversationStore((s) => s.gitBranches)
@@ -1141,7 +1141,7 @@ export function ConversationList() {
     //   少了它 → 切到落在窗口外的会话时段集合不重算，激活项仍不可见。
     const sections = useMemo(
         () => getScopedSections(),
-        [getScopedSections, workspaces, viewScope, searchQuery, collapsedGroupIds, sectionWindowSizes, childWindowSizes, gitBranches, gitBranch, currentWorkspacePath, groups, expandedChildParents, activeConversationId],
+        [getScopedSections, workspaces, viewScope, searchQuery, expandedGroupIds, sectionWindowSizes, childWindowSizes, gitBranches, gitBranch, currentWorkspacePath, groups, expandedChildParents, activeConversationId],
     )
 
     // ★ 段路径签名 = 段集合的「项目路径集合」指纹。用它而不是 sections 数组身份来驱动
@@ -1205,7 +1205,7 @@ export function ConversationList() {
         return set
     }, [activeConversationId, sections, workspaces])
 
-    // ★ 预计算 parentId → childIds 映射（子会话祖先链判断 + 父会话运行脉冲共用）
+    // ★ 预计算 parentId → childIds 映射（子会话祖先链判断 + 父会话运行中指示共用）
     const childIdsMap = useMemo(() => {
         const map = new Map<string, string[]>()
         for (const section of sections) for (const row of section.rows) {
@@ -1239,7 +1239,7 @@ export function ConversationList() {
     //   故 childWindowSizes 也进这一组。
     useEffect(() => {
         prevChildrenRef.current = null
-    }, [collapsedGroupIds, sectionWindowSizes, viewScope, childWindowSizes])
+    }, [expandedGroupIds, sectionWindowSizes, viewScope, childWindowSizes])
 
     // ★ 2026-09-24 用户反馈（「切进工作组视图时，含子会话的父会话子列表全都被展开了，看起来有点乱」）：
     //   段集合随视图整体换一套，旧视图里点开过的父会话在新视图里多半已不可见。而下方「激活链重建」
@@ -1448,7 +1448,13 @@ export function ConversationList() {
                 return (
                     <Fragment key={conv.id}>
                         {item}
-                        <div data-name="child-list" className="tree-line relative ml-2 flex flex-col items-start">
+                        {/* ★ 此容器禁用 items-start（2026-09-30 实测）：flex column 的 cross-axis
+                            起点对齐会让子项宽度退化为 fit-content（Chrome 实测取到内容 max-content），
+                            子会话行的 w 因此由长标题撑开（实测 418/506px vs 侧栏 220px），
+                            行内 ChatItem 的 flex-1 min-w-0 truncate 链条整体失效 —— 标题不截断、
+                            行尾时间/运行指示器被推出侧栏。默认 stretch 才能让行宽受容器约束。
+                            容器内 PagerBar 不受影响：其内容左对齐由自身 justify-start 决定。 */}
+                        <div data-name="child-list" className="tree-line relative ml-2 flex flex-col">
                             {childRows.map(childRow => renderRowWithChildren(childRow))}
                             {/* 2026-09-24 收口新增条件（与段级同口径，见 §5.4 / R-31/R-33）：
                                子会话总数 ≤ 子会话第一页（CHILD_DEFAULT = 3）＝ 一页装得下 →
@@ -1544,7 +1550,7 @@ export function ConversationList() {
 
             {/* 组视图「最近会话」固定底部区（spec §5.6，修订 §16.7 的上下双区形态）。
                 仅组视图 + 非搜索态 + 结果非空时渲染；行复用 ConversationItem ——
-                运行脉冲 / 待确认徽章 / hover 行为全部免费继承。
+                运行中指示 / 待确认徽章 / hover 行为全部免费继承。
                 ★ 组视图下 ConversationItem 的 hover 预热本就禁用（hoverPreloadAllowed
                 = viewScope?.type !== 'group'，见 ConversationItem :1466-1467），最近列表
                 行也在组视图内渲染 → 自动免预热，符合 §10.2-1。
@@ -1883,7 +1889,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
 
     // 读取该会话的 agent 运行时状态（后台运行/待确认标记）
     const agentStatus = convData?.agentState?.status
-    // ★ 检测子会话是否在运行中（用于父会话显示运行脉冲）
+    // ★ 检测子会话是否在运行中（用于父会话显示运行中指示）
     const childRunningStates = useAgentStore((s) => {
         if (!childIds?.length) return false
         return childIds.some(cid => {
@@ -1891,11 +1897,13 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
             return st === 'running' || st === 'thinking'
         })
     })
-    const isRunning = !isActive && (agentStatus === 'running' || agentStatus === 'thinking' || childRunningStates)
+    // 会话自身的运行态（含 isActive）：行尾运行指示与激活态无关 —— 正在跑的激活会话
+    // 同样要显示转圈（2026-09-30 用户要求）；旧的 `!isActive && …` 口径已无消费者，随之删除。
+    const agentRunning = agentStatus === 'running' || agentStatus === 'thinking' || childRunningStates
     const hasPendingQuestion = !!convData?.pendingQuestion
     const hasPermissionConfirm = !!convData?.pendingPermissionConfirm
     // ★ tools 变动门同样是「无限等待用户决策」的阻塞态：缺此标识时，后台会话被
-    //   handleConvEvent 置为 paused（运行脉冲只认 running/thinking）→ 侧栏看起来
+    //   handleConvEvent 置为 paused（运行中指示只认 running/thinking）→ 侧栏看起来
     //   完全空闲。去掉 120s 自动放行后，这是用户唯一的可发现线索。
     const hasToolsChangeConfirm = !!convData?.pendingToolsChangeConfirm
     const hasPending = hasPendingQuestion || hasPermissionConfirm || hasToolsChangeConfirm
@@ -1971,8 +1979,9 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
     // 不铺底色、不加竖条 —— 父行收起或子会话被分页遮住时，仍能看出「当前会话在这条分支下」。
     // 激活行不是自己的祖先，故排除 isActive；两态层级差 = 激活行（底色 + 提亮）/ 父行（仅提亮）。
     const showAsActiveAncestor = !!isAncestorOfActive && !isActive
+    // 行内布局：gap-1.5 = 6px，图标右沿 → 标题首字视觉距离 6px（-2/3，旧值 ≈19px）
     const containerClass = [
-        'group relative flex items-center justify-between gap-3 mx-2 px-2 py-1.5 transition-all cursor-pointer',
+        'group relative flex items-center justify-between gap-1.5 mx-2 px-2 py-1.5 transition-all cursor-pointer',
         isActive
             ? 'rounded-lg bg-[var(--act-bg)] text-[var(--text-primary)]'
             : showAsActiveAncestor
@@ -1981,10 +1990,11 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
         hasPending && 'ring-1 ring-[color-mix(in_srgb,var(--error)_30%,transparent)]',
     ].filter(Boolean).join(' ')
 
-    // 图标容器 w-5 h-5：行高密度收敛后（py-1.5）目标行高 ≈32px
-    // （子会话数徽章就叠在本容器左上角：绝对定位角标，渲染在 SessionIcon 之前）
-    // 激活态容器无底色，只给 currentColor 一个提亮值（由 SessionIcon 内部据 isActive 消费）
-    const iconContainerClass = `relative flex items-center justify-center w-5 h-5 rounded-md shrink-0 transition-colors ${
+    // 图标容器 w-4 h-4 = 16px：行高密度收敛后（py-1.5）目标行高 ≈32px。
+    // 与段头项目图标按钮（w-4 h-4）视觉重量对齐；child-count 徽章叠在本容器左上角
+    // （绝对定位角标，渲染在 SessionIcon 之前），激活态容器无底色，只给 currentColor
+    // 一个提亮值（由 SessionIcon 内部据 isActive 消费）。
+    const iconContainerClass = `relative flex items-center justify-center w-4 h-4 rounded-md shrink-0 transition-colors ${
         isActive
             ? 'text-[var(--text-primary)]'
             : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-400'
@@ -1992,7 +2002,9 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
 
     // 定时任务会话的运行状态
     const isSchedulerRunning = channel === 'schedule' && status === 'running'
-    const showRunningPulse = isRunning || isSchedulerRunning
+    // 运行中指示（行尾转圈）的总开关：**含激活会话**（2026-09-30 用户要求），
+    // 覆盖 running/thinking / 子会话运行中 / 定时任务运行中。
+    const showRunningIndicator = agentRunning || isSchedulerRunning
 
     return (
         <div
@@ -2010,16 +2022,27 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
          data-parent-of-active={showAsActiveAncestor || undefined}
          data-indent={indentLevel}
          data-name="conversation-sidebar-item-row">
+            {/* 项目名 chip（最近会话列表专用）：行首 + 定宽 w-[8ch] —— 全行对齐的锚点。
+                位置由左侧锚定（不依赖右侧任何元素），故时间可以保持「内容宽度」而无需固定槽，
+                「徽章成列」与「零空隙」同时成立。配方沿用侧栏 chip 族（GitBranchBadge :686 /
+                段头分支徽章 ConversationSectionHeader :77）：pill 形 + chip 底 + 描边 + 11px/500，
+                文字色取 --text-secondary（承载信息，不用 muted 档）。
+                ★ 只有最近会话列表传 projectLabel → 段内行不渲染本 chip，行为零变化。 */}
+            {!isRenaming && projectLabel && (
+                <span
+                    data-name="recent-item-project-badge"
+                    title={projectLabel}
+                    className="inline-flex shrink-0 items-center w-[8ch] truncate rounded-full bg-[var(--chip-bg)] border border-[var(--chip-border)] px-1.5 py-px text-[11px] font-medium text-[var(--text-secondary)]"
+                >
+                    {projectLabel}
+                </span>
+            )}
             <div className={iconContainerClass}>
-                {showRunningPulse && (
-                    <div
-                        className="absolute inset-[-3px] rounded-[10px] border-2 border-[var(--info)] animate-running-pulse pointer-events-none"/>
-                )}
                 {childCount !== undefined && childCount > 0 && (
                     <span
                         data-name="row-child-count-badge"
                         className={`absolute -left-1 -top-1 min-w-[16px] h-[16px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none px-[3px] z-20 pointer-events-none ${
-                            showRunningPulse
+                            showRunningIndicator
                                 ? 'bg-[var(--brand-primary)] text-white shadow-sm ring-1 ring-[var(--surface)]'
                                 : 'bg-[var(--chip-bg)] text-[var(--text-secondary)] border border-[var(--chip-border)]'
                         }`}
@@ -2034,7 +2057,7 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                 />
             </div>
 
-            <div className="flex-1 min-w-0 flex items-center justify-between gap-3">
+            <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
                 {isRenaming ? (
                     <input
                         autoFocus
@@ -2056,16 +2079,6 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                         {title}
                     </div>
                 )}
-                {!isRenaming && projectLabel && (
-                    // 项目名 chip（最近会话列表专用）：样式抄 MemoPanel 的 ProjectBadge
-                    <span
-                        data-name="recent-item-project-badge"
-                        title={projectLabel}
-                        className="inline-flex shrink-0 max-w-[8ch] truncate text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface-overlay)] text-[var(--text-secondary)]"
-                    >
-                        {projectLabel}
-                    </span>
-                )}
                 {!isRenaming && (
                     <>
                         {hasPendingQuestion && <StatusBadge type="error">待确认</StatusBadge>}
@@ -2076,24 +2089,32 @@ function ConversationItem({id, title, timestamp, isRenaming, onStopRename, onOpe
                         {/* 后台会话跑完的信号：与三种阻塞态互斥渲染（有 pending 时不显示，
                             避免同一行堆两个徽章 —— pending 语义更强，且两者构造上互斥） */}
                         {!hasPending && showDoneUnread && <StatusBadge type="success">完成</StatusBadge>}
-                        <div
-                            className={`text-[11px] whitespace-nowrap shrink-0 transition-colors ${isActive ? 'font-medium text-[var(--text-primary)] opacity-70' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-400'}`}>
-                            {getRelativeTime(timestamp)}
-                        </div>
+                        {/* 时间列不定宽（2026-09-30）：宽度 = 内容宽度，右端锚在行右缘（置顶角标
+                            已移除，右侧无其它元素）→ 各行时间右缘天然成列，槽内也没有富余空白。
+                            项目徽章已移到行首（左侧锚定），不再参与右侧的宽度分配。
+                            tabular-nums 让各行数字位宽一致。
+                            运行中（2026-09-30 呼吸圆环改造）：此位不渲染时间，改渲染转圈指示器 ——
+                            写法沿用仓库既有约定（StepsBlock :28 / MessageList :524）：
+                            w-3 h-3 + border-t-transparent + animate-spin。12px 与 text-[11px]
+                            时间文字的视觉重量对齐，颜色沿用原圆环的 --info。
+                            reduced-motion 降级由 globals.css 的统一块处理，此处不另加。 */}
+                        {showRunningIndicator ? (
+                            <div
+                                data-name="conversation-running-spinner"
+                                aria-label="运行中"
+                                className="shrink-0 w-3 h-3 rounded-full border-2 border-[var(--info)] border-t-transparent animate-spin"/>
+                        ) : (
+                            <div
+                                className={`tabular-nums text-[11px] whitespace-nowrap shrink-0 transition-colors ${isActive ? 'font-medium text-[var(--text-primary)] opacity-70' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-400'}`}>
+                                {getRelativeTime(timestamp)}
+                            </div>
+                        )}
                     </>
                 )}
-                {/* 置顶的表达 = 行尾图钉角标（spec §5.1 / V2）：类型剪影不再被替换，
-                    故置顶与类型两个信息同时可见。纯装饰、不参与点击（pointer-events-none）。 */}
-                {pinned && (
-                    <span data-name="row-pin-badge"
-                          className="shrink-0 pointer-events-none text-[var(--text-muted)]"
-                          aria-hidden="true">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                             strokeWidth="2">
-                            <path d="M12 17v5M9 3h6l-1 9 3 3H7l3-3z"/>
-                        </svg>
-                    </span>
-                )}
+                {/* 置顶的行尾图钉角标（spec §5.1 / V2）2026-09-30 用户拍板**移除**：
+                    置顶态不再有视觉标识（置顶功能本身仍在右键菜单里）。时间列因此独占行右端，
+                    右缘即行右缘，不需要任何恒定占位槽。
+                    `pinned` 入参保留：仍透传给 SessionIcon（其签名里的 pinned 已不参与视觉）。 */}
             </div>
         </div>
     )

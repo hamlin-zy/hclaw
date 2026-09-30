@@ -9,6 +9,10 @@
  * 手法：mock `worker_threads` 捕获 Worker 构造 options（与仓库既有对 Worker 的
  * mock 手法一致，见 tests/main/agent/mcpWorker.*.test.ts）；其余 manager.impl 依赖
  * 以最小桩替换，不驱动 agent loop。
+ *
+ * 计数口径：`workerSpy.instances` 是全局构造记录，含 AgentManager 构造时 setImmediate
+ * 触发的 standby 预热 Worker。本文件凡断言「start() 新建的会话 Worker」一律经
+ * `conversationInstances()` 过滤（依据 workerData.type），不得直接对 instances 取长度/索引。
  */
 import {describe, expect, it, vi, beforeEach} from 'vitest'
 
@@ -143,6 +147,27 @@ import type {AgentStartParams, PendingAssistantMsg} from '@/main/agent/manager.t
 import {resetBridgeMsgState} from '@/main/persistence/streamBridge'
 import {getConversationPersistence} from '@/main/persistence/conversationPersistence'
 
+/**
+ * 只取「会话 Worker」的构造记录。
+ *
+ * 背景：manager.impl.ts 的 prewarm 机制会在 AgentManager 构造时（setImmediate 内）额外
+ * 构造一个 standby 预热 Worker，其构造参数为 `{workerData: {type: 'standby'}}`（见
+ * manager.impl.ts:182）；而 start() 新建的会话 Worker 为 `{workerData: {type: 'start', params}}`
+ * （见 manager.impl.ts:470）。两者都会计入全局的 `workerSpy.instances`，若不区分，
+ * 「start() 只新建 1 个会话 Worker」的断言会被 standby 一并计数而误判（实得 2）。
+ *
+ * 因此本文件所有关于「start() 新建的 Worker」的断言一律经此 helper 断言；
+ * 注意 `instances[0]` 这种裸索引同样不可靠——standby 与会话 Worker 的构造先后由
+ * setImmediate 时序决定，instances[0] 可能取到 standby，属顺序不稳的隐患。
+ *
+ * seedWorkers 造的假条目用 `{}`（无 workerData）构造，天然不匹配 'start'，不会混入。
+ */
+function conversationInstances() {
+    return workerSpy.instances.filter(
+        (w) => (w.options.workerData as {type?: string} | undefined)?.type === 'start',
+    )
+}
+
 function makeParams(conversationId: string): AgentStartParams {
     return {
         conversationId,
@@ -154,6 +179,8 @@ function makeParams(conversationId: string): AgentStartParams {
 }
 
 function makeManager() {
+    // 清掉上一用例残留的构造记录。此时尚未执行 new AgentManager()，故本次构造触发的
+    // standby 预热 Worker 发生在清空之后，不受影响（本文件断言统一经 conversationInstances() 过滤）。
     workerSpy.instances.length = 0
     const manager = new AgentManager()
     const send = vi.fn()
@@ -188,8 +215,8 @@ describe('A) 会话 Worker 创建时传入 resourceLimits', () => {
         const manager = makeManager()
         await manager.start(makeParams('conv-a'))
 
-        expect(workerSpy.instances).toHaveLength(1)
-        const opts = workerSpy.instances[0].options as {
+        expect(conversationInstances()).toHaveLength(1)
+        const opts = conversationInstances()[0].options as {
             type?: string
             workerData?: {type?: string}
             resourceLimits?: unknown
@@ -206,7 +233,7 @@ describe('A) 会话 Worker 创建时传入 resourceLimits', () => {
         const manager = makeManager()
         await manager.start(makeParams('conv-b'))
 
-        const opts = workerSpy.instances[0].options as {workerData?: {params?: {conversationId?: string}}}
+        const opts = conversationInstances()[0].options as {workerData?: {params?: {conversationId?: string}}}
         expect(opts.workerData?.params?.conversationId).toBe('conv-b')
     })
 })
@@ -218,8 +245,9 @@ describe('B) 同一会话重启是替换自身（不新增并发 Worker）', () 
 
         await expect(manager.start(makeParams('conv-1'))).resolves.toBeUndefined()
 
-        // 新建了 1 个 Worker（替换），Map 规模不变（先 abort 旧条目）
-        expect(workerSpy.instances).toHaveLength(1)
+        // 新建了 1 个会话 Worker（替换），Map 规模不变（先 abort 旧条目）
+        // 注：实例记录里可能另有 1 个 standby 预热 Worker（见 conversationInstances 说明），故只数会话 Worker
+        expect(conversationInstances()).toHaveLength(1)
         expect(map.size).toBe(3)
         expect(manager.isRunning('conv-0')).toBe(true)
         expect(manager.isRunning('conv-2')).toBe(true)

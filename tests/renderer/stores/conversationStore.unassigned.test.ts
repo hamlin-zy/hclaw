@@ -59,7 +59,7 @@ beforeEach(() => {
         activeConversationId: null,
         viewScope: {type: 'group', groupId: 'pg-a'},
         searchQuery: '',
-        collapsedGroupIds: [],
+        expandedGroupIds: [],
         sectionWindowSizes: {},
         messagesMap: {},
         loadedMessages: [],

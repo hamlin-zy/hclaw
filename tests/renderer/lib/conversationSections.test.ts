@@ -23,7 +23,9 @@ function project(overrides: Partial<any> = {}) {
     }
 }
 
-const base = {searchQuery: '', collapsedKeys: [], }
+// ★ 2026-09-26（D19 修订）：段默认折叠。默认测试基线 = 展开段（显式列入 expandedKeys），
+//   与旧「默认全展开」用例等价；验默认折叠语义的用例显式覆盖 expandedKeys: []。
+const base = {searchQuery: '', expandedKeys: ['/ws/a'], }
 
 describe('buildConversationSections — 排序与窗口', () => {
     it('置顶优先，其余按 createdAt desc（不是 updatedAt）', () => {
@@ -167,14 +169,14 @@ describe('buildConversationSections — 搜索与折叠', () => {
         expect(sections[0].rows.map(r => r.id)).toContain('c-00')
     })
 
-    it('折叠段：rows 为空，count = 项目下全量会话数（不受窗口截断影响），hasMore 照算', () => {
+    it('默认折叠段（不在 expandedKeys）：rows 为空，count = 项目下全量会话数（不受窗口截断影响），hasMore 照算', () => {
         const conversations = [
             conv(0, {pinned: true}),
             ...Array.from({length: 12}, (_, i) => conv(10 + i)),
         ]
         const sections = buildConversationSections({
             ...base,
-            collapsedKeys: ['/ws/a'],
+            expandedKeys: [],
             projects: [project({conversations})],
         })
         expect(sections[0].collapsed).toBe(true)
@@ -188,29 +190,38 @@ describe('buildConversationSections — 搜索与折叠', () => {
         const child = {...conv(1), parentConvId: parent.id}
         const sections = buildConversationSections({
             ...base,
-            collapsedKeys: ['/ws/a'],
+            expandedKeys: [],
             projects: [project({conversations: [parent, child]})],
         })
         expect(sections[0].collapsed).toBe(true)
         expect(sections[0].count).toBe(2)
     })
 
-    it('搜索有命中时强制展开该段（忽略 collapsedKeys）', () => {
+    it('在 expandedKeys → 段展开（rows 正常计算）', () => {
+        const sections = buildConversationSections({
+            ...base,
+            expandedKeys: ['/ws/a'],
+            projects: [project()],
+        })
+        expect(sections[0].collapsed).toBe(false)
+        expect(sections[0].rows).toHaveLength(3)
+    })
+
+    it('搜索有命中时强制展开该段（不在 expandedKeys 也不折叠）', () => {
         const sections = buildConversationSections({
             ...base,
             searchQuery: '会话 1',
-            collapsedKeys: ['/ws/a'],
             projects: [project()],
         })
         expect(sections[0].collapsed).toBe(false)
         expect(sections[0].rows.length).toBeGreaterThan(0)
     })
 
-    it('搜索无命中时该段保持折叠（不因搜索而展开）', () => {
+    it('搜索无命中时该段保持默认折叠（不在 expandedKeys 且不因搜索而展开）', () => {
         const sections = buildConversationSections({
             ...base,
+            expandedKeys: [],
             searchQuery: '不存在的词',
-            collapsedKeys: ['/ws/a'],
             projects: [project()],
         })
         expect(sections[0].collapsed).toBe(true)
@@ -230,24 +241,24 @@ describe('buildConversationSections — 搜索与折叠', () => {
         expect(sections[0].rows.map(r => r.id)).toEqual(['p-1', 'k-1'])
     })
 
-    it('折叠某段不影响其他段', () => {
+    it('展开某段不影响其他段（其余段保持默认折叠）', () => {
         const sections = buildConversationSections({
             ...base,
-            collapsedKeys: ['/ws/a'],
+            expandedKeys: ['/ws/a'],
             projects: [
                 project({projectPath: '/ws/a', projectName: 'a'}),
                 project({projectPath: '/ws/b', projectName: 'b'}),
             ],
         })
-        expect(sections.map(s => s.collapsed)).toEqual([true, false])
-        expect(sections[1].rows.length).toBe(3)
+        expect(sections.map(s => s.collapsed)).toEqual([false, true])
+        expect(sections[0].rows.length).toBe(3)
     })
 
-    it('单项目视图：singleProject = true → 折叠不生效（无 chevron）', () => {
+    it('单项目视图：singleProject = true → 折叠不生效（无 chevron、恒展开）', () => {
         const sections = buildConversationSections({
             ...base,
             singleProject: true,
-            collapsedKeys: ['/ws/a'],
+            expandedKeys: ['/ws/a'],
             projects: [project()],
         })
         expect(sections[0].collapsed).toBe(false)

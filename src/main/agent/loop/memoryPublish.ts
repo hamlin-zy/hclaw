@@ -15,7 +15,7 @@ import type {ChatMessage, LoopState} from '../state'
 import {addMessage} from '../state'
 import type {IConversationRepository} from '../../repositories/interfaces'
 import type {Message} from '@shared/types'
-import {MEMORY_SOURCE_KIND, MEMORY_DIGEST_KEY} from '@shared/types/memory'
+import {MEMORY_SOURCE_KIND, MEMORY_DIGEST_KEY, ARCHIVE_INDEX_DIGEST_KEY} from '@shared/types/memory'
 import type {MemoryState} from '@shared/types/memory'
 import {loadMemory, computeMemoryDigest} from '../memory'
 import {logger} from '../logger'
@@ -23,16 +23,26 @@ import {logger} from '../logger'
 export type {MemoryState}
 
 /**
- * 从会话消息流还原：倒序取最后一条 memory 消息的 digest（崩溃恢复续用门控）。
+ * 从会话消息流还原：倒序扫描 memory 消息，记忆 digest 与归档索引 digest
+ * 各自记录最后一条出现的值；两者皆非 null 或列表耗尽即止（崩溃恢复续用门控）。
  */
 export function restoreMemoryState(messages: ReadonlyArray<ChatMessage>): MemoryState {
+    let lastMemoryDigest: string | null = null
+    let lastArchiveIndexDigest: string | null = null
     for (let i = messages.length - 1; i >= 0; i--) {
         const meta = messages[i].metadata as Record<string, unknown> | undefined
         if (meta?.sourceKind !== MEMORY_SOURCE_KIND) continue
-        const digest = meta[MEMORY_DIGEST_KEY]
-        return {lastMemoryDigest: typeof digest === 'string' ? digest : null}
+        if (lastMemoryDigest === null) {
+            const digest = meta[MEMORY_DIGEST_KEY]
+            if (typeof digest === 'string') lastMemoryDigest = digest
+        }
+        if (lastArchiveIndexDigest === null) {
+            const digest = meta[ARCHIVE_INDEX_DIGEST_KEY]
+            if (typeof digest === 'string') lastArchiveIndexDigest = digest
+        }
+        if (lastMemoryDigest !== null && lastArchiveIndexDigest !== null) break
     }
-    return {lastMemoryDigest: null}
+    return {lastMemoryDigest, lastArchiveIndexDigest}
 }
 
 /**

@@ -88,6 +88,7 @@ export function flushThinkingBatch(convId: string) {
             id: `think-${msgId}-${thinkSeq}`,
             textOffset: thinkStartOffset,
             thinkContent: batch,
+            timestamp: Date.now(),
         })
     }
     useAgentStore.getState().updateConvData(convId, {streamBlocks: currentBlocks})

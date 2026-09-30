@@ -24,7 +24,7 @@ const convState = vi.hoisted(() => ({
     currentWorkspacePath: '/ws/a' as string | null,
     activeConversationId: null as string | null,
     searchQuery: '',
-    collapsedGroupIds: [] as string[],
+    expandedGroupIds: [] as string[],
     sectionWindowSizes: {} as Record<string, number>,
     singleViewWindowHintShown: false,
     gitBranches: {} as Record<string, string | null>,

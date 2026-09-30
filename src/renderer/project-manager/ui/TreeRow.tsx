@@ -22,7 +22,7 @@ interface TreeRowProps {
   /** chevron 点击 = 展开/折叠（与行点击语义分离） */
   onToggle?: () => void
   onContextMenu?: React.MouseEventHandler<HTMLButtonElement>
-  onDoubleClick?: () => void
+  onDoubleClick?: (e: React.MouseEvent) => void
   ariaLabel?: string
   ariaExpanded?: boolean
   title?: string

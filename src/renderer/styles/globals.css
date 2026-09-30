@@ -805,6 +805,17 @@ input, textarea, [contenteditable]:not([contenteditable="false"]), .cm-editor, .
   -webkit-user-select: text;
 }
 
+/* [selection-policy] 行控件例外：树行 / 列表行是选择控件，其文本一律不可选。
+   这些行落在白名单容器（.select-text）内，而 <button> 在 Chromium 中并不免疫 user-select
+   —— UA 未给 button 设该属性，它继承容器的 text，拖选 / 双击会真的产生选区；<div> 行同理
+   （此前只靠 mousedown preventDefault 兜底，这里补上 CSS 层防线）。
+   行级 none 直接命中元素、覆盖继承来的 text，且不改变容器的白名单语义。
+   新增行控件类请并入本规则，勿在各行块内分散声明。 */
+.pm-tree-row, .pm-quickopen-row, .pm-commit-row {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 /* 子会话树引导线：位置对齐父行缩进位（spec §5.5） */
 .tree-line::before {
     content: '';
@@ -1517,6 +1528,17 @@ textarea:focus-visible {
     background: #0f172a;
 }
 
+/* mermaid 流程图块：svg 自适应容器宽度，超宽图由外层 overflow-x-auto 横向滚动 */
+.mermaid-block {
+    display: flex;
+    justify-content: center;
+}
+
+.mermaid-block svg {
+    max-width: 100%;
+    height: auto;
+}
+
 .prose pre code {
     background: transparent;
     padding: 0;
@@ -1732,24 +1754,6 @@ button:disabled {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-/* ── 会话侧边栏动画 ──────────────────────────── */
-
-/* 后台运行中：图标边框缓慢呼吸 */
-@keyframes slowPulse {
-    0%, 100% {
-        opacity: 0.3;
-        transform: scale(1);
-    }
-    50% {
-        opacity: 0.9;
-        transform: scale(1.08);
-    }
-}
-
-.animate-running-pulse {
-    animation: slowPulse 2.5s ease-in-out infinite;
 }
 
 /* 待确认徽章呼吸阴影 */
