@@ -32,6 +32,13 @@ describe('parsePorcelain', () => {
     const map = parsePorcelain('MM src/both.ts\n')
     expect(map['src/both.ts'].status).toBe('M')
   })
+  // 根治核心（-c core.quotepath=false）后，git 直接输出无引号的中文路径，
+  // 解析器必须原样建 key，不得残留成 \数字 八进制转义。
+  it('解析直接输出的中文路径（quotepath=false 后不再八进制转义）', () => {
+    const map = parsePorcelain(' M docs/specs/设计说明.md\n?? 测试-登录.md\n')
+    expect(map['docs/specs/设计说明.md']?.status).toBe('M')
+    expect(map['测试-登录.md']?.status).toBe('??')
+  })
 })
 
 describe('getGitStatusCached', () => {

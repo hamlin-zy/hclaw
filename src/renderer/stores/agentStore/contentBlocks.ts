@@ -29,11 +29,23 @@ export function textBlockId(prefix: string | null, offset: number): string {
     return `text-${prefix || 'msg'}-${offset}`
 }
 
+/**
+ * 流式块排序比较器（渲染端 流式重建 / done 收尾 / abort 收尾 三条路径的唯一事实源）。
+ * 语义：textOffset 升序；同 textOffset 按块创建时刻（timestamp）升序 tie-break。
+ * 与主进程落库排序（childConvMessages.ts buildCurrentMessage 排序）同款；
+ * 若改 tie-break 规则，须同步主进程侧（渲染端三调用点经本函数自动统一）。
+ */
+export function compareStreamBlocks<T extends {textOffset: number; timestamp: number}>(a: T, b: T): number {
+    return (a.textOffset - b.textOffset) || (a.timestamp - b.timestamp)
+}
+
 /** 流式块原始形态（来自 convAgentStates.streamBlocks） */
 interface StreamBlockEntry {
     type: string
     id: string
     textOffset: number
+    /** 块创建时刻（Date.now()）；同 textOffset 时的 tie-break 锚点（参照主进程落库排序） */
+    timestamp: number
     thinkContent?: string
     thinkSignature?: string
     toolCall?: ToolCall | null
@@ -54,7 +66,7 @@ function assembleContentBlocks(params: {
     const {streamingMsgId, streamBlocks, fullText, toolCallMap, thinkStatus, thinkTimestamp} = params
     if (!streamingMsgId || streamBlocks.length === 0) return []
 
-    const sorted = [...streamBlocks].sort((a, b) => a.textOffset - b.textOffset)
+    const sorted = [...streamBlocks].sort(compareStreamBlocks)
     const assembled: ContentBlock[] = []
     let lastOffset = 0
 

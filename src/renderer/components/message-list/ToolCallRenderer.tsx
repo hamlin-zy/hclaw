@@ -166,6 +166,8 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
     // ★ isSubAgent 判定基于 effectiveTaskId：运行中由 subagent_progress 补写，
     //   完成态下 contentBlocks 副本已由 updateMessageContentBlocks 重建携带 taskId
     const effectiveIsSubAgent = toolCall.name === 'agent' && !!effectiveTaskId
+    // ★ Agent 卡片：详情/简洁模式下点击非按钮区 = 跳转子会话（不再展开详情）
+    const isAgentCard = toolCall.name === 'agent'
     const hasOutput = !!effectiveResult?.output || !!effectiveProgressLog?.length || !!effectiveSubAgentStream?.length
 
     // ★ 需求1：查看按钮分流 —— 运行中的子 Agent 直接跳转子会话实时观看，
@@ -187,6 +189,8 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
         toolCall,
         onOpenViewer: handleOpenViewer,
         onJumpToSession: effectiveTaskId ? handleJumpToSession : undefined,
+        // Agent 卡片：点击非按钮区直接跳转子会话（复用 handleJumpToSession，无 taskId 时内部为 no-op）
+        onCardClick: isAgentCard ? handleJumpToSession : undefined,
         cfg,
         isRunning,
         hasProgress,
@@ -231,8 +235,8 @@ const ToolCallRendererBase = function ToolCallRendererBase({toolCall}: ToolCallR
                         isCompact={false}
                     />
 
-                    {/* Expanded details */}
-                    {expanded && (
+                    {/* Expanded details：Agent 卡片不再展开（点击即跳转子会话） */}
+                    {expanded && !isAgentCard && (
                         <ToolCallBody
                             toolCall={toolCall}
                             command={command}

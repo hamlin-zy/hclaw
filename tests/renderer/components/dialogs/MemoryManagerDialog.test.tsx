@@ -333,6 +333,48 @@ describe('MemoryManagerDialog', () => {
         })
     })
 
+    it('edge: renders 跨项目归档卷 group under 用户偏好 (Task 5)', async () => {
+        stubMemoryApi({
+            list: vi.fn(async () => ({
+                globalFiles: [
+                    {path: '/ref/_user/preferences.md', label: '跨项目偏好', sizeLimit: 4096},
+                ],
+                projects: [],
+                crossProjectArchiveFiles: [
+                    {path: '/ref/_user/archive/2026-09-a.md', label: '跨项目经验', sizeLimit: 0},
+                ],
+            })),
+        })
+        render(<MemoryManagerDialog />)
+        await waitFor(() => {
+            expect(screen.getByText('用户偏好')).toBeInTheDocument()
+        })
+        // 默认全折叠：展开「用户偏好」→ 露出分组；分组自身默认折叠
+        fireEvent.click(screen.getByText('用户偏好'))
+        await waitFor(() => {
+            expect(screen.getByText('跨项目归档卷')).toBeInTheDocument()
+        })
+        expect(screen.queryByText('跨项目经验')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByText('跨项目归档卷'))
+        await waitFor(() => {
+            expect(screen.getByText('跨项目经验')).toBeInTheDocument()
+        })
+    })
+
+    it('edge: omits 跨项目归档卷 group when crossProjectArchiveFiles is undefined (Task 5)', async () => {
+        stubMemoryApi({
+            list: vi.fn(async () => ({
+                globalFiles: [
+                    {path: '/ref/_user/preferences.md', label: '跨项目偏好', sizeLimit: 4096},
+                ],
+                projects: [],
+            })),
+        })
+        render(<MemoryManagerDialog />)
+        await expandUserPrefs()
+        expect(screen.queryByText('跨项目归档卷')).not.toBeInTheDocument()
+    })
+
     it('edge: preserves edited content when switching edit→preview→edit', async () => {
         const {memory} = (window as any).electronAPI
         render(<MemoryManagerDialog />)

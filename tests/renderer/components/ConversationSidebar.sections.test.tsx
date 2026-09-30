@@ -14,7 +14,7 @@ const convState = vi.hoisted(() => ({
     currentWorkspacePath: '/ws/a' as string | null,
     activeConversationId: 'c-1' as string | null,
     searchQuery: '',
-    collapsedGroupIds: [] as string[],
+    expandedGroupIds: [] as string[],
     sectionWindowSizes: {} as Record<string, number>,
     singleViewWindowHintShown: false,
     gitBranches: {} as Record<string, string | null>,
@@ -65,7 +65,7 @@ beforeEach(() => {
     convState.viewScope = {type: 'group', groupId: 'pg-a'}
     convState.currentWorkspacePath = '/ws/a'
     convState.activeConversationId = 'c-1'
-    convState.collapsedGroupIds = []
+    convState.expandedGroupIds = []
     convState.gitBranch = 'main'
     convState.pendingFocusProject = null
     convState.singleViewWindowHintShown = false
@@ -74,14 +74,14 @@ beforeEach(() => {
 })
 
 describe('ConversationList — 段头三操作分工（A 变体）', () => {
-    it('chevron 点击 = toggleSectionCollapsed（不是切视图）', () => {
+    it('项目图标点击 = toggleSectionCollapsed（不是切视图）', () => {
         render(<ConversationList/>)
-        fireEvent.click(document.querySelector('[data-name="section-collapse-toggle"]') as HTMLElement)
+        fireEvent.click(document.querySelector('[data-name="section-project-icon"]') as HTMLElement)
         expect(convState.toggleSectionCollapsed).toHaveBeenCalledWith('/ws/a')
         expect(convState.setProjectGroupView).not.toHaveBeenCalled()
     })
 
-    it('项目名单击 = toggleSectionCollapsed（与 chevron 同口径，不切视图）', () => {
+    it('项目名单击 = toggleSectionCollapsed（与项目图标同口径，不切视图）', () => {
         render(<ConversationList/>)
         fireEvent.click(document.querySelector('[data-name="section-project-name"]') as HTMLElement)
         expect(convState.toggleSectionCollapsed).toHaveBeenCalledWith('/ws/a')
@@ -128,11 +128,11 @@ describe('ConversationList — 折叠语义', () => {
         unmount()
     })
 
-    it('单项目视图：不渲染段头（chevron/+/PM 全迁至入口行）', () => {
+    it('单项目视图：不渲染段头（项目图标/+/PM 全迁至入口行）', () => {
         convState.viewScope = {type: 'project', path: '/ws/a'}
         render(<ConversationList/>)
         expect(document.querySelector('[data-name="conversation-section-header"]')).toBeNull()
-        expect(document.querySelector('[data-name="section-collapse-toggle"]')).toBeNull()
+        expect(document.querySelector('[data-name="section-project-icon"]')).toBeNull()
         expect(document.querySelector('[data-name="section-new-conversation"]')).toBeNull()
         expect(document.querySelector('[data-name="section-pm-button"]')).toBeNull()
     })
@@ -245,11 +245,11 @@ describe('ConversationList — 折叠→展开不误触发自动展开（I-2）'
         expect(screen.queryByText('子会话')).toBeNull()
 
         // 折叠（rows 塌缩为 []）→ 展开集合被清 → 展开回来
-        convState.collapsedGroupIds = ['/ws/a']
+        convState.expandedGroupIds = ['/ws/a']
         convState.getScopedSections.mockReturnValue([section({collapsed: true, count: 1, rows: []})])
         rerender(<ConversationList/>)
 
-        convState.collapsedGroupIds = []
+        convState.expandedGroupIds = []
         convState.getScopedSections.mockReturnValue([expandedSection()])
         rerender(<ConversationList/>)
 

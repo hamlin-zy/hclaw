@@ -132,8 +132,9 @@ describe('think 块 id 段序号派生（Task 1）', () => {
         // 段 1：think（offset 0）
         accumulateThinkingBatch('conv-1', '思考A')
         flushThinkingBatch('conv-1')
-        expect(mockAgentState.convAgentStates['conv-1'].streamBlocks).toEqual([
-            {type: 'think', id: 'think-m1-0', textOffset: 0, thinkContent: '思考A'},
+        // toMatchObject：streamBlocks 条目含运行期 timestamp 字段（tie-break 锚点），深度相等会随时钟波动
+        expect(mockAgentState.convAgentStates['conv-1'].streamBlocks).toMatchObject([
+            {type: 'think', id: 'think-m1-0', textOffset: 0, thinkContent: '思考A', timestamp: expect.any(Number)},
         ])
 
         // 工具 push：streamBuffer 不推进，textOffset=0 的 tool_use 块加入（streamTools.ts:81-87 语义）

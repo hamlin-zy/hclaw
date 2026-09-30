@@ -88,6 +88,7 @@ export function handleToolUse(ctx: StreamCtx) {
         id: `tool-${tc.id}`,
         textOffset: toolOffset,
         toolCall: {id: tc.id, name: tc.name, arguments: tc.arguments, status: 'running', textOffset: toolOffset, reason: tc.reason, terminal: tc.terminal} as import('@shared/types').ToolCall,
+        timestamp: Date.now(),
     }]
     get().updateConvData(convId, {streamBlocks: newBlocks})
     if (isActiveConv) {

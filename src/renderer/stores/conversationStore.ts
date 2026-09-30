@@ -41,8 +41,12 @@ interface ConversationStore {
 
     /** 「我在看谁」：侧栏列表 / 备忘录面板 / 搜索的取数范围（spec §5.1） */
     viewScope: ViewScope | null
-    /** 已折叠的项目段 key 集合（组 id 或 project path；D19/⑥：跨重启保留） */
-    collapsedGroupIds: string[]
+    /**
+     * 已手动展开的项目段 key 集合（项目路径 / 未归属虚拟键；2026-09-26 修订 D19/⑥）：
+     * 组视图段**默认折叠**，只有手动点 chevron 展开的段进入本集合并随 viewScope 落盘、
+     * 跨重启保留；激活会话所在段的自动展开是**仅内存**的实时派生（不落盘、不进本集合）。
+     */
+    expandedGroupIds: string[]
     /** 段 key（项目路径）→ 该段窗口大小（已加载的非置顶根会话上限），缺省 10（spec §7.2） */
     sectionWindowSizes: Record<string, number>
     /** 子会话窗口大小（父会话 id → 可见条数；缺省 CHILD_DEFAULT；不落盘） */
@@ -920,7 +924,8 @@ const VIEW_SCOPE_KEY = PROJECT_GROUP_VIEW_CONFIG_KEY
 
 interface PersistedScope {
     viewScope: ViewScope | null
-    collapsedGroupIds: string[]
+    /** 2026-09-26 修订：旧字段 collapsedGroupIds 停读停写（老载荷忽略，不回反向迁移） */
+    expandedGroupIds: string[]
     singleViewWindowHintShown?: boolean
 }
 
@@ -946,8 +951,11 @@ export function parsePersistedScope(raw: unknown): PersistedScope | null {
     const o = raw as Record<string, unknown>
     return {
         viewScope: isPersistedViewScope(o.viewScope) ? o.viewScope : null,
-        collapsedGroupIds: Array.isArray(o.collapsedGroupIds)
-            ? o.collapsedGroupIds.filter((k): k is string => typeof k === 'string')
+        // ★ 只读新字段 expandedGroupIds；旧字段 collapsedGroupIds 停读（老载荷忽略 →
+        //   组视图回到「默认折叠」基线，无版本回滚需求）。守卫口径对齐旧折叠集：
+        //   非数组 → []，非 string 元素过滤。
+        expandedGroupIds: Array.isArray(o.expandedGroupIds)
+            ? o.expandedGroupIds.filter((k): k is string => typeof k === 'string')
             : [],
         singleViewWindowHintShown: o.singleViewWindowHintShown === true,
     }
@@ -1025,13 +1033,14 @@ export function resolveScopeProjectPaths(state: {
 /** 落盘（异步、失败静默：持久化失败不得影响交互）。
  *  ★ 唯一构造点：入参是整个 state 切片，调用方一律传 get()——后续给持久化载荷加字段
  *    （如 Task 14 的 singleViewWindowHintShown）时不必逐个手写字面量，避免漏改某一处。 */
-function persistScope(state: Pick<ConversationStore, 'viewScope' | 'collapsedGroupIds' | 'singleViewWindowHintShown'>): void {
+function persistScope(state: Pick<ConversationStore, 'viewScope' | 'expandedGroupIds' | 'singleViewWindowHintShown'>): void {
     void window.electronAPI?.configWrite?.(VIEW_SCOPE_KEY, {
         viewScope: state.viewScope,
-        collapsedGroupIds: state.collapsedGroupIds,
+        // 2026-09-26 修订：只写展开集；旧 collapsedGroupIds 停写（一次性清理）
+        expandedGroupIds: state.expandedGroupIds,
         // ★ 只在 true 时写入（brief 把该键定为可选）：false 与「老 payload 缺该键」同义
         //   （restoreScope 读回时 `=== true` 兜底），故省略不丢信息，也让既有落盘断言
-        //   （toEqual 全量比对 {viewScope, collapsedGroupIds}）无需改动。
+        //   （toEqual 全量比对 {viewScope, expandedGroupIds}）无需改动。
         ...(state.singleViewWindowHintShown ? {singleViewWindowHintShown: true} : {}),
     })?.catch?.(() => {})
 }
@@ -1126,7 +1135,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       searchQuery: '',
       handoffDismissed: {},
       viewScope: null,
-      collapsedGroupIds: [],
+      expandedGroupIds: [],
       sectionWindowSizes: {},
       childWindowSizes: {},
       singleViewWindowHintShown: false,
@@ -1146,10 +1155,15 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           get().setViewScope({type: 'group', groupId})
       },
 
+      /**
+       * 手动折叠/展开段（2026-09-26 修订 D19：组视图段默认折叠，本 action 语义反转）：
+       * key 在 expandedGroupIds 内 → 移出（段回落默认折叠）；不在 → 加入（段展开）。
+       * 两种结果都落盘（跨重启保留）。激活段的自动展开是内存派生，不经过本 action。
+       */
       toggleSectionCollapsed: (key) => {
-          const current = get().collapsedGroupIds
+          const current = get().expandedGroupIds
           const next = current.includes(key) ? current.filter(k => k !== key) : [...current, key]
-          set({collapsedGroupIds: next})
+          set({expandedGroupIds: next})
           persistScope(get())
       },
 
@@ -1168,10 +1182,22 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const state = get()
           const {
               viewScope, workspaces, currentWorkspacePath,
-              searchQuery, collapsedGroupIds, sectionWindowSizes, gitBranches,
+              searchQuery, expandedGroupIds, sectionWindowSizes, gitBranches,
               expandedChildParents, childWindowSizes, activeConversationId,
           } = state
           const paths = resolveScopeProjectPaths(state)
+          // ★ 2026-09-26 修订 D19「激活即展开」（仅内存，不落盘）：激活会话所属 workspace
+          //   实时反查（复用 restoreScope 的 workspaces 反查口径；未归属会话在
+          //   workspaces[UNASSIGNED_WORKSPACE_KEY] 里，天然覆盖未归属段 key），
+          //   与手动展开集合并成 expandedKeys 传给 buildConversationSections。
+          const activeKey = activeConversationId
+              ? Object.keys(workspaces).find(
+                  p => workspaces[p].conversations.some(c => c.id === activeConversationId),
+              ) ?? null
+              : null
+          const expandedKeys = activeKey && !expandedGroupIds.includes(activeKey)
+              ? [...expandedGroupIds, activeKey]
+              : expandedGroupIds
           // 「未归属」虚拟段的会话（workspacePath 为空的会话）。
           //   排序口径与其他段一致：loadConversations 已按 createdAt desc 排好。
           const unassignedConversations = workspaces[UNASSIGNED_WORKSPACE_KEY]?.conversations ?? []
@@ -1193,7 +1219,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               return buildConversationSections({
                   singleProject: false,
                   searchQuery,
-                  collapsedKeys: collapsedGroupIds,
+                  expandedKeys,
                   expandedChildParents,
                   childWindowSizes,
                   // 窗口截断豁免：激活会话必须可见（spec §5.2.4 / V11 / F16）
@@ -1205,7 +1231,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           return buildConversationSections({
               singleProject: single && viewScope?.type !== 'group',
               searchQuery,
-              collapsedKeys: collapsedGroupIds,
+              expandedKeys,
               expandedChildParents,
               childWindowSizes,
               // 窗口截断豁免：激活会话必须可见（spec §5.2.4 / V11 / F16）
@@ -1357,9 +1383,11 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               currentWorkspacePath: state.currentWorkspacePath,
               activeConvWorkspacePath: activeConvWs,
           })
+          // 2026-09-26 修订：回填展开集（新字段）；老 payload 只含旧 collapsedGroupIds
+          //   → 停读停写、忽略 → 组视图回到「默认折叠」基线（一次性清理，无版本回滚需求）
           set({
               viewScope: resolved,
-              collapsedGroupIds: Array.isArray(persisted?.collapsedGroupIds) ? persisted!.collapsedGroupIds : [],
+              expandedGroupIds: Array.isArray(persisted?.expandedGroupIds) ? persisted!.expandedGroupIds : [],
               // 老安装的存量 payload 没有该键 → 默认 false（未提示过）
               singleViewWindowHintShown: persisted?.singleViewWindowHintShown === true,
           })

@@ -14,6 +14,8 @@ const CSS = readFileSync(join(ROOT, CSS_PATH), 'utf-8')
 /** 策略锚点注释标记：规则内容由这两个标记定位，避免解析整个 CSS */
 const MARK_DEFAULT = '[selection-policy] 窗口级默认'
 const MARK_WHITELIST = '[selection-policy] 白名单'
+/** 行控件例外：白名单容器内的树行 / 列表行必须显式不可选 */
+const MARK_ROW_EXCEPTION = '[selection-policy] 行控件例外'
 
 /** 规则体缩进：globals.css 全文件统一 2 空格 */
 const INDENT = '  '
@@ -87,5 +89,20 @@ describe('选区策略：白名单挂点完整性', () => {
       expect(a.marker.length, a.label).toBeGreaterThan(0)
       expect(a.label.length, a.label).toBeGreaterThan(0)
     }
+  })
+})
+
+// 行控件例外：白名单容器（.select-text）内的树行 / 列表行，其文本必须不可选。
+// 反例成因：<button> 在 Chromium 中**并不免疫** user-select —— UA 未设该属性，它继承容器的
+// text，拖选 / 双击会真的产生选区；<div> 行同理（此前只靠 mousedown preventDefault 兜底）。
+// 本护栏只校验规则存在与选择器齐全；层叠是否真的生效由真机验收单覆盖（jsdom 无布局）。
+describe('选区策略：行控件例外', () => {
+  it('树行 / 列表行显式声明 user-select: none 与 -webkit- 版本', () => {
+    const rule = ruleAfter(MARK_ROW_EXCEPTION)
+    for (const kw of ['.pm-tree-row', '.pm-quickopen-row', '.pm-commit-row']) {
+      expect(rule.selector, `行控件例外规则缺少 ${kw}`).toContain(kw)
+    }
+    expect(rule.decls).toContain(`${INDENT}user-select: none;`)
+    expect(rule.decls).toContain(`${INDENT}-webkit-user-select: none;`)
   })
 })

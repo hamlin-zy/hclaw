@@ -10,7 +10,7 @@ const convState = {
     currentWorkspacePath: '/ws/proj',
     activeConversationId: null,
     searchQuery: '',
-    collapsedGroupIds: [],
+    expandedGroupIds: [],
     pendingFocusProject: null,
     sectionWindowSizes: {},
     singleViewWindowHintShown: true,

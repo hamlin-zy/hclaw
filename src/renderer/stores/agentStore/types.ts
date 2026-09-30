@@ -21,6 +21,8 @@ export interface ConvAgentData {
         id: string
         /** 该 block 出现时的 streamBuffer 长度，用于重建文本段顺序 */
         textOffset: number
+        /** 块创建时刻（Date.now()）；同 textOffset 时的 tie-break 锚点（与主进程落库排序语义一致） */
+        timestamp: number
         /** think 块累积内容 */
         thinkContent?: string
         thinkSignature?: string
@@ -125,6 +127,8 @@ export interface AgentStore {
         id: string
         /** 该 block 出现时的 streamBuffer 长度，用于重建文本段顺序 */
         textOffset: number
+        /** 块创建时刻（Date.now()）；同 textOffset 时的 tie-break 锚点（与主进程落库排序语义一致） */
+        timestamp: number
         /** think 块累积内容 */
         thinkContent?: string
         thinkSignature?: string

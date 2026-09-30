@@ -7,7 +7,7 @@ const convState = vi.hoisted(() => ({
     viewScope: {type: 'project', path: '/ws/a'} as any,
     currentWorkspacePath: '/ws/a' as string | null,
     activeConversationId: 'p1' as string | null,
-    searchQuery: '', collapsedGroupIds: [] as string[], sectionWindowSizes: {} as Record<string, number>,
+    searchQuery: '', expandedGroupIds: [] as string[], sectionWindowSizes: {} as Record<string, number>,
     childWindowSizes: {} as Record<string, number>,
     singleViewWindowHintShown: false, gitBranches: {} as Record<string, string | null>, gitBranch: 'main',
     pendingFocusProject: null as string | null,
@@ -69,11 +69,17 @@ describe('子会话分页', () => {
         expect((bar.querySelector('[data-name="pager-expand"]') as HTMLButtonElement).disabled).toBe(false)
     })
 
-    it('子列表容器带引导线类且内容靠左排列', () => {
+    it('子列表容器带引导线类且让子项撑满容器（宽度契约）', () => {
         render(<ConversationList/>)
         const list = document.querySelector('[data-name="child-list"]') as HTMLElement
         expect(list.className).toContain('tree-line')
-        expect(list.className).toContain('items-start')
+        // ★ 2026-09-30 实测：child-list 一旦设 items-start，flex column 的 cross-axis
+        //   起点对齐会让子项宽度退化为 fit-content（Chrome 实测取到内容 max-content），
+        //   子会话行被长标题撑开 418/506px（侧栏仅 220px），行尾时间/指示器被推出侧栏；
+        //   默认 stretch 才能让子行宽度受容器约束。容器内 PagerBar 的左对齐由自身
+        //   justify-start / pl-* 决定（见上一条用例），不受此处影响。
+        //   同一契约的源码级护栏见 tests/renderer/sidebarChildListLayout.test.ts。
+        expect(list.className).not.toContain('items-start')
     })
 
     it('回炉反馈 1：子列表控制条与子行内容起点对齐（引导线内再缩进一步）', () => {

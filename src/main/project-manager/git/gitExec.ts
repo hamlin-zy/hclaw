@@ -2,9 +2,14 @@
 import {execFile, spawn} from 'child_process'
 import {StringDecoder} from 'string_decoder'
 
+// 统一前置 `-c core.quotepath=false`：git 在非 UTF-8 locale（Windows 默认 cp936）下会把非 ASCII
+// 路径做 C 风格八进制转义（"docs/\350\256\276\350\256\241.md"），parsePorcelain 等解析器无法还原，
+// 变更列表 / commit 详情里的中文文件名于是显示成一串 \数字。这里只在本次 git 进程内关闭该行为、
+// 输出原始 UTF-8；不改用户全局 git 配置，对分支/SHA/退出码等无副作用。
 export function gitExec(workspace: string, args: string[], timeoutMs = 30 * 1000): Promise<string> {
+  const fullArgs = ['-c', 'core.quotepath=false', ...args]
   return new Promise((resolve, reject) => {
-    execFile('git', args, {
+    execFile('git', fullArgs, {
       cwd: workspace,
       maxBuffer: 20 * 1024 * 1024,
       timeout: timeoutMs,
@@ -39,8 +44,10 @@ export function gitExecResult(
   stdin = '',
   timeoutMs = 30 * 1000,
 ): Promise<GitExecResult> {
+  // 与 gitExec 对称：同样前置 -c core.quotepath=false（check-ignore 等亦可能输出中文路径）
+  const fullArgs = ['-c', 'core.quotepath=false', ...args]
   return new Promise(resolve => {
-    const child = spawn('git', args, {
+    const child = spawn('git', fullArgs, {
       cwd: workspace,
       env: {...process.env, GIT_TERMINAL_PROMPT: '0'},
       windowsHide: true,

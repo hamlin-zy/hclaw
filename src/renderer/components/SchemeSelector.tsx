@@ -172,7 +172,7 @@ function FixedDropdown({
 /**
  * 方案选择器
  *
- * 按照参考图片优化：胶囊形状 + 品牌绿边框 + 毛玻璃下拉面板
+ * 胶囊按钮：外框常显中性灰（两态同色，hover 中性加深）+ 毛玻璃下拉面板
  * 方案切换是实时的，下次 LLM 调用自动使用新方案。
  */
 export default function SchemeSelector() {
@@ -231,13 +231,16 @@ export default function SchemeSelector() {
             <CopyToast visible={toastMessage !== null} message={toastMessage ?? ''}/>
 
             <div ref={dropdownRef} className="relative">
-                {/* 胶囊形状按钮 - 品牌绿边框 */}
+                {/* 胶囊按钮 - 外框常显中性灰（不随激活态变品牌色，避免绿色堆叠扎眼） */}
                 <button
                     onClick={() => setIsOpen(!isOpen)}
                     disabled={isSwitching}
                     className={`
-                        menubar-selector-btn relative flex items-center gap-2 px-3 py-1.5 rounded-md max-w-full
-                        border border-transparent hover:border-[var(--border)]
+                        menubar-selector-btn relative flex items-center gap-2 px-3 py-1.5 rounded-full max-w-full
+                        border border-[color-mix(in_srgb,var(--text-muted)_45%,transparent)]
+                        dark-all:border-[color-mix(in_srgb,var(--text-muted)_20%,transparent)]
+                        hover:border-[color-mix(in_srgb,var(--text-muted)_30%,transparent)]
+                        dark-all:hover:border-[color-mix(in_srgb,var(--text-muted)_30%,transparent)]
                         transition-all duration-200
                         disabled:opacity-50 disabled:cursor-not-allowed
                         ${isActive

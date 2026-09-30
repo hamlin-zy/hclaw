@@ -100,7 +100,7 @@ function seed(store: any, groupStore: any) {
         messagesMap: {},
         loadedMessages: [],
         viewScope: {type: 'group', groupId: 'pg-a'},
-        collapsedGroupIds: [],
+        expandedGroupIds: [],
         gitBranch: 'main',
     })
 }

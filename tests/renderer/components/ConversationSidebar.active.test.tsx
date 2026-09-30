@@ -9,7 +9,7 @@ const convState = vi.hoisted(() => ({
     viewScope: {type: 'project', path: '/ws/a'} as any,
     currentWorkspacePath: '/ws/a' as string | null,
     activeConversationId: 'c-a1' as string | null,
-    searchQuery: '', collapsedGroupIds: [] as string[], sectionWindowSizes: {} as Record<string, number>,
+    searchQuery: '', expandedGroupIds: [] as string[], sectionWindowSizes: {} as Record<string, number>,
     singleViewWindowHintShown: false, gitBranches: {} as Record<string, string | null>, gitBranch: 'main',
     pendingFocusProject: null as string | null,
     workspaces: {'/ws/a': {lastOpenedAt: 1, conversations: [{id: 'c-a1', title: 'a1', preview: '', createdAt: 5, updatedAt: 5, status: 'active'}]}},

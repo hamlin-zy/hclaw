@@ -27,13 +27,35 @@ const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024
 const LARGE_FILE_DEFAULT_LIMIT = 2000
 
 /**
+ * 构造末尾摘要行
+ * - 有内容：`(共 {total} 行，已显示全部)` 或 `(共 {total} 行，已显示 {start}-{end})`
+ * - 无内容：`(empty range)`
+ */
+function formatSummary(total: number, startLine: number, shown: number): string {
+  if (shown === 0) return '(empty range)'
+  const range =
+    startLine === 1 && shown === total
+      ? '已显示全部'
+      : `已显示 ${startLine}-${startLine + shown - 1}`
+  return `(共 ${total} 行，${range})`
+}
+
+/** 正文与摘要拼接（正文为空时只输出摘要） */
+function withSummary(body: string, summary: string): string {
+  return body ? `${body}\n${summary}` : summary
+}
+
+/**
  * 流式读取大文件指定行范围
+ *
+ * 返回正文（行号\t内容，换行分隔）与末尾摘要；为统计总行数需扫完整个文件，
+ * 但只保留范围内的行，内存占用与 limit 相关。
  */
 async function streamReadLines(
   filePath: string,
   offset: number = 1,
-  limit: number,
-): Promise<string> {
+  limit?: number,
+): Promise<{ body: string; summary: string }> {
   const input = fsStream.createReadStream(filePath, { encoding: 'utf8' })
 
   const rl = readline.createInterface({
@@ -42,7 +64,7 @@ async function streamReadLines(
   })
 
   const start = Math.max(1, offset) - 1
-  const end = start + limit
+  const end = limit ? start + limit : Number.MAX_SAFE_INTEGER
   const lines: string[] = []
   let lineNum = 0
 
@@ -51,16 +73,20 @@ async function streamReadLines(
       lines.push(`${lineNum + 1}\t${line}`)
     }
     lineNum++
-    if (lineNum >= end) break
   }
 
   rl.close()
-  return lines.join('\n')
+  return {
+    body: lines.join('\n'),
+    summary: formatSummary(lineNum, start + 1, lines.length),
+  }
 }
 
 export const fileReadTool: Tool<FileReadInput, string> = {
   name: 'file_read',
-  description: '读取指定文件的内容。支持行范围读取（offset + limit）。',
+  description:
+    '读取指定文件的内容。支持行范围读取（offset + limit，offset 从 1 开始）。' +
+    '输出格式为 `行号<TAB>内容`，末尾附总行数摘要。',
   inputSchema,
   requiredPermissions: ['fs:read'],
   isDestructive: false,
@@ -78,29 +104,28 @@ export const fileReadTool: Tool<FileReadInput, string> = {
       if (isLargeFile) {
         // 大文件：强制流式分页读取
         const effectiveLimit = limit || LARGE_FILE_DEFAULT_LIMIT
-        
-        const output = await streamReadLines(absPath, offset, effectiveLimit)
+
+        const { body, summary } = await streamReadLines(absPath, offset, effectiveLimit)
         return {
           success: true,
-          output: output || '(empty range)',
+          output: withSummary(body, summary),
         }
       }
 
       // 小文件：内存处理
       const content = await fs.readFile(absPath, 'utf-8')
+      const lines = content === '' ? [] : content.split('\n')
+      const total = lines.length
+      const start = Math.max(1, offset) - 1
+      const end = limit ? start + limit : total
+      const selected = lines.slice(start, end)
 
-      if (offset > 1 || limit) {
-        const lines = content.split('\n')
-        const start = (offset || 1) - 1
-        const end = limit ? start + limit : lines.length
-        const selected = lines.slice(start, end)
-
-        // 添加行号
-        const numbered = selected.map((line, i) => `${start + i + 1}\t${line}`).join('\n')
-        return { success: true, output: numbered }
+      // 统一输出：行号 + 内容，末尾附摘要
+      const numbered = selected.map((line, i) => `${start + i + 1}\t${line}`).join('\n')
+      return {
+        success: true,
+        output: withSummary(numbered, formatSummary(total, start + 1, selected.length)),
       }
-
-      return { success: true, output: content }
     } catch (err: any) {
       return { success: false, output: '', error: `Failed to read file: ${err.message}` }
     }

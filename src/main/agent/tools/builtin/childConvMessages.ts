@@ -33,6 +33,8 @@ interface StreamBlock {
     /** tool_use 块对应的工具调用（与 toolCalls map 同一引用，result 更新自动反映） */
     toolCall?: ToolCall
     timestamp: number
+    /** LLM 调用轮次号（本块创建时所属轮次，随 llm_call_done 递增；落库后 historyConverter 可按 turn 分组重建） */
+    turnIndex: number
 }
 
 export interface ChildConvAccumulator {
@@ -53,6 +55,9 @@ export interface ChildConvAccumulator {
     pendingToolCount: number
     /** 全部轮次的 llmStats（llm_call_done 时写入，供 agentTool 路径 2 写 llm_usage 表；不再随消息持久化） */
     llmStats: LlmStats[]
+    /** 当前正在进行的 LLM 调用轮次号：同一条消息内 0 起（第 1 次调用 = 0），每次 llm_call_done 后 +1；
+     *  跨运行（rotate 开启新消息）归零。语义与主会话 loop 的 currentTurnIndex 一致。 */
+    turnIndex: number
     /** 是否已发生错误 */
     hasError: boolean
     /** 错误信息 */
@@ -71,6 +76,7 @@ export function createChildConvAccumulator(_convId?: string): ChildConvAccumulat
         llmStats: [],
         hasError: false,
         errorMsg: '',
+        turnIndex: 0,
     }
 }
 
@@ -105,11 +111,12 @@ export function buildCurrentMessage(acc: ChildConvAccumulator, now: number): Mes
                     status: 'complete',
                     timestamp: sb.timestamp,
                 },
+                turnIndex: sb.turnIndex,
             })
         } else {
             const tc = acc.toolCalls.get(sb.id) || sb.toolCall
             if (tc) {
-                blocks.push({id: `tool-${sb.id}`, type: 'tool_use', toolCall: tc})
+                blocks.push({id: `tool-${sb.id}`, type: 'tool_use', toolCall: tc, turnIndex: sb.turnIndex})
                 toolCalls.push(tc)
             }
         }
@@ -158,6 +165,7 @@ export function handleChildEvent(acc: ChildConvAccumulator, event: AgentStreamEv
                     textOffset: acc.textContent.length,
                     thinkContent: event.content || '',
                     timestamp: Date.now(),
+                    turnIndex: acc.turnIndex,
                 })
             }
             return false
@@ -231,6 +239,9 @@ export function handleChildEvent(acc: ChildConvAccumulator, event: AgentStreamEv
                 decodeMs: event.decodeMs,
                 tokensPerSecond: event.tokensPerSecond,
             })
+            // 递增轮次号：后续轮次的块（thinking / tool_use 创建时）归属新 turn，
+            // 与主会话 loop 的 currentTurnIndex 递增时机对齐（一次 LLM 调用完成即进入下一轮）
+            acc.turnIndex += 1
             // LLM 调用完成 → 该轮输出完毕，标记增量落库时机
             return true
         }
@@ -258,7 +269,7 @@ function addToolBlock(acc: ChildConvAccumulator, tc: {id: string; name: string; 
         textOffset: offset,
     }
     acc.toolCalls.set(tc.id, toolCall)
-    acc.blocks.push({type: 'tool_use', id: tc.id, textOffset: offset, toolCall, timestamp: Date.now()})
+    acc.blocks.push({type: 'tool_use', id: tc.id, textOffset: offset, toolCall, timestamp: Date.now(), turnIndex: acc.turnIndex})
     acc.pendingToolCount++
     return false
 }
@@ -346,4 +357,5 @@ export function rotateChildConvAccumulator(
     acc.llmStats = []
     acc.hasError = false
     acc.errorMsg = ''
+    acc.turnIndex = 0   // 新运行 = 新一条消息，轮次号 0 起（同一条消息内 0 起，跨运行归零）
 }

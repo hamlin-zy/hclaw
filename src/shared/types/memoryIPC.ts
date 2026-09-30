@@ -28,6 +28,8 @@ export interface MemoryListResult {
   globalFiles: MemoryFileEntry[];
   /** 项目列表 */
   projects: MemoryProjectEntry[];
+  /** 跨项目归档卷（_user/archive/*.md，按文件名排序）；旧版本主进程可能不返回 */
+  crossProjectArchiveFiles?: MemoryFileEntry[];
 }
 
 /** memory:read 响应 */

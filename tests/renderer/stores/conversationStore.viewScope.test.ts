@@ -40,7 +40,7 @@ beforeEach(() => {
         currentWorkspacePath: '/ws/a',
         activeConversationId: null,
         viewScope: null,
-        collapsedGroupIds: [],
+        expandedGroupIds: [],
         singleViewWindowHintShown: false,
     })
 })
@@ -61,41 +61,41 @@ describe('viewScope — 状态语义', () => {
         expect(useConversationStore.getState().viewScope).toEqual({type: 'project', path: '/ws/b'})
     })
 
-    it('toggleSectionCollapsed 在同一 key 上反复切换', () => {
+    it('toggleSectionCollapsed 在同一 key 上反复切换（展开集语义：加入 → 移出）', () => {
         const {toggleSectionCollapsed} = useConversationStore.getState()
         toggleSectionCollapsed('pg-a')
-        expect(useConversationStore.getState().collapsedGroupIds).toEqual(['pg-a'])
+        expect(useConversationStore.getState().expandedGroupIds).toEqual(['pg-a'])
         toggleSectionCollapsed('pg-a')
-        expect(useConversationStore.getState().collapsedGroupIds).toEqual([])
+        expect(useConversationStore.getState().expandedGroupIds).toEqual([])
     })
 })
 
 describe('viewScope — 持久化读写', () => {
-    it('setViewScope 写入 configWrite("project-group-view", {viewScope, collapsedGroupIds})', async () => {
+    it('setViewScope 写入 configWrite("project-group-view", {viewScope, expandedGroupIds})', async () => {
         api.configWrite.mockResolvedValue(true)
         useConversationStore.getState().setViewScope({type: 'group', groupId: 'pg-a'})
         await vi.waitFor(() => expect(api.configWrite).toHaveBeenCalled())
         const [key, value] = api.configWrite.mock.calls[0]
         expect(key).toBe('project-group-view')
-        expect(value).toEqual({viewScope: {type: 'group', groupId: 'pg-a'}, collapsedGroupIds: []})
+        expect(value).toEqual({viewScope: {type: 'group', groupId: 'pg-a'}, expandedGroupIds: []})
     })
 
-    it('toggleSectionCollapsed 同样落盘（折叠状态跨重启保留，⑥ 已定 (a)）', async () => {
+    it('toggleSectionCollapsed 同样落盘（展开集跨重启保留，⑥ 修订 2026-09-26）', async () => {
         api.configWrite.mockResolvedValue(true)
         useConversationStore.getState().toggleSectionCollapsed('pg-a')
         await vi.waitFor(() => expect(api.configWrite).toHaveBeenCalled())
-        expect(api.configWrite.mock.calls[0][1].collapsedGroupIds).toEqual(['pg-a'])
+        expect(api.configWrite.mock.calls[0][1].expandedGroupIds).toEqual(['pg-a'])
     })
 
-    it('restoreScope 读回上次 scope 与折叠集合', async () => {
+    it('restoreScope 读回上次 scope 与展开集合', async () => {
         api.configRead.mockResolvedValue({
             viewScope: {type: 'group', groupId: 'pg-a'},
-            collapsedGroupIds: ['pg-a'],
+            expandedGroupIds: ['pg-a'],
         })
         await useConversationStore.getState().restoreScope()
         const s = useConversationStore.getState()
         expect(s.viewScope).toEqual({type: 'group', groupId: 'pg-a'})
-        expect(s.collapsedGroupIds).toEqual(['pg-a'])
+        expect(s.expandedGroupIds).toEqual(['pg-a'])
     })
 
     // ── §15.1⑤ 一次性提示已读标记（Task 14）─────────────────
@@ -109,14 +109,14 @@ describe('viewScope — 持久化读写', () => {
     })
 
     it('restoreScope 读回 singleViewWindowHintShown', async () => {
-        api.configRead.mockResolvedValue({viewScope: null, collapsedGroupIds: [], singleViewWindowHintShown: true})
+        api.configRead.mockResolvedValue({viewScope: null, expandedGroupIds: [], singleViewWindowHintShown: true})
         await useConversationStore.getState().restoreScope()
         expect(useConversationStore.getState().singleViewWindowHintShown).toBe(true)
     })
 
     it('存量 payload 无该键 → 默认 false（未提示过）', async () => {
         useConversationStore.setState({singleViewWindowHintShown: true})
-        api.configRead.mockResolvedValue({viewScope: null, collapsedGroupIds: []})
+        api.configRead.mockResolvedValue({viewScope: null, expandedGroupIds: []})
         await useConversationStore.getState().restoreScope()
         expect(useConversationStore.getState().singleViewWindowHintShown).toBe(false)
     })
@@ -126,14 +126,14 @@ describe('viewScope — 持久化读写', () => {
     it('载荷被篡改（viewScope.path 非字符串）→ 不抛错，按「无持久化」回退', async () => {
         api.configRead.mockResolvedValue({
             viewScope: {type: 'project', path: 42},
-            collapsedGroupIds: 'not-an-array',
+            expandedGroupIds: 'not-an-array',
             singleViewWindowHintShown: 'yes',
         })
         // 旧实现：workspacePathKey(42) → TypeError 逃出 restoreScope（App init 的 try 会整段跳过）
         await expect(useConversationStore.getState().restoreScope()).resolves.toBeUndefined()
         const s = useConversationStore.getState()
         expect(s.viewScope).toEqual({type: 'project', path: '/ws/a'})
-        expect(s.collapsedGroupIds).toEqual([])
+        expect(s.expandedGroupIds).toEqual([])
         expect(s.singleViewWindowHintShown).toBe(false)
     })
 
@@ -143,10 +143,18 @@ describe('viewScope — 持久化读写', () => {
         expect(useConversationStore.getState().viewScope).toEqual({type: 'project', path: '/ws/a'})
     })
 
-    it('折叠集合里的非字符串项被过滤（合法项保留）', async () => {
-        api.configRead.mockResolvedValue({viewScope: null, collapsedGroupIds: ['/ws/a', 7, null]})
+    it('展开集合里的非字符串项被过滤（合法项保留）', async () => {
+        api.configRead.mockResolvedValue({viewScope: null, expandedGroupIds: ['/ws/a', 7, null]})
         await useConversationStore.getState().restoreScope()
-        expect(useConversationStore.getState().collapsedGroupIds).toEqual(['/ws/a'])
+        expect(useConversationStore.getState().expandedGroupIds).toEqual(['/ws/a'])
+    })
+
+    // 2026-09-26 修订：旧字段 collapsedGroupIds 停读停写——老 payload 只含旧字段时
+    // 一律忽略（不反向迁移、不双写），组视图回到「默认折叠」基线。
+    it('旧 payload 仅含 collapsedGroupIds → 忽略，不回填 expandedGroupIds', async () => {
+        api.configRead.mockResolvedValue({viewScope: null, collapsedGroupIds: ['pg-a', '/ws/b']})
+        await useConversationStore.getState().restoreScope()
+        expect(useConversationStore.getState().expandedGroupIds).toEqual([])
     })
 })
 

@@ -40,6 +40,7 @@ import {
   WORKER_GRACEFUL_SHUTDOWN_MS,
   SKIP_LOG_EVENT_TYPES,
   PENDING_MSG_MAX_BYTES,
+  PREWARM_READY_TIMEOUT_MS,
 } from './manager.constants'
 import {SESSION_AGENT_WORKER_RESOURCE_LIMITS} from '../workerLimits'
 import {createPendingMsg, normalizeToolResult, finalizePending, appendCappedPart, isRenderedCopyFingerprintMatch, buildStreamSnapshot} from './manager.accumulator'
@@ -91,12 +92,33 @@ function isChildConvCreatedMessage(msg: { type: string }): msg is ChildConvCreat
   return msg.type === 'child_conv_created'
 }
 
+/** ★ L2-D1：预热被主动中止（disposeIdleWorker 回收 pending 态）时 reject 的错误标记。
+ *  prewarm() 的 catch 据此区分「退出期主动回收」与「真失败」，避免打出误导性的 'prewarm failed' warn。 */
+class PrewarmAbortedError extends Error {
+  constructor() {
+    super('idle worker prewarm aborted by disposeIdleWorker')
+    this.name = 'PrewarmAbortedError'
+  }
+}
+
 // ─── AgentManager ──────────────────────────────────────
 
 export class AgentManager {
   /** conversationId → WorkerEntry */
   private workers: Map<string, WorkerEntry> = new Map()
   private mainWindow: BrowserWindow | null = null
+
+  /** 预热 Worker（standby 模式，已加载模块等待 attach） */
+  private idleWorker: Worker | null = null
+  private idleWorkerReady = false
+  private prewarming = false
+
+  /** ★ L2-D1：pending 态预热的主动收敛入口（即 prewarm() 内的 failPrewarm）。
+   *  预热中 idleWorker 恒为 null，disposeIdleWorker() 无法经 idleWorker 触达该 worker，
+   *  故在此保留一条「终止预热中 worker + 摘监听器 + 复位 prewarming + 有界收敛等待 Promise」的通道。
+   *  生命周期与预热严格对称：赋值于 failPrewarm 定义之后，onStandbyReady 成功转 idle、
+   *  或 failPrewarm 自身执行时置 null——不得残留指向已结束闭包的悬挂引用。 */
+  private abortPrewarm: (() => void) | null = null
 
   /** 父会话 → 子会话 ID 集合，父会话终止时级联清理子会话运行状态 */
   private parentToChildren: Map<string, Set<string>> = new Map()
@@ -143,6 +165,147 @@ export class AgentManager {
     eventBus.on(MCPThemeEvents.TOOLS_REFRESHED, this.mcpToolsRefreshedHandler)
     // 能力刷新（技能/插件启停等）→ 广播最新序列化能力，运行中 Worker 重建本地 registry
     eventBus.on(CapabilityEvents.REFRESHED, this.capabilityRefreshedHandler)
+    // 预热 1 个 idle Worker（后台预加载模块，省冷启动 ~458ms）
+    setImmediate(() => this.prewarm())
+  }
+
+  /** 预热 idle Worker（standby 模式：仅加载模块，等待 attach） */
+  private async prewarm(): Promise<void> {
+    if (this.prewarming || this.idleWorker) return
+    this.prewarming = true
+
+    let worker: Worker
+    try {
+      const workerPath = path.join(__dirname, 'worker.js')
+      worker = new Worker(workerPath, {
+        type: 'module' as const,
+        workerData: {type: 'standby'},
+        resourceLimits: SESSION_AGENT_WORKER_RESOURCE_LIMITS,
+      } as unknown as ConstructorParameters<typeof Worker>[1])
+    } catch (err) {
+      // Worker 构造本身失败（罕见）：日志 + 立即复位，静默降级 fallback（对齐旧语义：
+      // 不 rethrow——构造器 setImmediate 入口无 catch，rethrow 会变成 unhandled rejection）
+      logger.warn('[AgentManager] idle worker create failed', {error: err instanceof Error ? err.message : String(err)})
+      this.prewarming = false
+      return
+    }
+
+    // ── 预热收敛状态机（D1a/D1b）：ready / error / exit / timeout 对称清理 ──
+    // 幂等：settled 保证等待 Promise 只 settle 一次、清理只执行一次。
+    //   ready   → resolveReady + 清超时 + off message handler（保留 error/exit 作常驻 idleWorker 退出兜底，attach 时统一清理，见 start()）
+    //   error   → 未 settled 走 failPrewarm（settle reject + terminate + 复位 + off + 清超时）；已 ready 仅复位常驻标志（保持原行为）
+    //   exit    → 同 error（以「当前正在预热的 worker」对称处理，而非 this.idleWorker 身份——预热期它恒为 null）
+    //   timeout → 与 error/exit 共用 failPrewarm，给等待 Promise 有界出口，打破「永不 ready 则永久挂起」的悬挂闭包
+    let settled = false
+    let timeoutTimer: ReturnType<typeof setTimeout> | undefined
+    let resolveReady!: () => void
+    let rejectReady!: (err: Error) => void
+    let failPrewarm!: (aborted?: boolean) => void
+
+    const onStandbyReady = (msg: any) => {
+      if (msg.type !== 'standby_ready' || settled) return
+      settled = true
+      if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = undefined }
+      worker.off('message', onStandbyReady)
+      this.idleWorker = worker
+      this.idleWorkerReady = true
+      this.prewarming = false
+      this.abortPrewarm = null // 已转入 idle：主动收敛通道随 pending 态一同终结
+      resolveReady()
+    }
+
+    const onPrewarmError = (err: unknown) => {
+      if (!settled) {
+        logger.warn('[AgentManager] idle worker error', {error: err instanceof Error ? err.message : String(err)})
+        failPrewarm()
+        return
+      }
+      // 已 ready 的常驻 idleWorker 异常：复位预热态标志（保持原 error handler 行为）
+      this.idleWorker = null
+      this.idleWorkerReady = false
+      this.prewarming = false
+    }
+
+    const onPrewarmExit = () => {
+      if (!settled) {
+        failPrewarm()
+        return
+      }
+      // 已 ready 的常驻 idleWorker 退出：仅当它仍是当前 idleWorker 时复位（保持原 exit 守卫语义）
+      if (this.idleWorker === worker) {
+        this.idleWorker = null
+        this.idleWorkerReady = false
+      }
+    }
+
+    failPrewarm = (aborted = false) => {
+      if (settled) return
+      settled = true
+      if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = undefined }
+      worker.off('message', onStandbyReady)
+      worker.off('error', onPrewarmError)
+      worker.off('exit', onPrewarmExit)
+      this.prewarming = false
+      this.idleWorker = null
+      this.idleWorkerReady = false
+      this.abortPrewarm = null // pending 容器必须有移除路径，不留悬挂闭包
+      // 终止 dead worker（worker 可能已退出，terminate 可能抛，忽略）
+      try { worker.terminate() } catch { /* ignore */ }
+      rejectReady(aborted ? new PrewarmAbortedError() : new Error('idle worker prewarm failed'))
+    }
+    // 暴露 pending 态主动收敛入口：disposeIdleWorker() 经此终止预热中 worker（此时 idleWorker 恒为 null）
+    this.abortPrewarm = () => failPrewarm(true)
+
+    worker.on('message', onStandbyReady)
+    worker.on('error', onPrewarmError)
+    worker.on('exit', onPrewarmExit)
+    timeoutTimer = setTimeout(() => failPrewarm(), PREWARM_READY_TIMEOUT_MS)
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        resolveReady = resolve
+        rejectReady = reject
+      })
+      logger.info('[AgentManager] idle worker prewarmed and ready')
+    } catch (err) {
+      // 超时 / 异常退出：failPrewarm 已完成全部清理（terminate + 复位 + off + 清定时器），此处仅记日志。
+      // 主动中止（disposeIdleWorker 回收 pending 态）属预期回收而非失败：降为 debug，不制造噪音告警。
+      if (err instanceof PrewarmAbortedError) {
+        logger.debug('[AgentManager] prewarm aborted by disposeIdleWorker')
+      } else {
+        logger.warn('[AgentManager] prewarm failed', {error: err instanceof Error ? err.message : String(err)})
+      }
+    }
+  }
+
+  /** 回收 idle Worker（幂等，供 main will-quit 调用，见 D3）。
+   *
+   *  此前退出路径只遍历 this.workers，不碰 idleWorker——常驻预热 Worker 会被整体
+   *  带走而非显式终止，既拖慢收尾，又放大 D1 的悬挂（prewarming 可能仍 true）。
+   *  语义（两种态都要收敛）：
+   *    1) pending 态（预热中，尚未 standby_ready）：idleWorker 恒为 null，无法经它触达；
+   *       经 abortPrewarm 走 failPrewarm 同一收敛路径——terminate 该 worker、摘除全部临时监听器、
+   *       复位 prewarming、以有界方式 reject 等待 Promise（不再等 PREWARM_READY_TIMEOUT_MS）。
+   *       迟到 standby_ready 因监听器已摘除 + settled 守卫而不会复活清理动作（见 L2-D1）。
+   *    2) ready 态（常驻 idleWorker）：terminate 之，并清 idleWorker/idleWorkerReady 标志与全部临时监听器。
+   *  两种态皆非空时才动作，故对「未预热 / 已被 attach 取走」的调用是无副作用空操作。
+   *  同步返回，terminate 的 Promise 不 await（退出阶段不挂起事件循环）。
+   *  幂等：重复调用时 abortPrewarm 与 idleWorker 均已置 null，直接早退。 */
+  disposeIdleWorker(): void {
+    // 先收敛 pending 态：预热中 idleWorker 为 null，必须在此之前完成
+    const abort = this.abortPrewarm
+    this.abortPrewarm = null
+    if (abort) abort()
+
+    const w = this.idleWorker
+    this.idleWorker = null
+    this.idleWorkerReady = false
+    this.prewarming = false
+    if (!w) return
+    w.removeAllListeners('message')
+    w.removeAllListeners('error')
+    w.removeAllListeners('exit')
+    try { w.terminate() } catch { /* 可能已退出，忽略 */ }
   }
 
   /** ★ 注销本类在全局 eventBus 上的订阅（幂等，off 对不存在的 handler 是 no-op）。
@@ -283,15 +446,43 @@ export class AgentManager {
     // ★ 内存加固（评审建议 4）：显式 resourceLimits。不传时 worker isolate 继承主进程
     //   --max-old-space-size=2048，每个会话各自 2GB 上限（10GB 级峰值的数量级来源）。
     //   取值依据见 ../workerLimits.ts（会话 Worker = 唯一会长大的 worker → 512/16）。
-    const worker = new Worker(workerPath, {
-      type: 'module' as const,
-      workerData: {type: 'start', params: workerParams},
-      resourceLimits: SESSION_AGENT_WORKER_RESOURCE_LIMITS,
-    } as unknown as ConstructorParameters<typeof Worker>[1])
+    const conversationId = params.conversationId
+    let worker: Worker
+    if (this.idleWorker && this.idleWorkerReady) {
+      worker = this.idleWorker
+      this.idleWorker = null
+      this.idleWorkerReady = false
+
+      // 替换预热期间的临时 handler 为正式 handler（N1：预热期挂的 exit 临时 handler
+      //   此前未移除 → 残留旧 exit listener；补 exit 一并清掉，下方重新挂正式 exit）
+      worker.removeAllListeners('message')
+      worker.removeAllListeners('error')
+      worker.removeAllListeners('exit')
+      this.attachWorkerHandlers(worker, conversationId)
+
+      // 通过 postMessage 注入会话参数
+      worker.postMessage({type: 'attach', params: workerParams})
+      logger.info('[AgentManager] using prewarmed worker for conversation', {conversationId})
+    } else {
+      // 降级：直接创建（与现有行为一致）
+      worker = new Worker(workerPath, {
+        type: 'module' as const,
+        workerData: {type: 'start', params: workerParams},
+        resourceLimits: SESSION_AGENT_WORKER_RESOURCE_LIMITS,
+      } as unknown as ConstructorParameters<typeof Worker>[1])
+      // 新 Worker 实例无预热期残留监听器，直接挂正式 handler
+      this.attachWorkerHandlers(worker, conversationId)
+      logger.info('[AgentManager] creating new worker (no idle available)', {conversationId})
+    }
+
+    // 异步预热下一个 Worker
+    this.prewarm().catch(err => {
+      logger.warn('[AgentManager] async prewarm failed', {error: err instanceof Error ? err.message : String(err)})
+    })
 
     const entry: WorkerEntry = {
       worker,
-      conversationId: params.conversationId,
+      conversationId,
       abortController,
     }
 
@@ -303,15 +494,9 @@ export class AgentManager {
     // ★ 内存优化 C4：事件监听器闭包只捕获 conversationId 字符串，不再捕获整个 params
     //   （params 含全量 messages 历史，闭包常驻会使主进程在整个 loop 生命周期内
     //    多持有一份与 Worker 重复的全量历史）。纯等价重构：实参值与顺序逐字不变。
-    const conversationId = params.conversationId
     const streamMsgId = crypto.randomUUID()
     this.streamingMsgIds.set(conversationId, streamMsgId)
     this.forwardToRenderer(conversationId, {type: 'begin', messageId: streamMsgId})
-
-    // 监听 Worker 消息
-    worker.on('message', this.createMessageHandler(conversationId, worker))
-    worker.on('error', (err: unknown) => this.onWorkerError(conversationId, err instanceof Error ? err : new Error(String(err))))
-    worker.on('exit', (code) => this.onWorkerExit(conversationId, worker, code))
 
     // ★ 内存优化 C1：订阅落库 ACK（与 worker 监听器同处注册），
     //   在 cleanup/onWorkerExit 路径对称退订，绝不泄漏监听器。
@@ -387,6 +572,18 @@ export class AgentManager {
         try { await this.abort(convId, false) } catch { /* ignore */ }
       }
     }
+  }
+
+  /**
+   * 挂 Worker 正式 handler（message/error/exit 三组），attach 复用路径与新实例降级路径共用。
+   * error 统一按 `err instanceof Error ? err : new Error(String(err))` 包装后转 onWorkerError。
+   * 注意：attach 路径须先清掉预热期残留监听器（N1：removeAllListeners 三组）再调本方法；
+   * 新实例路径无残留监听器，可直接调用。
+   */
+  private attachWorkerHandlers(worker: Worker, conversationId: string): void {
+    worker.on('message', this.createMessageHandler(conversationId, worker))
+    worker.on('error', (err: unknown) => this.onWorkerError(conversationId, err instanceof Error ? err : new Error(String(err))))
+    worker.on('exit', (code) => this.onWorkerExit(conversationId, worker, code))
   }
 
   /** 创建 Worker 消息处理器 */

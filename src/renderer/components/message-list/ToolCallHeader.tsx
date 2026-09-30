@@ -18,6 +18,11 @@ interface ToolCallHeaderProps {
     onOpenViewer: () => void
     /** 跳转到对应子会话（子 Agent 已完成且有 taskId 时由父组件传入；不传则隐藏按钮） */
     onJumpToSession?: () => void
+    /**
+     * 卡片整体点击（Agent 卡片传入：点击非按钮区跳转子会话，不再展开）。
+     * 不传则保持原「展开开关」语义（非 Agent 卡片）。
+     */
+    onCardClick?: () => void
 
     // 状态配置
     cfg: {
@@ -65,6 +70,7 @@ export default function ToolCallHeader({
     onToggleExpanded,
     onOpenViewer,
     onJumpToSession,
+    onCardClick,
     cfg,
     isRunning,
     hasProgress,
@@ -265,6 +271,31 @@ export default function ToolCallHeader({
     // ── Compact 模式 ──
     // 注意：viewBtn 不在此处单独渲染 —— metaSection 内已包含 viewBtn，避免重复显示
     if (isCompact) {
+        // ★ Agent 卡片（传入 onCardClick）：整行可点击 → 跳转子会话；非 Agent 卡片保持无点击原样
+        if (onCardClick) {
+            return (
+                <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={onCardClick}
+                    onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget) return
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            onCardClick()
+                        }
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left cursor-pointer hover:bg-[var(--surface-overlay)] transition-colors focus-visible:[outline:2px_solid_var(--focus-ring)] focus-visible:[outline-offset:2px]"
+                 data-name="tool-call-header-card-click-button">
+                    {statusIndicator}
+                    {toolDisplayName}
+                    {countdownBadge}
+                    {progressBar}
+                    {progressText}
+                    {metaSection}
+                </div>
+            )
+        }
         return (
             <div className="w-full flex items-center gap-2 px-3 py-2 text-left">
                 {statusIndicator}
@@ -278,6 +309,10 @@ export default function ToolCallHeader({
     }
 
     // ── Normal 模式 ──
+    // ★ Agent 卡片（传入 onCardClick）：点击语义改为「跳转子会话」，不再展开；
+    //   随之不设 aria-expanded、不渲染展开箭头（已不可展开，避免误导）
+    const cardClickable = !!onCardClick
+    const onActivate = onCardClick ?? onToggleExpanded
     return (
         /* 用 div[role=button] 承载展开开关：内部 metaSection 含「查看」「跳转」两个 button，
            若外层用 <button> 会构成 HTML 非法嵌套（button 不能是 button 后代，React 会报 hydration 警告）。
@@ -286,14 +321,14 @@ export default function ToolCallHeader({
         <div
             role="button"
             tabIndex={0}
-            aria-expanded={expanded}
-            onClick={onToggleExpanded}
+            aria-expanded={cardClickable ? undefined : expanded}
+            onClick={onActivate}
             onKeyDown={(e) => {
                 // 内层按钮的 Enter/Space 会冒泡至此，必须只在事件源为外层自身时才响应
                 if (e.target !== e.currentTarget) return
                 if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
-                    onToggleExpanded()
+                    onActivate()
                 }
             }}
             className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--surface-overlay)] transition-colors text-left focus-visible:[outline:2px_solid_var(--focus-ring)] focus-visible:[outline-offset:2px]"
@@ -304,10 +339,12 @@ export default function ToolCallHeader({
             {progressBar}
             {progressText}
             {metaSection}
-            {/* Expand arrow */}
-            <span className="text-[var(--text-secondary)] text-[10px]" aria-hidden="true">
-                {expanded ? '▾' : '▸'}
-            </span>
+            {/* Expand arrow：仅可展开（非 Agent 卡片）时显示 */}
+            {!cardClickable && (
+                <span className="text-[var(--text-secondary)] text-[10px]" aria-hidden="true">
+                    {expanded ? '▾' : '▸'}
+                </span>
+            )}
         </div>
     )
 }

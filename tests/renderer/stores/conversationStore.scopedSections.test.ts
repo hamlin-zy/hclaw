@@ -41,7 +41,8 @@ beforeEach(() => {
         currentWorkspacePath: '/ws/a',
         viewScope: {type: 'group', groupId: 'pg-a'},
         searchQuery: '',
-        collapsedGroupIds: [],
+        expandedGroupIds: [],
+        activeConversationId: null,
         sectionWindowSizes: {},
     })
 })
@@ -84,23 +85,63 @@ describe('getScopedSections — 组视图', () => {
         expect(useConversationStore.getState().getScopedSections()[0].rows).toHaveLength(15)
     })
 
-    it('collapsedGroupIds 命中的段 collapsed=true 且 rows 为空', () => {
-        useConversationStore.setState({collapsedGroupIds: ['/ws/b']})
+    // 2026-09-26 修订（推翻 D19）：组视图段（含未归属段）默认折叠；
+    // 手动展开集 expandedGroupIds 落盘；激活会话所在段实时自动展开（仅内存，不落盘）。
+    it('未列段默认折叠：不在 expandedGroupIds 的段 collapsed=true 且 rows 为空', () => {
         const sections = useConversationStore.getState().getScopedSections()
         expect(sections[1].collapsed).toBe(true)
         expect(sections[1].rows).toEqual([])
         expect(sections[1].count).toBe(1)
     })
 
-    it('搜索命中时强制展开含命中项的段', () => {
-        useConversationStore.setState({collapsedGroupIds: ['/ws/b'], searchQuery: '会话3'})
+    it('列段展开：在 expandedGroupIds 的段展开，其余段保持默认折叠', () => {
+        useConversationStore.setState({expandedGroupIds: ['/ws/b']})
         const sections = useConversationStore.getState().getScopedSections()
         expect(sections[1].collapsed).toBe(false)
+        expect(sections[1].rows.map(r => r.id)).toEqual(['c-3'])
+        expect(sections[0].collapsed).toBe(true)
+    })
+
+    it('激活会话所在段自动展开（仅内存，不落盘）', () => {
+        // c-1 属于 /ws/a → activeKey 派生出 /ws/a，与 expandedGroupIds 合并进 expandedKeys
+        useConversationStore.setState({activeConversationId: 'c-1'})
+        const sections = useConversationStore.getState().getScopedSections()
+        expect(sections[0].collapsed).toBe(false)
+        expect(sections[1].collapsed).toBe(true)
+        // 不落盘：expandedGroupIds 保持空
+        expect(useConversationStore.getState().expandedGroupIds).toEqual([])
+    })
+
+    it('组合（B2 场景）：激活会话落在窗口外且段不在展开集 → 段自动展开且老会话可见', () => {
+        // 「最近会话」点开一条 createdAt 排位很老、落在 6 条窗口外的会话：
+        // 段 auto-expand（activeKey）+ 窗口截断豁免须复合生效，否则侧栏看不到当前会话。
+        useConversationStore.setState({
+            workspaces: {'/ws/a': {lastOpenedAt: 1, conversations: Array.from({length: 15}, (_, i) => conv(i))}},
+            activeConversationId: 'c-0',
+        })
+        const wsA = useConversationStore.getState().getScopedSections().find(s => s.projectPath === '/ws/a')!
+        expect(wsA.collapsed).toBe(false)
+        expect(wsA.rows.map(r => r.id)).toContain('c-0')
+    })
+
+    it('搜索命中时强制展开含命中项的段（不在 expandedGroupIds 也展开）', () => {
+        useConversationStore.setState({searchQuery: '会话3'})
+        const sections = useConversationStore.getState().getScopedSections()
+        expect(sections[1].collapsed).toBe(false)
+    })
+
+    it('搜索无命中且段不在展开集 → 保持默认折叠', () => {
+        useConversationStore.setState({searchQuery: '无命中词'})
+        const sections = useConversationStore.getState().getScopedSections()
+        expect(sections[1].collapsed).toBe(true)
+        expect(sections[1].rows).toEqual([])
     })
 })
 
 describe('getFilteredConversations — 兼容既有消费方', () => {
     it('组视图下返回组内两段的会话平铺（行集与 sections 一致）', () => {
+        // 段默认折叠后平铺集合随行集收窄 → 显式展开两段以保留原「全量平铺」断言
+        useConversationStore.setState({expandedGroupIds: ['/ws/a', '/ws/b']})
         const flat = useConversationStore.getState().getFilteredConversations()
         expect(flat.map(c => c.id).sort()).toEqual(['c-1', 'c-2', 'c-3'])
     })
@@ -154,6 +195,8 @@ describe('getScopedSections — 路径键归一（加固 2）', () => {
                 currentWorkspacePath: 'E:\\ws\\a',
                 viewScope: {type: 'group', groupId: 'pg-a'},
                 gitBranches: {},
+                // 段默认折叠 → rows 收窄；本用例验的是段集合渲染，显式展开两段
+                expandedGroupIds: ['E:\\ws\\a', 'E:\\ws\\b'],
             })
             const sections = useConversationStore.getState().getScopedSections()
             // 旧实现只比字面（`p in workspaces`）→ 两个成员都被滤掉 → 退化成 currentWorkspacePath 单段

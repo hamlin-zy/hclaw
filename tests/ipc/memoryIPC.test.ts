@@ -13,13 +13,20 @@ vi.mock('@/main/hclawPaths', () => ({
 }));
 
 vi.mock('@/main/agent/memory/memoryLoader', () => ({
-  getMemDir: (dir: string) => path.join(dir, 'mem'),
-  getRefDir: (dir: string) => path.join(dir, 'mem', 'ref'),
+  getMemDir: vi.fn((dir: string) => path.join(dir, 'mem')),
+  getRefDir: vi.fn((dir: string) => path.join(dir, 'mem', 'ref')),
+}));
+
+vi.mock('@/main/lib/safeHandle', () => ({
+  safeHandle: vi.fn(),
 }));
 
 // Import after mocks
-const { validateMemoryPath, listMemory, readMemory, writeMemory, deleteMemory } =
+const { validateMemoryPath, listMemory, readMemory, writeMemory, deleteMemory, initMemoryIPC } =
   await import('@/main/ipc/memoryIPC');
+const { safeHandle } = await import('@/main/lib/safeHandle');
+const { getRefDir } = await import('@/main/agent/memory/memoryLoader');
+const { ARCHIVE_INDEX_DEFAULTS } = await import('@/main/agent/memory/archiveIndex');
 
 describe('validateMemoryPath', () => {
   beforeEach(() => {
@@ -109,18 +116,34 @@ describe('listMemory', () => {
     expect(result.globalFiles).toHaveLength(1); // only preferences, SKILL.md removed
   });
 
-  it('reads archive H2 title as label', async () => {
+  // 契约变更（Task 5）：label 口径与索引注入一致 —— extractArchiveSummary，
+  // H2 标题不再作为 label；H1 依次剥归档卷前缀/日期后取摘要。
+  it('reads archive H1 summary as label', async () => {
     fs.writeFileSync(
       path.join(refDir, 'hclaw', 'archive', '2026-09-test.md'),
-      '## OpenRouter 专项\n\ndetails...'
+      '# 归档卷：2026-09-29 OpenRouter 接入\n\ndetails...'
     );
     fs.writeFileSync(path.join(refDir, 'index.json'), '{}');
 
     const result = await listMemory();
-    expect(result.projects[0].archiveFiles[0].label).toBe('OpenRouter 专项');
+    expect(result.projects[0].archiveFiles[0].label).toBe('OpenRouter 接入');
   });
 
-  it('falls back to filename when no H2 title', async () => {
+  it('truncates archive label to ARCHIVE_INDEX_DEFAULTS.summaryMaxChars', async () => {
+    const longTitle = 'x'.repeat(ARCHIVE_INDEX_DEFAULTS.summaryMaxChars + 10);
+    fs.writeFileSync(
+      path.join(refDir, 'hclaw', 'archive', '2026-09-long.md'),
+      `# ${longTitle}\n`
+    );
+    fs.writeFileSync(path.join(refDir, 'index.json'), '{}');
+
+    const result = await listMemory();
+    expect(result.projects[0].archiveFiles[0].label).toBe(
+      'x'.repeat(ARCHIVE_INDEX_DEFAULTS.summaryMaxChars) + '…'
+    );
+  });
+
+  it('falls back to archive volume name when no title', async () => {
     fs.writeFileSync(
       path.join(refDir, 'hclaw', 'archive', '2026-09-notes.md'),
       'just some content without heading'
@@ -128,7 +151,77 @@ describe('listMemory', () => {
     fs.writeFileSync(path.join(refDir, 'index.json'), '{}');
 
     const result = await listMemory();
-    expect(result.projects[0].archiveFiles[0].label).toBe('2026 09 notes');
+    // toArchiveVolumeName：去 .md 与 yyyy-MM- 前缀
+    expect(result.projects[0].archiveFiles[0].label).toBe('notes');
+  });
+
+  // --- 跨项目归档卷（ref/_user/archive） ---
+
+  it('returns cross-project archive files sorted by file name', async () => {
+    fs.mkdirSync(path.join(refDir, '_user', 'archive'), { recursive: true });
+    fs.writeFileSync(
+      path.join(refDir, '_user', 'archive', '2026-09-b.md'),
+      '# 归档卷：跨项目经验 B\n'
+    );
+    fs.writeFileSync(
+      path.join(refDir, '_user', 'archive', '2026-09-a.md'),
+      '> 摘要：跨项目摘要 A\n'
+    );
+    fs.writeFileSync(path.join(refDir, 'index.json'), '{}');
+
+    const result = await listMemory();
+    expect(result.crossProjectArchiveFiles).toHaveLength(2);
+    expect(result.crossProjectArchiveFiles!.map((f) => path.basename(f.path))).toEqual([
+      '2026-09-a.md',
+      '2026-09-b.md',
+    ]);
+    expect(result.crossProjectArchiveFiles![0].label).toBe('跨项目摘要 A');
+    expect(result.crossProjectArchiveFiles![0].sizeLimit).toBe(0);
+    expect(result.crossProjectArchiveFiles![1].label).toBe('跨项目经验 B');
+  });
+
+  it('returns empty cross-project archive list when dir does not exist', async () => {
+    const result = await listMemory();
+    expect(result.crossProjectArchiveFiles).toEqual([]);
+  });
+
+  it('ignores non-md files in cross-project archive dir', async () => {
+    fs.mkdirSync(path.join(refDir, '_user', 'archive'), { recursive: true });
+    fs.writeFileSync(path.join(refDir, '_user', 'archive', 'note.txt'), 'x');
+    fs.writeFileSync(path.join(refDir, '_user', 'archive', '2026-09-a.md'), '# a\n');
+
+    const result = await listMemory();
+    expect(result.crossProjectArchiveFiles).toHaveLength(1);
+    expect(path.basename(result.crossProjectArchiveFiles![0].path)).toBe('2026-09-a.md');
+  });
+});
+
+describe('initMemoryIPC', () => {
+  beforeEach(() => {
+    vi.mocked(safeHandle).mockClear();
+    vi.mocked(getRefDir).mockClear();
+    initMemoryIPC();
+  });
+
+  /** 取 memory:list 注册的 handler */
+  function findListHandler(): () => Promise<any> {
+    const call = vi.mocked(safeHandle).mock.calls.find((c) => c[0] === 'memory:list');
+    expect(call).toBeDefined();
+    return call![1] as () => Promise<any>;
+  }
+
+  it('memory:list 异常时返回空数组而非缺字段', async () => {
+    const handler = findListHandler();
+    vi.mocked(getRefDir).mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+
+    const result = await handler();
+    expect(result).toMatchObject({
+      globalFiles: [],
+      projects: [],
+      crossProjectArchiveFiles: [],
+    });
   });
 });
 

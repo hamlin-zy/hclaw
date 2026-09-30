@@ -10,8 +10,11 @@
  *    当前激活会话及其祖先链亦豁免截断（spec §5.2.4 / V11 / F16）
  *  - 计数单位 = 根会话；父被截断 → 子一并隐藏
  *  - 搜索命中忽略窗口；有命中的段强制展开（D19）
- *  - 折叠只影响渲染；「N 条」= 该项目下全量会话数（DB 口径，含子会话），
- *    不随窗口截断变化（窗口只影响 rows/hasMore）
+ *  - 折叠（D19 已修订 2026-09-26，见 .superpowers/sdd/2026-09-26-section-default-collapsed/）：
+ *    组视图段（含未归属段）**默认折叠**；expandedKeys = 手动展开集 ∪ 激活段 key
+ *    （调用方算好合并结果传入）；命中项所在段恒强制展开。单项目视图（singleProject）
+ *    无 chevron、恒展开。折叠只影响渲染；「N 条」= 该项目下全量会话数（DB 口径，
+ *    含子会话），不随窗口截断/折叠变化（窗口只影响 rows/hasMore）
  */
 import type {ConversationSummary} from '@shared/types/infra'
 import {fuzzyFilter} from './search'
@@ -58,8 +61,13 @@ export const RECENT_STEP = 10
 export function buildConversationSections(input: {
     projects: SectionInput[]
     searchQuery: string
-    collapsedKeys: string[]
-    /** 单项目视图 = true（无 chevron、不提供折叠） */
+    /**
+     * 展开集（2026-09-26 修订 D19：默认折叠，入参由折叠集反转为展开集）=
+     * 手动展开落盘集（store.expandedGroupIds）∪ 激活段 key（调用方实时派生）。
+     * 段 key ∈ 本集合 → 展开；否则 → 折叠（forcedOpen 例外，恒展开）。
+     */
+    expandedKeys: string[]
+    /** 单项目视图 = true（无 chevron、恒展开） */
     singleProject?: boolean
     windowSize?: number
     /**
@@ -79,7 +87,7 @@ export function buildConversationSections(input: {
      */
     activeConversationId?: string
 }): ConversationSection[] {
-    const {projects, searchQuery, collapsedKeys, singleProject = false, childWindowSizes, activeConversationId} = input
+    const {projects, searchQuery, expandedKeys, singleProject = false, childWindowSizes, activeConversationId} = input
     const windowSize = input.windowSize ?? SECTION_DEFAULT
     const searching = searchQuery.trim().length > 0
 
@@ -192,9 +200,10 @@ export function buildConversationSections(input: {
         // ★ count = 项目下全量会话数（含子会话），即数据库真实总数；
         //   不用 visibleRoots.length（那是窗口内可见根会话数，会随「···」展开而变）
         const count = all.length
-        // 单项目视图只有一个段 → 不提供 chevron，折叠集合不生效
+        // 单项目视图只有一个段 → 不提供 chevron（forcedOpen 恒 true，折叠不生效）；
+        // 组视图段默认折叠：段 key 不在 expandedKeys（手动展开集 ∪ 激活段）即折叠
         const forcedOpen = singleProject || (searching && matchedIds.size > 0)
-        const collapsed = !forcedOpen && collapsedKeys.includes(p.projectPath)
+        const collapsed = !forcedOpen && !expandedKeys.includes(p.projectPath)
 
         return {
             key: p.projectPath,

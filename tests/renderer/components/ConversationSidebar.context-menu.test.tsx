@@ -44,7 +44,7 @@ vi.mock('../../../src/renderer/stores/conversationStore', () => ({
             singleViewWindowHintShown: false,
             gitBranches: {},
             gitBranch: null,
-            collapsedGroupIds: [],
+            expandedGroupIds: [],
             expandedChildParents: {},
             activeConversationId: null,
             pendingFocusProject: null,

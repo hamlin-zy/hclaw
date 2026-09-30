@@ -2,6 +2,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getHclawDir } from '../hclawPaths';
 import { getMemDir, getRefDir } from '../agent/memory/memoryLoader';
+import {
+  ARCHIVE_HEAD_BYTES,
+  ARCHIVE_INDEX_DEFAULTS,
+  extractArchiveSummary,
+  toArchiveVolumeName,
+} from '../agent/memory/archiveIndex';
 import { safeHandle } from '../lib/safeHandle';
 import type {
   MemoryListResult,
@@ -72,21 +78,47 @@ const SIZE_LIMITS: Record<string, number> = {
   'preferences.md': 4096,
 };
 
-function resolveArchiveLabel(filePath: string): string {
+/** 只读归档卷头部 ARCHIVE_HEAD_BYTES 字节（与索引注入同一口径），避免整卷读入内存 */
+function readArchiveHead(filePath: string): string {
+  const fd = fs.openSync(filePath, 'r');
   try {
-    const fd = fs.openSync(filePath, 'r');
-    const buf = Buffer.alloc(512);
-    const bytesRead = fs.readSync(fd, buf, 0, 512, 0);
+    const buf = Buffer.allocUnsafe(ARCHIVE_HEAD_BYTES);
+    const bytesRead = fs.readSync(fd, buf, 0, ARCHIVE_HEAD_BYTES, 0);
+    // 字节截断可能切出半个多字节字符，末尾的替换符直接丢掉
+    return buf.subarray(0, bytesRead).toString('utf-8').replace(/\uFFFD$/, '');
+  } finally {
     fs.closeSync(fd);
-    const head = buf.subarray(0, bytesRead).toString('utf-8');
-    const h2Match = head.match(/^##\s+(.+)$/m);
-    if (h2Match) return h2Match[1].trim();
-  } catch {
-    // fall through to filename
   }
-  // Fallback: filename without .md, dashes to spaces
-  const base = path.basename(filePath, '.md');
-  return base.replace(/-/g, ' ');
+}
+
+/**
+ * 归档卷文件条目：label 与归档索引注入同口径（extractArchiveSummary +
+ * ARCHIVE_INDEX_DEFAULTS.summaryMaxChars），读取失败时回落卷名。
+ */
+function toArchiveFileEntry(filePath: string, fileName: string): MemoryFileEntry {
+  let label: string;
+  try {
+    label = extractArchiveSummary(
+      readArchiveHead(filePath),
+      fileName,
+      ARCHIVE_INDEX_DEFAULTS.summaryMaxChars
+    );
+  } catch {
+    // 扫描与读取之间卷被删除或不可读：回落卷名，不中断列表
+    label = toArchiveVolumeName(fileName);
+  }
+  return { path: filePath, label, sizeLimit: 0 };
+}
+
+/** 扫描归档目录下的 .md 卷（目录不存在/不可读 → 空数组），按文件名排序 */
+function scanArchiveFiles(dir: string): MemoryFileEntry[] {
+  let fileNames: string[];
+  try {
+    fileNames = fs.readdirSync(dir).filter((f) => f.endsWith('.md')).sort();
+  } catch {
+    return [];
+  }
+  return fileNames.map((fileName) => toArchiveFileEntry(path.join(dir, fileName), fileName));
 }
 
 // --- IPC handlers (exported for testing) ---
@@ -94,7 +126,6 @@ function resolveArchiveLabel(filePath: string): string {
 export async function listMemory(): Promise<MemoryListResult> {
   const hclawDir = getHclawDir();
   const refDir = getRefDir(hclawDir);
-  const memDir = getMemDir(hclawDir);
 
   const globalFiles: MemoryFileEntry[] = [];
 
@@ -170,18 +201,7 @@ export async function listMemory(): Promise<MemoryListResult> {
     // archive/*.md
     const archiveDir = path.join(projectDir, 'archive');
     if (fs.existsSync(archiveDir)) {
-      const archiveEntries = fs
-        .readdirSync(archiveDir)
-        .filter((f) => f.endsWith('.md'))
-        .sort();
-      for (const fileName of archiveEntries) {
-        const filePath = path.join(archiveDir, fileName);
-        entry.archiveFiles.push({
-          path: filePath,
-          label: resolveArchiveLabel(filePath),
-          sizeLimit: 0,
-        });
-      }
+      entry.archiveFiles = scanArchiveFiles(archiveDir);
     }
 
     // Only include projects that have memory.md or archive files
@@ -190,7 +210,10 @@ export async function listMemory(): Promise<MemoryListResult> {
     }
   }
 
-  return { globalFiles, projects };
+  // 跨项目归档卷：ref/_user/archive/*.md（目录不存在 → 空数组，不报错）
+  const crossProjectArchiveFiles = scanArchiveFiles(path.join(refDir, '_user', 'archive'));
+
+  return { globalFiles, projects, crossProjectArchiveFiles };
 }
 
 export async function readMemory(filePath: string): Promise<MemoryReadResult> {
@@ -288,7 +311,8 @@ export function initMemoryIPC(): void {
     try {
       return await listMemory();
     } catch (e: any) {
-      return { globalFiles: [], projects: [], error: e.message };
+      // 防御：异常也保持返回结构完整（渲染层对可选字段一律 ?? [] 兜底）
+      return { globalFiles: [], projects: [], crossProjectArchiveFiles: [], error: e.message };
     }
   });
 

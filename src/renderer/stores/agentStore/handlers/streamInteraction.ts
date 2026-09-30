@@ -5,7 +5,7 @@ import type {StreamCtx} from './streamContext'
 import type {ConvAgentData} from '../types'
 import {IDLE_STATE, makeAgentState, createDefaultConvData} from '../defaultState'
 import {useConversationStore, findConvAcrossWorkspaces} from '../../conversationStore'
-import {textBlockId} from '../contentBlocks'
+import {textBlockId, compareStreamBlocks} from '../contentBlocks'
 import {useAgentStore} from '..'
 import {
     flushTextBatch,
@@ -102,7 +102,7 @@ export async function handleDone(ctx: StreamCtx) {
             }
             const assembled: import('@shared/types').ContentBlock[] = []
             let lastOffset = 0
-            const sortedBlocks = [...streamBlocks].sort((a, b) => a.textOffset - b.textOffset)
+            const sortedBlocks = [...streamBlocks].sort(compareStreamBlocks)
             for (const sb of sortedBlocks) {
                 if (sb.textOffset > lastOffset) {
                     const textSlice = fullText.slice(lastOffset, sb.textOffset)

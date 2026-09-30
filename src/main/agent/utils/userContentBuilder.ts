@@ -119,6 +119,8 @@ export interface HistoryUserRow {
     envDigest?: unknown
     /** 记忆恢复字段（DB 读回约定：展开到消息顶层；漏收拢会让重启后重复注入记忆消息） */
     memoryDigest?: unknown
+    /** 归档卷索引恢复字段（DB 读回约定：展开到消息顶层；漏收拢会让重启后重复注入索引消息） */
+    archiveIndexDigest?: unknown
 }
 
 /** 重建后的 user 消息 */
@@ -158,6 +160,7 @@ export async function convertUserHistoryMessage(msg: HistoryUserRow): Promise<Re
         ...(msg.languageGuardDigest !== undefined ? {languageGuardDigest: msg.languageGuardDigest} : {}),
         ...(msg.envDigest !== undefined ? {envDigest: msg.envDigest} : {}),
         ...(msg.memoryDigest !== undefined ? {memoryDigest: msg.memoryDigest} : {}),
+        ...(msg.archiveIndexDigest !== undefined ? {archiveIndexDigest: msg.archiveIndexDigest} : {}),
     }
 
     const result: RebuiltUserMessage[] = [{

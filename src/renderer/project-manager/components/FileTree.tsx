@@ -361,6 +361,15 @@ export function FileTree() {
   }
 
   /**
+   * 双击的净语义是「展开/打开」，不是「选中」。
+   * 双击必然先派发一次 click(detail=1)（见 onRowClick 的 detail 守卫），选中因此是手势副作用；
+   * 纯双击（无修饰键）在此清除它，带修饰键的双击（罕见）保留选中以便多选延续。
+   */
+  const clearSelectionOnDoubleClick = (ev: React.MouseEvent) => {
+    if (!ev.ctrlKey && !ev.metaKey && !ev.shiftKey) select(null)
+  }
+
+  /**
    * 目录染色：从 workspace 全量 statusMap 按路径前缀派生（spec §6.2）。
    * 每趟渲染只聚合一次：对每个变更文件路径，沿其各个 '/' 边界取出**所有祖先目录**
    * （即满足 `p.startsWith(dir + '/')` 的 dir），把该文件状态按 dominantStatus 的
@@ -430,7 +439,8 @@ export function FileTree() {
               if (!useFileTreeStore.getState().selectedPaths.has(e.path)) select(e.path)
               setMenu({x: ev.clientX, y: ev.clientY, entry: e})
             }}
-            onDoubleClick={() => {
+            onDoubleClick={(ev) => {
+              clearSelectionOnDoubleClick(ev)
               // 目录行双击 = 切换展开（IDEA 语义）
               if (e.isDir) { toggleDir(e); return }
               const reqWs = ws
@@ -518,7 +528,10 @@ export function FileTree() {
           selected={selectedPath === '.'}
           onClick={onRowClick('.')}
           onToggle={() => setRootExpanded(v => !v)}
-          onDoubleClick={() => setRootExpanded(v => !v)}
+          onDoubleClick={(ev) => {
+            clearSelectionOnDoubleClick(ev)
+            setRootExpanded(v => !v)
+          }}
           ariaLabel={rootLabel}
           trailing={rootChildren.length > 0 ? String(rootChildren.length) : undefined}
         />

@@ -10,7 +10,8 @@ describe('窗口截断豁免', () => {
     const convs = [mk('c1', 900), mk('c2', 800), mk('c3', 700)]
     const build = (activeConversationId?: string, list = convs, visibleCount = 2) => buildConversationSections({
         projects: [{projectPath: '/ws/a', projectName: 'a', gitBranch: null, conversations: list as never, visibleCount}],
-        searchQuery: '', collapsedKeys: [], activeConversationId,
+        // ★ 2026-09-26：段默认折叠（D19 修订），本文件只验证窗口豁免 → 段需列入 expandedKeys 保持可见
+        searchQuery: '', expandedKeys: ['/ws/a'], activeConversationId,
     })[0]
 
     it('被窗口截掉的激活会话仍渲染，且保持原排序位置', () => {
@@ -30,7 +31,7 @@ describe('窗口截断豁免', () => {
     it('搜索态下豁免不改变结果（搜索本就忽略窗口）', () => {
         const s = buildConversationSections({
             projects: [{projectPath: '/ws/a', projectName: 'a', gitBranch: null, conversations: convs as never, visibleCount: 2}],
-            searchQuery: 'c', collapsedKeys: [], activeConversationId: 'c3',
+            searchQuery: 'c', expandedKeys: ['/ws/a'], activeConversationId: 'c3',
         })[0]
         expect(s.rows.map(r => r.id)).toEqual(['c1', 'c2', 'c3'])
     })

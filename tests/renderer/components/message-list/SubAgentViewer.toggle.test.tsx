@@ -77,4 +77,17 @@ describe('SubAgentViewer（已完成 Agent 只展示最终输出）', () => {
         fireEvent.click(screen.getByLabelText('关闭'))
         expect(onClose).toHaveBeenCalled()
     })
+
+    it('最终输出文本区铺满弹窗：内容块不再有 maxHeight 约束', () => {
+        render(
+            <SubAgentViewer
+                title="子Agent测试"
+                result={{success: true, output: '这是最终输出内容'}}
+                onClose={vi.fn()}
+            />,
+        )
+        const block = screen.getByText('这是最终输出内容').closest('div[class*="rounded-lg"]') as HTMLElement
+        expect(block).toBeTruthy()
+        expect(block.style.maxHeight).toBe('')
+    })
 })

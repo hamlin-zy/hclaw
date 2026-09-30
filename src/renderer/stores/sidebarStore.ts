@@ -3,8 +3,11 @@ import {persist, type PersistStorage} from 'zustand/middleware'
 import {sqliteStorage} from '../lib/sqliteStorage'
 import {SIDEBAR_STATE_CONFIG_KEY} from '../../shared/configKeys'
 
-/** 左侧边栏可调宽度边界（px） */
-export const SIDEBAR_MIN_WIDTH = 180
+/** 左侧边栏可调宽度边界（px）。
+ *  ★ 下限 2026-09-30 由 180 提到 300：会话行右侧是固定列（项目 chip + 状态徽章 +
+ *    时间 52px 槽 + 图钉 10px 槽），180–240 宽下留给标题的只剩几十像素。
+ *    副作用：widthTier 的 tight 档（<270）在当前下限下不可达，保留为降级档待下限回调。 */
+export const SIDEBAR_MIN_WIDTH = 300
 export const SIDEBAR_MAX_WIDTH = 480
 export const SIDEBAR_DEFAULT_WIDTH = 320
 
@@ -80,6 +83,18 @@ export const useSidebarStore = create<SidebarStore>()(
                 rightCollapsed: s.rightCollapsed,
                 recentHeight: s.recentHeight,
             }),
+            // 恢复时按当前边界钳制：下限上调（180 → 300）后，历史落盘值（如 180/240）
+            // 若不钳，会绕过 setLeftWidth 的 clamp 原样呈现 —— 「最小 300」只对新拖拽生效。
+            merge: (persisted, current) => {
+                const p = (persisted ?? {}) as Partial<PersistedSidebar>
+                return {
+                    ...current,
+                    ...p,
+                    leftWidth: typeof p.leftWidth === 'number'
+                        ? Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(p.leftWidth)))
+                        : current.leftWidth,
+                }
+            },
         },
     ),
 )

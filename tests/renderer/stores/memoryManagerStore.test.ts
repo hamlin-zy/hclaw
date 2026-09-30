@@ -23,6 +23,7 @@ describe('memoryManagerStore', () => {
                 {path: '/ref/_user/preferences.md', label: '跨项目偏好', sizeLimit: 4096},
             ],
             projects: [],
+            crossProjectArchiveFiles: [],
         })
         setMemory({list})
 
@@ -31,6 +32,32 @@ describe('memoryManagerStore', () => {
         const s = useMemoryManagerStore.getState()
         expect(s.treeLoadState).toBe('loaded')
         expect(s.treeData?.globalFiles).toHaveLength(1)
+    })
+
+    it('loadTree 透传 crossProjectArchiveFiles 到 treeData', async () => {
+        const list = vi.fn().mockResolvedValue({
+            globalFiles: [],
+            projects: [],
+            crossProjectArchiveFiles: [
+                {path: '/ref/_user/archive/2026-09-a.md', label: '跨项目经验', sizeLimit: 0},
+            ],
+        })
+        setMemory({list})
+
+        await useMemoryManagerStore.getState().loadTree()
+
+        expect(useMemoryManagerStore.getState().treeData?.crossProjectArchiveFiles).toHaveLength(1)
+    })
+
+    it('loadTree 结果缺 crossProjectArchiveFiles 字段时正常 loaded', async () => {
+        const list = vi.fn().mockResolvedValue({globalFiles: [], projects: []})
+        setMemory({list})
+
+        await useMemoryManagerStore.getState().loadTree()
+
+        const s = useMemoryManagerStore.getState()
+        expect(s.treeLoadState).toBe('loaded')
+        expect(s.treeData?.crossProjectArchiveFiles).toBeUndefined()
     })
 
     it('loadFile 读取内容并记录 selectedFile', async () => {

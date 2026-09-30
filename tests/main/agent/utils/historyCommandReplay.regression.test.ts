@@ -14,6 +14,7 @@ import {
     convertUserHistoryMessage,
     buildUserHistoryContent,
 } from '../../../../src/main/agent/utils/userContentBuilder'
+import {MEMORY_SOURCE_KIND, ARCHIVE_INDEX_DIGEST_KEY} from '../../../../src/shared/types/memory'
 
 const TEMPLATE = '# 技能模式: systematic-debugging\n\n你正在使用技能 "systematic-debugging"。'
 
@@ -54,6 +55,26 @@ describe('convertUserHistoryMessage（恒 1:1，无重放）', () => {
         expect(result).toHaveLength(1)
         expect(result[0].content).toBe('/code-simplifier 优化')
         expect(String(result[0].content)).not.toContain('<command-task>')
+    })
+
+    // ★ 白名单收拢（R13 ①）：DB 读回后 metadata 展开到顶层，白名单是 digest 的唯一
+    //   保真通道。漏收拢 ⇒ rebuild 后 restoreMemoryState 读不到 archiveIndexDigest ⇒
+    //   索引门控每次判「未发布」⇒ 重启/恢复后重复注入索引消息、前缀缓存失效。
+    it('★ DB 读回真实形态：归档卷索引 digest 展开在顶层，重建后 metadata 仍保留', async () => {
+        const result = await convertUserHistoryMessage({
+            id: 'u12',
+            role: 'user',
+            content: '<system-reminder>\n# 长期记忆索引（按需读取）\n\n- 卷 A\n</system-reminder>',
+            // 真实 DB 读回：metadata 整体展开到顶层，msg.metadata 为 undefined
+            sourceKind: MEMORY_SOURCE_KIND,
+            archiveIndexDigest: 'idx-digest-1',
+        } as unknown as Parameters<typeof convertUserHistoryMessage>[0])
+        expect(result).toHaveLength(1)
+        expect(result[0].metadata).toMatchObject({
+            sourceKind: MEMORY_SOURCE_KIND,
+            [ARCHIVE_INDEX_DIGEST_KEY]: 'idx-digest-1',
+        })
+        // 判别力对照：白名单若漏收拢 archiveIndexDigest，metadata 只剩 {}，上一条断言即红
     })
 
     it('附件 + 命令 metadata 共存：本体走附件构建，恒单条', async () => {

@@ -95,7 +95,7 @@ describe('注入文本负向护栏：无逐轮漂移源', () => {
 
     it('memory 注入正文：无日期/时间戳/相对词', () => {
         const state = createLoopState([{id: 'u1', role: 'user', content: '继续'}])
-        const r = runMemoryPreStep(state, {lastMemoryDigest: null}, null, undefined, {
+        const r = runMemoryPreStep(state, {lastMemoryDigest: null, lastArchiveIndexDigest: null}, null, undefined, {
             hclawDir: '/tmp/hclaw-test',
             workspacePath: 'E:/ws',
             memoryEnabled: true,

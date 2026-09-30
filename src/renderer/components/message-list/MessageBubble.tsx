@@ -289,8 +289,8 @@ const MessageBubble = memo(function MessageBubble({message, statusNote, isAgentR
                 {/* Think block（仅旧格式消息使用；新格式 contentBlocks 由 InterleavedContent 渲染） */}
                 {!message.contentBlocks && message.thinkBlock && (
                     <div className="mb-2">
-                        <ThinkBlock thinkBlock={message.thinkBlock}
-                                    defaultExpanded={message.thinkBlock.status === 'thinking'}/>
+                        {/* 展开态由 ThinkBlock 按显示模式自行决定，调用方不再干预 */}
+                        <ThinkBlock thinkBlock={message.thinkBlock}/>
                     </div>
                 )}
 

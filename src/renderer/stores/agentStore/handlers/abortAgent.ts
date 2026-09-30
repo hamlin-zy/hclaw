@@ -3,7 +3,7 @@
 import type {AgentStore} from '../types'
 import {IDLE_STATE, createDefaultConvData} from '../defaultState'
 import {useConversationStore} from '../../conversationStore'
-import {textBlockId} from '../contentBlocks'
+import {textBlockId, compareStreamBlocks} from '../contentBlocks'
 import {useToolCallsStore} from '../../toolCallsStore'
 import {clearAllBatches, removeEmptyAssistantMessage} from '../helpers/convHelpers'
 import {flushThinkingBatch} from '../batching/thinkingBatch'
@@ -88,7 +88,8 @@ export async function abortAgentImpl(
                 const fullText = convData.streamBuffer
                 const assembled: import('@shared/types').ContentBlock[] = []
                 let lastOffset = 0
-                for (const sb of convData.streamBlocks) {
+                const sorted = [...convData.streamBlocks].sort(compareStreamBlocks)
+                for (const sb of sorted) {
                     if (sb.textOffset > lastOffset) {
                         const textSlice = fullText.slice(lastOffset, sb.textOffset)
                         if (textSlice) {
