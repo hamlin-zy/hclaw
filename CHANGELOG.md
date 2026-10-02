@@ -7,6 +7,18 @@
 
 ---
 
+## [v0.5.23] - 2026-10-02
+
+### 新增
+- **流程图缩放交互** — 集成 react-zoom-pan-pinch，支持缩放/平移/双击重置 (`message-list/MermaidBlock`)
+- **流式闪烁抑制** — 流式期间 parse 失败保持 loading 避免反复闪烁；双重看门狗 timer 兜底强制降级 (`message-list/MermaidBlock`)
+- **uid 防冲突** — 模块级 uidCounter 防止并发渲染 id 撞车 (`message-list/MermaidBlock`)
+
+### 变更
+- **tools 变动门模型切换放行** — 记录当轮配置模型名，跨模型图片工具互换放行（prompt cache 不共享），同模型降级仍弹窗 (`agent/loop/controller` / `execute` / `toolsSentRecord` / `alwaysOnTools`)
+- **代码去重** — 缩放按钮 className 提取常量、复制按钮 JSX 提取内部函数、data-name 按功能拆分 (`message-list/MermaidBlock`)
+- **prompt 迁移注册** — mermaid bullet 迁移注册 (`agent/prompts/promptDefaultUpgrade` / `shared/prompts`)
+
 ## [v0.5.22] - 2026-09-30
 
 ### 新增
