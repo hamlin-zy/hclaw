@@ -138,7 +138,7 @@ export function ThrottledMarkdown({content, isUser, theme}: {
         // data-find-scope：正文搜索范围标记（MessageList.find 的 buildHighlights 只搜此标记内文本，
         // 避免命中 header/时间戳/工具卡片/聚合芯片等 UI 元信息）
         <div className="min-w-0" data-find-scope>
-            <MarkdownRenderer isUser={isUser} theme={theme}>{displayContent}</MarkdownRenderer>
+            <MarkdownRenderer isUser={isUser} theme={theme} isStreaming={isStreaming}>{displayContent}</MarkdownRenderer>
         </div>
     )
 }

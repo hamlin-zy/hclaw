@@ -13,3 +13,12 @@ export const ALWAYS_ON_TOOLS: ReadonlySet<string> = new Set([
   'call_mcp_tool',
   'load_image',
 ])
+
+/**
+ * 随主模型图片能力互换的工具集：多模态模型暴露 load_image（图片已直达，不需要回退分析器），
+ * 非多模态模型保留 analyze_image（须由模型间接读图）。二者按 supportsImageInput 动态互换。
+ *
+ * 语义：跨模型时 prompt cache 本就不共享（模型/service 维度不同），这类互换不会额外损失缓存，
+ * 故 tools 变动门直接放行、无需弹窗确认成本；其他工具变化仍照常走门。
+ */
+export const MODEL_CAPABILITY_SWITCHED_TOOLS: ReadonlySet<string> = new Set(['load_image', 'analyze_image'])

@@ -45,7 +45,7 @@ import {ARCHIVE_INDEX_DEFAULTS} from '../memory/archiveIndex'
 import {restoreLanguageGuardState, runLanguageGuardPreStep, isLanguageGuardIteration, resolveSubagentLanguageSection, type LanguageGuardState} from './languageGuardPublish'
 import {getHclawDir} from '../../hclawPaths'
 import {buildCommandTaskContent} from '../utils/userContentBuilder'
-import {getLastSentToolNames, isSameToolNameSequence} from './toolsSentRecord'
+import {evaluateToolsChange, getLastSentToolsRecord} from './toolsSentRecord'
 import {buildAgentDefinitionCtMessage, shouldInjectCommandTaskCt} from './agentDefinitionCt'
 // ─── LLM 调用事件与工具方法（内联自历史 compress.ts） ───
 import type {ChatMessage} from '../model/types'
@@ -584,23 +584,30 @@ export class AgentLoopController {
 
             // ── tools 变动门：本轮工具集与上一轮不同 → 请求前缀从 tools 段失配，
             //    已积累的 prompt 缓存全部作废。在请求发出前拦截，交由用户确认成本。
-            //    基线取自「上一轮实际发送」记录（跨 Worker 持久化于 system_settings；
-            //    由 execute.ts 在实际发送处写入，故降级路径也准确）。 ──
+            //    判据见 evaluateToolsChange：会话中途切换模型（视觉 ⇄ 非视觉）导致的
+            //    图片工具互换放行——跨模型 prompt cache 本就不共享，无额外重建成本；
+            //    同模型下的 400 降级/自愈恢复差异虽同为这两个工具，但缓存确实全量失效，
+            //    仍照旧弹窗。其他工具变化同样照旧。
+            //    基线取自「上一轮实际发送」记录（跨 Worker 持久化于 system_settings，
+            //    含当轮配置模型名，与下方 currentModel 同源）；
+            //    由 execute.ts 在实际发送处写入，故降级路径也准确。 ──
             const currentToolNames = availableToolDefinitions.map(t => t.name)
-            const previousToolNames = sessionId ? getLastSentToolNames(sessionId) : undefined
-            if (previousToolNames && !isSameToolNameSequence(previousToolNames, currentToolNames)) {
-                const added = currentToolNames.filter(n => !previousToolNames.includes(n))
-                const removed = previousToolNames.filter(n => !currentToolNames.includes(n))
-                // 无回调（子 Agent in-process loop / 渠道会话）→ 静默放行，
-                // 对齐 askUserQuestion 缺失时的降级路径（见本文件循环检测门）。
-                if (typeof confirmToolsChange === 'function') {
-                    const decision = await confirmToolsChange({added, removed, previous: previousToolNames, current: currentToolNames})
-                    if (decision === 'cancel') {
-                        logger.info(`[AgentLoop] tools change cancelled by user, turns:${turnCount}`)
-                        yield {type: 'done', reason: 'tools_change_cancelled'} as AgentStreamEvent
-                        endTurnCleanup()
-                        return 'early_exit'
-                    }
+            const prevRecord = sessionId ? getLastSentToolsRecord(sessionId) : undefined
+            const {confirm, added, removed} = evaluateToolsChange(prevRecord, currentToolNames, selection.modelConfig.model)
+            // 无回调（子 Agent in-process loop / 渠道会话）→ 静默放行，
+            // 对齐 askUserQuestion 缺失时的降级路径（见本文件循环检测门）。
+            if (confirm && typeof confirmToolsChange === 'function') {
+                const decision = await confirmToolsChange({
+                    added,
+                    removed,
+                    previous: prevRecord!.names,
+                    current: currentToolNames,
+                })
+                if (decision === 'cancel') {
+                    logger.info(`[AgentLoop] tools change cancelled by user, turns:${turnCount}`)
+                    yield {type: 'done', reason: 'tools_change_cancelled'} as AgentStreamEvent
+                    endTurnCleanup()
+                    return 'early_exit'
                 }
             }
             // 记录点不在此处：实际发送可能因 400 降级而使用 preCapabilityToolDefinitions，

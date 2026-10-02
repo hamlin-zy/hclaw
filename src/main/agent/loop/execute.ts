@@ -349,7 +349,12 @@ export async function* executeLlmCallWithRetry(
             //   preCapabilityToolDefinitions，若门槛处仍记 availableToolDefinitions，
             //   基线会与实际发送不一致，导致下一轮误拦截/漏拦截。
             if (params.sessionId) {
-                recordLastSentToolNames(params.sessionId, toolsToSend.map(t => t.name))
+                // ★ model 必须用配置模型名 modelConfig.model，而非本函数内 adapter 解析后的
+                //   currentModel（上行 176/236 行）：变动门在 controller 侧也以
+                //   selection.modelConfig.model 判定「模型是否切换」，双方须同源。
+                //   currentModel 是 provider 实际 modelId（别名/网关重映射时可能与配置名不同），
+                //   用它会让比较双方不同源 → 误判模型已切换 → 错误放行非图片工具变化。
+                recordLastSentToolNames(params.sessionId, toolsToSend.map(t => t.name), modelConfig.model)
             }
 
             // ── 图片通道策略：按当前模型能力分流（两个分支互补，同一布尔的正面/反面） ──

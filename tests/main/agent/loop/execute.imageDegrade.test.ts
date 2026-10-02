@@ -7,13 +7,11 @@ import type {ToolDefinitionForLLM} from '../../../../src/main/agent/tools/types'
 
 // tools 发送记录（toolsSentRecord）落 system_settings；单测中替换为内存桩，
 // 以便断言「实际发送」名单（降级路径应为 preCapability 集）。
-const recordCalls = vi.hoisted(() => ({calls: [] as Array<{sessionId: string; names: string[]}>}))
+const recordCalls = vi.hoisted(() => ({calls: [] as Array<{sessionId: string; names: string[]; model: string | undefined}>}))
 vi.mock('../../../../src/main/agent/loop/toolsSentRecord', () => ({
-    recordLastSentToolNames: (sessionId: string, names: string[]) => {
-        recordCalls.calls.push({sessionId, names})
+    recordLastSentToolNames: (sessionId: string, names: string[], model: string) => {
+        recordCalls.calls.push({sessionId, names, model})
     },
-    getLastSentToolNames: () => undefined,
-    isSameToolNameSequence: () => true,
 }))
 
 describe('isImageUnsupportedError（400 降级触发判定）', () => {
@@ -174,8 +172,8 @@ describe('executeLlmCallWithRetry 400 降级自愈（生成器级，mock adapter
     // ★ tools 发送记录（缺陷修复）：基线须为「实际发送」名单——
     //   attempt 1 记录 available 集；attempt 2 降级后记录 preCapability 集（含 analyze_image）。
     expect(recordCalls.calls).toEqual([
-      {sessionId: 'test-session', names: ['file_read']},
-      {sessionId: 'test-session', names: ['file_read', 'analyze_image']},
+      {sessionId: 'test-session', names: ['file_read'], model: MODEL_ID},
+      {sessionId: 'test-session', names: ['file_read', 'analyze_image'], model: MODEL_ID},
     ])
   })
 })
