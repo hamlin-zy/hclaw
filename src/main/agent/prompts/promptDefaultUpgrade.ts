@@ -140,6 +140,9 @@ const OUTPUT_LAST_LINE = `- **高效更新** — 增量修改时简短说明变�
 /** 新增条目（与 prompts.ts 新版默认值逐字一致） */
 const OUTPUT_THINKING_BULLET = `- **思考不预写正文** — 思考只用于推理决策；不要在其中完整预写最终正文再誊抄一遍，正文一次成稿（同一内容生成两遍会白烧一遍输出 token，且思考内容随历史回传、后续每轮再按输入计费一次）`
 
+/** 新增条目（与 prompts.ts 新版默认值逐字一致） */
+const OUTPUT_MERMAID_BULLET = `- **图表辅助** — 架构、流程、调用链、系统设计等可视化场景优先使用 mermaid 图表，消息列表会自动渲染 \`\`\`mermaid 围栏，无需额外 HTML 文件。仅在需要交互式演示或动画效果时才用单文件 HTML（对应「UI demo 交付」偏好）。用 \`\`\`mermaid 围栏标注。`
+
 // ─── 迁移注册表 ──────────────────────────────────────────
 
 export const PROMPT_NODE_MIGRATIONS: PromptNodeDefaultMigration[] = [
@@ -228,6 +231,20 @@ export const PROMPT_NODE_MIGRATIONS: PromptNodeDefaultMigration[] = [
                 OUTPUT_LAST_LINE,
                 `${OUTPUT_LAST_LINE}\n${OUTPUT_THINKING_BULLET}`,
                 'anchor-miss-output-last-line',
+            )
+        },
+    },
+    {
+        id: 'output-patch-mermaid-bullet',
+        nodeKey: 'system.output',
+        description: '输出规范补入「图表辅助」条目（用户改过时不整体覆盖，只追加）',
+        apply: (content) => {
+            if (content.includes(OUTPUT_MERMAID_BULLET)) return {outcome: 'noop', content, reason: 'already-satisfied'}
+            return replaceTextBlock(
+                content,
+                OUTPUT_THINKING_BULLET,
+                `${OUTPUT_THINKING_BULLET}\n${OUTPUT_MERMAID_BULLET}`,
+                'anchor-miss-output-thinking-bullet',
             )
         },
     },

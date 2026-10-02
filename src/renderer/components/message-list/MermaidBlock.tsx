@@ -13,11 +13,18 @@
  */
 
 import {memo, useEffect, useRef, useState} from 'react'
+import {TransformWrapper, TransformComponent} from 'react-zoom-pan-pinch'
 
 /** 渲染超时：超过则视为失败并降级，避免坏图卡住消息流 */
 const RENDER_TIMEOUT_MS = 4000
 
-/** 稳定短哈希：为 mermaid.render 生成唯一 DOM id（同源码 + 同主题 → 同 id） */
+/** 缩放控制按钮共用样式 */
+const zoomBtnClass = 'w-7 h-7 flex items-center justify-center text-sm rounded transition-colors ' +
+    'bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] ' +
+    'text-[var(--text-secondary)] hover:text-[var(--text-primary)] ' +
+    'border border-[var(--border)]'
+
+/** 短哈希：为 mermaid.render 生成稳定的 id 前缀（同源码 + 同主题 → 同前缀） */
 function hashString(input: string): string {
     let h = 5381
     for (let i = 0; i < input.length; i++) {
@@ -26,14 +33,23 @@ function hashString(input: string): string {
     return (h >>> 0).toString(36)
 }
 
+// 模块级实例序号：hash 前缀相同的两个 MermaidBlock 实例（同 code + 同主题）
+// 共享同一个 id 会让 mermaid.render 的临时 DOM 容器 #d<id> 撞车，进而：
+//   1. 并发 render 相互覆盖 svg 内容；
+//   2. finally 里 getElementById('d'+id)?.remove() 会误删兄弟实例的错误容器。
+// 追加自增 uid 保证实例唯一，hash 前缀保留以维持语义可读性。
+let uidCounter = 0
+
 type Status = 'loading' | 'ready' | 'error'
 
 interface MermaidBlockProps {
     code: string
     isDark: boolean
+    /** 流式输出中：parse 失败时保持 loading 而非降级为 error，避免 partial 代码反复闪烁 */
+    isStreaming?: boolean
 }
 
-export const MermaidBlock = memo(function MermaidBlock({code, isDark}: MermaidBlockProps) {
+export const MermaidBlock = memo(function MermaidBlock({code, isDark, isStreaming}: MermaidBlockProps) {
     const hostRef = useRef<HTMLDivElement | null>(null)
     const [status, setStatus] = useState<Status>('loading')
     const [copied, setCopied] = useState(false)
@@ -41,18 +57,30 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark}: MermaidBl
     useEffect(() => {
         let cancelled = false
         setStatus('loading')
+        let hangTimer: number | null = null
         const timer = window.setTimeout(() => {
-            if (!cancelled) setStatus('error')
+            if (cancelled) return
+            // 流式期间超时保持 loading：partial 代码 parse/render 卡住是预期的
+            setStatus(isStreaming ? 'loading' : 'error')
+            // 二次看门：如果 promise 继续悬挂（例如 mermaid 内部死锁、异常被吞），
+            // 第一次 timer 只能把 status 停在 loading；再加一个 RENDER_TIMEOUT_MS 兜底强制降级，
+            // 否则 status 会永久卡在 loading。非流式已经直接 error，无需二次看门。
+            if (isStreaming) {
+                hangTimer = window.setTimeout(() => {
+                    if (!cancelled) setStatus('error')
+                }, RENDER_TIMEOUT_MS)
+            }
         }, RENDER_TIMEOUT_MS)
         const settle = (next: Status) => {
             if (cancelled) return
             window.clearTimeout(timer)
+            if (hangTimer) window.clearTimeout(hangTimer)
             setStatus(next)
         }
 
         ;(async () => {
             // id 提到 try 外层：finally 需要它来定位 mermaid 可能遗留在 body 的临时容器
-            const id = `mermaid-${hashString(code + (isDark ? 'd' : 'l'))}`
+            const id = `mermaid-${hashString(code + (isDark ? 'd' : 'l'))}-${uidCounter++}`
             try {
                 const mermaid = (await import('mermaid')).default
                 mermaid.initialize({
@@ -67,7 +95,10 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark}: MermaidBl
                 if (hostRef.current) hostRef.current.innerHTML = svg
                 settle('ready')
             } catch {
-                settle('error')
+                // ★ 流式期间不降级为 error：partial mermaid 代码 parse 失败是预期行为，
+                //   降级到 error 会展示原始代码，下一帧又回到 loading，造成闪烁。
+                //   流结束后（isStreaming=false）才真正降级，此时代码已完整。
+                settle(isStreaming ? 'loading' : 'error')
             } finally {
                 // mermaid v12 渲染失败且 suppressErrorRendering 为默认 false 时，会把错误 SVG
                 // 塞进临时容器 #d<id> 并插入 document.body；异常抛出后本组件无从回收，
@@ -79,8 +110,9 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark}: MermaidBl
         return () => {
             cancelled = true
             window.clearTimeout(timer)
+            if (hangTimer) window.clearTimeout(hangTimer)
         }
-    }, [code, isDark])
+    }, [code, isDark, isStreaming])
 
     const handleCopy = async () => {
         try {
@@ -92,22 +124,26 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark}: MermaidBl
         }
     }
 
+    const renderCopyButton = (withZIndex: boolean) => (
+        <button
+            onClick={handleCopy}
+            data-find-exclude
+            className={`absolute top-2 right-2 ${withZIndex ? 'z-10 ' : ''}px-2 py-1 text-xs rounded transition-colors
+                bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)]
+                text-[var(--text-secondary)] hover:text-[var(--text-primary)]
+                border border-[var(--border)]`}
+            title="复制代码"
+            data-name="mermaid-block-copy"
+        >
+            {copied ? '已复制' : '复制'}
+        </button>
+    )
+
     // 降级：渲染失败 / 超时 → 普通代码块（与 MarkdownRenderer 无语言围栏样式对齐）
     if (status === 'error') {
         return (
             <div className="relative group my-3.5">
-                <button
-                    onClick={handleCopy}
-                    data-find-exclude
-                    className="absolute top-2 right-2 px-2 py-1 text-xs rounded transition-colors
-                        bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)]
-                        text-[var(--text-secondary)] hover:text-[var(--text-primary)]
-                        border border-[var(--border)]"
-                    title="复制代码"
-                    data-name="mermaid-block-button"
-                >
-                    {copied ? '已复制' : '复制'}
-                </button>
+                {renderCopyButton(false)}
                 <pre
                     className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--surface-muted)] p-3 text-sm font-mono leading-[1.6] border border-[var(--border)]">
                     {code}
@@ -118,16 +154,62 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark}: MermaidBl
 
     return (
         <div
-            className="relative group my-3.5 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3">
+            className="relative group my-3.5 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3">
             {status === 'loading' && (
                 <div className="py-4 text-center text-xs text-[var(--text-secondary)]">渲染流程图…</div>
             )}
-            {/* 无 JSX children：React 不触碰手动注入的 svg；仅通过 className 控制显隐 */}
-            <div
-                ref={hostRef}
-                className={status === 'ready' ? 'mermaid-block' : 'mermaid-block hidden'}
-                data-name="mermaid-block-svg"
-            />
+            {status === 'ready' && renderCopyButton(true)}
+            {/*
+              TransformWrapper 始终渲染（含 loading）以保持 hostRef 挂载点稳定：
+              SVG 通过 useEffect → hostRef.current.innerHTML 注入，
+              若条件渲染 TransformWrapper 会导致 ref 指向不同 DOM 节点，注入的 SVG 丢失。
+              TransformWrapper 是纯 Context Provider，不产生额外 DOM。
+            */}
+            <TransformWrapper
+                minScale={0.3}
+                maxScale={5}
+                limitToBounds={false}
+                doubleClick={{mode: 'reset'}}
+                wheel={{step: 0.002}}
+                smooth
+            >
+                {({zoomIn, zoomOut, resetTransform}) => (
+                    <>
+                        <TransformComponent
+                            wrapperClass="!w-full !flex !items-center !justify-center min-h-[80px] cursor-grab active:cursor-grabbing overflow-hidden"
+                        >
+                            {/* 无 JSX children：React 不触碰手动注入的 svg；仅通过 className 控制显隐 */}
+                            <div
+                                ref={hostRef}
+                                className={status === 'ready' ? 'mermaid-block' : 'mermaid-block hidden'}
+                                data-name="mermaid-block-svg"
+                            />
+                        </TransformComponent>
+                        {status === 'ready' && (
+                            <div className="absolute bottom-2 right-2 z-10 flex gap-1.5" data-find-exclude>
+                                <button
+                                    onClick={() => void zoomIn()}
+                                    className={zoomBtnClass}
+                                    title="放大"
+                                    data-name="mermaid-block-zoom-in"
+                                >+</button>
+                                <button
+                                    onClick={() => void zoomOut()}
+                                    className={zoomBtnClass}
+                                    title="缩小"
+                                    data-name="mermaid-block-zoom-out"
+                                >−</button>
+                                <button
+                                    onClick={() => void resetTransform()}
+                                    className={zoomBtnClass}
+                                    title="重置"
+                                    data-name="mermaid-block-zoom-reset"
+                                >↺</button>
+                            </div>
+                        )}
+                    </>
+                )}
+            </TransformWrapper>
         </div>
     )
 })

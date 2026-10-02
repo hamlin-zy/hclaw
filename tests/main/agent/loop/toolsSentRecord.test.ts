@@ -32,7 +32,7 @@ vi.mock('../../../../src/main/repositories/sqlite/systemSettingsRepository', () 
     },
 }))
 
-import {getLastSentToolNames, recordLastSentToolNames, isSameToolNameSequence} from '../../../../src/main/agent/loop/toolsSentRecord'
+import {getLastSentToolsRecord, recordLastSentToolNames, isSameToolNameSequence, evaluateToolsChange} from '../../../../src/main/agent/loop/toolsSentRecord'
 import {filterTools, applyMcpCatalogChannel} from '../../../../src/main/agent/loop/setup'
 import * as modelCapability from '../../../../src/main/agent/modelCapability'
 import type {ToolDefinitionForLLM} from '../../../../src/main/agent/tools/types'
@@ -43,29 +43,45 @@ beforeEach(() => {
 
 describe('toolsSentRecord 持久化读写', () => {
     it('写入后可读回（跨 Worker 生命周期：数据在 system_settings 而非模块内存）', () => {
-        recordLastSentToolNames('conv-a', ['read_file', 'write_file'])
-        expect(getLastSentToolNames('conv-a')).toEqual(['read_file', 'write_file'])
+        recordLastSentToolNames('conv-a', ['read_file', 'write_file'], 'model-1')
+        expect(getLastSentToolsRecord('conv-a')).toEqual({model: 'model-1', names: ['read_file', 'write_file']})
     })
 
     it('按 conversationId 隔离', () => {
-        recordLastSentToolNames('conv-a', ['read_file'])
-        recordLastSentToolNames('conv-b', ['glob'])
-        expect(getLastSentToolNames('conv-a')).toEqual(['read_file'])
-        expect(getLastSentToolNames('conv-b')).toEqual(['glob'])
+        recordLastSentToolNames('conv-a', ['read_file'], 'model-1')
+        recordLastSentToolNames('conv-b', ['glob'], 'model-2')
+        expect(getLastSentToolsRecord('conv-a')).toEqual({model: 'model-1', names: ['read_file']})
+        expect(getLastSentToolsRecord('conv-b')).toEqual({model: 'model-2', names: ['glob']})
     })
 
-    it('重复写入覆盖为最新一轮', () => {
-        recordLastSentToolNames('conv-a', ['read_file'])
-        recordLastSentToolNames('conv-a', ['read_file', 'write_file'])
-        expect(getLastSentToolNames('conv-a')).toEqual(['read_file', 'write_file'])
+    it('重复写入覆盖为最新一轮（model 与 names 同步更新）', () => {
+        recordLastSentToolNames('conv-a', ['read_file'], 'model-1')
+        recordLastSentToolNames('conv-a', ['read_file', 'write_file'], 'model-2')
+        expect(getLastSentToolsRecord('conv-a')).toEqual({model: 'model-2', names: ['read_file', 'write_file']})
     })
 
-    it('无记录 / 结构损坏 → undefined', () => {
-        expect(getLastSentToolNames('nope')).toBeUndefined()
+    it('无记录 / 结构损坏 / 缺字段 → undefined', () => {
+        expect(getLastSentToolsRecord('nope')).toBeUndefined()
         store.data['tools_sent_last:bad'] = '{"not":"an array"}'
-        expect(getLastSentToolNames('bad')).toBeUndefined()
+        expect(getLastSentToolsRecord('bad')).toBeUndefined()
         store.data['tools_sent_last:bad2'] = 'not-json'
-        expect(getLastSentToolNames('bad2')).toBeUndefined()
+        expect(getLastSentToolsRecord('bad2')).toBeUndefined()
+        // 缺 model
+        store.data['tools_sent_last:noModel'] = JSON.stringify({names: ['read_file']})
+        expect(getLastSentToolsRecord('noModel')).toBeUndefined()
+        // model 类型不对
+        store.data['tools_sent_last:badModel'] = JSON.stringify({model: 1, names: ['read_file']})
+        expect(getLastSentToolsRecord('badModel')).toBeUndefined()
+        // names 非 string[]
+        store.data['tools_sent_last:badNames'] = JSON.stringify({model: 'model-1', names: 'read_file'})
+        expect(getLastSentToolsRecord('badNames')).toBeUndefined()
+        store.data['tools_sent_last:badNames2'] = JSON.stringify({model: 'model-1', names: [1, 2]})
+        expect(getLastSentToolsRecord('badNames2')).toBeUndefined()
+    })
+
+    it('旧格式（裸数组，无 model 字段）→ undefined（视为无记录）', () => {
+        store.data['tools_sent_last:legacy'] = JSON.stringify(['read_file', 'write_file'])
+        expect(getLastSentToolsRecord('legacy')).toBeUndefined()
     })
 })
 
@@ -80,6 +96,58 @@ describe('isSameToolNameSequence（顺序敏感）', () => {
 
     it('集合相同但顺序不同 → false（tools 编码顺序变化同样断缓存）', () => {
         expect(isSameToolNameSequence(['a', 'b'], ['b', 'a'])).toBe(false)
+    })
+})
+
+// ─── tools 变动门判据：跨模型仅图片工具互换 → 放行（prompt cache 本就不共享） ───
+describe('evaluateToolsChange（tools 变动门判据）', () => {
+    const rec = (model: string, names: string[]) => ({model, names})
+
+    it('无记录（首轮）→ confirm=false', () => {
+        expect(evaluateToolsChange(undefined, ['read_file'], 'model-1')).toEqual({confirm: false, added: [], removed: []})
+    })
+
+    it('模型相同 + 图片工具互换（analyze→load）→ confirm=true（400 降级/自愈提醒保留）', () => {
+        const r = evaluateToolsChange(rec('model-1', ['read_file', 'analyze_image']), ['read_file', 'load_image'], 'model-1')
+        expect(r.confirm).toBe(true)
+        expect(r.added).toEqual(['load_image'])
+        expect(r.removed).toEqual(['analyze_image'])
+    })
+
+    it('模型不同 + 仅图片工具差异 → confirm=false，added/removed 正确', () => {
+        const r = evaluateToolsChange(rec('model-1', ['read_file', 'analyze_image']), ['read_file', 'load_image'], 'model-2')
+        expect(r.confirm).toBe(false)
+        expect(r.added).toEqual(['load_image'])
+        expect(r.removed).toEqual(['analyze_image'])
+    })
+
+    it('模型不同 + 含非图片工具差异 → confirm=true', () => {
+        const r = evaluateToolsChange(
+            rec('model-1', ['read_file', 'analyze_image']),
+            ['read_file', 'load_image', 'write_file'],
+            'model-2',
+        )
+        expect(r.confirm).toBe(true)
+        expect(r.added).toEqual(['load_image', 'write_file'])
+        expect(r.removed).toEqual(['analyze_image'])
+    })
+
+    it('模型相同 + 顺序变化（集合相同）→ confirm=true（顺序敏感语义保持）', () => {
+        const r = evaluateToolsChange(rec('model-1', ['read_file', 'write_file']), ['write_file', 'read_file'], 'model-1')
+        expect(r.confirm).toBe(true)
+        expect(r.added).toEqual([])
+        expect(r.removed).toEqual([])
+    })
+
+    it('模型不同 + 集合完全相同（仅顺序变化）→ confirm=false', () => {
+        const r = evaluateToolsChange(rec('model-1', ['read_file', 'write_file']), ['write_file', 'read_file'], 'model-2')
+        expect(r.confirm).toBe(false)
+        expect(r.added).toEqual([])
+        expect(r.removed).toEqual([])
+    })
+
+    it('模型不同 + 集合与顺序均相同 → confirm=false', () => {
+        expect(evaluateToolsChange(rec('model-1', ['read_file']), ['read_file'], 'model-2').confirm).toBe(false)
     })
 })
 

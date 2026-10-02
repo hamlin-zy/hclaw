@@ -216,6 +216,8 @@ interface MarkdownRendererProps {
     children: string
     isUser?: boolean
     theme?: ThemeName
+    /** 流式输出中，传递给 MermaidBlock 以抑制 partial 代码闪烁 */
+    isStreaming?: boolean
 }
 
 /**
@@ -317,7 +319,8 @@ class MarkdownErrorBoundary extends Component<
 const MarkdownRenderer = memo(function MarkdownRenderer({
                                                             children,
                                                             isUser = false,
-                                                            theme = 'dark'
+                                                            theme = 'dark',
+                                                            isStreaming = false
                                                         }: MarkdownRendererProps) {
     const normalizedChildren = useMemo(() => {
         const normalized = normalizeMarkdownPaths(children)
@@ -333,7 +336,7 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
     })
 
     const components = useMemo(() => {
-        const base = mdComponents(isUser, theme, linkMode)
+        const base = mdComponents(isUser, theme, linkMode, isStreaming)
         return {
             ...base,
             // 覆盖 a 组件以支持链接打开方式选择
@@ -366,7 +369,7 @@ const MarkdownRenderer = memo(function MarkdownRenderer({
                 )
             },
         }
-    }, [isUser, theme, linkMode])
+    }, [isUser, theme, linkMode, isStreaming])
 
     return (
         <MarkdownErrorBoundary fallback={normalizedChildren}>
@@ -393,7 +396,7 @@ export default MarkdownRenderer
 /**
  * 生成 Markdown 组件配置
  */
-function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 'system' | 'ask') {
+function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 'system' | 'ask', isStreaming?: boolean) {
     const codeStyle = isDarkTheme(theme) ? oneDark : oneLight
 
     return {
@@ -412,7 +415,7 @@ function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 
             const codeText = typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.join('') : null
             // 无语言标注但内容像 mermaid 流程图 → 交给 MermaidBlock（否则会被渲染成普通 pre）
             if (codeText != null && isMermaidSource(codeText)) {
-                return <MermaidBlock code={codeText.replace(/\n$/, '')} isDark={isDarkTheme(theme)}/>
+                return <MermaidBlock code={codeText.replace(/\n$/, '')} isDark={isDarkTheme(theme)} isStreaming={isStreaming}/>
             }
             return (
                 <div className="relative group my-3.5">
@@ -432,7 +435,7 @@ function mdComponents(isUser: boolean, theme: ThemeName, linkMode?: 'builtin' | 
             const trimmedCode = codeString.replace(/\n$/, '')
             // mermaid 代码块 → 流程图（语言标注 mermaid，或内容嗅探命中）
             if (!inline && isMermaidSource(trimmedCode, match?.[1])) {
-                return <MermaidBlock code={trimmedCode} isDark={isDarkTheme(theme)}/>
+                return <MermaidBlock code={trimmedCode} isDark={isDarkTheme(theme)} isStreaming={isStreaming}/>
             }
             return !inline && match ? (
                 <div className="relative group overflow-x-auto">

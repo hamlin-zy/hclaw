@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => {
         filterToolsQueue: [] as Array<Array<{name: string}>>,
         // 覆盖「本轮实际发送」的名单；用于模拟 400 降级（发送 preCapability 集，≠ available）
         sentNamesQueue: [] as Array<string[] | undefined>,
+        // 每轮 selectModelForTurn 返回的模型名（默认 'test-model'）；用于模拟会话中途切换模型
+        modelQueue: [] as string[],
         // system_settings 内存桩：跨 controller（模拟跨 Worker）持久化 tools 发送记录
         settings: {} as Record<string, string>,
         // 目录 pre-step 的实参留痕：验证 mcpToolDeclared 接线（call_mcp_tool 是否真的下发了）
@@ -70,7 +72,7 @@ vi.mock('../../../../src/main/agent/loop/execute', async (importOriginal) => {
             if (ctx?.params?.sessionId) {
                 const override = mocks.sentNamesQueue.shift()
                 const names = override ?? (ctx.availableToolDefinitions ?? []).map((t: any) => t.name)
-                recordLastSentToolNames(ctx.params.sessionId, names)
+                recordLastSentToolNames(ctx.params.sessionId, names, ctx.modelConfig?.model)
             }
             return mocks.llmQueue.shift()
         },
@@ -99,8 +101,10 @@ vi.mock('../../../../src/main/agent/loop/setup', async () => {
         detectCommandContext: async () => ({commandContext: null}),
         defaultRoleForTrace: (traceContext?: string) => (traceContext === 'subAgent' ? 'lightweight' : 'primary'),
         selectModelForTurn: async function* () {
+            // 默认为 test-model；modelQueue 按轮次覆盖（模拟会话中途切换模型）
+            const model = mocks.modelQueue.shift() ?? 'test-model'
             return {
-                modelConfig: {model: 'test-model', provider: 'test-provider'},
+                modelConfig: {model, provider: 'test-provider'},
                 schemeId: null, schemeName: null, suggestedRole: 'primary',
                 providerName: 'test-provider', providerId: 'p1',
             }
@@ -184,6 +188,7 @@ beforeEach(() => {
     mocks.llmQueue = []
     mocks.filterToolsQueue = []
     mocks.sentNamesQueue = []
+    mocks.modelQueue = []
     mocks.settings = {}
     mocks.catalogCalls = []
 })
@@ -322,6 +327,24 @@ describe('controller tools 变动门', () => {
         const info = confirm2.mock.calls[0][0]
         expect(info.previous).toEqual(['read_file', 'analyze_image'])
         expect(info.removed).toEqual(['analyze_image'])
+    })
+
+    it('会话中途切换模型 + 仅图片工具互换（analyze_image → load_image）→ 不调用 confirmToolsChange', async () => {
+        // 第一轮：视觉模型发出 analyze_image；第二轮：用户切到非视觉模型，改为 load_image。
+        // 差异集合 ⊆ {load_image, analyze_image} 且模型已变 → 放行（跨模型 prompt cache 本就不共享）。
+        mocks.llmQueue = [tcResult(), textResult()]
+        mocks.filterToolsQueue = [
+            tools('read_file', 'analyze_image'),
+            tools('read_file', 'load_image'),
+        ]
+        mocks.modelQueue = ['test-model', 'other-model']
+        const confirm = vi.fn(async (_info: any) => 'continue' as const)
+        const events = await runAndCollect(makeParams({sessionId: 'conv-model-switch', confirmToolsChange: confirm}))
+
+        expect(confirm).not.toHaveBeenCalled()
+        // 第二轮照常发起 LLM 调用（未被拦截）
+        expect(mocks.llmQueue.length).toBe(0)
+        expect(events.some(e => (e as any).reason === 'tools_change_cancelled')).toBe(false)
     })
 
     it('MCP 目录门控接线：mcpToolDeclared 取自本轮实际下发的 tools', async () => {

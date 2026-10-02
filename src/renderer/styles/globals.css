@@ -1528,14 +1528,14 @@ textarea:focus-visible {
     background: #0f172a;
 }
 
-/* mermaid 流程图块：svg 自适应容器宽度，超宽图由外层 overflow-x-auto 横向滚动 */
+/* mermaid 流程图块：svg 自然尺寸，缩放/拖拽由 react-zoom-pan-pinch 控制 */
 .mermaid-block {
     display: flex;
     justify-content: center;
 }
 
 .mermaid-block svg {
-    max-width: 100%;
+    max-width: none;
     height: auto;
 }
 
