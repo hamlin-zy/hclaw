@@ -27,6 +27,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
         handoffThresholdTokens: 200_000,
         midLoopOverflowMode: 'auto-handoff',
         loopDetection: {mode: 'notify', threshold: 3},
+        streamRepetitionDetection: {enabled: true, shingleSize: 120, threshold: 3, checkInterval: 60},
         defaultPermissionMode: 'safe',
         defaultDisplayMode: 'detailed',
     },

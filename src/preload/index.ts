@@ -29,6 +29,10 @@ const isWin11 = win11Arg ? win11Arg.split('=')[1] === '1' : false
 const darwinArg = process.argv.find(arg => arg.startsWith('--hclaw-darwin='))
 const isDarwin = darwinArg ? darwinArg.split('=')[1] === '1' : false
 
+// 从 additionalArguments 读取 Linux 标识（用于 frameless 窗口边框加强）
+const linuxArg = process.argv.find(arg => arg.startsWith('--hclaw-linux='))
+const isLinux = linuxArg ? linuxArg.split('=')[1] === '1' : false
+
 // 从 additionalArguments 读取窗口 id（独立窗口才有；主窗口无此参数 → windowControls 不注入）
 const windowIdArg = process.argv.find(arg => arg.startsWith('--hclaw-window-id='))
 const windowId = windowIdArg ? windowIdArg.split('=')[1] : ''
@@ -74,6 +78,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     initialTheme: initialThemeValue,
     isWin11,
     isDarwin,
+    isLinux,
     isDevMode,
     systemLocale,
     // 冷启动观测：向主进程投递打点（fire-and-forget，不等待返回）

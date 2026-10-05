@@ -37,6 +37,7 @@ import {modelMetaRegistry} from '../../modelMetaRegistry'
 import {withLlmTraceStream, type LlmTraceCallContext} from '../../utils/llmTraceRecorder'
 import {recordLastSentToolNames} from './toolsSentRecord'
 import {resolveHandoffThresholdTokens} from '@shared/handoffThreshold'
+import {StreamRepetitionDetector} from './streamRepetitionDetector'
 
 const toolRegistry = getToolRegistry()
 
@@ -480,6 +481,17 @@ export async function* executeLlmCallWithRetry(
             let reasoningTokens = 0
             let assistantThinkingSignature = ''
 
+            // ── 流式重复检测器（text / thinking / reasoning 各一） ──
+            const srdConfig = getSettings()?.agent?.streamRepetitionDetection
+            const srdEnabled = srdConfig?.enabled !== false  // 缺省 = 开启
+            const srdOpts = srdConfig ?? {}
+            const detectors = srdEnabled ? {
+                text: new StreamRepetitionDetector(srdOpts),
+                thinking: new StreamRepetitionDetector(srdOpts),
+                reasoning: new StreamRepetitionDetector(srdOpts),
+            } : null
+            let repetitionDetected = false
+
             for await (const chunk of stream) {
                 if (abortSignal?.aborted) break
 
@@ -494,12 +506,24 @@ export async function* executeLlmCallWithRetry(
                 if (chunk.type === 'text') {
                     contentParts.push(chunk.content)
                     yield {type: 'text', content: chunk.content}
+                    if (detectors) {
+                        detectors.text.append(chunk.content)
+                        if (detectors.text.isDetected) { repetitionDetected = true; break }
+                    }
                 } else if (chunk.type === 'thinking') {
                     thinkingParts.push(chunk.content)
                     yield {type: 'thinking', content: chunk.content}
+                    if (detectors) {
+                        detectors.thinking.append(chunk.content)
+                        if (detectors.thinking.isDetected) { repetitionDetected = true; break }
+                    }
                 } else if (chunk.type === 'reasoning') {
                     reasoningParts.push(chunk.content)
                     yield {type: 'thinking', content: chunk.content}
+                    if (detectors) {
+                        detectors.reasoning.append(chunk.content)
+                        if (detectors.reasoning.isDetected) { repetitionDetected = true; break }
+                    }
                 } else if (chunk.type === 'tool_use') {
                     collectedToolCalls.push({id: chunk.id, name: chunk.name, arguments: chunk.input})
                     yield {
@@ -537,9 +561,28 @@ export async function* executeLlmCallWithRetry(
                 : null
 
             // ── 流式汇编 ──
-            const assistantContent = contentParts.join('')
-            const assistantThinking = thinkingParts.join('')
-            const assistantReasoningContent = reasoningParts.join('')
+            let assistantContent = contentParts.join('')
+            let assistantThinking = thinkingParts.join('')
+            let assistantReasoningContent = reasoningParts.join('')
+
+            // ── 流式重复检测：截断重复尾部 + 提示用户 ──
+            if (repetitionDetected && detectors) {
+                const which: string[] = []
+                if (detectors.text.isDetected) {
+                    assistantContent = detectors.text.getTruncatedContent()
+                    which.push('正文')
+                }
+                if (detectors.thinking.isDetected) {
+                    assistantThinking = detectors.thinking.getTruncatedContent()
+                    which.push('思考块')
+                }
+                if (detectors.reasoning.isDetected) {
+                    assistantReasoningContent = detectors.reasoning.getTruncatedContent()
+                    which.push('推理块')
+                }
+                logger.warn(`[AgentLoop] 流式重复检测触发，已截断重复内容（${which.join('/')}）`)
+                yield {type: 'warning', message: `检测到 LLM 输出重复循环，已自动截断重复部分（${which.join('/')}）。`}
+            }
 
             // ── 检测空/blank 响应：若 LLM 既无文本内容也无工具调用，视为可重试错误 ──
             //   覆盖 ""、仅空白字符、或流式传输中无有效内容的情况。纯工具调用（仅

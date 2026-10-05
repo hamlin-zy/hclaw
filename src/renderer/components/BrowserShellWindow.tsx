@@ -22,7 +22,7 @@ export default function BrowserShellWindow() {
     }, [])
 
     return (
-        <div className="h-screen flex flex-col bg-[var(--surface)] text-[var(--text-primary)] font-['Inter',sans-serif]">
+        <div className="window-container h-screen flex flex-col bg-[var(--surface)] text-[var(--text-primary)] font-['Inter',sans-serif]">
             <WindowTitleBar title={title}/>
             {/* 占位区域：主进程 WebContentsView 覆盖于此（含 1px 标题栏下边框） */}
             <div className="relative flex-1 min-h-0">

@@ -300,6 +300,7 @@ export const createWindow = (): void => {
                 `--hclaw-theme=${rawThemeForRenderer}`,
                 `--hclaw-win11=${isWin11 ? '1' : '0'}`,
                 `--hclaw-darwin=${isMac ? '1' : '0'}`,
+                `--hclaw-linux=${isLinux ? '1' : '0'}`,
                 `--hclaw-dev=${isDevMode() ? '1' : '0'}`,
                 `--hclaw-system-locale=${encodeURIComponent(systemLocale)}`,
             ],

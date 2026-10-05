@@ -147,6 +147,17 @@ export interface SystemSettings {
         /** 连续相同签名轮数阈值，下限 2，默认 3 */
         threshold: number
     }
+    /** 流式重复检测：单次 LLM 请求内检测思考块/正文的重复输出循环。默认开启 */
+    streamRepetitionDetection?: {
+        /** 总开关。默认 true */
+        enabled: boolean
+        /** 滑动窗口大小（字符）。默认 120，下限 50 */
+        shingleSize: number
+        /** 同一窗口哈希出现 N 次触发。默认 3，下限 2 */
+        threshold: number
+        /** 每累积 N 新字符检查一次。默认 60，下限 20 */
+        checkInterval: number
+    }
     /** 新会话默认安全模式（会话级 fallback 的全局默认；保存时同步 system_settings.permission_mode） */
     defaultPermissionMode?: 'safe' | 'auto'
     /** 新会话默认显示模式（会话级 fallback 的全局默认；保存时同步 message-display-mode 配置） */

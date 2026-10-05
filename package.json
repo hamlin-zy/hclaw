@@ -18,6 +18,7 @@
     "make:mac": "npm run build:prod && electron-builder --mac",
     "make:mac-x64": "npm run build:prod && electron-builder --mac --x64",
     "make:linux": "npm run build:prod && electron-builder --linux",
+    "gen:linux-icons": "node scripts/gen-linux-icons.cjs",
     "make:dir": "npm run build:prod && electron-builder --win --dir",
     "make:all": "npm run build:prod && electron-builder --win --mac --linux",
     "publish": "electron-builder --win --publish always",

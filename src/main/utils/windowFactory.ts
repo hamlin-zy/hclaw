@@ -78,6 +78,7 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
                 `--hclaw-theme=${rawTheme}`,
                 `--hclaw-win11=${isWin11 ? '1' : '0'}`,
                 `--hclaw-darwin=${isMac ? '1' : '0'}`,
+                `--hclaw-linux=${isLinux ? '1' : '0'}`,
                 `--hclaw-window-id=${id}`,
                 `--hclaw-dev=${isDevMode() ? '1' : '0'}`,
                 `--hclaw-system-locale=${encodeURIComponent(systemLocale)}`,

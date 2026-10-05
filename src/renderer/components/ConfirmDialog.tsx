@@ -169,11 +169,15 @@ export default function ConfirmDialog() {
         <AnimatePresence>
             {isOpen && options && (
                 <>
-                    {/* 背景遮罩 */}
+                    {/* 背景遮罩
+                       z-index = 200000：全局确认弹窗专用顶层段，必须高于所有业务弹窗
+                       （含 ProviderEditModal 二级面板 100000/100001、ThemedSelect/Combobox 下拉 100002）。
+                       旧值 99998/99999 会被 ProviderEditModal 拉取结果面板（z-100000）遮罩盖住，
+                       导致从该面板点「替换/合并」触发的确认弹窗不可见。MCPErrorHelper 同步此约定。 */}
                     <motion.div
                         {...fade}
                         transition={{ duration: 0.15 }}
-                        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[99998]"
+                        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[200000]"
                         onClick={handleCancel}
                         data-testid="confirm-dialog-mask"
                     />
@@ -182,7 +186,7 @@ export default function ConfirmDialog() {
                     <motion.div
                         {...scaleFade}
                         transition={{ duration: 0.15, ease: 'easeOut' }}
-                        className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-[99999]"
+                        className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-[200001]"
                     >
                         <div
                             className="dialog-surface w-full max-w-sm bg-[var(--surface)] rounded-xl shadow-elevated overflow-hidden pointer-events-auto"
