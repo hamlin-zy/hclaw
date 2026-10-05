@@ -90,11 +90,13 @@ export function useMcpErrorDialog(opts?: {
         <AnimatePresence>
             {state.isOpen && state.server && (
                 <>
-                    {/* 遮罩 */}
+                    {/* 遮罩
+                       z-index = 200000：与 ConfirmDialog 同层约定（全局顶层确认/错误弹窗），
+                       高于所有业务弹窗（ProviderEditModal 二级面板 100000/100001、下拉框 100002）。 */}
                     <motion.div
                         {...fade}
                         transition={{duration: 0.15}}
-                        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[99998]"
+                        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[200000]"
                         onClick={close}
                     />
 
@@ -102,7 +104,7 @@ export function useMcpErrorDialog(opts?: {
                     <motion.div
                         {...scaleFade}
                         transition={{duration: 0.15, ease: 'easeOut'}}
-                        className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-[99999]"
+                        className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-[200001]"
                         onKeyDown={handleKeyDown}
                     >
                         <div

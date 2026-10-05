@@ -1430,6 +1430,19 @@ textarea:focus-visible {
     box-shadow: none;
 }
 
+/* Linux frameless 窗口边框加强
+ *
+ * Linux 下 hasShadow: false 去掉了系统层视觉分隔（规避 Electron 43 GTK 边框回归，
+ * 详见 src/main/window.ts hasShadow 字段注释）。CSS 默认 1px --border 在深色主题下
+ * Δ 仅 0.012 几乎不可见，浅色主题 Δ 0.50 但 1px 太细，窗口叠放时背景色融为一体。
+ * 加粗到 2px 并用 --border-emphasis 提高对比度（深色 Δ~0.10 / 浅色 Δ~1.30），
+ * 使窗口边界清晰可辨。Windows/macOS 不受影响（DWM 阴影 / 原生框架已提供视觉层次）。
+ */
+.linux .window-container {
+    border-width: 2px;
+    border-color: var(--border-emphasis);
+}
+
 /* ========================================
    Window Control Buttons
    ======================================== */
@@ -2715,6 +2728,12 @@ html.bg-enabled,
 .bg-enabled .window-container > [data-name="background-layer"],
 .bg-enabled .window-container > [data-name="background-overlay"] {
     inset: -1px;
+}
+
+/* Linux 下 border 加粗到 2px（见上方 .linux .window-container），背景层需多覆盖 1px */
+.linux.bg-enabled .window-container > [data-name="background-layer"],
+.linux.bg-enabled .window-container > [data-name="background-overlay"] {
+    inset: -2px;
 }
 
 /* ── 内容卡片半透明化：语义 class app-surface-card ──

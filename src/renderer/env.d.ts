@@ -18,6 +18,8 @@ declare global {
         isWin11: boolean
         // macOS 标识（用于 TitleBar 左侧为交通灯按钮预留间距）
         isDarwin: boolean
+        // Linux 标识（用于 frameless 窗口边框加强：hasShadow:false 后 CSS 补偿）
+        isLinux: boolean
         // 开发模式标识（主进程判定，经 additionalArguments 透传；控制调试类 UI 如"复制会话 ID"）
         isDevMode: boolean
         // 系统语言（主进程 app.getLocale() 经 additionalArguments 透传，如 'zh-CN'）；

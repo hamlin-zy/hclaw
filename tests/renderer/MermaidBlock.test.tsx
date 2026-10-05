@@ -172,6 +172,30 @@ describe('MermaidBlock', () => {
         }
     })
 
+    it('宽扁图（渲染高度 < 280px）自动抬高 wrapper 最小高度至 280px', async () => {
+        // jsdom 无布局：mock getBoundingClientRect 返回 100px 高（宽扁图）
+        const orig = SVGElement.prototype.getBoundingClientRect
+        SVGElement.prototype.getBoundingClientRect = vi.fn(() => ({
+            width: 700, height: 100, x: 0, y: 0,
+            top: 0, left: 0, right: 700, bottom: 100,
+            toJSON: () => ({}),
+        }))
+        try {
+            const {container} = render(<MermaidBlock code={CODE} isDark/>)
+            await waitFor(() => {
+                expect(container.querySelector('svg[data-testid="mmd-svg"]')).not.toBeNull()
+            })
+            // rAF 回调设置 wrapperMinH=280 → wrapperStyle.minHeight=280px
+            await waitFor(() => {
+                const styled = container.querySelector<HTMLElement>('[style*="min-height"]')
+                expect(styled).not.toBeNull()
+                expect(styled!.style.minHeight).toBe('280px')
+            })
+        } finally {
+            SVGElement.prototype.getBoundingClientRect = orig
+        }
+    })
+
     it('TransformComponent wrapper 具备 overflow-hidden（防超宽 svg 溢出消息气泡）', async () => {
         const {container} = render(<MermaidBlock code={CODE} isDark/>)
 

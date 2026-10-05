@@ -13,7 +13,7 @@ export const PAGE_FIELD_SETS = {
     agent: [
         'agent.maxTurns', 'agent.retryCount', 'agent.initialRetryDelay', 'agent.maxRetryDelay', 'agent.llmTimeout',
         'agent.handoffThresholdRatio', 'agent.handoffThresholdMode', 'agent.handoffThresholdTokens',
-        'agent.midLoopOverflowMode', 'agent.loopDetection',
+        'agent.midLoopOverflowMode', 'agent.loopDetection', 'agent.streamRepetitionDetection',
         'subagent.maxConcurrency', 'subagent.maxDepth',
     ],
     model: ['model.defaultMaxTokens', 'model.defaultTemperature', 'model.imageCompressQuality'],

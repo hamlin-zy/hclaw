@@ -61,7 +61,7 @@ win:
 
 # Linux 配置
 linux:
-  icon: public/icon.png
+  icon: build/icons
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
   category: Utility
   maintainer: HClaw Team <hclaw@example.com>

@@ -79,6 +79,7 @@
 
                   if (window.electronAPI?.isWin11) document.documentElement.classList.add('win11');
                   if (window.electronAPI?.isDarwin) document.documentElement.classList.add('darwin');
+                  if (window.electronAPI?.isLinux) document.documentElement.classList.add('linux');
               } catch (e) {}
           })();
       </script>

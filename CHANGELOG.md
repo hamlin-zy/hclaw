@@ -7,6 +7,20 @@
 
 ---
 
+## [v0.5.24] - 2026-10-05
+
+### 新增
+- **Linux 平台支持** — 主进程下发 isLinux 标识经 preload 注入渲染层并挂 `.linux` 类；无边框窗口边框 1px → 2px 并改用 `--border-emphasis` 提升对比度，背景层补偿外扩 2px 防露边 (`windowFactory` / `window` / `preload/index` / `globals.css` / `dialogWindow.html` / `index.html` / `projectManager.html` / `env.d.ts` / `BrowserShellWindow` / `ConfigDialogWindow`)
+- **hicolor 多尺寸图标集** — 补齐 16/24/32/48/64/128/256/512 八尺寸 PNG，打包配置切换到新图标目录 (`build/icons/*` / `electron-builder.yml` / `scripts/gen-linux-icons.cjs`)
+- **流式重复环检测** — 单次请求内以 shingle 滑动窗口哈希检测思考块/正文的重复输出循环并截断，默认开启（shingleSize 120 / threshold 3 / checkInterval 60），含单元测试 (`agent/loop/streamRepetitionDetector` / `agent/loop/execute`)
+
+### 变更
+- **重复环检测阈值配置化** — `streamRepetitionDetection` 四项参数（enabled / shingleSize / threshold / checkInterval）走系统设置表 (`shared/types/settings` / `shared/settingsDefaults` / `settings/primitives/fieldSets`)
+
+### 修复
+- **宽扁图最小可读高度** — 容器宽度下渲染高度不足 MIN_HEIGHT(280) 时按上限 5 倍自动放大，wrapper 最小高度同步抬高避免 `overflow-hidden` 裁剪，并补偿 flex 居中偏移使顶部对齐 (`message-list/MermaidBlock`)
+- **确认弹窗层级** — ConfirmDialog / MCPErrorHelper 遮罩与内容层 z-index 由 99998/99999 提至 200000/200001，修复被 ProviderEditModal 二级面板（z-100000）遮挡导致「替换/合并」确认弹窗不可点的问题 (`ConfirmDialog` / `dialogs/MCPErrorHelper`)
+
 ## [v0.5.23] - 2026-10-02
 
 ### 新增

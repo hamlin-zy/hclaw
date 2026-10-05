@@ -18,6 +18,9 @@ import {TransformWrapper, TransformComponent} from 'react-zoom-pan-pinch'
 /** 渲染超时：超过则视为失败并降级，避免坏图卡住消息流 */
 const RENDER_TIMEOUT_MS = 4000
 
+/** 最小渲染高度：宽扁图在容器宽度下高度不足时，自动缩放至此高度保证可读 */
+const MIN_HEIGHT = 280
+
 /** 缩放控制按钮共用样式 */
 const zoomBtnClass = 'w-7 h-7 flex items-center justify-center text-sm rounded transition-colors ' +
     'bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] ' +
@@ -53,10 +56,15 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark, isStreamin
     const hostRef = useRef<HTMLDivElement | null>(null)
     const [status, setStatus] = useState<Status>('loading')
     const [copied, setCopied] = useState(false)
+    /** TransformWrapper 的 setTransform 引用，供 useEffect 中设置初始缩放 */
+    const setTransformRef = useRef<((x: number, y: number, scale: number, animationTime?: number) => void) | null>(null)
+    /** wrapper 最小高度：缩放时同步抬高，避免缩放后内容被 overflow-hidden 裁剪 */
+    const [wrapperMinH, setWrapperMinH] = useState(80)
 
     useEffect(() => {
         let cancelled = false
         setStatus('loading')
+        setWrapperMinH(80)
         let hangTimer: number | null = null
         const timer = window.setTimeout(() => {
             if (cancelled) return
@@ -94,6 +102,19 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark, isStreamin
                 if (cancelled) return
                 if (hostRef.current) hostRef.current.innerHTML = svg
                 settle('ready')
+                // 计算初始缩放：宽扁图在容器宽度下高度不足时放大至 MIN_HEIGHT
+                requestAnimationFrame(() => {
+                    if (cancelled) return
+                    const svgEl = hostRef.current?.querySelector('svg')
+                    if (!svgEl || !setTransformRef.current) return
+                    const rect = svgEl.getBoundingClientRect()
+                    if (rect.height <= 0 || rect.height >= MIN_HEIGHT) return
+                    const scale = Math.min(MIN_HEIGHT / rect.height, 5) // maxScale=5
+                    setWrapperMinH(MIN_HEIGHT)
+                    // 补偿 flex 居中偏移：wrapper 抬高后 content 居中，需上移使顶部对齐
+                    const translateY = -(MIN_HEIGHT - rect.height) / 2
+                    setTransformRef.current(0, translateY, scale, 0)
+                })
             } catch {
                 // ★ 流式期间不降级为 error：partial mermaid 代码 parse 失败是预期行为，
                 //   降级到 error 会展示原始代码，下一帧又回到 loading，造成闪烁。
@@ -173,10 +194,13 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark, isStreamin
                 wheel={{step: 0.002}}
                 smooth
             >
-                {({zoomIn, zoomOut, resetTransform}) => (
+                {({zoomIn, zoomOut, resetTransform, setTransform}) => {
+                    setTransformRef.current = setTransform
+                    return (
                     <>
                         <TransformComponent
-                            wrapperClass="!w-full !flex !items-center !justify-center min-h-[80px] cursor-grab active:cursor-grabbing overflow-hidden"
+                            wrapperClass="!w-full !flex !items-center !justify-center cursor-grab active:cursor-grabbing overflow-hidden"
+                            wrapperStyle={{minHeight: wrapperMinH}}
                         >
                             {/* 无 JSX children：React 不触碰手动注入的 svg；仅通过 className 控制显隐 */}
                             <div
@@ -208,7 +232,8 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark, isStreamin
                             </div>
                         )}
                     </>
-                )}
+                    )
+                }}
             </TransformWrapper>
         </div>
     )
