@@ -225,7 +225,9 @@ describe('GitDagGraph 行渲染 memo', () => {
     expect(rtSpy).toHaveBeenCalledTimes(3)
     // 选中列表内的一行 → 仅该行 selected 变化 → 仅该行重渲染
     act(() => { useGitLogStore.setState({selectedHash: 'hash1'}) })
-    expect(rtSpy).toHaveBeenCalledTimes(4)
+    // 期望 5 = 首屏 3 次 + 新选中行 1 次 + roving tabindex 迁移 1 次：
+    // 选中项迁移时旧入口行失去 tabbable、新入口行获得 tabbable，两行都重渲染（8c44b57）
+    expect(rtSpy).toHaveBeenCalledTimes(5)
     rtSpy.mockRestore()
   })
 })

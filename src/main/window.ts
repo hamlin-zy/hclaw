@@ -550,11 +550,16 @@ export function initWindowIPC(): void {
         return mainWindow?.isMaximized();
     });
 
-    /** 设置窗口主题（同步 titleBarOverlay + 广播给所有窗口跟随） */
-    ipcMain.handle('set-window-theme', (_event, theme: string) => {
+    /** 设置窗口主题（同步 titleBarOverlay + 广播给其他窗口跟随）
+     *  排除发起窗口：其 themeStore 已由调用方（toggleTheme / resolveAndApplyTheme）同步更新，
+     *  无需回环广播。包含发起窗口会导致快速连续切换时排队 IPC 携带旧值依次回写 themeStore，
+     *  触发 useEffect([theme]) → setWindowTheme → 新 IPC → 无限循环（主题闪烁）。 */
+    ipcMain.handle('set-window-theme', (event, theme: string) => {
         updateTitleBarOverlay(theme as ThemeMode);
         for (const win of BrowserWindow.getAllWindows()) {
-            if (!win.isDestroyed()) win.webContents.send('theme-changed', theme)
+            if (!win.isDestroyed() && win.webContents !== event.sender) {
+                win.webContents.send('theme-changed', theme)
+            }
         }
     });
 

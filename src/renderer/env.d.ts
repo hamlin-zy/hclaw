@@ -578,6 +578,8 @@ declare global {
         // Repo API (skills/agents 仓库化管理)
         repo: {
             install: (target: string, url: string) => Promise<{ success: boolean; repoId?: string; path?: string; error?: string }>
+            /** 卸载技能/代理仓库（插件仓库请走插件页签；失败原因见 error） */
+            uninstall: (repoId: string) => Promise<{ success: boolean; removed?: { skills: number; agents: number }; warnings?: string[]; error?: string }>
             list: () => Promise<Array<{
                 id: string
                 owner: string
@@ -588,6 +590,8 @@ declare global {
                 capabilities: { plugins: string[]; skills: string[]; agents: string[] }
                 hasManifest: boolean
                 enabled: boolean
+                /** 仓库能力是否至少有一个启用（全禁用即不提示更新） */
+                hasEnabledCapability: boolean
             }>>
             getVersions: (repoId: string) => Promise<{
                 tags: string[]

@@ -503,28 +503,35 @@ export async function* executeLlmCallWithRetry(
                     throw (chunk as any).error || new Error('LLM Stream Error')
                 }
 
+                // ★ 重复检测触发后不再 break，改为置 repetitionDetected 标志 + 内容分支守卫：
+                //   usage / thinking_signature / done / error 等流末尾 chunk 必须继续被消费，
+                //   否则触发截断的那次请求 usage 恒为 0、Anthropic thinking signature 丢失。
                 if (chunk.type === 'text') {
+                    if (repetitionDetected) continue          // 已判定重复：继续消费流但不累积/投递内容
                     contentParts.push(chunk.content)
                     yield {type: 'text', content: chunk.content}
                     if (detectors) {
                         detectors.text.append(chunk.content)
-                        if (detectors.text.isDetected) { repetitionDetected = true; break }
+                        if (detectors.text.isDetected) repetitionDetected = true
                     }
                 } else if (chunk.type === 'thinking') {
+                    if (repetitionDetected) continue
                     thinkingParts.push(chunk.content)
                     yield {type: 'thinking', content: chunk.content}
                     if (detectors) {
                         detectors.thinking.append(chunk.content)
-                        if (detectors.thinking.isDetected) { repetitionDetected = true; break }
+                        if (detectors.thinking.isDetected) repetitionDetected = true
                     }
                 } else if (chunk.type === 'reasoning') {
+                    if (repetitionDetected) continue
                     reasoningParts.push(chunk.content)
                     yield {type: 'thinking', content: chunk.content}
                     if (detectors) {
                         detectors.reasoning.append(chunk.content)
-                        if (detectors.reasoning.isDetected) { repetitionDetected = true; break }
+                        if (detectors.reasoning.isDetected) repetitionDetected = true
                     }
                 } else if (chunk.type === 'tool_use') {
+                    if (repetitionDetected) continue          // 重复段之后的工具调用同样不再收集
                     collectedToolCalls.push({id: chunk.id, name: chunk.name, arguments: chunk.input})
                     yield {
                         type: 'tool_use',

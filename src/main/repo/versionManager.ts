@@ -43,6 +43,16 @@ export class RepoVersionManager {
     pruneMap(this.versionMap, activeIds)
   }
 
+  /**
+   * 定向删除单条仓库的版本缓存（仓库卸载后调用）。
+   * 与 prune 的区别：prune 接收「仍存在的仓库 id 白名单」做批量裁剪，
+   * 语义是"清理已消失的"——它在 discover 时传入全部被发现的仓库 id（含能力全禁用的），
+   * 因此禁用仓库的条目会被保留；drop 则是针对单个已卸载仓库的精确删除。
+   */
+  drop(repoId: string): void {
+    this.versionMap.delete(repoId)
+  }
+
   async warmCache(repoId: string, repoPath: string): Promise<RepoVersionInfo> {
     // 插件仓库版本由 PluginVersionManager 管理，不混入 repo versionMap
     const repo = repoRegistry.get(repoId)
@@ -78,7 +88,9 @@ export class RepoVersionManager {
     // 只检查技能/代理仓库（rootType !== 'plugin'）。插件仓库的版本由
     // PluginVersionManager 独立管理，混入会导致「仓库」tab 红点亮起但列表项无红点
     // （用户无法定位是哪个仓库有更新）。
-    const gitRepos = repos.filter(r => r.source !== 'local' && r.rootType !== 'plugin')
+    // 能力全部禁用的仓库也跳过：它不会出现在能力列表里，红点同样无法定位，
+    // 且每次启动都为它 fetchTags 是纯粹的浪费。重新启用后由下一次检查补上。
+    const gitRepos = repos.filter(r => r.source !== 'local' && r.rootType !== 'plugin' && r.hasEnabledCapability)
     await Promise.all(gitRepos.map(async (repo) => {
       try {
         await this.installer.fetchTags(repo.path)
@@ -141,8 +153,10 @@ export class RepoVersionManager {
       // 排除插件仓库——其版本由 PluginVersionManager 管理。
       // 若包含它们，tab 红点（hasUpdate = any(...true)）会因插件仓库
       // 处于 main 分支超前于最新 tag 而恒亮，即使技能仓库已切换到最新版。
+      // 同样排除能力全禁用的仓库（红点点亮后无法在列表定位）与 registry 中
+      // 已缺失的 id（卸载残留条目）；重新启用/重新发现时过滤自然解除。
       const repo = repoRegistry.get(id)
-      if (repo?.rootType === 'plugin') continue
+      if (!repo || repo.rootType === 'plugin' || !repo.hasEnabledCapability) continue
       meta[id] = {current: info.current, latest: info.latest, hasUpdate: info.hasUpdate}
     }
     return meta

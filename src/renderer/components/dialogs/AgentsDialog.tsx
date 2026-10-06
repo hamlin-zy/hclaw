@@ -21,6 +21,7 @@ import {fuzzyFilter} from '../../lib/search'
 import RepoGroupCard from '../repo/RepoGroupCard'
 import {sortReposByUpdate} from '../repo/repoGrouping'
 import {useRepoUpdateStore} from '../../stores/repoUpdateStore'
+import {useRepoUninstallFlow, scheduleAutoHide} from '../../hooks/useRepoUninstallFlow'
 import {Layers, Search, RefreshCw, Plus, Edit2, Trash2, X, GitBranch, Check, AlertCircle} from 'lucide-react'
 import LoadErrorBanner from '../common/LoadErrorBanner'
 import {INPUT_FOCUS} from '../../lib/inputFocus'
@@ -363,8 +364,7 @@ export default function AgentsDialog() {
                 await syncFromDisk()
                 refreshRepoList()
                 setRepoUrl('')
-                if (repoMessageTimer.current) clearTimeout(repoMessageTimer.current)
-                repoMessageTimer.current = setTimeout(() => { repoMessageTimer.current = null; setRepoMessage(null) }, 3000)
+                scheduleAutoHide(repoMessageTimer, setRepoMessage, 3000)
             } else {
                 setRepoMessage({type: 'error', text: `安装失败: ${result?.error || '未知错误'}`})
             }
@@ -374,6 +374,26 @@ export default function AgentsDialog() {
             setRepoInstalling(false)
         }
     }, [repoUrl, syncFromDisk, refreshRepoList])
+
+    /**
+     * 卸载仓库（代理侧）：二次确认 → IPC → 三重刷新（代理列表 / 仓库分组与徽标 / 红点元数据）。
+     *
+     * 与 SkillsDialog 同构的错误出口：RepoGroupCard 的点击回调无 catch、主进程
+     * repo:uninstall handler 也未包 try/catch，故本函数兜住全部失败（含 rejection），
+     * 只以 repoMessage toast 呈现并正常 resolve，绝不外抛。
+     *
+     * 实现收敛到 useRepoUninstallFlow hook，仅 buildConfirmMessage 文案与 onSuccess 刷新
+     * 方法（syncFromDisk）不同。
+     */
+    const handleUninstallRepo = useRepoUninstallFlow<[number, number]>({
+        setMessage: setRepoMessage,
+        timerRef: repoMessageTimer,
+        buildConfirmMessage: useCallback((repo: any, agentCount: number, skillCount: number) => (
+            `将卸载仓库「${repo.id}」\n路径：${repo.path}\n该仓库下有 ${agentCount} 个代理，${skillCount} 个技能\n此操作不可恢复。`
+        ), []),
+        onSuccess: syncFromDisk,
+        refreshRepoList,
+    })
 
     // 首次经 init（带 initialized 守卫，避免跨挂载重复扫描）；后续由 capability:changed 触发 force 重扫
     const loadedRef = useRef(false)
@@ -695,6 +715,7 @@ export default function AgentsDialog() {
                                                 agents={group.agents}
                                                 onToggleBatch={toggleTemplateBatch}
                                                 onVersionSwitched={() => void useAgentTemplateStore.getState().syncFromDisk()}
+                                                onUninstall={repo => handleUninstallRepo(repo, group.agents.length, repo?.capabilities?.skills?.length ?? 0)}
                                             >
                                                 {group.agents.map(renderCard)}
                                             </RepoGroupCard>

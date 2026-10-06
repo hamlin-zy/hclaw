@@ -105,6 +105,12 @@ export default function TooltipPortal() {
     // 当前 tooltip 展示来源元素：Esc 关闭（document keydown，无事件目标）时据此恢复原生 title
     const activeElRef = useRef<HTMLElement | null>(null)
     const tipRef = useRef<HTMLDivElement | null>(null)
+    // 指针按下标志：区分「指针点击聚焦」与「键盘 Tab 聚焦」。
+    // 真机事件顺序（Chromium，实测）：mousedown → 默认行为聚焦元素（focusin）→ mouseup → click。
+    // mousedown 已 hideNow() 终结 tooltip，但紧随的 focusin 会经 showFor 重新点亮它，
+    // 此后 mouseout 又因 activeElement === el 不隐藏 → 提示气泡滞留并与二级面板重叠。
+    // 置位后由 handleFocusIn 消费（一次），键盘聚焦不经 mousedown，标志为 false 不受影响。
+    const pointerDownRef = useRef(false)
     // 左缘钳制：居中放置时 tooltip 半宽可能越过触发元素左缘（会话列表
     // 靠窗口左侧时会溢出窗口）。渲染后测量实际宽度，若越界则改为与触发元素
     // 左缘对齐（取消 X 方向位移）。useLayoutEffect 在绘制前同步修正，无闪烁。
@@ -265,6 +271,14 @@ export default function TooltipPortal() {
         }
 
         const handleFocusIn = (e: FocusEvent) => {
+            // 指针点击引发的聚焦：tooltip 使命已由 handleMouseDown 终结，
+            // 不得被 focus 通道重新点亮（点击后提示气泡本应消失，二级面板/下拉才是主反馈）。
+            // 消费一次后清除，保证后续键盘 Tab 聚焦仍按无障碍预期显示。
+            if (pointerDownRef.current) {
+                pointerDownRef.current = false
+                return
+            }
+
             const el = (e.target as HTMLElement).closest<HTMLElement>(TOOLTIP_SELECTOR)
             if (!el) return
 
@@ -295,16 +309,53 @@ export default function TooltipPortal() {
             if (e.key === 'Escape') hideNow()
         }
 
+        // 点击关闭：mousedown 表示用户开始有操作意图，tooltip 使命完成——
+        // 折叠图标 hover 后 tooltip 显示在右侧，点击打开二级面板时面板会
+        // 覆盖在 tooltip 之上（视觉重叠）。任何 click 都是明确的"我不用再
+        // 看提示了"信号，立即隐藏并恢复原生 title，避免与后续弹出的
+        // portal/面板/下拉重叠。无 tooltip 时 hideNow 幂等（clearHideTimer
+        // + setTooltip(null) 空转，activeElRef.current 为 null）。
+        // 用 mousedown 而非 click：mousedown 一定触发（click 在快速拖拽
+        // 松开时可能丢失）；mousedown 早于 click，视觉反馈更及时。
+        const handleMouseDown = () => {
+            // 抑制紧随其后的点击聚焦（handleFocusIn）重新点亮 tooltip
+            pointerDownRef.current = true
+            hideNow()
+        }
+
+        /** 指针抬起：清除按下标志（点击落在不可聚焦元素、拖拽后松开等无 focusin 场景兜底） */
+        const handleMouseUp = () => {
+            pointerDownRef.current = false
+        }
+
+        /**
+         * 键盘激活关闭：Enter/Space 激活 button 只派发 click，不派发 mousedown，
+         * 故 mousedown 通道不置位、focus 通道留下的 tooltip 会在二级面板/下拉打开后滞留。
+         * 用 detail === 0 精确识别键盘合成的 click（鼠标点击 detail ≥ 1，已由 mousedown 通道
+         * 处理）——鼠标路径行为零变化，仅补齐键盘激活这一同类入口。
+         */
+        const handleClick = (e: MouseEvent) => {
+            if (e.detail !== 0) return
+            hideNow()
+        }
+
         document.addEventListener('mouseover', handleMouseOver)
         document.addEventListener('mouseout', handleMouseOut)
         document.addEventListener('focusin', handleFocusIn)
         document.addEventListener('focusout', handleFocusOut)
         document.addEventListener('keydown', handleKeyDown)
+        document.addEventListener('mousedown', handleMouseDown)
+        document.addEventListener('mouseup', handleMouseUp)
+        document.addEventListener('click', handleClick)
         // 兜底：指针离开窗口（mouseleave 不冒泡，需挂 documentElement）或窗口失焦时，
         // 不会再有 mouseover 触发隐藏，tooltip 会滞留。对列表 reorder 替换按钮 DOM
         // （Chrome 不补发 mouseleave）的场景同样有效——下一个 mouseover 必然到来，
         // 而离开窗口/失焦由这里兜住。
-        const handleDocLeave = () => setTooltip(null)
+        const handleDocLeave = () => {
+            // 拖到窗口外松开时 mouseup 收不到，标志若残留会吞掉下一次键盘聚焦的 tooltip
+            pointerDownRef.current = false
+            setTooltip(null)
+        }
         document.documentElement.addEventListener('mouseleave', handleDocLeave)
         window.addEventListener('blur', handleDocLeave)
 
@@ -314,6 +365,9 @@ export default function TooltipPortal() {
             document.removeEventListener('focusin', handleFocusIn)
             document.removeEventListener('focusout', handleFocusOut)
             document.removeEventListener('keydown', handleKeyDown)
+            document.removeEventListener('mousedown', handleMouseDown)
+            document.removeEventListener('mouseup', handleMouseUp)
+            document.removeEventListener('click', handleClick)
             document.documentElement.removeEventListener('mouseleave', handleDocLeave)
             window.removeEventListener('blur', handleDocLeave)
             clearHideTimer()

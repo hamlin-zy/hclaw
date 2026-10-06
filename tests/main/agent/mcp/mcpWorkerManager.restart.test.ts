@@ -44,6 +44,9 @@ describe('批 4 · #21 MCPWorkerManager.restartServer 错误分支', () => {
     it('#21b 60s 超时 → {success:false, error:"重启超时"}', async () => {
         mockMcpService.get.mockReturnValue({id: 's1', name: 's1', transport: 'stdio'})
         const m = new MCPWorkerManager()
+        // 桩（断言未改动）：restartServer 现在对「worker 为空」走立即失败分支，
+        // 「登记 waiter → 60s 超时」语义改由「有 worker」的前置条件覆盖（同 #21c 的桩法）。
+        ;(m as any).worker = { postMessage: vi.fn() }
         const p = m.restartServer('s1')
         await vi.advanceTimersByTimeAsync(60_000)
         await expect(p).resolves.toEqual({success: false, error: '重启超时'})

@@ -14,6 +14,7 @@
 
 import {memo, useEffect, useRef, useState} from 'react'
 import {TransformWrapper, TransformComponent} from 'react-zoom-pan-pinch'
+import ImagePreviewModal from '../common/ImagePreviewModal'
 
 /** 渲染超时：超过则视为失败并降级，避免坏图卡住消息流 */
 const RENDER_TIMEOUT_MS = 4000
@@ -23,6 +24,12 @@ const MIN_HEIGHT = 280
 
 /** 缩放控制按钮共用样式 */
 const zoomBtnClass = 'w-7 h-7 flex items-center justify-center text-sm rounded transition-colors ' +
+    'bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] ' +
+    'text-[var(--text-secondary)] hover:text-[var(--text-primary)] ' +
+    'border border-[var(--border)]'
+
+/** 右上角控件按钮（全屏/复制）共用样式 */
+const controlBtnClass = 'px-2 py-1 text-xs rounded transition-colors ' +
     'bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)] ' +
     'text-[var(--text-secondary)] hover:text-[var(--text-primary)] ' +
     'border border-[var(--border)]'
@@ -56,6 +63,9 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark, isStreamin
     const hostRef = useRef<HTMLDivElement | null>(null)
     const [status, setStatus] = useState<Status>('loading')
     const [copied, setCopied] = useState(false)
+    /** 全屏查看用的 SVG 源码；存字符串不走 blob URL，避免 revoke 时序导致 img 加载失败 */
+    const [svgContent, setSvgContent] = useState<string | null>(null)
+    const [fullscreen, setFullscreen] = useState(false)
     /** TransformWrapper 的 setTransform 引用，供 useEffect 中设置初始缩放 */
     const setTransformRef = useRef<((x: number, y: number, scale: number, animationTime?: number) => void) | null>(null)
     /** wrapper 最小高度：缩放时同步抬高，避免缩放后内容被 overflow-hidden 裁剪 */
@@ -65,6 +75,11 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark, isStreamin
         let cancelled = false
         setStatus('loading')
         setWrapperMinH(80)
+        setSvgContent(null)
+        // 复位缩放：TransformWrapper 无 key，实例跨 code/isDark/isStreaming 变化复用，
+        // 上一次按宽扁图算出的 transform 会残留到新图（宽扁图被放大后又切到高图 → 图被放大并上移、
+        // 被 overflow-hidden 裁剪）。必须在新 code 的首次 rAF 之前复位，且覆盖 loading/error 路径。
+        setTransformRef.current?.(0, 0, 1, 0)
         let hangTimer: number | null = null
         const timer = window.setTimeout(() => {
             if (cancelled) return
@@ -101,6 +116,13 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark, isStreamin
                 const {svg} = await mermaid.render(id, code)
                 if (cancelled) return
                 if (hostRef.current) hostRef.current.innerHTML = svg
+                // 存原始 SVG 源码供全屏预览，不走 blob URL：
+                // 1. blob URL 在组件 re-render（isStreaming 翻转等）触发 effect 重跑时被 revoke，img 加载已 revoke 的 URL 会静默失败；
+                // 2. 含 <br> 等 HTML 标签的节点 mermaid 用 <foreignObject> 渲染，<img> 无法渲染该类 SVG。
+                // 覆盖 mermaid 的 width="100%"：它配套的 max-width 依赖「有确定宽度的父容器」，
+                // 而预览容器是 shrink-to-fit 的绝对定位盒子，百分比宽度会解析成 0 → 整图不可见。
+                // 这里改给 100%×100%，由预览容器提供确定尺寸 + SVG 的 preserveAspectRatio 等比适配。
+                setSvgContent(svg.replace('<svg ', '<svg style="width:100%;height:100%;display:block" '))
                 settle('ready')
                 // 计算初始缩放：宽扁图在容器宽度下高度不足时放大至 MIN_HEIGHT
                 requestAnimationFrame(() => {
@@ -145,26 +167,39 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark, isStreamin
         }
     }
 
-    const renderCopyButton = (withZIndex: boolean) => (
-        <button
-            onClick={handleCopy}
+    const renderControls = (withZIndex: boolean) => (
+        <div
             data-find-exclude
-            className={`absolute top-2 right-2 ${withZIndex ? 'z-10 ' : ''}px-2 py-1 text-xs rounded transition-colors
-                bg-[var(--surface-muted)] hover:bg-[var(--surface-overlay)]
-                text-[var(--text-secondary)] hover:text-[var(--text-primary)]
-                border border-[var(--border)]`}
-            title="复制代码"
-            data-name="mermaid-block-copy"
+            className={`absolute top-2 right-2 ${withZIndex ? 'z-10 ' : ''}flex gap-1.5`}
         >
-            {copied ? '已复制' : '复制'}
-        </button>
+            {svgContent && (
+                <button
+                    onClick={() => setFullscreen(true)}
+                    className={`${controlBtnClass} flex items-center justify-center`}
+                    title="全屏查看"
+                    data-name="mermaid-block-fullscreen"
+                >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/>
+                    </svg>
+                </button>
+            )}
+            <button
+                onClick={handleCopy}
+                className={controlBtnClass}
+                title="复制代码"
+                data-name="mermaid-block-copy"
+            >
+                {copied ? '已复制' : '复制'}
+            </button>
+        </div>
     )
 
     // 降级：渲染失败 / 超时 → 普通代码块（与 MarkdownRenderer 无语言围栏样式对齐）
     if (status === 'error') {
         return (
             <div className="relative group my-3.5">
-                {renderCopyButton(false)}
+                {renderControls(false)}
                 <pre
                     className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--surface-muted)] p-3 text-sm font-mono leading-[1.6] border border-[var(--border)]">
                     {code}
@@ -179,7 +214,7 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark, isStreamin
             {status === 'loading' && (
                 <div className="py-4 text-center text-xs text-[var(--text-secondary)]">渲染流程图…</div>
             )}
-            {status === 'ready' && renderCopyButton(true)}
+            {status === 'ready' && renderControls(true)}
             {/*
               TransformWrapper 始终渲染（含 loading）以保持 hostRef 挂载点稳定：
               SVG 通过 useEffect → hostRef.current.innerHTML 注入，
@@ -235,6 +270,13 @@ export const MermaidBlock = memo(function MermaidBlock({code, isDark, isStreamin
                     )
                 }}
             </TransformWrapper>
+            {fullscreen && svgContent && (
+                <ImagePreviewModal
+                    svgContent={svgContent}
+                    alt="mermaid 流程图"
+                    onClose={() => setFullscreen(false)}
+                />
+            )}
         </div>
     )
 })

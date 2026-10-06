@@ -22,6 +22,8 @@ const {mockMcpState, mcpApiMock} = vi.hoisted(() => {
             removeMCPServer: vi.fn(),
             updateMCPServer: vi.fn(),
             toggleMCPServer: vi.fn(),
+            // MCPDialog 改用「仅本地」的 enabled 动作（不触发 saveServer）
+            setServerEnabledLocal: vi.fn(),
             setServerStatus: vi.fn(),
             setServerStatusesBatch: vi.fn(),
         },

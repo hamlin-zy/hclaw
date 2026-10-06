@@ -22,6 +22,12 @@ export interface GitRepo {
   hasManifest: boolean
   /** 插件源是否启用（非插件仓库恒 true） */
   enabled: boolean
+  /**
+   * 派生字段：该仓库是否至少有一个启用中的能力。
+   * 创建时恒为 true，discover 末尾由 computeCapabilities 计算：能力列表为空时保守为 true
+   * （仓库被发现但技能解析失败不熄灭红点），全部禁用时为 false。
+   */
+  hasEnabledCapability: boolean
   /** 该仓库被发现的根目录类型（plugin/skill/agent），用于区分插件仓库与技能/代理仓库 */
   rootType: RepoRootType
 }

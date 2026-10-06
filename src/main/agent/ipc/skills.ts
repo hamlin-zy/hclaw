@@ -12,6 +12,7 @@ import {powerManager} from '../powerManager'
 import {updateMarkdownFrontmatter, type FrontmatterUpdate} from '../utils/frontmatter'
 import {logger} from '../logger'
 import {getHclawDir} from '../../hclawPaths'
+import {notifyCapabilityStateChanged} from '../../repo/capabilitySignal'
 import * as path from 'path'
 import * as fs from 'fs/promises'
 import extract from 'extract-zip'
@@ -245,6 +246,8 @@ export function registerHandlers(): void {
             // ⚠️ 必须等 refreshAndRespond 完成后再启动后台删除
             // 否则 fs.rm 与 powerManager.refresh() 的 readdir 并发竞争同一目录句柄 → EBUSY
             const result = await refreshAndRespond()
+            // 顺序契约：notify 必须在 await refreshAndRespond 之后（其内部已 await powerManager.refresh）
+            await notifyCapabilityStateChanged()
             attemptDelete()
             return result
         } catch (err: any) {
@@ -334,7 +337,10 @@ export function registerHandlers(): void {
             const newEnabled = !skill.enabled
             writeSkillOverride(skillId, newEnabled)
 
-            return refreshAndRespond(undefined, undefined, undefined, {enabled: newEnabled})
+            const result = await refreshAndRespond(undefined, undefined, undefined, {enabled: newEnabled})
+            // 顺序契约：notify 必须在 await refresh 之后 —— 否则 repo 侧重算读到的是旧启用态
+            await notifyCapabilityStateChanged()
+            return result
         } catch (err: any) {
             return {success: false, error: err.message}
         }
@@ -349,6 +355,8 @@ export function registerHandlers(): void {
             writeSkillOverrides(overrides)
 
             await powerManager.refresh()
+            // 顺序契约：notify 必须在 await refresh 之后 —— 否则 repo 侧重算读到的是旧启用态
+            await notifyCapabilityStateChanged()
             const allSkills = skillRegistry.getAll()
             return {success: true, skills: serializeSkills(allSkills)}
         } catch (err: any) {

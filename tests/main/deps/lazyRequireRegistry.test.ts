@@ -46,6 +46,10 @@ const ALLOWED_LAZY_REQUIRES: Record<string, string> = {
         '同上：collectCapabilityInputs 内按需取 skillRegistry',
     'src/main/repo/ipc.ts -> src/main/plugin/registry.ts':
         '同上：collectCapabilityInputs 内按需取 PluginRegistry',
+    'src/main/repo/ipc.ts -> src/main/agent/agentLoader.ts':
+        'repo:uninstall 清 agent override 残留：顶层 import 会把 agent 侧依赖拉进 repo/ipc.ts 静态图、加剧 repo ↔ agent 循环依赖（与上方 collectCapabilityInputs 三条同因）',
+    'src/main/repo/ipc.ts -> src/main/agent/skills/loader.ts':
+        '同上：repo:uninstall 清 skill override 残留',
     'src/main/scheduler/index.ts -> src/main/window.ts':
         'requireMainWindow：worker 闭包不得静态引入 electron',
 }

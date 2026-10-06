@@ -12,7 +12,8 @@
  */
 import {afterEach, describe, expect, it, vi} from 'vitest'
 import {act} from 'react'
-import {cleanup, render, waitFor} from '@testing-library/react'
+import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react'
+import '@testing-library/jest-dom/vitest'
 
 const parseMock = vi.fn(async (_code: unknown) => true)
 const renderMock = vi.fn(async (_id: unknown, _code: unknown) => ({svg: '<svg data-testid="mmd-svg"></svg>'}))
@@ -37,6 +38,32 @@ afterEach(() => {
 
 const CODE = 'flowchart TB\n  A[开始] --> B[结束]'
 
+/** 贴近真实的 mermaid 输出：width="100%" + style="max-width: Npx"，用于全屏链路用例 */
+const REALISTIC_SVG = '<svg id="x" width="100%" style="max-width: 120px" viewBox="0 0 120 60"><g></g></svg>'
+
+/** react-zoom-pan-pinch 内容层的内联 transform（缩放/平移的唯一可观测落点） */
+function contentStyle(container: HTMLElement): string {
+    return container.querySelector<HTMLElement>('.react-transform-component')?.getAttribute('style') ?? ''
+}
+
+/**
+ * 动态 mock SVGElement.getBoundingClientRect（jsdom 无布局）。
+ * 传 getter 而非定值，便于同一用例内切换「宽扁 → 高」验证 D1 残留。
+ */
+function installSvgRect(getHeight: () => number): () => void {
+    const orig = SVGElement.prototype.getBoundingClientRect
+    SVGElement.prototype.getBoundingClientRect = vi.fn(() => {
+        const height = getHeight()
+        return {
+            width: 700, height, x: 0, y: 0, top: 0, left: 0, right: 700, bottom: height,
+            toJSON: () => ({}),
+        }
+    }) as unknown as typeof SVGElement.prototype.getBoundingClientRect
+    return () => {
+        SVGElement.prototype.getBoundingClientRect = orig
+    }
+}
+
 describe('MermaidBlock', () => {
     it('渲染成功时注入 svg，且不再显示原始源码', async () => {
         const {container} = render(<MermaidBlock code={CODE} isDark/>)
@@ -47,6 +74,10 @@ describe('MermaidBlock', () => {
         expect(initializeMock).toHaveBeenCalled()
         // 成功路径不应把 mermaid 源码当纯文本残留
         expect(container.textContent).not.toContain('flowchart TB')
+        // 控件样式常量回归守卫：复制按钮须保留基础 token（A1 提取后不得丢 token）
+        const copyBtn = container.querySelector('[data-name="mermaid-block-copy"]')
+        expect(copyBtn).not.toBeNull()
+        expect(copyBtn).toHaveClass('px-2', 'py-1', 'text-xs', 'rounded')
     })
 
     it('mermaid.parse 抛错时降级为代码块（源码可读）', async () => {
@@ -208,5 +239,156 @@ describe('MermaidBlock', () => {
         expect(
             Array.from(divs).some(d => (d.className ?? '').includes('overflow-hidden')),
         ).toBe(true)
+    })
+})
+
+describe('MermaidBlock 缩放 transform 契约', () => {
+    it('宽扁图（height=100）→ scale(2.8) + translate(0px, -90px)，wrapper 抬高至 280px', async () => {
+        const restore = installSvgRect(() => 100)
+        try {
+            const {container} = render(<MermaidBlock code={CODE} isDark/>)
+            await waitFor(() => {
+                const styled = container.querySelector<HTMLElement>('[style*="min-height"]')
+                expect(styled?.style.minHeight).toBe('280px')
+                expect(contentStyle(container)).toContain('scale(2.8)')
+                expect(contentStyle(container)).toContain('translate(0px, -90px)')
+            })
+        } finally {
+            restore()
+        }
+    })
+
+    it('高图（height=1000 ≥ 280）→ 不缩放（scale(1)），wrapper 保持 80px', async () => {
+        const restore = installSvgRect(() => 1000)
+        try {
+            const {container} = render(<MermaidBlock code={CODE} isDark/>)
+            await waitFor(() => {
+                expect(container.querySelector('svg[data-testid="mmd-svg"]')).not.toBeNull()
+                const styled = container.querySelector<HTMLElement>('[style*="min-height"]')
+                expect(styled?.style.minHeight).toBe('80px')
+                expect(contentStyle(container)).toContain('scale(1)')
+                expect(contentStyle(container)).not.toContain('scale(2.8)')
+            })
+        } finally {
+            restore()
+        }
+    })
+
+    it('极扁图（height=20）→ 缩放被 maxScale=5 截断', async () => {
+        const restore = installSvgRect(() => 20)
+        try {
+            const {container} = render(<MermaidBlock code={CODE} isDark/>)
+            await waitFor(() => {
+                const styled = container.querySelector<HTMLElement>('[style*="min-height"]')
+                expect(styled?.style.minHeight).toBe('280px')
+                expect(contentStyle(container)).toContain('scale(5)')
+                expect(contentStyle(container)).toContain('translate(0px, -130px)')
+            })
+        } finally {
+            restore()
+        }
+    })
+
+    it('零高图（height=0）→ 不缩放、不抛错', async () => {
+        const restore = installSvgRect(() => 0)
+        try {
+            const {container} = render(<MermaidBlock code={CODE} isDark/>)
+            await waitFor(() => {
+                expect(container.querySelector('svg[data-testid="mmd-svg"]')).not.toBeNull()
+                const styled = container.querySelector<HTMLElement>('[style*="min-height"]')
+                expect(styled?.style.minHeight).toBe('80px')
+                expect(contentStyle(container)).toContain('scale(1)')
+            })
+        } finally {
+            restore()
+        }
+    })
+
+    it('D1 回归：宽扁图缩放后切到新 code（高图）不残留旧 transform', async () => {
+        let height = 100
+        const restore = installSvgRect(() => height)
+        try {
+            const {container, rerender} = render(<MermaidBlock code={CODE} isDark/>)
+            await waitFor(() => {
+                expect(contentStyle(container)).toContain('scale(2.8)')
+            })
+
+            // 切换为新 code 且该图高度 ≥ MIN_HEIGHT：rAF 走早退分支，旧 transform 必须已被 effect 复位
+            height = 1000
+            rerender(<MermaidBlock code={`${CODE}\n  %% 高图`} isDark/>)
+
+            await waitFor(() => {
+                const styled = container.querySelector<HTMLElement>('[style*="min-height"]')
+                expect(styled?.style.minHeight).toBe('80px')
+                expect(contentStyle(container)).toContain('scale(1)')
+                expect(contentStyle(container)).not.toContain('scale(2.8)')
+            })
+        } finally {
+            restore()
+        }
+    })
+})
+
+describe('MermaidBlock 全屏预览链路', () => {
+    it('ready → 点全屏 → 预览 svg 撑满容器 → 关闭 → 主视图 svg 保留', async () => {
+        renderMock.mockImplementation(async () => ({svg: REALISTIC_SVG}))
+        const {container} = render(<MermaidBlock code={CODE} isDark/>)
+
+        await waitFor(() => {
+            expect(container.querySelector('[data-name="mermaid-block-fullscreen"]')).not.toBeNull()
+        })
+
+        fireEvent.click(container.querySelector('[data-name="mermaid-block-fullscreen"]')!)
+
+        // ImagePreviewModal 经 portal 挂到 document.body，断言须走 document
+        await waitFor(() => {
+            expect(document.querySelector('[data-name="image-preview-modal-div"]')).not.toBeNull()
+        })
+        const previewSvg = document.querySelector<SVGElement>(
+            '[data-name="image-preview-modal-div"] .select-none svg',
+        )
+        expect(previewSvg).not.toBeNull()
+        // 预览注入的是改写后的 svg：100%×100% 撑满确定尺寸的预览容器（等比适配靠 preserveAspectRatio）
+        expect(previewSvg!.style.width).toBe('100%')
+        expect(previewSvg!.style.height).toBe('100%')
+
+        fireEvent.click(screen.getByTitle('关闭 (ESC)'))
+
+        await waitFor(() => {
+            expect(document.querySelector('[data-name="image-preview-modal-div"]')).toBeNull()
+        })
+        // 关闭预览不得清掉主视图注入的 svg
+        expect(container.querySelector('[data-name="mermaid-block-svg"] svg')).not.toBeNull()
+    })
+
+    it('全屏打开不污染主视图 svg 的内联样式', async () => {
+        renderMock.mockImplementation(async () => ({svg: REALISTIC_SVG}))
+        const {container} = render(<MermaidBlock code={CODE} isDark/>)
+
+        await waitFor(() => {
+            expect(container.querySelector('[data-name="mermaid-block-fullscreen"]')).not.toBeNull()
+        })
+        const readMainStyle = () => container.querySelector('[data-name="mermaid-block-svg"] svg')?.getAttribute('style') ?? ''
+        // 主视图用原始 svg（width="100%" + max-width），预览专用的 100%×100% 样式不得反注回主视图
+        expect(readMainStyle()).toBe('max-width: 120px')
+
+        fireEvent.click(container.querySelector('[data-name="mermaid-block-fullscreen"]')!)
+        await waitFor(() => {
+            expect(document.querySelector('[data-name="image-preview-modal-div"]')).not.toBeNull()
+        })
+        expect(readMainStyle()).toBe('max-width: 120px')
+        expect(readMainStyle()).not.toContain('height')
+    })
+
+    it('error 态（render 抛错且非流式）不提供全屏按钮', async () => {
+        renderMock.mockImplementation(async () => {
+            throw new Error('Render error')
+        })
+        const {container} = render(<MermaidBlock code={CODE} isDark/>)
+
+        await waitFor(() => {
+            expect(container.textContent).toContain('flowchart TB')
+        })
+        expect(container.querySelector('[data-name="mermaid-block-fullscreen"]')).toBeNull()
     })
 })

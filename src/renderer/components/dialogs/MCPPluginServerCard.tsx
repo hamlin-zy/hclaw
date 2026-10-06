@@ -11,12 +11,15 @@ type PluginServer = MCPServer & { pluginEnabled?: boolean }
 
 export default function MCPPluginServerCard({
     server,
+    busy = false,
     onToggle,
     onEdit,
     onShowTools,
     onReconnect,
 }: {
     server: PluginServer
+    /** 该 server 的启用/禁用/重启请求正在飞：禁用交互防止连点 */
+    busy?: boolean
     onToggle: () => void
     onEdit: () => void
     onShowTools: () => void
@@ -89,7 +92,8 @@ export default function MCPPluginServerCard({
                     <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()} data-name="mcpplugin-server-card-actions">
                         <button
                             onClick={onReconnect}
-                            className="p-1.5 text-gray-400 hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"
+                            disabled={busy}
+                            className={`p-1.5 text-gray-400 hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all ${busy ? 'opacity-50 cursor-not-allowed' : ''}`}
                             title="重新连接"
                          data-name="mcpplugin-server-card-button">
                             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -97,7 +101,7 @@ export default function MCPPluginServerCard({
                                 <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
                             </svg>
                         </button>
-                        <Switch checked={server.enabled} onChange={onToggle} disabled={isPluginDisabled} />
+                        <Switch checked={server.enabled} onChange={onToggle} disabled={isPluginDisabled || busy} />
                         <button
                             onClick={handleCopyConfig}
                             className="p-1.5 text-[var(--text-muted)] hover:text-brand-500 hover:bg-brand-50 rounded-md transition-all"

@@ -162,6 +162,25 @@ describe('toggleMCPServer', () => {
     })
 })
 
+describe('setServerEnabledLocal', () => {
+    it('翻转本地 enabled 且不调用 saveServer（落盘由主进程 mcp:set-enabled 负责）', () => {
+        useMcpStore.setState({
+            mcpServers: [{
+                id: 'a', name: 'A', status: 'stopped', tools: [],
+                transport: 'stdio', enabled: true,
+            }],
+        })
+        useMcpStore.getState().setServerEnabledLocal('a', false)
+        expect(useMcpStore.getState().mcpServers[0].enabled).toBe(false)
+        // ★ 关键断言：开关 UI 走本地更新，不得触发冗余的全量 saveServer 同步
+        expect(h.mcp.saveServer).not.toHaveBeenCalled()
+
+        useMcpStore.getState().setServerEnabledLocal('a', true)
+        expect(useMcpStore.getState().mcpServers[0].enabled).toBe(true)
+        expect(h.mcp.saveServer).not.toHaveBeenCalled()
+    })
+})
+
 describe('setServerStatus', () => {
     it('更新 status/tools/errorDetail + saveServer', () => {
         useMcpStore.setState({

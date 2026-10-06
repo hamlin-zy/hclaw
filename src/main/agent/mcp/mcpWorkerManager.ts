@@ -21,6 +21,7 @@ import type {MCPServerConfig} from './types'
 import type {McpServer} from '../../../shared/types/mcp'
 import {logger} from '../logger'
 import {MCP_WORKER_RESOURCE_LIMITS} from '../../workerLimits'
+import {isProcessRunning} from './transport/processUtils'
 
 /** 保存 agentManager 引用（延迟设置，避免循环依赖） */
 let agentManagerRef: { workers: Map<string, { worker: Worker }> } | null = null
@@ -31,6 +32,12 @@ export function setAgentManagerRef(ref: typeof agentManagerRef): void {
 
 export class MCPWorkerManager {
     private worker: Worker | null = null
+    /**
+     * 当前 Worker 的 'exit' handler 引用（spawn() 里闭包捕获实例后保存）。
+     * Node 的 'exit' 事件只传 exitCode、不带实例，故闭包是「把退出者实例带进 handler」的唯一途径；
+     * 同时它也是 reclaimCurrentWorker() 精确 off 的稳定引用（内联箭头函数摘不掉）。
+     */
+    private workerExitHandler: ((code: number) => void) | null = null
     private restarting = false
     /**
      * 退出中标志：shutdown() 首行置位。
@@ -66,10 +73,12 @@ export class MCPWorkerManager {
     private exitHandlerRegistered = false
 
     /**
-     * 追踪所有 MCP 子进程 PID（serverId → pid）
-     * 在 Worker 外部维护，确保 Worker 崩溃后仍能清理对应子进程
+     * 追踪所有 MCP 子进程 PID（serverId → pid 集合）
+     * 在 Worker 外部维护，确保 Worker 崩溃后仍能清理对应子进程。
+     * 用集合而非单值：同一 serverId 在异常路径上可能短暂存在多个子进程（重复启动的残留），
+     * 单值会被后者覆盖，导致 killAllTrackedPids 只能清掉最后一个、其余永久失控。
      */
-    private trackedPids: Map<string, number> = new Map()
+    private trackedPids: Map<string, Set<number>> = new Map()
 
     /**
      * 初始化 MCP Worker
@@ -80,6 +89,8 @@ export class MCPWorkerManager {
         this.spawn()
 
         // 每 10 分钟清理一次已停止超过 5 分钟的僵尸服务器进程
+        // init() 可被重复调用（热重载/重复初始化），不先 clear 会漏掉旧定时器造成泄漏
+        if (this.cleanupTimer) clearInterval(this.cleanupTimer)
         this.cleanupTimer = setInterval(() => {
             this.worker?.postMessage({type: 'cleanup_stopped'})
         }, 10 * 60 * 1000)
@@ -103,23 +114,33 @@ export class MCPWorkerManager {
      * 同步杀死所有追踪的 PID（适用于 process.on('exit') 等同步场景）
      */
     private killAllTrackedPids(): void {
-        for (const [, pid] of this.trackedPids) {
-            try {
-                execSync(`taskkill /F /T /PID ${pid} 2>nul`, {timeout: 2000, windowsHide: true})
-            } catch {
-                // 进程可能已退出，忽略
+        for (const [, pids] of this.trackedPids) {
+            for (const pid of pids) {
+                try {
+                    execSync(`taskkill /F /T /PID ${pid} 2>nul`, {timeout: 2000, windowsHide: true})
+                } catch {
+                    // 进程可能已退出，忽略
+                }
             }
         }
         this.trackedPids.clear()
     }
 
-    /** 更新追踪的 PID */
+    /**
+     * 更新追踪的 PID。
+     * ⚠️ pid 为 null 只表示"该 server 当前没有活跃子进程"，不能清空整组记录：
+     *    每次重连都会经过 stopped/disconnected 上报一次 null，若在此删除，同名下仍存活的
+     *    残留 PID（正是要清理的对象）会永久失联。
+     *    顺手剔除已退出 PID：集合只增不减会无界增长，且让 exit 清理被死 PID 拖慢。
+     */
     private updateTrackedPid(serverId: string, pid: number | null): void {
-        if (pid) {
-            this.trackedPids.set(serverId, pid)
-        } else {
-            this.trackedPids.delete(serverId)
+        const pids = this.trackedPids.get(serverId) ?? new Set<number>()
+        for (const p of pids) {
+            if (!isProcessRunning(p)) pids.delete(p)
         }
+        if (pid) pids.add(pid)
+        if (pids.size > 0) this.trackedPids.set(serverId, pids)
+        else this.trackedPids.delete(serverId)
     }
 
     /** 单个服务器 → 配置对象映射 */
@@ -147,8 +168,61 @@ export class MCPWorkerManager {
         this.currentConfigs = mcpService.list().map(s => this.mapToConfig(s))
     }
 
+    /** 回收当前 Worker：结算挂起的重启等待方 → 取消排期重启 → 清子进程 → 摘监听器 → 终止线程 */
+    private reclaimCurrentWorker(): void {
+        // ★ 必须结算 restartWaiters：Worker 被回收后不可能再回传 restart_complete，
+        //   否则点过"重连"的调用方会白等满 60s 超时才收到"重启超时"。
+        for (const [serverId, waiter] of this.restartWaiters) {
+            clearTimeout(waiter.timer)
+            this.restartWaiters.delete(serverId)
+            waiter.resolve({ success: false, error: 'MCP Worker 已回收' })
+        }
+        // ★ 取消已排期的崩溃重启（与 shutdown() 的既有段落对齐）：
+        //   否则回收后 5 秒定时器仍会再 spawn 一次 —— spawn() 首行的 reclaim 虽能自愈、
+        //   不泄漏线程，但会白建一个 Worker 并重复一整轮全量握手。
+        if (this.restartTimer) {
+            clearTimeout(this.restartTimer)
+            this.restartTimer = null
+        }
+        // ★ restarting 必须无条件复位，不能嵌在 if (this.restartTimer) 内：
+        //   若 scheduleRestart 的 timer 回调里 collectConfigs()/spawn() 抛错，
+        //   回调末尾的复位不会执行，此时 timer 已为 null 但 restarting 仍为 true；
+        //   之后新 Worker 崩溃时 onWorkerExit 的 `!this.restarting` 门恒为假
+        //   → 永久不再自动重启（静默降级）。
+        this.restarting = false
+        const previous = this.worker
+        if (!previous) return
+        // terminate() 不会联动子进程，故先用同步 taskkill 清掉旧 Worker 的子进程
+        this.killAllTrackedPids()
+        // ★ 精确摘除监听器（不再用 removeAllListeners）：
+        //   - message：旧 Worker 残留的 status_batch / pid_info 会打进新实例的状态缓存
+        //   - exit：terminate 引发的非 0 退出会走 'exit' 分支触发 scheduleRestart，
+        //     在本次 spawn 之后 5 秒又生成一个新 Worker
+        //   ⚠️ 只有「具名稳定引用」才能精确 off，故 spawn() 里的 handler 全部改为类字段
+        //      （内联箭头函数摘不掉，只能 removeAllListeners，那会连 error 兜底一并摘掉）。
+        previous.off('message', this.onWorkerMessage)
+        // ★ 闭包捕获实例的 handler 才是精确摘除所需的那一个；此前的裸 onWorkerExit 只是
+        //   兼容「非 spawn 注入实例」的兜底（如测试直接挂裸引用），二者都要摘。
+        previous.off('exit', this.workerExitHandler ?? this.onWorkerExit)
+        this.workerExitHandler = null
+        // ★ error 必须保留兜底监听：terminate() 是异步的，摘监听器到线程真正结束之间存在
+        //   窗口，此刻旧 Worker 若 emit('error')，无监听器的 EventEmitter 会直接 throw
+        //   未捕获异常。摘掉具名的 onWorkerError（不再触碰新实例状态）后重挂一个空兜底。
+        previous.off('error', this.onWorkerError)
+        previous.on('error', () => { /* 终止窗口内的兜底：只为避免无监听器时 emit('error') throw */ })
+        void previous.terminate().catch((err: unknown) => {
+            logger.warn('[MCPWorkerManager] 终止旧 MCP Worker 失败', {error: String(err)})
+        })
+        this.worker = null
+    }
+
     /** 创建并启动 MCP Worker 线程 */
     private spawn(): void {
+        // ★ 重复 spawn 防护：旧 Worker 若仍存活必须先回收，否则它连同其 MCP 子进程会
+        //   永久脱离管理视野（旧 Worker 的 status_batch / pid_info 已无人处理，
+        //   其子进程也不在 trackedPids 中）——这是残留进程清不掉的机制之一。
+        this.reclaimCurrentWorker()
+
         // 覆盖 this.readyPromise 前先 settle 旧的那一个：
         // 否则上一轮从未 ready 就被替换的 promise 会永久悬挂，调用方闭包与实例无法释放
         this.readyResolve?.()
@@ -160,64 +234,130 @@ export class MCPWorkerManager {
         const workerPath = path.join(__dirname, 'mcpWorker.js')
         // ★ 内存加固（评审建议 4）：MCP Worker 只做协调（真正的 server 是独立子进程），
         //   显式 256/16 上限即可，见 ../../workerLimits.ts。
-        this.worker = new Worker(workerPath, {
+        const worker = new Worker(workerPath, {
             type: 'module' as const,
             workerData: {servers: this.currentConfigs},
             resourceLimits: MCP_WORKER_RESOURCE_LIMITS,
         } as any)
+        this.worker = worker
 
-        this.worker.on('message', (msg: any) => {
-            switch (msg.type) {
-                case 'worker_ready':
-                    this.readyResolve?.()
-                    break
+        // ★ 闭包捕获实例：Node 的 'exit' 只传 exitCode，不传实例；闭包把退出者带进 handler，
+        //   使 onWorkerExit 的「仅当退出者正是当前实例」判定在生产路径真正生效，
+        //   同时把 handler 引用存为类字段，供 reclaimCurrentWorker() 精确 off（内联箭头摘不掉）。
+        //   ⚠️ 若存在「spawn 新实例但未先 reclaim 旧实例」的路径，本字段会被新闭包覆盖 →
+        //      旧实例的 off 失效；此时新判定正好兜住（旧实例退出时因 !== this.worker 被忽略）。
+        const exitHandler = (code: number) => this.onWorkerExit(code, worker)
+        this.workerExitHandler = exitHandler
 
-                case 'status_batch':
-                    // 批量状态更新 → mcpService 缓存 + 转发渲染进程
-                    this.handleStatusBatch(msg.updates)
-                    break
+        worker.on('message', this.onWorkerMessage)
+        worker.on('error', this.onWorkerError)
+        worker.on('exit', exitHandler)
+    }
 
-                case 'pid_info':
-                    // MCP 子进程 PID 追踪——Worker 崩溃后仍可清理
-                    if (msg.serverId) {
-                        this.updateTrackedPid(msg.serverId, msg.pid ?? null)
-                    }
-                    break
+    /**
+     * Worker 消息分发。
+     * ⚠️ 必须是具名稳定引用（类字段箭头函数）：reclaimCurrentWorker() 要按引用精确摘除，
+     *    内联箭头函数无法 off（只能 removeAllListeners，会把 error 兜底一起摘掉）。
+     */
+    private readonly onWorkerMessage = (msg: any): void => {
+        switch (msg.type) {
+            case 'worker_ready':
+                this.readyResolve?.()
+                break
 
-                case 'worker_error':
-                    break
+            case 'status_batch':
+                // 批量状态更新 → mcpService 缓存 + 转发渲染进程
+                this.handleStatusBatch(msg.updates)
+                break
 
-                case 'worker_log':
-                    break
+            case 'pid_info':
+                // MCP 子进程 PID 追踪——Worker 崩溃后仍可清理
+                if (msg.serverId) {
+                    this.updateTrackedPid(msg.serverId, msg.pid ?? null)
+                }
+                break
 
-                case 'restart_complete':
-                    // Worker 中 restartServer 完成 → 通知等待中的 IPC handler
-                    this.handleRestartComplete(msg.serverId, msg.success, msg.error, msg.merged)
-                    break
+            case 'worker_error':
+                // 与 worker_log 同理：这是 Worker 异常的唯一上报通道，
+                // 收了就丢会让 update_servers（fire-and-forget）等路径的抛错彻底不可见
+                logger.error('[MCP Worker] 内部错误:', msg.error ?? 'unknown')
+                break
 
+            case 'worker_log': {
+                // Worker 跑在独立线程，其日志不会进入主进程 logger；
+                // 缺此桥接时「MCP 启动失败 / 重复子进程」等问题在日志里完全不可见（诊断缺口）。
+                // 安全序列化：args 里可能带对象/Error，直接 join 会得到 "[object Object]"
+                const text = `[MCP Worker] ${Array.isArray(msg.args) ? msg.args.map((a: unknown) => typeof a === 'string' ? a : JSON.stringify(a)).join(' ') : ''}`
+                switch (msg.level) {
+                    case 'error':
+                        logger.error(text)
+                        break
+                    case 'warn':
+                        logger.warn(text)
+                        break
+                    case 'info':
+                        logger.info(text)
+                        break
+                    default:
+                        // 未知 level 兜底 debug：宁可降低噪声级别，也不丢日志
+                        logger.debug(text)
+                        break
+                }
+                break
             }
-        })
 
-        this.worker.on('error', (_err: Error) => {
-            // Worker 启动期崩溃（error 可能先于 exit 到达）：settle readyPromise，
-            // 否则任何 await waitForReady() 会永久挂起
-            // （重启/退出决策统一由下方 'exit' handler 按 shuttingDown 判定）
-            this.readyResolve?.()
-        })
+            case 'restart_complete':
+                // Worker 中 restartServer 完成 → 通知等待中的 IPC handler
+                this.handleRestartComplete(msg.serverId, msg.success, msg.error, msg.merged)
+                break
 
-        this.worker.on('exit', (code) => {
-            // 任何退出路径都 settle readyPromise（worker_ready 之前崩溃时唤醒等待方）
-            this.readyResolve?.()
+        }
+    }
 
-            // shutdown() 中的 terminate() 会以非 0 码退出；此时绝不能再排期重启
-            if (this.shuttingDown) return
+    /**
+     * Worker 启动期崩溃（error 可能先于 exit 到达）：settle readyPromise，
+     * 否则任何 await waitForReady() 会永久挂起
+     * （重启/退出决策统一由 onWorkerExit 按 shuttingDown 判定）
+     */
+    private readonly onWorkerError = (_err: Error): void => {
+        this.readyResolve?.()
+    }
 
-            if (code !== 0 && !this.restarting) {
-                // Worker 崩溃时，先清理其遗留的子进程，再重启
-                this.killAllTrackedPids()
-                this.scheduleRestart()
-            }
-        })
+    /**
+     * Worker 退出：解除当前实例引用 + settle readyPromise + 非正常情况下按需排期重启
+     *
+     * @param worker 退出者实例。spawn() 用**闭包捕获实例**的 handler 注册
+     *   （`(code) => this.onWorkerExit(code, worker)`），因为 Node 的 'exit' 事件只传 exitCode、
+     *   不传实例；不传实例时（如测试直接挂裸引用）以 `this.worker` 为准。
+     *   显式传入时用于「仅当退出的正是当前实例」判定，避免旧实例误清新实例引用。
+     */
+    private readonly onWorkerExit = (code: number, worker?: Worker): void => {
+        // 退出者已不是当前实例 → 不得产生任何副作用（不 settle ready、不排期重启、不清新引用）。
+        // 生产路径下旧实例的 exit 监听器已被 reclaimCurrentWorker() 按保存的闭包引用精确摘除，
+        // 本判定是纵深防御：兜住「监听器摘除失效」（如 workerExitHandler 字段被新实例覆盖，
+        // 旧实例的 off 落空）时旧实例退出误清新实例引用的场景。
+        if (worker !== undefined && worker !== this.worker) return
+
+        // 任何退出路径都 settle readyPromise（worker_ready 之前崩溃时唤醒等待方）
+        this.readyResolve?.()
+
+        // shutdown() 中的 terminate() 会以非 0 码退出；此时绝不能再排期重启
+        // （this.worker 的置 null 仍由 shutdown() 自己负责，语义不变）
+        if (this.shuttingDown) return
+
+        // ★ 退出即解除 this.worker 引用：
+        //   崩溃后的 5s 重启窗口内若 this.worker 仍指向已死实例，restartServer() 会走
+        //   「worker 非空」分支 —— postMessage 静默 no-op，waiter 却照常登记，调用方
+        //   白等满 60s 才收到「重启超时」；任何依赖 this.worker 非空的判断也都会误判。
+        //   防护来源：① reclaimCurrentWorker() 按保存的闭包引用精确摘除旧实例监听器（主防线）；
+        //   ② 方法首行的实例判定（纵深防御，兜住摘除失效 / 字段被覆盖等异常路径）。
+        this.worker = null
+
+        if (code !== 0 && !this.restarting) {
+            // Worker 崩溃时，先清理其遗留的子进程，再重启
+            this.killAllTrackedPids()
+            this.scheduleRestart()
+        }
     }
 
     /** 处理批量状态更新 */
@@ -306,7 +446,14 @@ export class MCPWorkerManager {
             logger.warn('[MCPWorkerManager] restartServer: 找不到服务器', {serverId})
             return Promise.resolve({ success: false, error: '服务器不存在' })
         }
-        this.worker?.postMessage({
+        // ★ Worker 未就绪（崩溃重启窗口 / 尚未 init）时必须立即失败：
+        //   postMessage 会静默 no-op，但下面仍会登记 waiter → 调用方白等满 60s 才拿到
+        //   "重启超时"，且期间 worker 永远不可能回传 restart_complete。
+        if (!this.worker) {
+            logger.warn('[MCPWorkerManager] restartServer: MCP Worker 未就绪', {serverId})
+            return Promise.resolve({ success: false, error: 'MCP Worker 未就绪' })
+        }
+        this.worker.postMessage({
             type: 'restart_server',
             serverId,
             config: this.mapToConfig(latest),
@@ -403,7 +550,11 @@ export class MCPWorkerManager {
             const worker = this.worker
             await new Promise<void>((resolve) => {
                 const exitTimer = setTimeout(() => {
-                    worker.terminate()
+                    // 与 reclaimCurrentWorker() 对齐：terminate() 是异步的，其 rejection
+                    // （Worker 已退出等）不得冒泡为未处理的 Promise 拒绝
+                    void worker.terminate().catch((err: unknown) => {
+                        logger.warn('[MCPWorkerManager] 强制终止 MCP Worker 失败', {error: String(err)})
+                    })
                     resolve()
                 }, 5000)
                 worker.once('exit', () => {

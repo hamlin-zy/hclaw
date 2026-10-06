@@ -67,10 +67,10 @@ export const PANEL_WIDTH = 264
 export const MIN_PANEL_HEIGHT = 120
 
 /** 组头 hover 到二级面板出现的延时（ms）：太短会让"鼠标扫过组头"误开 */
-const PANEL_OPEN_DELAY_MS = 120
+export const PANEL_OPEN_DELAY_MS = 120
 
 /** 离开组头/面板到面板关闭的宽限（ms）：要够用户从组头移到面板（以及反向移回） */
-const PANEL_CLOSE_GRACE_MS = 200
+export const PANEL_CLOSE_GRACE_MS = 200
 
 /**
  * 组头的 DOM 契约（面板开关、几何、焦点回还共用一份口径）。
@@ -202,7 +202,7 @@ function sameTarget(a: DropTarget, b: DropTarget): boolean {
  *  · left：`innerWidth - PANEL_WIDTH - 8` 在极窄窗口下会算成负数，面板会有一半跑到屏幕左侧外。
  *    夹到 >= 8 —— 面板比视口还宽时右侧注定越界（无解），但至少左侧缘始终可见。
  */
-function panelGeometry(drawerEl: HTMLElement, headerEl: HTMLElement) {
+export function panelGeometry(drawerEl: HTMLElement, headerEl: HTMLElement) {
     const drawerRect = drawerEl.getBoundingClientRect()
     const top = Math.min(
         headerEl.getBoundingClientRect().top,

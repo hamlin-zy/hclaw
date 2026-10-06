@@ -691,6 +691,27 @@ export function writeSkillOverrides(overrides: Array<{ skillId: string; enabled:
     }
 }
 
+/**
+ * 按 id 精确删除 skill 的覆盖状态（供仓库卸载清理残留）。
+ *
+ * 与 agentLoader 的 deleteAgentOverrides 对称：只删传入 id，未命中的记录保留。
+ * 空数组为 no-op（防御守卫）；失败仅记日志、不抛——卸载流程中的 override
+ * 清理失败只计入 warnings，不得中断流程。
+ */
+export function deleteSkillOverrides(ids: string[]): void {
+    try {
+        if (ids.length === 0) return
+        const db = getDatabase()
+        const placeholders = ids.map(() => '?').join(',')
+        const result = db.prepare(`DELETE FROM skill_overrides WHERE skill_id IN (${placeholders})`).run(...ids)
+        if (result.changes > 0) {
+            logger.debug('[SkillsLoader] deleteSkillOverrides: deleted', {count: result.changes})
+        }
+    } catch (err) {
+        logger.error('[SkillsLoader] deleteSkillOverrides failed', {ids: ids.length, error: (err as Error).message})
+    }
+}
+
 /** 从 skillRegistry 中的所有技能应用 skill_overrides 覆盖 */
 export function applySkillOverrides(): void {
     // 启用态判定统一由 pluginOwnership 负责：插件禁用 > skill_overrides 表值 > 文件默认

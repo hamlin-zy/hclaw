@@ -272,7 +272,7 @@ const ContinueButton = memo(function ContinueButton() {
             disabled={isRunning}
             className={`flex items-center justify-center w-8 h-8 rounded-full bg-[var(--surface-elevated)] border shadow-sm transition-all flex-shrink-0 ${
                 highlight
-                    ? 'border-[var(--brand-primary)] [color:var(--brand-primary)]'
+                    ? 'border-[var(--border-emphasis)] [color:var(--brand-primary)]'
                     : 'border-[var(--border)] text-[var(--text-muted)]'
             } hover:[color:var(--brand-primary)] hover:border-[var(--border-emphasis)] disabled:opacity-40 disabled:cursor-not-allowed`}
             title="继续（等同于发送「继续」）"

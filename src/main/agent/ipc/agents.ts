@@ -12,6 +12,7 @@ import {powerManager} from '../powerManager'
 import {formatYamlArray, updateJsonField, updateMarkdownFrontmatter} from '../utils/frontmatter'
 import {logger} from '../logger'
 import {getHclawDir} from '../../hclawPaths'
+import {notifyCapabilityStateChanged} from '../../repo/capabilitySignal'
 import type {AgentTemplate} from '@shared/types'
 import * as path from 'path'
 import * as fs from 'fs/promises'
@@ -141,6 +142,8 @@ export function registerHandlers(): void {
 
             // 刷新 registry
             await powerManager.refresh()
+            // 顺序契约：notify 必须在 await refresh 之后 —— 否则 repo 侧重算读到的是旧启用态
+            await notifyCapabilityStateChanged()
 
             const templates = await scanAllAgents()
             return {success: true, templates}
@@ -215,6 +218,10 @@ export function registerHandlers(): void {
 
             // 刷新 registry
             await powerManager.refresh()
+            // 仅当启用态变化才通知 repo 侧重算红点（只改描述等字段不影响能力启用态）
+            if (updates.enabled !== undefined) {
+                await notifyCapabilityStateChanged()
+            }
 
             const templates = await scanAllAgents()
             return {success: true, templates}
@@ -231,6 +238,8 @@ export function registerHandlers(): void {
             }
 
             await powerManager.refresh()
+            // 顺序契约：notify 必须在 await refresh 之后 —— 否则 repo 侧重算读到的是旧启用态
+            await notifyCapabilityStateChanged()
             const templates = await scanAllAgents()
             return {success: true, templates}
         } catch (err: any) {

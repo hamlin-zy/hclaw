@@ -516,3 +516,27 @@ export async function cleanStalePluginOverrides(validAgentIds: Set<string>): Pro
     }
 }
 
+/**
+ * 按 id 精确删除 Agent 的覆盖状态（供仓库卸载清理残留）。
+ *
+ * 与 cleanStalePluginOverrides 互补：后者按「当前全部有效模板 id」白名单反删，
+ * 只能清掉已不存在的 Agent；本函数按传入 id 精确删除，用于卸载仓库时目标 id
+ * 仍可能出现在白名单中的场景（此时反删命中不了，必须精确删）。
+ *
+ * 空数组为 no-op（与 cleanStalePluginOverrides 的防御守卫一致）；失败仅记日志、
+ * 不抛——卸载流程中的 override 清理失败只计入 warnings，不得中断流程。
+ */
+export async function deleteAgentOverrides(ids: string[]): Promise<void> {
+    try {
+        if (ids.length === 0) return
+        const db = getDatabase()
+        const placeholders = ids.map(() => '?').join(',')
+        const result = db.prepare(`DELETE FROM agent_overrides WHERE agent_id IN (${placeholders})`).run(...ids)
+        if (result.changes > 0) {
+            logger.debug('[AgentLoader] deleteAgentOverrides: deleted', {count: result.changes})
+        }
+    } catch (err) {
+        logger.error('[AgentLoader] deleteAgentOverrides failed', {ids: ids.length, error: (err as Error).message})
+    }
+}
+
