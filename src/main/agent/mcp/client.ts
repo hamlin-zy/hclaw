@@ -95,11 +95,16 @@ interface InternalServerState {
   stoppedTime?: number
   /** 持久化的子进程 PID，跨 transport 生命周期追踪 */
   lastPid?: number
+  /** 本轮的启动纪元（用于识别被更新一轮 connect 取代的旧连接尝试） */
+  epoch?: number
 }
 
 export class MCPClient {
   /** serverId → InternalServerState */
   private servers: Map<string, InternalServerState> = new Map()
+
+  /** serverId → 最新一次 connect 的纪元号；旧纪元发现落后时须放弃并把已建资源清干净 */
+  private connectEpoch: Map<string, number> = new Map()
 
   /** 状态变化监听器: serverId → Set<回调> */
   private statusListeners: Map<string, Set<(state: MCPServerState) => void>> = new Map()
@@ -222,16 +227,30 @@ export class MCPClient {
    * @param maxRetries 失败后的最大重试次数（默认 5，传 0 表示仅尝试一次不重试）
    */
   async connect(config: MCPServerConfig, maxRetries = 5): Promise<McpConnectResult> {
+    // ★ 启动纪元：同一 serverId 每次 connect 递增，旧一轮的 doConnect 据此发现自己已被取代，
+    //   从而清理自己 spawn 的子进程，避免两份进程链并存
+    const epoch = (this.connectEpoch.get(config.id) ?? 0) + 1
+    this.connectEpoch.set(config.id, epoch)
+
     // ★ PID 闭环：取出旧 state 的 PID，确认旧进程已退出后再启动新进程
     const oldState = this.servers.get(config.id)
-    const oldPid = oldState?.lastPid
-    if (oldPid && this.processController.isRunning(oldPid)) {
+    // ★ 两个候选都要独立判活：lastPid 可能是上一轮遗留的已死 PID，而当前 transport
+    //   已 spawn 出新的存活进程；用 `lastPid ?? transport.pid` 会被旧值短路，漏杀活的进程。
+    const staleCandidates = [
+      oldState?.lastPid,
+      oldState?.sdkTransport instanceof StdioClientTransport ? oldState.sdkTransport.pid ?? undefined : undefined,
+    ]
+    for (const pid of new Set(staleCandidates.filter((p): p is number => typeof p === 'number'))) {
+      if (!this.processController.isRunning(pid)) continue
       // 旧进程仍在运行（可能的上次异常退出未清理干净），强制杀掉并确认
       try {
-        this.processController.killTree(oldPid)
+        this.processController.killTree(pid)
       } catch {}
-      await this.processController.waitForExit(oldPid)
+      await this.processController.waitForExit(pid)
     }
+    // 旧 lastPid 仍作为新 state 的兜底继承值（若 doConnect 捕获到新 PID 会覆盖）：
+    // 上面的循环只负责「杀掉仍存活的候选」，不改变原有的继承语义。
+    const oldPid = oldState?.lastPid
 
     if (this.servers.has(config.id)) {
       await this.disconnect(config.id)
@@ -245,6 +264,7 @@ export class MCPClient {
       reconnectAttempts: 0,
       // 继承旧 PID 作为兜底（如果 doConnect 捕获了新 PID 会覆盖）
       lastPid: oldPid,
+      epoch,
     }
     this.servers.set(config.id, state)
 
@@ -315,6 +335,17 @@ export class MCPClient {
           if (pid) state.lastPid = pid
         }
 
+        // ★ 纪元校验（握手刚结束，是最容易漏掉资源的时刻）：
+        //   本轮若已被更新一轮的 connect 取代，必须杀掉本轮 spawn 的子进程，
+        //   否则这份进程无人认领 → 与新一轮的进程并存构成重复 cmd/node 链
+        if (state.epoch !== this.connectEpoch.get(state.config.id)) {
+          try { await this.killServerProcess(state) } catch {}
+          try { await state.sdkTransport?.close() } catch {}
+          state.sdkTransport = undefined
+          state.sdkClient = undefined
+          return { success: false, error: 'superseded by newer connect' }
+        }
+
         // ★ transport 已启动，立即通知状态（确保 PID 被追踪，UI 可看到进度）
         this.emitStatusChange(state.config.id, this.getServer(state.config.id)!)
 
@@ -334,6 +365,16 @@ export class MCPClient {
         if (serverCapabilities?.tools) {
           const { tools } = await sdkClient.listTools(undefined, {timeout: connectTimeout})
           state.tools = tools.map(toMcpToolDefinition)
+        }
+
+        // ★ 纪元校验（listTools 是第二个长 await，其间完全可能又来一轮 connect）：
+        //   同上，被取代的一轮不能把已起的进程留给系统
+        if (state.epoch !== this.connectEpoch.get(state.config.id)) {
+          try { await this.killServerProcess(state) } catch {}
+          try { await state.sdkTransport?.close() } catch {}
+          state.sdkTransport = undefined
+          state.sdkClient = undefined
+          return { success: false, error: 'superseded by newer connect' }
         }
 
         // ★ 注册 tool list changed 通知
@@ -394,9 +435,14 @@ export class MCPClient {
 
   /** 强制杀死子进程树并等待退出（必须在 SDK close 之前调用，否则 Windows 上根进程被杀后 taskkill /T 无法遍历树） */
   private async killServerProcess(state: InternalServerState): Promise<void> {
-    if (!state.lastPid) return
-    this.processController.killTree(state.lastPid)
-    await this.processController.waitForExit(state.lastPid)
+    // ★ transport.pid 兜底：握手窗口内 lastPid 尚未写入（PID 在 connect 成功后才捕获），
+    //   只认 lastPid 会漏杀刚 spawn 的 cmd→node 进程链（Windows 上 SDK close 只终止根进程、不遍历子孙）。
+    //   StdioClientTransport 在 spawn 之后 pid 即可读。
+    const pid = state.lastPid
+      ?? (state.sdkTransport instanceof StdioClientTransport ? state.sdkTransport.pid ?? undefined : undefined)
+    if (!pid) return
+    this.processController.killTree(pid)
+    await this.processController.waitForExit(pid)
     state.lastPid = undefined
   }
 
@@ -428,6 +474,14 @@ export class MCPClient {
     // 清理监听器
     this.statusListeners.delete(serverId)
 
+    // ★ 回收启动纪元（否则 connectEpoch 会随历史 serverId 无界累积）。
+    //   ⚠️ 只删「仍归属本 state 的纪元」：connect() 会先自增纪元、再 disconnect 旧 state，
+    //   无条件删除会把新一轮刚登记的纪元一并删掉 → 新一轮 doConnect 的纪元校验
+    //   （state.epoch !== connectEpoch.get(id)）永远成立，连接被判「已被取代」白起一轮。
+    if (state.epoch === this.connectEpoch.get(serverId)) {
+      this.connectEpoch.delete(serverId)
+    }
+
     // 从 Map 中移除
     this.servers.delete(serverId)
   }
@@ -455,6 +509,11 @@ export class MCPClient {
     }
 
     for (const id of toRemove) {
+      // 同上：纪元的当前值确实属于这个被回收的 state 时才删除，
+      // 避免误删正在进行的 connect 登记的纪元
+      if (this.servers.get(id)?.epoch === this.connectEpoch.get(id)) {
+        this.connectEpoch.delete(id)
+      }
       this.servers.delete(id)
       this.statusListeners.delete(id)
     }

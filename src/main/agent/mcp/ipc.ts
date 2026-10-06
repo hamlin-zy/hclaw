@@ -80,7 +80,13 @@ export function registerMCPIPC(): void {
             logger.debug('[MCP IPC] mcp:save-server called', {id: server?.id})
             if (server?.id?.startsWith('plugin:')) {
                 // 插件服务器：写入 pluginMcpServers 覆盖节，不修改插件目录配置
-                setMcpPluginOverride(server.id, pickServerFields(server, false))
+                // ★ 透传写盘结果：setMcpPluginOverride 返回 false 表示落盘失败，
+                //   此时不得同步内存缓存（否则 UI 已改而 mcp.json 未变 → 漂移）。
+                //   用 `=== false` 判定，避免测试替身返回 undefined 被误判为失败。
+                if (setMcpPluginOverride(server.id, pickServerFields(server, false)) === false) {
+                    logger.error('[MCP IPC] mcp:save-server plugin override write failed', {id: server.id})
+                    return fail(new Error('保存 MCP 配置失败'))
+                }
                 // 同步 mcpService 缓存
                 const s = mcpService.get(server.id)
                 if (s) {
@@ -88,7 +94,12 @@ export function registerMCPIPC(): void {
                 }
                 logger.debug('[MCP IPC] mcp:save-server plugin override', {id: server.id})
             } else {
-                mcpService.add(server)
+                // ★ 透传写盘结果：mcpService.add 写盘失败时已回滚内存并返回 false，
+                //   此处若仍报 success:true，渲染层会误判落盘成功。
+                if (mcpService.add(server) === false) {
+                    logger.error('[MCP IPC] mcp:save-server add failed', {id: server?.id})
+                    return fail(new Error('保存 MCP 配置失败'))
+                }
             }
             // 通知 Worker 更新配置（启动/停止对应的服务器）
             mcpWorkerManager.syncConfigs()
@@ -103,7 +114,11 @@ export function registerMCPIPC(): void {
     ipcMain.handle('mcp:delete', async (_, id: string) => {
         try {
             logger.debug('[MCP IPC] mcp:delete called', {id})
-            mcpService.delete(id)
+            // ★ 透传写盘结果：delete 写盘失败已回滚内存并返回 false（`=== false` 判定）
+            if (mcpService.delete(id) === false) {
+                logger.error('[MCP IPC] delete failed: write rejected', {id})
+                return fail(new Error('删除 MCP 服务器失败'))
+            }
             mcpWorkerManager.syncConfigs()
             return ok()
         } catch (err) {
@@ -116,7 +131,11 @@ export function registerMCPIPC(): void {
     ipcMain.handle('mcp:remove-server', async (_, id: string) => {
         try {
             logger.debug('[MCP IPC] mcp:remove-server called', {id})
-            mcpService.delete(id)
+            // ★ 与 mcp:delete 同一落盘路径，失败语义保持一致（`=== false` 判定）
+            if (mcpService.delete(id) === false) {
+                logger.error('[MCP IPC] removeServer failed: write rejected', {id})
+                return fail(new Error('删除 MCP 服务器失败'))
+            }
             mcpWorkerManager.syncConfigs()
             return ok()
         } catch (err) {
@@ -216,7 +235,12 @@ export function registerMCPIPC(): void {
             logger.debug('[MCP IPC] mcp:set-enabled called', {id, enabled, isPlugin: id.startsWith('plugin:')})
             if (id.startsWith('plugin:')) {
                 // 插件服务器：写入 pluginMcpServers 覆盖节，保留其他已有覆盖字段
-                setMcpPluginOverride(id, {enabled})
+                // ★ 透传写盘结果：返回 false 时不得同步内存缓存、不得报成功，
+                //   否则 UI 显示已切换而 mcp.json 未变（重启后回退）。
+                if (setMcpPluginOverride(id, {enabled}) === false) {
+                    logger.error('[MCP IPC] setEnabled: plugin override write failed', {id, enabled})
+                    return fail(new Error(enabled ? '启用失败' : '禁用失败'))
+                }
                 // 同步 mcpService 缓存
                 const s = mcpService.get(id)
                 if (s) {
@@ -224,7 +248,11 @@ export function registerMCPIPC(): void {
                 }
                 logger.debug('[MCP IPC] setEnabled: plugin server override updated', {id, enabled})
             } else {
-                mcpService.setEnabled(id, enabled)
+                // ★ mcpService.setEnabled 写盘失败时已回滚内存并返回 false（`=== false` 判定）
+                if (mcpService.setEnabled(id, enabled) === false) {
+                    logger.error('[MCP IPC] setEnabled: write rejected', {id, enabled})
+                    return fail(new Error(enabled ? '启用失败' : '禁用失败'))
+                }
             }
             // 通知 Worker 更新配置（根据 enabled 决定启动/停止）
             mcpWorkerManager.syncConfigs()
@@ -252,7 +280,13 @@ export function registerMCPIPC(): void {
         mcpService.updateStatus(config.id, 'connecting')
         try {
             // 标记为启用 → sync 到 Worker → Worker 启动进程 → 状态通过 status_batch 回传
-            mcpService.setEnabled(config.id, true)
+            // ★ 透传写盘结果：置 true 写盘失败时 mcpService 已回滚为 disabled，
+            //   不得继续 sync（否则 Worker 会按旧态启动），并把状态落到 error。
+            if (mcpService.setEnabled(config.id, true) === false) {
+                logger.error(`[MCP IPC] mcp:start-server: setEnabled write rejected: id=${config.id}`)
+                mcpService.updateStatus(config.id, 'error', '启用失败：写入 MCP 配置失败')
+                return fail(new Error('启动失败：写入 MCP 配置失败'))
+            }
             mcpWorkerManager.syncConfigs()
             return ok()
         } catch (err: any) {
@@ -268,10 +302,19 @@ export function registerMCPIPC(): void {
         mcpService.updateStatus(serverId, 'stopping')
         try {
             // 标记为禁用 → sync 到 Worker → Worker 停止进程 → 状态通过 status_batch 回传
-            mcpService.setEnabled(serverId, false)
+            // ★ 透传写盘结果：置 false 写盘失败时 mcpService 已回滚为 enabled，
+            //   不得继续 sync（否则 Worker 会按旧态继续运行），并结束悬挂的 stopping 状态。
+            if (mcpService.setEnabled(serverId, false) === false) {
+                logger.error(`[MCP IPC] mcp:stop-server: setEnabled write rejected: id=${serverId}`)
+                mcpService.updateStatus(serverId, 'error', '禁用失败：写入 MCP 配置失败')
+                return fail(new Error('停止失败：写入 MCP 配置失败'))
+            }
             mcpWorkerManager.syncConfigs()
             return ok()
         } catch (err: any) {
+            // ★ 与 mcp:start-server 的 catch 对齐：异常路径同样要结束上面置位的 'stopping'，
+            //   否则渲染层会永久停留在 stopping 僵尸态（无后续 status_batch 可解除）。
+            mcpService.updateStatus(serverId, 'error', err.message)
             return fail(err)
         }
     })

@@ -250,6 +250,105 @@ describe('RepoGroupCard / DOM content model 与旧选择器', () => {
     })
 })
 
+describe('RepoGroupCard / 「已禁用」徽标（hasEnabledCapability）', () => {
+    const withFlag = (hasEnabledCapability?: boolean) => ({
+        ...repo,
+        ...(hasEnabledCapability === undefined ? {} : {hasEnabledCapability}),
+    })
+
+    it('hasEnabledCapability === false → 渲染「已禁用」徽标', () => {
+        const {container} = render(
+            <RepoGroupCard repo={withFlag(false)} skillCount={1} agentCount={0}>{child}</RepoGroupCard>,
+        )
+        const badge = container.querySelector('[data-name="repo-group-card-disabled-badge"]')
+        expect(badge).toBeTruthy()
+        expect(badge!.textContent).toBe('已禁用')
+    })
+
+    it('hasEnabledCapability === true → 不渲染徽标', () => {
+        const {container} = render(
+            <RepoGroupCard repo={withFlag(true)} skillCount={1} agentCount={0}>{child}</RepoGroupCard>,
+        )
+        expect(container.querySelector('[data-name="repo-group-card-disabled-badge"]')).toBeNull()
+    })
+
+    it('hasEnabledCapability 缺省 → 不渲染徽标（保守：可选字段缺省不等于禁用）', () => {
+        const {container} = render(
+            <RepoGroupCard repo={withFlag()} skillCount={1} agentCount={0}>{child}</RepoGroupCard>,
+        )
+        expect(container.querySelector('[data-name="repo-group-card-disabled-badge"]')).toBeNull()
+    })
+})
+
+describe('RepoGroupCard / 卸载按钮（onUninstall）', () => {
+    it('传 onUninstall → 渲染卸载按钮，点击后以 repo 对象调用一次', async () => {
+        const onUninstall = vi.fn(async () => {})
+        const {container} = render(
+            <RepoGroupCard repo={repo} skillCount={1} agentCount={0} onUninstall={onUninstall}>{child}</RepoGroupCard>,
+        )
+        const btn = container.querySelector('[data-name="repo-group-card-uninstall-button"]') as HTMLButtonElement
+        expect(btn).toBeTruthy()
+        expect(btn.textContent).toBe('卸载')
+
+        fireEvent.click(btn)
+        await waitFor(() => expect(onUninstall).toHaveBeenCalledTimes(1))
+        expect(onUninstall).toHaveBeenCalledWith(repo)
+    })
+
+    it('未传 onUninstall → 不渲染卸载按钮', () => {
+        const {container} = render(
+            <RepoGroupCard repo={repo} skillCount={1} agentCount={0}>{child}</RepoGroupCard>,
+        )
+        expect(container.querySelector('[data-name="repo-group-card-uninstall-button"]')).toBeNull()
+    })
+
+    it('点击卸载按钮不冒泡切换折叠状态', async () => {
+        const onUninstall = vi.fn(async () => {})
+        const {container, queryByTestId} = render(
+            <RepoGroupCard repo={repo} skillCount={1} agentCount={0} onUninstall={onUninstall}>{child}</RepoGroupCard>,
+        )
+        const btn = container.querySelector('[data-name="repo-group-card-uninstall-button"]') as HTMLButtonElement
+        expect(queryByTestId('child')).toBeNull()
+
+        fireEvent.click(btn)
+        await waitFor(() => expect(onUninstall).toHaveBeenCalledTimes(1))
+        expect(queryByTestId('child')).toBeNull()
+        expect((container.querySelector('[data-name="repo-group-card-header"]') as HTMLElement).getAttribute('aria-expanded')).toBe('false')
+    })
+
+    it('卸载中：pending promise 期间按钮 disabled、文案「卸载中…」、重复点击不再触发、折叠状态不变', async () => {
+        let resolveUninstall!: () => void
+        const pending = new Promise<void>(r => { resolveUninstall = r })
+        const onUninstall = vi.fn(() => pending)
+        const {container, queryByTestId} = render(
+            <RepoGroupCard repo={repo} skillCount={1} agentCount={0} onUninstall={onUninstall}>{child}</RepoGroupCard>,
+        )
+        const btn = container.querySelector('[data-name="repo-group-card-uninstall-button"]') as HTMLButtonElement
+        const header = container.querySelector('[data-name="repo-group-card-header"]') as HTMLElement
+        expect(queryByTestId('child')).toBeNull()
+
+        fireEvent.click(btn)
+        // 第一次点击后（同一同步 tick，不等任何异步刷新）再连点两次
+        fireEvent.click(btn)
+        fireEvent.click(btn)
+        expect(onUninstall).toHaveBeenCalledTimes(1)
+
+        expect(btn.disabled).toBe(true)
+        expect(btn.textContent).toBe('卸载中…')
+
+        // 卡片折叠状态不被切换
+        expect(queryByTestId('child')).toBeNull()
+        expect(header.getAttribute('aria-expanded')).toBe('false')
+
+        // 完成后复位，按钮重新可用
+        resolveUninstall()
+        await waitFor(() => expect(btn.disabled).toBe(false))
+        expect(btn.textContent).toBe('卸载')
+        expect(onUninstall).toHaveBeenCalledTimes(1)
+    })
+
+})
+
 describe('RepoGroupCard / 版本控件显隐（hideVersionControl）', () => {
     it('默认（不传 prop）→ 渲染仓库版本控件（下拉 + 同步按钮）', () => {
         const {container} = render(

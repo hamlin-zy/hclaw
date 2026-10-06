@@ -12,6 +12,8 @@ interface RepoLike {
   name: string
   source: string
   capabilities: {skills: string[]; agents: string[]; plugins: string[]}
+  /** 该仓库是否仍有启用中的能力（来自 repo:list）。缺省视为未知，不据此渲染任何状态。 */
+  hasEnabledCapability?: boolean
 }
 
 interface BatchItemLike {
@@ -19,7 +21,7 @@ interface BatchItemLike {
   enabled: boolean
 }
 
-export default function RepoGroupCard({repo, skillCount, agentCount, children, onToggleBatch, skills, agents, onVersionSwitched, hideVersionControl}: {
+export default function RepoGroupCard({repo, skillCount, agentCount, children, onToggleBatch, skills, agents, onVersionSwitched, hideVersionControl, onUninstall}: {
   repo: RepoLike
   skillCount: number
   agentCount: number
@@ -31,8 +33,12 @@ export default function RepoGroupCard({repo, skillCount, agentCount, children, o
   /** 隐藏标题栏的仓库版本控件（版本下拉 + 同步按钮 + 更新红点）。
    *  默认不传 = 保持展示；目前仅 Skills「插件」Tab 传入以移除版本控件。 */
   hideVersionControl?: boolean
+  /** 卸载该仓库（真正调 IPC / 二次确认 / toast 由对话框负责，本组件只抛事件）。
+   *  不传 = 不渲染卸载入口。 */
+  onUninstall?: (repo: RepoLike) => Promise<void>
 }) {
   const [collapsed, setCollapsed] = useState(true)
+  const [uninstalling, setUninstalling] = useState(false)
   const toggleCollapsed = () => setCollapsed(c => !c)
   // 批量按钮的数据源：优先 agents（仓库 Agent 分组），否则回退到 skills（仓库技能分组）
   const hasAgents = !!agents && agents.length > 0
@@ -61,6 +67,9 @@ export default function RepoGroupCard({repo, skillCount, agentCount, children, o
               <span className="text-[10px] text-[var(--text-muted)] shrink-0">
                 {skillCount > 0 && `${skillCount} 个技能`}{skillCount > 0 && agentCount > 0 && ' · '}{agentCount > 0 && `${agentCount} 个代理`}
               </span>
+              {repo.hasEnabledCapability === false && (
+                <span data-name="repo-group-card-disabled-badge" className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface-muted)] text-[var(--text-muted)] shrink-0">已禁用</span>
+              )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
               {onToggleBatch && batchItems.length > 0 && (
@@ -77,6 +86,18 @@ export default function RepoGroupCard({repo, skillCount, agentCount, children, o
               )}
               {!hideVersionControl && (
                 <RepoVersionControl repoId={repo.id} current="" loading={false} onVersionSwitched={onVersionSwitched}/>
+              )}
+              {onUninstall && (
+                <button
+                  disabled={uninstalling}
+                  onClick={async () => {
+                    setUninstalling(true)
+                    try { await onUninstall(repo) } finally { setUninstalling(false) }
+                  }}
+                  className="text-[10px] font-medium text-[var(--error)] hover:text-[color-mix(in_srgb,var(--error)_80%,transparent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  data-name="repo-group-card-uninstall-button">
+                  {uninstalling ? '卸载中…' : '卸载'}
+                </button>
               )}
               <ChevronDown className={`w-4 h-4 text-[var(--text-muted)] transition-transform duration-300 ${collapsed ? '' : 'rotate-180'}`}/>
             </div>

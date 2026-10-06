@@ -17,6 +17,7 @@ import SkillDetailModal from './SkillDetailModal'
 import RepoGroupCard from '../repo/RepoGroupCard'
 import PluginGroupCard from '../common/PluginGroupCard'
 import {useRepoUpdateStore} from '../../stores/repoUpdateStore'
+import {useRepoUninstallFlow, scheduleAutoHide} from '../../hooks/useRepoUninstallFlow'
 import {buildRepoGroups, filterRepoTabSkills, sortReposByUpdate} from '../repo/repoGrouping'
 import {Folder, Search, Trash2, Check, AlertCircle, Plus, Download, RefreshCw, GitBranch} from 'lucide-react'
 import {INPUT_FOCUS} from '../../lib/inputFocus'
@@ -93,8 +94,7 @@ export default function SkillsDialog() {
                 await refreshSkills()
                 refreshRepoList()
                 setRepoUrl('')
-                if (installMessageTimer.current) clearTimeout(installMessageTimer.current)
-                installMessageTimer.current = setTimeout(() => { installMessageTimer.current = null; setInstallMessage(null) }, 3000)
+                scheduleAutoHide(installMessageTimer, setInstallMessage, 3000)
             } else {
                 // 错误消息不清除，避免用户尚未读完即消失
                 setInstallMessage({type: 'error', text: `安装失败: ${result?.error || '未知错误'}`})
@@ -105,6 +105,28 @@ export default function SkillsDialog() {
             setRepoInstalling(false)
         }
     }, [repoUrl, refreshSkills, refreshRepoList])
+
+    /**
+     * 卸载仓库：二次确认 → IPC → 三重刷新（技能列表 / 仓库分组与徽标 / 红点元数据）。
+     *
+     * 本函数是 `onUninstall` 的唯一错误出口：RepoGroupCard 的点击回调只有 try/finally、
+     * 没有 catch，且主进程 repo:uninstall handler 未包 try/catch（rejection 是真实存在的
+     * 错误通道）。因此 confirm 之外的任何失败都必须在此收敛为用户可见 toast 并正常 resolve，
+     * 绝不外抛（外抛会变成 unhandled rejection）。
+     *
+     * 实现收敛到 useRepoUninstallFlow hook，仅 buildConfirmMessage 文案与 onSuccess 刷新
+     * 方法（refreshSkills）不同。
+     */
+    const handleUninstallRepo = useRepoUninstallFlow<[number]>({
+        setMessage: setInstallMessage,
+        timerRef: installMessageTimer,
+        buildConfirmMessage: useCallback((repo: any, skillCount: number) => (
+            `将卸载仓库「${repo.id}」\n路径：${repo.path}\n该仓库下有 ${skillCount} 个技能\n此操作不可恢复。`
+        ), []),
+        onSuccess: refreshSkills,
+        refreshRepoList,
+    })
+
     const openSkillDetail = useCallback((skill: import('@shared/types').Skill, mode: 'preview' | 'edit' = 'preview') => {
         setDetailModal({isOpen: true, skill, mode})
     }, [])
@@ -152,8 +174,7 @@ export default function SkillsDialog() {
             setInstallMessage({type: 'error', text: `安装失败: ${result.error}`})
         }
         // 3秒后自动清除提示
-        if (installMessageTimer.current) clearTimeout(installMessageTimer.current)
-        installMessageTimer.current = setTimeout(() => { installMessageTimer.current = null; setInstallMessage(null) }, 3000)
+        scheduleAutoHide(installMessageTimer, setInstallMessage, 3000)
     }, [installSkill, refreshRepoList])
 
     const filteredSkills = useMemo(() => {
@@ -346,6 +367,7 @@ export default function SkillsDialog() {
                                                   skills={group.skills}
                                                   onToggleBatch={toggleSkillBatch}
                                                   onVersionSwitched={() => void useSkillStore.getState().refreshSkills()}
+                                                  onUninstall={repo => handleUninstallRepo(repo, group.skills.length)}
                                               >
                                                   {group.skills.map(skill => (
                                                       <SkillCard

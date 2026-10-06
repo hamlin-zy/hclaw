@@ -106,11 +106,21 @@ export class MCPServerService {
         enabled: server.enabled ?? true,
       }
 
-      // 先更新内存缓存
+      // 先更新内存缓存（记录原条目：同 id 覆盖时失败回滚要还原它，而不是直接删掉）
+      const previous = this.servers.get(server.id)
       this.servers.set(server.id, runtime)
 
         // 写入配置文件
-        writeMcpConfig(Array.from(this.servers.values()))
+        // ★ 必须检查写盘结果：失败时内存已是新值而磁盘未变，随后同值重试会被
+        //   setEnabled 的幂等短路拦下 → 漂移固化、不自愈。故回滚内存并返回 false。
+        //   用 `=== false` 而非 falsy 判断（test double / 将来签名返回 undefined 时不得误判）。
+        if (writeMcpConfig(Array.from(this.servers.values())) === false) {
+            // 回滚内存，保持与磁盘（仍是旧内容）一致
+            if (previous) this.servers.set(server.id, previous)
+            else this.servers.delete(server.id)
+            logger.error('add', {success: false, error: 'writeMcpConfig failed', id: server.id})
+            return false
+        }
         this.notify({type: 'list-changed', data: {servers: this.list()}})
         return true
     } catch (err) {
@@ -139,8 +149,20 @@ export class MCPServerService {
    */
   delete(id: string): boolean {
     try {
+        const removed = this.servers.get(id)
+        // 记录删除前的插入位置：Map 保留插入顺序，回滚时插回原索引，避免列表顺序漂移
+        const removedIndex = removed ? Array.from(this.servers.keys()).indexOf(id) : -1
         this.servers.delete(id)
-        writeMcpConfig(Array.from(this.servers.values()))
+        // ★ 写盘失败必须回滚（同 add/setEnabled）：否则内存已删、磁盘仍有 → 漂移固化。
+        if (writeMcpConfig(Array.from(this.servers.values())) === false) {
+            if (removed) {
+                const entries = Array.from(this.servers.entries())
+                entries.splice(Math.max(0, removedIndex), 0, [id, removed])
+                this.servers = new Map(entries)
+            }
+            logger.error('delete', {success: false, error: 'writeMcpConfig failed', id})
+            return false
+        }
         this.notify({type: 'list-changed', data: {servers: this.list()}})
         return true
     } catch (err) {
@@ -156,8 +178,20 @@ export class MCPServerService {
     try {
         const server = this.servers.get(id)
         if (server) {
+            // 幂等短路：enabled 未变化时不再重复写盘与广播（一次点击会经两条 IPC 路径调用本方法）。
+            // 注意：调用方仍会各自调用 syncConfigs()，启动/停止的语义不受影响。
+            if (server.enabled === enabled) return true
             this.servers.set(id, {...server, enabled})
-            writeMcpConfig(Array.from(this.servers.values()))
+            // ★ 必须检查写盘结果：writeMcpConfig 失败时返回 false 而不抛。若忽略返回值，
+            //   内存已是新值而磁盘未变，且随后的同值重试会被上面的幂等短路拦下，
+            //   造成 UI 与 mcp.json 持续漂移（重启应用表现为「开关莫名回退」）。
+            // ⚠️ 用 `=== false` 而非 falsy 判断：只有明确失败（返回 false）才回滚，
+            //    避免测试替身或将来签名变化（返回 undefined）时被误判为写盘失败。
+            if (writeMcpConfig(Array.from(this.servers.values())) === false) {
+                this.servers.set(id, server)   // 回滚内存，保持与磁盘一致
+                logger.error('setEnabled', {success: false, error: 'writeMcpConfig failed', id, enabled})
+                return false
+            }
             this.notify({type: 'list-changed', data: {servers: this.list()}})
         }
         return true
@@ -179,8 +213,15 @@ export class MCPServerService {
             logger.error('update', {success: false, id, error: 'server-not-found'})
             return false
         }
+        // ★ 保存改动前的对象引用（set 写入的是新对象，原对象未被就地修改），
+        //   写盘失败时据此回滚 patch，保持内存与磁盘一致（同 add/delete/setEnabled）。
+        const original = server
         this.servers.set(id, {...server, ...patch})
-        writeMcpConfig(Array.from(this.servers.values()))
+        if (writeMcpConfig(Array.from(this.servers.values())) === false) {
+            this.servers.set(id, original)   // 回滚 patch
+            logger.error('update', {success: false, error: 'writeMcpConfig failed', id})
+            return false
+        }
         this.notify({type: 'list-changed', data: {servers: this.list()}})
         return true
     } catch (err) {

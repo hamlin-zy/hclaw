@@ -504,7 +504,22 @@ app.on('ready', async () => {
     logger.warn('plugin-version-check-failed', {error: String(err)});
   });
 
+  // Step 3: Agent + Skills 初始化（含插件 MCP 配置加载 + 缓存回写）
+  logger.info('init-checkpoint', {step: 'initAgent-start'})
+  loopProbe('initAgent');
+  initProgress.stage('agent')
+  await initAgent();
+  initProgress.done('agent')
+  logger.info('init-checkpoint', {step: 'initAgent-done'})
+  trace('main:agent-initialized');
+
   // Skills/Agents repo startup check (fire-and-forget) — discover + fetch tags, push red-dot meta
+  //
+  // ★ 必须排在 `await initAgent()` 之后：capabilities 来自 powerManager 初始化后的
+  //   技能/代理/插件注册表，在此之前采集到的是空清单。而 initializeRepoSystem 的就绪
+  //   等待一旦超时返回，本轮之后就没有任何人再触发首次 discover —— 仓库 tab 会一直
+  //   空到用户手动装卸。排在就绪之后，那个超时路径退化为纯防御性兜底。
+  //   仍保持 fire-and-forget（不 await），不阻塞后续启动步骤。
   initializeRepoSystem().then(() => {
     const win = getMainWindow();
     const meta = repoVersionManager.getAllVersionMeta();
@@ -514,15 +529,6 @@ app.on('ready', async () => {
   }).catch((err: any) => {
     logger.warn('repo-version-startup-failed', {error: String(err)});
   });
-
-  // Step 3: Agent + Skills 初始化（含插件 MCP 配置加载 + 缓存回写）
-  logger.info('init-checkpoint', {step: 'initAgent-start'})
-  loopProbe('initAgent');
-  initProgress.stage('agent')
-  await initAgent();
-  initProgress.done('agent')
-  logger.info('init-checkpoint', {step: 'initAgent-done'})
-  trace('main:agent-initialized');
   // initAgent 已被推迟到「窗口可见」之后，而渲染端在挂载时会拉一次工具列表
   // （schemeSync/modelSchemeStore → toolStore.loadTools），那次拉取可能早于
   // registerBuiltinTools() → 这里补一次广播让渲染端重取（原顺序下内置工具先于渲染端加载，无需）。

@@ -45,9 +45,10 @@ export default function MCPDialog() {
     const {
         mcpServers,
         addMCPServer,
+        restoreMCPServer,
         removeMCPServer,
         updateMCPServer,
-        toggleMCPServer,
+        setServerEnabledLocal,
         setServerStatusesBatch,
     } = useMcpStore()
     const {McpErrorOverlay, showError} = useMcpErrorDialog({
@@ -91,6 +92,30 @@ export default function MCPDialog() {
             if (importSyncTimer.current) clearTimeout(importSyncTimer.current)
             if (importResultTimer.current) clearTimeout(importResultTimer.current)
         }
+    }, [])
+
+    // ─── 操作防连点（in-flight 锁）───
+    // 同一 server 的「启用/禁用」与「重启」请求在飞期间，重复点击必须被忽略：
+    // 单次点击会串行打出 set-enabled + start/stop 多个 IPC，连点会造成重复全量同步。
+    // inFlightRef 做同步判重（state 更新是异步的，挡不住同一 tick 内的连点）；
+    // busyIds 仅用于渲染层禁用反馈。
+    const inFlightRef = useRef<Set<string>>(new Set())
+    const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
+
+    const markBusy = useCallback((id: string) => {
+        setBusyIds(prev => {
+            const next = new Set(prev)
+            next.add(id)
+            return next
+        })
+    }, [])
+
+    const clearBusy = useCallback((id: string) => {
+        setBusyIds(prev => {
+            const next = new Set(prev)
+            next.delete(id)
+            return next
+        })
     }, [])
 
     // ─── Toast (listens to `hclaw:show-toast` CustomEvent) ───
@@ -297,80 +322,271 @@ export default function MCPDialog() {
     }, [])
 
     const handleToggle = useCallback(async (serverId: string, currentEnabled: boolean) => {
-        const newEnabled = !currentEnabled
-        toggleMCPServer(serverId)
-        const server = mcpServers.find(s => s.id === serverId)
-        if (server) {
-            await window.electronAPI?.mcp?.setEnabled?.(serverId, newEnabled)
-            if (newEnabled) {
-                const r = await startServer(server)
-                if (r && !r.success) {
-                    showError({server, errorMessage: r.error || '启动失败', action: 'enable'})
+        // 防连点：同一 server 已有请求在飞时直接忽略重复点击
+        if (inFlightRef.current.has(serverId)) return
+        inFlightRef.current.add(serverId)
+        markBusy(serverId)
+        try {
+            const newEnabled = !currentEnabled
+            // ★ 只改本地状态：落盘由主进程 mcp:set-enabled 负责（mcpService.setEnabled 内部 writeMcpConfig）
+            setServerEnabledLocal(serverId, newEnabled)
+            const server = mcpServers.find(s => s.id === serverId)
+            if (server) {
+                // ★ setEnabled 的返回值与异常必须检查：主进程写盘失败时 mcp.json 未改，
+                //   若渲染层仍显示新状态，UI 与实际配置漂移，重启应用后表现为「开关莫名回退」。
+                let setResult: { success?: boolean; error?: string } | undefined
+                try {
+                    setResult = await window.electronAPI?.mcp?.setEnabled?.(serverId, newEnabled)
+                } catch (err) {
+                    // 抛错同样属于落盘失败：回滚为进入函数时捕获的原值
+                    setServerEnabledLocal(serverId, currentEnabled)
+                    showError({server, errorMessage: err instanceof Error ? err.message : String(err), action: 'enable'})
                     return
                 }
-            } else {
-                const r = await stopServer(serverId)
-                if (r && !r.success) {
-                    showError({server, errorMessage: r.error || '停止失败', action: 'enable'})
+                if (setResult && !setResult.success) {
+                    setServerEnabledLocal(serverId, currentEnabled)
+                    showError({server, errorMessage: setResult.error || (newEnabled ? '启用失败' : '禁用失败'), action: 'enable'})
                     return
+                }
+                if (newEnabled) {
+                    // ★ 启动失败/异常同样要回滚本地 enabled：否则 UI 显示已启用而进程并未起来
+                    try {
+                        const r = await startServer(server)
+                        if (r && !r.success) {
+                            setServerEnabledLocal(serverId, currentEnabled)
+                            showError({server, errorMessage: r.error || '启动失败', action: 'enable'})
+                            return
+                        }
+                    } catch (err) {
+                        setServerEnabledLocal(serverId, currentEnabled)
+                        showError({server, errorMessage: err instanceof Error ? err.message : String(err), action: 'enable'})
+                        return
+                    }
+                } else {
+                    try {
+                        const r = await stopServer(serverId)
+                        if (r && !r.success) {
+                            setServerEnabledLocal(serverId, currentEnabled)
+                            showError({server, errorMessage: r.error || '停止失败', action: 'enable'})
+                            return
+                        }
+                    } catch (err) {
+                        setServerEnabledLocal(serverId, currentEnabled)
+                        showError({server, errorMessage: err instanceof Error ? err.message : String(err), action: 'enable'})
+                        return
+                    }
                 }
             }
+        } finally {
+            inFlightRef.current.delete(serverId)
+            clearBusy(serverId)
         }
-    }, [mcpServers, toggleMCPServer, startServer, stopServer, showError])
+    }, [mcpServers, setServerEnabledLocal, startServer, stopServer, showError, markBusy, clearBusy])
 
     const handleRemove = useCallback(async (serverId: string) => {
+        // ★ 删除前先截取快照（含原索引）：写盘失败时用它把该 server 原样恢复回列表
+        const snapshotIndex = mcpServers.findIndex(s => s.id === serverId)
+        const snapshot = snapshotIndex >= 0 ? mcpServers[snapshotIndex] : undefined
         removeMCPServer(serverId)
-        await window.electronAPI?.mcp?.delete?.(serverId)
-    }, [removeMCPServer])
+        // ★ delete 的返回值与异常必须检查：主进程写盘失败时 mcp.json 仍保留该项，
+        //   若渲染层已乐观移除，UI 与配置漂移（重启后「刚删掉的服务器」又回来了）。
+        //   失败即用 restoreMCPServer 把**原对象原索引**插回（不改字段、不重算 id、不落盘），
+        //   并走既有 showError 反馈；成功路径行为保持原样（不弹提示）。
+        let deleteResult: { success?: boolean; error?: string } | undefined
+        let deleteError: string | null = null
+        try {
+            deleteResult = await window.electronAPI?.mcp?.delete?.(serverId)
+            if (deleteResult && !deleteResult.success) {
+                deleteError = deleteResult.error || '删除失败'
+            }
+        } catch (err) {
+            deleteError = err instanceof Error ? err.message : String(err)
+        }
+        if (!deleteError || !snapshot) return
+        // ★ 不得改用 addMCPServer：它会按 name 重算 slug id（imported:*/中文名项 id 漂移）、
+        //   强制 enabled:true / status:'stopped' / 清空 tools，并再走一次 saveServer 落盘——
+        //   在「删除写盘失败」场景下会把恢复项写坏还多写一次盘。
+        restoreMCPServer(snapshot, snapshotIndex)
+        showError({server: snapshot, errorMessage: deleteError, action: 'enable'})
+    }, [mcpServers, removeMCPServer, restoreMCPServer, showError])
 
     const handleReconnect = useCallback(async (serverId: string, _server: MCPServer) => {
-        const r = await window.electronAPI?.mcp?.restartServer?.(serverId)
-        if (r && !r.success) {
-            showError({server: _server, errorMessage: r.error || '重连失败', action: 'reconnect'})
+        // 防连点：重启同样是多步 IPC，重复点击会叠加重启
+        if (inFlightRef.current.has(serverId)) return
+        inFlightRef.current.add(serverId)
+        markBusy(serverId)
+        try {
+            const r = await window.electronAPI?.mcp?.restartServer?.(serverId)
+            if (r && !r.success) {
+                showError({server: _server, errorMessage: r.error || '重连失败', action: 'reconnect'})
+            }
+        } finally {
+            inFlightRef.current.delete(serverId)
+            clearBusy(serverId)
         }
-    }, [showError])
+    }, [showError, markBusy, clearBusy])
 
     const handlePluginToggle = useCallback(async (serverId: string, currentEnabled: boolean) => {
-        const newEnabled = !currentEnabled
-        await window.electronAPI?.mcp?.setEnabled?.(serverId, newEnabled)
-        if (!newEnabled) {
-            const r = await stopServer(serverId)
-            if (r && !r.success) {
-                const server = pluginMcpServers.find(s => s.id === serverId)
-                if (server) showError({server, errorMessage: r.error || '停止失败', action: 'enable'})
+        // 防连点：与用户 MCP 开关共用同一把 in-flight 锁
+        if (inFlightRef.current.has(serverId)) return
+        inFlightRef.current.add(serverId)
+        markBusy(serverId)
+        try {
+            const newEnabled = !currentEnabled
+            // ★ 与用户 MCP 分支同理：落盘失败（{success:false} 或抛错）时必须中断，
+            //   既不继续 start/stop，也不把 pluginMcpServers 的 enabled 改成新值——
+            //   否则 UI 显示「已启用」而 mcp.json 未变，重启后回退。
+            let setResult: { success?: boolean; error?: string } | undefined
+            let setError: string | null = null
+            try {
+                setResult = await window.electronAPI?.mcp?.setEnabled?.(serverId, newEnabled)
+                if (setResult && !setResult.success) {
+                    setError = setResult.error || (newEnabled ? '启用失败' : '禁用失败')
+                }
+            } catch (err) {
+                setError = err instanceof Error ? err.message : String(err)
             }
-        } else {
-            const server = pluginMcpServers.find(s => s.id === serverId)
-            if (server) {
-                const r = await startServer(server)
-                if (r && !r.success) {
-                    showError({server, errorMessage: r.error || '启动失败', action: 'enable'})
-                    return
+            if (setError) {
+                // 插件项的 enabled 由 pluginMcpServers 持有，回滚落在该本地状态上；
+                // 同时调 setServerEnabledLocal 保持与用户 MCP 分支同一回滚入口（插件 id 不命中 store，为安全 no-op）
+                setServerEnabledLocal(serverId, currentEnabled)
+                setPluginMcpServers(prev => prev.map(s => s.id === serverId ? {...s, enabled: currentEnabled} : s))
+                const server = pluginMcpServers.find(s => s.id === serverId)
+                if (server) showError({server, errorMessage: setError, action: 'enable'})
+                return
+            }
+            // ★ 与 handleToggle 同构：start/stop 的返回值与异常都必须逐项接管——
+            //   失败/异常即保留原 enabled（回滚到进入函数时的原值，不落到末尾的置新值），
+            //   走既有 showError 反馈并 return；异常必须在函数内消化，绝不能让 onToggle
+            //   的 promise 冒泡（React 事件层会丢弃返回值 → 未处理 Promise 拒绝）。
+            if (!newEnabled) {
+                const server = pluginMcpServers.find(s => s.id === serverId)
+                if (server) {
+                    try {
+                        const r = await stopServer(serverId)
+                        if (r && !r.success) {
+                            setPluginMcpServers(prev => prev.map(s => s.id === serverId ? {...s, enabled: currentEnabled} : s))
+                            setServerEnabledLocal(serverId, currentEnabled)
+                            showError({server, errorMessage: r.error || '停止失败', action: 'enable'})
+                            return
+                        }
+                    } catch (err) {
+                        setPluginMcpServers(prev => prev.map(s => s.id === serverId ? {...s, enabled: currentEnabled} : s))
+                        setServerEnabledLocal(serverId, currentEnabled)
+                        showError({server, errorMessage: err instanceof Error ? err.message : String(err), action: 'enable'})
+                        return
+                    }
+                }
+            } else {
+                const server = pluginMcpServers.find(s => s.id === serverId)
+                if (server) {
+                    try {
+                        const r = await startServer(server)
+                        if (r && !r.success) {
+                            setPluginMcpServers(prev => prev.map(s => s.id === serverId ? {...s, enabled: currentEnabled} : s))
+                            setServerEnabledLocal(serverId, currentEnabled)
+                            showError({server, errorMessage: r.error || '启动失败', action: 'enable'})
+                            return
+                        }
+                    } catch (err) {
+                        setPluginMcpServers(prev => prev.map(s => s.id === serverId ? {...s, enabled: currentEnabled} : s))
+                        setServerEnabledLocal(serverId, currentEnabled)
+                        showError({server, errorMessage: err instanceof Error ? err.message : String(err), action: 'enable'})
+                        return
+                    }
                 }
             }
+            setPluginMcpServers(prev => prev.map(s =>
+                s.id === serverId ? {...s, enabled: newEnabled} : s
+            ))
+        } finally {
+            inFlightRef.current.delete(serverId)
+            clearBusy(serverId)
         }
-        setPluginMcpServers(prev => prev.map(s =>
-            s.id === serverId ? {...s, enabled: newEnabled} : s
-        ))
-    }, [pluginMcpServers, startServer, stopServer, showError])
+    }, [pluginMcpServers, setServerEnabledLocal, startServer, stopServer, showError, markBusy, clearBusy])
 
     // Master Toggle
+    // ★ 批量开关采用「全量持锁」（方案 A）：整个 loop 期间持有全部目标 id 的 in-flight 锁。
+    //   若只锁当前正在处理的那一项，批量执行期间的单卡片点击会与本循环交叉，
+    //   对同一 server 打出方向相反的 setEnabled，最终 enabled 取决于 IPC 到达顺序（不确定）。
     const toggleAll = useCallback(async (servers: MCPServer[], currentAllEnabled: boolean) => {
+        if (servers.length === 0) return
+        // ★ 按 id 判定互斥（不再全局互斥）：只跳过「自身已有请求在飞」的目标
+        //   （单项操作在飞 / 上一批持锁残留），其余目标照常执行。全局互斥会让
+        //   任一单项在飞时整批静默失效——用户点「全部开启」没有任何反馈。
+        //   同一 id 的互斥不放开：命中在飞集合的目标被跳过，绝不会并发写。
+        const skippedIds = new Set(servers.filter(s => inFlightRef.current.has(s.id)).map(s => s.id))
+        const runnable = servers.filter(s => !skippedIds.has(s.id))
+        if (runnable.length === 0) return   // 全部目标都在飞：与旧行为等价的空操作
+
         const newEnabled = !currentAllEnabled
-        for (const server of servers) {
-            // 用户 MCP 需要更新 store
-            if (!server.id.startsWith('plugin:')) toggleMCPServer(server.id)
-            await window.electronAPI?.mcp?.setEnabled?.(server.id, newEnabled)
-            if (newEnabled) {
-                startServer(server)
-            } else {
-                stopServer(server.id)
+        const targetIds = runnable.map(s => s.id)
+        // 先同步占位再加 busy 反馈：state 更新是异步的，挡不住同一 tick 内的连点/交叉点击
+        targetIds.forEach(id => inFlightRef.current.add(id))
+        setBusyIds(prev => {
+            const next = new Set(prev)
+            targetIds.forEach(id => next.add(id))
+            return next
+        })
+        // 失败项集合：插件侧的批量 enabled 映射要跳过它们，否则会覆盖上面的逐项回滚。
+        // 被跳过（在飞）的目标同样入列：它们不属于本批，不得被批量结果改写。
+        const failedIds = new Set<string>(skippedIds)
+        try {
+            for (const server of runnable) {
+                // 用户 MCP 需要更新本地 store（不落盘，持久化由主进程 mcp:set-enabled 负责）
+                if (!server.id.startsWith('plugin:')) setServerEnabledLocal(server.id, newEnabled)
+                // ★ 必须逐项 await 并检查返回值/异常：否则会并发打出多个 setEnabled，
+                //   失败无人接管，也无法逐项回滚本地状态
+                let setResult: { success?: boolean; error?: string } | undefined
+                let setError: string | null = null
+                try {
+                    setResult = await window.electronAPI?.mcp?.setEnabled?.(server.id, newEnabled)
+                    if (setResult && !setResult.success) {
+                        setError = setResult.error || (newEnabled ? '启用失败' : '禁用失败')
+                    }
+                } catch (err) {
+                    setError = err instanceof Error ? err.message : String(err)
+                }
+                if (setError) {
+                    // 逐项回滚为该项进入循环前的原值；批量语义是「尽力而为」，继续处理其余项
+                    failedIds.add(server.id)
+                    if (!server.id.startsWith('plugin:')) setServerEnabledLocal(server.id, server.enabled)
+                    showError({server, errorMessage: setError, action: 'enable'})
+                    continue
+                }
+                // ★ 启动/停止的结果同样要检查：失败或异常时按「该项失败」处理并回滚本地状态，
+                //   否则批量结束后会出现 UI 显示已启用、实际未启动的不一致。
+                let runError: string | null = null
+                try {
+                    const r = newEnabled ? await startServer(server) : await stopServer(server.id)
+                    if (r && !r.success) {
+                        runError = r.error || (newEnabled ? '启动失败' : '停止失败')
+                    }
+                } catch (err) {
+                    runError = err instanceof Error ? err.message : String(err)
+                }
+                if (runError) {
+                    failedIds.add(server.id)
+                    if (!server.id.startsWith('plugin:')) setServerEnabledLocal(server.id, server.enabled)
+                    showError({server, errorMessage: runError, action: 'enable'})
+                }
             }
+            if (servers[0]?.id.startsWith('plugin:')) {
+                // 成功项统一置新值；失败项保持回滚后的原值
+                setPluginMcpServers(prev => prev.map(s =>
+                    failedIds.has(s.id) ? s : {...s, enabled: newEnabled}
+                ))
+            }
+        } finally {
+            // 统一清理：无论循环内抛错/提前 return，锁与 busy 反馈都不能残留
+            targetIds.forEach(id => inFlightRef.current.delete(id))
+            setBusyIds(prev => {
+                const next = new Set(prev)
+                targetIds.forEach(id => next.delete(id))
+                return next
+            })
         }
-        if (servers[0]?.id.startsWith('plugin:')) {
-            setPluginMcpServers(prev => prev.map(s => ({...s, enabled: newEnabled})))
-        }
-    }, [toggleMCPServer, startServer, stopServer])
+    }, [setServerEnabledLocal, startServer, stopServer, showError])
 
     // ─── 渲染 ────────────────────────────
 
@@ -461,6 +677,7 @@ export default function MCPDialog() {
                         ) : (
                             userMcpServers.map(server => (
                                 <MCPUserServerCard key={server.id} server={server}
+                                    busy={busyIds.has(server.id)}
                                     onToggle={() => handleToggle(server.id, server.enabled)}
                                     onEdit={() => setEditTarget(server)}
                                     onDelete={() => handleRemove(server.id)}
@@ -499,6 +716,7 @@ export default function MCPDialog() {
                     ) : (
                         pluginMcpServers.map(server => (
                             <MCPPluginServerCard key={server.id} server={server}
+                                busy={busyIds.has(server.id)}
                                 onToggle={() => handlePluginToggle(server.id, server.enabled)}
                                 onEdit={() => setEditTarget(server)}
                                 onShowTools={() => setToolsModalServer(server)}
@@ -516,9 +734,36 @@ export default function MCPDialog() {
                         const target = editTarget
                         if (target === 'add') {
                             const newServer = addMCPServer(data as any)
-                            if (newServer?.enabled) window.electronAPI?.mcp?.startServer?.(newServer)
+                            if (newServer?.enabled) {
+                                // ★ 必须 await 并捕获：启动失败的 Promise 之前被直接丢弃（未捕获 rejection 静默）
+                                try {
+                                    const r = await window.electronAPI?.mcp?.startServer?.(newServer)
+                                    if (r && !r.success) {
+                                        showError({server: newServer, errorMessage: r.error || '启动失败', action: 'enable'})
+                                    }
+                                } catch (err) {
+                                    showError({server: newServer, errorMessage: err instanceof Error ? err.message : String(err), action: 'enable'})
+                                }
+                            }
                         } else if (target.id.startsWith('plugin:')) {
-                            await window.electronAPI?.mcp?.saveServer?.({...target, ...data})
+                            // ★ saveServer 的返回值与异常必须检查：写盘失败时不得把
+                            //   pluginMcpServers 合并成新值——否则 UI 显示已保存而 mcp.json
+                            //   未变（重启后回退到旧配置）。失败走既有 showError 反馈并保留
+                            //   编辑弹窗（本地值保持原样）；成功路径逐字不变。
+                            let saveResult: { success?: boolean; error?: string } | undefined
+                            let saveError: string | null = null
+                            try {
+                                saveResult = await window.electronAPI?.mcp?.saveServer?.({...target, ...data})
+                                if (saveResult && !saveResult.success) {
+                                    saveError = saveResult.error || '保存失败'
+                                }
+                            } catch (err) {
+                                saveError = err instanceof Error ? err.message : String(err)
+                            }
+                            if (saveError) {
+                                showError({server: target, errorMessage: saveError, action: 'enable'})
+                                return
+                            }
                             setPluginMcpServers(prev => prev.map(s =>
                                 s.id === target.id ? {...s, ...data} : s
                             ))

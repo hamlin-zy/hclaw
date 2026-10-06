@@ -10,9 +10,17 @@ interface McpStore {
     /** 持久化是否已完成（从 SQLite 加载） */
     hasRehydrated: boolean
     addMCPServer: (server: Omit<MCPServer, 'id' | 'status' | 'tools'>) => MCPServer
-  removeMCPServer: (id: string) => void
+    /**
+     * 原样插回一个已存在的 server（删除写盘失败时的回滚路径）。
+     * 与 addMCPServer 语义严格区分：不按 name 重算 id、不改写 enabled/status/tools、不落盘。
+     * @param index 原索引：尽量插回原位以保持列表顺序（越界/缺省则追加末尾）
+     */
+    restoreMCPServer: (server: MCPServer, index?: number) => void
+    removeMCPServer: (id: string) => void
     updateMCPServer: (id: string, updates: Partial<MCPServer>) => void
     toggleMCPServer: (id: string) => void
+    /** 仅更新本地 enabled 状态，不触发落盘（持久化由主进程 mcp:set-enabled 负责） */
+    setServerEnabledLocal: (id: string, enabled: boolean) => void
     setServerStatus: (id: string, status: MCPServer['status'], tools?: MCPServer['tools'], errorDetail?: string, extra?: Partial<MCPServer>) => void
     /** 批量更新服务器状态（单次 set，避免多次 persist） */
     setServerStatusesBatch: (updates: Array<{
@@ -168,6 +176,29 @@ export const useMcpStore = create<McpStore>()(
               window.electronAPI?.mcp?.saveServer?.(newServer)
               return newServer
           },
+          /**
+           * 原样插回 server（删除写盘失败回滚专用）。
+           *
+           * ★ 与 addMCPServer 的关键差异（三者都会破坏「原样恢复」）：
+           *   1. 不按 name 重算 slug id —— imported:* / 中文名项会漂移到不存在的 id，
+           *      后续编辑/删除/开关全部落空，或 saveServer 以新 id 写盘产生重复条目；
+           *   2. 不覆写 enabled/status/tools —— 原本 disabled 的项恢复后不得显示为已启用；
+           *   3. 不调 saveServer —— 删除写盘本身已失败，再写一次会把被改坏的字段落盘。
+           */
+          restoreMCPServer: (server: MCPServer, index?: number) => {
+              set((state: McpStore) => {
+                  // 幂等：同 id 已在列表中则不重复插（避免极端重入写出重复条目）
+                  if (state.mcpServers.some((s: MCPServer) => s.id === server.id)) {
+                      return {mcpServers: state.mcpServers}
+                  }
+                  const next = [...state.mcpServers]
+                  const at = typeof index === 'number' && index >= 0 && index <= next.length
+                      ? index
+                      : next.length
+                  next.splice(at, 0, server)
+                  return {mcpServers: next}
+              })
+          },
           updateMCPServer: (id: string, updates: Partial<MCPServer>) => {
               set((state: McpStore) => ({
                   mcpServers: state.mcpServers.map((s: MCPServer) => s.id === id ? {...s, ...updates} : s)
@@ -177,6 +208,11 @@ export const useMcpStore = create<McpStore>()(
                   window.electronAPI?.mcp?.saveServer?.(server)
               }
           },
+          /**
+           * @deprecated 仅更新本地状态并回写 saveServer；MCP 开关请改用 `setServerEnabledLocal`
+           * + 主进程 `mcp:set-enabled`（enabled 的持久化由主进程负责，此处回写属冗余全量同步）。
+           * 保留原因：既有单测覆盖（tests/renderer/stores/mcpStore.test.ts）。
+           */
           toggleMCPServer: (id: string) => {
               set((state: McpStore) => ({
                   mcpServers: state.mcpServers.map((s: MCPServer) => s.id === id ? {...s, enabled: !s.enabled} : s)
@@ -185,6 +221,16 @@ export const useMcpStore = create<McpStore>()(
               if (server) {
                   window.electronAPI?.mcp?.saveServer?.(server)
               }
+          },
+          /**
+           * 仅更新本地 enabled 状态，不触发 saveServer 落盘。
+           * 供开关 UI 使用：enabled 的持久化由主进程 mcp:set-enabled 负责
+           * （mcpService.setEnabled 内部会 writeMcpConfig），此处再回写一次属于冗余全量同步。
+           */
+          setServerEnabledLocal: (id: string, enabled: boolean) => {
+              set((state: McpStore) => ({
+                  mcpServers: state.mcpServers.map((s: MCPServer) => s.id === id ? {...s, enabled} : s)
+              }))
           },
           setServerStatus: (id: string, status: MCPServer['status'], tools?: MCPServer['tools'], errorDetail?: string, extra?: Partial<MCPServer>) => {
               set((state: McpStore) => ({

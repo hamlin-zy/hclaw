@@ -853,6 +853,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Repo API (skills/agents 仓库化管理)
     repo: {
         install: (target: string, url: string) => ipcRenderer.invoke('repo:install', target, url),
+        uninstall: (repoId: string) => ipcRenderer.invoke('repo:uninstall', repoId),
         list: () => ipcRenderer.invoke('repo:list'),
         getVersions: (repoId: string) => ipcRenderer.invoke('repo:get-versions', repoId),
         syncVersions: (repoId: string) => ipcRenderer.invoke('repo:sync-versions', repoId),

@@ -104,7 +104,8 @@ function toToolPayload(t: { name: string; description?: string; inputSchema: any
   return { name: t.name, description: t.description, inputSchema: t.inputSchema }
 }
 
-class McpWorkerService {
+/** MCP Worker 服务主体。导出仅供单元测试直接构造实例（顶层单例的副作用不变）。 */
+export class McpWorkerService {
     private mcpClient: MCPClient
     private agentPorts = new Set<MessagePort>()
     /** port → 归属会话 ID。主进程 cleanup 时据此显式注销（见 unregisterAgent） */
@@ -218,7 +219,7 @@ class McpWorkerService {
         // 第一轮: 每个 Server 仅尝试一次，不重试。失败记录后继续，不影响其他 Server。
         const firstAttempt = async (config: MCPServerConfig): Promise<void> => {
             try {
-                const r = await this.mcpClient.startServer(config, 0) // maxRetries=0: 不重试
+                const r = await this.startServerOnce(config, 0) // maxRetries=0: 不重试
                 if (!r.success) {
                     parentPort?.postMessage({
                         type: 'worker_log',
@@ -310,7 +311,7 @@ class McpWorkerService {
                     level: 'info',
                     args: [`[Init] 后台重试: ${config.id} (${config.name})...`],
                 })
-                const r = await this.mcpClient.startServer(config) // maxRetries=5 (默认)
+                const r = await this.startServerOnce(config) // maxRetries=5 (默认)
                 if (r.success) {
                     parentPort?.postMessage({
                         type: 'worker_log',
@@ -391,6 +392,33 @@ class McpWorkerService {
         }
     }
 
+    /**
+     * 启动中的 Server：serverId → 进行中的启动 Promise（single-flight）。
+     * 与 pendingRestarts 语义不同：pendingRestarts 保护 stop→start 的重启流程，
+     * 本表保护「握手窗口内被重复触发的启动请求」。
+     * 同一 server 在启动窗口内被重复触发时复用同一 Promise —— 跳过方拿到的是这次启动的
+     * 真实结果，而不是"乐观成功"（否则后台重试会误判成功、吞掉重试机会）。
+     */
+    private startingServers = new Map<string, Promise<{ success: boolean; error?: string }>>()
+
+    /** 带并发去重的启动：同一 serverId 在启动完成前，后续请求复用进行中的 Promise */
+    private startServerOnce(config: MCPServerConfig, maxRetries?: number): Promise<{ success: boolean; error?: string }> {
+        const inflight = this.startingServers.get(config.id)
+        if (inflight) {
+            parentPort?.postMessage({
+                type: 'worker_log', level: 'warn',
+                args: [`[startServer] ${config.id} 正在启动中，复用进行中的启动结果`],
+            })
+            return inflight
+        }
+        const task = this.mcpClient.startServer(config, maxRetries).finally(() => {
+            // 仅当 map 中仍是本轮任务时才删除，避免误删后续轮次
+            if (this.startingServers.get(config.id) === task) this.startingServers.delete(config.id)
+        })
+        this.startingServers.set(config.id, task)
+        return task
+    }
+
     /** 处理全量配置替换（内部 diff） */
     async handleUpdateServers(configs: MCPServerConfig[]): Promise<void> {
         const existingServers = this.mcpClient.getAllServers()
@@ -407,10 +435,13 @@ class McpWorkerService {
         // 2. 新增或重新启用的 Server（分批启动）
         // 注意：不能用 existingIds 判断，因为步骤 1 可能已移除部分服务器
         // ★ 跳过正在重启中的 server，避免与 restartServer 竞争导致重复进程
+        // ★ startingServers：isConnected() 在 npx 冷启动握手窗口内恒为 false，
+        //   仅靠它去重会让同一 server 被并发启动多次（产生重复 cmd/node 进程链）
         const toStart = configs.filter(c =>
             c.enabled &&
             !this.mcpClient.isConnected(c.id) &&
-            !this.pendingRestarts.has(c.id)
+            !this.pendingRestarts.has(c.id) &&
+            !this.startingServers.has(c.id)
         )
         for (let i = 0; i < toStart.length; i += UPDATE_BATCH_SIZE) {
             const batch = toStart.slice(i, i + UPDATE_BATCH_SIZE)
@@ -419,8 +450,9 @@ class McpWorkerService {
             await Promise.allSettled(batch
                 // ★ 二次检查：step 1 的 await 期间 restartServer 可能已将 server 加入 pendingRestarts
                 // （TOCTOU 防护——filter 计算在 await 之前，pendingRestarts 变化在 await 期间）
-                .filter(c => !this.pendingRestarts.has(c.id))
-                .map(c => this.mcpClient.startServer(c))
+                // ★ startingServers 二次检查：批次启动是并发的，前一批次的启动可能仍在握手窗口内
+                .filter(c => !this.pendingRestarts.has(c.id) && !this.startingServers.has(c.id))
+                .map(c => this.startServerOnce(c))
             )
             if (i + UPDATE_BATCH_SIZE < toStart.length) {
                 await new Promise(r => setTimeout(r, BATCH_DELAY_MS))
@@ -529,6 +561,10 @@ class McpWorkerService {
         this.pendingRestarts.add(serverId)
         try {
             await this.mcpClient.stopServer(serverId).catch(() => {})
+            // ★ 与 single-flight 启动互斥：若另一轮启动仍在飞，先等它结束再启动，
+            //   否则 restart 的 start 会与那一轮并发，spawn 出重复子进程。
+            const inflight = this.startingServers.get(serverId)
+            if (inflight) await inflight.catch(() => {})
             // 优先使用主进程传来的最新配置（含 mcp.json 最新字段），
             // 兜底用 Worker 内存中的缓存的配置
             const cfg = config ?? this.mcpClient.getServer(serverId)?.config

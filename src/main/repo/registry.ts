@@ -9,8 +9,8 @@ import {parseGitOrigin} from './origin'
 /** discover 可注入的依赖集合（测试无需 config mock / 真实 git） */
 export interface RegistryDeps {
   roots: {plugins: string; skillsPublic: string; agents: string}
-  skills: {id: string; dir: string}[]
-  agents: {id: string; filePath: string}[]
+  skills: {id: string; dir: string; enabled: boolean}[]
+  agents: {id: string; filePath: string; enabled: boolean}[]
   plugins: {name: string; path: string; enabled: boolean}[]
 }
 
@@ -113,6 +113,7 @@ export class RepoRegistry {
           capabilities: {plugins: [], skills: [], agents: []},
           hasManifest: this.hasManifest(dirPath),
           enabled: true,
+          hasEnabledCapability: true,
           rootType,
         })
       }
@@ -128,13 +129,22 @@ export class RepoRegistry {
       fs.existsSync(path.join(repoPath, 'plugin.json')))
   }
 
-  /** 聚合能力、填充 hasManifest/enabled（纯逻辑） */
+  /** 聚合能力、填充 hasManifest/enabled，并派生 hasEnabledCapability。
+   * 幂等：每次进入先清空 skills/agents 聚合结果，可重复调用。 */
   private computeCapabilities(
     repos: GitRepo[],
-    skills: {id: string; dir: string}[],
-    agents: {id: string; filePath: string}[],
+    skills: {id: string; dir: string; enabled: boolean}[],
+    agents: {id: string; filePath: string; enabled: boolean}[],
     plugins: {name: string; path: string; enabled: boolean}[],
   ): void {
+    for (const repo of repos) {
+      repo.capabilities.skills.length = 0
+      repo.capabilities.agents.length = 0
+    }
+
+    const skillEnabled = new Map(skills.map(s => [s.id, s.enabled]))
+    const agentEnabled = new Map(agents.map(a => [a.id, a.enabled]))
+
     for (const skill of skills) {
       const repo = findRepoRoot(skill.dir, repos)
       if (repo) repo.capabilities.skills.push(skill.id)
@@ -152,6 +162,37 @@ export class RepoRegistry {
         if (!plugin.enabled) repo.enabled = false
       }
     }
+
+    // 派生 hasEnabledCapability：技能仓库看 skills、代理仓库看 agents、插件仓库看两者合并；
+    // 列表为空时保守为 true（不因解析失败熄灭红点）。
+    // 判据用 `!== false`：能力清单经 `(s: any)` 透传，缺 `enabled` 字段时 get 得 undefined ——
+    // 若按「=== true 才算启用」会把它当禁用，仓库被误判全禁用、红点被误熄灭（漏更新提示）。
+    // 缺字段视为启用，与本特性「全禁用才熄红点」的保守口径一致。
+    for (const repo of repos) {
+      const enabledFlags = repo.rootType === 'agent'
+        ? repo.capabilities.agents.map(id => agentEnabled.get(id) !== false)
+        : repo.rootType === 'skill'
+          ? repo.capabilities.skills.map(id => skillEnabled.get(id) !== false)
+          : [
+              ...repo.capabilities.skills.map(id => skillEnabled.get(id) !== false),
+              ...repo.capabilities.agents.map(id => agentEnabled.get(id) !== false),
+            ]
+      repo.hasEnabledCapability = enabledFlags.length === 0 ? true : enabledFlags.some(Boolean)
+    }
+  }
+
+  /**
+   * 能力开关变化后的轻量重算：复用 `this.repos` 里现有仓库（path / id / 仓库边界都取自 discover
+   * 的结果），仅按新的能力清单重算 capabilities 与 hasEnabledCapability。
+   *
+   * 有意不重新 discover —— discover 会为每个仓库跑一次 `git getRemotes`，而能力开关只改变
+   * 「启用态」、不改变仓库边界；每次开关都全量扫描的性能开销不可接受。
+   * deps 缺省的空能力清单意味着「无任何能力信息」，不改变仓库集合本身。
+   */
+  refreshCapabilities(deps?: Partial<RegistryDeps>): GitRepo[] {
+    const repos = this.getAll()
+    this.computeCapabilities(repos, deps?.skills ?? [], deps?.agents ?? [], deps?.plugins ?? [])
+    return repos
   }
 
   get(id: string): GitRepo | undefined { return this.repos.get(id) }

@@ -55,6 +55,12 @@ function callerHint(): string {
 
 class PowerManagerImpl {
     private initialized = false
+    /**
+     * 单调标志：只要 initialize() 成功跑过一次就置 true，此后永不复位。
+     * 用途：区分「从未初始化过」（能力清单必为空，不可用于覆盖注册表）与
+     * 「已初始化但因 resetInitialized() 被打回 false」（能力数据仍新鲜）。
+     */
+    private everLoaded = false
     /** initialize() 完成时 resolve；供 IPC 等路径「等初始化完成后直接读注册表」，避免重复全量扫描 */
     private resolveInitialized: (() => void) | null = null
     private initializedPromise: Promise<void> = new Promise<void>(resolve => {
@@ -166,6 +172,7 @@ class PowerManagerImpl {
                 //   （如 skills.ts 的冷启动分支）应看到已投影的 Hub，而非空表。
                 this.syncToCapabilityHub()
                 this.initialized = true
+                this.everLoaded = true
                 this.resolveInitialized?.()
                 const stats = await this.getStats()
                 logger.debug('initialize', {success: true, stats})
@@ -191,7 +198,10 @@ class PowerManagerImpl {
     }
 
     /**
-     * 重置初始化状态，下次 getAllEnabledPower 时重新加载
+     * 重置初始化状态，下次 getAllEnabledPower 时重新加载。
+     * 注意：只回落 initialized，不影响 everLoaded —— 后者是「是否曾经加载成功过」的单调标志，
+     * 用于区分「从未加载」与「加载过但被本方法打回」。refresh() 不恢复 initialized，
+     * 故调用方（如 repo 启动护栏）应以 hasLoadedOnce() 而非 isInitialized() 作判据。
      */
     resetInitialized(): void {
         this.initialized = false
@@ -200,6 +210,14 @@ class PowerManagerImpl {
     /** 是否已完成首次全量初始化 */
     isInitialized(): boolean {
         return this.initialized
+    }
+
+    /**
+     * 是否曾经成功完成过一次全量初始化（单调，resetInitialized() 不复位）。
+     * 用于判断「当前注册表数据是否可信」：一旦加载过，后续 refresh() 产出的能力数据即为新鲜。
+     */
+    hasLoadedOnce(): boolean {
+        return this.everLoaded
     }
 
     /** 等待首次全量初始化完成（已完成后立即 resolve） */

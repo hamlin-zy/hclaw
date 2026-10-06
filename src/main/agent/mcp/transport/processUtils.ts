@@ -18,8 +18,12 @@ export function isProcessRunning(pid: number): boolean {
   try {
     process.kill(pid, 0)
     return true
-  } catch {
-    return false
+  } catch (err) {
+    // ★ 只有 ESRCH（进程不存在）才算已退出。
+    //   EPERM 表示「进程存在但当前进程无权探测信号」（Windows 上受保护进程同样会走到这里），
+    //   若一并判死，PID 追踪清理路径会把活进程从 trackedPids 中剔除，丢失退出兜底清理能力。
+    //   代价：EPERM 时 waitForProcessExit 会等到超时（默认 5s），但该情形本身罕见。
+    return (err as NodeJS.ErrnoException)?.code === 'EPERM'
   }
 }
 
