@@ -62,15 +62,18 @@ describe('promptDefaultUpgrade — 默认值守卫', () => {
 
     it('迁移注册表覆盖 system.routing 且 id 稳定', () => {
         const ids = PROMPT_NODE_MIGRATIONS.map((m) => m.id)
+        // system.output 的两条锚点补丁串行追加：先补「思考不预写正文」，
+        // 再以该条目为锚点补「图表辅助」（8ac5da4，见 promptDefaultUpgrade.ts:238）
         expect(ids).toEqual([
             'routing-refresh-baseline',
             'routing-patch-duty-bullet',
             'routing-patch-priority-block',
             'output-refresh-baseline',
             'output-patch-thinking-bullet',
+            'output-patch-mermaid-bullet',
         ])
         expect(PROMPT_NODE_MIGRATIONS.filter((m) => m.nodeKey === 'system.routing')).toHaveLength(3)
-        expect(PROMPT_NODE_MIGRATIONS.filter((m) => m.nodeKey === 'system.output')).toHaveLength(2)
+        expect(PROMPT_NODE_MIGRATIONS.filter((m) => m.nodeKey === 'system.output')).toHaveLength(3)
     })
 })
 
@@ -220,7 +223,8 @@ describe('system.output — 思考不预写正文', () => {
         const userEdited = OUTPUT_DEFAULT_V1.replace('- **简洁** — 不用 emoji（除非用户要求），不重复用户的话', '- **简洁** — 我们团队要求极简输出')
         const result = migrateOutput(userEdited)
 
-        expect(result.applied).toEqual(['output-patch-thinking-bullet'])
+        // 两条补丁串行追加：mermaid 条目以已补入的 thinking 条目为锚点
+        expect(result.applied).toEqual(['output-patch-thinking-bullet', 'output-patch-mermaid-bullet'])
         expect(result.content).toContain('- **简洁** — 我们团队要求极简输出')
         expect(result.content).toContain('- **思考不预写正文**')
         // 只追加一条，不重复

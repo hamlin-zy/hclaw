@@ -39,6 +39,7 @@ export function getBinding(action: ShortcutAction): string {
 /** 冲突时仅第一个生效：按 SHORTCUT_DEFS 声明序找第一个命中的 action */
 function dispatch(e: KeyboardEvent): void {
     if (state.recording) return
+    if (e.repeat) return // 阻止按键 auto-repeat 重复触发快捷键
     for (const def of SHORTCUT_DEFS) {
         if (def.scope !== 'app') continue
         if (matchEvent(e, state.bindings[def.id], IS_MAC)) {

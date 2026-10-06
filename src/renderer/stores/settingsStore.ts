@@ -8,6 +8,15 @@ interface SettingsStore {
     settings: SystemSettings
     pendingSettings: SystemSettings | null
     isDirty: boolean
+    /**
+     * 标记 settings 是否已从数据库加载过。
+     *
+     * 独立窗口（定时任务管理、插件管理等）的 settingsStore 未必经 loadSettings
+     * 初始化 —— 此时 settings 仍是 DEFAULT_SETTINGS。updateSettings 若以它为 base
+     * 合并后写库，会把默认值覆盖用户真实配置（"整个系统设置被重置"）。
+     * 守卫在 updateSettings 入口检查此标记，未加载时先 loadSettings。
+     */
+    _settingsLoaded: boolean
     /** 从磁盘加载已保存设置；返回是否成功（新壳据此进入 loaded / failed 态） */
     loadSettings: () => Promise<boolean>
     /** 仅更新本地待保存状态（不写入磁盘） */
@@ -102,6 +111,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     settings: DEFAULT_SETTINGS,
     pendingSettings: null,
     isDirty: false,
+    _settingsLoaded: false,
 
     loadSettings: async (): Promise<boolean> => {
         try {
@@ -112,7 +122,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
                     // 归一化保留旧行为：缺省 = 关闭
                     fullSkillDescriptions: data.fullSkillDescriptions ?? false,
                 })
-                set({settings: mergedSettings})
+                set({settings: mergedSettings, _settingsLoaded: true})
                 await reconcileGlobalAuthoritativeKeys(mergedSettings)
 
                 // 自动同步主题到 themeStore
@@ -228,6 +238,13 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     },
 
     updateSettings: async (updates: Partial<SystemSettings>) => {
+        // 守卫：独立窗口（如定时任务管理页面）可能未 loadSettings，
+        // 此时 get().settings 是 DEFAULT_SETTINGS —— 若直接以其为 base 合并后写库，
+        // 会把默认值覆盖用户真实配置（"整个系统设置被重置"）。
+        // 先确保加载过真实配置再合并；loadSettings 是幂等的只读操作，重复调用无副作用。
+        if (!get()._settingsLoaded) {
+            await get().loadSettings()
+        }
         const currentSettings = get().settings
         const newSettings = mergeSystemSettings(currentSettings, updates)
 

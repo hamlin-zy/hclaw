@@ -379,3 +379,127 @@ describe('TooltipPortal focus 触发与 Esc 关闭（T10 扩展）', () => {
         outside.remove()
     })
 })
+
+describe('TooltipPortal mousedown 关闭（折叠态图标 hover+click 重叠场景）', () => {
+    it('hover 后 mousedown：立即隐藏 tooltip 并恢复原生 title', () => {
+        const {btn, tip} = renderSubject()
+        fireEvent.mouseOver(btn)
+        expect(tip()!.textContent).toContain('完整提示文本')
+        expect(btn.getAttribute('title')).toBeNull()
+
+        // 用户点击图标（document mousedown 冒泡到这里）：tooltip 使命完成，
+        // 与后续弹出的二级面板不再重叠；原生 title 一并恢复，下次 hover 正常接管
+        fireEvent.mouseDown(document)
+        expect(tip()!.textContent).toBe('')
+        expect(btn.getAttribute('title')).toBe('完整提示文本')
+    })
+
+    it('mousedown 幂等：无 tooltip 时不引入回归（title 保持不变）', () => {
+        const {btn, tip} = renderSubject()
+        // 未 hover 前 title 是原生属性
+        expect(btn.getAttribute('title')).toBe('完整提示文本')
+        fireEvent.mouseDown(document)
+        expect(tip()!.textContent).toBe('')
+        expect(btn.getAttribute('title')).toBe('完整提示文本')
+    })
+
+    it('mousedown 关闭后再次 hover：tooltip 可重新触发（title 已恢复，不残留 dataset.titleOriginal）', () => {
+        const {btn, tip} = renderSubject()
+        fireEvent.mouseOver(btn)
+        fireEvent.mouseDown(document)
+        expect(tip()!.textContent).toBe('')
+        // 第二次 hover 仍能显示 tooltip（第一次接管被完整还原）
+        fireEvent.mouseOver(btn)
+        expect(tip()!.textContent).toContain('完整提示文本')
+    })
+})
+
+describe('TooltipPortal 点击聚焦不重新点亮（mousedown → focusin 真机序列）', () => {
+    /**
+     * 真机事件顺序（Chromium）：mousedown → 默认行为聚焦元素（focusin）→ mouseup → click。
+     * 前一次 mousedown 修复只覆盖了第一步，点击后的 focusin 会把 tooltip 重新点亮，
+     * 且此后 mouseout 因 activeElement === el 不隐藏 → 提示气泡滞留并与二级面板重叠。
+     */
+    it('mousedown 后元素因点击获得焦点（focusin）：tooltip 不得重新显示', () => {
+        const {btn, tip} = renderSubject()
+        fireEvent.mouseOver(btn)
+        expect(tip()!.textContent).toContain('完整提示文本')
+        // 点击序列：mousedown 隐藏 → 默认行为聚焦 → focusin
+        fireEvent.mouseDown(btn)
+        expect(tip()!.textContent).toBe('')
+        fireEvent.focusIn(btn)
+        // 点击聚焦不是「要看提示」的信号（面板/下拉即将出现），不得重新点亮
+        expect(tip()!.textContent).toBe('')
+    })
+
+    it('点击聚焦后鼠标移出（activeElement 仍为按钮）：tooltip 不残留', () => {
+        const {btn, tip} = renderSubject()
+        const outside = document.createElement('div')
+        document.body.appendChild(outside)
+        fireEvent.mouseOver(btn)
+        fireEvent.mouseDown(btn)
+        fireEvent.focusIn(btn)
+        btn.focus() // jsdom：真正置为 activeElement，命中 mouseout 的焦点保持分支
+        expect(document.activeElement).toBe(btn)
+        fireEvent.mouseOut(btn, {relatedTarget: outside})
+        expect(tip()!.textContent).toBe('')
+        outside.remove()
+    })
+
+    it('键盘 Tab 聚焦（无 mousedown）：tooltip 仍按无障碍预期显示', () => {
+        const {btn, tip} = renderSubject()
+        fireEvent.focusIn(btn)
+        expect(tip()!.textContent).toContain('完整提示文本')
+    })
+
+    it('指纹标记不跨交互残留：点击后再次键盘聚焦仍显示 tooltip', () => {
+        const {btn, tip} = renderSubject()
+        fireEvent.mouseOver(btn)
+        fireEvent.mouseDown(btn)
+        fireEvent.focusIn(btn)
+        expect(tip()!.textContent).toBe('')
+        // 点击序列结束后（mouseup），键盘焦点路径必须恢复显示能力
+        fireEvent.mouseUp(document)
+        fireEvent.focusOut(btn)
+        fireEvent.focusIn(btn)
+        expect(tip()!.textContent).toContain('完整提示文本')
+    })
+})
+
+describe('TooltipPortal 键盘激活关闭（Enter/Space 合成 click，无 mousedown）', () => {
+    it('键盘激活（click detail=0）：隐藏 tooltip 并恢复原生 title', () => {
+        const {btn, tip} = renderSubject()
+        // 键盘 Tab 聚焦：tooltip 按无障碍预期显示
+        fireEvent.focusIn(btn)
+        expect(tip()!.textContent).toContain('完整提示文本')
+        // Enter/Space 激活 button：keydown → keyup → click(detail=0)，全程无 mousedown，
+        // 折叠图标会在此打开二级面板 → tooltip 必须一并退场，否则压在面板之上滞留
+        fireEvent.click(btn)
+        expect(tip()!.textContent).toBe('')
+        expect(btn.getAttribute('title')).toBe('完整提示文本')
+    })
+
+    it('键盘激活后再次 Tab 聚焦：tooltip 恢复正常显示（不残留抑制）', () => {
+        const {btn, tip} = renderSubject()
+        fireEvent.focusIn(btn)
+        fireEvent.click(btn)
+        expect(tip()!.textContent).toBe('')
+        fireEvent.focusOut(btn)
+        fireEvent.focusIn(btn)
+        expect(tip()!.textContent).toContain('完整提示文本')
+    })
+
+    it('鼠标 click（detail≥1）不经键盘通道：仍由 mousedown 负责，气泡不残留', () => {
+        const {btn, tip} = renderSubject()
+        fireEvent.mouseOver(btn)
+        btn.focus() // 真实鼠标点击会聚焦
+        fireEvent.focusIn(btn)
+        fireEvent.mouseDown(btn)
+        expect(tip()!.textContent).toBe('')
+        // 鼠标点击派发的 click detail ≥ 1，不得被键盘通道重复处理
+        fireEvent.click(btn, {detail: 1})
+        expect(tip()!.textContent).toBe('')
+        fireEvent.mouseOut(btn, {relatedTarget: document.body})
+        expect(tip()!.textContent).toBe('')
+    })
+})

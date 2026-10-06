@@ -36,7 +36,10 @@ describe('LLM 归因 traceContext（入口显式声明，防回归真值判断�
     it('各入口显式设置各自的 traceContext', () => {
         const worker = readSrc('src/main/agent/worker.ts')
         const schedulerManager = readSrc('src/main/scheduler/index.ts')
-        expect(worker).toMatch(/traceContext:\s*'main'/)
+        // 入口必须显式声明运行身份，由 resolveRunTraceContext 按 params.isChildSession
+        // 归一化（=== true → 'subAgent'，否则 'main'），不得退回内联真值判断
+        expect(worker).toMatch(/traceContext:\s*resolveRunTraceContext\(\s*params\.isChildSession\s*\)/)
+        expect(worker).not.toMatch(/traceContext:\s*params\.isChildSession\s*\?/)
         // subAgent 入口（subagent/scheduler.ts）已随死代码删除，其 traceContext:'subAgent' 断言一并移除
         // 定时任务在主进程经 startAgentCore → agentLoop 执行
         // （schedulerAgentWorker.ts 死代码已删除，其 traceContext:'background' 一并移除）

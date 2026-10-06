@@ -14,7 +14,13 @@ interface ContextMenuState {
 }
 
 interface ImagePreviewModalProps {
-    src: string
+    /** 图片 URL。与 svgContent 二选一 */
+    src?: string
+    /**
+     * SVG 源码（含 <foreignObject> 等 <img> 无法渲染的内容）。
+     * 传入时以 div + innerHTML 直接渲染 SVG DOM，绕开 img 的 SVG 安全限制。
+     */
+    svgContent?: string
     alt: string
     onClose: () => void
 }
@@ -30,7 +36,15 @@ interface Transform {
 /** 顶部工具栏圆形按钮统一样式 */
 const TOOL_BTN = 'w-10 h-10 flex items-center justify-center rounded-full bg-[var(--chip-bg)] border border-[var(--chip-border)] hover:bg-[var(--surface-overlay)] text-[var(--text-primary)] transition-colors active:scale-95'
 
-const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: ImagePreviewModalProps) {
+/** SVG 预览容器布局：必须给确定宽高（百分比 SVG 需有确定参照），flex 居中 */
+const SVG_PREVIEW_LAYOUT: React.CSSProperties = {
+    width: '95vw', height: '90vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+}
+
+const ImagePreviewModal = memo(function ImagePreviewModal({src, svgContent, alt, onClose}: ImagePreviewModalProps) {
+    /** 单一真值：图片模式（有 src 且非 SVG）。SVG 模式下右键菜单不渲染、复制分支不可达 */
+    const imageMode = !!src && !svgContent
+
     const [transform, setTransform] = useState<Transform>({
         scale: 1,
         translateX: 0,
@@ -175,15 +189,17 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
         }
     }, [onClose])
 
-    // 右键菜单
+    // 右键菜单（SVG 模式下图片相关操作无意义，仅阻止浏览器默认菜单）
     const handleContextMenu = useCallback((e: React.MouseEvent) => {
         e.preventDefault()
+        if (!imageMode) return
         setContextMenu({visible: true, x: e.clientX, y: e.clientY})
-    }, [])
+    }, [imageMode])
 
     // 复制图片到剪贴板（通过 Electron 主进程写入真正的图片）
     const copyImageToClipboard = useCallback(async () => {
         closeContextMenu()
+        if (!imageMode) return  // SVG 模式无图片可复制（菜单也不会显示）
         try {
             const response = await fetch(src)
             const blob = await response.blob()
@@ -206,7 +222,7 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                 // 完全失败，静默忽略
             }
         }
-    }, [src, closeContextMenu, showCopied])
+    }, [src, imageMode, closeContextMenu, showCopied])
     
     // 禁止背景滚动
     useEffect(() => {
@@ -300,13 +316,21 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                 onMouseLeave={handleMouseUp}
                 onDoubleClick={handleDoubleClick}
             >
-                <img
-                    src={src}
-                    alt={alt}
-                    className="max-w-[95vw] max-h-[90vh] object-contain select-none rounded-lg"
-                    style={transformStyle}
-                    draggable={false}
-                />
+                {svgContent ? (
+                    <div
+                        className="select-none rounded-lg overflow-hidden"
+                        style={{...transformStyle, ...SVG_PREVIEW_LAYOUT}}
+                        dangerouslySetInnerHTML={{__html: svgContent}}
+                    />
+                ) : (
+                    <img
+                        src={src}
+                        alt={alt}
+                        className="max-w-[95vw] max-h-[90vh] object-contain select-none rounded-lg"
+                        style={transformStyle}
+                        draggable={false}
+                    />
+                )}
             </div>
 
             {/* 底部提示 */}
@@ -327,8 +351,8 @@ const ImagePreviewModal = memo(function ImagePreviewModal({src, alt, onClose}: I
                 </div>
             )}
 
-            {/* 右键菜单 */}
-            {contextMenu.visible && (
+            {/* 右键菜单（仅图片模式；SVG 模式无图片复制操作，handleContextMenu 已短路） */}
+            {contextMenu.visible && imageMode && (
                 <>
                     {/* 透明遮罩用于关闭菜单 */}
                     <div className="fixed inset-0 z-[10000]" onClick={closeContextMenu} data-name="image-preview-modal-context-menu-backdrop"/>

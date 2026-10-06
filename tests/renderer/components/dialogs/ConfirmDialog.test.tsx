@@ -114,3 +114,15 @@ describe('confirm() 行为不回归（spec §4.3 向后兼容）', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('层级契约（zIndexLayering D2）', () => {
+  it('遮罩层 z-[200000]、主体层 z-[200001]，与 MCPErrorHelper / globals.css 豁免选择器一致', async () => {
+    render(<ConfirmDialog />)
+    void confirm({title: 't', message: 'm'})
+    const mask = await screen.findByTestId('confirm-dialog-mask')
+    expect(mask.className).toContain('z-[200000]')
+    const body = mask.nextElementSibling as HTMLElement | null
+    expect(body).not.toBeNull()
+    expect(body!.className).toContain('z-[200001]')
+  })
+})

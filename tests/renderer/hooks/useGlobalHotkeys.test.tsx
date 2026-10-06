@@ -325,6 +325,24 @@ describe('useGlobalHotkeys', () => {
         vi.unstubAllGlobals()
     })
 
+    it('Ctrl+Shift+T auto-repeat (e.repeat=true) 不重复切换主题', async () => {
+        vi.stubGlobal('electronAPI', {
+            configWrite: vi.fn().mockResolvedValue(true),
+            settingsUpdate: vi.fn().mockResolvedValue({success: true}),
+        })
+        mountHook()
+
+        // 第一次按键（非 repeat）→ 切换一次
+        pressKey({key: 't', ctrlKey: true, shiftKey: true})
+        expect(useThemeStore.getState().theme).toBe('dark')
+
+        // auto-repeat keydown（e.repeat=true）→ 不应再次切换
+        pressKey({key: 't', ctrlKey: true, shiftKey: true, repeat: true})
+        expect(useThemeStore.getState().theme).toBe('dark')
+
+        vi.unstubAllGlobals()
+    })
+
     it('Ctrl+Shift+N 有工作空间 → 打开新建备忘录编辑窗口（不触发新建会话）', () => {
         const createMock = vi.fn().mockResolvedValue('conv-1')
         useConversationStore.setState({currentWorkspacePath: '/ws', createConversation: createMock})

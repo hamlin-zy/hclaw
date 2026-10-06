@@ -12,6 +12,7 @@ import {useSettingsStore} from '../stores/settingsStore'
 import {confirm} from '../components/ConfirmDialog'
 import type {ScheduleFormData} from '../components/dialogs/ScheduleEditModal'
 import type {ScheduleRecord, ScheduleResult} from '@shared/types/schedule'
+import {MEMORY_ACCUMULATION_SCHEDULE_ID} from '../../main/agent/defaults/systemSchedules'
 import {fuzzyFilter} from '../lib/search'
 
 /** 列表筛选维度 —— 同时也是统计维度（筛选行即统计行） */
@@ -297,11 +298,11 @@ export function useScheduleListState() {
      * 启用 / 禁用 —— **不做乐观翻转**：开关始终由 `schedule.enabled`（真实数据）驱动，
      * 本地不预改状态；失败时开关自然停在原位，配合可读原因，不留「以为自己点上了」的假象。
      *
-     * 系统任务的禁用特殊（本票）：禁用「记忆沉淀」这类系统任务会连带关闭记忆功能，
-     * 影响面超出这一行本身，故先弹确认框（ScheduleDisableConfirm），用户确认后才执行。
+     * 系统任务的禁用特殊：仅「记忆沉淀」任务的禁用会连带关闭记忆功能（影响面超出这一行），
+     * 故先弹确认框（ScheduleDisableConfirm）；其余系统任务直接禁用，不连带动记忆开关。
      */
     const handleToggleEnabled = useCallback(async (schedule: ScheduleUI) => {
-        if (schedule.isSystem && schedule.enabled) {
+        if (schedule.isSystem && schedule.enabled && schedule.id === MEMORY_ACCUMULATION_SCHEDULE_ID) {
             setDisableConfirmSchedule(schedule)
             return
         }
@@ -321,7 +322,7 @@ export function useScheduleListState() {
 
     const handleCancelDisable = useCallback(() => setDisableConfirmSchedule(null), [])
 
-    /** 确认禁用：禁用任务 + 同步关闭记忆功能（记忆文件不删除，重新启用任务不自动恢复记忆开关） */
+    /** 确认禁用：禁用任务 + 仅记忆沉淀任务同步关闭记忆功能（记忆文件不删除，重新启用任务不自动恢复记忆开关） */
     const handleConfirmDisable = useCallback(async (schedule: ScheduleUI) => {
         setDisableConfirmSchedule(null)
         const action = '禁用'
@@ -335,7 +336,9 @@ export function useScheduleListState() {
             reportWriteFailure(action, throwReason(err))
             return
         }
-        // 任务禁用成功后才动记忆开关：任务没禁掉就不该连带关功能
+        // 仅「记忆沉淀」任务的禁用才连带关闭记忆功能 —— 其余系统任务与记忆功能无关，
+        // 禁用它们不应动记忆开关。
+        if (schedule.id !== MEMORY_ACCUMULATION_SCHEDULE_ID) return
         try {
             await useSettingsStore.getState().updateSettings({memory: {enabled: false}})
         } catch (err: unknown) {

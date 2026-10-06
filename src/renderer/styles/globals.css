@@ -2898,10 +2898,20 @@ html.bg-enabled,
     -webkit-backdrop-filter: none !important;
 }
 
-/* 固定定位的弹窗容器层（如 ConfirmDialog 的 z-[99999] 主体层）保持透明壳，
-   仅取消其子内容的毛玻璃与半透明 */
-.bg-enabled .fixed.inset-0[class*="z-[999"],
-.bg-enabled .fixed.inset-0[class*="z-[999"] * {
+/* 固定定位的弹窗容器层（ConfirmDialog / MCPErrorHelper 的 z-[200000]/z-[200001]，
+   ProviderEditModal 的 z-[99998]/z-[99999]/z-[100000]/z-[100001]，
+   UsageStatsDialog 的 z-[99998]/z-[99999]，ModelDetailModal 的 z-[100000]，
+   ShortcutHelpDialog 的 z-[100001]，ImagePreviewModal 的 z-[9999]/z-[10000]）
+   保持透明壳，仅取消其子内容的毛玻璃与半透明。
+   前缀按现存层级分段：z-[9（9999/99998/99999）、z-[100（10000/100000/100001/100002）、
+   z-[20000（200000/200001）；新增固定定位弹窗层级须同步更新，守卫见
+   tests/renderer/zIndexLayering.test.ts */
+.bg-enabled .fixed.inset-0[class*="z-[9"],
+.bg-enabled .fixed.inset-0[class*="z-[100"],
+.bg-enabled .fixed.inset-0[class*="z-[20000"],
+.bg-enabled .fixed.inset-0[class*="z-[9"] *,
+.bg-enabled .fixed.inset-0[class*="z-[100"] *,
+.bg-enabled .fixed.inset-0[class*="z-[20000"] * {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
 }

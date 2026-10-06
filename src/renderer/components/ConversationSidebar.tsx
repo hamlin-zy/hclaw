@@ -1,4 +1,4 @@
-import {Fragment, type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
+import {Fragment, type ReactNode, type CSSProperties, type JSX, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 import {AnimatePresence, motion} from 'framer-motion'
 import {useConversationStore, resolveScopeProjectPaths} from '../stores/conversationStore'
@@ -29,10 +29,10 @@ import {SECTION_DEFAULT, SECTION_STEP, CHILD_DEFAULT, CHILD_STEP, RECENT_DEFAULT
 import {clampRecentHeight, RECENT_ROW_HEIGHT} from '../lib/recentHeight'
 import SchemeSelector from './SchemeSelector'
 import {PagerBar} from './sidebar/PagerBar'
-import {DRAWER_WIDTH, ProjectGroupDrawer} from './ProjectGroupDrawer'
+import {DRAWER_WIDTH, ProjectGroupDrawer, PANEL_WIDTH, MIN_PANEL_HEIGHT, PANEL_OPEN_DELAY_MS, PANEL_CLOSE_GRACE_MS} from './ProjectGroupDrawer'
 import {Folders} from 'lucide-react'
 import {ConversationSectionHeader} from './ConversationSectionHeader'
-import {SIDEBAR_MENU_GROUPS, type SidebarMenuItem} from './sidebar/menuItems'
+import {SIDEBAR_MENU_NODES, SIDEBAR_MENU_GROUP_NODES, type SidebarMenuItem, type UpdateCtx, itemHasUpdate, nodeHasUpdate, nodeIdOf, groupNodeId, findGroupNode} from './sidebar/menuItems'
 import CopyToast from './common/CopyToast'
 import {formatShortcut} from './common/Kbd'
 import type {ConversationSummary, ThemeName} from '@shared/types'
@@ -370,9 +370,9 @@ function openMenuItem(type: string): void {
     }
 }
 
-/** 渲染菜单项图标（复用 item.icon 的属性与子元素，仅调整尺寸） */
-function MenuItemIcon({item, className}: {item: SidebarMenuItem; className: string}) {
-    return <svg className={className} {...item.icon.props}>{item.icon.props.children}</svg>
+/** 渲染菜单图标（复用 icon 的属性与子元素，仅调整尺寸）；展开顺序须保持「className 在前、{...icon.props} 在后」 */
+function MenuItemIcon({icon, className}: {icon: JSX.Element; className: string}) {
+    return <svg className={className} {...icon.props}>{icon.props.children}</svg>
 }
 
 /** 主题按钮 aria-label（展示下一档主题名，与图标联动） */
@@ -426,104 +426,405 @@ function ThemeIcon({theme}: {theme: ThemeName}) {
     )
 }
 
-/** 齿轮分组功能菜单（原 MenuBar 功能项，分组展示） */
-function SidebarGearMenu({anchorRef}: {anchorRef: RefObject<HTMLDivElement | null>}) {
-    const [isOpen, setIsOpen] = useState(false)
+/**
+ * 二级面板打开状态：
+ * - `node` 为目标节点 id（`group:xxx`）；null = 未打开
+ * - `anchor` 为折叠态点击图标时传入的 DOM（几何 fallback 用）；展开态恒为 null
+ *
+ * 提到 ConversationSidebar 主体作为单一权威源：折叠态图标和齿轮菜单共享同一份 state，
+ * 折叠态图标直接 set 让面板弹出，齿轮菜单负责 hover 桥接与外部点击关闭。
+ */
+type PanelOpenState = {node: string | null, anchor: HTMLElement | null}
+
+/**
+ * 折叠态下二级面板几何 fallback 的估算常量（Tailwind 计算展开后的实际像素）。
+ *
+ * - `GEAR_PANEL_ITEM_ROW_HEIGHT`：单个二级菜单项高度
+ *   = py-1.5 (6+6) + text-xs line-height (1rem = 16) + 内边 border/gap 冗余 ≈ 28
+ * - `GEAR_PANEL_CHROME_HEIGHT`：面板自身内边距 + 边框
+ *   = py-1 (4+4) + border (1+1) = 10
+ *
+ * 用于按内容项数估算面板自然高度，让面板 top 按内容高度上弹，避免视口 clamp
+ * 到 MIN_PANEL_HEIGHT 导致内容被裁（触发 overflow-y-auto 滚动）。
+ * 估算值与实际渲染可能有 ±2px 偏差，overflow-y-auto 保留作极端场景防御。
+ * 导出供几何单测复用，避免测试硬编码行高/内边距。
+ */
+export const GEAR_PANEL_ITEM_ROW_HEIGHT = 28
+export const GEAR_PANEL_CHROME_HEIGHT = 10
+
+/**
+ * 侧栏二级面板几何：统一处理「下方空间够 → 面板 top 与锚点顶部对齐；不够 → 向上弹」的分支，
+ * 让面板按内容自适应高度不 clip（长列表 5-6 项不会被 clamp 到 MIN_PANEL_HEIGHT 后溢出触发滚动），
+ * 且最后几个一级菜单项的二级面板自动向上弹到锚点上方，不触及视口底部。
+ *
+ * - `drawerRight`：抽屉右缘（展开态传，面板贴抽屉右侧 8px）；折叠态传 undefined，回退到 `anchorRect.right`
+ * - `anchorRect`：面板对齐的锚点矩形（展开态组头 DOM、折叠态图标 DOM）
+ * - `panelContentHeight`：内容自然高度（items.length * GEAR_PANEL_ITEM_ROW_HEIGHT + GEAR_PANEL_CHROME_HEIGHT）
+ *
+ * 对齐基准 = **实际渲染高度 = 内容高度**（面板只有 maxHeight、无 minHeight，短列表不撑白）；
+ * `maxHeight` 仅作上限（含 MIN_PANEL_HEIGHT 下限兜底），不参与定位——
+ * 否则 2 项面板（66px）会按 120 预留，上弹后底边浮空 54px，表现为「面板不跟随一级菜单」。
+ * 返回值里的 `height` 是同一口径的实际高度，供 shadow zone 等消费方对齐面板底边。
+ *
+ * `preferAbove`：折叠态侧栏的 5 个一级图标沉底排列，要求整列**统一向上展开**（底边贴锚点
+ * 顶边），不再按「下方空间够就下弹」逐图标分化；仅当上方确实放不下（会越过 12px 内缘）
+ * 才回退通用规则（够则下弹、否则贴顶），避免贴顶压住图标本身。展开态（抽屉内组头）传 false。
+ */
+export function computeSidebarPanelGeometry(
+    drawerRight: number | undefined,
+    anchorRect: {top: number, right: number},
+    panelContentHeight: number,
+    preferAbove = false,
+) {
+    const maxHeight = Math.max(panelContentHeight, MIN_PANEL_HEIGHT)
+    const aboveTop = anchorRect.top - panelContentHeight
+    let top: number
+    if (preferAbove && aboveTop >= 12) {
+        top = aboveTop
+    } else {
+        const spaceBelow = window.innerHeight - anchorRect.top - 12
+        top = spaceBelow >= panelContentHeight
+            ? anchorRect.top
+            : Math.max(12, aboveTop)
+    }
+    const leftSource = drawerRight ?? anchorRect.right
+    return {
+        left: Math.max(8, Math.min(leftSource + 8, window.innerWidth - PANEL_WIDTH - 8)),
+        top,
+        maxHeight,
+        height: panelContentHeight,
+    }
+}
+
+/** 面板几何（展开态 / 折叠态共用同一结构，由 computeSidebarPanelGeometry 推导） */
+type PanelGeometry = ReturnType<typeof computeSidebarPanelGeometry>
+
+/**
+ * 齿轮分组功能菜单 —— 纯 Portal 组件（一级抽屉 + 二级面板 + hover 桥接 + R-32 穿透防护）。
+ * 齿轮按钮 DOM 位于父组件 ConversationSidebar 的 footer tools-row（受 leftCollapsed 分支影响），
+ * 本组件必须永远挂载（不受 leftCollapsed 分支影响），否则折叠态下 panelPortal 不会创建。
+ */
+function SidebarGearMenu({
+    anchorRef,
+    collapsedAnchorRef,
+    isOpen,
+    setIsOpen,
+    panelNodeId,
+    setPanelNodeId,
+    updateCtx,
+}: {
+    anchorRef: RefObject<HTMLDivElement | null>
+    /** 折叠态锚点（底部「展开侧边栏」按钮）：仅在 anchorRef.current 为空（折叠态齿轮按钮未渲染）时使用 */
+    collapsedAnchorRef: RefObject<HTMLButtonElement | null>
+    isOpen: boolean
+    setIsOpen: React.Dispatch<React.SetStateAction<boolean>>
+    panelNodeId: PanelOpenState
+    setPanelNodeId: React.Dispatch<React.SetStateAction<PanelOpenState>>
+    updateCtx: UpdateCtx
+}) {
+    const [panelGeom, setPanelGeom] = useState<PanelGeometry | null>(null)
     const menuRef = useRef<HTMLDivElement>(null)
-    const hasUpdate = useUpdaterStore((s) => s.result?.status === 'update-available')
-    const pluginHasUpdate = usePluginUpdateStore((s) => s.hasUpdate)
-    const repoHasUpdate = useRepoUpdateStore((s) => s.hasUpdate)
-    const mcpHasUpdate = useMcpUpdateStore((s) => s.hasUpdate)
+    const panelAnchorMap = useRef<Record<string, HTMLElement | null>>({})
+    const openPanelTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const closePanelTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-    // 监听全局快捷键：单独按 Alt → 切换本菜单（见 useGlobalHotkeys.ts）
-    useEffect(() => {
-        const toggle = () => setIsOpen((v) => !v)
-        window.addEventListener('hclaw:toggle-gear-menu', toggle)
-        return () => window.removeEventListener('hclaw:toggle-gear-menu', toggle)
+    // timer 清理原语（useCallback 稳定引用，供 effect deps 声明）
+    const clearOpenTimer = useCallback(() => {
+        if (openPanelTimer.current) { clearTimeout(openPanelTimer.current); openPanelTimer.current = null }
     }, [])
+    const clearCloseTimer = useCallback(() => {
+        if (closePanelTimer.current) { clearTimeout(closePanelTimer.current); closePanelTimer.current = null }
+    }, [])
+    const clearTimers = useCallback(() => { clearOpenTimer(); clearCloseTimer() }, [clearOpenTimer, clearCloseTimer])
 
-    useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {
-            const target = e.target as Node
-            if (anchorRef.current?.contains(target)) return
-            if (menuRef.current && !menuRef.current.contains(target)) setIsOpen(false)
-        }
-        if (isOpen) {
-            document.addEventListener('mousedown', handleClickOutside)
-            return () => document.removeEventListener('mousedown', handleClickOutside)
-        }
-    }, [isOpen, anchorRef])
-
-    const handleItemClick = (type: string) => {
-        openMenuItem(type)
+    const closeAll = () => {
+        clearTimers()
         setIsOpen(false)
+        setPanelNodeId({node: null, anchor: null})
     }
 
-    const showUpdateDot = hasUpdate || pluginHasUpdate || repoHasUpdate || mcpHasUpdate
+    // 监听全局快捷键：单独按 Alt → 切换本菜单（见 useGlobalHotkeys.ts）
+    // 关闭路径必须先清 pending open timer，否则 120ms 后残留 timer 会把面板重新弹出
+    useEffect(() => {
+        const toggle = () => {
+            clearTimers()
+            setIsOpen((v) => !v)
+            setPanelNodeId({node: null, anchor: null})
+        }
+        window.addEventListener('hclaw:toggle-gear-menu', toggle)
+        return () => window.removeEventListener('hclaw:toggle-gear-menu', toggle)
+    }, [clearTimers])
 
-    // 空间检测：齿轮按钮位于 footer（窗口底部），向下弹出会被视口底边裁剪。
+    // 抽屉关闭时清 panelNodeId（防止下一轮打开时残留旧面板）
+    // 折叠态下 isOpen=false 但 anchor 非空（用户从折叠侧栏图标触发面板）—— 此时不清空
+    useEffect(() => {
+        if (!isOpen && !panelNodeId.anchor) setPanelNodeId({node: null, anchor: null})
+    }, [isOpen])
+
+    // click outside 关闭（mousedown 判定，含 panel / shadow zone 也要 skip）
+    // 折叠态下 isOpen 恒 false 但 panelNodeId.anchor 非空时 listener 仍要挂载，
+    // 否则外部点击无法关闭面板。
+    useEffect(() => {
+        if (!isOpen && !panelNodeId.anchor) return
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as Element | null
+            if (!target) return
+            if (anchorRef.current?.contains(target)) return
+            if (menuRef.current?.contains(target)) return
+            if (target.closest('[data-name="sidebar-gear-secondary-panel"]')) return
+            if (target.closest('[data-name="sidebar-gear-panel-shadow-zone"]')) return
+            closeAll()
+        }
+        document.addEventListener('mousedown', handleClickOutside)
+        return () => document.removeEventListener('mousedown', handleClickOutside)
+    }, [isOpen, panelNodeId.anchor, anchorRef, clearTimers])
+
+    // Esc 关闭（守卫同上：折叠态 anchor 非空时也要挂载）
+    useEffect(() => {
+        if (!isOpen && !panelNodeId.anchor) return
+        const handleKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') closeAll()
+        }
+        document.addEventListener('keydown', handleKey)
+        return () => document.removeEventListener('keydown', handleKey)
+    }, [isOpen, panelNodeId.anchor, clearTimers])
+
+    // unmount 清理 timers
+    useEffect(() => () => {
+        clearOpenTimer()
+        clearCloseTimer()
+    }, [clearOpenTimer, clearCloseTimer])
+
+    // 面板几何：panelNodeId 变化或 isOpen 变化时重算
+    useEffect(() => {
+        if (!panelNodeId.node) { setPanelGeom(null); return }
+        // 面板内容自然高度：按 group 项数估算，展开态与折叠态共用同一算法
+        const groupNode = findGroupNode(panelNodeId.node)
+        const panelContentHeight = (groupNode?.items.length || 0) * GEAR_PANEL_ITEM_ROW_HEIGHT + GEAR_PANEL_CHROME_HEIGHT
+        // 折叠态：从 anchor DOM 计算（菜单/抽屉均不渲染），左缘贴锚点右缘；preferAbove → 统一上弹
+        if (panelNodeId.anchor) {
+            const anchorRect = panelNodeId.anchor.getBoundingClientRect()
+            setPanelGeom(computeSidebarPanelGeometry(undefined, anchorRect, panelContentHeight, true))
+            return
+        }
+        // 展开态：锚点是抽屉内 group 组头 DOM，左缘贴抽屉右缘
+        const anchorEl = panelAnchorMap.current[panelNodeId.node]
+        if (!anchorEl || !menuRef.current) { setPanelGeom(null); return }
+        const drawerRect = menuRef.current.getBoundingClientRect()
+        setPanelGeom(computeSidebarPanelGeometry(drawerRect.right, anchorEl.getBoundingClientRect(), panelContentHeight))
+    }, [panelNodeId, isOpen])
+
+    const scheduleOpenPanel = (nodeId: string) => {
+        clearTimers()
+        openPanelTimer.current = setTimeout(() => {
+            openPanelTimer.current = null
+            setPanelNodeId({node: nodeId, anchor: null})
+        }, PANEL_OPEN_DELAY_MS)
+    }
+
+    const scheduleClosePanel = () => {
+        clearTimers()
+        closePanelTimer.current = setTimeout(() => {
+            closePanelTimer.current = null
+            setPanelNodeId({node: null, anchor: null})
+        }, PANEL_CLOSE_GRACE_MS)
+    }
+
+    const cancelClosePanel = () => {
+        clearCloseTimer()
+    }
+
+    const handleItemClick = (item: SidebarMenuItem) => {
+        if (item.type !== null) openMenuItem(item.type)
+        closeAll()
+    }
+
+    const handleGroupClick = (nodeId: string) => {
+        // click group 立即开面板（跳过 120ms hover 延时）
+        clearTimers()
+        setPanelNodeId({node: nodeId, anchor: null})
+    }
+
+    const handleGroupMouseEnter = (nodeId: string) => {
+        // 面板已是本 group → 无需重开；否则启动 120ms timer
+        cancelClosePanel()
+        if (panelNodeId.node === nodeId) return
+        scheduleOpenPanel(nodeId)
+    }
+
+    const handleGroupMouseLeave = () => {
+        // 关键：先清理尚未到期的 open timer，避免鼠标离开后 timer 到期把面板打开
+        // （S1-7 死锁防护：mouseEnter A <120ms 后 mouseLeave，panelNodeId 仍 null 时，
+        //  若不清 open timer，120ms 后面板会被自动打开但无 close timer 挂在链上）
+        clearOpenTimer()
+        // 只有面板已开时才启动 grace timer（避免 hover 快速扫描时误开面板又关）
+        if (panelNodeId.node) scheduleClosePanel()
+    }
+
+    // 一级抽屉 Portal（含 group / direct 双分支）
+    // 空间检测：齿轮按钮位于 footer（窗口底部），向下弹出会被视口底边裁剪；
     // 下方剩余空间不足时改为向上弹出（bottom 定位），保证菜单完整可见。
-    const gearMenuPortal = (() => {
+    // 折叠态：齿轮按钮未渲染（anchorRect 为空），锚定折叠栏底部「展开侧边栏」按钮 ——
+    // 贴其右侧 8px、底边与按钮底边对齐并向上展开（左下角形态，左缘口径与二级面板一致）；
+    // 两处锚点都取不到时才回退左上角（理论不可达，仅兜底）。
+    const drawerPortal = (() => {
         if (!isOpen) return null
         const anchorRect = anchorRef.current?.getBoundingClientRect()
+        const collapsedRect = anchorRect ? null : collapsedAnchorRef.current?.getBoundingClientRect()
         const spaceBelow = anchorRect ? window.innerHeight - anchorRect.bottom : 0
         const dropUp = spaceBelow < 320
-        const menuStyle = anchorRect
+        const drawerStyle: CSSProperties = anchorRect
             ? {
                 left: anchorRect.left,
                 ...(dropUp
                     ? {bottom: window.innerHeight - anchorRect.top + 4}
                     : {top: anchorRect.bottom + 4}),
             }
-            : {left: 0, top: 4}
+            : collapsedRect
+                ? {
+                    left: collapsedRect.right + 8,
+                    bottom: Math.max(8, window.innerHeight - collapsedRect.bottom),
+                }
+                : {left: 0, top: 4}
         return createPortal(
-            <div ref={menuRef} className="fixed z-[9999] py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md shadow-lg min-w-[160px] max-h-[70vh] overflow-y-auto"
-                 style={menuStyle}
-                 onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-name="conversation-sidebar-div">
-                {SIDEBAR_MENU_GROUPS.map((g, gi) => (
-                    <div key={g.group} className={gi > 0 ? 'mt-1 border-t border-[var(--border-muted)]' : undefined}>
-                        <div className="px-3 pt-2.5 pb-1 text-[10px] font-medium tracking-wide text-[var(--text-secondary)]">{g.group}</div>
-                        {g.items.map((item) => (
-                            <button key={item.type} onClick={() => handleItemClick(item.type!)}
-                                    className="relative w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors" data-name="conversation-sidebar-button">
+            <div ref={menuRef}
+                 data-name="sidebar-gear-primary-drawer"
+                 className="fixed z-[9999] py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md shadow-lg max-h-[70vh] overflow-y-auto"
+                 style={drawerStyle}
+                 onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                {/* 节点列表容器：data-name 只在此处出现一次（符合 data-name/unique 规范）；
+                    子项用 data-node-id 属性区分（group:xxx / direct:xxx） */}
+                <div data-name="sidebar-gear-node-list">
+                {SIDEBAR_MENU_NODES.map((node, ni) => {
+                    const nodeId = nodeIdOf(node)
+                    // group 分支无图标、direct 分支有图标；在 group→direct 边界加一条分割线做视觉区隔
+                    const showDivider = node.kind === 'direct' && ni > 0 && SIDEBAR_MENU_NODES[ni - 1].kind === 'group'
+
+                    if (node.kind === 'group') {
+                        const groupHasDot = nodeHasUpdate(node, updateCtx)
+                        return (
+                            <div key={nodeId}>
+                                <button
+                                    ref={(el) => { panelAnchorMap.current[nodeId] = el }}
+                                    data-node-id={nodeId}
+                                    onMouseEnter={() => handleGroupMouseEnter(nodeId)}
+                                    onMouseLeave={handleGroupMouseLeave}
+                                    onClick={() => handleGroupClick(nodeId)}
+                                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors">
+                                    <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center text-[var(--text-secondary)]">
+                                        <MenuItemIcon icon={node.icon} className="w-3.5 h-3.5"/>
+                                    </span>
+                                    <span className="flex-1 text-left">{node.group}</span>
+                                    {groupHasDot && <span className="w-1.5 h-1.5 rounded-full bg-red-500" aria-label="有更新"/>}
+                                    <svg className="w-3 h-3 shrink-0 text-[var(--text-secondary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                        <polyline points="9 18 15 12 9 6"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        )
+                    }
+
+                    // direct 分支
+                    const item = node.item
+                    const showDot = itemHasUpdate(item, updateCtx)
+                    return (
+                        <div key={nodeId} className={showDivider ? 'mt-1 pt-1 border-t border-[var(--border-muted)]' : undefined}>
+                            <button
+                                data-node-id={nodeId}
+                                data-item-type={item.type ?? ''}
+                                onClick={() => handleItemClick(item)}
+                                className="relative w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors">
                                 <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center">
-                                    <MenuItemIcon item={item} className="w-3.5 h-3.5"/>
+                                    <MenuItemIcon icon={item.icon} className="w-3.5 h-3.5"/>
                                 </span>
-                                <span>{item.label}</span>
-                                {((item.type === 'about' && hasUpdate) || (item.type === 'plugins' && pluginHasUpdate) || (item.type === 'skills' && repoHasUpdate) || (item.type === 'mcp' && mcpHasUpdate)) && (
-                                    <span className="ml-auto w-1.5 h-1.5 rounded-full bg-red-500" aria-label="有新版本"/>
-                                )}
+                                <span className="flex-1 text-left">{item.label}</span>
+                                {showDot && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-red-500" aria-label="有新版本"/>}
                             </button>
-                        ))}
-                    </div>
-                ))}
+                        </div>
+                    )
+                })}
+                </div>
             </div>,
             document.body,
         )
     })()
 
+    // 二级面板 Portal + R-32 shadow zone
+    const panelPortal = (() => {
+        if (!panelNodeId.node || !panelGeom) return null
+        const groupNode = findGroupNode(panelNodeId.node)
+        if (!groupNode) return null
+
+        // Shadow zone 在面板下方铺满视口剩余空间，吞 click（R-32 穿透防护）
+        const shadowZone = (
+            <div
+                data-name="sidebar-gear-panel-shadow-zone"
+                className="fixed"
+                style={{
+                    left: panelGeom.left,
+                    // 起点 = 面板实际底边（height，非 maxHeight）：maxHeight 含 MIN_PANEL_HEIGHT
+                    // 下限，按它铺会在面板下方多出差额高度的透明吞点击区（R-32 shadow 语义失真）
+                    top: panelGeom.top + panelGeom.height,
+                    right: 0,
+                    bottom: 0,
+                    background: 'transparent',
+                    pointerEvents: 'auto',
+                    zIndex: 10000,
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}/>
+        )
+
+        const panel = (
+            <div
+                data-name="sidebar-gear-secondary-panel"
+                data-panel-node-id={panelNodeId.node}
+                className="fixed py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md shadow-lg overflow-y-auto"
+                style={{
+                    left: panelGeom.left,
+                    top: panelGeom.top,
+                    maxWidth: PANEL_WIDTH,
+                    maxHeight: panelGeom.maxHeight,
+                    zIndex: 10001,
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onMouseEnter={cancelClosePanel}
+                onMouseLeave={scheduleClosePanel}>
+                {groupNode.items.map((item) => {
+                    const showDot = itemHasUpdate(item, updateCtx)
+                    return (
+                        <button key={item.type}
+                                data-name="sidebar-gear-secondary-item"
+                                data-item-type={item.type ?? ''}
+                                onClick={() => handleItemClick(item)}
+                                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors">
+                            <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center">
+                                <MenuItemIcon icon={item.icon} className="w-3.5 h-3.5"/>
+                            </span>
+                            <span className="flex-1 text-left">{item.label}</span>
+                            {showDot && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-red-500" aria-label="有新版本"/>}
+                        </button>
+                    )
+                })}
+            </div>
+        )
+
+        return createPortal(
+            <Fragment>
+                {shadowZone}
+                {panel}
+            </Fragment>,
+            document.body,
+        )
+    })()
+
+    // 纯 portal 输出：齿轮按钮 DOM 由父组件（ConversationSidebar 主体）渲染并持有 anchorRef，
+    // 本组件不再输出按钮 DOM，只输出两个 portal（一级抽屉 + 二级面板）。
     return (
         <>
-            <div ref={anchorRef} className="relative">
-                <button
-                    onClick={() => setIsOpen((v) => !v)}
-                    aria-label="功能菜单"
-                    aria-expanded={isOpen}
-                    title="切换菜单 (Alt)"
-                    className="icon-btn flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
-                 data-name="conversation-sidebar-menu-toggle-button">
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                        {/* 三横线菜单图标（hamburger）：功能菜单语义，比齿轮更符合大众习惯 */}
-                        <line x1="3" y1="6" x2="21" y2="6"/>
-                        <line x1="3" y1="12" x2="21" y2="12"/>
-                        <line x1="3" y1="18" x2="21" y2="18"/>
-                    </svg>
-                    {showUpdateDot && (
-                        <span className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-red-500" aria-label="有新版本" />
-                    )}
-                </button>
-            </div>
-            {gearMenuPortal}
+            {drawerPortal}
+            {panelPortal}
         </>
     )
 }
@@ -535,6 +836,25 @@ export default function ConversationSidebar() {
     const {theme, toggleTheme} = useThemeStore()
     const viewScope = useConversationStore((s) => s.viewScope)
     const gearRef = useRef<HTMLDivElement>(null)
+    // 折叠态一级抽屉的锚点：齿轮按钮在展开态 footer，折叠态不渲染（anchorRef.current=null），
+    // 改锚定折叠栏底部的「展开侧边栏」按钮 → 抽屉落在左下角并向上展开
+    const collapsedExpandBtnRef = useRef<HTMLButtonElement>(null)
+
+    // 二级面板打开状态（提升到主体，让折叠态图标与齿轮菜单共享同一份 state）
+    // 折叠态图标点击 → setPanelNodeId({node, anchor})，面板直接弹出，不展开侧栏
+    const [panelNodeId, setPanelNodeId] = useState<PanelOpenState>({node: null, anchor: null})
+
+    // 齿轮抽屉开关（提升到主体：齿轮按钮 DOM 位于展开态 footer tools-row，抽屉在展开态才需要）
+    // SidebarGearMenu 纯 portal 组件不受 leftCollapsed 影响，永远挂载，读取此 state 决定是否渲染抽屉
+    const [gearMenuOpen, setGearMenuOpen] = useState(false)
+
+    // 4 类 store → UpdateCtx（红点数据源；齿轮按钮 DOM 与 SidebarGearMenu 抽屉共用）
+    const hasUpdate = useUpdaterStore((s) => s.result?.status === 'update-available')
+    const pluginHasUpdate = usePluginUpdateStore((s) => s.hasUpdate)
+    const repoHasUpdate = useRepoUpdateStore((s) => s.hasUpdate)
+    const mcpHasUpdate = useMcpUpdateStore((s) => s.hasUpdate)
+    const updateCtx: UpdateCtx = {hasUpdate, pluginHasUpdate, repoHasUpdate, mcpHasUpdate}
+    const showUpdateDot = hasUpdate || pluginHasUpdate || repoHasUpdate || mcpHasUpdate
 
     // Ctrl+N → 新建会话。监听必须挂在**常驻**的本组件上：
     // 挂在 NewChatButton 内时，折叠侧栏 / 组视图下该按钮不渲染 → 监听不存在 → 快捷键静默失效。
@@ -606,7 +926,29 @@ export default function ConversationSidebar() {
                               </button>
                           </div>
                           <div className="tools-row flex items-center gap-[6px] mt-[var(--space-snug)]">
-                              <SidebarGearMenu anchorRef={gearRef}/>
+                              <div ref={gearRef} className="relative">
+                                  <button
+                                      onClick={() => {
+                                          const next = !gearMenuOpen
+                                          setGearMenuOpen(next)
+                                          if (!next) setPanelNodeId({node: null, anchor: null})
+                                      }}
+                                      aria-label="功能菜单"
+                                      aria-expanded={gearMenuOpen}
+                                      title="切换菜单 (Alt)"
+                                      className="icon-btn flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
+                                   data-name="conversation-sidebar-menu-toggle-button">
+                                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                          {/* 三横线菜单图标（hamburger）：功能菜单语义，比齿轮更符合大众习惯 */}
+                                          <line x1="3" y1="6" x2="21" y2="6"/>
+                                          <line x1="3" y1="12" x2="21" y2="12"/>
+                                          <line x1="3" y1="18" x2="21" y2="18"/>
+                                      </svg>
+                                      {showUpdateDot && (
+                                          <span className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-red-500" aria-label="有新版本" />
+                                      )}
+                                  </button>
+                              </div>
                               <div className="flex-1 min-w-0 flex justify-center">
                                   <SchemeSelector/>
                               </div>
@@ -623,27 +965,28 @@ export default function ConversationSidebar() {
                   </>
               )}
 
-                    {/* 折叠状态：全部菜单项（与齿轮菜单同源，从底部向上紧凑排列）+ 底部展开按钮
-                        用户要求：全部选项全显示、从底部往上排；不显示「打开新项目」按钮 */}
+                    {/* 折叠状态：一级菜单图标（5 个 group）+ 底部展开按钮
+                        点击一级图标 → 直接弹二级面板，不展开侧栏 */}
                     {leftCollapsed && (
                         <div className="flex flex-col items-center h-full overflow-hidden">
                             <div data-name="sidebar-collapsed-icons" className="flex flex-col items-center justify-end gap-[var(--space-tight)] flex-1 min-h-0 overflow-y-auto w-full pt-[var(--space-tight)] pb-[8px]">
-                                {SIDEBAR_MENU_GROUPS.flatMap((g) => g.items)
-                                    .map((item) => (
+                                {SIDEBAR_MENU_GROUP_NODES
+                                    .map((groupNode) => (
                                         <button
-                                            key={item.type}
-                                           data-name="collapsed-item"
-                                            onClick={() => openMenuItem(item.type!)}
-                                            title={item.label}
-                                            aria-label={item.label}
+                                            key={groupNodeId(groupNode.group)}
+                                            data-name="collapsed-item"
+                                            onClick={(e) => setPanelNodeId({node: groupNodeId(groupNode.group), anchor: e.currentTarget})}
+                                            title={groupNode.group}
+                                            aria-label={groupNode.group}
                                             data-tooltip-placement="right"
                                             className="relative flex items-center justify-center w-7 h-7 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors"
                                         >
-                                            <MenuItemIcon item={item} className="w-3.5 h-3.5"/>
+                                            <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center">{groupNode.icon}</span>
                                         </button>
                                     ))}
                             </div>
                             <button
+                                ref={collapsedExpandBtnRef}
                                 onClick={(e) => { e.stopPropagation(); setLeftCollapsed(false) }}
                                 aria-label="展开侧边栏"
                                 className="flex items-center justify-center w-[26px] h-[26px] mb-[8px] mt-[4px] rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-muted)] transition-colors z-10"
@@ -654,6 +997,20 @@ export default function ConversationSidebar() {
                             </button>
                         </div>
                     )}
+
+                    {/* 齿轮抽屉 portal 组件：纯 portal，不受 leftCollapsed 分支影响永远挂载。
+                        折叠态下折叠图标点击 setPanelNodeId({node, anchor}) → 本组件的 panelPortal 会创建二级面板。
+                        齿轮按钮 DOM 位于上方展开态 footer tools-row（anchorRef 挂在那儿），折叠态下 anchorRef.current=null，
+                        此时一级抽屉（Alt 打开）改锚定折叠栏底部展开按钮（collapsedAnchorRef）落到左下角向上展开。 */}
+                    <SidebarGearMenu
+                        anchorRef={gearRef}
+                        collapsedAnchorRef={collapsedExpandBtnRef}
+                        isOpen={gearMenuOpen}
+                        setIsOpen={setGearMenuOpen}
+                        panelNodeId={panelNodeId}
+                        setPanelNodeId={setPanelNodeId}
+                        updateCtx={updateCtx}/>
+
           </motion.div>
 
           {/* 右侧边缘展开按钮（仅折叠状态显示） */}

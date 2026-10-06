@@ -1,16 +1,31 @@
 import type {JSX} from 'react'
 
-/** 侧边栏齿轮菜单复用的菜单项（自 MenuBar.tsx 迁移，保留了原分组结构） */
+/** 侧边栏齿轮菜单复用的菜单项（type 是路由键，禁止改动；label / icon 保留原样） */
 export interface SidebarMenuItem {
     type: string | null
     label: string
     icon: JSX.Element
 }
 
-/** 收进齿轮分组菜单的其余项 */
-export const SIDEBAR_MENU_GROUPS: Array<{group: string; items: SidebarMenuItem[]}> = [
+/**
+ * 齿轮菜单节点。union 判别用 `node.kind === 'group' | 'direct'`。
+ * - `group`: 一组带组标题的菜单项（原有分组结构）；icon 用于侧栏折叠态图标栏
+ * - `direct`: 单个独立项（无组标题，直接展示；用于「系统设置」「关于」等）
+ */
+export type SidebarMenuNode =
+    | {kind: 'group'; group: string; icon: JSX.Element; items: SidebarMenuItem[]}
+    | {kind: 'direct'; item: SidebarMenuItem}
+
+/** 收进齿轮菜单的全部节点（顺序即折叠态图标栏扁平顺序；共 21 项、7 节点） */
+export const SIDEBAR_MENU_NODES: SidebarMenuNode[] = [
     {
-        group: '配置基础',
+        kind: 'group',
+        group: '模型配置',
+        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <rect x="4" y="4" width="16" height="16" rx="2"/>
+            <rect x="9" y="9" width="6" height="6"/>
+            <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/>
+        </svg>,
         items: [
             {
                 type: 'scheme-config', label: '模型方案',
@@ -37,7 +52,11 @@ export const SIDEBAR_MENU_GROUPS: Array<{group: string; items: SidebarMenuItem[]
         ],
     },
     {
-        group: '智能体',
+        kind: 'group',
+        group: '能力中心',
+        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </svg>,
         items: [
             {
                 type: 'agents', label: 'Agents',
@@ -70,11 +89,6 @@ export const SIDEBAR_MENU_GROUPS: Array<{group: string; items: SidebarMenuItem[]
                     <circle cx="7" cy="7" r="3"/>
                 </svg>,
             },
-        ],
-    },
-    {
-        group: '集成扩展',
-        items: [
             {
                 type: 'tool-manage', label: '内置工具',
                 icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -89,11 +103,28 @@ export const SIDEBAR_MENU_GROUPS: Array<{group: string; items: SidebarMenuItem[]
                     <line x1="12" y1="17" x2="12" y2="21"/>
                 </svg>,
             },
+        ],
+    },
+    {
+        kind: 'group',
+        group: '运行时',
+        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+        </svg>,
+        items: [
             {
                 type: 'companion-apps', label: '跟随启动',
                 icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <circle cx="12" cy="12" r="10"/>
                     <polygon points="10 8 16 12 10 16 10 8"/>
+                </svg>,
+            },
+            {
+                type: 'schedules', label: '定时任务',
+                icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
                 </svg>,
             },
             {
@@ -114,7 +145,12 @@ export const SIDEBAR_MENU_GROUPS: Array<{group: string; items: SidebarMenuItem[]
         ],
     },
     {
+        kind: 'group',
         group: '内容数据',
+        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>,
         items: [
             {
                 type: 'conversations', label: '历史会话',
@@ -155,26 +191,13 @@ export const SIDEBAR_MENU_GROUPS: Array<{group: string; items: SidebarMenuItem[]
         ],
     },
     {
+        kind: 'group',
         group: '运维管理',
-        items: [
-            {
-                type: 'schedules', label: '定时任务',
-                icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10"/>
-                    <polyline points="12 6 12 12 16 14"/>
-                </svg>,
-            },
-            {
-                type: 'settings', label: '系统设置',
-                icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <circle cx="12" cy="12" r="3"/>
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                </svg>,
-            },
-        ],
-    },
-    {
-        group: '日志',
+        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+        </svg>,
         items: [
             {
                 type: 'llm-call-logs', label: 'LLM调用日志',
@@ -196,16 +219,77 @@ export const SIDEBAR_MENU_GROUPS: Array<{group: string; items: SidebarMenuItem[]
         ],
     },
     {
-        group: '其他',
-        items: [
-            {
-                type: 'about', label: '关于',
-                icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10"/>
-                    <line x1="12" y1="16" x2="12" y2="12"/>
-                    <line x1="12" y1="8" x2="12.01" y2="8"/>
-                </svg>,
-            },
-        ],
+        kind: 'direct',
+        item: {
+            type: 'settings', label: '系统设置',
+            icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>,
+        },
+    },
+    {
+        kind: 'direct',
+        item: {
+            type: 'about', label: '关于',
+            icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="16" x2="12" y2="12"/>
+                <line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>,
+        },
     },
 ]
+
+/** group 节点窄化类型（折叠态 group 列表 / 二级面板查找共用） */
+export type SidebarMenuGroupNode = Extract<SidebarMenuNode, {kind: 'group'}>
+
+/** 折叠态一级图标栏的 group 节点（顺序与 SIDEBAR_MENU_NODES 中 group 的出现顺序一致） */
+export const SIDEBAR_MENU_GROUP_NODES: SidebarMenuGroupNode[] =
+    SIDEBAR_MENU_NODES.filter((n): n is SidebarMenuGroupNode => n.kind === 'group')
+
+/** group 名 → 节点 id（`group:<group>`，即 data-node-id / data-panel-node-id 契约） */
+export function groupNodeId(group: string): string {
+    return `group:${group}`
+}
+
+/** 节点 → 节点 id：group → `group:<group>`，direct → `direct:<item.type>` */
+export function nodeIdOf(node: SidebarMenuNode): string {
+    return node.kind === 'group' ? groupNodeId(node.group) : `direct:${node.item.type}`
+}
+
+/** 按节点 id 查找 group 节点（direct 节点 / null / 未命中 → undefined） */
+export function findGroupNode(nodeId: string | null): SidebarMenuGroupNode | undefined {
+    if (nodeId === null) return undefined
+    return SIDEBAR_MENU_GROUP_NODES.find((n) => groupNodeId(n.group) === nodeId)
+}
+
+/** 4 类更新源收敛的上下文（由调用方从 store 读取后传入） */
+export interface UpdateCtx {
+    hasUpdate: boolean         // 应用本体（对应 about 项）
+    pluginHasUpdate: boolean   // 插件（对应 plugins 项）
+    repoHasUpdate: boolean     // Skills 仓库（对应 skills 项）
+    mcpHasUpdate: boolean      // MCP 服务（对应 mcp 项）
+}
+
+/** type → ctx.key 映射表：非映射 type 返回 undefined，itemHasUpdate 走 false 分支 */
+const ITEM_UPDATE_SOURCE: Partial<Record<NonNullable<SidebarMenuItem['type']>, keyof UpdateCtx>> = {
+    about:   'hasUpdate',
+    plugins: 'pluginHasUpdate',
+    skills:  'repoHasUpdate',
+    mcp:     'mcpHasUpdate',
+}
+
+/** 单个菜单项是否命中更新条件 */
+export function itemHasUpdate(item: SidebarMenuItem, ctx: UpdateCtx): boolean {
+    if (item.type === null) return false
+    const key = ITEM_UPDATE_SOURCE[item.type]
+    return key ? ctx[key] : false
+}
+
+/** 菜单节点是否命中更新条件（group 递归 OR 组内 items；direct 直接判 item） */
+export function nodeHasUpdate(node: SidebarMenuNode, ctx: UpdateCtx): boolean {
+    return node.kind === 'group'
+        ? node.items.some(i => itemHasUpdate(i, ctx))
+        : itemHasUpdate(node.item, ctx)
+}

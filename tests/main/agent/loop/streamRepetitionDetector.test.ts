@@ -1,5 +1,6 @@
 import {describe, it, expect} from 'vitest'
 import {StreamRepetitionDetector} from '../../../../src/main/agent/loop/streamRepetitionDetector'
+import {DEFAULT_SETTINGS} from '../../../../src/shared/settingsDefaults'
 
 describe('StreamRepetitionDetector', () => {
     it('不触发：短文本无重复', () => {
@@ -51,5 +52,23 @@ describe('StreamRepetitionDetector', () => {
         d.append('普通文本内容')
         expect(d.isDetected).toBe(false)
         expect(d.getTruncatedContent()).toBe('普通文本内容')
+    })
+
+    // 落点说明：该断言跨「detector 构造默认」与「shared settingsDefaults 单一真源」两侧；
+    // 纯 shared 侧无法观测 detector 的构造默认值，故留在本文件以锁定两侧一致。
+    it('构造默认参数与 settingsDefaults 默认值一致（缺省 ⇒ 开启）', () => {
+        const defaults = DEFAULT_SETTINGS.agent.streamRepetitionDetection!
+        expect(defaults).toEqual({enabled: true, shingleSize: 120, threshold: 3, checkInterval: 60})
+
+        // detector 的 opts 为运行时私有字段，经类型断言读取以校验构造默认值
+        const detector = new StreamRepetitionDetector()
+        const opts = (detector as unknown as {
+            opts: {shingleSize: number; threshold: number; checkInterval: number}
+        }).opts
+        expect(opts).toEqual({
+            shingleSize: defaults.shingleSize,
+            threshold: defaults.threshold,
+            checkInterval: defaults.checkInterval,
+        })
     })
 })
