@@ -7,6 +7,27 @@
 
 ---
 
+## [v0.5.25] - 2026-10-07
+
+### 新增
+- **仓库卸载功能** — 新增 uninstaller 核心（三道守卫/多副本/目录删除为唯一原子边界），preload/env 类型同步接线 repo:uninstall，卸载后重新 discover + 广播；仓库卡片新增卸载按钮与「已禁用」徽标；技能/代理对话框接入仓库卸载（二次确认 + 主动刷新红点与分组） (`repo/uninstaller` / `repo/ipc` / `repo/RepoGroupCard` / `hooks/useRepoUninstallFlow` / `dialogs/AgentsDialog` / `dialogs/SkillsDialog`)
+- **能力开关信号** — GitRepo 新增 hasEnabledCapability 派生字段，能力开关变化通知 repo 侧串行刷新红点；版本检查与红点派生跳过全禁用仓库 (`repo/registry` / `repo/capabilitySignal` / `repo/versionManager`)
+- **仓库覆盖清理** — 新增 deleteSkillOverrides / deleteAgentOverrides 供仓库卸载清理残留 (`agent/agentLoader` / `agent/skills/loader`)
+- **侧边栏齿轮二级抽屉** — 齿轮菜单重构为二级抽屉布局 (`sidebar/menuItems` / `ConversationSidebar`)
+- **Mermaid 全屏预览** — 流程图支持全屏预览 (`message-list/MermaidBlock`)
+
+### 变更
+- **启动护栏** — 注册表未就绪时跳过版本检查，不用空能力数据覆盖注册表 (`repo/registry` / `repo/versionManager`)
+- **守卫判据** — 改用 powerManager 单调标志，插件变更后不再误判未就绪 (`repo/registry`)
+
+### 修复
+- **MCP Worker 生命周期加固** — 连接纪元防残留进程、写入失败透传、对话框防连点 (`mcp/mcpWorkerManager` / `mcp/client` / `mcp/ipc` / `mcpWorker` / `services/mcpService` / `mcp/transport/processUtils`)
+- **路径判断修正** — isStrictlyUnderRoot 改按路径段判断，..foo 合法子目录不再被误拒 (`repo/uninstaller`)
+- **多处稳定性修复** — 弹窗层级、图片预览、Tooltip 等改进 (`common/ImagePreviewModal` / `common/TooltipPortal` / `window`)
+
+### 重构
+- **消除重复代码** — asError/重试常量复用、tryStep helper、useRepoUninstallFlow hook (`dialogs` / `hooks/useRepoUninstallFlow`)
+
 ## [v0.5.24] - 2026-10-05
 
 ### 新增
