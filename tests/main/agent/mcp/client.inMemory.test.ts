@@ -92,7 +92,7 @@ describe('MCPClient · in-memory (#1 connect 状态序列 + getServer 快照)', 
 })
 
 describe('MCPClient · in-memory 组 A 剩余（#2 listTools 裁剪 / #3 callTool / #4 占位 / #5 list_changed）', () => {
-  it('#2 listTools 落 state，且 toMcpToolDefinition 只保留 name/description/inputSchema（裁掉 title/annotations）', async () => {
+  it('#2 listTools 落 state，toMcpToolDefinition 保留 annotations 两字段、裁掉 title', async () => {
     const cfg: MCPServerConfig = { id: 'srv-2', name: 'fixture', transport: 'stdio', enabled: true }
     const fixture = createInMemoryMcpServer({
       tools: [
@@ -100,7 +100,8 @@ describe('MCPClient · in-memory 组 A 剩余（#2 listTools 裁剪 / #3 callToo
           name: 'echo',
           description: '回显',
           inputSchema: { type: 'object', properties: {} },
-          // 裁剪区分度：这两个字段必须随协议下发，否则变异前后键集相同（见计划 §4 Task 7 #2）
+          // annotations 必须保留（只读写守卫的判定依据），title 仍裁
+          // 区分度：这两个字段必须随协议下发，否则变异前后键集相同（见计划 §4 Task 7 #2）
           title: 'Echo Tool',
           annotations: { readOnlyHint: true },
           result: { content: [{ type: 'text', text: 'ok' }] },
@@ -117,9 +118,9 @@ describe('MCPClient · in-memory 组 A 剩余（#2 listTools 裁剪 / #3 callToo
     const snap = client.getServer('srv-2')!
     expect(snap.tools.map((t) => t.name)).toEqual(['echo'])
     const t = snap.tools[0]
-    expect(Object.keys(t).sort()).toEqual(['description', 'inputSchema', 'name'])
+    expect(Object.keys(t).sort()).toEqual(['annotations', 'description', 'inputSchema', 'name'])
     expect((t as any).title).toBeUndefined()
-    expect((t as any).annotations).toBeUndefined()
+    expect((t as any).annotations).toEqual({readOnlyHint: true})
 
     await client.stopServer('srv-2')
     expect(client.getServer('srv-2')!.status).toBe('stopped')

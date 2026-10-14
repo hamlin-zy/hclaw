@@ -112,6 +112,60 @@ describe('getScopedSections — 组视图', () => {
         expect(useConversationStore.getState().expandedGroupIds).toEqual([])
     })
 
+    // 2026-10-14 三态修订：根因 —— 「激活即展开」是无条件并集，用户对激活段的手动折叠
+    // 会在下一轮 getScopedSections 被 activeKey 合并回展开集而撤销（侧栏表现：
+    // 含激活会话的那个项目，点项目名/项目图标折叠不动）。
+    it('激活段被用户显式折叠 → 折叠生效（自动展开不得压过手动折叠）', () => {
+        useConversationStore.setState({
+            activeConversationId: 'c-1',
+            expandedGroupIds: ['/ws/a'],
+            manualCollapsedGroupIds: [],
+        })
+        expect(useConversationStore.getState().getScopedSections()[0].collapsed).toBe(false)
+        useConversationStore.getState().collapseSection('/ws/a')
+        const sections = useConversationStore.getState().getScopedSections()
+        expect(sections[0].collapsed).toBe(true)
+        expect(sections[0].rows).toEqual([])
+        // 其它段不受影响（仍按各自口径）
+        expect(sections[1].collapsed).toBe(true)
+    })
+
+    it('手动折叠激活段后重新展开 → 折叠意图被清除，自动展开恢复', () => {
+        useConversationStore.setState({
+            activeConversationId: 'c-1',
+            expandedGroupIds: [],
+            manualCollapsedGroupIds: ['/ws/a'],
+        })
+        expect(useConversationStore.getState().getScopedSections()[0].collapsed).toBe(true)
+        // 用户再点一次 → toggleSectionCollapsed：入展开集 + 清手动折叠集
+        useConversationStore.getState().toggleSectionCollapsed('/ws/a')
+        const sections = useConversationStore.getState().getScopedSections()
+        expect(sections[0].collapsed).toBe(false)
+        // 段内排序 = createdAt desc → c-2（1002）在 c-1（1001）前
+        expect(sections[0].rows.map(r => r.id)).toEqual(['c-2', 'c-1'])
+    })
+
+    it('非激活段的手动折叠不改变其默认折叠态，也不影响激活段', () => {
+        useConversationStore.setState({
+            activeConversationId: 'c-1',
+            expandedGroupIds: [],
+            manualCollapsedGroupIds: ['/ws/b'],
+        })
+        const sections = useConversationStore.getState().getScopedSections()
+        expect(sections[0].collapsed).toBe(false) // 激活段仍自动展开
+        expect(sections[1].collapsed).toBe(true)
+    })
+
+    it('手动折叠集不影响搜索命中强制展开', () => {
+        useConversationStore.setState({
+            activeConversationId: 'c-1',
+            manualCollapsedGroupIds: ['/ws/b'],
+            searchQuery: '会话3',
+        })
+        // forcedOpen（搜索命中）优先级高于两个手动集合
+        expect(useConversationStore.getState().getScopedSections()[1].collapsed).toBe(false)
+    })
+
     it('组合（B2 场景）：激活会话落在窗口外且段不在展开集 → 段自动展开且老会话可见', () => {
         // 「最近会话」点开一条 createdAt 排位很老、落在 6 条窗口外的会话：
         // 段 auto-expand（activeKey）+ 窗口截断豁免须复合生效，否则侧栏看不到当前会话。

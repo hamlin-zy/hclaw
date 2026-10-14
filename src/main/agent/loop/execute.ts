@@ -933,6 +933,8 @@ interface ExecuteToolCallsParams {
     disallowedToolNames?: ReadonlySet<string>
     /** 作用域权限模式覆盖（子代理路径固定 'auto'）：透传到 ToolContext，不改写引擎状态 */
     permissionModeOverride?: RunMode
+    /** 只读 Agent 标记：透传到 ToolContext，供 call_mcp_tool 只读守卫消费 */
+    readOnlyMcp?: boolean
 }
 
 /**
@@ -946,7 +948,7 @@ export async function* executeToolCalls(
 ): AsyncGenerator<AgentStreamEvent, ToolExecutionResult> {
     const {toolExecutor, collectedToolCalls, state, workingDir, abortSignal,
         requestConfirmation, askUserQuestion, channelSend, onEvent, sessionId, allowedToolNames, disallowedToolNames,
-        permissionModeOverride} = ctx
+        permissionModeOverride, readOnlyMcp} = ctx
 
     // 通知 UI 工具执行即将开始（停止 thinking 动画 + 显示执行状态）
     yield {type: 'tools_start', toolCount: collectedToolCalls.length}
@@ -962,6 +964,7 @@ export async function* executeToolCalls(
         allowedToolNames,
         disallowedToolNames,
         permissionMode: permissionModeOverride,
+        readOnlyMcp,
         sendMessage: (msg: any) => {
             if (!onEvent) return
             switch (msg.type) {

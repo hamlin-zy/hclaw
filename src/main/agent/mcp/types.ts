@@ -32,6 +32,12 @@ export interface MCPServerConfig {
   autoApprove?: string[]
   /** 拒绝调用的工具名称列表 — Agent 禁止调用这些工具 */
   denyList?: string[]
+  /** 只读守卫白名单：与 denyList 同口径的 MCP 原始工具名，命中即视为只读 */
+  readOnlyTools?: string[]
+  /** 只读守卫黑名单：与 denyList 同口径的 MCP 原始工具名，命中即视为写工具 */
+  writeTools?: string[]
+  /** 未知工具的判定策略，缺省=拦（fail-closed）；缺省不落盘，以区分「未配置」与「显式 deny」 */
+  unknownPolicy?: 'allow' | 'deny'
   /** 是否自动启动 */
   autoStart?: boolean
   /** 是否启用 */
@@ -63,6 +69,14 @@ export interface MCPServerState {
 
 // ─── MCP 工具定义 ──────────────────────────────────────
 
+/** MCP 工具行为标注（仅取只读守卫所需的两字段） */
+export interface MCPToolAnnotations {
+  /** 为 true 表示该工具不修改任何外部状态（MCP 规范默认 false） */
+  readOnlyHint?: boolean
+  /** 为 true 表示该工具可能执行破坏性更新（MCP 规范默认 true） */
+  destructiveHint?: boolean
+}
+
 export interface MCPToolDefinition {
   name: string
   description?: string
@@ -71,6 +85,7 @@ export interface MCPToolDefinition {
     properties?: Record<string, unknown>
     required?: string[]
   }
+  annotations?: MCPToolAnnotations
 }
 
 // ─── MCP 资源 ──────────────────────────────────────────

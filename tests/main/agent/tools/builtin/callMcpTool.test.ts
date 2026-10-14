@@ -16,7 +16,7 @@ const perms = vi.hoisted(() => ({
     /** permissionRulesManager.getRules() 的返回值（权限面板规则） */
     rules: [] as Array<{tool: string; action: 'allow' | 'deny' | 'ask'}>,
     /** getMcpToolMeta 的返回值（undefined = 未命中） */
-    meta: undefined as undefined | {proxyName: string; serverId: string; serverName?: string; rawToolName: string; rawInputSchema: unknown},
+    meta: undefined as undefined | {proxyName: string; serverId: string; serverName?: string; rawToolName: string; rawInputSchema: unknown; override?: {readOnlyTools?: string[]; writeTools?: string[]; unknownPolicy?: 'allow' | 'deny'}},
     calls: {meta: [] as string[], permission: [] as string[]},
 }))
 
@@ -447,5 +447,71 @@ describe('MCP proxy 取消传播（abortSignal）', () => {
         expect(r.success).toBe(false)
         expect(r.error).toContain('已取消')
         callTool.mockRestore()
+    })
+})
+
+// ── 只读 Agent 守卫（Task 5 · readOnlyMcp）─────────────────────────────
+//
+// 能力边界：只读 Agent（Explore / Code Reviewer）无确认通道，故对判定为「写 / 无法判定」
+// 的 MCP 工具只能硬拒。语义判定委托 mcp/writeClassify（Task 1），本组只验边界行为：
+// write 拒 / read 放 / unknown 拒（除非 override.unknownPolicy=allow）/ 缺省行为不变。
+describe('call_mcp_tool 只读守卫（readOnlyMcp）', () => {
+    /** 注册假 proxy（真注册进 toolRegistry，沿用本文件既有 proxy 注册方式） */
+    function registerFakeProxy(name: string) {
+        toolRegistry.register({
+            name,
+            description: 'fake proxy',
+            inputSchema: undefined as never,
+            execute: async () => ({success: true, output: 'OK'}),
+        })
+    }
+
+    function readonlyCtx() {
+        return {...context(), readOnlyMcp: true} as ToolContext
+    }
+
+    it('readOnlyMcp 缺省 → 行为不变（回归）', async () => {
+        perms.meta = {proxyName: 'm_s_x', serverId: 's', rawToolName: 'set_description', rawInputSchema: {}}
+        perms.mode = 'auto'
+        registerFakeProxy('m_s_x')
+        const r = await callMcpTool.execute({name: 'm_s_x'}, context())
+        expect(r.success).toBe(true)
+    })
+
+    it('readOnlyMcp=true + write 工具 → 硬拒，文案为写操作因', async () => {
+        perms.meta = {proxyName: 'm_s_x', serverId: 's', rawToolName: 'set_description', rawInputSchema: {}}
+        const r = await callMcpTool.execute({name: 'm_s_x'}, readonlyCtx())
+        expect(r.success).toBe(false)
+        expect(r.error).toContain('被判定为写操作')
+    })
+
+    it('readOnlyMcp=true + read 工具 → 放行', async () => {
+        perms.meta = {proxyName: 'm_s_x', serverId: 's', rawToolName: 'codegraph_explore', rawInputSchema: {}}
+        perms.mode = 'auto'
+        registerFakeProxy('m_s_x')
+        const r = await callMcpTool.execute({name: 'm_s_x'}, readonlyCtx())
+        expect(r.success).toBe(true)
+    })
+
+    it('readOnlyMcp=true + unknown 工具 → 拒，文案为无法判定因', async () => {
+        perms.meta = {proxyName: 'm_s_x', serverId: 's', rawToolName: 'frobnicate', rawInputSchema: {}}
+        const r = await callMcpTool.execute({name: 'm_s_x'}, readonlyCtx())
+        expect(r.success).toBe(false)
+        expect(r.error).toContain('无法判定')
+    })
+
+    it('readOnlyMcp=true + unknown + override.unknownPolicy=allow → 放行', async () => {
+        perms.meta = {proxyName: 'm_s_x', serverId: 's', rawToolName: 'frobnicate', rawInputSchema: {}, override: {unknownPolicy: 'allow'}}
+        perms.mode = 'auto'
+        registerFakeProxy('m_s_x')
+        const r = await callMcpTool.execute({name: 'm_s_x'}, readonlyCtx())
+        expect(r.success).toBe(true)
+    })
+
+    it('守卫优先于 denyList 之外的一切 allow：perm.ok=false 仍先拒（既有顺序不变）', async () => {
+        perms.meta = {proxyName: 'm_s_x', serverId: 's', rawToolName: 'codegraph_explore', rawInputSchema: {}}
+        perms.ok = false
+        const r = await callMcpTool.execute({name: 'm_s_x'}, readonlyCtx())
+        expect(r.error).toContain('权限服务暂不可用')
     })
 })

@@ -23,7 +23,7 @@ import {INPUT_FOCUS} from '../../lib/inputFocus'
 import {createPortal} from 'react-dom'
 import {Reorder} from 'framer-motion'
 import {useMemoStore, openMemoCreateWindow} from '../../stores/memoStore'
-import {useConversationStore} from '../../stores/conversationStore'
+import {useConversationStore, findConvAcrossWorkspaces} from '../../stores/conversationStore'
 import {useProjectGroupStore} from '../../stores/projectGroupStore'
 import {useSidebarStore} from '../../stores/sidebarStore'
 import {confirm} from '../ConfirmDialog'
@@ -563,9 +563,14 @@ function MemoItemRow({item, onOpen, processed: processedProp, showProject}: {
     // ★ I-3：跨 `workspaces` 全域查找 —— 组视图下条目可能属于非当前项目，
     //   按 currentWorkspacePath 判定会让这些条目的跳转按钮恒禁用（会话明明存在）。
     const workspaces = useConversationStore((s) => s.workspaces)
-    const convExists = item.relatedConvId
-        ? Object.values(workspaces).some((ws) => ws.conversations.some((c: {id: string}) => c.id === item.relatedConvId))
-        : false
+    // ★ 会话真实归属（跨项目反查，复用 store 导出的 findConvAcrossWorkspaces 同口径）：
+    //   条目可被迁移到别的项目（item.workspacePath=B），但会话 home 仍是 A；跳转必须传 home，
+    //   否则 openConversationInWorkspace 会把「在哪干活」切到 B，终态 currentWorkspacePath=A
+    //   + viewScope=B 错配。反查不到（已删除）→ null，按钮既有 disabled 行为不变。
+    const relatedConvHome = item.relatedConvId
+        ? findConvAcrossWorkspaces(workspaces, item.relatedConvId)?.workspacePath ?? null
+        : null
+    const convExists = relatedConvHome !== null
 
     const handleDelete = async () => {
         const ok = await confirm({
@@ -662,8 +667,10 @@ function MemoItemRow({item, onOpen, processed: processedProp, showProject}: {
                                 // ★ I-3：跳转走既有跨窗口入口（切项目 + 跟随视图；不为未登记路径
                                 //   create 悬空工作区）。原先只 setActiveConversation：组视图下跳到
                                 //   非当前项目的会话不会离开组视图（作用域仍不含该会话）。
+                                // ★ 传会话真实归属 relatedConvHome，而非条目的 item.workspacePath：
+                                //   条目迁移后两者会分叉，传错会切到条目新项目（见 relatedConvHome 注释）。
                                 void useConversationStore.getState()
-                                    .openConversationInWorkspace(item.relatedConvId!, item.workspacePath)
+                                    .openConversationInWorkspace(item.relatedConvId!, relatedConvHome!)
                             }}
                             className={`${ACTION_BTN_MUTED} disabled:opacity-30 disabled:cursor-not-allowed`}
                          data-name="memo-open-conv-button">

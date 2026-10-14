@@ -23,6 +23,9 @@ function configChanged(a: McpServer, b: McpServer): boolean {
     if (JSON.stringify(a.headers || {}) !== JSON.stringify(b.headers || {})) return true
     if (JSON.stringify(a.autoApprove || []) !== JSON.stringify(b.autoApprove || [])) return true
     if (JSON.stringify(a.denyList || []) !== JSON.stringify(b.denyList || [])) return true
+    if (JSON.stringify(a.readOnlyTools || []) !== JSON.stringify(b.readOnlyTools || [])) return true
+    if (JSON.stringify(a.writeTools || []) !== JSON.stringify(b.writeTools || [])) return true
+    if (a.unknownPolicy !== b.unknownPolicy) return true
     return false
 }
 

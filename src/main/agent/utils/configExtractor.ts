@@ -56,6 +56,9 @@ export interface RawAgentConfig {
     required_mcp_servers?: unknown
     requiredMcpServers?: unknown
 
+    // 只读 Agent 标记（显式字段，不做运行期推导）
+    readOnly?: unknown
+
     // 其他字段
     [key: string]: unknown
 }
@@ -103,6 +106,9 @@ export interface ParsedAgentConfig {
     maxTurns?: number
     /** 必需的 MCP 服务器 */
     requiredMcpServers?: string[]
+
+    /** 只读 Agent：经 call_mcp_tool 仅可执行判定为读的 MCP 工具 */
+    readOnly?: boolean
 }
 
 /**
@@ -197,6 +203,12 @@ export function parseAgentConfig(
     const isolation = extractEnum(raw, 'isolation', ['worktree', 'none'])
     const permissionMode = extractEnum(raw, 'permission_mode', 'permissionMode', ['auto', 'safe'])
     const maxTurns = extractNumber(raw, 'max_turns') ?? extractNumber(raw, 'maxTurns')
+    // readOnly：与 maxTurns/disallowedTools 同款「snake_case 优先，camelCase 兜底」；
+    // extractBoolean 的 defaultValue 缺省为 false，不能用 false 判定「未声明」，
+    // 故仅当显式声明 read_only / readOnly 时取值，缺省为 undefined。
+    const readOnly = 'read_only' in raw
+        ? extractBoolean(raw, 'read_only')
+        : ('readOnly' in raw ? extractBoolean(raw, 'readOnly') : undefined)
     const requiredMcpServers = parseStringArray(raw, 'required_mcp_servers')
     if (requiredMcpServers.length === 0) {
         requiredMcpServers.push(...parseStringArray(raw, 'requiredMcpServers'))
@@ -220,6 +232,9 @@ export function parseAgentConfig(
         permissionMode,
         maxTurns,
         requiredMcpServers,
+        // 缺省为 undefined，键常在，与 model/maxTurns 同惯例；
+        // 「缺省无键」的语义由 AgentDefinition 层（converter 条件展开）保证，不在此层重复。
+        readOnly,
     }
 }
 
@@ -263,6 +278,7 @@ export function buildAgentTemplateFromRaw(
         permissionMode: parsed.permissionMode,
         maxTurns: parsed.maxTurns,
         requiredMcpServers: parsed.requiredMcpServers,
+        readOnly: parsed.readOnly,
     }
 }
 

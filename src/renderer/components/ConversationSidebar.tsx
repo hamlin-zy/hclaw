@@ -1354,6 +1354,7 @@ export function ConversationList() {
     const groups = useProjectGroupStore((s) => s.groups)
     const searchQuery = useConversationStore((s) => s.searchQuery)
     const expandedGroupIds = useConversationStore((s) => s.expandedGroupIds)
+    const manualCollapsedGroupIds = useConversationStore((s) => s.manualCollapsedGroupIds)
     const sectionWindowSizes = useConversationStore((s) => s.sectionWindowSizes)
     const singleViewWindowHintShown = useConversationStore((s) => s.singleViewWindowHintShown)
     const gitBranches = useConversationStore((s) => s.gitBranches)
@@ -1365,6 +1366,7 @@ export function ConversationList() {
     const activeConversationId = useConversationStore((s) => s.activeConversationId)
     const pendingFocusProject = useConversationStore((s) => s.pendingFocusProject)
     const toggleSectionCollapsed = useConversationStore((s) => s.toggleSectionCollapsed)
+    const collapseSection = useConversationStore((s) => s.collapseSection)
     const setSectionWindowSize = useConversationStore((s) => s.setSectionWindowSize)
     const childWindowSizes = useConversationStore((s) => s.childWindowSizes)
     const setChildWindowSize = useConversationStore((s) => s.setChildWindowSize)
@@ -1498,7 +1500,7 @@ export function ConversationList() {
     //   少了它 → 切到落在窗口外的会话时段集合不重算，激活项仍不可见。
     const sections = useMemo(
         () => getScopedSections(),
-        [getScopedSections, workspaces, viewScope, searchQuery, expandedGroupIds, sectionWindowSizes, childWindowSizes, gitBranches, gitBranch, currentWorkspacePath, groups, expandedChildParents, activeConversationId],
+        [getScopedSections, workspaces, viewScope, searchQuery, expandedGroupIds, manualCollapsedGroupIds, sectionWindowSizes, childWindowSizes, gitBranches, gitBranch, currentWorkspacePath, groups, expandedChildParents, activeConversationId],
     )
 
     // ★ 段路径签名 = 段集合的「项目路径集合」指纹。用它而不是 sections 数组身份来驱动
@@ -1596,7 +1598,7 @@ export function ConversationList() {
     //   故 childWindowSizes 也进这一组。
     useEffect(() => {
         prevChildrenRef.current = null
-    }, [expandedGroupIds, sectionWindowSizes, viewScope, childWindowSizes])
+    }, [expandedGroupIds, manualCollapsedGroupIds, sectionWindowSizes, viewScope, childWindowSizes])
 
     // ★ 2026-09-24 用户反馈（「切进工作组视图时，含子会话的父会话子列表全都被展开了，看起来有点乱」）：
     //   段集合随视图整体换一套，旧视图里点开过的父会话在新视图里多半已不可见。而下方「激活链重建」
@@ -1848,7 +1850,13 @@ export function ConversationList() {
                     {viewScope?.type === 'group' && (
                         <ConversationSectionHeader
                             section={section}
-                            onToggleCollapsed={() => toggleSectionCollapsed(section.key)}
+                            // ★ 2026-10-14 三态修订：按当前折叠态分发到两个 action。
+                            //   折叠态点击 = 展开（toggleSectionCollapsed：入展开集、出手动折叠集）；
+                            //   展开态点击 = 折叠（collapseSection：入手动折叠集、出展开集）——
+                            //   激活段靠后者才能真正折住（否则 activeKey 的自动展开下一轮又并回来）。
+                            onToggleCollapsed={() => section.collapsed
+                                ? toggleSectionCollapsed(section.key)
+                                : collapseSection(section.key)}
                             onOpenProjectManager={() => window.electronAPI?.projectManager?.openProjectManager(section.projectPath)}
                             onNewConversation={() => void newConversation({workspacePath: section.projectPath, stayInScope: true})}
                         />

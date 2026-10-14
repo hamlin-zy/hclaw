@@ -53,7 +53,20 @@ export function initMemoIPC(): void {
             return {ok: false as const, error: toError(err)}
         }
     })
-    ipcMain.handle('memo:update', (_e, {id, patch}) => wrap(memoStore.findById(id)?.workspacePath, () => memoStore.update(id, patch)))
+    // update 不用共用 wrap：跨项目迁移时需向源与目标各广播一次，wrap 只支持单次广播
+    ipcMain.handle('memo:update', (_e, {id, patch}) => {
+        const from = memoStore.findById(id)?.workspacePath
+        try {
+            const data = memoStore.update(id, patch)
+            // 源项目广播一次（findById 未命中时无源可广播）
+            if (from) broadcastChanged(from)
+            // 迁移后 data.workspacePath 已是目标路径：与源不同则再向目标广播一次
+            if (data.workspacePath && data.workspacePath !== from) broadcastChanged(data.workspacePath)
+            return {ok: true as const, data}
+        } catch (err) {
+            return {ok: false as const, error: toError(err)}
+        }
+    })
     ipcMain.handle('memo:delete', (_e, id: string) => wrap(memoStore.findById(id)?.workspacePath, () => memoStore.remove(id)))
     // 批量删除（删除组内备忘录）：removeMany 返回受影响的工作区，逐个广播 memo_changed
     ipcMain.handle('memo:deleteMany', async (_e, ids: string[]) => {

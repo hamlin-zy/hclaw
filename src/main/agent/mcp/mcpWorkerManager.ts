@@ -18,6 +18,8 @@ import {execSync} from 'child_process'
 import path from 'path'
 import {mcpService} from '../../services/mcpService'
 import type {MCPServerConfig} from './types'
+import type {McpToolPayload} from './toolPayload'
+import type {McpWriteOverride} from './writeClassify'
 import type {McpServer} from '../../../shared/types/mcp'
 import {logger} from '../logger'
 import {MCP_WORKER_RESOURCE_LIMITS} from '../../workerLimits'
@@ -158,6 +160,9 @@ export class MCPWorkerManager {
             timeout: s.timeout,
             autoApprove: s.autoApprove,
             denyList: s.denyList,
+            readOnlyTools: s.readOnlyTools,
+            writeTools: s.writeTools,
+            unknownPolicy: s.unknownPolicy,
             enabled: s.enabled ?? true,
             userDescription: s.userDescription,
         }
@@ -366,7 +371,9 @@ export class MCPWorkerManager {
         status: string;
         error?: string;
         toolCount?: number;
-        tools?: Array<{ name: string; description?: string; inputSchema: any }>
+        tools?: McpToolPayload[];
+        /** MCP server 策略覆写（server 级；随 status_batch payload 下发） */
+        override?: McpWriteOverride
     }>): void {
         for (const u of updates) {
             // u.tools 有数据时覆盖缓存，无数据时保留现有缓存

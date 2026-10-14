@@ -47,6 +47,18 @@ interface ConversationStore {
      * 跨重启保留；激活会话所在段的自动展开是**仅内存**的实时派生（不落盘、不进本集合）。
      */
     expandedGroupIds: string[]
+    /**
+     * 已手动折叠的项目段 key 集合（项目路径 / 未归属虚拟键；2026-10-14 三态修订）。
+     * 存在的理由：组视图「激活即展开」是**实时派生**的自动展开，它与「手动折叠」
+     * 必须可分辨 —— 否则用户在激活段上点折叠，activeKey 下一轮又把它并回展开集，
+     * 折叠被立即撤销（表现为「激活段点项目名折叠不动」）。本集合即手动折叠的持久化
+     * 标记，优先级高于自动展开：
+     *   collapsed = !forcedOpen && !expandedGroupIds.includes(key) && !(activeKey === key && !manualCollapsed.includes(key))
+     * ⚠ 不复用 D19 前的旧字段名 `collapsedGroupIds`（已停读停写）：同名不同义会让
+     *   「载荷里有没有 expandedGroupIds」变成隐式判别依据，违背显式契约；且老 payload
+     *   的折叠集是「默认展开」体系的口径，直接套进「默认折叠」体系会误折。
+     */
+    manualCollapsedGroupIds: string[]
     /** 段 key（项目路径）→ 该段窗口大小（已加载的非置顶根会话上限），缺省 10（spec §7.2） */
     sectionWindowSizes: Record<string, number>
     /** 子会话窗口大小（父会话 id → 可见条数；缺省 CHILD_DEFAULT；不落盘） */
@@ -67,6 +79,8 @@ interface ConversationStore {
     setViewScope: (scope: ViewScope | null) => void
     setProjectGroupView: (groupId: string) => void
     toggleSectionCollapsed: (key: string) => void
+    /** 显式折叠段（含激活段）：记入手动折叠集并落盘（2026-10-14 三态修订） */
+    collapseSection: (key: string) => void
     restoreScope: () => Promise<void>
     /** 作用域化取数：**渲染层列表唯一入口**（spec §5.3） */
     getScopedSections: () => ConversationSection[]
@@ -926,6 +940,13 @@ interface PersistedScope {
     viewScope: ViewScope | null
     /** 2026-09-26 修订：旧字段 collapsedGroupIds 停读停写（老载荷忽略，不回反向迁移） */
     expandedGroupIds: string[]
+    /**
+     * 2026-10-14 三态修订：手动折叠集（显式压过「激活即展开」的自动展开）。
+     * 旧 D19 前的 `collapsedGroupIds`（默认展开体系的折叠集）已停读停写，本字段
+     * 换名不用旧字段名 —— 同名不同义会把「载荷有没有 expandedGroupIds」变成隐式
+     * 判别依据，也会让老 payload 的旧折叠集被误套进默认折叠体系。缺省 `[]`。
+     */
+    manualCollapsedGroupIds: string[]
     singleViewWindowHintShown?: boolean
 }
 
@@ -956,6 +977,11 @@ export function parsePersistedScope(raw: unknown): PersistedScope | null {
         //   非数组 → []，非 string 元素过滤。
         expandedGroupIds: Array.isArray(o.expandedGroupIds)
             ? o.expandedGroupIds.filter((k): k is string => typeof k === 'string')
+            : [],
+        // 2026-10-14 三态修订：手动折叠集（缺键 = 无手动折叠 = 行为与修订前一致）。
+        // 与 expandedGroupIds 同一形状守卫口径（非数组 → []，非 string 元素过滤）。
+        manualCollapsedGroupIds: Array.isArray(o.manualCollapsedGroupIds)
+            ? o.manualCollapsedGroupIds.filter((k): k is string => typeof k === 'string')
             : [],
         singleViewWindowHintShown: o.singleViewWindowHintShown === true,
     }
@@ -1033,11 +1059,15 @@ export function resolveScopeProjectPaths(state: {
 /** 落盘（异步、失败静默：持久化失败不得影响交互）。
  *  ★ 唯一构造点：入参是整个 state 切片，调用方一律传 get()——后续给持久化载荷加字段
  *    （如 Task 14 的 singleViewWindowHintShown）时不必逐个手写字面量，避免漏改某一处。 */
-function persistScope(state: Pick<ConversationStore, 'viewScope' | 'expandedGroupIds' | 'singleViewWindowHintShown'>): void {
+function persistScope(state: Pick<ConversationStore, 'viewScope' | 'expandedGroupIds' | 'manualCollapsedGroupIds' | 'singleViewWindowHintShown'>): void {
     void window.electronAPI?.configWrite?.(VIEW_SCOPE_KEY, {
         viewScope: state.viewScope,
-        // 2026-09-26 修订：只写展开集；旧 collapsedGroupIds 停写（一次性清理）
+        // 2026-09-26 修订：只写展开集；D19 前的旧 collapsedGroupIds 停写（一次性清理）
         expandedGroupIds: state.expandedGroupIds,
+        // 2026-10-14 三态修订：手动折叠集（显式压过激活自动展开）。空数组也写 ——
+        //   与 singleViewWindowHintShown 的「只在 true 时写」不同：缺键与空集同义
+        //   （都是无手动折叠），不写不会丢信息，但写了让载荷形状稳定、便于排查。
+        manualCollapsedGroupIds: state.manualCollapsedGroupIds,
         // ★ 只在 true 时写入（brief 把该键定为可选）：false 与「老 payload 缺该键」同义
         //   （restoreScope 读回时 `=== true` 兜底），故省略不丢信息，也让既有落盘断言
         //   （toEqual 全量比对 {viewScope, expandedGroupIds}）无需改动。
@@ -1136,6 +1166,7 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       handoffDismissed: {},
       viewScope: null,
       expandedGroupIds: [],
+      manualCollapsedGroupIds: [],
       sectionWindowSizes: {},
       childWindowSizes: {},
       singleViewWindowHintShown: false,
@@ -1156,14 +1187,41 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
       },
 
       /**
-       * 手动折叠/展开段（2026-09-26 修订 D19：组视图段默认折叠，本 action 语义反转）：
-       * key 在 expandedGroupIds 内 → 移出（段回落默认折叠）；不在 → 加入（段展开）。
-       * 两种结果都落盘（跨重启保留）。激活段的自动展开是内存派生，不经过本 action。
+       * 手动折叠/展开段（2026-09-26 修订 D19 语义反转；2026-10-14 三态修订）：
+       * 组视图段默认折叠，两个手动集互斥维护 ——
+       *  · key 在 expandedGroupIds 内 → 移出展开集（段回落默认折叠）；
+       *  · 否则 → 加入展开集，并同步**清出手动折叠集**。
+       * 反向（展开 → 折叠）由 collapseSection 承担，它在加入手动折叠集的
+       * 同时把 key 从展开集移除。两种结果都落盘（跨重启保留）。
+       * 激活段的自动展开是内存派生，不经过本 action、也不写这两个集合 —— 但它会被
+       * 手动折叠集压过（见 getScopedSections 的 collapsed 表达式）。
        */
       toggleSectionCollapsed: (key) => {
-          const current = get().expandedGroupIds
-          const next = current.includes(key) ? current.filter(k => k !== key) : [...current, key]
-          set({expandedGroupIds: next})
+          const {expandedGroupIds, manualCollapsedGroupIds} = get()
+          const next = expandedGroupIds.includes(key)
+              ? expandedGroupIds.filter(k => k !== key)
+              : [...expandedGroupIds, key]
+          // 不变量：同一 key 不得同时留在两个集合（互斥）——重复进入会让 collapsed
+          // 表达式的结果取决于求值顺序，掩盖真实的用户意图。
+          const nextCollapsed = manualCollapsedGroupIds.filter(k => k !== key)
+          set({expandedGroupIds: next, manualCollapsedGroupIds: nextCollapsed})
+          persistScope(get())
+      },
+
+      /**
+       * 2026-10-14 三态修订新增：显式折叠段（含激活段）。
+       * 与 toggleSectionCollapsed 是同一枚按钮的两个方向，分开两个 action 是为了让
+       * 「手动折叠」成为一个**可持久化的一等状态**，而不是展开集的缺席（缺席既可能是
+       * 用户折过，也可能是从没展开过 —— 而后者必须继续享受「激活即展开」）。
+       * 语义：key 加入手动折叠集，同时从展开集移除（互斥不变量）。两种集合的落盘口径一致。
+       */
+      collapseSection: (key) => {
+          const {expandedGroupIds, manualCollapsedGroupIds} = get()
+          if (manualCollapsedGroupIds.includes(key)) return
+          set({
+              manualCollapsedGroupIds: [...manualCollapsedGroupIds, key],
+              expandedGroupIds: expandedGroupIds.filter(k => k !== key),
+          })
           persistScope(get())
       },
 
@@ -1182,20 +1240,26 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
           const state = get()
           const {
               viewScope, workspaces, currentWorkspacePath,
-              searchQuery, expandedGroupIds, sectionWindowSizes, gitBranches,
+              searchQuery, expandedGroupIds, manualCollapsedGroupIds, sectionWindowSizes, gitBranches,
               expandedChildParents, childWindowSizes, activeConversationId,
           } = state
           const paths = resolveScopeProjectPaths(state)
           // ★ 2026-09-26 修订 D19「激活即展开」（仅内存，不落盘）：激活会话所属 workspace
           //   实时反查（复用 restoreScope 的 workspaces 反查口径；未归属会话在
-          //   workspaces[UNASSIGNED_WORKSPACE_KEY] 里，天然覆盖未归属段 key），
-          //   与手动展开集合并成 expandedKeys 传给 buildConversationSections。
+          //   workspaces[UNASSIGNED_WORKSPACE_KEY] 里，天然覆盖未归属段 key）。
+          //   ★ 2026-10-14 三态修订：自动展开**不得**压过手动折叠 —— 激活段若已被用户
+          //   显式折过（manualCollapsedGroupIds），activeKey 不合并进展开集，否则用户在
+          //   激活段上点折叠会被立即撤销（「点项目名折叠不动」）。
           const activeKey = activeConversationId
               ? Object.keys(workspaces).find(
                   p => workspaces[p].conversations.some(c => c.id === activeConversationId),
               ) ?? null
               : null
-          const expandedKeys = activeKey && !expandedGroupIds.includes(activeKey)
+          // 单一条件式收窄：activeKey 非空时 TS 已知 string（省掉 autoExpand 中转变量与
+          // 三元里的非空断言 `activeKey!`）。语义 = 激活段自动展开，但压不过手动折叠集。
+          const expandedKeys = activeKey !== null
+              && !manualCollapsedGroupIds.includes(activeKey)
+              && !expandedGroupIds.includes(activeKey)
               ? [...expandedGroupIds, activeKey]
               : expandedGroupIds
           // 「未归属」虚拟段的会话（workspacePath 为空的会话）。
@@ -1383,11 +1447,13 @@ export const useConversationStore = createWithEqualityFn<ConversationStore>()(
               currentWorkspacePath: state.currentWorkspacePath,
               activeConvWorkspacePath: activeConvWs,
           })
-          // 2026-09-26 修订：回填展开集（新字段）；老 payload 只含旧 collapsedGroupIds
-          //   → 停读停写、忽略 → 组视图回到「默认折叠」基线（一次性清理，无版本回滚需求）
+          // 2026-09-26 修订：回填展开集（新字段）；老 payload 只含 D19 前旧字段
+          //   → 停读停写、忽略 → 组视图回到「默认折叠」基线（一次性清理，无版本回滚需求）。
+          //   2026-10-14 三态修订：同批回填手动折叠集（缺键 → []）。
           set({
               viewScope: resolved,
               expandedGroupIds: Array.isArray(persisted?.expandedGroupIds) ? persisted!.expandedGroupIds : [],
+              manualCollapsedGroupIds: Array.isArray(persisted?.manualCollapsedGroupIds) ? persisted!.manualCollapsedGroupIds : [],
               // 老安装的存量 payload 没有该键 → 默认 false（未提示过）
               singleViewWindowHintShown: persisted?.singleViewWindowHintShown === true,
           })

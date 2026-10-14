@@ -118,6 +118,10 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
     const [url, setUrl] = useState(server?.url || '')
     const [headersPairs, setHeadersPairs] = useState<Array<{ key: string; value: string }>>(objectToPairs(server?.headers))
     const [timeoutStr, setTimeoutStr] = useState(server?.timeout ? String(server.timeout) : '60000')
+    // 只读守卫策略字段（逗号分隔文本；unknownPolicy 三态，'' = 未配置）
+    const [readOnlyToolsStr, setReadOnlyToolsStr] = useState((server?.readOnlyTools || []).join(', '))
+    const [writeToolsStr, setWriteToolsStr] = useState((server?.writeTools || []).join(', '))
+    const [unknownPolicy, setUnknownPolicy] = useState<'' | 'allow' | 'deny'>(server?.unknownPolicy || '')
 
     // 测试连接状态
     const [isTesting, setIsTesting] = useState(false)
@@ -251,6 +255,13 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
             cwd: cwd || undefined,
             timeout,
             checkUrl: checkUrl || undefined,
+            readOnlyTools: readOnlyToolsStr.split(',').map(s => s.trim()).filter(Boolean),
+            writeTools: writeToolsStr.split(',').map(s => s.trim()).filter(Boolean),
+            // ★ 必须显式带键（不用条件展开）：条件展开在「更新」场景下会让 payload
+            //   不含该键 → updateMCPServer 浅合并保留旧 'allow' → UI 显示「未配置」
+            //   但行为仍放行（fail-open 假象）。显式 undefined 让「选未配置」真正清除
+            //   既有值；新建场景 undefined 不落盘（serialize 不写键），语义不变。
+            unknownPolicy: unknownPolicy || undefined,
         })
     }
 
@@ -401,6 +412,28 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                             <input type="number" value={timeoutStr} onChange={(e) => setTimeoutStr(e.target.value)}
                                    placeholder="60000" min="1000" max="300000" step="1000"
                                    className={`w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono outline-none ${INPUT_FOCUS}`} data-name="mcpedit-card-timeout-input"/>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">只读工具 (命中即视为只读，逗号分隔)</label>
+                            <input type="text" value={readOnlyToolsStr} onChange={(e) => setReadOnlyToolsStr(e.target.value)}
+                                   placeholder="codegraph_explore, read_file"
+                                   className={`w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono outline-none ${INPUT_FOCUS}`} data-name="mcpedit-card-readonly-tools-input"/>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">写工具 (命中即视为写，逗号分隔)</label>
+                            <input type="text" value={writeToolsStr} onChange={(e) => setWriteToolsStr(e.target.value)}
+                                   placeholder="delete_file, write_file"
+                                   className={`w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono outline-none ${INPUT_FOCUS}`} data-name="mcpedit-card-write-tools-input"/>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">未知工具策略</label>
+                            <select value={unknownPolicy}
+                                    onChange={(e) => setUnknownPolicy(e.target.value as '' | 'allow' | 'deny')}
+                                    className={`w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono outline-none ${INPUT_FOCUS}`} data-name="mcpedit-card-unknown-policy-select">
+                                <option value="">未配置</option>
+                                <option value="allow">允许（unknown 放行）</option>
+                                <option value="deny">拒绝（保守）</option>
+                            </select>
                         </div>
                     </div>
                 </>

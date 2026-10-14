@@ -11,6 +11,7 @@ import type {ThemeSetting} from './theme'
 export type PromptNodeKey =
   | 'system.intro'
   | 'system.rules'
+  | 'system.verify'
   | 'system.workflow'
   | 'system.output'
   | 'system.routing'

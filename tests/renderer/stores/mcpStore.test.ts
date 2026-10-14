@@ -97,6 +97,14 @@ describe('addMCPServer', () => {
         expect(s.autoApprove).toEqual(['read'])
         expect(s.denyList).toEqual(['write'])
     })
+
+    it('addMCPServer 为新策略字段补默认值', () => {
+        const s = useMcpStore.getState()
+        const created = s.addMCPServer({name: 'x', transport: 'stdio', enabled: true} as any)
+        expect(created.readOnlyTools).toEqual([])
+        expect(created.writeTools).toEqual([])
+        expect(created.unknownPolicy).toBeUndefined()
+    })
 })
 
 describe('removeMCPServer', () => {
@@ -386,5 +394,38 @@ describe('onListChanged IPC 监听', () => {
             expect(h.mcp.list).toHaveBeenCalled()
         })
         expect(useMcpStore.getState().mcpServers).toEqual(before)
+    })
+
+    it('R18：逐字段重建对象时必须保留策略字段（防擦除）', async () => {
+        h.mcp.list.mockResolvedValue({
+            success: true,
+            data: [{
+                id: 'a', name: 'A', transport: 'stdio', enabled: true,
+                readOnlyTools: ['codegraph_explore'], writeTools: ['delete_file'], unknownPolicy: 'allow',
+            }],
+        })
+        h.listHandlers[0]()
+        await vi.waitFor(() => {
+            expect(useMcpStore.getState().mcpServers[0]?.name).toBe('A')
+        })
+        const s = useMcpStore.getState().mcpServers[0]
+        expect(s.readOnlyTools).toEqual(['codegraph_explore'])
+        expect(s.writeTools).toEqual(['delete_file'])
+        expect(s.unknownPolicy).toBe('allow')
+    })
+
+    it('R18：磁盘未配置策略字段 → 数组落 []、unknownPolicy 保持 undefined（区分未配置与显式 deny）', async () => {
+        h.mcp.list.mockResolvedValue({
+            success: true,
+            data: [{id: 'a', name: 'A', transport: 'stdio', enabled: true}],
+        })
+        h.listHandlers[0]()
+        await vi.waitFor(() => {
+            expect(useMcpStore.getState().mcpServers[0]?.name).toBe('A')
+        })
+        const s = useMcpStore.getState().mcpServers[0]
+        expect(s.readOnlyTools).toEqual([])
+        expect(s.writeTools).toEqual([])
+        expect(s.unknownPolicy).toBeUndefined()
     })
 })

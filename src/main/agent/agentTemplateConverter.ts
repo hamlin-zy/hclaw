@@ -33,6 +33,8 @@ export function agentTemplateToDefinition(template: AgentTemplate): AgentDefinit
         maxTurns: template.maxTurns,
         isolation: template.isolation,
         requiredMcpServers: template.requiredMcpServers,
+        // 缺省不写该字段：`'readOnly' in def` 需为 false（见 readonly 透传测试）
+        ...(template.readOnly === undefined ? {} : {readOnly: template.readOnly}),
     }
 }
 

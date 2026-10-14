@@ -87,3 +87,8 @@ reports/
 
 # 视觉验证 demo 页（本地保留，不入库）
 demo/
+
+# 会话临时调研/实验产物（前缀式临时目录，仅根目录；如 .tmp-research / _tmp_mb / tmp_research）
+/.tmp*/
+/_tmp*/
+/tmp_*/

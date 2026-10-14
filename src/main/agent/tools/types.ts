@@ -30,6 +30,11 @@ export interface Tool<Input = any, Output = any> {
   requiredPermissions?: string[]
   /** 是否为破坏性操作（删除、覆盖等），需要用户二次确认 */
   isDestructive?: boolean
+  /**
+   * 入参归一化钩子：在 Zod 校验前调用，把语义别名归一为合法枚举（如 in_progress → running）。
+   * 识别到别名时返回新对象（不得原地修改入参）；未识别时原样返回，交由 Zod 校验报错。
+   */
+  normalizeArgs?: (args: Record<string, unknown>) => Record<string, unknown>
     /** 自动批准 — 调用此工具时无需用户二次确认（MCP 工具 autoApprove 标记） */
     autoApprove?: boolean
 
@@ -69,6 +74,8 @@ export interface ToolContext {
    * 仅作为参数下发，调用方不得据此写回共享引擎状态。
    */
   permissionMode?: RunMode
+  /** 只读 Agent 标记：true 时 MCP 工具仅允许判定为读的调用（见 mcp/writeClassify） */
+  readOnlyMcp?: boolean
 }
 
 // ─── 工具执行结果 ──────────────────────────────────────

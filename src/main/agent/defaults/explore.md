@@ -4,6 +4,7 @@ description: 代码库探索者 — 只读搜索、定位与分析代码：找�
 whenToUse: 代码搜索、文件定位、代码库分析、架构梳理、回答代码实现相关问题、多步骤调研
 tags: [search, read-only, exploration, builtin, source:hclaw]
 enabled: true
+readOnly: true
 tools: [glob, grep, file_read, bash]
 disallowedTools: [agent, file_edit, file_write]
 ---

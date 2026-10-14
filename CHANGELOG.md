@@ -7,6 +7,22 @@
 
 ---
 
+## [v0.5.26] - 2026-10-14
+
+### 新增
+- **MCP 只读守卫** — 采集 MCP annotations（读写模式/破坏性标记），新增 writeClassify 纯函数判定工具读写性，三策略字段（readOnlyMode/disallowWrite/disallowUnknown）贯穿投递链路至 McpToolMeta；配置面板新增策略字段编辑与保存生效链路；只读 Agent 经 call_mcp_tool 硬拒写/未知工具，executor 补齐原生直调守卫 (`mcp/writeClassify` / `mcp/toolPayload` / `mcp/discovery` / `mcp/sdkAdapter` / `config/mcpConfig` / `dialogs/MCPDialog` / `dialogs/MCPEditCard` / `tools/executor` / `tools/builtin/callMcpTool`)
+- **知识边界查证协议** — system prompt 新增 verify 常驻段（外部知识查证流程与豁免条件）；system.memory 改述真实记忆机制；buildSystemSignature 加 promptRevision 推进存量会话 system 重建；默认值迁移加 baseline hash 快照守卫 (`shared/prompts` / `agent/systemPrompt` / `agent/prompts/promptDefaultUpgrade`)
+- **Memo 跨项目迁移** — memo_tool 支持 list_projects 与指定目标项目；新增 memoProjectResolver 纯函数模块；memoStore.update 支持跨项目迁移（含附件目录移动与回滚）；迁移失败回滚还原 _pending 附件；迁移时向源/目标双向广播 memo_changed；编辑弹窗支持修改所属项目组与项目；跳转关联会话传真实归属项目 (`tools/builtin/memoProjectResolver` / `tools/builtin/memoTool` / `memo/memoStore` / `memo/memoIPC` / `dialogs/MemoEditDialog` / `memo/MemoPanel`)
+- **子 Agent 能力增强** — 派发子 Agent 默认追加 call_mcp_tool（additionalTools 并集）；子 Agent 收尾时同步待办，task_update 入参别名归一 (`tools/builtin/agentTool` / `tools/builtin/agentToolTools` / `tools/builtin/taskUpdateTool`)
+- **Agent readOnly 字段** — 新增 readOnly 显式字段，覆盖存量 agent md 迁移 (`shared/agent` / `agent/agentTemplateConverter` / `agent/defaults/builtinAgentUpgrade`)
+
+### 修复
+- **组视图折叠** — 修复侧边栏组视图激活段无法折叠的问题 (`ConversationSidebar`)
+- **annotations 空壳归一** — annotations 空壳归一为缺省值，避免只读守卫误拦 (`mcp/sdkAdapter`)
+
+### 重构
+- **代码优化** — 零行为变化的结构优化 (多处)
+
 ## [v0.5.25] - 2026-10-07
 
 ### 新增

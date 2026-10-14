@@ -35,6 +35,43 @@ vi.mock('electron', () => ({
     },
 }))
 
+/**
+ * 仓储 mock：项目清单与目标项目解析的固定数据源。
+ *
+ * memo_tool 在 worker 线程直接调用仓储（先例：schedulerManageTool.ts），与主进程 memoIPC
+ * 共用同一存储根；全局不引入跨线程锁，接受 best-effort 并发（spec §4.2 豁免）。
+ * 夹具口径：组「常用」含两个项目，其中「多平台内容规划」跨两个组同名（歧义的来源）；
+ *           「Downloads」未分组；`__unassigned__` 是库里现存的虚拟键，必须被清单排除。
+ */
+vi.mock('../../../../../src/main/repositories/sqlite/workspaceRepository', () => ({
+    workspaceRepo: {
+        list: () => [
+            {path: 'E:\\a\\hclaw', name: 'hclaw'},
+            {path: 'E:\\w\\自媒体\\多平台', name: '多平台内容规划'},
+            {path: 'E:\\w\\media\\多平台', name: '多平台内容规划'},
+            {path: 'D:\\Downloads', name: 'Downloads'},
+            {path: '__unassigned__', name: '__unassigned__'},
+        ],
+    },
+}))
+vi.mock('../../../../../src/main/repositories/sqlite/projectGroupRepository', () => ({
+    projectGroupRepo: {
+        list: () => [
+            {
+                id: 'g-common', name: '常用', sortOrder: 0, createdAt: 0, updatedAt: 0,
+                members: [
+                    {projectPath: 'E:\\a\\hclaw', groupOrder: 0},
+                    {projectPath: 'E:\\w\\自媒体\\多平台', groupOrder: 1},
+                ],
+            },
+            {
+                id: 'g-content', name: '内容', sortOrder: 1, createdAt: 0, updatedAt: 0,
+                members: [{projectPath: 'E:\\w\\media\\多平台', groupOrder: 0}],
+            },
+        ],
+    },
+}))
+
 import {memoTool} from '../../../../../src/main/agent/tools/builtin/memoTool'
 import {memoStore} from '../../../../../src/main/memo/memoStore'
 import type {ToolContext} from '../../../../../src/main/agent/tools/types'
@@ -219,5 +256,65 @@ describe('memo_tool', () => {
         await memoTool.execute({action: 'create', title: 'T', content: 'C'}, ctx)
         expect(memoStore.list(otherDir)).toHaveLength(0)
         expect(memoStore.list(ctx.workingDir)).toHaveLength(1)
+    })
+})
+
+describe('memo_tool 指定与查询目标项目', () => {
+    it('list_projects：列出组与未分组项目，排除 __unassigned__', async () => {
+        const r = await memoTool.execute({action: 'list_projects'}, makeContext())
+        expect(r.success).toBe(true)
+        expect(r.output).toContain('项目组「常用」:')
+        expect(r.output).not.toContain('__unassigned__')
+    })
+
+    it('create 指定组+项目 → 落到目标项目（Review Focus 4）', async () => {
+        const r = await memoTool.execute(
+            {action: 'create', title: 'T', content: 'C', projectGroup: '常用', project: 'hclaw'}, makeContext())
+        expect(r.success).toBe(true)
+        expect(memoStore.list('E:\\a\\hclaw')).toHaveLength(1)
+        expect(memoStore.list(makeContext().workingDir)).toHaveLength(0)
+    })
+
+    it('create 只给组 → 报错且不写入', async () => {
+        const r = await memoTool.execute({action: 'create', title: 'T', content: 'C', projectGroup: '常用'}, makeContext())
+        expect(r.success).toBe(false)
+        expect(r.error).toContain('project')
+    })
+
+    it('create 项目名歧义 → 报错（Review Focus 3）', async () => {
+        const r = await memoTool.execute({action: 'create', title: 'T', content: 'C', project: '多平台内容规划'}, makeContext())
+        expect(r.success).toBe(false)
+        expect(r.error).toContain('projectGroup')
+    })
+
+    it('create 不传项目参数 → 沿用 workingDir（回归）', async () => {
+        const ctx = makeContext()
+        const r = await memoTool.execute({action: 'create', title: 'T', content: 'C'}, ctx)
+        expect(r.success).toBe(true)
+        expect(memoStore.list(ctx.workingDir)).toHaveLength(1)
+    })
+
+    it('list 指定项目能读到该项目备忘且输出头含项目名', async () => {
+        memoStore.create({workspacePath: 'E:\\a\\hclaw', title: 'B 的备忘', content: 'C'})
+        const r = await memoTool.execute({action: 'list', project: 'hclaw'}, makeContext())
+        expect(r.success).toBe(true)
+        expect(r.output).toContain('hclaw')
+        expect(r.output).toContain('B 的备忘')
+    })
+
+    it('list 不传参数 → 输出逐字不变（回归）', async () => {
+        const ctx = makeContext()
+        const r = await memoTool.execute({action: 'list'}, ctx)
+        expect(r.success).toBe(true)
+        expect(r.output).toBe('当前工作区暂无备忘录。')
+    })
+
+    it('update 改归属 → 条目搬到目标并双向广播', async () => {
+        const item = memoStore.create({workspacePath: 'E:\\A', title: 'T', content: 'C'})
+        const r = await memoTool.execute({action: 'update', id: item.id, project: 'hclaw'}, makeContext())
+        expect(r.success).toBe(true)
+        expect(memoStore.findById(item.id)?.workspacePath).toBe('E:\\a\\hclaw')
+        expect(sentMessages['memo_changed'].map(m => (m as {workspacePath: string}).workspacePath))
+            .toEqual(['E:\\A', 'E:\\a\\hclaw'])
     })
 })

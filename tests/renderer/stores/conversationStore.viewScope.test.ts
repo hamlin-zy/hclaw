@@ -41,6 +41,7 @@ beforeEach(() => {
         activeConversationId: null,
         viewScope: null,
         expandedGroupIds: [],
+        manualCollapsedGroupIds: [],
         singleViewWindowHintShown: false,
     })
 })
@@ -68,6 +69,41 @@ describe('viewScope — 状态语义', () => {
         toggleSectionCollapsed('pg-a')
         expect(useConversationStore.getState().expandedGroupIds).toEqual([])
     })
+
+    // ── 2026-10-14 三态修订：手动折叠是一等状态，压过「激活即展开」──────────
+    describe('collapseSection — 显式折叠（互斥不变量 + 落盘）', () => {
+        it('collapseSection 入手动折叠集，同时把该 key 移出展开集（互斥）', () => {
+            useConversationStore.setState({expandedGroupIds: ['pg-a', '/ws/b'], manualCollapsedGroupIds: []})
+            useConversationStore.getState().collapseSection('pg-a')
+            const s = useConversationStore.getState()
+            expect(s.manualCollapsedGroupIds).toEqual(['pg-a'])
+            expect(s.expandedGroupIds).toEqual(['/ws/b'])
+        })
+
+        it('toggleSectionCollapsed 展开时同步清出手动折叠集（互斥）', () => {
+            useConversationStore.setState({manualCollapsedGroupIds: ['pg-a'], expandedGroupIds: []})
+            useConversationStore.getState().toggleSectionCollapsed('pg-a')
+            const s = useConversationStore.getState()
+            expect(s.expandedGroupIds).toEqual(['pg-a'])
+            expect(s.manualCollapsedGroupIds).toEqual([])
+        })
+
+        it('反复 collapse 同一 key 不重复入集（幂等）', () => {
+            const {collapseSection} = useConversationStore.getState()
+            collapseSection('pg-a')
+            collapseSection('pg-a')
+            expect(useConversationStore.getState().manualCollapsedGroupIds).toEqual(['pg-a'])
+        })
+
+        it('collapseSection 落盘 manualCollapsedGroupIds（跨重启保留）', async () => {
+            api.configWrite.mockResolvedValue(true)
+            useConversationStore.setState({expandedGroupIds: ['pg-a'], manualCollapsedGroupIds: []})
+            useConversationStore.getState().collapseSection('pg-a')
+            await vi.waitFor(() => expect(api.configWrite).toHaveBeenCalled())
+            expect(api.configWrite.mock.calls[0][1].manualCollapsedGroupIds).toEqual(['pg-a'])
+            expect(api.configWrite.mock.calls[0][1].expandedGroupIds).toEqual([])
+        })
+    })
 })
 
 describe('viewScope — 持久化读写', () => {
@@ -77,7 +113,11 @@ describe('viewScope — 持久化读写', () => {
         await vi.waitFor(() => expect(api.configWrite).toHaveBeenCalled())
         const [key, value] = api.configWrite.mock.calls[0]
         expect(key).toBe('project-group-view')
-        expect(value).toEqual({viewScope: {type: 'group', groupId: 'pg-a'}, expandedGroupIds: []})
+        expect(value).toEqual({
+            viewScope: {type: 'group', groupId: 'pg-a'},
+            expandedGroupIds: [],
+            manualCollapsedGroupIds: [],
+        })
     })
 
     it('toggleSectionCollapsed 同样落盘（展开集跨重启保留，⑥ 修订 2026-09-26）', async () => {
@@ -96,6 +136,24 @@ describe('viewScope — 持久化读写', () => {
         const s = useConversationStore.getState()
         expect(s.viewScope).toEqual({type: 'group', groupId: 'pg-a'})
         expect(s.expandedGroupIds).toEqual(['pg-a'])
+    })
+
+    it('restoreScope 读回手动折叠集（激活段折叠意图跨重启保留）', async () => {
+        api.configRead.mockResolvedValue({
+            viewScope: {type: 'group', groupId: 'pg-a'},
+            expandedGroupIds: [],
+            manualCollapsedGroupIds: ['pg-a'],
+        })
+        await useConversationStore.getState().restoreScope()
+        const s = useConversationStore.getState()
+        expect(s.manualCollapsedGroupIds).toEqual(['pg-a'])
+    })
+
+    it('存量 payload 无 manualCollapsedGroupIds 键 → 空集（行为与修订前一致）', async () => {
+        useConversationStore.setState({manualCollapsedGroupIds: ['/ws/a']})
+        api.configRead.mockResolvedValue({viewScope: null, expandedGroupIds: []})
+        await useConversationStore.getState().restoreScope()
+        expect(useConversationStore.getState().manualCollapsedGroupIds).toEqual([])
     })
 
     // ── §15.1⑤ 一次性提示已读标记（Task 14）─────────────────
@@ -127,6 +185,7 @@ describe('viewScope — 持久化读写', () => {
         api.configRead.mockResolvedValue({
             viewScope: {type: 'project', path: 42},
             expandedGroupIds: 'not-an-array',
+            manualCollapsedGroupIds: 'not-an-array',
             singleViewWindowHintShown: 'yes',
         })
         // 旧实现：workspacePathKey(42) → TypeError 逃出 restoreScope（App init 的 try 会整段跳过）
@@ -134,6 +193,7 @@ describe('viewScope — 持久化读写', () => {
         const s = useConversationStore.getState()
         expect(s.viewScope).toEqual({type: 'project', path: '/ws/a'})
         expect(s.expandedGroupIds).toEqual([])
+        expect(s.manualCollapsedGroupIds).toEqual([])
         expect(s.singleViewWindowHintShown).toBe(false)
     })
 
@@ -147,6 +207,23 @@ describe('viewScope — 持久化读写', () => {
         api.configRead.mockResolvedValue({viewScope: null, expandedGroupIds: ['/ws/a', 7, null]})
         await useConversationStore.getState().restoreScope()
         expect(useConversationStore.getState().expandedGroupIds).toEqual(['/ws/a'])
+    })
+
+    it('手动折叠集合里的非字符串项被过滤（合法项保留）', async () => {
+        api.configRead.mockResolvedValue({
+            viewScope: null, expandedGroupIds: [],
+            manualCollapsedGroupIds: ['/ws/a', 7, null],
+        })
+        await useConversationStore.getState().restoreScope()
+        expect(useConversationStore.getState().manualCollapsedGroupIds).toEqual(['/ws/a'])
+    })
+
+    // 2026-10-14 三态修订：旧字段名 D19 前 collapsedGroupIds 已停读停写，**不得**被
+    // 当成新的手动折叠集误读（同名不同义：旧字段属「默认展开」体系）。
+    it('旧 payload 仅含 D19 前 collapsedGroupIds → 忽略，不回填 manualCollapsedGroupIds', async () => {
+        api.configRead.mockResolvedValue({viewScope: null, expandedGroupIds: [], collapsedGroupIds: ['pg-a', '/ws/b']})
+        await useConversationStore.getState().restoreScope()
+        expect(useConversationStore.getState().manualCollapsedGroupIds).toEqual([])
     })
 
     // 2026-09-26 修订：旧字段 collapsedGroupIds 停读停写——老 payload 只含旧字段时

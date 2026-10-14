@@ -53,6 +53,15 @@ const h = vi.hoisted(() => {
     }
     const useConversationStore: any = (selector?: (s: unknown) => unknown) => (selector ? selector(convState) : convState)
     useConversationStore.getState = () => convState as never
+    // 反查会话 home 的纯函数（与真实 conversationStore.findConvAcrossWorkspaces 同构）：
+    // MemoPanel 跳转按钮消费它按会话真实归属项目定位，需随 store 一并 stub（Task 6）。
+    const findConvAcrossWorkspaces = (workspaces: Record<string, any>, convId: string) => {
+        for (const [workspacePath, ws] of Object.entries(workspaces)) {
+            const conv = (ws as any).conversations.find((c: {id: string}) => c.id === convId)
+            if (conv) return {conv, workspacePath}
+        }
+        return null
+    }
 
     const groupState: {groups: ProjectGroupWithMembers[]} = {groups: []}
     const useProjectGroupStore: any = (selector?: (s: unknown) => unknown) => (selector ? selector(groupState) : groupState)
@@ -62,7 +71,7 @@ const h = vi.hoisted(() => {
     /** 组视图新建默认项目的断言目标（R-BY）：mock openMemoCreateWindow 直接捕获入参 */
     const openMemoCreateWindow = vi.fn()
 
-    return {useMemoStore, convState, useConversationStore, groupState, useProjectGroupStore, openConfigWindow, openMemoCreateWindow}
+    return {useMemoStore, convState, useConversationStore, findConvAcrossWorkspaces, groupState, useProjectGroupStore, openConfigWindow, openMemoCreateWindow}
 })
 
 vi.mock('@/renderer/stores/memoStore', () => ({
@@ -71,6 +80,7 @@ vi.mock('@/renderer/stores/memoStore', () => ({
 }))
 vi.mock('@/renderer/stores/conversationStore', () => ({
     useConversationStore: h.useConversationStore,
+    findConvAcrossWorkspaces: h.findConvAcrossWorkspaces,
 }))
 vi.mock('@/renderer/stores/projectGroupStore', () => ({
     useProjectGroupStore: h.useProjectGroupStore,

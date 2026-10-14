@@ -16,6 +16,9 @@ import {errorResult} from '../common/toolResult'
 import {findToolNameHint, resolveToolName} from './toolNameResolver'
 import {createTimeoutResult, ToolTimeoutError, withToolTimeout} from './toolTimeout'
 import {getToolDefaultTimeout, toolRepo} from '../../repositories/sqlite/toolRepository'
+import {isMcpToolName} from '@shared/mcp/naming'
+import {getMcpToolMeta} from '../mcp/discovery'
+import {evaluateReadOnlyMcpAccess} from '../mcp/writeClassify'
 
 export interface ExecuteToolCall {
   id: string
@@ -136,6 +139,27 @@ export async function executeTool(
       result: errorResult(
         `工具 "${toolCall.name}" 被当前 Agent 的 disallowedTools 列表禁止，调用已被拒绝。`
       ),
+    }
+  }
+
+  // ── 只读 Agent 的 MCP 原生直调兜底 ──
+  //    上游白名单未保留 call_mcp_tool 时，MCP proxy 以原生名进 tools 数组，
+  //    不经 call_mcp_tool 的守卫；此处用同一判定函数补齐能力边界。
+  if (context.readOnlyMcp === true && isMcpToolName(toolCall.name)) {
+    const meta = getMcpToolMeta(toolCall.name)
+    const guard = evaluateReadOnlyMcpAccess({
+      rawToolName: meta?.rawToolName ?? toolCall.name,
+      annotations: meta?.annotations,
+      override: meta?.override,
+    })
+    if (!guard.allowed) {
+      return {
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        denied: true,
+        denyReason: guard.error,
+        result: errorResult(guard.error!),
+      }
     }
   }
 
@@ -290,6 +314,13 @@ export async function executeTool(
                 ),
             }
         }
+    }
+
+    // ── 入参语义归一化（工具自声明） ──
+    // 先于类型纠偏与 Zod 校验：把语义别名收敛为合法枚举，避免 LLM 用自然语言同义词
+    // （in_progress / done / 已完成）触发一轮无效校验往返。
+    if (tool.normalizeArgs) {
+        toolCall.arguments = tool.normalizeArgs(toolCall.arguments)
     }
 
     // ── 类型转换（修复 LLM 输出类型漂移） ──

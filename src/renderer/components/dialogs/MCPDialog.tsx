@@ -199,6 +199,10 @@ export default function MCPDialog() {
                 timeout: config.timeout,
                 autoApprove: config.autoApprove,
                 denyList: config.denyList,
+                // 策略字段必须回显：编辑弹窗保存时会整体回写，缺字段等于把插件声明的策略擦成空
+                readOnlyTools: config.readOnlyTools || [],
+                writeTools: config.writeTools || [],
+                unknownPolicy: config.unknownPolicy,
                 pluginEnabled: config.pluginEnabled,
             } as MCPServer & { pluginEnabled?: boolean })
         })
@@ -242,6 +246,11 @@ export default function MCPDialog() {
                         url: config.url, headers: config.headers, cwd: config.cwd,
                         timeout: config.timeout, autoApprove: config.autoApprove,
                         denyList: config.denyList, userDescription: config.userDescription,
+                        // 策略字段：本合并会整体覆盖同名字段，漏掉即把 store 里的策略擦成 undefined
+                        // （随后编辑保存回写磁盘 → 主进程 serialize 兜底写 []）。unknownPolicy 保持 undefined。
+                        readOnlyTools: config.readOnlyTools || [],
+                        writeTools: config.writeTools || [],
+                        unknownPolicy: config.unknownPolicy,
                     },
                 })))
             }
@@ -774,6 +783,21 @@ export default function MCPDialog() {
                             }
                         } else {
                             updateMCPServer(target.id, data)
+                            // ★ 已连接的 server 必须显式重启：mcpWorker.handleUpdateServers 对
+                            //   已 connected 的 server 只跳过、不重连 → 纯策略字段（只读守卫三字段）
+                            //   变更不传播、meta.override 保持旧值。与上方 plugin 分支同构；
+                            //   返回与异常都必须在本函数内消化，不得冒泡成未捕获 rejection。
+                            //   未连接的 server 无需重启（下次启动自然读新配置）。
+                            if (target.status === 'connected') {
+                                try {
+                                    const r = await window.electronAPI?.mcp?.restartServer?.(target.id)
+                                    if (r && !r.success) {
+                                        showError({server: target, errorMessage: r.error || '重连失败', action: 'reconnect'})
+                                    }
+                                } catch (err) {
+                                    showError({server: target, errorMessage: err instanceof Error ? err.message : String(err), action: 'reconnect'})
+                                }
+                            }
                         }
                         setEditTarget(null)
                     }}

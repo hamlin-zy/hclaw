@@ -17,12 +17,14 @@
  * ★ 权限下沉（本通道唯一防线）：Plan/Explore 等只读模式下本工具仍可用（不加黑名单），
  *   因此不能依赖 PermissionEngine 的「非破坏性放行」分支，必须在工具内部自行完成
  *   (serverId, 原始工具名) 判定。详见 spec §6.6 / §8.6。
+ *   只读 Agent 的能力边界守卫（readOnlyMcp）亦在此处，优先于显式规则 / 确认策略。
  */
 import {z} from 'zod'
 import type {PermissionRule} from '@shared/types'
 import type {Tool, ToolContext, ToolResult} from '../types'
 import {toolRegistry} from '../registry'
 import {getMcpToolMeta, getMcpToolPermission} from '../../mcp/discovery'
+import {evaluateReadOnlyMcpAccess} from '../../mcp/writeClassify'
 import {permissionRulesManager} from '../../permissions/permissionRule'
 import {permissionEngine, matchesToolRulePattern, isProxyScopedMcpToolPattern} from '../permission'
 import {logger} from '../../logger'
@@ -82,6 +84,25 @@ export const callMcpTool: Tool<CallMcpToolInput, unknown> = {
                 success: false,
                 output: null,
                 error: `MCP 工具「${meta.rawToolName}」已被该 server 的 denyList 禁止调用（server: ${meta.serverId}）。`,
+            }
+        }
+
+        // ── 只读 Agent 守卫（能力边界，优先于会话级 allow/确认策略）──
+        //    只读 Agent 无确认通道，故只能硬拒；判定依据 = annotations + server 策略 + 名字启发式。
+        if (context.readOnlyMcp === true) {
+            const guard = evaluateReadOnlyMcpAccess({
+                rawToolName: meta.rawToolName,
+                annotations: meta.annotations,
+                // override 由 MCP server 级配置投影进 McpToolMeta（Task 9 填充，design §5.7-11）；
+                // 未填充时 undefined（= 仅按 annotations / 名字启发式判定）。
+                override: meta.override,
+            })
+            if (!guard.allowed) {
+                logger.info('[call_mcp_tool] blocked by readOnly agent guard', {
+                    serverId: meta.serverId,
+                    tool: meta.rawToolName,
+                })
+                return {success: false, output: null, error: guard.error}
             }
         }
 

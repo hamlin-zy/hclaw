@@ -42,6 +42,38 @@ describe('toMcpToolDefinition', () => {
     expect(def.inputSchema.required).toEqual(['url'])
     expect(def.inputSchema.properties).toEqual({url: {type: 'string'}, depth: {type: 'number'}})
   })
+
+  it('annotations 透传（只取 readOnlyHint/destructiveHint，裁掉 title 等）', () => {
+    const def = toMcpToolDefinition({
+      name: 't',
+      inputSchema: {type: 'object', properties: {}},
+      annotations: {readOnlyHint: true, destructiveHint: false, title: 'T', extra: 1} as any,
+    })
+    expect(def.annotations).toEqual({readOnlyHint: true, destructiveHint: false})
+  })
+
+  it('无 annotations 时不写该字段（对象形状不变）', () => {
+    const def = toMcpToolDefinition({name: 't', inputSchema: {type: 'object', properties: {}}})
+    expect('annotations' in def).toBe(false)
+  })
+
+  it('annotations 只含无关标注（title）→ 不写该字段（防空壳被判 write）', () => {
+    const def = toMcpToolDefinition({
+      name: 't',
+      inputSchema: {type: 'object', properties: {}},
+      annotations: {title: 'T'} as any,
+    })
+    expect('annotations' in def).toBe(false)
+  })
+
+  it('annotations 为空对象 → 不写该字段（两字段均 undefined）', () => {
+    const def = toMcpToolDefinition({
+      name: 't',
+      inputSchema: {type: 'object', properties: {}},
+      annotations: {},
+    })
+    expect('annotations' in def).toBe(false)
+  })
 })
 
 describe('toMcpToolCallResult', () => {

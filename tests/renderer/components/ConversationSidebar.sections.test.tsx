@@ -15,6 +15,7 @@ const convState = vi.hoisted(() => ({
     activeConversationId: 'c-1' as string | null,
     searchQuery: '',
     expandedGroupIds: [] as string[],
+    manualCollapsedGroupIds: [] as string[],
     sectionWindowSizes: {} as Record<string, number>,
     singleViewWindowHintShown: false,
     gitBranches: {} as Record<string, string | null>,
@@ -26,6 +27,7 @@ const convState = vi.hoisted(() => ({
     setSectionWindowSize: vi.fn(),
     dismissWindowHint: vi.fn(),
     toggleSectionCollapsed: vi.fn(),
+    collapseSection: vi.fn(),
     focusProjectSegment: vi.fn(),
     clearFocusProject: vi.fn(),
     refreshVisibleBranches: vi.fn(async () => {}),
@@ -66,6 +68,7 @@ beforeEach(() => {
     convState.currentWorkspacePath = '/ws/a'
     convState.activeConversationId = 'c-1'
     convState.expandedGroupIds = []
+    convState.manualCollapsedGroupIds = []
     convState.gitBranch = 'main'
     convState.pendingFocusProject = null
     convState.singleViewWindowHintShown = false
@@ -74,18 +77,38 @@ beforeEach(() => {
 })
 
 describe('ConversationList — 段头三操作分工（A 变体）', () => {
-    it('项目图标点击 = toggleSectionCollapsed（不是切视图）', () => {
+    // 2026-10-14 三态修订：段头点击按当前折叠态分发到两个 action
+    //   · 展开态 → collapseSection（入手动折叠集；激活段靠它才能真正折住）
+    //   · 折叠态 → toggleSectionCollapsed（入展开集 + 清手动折叠集）
+    it('项目图标点击（展开态）= collapseSection（不是切视图）', () => {
         render(<ConversationList/>)
         fireEvent.click(document.querySelector('[data-name="section-project-icon"]') as HTMLElement)
-        expect(convState.toggleSectionCollapsed).toHaveBeenCalledWith('/ws/a')
+        expect(convState.collapseSection).toHaveBeenCalledWith('/ws/a')
+        expect(convState.toggleSectionCollapsed).not.toHaveBeenCalled()
         expect(convState.setProjectGroupView).not.toHaveBeenCalled()
     })
 
-    it('项目名单击 = toggleSectionCollapsed（与项目图标同口径，不切视图）', () => {
+    it('项目名单击（展开态）= collapseSection（与项目图标同口径，不切视图）', () => {
         render(<ConversationList/>)
         fireEvent.click(document.querySelector('[data-name="section-project-name"]') as HTMLElement)
-        expect(convState.toggleSectionCollapsed).toHaveBeenCalledWith('/ws/a')
+        expect(convState.collapseSection).toHaveBeenCalledWith('/ws/a')
+        expect(convState.toggleSectionCollapsed).not.toHaveBeenCalled()
         expect(convState.setProjectGroupView).not.toHaveBeenCalled()
+    })
+
+    it('项目图标点击（折叠态）= toggleSectionCollapsed（重新展开）', () => {
+        convState.getScopedSections.mockReturnValue([section({collapsed: true, rows: []})])
+        render(<ConversationList/>)
+        fireEvent.click(document.querySelector('[data-name="section-project-icon"]') as HTMLElement)
+        expect(convState.toggleSectionCollapsed).toHaveBeenCalledWith('/ws/a')
+        expect(convState.collapseSection).not.toHaveBeenCalled()
+    })
+
+    it('激活段折叠 → 走 collapseSection（根因回归：不得走 toggleSectionCollapsed 而被自动展开撤销）', () => {
+        // 激活会话 c-1 在 /ws/a（mock 里 activeConversationId='c-1'、workspaces['/ws/a']）→ 该段展开
+        render(<ConversationList/>)
+        fireEvent.click(document.querySelector('[data-name="section-project-name"]') as HTMLElement)
+        expect(convState.collapseSection).toHaveBeenCalledWith('/ws/a')
     })
 
     it('文件夹图标 = 打开项目管理窗口（带项目路径）', () => {

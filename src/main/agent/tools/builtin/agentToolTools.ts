@@ -115,3 +115,26 @@ export function formatToolsNotice(notices: string[]): string {
     if (notices.length === 0) return ''
     return `\n\n[工具集提示] additionalTools 未生效：${notices.join('、')}。其余工具已正常生效。`
 }
+
+/** agent 工具收尾时的待办同步提示结果类型 */
+export type TodoNoticeOutcome = 'success' | 'failed' | 'truncated'
+
+/**
+ * 构造追加到 agent 工具 output 末尾的待办同步提示。
+ *
+ * 仅当父会话存在活跃批次（含未完成任务）时才返回文案；无待办会话返回空串（零噪声）。
+ * 失败 / 截断两条文案显式禁止标记 completed —— 这两条路径保留了部分 output，
+ * 不设防会被 LLM 误判为已完成。
+ */
+export function formatTodoNotice(hasActiveTodos: boolean, outcome: TodoNoticeOutcome): string {
+    if (!hasActiveTodos) return ''
+    const head = '\n\n[待办同步] 本会话有待办未完成。'
+    switch (outcome) {
+        case 'success':
+            return head + '若本次子任务对应其中一项，请立即用 task_update 将其置为 completed。'
+        case 'failed':
+            return head + '本次子任务已失败，对应待办不得置为 completed；请用 task_update 按实际结果更新（保持 running 或置为 failed）。'
+        case 'truncated':
+            return head + '本次子任务被截断、未完成，对应待办不得置为 completed；请保持 running 或置为 failed。'
+    }
+}

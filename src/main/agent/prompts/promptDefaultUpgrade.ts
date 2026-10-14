@@ -143,6 +143,18 @@ const OUTPUT_THINKING_BULLET = `- **思考不预写正文** — 思考只用于�
 /** 新增条目（与 prompts.ts 新版默认值逐字一致） */
 const OUTPUT_MERMAID_BULLET = `- **图表辅助** — 架构、流程、调用链、系统设计等可视化场景优先使用 mermaid 图表，消息列表会自动渲染 \`\`\`mermaid 围栏，无需额外 HTML 文件。仅在需要交互式演示或动画效果时才用单文件 HTML（对应「UI demo 交付」偏好）。用 \`\`\`mermaid 围栏标注。`
 
+// ─── 上一版 system.memory 默认值（基线 hash 来源，逐字，勿改）──
+
+const MEMORY_DEFAULT_V1 = `## 记忆与知识
+
+你的可用工具中可能包含记忆/知识系统（工具名含 \`memory\` / \`vault\` / \`knowledge\` / \`recall\` / \`store\` 等关键词，或描述涉及"持久化"、"存储"、"检索"、"上下文"等概念）。
+
+若找到这样的工具，按以下流程使用：
+1. **任务开始前** → 调用查询类工具获取相关上下文
+2. **任务完成后** → 调用存储类工具保存关键发现（架构决策、可复用模式、踩坑记录等）
+
+若未找到 → 忽略本规则`
+
 // ─── 迁移注册表 ──────────────────────────────────────────
 
 export const PROMPT_NODE_MIGRATIONS: PromptNodeDefaultMigration[] = [
@@ -246,6 +258,20 @@ export const PROMPT_NODE_MIGRATIONS: PromptNodeDefaultMigration[] = [
                 `${OUTPUT_THINKING_BULLET}\n${OUTPUT_MERMAID_BULLET}`,
                 'anchor-miss-output-thinking-bullet',
             )
+        },
+    },
+    {
+        id: 'memory-refresh-baseline',
+        nodeKey: 'system.memory',
+        description: 'system.memory 内容等于上一版默认值（用户未改）→ 整体替换为新默认值',
+        apply: (content) => {
+            const target = getPromptNodeByKey('system.memory')?.defaultValue
+            if (!target) return {outcome: 'noop', content, reason: 'no-code-default'}
+            if (content.trim() === target.trim()) return {outcome: 'noop', content, reason: 'already-latest'}
+            if (contentHash(content) !== contentHash(MEMORY_DEFAULT_V1)) {
+                return {outcome: 'skipped', content, reason: 'user-modified-baseline-miss'}
+            }
+            return {outcome: 'applied', content: target}
         },
     },
 ]

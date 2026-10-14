@@ -223,6 +223,41 @@ function removeFromList(list: string[], tools: string[]): string[] | null {
     return next.length === list.length ? null : next
 }
 
+// ─── frontmatter 布尔标量 upsert ──────────────────────────
+
+/** camelCase → snake_case（本文件无同名工具，内联实现，不引入新依赖） */
+function camelToSnake(key: string): string {
+    return key.replace(/[A-Z]/g, (m) => '_' + m.toLowerCase())
+}
+
+/**
+ * 在 frontmatter 中 upsert 一个布尔标量键。
+ * 已存在同名键（含 snake_case 别名）→ 替换为 `key: true`；不存在 → 在 frontmatter 末尾追加。
+ * 幂等：已满足即返回 noop（不产生写盘）。
+ */
+function upsertFrontmatterBoolean(
+    content: string,
+    key: string,
+    value: boolean,
+    aliases: readonly string[] = [],
+): MigrationResult {
+    const split = splitBuiltinFrontmatter(content)
+    if (!split) return {outcome: 'skipped', content, reason: 'no-frontmatter'}
+    const keys = [key, camelToSnake(key), ...aliases]
+    const lines = split.frontmatterText.split(/\r?\n/)
+    const idx = lines.findIndex((l) => keys.some((k) => new RegExp(`^[ \\t]*${k}[ \\t]*:`).test(l)))
+    if (idx !== -1) {
+        if (lines[idx].trim() === `${key}: ${value}`) return {outcome: 'noop', content, reason: 'already-satisfied'}
+        lines[idx] = `${key}: ${value}`
+    } else {
+        lines.push(`${key}: ${value}`)
+    }
+    return {
+        outcome: 'applied',
+        content: `---${split.eol}${lines.join(split.eol)}${split.eol}---${split.eol}${split.rest}`,
+    }
+}
+
 // ─── 冒烟的迁移锚点文本（旧内置模板原样）─────────────────
 
 const PLAN_OLD_READONLY_BLOCK = `=== 只读模式 ===
@@ -287,6 +322,18 @@ export const BUILTIN_TEMPLATE_MIGRATIONS: BuiltinTemplateMigration[] = [
         file: 'plan.md',
         description: 'Plan 正文补充"落盘要求"章节并修正收尾语',
         apply: (content) => replaceTextBlock(content, PLAN_OLD_TRAILING_LINE, PLAN_NEW_TRAILING_BLOCK, 'anchor-miss-trailing-line'),
+    },
+    {
+        id: 'explore-readonly-flag',
+        file: 'explore.md',
+        description: 'Explore 标记 readOnly: true（只读 MCP 守卫依据）',
+        apply: (content) => upsertFrontmatterBoolean(content, 'readOnly', true),
+    },
+    {
+        id: 'code-reviewer-readonly-flag',
+        file: 'code-reviewer.md',
+        description: 'Code Reviewer 标记 readOnly: true（只读 MCP 守卫依据）',
+        apply: (content) => upsertFrontmatterBoolean(content, 'readOnly', true),
     },
 ]
 

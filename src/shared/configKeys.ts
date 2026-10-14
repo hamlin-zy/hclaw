@@ -7,9 +7,13 @@
  */
 
 /**
- * 视图作用域持久化载荷（`{viewScope, expandedGroupIds, singleViewWindowHintShown?}`）的配置键。
+ * 视图作用域持久化载荷（`{viewScope, expandedGroupIds, manualCollapsedGroupIds, singleViewWindowHintShown?}`）
+ * 的配置键。
  * 2026-09-26 修订 D19：组视图段默认折叠，载荷由折叠集 `collapsedGroupIds` 反转为展开集
- * `expandedGroupIds`（手动展开集落盘）；旧字段停读停写，键名不变。
+ * `expandedGroupIds`（手动展开集落盘）；D19 前的旧字段停读停写，键名不变。
+ * 2026-10-14 三态修订：新增 `manualCollapsedGroupIds`（手动折叠集）——「激活即展开」的
+ * 自动展开不得压过用户显式折叠，故折叠意图必须可持久化判别。换名而非复用旧 `collapsedGroupIds`：
+ * 旧字段是「默认展开」体系的口径，同名不同义会让老 payload 被误套进「默认折叠」体系。
  */
 export const PROJECT_GROUP_VIEW_CONFIG_KEY = 'project-group-view'
 

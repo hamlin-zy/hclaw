@@ -6,6 +6,7 @@
  *   2. 锚点补丁 —— 用户改过时只做精确旧段落替换；锚点不命中即跳过（绝不误覆盖）。
  *   3. 幂等 —— 迁移后二次运行全部 noop/skipped，内容不变。
  */
+import {createHash} from 'node:crypto'
 import {describe, expect, it} from 'vitest'
 import {PROMPT_NODE_MIGRATIONS, runPromptNodeMigrations} from '../../../../src/main/agent/prompts/promptDefaultUpgrade'
 import {getPromptNodeByKey} from '../../../../src/shared/prompts'
@@ -35,6 +36,17 @@ const ROUTING_DEFAULT_V1 = `## 任务分发协议
 
 ### 价值主张
 每次委派让子 agent 用最小上下文做单一职责，精度更高、单次成本更低，且不撑大主会话上下文。效率与准确的来源是**分工**，不是主会话亲力亲为。`
+
+// ─── 上一版 system.memory 默认值（修复前，逐字）──────
+const MEMORY_DEFAULT_V1 = `## 记忆与知识
+
+你的可用工具中可能包含记忆/知识系统（工具名含 \`memory\` / \`vault\` / \`knowledge\` / \`recall\` / \`store\` 等关键词，或描述涉及"持久化"、"存储"、"检索"、"上下文"等概念）。
+
+若找到这样的工具，按以下流程使用：
+1. **任务开始前** → 调用查询类工具获取相关上下文
+2. **任务完成后** → 调用存储类工具保存关键发现（架构决策、可复用模式、踩坑记录等）
+
+若未找到 → 忽略本规则`
 
 function newDefault(): string {
     const node = getPromptNodeByKey('system.routing')
@@ -71,9 +83,51 @@ describe('promptDefaultUpgrade — 默认值守卫', () => {
             'output-refresh-baseline',
             'output-patch-thinking-bullet',
             'output-patch-mermaid-bullet',
+            'memory-refresh-baseline',
         ])
         expect(PROMPT_NODE_MIGRATIONS.filter((m) => m.nodeKey === 'system.routing')).toHaveLength(3)
         expect(PROMPT_NODE_MIGRATIONS.filter((m) => m.nodeKey === 'system.output')).toHaveLength(3)
+        expect(PROMPT_NODE_MIGRATIONS.filter((m) => m.nodeKey === 'system.memory')).toHaveLength(1)
+    })
+})
+
+// ─── system.memory：记忆机制改述 ────────────────────────────
+
+describe('memory-refresh-baseline — 基线命中与用户修改保护', () => {
+    it('传入旧默认值全文 → applied，内容等于当前默认值', () => {
+        const result = migrateById('memory-refresh-baseline', MEMORY_DEFAULT_V1)
+        expect(result.outcome).toBe('applied')
+        expect(result.content).toBe(getPromptNodeByKey('system.memory')!.defaultValue)
+    })
+
+    it('用户改过（不等于 baseline）→ skipped，内容逐字不动', () => {
+        const mine = '## 记忆与知识\n\n我自己的记忆规则\n'
+        const result = migrateById('memory-refresh-baseline', mine)
+        expect(result.outcome).toBe('skipped')
+        expect(result.content).toBe(mine)
+    })
+
+    it('已是新默认值 → 不产生写盘（noop）', () => {
+        const latest = getPromptNodeByKey('system.memory')!.defaultValue
+        const result = migrateById('memory-refresh-baseline', latest)
+        expect(result.outcome).not.toBe('applied')
+    })
+
+    it('脏输入不抛异常（单条脏记录不阻断启动，防 T7）', () => {
+        expect(() => migrateById('memory-refresh-baseline', '')).not.toThrow()
+        expect(() => migrateById('memory-refresh-baseline', '   ')).not.toThrow()
+    })
+
+    it('baseline 快照守卫：MEMORY_DEFAULT_V1 的 trim 后 sha1 钉死为历史值', () => {
+        // ── 这是**历史值快照，勿改**。它红了 = MEMORY_DEFAULT_V1 被改动（哪怕只改一个错别字）──
+        // 后果：memory-refresh-baseline 的基线比对（contentHash）再也命不中存量会话，
+        //       迁移对所有存量会话静默 skipped（fail-closed 表现为"漏升级"而非报错，很难被发现）。
+        // 口径与 src/main/agent/prompts/promptDefaultUpgrade.ts 的 contentHash 一致：trim 后内容 sha1。
+        // 若确需重建 baseline：先同步推进 controller.ts 的 PROMPT_REVISION（让存量会话系统提示词重建的
+        // 唯一手动闸门），再更新此快照。
+        expect(createHash('sha1').update(MEMORY_DEFAULT_V1.trim(), 'utf-8').digest('hex')).toBe(
+            '23e08187103189b7199857cc5c24f571e4850ad8',
+        )
     })
 })
 
