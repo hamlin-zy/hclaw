@@ -11,6 +11,8 @@ import {resolveRunTraceContext} from './loop/setup'
 import {registerBuiltinTools} from './tools/index'
 import {permissionEngine} from './tools/permission'
 import {registerMCPTools, registerAllMcpTools, setMcpMessagePort, unregisterMCPTools, clearAllMcpToolMeta} from './mcp/discovery'
+import type {McpToolPayload} from './mcp/toolPayload'
+import type {McpWriteOverride} from './mcp/writeClassify'
 import {isMcpToolName} from '@shared/mcp/naming'
 import {DEFAULT_SETTINGS} from '@shared/settingsDefaults'
 import {promptResolver} from './prompts/resolver'
@@ -33,8 +35,10 @@ import {routeInjectedUserMessage} from './injectRouting'
 async function listMcpServersFromWorker(port: MessagePort): Promise<Array<{
     id: string
     name: string
-    tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>
+    tools: McpToolPayload[]
     userDescription?: string
+    /** MCP server 策略覆写（只读守卫消费；随 payload 从 MCP Worker 下发） */
+    override?: McpWriteOverride
 }>> {
     return new Promise((resolve) => {
         const handler = (msg: any) => {
@@ -241,7 +245,8 @@ async function runSession(params: AgentStartParams & { settings?: import('@share
                         id: server.id,
                         name: server.name,
                         userDescription: server.userDescription,
-                        tools: server.tools as any,
+                        tools: server.tools,
+                        override: server.override,
                     })),
             )
 
@@ -251,7 +256,7 @@ async function runSession(params: AgentStartParams & { settings?: import('@share
                     // 工具状态变化时重注册
                     unregisterMCPTools(msg.server.id, undefined, msg.server.name)
                     if (msg.server.status === 'connected' && msg.server.tools.length > 0) {
-                        registerMCPTools(msg.server.id, msg.server.tools, msg.server.userDescription, msg.server.name)
+                        registerMCPTools(msg.server.id, msg.server.tools, msg.server.userDescription, msg.server.name, msg.server.override)
                     }
                 }
             })
@@ -562,7 +567,8 @@ async function runSession(params: AgentStartParams & { settings?: import('@share
                                     id: server.id,
                                     name: server.name,
                                     userDescription: server.userDescription,
-                                    tools: server.tools as any,
+                                    tools: server.tools,
+                                    override: server.override,
                                 })),
                         )
                     }

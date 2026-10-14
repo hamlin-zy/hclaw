@@ -20,7 +20,7 @@ import {AttachmentIcon} from '../icons'
 import type {MemoItem, MemoCapability, MemoAttachment, MemoPriority} from '@shared/types/memo'
 import type {ProjectGroupWithMembers} from '@shared/types/projectGroup'
 import {toMediaUrl, isImageFileName} from '@/renderer/utils/mediaUrl'
-import {workspacePathKey} from '../../lib/workspacePath'
+import {workspacePathKey, UNASSIGNED_WORKSPACE_KEY} from '../../lib/workspacePath'
 import {getBasename} from '../../lib/format'
 import {INPUT_FOCUS} from '../../lib/inputFocus'
 
@@ -54,11 +54,14 @@ export default function MemoEditDialog() {
     const [cascadeReady, setCascadeReady] = useState(false)
     /** 级联数据降级提示（R-BV：任一 IPC 失败只降级提示，不抛错、不白屏） */
     const [cascadeTip, setCascadeTip] = useState<string | null>(null)
-    /** 默认值待解析的项目路径：新建 = 注入的 memoWorkspace；编辑 = 回填条目的 workspacePath */
+    /**
+     * 默认值待解析的项目路径：新建 = 注入的 memoWorkspace；编辑 = 回填条目的 workspacePath。
+     * 编辑态它同时是「原归属」基线（加载后不再变更）→ 保存时与 projectPath 不同即为改归属。
+     */
     const [targetPath, setTargetPath] = useState(isEdit ? '' : workspacePath)
     /** '' = 未分组（顶层项目） */
     const [projectGroupId, setProjectGroupId] = useState('')
-    /** 新建态：默认 = 注入的 memoWorkspace（组信息待级联数据到位后解析） */
+    /** 当前所选项目：新建 = 注入的 memoWorkspace（组信息待级联数据到位后解析）；编辑 = 条目原归属 */
     const [projectPath, setProjectPath] = useState(isEdit ? '' : workspacePath)
     const fileRef = useRef<HTMLInputElement>(null)
     // 本次会话新上传（暂存于 _pending）的附件 id：取消/放弃时需清理
@@ -78,7 +81,8 @@ export default function MemoEditDialog() {
                 setPriority(item.priority ?? 'normal')
                 setAttachments(item.attachments)
                 setStatus(item.status)
-                // 项目字段只读展示（跨项目迁移本期不做，§12）：以条目自身 workspacePath 为准
+                // 归属回填（Task 5）：projectPath 为当前所选、targetPath 保留打开时的原归属，
+                // 两者不同即视为改归属 → 保存时带 targetWorkspacePath（跨项目迁移）
                 setProjectPath(item.workspacePath)
                 setTargetPath(item.workspacePath)
             } else {
@@ -134,26 +138,28 @@ export default function MemoEditDialog() {
 
     /** 未被任何组包含的路径 = 顶层项目（R-BV：组数据不可用时全部视为顶层） */
     const groupedKeys = new Set(groups.flatMap((gr) => gr.members.map((m) => workspacePathKey(m.projectPath))))
-    /** 当前组下拉对应可选的项目路径（未分组 → 顶层项目；选中组 → 该组成员） */
+    /**
+     * 当前组下拉对应可选的项目路径（未分组 → 顶层项目；选中组 → 该组成员）。
+     * `__unassigned__` 是渲染层虚拟键（库里现存该行），不是可迁移的真实项目 → 一律剔除（Review Focus 4）。
+     */
     const pathsForGroup = (groupId: string): string[] => {
-        if (groupId) {
-            const gr = groups.find((x) => x.id === groupId)
-            return (gr?.members ?? []).map((m) => m.projectPath)
-        }
-        return workspaces.filter((w) => !groupedKeys.has(workspacePathKey(w.path))).map((w) => w.path)
+        const paths = groupId
+            ? (groups.find((x) => x.id === groupId)?.members ?? []).map((m) => m.projectPath)
+            : workspaces.filter((w) => !groupedKeys.has(workspacePathKey(w.path))).map((w) => w.path)
+        return paths.filter((p) => p !== UNASSIGNED_WORKSPACE_KEY)
     }
     const projectOptions = (() => {
         const paths = pathsForGroup(projectGroupId)
         // 默认值来自注入路径（可能尚未在列表中，如 workspace:list 不可用）→ 保底补一项，
         // 否则 select 会显示为「未选择」而 state 却是该路径，造成显示与提交不一致。
         const key = projectPath ? workspacePathKey(projectPath) : ''
-        if (key && !paths.some((p) => workspacePathKey(p) === key)) return [projectPath, ...paths]
+        if (key && !paths.some((p) => workspacePathKey(p) === key)) {
+            return [projectPath, ...paths].filter((p) => p !== UNASSIGNED_WORKSPACE_KEY)
+        }
         return paths
     })()
 
     const projectLabel = (p: string) => workspaces.find((w) => workspacePathKey(w.path) === workspacePathKey(p))?.name || getBasename(p)
-    /** 编辑态只读展示的组名（级联数据不可用时降级为「未分组」） */
-    const groupName = groups.find((g) => g.id === projectGroupId)?.name ?? '未分组'
 
     /** 切换组 → 原项目不在新组内则清空重选（不自动猜） */
     const handleGroupChange = (nextGroupId: string) => {
@@ -162,6 +168,44 @@ export default function MemoEditDialog() {
         const key = projectPath ? workspacePathKey(projectPath) : ''
         if (key && !pathsForGroup(nextGroupId).some((p) => workspacePathKey(p) === key)) setProjectPath('')
     }
+
+    /**
+     * 项目组 + 项目两字段级联（新建态与编辑态共用同一份 JSX）：
+     * 编辑态初值由 defaults effect 回填（项目 = 条目原 workspacePath），改归属即换 select 值。
+     */
+    const renderCascade = () => (
+        <div className="flex gap-2">
+            <div className="flex-1 min-w-0">
+                <label className="block text-xs text-[var(--text-secondary)] mb-1">项目组</label>
+                <select
+                    value={projectGroupId}
+                    onChange={(e) => handleGroupChange(e.target.value)}
+                    className={`w-full px-2 py-1.5 text-xs bg-[var(--surface-muted)] rounded border border-[var(--border)] ${INPUT_FOCUS}`}
+                    data-name="memo-group-select">
+                    <option value="">未分组</option>
+                    {groups.map((g) => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                    ))}
+                </select>
+            </div>
+            <div className="flex-1 min-w-0">
+                <label className="block text-xs text-[var(--text-secondary)] mb-1">项目</label>
+                <select
+                    value={projectPath}
+                    onChange={(e) => {
+                        cascadeTouchedRef.current = true
+                        setProjectPath(e.target.value)
+                    }}
+                    className={`w-full px-2 py-1.5 text-xs bg-[var(--surface-muted)] rounded border border-[var(--border)] ${INPUT_FOCUS}`}
+                    data-name="memo-project-select">
+                    <option value="">未选择项目</option>
+                    {projectOptions.map((p) => (
+                        <option key={p} value={p}>{projectLabel(p)}</option>
+                    ))}
+                </select>
+            </div>
+        </div>
+    )
 
     // 参考 InputArea：不把 File 传给 IPC（剪贴板 File 无磁盘路径且跨 bridge 会报 clone 错误），
     // 先读 buffer 落盘到 temp，再用真实路径走 uploadAttachment。
@@ -258,8 +302,8 @@ export default function MemoEditDialog() {
 
     const handleSave = async () => {
         if (saving) return
-        // 两项必填（项目组 + 项目）：未选项目 → 提示且不发起 IPC
-        if (!isEdit && !projectPath) {
+        // 项目必填（新建态与编辑态同口径）：未选项目 → 提示且不发起 IPC
+        if (!projectPath) {
             setTip('请选择项目')
             return
         }
@@ -273,8 +317,20 @@ export default function MemoEditDialog() {
         }
         setSaving(true)
         const api = window.electronAPI?.memo
+        // 编辑态：归属变化才带 targetWorkspacePath（Task 2/3 约定）。附件始终按打开时的
+        // 全量列表原样提交（静态路径旧值），迁移与 storedPath 改写由 memoStore.update 负责。
+        const patch: Partial<MemoItem> & {targetWorkspacePath?: string} = {
+            title: title.trim(),
+            content: content.trim(),
+            capability,
+            attachments,
+            priority,
+        }
+        // targetPath = 打开时回填的条目归属（加载后不再变更）→ 与当前所选不同即为改归属。
+        // 归一化判等：同一目录可能有不同写法，精确串比较会把等价路径误判成改归属（迁进另一 hash 桶）。
+        if (isEdit && workspacePathKey(projectPath) !== workspacePathKey(targetPath)) patch.targetWorkspacePath = projectPath
         const res = isEdit
-            ? await api?.update(memoId, {title: title.trim(), content: content.trim(), capability, attachments, priority})
+            ? await api?.update(memoId, patch)
             : await api?.create({workspacePath: projectPath, title: title.trim(), content: content.trim(), capability, attachments, priority})
         setSaving(false)
         if (res?.ok) {
@@ -369,58 +425,9 @@ export default function MemoEditDialog() {
                         className={`w-full px-2 py-1.5 text-sm bg-[var(--surface-muted)] rounded border border-[var(--border)] placeholder-[var(--text-muted)] ${INPUT_FOCUS}`}
                     data-name="memo-edit-dialog-input"/>
                 </div>
-                {/* 项目组 + 项目（Task 19，§15.1②/§15.1③）：创建态级联可改；
-                    编辑态项目只读（跨项目迁移本期不做，§12），组字段同为文本展示 */}
-                {isEdit ? (
-                    <div className="space-y-1">
-                        <div className="flex text-sm">
-                            <span className="w-14 shrink-0 text-xs leading-5 text-[var(--text-secondary)]">项目组：</span>
-                            <span className="flex-1 min-w-0 truncate" title={groupName}>{groupName}</span>
-                        </div>
-                        <div
-                            data-name="memo-project-readonly"
-                            className="flex text-sm"
-                            title={projectPath}>
-                            <span className="w-14 shrink-0 text-xs leading-5 text-[var(--text-secondary)]">项目：</span>
-                            <span className="flex-1 min-w-0 truncate">
-                                {projectLabel(projectPath)}{' '}
-                                <span className="text-xs text-[var(--text-secondary)]">{projectPath}</span>
-                            </span>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="flex gap-2">
-                        <div className="flex-1 min-w-0">
-                            <label className="block text-xs text-[var(--text-secondary)] mb-1">项目组</label>
-                            <select
-                                value={projectGroupId}
-                                onChange={(e) => handleGroupChange(e.target.value)}
-                                className={`w-full px-2 py-1.5 text-xs bg-[var(--surface-muted)] rounded border border-[var(--border)] ${INPUT_FOCUS}`}
-                                data-name="memo-group-select">
-                                <option value="">未分组</option>
-                                {groups.map((g) => (
-                                    <option key={g.id} value={g.id}>{g.name}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <label className="block text-xs text-[var(--text-secondary)] mb-1">项目</label>
-                            <select
-                                value={projectPath}
-                                onChange={(e) => {
-                                    cascadeTouchedRef.current = true
-                                    setProjectPath(e.target.value)
-                                }}
-                                className={`w-full px-2 py-1.5 text-xs bg-[var(--surface-muted)] rounded border border-[var(--border)] ${INPUT_FOCUS}`}
-                                data-name="memo-project-select">
-                                <option value="">未选择项目</option>
-                                {projectOptions.map((p) => (
-                                    <option key={p} value={p}>{projectLabel(p)}</option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-                )}
+                {/* 项目组 + 项目（Task 19 级联 / Task 5）：新建态与编辑态都可改归属，
+                    编辑态保存时归属变化才带 targetWorkspacePath（见 handleSave） */}
+                {renderCascade()}
                 {/* 附件缩略图区：位于标题与正文之间（修订 2 Task D） */}
                 {attachments.length > 0 && (
                     <div data-testid="memo-attachment-area" className="flex flex-wrap gap-2">

@@ -89,10 +89,12 @@ describe('buildSystemPrompt 签名守卫', () => {
 })
 
 /**
- * P1-11：签名键集固化（controller.ts:252-263）。
+ * P1-11：签名键集固化（controller.ts 的 buildSystemSignature）。
  *
- * 现状（方案 A）：键集 = {workingDir, agentType, customInstructions}（无语言段时），
- * 有子会话语言段时 +languageSection。shell / Node 版本 / hclawDir / MCP 元数据
+ * 现状（方案 A + Task 3）：键集 = {workingDir, agentType, customInstructions, promptRevision}
+ * （无语言段时），有子会话语言段时 +languageSection。promptRevision 为常驻段修订号常量：
+ * 不含 system 正文，改常驻段时手动 +1 → 存量会话据此重建 system。
+ * shell / Node 版本 / hclawDir / MCP 元数据
  * 均不入键 —— 这些字段只影响**构建时的字节**，签名一致即复用旧字节（前缀稳定）。
  * 若将来扩签名（方案 B），本文件与 systemPrompt.envStability.test.ts 的复用用例必须同改。
  */
@@ -103,15 +105,26 @@ describe('buildSystemSignature 键集（P1-11）', () => {
         expect(b).not.toBe(a)
     })
 
-    it('键集固化：仅 workingDir / agentType / customInstructions（无语言段时）', () => {
+    it('键集固化：仅 workingDir / agentType / customInstructions / promptRevision（无语言段时）', () => {
         const sig = buildSystemSignature('/x', 'General', undefined, undefined)
-        expect(Object.keys(JSON.parse(sig))).toEqual(['workingDir', 'agentType', 'customInstructions'])
+        expect(Object.keys(JSON.parse(sig))).toEqual(['workingDir', 'agentType', 'customInstructions', 'promptRevision'])
     })
 
     it('键集固化：有子会话语言段时追加 languageSection', () => {
         const sig = buildSystemSignature('/x', 'General', undefined, undefined, '始终用简体中文')
-        expect(Object.keys(JSON.parse(sig))).toEqual(['workingDir', 'agentType', 'customInstructions', 'languageSection'])
+        expect(Object.keys(JSON.parse(sig))).toEqual(['workingDir', 'agentType', 'customInstructions', 'promptRevision', 'languageSection'])
         expect(sig).toContain('始终用简体中文')
+    })
+
+    it('存量会话会重建：旧格式签名（无 promptRevision）与新签名必不相等', () => {
+        const legacy = '{"workingDir":"/x","agentType":"General","customInstructions":""}'
+        expect(buildSystemSignature('/x', 'General', undefined, undefined)).not.toBe(legacy)
+    })
+
+    it('同参重复调用恒等：promptRevision 是常量，不产生签名抖动（避免全会话缓存失效）', () => {
+        const a = buildSystemSignature('/x', 'General', undefined, undefined)
+        const b = buildSystemSignature('/x', 'General', undefined, undefined)
+        expect(a).toBe(b)
     })
 
     it('环境字段不在键内：同参重复调用恒等（shell / Node / hclawDir / MCP 无可入键通道）', () => {

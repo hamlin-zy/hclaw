@@ -74,6 +74,7 @@ export async function buildSystemPrompt(
   if (routing) sections.push(routing)
 
     sections.push(r.resolve('system.rules'))
+    sections.push(r.resolve('system.verify'))
     sections.push(r.resolve('system.workflow'))
     sections.push(r.resolve('system.output'))
 
@@ -126,7 +127,7 @@ function buildMediaSection(r: PromptResolver): string {
 }
 
 function buildMemorySection(r: PromptResolver): string {
-    return r.resolve('system.memory')
+    return r.resolve('system.memory').replace(/\{\{hclawDir\}\}/g, getHclawDir())
 }
 
 function displayOS(os: string): string {

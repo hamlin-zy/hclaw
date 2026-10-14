@@ -77,4 +77,33 @@ describe('memoIPC', () => {
         const result = await mocks.handle['memo:createSession']({}, 'memo-none')
         expect(result.ok).toBe(false)
     })
+
+    it('update 带 targetWorkspacePath：源与目标各广播一次', async () => {
+        const {memoStore} = await import('../../../src/main/memo/memoStore')
+        vi.mocked(memoStore.findById).mockReturnValueOnce({workspacePath: 'E:\\p', attachments: []} as never)
+        vi.mocked(memoStore.update).mockReturnValueOnce({id: 'memo-1', workspacePath: 'E:\\q'} as never)
+        const result = await mocks.handle['memo:update']({}, {id: 'memo-1', patch: {targetWorkspacePath: 'E:\\q'}})
+        expect(result.ok).toBe(true)
+        expect(mocks.send).toHaveBeenCalledWith('memo_changed', {workspacePath: 'E:\\p'})
+        expect(mocks.send).toHaveBeenCalledWith('memo_changed', {workspacePath: 'E:\\q'})
+        expect(mocks.send).toHaveBeenCalledTimes(2)
+    })
+
+    it('update 不带 targetWorkspacePath：只广播源，行为不变（Review Focus 5）', async () => {
+        const {memoStore} = await import('../../../src/main/memo/memoStore')
+        vi.mocked(memoStore.findById).mockReturnValueOnce({workspacePath: 'E:\\p', attachments: []} as never)
+        vi.mocked(memoStore.update).mockReturnValueOnce({id: 'memo-1', workspacePath: 'E:\\p'} as never)
+        const result = await mocks.handle['memo:update']({}, {id: 'memo-1', patch: {title: 'x'}})
+        expect(result.ok).toBe(true)
+        expect(mocks.send).toHaveBeenCalledTimes(1)
+        expect(mocks.send).toHaveBeenCalledWith('memo_changed', {workspacePath: 'E:\\p'})
+    })
+
+    it('update 抛错：返回结构化错误且不广播', async () => {
+        const {memoStore} = await import('../../../src/main/memo/memoStore')
+        vi.mocked(memoStore.update).mockImplementationOnce(() => { throw new Error('MEMO_NOT_FOUND') })
+        const result = await mocks.handle['memo:update']({}, {id: 'nope', patch: {}})
+        expect(result).toEqual({ok: false, error: '备忘录不存在'})
+        expect(mocks.send).not.toHaveBeenCalled()
+    })
 })

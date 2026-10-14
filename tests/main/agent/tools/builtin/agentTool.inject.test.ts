@@ -39,6 +39,16 @@ vi.mock('@/main/agent/agentTemplateConverter', () => ({
         systemPromptTemplate: '', tools: '*', permissionMode: 'auto',
     })),
 }))
+// 工具注册表打桩：resolveEffectiveTools 的 registryNames 来源（真实实现在测试环境
+// 无 DB、registry 为空 → 会把追加项判为「未注册」而丢弃，无法验证追加语义）
+vi.mock('@/main/agent/tools/registry', () => ({
+    toolRegistry: {
+        getToolDefinitions: vi.fn(async () => [
+            {name: 'glob'}, {name: 'grep'}, {name: 'file_read'}, {name: 'bash'}, {name: 'call_mcp_tool'},
+        ]),
+    },
+    getToolRegistry: vi.fn(),
+}))
 vi.mock('@/main/repositories/sqlite/systemSettingsRepository', () => ({
     systemSettingsRepo: {getJson: vi.fn(() => undefined)},
 }))
@@ -52,6 +62,8 @@ vi.mock('@/main/repositories', () => ({
 
 import {agentTool, injectChildMessage} from '@/main/agent/tools/builtin/agentTool'
 import {agentLoop} from '@/main/agent/loop'
+import {agentRegistry} from '@/main/agent/agentRegistry'
+import {agentTemplateToDefinition} from '@/main/agent/agentTemplateConverter'
 import {runtimeConfigManager as runtimeCfg} from '@/main/agent/runtimeConfigManager'
 import {createConversationRepository} from '@/main/repositories'
 import {parentPort} from 'worker_threads'
@@ -219,5 +231,38 @@ describe('agentTool execute — user_message_injected 轮换累积器', () => {
         expect(firstText.messageId).toBeDefined()
         expect(secondText.messageId).toBeDefined()
         expect(secondText.messageId).not.toBe(firstText.messageId)
+    })
+})
+
+// ─── 派发子 Agent 默认追加 call_mcp_tool ───────────────────
+
+/** 覆盖 agent 定义（agentRegistry.find + agentTemplateToDefinition 双桩），使 tools 可控 */
+function mockAgentDef(name: string, tools: string[] | '*') {
+    vi.mocked(agentRegistry.find).mockReturnValue({id: name, name, enabled: true} as any)
+    vi.mocked(agentTemplateToDefinition).mockReturnValue({
+        source: 'user', agentType: name, whenToUse: '', description: '',
+        systemPromptTemplate: '', tools, permissionMode: 'auto',
+    } as any)
+}
+
+describe('agentTool execute — 默认追加 call_mcp_tool', () => {
+    it('受限白名单子 Agent：effectiveAgentDef.tools 含 call_mcp_tool', async () => {
+        mockAgentDef('Explore Agent', ['glob', 'grep', 'file_read', 'bash'])
+
+        const {loopArgs} = await runAgentTool([done()])
+
+        const tools = (loopArgs as unknown as {agentDefinition: {tools: string[]}}).agentDefinition.tools
+        expect(tools).toContain('call_mcp_tool')
+    })
+
+    it('unrestricted 子 Agent（tools: []）：不因追加而缩窄为并集', async () => {
+        mockAgentDef('General Agent', [])
+
+        const {loopArgs} = await runAgentTool([done()])
+
+        const tools = (loopArgs as unknown as {agentDefinition: {tools: string[]}}).agentDefinition.tools
+        // unrestricted 语义：原样回传 base（[]），不得被缩窄成 ['call_mcp_tool']
+        expect(tools).toEqual([])
+        expect(tools).not.toContain('call_mcp_tool')
     })
 })

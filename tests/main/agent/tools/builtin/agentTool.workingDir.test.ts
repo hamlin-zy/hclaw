@@ -198,3 +198,48 @@ describe('agentTool.execute — workingDir 取值优先级（会话绑定优先�
         expect(params.workingDir).toBe('')
     })
 })
+
+// ── readOnly 透传至 agentLoop（R11 端到端）──────────────────────────────
+//
+// 与 workingDir 同属「字段透传」断言：agentTool 构造 effectiveAgentDef 时若漏掉 readOnly，
+// 则 controller 读 params.agentDefinition?.readOnly 恒为 undefined → 只读 MCP 守卫在
+// Explore / Code Reviewer 子 Agent 派发路径静默失效（同类教训见 :428 disallowedTools 注释）。
+// agentTemplateToDefinition 在本文件未被 mock（真实实现），故 readOnly 从 template 一路抵达 agentLoop。
+describe('agentTool.execute — readOnly 透传（只读守卫依赖）', () => {
+    it('源 agent 定义 readOnly=true → 派发时 agentDefinition.readOnly === true', async () => {
+        mocks.findAgent.mockReturnValue({
+            name: 'Test Agent',
+            enabled: true,
+            description: '测试 agent',
+            whenToUse: '测试',
+            systemPrompt: '你是测试 agent',
+            allowedTools: ['*'],
+            readOnly: true,
+        })
+        const getCaptured = captureAgentLoopParams()
+
+        const result = await agentTool.execute(
+            {task: '子任务', agent: 'Test Agent', modelRole: 'lightweight'},
+            CONTEXT,
+        )
+
+        expect(result.success).toBe(true)
+        const params = getCaptured()
+        expect(params).toBeDefined()
+        expect(params.agentDefinition.readOnly).toBe(true)
+    })
+
+    it('源 agent 定义无 readOnly → 派发时 readOnly 不为 true（保守默认，非只读）', async () => {
+        const getCaptured = captureAgentLoopParams()
+
+        const result = await agentTool.execute(
+            {task: '子任务', agent: 'Test Agent', modelRole: 'lightweight'},
+            CONTEXT,
+        )
+
+        expect(result.success).toBe(true)
+        const params = getCaptured()
+        expect(params).toBeDefined()
+        expect(params.agentDefinition.readOnly).not.toBe(true)
+    })
+})

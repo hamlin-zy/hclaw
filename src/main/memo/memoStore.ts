@@ -28,6 +28,9 @@ function memoFile(workspacePath: string): string {
     return path.join(memoDir(workspacePath), 'memos.json')
 }
 
+/** update 的补丁：MemoItem 可改字段 + 可选目标项目（携带即跨项目迁移，spec §4.2） */
+type MemoPatch = Partial<Pick<MemoItem, 'title' | 'content' | 'capability' | 'attachments' | 'status' | 'relatedConvId' | 'pinned' | 'sortIndex' | 'priority'>> & {targetWorkspacePath?: string}
+
 class MemoStore {
     private readAll(workspacePath: string): MemoItem[] {
         const file = memoFile(workspacePath)
@@ -118,14 +121,31 @@ class MemoStore {
         return this.locate(id)?.item
     }
 
-    update(id: string, patch: Partial<Pick<MemoItem, 'title' | 'content' | 'capability' | 'attachments' | 'status' | 'relatedConvId' | 'pinned' | 'sortIndex' | 'priority'>>): MemoItem {
+    update(id: string, patch: MemoPatch): MemoItem {
         const hit = this.locate(id)
         if (!hit) throw new Error('MEMO_NOT_FOUND')
         const {workspacePath} = hit
         const items = this.readAll(workspacePath)
         const idx = items.findIndex(m => m.id === id)
         if (idx === -1) throw new Error('MEMO_NOT_FOUND')
-        const updated: MemoItem = {...items[idx], ...patch, updatedAt: Date.now()}
+        const target = patch.targetWorkspacePath
+        // 目标缺省或与当前相同 → 走原有逻辑，行为逐字不变
+        if (target !== undefined && target !== workspacePath) {
+            return this.migrateTo(items, idx, patch, workspacePath, target)
+        }
+        const updated = this.applyPatch(items[idx], patch, workspacePath)
+        items[idx] = updated
+        this.writeAll(workspacePath, items)
+        return updated
+    }
+
+    /**
+     * 计算 patch 作用后的条目（不换归属）。sourceWorkspacePath 是本条目当前所在项目目录，
+     * 用于把 _pending 暂存附件落到该项目；patch 携带的 targetWorkspacePath 是迁移指令，不落入 MemoItem。
+     */
+    private applyPatch(base: MemoItem, patch: MemoPatch, sourceWorkspacePath: string, pendingJournal?: Array<{from: string; to: string}>): MemoItem {
+        const {targetWorkspacePath: _, ...fields} = patch
+        const updated: MemoItem = {...base, ...fields, updatedAt: Date.now()}
         // 标记为已处理时自动取消置顶（processed 组内无置顶语义）
         if (patch.status === 'processed') updated.pinned = false
         if (patch.title !== undefined) {
@@ -135,11 +155,94 @@ class MemoStore {
         }
         if (patch.content !== undefined) updated.content = patch.content.trim()
         if (patch.attachments !== undefined) {
-            updated.attachments = patch.attachments.map(att => this.migratePending(att, id, workspacePath))
+            updated.attachments = patch.attachments.map(att => this.migratePending(att, base.id, sourceWorkspacePath, pendingJournal))
         }
-        items[idx] = updated
-        this.writeAll(workspacePath, items)
         return updated
+    }
+
+    /**
+     * 跨项目迁移编排（spec §4.2）：条目连同附件目录从源项目换到目标项目。
+     * 顺序固定：①暂存附件落到源目录 ②算最终条目（换归属 + sortIndex 归零）③改写 storedPath 前缀
+     * ④搬附件归档目录 ⑤写目标 memos.json ⑥写源 memos.json（移除条目）；任一步失败即回滚，归属不变。
+     *
+     * 并发说明：memo_tool（worker 线程）与 memoIPC（主进程）共用同一存储根，全局不引入跨线程锁，
+     * 接受 best-effort 并发（spec §4.2 豁免）。
+     */
+    private migrateTo(items: MemoItem[], idx: number, patch: MemoPatch, source: string, target: string): MemoItem {
+        const id = items[idx].id
+        const sourceDir = memoDir(source)
+        const targetDir = memoDir(target)
+        const sourceAttDir = path.join(sourceDir, 'attachments', id)
+        const targetAttDir = path.join(targetDir, 'attachments', id)
+        // 步骤①会从 _pending 消费暂存附件（记录 from → 归档路径），失败时必须逐条搬回，
+        // 否则源 memos.json 未改动、条目仍引用 _pending 路径，而文件已不在原处 → 附件引用失效。
+        const pendingMoves: Array<{from: string; to: string}> = []
+        let dirMoved = false
+        let targetWritten = false
+        try {
+            // ①暂存附件落到源项目归档目录（applyPatch 内含 mkdir/rename IO，失败同样要还原）
+            const updated = this.applyPatch(items[idx], patch, source, pendingMoves)
+            updated.workspacePath = target
+            updated.sortIndex = 0
+            // ③已归档附件随条目换项目：storedPath 前缀 源目录 → 目标目录
+            updated.attachments = updated.attachments.map(att => {
+                if (!att.storedPath.startsWith(sourceDir + path.sep)) return att
+                return {...att, storedPath: path.join(targetDir, att.storedPath.slice(sourceDir.length))}
+            })
+            // ④搬附件归档目录；源无此目录 = 该条目没有附件（绝大多数条目如此），视为"无附件可搬"并继续。
+            //    注意 renameSync 不会自动建父目录，须先补出目标的 attachments/，否则会误判成"无附件"。
+            if (fs.existsSync(sourceAttDir)) {
+                fs.mkdirSync(path.dirname(targetAttDir), {recursive: true})
+                try {
+                    fs.renameSync(sourceAttDir, targetAttDir)
+                    dirMoved = true
+                } catch (err) {
+                    // ENOENT：源目录在 existsSync 之后被并发删除 → 同样按"无附件可搬"处理
+                    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+                }
+            }
+            // ⑤写目标 memos.json（插入最终条目；目标项目可能已有条目，先读出再前插）
+            // ⑥写源 memos.json（移除条目）
+            this.writeAll(target, [updated, ...this.readAll(target)])
+            targetWritten = true
+            items.splice(idx, 1)
+            this.writeAll(source, items)
+            return updated
+        } catch (err) {
+            // 回滚：源 memos.json 尚未改动（writeAll 原子写），需撤目标写入、附件目录搬迁与步骤①的暂存消费
+            if (targetWritten) {
+                try {
+                    this.writeAll(target, this.readAll(target).filter(m => m.id !== id))
+                } catch (rollbackErr) {
+                    logger.error('[MemoStore] migrate rollback target failed', {id, target, error: String(rollbackErr)})
+                }
+            }
+            if (dirMoved) {
+                try {
+                    fs.renameSync(targetAttDir, sourceAttDir)
+                } catch (rollbackErr) {
+                    logger.error('[MemoStore] migrate rollback attachments failed', {id, targetAttDir, error: String(rollbackErr)})
+                }
+            }
+            // 步骤①从 _pending 搬进归档目录的文件逐条搬回原处（此时归档目录已回到源侧）
+            for (const move of pendingMoves) {
+                try {
+                    fs.mkdirSync(path.dirname(move.from), {recursive: true})
+                    fs.renameSync(move.to, move.from)
+                } catch (rollbackErr) {
+                    logger.error('[MemoStore] migrate rollback pending failed', {id, from: move.from, to: move.to, error: String(rollbackErr)})
+                }
+            }
+            // 清理迁移过程新建、现已搬空的归档目录（原本不存在时才需要，非空/不存在则忽略）
+            for (const attDir of [sourceAttDir, targetAttDir]) {
+                try {
+                    fs.rmdirSync(attDir)
+                } catch {
+                    // 不存在或非空 → 无需/不应清理
+                }
+            }
+            throw err
+        }
     }
 
     remove(id: string): void {
@@ -183,7 +286,7 @@ class MemoStore {
     }
 
     /** storedPath 位于 _pending 的附件迁移到 attachments/<memoId>/，否则原样返回 */
-    private migratePending(att: MemoAttachment, memoId: string, workspacePath: string): MemoAttachment {
+    private migratePending(att: MemoAttachment, memoId: string, workspacePath: string, journal?: Array<{from: string; to: string}>): MemoAttachment {
         const pendingRoot = PENDING_DIR()
         const resolved = path.resolve(att.storedPath)
         if (!resolved.startsWith(path.resolve(pendingRoot) + path.sep)) return att
@@ -196,6 +299,8 @@ class MemoStore {
             return {...att, storedPath: dest}
         }
         fs.renameSync(resolved, dest)
+        // 记录本次消费，供迁移失败时把文件搬回 _pending（回滚完整性，spec §4.2）
+        journal?.push({from: resolved, to: dest})
         return {...att, storedPath: dest}
     }
 

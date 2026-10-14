@@ -1,5 +1,6 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import {registerMCPTools, registerAllMcpTools, unregisterMCPTools, getAllMcpToolMeta} from '@/main/agent/mcp/discovery'
+import {toMcpToolDefinition} from '@/main/agent/mcp/sdkAdapter'
 import {toolRegistry} from '@/main/agent/tools/registry'
 
 /**
@@ -14,6 +15,12 @@ import {toolRegistry} from '@/main/agent/tools/registry'
  * 变异 2：规则 0 改为「保留末次出现」→ ✅实测红 组 9①（expected [ 'm_A_y' ] to deeply equal [ 'm_A_x' ]）
  * 变异 3：去掉 userDescription 透传 → ✅实测红 组 9③（expected false to be true，description 缺「场景说明:」前缀）
  * 三条均已改回；改回后组 4/8/9 全绿（5/5）。
+ * --- Task 9 · 组 11 override 承载 ---
+ * 改动前：registerMCPTools 无第 5 参 → ✅实测红（AssertionError: expected undefined to deeply equal
+ *      { unknownPolicy: 'allow', readOnlyTools: ['frobnicate'] }，meta.override 为 undefined）
+ * 变异：createMCPToolProxy 去掉空 override 判空（改为 override 恒写键）→ ✅实测红 组 11②
+ *      （AssertionError: expected true to be false，'override' in meta 恒真）
+ * 已还原；还原后组 4/8/9/10/11 全绿（8/8）。
  */
 const tools = [{name: 'x', description: 'x', inputSchema: {type: 'object'}}] as any
 
@@ -62,5 +69,48 @@ describe('组 9 批量入口 registerAllMcpTools', () => {
     registerAllMcpTools([{id: 's', name: 'A', userDescription: '查知识库', tools: [{name: 'x', description: 'd', inputSchema: schema}] as any}])
     const desc = toolRegistry.getAll().find((t) => t.name === 'm_A_x')!.description
     expect(desc.startsWith('[MCP:s] 场景说明: 查知识库')).toBe(true)
+  })
+})
+
+describe('组 10 annotations 跨线程投影', () => {
+  it('annotations 经注册链路进入 McpToolMeta（防跨线程丢字段）', () => {
+    registerMCPTools('s', [{
+      name: 'echo',
+      inputSchema: {type: 'object', properties: {}},
+      annotations: {readOnlyHint: true},
+    }], undefined, 'A')
+    const meta = getAllMcpToolMeta().find(m => m.serverId === 's')
+    expect(meta?.annotations).toEqual({readOnlyHint: true})
+  })
+
+  it('只含 title 的 annotations 经 adapter 归一后 meta 无该字段（防空壳判 write）', () => {
+    registerMCPTools('s', [toMcpToolDefinition({
+      name: 'echo',
+      inputSchema: {type: 'object', properties: {}},
+      annotations: {title: 'T'} as any,
+    })], undefined, 'A')
+    const meta = getAllMcpToolMeta().find(m => m.serverId === 's')
+    expect(meta?.annotations).toBeUndefined()
+  })
+})
+
+describe('组 11 override 承载（只读守卫 server 级覆写）', () => {
+  it('override 经注册参数进入 McpToolMeta（只读守卫的 server 级覆写）', () => {
+    registerMCPTools('s', [{
+      name: 'frobnicate',
+      inputSchema: {type: 'object', properties: {}},
+    }], undefined, 'A', {unknownPolicy: 'allow', readOnlyTools: ['frobnicate']})
+    const meta = getAllMcpToolMeta().find(m => m.serverId === 's')
+    expect(meta?.override).toEqual({unknownPolicy: 'allow', readOnlyTools: ['frobnicate']})
+  })
+
+  it('三字段全空 → 不写 override 键（meta 不出现无意义空对象）', () => {
+    const tool = [{name: 'frobnicate', inputSchema: {type: 'object', properties: {}}}] as any
+    // 形态 1：payload 恒带三字段，未配置时为空数组 + undefined（mcpWorker 实际下发形态）
+    registerMCPTools('s', tool, undefined, 'A', {readOnlyTools: [], writeTools: [], unknownPolicy: undefined})
+    expect('override' in (getAllMcpToolMeta().find(m => m.serverId === 's') as any)).toBe(false)
+    // 形态 2：完全不传第 5 参（主进程直连路径 registerMCPTools 的旧调用方）
+    registerMCPTools('s', tool, undefined, 'A')
+    expect('override' in (getAllMcpToolMeta().find(m => m.serverId === 's') as any)).toBe(false)
   })
 })

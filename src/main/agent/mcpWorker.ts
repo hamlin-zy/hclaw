@@ -24,6 +24,8 @@ import {cpus} from 'os'
 import {MCPClient} from './mcp/client'
 import type {MCPServerConfig} from './mcp/types'
 import {formatMcpResult} from './mcp/formatResult'
+import {toToolPayload, type McpToolPayload} from './mcp/toolPayload'
+import type {McpWriteOverride} from './mcp/writeClassify'
 
 // ─── 首轮启动并发参数 ──────────────────────────────────
 /**
@@ -88,6 +90,15 @@ interface UpdateServersMessage {
 
 type McpWorkerMessage = CallToolRequest | ListToolsRequest | ListAllRequest | GetToolPermissionRequest | UpdateServersMessage
 
+/** 从 MCPServerConfig 提取只读守卫策略覆写（5 处同构调用点的收敛） */
+function configToOverride(config: MCPServerConfig): McpWriteOverride {
+    return {
+        readOnlyTools: config.readOnlyTools,
+        writeTools: config.writeTools,
+        unknownPolicy: config.unknownPolicy,
+    }
+}
+
 // ─── MCP Worker 服务 ──────────────────────────────────
 
 // ─── 常量 ──────────────────────────────────────────────
@@ -96,13 +107,6 @@ type McpWorkerMessage = CallToolRequest | ListToolsRequest | ListAllRequest | Ge
 const UPDATE_BATCH_SIZE = 20
 /** 批次间隔（毫秒） */
 const BATCH_DELAY_MS = 50
-
-/** 将 MCPToolDefinition 转为纯数据 payload（去除引用，用于跨线程传递） */
-function toToolPayload(t: { name: string; description?: string; inputSchema: any }): {
-  name: string; description?: string; inputSchema: any
-} {
-  return { name: t.name, description: t.description, inputSchema: t.inputSchema }
-}
 
 /** MCP Worker 服务主体。导出仅供单元测试直接构造实例（顶层单例的副作用不变）。 */
 export class McpWorkerService {
@@ -117,16 +121,18 @@ export class McpWorkerService {
         status: string;
         error?: string;
         toolCount?: number;
-        tools?: Array<{ name: string; description?: string; inputSchema: any }>
+        tools?: McpToolPayload[];
+        /** MCP server 策略覆写（server 级；随 status_batch 下发，与其余 payload 口径一致） */
+        override?: McpWriteOverride
     }> = []
     private statusTimer: NodeJS.Timeout | null = null
 
     /** 监听 MCPClient 内部状态变化，触发防抖上报 */
     private onStatusChange = (state: {
-        config: { id: string }
+        config: MCPServerConfig
         status: string
         error?: string
-        tools?: Array<{ name: string; description?: string; inputSchema: any }>
+        tools?: McpToolPayload[]
     }) => {
         const serverId = state.config.id
         const status = state.status
@@ -135,7 +141,10 @@ export class McpWorkerService {
         // 携带完整工具数据，避免在渲染层出现 null 导致崩溃
         const tools = state.tools?.map(toToolPayload)
         this.pendingStatusUpdates = this.pendingStatusUpdates.filter(u => u.serverId !== serverId)
-        this.pendingStatusUpdates.push({serverId, status, error, toolCount, tools})
+        this.pendingStatusUpdates.push({
+            serverId, status, error, toolCount, tools,
+            override: configToOverride(state.config),
+        })
         this.scheduleStatusReport()
 
         // 连接成功或断开时通知 Agent Worker 更新工具列表
@@ -486,6 +495,7 @@ export class McpWorkerService {
             callId: req.callId,
             tools: server.tools.map(toToolPayload),
             userDescription: server.config.userDescription,
+            override: configToOverride(server.config),
         })
     }
 
@@ -501,6 +511,7 @@ export class McpWorkerService {
                 //   否则被用户明确 deny 的工具仍会被注册进 registry 并广告给模型。
                 tools: this.mcpClient.getEffectiveTools(s.config.id).map(toToolPayload),
                 userDescription: s.config.userDescription,
+                override: configToOverride(s.config),
             }))
 
         port.postMessage({type: 'all_result', servers})
@@ -539,6 +550,7 @@ export class McpWorkerService {
             error: s.error,
             toolCount: s.tools.length,
             tools: s.tools.map(toToolPayload),
+            override: configToOverride(s.config),
         }))
         parentPort!.postMessage({type: 'status_batch', updates: servers})
     }
@@ -600,6 +612,7 @@ export class McpWorkerService {
             tools: this.mcpClient.getEffectiveTools(serverId).map(toToolPayload),
             userDescription: server.config.userDescription,
             status: server.status,
+            override: configToOverride(server.config),
         }
 
         for (const port of this.agentPorts) {

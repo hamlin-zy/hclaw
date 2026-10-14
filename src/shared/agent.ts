@@ -74,6 +74,9 @@ interface BaseAgentDefinition {
 
   /** 原始文件名（用于 user agents） */
   filename?: string
+
+  /** 只读 Agent：经 call_mcp_tool 仅可执行判定为读的 MCP 工具 */
+  readOnly?: boolean
 }
 
 /**

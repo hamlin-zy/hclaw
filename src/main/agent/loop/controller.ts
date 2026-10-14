@@ -221,7 +221,7 @@ export function carryForwardCommandId(
 interface CachePayload {
     core: string
     /**
-     * system 签名（f(workingDir, agentType, customInstructions)；agentDefinition
+     * system 签名（f(workingDir, agentType, customInstructions, promptRevision)；agentDefinition
      * 已移出 system（方案 A），不入签名）。
      * 复用守卫：签名一致才复用 core；签名不含日期/权限模式（二者已移出 system，
      * system 可跨天、跨权限模式复用，避免唯一 cache_control 断点失效）。
@@ -242,14 +242,24 @@ interface CachePayload {
 }
 
 /**
+ * 常驻段修订号：每次改动系统提示词常驻段（新增/改写 `system.*` 节点默认值）时 +1。
+ * 签名不含 system 正文，不推进此值 → 存量会话会继续复用 DB 里的旧 system（改动等于没上线）。
+ * ★ 这是让存量会话重建 system 的**唯一手动闸门**：签名其余键皆为自动派生（workingDir /
+ *   agentType / customInstructions / languageSection），改了常驻段就在这里 +1，别处不用动。
+ */
+const PROMPT_REVISION = 1
+
+/**
  * 计算 system 签名：真正影响 system 文本的项。
  * - workingDir / agentType / customInstructions 直接入键
+ * - promptRevision：常驻段修订号常量（改 `system.*` 默认值时 +1，收口存量会话重建）
  * - ★ 方案 A：agentDefinition 不再入键——agent 专属模板已移出 system（经 CT
  *   用户消息注入），system 文本与 agent 无关，切换 agent 不应触发重建。
  *   agentType 参数保留：非 agentDefinition 路径（如 agentType 模板分支）仍影响 system。
  * 不含日期/权限模式（已移出 system，不构成缓存破坏）。
- * 不含子会话语言段以外的任何运行态：languageSection 以**条件入键**承载 —— 主会话不写该键，
- * 签名 JSON 与历史格式逐字相同（存量会话不因"多一个空键"而重建 system）。
+ * 不含子会话语言段以外的任何运行态：languageSection 以**条件入键**承载 —— 主会话不写该键。
+ * 键集与历史格式的差异**仅** `promptRevision`（常量：内容不变则签名恒等；改动常驻段时必须 +1
+ * 才会触发存量会话重建）。空语言段仍不产生额外键。
  */
 export function buildSystemSignature(
     workingDir: string,
@@ -260,8 +270,9 @@ export function buildSystemSignature(
     /** 子会话语言段（影响 system 文本 → 必须入键）；主会话恒为 null/未传 */
     languageSection?: string | null,
 ): string {
-    const base = {workingDir, agentType, customInstructions: customInstructions ?? ''}
-    // ★ 条件入键：无语言段时键集与历史格式逐字相同 → 存量会话不因"多一个空键"而重建 system。
+    const base = {workingDir, agentType, customInstructions: customInstructions ?? '', promptRevision: PROMPT_REVISION}
+    // ★ 条件入键：无语言段时不写额外空键；与历史格式的键集差异**仅** promptRevision 常量
+    //   （内容不变则签名恒等；改常驻段时 PROMPT_REVISION +1 才触发存量会话重建）。
     return JSON.stringify(languageSection ? {...base, languageSection} : base)
 }
 
@@ -859,6 +870,9 @@ export class AgentLoopController {
                 allowedToolNames,
                 disallowedToolNames,
                 permissionModeOverride: params.permissionModeOverride,
+                // 只读 Agent（Explore / Code Reviewer 等）经 agentTool 派发时携带 readOnly；
+                // ★ 一律 `=== true` 判定（buildAgentTemplateFromRaw 无条件列键会使 `in` 恒真）。
+                readOnlyMcp: params.agentDefinition?.readOnly === true,
             })
             currentState = toolResult.state
             for (const event of toolResult.events) yield event

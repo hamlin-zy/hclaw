@@ -2,6 +2,7 @@ import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import * as crypto from 'crypto'
 import type {MemoAttachment} from '@shared/types/memo'
 
 // memoStore 通过 getHclawDir() 定位存储目录。
@@ -17,15 +18,30 @@ beforeEach(() => {
 })
 afterEach(() => fs.rmSync(dir, {recursive: true, force: true}))
 
-async function freshStore() {
+async function freshStore(opts?: {failWriteSync?: boolean}) {
+    vi.resetModules() // 保证同测试内二次 import 不复用缓存模块
     vi.doMock('../../../src/main/config', () => ({
         getHclawDir: () => process.env.HCLAW_TEST_DIR,
     }))
     // 路径能力已下沉到叶子 hclawPaths：与 config 桩取同一目录，避免绕过 mock 落到真实 ~/.hclaw
     vi.doMock('../../../src/main/hclawPaths', () => ({getHclawDir: () => process.env.HCLAW_TEST_DIR}))
+    if (opts?.failWriteSync) {
+        // ESM 命名空间不可 spy（Module namespace is not configurable），故用 vi.doMock 包装 fs，
+        // 让 writeFileSync 在写盘阶段抛错（与 tests/main/phrase/phraseStore.test.ts 的 failRename 同法）
+        vi.doMock('fs', async (importOriginal) => {
+            const actual = await importOriginal<typeof import('fs')>()
+            return {...actual, writeFileSync: () => { throw new Error('disk full') }}
+        })
+    } else {
+        vi.doUnmock('fs')
+    }
     const mod = await import('../../../src/main/memo/memoStore')
     return mod.memoStore
 }
+
+// memoStore 的 memoDir(workspacePath) = sha256(workspacePath) 前 16 位十六进制（memoStore.ts hashWorkspace）
+const workspaceDirName = (workspacePath: string) =>
+    crypto.createHash('sha256').update(workspacePath).digest('hex').slice(0, 16)
 
 describe('memoStore attachments', () => {
     const PENDING_DIR_TEST = () => path.join(dir, 'data', 'memo', '_pending')
@@ -429,5 +445,103 @@ describe("memoStore removeMany 批量删除", () => {
         expect(fs.existsSync(item.attachments[0].storedPath)).toBe(true)
         store.removeMany([item.id])
         expect(fs.existsSync(item.attachments[0].storedPath)).toBe(false)
+    })
+})
+
+// 跨项目迁移：memo_tool（worker 线程）与 memoIPC（主进程）共用一个存储根，
+// 全局约定不引入跨线程锁，接受 best-effort 并发（spec §4.2 豁免）。
+describe('memoStore 跨项目迁移', () => {
+    it('条目与 workspacePath 一起换项目', async () => {
+        const store = await freshStore()
+        const item = store.create({workspacePath: 'E:\\A', title: 'T', content: 'C'})
+        const moved = store.update(item.id, {targetWorkspacePath: 'E:\\B'})
+        expect(moved.workspacePath).toBe('E:\\B')
+        expect(store.list('E:\\A')).toHaveLength(0)
+        expect(store.list('E:\\B').map(m => m.id)).toEqual([item.id])
+        expect(store.findById(item.id)?.workspacePath).toBe('E:\\B')
+    })
+
+    it('无附件条目迁移不因 ENOENT 失败（Review Focus 1）', async () => {
+        const store = await freshStore()
+        const item = store.create({workspacePath: 'E:\\A', title: 'T', content: 'C'})
+        expect(item.attachments).toHaveLength(0)
+        expect(() => store.update(item.id, {targetWorkspacePath: 'E:\\B'})).not.toThrow()
+    })
+
+    it('附件目录与 storedPath 一起搬迁（Review Focus 2）', async () => {
+        const store = await freshStore()
+        const src = path.join(dir, 'a.txt'); fs.writeFileSync(src, 'hello')
+        const att = await store.uploadAttachment({fileName: 'a.txt', srcPath: src, mime: 'text/plain'})
+        const item = store.create({workspacePath: 'E:\\A', title: 'T', content: '', attachments: [att]})
+        const oldPath = item.attachments[0].storedPath
+        // 模拟 UI：保存时提交的是窗口打开时的旧 attachments 全量列表
+        const moved = store.update(item.id, {targetWorkspacePath: 'E:\\B', attachments: item.attachments})
+        expect(fs.existsSync(oldPath)).toBe(false)
+        expect(fs.existsSync(moved.attachments[0].storedPath)).toBe(true)
+        expect(moved.attachments[0].storedPath).toContain(workspaceDirName('E:\\B'))
+    })
+
+    it('同一次保存既加暂存附件又改归属 → 新附件落到目标项目（Review Focus 2）', async () => {
+        const store = await freshStore()
+        const item = store.create({workspacePath: 'E:\\A', title: 'T', content: 'C'})
+        const src = path.join(dir, 'new.txt'); fs.writeFileSync(src, 'x')
+        const pending = await store.uploadAttachment({fileName: 'new.txt', srcPath: src, mime: 'text/plain'})
+        const moved = store.update(item.id, {targetWorkspacePath: 'E:\\B', attachments: [...item.attachments, pending]})
+        expect(moved.attachments[0].storedPath).toContain(workspaceDirName('E:\\B'))
+        expect(fs.existsSync(moved.attachments[0].storedPath)).toBe(true)
+    })
+
+    it('目标与当前相同 → 不搬迁，行为同普通更新', async () => {
+        const store = await freshStore()
+        const item = store.create({workspacePath: 'E:\\A', title: 'T', content: 'C'})
+        const same = store.update(item.id, {targetWorkspacePath: 'E:\\A', title: '新标题'})
+        expect(same.workspacePath).toBe('E:\\A')
+        expect(same.title).toBe('新标题')
+        expect(store.list('E:\\A')).toHaveLength(1)
+    })
+
+    it('写目标失败 → 回滚，源与附件保持原状', async () => {
+        const store = await freshStore()
+        const src = path.join(dir, 'a.txt'); fs.writeFileSync(src, 'hello')
+        const att = await store.uploadAttachment({fileName: 'a.txt', srcPath: src, mime: 'text/plain'})
+        const item = store.create({workspacePath: 'E:\\A', title: 'T', content: '', attachments: [att]})
+        const oldPath = item.attachments[0].storedPath
+        // 注入写盘失败：迁移第 ⑤ 步首次 writeFileSync（写目标 memos.json）即抛错（步骤 ①②③④ 不写 memos.json）
+        const failing = await freshStore({failWriteSync: true})
+        expect(() => failing.update(item.id, {targetWorkspacePath: 'E:\\B'})).toThrow()
+        expect(store.list('E:\\A').map(m => m.id)).toEqual([item.id])
+        expect(store.list('E:\\B')).toHaveLength(0)
+        expect(fs.existsSync(oldPath)).toBe(true)
+    })
+
+    it('同一次保存既加暂存附件又迁移失败 → 回滚还原 _pending 文件，附件引用不失效', async () => {
+        const store = await freshStore()
+        // 源条目本身带一个已归档附件（验证 dirMoved 回滚后旧附件仍在原处）
+        const oldSrc = path.join(dir, 'old.txt'); fs.writeFileSync(oldSrc, 'old')
+        const oldAtt = await store.uploadAttachment({fileName: 'old.txt', srcPath: oldSrc, mime: 'text/plain'})
+        const item = store.create({workspacePath: 'E:\\A', title: 'T', content: 'C', attachments: [oldAtt]})
+        const oldStored = item.attachments[0].storedPath
+        expect(fs.existsSync(oldStored)).toBe(true)
+
+        // 同一次保存再带一个新暂存附件（落在 _pending，步骤①会把它消费进归档目录）
+        const newSrc = path.join(dir, 'new.txt'); fs.writeFileSync(newSrc, 'new')
+        const pending = await store.uploadAttachment({fileName: 'new.txt', srcPath: newSrc, mime: 'text/plain'})
+        const pendingPath = pending.storedPath
+        expect(pendingPath).toContain('_pending')
+        expect(fs.existsSync(pendingPath)).toBe(true)
+
+        // 迁移失败（写目标 memos.json 抛错）→ 源 memos.json 未改动，条目仍引用 pending 路径
+        const failing = await freshStore({failWriteSync: true})
+        expect(() => failing.update(item.id, {targetWorkspacePath: 'E:\\B', attachments: [...item.attachments, pending]})).toThrow()
+
+        // 步骤①消费的 _pending 文件被搬回原位置 → UI 重试保存时该附件不丢
+        expect(fs.existsSync(pendingPath)).toBe(true)
+        // 归属未变：源含条目、目标为空
+        const sourceList = store.list('E:\\A')
+        expect(sourceList.map(m => m.id)).toEqual([item.id])
+        expect(store.list('E:\\B')).toHaveLength(0)
+        // 源条目 attachments 未改动，且其 storedPath 指向的文件真实存在
+        expect(sourceList[0].attachments.map(a => a.storedPath)).toEqual([oldStored])
+        expect(fs.existsSync(sourceList[0].attachments[0].storedPath)).toBe(true)
     })
 })

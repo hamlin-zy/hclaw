@@ -1,4 +1,4 @@
-import {describe, expect, it, vi} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 import {writeMcpConfig, readMcpConfig} from '@/main/config/mcpConfig'
 import fs from 'fs'
 import path from 'path'
@@ -69,5 +69,55 @@ describe('mcpConfig checkUrl', () => {
     expect(writeSpy).toHaveBeenCalled()
     writeSpy.mockRestore()
     existsSpy.mockRestore()
+  })
+})
+
+describe('mcpConfig 只读守卫策略字段', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('parseMcpServers preserves readOnlyTools/writeTools/unknownPolicy', () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true)
+    const readSpy = vi.spyOn(fs, 'readFileSync')
+    readSpy.mockReturnValue(JSON.stringify({
+      mcpServers: {
+        srv: {
+          command: 'x',
+          readOnlyTools: ['codegraph_explore'],
+          writeTools: ['danger'],
+          unknownPolicy: 'allow',
+        },
+      },
+    }))
+    const servers = readMcpConfig()
+    expect(servers[0].readOnlyTools).toEqual(['codegraph_explore'])
+    expect(servers[0].writeTools).toEqual(['danger'])
+    expect(servers[0].unknownPolicy).toBe('allow')
+  })
+
+  it('serializeMcpServers 写出三字段（往返不丢）', () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false)
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockImplementation(() => {})
+    writeMcpConfig([{
+      id: 'srv', name: 'srv', transport: 'stdio', command: 'x', args: [], env: {},
+      url: '', userDescription: '', enabled: true,
+      readOnlyTools: ['codegraph_explore'], writeTools: [], unknownPolicy: 'allow',
+    } as any])
+    const written = JSON.parse(writeSpy.mock.calls[0][1] as string)
+    expect(written.mcpServers.srv.readOnlyTools).toEqual(['codegraph_explore'])
+    expect(written.mcpServers.srv.writeTools).toEqual([])
+    expect(written.mcpServers.srv.unknownPolicy).toBe('allow')
+  })
+
+  it('缺省不写 unknownPolicy（未配置 ≠ 显式 deny）', () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false)
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockImplementation(() => {})
+    writeMcpConfig([{
+      id: 'srv', name: 'srv', transport: 'stdio', command: 'x', args: [], env: {},
+      url: '', userDescription: '', enabled: true,
+    } as any])
+    const written = JSON.parse(writeSpy.mock.calls[0][1] as string)
+    expect('unknownPolicy' in written.mcpServers.srv).toBe(false)
   })
 })

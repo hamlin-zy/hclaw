@@ -410,6 +410,9 @@ class PowerManagerImpl {
                 timeout: merged.timeout,
                 autoApprove: merged.autoApprove,
                 denyList: merged.denyList,
+                readOnlyTools: merged.readOnlyTools,
+                writeTools: merged.writeTools,
+                unknownPolicy: merged.unknownPolicy,
                 userDescription: merged.userDescription || '',
             })
         } catch { /* 写入失败不影响主流程 */ }

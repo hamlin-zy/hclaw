@@ -122,6 +122,13 @@ function registerMcpIpcListeners(): void {
                         timeout: s.timeout ?? 60000,
                         autoApprove: s.autoApprove || [],
                         denyList: s.denyList || [],
+                        // ★ 策略字段必须逐字段带上：本映射是「重建对象」，漏字段会让
+                        //   store 丢值 → MCPDialog 保存时回传缺字段对象 → 主进程整体覆盖 +
+                        //   serialize 兜底写 []，擦除用户在 mcp.json 手配的策略。
+                        //   unknownPolicy 保持 undefined（不 `|| ''`）：区分「未配置」与「显式 deny」。
+                        readOnlyTools: s.readOnlyTools || [],
+                        writeTools: s.writeTools || [],
+                        unknownPolicy: s.unknownPolicy,
                         userDescription: s.userDescription || '',
                         enabled: s.enabled ?? true,
                         // 运行时状态：优先用 store 已存在的，否则用 mcp:list 返回的（首次加载兜底）
@@ -171,6 +178,10 @@ export const useMcpStore = create<McpStore>()(
                   timeout: server.timeout ?? 60000,
                   autoApprove: server.autoApprove ?? [],
                   denyList: server.denyList ?? [],
+                  readOnlyTools: server.readOnlyTools ?? [],
+                  writeTools: server.writeTools ?? [],
+                  // unknownPolicy 不补默认：undefined = 未配置（缺省按 deny 处理），
+                  // 与「显式 deny」语义不同，落盘时也不写
               }
               set((state: McpStore) => ({mcpServers: [...state.mcpServers, newServer]}))
               window.electronAPI?.mcp?.saveServer?.(newServer)

@@ -68,3 +68,32 @@ describe('parseStringArray（经 parseAgentConfig 暴露的 allowedTools 观察�
         expect(cfg?.allowedTools.length).toBe(6)
     })
 })
+
+/**
+ * Task 4：readOnly 显式字段解析（只读 MCP 守卫的依据）。
+ *
+ * 不变量：缺省不产生有效值（`readOnly === undefined`）；键存在性不在此层区分，
+ * AgentDefinition 层的「缺省无键」由 converter 条件展开保证。
+ * `readOnly` / `read_only` 双写法等价（snake_case 优先，camelCase 兜底）。
+ */
+describe('parseAgentConfig readOnly 解析', () => {
+    const parse = (raw: Record<string, unknown>) =>
+        parseAgentConfig(raw as any, 'sys', {defaultName: 'test-agent'})
+
+    it('readOnly: true → parsed.readOnly === true', () => {
+        expect(parse({name: 'a', readOnly: true})?.readOnly).toBe(true)
+    })
+
+    it('read_only: true（snake_case 别名）→ parsed.readOnly === true', () => {
+        expect(parse({name: 'a', read_only: true})?.readOnly).toBe(true)
+    })
+
+    it('readOnly: false（显式 false）→ parsed.readOnly === false', () => {
+        const cfg = parse({name: 'a', readOnly: false})
+        expect(cfg?.readOnly).toBe(false)
+    })
+
+    it('未声明 → parsed.readOnly === undefined', () => {
+        expect(parse({name: 'a'})?.readOnly).toBeUndefined()
+    })
+})

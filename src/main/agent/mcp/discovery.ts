@@ -14,7 +14,8 @@ import crypto from 'crypto'
 import {MessagePort, parentPort} from 'worker_threads'
 import {toolRegistry} from '../tools/registry'
 import type {Tool, ToolContext, ToolResult} from '../tools/types'
-import type {MCPToolDefinition} from './types'
+import type {MCPToolDefinition, MCPToolAnnotations} from './types'
+import type {McpWriteOverride} from './writeClassify'
 import {mcpClient as mainProcessMcpClient} from './client'
 import {createTimeoutResult, ToolTimeoutError, withToolTimeout} from '../tools/toolTimeout'
 import {formatMcpResult} from './formatResult'
@@ -86,6 +87,10 @@ export interface McpToolMeta {
   description?: string
   /** 原始 inputSchema（未经 mcpSchemaToZod 转换） */
   rawInputSchema: MCPToolDefinition['inputSchema']
+  /** MCP 侧原始行为标注（只读守卫判定依据；随注册链路跨线程抵达，供 Task 5 消费） */
+  annotations?: MCPToolAnnotations
+  /** MCP server 策略覆写（readOnlyTools / writeTools / unknownPolicy），由 Task 9 填充；只读守卫消费 */
+  override?: McpWriteOverride
 }
 
 const mcpToolMeta = new Map<string, McpToolMeta>()   // key = proxyName
@@ -212,13 +217,25 @@ function raceAbort(
   })
 }
 
+/**
+ * 三字段全空（readOnlyTools / writeTools 均空 且 unknownPolicy undefined）视为「未配置」。
+ * 与 `classifyMcpToolWrite` 对空对象/undefined 行为一致（都命中不了任何分支），
+ * 仅用于决定是否在 meta 上写 `override` 键。
+ */
+function isEmptyMcpWriteOverride(o: McpWriteOverride | undefined): boolean {
+  if (!o) return true
+  return !o.readOnlyTools?.length && !o.writeTools?.length && o.unknownPolicy === undefined
+}
+
 function createMCPToolProxy(args: {
   serverId: string
   toolDef: MCPToolDefinition
   proxyName: string
   serverName?: string
+  /** MCP server 策略覆写（随 payload 下发；worker 线程内无 config 视图） */
+  override?: McpWriteOverride
 }): {tool: Tool; meta: McpToolMeta} {
-  const {serverId, toolDef, proxyName, serverName} = args
+  const {serverId, toolDef, proxyName, serverName, override} = args
   const isWorker = !!parentPort
 
   let userDesc: string | undefined
@@ -312,17 +329,19 @@ function createMCPToolProxy(args: {
     },
   }
 
-  return {
-    tool,
-    meta: {
-      proxyName,
-      serverId,
-      serverName,
-      rawToolName: toolDef.name,
-      description: toolDef.description,
-      rawInputSchema: toolDef.inputSchema,
-    },
+  const meta: McpToolMeta = {
+    proxyName,
+    serverId,
+    serverName,
+    rawToolName: toolDef.name,
+    description: toolDef.description,
+    rawInputSchema: toolDef.inputSchema,
+    annotations: toolDef.annotations,
   }
+  // 三字段全空不写键（payload 恒带三字段，避免 meta 出现无意义空对象）
+  if (!isEmptyMcpWriteOverride(override)) meta.override = override
+
+  return {tool, meta}
 }
 
 // ─── 将 MCP inputSchema 转换为 Zod Schema ────────────────────
@@ -382,6 +401,8 @@ export interface McpServerWithTools {
   /** 透传至 proxy.description 的「场景说明」前缀 */
   userDescription?: string
   tools: MCPToolDefinition[]
+  /** MCP server 策略覆写（只读守卫消费；随 payload 从 MCP Worker 下发） */
+  override?: McpWriteOverride
 }
 
 /**
@@ -456,6 +477,7 @@ export function registerMCPTools(
   tools?: MCPToolDefinition[],
   userDescription?: string,
   serverName?: string,
+  override?: McpWriteOverride,
 ): number {
   let serverTools = tools
   let finalUserDesc = userDescription
@@ -492,6 +514,7 @@ export function registerMCPTools(
       toolDef,
       proxyName,
       serverName: finalServerName,
+      override,
     })
     if (finalUserDesc) {
       proxy.description = `[MCP:${serverId}] 场景说明: ${finalUserDesc}\n${toolDef.description || toolDef.name}`
@@ -539,6 +562,7 @@ export function registerAllMcpTools(servers: McpServerWithTools[]): number {
         toolDef,
         proxyName,
         serverName: s.name,
+        override: s.override,
       })
       if (s.userDescription) {
         proxy.description = `[MCP:${s.id}] 场景说明: ${s.userDescription}\n${toolDef.description || toolDef.name}`

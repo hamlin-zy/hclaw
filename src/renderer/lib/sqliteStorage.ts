@@ -194,6 +194,14 @@ const STORE_HANDLERS: Record<string, {
                 url: s.url || '', headers: s.headers || {},
                 cwd: s.cwd || '', timeout: s.timeout ?? 60000,
                 autoApprove: s.autoApprove || [], denyList: s.denyList || [],
+                // ★ 只读守卫策略三字段必须逐字段带上（与 mcpStore.onListChanged 同口径）：
+                //   本映射是 hydration 入口，比 onListChanged 更早生效；漏字段会让 store
+                //   在 MCPDialog.syncMcpStatus 补写前缺策略值 → 编辑已连接 server 保存即回写
+                //   空数组，擦除 mcp.json 手配值。unknownPolicy 原值透传（不 `|| ''`），
+                //   区分「未配置」与「显式 deny」。
+                readOnlyTools: s.readOnlyTools || [],
+                writeTools: s.writeTools || [],
+                unknownPolicy: s.unknownPolicy,
                 userDescription: s.userDescription || '', enabled: s.enabled ?? true,
                 // ★ Runtime 状态也参与 hydration（避免首次加载显示 undefined status）
                 // mcp:list 返回 mcpService.list()，已包含 Worker 回传的最新状态

@@ -18,6 +18,15 @@ const inputSchema = z.object({
     clear: z.boolean().optional().describe('清空模式：根据 taskId 清理指定的已完成任务，无 taskId 时清空所有已完成任务'),
 })
 
+/** 状态别名 → 合法枚举（LLM 常用自然语言同义词；实测 in_progress / done / 已完成 / 进行中 高频误用） */
+const STATUS_ALIASES: Readonly<Record<string, TaskStatus>> = {
+    in_progress: 'running',
+    '进行中': 'running',
+    '执行中': 'running',
+    done: 'completed',
+    '已完成': 'completed',
+}
+
 type TaskUpdateInput = z.infer<typeof inputSchema>
 
 export const taskUpdateTool: Tool<TaskUpdateInput, { updated: number; cleared: number; status?: TaskStatus }> = {
@@ -26,6 +35,12 @@ export const taskUpdateTool: Tool<TaskUpdateInput, { updated: number; cleared: n
     inputSchema,
     requiredPermissions: [],
     isDestructive: false,
+    normalizeArgs(args: Record<string, unknown>): Record<string, unknown> {
+        const raw = args.status
+        if (typeof raw !== 'string') return args
+        if (!Object.prototype.hasOwnProperty.call(STATUS_ALIASES, raw)) return args
+        return {...args, status: STATUS_ALIASES[raw]}
+    },
 
     async execute(args: TaskUpdateInput, context: ToolContext): Promise<ToolResult<{ updated: number; cleared: number; status?: TaskStatus }>> {
         try {

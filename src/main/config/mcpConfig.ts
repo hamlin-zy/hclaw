@@ -22,6 +22,9 @@ interface McpServerInput {
     timeout?: number
     autoApprove?: string[]
     denyList?: string[]
+    readOnlyTools?: string[]
+    writeTools?: string[]
+    unknownPolicy?: 'allow' | 'deny'
     userDescription?: string
     checkUrl?: string
 }
@@ -48,6 +51,10 @@ function parseMcpServers(raw: Record<string, McpServerInput>): McpServer[] {
         timeout: entry.timeout ?? 60000,
         autoApprove: entry.autoApprove || [],
         denyList: entry.denyList || [],
+        readOnlyTools: entry.readOnlyTools || [],
+        writeTools: entry.writeTools || [],
+        // 缺省不写：undefined = 按 deny 处理（与 writeClassify 的 fail-closed 一致）
+        ...(entry.unknownPolicy ? {unknownPolicy: entry.unknownPolicy} : {}),
         userDescription: entry.userDescription || '',
         checkUrl: entry.checkUrl || '',
         enabled: entry.enabled ?? true,
@@ -70,6 +77,10 @@ function serializeMcpServers(servers: McpServer[]): Record<string, unknown> {
             timeout: s.timeout ?? 60000,
             autoApprove: s.autoApprove || [],
             denyList: s.denyList || [],
+            readOnlyTools: s.readOnlyTools || [],
+            writeTools: s.writeTools || [],
+            // 缺省不写：undefined = 按 deny 处理（与 writeClassify 的 fail-closed 一致）
+            ...(s.unknownPolicy ? {unknownPolicy: s.unknownPolicy} : {}),
             userDescription: s.userDescription || '',
             checkUrl: s.checkUrl || '',
         }
@@ -93,6 +104,9 @@ export interface PluginMcpOverride {
     timeout?: number
     autoApprove?: string[]
     denyList?: string[]
+    readOnlyTools?: string[]
+    writeTools?: string[]
+    unknownPolicy?: 'allow' | 'deny'
     userDescription?: string
     checkUrl?: string
 }
@@ -163,6 +177,9 @@ export function mergePluginOverride(
         timeout: override?.timeout ?? (pluginServer.timeout as number) ?? 60000,
         autoApprove: override?.autoApprove || (pluginServer.autoApprove as string[]) || [],
         denyList: override?.denyList || (pluginServer.denyList as string[]) || [],
+        readOnlyTools: override?.readOnlyTools || (pluginServer.readOnlyTools as string[]) || [],
+        writeTools: override?.writeTools || (pluginServer.writeTools as string[]) || [],
+        unknownPolicy: override?.unknownPolicy ?? (pluginServer.unknownPolicy as 'allow' | 'deny' | undefined),
         userDescription: override?.userDescription || (pluginServer.userDescription as string) || '',
         checkUrl: override?.checkUrl || (pluginServer.checkUrl as string) || '',
         enabled: override?.enabled ?? true,

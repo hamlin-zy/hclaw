@@ -31,7 +31,8 @@ import {logger} from '../../logger'
 import {agentRegistry} from '../../agentRegistry'
 import {agentTemplateToDefinition} from '../../agentTemplateConverter'
 import {toolRegistry} from '../registry'
-import {resolveEffectiveTools, formatToolsNotice} from './agentToolTools'
+import {resolveEffectiveTools, formatToolsNotice, formatTodoNotice, type TodoNoticeOutcome} from './agentToolTools'
+import {taskStore} from '../../tasks/taskStore'
 import type {AgentDefinition} from '@shared/agent'
 import type {LLMProvider, ModelOverride, ModelRole, ModelScheme} from '@shared/types'
 import {getRoleConfig, isTextRoleUsable, getUsableTextRoles} from '@shared/modelSchemeHelpers'
@@ -215,9 +216,9 @@ function buildInputSchema(): z.ZodType<AgentToolInput> {
         agent: z.string()
             .describe(`必填。要作为子 Agent 运行的已启用 Agent 名称，从以下候选中选择：${candidates}。名称需完整精确（含" Agent"后缀），如 "Implementer Agent"；传入前缀近义词会由系统容错匹配。类型映射：实现/修复→Implementer、审查→Code Reviewer、代码搜索/调研→Explore、架构规划→Plan、验证→Verification、模糊或跨领域→General。`),
         tools: z.array(z.string()).optional()
-            .describe('允许使用的工具白名单（指定 agent 时覆盖 Agent 定义的白名单）'),
+            .describe('允许使用的工具白名单（指定 agent 时覆盖 Agent 定义的白名单）。注意：无论是否整体替换，call_mcp_tool 都会被自动追加（用于 MCP 能力）；本参数无法撤销该追加，只有该 Agent 定义在 disallowedTools 中禁用它才能去掉'),
         additionalTools: z.array(z.string()).optional()
-            .describe('在 agent 默认工具之外补充工具（并集，不替换默认集）。仅在需要 agent 默认没有的能力时使用（如给只读 agent 补 web_fetch）。填错不报错，未生效项会在返回结果中说明。'),
+            .describe('在 agent 默认工具之外补充工具（并集，不替换默认集）。仅在需要 agent 默认没有的能力时使用（如给只读 agent 补 web_fetch）。填错不报错，未生效项会在返回结果中说明。注意：call_mcp_tool 仍会被自动追加（不受本参数影响）；本参数无法撤销该追加，只有该 Agent 定义在 disallowedTools 中禁用它才能去掉'),
         modelRole: z.enum(availableRoles.length ? availableRoles as [ModelRole, ...ModelRole[]] : ['primary' as ModelRole])
             .describe(
                 `必填。子 Agent 使用的模型档位，取值仅限当前可用文本角色：${availableRoles.join('、') || 'primary（当前无可用文本角色，请先在设置中配置）'}。` +
@@ -259,7 +260,9 @@ function buildAgentToolDescription(): string {
         '【可选】additionalTools：在 agent 默认工具之外补充工具（并集，不替换默认集）。\n' +
         '仅在需要默认没有的能力时填（如给 Explore 补 web_fetch）；填错不报错，未生效项会在返回结果中说明。\n' +
         '【可选】tools：整体替换 agent 默认工具集（需写全，漏写即丢失能力），仅在确需缩小时使用。\n' +
-        '不确定该派哪个 Agent 时，先调用 list_agents 查看名册。'
+        '注意：无论是否整体替换，call_mcp_tool 仍会被自动追加（用于 MCP 能力）；如需去掉，请在 Agent 定义的 disallowedTools 中显式禁用它。\n' +
+        '不确定该派哪个 Agent 时，先调用 list_agents 查看名册。\n' +
+        '【待办】本会话若存在待办列表：派发前将对应待办用 task_update 置 running；子任务返回后立即按结果置 completed（失败/截断则保持 running 或置 failed）。'
     )
 }
 
@@ -437,7 +440,12 @@ export const agentTool: Tool<AgentToolInput, string> = {
         const childDisallowedTools = [...(effectiveAgentDefinition.disallowedTools ?? []), 'session_handoff']
         const toolResolution = resolveEffectiveTools({
             baseTools: effectiveAgentDefinition.tools,
-            additionalTools: args.additionalTools,
+            // ★ 恒追加 call_mcp_tool：受限白名单的子 Agent 也要保留 MCP 能力（能力增强走工具集，
+            //   不加 UI 入口）。unrestricted（tools 为 [] / ['*']）时 resolveEffectiveTools
+            //   原样返回 base、忽略本项 —— 语义不变，不会把「全部工具」缩窄成并集。
+            //   显式禁用：Agent 定义 disallowedTools 含 call_mcp_tool 时（经下方 childDisallowedTools
+            //   传入）该项被黑名单过滤掉，追加可被显式撤销。
+            additionalTools: [...(args.additionalTools ?? []), 'call_mcp_tool'],
             agentName,
             disallowedTools: childDisallowedTools,
             // 与运行期注入源（loop/setup.ts 的 getToolDefinitions）同源：按 DB 启用状态过滤，
@@ -453,6 +461,10 @@ export const agentTool: Tool<AgentToolInput, string> = {
             renderedSystemPrompt: '',
             tools: toolResolution.tools,
             disallowedTools: [...new Set(childDisallowedTools)],
+            // ★ 逐字段重建时须显式透传 readOnly（同上方 disallowedTools 的同类教训）：
+            //   漏掉则 controller 读 params.agentDefinition?.readOnly 恒为 undefined，
+            //   只读 Agent（Explore / Code Reviewer）的 MCP 写/未知工具守卫静默失效。
+            readOnly: effectiveAgentDefinition.readOnly,
         }
 
         // ⑧ 构建 agentLoop 参数（当前进程/线程中运行）
@@ -762,6 +774,9 @@ export const agentTool: Tool<AgentToolInput, string> = {
         const finalOutput = (hasError ? '' : output.trim()) || '(无输出)'
         // 工具集提示（additionalTools 未生效项；空数组 → ''，各返回路径逐字不变）
         const toolsNotice = formatToolsNotice(toolResolution.notices)
+        // 父会话存在活跃批次（含未完成任务）时才追加待办同步提示；无待办会话零噪声
+        const hasActiveTodos = taskStore.getActiveBatch(context.conversationId)?.status === 'active'
+        const todoNotice = (outcome: TodoNoticeOutcome) => formatTodoNotice(hasActiveTodos, outcome)
         finalizeChildConv(childAcc, conversationRepo, childConvId)
 
         // 通知 UI 刷新（子会话在侧栏中出现）
@@ -791,7 +806,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
         if (hasError) {
             return {
                 success: false,
-                output: `执行失败: ${errorMsg}` + toolsNotice,
+                output: `执行失败: ${errorMsg}` + toolsNotice + todoNotice('failed'),
                 error: errorMsg,
             }
         }
@@ -801,7 +816,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
         if (truncatedReason) {
             return {
                 success: false,
-                output: finalOutput + toolsNotice,
+                output: finalOutput + toolsNotice + todoNotice('truncated'),
                 error: truncatedReason,
                 _meta: {childConvId},
             }
@@ -817,7 +832,7 @@ export const agentTool: Tool<AgentToolInput, string> = {
 
         return {
             success: true,
-            output: finalOutput + toolsNotice,
+            output: finalOutput + toolsNotice + todoNotice('success'),
             _meta: {childConvId},
         }
     },

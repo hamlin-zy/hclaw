@@ -4,6 +4,8 @@
 // 「开关（set-enabled + start/stop）」链路；本文件独立覆盖剩余两条丢弃返回值的路径：
 //  ①handleRemove：删除写盘失败时把 server 恢复到 store（列表重现）并走 showError
 //  ②onSave 插件分支：saveServer 写盘失败时不合并本地 pluginMcpServers、走 showError
+//  ③onSave 用户分支（R20）：已 connected 的 server 保存后必须显式 restartServer，
+//    否则 mcpWorker 对已连接 server 只跳过不重连 → 纯策略字段变更不传播
 // 外加两条成功路径回归护栏（行为必须与改造前一致）。
 // 桩法沿用上述两个文件的风格；store 直接使用**真实 mcpStore**（不再替身）——
 // 否则真实 addMCPServer 的「按 name 重算 slug id / 覆写 enabled|status|tools / 二次写盘」
@@ -35,6 +37,7 @@ const {initialServers, pluginServers, mcpApiMock, mockShowError} = vi.hoisted(()
             stopServer: vi.fn().mockResolvedValue({success: true}),
             saveServer: vi.fn().mockResolvedValue({success: true}),
             delete: vi.fn().mockResolvedValue({success: true}),
+            restartServer: vi.fn().mockResolvedValue({success: true}),
             switchVersion: vi.fn().mockResolvedValue({success: true}),
             onStatusChanged: vi.fn(),
             onMcpStatusUpdate: vi.fn(),
@@ -104,6 +107,7 @@ beforeEach(() => {
     mcpApiMock.stopServer.mockResolvedValue({success: true})
     mcpApiMock.saveServer.mockResolvedValue({success: true})
     mcpApiMock.delete.mockResolvedValue({success: true})
+    mcpApiMock.restartServer.mockResolvedValue({success: true})
     useMcpStore.setState({mcpServers: initialServers.map((s: any) => ({...s}))})
     mockShowError.mockClear()
 })
@@ -302,5 +306,65 @@ describe('MCPDialog 编辑保存在用户分支的现状记录', () => {
         expect(mockShowError).not.toHaveBeenCalled()
         // 写盘确实失败过（saveServer 返回 {success:false}），但结果被丢弃
         expect(mcpApiMock.saveServer).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('R20 用户 server 保存后的策略字段传播（已连接必须显式重启）', () => {
+    // 背景：mcpWorker.handleUpdateServers 对已 connected 的 server 只跳过、不重连，
+    //       纯策略字段（readOnlyTools / writeTools / unknownPolicy）变更不会传播、
+    //       meta.override 保持旧值 → 渲染层保存后必须显式重启。
+    // 对齐 plugin 分支（:770-774）的既有口径；未连接的 server 无需重启（下次启动读新配置）。
+    const connectedA: any = {...initialServers[0], status: 'connected'}
+
+    async function saveUserA() {
+        fireEvent.click(await screen.findByTestId('user-card-edit-user-a'))
+        const saveBtn = await screen.findByTestId('edit-modal-save')
+        await act(async () => {
+            fireEvent.click(saveBtn)
+            await (saveBtn as any).__savePromise
+        })
+    }
+
+    it('已 connected → 保存后显式调用 restartServer', async () => {
+        useMcpStore.setState({mcpServers: [connectedA, {...initialServers[1]}]})
+        render(<MCPDialog />)
+        await saveUserA()
+
+        expect(mcpApiMock.restartServer).toHaveBeenCalledWith('user-a')
+        expect(mockShowError).not.toHaveBeenCalled()
+    })
+
+    it('未连接（stopped）→ 不重启', async () => {
+        render(<MCPDialog />)
+        await saveUserA()
+
+        expect(mcpApiMock.restartServer).not.toHaveBeenCalled()
+    })
+
+    it('restartServer 抛错 → 错误被反馈且不产生未捕获 rejection', async () => {
+        useMcpStore.setState({mcpServers: [connectedA, {...initialServers[1]}]})
+        mcpApiMock.restartServer.mockRejectedValueOnce(new Error('重启 IPC 炸了'))
+        render(<MCPDialog />)
+        // await 保存 promise：实现若未消化异常，这里会抛出（等价于未捕获 rejection）
+        await saveUserA()
+
+        await waitFor(() => expect(mockShowError).toHaveBeenCalledTimes(1))
+        expect(mockShowError.mock.calls[0][0]).toMatchObject({
+            server: expect.objectContaining({id: 'user-a'}),
+            errorMessage: '重启 IPC 炸了',
+        })
+    })
+
+    it('restartServer 返回 {success:false} → 走 showError 反馈', async () => {
+        useMcpStore.setState({mcpServers: [connectedA, {...initialServers[1]}]})
+        mcpApiMock.restartServer.mockResolvedValueOnce({success: false, error: '重连失败'})
+        render(<MCPDialog />)
+        await saveUserA()
+
+        await waitFor(() => expect(mockShowError).toHaveBeenCalledTimes(1))
+        expect(mockShowError.mock.calls[0][0]).toMatchObject({
+            server: expect.objectContaining({id: 'user-a'}),
+            errorMessage: '重连失败',
+        })
     })
 })

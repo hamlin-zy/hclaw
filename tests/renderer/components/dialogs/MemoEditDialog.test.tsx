@@ -51,6 +51,34 @@ const editItem = (over: Partial<MemoItem> = {}): MemoItem => ({
     ...over,
 })
 
+// ── Task 5：编辑态可改归属（跨项目迁移）用例常量 ──
+const wsRec = (path: string) => ({id: `w-${path}`, path, name: path.split('\\').pop()!, createdAt: 1, updatedAt: 1})
+const pg = (id: string, name: string, paths: string[]): ProjectGroupWithMembers => ({
+    id,
+    name,
+    sortOrder: 0,
+    createdAt: 1,
+    updatedAt: 1,
+    members: paths.map((projectPath, i) => ({projectPath, groupOrder: i})),
+})
+
+/** 编辑条目当前所在项目（editItem 的 workspacePath = P） */
+const WS_HCLAW = wsRec(P)
+/** 「其他」组的项目 */
+const WS_OTHER = wsRec('E:\\other')
+/**
+ * 库里存量的 `__unassigned__` 行（虚拟键，非法目标）：name 为空 → 展示名回退为路径本身，
+ * 「候选里不得出现 __unassigned__」才可能真的被 textContent 断言捕获。
+ */
+const WS_UNASSIGNED = {id: 'w-unassigned', path: '__unassigned__', name: '', createdAt: 0, updatedAt: 0}
+/**
+ * 编辑条目（workspacePath = P）所属的「常用」组。成员含 `__unassigned__`（Review Focus 4：
+ * 该虚拟键不得进入项目候选，故断言它可失败）与 `E:\B`（「改归属」用例的目标项目）。
+ */
+const GROUP_常用 = pg('g-common', '常用', [P, 'E:\\B', '__unassigned__'])
+/** 「其他」组：不含 P，用于「切组后项目被清空」用例 */
+const GROUP_其他 = pg('g-other', '其他', [WS_OTHER.path])
+
 function stubWindow(opts: {
     memoId?: string
     workspace?: string
@@ -138,23 +166,16 @@ describe('MemoEditDialog', () => {
         await waitFor(() => expect(h.closeWindow).toHaveBeenCalled())
     })
 
-    it('编辑保存 → memo.update（memoId + patch，不含 workspacePath）', async () => {
-        stubWindow({memoId: 'memo-1'})
+    it('编辑态：归属未变时不带 targetWorkspacePath', async () => {
+        stubWindow({memoId: 'memo-1', groups: [GROUP_常用], workspaces: [WS_HCLAW]})
         h.memoApi.getById.mockResolvedValue({ok: true, data: editItem()})
-        h.memoApi.update.mockResolvedValue({ok: true, data: true})
+        h.memoApi.update.mockResolvedValue({ok: true, data: {}})
         render(<MemoEditDialog/>)
-
-        await waitFor(() => expect((screen.getByPlaceholderText('备忘录标题') as HTMLInputElement).value).toBe('旧标题'))
-        fireEvent.change(screen.getByPlaceholderText('备忘录标题'), {target: {value: '改过的标题'}})
-        fireEvent.click(screen.getByText('保存'))
-
-        await waitFor(() => expect(h.memoApi.update).toHaveBeenCalledTimes(1))
-        const [id, patch] = h.memoApi.update.mock.calls[0]
-        expect(id).toBe('memo-1')
-        expect(patch).toEqual(expect.objectContaining({title: '改过的标题', content: '旧正文'}))
-        expect(patch).not.toHaveProperty('workspacePath')
-        expect(h.memoApi.create).not.toHaveBeenCalled()
-        await waitFor(() => expect(h.closeWindow).toHaveBeenCalled())
+        await waitFor(() => expect(document.querySelector('[data-name="memo-project-select"]')).toBeTruthy())
+        fireEvent.click(document.querySelector('[data-name="memo-edit-dialog-save-button"]')!)
+        await waitFor(() => expect(h.memoApi.update).toHaveBeenCalled())
+        const patch = h.memoApi.update.mock.calls[0][1] as Record<string, unknown>
+        expect('targetWorkspacePath' in patch).toBe(false)
     })
 
     it('空 title → 前端拦截，不发起 create/update', async () => {
@@ -510,16 +531,6 @@ describe('MemoEditDialog — 项目组 + 项目级联', () => {
     const PB = 'E:\\ws\\b'
     const PTOP = 'E:\\ws\\top'
 
-    const wsRec = (path: string) => ({id: `w-${path}`, path, name: path.split('\\').pop()!, createdAt: 1, updatedAt: 1})
-    const pg = (id: string, name: string, paths: string[]): ProjectGroupWithMembers => ({
-        id,
-        name,
-        sortOrder: 0,
-        createdAt: 1,
-        updatedAt: 1,
-        members: paths.map((projectPath, i) => ({projectPath, groupOrder: i})),
-    })
-
     /** 取 select 的选项值（去掉「未选择」占位项 ''） */
     const optionValues = (select: HTMLSelectElement) =>
         Array.from(select.options).map((o) => o.value).filter((v) => v !== '')
@@ -640,19 +651,81 @@ describe('MemoEditDialog — 项目组 + 项目级联', () => {
         expect(h.memoApi.create).toHaveBeenCalledWith(expect.objectContaining({workspacePath: PTOP}))
     })
 
-    it('编辑态：项目只读（渲染 memo-project-readonly，不渲染 select）', async () => {
-        stubWindow({memoId: 'memo-1', groups: [pg('pg-a', '组A', [P])], workspaces: [wsRec(P)]})
+    it('编辑态：渲染可编辑的项目组/项目下拉（原只读用例改写）', async () => {
+        stubWindow({memoId: 'memo-1', groups: [GROUP_常用], workspaces: [WS_HCLAW, WS_UNASSIGNED]})
         h.memoApi.getById.mockResolvedValue({ok: true, data: editItem()})
         render(<MemoEditDialog/>)
+        expect(await screen.findByTestId('memo-edit-dialog')).toBeTruthy()
+        expect(document.querySelector('[data-name="memo-project-readonly"]')).toBeNull()
+        // 等级联数据到位（组默认值 = 条目所属组）后再断言候选，否则候选还是空的、断言落不到实处
+        await waitFor(() => expect(groupSelect().value).toBe('g-common'))
+        const projectSelect = document.querySelector('[data-name="memo-project-select"]')
+        expect(projectSelect).not.toBeNull()
+        // __unassigned__ 不可选（Review Focus 4）
+        expect(projectSelect!.textContent).not.toContain('__unassigned__')
+    })
 
-        await waitFor(() => expect(document.querySelector('[data-name="memo-project-readonly"]')).toBeTruthy())
-        const readonly = document.querySelector('[data-name="memo-project-readonly"]')!
-        expect(readonly.textContent).toContain(P)
-        // 不渲染两处 select（组字段同样文本展示，但不加 data-name）
-        expect(document.querySelector('[data-name="memo-project-select"]')).toBeNull()
-        expect(document.querySelector('[data-name="memo-group-select"]')).toBeNull()
-        // 组文本展示 = 所属组名
-        await waitFor(() => expect(screen.getByText('组A')).toBeTruthy())
+    it('M7：保底 fallback 不把 __unassigned__ 放回项目候选（spec §4.5）', async () => {
+        // 编辑条目的 workspacePath 恰为虚拟键（库里存量 `__unassigned__` 行），它不属于任何候选
+        // → projectOptions 走「保底补一项」分支 [projectPath, ...paths]；虚拟键必须在返回前被过滤掉。
+        stubWindow({memoId: 'memo-1', groups: [GROUP_常用], workspaces: [WS_HCLAW, WS_UNASSIGNED]})
+        h.memoApi.getById.mockResolvedValue({ok: true, data: editItem({workspacePath: '__unassigned__'})})
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(groupSelect()).toBeTruthy())
+        await waitFor(() => expect(document.querySelector('[data-name="memo-project-select"]')).toBeTruthy())
+        expect(projectSelect().textContent).not.toContain('__unassigned__')
+        expect(optionValues(projectSelect())).not.toContain('__unassigned__')
+    })
+
+    it('编辑态：改归属后保存带 targetWorkspacePath', async () => {
+        stubWindow({
+            memoId: 'memo-1',
+            groups: [GROUP_常用],
+            workspaces: [WS_HCLAW, {id: 'w2', path: 'E:\\B', name: '项目B', createdAt: 0, updatedAt: 0}],
+        })
+        h.memoApi.getById.mockResolvedValue({ok: true, data: editItem()})
+        h.memoApi.update.mockResolvedValue({ok: true, data: {}})
+        render(<MemoEditDialog/>)
+        await waitFor(() => expect(projectSelect().value).toBe(P))
+        fireEvent.change(projectSelect(), {target: {value: 'E:\\B'}})
+        fireEvent.click(document.querySelector('[data-name="memo-edit-dialog-save-button"]')!)
+        await waitFor(() => expect(h.memoApi.update).toHaveBeenCalledWith('memo-1', expect.objectContaining({targetWorkspacePath: 'E:\\B'})))
+    })
+
+    it('编辑态：改归属时仍原样提交全量附件（storedPath 由 memoStore 改写到目标目录）', async () => {
+        const att = {id: 'att-1', fileName: 'a.txt', storedPath: `${P}\\attachments\\memo-1\\a.txt`, mime: 'text/plain', kind: 'file' as const}
+        stubWindow({memoId: 'memo-1', groups: [GROUP_常用], workspaces: [WS_HCLAW, wsRec('E:\\B')]})
+        h.memoApi.getById.mockResolvedValue({ok: true, data: editItem({attachments: [att]})})
+        h.memoApi.update.mockResolvedValue({ok: true, data: {}})
+        render(<MemoEditDialog/>)
+
+        await waitFor(() => expect(screen.getByText(/a\.txt/)).toBeTruthy())
+        await waitFor(() => expect(projectSelect().value).toBe(P))
+        fireEvent.change(projectSelect(), {target: {value: 'E:\\B'}})
+        fireEvent.click(document.querySelector('[data-name="memo-edit-dialog-save-button"]')!)
+
+        await waitFor(() => expect(h.memoApi.update).toHaveBeenCalled())
+        const patch = h.memoApi.update.mock.calls[0][1] as Record<string, unknown>
+        expect(patch.targetWorkspacePath).toBe('E:\\B')
+        // 渲染层不做路径改写：附件仍是打开时的静态路径
+        expect(patch.attachments).toEqual([att])
+    })
+
+    it('编辑态：切组后项目被清空 → 保存被拦截、不发 IPC', async () => {
+        stubWindow({
+            memoId: 'memo-1',
+            groups: [GROUP_常用, GROUP_其他],
+            workspaces: [WS_HCLAW, WS_OTHER],   // 当前项目属于「常用」，切到「其他」后它不在候选里
+        })
+        h.memoApi.getById.mockResolvedValue({ok: true, data: editItem()})
+        render(<MemoEditDialog/>)
+        // 当前项目属于「常用」：等默认值回填完成（级联数据到位）后再切组
+        await waitFor(() => expect(groupSelect().value).toBe('g-common'))
+        fireEvent.change(groupSelect(), {target: {value: 'g-other'}})
+        fireEvent.click(document.querySelector('[data-name="memo-edit-dialog-save-button"]')!)
+        expect(await screen.findByText(/请选择项目/)).toBeTruthy()
+        expect(h.memoApi.update).not.toHaveBeenCalled()
     })
 
     it('R-BV 降级：project-group:list 失败 → 组下拉仅「未分组」，项目列退化为 workspace.list 结果', async () => {
@@ -681,6 +754,6 @@ describe('MemoEditDialog — 项目组 + 项目级联', () => {
         render(<MemoEditDialog/>)
 
         await waitFor(() => expect(screen.getByText('备忘录不存在')).toBeTruthy())
-        expect(document.querySelector('[data-name="memo-project-readonly"]')).toBeNull()
+        expect(document.querySelector('[data-name="memo-project-select"]')).toBeNull()
     })
 })

@@ -10,7 +10,7 @@ import {PluginRegistry} from '../../plugin/registry'
 const MCP_SKIP_DIRS = new Set(['docs', 'tests', 'node_modules', '.git', '.github', 'schemas', 'scripts', 'site'])
 
 /**
- * 提取 MCP 服务器的高级配置字段（cwd/timeout/autoApprove/denyList）
+ * 提取 MCP 服务器的高级配置字段（cwd/timeout/autoApprove/denyList/只读守卫三字段）
  * 消除多处重复的字段映射
  */
 function extractAdvancedFields(server: any): {
@@ -18,12 +18,18 @@ function extractAdvancedFields(server: any): {
     timeout: number;
     autoApprove?: string[];
     denyList?: string[];
+    readOnlyTools?: string[];
+    writeTools?: string[];
+    unknownPolicy?: 'allow' | 'deny';
 } {
     return {
         cwd: server.cwd as string | undefined,
         timeout: (server.timeout as number) ?? 60000,
         autoApprove: server.autoApprove as string[] | undefined,
         denyList: server.denyList as string[] | undefined,
+        readOnlyTools: server.readOnlyTools as string[] | undefined,
+        writeTools: server.writeTools as string[] | undefined,
+        unknownPolicy: server.unknownPolicy as 'allow' | 'deny' | undefined,
     }
 }
 

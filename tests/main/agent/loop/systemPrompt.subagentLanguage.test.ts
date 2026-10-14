@@ -105,18 +105,20 @@ describe('buildSystemSignature 第 5 参 languageSection（brief §2.5-1）', ()
     })
 
     /**
-     * Fix 轮 2 · Fix-1：主会话语义下签名 JSON **必须逐字等于改动前的旧格式**。
-     * 旧实现把 `languageSection: ''` 无条件写进 JSON → 存量会话（本机 636 条）
-     * 下次运行全部"签名不匹配 → 重建 system 并写库一次"（system 内容 byte-equal，
-     * 无 token 损失，但属可避免的全局副作用）。条件入键后此断言成立。
+     * Fix 轮 2 · Fix-1 + Task 3：主会话语义下签名 JSON 逐字固化。
+     * 旧实现把 `languageSection: ''` 无条件写进 JSON → 存量会话即便无语言段也会
+     * "签名不匹配 → 重建 system 并写库一次"（system 内容 byte-equal，无 token 损失，
+     * 但属可避免的全局副作用）。条件入键后此断言成立 —— 空语言段不产生额外键。
+     * Task 3 起签名**有意**新增常量 promptRevision（常驻段修订号）：格式与值一并冻结，
+     * 后续误删键/误改常量会让本断言先红，而不是让存量会话静默复用旧 system。
      */
-    it('主会话语义（无语言段）签名逐字等于旧格式：不因"多一个空键"触发存量会话重建', () => {
+    it('主会话语义（无语言段）签名逐字固化：末尾为 promptRevision，且空语言段不入键', () => {
         expect(buildSystemSignature('/x', 'General', undefined, undefined))
-            .toBe('{"workingDir":"/x","agentType":"General","customInstructions":""}')
+            .toBe('{"workingDir":"/x","agentType":"General","customInstructions":"","promptRevision":1}')
         expect(buildSystemSignature('/x', 'General', undefined, undefined, null))
-            .toBe('{"workingDir":"/x","agentType":"General","customInstructions":""}')
+            .toBe('{"workingDir":"/x","agentType":"General","customInstructions":"","promptRevision":1}')
         expect(buildSystemSignature('/x', 'General', undefined, undefined, undefined))
-            .toBe('{"workingDir":"/x","agentType":"General","customInstructions":""}')
+            .toBe('{"workingDir":"/x","agentType":"General","customInstructions":"","promptRevision":1}')
     })
 })
 

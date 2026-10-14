@@ -8,6 +8,9 @@
  */
 import {describe, expect, it, vi, beforeEach} from 'vitest'
 import {ipcMain, BrowserWindow} from 'electron'
+import {mkdtempSync, writeFileSync, rmSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import path from 'node:path'
 
 // Mock mcpVersionManager
 const mockVersionMeta = vi.hoisted(() => ({
@@ -22,11 +25,13 @@ const mockMcpService = vi.hoisted(() => ({
   list: vi.fn(() => [] as any[]),
   get: vi.fn(() => undefined as any),
   updateStatus: vi.fn(),
+  add: vi.fn(() => true),
 }))
 
 const mockMcpWorkerManager = vi.hoisted(() => ({
   restartServer: vi.fn((_serverId: string) =>
     Promise.resolve({success: true} as {success: boolean; error?: string})),
+  syncConfigs: vi.fn(),
 }))
 
 vi.mock('@/main/agent/mcp/versionManager', () => ({
@@ -218,5 +223,49 @@ describe('mcp:restart-server 错误透传（批 4 · #17）', () => {
     expect(result.success).toBe(false)
     // ipc.ts:18 的 fail = String(err) → 'Error: X'，故用 toContain 而非全等
     expect(String(result.error)).toContain('X')
+  })
+})
+
+describe('mcp:import-config 策略字段透传（fix round 1 · R19）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    registerMCPIPC()
+  })
+
+  function getHandler() {
+    const calls = (ipcMain.handle as any).mock.calls
+    const entry = calls.find(([channel]: any[]) => channel === 'mcp:import-config')
+    expect(entry).toBeDefined()
+    return entry![1]
+  }
+
+  it('导入含策略字段的外部 JSON 时 readOnlyTools/writeTools/unknownPolicy 不被丢弃', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'mcp-import-'))
+    const file = path.join(dir, 'imported.json')
+    writeFileSync(file, JSON.stringify({
+      mcpServers: {
+        myserver: {
+          command: 'npx',
+          args: ['-y', 'some-mcp'],
+          readOnlyTools: ['search'],
+          writeTools: ['delete_thing'],
+          unknownPolicy: 'allow',
+        },
+      },
+    }), 'utf-8')
+
+    try {
+      const handler = getHandler()
+      const result = await handler({}, file)
+
+      expect(result.success).toBe(true)
+      expect(mockMcpService.add).toHaveBeenCalledTimes(1)
+      const added = (mockMcpService.add as any).mock.calls[0][0]
+      expect(added.readOnlyTools).toEqual(['search'])
+      expect(added.writeTools).toEqual(['delete_thing'])
+      expect(added.unknownPolicy).toBe('allow')
+    } finally {
+      rmSync(dir, {recursive: true, force: true})
+    }
   })
 })

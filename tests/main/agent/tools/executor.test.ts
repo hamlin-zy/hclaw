@@ -7,8 +7,14 @@
  * - 阈值内输出原样返回（不添加截断标记）
  * - 超过警告阈值但低于截断阈值时只加警告不截断
  */
-import {describe, expect, it} from 'vitest'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {checkResultSize, resolveToolTimeoutMs} from '../../../../src/main/agent/tools/executor'
+
+// vitest ESM 下 vi.spyOn 无法替换被测模块的命名导入绑定，必须用 vi.mock 工厂替换整个模块
+// （对齐 tests/main/agent/tools/builtin/callMcpTool.test.ts 的既有做法）。
+vi.mock('@/main/agent/mcp/discovery', () => ({
+    getMcpToolMeta: vi.fn(),
+}))
 
 function okResult(output: string) {
     return {success: true, output}
@@ -122,6 +128,7 @@ describe('resolveToolTimeoutMs（工具执行超时解析，倒计时数据源�
 import {executeTool} from '../../../../src/main/agent/tools/executor'
 import {toolRegistry} from '../../../../src/main/agent/tools/registry'
 import {makeTool} from './testHelpers'
+import {getMcpToolMeta} from '@/main/agent/mcp/discovery'
 
 const baseContext = {
     workingDir: '',
@@ -269,5 +276,87 @@ describe('executeTool 别名纠偏 + 破坏性工具参数键守卫', () => {
         )
         expect(result.result.error ?? '').not.toContain('已解析为')
         expect(result.result.success).toBe(true)
+    })
+})
+
+// ── 只读 Agent 的 MCP 原生直调兜底 ──────────────────────
+// 上游白名单未保留 call_mcp_tool 时，MCP proxy 以原生名进 tools 数组，
+// 不经 call_mcp_tool 的守卫；executor 必须用同一判定函数补齐能力边界。
+describe('executor 只读 Agent 的 MCP 原生直调兜底', () => {
+    beforeEach(() => {
+        vi.mocked(getMcpToolMeta).mockReset()
+    })
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it('readOnlyMcp=true + MCP proxy 名 + 判定 write → 拒绝且不执行', async () => {
+        let executed = false
+        vi.spyOn(toolRegistry, 'get').mockReturnValue({
+            ...makeTool('m_s_set_description'),
+            execute: async () => { executed = true; return {success: true, output: ''} },
+        } as any)
+        vi.mocked(getMcpToolMeta).mockReturnValue({
+            proxyName: 'm_s_set_description', serverId: 's', rawToolName: 'set_description',
+            rawInputSchema: {type: 'object', properties: {}},
+        } as any)
+        // permissionMode: 'auto' 保证「守卫缺失」时工具会被真正执行（红灯可观测）
+        const r = await executeTool(
+            {id: 'c1', name: 'm_s_set_description', arguments: {}},
+            {...baseContext, readOnlyMcp: true, permissionMode: 'auto'},
+        )
+        expect(r.denied).toBe(true)
+        expect(executed).toBe(false)
+        // 打桩生效实证：executor 的命名导入必须绑定到本 mock（否则读到真实 discovery）
+        expect(getMcpToolMeta).toHaveBeenCalledWith('m_s_set_description')
+    })
+
+    it('readOnlyMcp=true + MCP proxy 名 + 判定 read → 放行执行', async () => {
+        let executed = false
+        vi.spyOn(toolRegistry, 'get').mockReturnValue({
+            ...makeTool('m_s_explore'),
+            execute: async () => { executed = true; return {success: true, output: 'ok'} },
+        } as any)
+        vi.mocked(getMcpToolMeta).mockReturnValue({
+            proxyName: 'm_s_explore', serverId: 's', rawToolName: 'codegraph_explore',
+            rawInputSchema: {type: 'object', properties: {}},
+        } as any)
+        const r = await executeTool(
+            {id: 'c2', name: 'm_s_explore', arguments: {}},
+            {...baseContext, readOnlyMcp: true, permissionMode: 'auto'},
+        )
+        expect(executed).toBe(true)
+        expect(r.denied).toBeUndefined()
+    })
+
+    it('readOnlyMcp 缺省 → MCP 原生直调行为不变（回归）', async () => {
+        let executed = false
+        vi.spyOn(toolRegistry, 'get').mockReturnValue({
+            ...makeTool('m_s_set_description'),
+            execute: async () => { executed = true; return {success: true, output: ''} },
+        } as any)
+        await executeTool(
+            {id: 'c3', name: 'm_s_set_description', arguments: {}},
+            {...baseContext, permissionMode: 'auto'},
+        )
+        expect(executed).toBe(true)
+    })
+
+    it('readOnlyMcp=true + MCP proxy 名 + meta 缺失 → 回退用 proxy 名判定 write，fail-closed 拒绝', async () => {
+        let executed = false
+        vi.spyOn(toolRegistry, 'get').mockReturnValue({
+            ...makeTool('m_s_set_description'),
+            execute: async () => { executed = true; return {success: true, output: ''} },
+        } as any)
+        // meta 缺失：getMcpToolMeta 返回 undefined → 守卫必须回退用 toolCall.name（proxy 名）判定
+        vi.mocked(getMcpToolMeta).mockReturnValue(undefined)
+        const r = await executeTool(
+            {id: 'c4', name: 'm_s_set_description', arguments: {}},
+            {...baseContext, readOnlyMcp: true, permissionMode: 'auto'},
+        )
+        expect(getMcpToolMeta).toHaveBeenCalledWith('m_s_set_description')
+        expect(r.denied).toBe(true)
+        expect(executed).toBe(false)
     })
 })

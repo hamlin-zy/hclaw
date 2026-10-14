@@ -4,6 +4,7 @@ description: 通用代码审查者 — 只读审查代码质量与需求符合�
 whenToUse: 代码审查、规范合规检查、diff审查、任务质量评估、合并前审查
 tags: [code-reviewer, builtin, source:hclaw]
 enabled: true
+readOnly: true
 tools: [file_read, grep, glob, bash]
 disallowedTools: [file_write, file_edit, agent]
 ---
