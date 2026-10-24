@@ -5,6 +5,7 @@
 import path from 'path'
 import fs from 'fs'
 import {PluginRegistry} from '../../plugin/registry'
+import {MCP_TOOL_TIMEOUT_NO_LIMIT_MS} from '../../../shared/types/mcp'
 
 // MCP 文件扫描：跳过隐藏目录和黑名单目录
 const MCP_SKIP_DIRS = new Set(['docs', 'tests', 'node_modules', '.git', '.github', 'schemas', 'scripts', 'site'])
@@ -24,7 +25,7 @@ function extractAdvancedFields(server: any): {
 } {
     return {
         cwd: server.cwd as string | undefined,
-        timeout: (server.timeout as number) ?? 60000,
+        timeout: (server.timeout as number) ?? MCP_TOOL_TIMEOUT_NO_LIMIT_MS,
         autoApprove: server.autoApprove as string[] | undefined,
         denyList: server.denyList as string[] | undefined,
         readOnlyTools: server.readOnlyTools as string[] | undefined,

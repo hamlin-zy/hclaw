@@ -42,8 +42,42 @@ export interface ExecuteToolResult {
  * - bash：内部有 setTimeout + killProcessTree + AbortSignal，且已收集部分输出
  * - web_fetch：内部有 http.get({timeout}) + req.on('timeout') + AbortSignal
  * 外层超时与之竞争，会产生泛化的 ToolTimeoutError 覆盖内部的具体错误信息（如部分输出）
+ *
+ * ★ MCP 工具（m_/mp_/mcp_ 前缀）与 catalog 包装器 call_mcp_tool 同样跳过外层：
+ *   其超时由 discovery 的 proxy.execute
+ *   （内层 withToolTimeout）+ MCPClient 的 SDK 请求超时共同承担，两处都默认不限时
+ *   （见 shared/types/mcp.ts MCP_TOOL_TIMEOUT_NO_LIMIT_MS）。
+ *   此处若再套 executor 的 DB/默认 60s 外层，会把不限时策略打穿——两层超时各自
+ *   独立计时，最短者先触发，故外层必须显式跳过。
  */
 const SKIP_OUTER_TIMEOUT_TOOLS = new Set(['agent', 'ask_user', 'bash', 'web_fetch'])
+
+/**
+ * catalog 通道的 MCP 工具包装器名。
+ *
+ * catalog 模式下 MCP 工具不在原生 tools 数组里，LLM 统一调用 call_mcp_tool，
+ * 真实工具名在 arguments.name（m_/mp_/mcp_ 前缀）。因此外层超时判定**不能只看**
+ * tool.name 的 MCP 前缀：call_mcp_tool 本身不含前缀，漏判会让外层 60s 打穿
+ * 内层与 SDK 层的不限时策略（报错现场：工具 "call_mcp_tool" 执行超时（60秒））。
+ */
+const MCP_CATALOG_TOOL_NAME = 'call_mcp_tool'
+
+/**
+ * 是否为 MCP 工具调用名（含 catalog 包装器）。
+ * catalog 包装器名不含 MCP 前缀，故单独并集。
+ */
+function isMcpCallName(toolName: string): boolean {
+    return toolName === MCP_CATALOG_TOOL_NAME || isMcpToolName(toolName)
+}
+
+/**
+ * executor 是否应跳过某工具的外层超时（内置集合 + MCP 工具名判定）。
+ * 导出供 resolveToolTimeoutMs 与 UI 倒计时侧共用同一判定，避免两处漂移。
+ */
+export function shouldSkipOuterTimeout(toolName: string): boolean {
+    return SKIP_OUTER_TIMEOUT_TOOLS.has(toolName)
+        || isMcpCallName(toolName)
+}
 
 /**
  * 内部管理超时的工具及其默认超时（与 builtin 工具内部常量保持一致），
@@ -58,11 +92,15 @@ const INTERNAL_TIMEOUTS: Record<string, number> = {
  * 解析工具的有效超时时间（毫秒）
  * - agent / ask_user：无外层超时且无明确展示意义的内部超时 → undefined（不显示倒计时）
  * - bash / web_fetch：解析其内部超时（含 LLM 参数覆盖），供 UI 倒计时显示
+ * - MCP 工具：默认不限时 → undefined（不显示倒计时；显示一个 24.8 天的倒计时无意义）
  * - 其余工具：优先 DB 配置，否则工具默认值
  * 供执行器与 UI 倒计时（tool_start 事件注入 timeoutMs）共用，保证两处一致。
  */
 export function resolveToolTimeoutMs(toolName: string, args?: Record<string, unknown>): number | undefined {
     if (toolName === 'agent' || toolName === 'ask_user') return undefined
+    // MCP 工具不限时（executor 外层已跳过；discovery 内层与 SDK 层默认同哨兵值）
+    // 含 catalog 包装器 call_mcp_tool：其真实工具名在 arguments.name，不显示倒计时
+    if (isMcpCallName(toolName)) return undefined
 
     const internalTimeout = INTERNAL_TIMEOUTS[toolName]
     if (internalTimeout !== undefined) {
@@ -349,8 +387,9 @@ export async function executeTool(
 
     // ── 执行工具（带超时保护） ──
   try {
-      // 拥有独立内部超时/中止机制的工具（见模块顶部 SKIP_OUTER_TIMEOUT_TOOLS 注释）
-      if (SKIP_OUTER_TIMEOUT_TOOLS.has(tool.name)) {
+      // 拥有独立内部超时/中止机制的工具（见模块顶部 shouldSkipOuterTimeout 注释；
+      // 含 MCP 工具：其超时由 discovery 内层 + SDK 层承担，外层再套会打穿不限时策略）
+      if (shouldSkipOuterTimeout(tool.name)) {
           const result = await tool.execute(parseResult.data, { ...context, toolCallId: toolCall.id })
           const checkedResult = checkResultSize(toolCall.name, result)
           return {

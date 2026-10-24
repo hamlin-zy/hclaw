@@ -10,6 +10,7 @@
 
 import {logger} from '../logger'
 import {HCLAW_VERSION} from '../../../shared/types'
+import {MCP_TOOL_TIMEOUT_NO_LIMIT_MS} from '../../../shared/types/mcp'
 import type {
     MCPResource,
     MCPServerConfig,
@@ -36,10 +37,18 @@ import {toMcpToolDefinition, toMcpToolCallResult} from './sdkAdapter'
  */
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000
 /**
- * 请求（运行期工具调用）默认超时：60s。
- * 工具调用可能合法地跑几分钟，禁止随握手超时一起压缩。
+ * 请求（运行期工具调用）默认超时：不限时。
+ *
+ * MCP 工具耗时由对端 server 决定（逆向分析、浏览器抓取等可达分钟级以上），
+ * 固定 60s 会把合法长调用判成失败，且失败后 Agent 常重试同一调用，反而更慢。
+ * 需要收紧的用户可显式配置 server.timeout。
+ *
+ * 哨兵值取 2^31-1 而非 Infinity：Node `setTimeout` 对 Infinity / 超上限值
+ * 会 clamp 成 1ms → 立即超时（静默反向生效）。详见 shared/types/mcp.ts 常量说明。
  */
-const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
+const DEFAULT_REQUEST_TIMEOUT_MS = MCP_TOOL_TIMEOUT_NO_LIMIT_MS
+/** 请求超时的硬上限 = 哨兵值本身（见 shared/types/mcp.ts：Node setTimeout 的 delay 上限） */
+const MAX_REQUEST_TIMEOUT_MS = MCP_TOOL_TIMEOUT_NO_LIMIT_MS
 
 /**
  * 进程控制接缝 —— 把模块级进程工具收进一个可注入对象，便于测试替身。
@@ -532,10 +541,17 @@ export class MCPClient {
       throw new Error(`MCP 服务器 "${serverId}" 未连接`)
     }
 
-    const result = await state.sdkClient.callTool({
-      name: toolName,
-      arguments: args,
-    })
+    const result = await state.sdkClient.callTool(
+      {
+        name: toolName,
+        arguments: args,
+      },
+      undefined, // resultSchema：不传 → SDK 始终返回 CallToolResult 形状（有 content + isError）
+      // 运行期请求超时：显式透传 config.timeout，否则 SDK 内建默认 60s 无法被
+      // MCPServerConfig.timeout（MCP 编辑卡片「高级配置 → 超时」）覆盖。
+      // 详见 types.ts MCPTransportOptions.requestTimeout 的说明。
+      { timeout: this.getTransportOptions(state.config).requestTimeout },
+    )
 
     // 类型窄化：SDK callTool 返回联合类型（正常 / task），
     // 不传 resultSchema 时始终返回 CallToolResult 形状（有 content + isError）
@@ -653,18 +669,24 @@ export class MCPClient {
    * ★ 超时拆分（原实现把 connectTimeout 与 requestTimeout 共用同一个 serverTimeout 变量）：
    * - requestTimeout 语义 = 每 server「请求」超时，是 config.timeout 的本义
    *   （types.ts 注释「请求超时时间」；运行期 discovery.ts 亦按 config.timeout 复用该语义）。
-   *   工具调用可能合法地跑几分钟（跑构建、查数据库），**禁止**随握手一起压缩 → 默认保持 60s。
+   *   工具调用可能合法地跑几分钟（跑构建、查数据库），**禁止**随握手一起压缩 → 默认不限时
+   *   （MCP_TOOL_TIMEOUT_NO_LIMIT_MS）。
    * - connectTimeout 语义 = 仅「连接/初始化握手」阶段（connect/initialize/listTools）→ 独立 15s 默认。
    *
-   * 覆盖能力：config.timeout 显式给定且小于请求默认值（60s）时，视为用户意图「更短的超时」，同时收紧握手；
-   * 否则握手一律走独立的 15s 默认。
-   * ⚠️ 不能写成 `config?.timeout ?? 15_000`：上游 mcpConfig.ts 会把未设置的 timeout 注入 60_000，
-   *   那样 15s 默认在真实配置下永远不生效。
+   * 覆盖能力：config.timeout 显式给定且小于哨兵值（即任何真实配置值）时，握手超时也采用该值；
+   * 未配置（上游注入哨兵）时，握手一律走独立的 15s 默认。
+   * ⚠️ 不能写成 `config?.timeout ?? 15_000`：上游 mcpConfig.ts 会把未设置的 timeout 注入
+   *   MCP_TOOL_TIMEOUT_NO_LIMIT_MS，那样 15s 默认在真实配置下永远不生效。
+   *
+   * ★ requestTimeout 出口前 clamp 到 MAX_REQUEST_TIMEOUT_MS：`setTimeout` 的 delay 上限即此值，
+   *   超出会被 Node clamp 成 1ms → 立即超时。故「设为极大值以接近不超时」是安全可达的，
+   *   而超过上限的值则静默反向生效，必须在入口挡住。
    */
   private getTransportOptions(config?: MCPServerConfig): MCPTransportOptions {
     const configured = config?.timeout
     return {
-      requestTimeout: configured ?? DEFAULT_REQUEST_TIMEOUT_MS,
+      // 缺省即上限；显式值 clamp 到 Node 定时器上限
+      requestTimeout: configured == null ? MAX_REQUEST_TIMEOUT_MS : Math.min(configured, MAX_REQUEST_TIMEOUT_MS),
       shutdownTimeout: 5_000,
       connectTimeout:
         configured != null && configured < DEFAULT_REQUEST_TIMEOUT_MS

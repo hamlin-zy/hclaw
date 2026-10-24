@@ -20,6 +20,7 @@ import {mcpClient as mainProcessMcpClient} from './client'
 import {createTimeoutResult, ToolTimeoutError, withToolTimeout} from '../tools/toolTimeout'
 import {formatMcpResult} from './formatResult'
 import {buildMcpToolNameCandidates} from '@shared/mcp/naming'
+import {MCP_TOOL_TIMEOUT_NO_LIMIT_MS} from '@shared/types/mcp'
 
 // ─── MessagePort 注入（Phase 2）────────────────────────────────
 //
@@ -266,9 +267,9 @@ function createMCPToolProxy(args: {
      * 结算，不再吊着 agent loop 等一个可能永远不回来的 MCP server（见 raceAbort 的边界说明）。
      */
     async execute(args: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
-      // 获取 MCP 服务器的超时配置（默认 60 秒）
+      // 获取 MCP 服务器的超时配置（缺省 = 不限时，见 MCP_TOOL_TIMEOUT_NO_LIMIT_MS）
       const serverConfig = !isWorker ? mainProcessMcpClient.getServer(serverId)?.config : null
-      const timeoutMs = serverConfig?.timeout != null ? serverConfig.timeout : 60_000
+      const timeoutMs = serverConfig?.timeout ?? MCP_TOOL_TIMEOUT_NO_LIMIT_MS
       const toolFullName = proxyName
       const abortSignal = context.abortSignal
 

@@ -10,6 +10,7 @@
 
 import {getDatabase} from '../repositories/sqlite'
 import type {McpServer} from '../../shared/types/mcp'
+import {MCP_TOOL_TIMEOUT_NO_LIMIT_MS} from '../../shared/types/mcp'
 import {getMcpConfigPath, writeMcpConfig} from './mcpConfig'
 import fs from 'fs'
 
@@ -43,7 +44,8 @@ export function migrateMcpFromSqlite(): void {
             url: row.url || '',
             headers: JSON.parse(row.headers || '{}'),
             cwd: row.cwd || '',
-            timeout: row.timeout ?? 60000,
+            // 历史行无 timeout → 按当前缺省（不限时）落盘，与 mcpConfig.parseMcpServers 同口径
+            timeout: row.timeout ?? MCP_TOOL_TIMEOUT_NO_LIMIT_MS,
             autoApprove: JSON.parse(row.auto_approve || '[]'),
             denyList: JSON.parse(row.deny_list || '[]'),
             userDescription: row.user_description || '',
