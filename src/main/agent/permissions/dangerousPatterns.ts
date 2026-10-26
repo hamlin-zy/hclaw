@@ -14,6 +14,7 @@
  */
 
 import type { PermissionRule, DangerousPermissionInfo } from '@shared/types'
+import { isWriteSegment, splitCommandSegments } from './commandSegments'
 
 /**
  * 危险Bash命令解释器模式
@@ -206,21 +207,23 @@ export function isDangerousCommandPattern(command: string): boolean {
 /**
  * 检查命令是否在安全白名单中
  *
+ * 逐段判定：复合命令（`;` / `&&` / `||` / `|` / 换行）必须每一段都命中
+ * SAFE_COMMAND_PREFIXES 且不含写文件指示符，才整体视为安全。
+ *
  * @param command 命令字符串
  * @returns 是否安全
  */
 export function isSafeCommandPrefix(command: string): boolean {
   if (!command) return false
 
-  const trimmed = command.trim()
+  const segments = splitCommandSegments(command)
+  if (segments.length === 0) return false
 
-  for (const pattern of SAFE_COMMAND_PREFIXES) {
-    if (pattern.test(trimmed)) {
-      return true
-    }
-  }
-
-  return false
+  return segments.every(
+    (segment) =>
+      !isWriteSegment(segment) &&
+      SAFE_COMMAND_PREFIXES.some((pattern) => pattern.test(segment))
+  )
 }
 
 /**

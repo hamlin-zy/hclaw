@@ -139,3 +139,13 @@ describe('fileWriteTool — 路径穿越（resolveAndValidatePath 越界检查�
     expect(content).toBe('pwned')
   })
 })
+
+describe('fileWriteTool — description 契约', () => {
+  it('描述披露 UTF-8 无 BOM 与 file_edit 分工，不再使用旧文案', () => {
+    const desc = fileWriteTool.description
+
+    expect(desc).toContain('将内容写入指定文件（UTF-8 无 BOM），已存在则覆盖。')
+    expect(desc).toContain('新建文件或整体重写用它；局部修改用 file_edit。')
+    expect(desc).not.toContain('如果文件已存在则覆盖')
+  })
+})

@@ -270,7 +270,7 @@ export default function SkillsDialog() {
 
           {/* Install message toast */}
           {installMessage && (
-              <div className={`mx-4 mt-2 px-3 py-2 text-xs rounded-md flex items-center gap-2 ${
+              <div className={`mx-4 mt-2 px-3 py-2 text-xs rounded-md flex items-start gap-2 ${
                   installMessage.type === 'success'
                       ? 'bg-[color-mix(in_srgb,var(--success)_10%,transparent)] text-[var(--success)] border border-[color-mix(in_srgb,var(--success)_20%,transparent)]'
                       : 'bg-[color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)] border border-[color-mix(in_srgb,var(--error)_20%,transparent)]'
@@ -279,7 +279,7 @@ export default function SkillsDialog() {
                       ? <Check className="w-3.5 h-3.5 flex-shrink-0"/>
                       : <AlertCircle className="w-3.5 h-3.5 flex-shrink-0"/>
                   }
-                  {installMessage.text}
+                  <span className="whitespace-pre-line break-words min-w-0">{installMessage.text}</span>
               </div>
           )}
 

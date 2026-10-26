@@ -155,6 +155,30 @@ const MEMORY_DEFAULT_V1 = `## 记忆与知识
 
 若未找到 → 忽略本规则`
 
+// ─── 上一版 system.workflow 默认值（基线 hash 来源，逐字，勿改）──
+
+const WORKFLOW_DEFAULT_V1 = `## 工作流程
+
+1. **先读后写** — 修改前先阅读现有上下文再动手，若用户提供了知识库、记忆能力，需要先查询相关知识&记忆。
+2. **能力探索** — 不清楚怎么实现或不确定质量标准时，先看可用能力中的 skill/agent/命令，按关键词猜测用途。命令（/开头）提供了特定任务的方法论和质量标准，即使不可直接调用也应参考其规范
+3. **最小变更** — 只改必须改的部分，不引入未要求的抽象
+4. **并行效率** — 多个独立操作用并行工具调用一次完成（如同时搜索多个关键词、同时读取多个文件）
+5. **精准搜索** — 优先用 grep 搜索关键词，避免宽泛的 glob 模式
+6. **确认存在** — 引用文件路径前先确认文件存在，不编造路径
+7. **验证闭环** — 修改后验证结果，确认不引入回归
+8. **追踪遗留** — 无法立即修复的问题用 task_create 记录（含位置和修复建议）`
+
+// ─── system.workflow 锚点（旧 → 新）───────────────────────
+
+/** 旧默认值第 5 条：作为新增「工具分工」条目的插入锚点（保持与新默认值同序） */
+const WORKFLOW_SEARCH_LINE = `5. **精准搜索** — 优先用 grep 搜索关键词，避免宽泛的 glob 模式`
+
+/** 新增第 6 条（与 prompts.ts 新版默认值逐字一致） */
+const WORKFLOW_TOOL_SPLIT_LINE = `6. **工具分工** — 读文件用 file_read（大文件带 offset/limit），改文件用 file_edit，新建或整体覆盖用 file_write；bash 仅用于构建、测试、git、进程等 shell 操作。file_edit 未匹配时先用 file_read 重读目标片段，连续 2 次失败再降级为 bash 重写并说明原因。`
+
+/** 新锚点 = 旧锚点 + 换行 + 新增第 6 条 */
+const WORKFLOW_SEARCH_LINE_WITH_TOOL_SPLIT = `${WORKFLOW_SEARCH_LINE}\n${WORKFLOW_TOOL_SPLIT_LINE}`
+
 // ─── 迁移注册表 ──────────────────────────────────────────
 
 export const PROMPT_NODE_MIGRATIONS: PromptNodeDefaultMigration[] = [
@@ -272,6 +296,34 @@ export const PROMPT_NODE_MIGRATIONS: PromptNodeDefaultMigration[] = [
                 return {outcome: 'skipped', content, reason: 'user-modified-baseline-miss'}
             }
             return {outcome: 'applied', content: target}
+        },
+    },
+    {
+        id: 'workflow-refresh-baseline-tool-split',
+        nodeKey: 'system.workflow',
+        description: 'system.workflow 内容等于上一版默认值（用户未改）→ 整体替换为新默认值',
+        apply: (content) => {
+            const target = getPromptNodeByKey('system.workflow')?.defaultValue
+            if (!target) return {outcome: 'noop', content, reason: 'no-code-default'}
+            if (content.trim() === target.trim()) return {outcome: 'noop', content, reason: 'already-latest'}
+            if (contentHash(content) !== contentHash(WORKFLOW_DEFAULT_V1)) {
+                return {outcome: 'skipped', content, reason: 'user-modified-baseline-miss'}
+            }
+            return {outcome: 'applied', content: target}
+        },
+    },
+    {
+        id: 'workflow-patch-tool-split',
+        nodeKey: 'system.workflow',
+        description: '工作流程补入「工具分工」条目（用户改过时只追加）',
+        apply: (content) => {
+            if (content.includes(WORKFLOW_SEARCH_LINE_WITH_TOOL_SPLIT)) return {outcome: 'noop', content, reason: 'already-satisfied'}
+            return replaceTextBlock(
+                content,
+                WORKFLOW_SEARCH_LINE,
+                WORKFLOW_SEARCH_LINE_WITH_TOOL_SPLIT,
+                'anchor-miss-workflow-tool-split',
+            )
         },
     },
 ]

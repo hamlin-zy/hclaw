@@ -84,10 +84,14 @@ describe('promptDefaultUpgrade — 默认值守卫', () => {
             'output-patch-thinking-bullet',
             'output-patch-mermaid-bullet',
             'memory-refresh-baseline',
+            // system.workflow：baseline 必须排在锚点条目之前（先整体刷新，再定向补丁）
+            'workflow-refresh-baseline-tool-split',
+            'workflow-patch-tool-split',
         ])
         expect(PROMPT_NODE_MIGRATIONS.filter((m) => m.nodeKey === 'system.routing')).toHaveLength(3)
         expect(PROMPT_NODE_MIGRATIONS.filter((m) => m.nodeKey === 'system.output')).toHaveLength(3)
         expect(PROMPT_NODE_MIGRATIONS.filter((m) => m.nodeKey === 'system.memory')).toHaveLength(1)
+        expect(PROMPT_NODE_MIGRATIONS.filter((m) => m.nodeKey === 'system.workflow')).toHaveLength(2)
     })
 })
 
@@ -305,5 +309,117 @@ describe('system.output — 思考不预写正文', () => {
         expect(result.outcome).toBe('skipped')
         expect(result.reason).toBe('anchor-miss-output-last-line')
         expect(result.content).toBe(userEdited)
+    })
+})
+
+// ─── system.workflow：工具分工规则 ──────────────────────────
+
+// 上一版 system.workflow 默认值（修复前随之分发，逐字）
+const WORKFLOW_DEFAULT_V1 = `## 工作流程
+
+1. **先读后写** — 修改前先阅读现有上下文再动手，若用户提供了知识库、记忆能力，需要先查询相关知识&记忆。
+2. **能力探索** — 不清楚怎么实现或不确定质量标准时，先看可用能力中的 skill/agent/命令，按关键词猜测用途。命令（/开头）提供了特定任务的方法论和质量标准，即使不可直接调用也应参考其规范
+3. **最小变更** — 只改必须改的部分，不引入未要求的抽象
+4. **并行效率** — 多个独立操作用并行工具调用一次完成（如同时搜索多个关键词、同时读取多个文件）
+5. **精准搜索** — 优先用 grep 搜索关键词，避免宽泛的 glob 模式
+6. **确认存在** — 引用文件路径前先确认文件存在，不编造路径
+7. **验证闭环** — 修改后验证结果，确认不引入回归
+8. **追踪遗留** — 无法立即修复的问题用 task_create 记录（含位置和修复建议）`
+
+const WORKFLOW_TOOL_SPLIT_LINE = `6. **工具分工** — 读文件用 file_read（大文件带 offset/limit），改文件用 file_edit，新建或整体覆盖用 file_write；bash 仅用于构建、测试、git、进程等 shell 操作。file_edit 未匹配时先用 file_read 重读目标片段，连续 2 次失败再降级为 bash 重写并说明原因。`
+
+function newWorkflowDefault(): string {
+    const node = getPromptNodeByKey('system.workflow')
+    if (!node) throw new Error('system.workflow 节点缺失')
+    return node.defaultValue
+}
+
+function migrateWorkflow(content: string) {
+    return runPromptNodeMigrations('system.workflow', content)
+}
+
+describe('system.workflow — 工具分工规则', () => {
+    it('新默认值含第 6 条工具分工，且原 6-8 条顺延为 7-9（防锚点漂移）', () => {
+        const defaultValue = newWorkflowDefault()
+        expect(defaultValue).toContain(WORKFLOW_TOOL_SPLIT_LINE)
+        expect(defaultValue).toContain('7. **确认存在**')
+        expect(defaultValue).toContain('8. **验证闭环**')
+        expect(defaultValue).toContain('9. **追踪遗留**')
+        // 旧默认值不含新条目 → 基线命中不会被误判为「已是最新」
+        expect(WORKFLOW_DEFAULT_V1).not.toContain('工具分工')
+    })
+
+    it('baseline 快照守卫：WORKFLOW_DEFAULT_V1 的 trim 后 sha1 钉死为历史值', () => {
+        // ── 这是**历史值快照，勿改**。它红了 = WORKFLOW_DEFAULT_V1 被改动（哪怕只改一个错别字）──
+        // 后果：workflow-refresh-baseline-tool-split 的基线比对（contentHash）再也命不中存量会话，
+        //       迁移对所有存量会话静默 skipped（fail-closed 表现为"漏升级"而非报错，很难被发现）。
+        // 口径与 src/main/agent/prompts/promptDefaultUpgrade.ts 的 contentHash 一致：trim 后内容 sha1。
+        expect(createHash('sha1').update(WORKFLOW_DEFAULT_V1.trim(), 'utf-8').digest('hex')).toBe(
+            'ecd1ac09a4d3ba57748d89be037c528a7c6ee07b',
+        )
+    })
+
+    it('baseline 命中（旧默认值全文）→ applied，内容等于当前默认值', () => {
+        const result = migrateById('workflow-refresh-baseline-tool-split', WORKFLOW_DEFAULT_V1)
+        expect(result.outcome).toBe('applied')
+        expect(result.content).toBe(newWorkflowDefault())
+    })
+
+    it('用户改过（不等于 baseline）→ baseline skipped，内容逐字不动', () => {
+        const mine = '## 工作流程\n\n1. 我们自己的流程\n'
+        const result = migrateById('workflow-refresh-baseline-tool-split', mine)
+        expect(result.outcome).toBe('skipped')
+        expect(result.reason).toBe('user-modified-baseline-miss')
+        expect(result.content).toBe(mine)
+    })
+
+    it('锚点命中（用户改过但保留「精准搜索」行）→ applied，只追加工具分工条目', () => {
+        const userEdited = WORKFLOW_DEFAULT_V1.replace('1. **先读后写**', '1. **先读后写（我们团队强调）**')
+        const result = migrateById('workflow-patch-tool-split', userEdited)
+        expect(result.outcome).toBe('applied')
+        // 用户改动保留
+        expect(result.content).toContain('1. **先读后写（我们团队强调）**')
+        // 新条目紧随「精准搜索」之后，且只出现一次
+        expect(result.content).toContain(`5. **精准搜索** — 优先用 grep 搜索关键词，避免宽泛的 glob 模式\n${WORKFLOW_TOOL_SPLIT_LINE}`)
+        expect(result.content.match(/工具分工/g)?.length).toBe(1)
+    })
+
+    it('锚点缺失（用户改写了「精准搜索」行）→ skipped，内容原样', () => {
+        const userEdited = WORKFLOW_DEFAULT_V1.replace(
+            '5. **精准搜索** — 优先用 grep 搜索关键词，避免宽泛的 glob 模式',
+            '5. **搜索** — 我自己决定怎么搜',
+        )
+        const result = migrateById('workflow-patch-tool-split', userEdited)
+        expect(result.outcome).toBe('skipped')
+        expect(result.reason).toBe('anchor-miss-workflow-tool-split')
+        expect(result.content).toBe(userEdited)
+    })
+
+    it('已含新条目 → 幂等 noop（already-satisfied）', () => {
+        const result = migrateById('workflow-patch-tool-split', newWorkflowDefault())
+        expect(result.outcome).toBe('noop')
+        expect(result.reason).toBe('already-satisfied')
+    })
+
+    it('重复执行：baseline 应用结果再跑一次 → 全部 noop，内容不变', () => {
+        const first = migrateWorkflow(WORKFLOW_DEFAULT_V1)
+        expect(first.applied).toEqual(['workflow-refresh-baseline-tool-split'])
+        const second = migrateWorkflow(first.content)
+        expect(second.applied).toEqual([])
+        expect(second.content).toBe(first.content)
+    })
+
+    it('重复执行：锚点应用结果再跑一次 → 全部 noop，内容不变', () => {
+        const userEdited = WORKFLOW_DEFAULT_V1.replace('1. **先读后写**', '1. **先读后写（我们团队强调）**')
+        const first = migrateWorkflow(userEdited)
+        expect(first.applied).toEqual(['workflow-patch-tool-split'])
+        const second = migrateWorkflow(first.content)
+        expect(second.applied).toEqual([])
+        expect(second.content).toBe(first.content)
+    })
+
+    it('脏输入不抛异常', () => {
+        expect(() => migrateWorkflow('')).not.toThrow()
+        expect(() => migrateWorkflow('   ')).not.toThrow()
     })
 })

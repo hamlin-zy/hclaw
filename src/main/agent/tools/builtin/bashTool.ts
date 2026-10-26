@@ -351,31 +351,20 @@ export const bashTool: Tool<BashInput, string> = {
 不是独立工具；可用工具名以 API 工具列表为准，禁止直接以命令名调用工具。
 ${
   shellInfo.name === 'powershell' ? `PowerShell 语法:
-- 列出文件: \`Get-ChildItem\` (别名 \`ls\`/\`dir\`)
-- 查找文本: \`Select-String -Path <file> -Pattern <regex>\`（grep 不可用，禁止使用 grep/findstr）
 - 环境变量: \`$env:VARIABLE_NAME\` (如 \`$env:PATH\`)
 - 管道: \`|\`
-- 路径分隔符: \\\`\\\`
-- 组合命令: \`Get-ChildItem | Where-Object { $_.Name -like "*.ts" }\`` :
+- 路径分隔符: \\\`\\\`` :
   shellInfo.name === 'cmd' ? `CMD 语法:
-- 列出文件: \`dir\`
-- 查找文本: \`findstr\`
 - 环境变量: \`%VARIABLE_NAME%\` (如 \`%PATH%\`)
 - 管道: \`|\`
 - 路径分隔符: \\\`\\\`` :
   `Bash 语法:
-- 列出文件: \`ls -la\`
-- 查找文本: \`grep\`
 - 环境变量: \`$VARIABLE_NAME\` (如 \`$PATH\`)
 - 管道: \`|\`
 - 路径分隔符: /\` `
 }
 重要: 生成命令时必须使用对应 Shell 的语法，禁止混用！
-${
-  shellInfo.os === 'windows' && shellInfo.name === 'powershell'
-    ? 'Windows 编码提示：写文件推荐使用 node -e "require(\'fs\').writeFileSync(\'path\', \'content\', \'utf8\')"（无 BOM）或 [System.IO.File]::WriteAllText(\'path\', \'content\', [System.Text.UTF8Encoding]::new($false)) 以避免默认代码页导致的乱码问题和 UTF-8 BOM 注入。'
-    : ''
-}
+文件读取用 file_read，搜索用 grep，列目录用 glob；不要用 bash 替代专用文件工具。
 注意：下载任务请使用后台执行指令（如 PowerShell 的 Start-Job / Start-Process、Bash 的 nohup / &），避免长时间阻塞交互通道。`,
   inputSchema,
   requiredPermissions: ['bash:execute'],

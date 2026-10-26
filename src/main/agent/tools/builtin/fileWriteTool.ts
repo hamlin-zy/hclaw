@@ -18,7 +18,7 @@ type FileWriteInput = z.infer<typeof inputSchema>
 
 export const fileWriteTool: Tool<FileWriteInput, string> = {
   name: 'file_write',
-  description: '将内容写入指定文件。如果文件已存在则覆盖。',
+  description: '将内容写入指定文件（UTF-8 无 BOM），已存在则覆盖。新建文件或整体重写用它；局部修改用 file_edit。',
   inputSchema,
   requiredPermissions: ['fs:write'],
   isDestructive: true,

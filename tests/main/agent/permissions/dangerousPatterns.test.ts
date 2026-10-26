@@ -91,6 +91,18 @@ describe('isSafeCommandPrefix', () => {
     expect(isSafeCommandPrefix('git push origin main')).toBe(false)
     expect(isSafeCommandPrefix('npm install -g something')).toBe(false)
   })
+
+  it('复合命令逐段判定：所有段安全才放行', () => {
+    expect(isSafeCommandPrefix('ls; pwd')).toBe(true)
+    expect(isSafeCommandPrefix('git status && git log')).toBe(true)
+    expect(isSafeCommandPrefix('ls -la; rm -rf .')).toBe(false)
+  })
+
+  it('含写指示符的段不放行（即使命令前缀在白名单内）', () => {
+    expect(isSafeCommandPrefix('ls > out.txt')).toBe(false)
+    expect(isSafeCommandPrefix('pwd; ls >> out.txt')).toBe(false)
+    expect(isSafeCommandPrefix('ls | tee out.txt')).toBe(false)
+  })
 })
 
 describe('isDangerousBashPermission', () => {

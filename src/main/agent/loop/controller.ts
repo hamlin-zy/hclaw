@@ -247,7 +247,7 @@ interface CachePayload {
  * ★ 这是让存量会话重建 system 的**唯一手动闸门**：签名其余键皆为自动派生（workingDir /
  *   agentType / customInstructions / languageSection），改了常驻段就在这里 +1，别处不用动。
  */
-const PROMPT_REVISION = 1
+const PROMPT_REVISION = 2
 
 /**
  * 计算 system 签名：真正影响 system 文本的项。

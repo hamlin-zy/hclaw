@@ -22,10 +22,14 @@
  */
 
 import * as path from 'path'
+import * as fs from 'fs'
+import * as os from 'os'
 import type {PermissionResult, PermissionRule, PlannedCommandsCheckResult, RunMode, Tool} from './types'
 import type {DangerousPermissionInfo} from '@shared/types'
 import {permissionRulesManager} from '../permissions/permissionRule'
 import {trace} from '../../startupTrace'
+import {getHclawDir} from '../../hclawPaths'
+import {isWriteSegment, splitCommandSegments} from '../permissions/commandSegments'
 
 /** 安全命令白名单（bash 工具中这些命令自动放行） */
 const SAFE_COMMAND_PATTERNS = [
@@ -162,6 +166,30 @@ const HIGH_RISK_PATTERNS = [
 /** 转义正则表达式特殊字符 */
 function escapeRegex(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * 敏感文件名模式：即使在受信根内，这些文件也不在权限层自动放行
+ * （`.env` / `.env.*` / `*.pem` / `*.key` / `*.p12` / `credentials*` / `id_rsa*`）
+ */
+const SENSITIVE_FILE_PATTERNS = [
+    /^\.env(?:\.|$)/i,
+    /\.pem$/i,
+    /\.key$/i,
+    /\.p12$/i,
+    /^credentials/i,
+    /^id_rsa/i,
+]
+
+/** 路径任一层目录名为 `.git` */
+function isGitInternalPath(resolvedPath: string): boolean {
+    return resolvedPath.split(/[\\/]+/).some(part => part.toLowerCase() === '.git')
+}
+
+/** 文件名是否命中敏感文件清单 */
+function isSensitiveFilePath(resolvedPath: string): boolean {
+    const fileName = path.basename(resolvedPath)
+    return SENSITIVE_FILE_PATTERNS.some(pattern => pattern.test(fileName))
 }
 
 /**
@@ -499,11 +527,14 @@ export class PermissionEngine {
                 }
             }
 
-            // 安全命令自动放行
-            for (const pattern of SAFE_COMMAND_PATTERNS) {
-                if (pattern.test(command)) {
-                    return {allowed: true}
-                }
+            // 安全命令自动放行：复合命令逐段判定，每段都安全才整体放行
+            // （`cd X; Set-Content Y` 不能被首段 `cd` 带过）
+            const segments = splitCommandSegments(command)
+            const allSegmentsSafe = segments.length > 0 && segments.every(segment =>
+                !isWriteSegment(segment) && SAFE_COMMAND_PATTERNS.some(pattern => pattern.test(segment))
+            )
+            if (allSegmentsSafe) {
+                return {allowed: true}
             }
 
             // 其他命令需要用户确认
@@ -522,9 +553,17 @@ export class PermissionEngine {
             const filePath = args?.filePath
             if (typeof filePath === 'string' && filePath) {
                 const resolvedPath = path.resolve(this._workingDir, filePath)
-                const isWithinWorkingDir = this.isPathWithin(resolvedPath, this._workingDir)
 
-                if (!isWithinWorkingDir) {
+                // 受信根 = 工作目录 ∪ hclawDir/mem ∪ os.tmpdir()
+                const hclawDir = getHclawDir()
+                const trustedRoots = [
+                    this._workingDir,
+                    hclawDir ? path.join(hclawDir, 'mem') : '',
+                    os.tmpdir(),
+                ].filter(Boolean)
+                const inTrustedRoot = trustedRoots.some(root => this.isPathWithin(resolvedPath, root))
+
+                if (!inTrustedRoot) {
                     return {
                         allowed: false,
                         reason: `path_outside_working_dir`,
@@ -535,6 +574,18 @@ export class PermissionEngine {
                         },
                     }
                 }
+
+                // `.git` 内部与敏感文件不在权限层放行，落 safe 兜底确认
+                if (isGitInternalPath(resolvedPath) || isSensitiveFilePath(resolvedPath)) {
+                    return null
+                }
+
+                // file_edit 语义上要求目标已存在，不存在时不在权限层放行
+                if (toolName === 'file_edit' && !fs.existsSync(resolvedPath)) {
+                    return null
+                }
+
+                return {allowed: true}
             }
         }
 

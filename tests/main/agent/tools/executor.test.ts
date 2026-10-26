@@ -360,3 +360,59 @@ describe('executor 只读 Agent 的 MCP 原生直调兜底', () => {
         expect(executed).toBe(false)
     })
 })
+
+// ── file_read 多文件读取的沙盒校验 ──────────────────────
+// filePaths 是新增入参：若沙盒层仍只看 args.filePath，多文件读取可绕过路径黑白名单。
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
+import {fileReadTool} from '../../../../src/main/agent/tools/builtin/fileReadTool'
+import {localSandbox} from '../../../../src/main/sandbox/localSandbox'
+
+describe('executeTool 沙盒校验：file_read 的 filePaths 逐项检查', () => {
+    let allowedRoot = ''
+    let outsideRoot = ''
+
+    beforeEach(() => {
+        toolRegistry.register(fileReadTool)
+        allowedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hclaw-sbx-ok-'))
+        outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hclaw-sbx-out-'))
+        fs.writeFileSync(path.join(allowedRoot, 'a.txt'), 'a')
+        fs.writeFileSync(path.join(outsideRoot, 'b.txt'), 'b')
+        localSandbox.updatePolicy({allowedPaths: [allowedRoot]})
+    })
+
+    afterEach(() => {
+        localSandbox.updatePolicy({allowedPaths: []})
+        fs.rmSync(allowedRoot, {recursive: true, force: true})
+        fs.rmSync(outsideRoot, {recursive: true, force: true})
+    })
+
+    it('filePaths 中任一路径不在白名单 → 整次调用被 SECURITY BLOCK', async () => {
+        const result = await executeTool(
+            {
+                id: 'tc-sbx-1',
+                name: 'file_read',
+                arguments: {
+                    filePaths: [path.join(allowedRoot, 'a.txt'), path.join(outsideRoot, 'b.txt')],
+                },
+            },
+            {...baseContext, workingDir: allowedRoot},
+        )
+        expect(result.denied).toBe(true)
+        expect(result.result.error).toContain('SECURITY BLOCK')
+    })
+
+    it('filePaths 全部在白名单内 → 正常读取（不被沙盒拦截）', async () => {
+        const result = await executeTool(
+            {
+                id: 'tc-sbx-2',
+                name: 'file_read',
+                arguments: {filePaths: [path.join(allowedRoot, 'a.txt')]},
+            },
+            {...baseContext, workingDir: allowedRoot},
+        )
+        expect(result.result.success).toBe(true)
+        expect(result.result.output).toContain('a')
+    })
+})

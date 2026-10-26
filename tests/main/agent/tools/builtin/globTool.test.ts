@@ -120,3 +120,81 @@ describe('globTool — 文件搜索工具', () => {
     expect(result.error).toContain('Search failed')
   })
 })
+
+describe('globTool — detail（文件大小与修改时间）', () => {
+  let tmpRoot: string
+  let workingDir: string
+
+  beforeEach(async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'glob-tool-detail-'))
+    workingDir = path.join(tmpRoot, 'root')
+    await fs.mkdir(path.join(workingDir, 'sub'), {recursive: true})
+
+    await fs.writeFile(path.join(workingDir, 'a.ts'), '// a\n')
+    await fs.writeFile(path.join(workingDir, 'b.ts'), '// b\n')
+    await fs.writeFile(path.join(workingDir, 'sub/c.ts'), '// c\n')
+  })
+
+  afterEach(async () => {
+    await fs.rm(tmpRoot, {recursive: true, force: true})
+  })
+
+  function makeContext() {
+    return {
+      workingDir,
+      abortSignal: new AbortController().signal,
+      sendMessage: vi.fn(),
+    }
+  }
+
+  const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+
+  it('detail: true 输出 path\\tsize\\tmtime（mtime 为 ISO）', async () => {
+    const result = await globTool.execute(
+      {pattern: '*.ts', detail: true},
+      makeContext() as any,
+    )
+
+    expect(result.success).toBe(true)
+    const lines = (result.output as string[]).map((l) => l.replace(/\\/g, '/')).sort()
+    expect(lines).toHaveLength(2)
+
+    const aStat = await fs.stat(path.join(workingDir, 'a.ts'))
+    const aLine = lines.find((l) => l.startsWith('a.ts\t'))
+    expect(aLine).toBe(`a.ts\t${aStat.size}\t${aStat.mtime.toISOString()}`)
+
+    for (const line of lines) {
+      const parts = line.split('\t')
+      expect(parts).toHaveLength(3)
+      expect(parts[1]).toBe('5')
+      expect(parts[2]).toMatch(ISO_RE)
+    }
+  })
+
+  it('detail: false 与不传 detail 的输出完全一致', async () => {
+    const plain = await globTool.execute({pattern: '**/*.ts'}, makeContext() as any)
+    const explicitFalse = await globTool.execute(
+      {pattern: '**/*.ts', detail: false},
+      makeContext() as any,
+    )
+
+    expect(explicitFalse.output).toEqual(plain.output)
+    const names = (plain.output as string[]).map((p) => p.replace(/\\/g, '/')).sort()
+    expect(names).toEqual(['a.ts', 'b.ts', 'sub/c.ts'])
+  })
+
+  it('detail: true 时目录项标注 [dir]', async () => {
+    const result = await globTool.execute(
+      {pattern: 'sub', detail: true},
+      makeContext() as any,
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.output).toHaveLength(1)
+    const line = (result.output as string[])[0].replace(/\\/g, '/')
+    const parts = line.split('\t')
+    expect(parts[0]).toBe('sub')
+    expect(parts[1]).toBe('[dir]')
+    expect(parts[2]).toMatch(ISO_RE)
+  })
+})

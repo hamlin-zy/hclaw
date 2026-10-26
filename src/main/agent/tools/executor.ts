@@ -266,6 +266,22 @@ export async function executeTool(
         sandboxOp = {type: 'command_execute', command: args.command, args: []}
     } else if (tool.name === 'file_read' && typeof args.filePath === 'string') {
         sandboxOp = {type: 'file_read', path: args.filePath}
+    } else if (tool.name === 'file_read' && Array.isArray(args.filePaths)) {
+        // 多文件读取：逐项做沙盒校验。只校验 filePath 会让 filePaths 绕过路径黑名单/白名单。
+        // file_read 不会返回 needsConfirmation（仅 command_execute 会），这里只处理硬性拒绝。
+        for (const p of args.filePaths) {
+            if (typeof p !== 'string') continue
+            const check = localSandbox.check({type: 'file_read', path: p})
+            if (!check.allowed) {
+                return {
+                    toolCallId: toolCall.id,
+                    toolName: toolCall.name,
+                    denied: true,
+                    denyReason: `Security Block: ${check.reason}`,
+                    result: errorResult(`SECURITY BLOCK: ${check.reason}. This operation is deemed extremely dangerous and cannot be executed in any mode.`, 'PERMANENT'),
+                }
+            }
+        }
     } else if ((tool.name === 'file_write' || tool.name === 'file_edit') && typeof args.filePath === 'string') {
         sandboxOp = {type: 'file_write', path: args.filePath}
     } else if (tool.name === 'bash') {

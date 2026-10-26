@@ -274,14 +274,14 @@ export const fileEditTool: Tool<FileEditInput, string> = {
 4. 确认文件未被其他操作修改
 
 【失败排查清单】
-- 空白符不匹配（70%+ 失败原因）：oldString 和文件实际缩进不一致
+- 空白符不匹配：oldString 和文件实际缩进不一致
 - CRLF/LF 差异：Windows 文件使用 \\r\\n，oldString 使用 \\n
 - 文件已被修改：重新读取确认当前内容
 - 内容不够独特：增加上下文锚点（周围 1-2 行代码）
 
 【禁用行为】
 - 禁止凭记忆写 oldString，必须先读取确认
-- 禁止连续失败 3 次以上不切换方案
+- 连续 2 次未匹配时，先用 file_read 重读目标片段再试
 - 禁止用极短文本（如单个变量名）作为 oldString`,
   inputSchema,
   requiredPermissions: ['fs:write'],
