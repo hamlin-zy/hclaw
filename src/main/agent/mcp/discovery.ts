@@ -20,6 +20,7 @@ import {mcpClient as mainProcessMcpClient} from './client'
 import {createTimeoutResult, ToolTimeoutError, withToolTimeout} from '../tools/toolTimeout'
 import {formatMcpResult} from './formatResult'
 import {buildMcpToolNameCandidates} from '@shared/mcp/naming'
+import {MCP_TOOL_TIMEOUT_NO_LIMIT_MS} from '@shared/types/mcp'
 
 // ─── MessagePort 注入（Phase 2）────────────────────────────────
 //
@@ -29,6 +30,11 @@ let mcpPort: MessagePort | null = null
 
 /** 设置 MCP Worker 的 MessagePort（从 worker.ts 启动时注入） */
 export function setMcpMessagePort(port: MessagePort | null): void {
+  // 替换为不同端口：旧端口上的挂起调用永远等不到回包，先统一结算再挂新端口。
+  // 同一端口重复设置保持幂等（不结算任何调用）。
+  if (port && mcpPort && mcpPort !== port) {
+    settleAllPendingMcpCalls(MCP_PORT_REPLACED_REASON)
+  }
   mcpPort = port
   if (port) ensureMcpPortDispatcher(port)
 }
@@ -43,6 +49,29 @@ export function setMcpMessagePort(port: MessagePort | null): void {
 const pendingMcpCalls = new Map<string, (result: any) => void>()
 /** 已装过分发器的 port（避免重复挂载；WeakSet 允许 port 被回收） */
 const dispatcherInstalled = new WeakSet<MessagePort>()
+/** 端口关闭时的统一清算文案（worker.ts 复用，避免文案漂移） */
+export const MCP_PORT_CLOSED_REASON = 'MCP Worker 连接已关闭，工具调用已中断'
+/** MCP Worker 不可用（主进程通知）时的清算文案（worker.ts 复用） */
+export const MCP_WORKER_UNAVAILABLE_REASON = 'MCP Worker 不可用，工具调用已中断'
+/** 端口被替换时的清算文案 */
+export const MCP_PORT_REPLACED_REASON = 'port 已替换'
+
+/**
+ * 结算全部挂起的 MCP 调用（唯一入口，幂等）。
+ *
+ * 为什么 resolve 而不是 reject：调用方（promise 链）只处理成功结果，reject 会变成
+ * 未捕获异常；同时 resolve 能保证调用方的 finally 正常执行，登记项与闭包随之释放。
+ * 结算值形状与分发器一致（分发器同样把 msg.result 交给 resolve）。
+ */
+export function settleAllPendingMcpCalls(reason: string): number {
+  if (pendingMcpCalls.size === 0) return 0
+  const resolvers = Array.from(pendingMcpCalls.values())
+  pendingMcpCalls.clear()
+  for (const resolve of resolvers) {
+    resolve({success: false, output: null, error: reason})
+  }
+  return resolvers.length
+}
 
 function ensureMcpPortDispatcher(port: MessagePort): void {
   if (dispatcherInstalled.has(port)) return
@@ -54,6 +83,11 @@ function ensureMcpPortDispatcher(port: MessagePort): void {
     if (!resolve) return
     pendingMcpCalls.delete(callId)
     resolve(msg.result)
+  })
+  // 端口关闭（MCP Worker 崩溃/被回收）：立即清算挂起调用。
+  // 否则这些 Promise 永远无人认领，调用方 finally 不执行 → 条目与闭包长期驻留。
+  port.on('close', () => {
+    settleAllPendingMcpCalls(MCP_PORT_CLOSED_REASON)
   })
 }
 
@@ -187,9 +221,9 @@ function createCancelledResult(toolName: string): ToolResult {
  * 把 abortSignal 接到本次调用的结算上：abort → 立即以取消结果结算，不再等底层返回；
  * 底层自身 reject 仍照常冒泡（保持既有错误处理路径）。
  *
- * ★ 已知边界（无远端硬取消）：调用一旦发出就无法从这一侧收回 —— worker 分支的 call_tool
- *   仍会在 MCP Worker 侧跑完（登记项已由调用方 finally 摘除，回包无人认领即丢弃），
- *   主进程分支的 SDK 请求同样在后台完成。本函数保证的是「取消后 agent loop 不再被挂住」。
+ * ★ 真取消：结算之外还会把取消传到请求侧 —— worker 分支在 finally 发 `cancel_tool`
+ *   （MCP Worker abort 对应 SDK 请求），主进程分支把 signal 透传给 MCPClient.callTool。
+ *   本函数只负责「取消后 agent loop 不再被挂住」。
  */
 function raceAbort(
   promise: Promise<ToolResult>,
@@ -266,9 +300,9 @@ function createMCPToolProxy(args: {
      * 结算，不再吊着 agent loop 等一个可能永远不回来的 MCP server（见 raceAbort 的边界说明）。
      */
     async execute(args: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
-      // 获取 MCP 服务器的超时配置（默认 60 秒）
+      // 获取 MCP 服务器的超时配置（缺省 = 不限时，见 MCP_TOOL_TIMEOUT_NO_LIMIT_MS）
       const serverConfig = !isWorker ? mainProcessMcpClient.getServer(serverId)?.config : null
-      const timeoutMs = serverConfig?.timeout != null ? serverConfig.timeout : 60_000
+      const timeoutMs = serverConfig?.timeout ?? MCP_TOOL_TIMEOUT_NO_LIMIT_MS
       const toolFullName = proxyName
       const abortSignal = context.abortSignal
 
@@ -301,17 +335,24 @@ function createMCPToolProxy(args: {
             } finally {
               // 超时/取消/异常/成功路径统一摘除登记项，避免 pendingMcpCalls 泄漏
               // （取消后 MCP Worker 的回包找不到登记项 → 直接丢弃，不再 resolve 任何人）
-              pendingMcpCalls.delete(callId)
+              const wasPending = pendingMcpCalls.delete(callId)
+              // 真取消：仅当本次调用仍挂起且已被 abort 时通知 MCP Worker
+              // （回包先到则不发；竞态下多发由对端幂等吸收）。
+              if (wasPending && abortSignal?.aborted) {
+                try {
+                  port.postMessage({type: 'cancel_tool', callId})
+                } catch { /* 端口可能已关闭：调用已结算，无需上报 */ }
+              }
             }
           }
           // 无 MessagePort（MCP Worker 未就绪或崩溃），不注册此工具
           return {success: false, output: null, error: 'MCP Worker 不可用，工具未注册'}
         }
 
-        // 主进程：直接调用（带超时保护 + 取消竞速）
+        // 主进程：直接调用（带超时保护 + 取消竞速；signal 透传由 MCPClient 桥接给 SDK）
         return await withToolTimeout(
           raceAbort(
-            mainProcessMcpClient.callTool(serverId, toolDef.name, args).then(formatMcpResult),
+            mainProcessMcpClient.callTool(serverId, toolDef.name, args, abortSignal).then(formatMcpResult),
             abortSignal,
             toolFullName,
           ),

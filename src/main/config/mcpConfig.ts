@@ -3,6 +3,7 @@ import fs from 'fs'
 import {getHclawDir} from '../hclawPaths'
 import {hashName as sharedHashName} from '../lib/hashName'
 import type {McpServer} from '../../shared/types/mcp'
+import {MCP_TOOL_TIMEOUT_NO_LIMIT_MS} from '../../shared/types/mcp'
 
 /** 获取 mcp.json 文件路径 */
 export function getMcpConfigPath(): string {
@@ -48,7 +49,7 @@ function parseMcpServers(raw: Record<string, McpServerInput>): McpServer[] {
         url: entry.url || '',
         headers: entry.headers || {},
         cwd: entry.cwd || '',
-        timeout: entry.timeout ?? 60000,
+        timeout: entry.timeout ?? MCP_TOOL_TIMEOUT_NO_LIMIT_MS,
         autoApprove: entry.autoApprove || [],
         denyList: entry.denyList || [],
         readOnlyTools: entry.readOnlyTools || [],
@@ -74,7 +75,7 @@ function serializeMcpServers(servers: McpServer[]): Record<string, unknown> {
             headers: s.headers || {},
             enabled: s.enabled,
             cwd: s.cwd || '',
-            timeout: s.timeout ?? 60000,
+            timeout: s.timeout ?? MCP_TOOL_TIMEOUT_NO_LIMIT_MS,
             autoApprove: s.autoApprove || [],
             denyList: s.denyList || [],
             readOnlyTools: s.readOnlyTools || [],
@@ -174,7 +175,7 @@ export function mergePluginOverride(
         url: override?.url || (pluginServer.url as string) || '',
         headers: override?.headers || (pluginServer.headers as Record<string, string>) || {},
         cwd: override?.cwd || (pluginServer.cwd as string) || '',
-        timeout: override?.timeout ?? (pluginServer.timeout as number) ?? 60000,
+        timeout: override?.timeout ?? (pluginServer.timeout as number) ?? MCP_TOOL_TIMEOUT_NO_LIMIT_MS,
         autoApprove: override?.autoApprove || (pluginServer.autoApprove as string[]) || [],
         denyList: override?.denyList || (pluginServer.denyList as string[]) || [],
         readOnlyTools: override?.readOnlyTools || (pluginServer.readOnlyTools as string[]) || [],

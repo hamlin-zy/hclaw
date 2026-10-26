@@ -16,6 +16,7 @@
  */
 import {describe, expect, it, beforeEach, vi} from 'vitest'
 import type {MCPServer} from '@/shared/types'
+import {MCP_TOOL_TIMEOUT_NO_LIMIT_MS} from '@/shared/types/mcp'
 
 const h = vi.hoisted(() => {
     const statusHandlers: Array<(p: any) => void> = []
@@ -60,7 +61,7 @@ describe('addMCPServer', () => {
         expect(server.status).toBe('stopped')
         expect(server.tools).toEqual([])
         expect(server.enabled).toBe(true)
-        expect(server.timeout).toBe(60000)
+        expect(server.timeout).toBe(MCP_TOOL_TIMEOUT_NO_LIMIT_MS)
         expect(server.autoApprove).toEqual([])
         expect(server.denyList).toEqual([])
 
@@ -292,7 +293,7 @@ describe('onStatusChanged IPC 监听', () => {
             url: '',
             headers: {},
             cwd: '',
-            timeout: 60000,
+            timeout: MCP_TOOL_TIMEOUT_NO_LIMIT_MS,
             autoApprove: [],
             denyList: [],
             userDescription: '',

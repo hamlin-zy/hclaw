@@ -56,3 +56,15 @@ describe('fileEditTool — diff 输出简化（从 @@ 开始）', () => {
     expect(diff).toContain('line3')          // 上下文行
   })
 })
+
+describe('fileEditTool — description 契约', () => {
+  it('删除 70%+ 归因，失败处理改为先用 file_read 重读', () => {
+    const desc = fileEditTool.description
+
+    expect(desc).toContain('【失败排查清单】')
+    expect(desc).toContain('空白符不匹配：oldString 和文件实际缩进不一致')
+    expect(desc).not.toContain('70%+')
+    expect(desc).not.toContain('禁止连续失败 3 次以上不切换方案')
+    expect(desc).toContain('连续 2 次未匹配时，先用 file_read 重读目标片段再试')
+  })
+})

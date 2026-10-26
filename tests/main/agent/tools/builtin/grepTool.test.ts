@@ -229,3 +229,142 @@ describe('grepTool — includeIgnored（被忽略文件与隐藏目录）', () =
     expect(excluded).not.toMatch(/node_modules[\\/]marker\.txt/)
   })
 })
+
+describe('grepTool — context / outputMode', () => {
+  let tmpRoot: string
+  let workingDir: string
+
+  beforeEach(async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'grep-tool-context-'))
+    workingDir = path.join(tmpRoot, 'root')
+    await fs.mkdir(workingDir, {recursive: true})
+
+    // 行号固定：l1 l2 MATCH l4 l5
+    await fs.writeFile(path.join(workingDir, 'ctx.txt'), 'l1\nl2\nMATCH\nl4\nl5\n')
+    // 命中计数用：multi 2 次、single 1 次
+    await fs.writeFile(path.join(workingDir, 'multi.txt'), 'hello\nhello\n')
+    await fs.writeFile(path.join(workingDir, 'single.txt'), 'hello\n')
+  })
+
+  afterEach(async () => {
+    await fs.rm(tmpRoot, {recursive: true, force: true})
+  })
+
+  function makeContext() {
+    return {
+      workingDir,
+      abortSignal: new AbortController().signal,
+      sendMessage: vi.fn(),
+    }
+  }
+
+  it('context: 2 输出匹配行前后各 2 行（rg 路径，文件内按行序分组）', async () => {
+    const result = await grepTool.execute(
+      {pattern: 'MATCH', context: 2},
+      makeContext() as any,
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.output).toBe([
+      'ctx.txt-1- l1',
+      'ctx.txt-2- l2',
+      'ctx.txt:3: MATCH',
+      'ctx.txt-4- l4',
+      'ctx.txt-5- l5',
+    ].join('\n'))
+  })
+
+  it('context: 0 与不传 context 的输出逐字节一致', async () => {
+    const plain = await grepTool.execute({pattern: 'MATCH'}, makeContext() as any)
+    const explicitZero = await grepTool.execute(
+      {pattern: 'MATCH', context: 0},
+      makeContext() as any,
+    )
+
+    expect(plain.output).toBe('ctx.txt:3: MATCH')
+    expect(explicitZero.output).toBe(plain.output)
+  })
+
+  it('outputMode: files_with_matches 只返回文件路径且去重', async () => {
+    const result = await grepTool.execute(
+      {pattern: 'hello', outputMode: 'files_with_matches'},
+      makeContext() as any,
+    )
+
+    expect(result.success).toBe(true)
+    expect((result.output as string).split('\n').sort()).toEqual(['multi.txt', 'single.txt'])
+  })
+
+  it('outputMode: count 返回 文件:命中数', async () => {
+    const result = await grepTool.execute(
+      {pattern: 'hello', outputMode: 'count'},
+      makeContext() as any,
+    )
+
+    expect(result.success).toBe(true)
+    expect((result.output as string).split('\n').sort()).toEqual(['multi.txt:2', 'single.txt:1'])
+  })
+
+  it('outputMode: content 显式传入与默认输出一致，且文件顺序确定', async () => {
+    const plain = await grepTool.execute({pattern: 'hello'}, makeContext() as any)
+    const explicit = await grepTool.execute(
+      {pattern: 'hello', outputMode: 'content'},
+      makeContext() as any,
+    )
+
+    expect(explicit.output).toBe(plain.output)
+    // 顺序必须确定：文件按路径升序（rg 多线程事件到达顺序不稳定）
+    expect(plain.output).toBe('multi.txt:1: hello\nmulti.txt:2: hello\nsingle.txt:1: hello')
+  })
+
+  it('非法 outputMode 由 zod 拒绝', () => {
+    expect(grepTool.inputSchema.safeParse({pattern: 'x', outputMode: 'bogus'}).success).toBe(false)
+    expect(grepTool.inputSchema.safeParse({pattern: 'x', outputMode: 'count'}).success).toBe(true)
+  })
+
+  it('searchWithJs 回退路径：files_with_matches / count 生效，context 首版忽略', async () => {
+    const files = await searchWithJs(
+      {pattern: 'hello', outputMode: 'files_with_matches'},
+      workingDir,
+      workingDir,
+    )
+    expect(files.split('\n').sort()).toEqual(['multi.txt', 'single.txt'])
+
+    const counts = await searchWithJs(
+      {pattern: 'hello', outputMode: 'count'},
+      workingDir,
+      workingDir,
+    )
+    expect(counts.split('\n').sort()).toEqual(['multi.txt:2', 'single.txt:1'])
+
+    // context 在 JS 回退路径首版忽略：输出与不传 context 完全一致
+    const plainCtx = await searchWithJs({pattern: 'MATCH'}, workingDir, workingDir)
+    const withCtx = await searchWithJs({pattern: 'MATCH', context: 2}, workingDir, workingDir)
+    expect(withCtx).toBe(plainCtx)
+    expect(withCtx).toContain('ctx.txt:3: MATCH')
+  })
+
+  it('rg 不可用时回退 JS 路径且新参数不崩', async () => {
+    vi.resetModules()
+    vi.doMock('@/main/utils/ripgrepPath', () => ({rgBinPath: 'hclaw-no-such-rg-binary'}))
+    try {
+      const mod = await import('@/main/agent/tools/builtin/grepTool')
+      const files = await mod.grepTool.execute(
+        {pattern: 'hello', context: 2, outputMode: 'files_with_matches'},
+        makeContext() as any,
+      )
+      expect(files.success).toBe(true)
+      expect((files.output as string).split('\n').sort()).toEqual(['multi.txt', 'single.txt'])
+
+      const counts = await mod.grepTool.execute(
+        {pattern: 'hello', outputMode: 'count'},
+        makeContext() as any,
+      )
+      expect(counts.success).toBe(true)
+      expect((counts.output as string).split('\n').sort()).toEqual(['multi.txt:2', 'single.txt:1'])
+    } finally {
+      vi.doUnmock('@/main/utils/ripgrepPath')
+      vi.resetModules()
+    }
+  })
+})

@@ -20,6 +20,7 @@ vi.mock('@/main/agent/logger', () => ({
 }))
 
 import {MCPClient} from '@/main/agent/mcp/client'
+import {MCP_TOOL_TIMEOUT_NO_LIMIT_MS} from '@/shared/types/mcp'
 
 const processController = {
     isRunning: () => false,
@@ -38,7 +39,7 @@ function makeState(id: string, epoch: number, status: string, extra: Record<stri
     return {
         config: {
             id, name: id, transport: 'stdio', command: 'npx', args: [], env: {},
-            url: '', headers: {}, cwd: '', timeout: 60000, autoApprove: [], denyList: [],
+            url: '', headers: {}, cwd: '', timeout: MCP_TOOL_TIMEOUT_NO_LIMIT_MS, autoApprove: [], denyList: [],
             enabled: true, userDescription: '',
         },
         status,

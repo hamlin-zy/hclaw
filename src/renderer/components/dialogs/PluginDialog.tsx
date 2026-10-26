@@ -385,7 +385,7 @@ export default function PluginDialog() {
                       </button>
                   </div>
                   {installError && (
-                      <div className="mt-2 text-sm text-[var(--error)]">{installError}</div>
+                      <div className="mt-2 text-sm text-[var(--error)] whitespace-pre-line break-words">{installError}</div>
                   )}
                   {installSuccess && (
                       <div className="mt-2 text-sm text-[var(--success)]">{installSuccess}</div>

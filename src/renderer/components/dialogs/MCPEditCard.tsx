@@ -3,8 +3,17 @@ import type {MCPServer} from '@shared/types'
 import ThemedSelect from '../ThemedSelect'
 import {SuccessIcon, ErrorIcon} from '../icons'
 import {INPUT_FOCUS} from '../../lib/inputFocus'
+import {MCP_TOOL_TIMEOUT_NO_LIMIT_MS} from '@shared/types/mcp'
 
 // ─── Helpers ──────────────────────────────
+
+/**
+ * 超时上限（毫秒）与缺省值，均取 shared/types/mcp.ts 的 MCP_TOOL_TIMEOUT_NO_LIMIT_MS：
+ * MCP 工具调用**默认不限时**（耗时由对端 server 决定），需要收紧的用户在此填更小值。
+ * Node `setTimeout` 的 delay 上限即此值，超出会被 clamp 成 1ms → 立即超时（静默反向生效）。
+ */
+const MAX_TIMEOUT_MS = MCP_TOOL_TIMEOUT_NO_LIMIT_MS
+const DEFAULT_TIMEOUT_MS = MCP_TOOL_TIMEOUT_NO_LIMIT_MS
 
 function pairsToObject(pairs: Array<{ key: string; value: string }>): Record<string, string> {
     const obj: Record<string, string> = {}
@@ -117,7 +126,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
     const [cwd, setCwd] = useState(server?.cwd || '')
     const [url, setUrl] = useState(server?.url || '')
     const [headersPairs, setHeadersPairs] = useState<Array<{ key: string; value: string }>>(objectToPairs(server?.headers))
-    const [timeoutStr, setTimeoutStr] = useState(server?.timeout ? String(server.timeout) : '60000')
+    const [timeoutStr, setTimeoutStr] = useState(server?.timeout ? String(server.timeout) : String(DEFAULT_TIMEOUT_MS))
     // 只读守卫策略字段（逗号分隔文本；unknownPolicy 三态，'' = 未配置）
     const [readOnlyToolsStr, setReadOnlyToolsStr] = useState((server?.readOnlyTools || []).join(', '))
     const [writeToolsStr, setWriteToolsStr] = useState((server?.writeTools || []).join(', '))
@@ -169,18 +178,20 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
             const headers = pairsToObject(headersPairs)
 
             const serverConfig: any = {}
+            // 仅显式非默认值才写入配置；空串与默认值都走缺省（见 DEFAULT_TIMEOUT_MS 说明）
+            const explicitTimeout = timeoutStr && Number(timeoutStr) !== DEFAULT_TIMEOUT_MS ? Number(timeoutStr) : undefined
 
             if (transport === 'stdio') {
                 serverConfig.command = command || 'uvx'
                 serverConfig.args = args.length > 0 ? args : ['']
                 if (Object.keys(env).length > 0) serverConfig.env = env
                 if (cwd) serverConfig.cwd = cwd
-                if (timeoutStr && Number(timeoutStr) !== 60000) serverConfig.timeout = Number(timeoutStr)
+                if (explicitTimeout !== undefined) serverConfig.timeout = explicitTimeout
             } else {
                 serverConfig.transport = transport
                 serverConfig.url = url || ''
                 if (Object.keys(headers).length > 0) serverConfig.headers = headers
-                if (timeoutStr && Number(timeoutStr) !== 60000) serverConfig.timeout = Number(timeoutStr)
+                if (explicitTimeout !== undefined) serverConfig.timeout = explicitTimeout
             }
 
             const config = {
@@ -208,7 +219,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
             const testId = server?.id ?? `test-${Date.now()}`
             const config = {
                 id: testId, name, transport, command, args, env, url, headers, enabled: true,
-                cwd: cwd || undefined, timeout: Number(timeoutStr) || 60000,
+                cwd: cwd || undefined, timeout: Number(timeoutStr) || DEFAULT_TIMEOUT_MS,
             }
             const result = await window.electronAPI?.mcp?.testConnection?.(config)
             if (!result) {
@@ -224,7 +235,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                     enabled: true, status: 'error' as const, tools: [],
                     errorDetail: result.error || '连接失败',
                     cwd: cwd || undefined,
-                    timeout: Number(timeoutStr) || 60000,
+                    timeout: Number(timeoutStr) || DEFAULT_TIMEOUT_MS,
                     autoApprove: [],
                     denyList: [],
                     userDescription: userDescription || '',
@@ -242,7 +253,7 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
         const args = argsStr.split('\n').map(s => s.trim()).filter(Boolean)
         const env = pairsToObject(envPairs)
         const headers = pairsToObject(headersPairs)
-        const timeout = Number(timeoutStr) || 60000
+        const timeout = Number(timeoutStr) || DEFAULT_TIMEOUT_MS
         onSave({
             name,
             transport,
@@ -410,8 +421,11 @@ export default function MCPEditCard({server, onSave, onCancel, onTestError}: {
                         <div>
                             <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">超时 (毫秒)</label>
                             <input type="number" value={timeoutStr} onChange={(e) => setTimeoutStr(e.target.value)}
-                                   placeholder="60000" min="1000" max="300000" step="1000"
+                                   placeholder="不限时" min="1000" max={MAX_TIMEOUT_MS} step="1000"
                                    className={`w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg font-mono outline-none ${INPUT_FOCUS}`} data-name="mcpedit-card-timeout-input"/>
+                            <p className="mt-1 px-1 text-[10px] leading-relaxed text-gray-400">
+                                单次工具调用超时（毫秒），<strong className="font-bold text-gray-500">默认不限时</strong>。填更小值可为该 server 收紧超时；上限 {MAX_TIMEOUT_MS}（Node 定时器极限，超出会被当成 1 毫秒反而立即超时）。
+                            </p>
                         </div>
                         <div>
                             <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1 px-1">只读工具 (命中即视为只读，逗号分隔)</label>

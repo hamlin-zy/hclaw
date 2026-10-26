@@ -7,6 +7,32 @@
 
 ---
 
+## [v0.5.27] - 2026-10-26
+
+### 新增
+- **多文件读取与原文输出** — file_read 支持 filePaths（最多 10 个，共享 offset/limit）与 raw（纯文本、无行号/摘要）；目录路径给出改用 glob 的明确提示 (`tools/builtin/fileReadTool`)
+- **搜索上下文与输出模式** — grep 支持 context（前后 N 行）与 outputMode（content / files_with_matches / count），rg 与 JS 回退路径均支持；glob 支持 detail（大小 + ISO 修改时间，目录标 [dir]） (`tools/builtin/grepTool` / `tools/builtin/globTool`)
+- **Git 可用性预检与错误分类** — 新增 checkGitAvailable / createGit / formatGitError / gitUnavailableMessage；未安装、仓库不存在、401/403、认证、407、SSL、网络分别给出可读文案，清洗堆栈与克隆进度行 (`common/gitAvailability` / `plugin/installer` / `repo/installer`)
+- **复合命令切段** — 新增引号/转义/括号感知的 splitCommandSegments 与 isWriteSegment，权限层与危险命令白名单共用 (`agent/permissions/commandSegments` / `agent/permissions/dangerousPatterns` / `tools/permission`)
+
+### 变更
+- **工作流程提示词** — system.workflow 新增「工具分工」条目，原 6–8 条顺延；新增 baseline 整体刷新与锚点定向补丁两条迁移；PROMPT_REVISION 1→2 重建存量会话 system (`shared/prompts` / `agent/prompts/promptDefaultUpgrade` / `agent/loop/controller`)
+- **工具描述文案** — bash 删除列目录/查文本示例与 Windows 编码提示，改为工具分工引导；file_edit 失败处理改为先用 file_read 重读；file_write 披露 UTF-8 无 BOM 与分工 (`tools/builtin/bashTool` / `fileEditTool` / `fileWriteTool`)
+- **文件受信根扩展** — 工作目录 ∪ hclawDir/mem ∪ os.tmpdir() 内写文件在权限层直接放行；`.git` 内部、敏感文件、file_edit 目标不存在落回确认 (`tools/permission`)
+- **安装提示多行展示** — 三个对话框的错误/成功提示支持换行与长词断行 (`dialogs/AgentsDialog` / `dialogs/SkillsDialog` / `dialogs/PluginDialog`)
+
+### 修复
+- **grep 输出顺序不确定** — 输出按文件路径稳定排序，修复同一查询两次结果顺序不一致（rg 多线程事件到达顺序不稳定） (`tools/builtin/grepTool`)
+- **复合命令白名单绕过** — 逐段判定，`cd X; Set-Content Y`、`ls > out`、`ls | tee f`、`sed -i` 不再被首段带过 (`tools/permission` / `agent/permissions/dangerousPatterns`)
+- **多文件读取绕过沙盒** — filePaths 逐项做沙盒校验，任一越界整次拒绝 (`tools/executor`)
+- **Git 错误暴露原始输出** — 安装路径统一走分类文案，不再向用户展示堆栈与克隆进度行 (`common/gitAvailability` / `plugin/installer` / `repo/installer`)
+- **MCP 工具调用超时与取消** — 工具调用默认不限时（五层链路统一），修复 pending 调用在取消与端口关闭时的清理 (`mcp/*`)
+
+### 重构
+- **统一 Git 实例封装** — 散落的 simpleGit 调用收敛为 createGit（保留父环境、禁用交互式凭据提示） (`plugin/installer` / `repo/installer`)
+- **文件读取单文件逻辑抽取** — readOneFile 统一目录检测、大文件分流与 raw 分支 (`tools/builtin/fileReadTool`)
+- **grep 路径归一抽取** — toRootRelative 统一相对路径与正斜杠 (`tools/builtin/grepTool`)
+
 ## [v0.5.26] - 2026-10-14
 
 ### 新增

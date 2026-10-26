@@ -4,6 +4,7 @@ import {sqliteStorage} from '../lib/sqliteStorage'
 import {buildCrudSlice} from '../lib/createCrudStore'
 import {toSlug} from '../lib/format'
 import type {MCPServer} from '@shared/types'
+import {MCP_TOOL_TIMEOUT_NO_LIMIT_MS} from '@shared/types/mcp'
 
 interface McpStore {
   mcpServers: MCPServer[]
@@ -71,7 +72,7 @@ function registerMcpIpcListeners(): void {
                         errorDetail: payload.error || '',
                         enabled: true,
                         command: '', args: [], env: {}, url: '', headers: {},
-                        cwd: '', timeout: 60000, autoApprove: [], denyList: [],
+                        cwd: '', timeout: MCP_TOOL_TIMEOUT_NO_LIMIT_MS, autoApprove: [], denyList: [],
                         userDescription: '',
                     }]
                 }
@@ -119,7 +120,7 @@ function registerMcpIpcListeners(): void {
                         url: s.url || '',
                         headers: s.headers || {},
                         cwd: s.cwd || '',
-                        timeout: s.timeout ?? 60000,
+                        timeout: s.timeout ?? MCP_TOOL_TIMEOUT_NO_LIMIT_MS,
                         autoApprove: s.autoApprove || [],
                         denyList: s.denyList || [],
                         // ★ 策略字段必须逐字段带上：本映射是「重建对象」，漏字段会让
@@ -175,7 +176,7 @@ export const useMcpStore = create<McpStore>()(
                   tools: [],
                   enabled: true,
                   cwd: server.cwd,
-                  timeout: server.timeout ?? 60000,
+                  timeout: server.timeout ?? MCP_TOOL_TIMEOUT_NO_LIMIT_MS,
                   autoApprove: server.autoApprove ?? [],
                   denyList: server.denyList ?? [],
                   readOnlyTools: server.readOnlyTools ?? [],

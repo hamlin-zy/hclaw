@@ -26,7 +26,11 @@ export interface MCPServerConfig {
   headers?: Record<string, string>
   /** 工作目录（stdio 模式启动子进程时使用） */
   cwd?: string
-  /** 工具调用超时（毫秒），默认 60000 */
+  /**
+   * 工具调用超时（毫秒）。
+   * 缺省 = MCP_TOOL_TIMEOUT_NO_LIMIT_MS（不限时，见 @shared/types/mcp 常量说明）；
+   * 显式配置更小值即可为单个 server 收紧超时。
+   */
   timeout?: number
   /** 自动批准的工具名称列表 — 调用这些工具时无需用户确认 */
   autoApprove?: string[]
@@ -141,10 +145,10 @@ export interface MCPToolCallResult {
  */
 export interface MCPTransportOptions {
   /**
-   * 请求超时时间（毫秒），默认 60000。
+   * 请求超时时间（毫秒），默认 MCP_TOOL_TIMEOUT_NO_LIMIT_MS（不限时）。
    *
-   * ⚠️ 当前仅由 testConnection() 读取；运行期工具调用（callTool）走 SDK 内建的
-   * 60s 默认值，尚未接入本字段——如需按 server 覆盖运行期超时，需显式传入 callTool。
+   * 由 testConnection() 与运行期 callTool（client.ts 透传该字段给 SDK）共同读取；
+   * 出口前会 clamp 到 Node setTimeout 的 delay 上限（见常量说明）。
    */
   requestTimeout?: number
   /** 关闭连接超时时间（毫秒），默认 5000 */

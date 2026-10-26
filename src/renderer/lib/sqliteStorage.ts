@@ -1,5 +1,6 @@
 import type {PersistStorage, StorageValue} from 'zustand/middleware'
 import {SIDEBAR_STATE_CONFIG_KEY} from '../../shared/configKeys'
+import {MCP_TOOL_TIMEOUT_NO_LIMIT_MS} from '../../shared/types/mcp'
 import {refreshToolStore, syncSchemeToBackend} from '../stores/schemeSync'
 
 /**
@@ -192,7 +193,7 @@ const STORE_HANDLERS: Record<string, {
                 id: s.id, name: s.name, transport: s.transport || 'stdio',
                 command: s.command || '', args: s.args || [], env: s.env || {},
                 url: s.url || '', headers: s.headers || {},
-                cwd: s.cwd || '', timeout: s.timeout ?? 60000,
+                cwd: s.cwd || '', timeout: s.timeout ?? MCP_TOOL_TIMEOUT_NO_LIMIT_MS,
                 autoApprove: s.autoApprove || [], denyList: s.denyList || [],
                 // ★ 只读守卫策略三字段必须逐字段带上（与 mcpStore.onListChanged 同口径）：
                 //   本映射是 hydration 入口，比 onListChanged 更早生效；漏字段会让 store

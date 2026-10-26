@@ -114,11 +114,11 @@ describe('buildSystemSignature 第 5 参 languageSection（brief §2.5-1）', ()
      */
     it('主会话语义（无语言段）签名逐字固化：末尾为 promptRevision，且空语言段不入键', () => {
         expect(buildSystemSignature('/x', 'General', undefined, undefined))
-            .toBe('{"workingDir":"/x","agentType":"General","customInstructions":"","promptRevision":1}')
+            .toBe('{"workingDir":"/x","agentType":"General","customInstructions":"","promptRevision":2}')
         expect(buildSystemSignature('/x', 'General', undefined, undefined, null))
-            .toBe('{"workingDir":"/x","agentType":"General","customInstructions":"","promptRevision":1}')
+            .toBe('{"workingDir":"/x","agentType":"General","customInstructions":"","promptRevision":2}')
         expect(buildSystemSignature('/x', 'General', undefined, undefined, undefined))
-            .toBe('{"workingDir":"/x","agentType":"General","customInstructions":"","promptRevision":1}')
+            .toBe('{"workingDir":"/x","agentType":"General","customInstructions":"","promptRevision":2}')
     })
 })
 

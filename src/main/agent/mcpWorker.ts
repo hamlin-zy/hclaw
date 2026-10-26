@@ -61,6 +61,15 @@ interface ListToolsRequest {
     serverId: string
 }
 
+/**
+ * 取消一次进行中的工具调用（会话 Worker → MCP Worker）。
+ * `call_tool` 消息字段保持不变；取消走独立消息，避免改动既有调用协议。
+ */
+interface CancelToolRequest {
+    type: 'cancel_tool'
+    callId: string
+}
+
 interface ListAllRequest {
     type: 'list_all'
     callId: string
@@ -88,7 +97,7 @@ interface UpdateServersMessage {
     servers: MCPServerConfig[]
 }
 
-type McpWorkerMessage = CallToolRequest | ListToolsRequest | ListAllRequest | GetToolPermissionRequest | UpdateServersMessage
+type McpWorkerMessage = CallToolRequest | CancelToolRequest | ListToolsRequest | ListAllRequest | GetToolPermissionRequest | UpdateServersMessage
 
 /** 从 MCPServerConfig 提取只读守卫策略覆写（5 处同构调用点的收敛） */
 function configToOverride(config: MCPServerConfig): McpWriteOverride {
@@ -107,6 +116,14 @@ function configToOverride(config: MCPServerConfig): McpWriteOverride {
 const UPDATE_BATCH_SIZE = 20
 /** 批次间隔（毫秒） */
 const BATCH_DELAY_MS = 50
+/** 会话端口关闭/注销时 abort 进行中调用的原因（区别于用户主动 cancel_tool） */
+const PORT_CLOSED_ABORT_REASON = '会话 Worker 已关闭，MCP 工具调用已取消'
+
+/** 进行中的工具调用条目：callId → 请求专属 controller + 归属端口（按端口反查用） */
+interface PendingToolCall {
+    controller: AbortController
+    port: MessagePort
+}
 
 /** MCP Worker 服务主体。导出仅供单元测试直接构造实例（顶层单例的副作用不变）。 */
 export class McpWorkerService {
@@ -114,6 +131,15 @@ export class McpWorkerService {
     private agentPorts = new Set<MessagePort>()
     /** port → 归属会话 ID。主进程 cleanup 时据此显式注销（见 unregisterAgent） */
     private agentPortOwner = new Map<MessagePort, string>()
+
+    /**
+     * 进行中的工具调用：callId → 本次请求专属 AbortController + 归属端口。
+     * cancel_tool 据此精确 abort 对应 SDK 请求（不复用任何 run 级 signal）；
+     * 端口关闭/注销时按归属端口批量 abort（见 abortCallsForPort）。
+     */
+    private pendingToolCalls = new Map<string, PendingToolCall>()
+    /** 端口 → 该端口上挂起的 callId 集合（与 pendingToolCalls 同步增删，供按端口反查） */
+    private pendingCallsByPort = new Map<MessagePort, Set<string>>()
 
     /** 200ms 防抖状态上报 */
     private pendingStatusUpdates: Array<{
@@ -355,16 +381,22 @@ export class McpWorkerService {
         port.on('message', (req: McpWorkerMessage) => {
             switch (req.type) {
                 case 'call_tool':
-                    this.handleCallTool(port, req).catch(err =>
-                        port.postMessage({
-                            type: 'tool_result',
-                            callId: req.callId,
-                            result: {success: false, output: null, error: err.message}
-                        })
-                    )
+                    this.handleCallTool(port, req).catch(err => {
+                        // 端口可能已关闭（terminate/close）：回包失败不影响清理，防御性吞掉
+                        try {
+                            port.postMessage({
+                                type: 'tool_result',
+                                callId: req.callId,
+                                result: {success: false, output: null, error: err.message}
+                            })
+                        } catch { /* 端口已关闭，无人接收 */ }
+                    })
                     break
                 case 'list_tools':
                     this.handleListTools(port, req)
+                    break
+                case 'cancel_tool':
+                    this.handleCancelTool(req)
                     break
                 case 'list_all':
                     this.handleListAll(port)
@@ -376,6 +408,8 @@ export class McpWorkerService {
         })
 
         port.on('close', () => {
+            // 端口断开后该端口上的调用永远等不到回包：先 abort 对应 SDK 请求，再摘端口登记。
+            this.abortCallsForPort(port, PORT_CLOSED_ABORT_REASON)
             this.agentPorts.delete(port)
             this.agentPortOwner.delete(port)
         })
@@ -392,6 +426,8 @@ export class McpWorkerService {
     unregisterAgent(conversationId: string): void {
         for (const [port, owner] of this.agentPortOwner) {
             if (owner !== conversationId) continue
+            // 与 close 路径同语义：注销前先终止该端口上的 pending 调用（terminate 不一定派发 close）
+            this.abortCallsForPort(port, PORT_CLOSED_ABORT_REASON)
             this.agentPorts.delete(port)
             this.agentPortOwner.delete(port)
             try {
@@ -472,15 +508,75 @@ export class McpWorkerService {
     // ─── 消息处理 ──────────────────────────────────────
 
     private async handleCallTool(port: MessagePort, req: CallToolRequest): Promise<void> {
-        const result = await this.mcpClient.callTool(req.serverId, req.toolName, req.args)
+        // ★ per-call controller：cancel_tool 据此精确取消本次请求。
+        //   不复用任何 run 级 signal —— SDK 注册的 abort 监听器从不摘除
+        //   （见 client.ts callTool 的说明），长期 signal 直接交给 SDK 会随调用累积。
+        const controller = new AbortController()
+        this.pendingToolCalls.set(req.callId, {controller, port})
+        let portCalls = this.pendingCallsByPort.get(port)
+        if (!portCalls) {
+            portCalls = new Set()
+            this.pendingCallsByPort.set(port, portCalls)
+        }
+        portCalls.add(req.callId)
+        try {
+            const result = await this.mcpClient.callTool(req.serverId, req.toolName, req.args, controller.signal)
 
-        port.postMessage({
-            type: 'tool_result',
-            callId: req.callId,
-            result: {
-                ...formatMcpResult(result),
-            } as McpToolResult,
-        })
+            // 端口可能已被关闭（会话 Worker terminate / 注销）：回包无处投递，防御性吞掉
+            try {
+                port.postMessage({
+                    type: 'tool_result',
+                    callId: req.callId,
+                    result: {
+                        ...formatMcpResult(result),
+                    } as McpToolResult,
+                })
+            } catch { /* 端口已关闭 */ }
+        } finally {
+            // 取消/端口 abort 路径已由对应处理器删表；此处删除幂等（成功/失败/取消统一出口）
+            this.forgetCall(req.callId)
+        }
+    }
+
+    /** 从两张表摘除一次调用登记（幂等），返回其 controller（不存在时 undefined） */
+    private forgetCall(callId: string): AbortController | undefined {
+        const entry = this.pendingToolCalls.get(callId)
+        if (!entry) return undefined
+        this.pendingToolCalls.delete(callId)
+        const portCalls = this.pendingCallsByPort.get(entry.port)
+        if (portCalls) {
+            portCalls.delete(callId)
+            if (portCalls.size === 0) this.pendingCallsByPort.delete(entry.port)
+        }
+        return entry.controller
+    }
+
+    /**
+     * 终止某端口上全部进行中的调用（端口 close / unregisterAgent）。
+     * 先删两表再 abort：abort 同步触发的 SDK reject 会走 finally/回包路径，
+     * 此时登记项已不存在，不会重复结算。返回被终止的调用数。
+     */
+    abortCallsForPort(port: MessagePort, reason: string): number {
+        const callIds = this.pendingCallsByPort.get(port)
+        if (!callIds || callIds.size === 0) return 0
+        const ids = Array.from(callIds)
+        for (const callId of ids) {
+            const entry = this.pendingToolCalls.get(callId)
+            this.pendingToolCalls.delete(callId)
+            if (!entry) continue
+            try {
+                entry.controller.abort(reason)
+            } catch { /* abort 监听器抛错不影响其余调用清理 */ }
+        }
+        this.pendingCallsByPort.delete(port)
+        return ids.length
+    }
+
+    /** 取消进行中的工具调用：abort 对应 controller 并删表；重复 cancel / 未知 callId 无副作用 */
+    private handleCancelTool(req: CancelToolRequest): void {
+        const controller = this.forgetCall(req.callId)
+        if (!controller) return
+        controller.abort()
     }
 
     private handleListTools(port: MessagePort, req: ListToolsRequest): void {

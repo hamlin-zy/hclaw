@@ -10,7 +10,7 @@ import {agentLoop} from './loop'
 import {resolveRunTraceContext} from './loop/setup'
 import {registerBuiltinTools} from './tools/index'
 import {permissionEngine} from './tools/permission'
-import {registerMCPTools, registerAllMcpTools, setMcpMessagePort, unregisterMCPTools, clearAllMcpToolMeta} from './mcp/discovery'
+import {registerMCPTools, registerAllMcpTools, setMcpMessagePort, settleAllPendingMcpCalls, unregisterMCPTools, clearAllMcpToolMeta, MCP_WORKER_UNAVAILABLE_REASON} from './mcp/discovery'
 import type {McpToolPayload} from './mcp/toolPayload'
 import type {McpWriteOverride} from './mcp/writeClassify'
 import {isMcpToolName} from '@shared/mcp/naming'
@@ -261,6 +261,13 @@ async function runSession(params: AgentStartParams & { settings?: import('@share
                 }
             })
 
+            // MCP Worker 侧端口断开（崩溃/被回收）：清算由 discovery 的端口 'close'
+            // 监听统一执行；此处只摘引用，避免与 discovery 重复结算。
+            mcpPort.on('close', () => {
+                setMcpMessagePort(null)
+                mcpPort = null
+            })
+
             logger.info('[MCP] MCP Worker connected (' + servers.length + ' servers)')
         } else {
             logger.warn('[MCP] MCP Worker unavailable (timeout)')
@@ -295,6 +302,8 @@ async function runSession(params: AgentStartParams & { settings?: import('@share
     // 处理主进程消息（MCP Worker 不可用/恢复通知）
     parentPort?.on('message', async (msg: any) => {
         if (msg.type === 'mcp_worker_unavailable') {
+            // 先清算挂起调用（幂等；端口 close 也可能已清算过），再摘工具
+            settleAllPendingMcpCalls(MCP_WORKER_UNAVAILABLE_REASON)
             setMcpMessagePort(null)
             if (mcpPort) {
                 try {

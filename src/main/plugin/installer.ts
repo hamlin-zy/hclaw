@@ -1,8 +1,9 @@
-import {simpleGit, SimpleGit} from 'simple-git';
+import type {SimpleGit} from 'simple-git';
 import {PluginError, PluginManifest, PluginSource} from './types';
 import * as fs from 'fs';
 import * as path from 'path';
 import {execSync} from 'child_process';
+import {checkGitAvailable, createGit, formatGitError, gitUnavailableMessage} from '../common/gitAvailability';
 
 export interface UpdateOptions {
   force?: boolean
@@ -41,7 +42,8 @@ export class PluginInstaller {
 
   constructor(pluginsDir: string) {
     this.pluginsDir = pluginsDir;
-    this.git = simpleGit();
+    // 所有 Git 子进程统一禁用交互式凭据提示，避免认证时弹终端/挂起
+    this.git = createGit();
   }
 
   /**
@@ -73,8 +75,7 @@ export class PluginInstaller {
 
       return { success: false, error: { type: 'git-clone-failed', message: 'Unknown source type' } };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { success: false, error: { type: 'git-clone-failed', message } };
+      return { success: false, error: { type: 'git-clone-failed', message: formatGitError(err) } };
     }
   }
 
@@ -112,9 +113,15 @@ export class PluginInstaller {
     const pluginName = this.extractPluginName(repo);
     const targetPath = path.join(this.pluginsDir, `${pluginName}${suffix}`);
 
+    // 安装/更新前预检 Git：不可用时直接返回友好提示
+    const gitAvailability = await checkGitAvailable();
+    if (!gitAvailability.available) {
+      return { success: false, error: { type: 'git-clone-failed', message: gitUnavailableMessage(gitAvailability.reason) } };
+    }
+
     try {
       if (fs.existsSync(targetPath)) {
-        const git = simpleGit(targetPath);
+        const git = createGit(targetPath);
         await git.fetch();
         if (ref) {
           await git.checkout(ref);
@@ -148,17 +155,16 @@ export class PluginInstaller {
       }
 
       if (ref) {
-        const git = simpleGit(targetPath);
+        const git = createGit(targetPath);
         await git.checkout(ref);
       }
 
       return { success: true, path: targetPath };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       if (fs.existsSync(targetPath)) {
         fs.rmSync(targetPath, { recursive: true, force: true });
       }
-      return { success: false, error: { type: 'git-clone-failed', message } };
+      return { success: false, error: { type: 'git-clone-failed', message: formatGitError(err) } };
     }
   }
 
@@ -181,7 +187,7 @@ export class PluginInstaller {
     }
 
     try {
-      const git = simpleGit(targetPath);
+      const git = createGit(targetPath);
       await git.fetch();
 
       const branchSummary = await git.branch();
@@ -286,7 +292,7 @@ export class PluginInstaller {
     const force = options?.force ?? false;
 
     try {
-      const git = simpleGit(targetPath);
+      const git = createGit(targetPath);
       await git.fetch();
 
       const branchSummary = await git.branch();
@@ -512,7 +518,7 @@ export class PluginInstaller {
    * Returns raw tag names as returned by git.
    */
   async listTags(pluginPath: string): Promise<string[]> {
-    const git = simpleGit(pluginPath)
+    const git = createGit(pluginPath)
     const output = await git.raw(['tag', '--sort=-creatordate', '--list'])
     return output.trim().split('\n').filter(Boolean)
   }
@@ -523,7 +529,7 @@ export class PluginInstaller {
    * Filters out 'origin/HEAD'.
    */
   async listBranches(pluginPath: string): Promise<string[]> {
-    const git = simpleGit(pluginPath)
+    const git = createGit(pluginPath)
     const branchSummary = await git.branch(['-r'])
     return branchSummary.all
       .filter(b => b !== 'origin/HEAD')
@@ -536,7 +542,7 @@ export class PluginInstaller {
    */
   async checkoutRef(pluginPath: string, ref: string): Promise<{success: boolean; error?: string}> {
     try {
-      const git = simpleGit(pluginPath)
+      const git = createGit(pluginPath)
       await git.fetch(['--tags', '--quiet'])
       await git.checkout(ref, ['--quiet'])
       return {success: true}
@@ -556,7 +562,7 @@ export class PluginInstaller {
    * Returns the ref string, or 'HEAD' (detached) if neither works.
    */
   async getCurrentRef(pluginPath: string): Promise<string> {
-    const git = simpleGit(pluginPath)
+    const git = createGit(pluginPath)
     try {
       // Try exact tag match first
       // 注意：不可加 --quiet——部分 git 版本下 --quiet 会抑制 tag 名输出（"Do not output anything"），
@@ -580,7 +586,7 @@ export class PluginInstaller {
    * Used by PluginVersionManager to refresh the version cache.
    */
   async fetchTags(pluginPath: string): Promise<void> {
-    const git = simpleGit(pluginPath)
+    const git = createGit(pluginPath)
     await git.fetch(['--tags', '--quiet'])
   }
 }

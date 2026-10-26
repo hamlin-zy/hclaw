@@ -21,6 +21,8 @@ const inputSchema = z.object({
   caseInsensitive: z.boolean().optional().describe('是否忽略大小写，默认 false'),
   includeIgnored: z.boolean().optional().describe('是否搜索被 .gitignore 忽略的文件与隐藏目录，默认 false'),
   maxDepth: z.coerce.number().optional().describe('最大递归深度，默认无限制'),
+  context: z.coerce.number().optional().describe('匹配行前后各显示 N 行，默认 0'),
+  outputMode: z.enum(['content', 'files_with_matches', 'count']).optional().describe('输出模式，默认 content'),
 })
 
 type GrepInput = z.infer<typeof inputSchema>
@@ -83,6 +85,36 @@ interface RgMatchEvent {
   }
 }
 
+/** rg 输出的路径（相对 searchDir）→ 相对 rootDir 的正斜杠路径 */
+function toRootRelative(rawPath: string, searchDir: string, rootDir: string): string {
+  const cleaned = rawPath.replace(/^\.\//, '').replace(/^\.\\/, '')
+  const abs = path.isAbsolute(cleaned) ? cleaned : path.join(searchDir, cleaned)
+  return path.relative(rootDir, abs).replace(/\\/g, '/')
+}
+
+/**
+ * 按文件路径稳定排序输出行。
+ *
+ * rg 多线程搜索时事件到达顺序不稳定，同一文件的行可能被其它文件交错，
+ * 导致同一查询两次输出不一致（JS 回退路径同样受 readdir 顺序影响）。
+ * 排序后：文件按路径升序、同文件内保持原有行序（行号顺序），尾部提示行恒排最后。
+ */
+function orderLines(lines: string[], outputMode: NonNullable<GrepInput['outputMode']>): string[] {
+  const keyOf = (line: string): string => {
+    if (line.startsWith('[')) return '\uffff'
+    if (outputMode === 'files_with_matches') return line
+    // content: `path:行号: 内容`；context: `path-行号- 内容`
+    const matched = /^(.*?):\d+: /.exec(line) ?? /^(.*?)-\d+- /.exec(line)
+    if (matched) return matched[1]
+    const sep = line.lastIndexOf(':') // count: `path:命中数`
+    return sep > 0 ? line.slice(0, sep) : line
+  }
+  return lines
+    .map((text, index) => ({text, key: keyOf(text), index}))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.index - b.index))
+    .map((entry) => entry.text)
+}
+
 async function searchWithRipgrep(
   args: GrepInput,
   searchDir: string,
@@ -90,6 +122,11 @@ async function searchWithRipgrep(
   abortSignal?: AbortSignal | null,
 ): Promise<string | null> {
   const { pattern, filePattern, maxResults = 50, caseInsensitive = false, maxDepth, includeIgnored } = args
+  const outputMode = args.outputMode ?? 'content'
+  // context 仅对 content 模式有意义：-l / -c 与 -C 组合会互相干扰
+  const contextLines = outputMode === 'content' && typeof args.context === 'number' && args.context > 0
+    ? args.context
+    : 0
 
   const rgArgs: string[] = ['--json', '--no-messages', '--max-filesize', '1M', '-g', '!node_modules']
   if (caseInsensitive) rgArgs.push('-i')
@@ -99,6 +136,10 @@ async function searchWithRipgrep(
   // .git 必须始终排除——其内部是版本库对象/引用（松散对象为压缩二进制），搜之既无意义又极慢；
   // 同理 node_modules 由上方恒定的 -g '!node_modules' 兜底，因为 --no-ignore 后 .gitignore 不再拦它。
   if (includeIgnored === true) rgArgs.push('--no-ignore', '--hidden', '-g', '!.git')
+  if (contextLines > 0) rgArgs.push('-C', String(contextLines))
+  // 注：rg 在 -l / -c 下忽略 --json，改输出纯文本行（路径 / 路径:计数），下方按模式分别解析。
+  if (outputMode === 'files_with_matches') rgArgs.push('-l')
+  else if (outputMode === 'count') rgArgs.push('-c')
   rgArgs.push('-e', pattern, '.')
 
   return new Promise((resolve) => {
@@ -112,6 +153,7 @@ async function searchWithRipgrep(
 
     const results: string[] = []
     let skippedLarge = 0
+    let matchCount = 0
     let buffer = ''
     let settled = false
 
@@ -134,7 +176,7 @@ async function searchWithRipgrep(
         return
       }
       if (skippedLarge > 0) results.push(`[${skippedLarge} files skipped (>1MB)]`)
-      resolve(results.join('\n'))
+      resolve(orderLines(results, outputMode).join('\n'))
     }
 
     child.on('error', () => finish(true))
@@ -160,23 +202,50 @@ async function searchWithRipgrep(
         buffer = buffer.slice(idx + 1)
         if (!line.trim()) continue
 
+        // -l / -c 下 rg 输出纯文本行（--json 被忽略）：路径，或 路径:计数
+        if (outputMode !== 'content') {
+          const plain = line.trimEnd() // Windows 下纯文本行带 CRLF
+          if (!plain) continue
+          if (results.length >= maxResults) continue
+          if (outputMode === 'files_with_matches') {
+            const rel = toRootRelative(plain, searchDir, rootDir)
+            if (rel) results.push(rel)
+          } else {
+            const sep = plain.lastIndexOf(':')
+            const countText = sep > 0 ? plain.slice(sep + 1) : ''
+            if (sep > 0 && /^\d+$/.test(countText)) {
+              const rel = toRootRelative(plain.slice(0, sep), searchDir, rootDir)
+              if (rel) results.push(`${rel}:${countText}`)
+            }
+          }
+          if (results.length >= maxResults) killChild()
+          continue
+        }
+
         let event: RgMatchEvent
         try {
           event = JSON.parse(line)
         } catch { continue }
 
-        if (event.type === 'match') {
+        if (event.type === 'match' || event.type === 'context') {
           const filePath = event.data?.path?.text
           const text = event.data?.lines?.text ?? ''
           const lineNo = event.data?.line_number ?? 0
-          if (filePath && results.length < maxResults) {
-            // rg 输出相对于 cwd(searchDir) 的路径，转换为相对 rootDir
-            const abs = path.isAbsolute(filePath) ? filePath : path.join(searchDir, filePath)
-            const rel = path.relative(rootDir, abs).replace(/\\/g, '/')
+          if (!filePath) continue
+          // rg 输出相对于 cwd(searchDir) 的路径，转换为相对 rootDir
+          const rel = toRootRelative(filePath, searchDir, rootDir)
+
+          if (event.type === 'match') {
+            if (matchCount >= maxResults) continue
+            matchCount++
             results.push(`${rel}:${lineNo}: ${text.trimEnd()}`)
-            if (results.length >= maxResults) {
+            if (matchCount >= maxResults) {
               killChild()
             }
+          } else {
+            // 上下文行沿用 grep 约定分隔符 `-`，与匹配行 `:` 区分，便于阅读文件分组
+            if (matchCount >= maxResults) continue
+            results.push(`${rel}-${lineNo}- ${text.trimEnd()}`)
           }
         }
       }
@@ -207,19 +276,21 @@ export async function searchWithJs(
   rootDir: string,
 ): Promise<string> {
   const { pattern, filePattern, maxResults = 50, caseInsensitive = false, maxDepth } = args
+  const outputMode = args.outputMode ?? 'content'
 
   const regex = new RegExp(pattern, caseInsensitive ? 'gi' : 'g')
   const results: string[] = []
   const fileRegex = filePattern ? globToRegex(filePattern) : undefined
   const skipCounter = { value: 0 }
 
-  await walkAndSearch(searchDir, regex, fileRegex, results, maxResults, maxDepth, rootDir, skipCounter, args.includeIgnored === true)
+  // context 在 JS 回退路径首版忽略（保持现有逐行输出行为）
+  await walkAndSearch(searchDir, regex, fileRegex, results, maxResults, maxDepth, rootDir, skipCounter, args.includeIgnored === true, outputMode)
 
   if (results.length === 0 && skipCounter.value === 0) {
     return ''
   }
   if (skipCounter.value > 0) results.push(`[${skipCounter.value} files skipped (>1MB)]`)
-  return results.join('\n')
+  return orderLines(results, outputMode).join('\n')
 }
 
 async function walkAndSearch(
@@ -232,6 +303,7 @@ async function walkAndSearch(
   rootDir: string,
   skipCounter: { value: number },
   includeIgnored: boolean,
+  outputMode: 'content' | 'files_with_matches' | 'count' = 'content',
   depth = 0,
 ): Promise<void> {
   if (results.length >= maxResults) return
@@ -252,7 +324,7 @@ async function walkAndSearch(
       if (entry.name === 'node_modules' || entry.name === '.git') continue
       // 隐藏目录（. 开头）仅在未开启 includeIgnored 时跳过，开启后纳入搜索
       if (!includeIgnored && entry.name.startsWith('.')) continue
-      await walkAndSearch(fullPath, regex, fileRegex, results, maxResults, maxDepth, rootDir, skipCounter, includeIgnored, depth + 1)
+      await walkAndSearch(fullPath, regex, fileRegex, results, maxResults, maxDepth, rootDir, skipCounter, includeIgnored, outputMode, depth + 1)
     } else {
       // 文件名过滤
       if (fileRegex && !fileRegex.test(entry.name)) continue
@@ -276,11 +348,24 @@ async function walkAndSearch(
         const lines = content.split('\n')
         const relPath = path.relative(rootDir, fullPath)
 
-        for (let i = 0; i < lines.length && results.length < maxResults; i++) {
-          // 单实例正则：g flag 匹配前重置 lastIndex
-          regex.lastIndex = 0
-          if (regex.test(lines[i])) {
-            results.push(`${relPath}:${i + 1}: ${lines[i].trim()}`)
+        if (outputMode === 'content') {
+          for (let i = 0; i < lines.length && results.length < maxResults; i++) {
+            // 单实例正则：g flag 匹配前重置 lastIndex
+            regex.lastIndex = 0
+            if (regex.test(lines[i])) {
+              results.push(`${relPath}:${i + 1}: ${lines[i].trim()}`)
+            }
+          }
+        } else {
+          // 文件级模式：逐文件统计命中，结果按文件聚合（新路径统一正斜杠）
+          let count = 0
+          for (let i = 0; i < lines.length; i++) {
+            regex.lastIndex = 0
+            if (regex.test(lines[i])) count++
+          }
+          if (count > 0) {
+            const rel = relPath.replace(/\\/g, '/')
+            results.push(outputMode === 'count' ? `${rel}:${count}` : rel)
           }
         }
       } catch { /* 跳过无法读取的文件 */ }

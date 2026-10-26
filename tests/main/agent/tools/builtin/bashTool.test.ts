@@ -295,3 +295,21 @@ describe('bashTool — shell 信息与终端显示名', () => {
         expect(['PowerShell', 'CMD', 'Bash', 'Shell']).toContain(displayName)
     })
 })
+
+describe('bashTool — description 契约（不教与专用文件工具重叠的用法）', () => {
+    it('描述不含 Get-ChildItem / Select-String / Get-Content 示例', () => {
+        const desc = bashTool.description
+
+        expect(desc).not.toContain('Get-ChildItem')
+        expect(desc).not.toContain('Select-String')
+        expect(desc).not.toContain('Get-Content')
+    })
+
+    it('描述包含工具分工引导句，且保留 shell 专属内容', () => {
+        const desc = bashTool.description
+
+        expect(desc).toContain('文件读取用 file_read，搜索用 grep，列目录用 glob；不要用 bash 替代专用文件工具。')
+        expect(desc).toContain('环境变量')
+        expect(desc).toContain('下载任务请使用后台执行指令')
+    })
+})

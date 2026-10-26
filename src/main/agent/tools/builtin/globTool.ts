@@ -17,6 +17,7 @@ const inputSchema = z.object({
   directory: z.string().optional().describe('搜索的根目录，默认为工作目录'),
     maxDepth: z.coerce.number().optional().describe('最大递归深度，默认无限制'),
     maxResults: z.coerce.number().optional().describe('最大返回结果数，默认 100'),
+  detail: z.boolean().optional().describe('返回文件大小与修改时间，默认 false（只返回路径）'),
 })
 
 type GlobInput = z.infer<typeof inputSchema>
@@ -33,7 +34,7 @@ export const globTool: Tool<GlobInput, string[]> = {
   isDestructive: false,
 
   async execute(args: GlobInput, context: ToolContext): Promise<ToolResult<string[]>> {
-      const {pattern, regex, directory, maxDepth, maxResults = 100} = args
+      const {pattern, regex, directory, maxDepth, maxResults = 100, detail = false} = args
 
     if (!pattern && !regex) {
       return { success: false, output: [], error: '必须提供 pattern 或 regex 参数' }
@@ -63,7 +64,22 @@ export const globTool: Tool<GlobInput, string[]> = {
 
       // 返回相对路径
       const relPaths = matches.map((p) => path.relative(context.workingDir, p))
-      return { success: true, output: relPaths }
+      if (!detail) {
+        return { success: true, output: relPaths }
+      }
+
+      // detail 模式：path\tsize\tmtime（目录的 size 位标注 [dir]），mtime 统一 ISO
+      const detailed = await Promise.all(matches.map(async (absPath, i) => {
+        const rel = relPaths[i]
+        try {
+          const stat = await fs.stat(absPath)
+          const mtime = stat.mtime.toISOString()
+          return stat.isDirectory() ? `${rel}\t[dir]\t${mtime}` : `${rel}\t${stat.size}\t${mtime}`
+        } catch {
+          return rel
+        }
+      }))
+      return { success: true, output: detailed }
     } catch (err: any) {
       return { success: false, output: [], error: `Search failed: ${err.message}` }
     }

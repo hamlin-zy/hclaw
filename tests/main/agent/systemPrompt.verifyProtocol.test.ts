@@ -44,3 +44,13 @@ describe('system.verify（知识边界查证协议）', () => {
         expect(p).toContain('## 知识边界查证')
     })
 })
+
+describe('system.workflow（工具分工规则）', () => {
+    it('渲染结果包含工具分工规则（默认值逐字进入 system 前缀）', async () => {
+        const p = await buildSystemPrompt(CTX)
+        expect(p).toContain('6. **工具分工** — 读文件用 file_read')
+        // 原 6-8 条顺延为 7-9，防止插入时编号错位
+        expect(p).toContain('7. **确认存在**')
+        expect(p).toContain('9. **追踪遗留**')
+    })
+})
