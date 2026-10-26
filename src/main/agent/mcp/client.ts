@@ -535,29 +535,48 @@ export class MCPClient {
     serverId: string,
     toolName: string,
     args: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<MCPToolCallResult> {
     const state = this.servers.get(serverId)
     if (!state || state.status !== 'connected' || !state.sdkClient) {
       throw new Error(`MCP 服务器 "${serverId}" 未连接`)
     }
 
-    const result = await state.sdkClient.callTool(
-      {
-        name: toolName,
-        arguments: args,
-      },
-      undefined, // resultSchema：不传 → SDK 始终返回 CallToolResult 形状（有 content + isError）
-      // 运行期请求超时：显式透传 config.timeout，否则 SDK 内建默认 60s 无法被
-      // MCPServerConfig.timeout（MCP 编辑卡片「高级配置 → 超时」）覆盖。
-      // 详见 types.ts MCPTransportOptions.requestTimeout 的说明。
-      { timeout: this.getTransportOptions(state.config).requestTimeout },
-    )
+    // ★ per-call AbortController：SDK 注册的 abort 监听器从不 removeEventListener
+    //   （@modelcontextprotocol/sdk protocol.js 全文件无 removeEventListener），
+    //   直接把 run 级长期 signal 交给 SDK 会让监听器随每次调用无界累积。
+    //   这里用一次性桥接监听器把调用方 signal 转成本次请求专属 controller，
+    //   并在 finally 摘除桥接监听器（传给 SDK 的 controller 随请求结束被丢弃）。
+    const requestController = new AbortController()
+    const onCallerAbort = () => requestController.abort(signal?.reason)
+    if (signal) {
+      if (signal.aborted) requestController.abort(signal.reason)
+      else signal.addEventListener('abort', onCallerAbort, {once: true})
+    }
 
-    // 类型窄化：SDK callTool 返回联合类型（正常 / task），
-    // 不传 resultSchema 时始终返回 CallToolResult 形状（有 content + isError）
-    return toMcpToolCallResult(
-      result as Parameters<typeof toMcpToolCallResult>[0],
-    )
+    try {
+      const result = await state.sdkClient.callTool(
+        {
+          name: toolName,
+          arguments: args,
+        },
+        undefined, // resultSchema：不传 → SDK 始终返回 CallToolResult 形状（有 content + isError）
+        // 运行期请求超时：显式透传 config.timeout，否则 SDK 内建默认 60s 无法被
+        // MCPServerConfig.timeout（MCP 编辑卡片「高级配置 → 超时」）覆盖。
+        // 详见 types.ts MCPTransportOptions.requestTimeout 的说明。
+        // signal：调用方取消 → SDK 协议层（protocol.js）删 _responseHandlers/_timeoutInfo、
+        // 发 notifications/cancelled 并 reject，请求上下文不再驻留。
+        {timeout: this.getTransportOptions(state.config).requestTimeout, signal: requestController.signal},
+      )
+
+      // 类型窄化：SDK callTool 返回联合类型（正常 / task），
+      // 不传 resultSchema 时始终返回 CallToolResult 形状（有 content + isError）
+      return toMcpToolCallResult(
+        result as Parameters<typeof toMcpToolCallResult>[0],
+      )
+    } finally {
+      signal?.removeEventListener('abort', onCallerAbort)
+    }
   }
 
   /**

@@ -187,8 +187,11 @@ describe('MCPClient · callTool 运行期超时透传', () => {
     await client.callTool('srv-timeout-spy', 'slow', {})
 
     expect(spy).toHaveBeenCalledTimes(1)
-    const third = spy.mock.calls[0][2] as { timeout?: number }
-    expect(third).toEqual({ timeout: 123_456 })
+    const third = spy.mock.calls[0][2] as { timeout?: number; signal?: AbortSignal }
+    // 字段集合受控：timeout + 取消信号（V2 新增，per-call AbortController），不得混入 connectTimeout
+    expect(Object.keys(third).sort()).toEqual(['signal', 'timeout'])
+    expect(third.timeout).toBe(123_456)
+    expect(third.signal).toBeInstanceOf(AbortSignal)
     expect(third.timeout).not.toBe(15_000) // 不得误用 connectTimeout
 
     await client.stopServer('srv-timeout-spy')
